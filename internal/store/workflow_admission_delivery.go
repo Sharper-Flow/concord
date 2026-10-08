@@ -275,15 +275,15 @@ func loadWorkflowDeliveryJobAdmission(ctx context.Context, q queryer, workID str
 // non-empty scope needs one qualifying verify run of exactly that Project; a
 // work-scoped job (empty scope) is covered by any qualifying run.
 func workflowIntegrationCovered(scopes []string, covered map[string]bool) bool {
-	any := false
+	anyCovered := false
 	for _, project := range covered {
 		_ = project
-		any = true
+		anyCovered = true
 		break
 	}
 	for _, scope := range scopes {
 		if scope == "" {
-			if !any {
+			if !anyCovered {
 				return false
 			}
 			continue

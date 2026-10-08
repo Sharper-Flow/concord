@@ -642,22 +642,22 @@ func admissionSuccessors(definition WorkflowDefinition, state admissionModelStat
 					heldStillRequired.jobs = "required"
 					held.jobs = "satisfied"
 					held.jobsUnsatisfied = ""
-if !workflowAcceptDeliveryAdmissionActive(definition, state.step) || workflowAdmitDelivery(admissionWorkflowState(definition, state), WorkflowAdmissionDecision{}).Failure == nil {
-				return []admissionModelState{heldStillRequired, held, advanced}
+					if !workflowAcceptDeliveryAdmissionActive(definition, state.step) || workflowAdmitDelivery(admissionWorkflowState(definition, state), WorkflowAdmissionDecision{}).Failure == nil {
+						return []admissionModelState{heldStillRequired, held, advanced}
+					}
+					return []admissionModelState{heldStillRequired, held}
+				}
+				if !workflowAcceptDeliveryAdmissionActive(definition, state.step) || workflowAdmitDelivery(admissionWorkflowState(definition, state), WorkflowAdmissionDecision{}).Failure == nil {
+					successors := []admissionModelState{held}
+					// CD-0205 D5: when the delivery derivation admits the assertion
+					// the accept carries, the model's fold-equivalent must lift
+					// both the held-satisfied and the advancing successor, the
+					// way the loader reads the integrated delivery on either path.
+					successors = append(successors, advanced)
+					return successors
+				}
+				return []admissionModelState{held}
 			}
-			return []admissionModelState{heldStillRequired, held}
-		}
-		if !workflowAcceptDeliveryAdmissionActive(definition, state.step) || workflowAdmitDelivery(admissionWorkflowState(definition, state), WorkflowAdmissionDecision{}).Failure == nil {
-			successors := []admissionModelState{held}
-			// CD-0205 D5: when the delivery derivation admits the assertion
-			// the accept carries, the model's fold-equivalent must lift
-			// both the held-satisfied and the advancing successor, the
-			// way the loader reads the integrated delivery on either path.
-			successors = append(successors, advanced)
-			return successors
-		}
-		return []admissionModelState{held}
-	}
 			next = advanced
 		}
 	}

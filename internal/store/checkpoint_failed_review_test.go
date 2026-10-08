@@ -18,7 +18,7 @@ func dispatchCheckpointReviewAttempt(t *testing.T, fixture workflowReturnRouteFi
 	lane := reviewGateLane(t, "review")
 	laneVersion, laneDigest := registeredLaneIdentity(t, "review")
 	packet := joinPacketFor(t, s, workID, stepID, attemptID, "review", laneVersion, laneDigest)
-	binding := attachReadyWorkerJobIfJobCapable(t, s, workID, stepID, attemptID, fixture.owner, packet)
+	binding := attachReadyWorkerJobIfJobCapable(t, s, workID, stepID, fixture.owner, packet)
 	if _, err := dispatchJoinAttempt(context.Background(), t, s, workID, verdictItemVersion(t, s, workID), fixture.owner, packet); err != nil {
 		t.Fatalf("review dispatch at the verify checkpoint refused: %v", err)
 	}
@@ -200,7 +200,7 @@ func TestEffectStepStaleCompletedAttemptCannotAdvance(t *testing.T) {
 	// dispatches on the step.
 	laneVersion, laneDigest := registeredLaneIdentity(t, "review")
 	packet := joinPacketFor(t, s, workID, "repair", "attempt:"+workID+":current", "review", laneVersion, laneDigest)
-	attachReadyWorkerJobIfJobCapable(t, s, workID, "repair", "current", fixture.owner, packet)
+	attachReadyWorkerJobIfJobCapable(t, s, workID, "repair", fixture.owner, packet)
 	if _, err := dispatchJoinAttempt(context.Background(), t, s, workID, verdictItemVersion(t, s, workID), fixture.owner, packet); err != nil {
 		t.Fatalf("second dispatch at the repair step refused: %v", err)
 	}

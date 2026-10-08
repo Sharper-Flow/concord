@@ -365,7 +365,7 @@ func TestRefineReviewEvidenceCorrectionClosesOnFencedDispatch(t *testing.T) {
 			}
 			laneVersion, laneDigest := registeredLaneIdentity(t, "review")
 			packet := joinPacketFor(t, s, workID, "refine", "attempt:"+workID+":pending", "review", laneVersion, laneDigest)
-			attachReadyWorkerJobIfJobCapable(t, s, workID, "refine", "pending", fixture.owner, packet)
+			attachReadyWorkerJobIfJobCapable(t, s, workID, "refine", fixture.owner, packet)
 			if _, err := dispatchJoinAttempt(context.Background(), t, s, workID, verdictItemVersion(t, s, workID), fixture.owner, packet); err != nil {
 				t.Fatal(err)
 			}

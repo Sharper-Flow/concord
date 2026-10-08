@@ -445,7 +445,7 @@ func recordVerificationFailure(t *testing.T, s *store.Store, service *Service, g
 func applyVerificationWorkerDispatchAndCompletion(t *testing.T, s *store.Store, grant Authority, attemptID, suffix string) {
 	t.Helper()
 	lane := retryLane(t)
-	job := authorizedWorkerJob(t, s, "work-1", attemptID)
+	job := authorizedWorkerJob(t, s, attemptID)
 	evidence := make([]store.WorkerReportEvidence, 0, len(lane.EvidenceObligations))
 	for _, obligation := range lane.EvidenceObligations {
 		evidence = append(evidence, store.WorkerReportEvidence{Obligation: obligation, Detail: "synthetic reported evidence for " + obligation})

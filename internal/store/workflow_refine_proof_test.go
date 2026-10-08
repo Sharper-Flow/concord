@@ -168,7 +168,7 @@ func workerJobIntegrationGreenRun(t *testing.T, s *Store, workID, digest string)
 	if err != nil {
 		t.Fatalf("parse the delivery-bearing step start: %v", err)
 	}
-	srows, err := s.DatabaseForTesting().Query(`SELECT DISTINCT COALESCE(project_scope,''),e.occurred_at FROM worker_job_revisions j LEFT JOIN domain_events e ON e.subject_type='work_item' AND e.subject_id=j.work_id AND e.event_id=j.satisfied_result_ref WHERE j.work_id=? AND j.revision=(SELECT MAX(l.revision) FROM worker_job_revisions l WHERE l.work_id=j.work_id AND l.job_id=j.job_id)`, workID)
+	srows, err := s.DatabaseForTesting().Query(`SELECT DISTINCT COALESCE(project_scope,''),COALESCE(e.occurred_at,'') FROM worker_job_revisions j LEFT JOIN domain_events e ON e.subject_type='work_item' AND e.subject_id=j.work_id AND e.event_id=j.satisfied_result_ref WHERE j.work_id=? AND j.revision=(SELECT MAX(l.revision) FROM worker_job_revisions l WHERE l.work_id=j.work_id AND l.job_id=j.job_id)`, workID)
 	if err != nil {
 		t.Fatalf("read the required job scopes: %v", err)
 	}
@@ -177,9 +177,7 @@ func workerJobIntegrationGreenRun(t *testing.T, s *Store, workID, digest string)
 	anyScope := false
 	for srows.Next() {
 		var scope, accepted string
-		var acceptedAny any
-		acceptedAny = &accepted
-		if err := srows.Scan(&scope, &acceptedAny); err != nil {
+		if err := srows.Scan(&scope, &accepted); err != nil {
 			t.Fatal(err)
 		}
 		if scope == "" {

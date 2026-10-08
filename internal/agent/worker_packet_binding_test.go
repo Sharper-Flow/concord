@@ -160,8 +160,9 @@ func recordedWorkQuestion(t *testing.T, s *store.Store, workID string) string {
 // dispatch_worker authorization recorded, so fixture worker evidence carries
 // exactly the job the core authorized (CD-0205). Nil when the authorization
 // bound none or no authorization exists.
-func authorizedWorkerJob(t *testing.T, s *store.Store, workID, attemptID string) *store.WorkerJobBinding {
+func authorizedWorkerJob(t *testing.T, s *store.Store, attemptID string) *store.WorkerJobBinding {
 	t.Helper()
+	const workID = "work-1"
 	var raw string
 	err := s.DatabaseForTesting().QueryRow(`SELECT COALESCE(json_extract(payload,'$.worker_job'),'') FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=? ORDER BY seq DESC LIMIT 1`, workID, store.WorkflowActionCompleted, attemptID).Scan(&raw)
 	if errors.Is(err, sql.ErrNoRows) || raw == "" {

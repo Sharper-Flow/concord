@@ -1005,7 +1005,7 @@ func requireRecoveryLocalAcceptance(t *testing.T, s *store.Store, step, attemptI
 	if got := stepOf(t, s); got != step {
 		t.Fatalf("local acceptance of %s moved %s to %s", attemptID, step, got)
 	}
-	job := authorizedWorkerJob(t, s, "work-1", attemptID)
+	job := authorizedWorkerJob(t, s, attemptID)
 	if job == nil {
 		t.Fatalf("attempt %s has no explicit worker-job binding", attemptID)
 	}
@@ -1687,7 +1687,7 @@ func appendLaneCompletion(t *testing.T, s *store.Store, grant Authority, lane st
 func appendLaneCompletionWithVerdict(t *testing.T, s *store.Store, grant Authority, lane store.LaneDefinition, attemptID, suffix, reviewVerdict string) {
 	t.Helper()
 	ctx := context.Background()
-	job := authorizedWorkerJob(t, s, "work-1", attemptID)
+	job := authorizedWorkerJob(t, s, attemptID)
 	payload := store.WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, PacketDigest: "sha256:" + strings.Repeat("c", 64), ReadbackModel: "openai/gpt-5.6-luna", PacketSchemaVersion: store.WorkerPacketSchemaVersion, ReportSchemaVersion: store.WorkerReportSchemaVersion}
 	if job != nil {
 		payload.WorkerJob = job

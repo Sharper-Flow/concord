@@ -32,7 +32,7 @@ func dispatchRefineAttemptOnly(t *testing.T, fixture workflowReturnRouteFixture,
 	laneVersion, laneDigest := registeredLaneIdentity(t, "review")
 	attemptID := "attempt:" + workID + ":" + label
 	packet := joinPacketFor(t, fixture.store, workID, "refine", attemptID, "review", laneVersion, laneDigest)
-	binding := attachReadyWorkerJobIfJobCapable(t, fixture.store, workID, "refine", label, fixture.owner, packet)
+	binding := attachReadyWorkerJobIfJobCapable(t, fixture.store, workID, "refine", fixture.owner, packet)
 	if correction != nil {
 		packet["inputs"].(map[string]any)["correction"] = correction
 	}

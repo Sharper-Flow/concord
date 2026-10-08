@@ -455,7 +455,7 @@ func completeJobBoundAttemptForTest(s *Store, workID, attemptID string, _ LaneDe
 // the CD-0205 D2 delivery admission the fold reads — the latest revision per
 // job_id must be satisfied, so a sequence of dispatches cannot strand
 // independent failed revisions alongside the satisfying accept.
-func attachReadyWorkerJobIfJobCapable(t *testing.T, s *Store, workID, stepID, attemptLabel string, actor WorkflowActor, packet map[string]any) *WorkerJobBinding {
+func attachReadyWorkerJobIfJobCapable(t *testing.T, s *Store, workID, stepID string, actor WorkflowActor, packet map[string]any) *WorkerJobBinding {
 	t.Helper()
 	registered, err := VerifyWorkflowInstanceDefinition(context.Background(), s, BuiltinWorkflowRegistry(), workID)
 	if err != nil {

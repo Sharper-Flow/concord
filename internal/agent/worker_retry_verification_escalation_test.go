@@ -64,27 +64,19 @@ func TestEscalatedVerificationCorrectionRetryMintsBindableChallengeAndAdmitsOneA
 	if got, _ := details["premise_summary"].(string); got != "approved retry objective" {
 		t.Fatalf("verification challenge premise_summary = %q, want the approved contract premise", details["premise_summary"])
 	}
-	assertBindingContains(t, details["scope"], "work_ids:work-1")
-	scopeList, scopeOK := details["scope"].([]string)
-	if !scopeOK {
-		raw, err := json.Marshal(details["scope"])
-		if err != nil {
-			t.Fatal(err)
-		}
-		var decoded []string
-		if err := json.Unmarshal(raw, &decoded); err != nil {
-			t.Fatalf("challenge scope is not a string list: %+v", details["scope"])
-		}
-		scopeList = decoded
+	summary := challenge.Error.ConsequenceSummary
+	if summary == nil {
+		t.Fatal("challenge lacks a consequence summary")
 	}
-	for _, binding := range scopeList {
+	assertBindingContains(t, summary.Scope, "work_ids:work-1")
+	for _, binding := range summary.Scope {
 		if strings.HasPrefix(binding, "failed_attempt_id:") {
-			t.Fatalf("verification challenge scope binds a failed attempt: %v", details["scope"])
+			t.Fatalf("verification challenge scope binds a failed attempt: %v", summary.Scope)
 		}
 	}
-	assertBindingContains(t, details["versions"], "correction_attempts:4")
-	assertBindingContains(t, details["versions"], "contract:1")
-	assertBindingContains(t, details["versions"], "work:"+strconv.FormatInt(version, 10))
+	assertBindingContains(t, summary.Versions, "correction_attempts:4")
+	assertBindingContains(t, summary.Versions, "contract:1")
+	assertBindingContains(t, summary.Versions, "work:"+strconv.FormatInt(version, 10))
 	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts WHERE work_id='work-1'`); got != 4 {
 		t.Fatalf("challenge created %d worker attempts, want 4", got)
 	}
@@ -143,9 +135,12 @@ func TestEscalatedVerificationCorrectionRetryMintsBindableChallengeAndAdmitsOneA
 	if next.Error == nil || next.Error.Kind != "approval_required" {
 		t.Fatalf("coexisting wall retry without approval: %+v", next.Error)
 	}
-	assertBindingContains(t, next.Error.Details["scope"], "failed_attempt_id:"+retryAttemptID)
-	assertBindingContains(t, next.Error.Details["versions"], "failed_attempt_epoch:"+strconv.FormatInt(retryEpoch, 10))
-	assertBindingContains(t, next.Error.Details["versions"], "contract:1")
+	if next.Error.ConsequenceSummary == nil {
+		t.Fatal("retry challenge lacks a consequence summary")
+	}
+	assertBindingContains(t, next.Error.ConsequenceSummary.Scope, "failed_attempt_id:"+retryAttemptID)
+	assertBindingContains(t, next.Error.ConsequenceSummary.Versions, "failed_attempt_epoch:"+strconv.FormatInt(retryEpoch, 10))
+	assertBindingContains(t, next.Error.ConsequenceSummary.Versions, "contract:1")
 	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts WHERE work_id='work-1'`); got != 5 {
 		t.Fatalf("coexisting wall challenge created %d attempts, want 5", got)
 	}

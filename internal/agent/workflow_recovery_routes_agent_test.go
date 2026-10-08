@@ -692,12 +692,18 @@ func approvedRecoveryAction(t *testing.T, s *store.Store, service *Service, env 
 	var details struct {
 		Ref      string   `json:"approval_ref"`
 		Digest   string   `json:"operation_digest"`
-		Scope    []string `json:"scope"`
-		Versions []string `json:"versions"`
+		Scope    []string `json:"-"`
+		Versions []string `json:"-"`
 	}
 	if err := json.Unmarshal(retryJSON(challenge.Error.Details), &details); err != nil {
 		t.Fatal(err)
 	}
+	// The typed consequence summary is the only wire owner of the bindings.
+	summary := challenge.Error.ConsequenceSummary
+	if summary == nil || summary.OperationDigest != details.Digest {
+		t.Fatalf("%s challenge lacks a consequence summary for its digest: %+v", input["action_id"], summary)
+	}
+	details.Scope, details.Versions = summary.Scope, summary.Versions
 	wantWork := "work:" + strconv.FormatInt(input["expected_version"].(int64), 10)
 	if len(details.Ref) != 64 || details.Digest != mutationDigest(request.Tool, request.Operation, env, raw) || !slices.Contains(details.Versions, wantWork) {
 		t.Fatalf("challenge does not bind exact intent: %+v", details)

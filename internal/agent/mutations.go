@@ -1366,7 +1366,7 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 		if premiseSummary == "" {
 			premiseSummary = "Workflow action " + in.ActionID
 		}
-		response.Error.Details = map[string]any{"approval_ref": challengeRef, "summary": "Approve the exact workflow action, scope, and expected version.", "operation_digest": digest, "scope": approvalScopeBindings(scope), "versions": approvalVersionBindings(versions), "work_id": in.WorkID, "action_id": in.ActionID, "contract_version": strconv.FormatInt(contractVersion, 10), "selected_choice": in.SelectedChoice, "premise_summary": premiseSummary, "decision_context_digest": in.DecisionContextDigest}
+		response.Error.Details = map[string]any{"approval_ref": challengeRef, "summary": "Approve the exact workflow action, scope, and expected version.", "operation_digest": digest, "work_id": in.WorkID, "action_id": in.ActionID, "contract_version": strconv.FormatInt(contractVersion, 10), "selected_choice": in.SelectedChoice, "premise_summary": premiseSummary, "decision_context_digest": in.DecisionContextDigest}
 		return response, nil
 	}
 	if in.ActionID == "complete" {
@@ -3808,7 +3808,7 @@ func (r runtime) mutateProductProjectAdd(ctx context.Context, base Envelope, raw
 			}
 			response = coreError(base, "approval_required", "operator approval is required to link a Project into a Product", "request_approval", false)
 			response.Error.ConsequenceSummary = consequenceSummaryFor(r.Tool, r.Operation, spec)
-			response.Error.Details = map[string]any{"approval_ref": challengeRef, "summary": "Approve the exact Product, Project, role, and expected Product version for this link.", "operation_digest": digest, "scope": approvalScopeBindings(challengeScope), "versions": approvalVersionBindings(versions), "product_id": in.ProductID, "project_id": in.ProjectID, "role": in.Role}
+			response.Error.Details = map[string]any{"approval_ref": challengeRef, "summary": "Approve the exact Product, Project, role, and expected Product version for this link.", "operation_digest": digest, "product_id": in.ProductID, "project_id": in.ProjectID, "role": in.Role}
 			return nil
 		}
 		approvalCheck := ApprovalCheck{ApprovalRef: approval, OperationDigest: digest, Scope: challengeScope, Versions: versions, Consequence: consequence, ClientRef: txGrant.ClientRef, SessionRef: txGrant.SessionRef}
@@ -4008,7 +4008,7 @@ func (r runtime) mutateClientPolicyGrantRequest(ctx context.Context, base Envelo
 			}
 			response = coreError(base, "approval_required", "operator approval is required to widen the calling client's own policy", "request_approval", false)
 			response.Error.ConsequenceSummary = consequenceSummaryFor(r.Tool, r.Operation, spec)
-			response.Error.Details = map[string]any{"approval_ref": challengeRef, "summary": "Approve the exact added grants for your own trusted client; every existing grant and the stored principal stay unchanged.", "operation_digest": digest, "scope": approvalScopeBindings(challengeScope), "versions": approvalVersionBindings(versions), "client_ref": proposal.ClientRef, "policy_version": proposal.PolicyVersion, "added_capabilities": capabilityStrings(proposal.Capabilities), "added_product_scope": proposal.ProductScope, "added_project_scope": proposal.ProjectScope, "added_agent_scope": proposal.AgentScope, "reason": in.Reason}
+			response.Error.Details = map[string]any{"approval_ref": challengeRef, "summary": "Approve the exact added grants for your own trusted client; every existing grant and the stored principal stay unchanged.", "operation_digest": digest, "client_ref": proposal.ClientRef, "policy_version": proposal.PolicyVersion, "reason": in.Reason}
 			return nil
 		}
 		approvalCheck := ApprovalCheck{ApprovalRef: approval, OperationDigest: digest, Scope: challengeScope, Versions: versions, Consequence: consequence, ClientRef: txGrant.ClientRef, SessionRef: txGrant.SessionRef}
@@ -4537,7 +4537,7 @@ func (r runtime) mutateCompaction(ctx context.Context, base Envelope, raw []byte
 			}
 			response := coreError(base, "approval_required", "core approval is required for publication", "request_approval", false)
 			response.Error.ConsequenceSummary = consequenceSummaryFor(r.Tool, r.Operation, spec)
-			response.Error.Details = map[string]any{"approval_ref": challengeRef, "summary": "Approve the exact requested publication, scope, and expected version.", "operation_digest": digest, "scope": approvalScopeBindings(challengeScope), "versions": approvalVersionBindings(spec.Versions)}
+			response.Error.Details = map[string]any{"approval_ref": challengeRef, "summary": "Approve the exact requested publication, scope, and expected version.", "operation_digest": digest}
 			return response, nil
 		}
 		changed := []ChangedRef{{EntityKind: "work_item", ID: workID, Version: strconv.FormatInt(publish.ExpectedVersion+1, 10)}}
@@ -5270,7 +5270,7 @@ func (r runtime) approvalChallengeEnvelopeTx(ctx context.Context, tx *store.Tran
 	if err != nil {
 		return Envelope{}, err
 	}
-	details := map[string]any{"approval_ref": challengeRef, "summary": "Approve the exact requested mutation, scope, and expected versions.", "operation_digest": digest, "scope": approvalScopeBindings(challengeScope), "versions": approvalVersionBindings(versions)}
+	details := map[string]any{"approval_ref": challengeRef, "summary": "Approve the exact requested mutation, scope, and expected versions.", "operation_digest": digest}
 	// CD-0037 D2: the coupling is challenge presence. Both branches below
 	// minted this challenge, so both carry the summary — the
 	// governing-conflict envelope as much as the plain refusal.

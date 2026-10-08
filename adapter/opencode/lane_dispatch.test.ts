@@ -705,16 +705,20 @@ test("approval challenge and approved resubmission preserve the exact packet ide
 })
 
 // The core mints the standard approval challenge when a dispatch faces the
-// escalated correction wall (CD-0148). The lane refusal carries the challenge
-// bindings flattened onto error, so the orchestrator can obtain one operator
-// approval and re-invoke with its approval_ref. No spawn happens until the
+// escalated correction wall (CD-0148). The lane refusal keeps the challenge
+// metadata and typed summary in its error details, so the orchestrator can
+// obtain one operator approval and re-invoke with its approval_ref. No spawn happens until the
 // approved resubmission returns ok.
 test("an escalated correction challenge forwards the failed attempt bindings for operator approval", async () => {
   const challengeDetails = {
     approval_ref: "challenge-1", operation_digest: "sha256:" + "a".repeat(64),
-    scope: ["product:product-dispatch", "work:work-dispatch", "failed_attempt_id:attempt:work-dispatch:3"],
-    versions: ["work:3", "contract:1", "failed_attempt_epoch:3"],
     work_id: WORK_ID, action_id: "dispatch_worker", contract_version: "1", selected_choice: "", premise_summary: "approved retry objective",
+  }
+  const consequenceSummary = {
+    tool: "concord_work_transition", operation: "workflow_action", consequence: "workflow",
+    operation_digest: challengeDetails.operation_digest,
+    scope: ["failed_attempt_id:attempt:work-dispatch:3", "product_id:product-dispatch", "work_ids:work-dispatch"],
+    versions: ["contract:1", "failed_attempt_epoch:3", "work:3"], expires_at: "2026-10-01T00:00:00Z",
   }
   let spawned = 0
   const invoke = async (toolName: string, args: { operation: string; input?: Record<string, unknown> }): Promise<unknown> => {
@@ -724,7 +728,7 @@ test("an escalated correction challenge forwards the failed attempt bindings for
       if (args.input?.approval) return coreOkEnvelope()
       return envelope({
         tool: "concord_work_transition", operation: "workflow_action", outcome: "error", authority: "authoritative", freshness: null,
-        error: { kind: "approval_required", retry_safe: false, recovery_action: { kind: "request_approval" }, effect_state: "none", message: "core approval is required for this workflow action", details: challengeDetails },
+        error: { kind: "approval_required", retry_safe: false, recovery_action: { kind: "request_approval" }, effect_state: "none", message: "core approval is required for this workflow action", details: challengeDetails, consequence_summary: consequenceSummary },
       })
     }
     throw new Error(`unscripted ${toolName}.${args.operation}`)
@@ -736,15 +740,14 @@ test("an escalated correction challenge forwards the failed attempt bindings for
   expect(first.outcome).toBe("error")
   expect(first.error?.kind).toBe("approval_required")
   expect(first.error?.recovery_action).toBe("request_approval")
-  // The lane refusal flattens the core challenge details onto error; the
-  // envelope type does not enumerate the forwarded challenge keys.
-  const forwarded = (first.error ?? {}) as Record<string, unknown>
+  const forwarded = first.error!.details!
   expect(forwarded.approval_ref).toBe("challenge-1")
   expect(forwarded.operation_digest).toBe("sha256:" + "a".repeat(64))
   expect(forwarded.work_id).toBe(WORK_ID)
   expect(forwarded.action_id).toBe("dispatch_worker")
   expect(forwarded.contract_version).toBe("1")
   expect(forwarded.premise_summary).toBe("approved retry objective")
+  expect(forwarded.consequence_summary).toEqual(consequenceSummary)
   expect(spawned).toBe(0)
   const second = await dispatchLaneWorker({ ...request, approval_ref: "challenge-1" }, { context: contextFor(), invoke: invoke as any, runner, windows, credentials: testCredentials })
   expect(second.outcome).toBe("ok")

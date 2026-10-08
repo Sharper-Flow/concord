@@ -915,7 +915,15 @@ test("I/O, malformed, timeout, and cancellation outcomes remain schema-valid", a
 
 const approvalChallenge = () => ({
   schema_version: "1.0", manifest_digest: manifestDigest, request_id: "session-1-message-1", origin: "core", tool: "concord_work_transition", operation: "lifecycle", outcome: "error", resolved_scope: null, authority: "authoritative", freshness: null, source_version_watermark: [], ordering_keys: [], next_cursor: null, omissions: [], warnings: [], evidence_refs: [], replayed: false,
-  error: { kind: "approval_required", retry_safe: false, recovery_action: { kind: "request_approval" }, effect_state: "none", details: { approval_ref: "challenge-1", operation_digest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", scope: ["product:product-1", "project:project-1", "work:work-1"], versions: ["work:2"] } },
+  error: {
+    kind: "approval_required", retry_safe: false, recovery_action: { kind: "request_approval" }, effect_state: "none",
+    consequence_summary: {
+      tool: "concord_work_transition", operation: "lifecycle", consequence: "lifecycle",
+      operation_digest: `sha256:${"a".repeat(64)}`,
+      scope: ["product_id:product-1", "project_ids:project-1", "work_ids:work-1"], versions: ["work:2"], expires_at: "2026-10-01T00:00:00Z",
+    },
+    details: { approval_ref: "challenge-1", operation_digest: `sha256:${"a".repeat(64)}` },
+  },
 })
 const approvalSuccess = () => ({
   schema_version: "1.0", manifest_digest: manifestDigest, request_id: "session-1-message-1", origin: "core", tool: "concord_work_transition", operation: "lifecycle", outcome: "ok", resolved_scope: null, authority: "authoritative", freshness: null, source_version_watermark: [], ordering_keys: [], next_cursor: null, omissions: [], warnings: [], evidence_refs: [], replayed: false,
@@ -940,9 +948,9 @@ const workflowActionChallenge = (actionID: string, selectedChoice = "") => ({
   ...approvalChallenge(), operation: "workflow_action",
   error: {
     kind: "approval_required", retry_safe: false, recovery_action: { kind: "request_approval" }, effect_state: "none",
+    consequence_summary: { ...approvalChallenge().error.consequence_summary, operation: "workflow_action" },
     details: {
       approval_ref: "challenge-1", operation_digest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-      scope: ["product:product-1", "project:project-1", "work:work-1"], versions: ["work:2"],
       work_id: "work-1", action_id: actionID, contract_version: "3",
       selected_choice: selectedChoice, premise_summary: "approve the exact workflow action",
       decision_context_digest: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
@@ -1031,8 +1039,6 @@ test("predicate host-round-trip asks and resubmits the exact restore challenge o
       },
       details: {
         approval_ref: "e".repeat(64), operation_digest: digest,
-        scope: ["product_id:product-a", "product_ids:product-a", "product_ids:product-b", "project_ids:ambient", "work_ids:work-a", "work_ids:work-b", "scope_version:1"],
-        versions: ["predecessor:3", "successor:3"],
       },
     },
   })
@@ -1109,8 +1115,64 @@ test("confirm_premise refusals come from the core, not the adapter", async () =>
   }
 })
 
-const coreEnvelope = (tool: string, operation: string, outcome: string, fields: Record<string, unknown> = {}) => ({
+const coreEnvelope = <T extends Record<string, unknown>>(tool: string, operation: string, outcome: string, fields: T) => ({
   schema_version: "1.0", manifest_digest: manifestDigest, request_id: "session-1-message-1", origin: "core", tool, operation, ...((contractOperations.find((candidate: any) => candidate.tool === tool && candidate.id.endsWith(`.${operation}`)) as any)?.query_id ? { query_id: (contractOperations.find((candidate: any) => candidate.tool === tool && candidate.id.endsWith(`.${operation}`)) as any).query_id } : {}), outcome, resolved_scope: null, authority: "authoritative", freshness: null, source_version_watermark: [], ordering_keys: [], next_cursor: null, omissions: [], warnings: [], evidence_refs: [], replayed: false, ...fields,
+})
+
+test("large membership approval uses only the consequence summary bindings", async () => {
+  const scope = [
+    "product_id:product-1",
+    ...Array.from({ length: 9 }, (_, i) => `product_ids:product-${i + 1}`),
+    ...Array.from({ length: 13 }, (_, i) => `project_ids:project-${i + 1}`),
+    "scope_version:1", "work_ids:work-1",
+  ].sort()
+  const summary = {
+    tool: "concord_work_relate", operation: "set_memberships", consequence: "scope",
+    operation_digest: `sha256:${"a".repeat(64)}`, scope, versions: ["work:2"], expires_at: "2026-10-01T00:00:00Z",
+  }
+  const challenge = coreEnvelope(summary.tool, summary.operation, "error", {
+    error: {
+      kind: "approval_required", retry_safe: false, recovery_action: { kind: "request_approval" }, effect_state: "none",
+      consequence_summary: summary,
+      details: { approval_ref: "a".repeat(64), operation_digest: summary.operation_digest },
+    },
+  })
+  expect(validateGeneratedEnvelope(challenge)).toBe(true)
+  const input = {
+    work_id: "work-1", expected_version: 2, idempotency_key: "large-memberships",
+    memberships: Array.from({ length: 13 }, (_, i) => ({ project_id: `project-${i + 1}`, role: i === 0 ? "primary" : "secondary" })),
+  }
+  let approvedCall: any
+  let asked: any
+  adapter.configureConcordAdapter({ runner: runnerWithContext((_argv: string[], raw: string, _signal: AbortSignal, calls: number) => {
+    if (calls === 2) return challenge
+    approvedCall = JSON.parse(raw)
+    return coreEnvelope(summary.tool, summary.operation, "ok", { result: { changed_refs: [], next_valid_intents: [] }, changed_refs: [], next_valid_intents: [] })
+  }) })
+  const result: any = await rawHostResult(adapter.work_relate.execute(hostCall("set_memberships", input), contextFor(async (request: any) => { asked = request })))
+  expect(result.outcome).toBe("ok")
+  expect(asked.metadata.consequence_summary).toEqual(summary)
+  expect(approvedCall.call_envelope.host_approval_assertion.scope).toEqual(scope)
+  expect(approvedCall.call_envelope.host_approval_assertion.versions).toEqual(summary.versions)
+  expect(approvedCall.input).toEqual({ ...input, approval: { approval_ref: "a".repeat(64) } })
+})
+
+test("approval refuses mismatched summary identity before asking or resubmitting", async () => {
+  for (const changed of [
+    { tool: "concord_work_relate" },
+    { operation: "set_memberships" },
+    { operation_digest: `sha256:${"b".repeat(64)}` },
+  ]) {
+    const challenge = approvalChallenge()
+    Object.assign(challenge.error.consequence_summary, changed)
+    const runner = runnerWithContext(challenge)
+    let asks = 0
+    const result: any = await runTransition(runner, async () => { asks++ })
+    expect(result.error.kind).toBe("malformed_response")
+    expect(result.error.effect_state).toBe("none")
+    expect(asks).toBe(0)
+    expect(runner.calls()).toBe(2)
+  }
 })
 
 test("every declared query id passes the generated envelope contract", () => {
@@ -1200,8 +1262,6 @@ test("overlap approval asks with exact direction and resolution consequence", as
       details: {
       approval_ref: "overlap-challenge-1", operation_digest: digest,
       summary: "Approve the exact requested mutation, scope, and expected versions.",
-      scope: ["product:product-1", "work:work-1", "work:work-2"],
-      versions: ["from:2", "from_contract:1", "to:3", "to_contract:1"],
       resolution_kind: "depends_on", from_work_id: "work-1", to_work_id: "work-2",
     } },
   })
@@ -1227,7 +1287,7 @@ test("overlap approval asks with exact direction and resolution consequence", as
   expect(askMetadata).toEqual({
     approval_ref: "overlap-challenge-1", operation_digest: digest,
     summary: "Approve the exact requested mutation, scope, and expected versions.",
-    scope: ["product:product-1", "work:work-1", "work:work-2"],
+    scope: ["product_id:product-1", "work_ids:work-1", "work_ids:work-2"],
     versions: ["from:2", "from_contract:1", "to:3", "to_contract:1"],
     resolution_kind: "depends_on", from_work_id: "work-1", to_work_id: "work-2",
     consequence_summary: {
@@ -1251,7 +1311,6 @@ test("client policy grant request asks with the calling client, policy version, 
       details: {
         approval_ref: "grant-challenge-1", operation_digest: digest,
         summary: "Approve the exact added grants for your own trusted client; every existing grant and the stored principal stay unchanged.",
-        scope, versions: [],
         client_ref: "client-1", policy_version: policyVersion,
         reason: "dependent work claims a cross-Product worktree",
       } },
@@ -1413,7 +1472,7 @@ test("approval challenge is resubmitted once with the same idempotency key and u
   expect(requests[1].operation).toBe(requests[0].operation)
   expect(requests[1].input.idempotency_key).toBe(requests[0].input.idempotency_key)
   expect(requests[1].input.approval.approval_ref).toBe("challenge-1")
-  expect(requests[1].call_envelope.host_approval_assertion.scope).toEqual(["product:product-1", "project:project-1", "work:work-1"])
+  expect(requests[1].call_envelope.host_approval_assertion.scope).toEqual(["product_id:product-1", "project_ids:project-1", "work_ids:work-1"])
   expect(requests[1].call_envelope.host_approval_assertion.versions).toEqual(["work:2"])
   expect(requests[1].call_envelope.host_approval_assertion.signature).toBeUndefined()
   expect(requests[1].call_envelope.host_approval_assertion.nonce).toBeUndefined()
@@ -1467,8 +1526,10 @@ test("a minted challenge without its workflow metadata still refuses as malforme
 test("workflow premise approval asks with exact checkpoint metadata and no human identity", async () => {
   const requests: any[] = []
   const challenge = coreEnvelope("concord_work_transition", "workflow_action", "error", {
-    error: { kind: "approval_required", retry_safe: false, recovery_action: { kind: "request_approval" }, effect_state: "none", details: {
-      approval_ref: "challenge-1", operation_digest: "sha256:" + "a".repeat(64), scope: ["product:product-1", "project:project-1", "work:work-1"], versions: ["work:7", "contract:1"],
+    error: { kind: "approval_required", retry_safe: false, recovery_action: { kind: "request_approval" }, effect_state: "none",
+    consequence_summary: { ...approvalChallenge().error.consequence_summary, operation: "workflow_action", versions: ["contract:1", "work:7"] },
+    details: {
+      approval_ref: "challenge-1", operation_digest: "sha256:" + "a".repeat(64),
       work_id: "work-1", action_id: "confirm_premise", contract_version: "1", selected_choice: "confirm", premise_summary: "Ship the approved workflow premise.", decision_context_digest: "sha256:" + "b".repeat(64),
     } },
   })
@@ -1484,7 +1545,7 @@ test("workflow premise approval asks with exact checkpoint metadata and no human
   adapter.configureConcordAdapter({ runner })
   const result: any = await rawHostResult(adapter.work_transition.execute(hostCall("workflow_action", { work_id: "work-1", expected_version: 7, action_id: "confirm_premise", selected_choice: "confirm", decision_context_digest: "sha256:" + "b".repeat(64), idempotency_key: "confirm-1" }), contextFor(async (request: any) => { askMetadata = request.metadata })))
   expect(result.outcome).toBe("ok")
-  expect(askMetadata).toEqual({ approval_ref: "challenge-1", operation_digest: "sha256:" + "a".repeat(64), scope: ["product:product-1", "project:project-1", "work:work-1"], versions: ["work:7", "contract:1"], work_id: "work-1", action_id: "confirm_premise", contract_version: "1", selected_choice: "confirm", decision_context_digest: "sha256:" + "b".repeat(64), premise_summary: "Ship the approved workflow premise." })
+  expect(askMetadata).toEqual({ approval_ref: "challenge-1", operation_digest: "sha256:" + "a".repeat(64), scope: challenge.error.consequence_summary.scope, versions: challenge.error.consequence_summary.versions, work_id: "work-1", action_id: "confirm_premise", contract_version: "1", selected_choice: "confirm", decision_context_digest: "sha256:" + "b".repeat(64), premise_summary: "Ship the approved workflow premise.", consequence_summary: challenge.error.consequence_summary })
   expect(requests[1].call_envelope.host_approval_assertion.operator_principal_ref).toBeUndefined()
   expect(requests[1].call_envelope.host_approval_assertion.operator_agent_ref).toBeUndefined()
   expect(requests[1].call_envelope.host_approval_assertion.operator_session_ref).toBeUndefined()
@@ -1498,10 +1559,14 @@ test("workflow premise approval asks with exact checkpoint metadata and no human
 // depends on.
 test("escalated correction challenge round-trips with the failed attempt bindings", async () => {
   const challenge = coreEnvelope("concord_work_transition", "workflow_action", "error", {
-    error: { kind: "approval_required", retry_safe: false, recovery_action: { kind: "request_approval" }, effect_state: "none", details: {
+    error: { kind: "approval_required", retry_safe: false, recovery_action: { kind: "request_approval" }, effect_state: "none",
+    consequence_summary: {
+      ...approvalChallenge().error.consequence_summary, operation: "workflow_action",
+      scope: ["failed_attempt_id:attempt:work-1:3", "product_id:product-1", "project_ids:project-1", "work_ids:work-1"],
+      versions: ["contract:1", "failed_attempt_epoch:3", "work:7"],
+    },
+    details: {
       approval_ref: "challenge-1", operation_digest: "sha256:" + "a".repeat(64),
-      scope: ["product:product-1", "project:project-1", "work:work-1", "failed_attempt_id:attempt:work-1:3"],
-      versions: ["work:7", "contract:1", "failed_attempt_epoch:3"],
       work_id: "work-1", action_id: "dispatch_worker", contract_version: "1", selected_choice: "", decision_context_digest: "", premise_summary: "approved retry objective",
     } },
   })
@@ -1518,9 +1583,9 @@ test("escalated correction challenge round-trips with the failed attempt binding
   adapter.configureConcordAdapter({ runner })
   const result: any = await rawHostResult(adapter.work_transition.execute(hostCall("workflow_action", { work_id: "work-1", expected_version: 7, action_id: "approve_contract", idempotency_key: "escalated-challenge-transport" }), contextFor(async (request: any) => { askMetadata = request.metadata })))
   expect(result.outcome).toBe("ok")
-  expect(askMetadata).toEqual({ approval_ref: "challenge-1", operation_digest: "sha256:" + "a".repeat(64), scope: ["product:product-1", "project:project-1", "work:work-1", "failed_attempt_id:attempt:work-1:3"], versions: ["work:7", "contract:1", "failed_attempt_epoch:3"], work_id: "work-1", action_id: "dispatch_worker", contract_version: "1", selected_choice: "", decision_context_digest: "", premise_summary: "approved retry objective" })
-  expect(requests[1].call_envelope.host_approval_assertion.scope).toEqual(["product:product-1", "project:project-1", "work:work-1", "failed_attempt_id:attempt:work-1:3"])
-  expect(requests[1].call_envelope.host_approval_assertion.versions).toEqual(["work:7", "contract:1", "failed_attempt_epoch:3"])
+  expect(askMetadata).toEqual({ approval_ref: "challenge-1", operation_digest: "sha256:" + "a".repeat(64), scope: challenge.error.consequence_summary.scope, versions: challenge.error.consequence_summary.versions, work_id: "work-1", action_id: "dispatch_worker", contract_version: "1", selected_choice: "", decision_context_digest: "", premise_summary: "approved retry objective", consequence_summary: challenge.error.consequence_summary })
+  expect(requests[1].call_envelope.host_approval_assertion.scope).toEqual(["failed_attempt_id:attempt:work-1:3", "product_id:product-1", "project_ids:project-1", "work_ids:work-1"])
+  expect(requests[1].call_envelope.host_approval_assertion.versions).toEqual(["contract:1", "failed_attempt_epoch:3", "work:7"])
 })
 
 test("a metadata-less escalation refusal stays a core refusal without asking the operator", async () => {

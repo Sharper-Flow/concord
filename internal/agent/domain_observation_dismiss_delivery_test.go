@@ -108,6 +108,9 @@ func TestConsequenceSummaryBindingBoundsMatchTheContract(t *testing.T) {
 		if !ok || declared.MinItems == nil || declared.MaxItems == nil {
 			t.Fatalf("the contract declares no bounds for consequence summary %s; the schema shape moved", field)
 		}
+		if *declared.MaxItems != maxConsequenceSummaryBindings {
+			t.Fatalf("%s capacity = %d in the contract, %d at challenge mint", field, *declared.MaxItems, maxConsequenceSummaryBindings)
+		}
 		empty := []string{}
 		oneShort := make([]string, 0, *declared.MaxItems+1)
 		for i := 0; i <= *declared.MaxItems; i++ {

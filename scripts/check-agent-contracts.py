@@ -81,6 +81,23 @@ def validate_host_pin(pin: object, schema: dict, findings: list[str]) -> dict | 
     return None if findings else pin
 
 
+def stage_host_sources(pin: dict, workspace: Path) -> str | None:
+    """Refresh the copied source tree without touching installed packages."""
+    origins = [(directory, ROOT / directory) for directory in pin["sources"]]
+    for directory, origin in origins:
+        if not origin.is_dir():
+            return f"pinned source directory is missing: {directory}"
+    source = workspace / "src"
+    if source.exists():
+        shutil.rmtree(source)
+    source.mkdir(parents=True)
+    for _, origin in origins:
+        for path in sorted(origin.glob("*.ts")) + sorted(origin.glob("*.json")):
+            shutil.copy2(path, source / path.name)
+    (workspace / "tsconfig.json").write_text(json.dumps({"compilerOptions": pin["compiler_options"], "include": ["src/*.ts"]}), encoding="utf-8")
+    return None
+
+
 def stage_host_workspace(bun: str, pin: dict, workspace: Path) -> str | None:
     """Install the pinned declarations and stage the sources beside them.
 
@@ -91,17 +108,10 @@ def stage_host_workspace(bun: str, pin: dict, workspace: Path) -> str | None:
     adapter, and pointing the compiler at the repository from outside it
     resolves neither the packages nor the adapter's JSON imports.
     """
-    source = workspace / "src"
-    source.mkdir(parents=True)
-    for directory in pin["sources"]:
-        origin = ROOT / directory
-        if not origin.is_dir():
-            return f"pinned source directory is missing: {directory}"
-        for path in sorted(origin.glob("*.ts")) + sorted(origin.glob("*.json")):
-            shutil.copy2(path, source / path.name)
-
+    error = stage_host_sources(pin, workspace)
+    if error:
+        return error
     (workspace / "package.json").write_text(json.dumps({"name": "concord-adapter-host-typecheck", "private": True}), encoding="utf-8")
-    (workspace / "tsconfig.json").write_text(json.dumps({"compilerOptions": pin["compiler_options"], "include": ["src/*.ts"]}), encoding="utf-8")
 
     # --exact refuses bun's default caret range. A range would reintroduce the
     # drift this manifest removes: the reviewed declarations and the installed

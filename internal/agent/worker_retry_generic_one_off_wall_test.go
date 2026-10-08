@@ -263,10 +263,14 @@ func TestGenericOneOffVerifyWallKeepsTheEscalationOperatorApprovable(t *testing.
 	if got, _ := details["action_id"].(string); got != "dispatch_worker" {
 		t.Fatalf("same-step wall challenge action_id = %v", details["action_id"])
 	}
-	assertBindingContains(t, details["scope"], "failed_attempt_id:"+failedID)
-	assertBindingContains(t, details["versions"], "failed_attempt_epoch:"+strconv.FormatInt(failedEpoch, 10))
-	assertBindingContains(t, details["versions"], "contract:1")
-	assertBindingContains(t, details["versions"], "work:"+strconv.FormatInt(version, 10))
+	summary := challenge.Error.ConsequenceSummary
+	if summary == nil {
+		t.Fatal("challenge lacks a consequence summary")
+	}
+	assertBindingContains(t, summary.Scope, "failed_attempt_id:"+failedID)
+	assertBindingContains(t, summary.Versions, "failed_attempt_epoch:"+strconv.FormatInt(failedEpoch, 10))
+	assertBindingContains(t, summary.Versions, "contract:1")
+	assertBindingContains(t, summary.Versions, "work:"+strconv.FormatInt(version, 10))
 
 	// The signed approval admits exactly one dispatch intent, and the session
 	// then dies before the host dispatches the worker.

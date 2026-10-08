@@ -1,6 +1,6 @@
 # CD-0208: Exact worker-evidence acknowledgment appends no new evidence
 
-- **Status:** Proposed (accepted standing begins at pull-request merge)
+- **Status:** Accepted
 - **Date:** 2026-10-06
 - **Scope:** Exact existing-event acknowledgment and retained completed-Task recovery
 - **Amends:** CD-0044 D2 and D4; the consumed-window boundary in CD-0059 and CD-0067
@@ -17,9 +17,9 @@
 - **Approval:** The operator approved contract version 1 for
   `work-eee5ffe324a3c303eab87703` on 2026-10-06. Its first outcome names CD-0208
   as the legislated deliverable. The typed approval returned `ok` at work
-  version 13 on the repair surface. The approval authorizes the legislative
-  deliverable only: this record claims no report acceptance, work completion,
-  or standing as accepted law before its pull request merges.
+  version 13 on the repair surface. The operator read and approved this record
+  as written in [pull request 1586](https://github.com/Sharper-Flow/concord/pull/1586).
+  This approval claims no report acceptance or work completion.
 
 ## Context
 

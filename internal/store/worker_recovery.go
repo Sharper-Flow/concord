@@ -22,9 +22,9 @@ type WorkerRecoveryContext struct {
 	Dispatch           WorkerDispatchedPayload `json:"dispatch"`
 }
 
-// Reconciliation checks the original window's identity and live claim without
-// asking whether the already-recorded attempt consumed it. It never opens a
-// window or authorizes another attempt.
+// ValidateWorkerEvidenceReplayWindow checks the original window's identity and
+// live claim without asking whether the already-recorded attempt consumed it.
+// It never opens a window or authorizes another attempt.
 func ValidateWorkerEvidenceReplayWindow(ctx context.Context, transaction *Transaction, workID, attemptID, packetDigest string) error {
 	tx, err := transactionSQL(transaction, "worker_recovery")
 	if err != nil {

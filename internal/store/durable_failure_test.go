@@ -31,8 +31,11 @@ type commitErrorConn struct {
 	err error
 }
 
-func (c *commitErrorConn) Begin() (driver.Tx, error) {
-	tx, err := c.Conn.Begin()
+// BeginTx forwards the caller's context and options to the underlying SQLite
+// connection. The direct driver.ConnBeginTx assertion fails the fixture loudly
+// if that connection cannot begin a context-aware transaction.
+func (c *commitErrorConn) BeginTx(ctx context.Context, options driver.TxOptions) (driver.Tx, error) {
+	tx, err := c.Conn.(driver.ConnBeginTx).BeginTx(ctx, options)
 	if err != nil {
 		return nil, err
 	}

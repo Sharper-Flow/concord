@@ -28,8 +28,9 @@ type observationCorpusEntry struct {
 // advances one second per index, except indices 15 through 20 inclusive,
 // which share one timestamp so the observation_id tie-breaker is exercised
 // across page boundaries.
-func seedObservationCorpus(t *testing.T, s *Store, workID string, base time.Time) []observationCorpusEntry {
+func seedObservationCorpus(t *testing.T, s *Store, base time.Time) []observationCorpusEntry {
 	t.Helper()
+	const workID = "work-99"
 	entries := make([]observationCorpusEntry, 0, 40)
 	for i := 0; i < 40; i++ {
 		at := base.Add(time.Duration(i) * time.Second)
@@ -72,7 +73,7 @@ func TestWorkObservationPageDrainsNewestFirstWithTieBreaker(t *testing.T) {
 	t.Parallel()
 	s := observationFixture(t)
 	base := time.Date(2026, 8, 15, 12, 0, 0, 0, time.UTC)
-	entries := seedObservationCorpus(t, s, "work-99", base)
+	entries := seedObservationCorpus(t, s, base)
 	expected := expectedObservationOrder(entries)
 
 	var seen []string
@@ -151,7 +152,7 @@ func TestWorkObservationPageRejectsForeignAndTamperedCursors(t *testing.T) {
 	t.Parallel()
 	s := observationFixture(t)
 	base := time.Date(2026, 8, 15, 12, 0, 0, 0, time.UTC)
-	seedObservationCorpus(t, s, "work-99", base)
+	seedObservationCorpus(t, s, base)
 	page, err := s.ReadWorkObservations(context.Background(), WorkObservationsRequest{WorkID: "work-99", Limit: 7})
 	if err != nil || page.NextCursor == nil {
 		t.Fatalf("first page err=%v cursor=%v", err, page.NextCursor)
@@ -191,7 +192,7 @@ func TestWorkObservationPageLimitBounds(t *testing.T) {
 	t.Parallel()
 	s := observationFixture(t)
 	base := time.Date(2026, 8, 15, 12, 0, 0, 0, time.UTC)
-	entries := seedObservationCorpus(t, s, "work-99", base)
+	entries := seedObservationCorpus(t, s, base)
 	expected := expectedObservationOrder(entries)
 
 	one, err := s.ReadWorkObservations(context.Background(), WorkObservationsRequest{WorkID: "work-99", Limit: 1})
@@ -226,7 +227,7 @@ func TestWorkObservationPageLimitPagePrefixPreservesEnvelope(t *testing.T) {
 	t.Parallel()
 	s := observationFixture(t)
 	base := time.Date(2026, 8, 15, 12, 0, 0, 0, time.UTC)
-	seedObservationCorpus(t, s, "work-99", base)
+	seedObservationCorpus(t, s, base)
 	req := WorkObservationsRequest{WorkID: "work-99", Limit: 10}
 	source, err := s.ReadWorkObservations(context.Background(), req)
 	if err != nil {
@@ -285,7 +286,7 @@ func TestWorkObservationPageRejectsMalformedStoredLists(t *testing.T) {
 	t.Parallel()
 	s := observationFixture(t)
 	base := time.Date(2026, 8, 15, 12, 0, 0, 0, time.UTC)
-	entries := seedObservationCorpus(t, s, "work-99", base)
+	entries := seedObservationCorpus(t, s, base)
 	newest := expectedObservationOrder(entries)[0]
 	// The schema admits any JSON array, so store wrong-shape arrays: they
 	// pass every column CHECK but cannot decode into the string lists the

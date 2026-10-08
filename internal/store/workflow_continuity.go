@@ -470,12 +470,12 @@ func continuityReadBoundariesTx(ctx context.Context, tx *sql.Tx, work string, ou
 // limitBoundaries keeps the first limit boundaries of the page read at
 // offset and derives the continuation cursor from the last retained one, so
 // no boundary drops without a cursor that resumes at it.
-func (out *ContinuitySnapshot) limitBoundaries(work string, offset, limit int) {
-	last := out.Boundaries[limit-1]
-	out.Boundaries = out.Boundaries[:limit]
+func (snapshot *ContinuitySnapshot) limitBoundaries(work string, offset, limit int) {
+	last := snapshot.Boundaries[limit-1]
+	snapshot.Boundaries = snapshot.Boundaries[:limit]
 	raw, _ := json.Marshal(map[string]any{"v": 1, "work": work, "offset": offset + limit, "last": last.Sequence})
 	next := base64.RawURLEncoding.EncodeToString(raw)
-	out.NextCursor = &next
+	snapshot.NextCursor = &next
 }
 
 // LimitWindow returns a copy of one captured snapshot that keeps complete

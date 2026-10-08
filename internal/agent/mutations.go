@@ -2792,10 +2792,12 @@ func (r runtime) planProjectHandoffRecord(ctx context.Context, base Envelope, ra
 }
 
 // planProjectHandoffConsume plans the receiving side of the Project-session
-// handoff. The core binds the consume to the authenticated receiving session,
-// its ambient Project, and the active contract: a missing, wrong-target,
-// stale, or foreign-session consume refuses with no event, so managed
-// execution stays closed until the bind stands.
+// handoff. The core binds the consume to the work item, the ambient
+// receiving Project, and the active contract (CD-0182 D5 amendment): a
+// missing, wrong-target, or stale consume refuses with no event, a frontier
+// another session of the Project already consumed resolves from the
+// standing shared bind, and managed execution stays closed until a bind
+// stands.
 func (r runtime) planProjectHandoffConsume(_ context.Context, base Envelope, raw []byte, _ string, grant Authority, _ ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
 	var in projectHandoffConsumeInput
 	if err := decodeOperationInput(raw, &in); err != nil {

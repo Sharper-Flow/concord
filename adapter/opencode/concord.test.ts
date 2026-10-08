@@ -2199,8 +2199,11 @@ test("work start resume derives the entry by work_id and moves the session", asy
   expect(result).toMatchObject({ outcome: "ok", product_id: "product-1", project_id: "project-1", work_id: "work-1", worktree_path: WORKTREE, agent: "agent-1", session_id: "session-1" })
   // The active resume read stays journal-free, the verified landing records
   // itself afterwards through the claim-landing verb, and a handoff-free
-  // boot issues no Project-handoff consume at all.
-  expect(calls.map(({ argv }) => argv[1])).toEqual(["project-resolve", "work-resume", "session-prepare", "claim-landing"])
+  // boot issues no Project-handoff consume at all. The post-landing
+  // handoff re-read (CD-0182 D5 amendment) still runs once, because a cold
+  // second session of the receiving Project can only render the shared
+  // bind after its landing records placement — and renders nothing here.
+  expect(calls.map(({ argv }) => argv[1])).toEqual(["project-resolve", "work-resume", "session-prepare", "claim-landing", "work-resume"])
   expect(JSON.parse(calls[1].input)).toEqual({ product_id: "product-1", project_id: "project-1", work_id: "work-1", session_ref: "session-1" })
   // A resume carries no task; session-prepare still verifies the active
   // agent and the worktree.
@@ -2318,6 +2321,58 @@ test("work start resume consumes the rendered handoff by id and carries the boun
   expect(result.output).toContain("verify the receiving repository's adapter surface")
   expect(consumeInput).toHaveLength(1)
   expect(moved).toEqual([{ sessionID: "session-1", destination: { directory: WORKTREE } }])
+})
+
+// A cold second session of the receiving Project (CD-0182 D5 amendment):
+// the pre-landing resume read renders no handoff — the frontier's consumed
+// bind renders only to a session whose verified placement stands — so the
+// boot must re-read the addressed handoff after the claim landing records
+// placement, render the shared bind's bounded job, and resolve the standing
+// bind (already_consumed) instead of booting admitted with no job.
+test("work start resume re-reads the handoff after the landing for a cold second session", async () => {
+  bindRetargetRoute()
+  const calls: RetargetCall[] = []
+  const consumeInput: RetargetCall[] = []
+  let resumeReads = 0
+  adapter.configureConcordAdapter({ runner: {
+    async run(argv: string[], input: string, _signal: AbortSignal, options?: any) {
+      calls.push({ argv, input, options })
+      if (argv[0] === "zellij") return { exitCode: 0, stdout: "", stderr: "" }
+      const command = argv[1]
+      if (command === "project-resolve") return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
+      if (command === "work-resume") {
+        resumeReads += 1
+        // The first read precedes the landing and renders nothing; the
+        // post-landing re-read renders the shared bind another session
+        // of the Project consumed.
+        if (resumeReads === 1) return { exitCode: 0, stdout: JSON.stringify(resumeSuccess()), stderr: "" }
+        return { exitCode: 0, stdout: JSON.stringify({ ...resumeSuccess(), project_handoff: renderedHandoff() }), stderr: "" }
+      }
+      if (command === "session-prepare") return { exitCode: 0, stdout: JSON.stringify(preparedContract()), stderr: "" }
+      if (command === "claim-landing") return { exitCode: 0, stdout: JSON.stringify({ work_id: "work-1", already_recorded: false }) + "\n", stderr: "" }
+      if (command === "invoke") {
+        const parsed = JSON.parse(input) as { operation: string; input: Record<string, unknown> }
+        expect(parsed.operation).toBe("project_handoff_consume")
+        expect(parsed.input).toMatchObject({ work_id: "work-1", handoff_id: renderedHandoff().handoff_id })
+        consumeInput.push(calls[calls.length - 1])
+        return { exitCode: 0, stdout: JSON.stringify(coreEnvelope("concord_work_transition", "project_handoff_consume", "ok", {
+          changed_refs: [],
+          next_valid_intents: [],
+          result: { changed_refs: [], next_valid_intents: [], work_id: "work-1", handoff_id: renderedHandoff().handoff_id, already_consumed: true },
+        })) + "\n", stderr: "" }
+      }
+      throw new Error(`unexpected command ${argv.join(" ")}`)
+    },
+  } as never })
+  const result: any = await rawHostResult(adapter.work_start.execute({ work_id: "work-1" }, landedContextFor()))
+  expect(result.outcome).toBe("ok")
+  expect(result.project_handoff).toEqual(renderedHandoff())
+  expect(result.output).toContain("verify the receiving repository's adapter surface")
+  expect(resumeReads).toBe(2)
+  expect(consumeInput).toHaveLength(1)
+  // The refresh sits between the recorded landing and the consume: the
+  // read that rendered the job ran only after placement stood.
+  expect(calls.map(({ argv }) => argv[1])).toEqual(["project-resolve", "work-resume", "session-prepare", "claim-landing", "work-resume", "invoke"])
 })
 
 test("work start resume refuses when the rendered handoff does not bind", async () => {
@@ -3902,9 +3957,13 @@ test("an own-row recovery re-lands before it stops on an abandon retry refusal",
   expect(toolResult.output).not.toContain(`Concord moved this session to ${MAIN_CHECKOUT}`)
   expect(moves).toEqual([MAIN_CHECKOUT, WORKTREE])
   expect(abandonCalls).toBe(2)
+  // The re-land's work_start ends with the post-landing handoff re-read
+  // (CD-0182 D5 amendment): the recovery resume renders no handoff, so the
+  // boot re-reads once after the landing records placement and still
+  // consumes nothing.
   expect(calls).toEqual([
     "worker-abandon", "project-resolve", "invoke", "vacate-landing", "worker-abandon",
-    "project-resolve", "work-resume", "session-prepare", "claim-landing",
+    "project-resolve", "work-resume", "session-prepare", "claim-landing", "work-resume",
   ])
 })
 

@@ -47,6 +47,30 @@
     {
       "kind": "validator",
       "value": "scripts/check-primary-prompts.py"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestManagedExecutionGateAdmitsEveryPlacedSessionOfTheReceivingProject"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestProjectHandoffConsumeResolvesTheSharedBindForEverySessionOfTheProject"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestBootResumeRendersTheConsumedFrontierToEveryPlacedSessionOfTheProject"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestManagedExecutionGateKeepsTheWrongProjectBindRefusedAndSourceExecutionAdmitted"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestConsumedSharedBindSurvivesTheOriginalReceiverVacate"
+    },
+    {
+      "kind": "adapter_test",
+      "value": "adapter/opencode/concord.test.ts#work start resume re-reads the handoff after the landing for a cold second session"
     }
   ],
   "id": "CD-0182",

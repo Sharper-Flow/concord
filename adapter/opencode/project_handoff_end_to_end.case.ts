@@ -37,6 +37,7 @@ const RECEIVE_PROJECT = "project-handoff-receive"
 const CLIENT_REF = "opencode"
 const SOURCE_SESSION = "session-handoff-source"
 const RECEIVE_SESSION = "session-handoff-receive"
+const RECEIVE_SESSION_B = "session-handoff-receive-b"
 const AGENT = "concord-implement"
 const LANE_AGENTS = ["concord-research", "concord-implement", "concord-design", "concord-review", "concord-verify"]
 const PRIVATE_SEED = new Uint8Array(32).fill(11)
@@ -268,7 +269,7 @@ async function bootHandoffFixture(root: string): Promise<HandoffFixture> {
   // source session runs in its claimed worktree and the receiving session
   // starts in the receiving repository. The real core runner serves every
   // transport leg from here on.
-  await fakeHostControlPlane([[SOURCE_SESSION, sourceWorktree], [RECEIVE_SESSION, repoReceive]], realCoreRunner(binary, dbPath, childEnv, captured))
+  await fakeHostControlPlane([[SOURCE_SESSION, sourceWorktree], [RECEIVE_SESSION, repoReceive], [RECEIVE_SESSION_B, repoReceive]], realCoreRunner(binary, dbPath, childEnv, captured))
   const sourceContext = contextFor(SOURCE_SESSION, sourceWorktree)
   const invoke = (toolName: string, operation: string, input: JSONRecord, callContext: any) => invokeConcordOperation(toolName, { operation, input } as any, callContext)
   const version = () => dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number
@@ -427,6 +428,43 @@ routeDeclaration("boots, consumes, and retires through the real core routes", as
     expect(renderedAgain.next_action).toContain("consume the handoff")
     expect(dbValue(dbPath, `SELECT state, consumed_by_session_ref AS consumer FROM project_handoffs WHERE handoff_id='${handoffID}'`).consumer).toBe(RECEIVE_SESSION)
     expect(occupantOf(RECEIVE_PROJECT)).toBe(RECEIVE_SESSION)
+
+    // A cold second coordinator session of the receiving Project (CD-0182
+    // D5 amendment): it holds no verified placement when its resume read
+    // runs, so the consumed frontier — the shared bind the first session
+    // recorded — renders nothing on that read. The boot must land, re-read
+    // the addressed handoff, render the bounded job, and resolve the
+    // standing bind, instead of admitting the session with its job lost or
+    // prescribing a fresh handoff and a second session for the same
+    // repository. The cold start from the repository root refuses on the
+    // metadata-only move first, exactly as the first receiver's did.
+    const unlandedB = parseToolResult(await work_start.execute({ work_id: workID } as any, contextFor(RECEIVE_SESSION_B, repoReceive)))
+    expect(unlandedB.outcome, JSON.stringify(unlandedB)).toBe("error")
+    expect(unlandedB.error.kind).toBe("session_directory_mismatch")
+    expect(unlandedB.error.message).toContain("this refusal arms no turn-move boundary")
+    const bootB = parseToolResult(await work_start.execute({ work_id: workID } as any, contextFor(RECEIVE_SESSION_B, receiveWorktree)))
+    expect(bootB.outcome, JSON.stringify(bootB)).toBe("ok")
+    const renderedB = bootB.project_handoff as JSONRecord
+    expect(renderedB.handoff_id).toBe(handoffID)
+    expect(renderedB.bounded_job).toContain("verify the receiving repository's adapter surface")
+    expect(renderedB.next_action).toContain("consume the handoff")
+    expect(bootB.worktree_path).toBe(receiveWorktree)
+    // The second session's landing records its own placement alongside the
+    // first receiver's: both placed sessions of the Project hold occupancy.
+    expect(String(occupantOf(RECEIVE_PROJECT))).toContain(RECEIVE_SESSION)
+    expect(String(occupantOf(RECEIVE_PROJECT))).toContain(RECEIVE_SESSION_B)
+    // The second boot resolved the standing shared bind through the
+    // authenticated boundary: the consume names the second session, the
+    // rendered handoff id, and the bounded consume key — and records no
+    // second consumed event, so the bind still names the first consumer.
+    expect(captured.invoke?.tool).toBe("concord_work_transition")
+    expect(captured.invoke?.operation).toBe("project_handoff_consume")
+    expect((captured.invoke?.call_envelope ?? {} as JSONRecord).session_ref).toBe(RECEIVE_SESSION_B)
+    expect((captured.invoke?.input as JSONRecord).handoff_id).toBe(handoffID)
+    expect((captured.invoke?.input as JSONRecord).idempotency_key).toBe(projectHandoffConsumeKey(workID, handoffID))
+    const consumedEvents = dbValue(dbPath, `SELECT count(*) AS n FROM domain_events WHERE kind='work.project_handoff_consumed' AND subject_id='${workID}'`).n as number
+    expect(consumedEvents).toBe(1)
+    expect(dbValue(dbPath, `SELECT consumed_by_session_ref AS consumer FROM project_handoffs WHERE handoff_id='${handoffID}'`).consumer).toBe(RECEIVE_SESSION)
 
     // The source session retires through the real owning routes: the
     // session_vacate mutation records the relocation request toward the

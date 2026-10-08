@@ -16,6 +16,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/sharper-flow/concord/internal/hostlease"
@@ -3525,20 +3526,30 @@ func (s *Store) VerifyWorktree(ctx context.Context, req WorktreeVerifyRequest) (
 	defer releaseAbandonedVerifyLease(s, ctx, req.LeaseID, &released)
 
 	exitCode, output, truncated, runErr := runCommand(ctx, entry.Path, req.Command, maxOutput)
+	cancelErr := ctx.Err()
+	if cancelErr == nil && (errors.Is(runErr, context.Canceled) || errors.Is(runErr, context.DeadlineExceeded)) {
+		cancelErr = runErr
+	}
 	if runErr != nil {
 		// A command that cannot run is a run outcome, not a store failure:
 		// the release below still records and reports it.
 		exitCode = -1
 		output = append([]byte(runErr.Error()+"\n"), output...)
 	}
+	if cancelErr != nil {
+		exitCode = -1
+	}
 
 	// The after snapshot runs before the release transaction opens: a git
-	// subprocess must never span a write transaction (CD-0195 D2).
-	after, err := snapshotTrackedFiles(ctx, runner, entry.Path)
+	// subprocess must never span a write transaction (CD-0195 D2). Ending
+	// the run's authority must not cancel its comparison or durable release.
+	finalizeCtx, finalizeCancel := context.WithTimeout(context.WithoutCancel(ctx), worktreeVerifyFinalizeTimeout)
+	defer finalizeCancel()
+	after, err := snapshotTrackedFiles(finalizeCtx, runner, entry.Path)
 	if err != nil {
 		return WorktreeVerifyResult{}, annotateCommittedEffect(err, leaseRef)
 	}
-	releaseTx, err := s.db.BeginTx(ctx, nil)
+	releaseTx, err := s.db.BeginTx(finalizeCtx, nil)
 	if err != nil {
 		return WorktreeVerifyResult{}, annotateCommittedEffect(wrapFailure(KindUnavailable, "worktree_verify", "cannot begin verify release", true, "retry the same operation with the same lease id", err), leaseRef)
 	}
@@ -3548,6 +3559,9 @@ func (s *Store) VerifyWorktree(ctx context.Context, req WorktreeVerifyRequest) (
 	if changed {
 		outcome = "refused_mutated"
 	}
+	if cancelErr != nil {
+		outcome = "aborted"
+	}
 	boundedOutput, outputTruncated := boundText(string(output), maxOutput)
 	if outputTruncated {
 		truncated = true
@@ -3555,11 +3569,11 @@ func (s *Store) VerifyWorktree(ctx context.Context, req WorktreeVerifyRequest) (
 	result := WorktreeVerifyResult{WorkID: req.WorkID, ProjectID: req.ProjectID, Branch: entry.Branch, Path: entry.Path, LeaseID: req.LeaseID, OperationRef: worktreeVerifyOperationRef(req.LeaseID), Command: req.Command, ExitCode: exitCode, Output: boundedOutput, OutputTruncated: truncated, TrackedFilesChanged: changed}
 	resultJSON, _ := json.Marshal(result)
 	releasedAt := nowFromClock(nil)
-	if _, err := releaseTx.ExecContext(ctx, `UPDATE worktree_verify_leases SET state='released', released_at=?, exit_code=?, outcome=?, result_json=? WHERE lease_id=? AND state='held'`,
+	if _, err := releaseTx.ExecContext(finalizeCtx, `UPDATE worktree_verify_leases SET state='released', released_at=?, exit_code=?, outcome=?, result_json=? WHERE lease_id=? AND state='held'`,
 		releasedAt.Format(time.RFC3339Nano), exitCode, outcome, string(resultJSON), req.LeaseID); err != nil {
 		return WorktreeVerifyResult{}, annotateCommittedEffect(wrapFailure(KindUnavailable, "worktree_verify", "cannot release the verify lease", true, "retry the same operation with the same lease id", err), leaseRef)
 	}
-	if !changed && exitCode == 0 {
+	if cancelErr == nil && !changed && exitCode == 0 {
 		// Only a passing run may stand as verification authority. A failed or
 		// mutated run stays history in worktree_verify_leases and names no
 		// producer operation, so the completion gate cannot consume it.
@@ -3571,6 +3585,9 @@ func (s *Store) VerifyWorktree(ctx context.Context, req WorktreeVerifyRequest) (
 		return WorktreeVerifyResult{}, annotateCommittedEffect(wrapFailure(KindUnavailable, "worktree_verify", "cannot commit the verify release", true, "retry the same operation with the same lease id", err), leaseRef)
 	}
 	released = true
+	if cancelErr != nil {
+		return result, annotateCommittedEffect(cancelErr, leaseRef)
+	}
 	if changed {
 		return result, annotateCommittedEffect(newFailure(KindWorktreeVerifyMutated, "worktree_verify",
 			"tracked files changed in "+entry.Path+" while the verify command ran; a verifier that edits its subject verifies nothing (CD-0096 D3)", false, "reconcile_operation"), leaseRef)
@@ -3578,10 +3595,9 @@ func (s *Store) VerifyWorktree(ctx context.Context, req WorktreeVerifyRequest) (
 	return result, nil
 }
 
-// abandonedVerifyReleaseTimeout bounds the deferred release of a lease the
-// verify window is leaving behind. The caller's context may already be
-// cancelled, so the release runs on its own bounded one.
-const abandonedVerifyReleaseTimeout = 5 * time.Second
+// worktreeVerifyFinalizeTimeout bounds both normal and abandoned release.
+// These phases must finish even when the caller cancels the command.
+const worktreeVerifyFinalizeTimeout = 5 * time.Second
 
 // releaseAbandonedVerifyLease releases the lease on every exit from the
 // window between the committed acquire and the committed release: context
@@ -3597,7 +3613,7 @@ func releaseAbandonedVerifyLease(s *Store, ctx context.Context, leaseID string, 
 	if *released {
 		return
 	}
-	releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), abandonedVerifyReleaseTimeout)
+	releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), worktreeVerifyFinalizeTimeout)
 	defer cancel()
 	tx, err := s.db.BeginTx(releaseCtx, nil)
 	if err != nil {
@@ -3920,22 +3936,36 @@ func (w *cappedOutput) Write(p []byte) (int, error) {
 
 // RunWorktreeVerifyCommand executes argv in dir under the caller's context,
 // returning the exit code and bounded combined output. A command that cannot
-// start reports exit code -1 with the start failure as output.
+// start reports exit code -1 with the start failure as output. TERM gives a
+// wrapper its cleanup window; the owned process group is killed before return.
 func RunWorktreeVerifyCommand(ctx context.Context, dir string, command []string, maxOutput int) (int, []byte, bool, error) {
 	cmd := exec.CommandContext(ctx, command[0], command[1:]...) //nolint:gosec // argv values stay separate and no shell is invoked; the tier grants the command.
 	cmd.Dir = dir
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error { return cmd.Process.Signal(syscall.SIGTERM) }
+	cmd.WaitDelay = worktreeVerifyFinalizeTimeout
 	out := &cappedOutput{limit: maxOutput}
 	cmd.Stdout = out
 	cmd.Stderr = out
 	if err := cmd.Start(); err != nil {
-		return -1, []byte(err.Error()), false, nil
+		_, _ = out.Write([]byte(err.Error()))
+		return -1, out.buffer.Bytes(), out.truncated, nil
 	}
-	if err := cmd.Wait(); err != nil {
+	err := cmd.Wait()
+	// The command owns this group. It must leave no in-group background
+	// writers behind when the lease moves to its after snapshot. Wrappers
+	// that create separate groups own their TERM cleanup themselves.
+	_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+	if ctx.Err() != nil {
+		return -1, out.buffer.Bytes(), out.truncated, ctx.Err()
+	}
+	if err != nil {
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {
 			return exitErr.ExitCode(), out.buffer.Bytes(), out.truncated, nil
 		}
-		return -1, append(out.buffer.Bytes(), []byte("\n"+err.Error())...), out.truncated, nil
+		_, _ = out.Write([]byte("\n" + err.Error()))
+		return -1, out.buffer.Bytes(), out.truncated, nil
 	}
 	return 0, out.buffer.Bytes(), out.truncated, nil
 }

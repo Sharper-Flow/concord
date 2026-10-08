@@ -80,21 +80,25 @@ class EvaluationTests(unittest.TestCase):
         self.events[1]["part"]["text"] = "Capture succeeded"
         self.assertFalse(evaluate(self.calls, self.events, 0)["passed"])
 
-    def test_intermediate_narration_does_not_erase_the_terminal_answer(self):
-        # The terminal answer is the last text event, so narration before it
-        # fails only the strict output check, not the measured behavior.
+    def test_narrated_terminal_answer_passes_with_strict_advisory_false(self):
+        # Contract v2: the terminal answer is the last text event, so
+        # narration before it never gates the measured capture behavior; the
+        # strict output rule reports advisory only.
         self.events.insert(1, {"type": "text", "part": {"text": "Capturing the item."}})
         result = evaluate(self.calls, self.events, 0)
         self.assertTrue(result["checks"]["final_response"])
-        self.assertFalse(result["checks"]["strict_output_compliance"])
-        self.assertFalse(result["passed"])
+        self.assertFalse(result["advisory"]["strict_output_compliance"])
+        self.assertNotIn("strict_output_compliance", result["checks"])
+        self.assertTrue(result["passed"])
 
-    def test_fenced_terminal_answer_keeps_the_formatter_failure_visible(self):
+    def test_fenced_terminal_answer_passes_with_strict_advisory_false(self):
+        # Contract v2: a fenced final answer still measures the capture, and
+        # the harness FORMAT violation reports advisory only.
         self.events[1]["part"]["text"] = "```json\n" + self.events[1]["part"]["text"] + "\n```"
         result = evaluate(self.calls, self.events, 0)
         self.assertTrue(result["checks"]["final_response"])
-        self.assertFalse(result["checks"]["strict_output_compliance"])
-        self.assertFalse(result["passed"])
+        self.assertFalse(result["advisory"]["strict_output_compliance"])
+        self.assertTrue(result["passed"])
 
     def test_missing_context_receipt(self):
         self.assertFalse(evaluate(self.calls, self.events, 0, {"continuation.md": "nonce"})["passed"])

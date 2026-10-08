@@ -361,7 +361,7 @@ def main():
     for name in selected:
         result = run_case(args, name, source, originals)
         results.append(result)
-        print(json.dumps({key: result.get(key) for key in ("scenario", "passed", "artifact_dir", "checks", "artifact_error", "dependency_cleanup_error", "final_response")}), flush=True)
+        print(json.dumps({key: result.get(key) for key in ("scenario", "passed", "artifact_dir", "checks", "advisory", "artifact_error", "dependency_cleanup_error", "final_response")}), flush=True)
     return 0 if all(result["passed"] for result in results) else 1
 
 

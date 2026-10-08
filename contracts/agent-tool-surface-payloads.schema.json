@@ -2759,10 +2759,12 @@
       "required": [
         "work_id",
         "pinned",
-        "latest_checkpoint",
         "boundaries",
         "typed_availability",
-        "pending_messages"
+        "pending_messages",
+        "observations",
+        "observations_total",
+        "observations_read"
       ],
       "properties": {
         "work_id": {
@@ -2926,16 +2928,6 @@
             }
           }
         },
-        "latest_checkpoint": {
-          "oneOf": [
-            {
-              "$ref": "#/$defs/continuity_checkpoint"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
         "boundaries": {
           "type": "object",
           "additionalProperties": false,
@@ -3027,6 +3019,40 @@
                 "type": "string",
                 "minLength": 10,
                 "maxLength": 40
+              }
+            }
+          }
+        },
+        "observations_total": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "observations_read": {
+          "description": "The paged read of the whole observation population, newest first. The observations field holds only the newest window that fits the envelope.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "tool",
+            "operation",
+            "input"
+          ],
+          "properties": {
+            "tool": {
+              "const": "concord_work_trace"
+            },
+            "operation": {
+              "const": "observations"
+            },
+            "input": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "work_id"
+              ],
+              "properties": {
+                "work_id": {
+                  "$ref": "#/$defs/id"
+                }
               }
             }
           }
@@ -3524,9 +3550,14 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "observations"
+        "observations",
+        "total"
       ],
       "properties": {
+        "total": {
+          "type": "integer",
+          "minimum": 0
+        },
         "observations": {
           "type": "array",
           "maxItems": 64,

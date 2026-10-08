@@ -75,19 +75,18 @@ test("a completed review-lane report with a valid typed review block passes", ()
   expect(run(report())).toMatchObject({ pass: true, score: 1 })
 })
 
-test("a report missing a required top-level field is refused", () => {
+test("a report missing schema_version is admitted under a packet and refused without one", () => {
   const { schema_version: _dropped, ...rest } = report()
-  const result = run(rest)
+  // The packet names the report identity, so admission composes it and the
+  // worker's omission carries no weight — the same admission the adapter
+  // applies to an undefined schema_version echo.
+  expect(run(rest)).toMatchObject({ pass: true, score: 1 })
+  // A packet that names no schema_version is a synthetic context: the
+  // report's own surface must carry it, and its absence is refused.
+  const result = run(rest, {})
   expect(result.pass).toBe(false)
   expect(result.reason).toContain("missing required propert")
   expect(result.reason).toContain("schema_version")
-})
-
-test("a report carrying a wrong schema_version is refused", () => {
-  const result = run(report({ schema_version: "2.0" }))
-  expect(result.pass).toBe(false)
-  expect(result.reason).toContain("schema_version")
-  expect(result.reason).toContain('expected one of ["1.0","1.1"]')
 })
 
 test("a report status outside the declared lifecycle is refused", () => {
@@ -203,6 +202,95 @@ test("a report echoing dispatch-owned identity is admitted with identity from th
     lane_digest: "sha256:" + "0".repeat(64),
   })
   expect(run(echoed)).toMatchObject({ pass: true, score: 1 })
+})
+
+// The packet's worker-job revision (CD-0205): the report binding projects
+// job_id, revision, and digest from inputs.worker_job the way the adapter's
+// packetWorkerJobBinding does, and the packet's schema_version governs the
+// report identity the way admission stamps it.
+const JOB_BINDING = { job_id: "job:one", revision: 2, digest: `sha256:${"a".repeat(64)}` }
+
+const jobPacket = (overrides: Record<string, unknown> = {}): Record<string, unknown> =>
+  reviewPacket({
+    schema_version: "1.1",
+    inputs: { task: "review the bounded change against its contract", worker_job: { ...JOB_BINDING } },
+    ...overrides,
+  })
+
+test("report admission derives schema identity from the packet, not the worker", () => {
+  for (const schema_version of ["1.0", "1.1"] as const) {
+    for (const echo of ["1.0", "1.1", "2.0", null, 11, undefined]) {
+      const result = run(report({ schema_version: echo }), reviewPacket({ schema_version }))
+      expect(result.pass, `packet ${schema_version}, worker echo ${JSON.stringify(echo) ?? "dropped"}`).toBe(true)
+    }
+  }
+})
+
+test("report admission derives the worker-job binding from the packet, not the worker", () => {
+  const echoes = [
+    ["matching", { ...JOB_BINDING }],
+    ["missing", undefined],
+    ["wrong job", { ...JOB_BINDING, job_id: "job:other" }],
+    ["stale revision", { ...JOB_BINDING, revision: 1 }],
+    ["wrong digest", { ...JOB_BINDING, digest: `sha256:${"b".repeat(64)}` }],
+    ["malformed", { revision: "not-a-revision", extra: true }],
+    ["null", null],
+    ["non-object", "job:one"],
+  ] as const
+  for (const [label, worker_job] of echoes) {
+    for (const status of ["completed", "failed"] as const) {
+      const result = run(report({ schema_version: "1.0", worker_job, status }), jobPacket())
+      expect(result.pass, `${label} echo, ${status} report`).toBe(true)
+    }
+  }
+})
+
+test("an unbound packet stays unbound whatever the worker echoes", () => {
+  for (const schema_version of ["1.0", "1.1"] as const) {
+    for (const worker_job of [JOB_BINDING, undefined] as const) {
+      const result = run(report({ worker_job }), reviewPacket({ schema_version }))
+      expect(result.pass, `packet ${schema_version}, echo ${worker_job === undefined ? "absent" : "present"}`).toBe(true)
+    }
+  }
+})
+
+test("a packet whose worker-job binding the closed report schema refuses is refused", () => {
+  const refusals: Array<{ name: string; packet: Record<string, unknown> }> = [
+    {
+      name: "a 1.0 packet never carries a job",
+      packet: jobPacket({ schema_version: "1.0" }),
+    },
+    {
+      name: "an invalid recorded digest",
+      packet: jobPacket({ inputs: { task: "review the bounded change against its contract", worker_job: { ...JOB_BINDING, digest: "invalid" } } }),
+    },
+  ]
+  for (const refusal of refusals) {
+    const result = run(report(), refusal.packet)
+    expect(result.pass, refusal.name).toBe(false)
+    expect(result.reason, refusal.name).toContain("closed agent-lane-report.v1 schema")
+  }
+})
+
+test("a packet that names no schema version keeps the report's own enum-bound version", () => {
+  expect(run(report(), {})).toMatchObject({ pass: true, score: 1 })
+  const refused = run(report({ schema_version: "2.0" }), {})
+  expect(refused.pass).toBe(false)
+  expect(refused.reason).toContain("schema_version")
+  expect(refused.reason).toContain('expected one of ["1.0","1.1"]')
+})
+
+test("a malformed packet schema identity never falls back to the worker echo", () => {
+  for (const schema_version of [null, 11, "invalid"]) {
+    const result = run(report(), reviewPacket({ schema_version }))
+    expect(result.pass).toBe(false)
+    expect(result.reason).toContain("schema_version")
+  }
+})
+
+test("a prompt that is not a packet document falls back to the report surface", () => {
+  const result = assertLaneReport(stream(report()), { prompt: "review the bounded change" })
+  expect(result.pass, result.reason).toBe(true)
 })
 
 test("a base_comparison outside the declared shape is refused", () => {

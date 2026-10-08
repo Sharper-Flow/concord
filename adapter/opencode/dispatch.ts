@@ -943,10 +943,10 @@ function malformedReason(candidate: string, error: unknown): string {
 }
 
 // Dispatch-owned fields the adapter strips from a worker-authored report
-// instead of refusing it (CD-0056 D7, amended 2026-09-17). The canonical
+// instead of refusing it (CD-0056 D7). The canonical
 // report still receives identity exclusively from the authorized dispatch
 // packet, so whatever the worker echoes is discarded, not trusted.
-const DISPATCH_OWNED_REPORT_FIELDS = ["attempt_id", "lane_id", "lane_version", "lane_digest", "work_id", "step_id"] as const
+const DISPATCH_OWNED_REPORT_FIELDS = ["schema_version", "attempt_id", "lane_id", "lane_version", "lane_digest", "work_id", "step_id"] as const
 // The detail bounds are read from the closed schema rather than repeated here,
 // so normalization cannot drift from the bounds it exists to satisfy. The
 // store counts UTF-8 bytes (x-maxBytes), so the byte bound is the one
@@ -1013,15 +1013,14 @@ function admitWorkerReport(scan: WorkerReportScan, packet: AgentLanePacket): { r
   }
   const stripped: Record<string, unknown> = { ...scan.report }
   for (const field of DISPATCH_OWNED_REPORT_FIELDS) delete stripped[field]
-  const normalized = normalizeWorkerReport(stripped)
+  // Validate worker content under the dispatch's identity, including the
+  // worker_job restrictions on legacy reports (CD-0205).
+  const normalized = normalizeWorkerReport({ ...stripped, schema_version: packet.schema_version })
   const failures: string[] = []
   if (!validateAgentLaneReport(normalized, failures)) {
     return { detail: `worker report failed the closed agent-lane-report.v1 schema: ${failures[0] ?? "unknown field"}` }
   }
   const admitted = normalized
-  if (admitted.schema_version !== packet.schema_version) {
-    return { detail: "worker report schema identity does not match its dispatch packet" }
-  }
   const lane = laneForPacket(packet)
   if (!lane) return { detail: "worker report packet names an unregistered lane identity or digest" }
   if (admitted.status === "completed") {

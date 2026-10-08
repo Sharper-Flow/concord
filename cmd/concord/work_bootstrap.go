@@ -15,22 +15,23 @@ import (
 )
 
 type workBootstrapInput struct {
-	ProductID             string   `json:"product_id"`
-	ProjectID             string   `json:"project_id"`
-	Title                 string   `json:"title"`
-	ValueStatement        string   `json:"value_statement"`
-	Kind                  string   `json:"kind"`
-	Task                  string   `json:"task"`
-	IdempotencyKey        string   `json:"idempotency_key"`
-	Priority              int64    `json:"priority"`
-	Urgency               string   `json:"urgency"`
-	Tags                  []string `json:"tags"`
-	WorkflowTypeRef       string   `json:"workflow_type_ref"`
-	ExternalRef           string   `json:"external_ref"`
-	RaisedFromWorkID      string   `json:"raised_from_work_id"`
-	GoverningRequirements []string `json:"governing_requirements"`
-	Ref                   string   `json:"ref"`
-	SessionRef            string   `json:"session_ref"`
+	ProductID             string              `json:"product_id"`
+	ProjectID             string              `json:"project_id"`
+	Title                 string              `json:"title"`
+	ValueStatement        string              `json:"value_statement"`
+	Kind                  string              `json:"kind"`
+	Task                  string              `json:"task"`
+	IdempotencyKey        string              `json:"idempotency_key"`
+	Priority              int64               `json:"priority"`
+	Urgency               string              `json:"urgency"`
+	Tags                  []string            `json:"tags"`
+	WorkflowTypeRef       string              `json:"workflow_type_ref"`
+	ExternalRef           string              `json:"external_ref"`
+	RaisedFromWorkID      string              `json:"raised_from_work_id"`
+	GoverningRequirements []string            `json:"governing_requirements"`
+	Ref                   string              `json:"ref"`
+	DefectIntake          *store.DefectIntake `json:"defect_intake"`
+	SessionRef            string              `json:"session_ref"`
 	// HostPID is the pid of the OpenCode process that runs the adapter. The
 	// claimed worktree's occupancy row records it with the start time the
 	// core derives, so the row carries process identity from creation
@@ -123,7 +124,7 @@ func runWorkBootstrap(raw []byte, s *store.Store, out, errOut io.Writer) int {
 		IdempotencyKey: input.IdempotencyKey, Priority: input.Priority, Urgency: input.Urgency,
 		Tags: input.Tags, WorkflowTypeRef: input.WorkflowTypeRef, ExternalRef: input.ExternalRef, RaisedFromWorkID: input.RaisedFromWorkID,
 		GoverningRequirements: input.GoverningRequirements, Ref: input.Ref, ResolvedRef: resolvedRef, SessionRef: input.SessionRef,
-		HostPID: input.HostPID,
+		HostPID: input.HostPID, DefectIntake: input.DefectIntake,
 	}, nil)
 	if err != nil {
 		writeOperatorDiagnostic(errOut, "work-bootstrap", err.Error())

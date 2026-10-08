@@ -1,0 +1,114 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestNativeBugCaptureRequiresDefectIntake"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestPublicCaptureBugWithoutIntakeRefused"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestOtherKindsRefuseDefectIntake"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestResearchCaptureCarryingIntakeNeedsNoRCA"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestResearchIntakeCannotAssertRootCausePrerequisite"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestFirstBugCaptureAdmitsAndPersistsClassification"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestExplicitRelatedDefectValidation"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestSameShapeOtherProductIsNotSibling"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestConcurrentSameShapeCapturesAdmitExactlyOne"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestRecurrentBugCaptureRefusesNamingSiblingAndRoute"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestRecurrentBugCaptureAdmittedBehindCompletedRCA"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestRootCauseDisqualificationsRefuse"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestLargeClusterAdmitsResearchAndRetryWithoutCap"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestRecurrenceRefusalDetailIsBoundedWithCount"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestPublicDefectJourneyThroughRealResearchCompletion"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestRevisePreservesClassificationAndRefusesBugConversion"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestClassifiedResearchRevisionToBugRefused"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestClassifiedBugRevisionAwayRefused"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestUnclassifiedNonBugRevisionToBugStillRefused"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestHistoricalKindConversionReplaysThroughRebuild"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestHistoricalWorkCreatedVersionsStayUnclassified"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestRebuildReplaysDefectAdmissionDeterministically"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestPublicListFullDetailCarriesDefectIntake"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestPublicScopeCarriesDefectIntake"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestBootstrapBugCaptureRequiresDefectIntakePreEffect"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestBootstrapBugCaptureRecurrenceRoute"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/test-generate-agent-lanes.py"
+    }
+  ],
+  "id": "CD-0211",
+  "state": "satisfied"
+}

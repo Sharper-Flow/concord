@@ -179,7 +179,7 @@ Commands read one strict JSON object from stdin:
     required: work_id, session_ref, landed_directory
   concord work-bootstrap < JSON stdin
     required: product_id, project_id, title, value_statement, kind, task, idempotency_key
-    optional: priority, urgency, tags, workflow_type_ref, external_ref, governing_requirements, ref (an omitted ref resolves to the default branch, HEAD in the main checkout, as resolution after identity), host_pid (required with session_ref); deterministic refusals exit 2
+    optional: priority, urgency, tags, workflow_type_ref, external_ref, governing_requirements, ref (default branch resolved after identity), defect_intake (required for bug), host_pid (required with session_ref); deterministic refusals exit 2
     accepted values: kind: task | bug | decision | research | other; urgency: standard | expedite
   concord work-resume < JSON stdin
     required: product_id, project_id, work_id

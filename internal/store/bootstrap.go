@@ -42,6 +42,11 @@ type BootstrapRequest struct {
 	RaisedFromWorkID      string   `json:"raised_from_work_id,omitempty"`
 	GoverningRequirements []string `json:"governing_requirements"`
 	Ref                   string   `json:"ref"`
+	// DefectIntake is the capture admission record a bug capture requires
+	// and a research capture may carry as its cluster RCA identity. It rides
+	// the request into the work.created payload; an absent record leaves the
+	// marshalled request, and therefore the capture identity, unchanged.
+	DefectIntake *DefectIntake `json:"defect_intake,omitempty"`
 	// SessionRef is the session that will occupy the claimed worktree. It
 	// stays out of the marshalled request because the canonical identity
 	// digest is built from it: the same capture asked for by two sessions is
@@ -503,6 +508,11 @@ func CanonicalBootstrapIdentity(req BootstrapRequest) (string, string, string, e
 	if req.GoverningRequirements == nil {
 		req.GoverningRequirements = []string{}
 	}
+	// One capture intent hashes identically whether the caller declared an
+	// empty related list or omitted it, so the digest names the record's
+	// meaning rather than its spelling. The normalization copies the record
+	// rather than writing through the caller's pointer.
+	req.DefectIntake = normalizedDefectIntake(req.DefectIntake)
 	data, err := json.Marshal(req)
 	if err != nil {
 		return "", "", "", err
@@ -616,6 +626,8 @@ func bootstrapRowMatchesCallerIntent(requestJSON string, req BootstrapRequest) b
 	if row.GoverningRequirements == nil {
 		row.GoverningRequirements = []string{}
 	}
+	caller.DefectIntake = normalizedDefectIntake(caller.DefectIntake)
+	row.DefectIntake = normalizedDefectIntake(row.DefectIntake)
 	callerData, err := json.Marshal(caller)
 	if err != nil {
 		return false
@@ -1101,6 +1113,11 @@ func validateBootstrapRequest(req BootstrapRequest) error {
 	if req.RaisedFromWorkID != "" && !bootstrapIDPattern.MatchString(req.RaisedFromWorkID) {
 		return newFailure(KindInvalidOperation, "work_bootstrap", "raised_from_work_id is not a valid identifier", false, "supply a bounded work identifier")
 	}
+	// The defect intake record validates before the journal, the claim, and
+	// every native Git effect, so a malformed record refuses with no effect.
+	if err := ValidateDefectIntake(req.Kind, req.DefectIntake); err != nil {
+		return err
+	}
 	if req.Ref != "" && (len(req.Ref) > 128 || strings.HasPrefix(req.Ref, "-") || strings.ContainsAny(req.Ref, " \t\n\r\x00")) {
 		return newFailure(KindInvalidOperation, "work_bootstrap", "ref is not a bounded rev-syntax value", false, "supply one safe repository ref")
 	}
@@ -1278,10 +1295,10 @@ func (s *Store) prepareBootstrapMode(ctx context.Context, req BootstrapRequest, 
 		now := s.now()
 		if !existing && !restarted {
 			priority := req.Priority
-			workPayload, _ := json.Marshal(workCreatedPayload{WorkID: workID, WorkKind: req.Kind, Title: req.Title, Task: req.Task, ValueStatement: req.ValueStatement, Priority: &priority, Urgency: req.Urgency, Tags: req.Tags, WorkflowTypeRef: req.WorkflowTypeRef, ExternalRef: req.ExternalRef, RaisedFromWorkID: req.RaisedFromWorkID})
+			workPayload, _ := json.Marshal(workCreatedPayload{WorkID: workID, WorkKind: req.Kind, Title: req.Title, Task: req.Task, ValueStatement: req.ValueStatement, Priority: &priority, Urgency: req.Urgency, Tags: req.Tags, WorkflowTypeRef: req.WorkflowTypeRef, ExternalRef: req.ExternalRef, RaisedFromWorkID: req.RaisedFromWorkID, DefectIntake: req.DefectIntake})
 			membershipPayload, _ := json.Marshal(workMembershipsPayload{Memberships: []workMembershipPayload{{ProjectID: req.ProjectID, Role: "primary"}}, ExpectedVersion: 1, ResultingVersion: 2})
 			events := []Event{
-				{EventID: operationID + ":work-created", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: now, PayloadVersion: 2, Payload: workPayload},
+				{EventID: operationID + ":work-created", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: now, PayloadVersion: 3, Payload: workPayload},
 				{EventID: operationID + ":memberships", Kind: "work.memberships_replaced", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: now, PayloadVersion: 1, Payload: membershipPayload},
 			}
 			if _, err := applyOperationTx(ctx, tx.Tx, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 0}}, newFoldScope(tx.Tx), false); err != nil {

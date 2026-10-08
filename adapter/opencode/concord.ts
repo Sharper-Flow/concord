@@ -953,6 +953,13 @@ type WorkStartCaptureArgs = {
   tags?: string[]
   workflow_type_ref?: string
   external_ref?: string
+  defect_intake?: {
+    failure_shape: string
+    reproduction: string
+    searched: string
+    related_defect_ids: string[]
+    root_cause_work_id?: string
+  }
   governing_requirements?: string[]
   ref?: string
 }

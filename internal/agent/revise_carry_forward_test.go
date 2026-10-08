@@ -34,7 +34,7 @@ func TestReviseIntentCarriesTheSameFamilyForward(t *testing.T) {
 		t.Fatal(err)
 	}
 	envelope := CallEnvelope{SchemaVersion: "1.0", RequestID: "carry-capture-1", ClientRef: grant.ClientRef, PrincipalRef: grant.PrincipalRef, SessionRef: grant.SessionRef, AgentRef: grant.AgentRef, Directory: grant.Directory, Worktree: grant.Worktree, AmbientProjectID: "project-1", SelectedProductID: "product-1", ScopeVersion: scopeVersion, ManifestDigest: grant.ManifestDigest}
-	capture := InvokeRequest{Tool: "concord_work_define", Operation: "capture", Input: json.RawMessage(`{"title":"Stranded repair","value_statement":"Repair value","kind":"bug","project_ids":["project-1"],"idempotency_key":"carry-capture-1"}`)}
+	capture := InvokeRequest{Tool: "concord_work_define", Operation: "capture", Input: json.RawMessage(`{"title":"Stranded repair","value_statement":"Repair value","kind":"bug","project_ids":["project-1"],"idempotency_key":"carry-capture-1","defect_intake":{"failure_shape":"carry-forward-strand","reproduction":"pin a workflow definition and strand the instance","searched":"the work list and the registry","related_defect_ids":[]}}`)}
 	response, err := Dispatch(ctx, s, service, capture, envelope)
 	if err != nil || response.Outcome != OutcomeOK {
 		t.Fatalf("capture response=%+v err=%v", response, err)

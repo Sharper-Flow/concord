@@ -76,7 +76,7 @@ PRODUCTION_RESUME_REFUSAL = {
     "recovery_action": {"kind": "contact_operator"},
     "retry_safe": False,
 }
-MANIFEST_DIGEST = "sha256:b5d71ff790014579ef3ad92562cc928bace3e7d7d661dfe425bf6f5db0140fdf"
+MANIFEST_DIGEST = (REPO / "contracts" / "agent-tool-surface.digest").read_text().strip()
 DIRTY_ORIGIN_STDERR = ("concord work-resume: store: work_bootstrap: invalid_operation: "
                        "cannot chain from dirty worktree of synthetic-origin-work")
 SHORT_BASE_SHA = "aabbcc"

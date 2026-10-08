@@ -127,6 +127,8 @@ const (
 	KindTakeoverRequired            FailureKind = "takeover_required"
 	KindResearchRevisionImmutable   FailureKind = "research_revision_immutable"
 	KindResearchConsumerBlocked     FailureKind = "research_consumer_blocked"
+	// KindOutsideRepairActive refuses managed moves on operator-held work.
+	KindOutsideRepairActive FailureKind = "outside_repair_active"
 	// KindResourceClaimHeld marks a claim on a resource another work item
 	// already holds. The refusal names coordination, not authority.
 	KindResourceClaimHeld FailureKind = "resource_claim_held"

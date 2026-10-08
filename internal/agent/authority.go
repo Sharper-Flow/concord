@@ -88,14 +88,25 @@ type Service struct {
 	// phases; production construction leaves it nil. It mirrors the unexported
 	// observer surface internal/store uses for the same purpose.
 	publicationObserver func(phase string) error
+	// ExternalEvidenceCommand runs one authenticated forge command outside
+	// every write transaction. argv carries each value separately; no shell
+	// string is accepted. Production construction installs the gh executor;
+	// tests install a deterministic fake, so no test touches the forge. The
+	// outside-repair boundary owns the only call site (CD-0122 D2, CD-0210).
+	ExternalEvidenceCommand ExternalEvidenceCommandRunner
 }
+
+// ExternalEvidenceCommandRunner runs one external command by exact argv.
+// The implementation owns the bounded execution policy; a nil return value
+// from stdout is a command failure the caller reports as missing evidence.
+type ExternalEvidenceCommandRunner func(ctx context.Context, command string, args ...string) (stdout string, err error)
 
 func NewService(authority *store.Store) *Service {
 	var now Clock
 	if authority != nil {
 		now = authority.Clock
 	}
-	return &Service{Store: authority, Now: now, MaxClockSkew: defaultClockSkew, NonceRetention: 24 * time.Hour}
+	return &Service{Store: authority, Now: now, MaxClockSkew: defaultClockSkew, NonceRetention: 24 * time.Hour, ExternalEvidenceCommand: DefaultExternalEvidenceCommand}
 }
 
 func authorityUnavailable(op string) error {
@@ -1012,7 +1023,7 @@ func scopeWithinAuthority(scope map[string]any, authority Authority) bool {
 	return true
 }
 func validChallengeScope(scope map[string]any) bool {
-	allowed := map[string]bool{"product_id": true, "product_ids": true, "project_ids": true, "work_ids": true, "failed_attempt_id": true, "scope_version": true, "project_id": true, "role": true, "client_ref": true, "policy_version": true, "capabilities": true, "product_scope": true, "project_scope": true, "agent_scope": true}
+	allowed := map[string]bool{"product_id": true, "product_ids": true, "project_ids": true, "work_ids": true, "failed_attempt_id": true, "scope_version": true, "project_id": true, "role": true, "client_ref": true, "policy_version": true, "capabilities": true, "product_scope": true, "project_scope": true, "agent_scope": true, "release_tag": true, "pull_requests": true}
 	for key, value := range scope {
 		if !allowed[key] {
 			return false
@@ -1054,6 +1065,37 @@ func validChallengeScope(scope map[string]any) bool {
 				}
 				for _, text := range ids {
 					if !bounded(text, 1, 128) {
+						return false
+					}
+				}
+			default:
+				return false
+			}
+		case "release_tag":
+			if text, ok := value.(string); !ok || !outsideRepairReleaseTagBound(text) {
+				return false
+			}
+		case "pull_requests":
+			// The outside-repair reconcile challenge binds the exact selected
+			// pull-request set: bounded decimal strings the plan derived, so
+			// one approval authorizes that set and never another result.
+			switch selectors := value.(type) {
+			case []any:
+				if len(selectors) == 0 || len(selectors) > 32 {
+					return false
+				}
+				for _, raw := range selectors {
+					text, ok := raw.(string)
+					if !ok || !outsideRepairPullRequestSelectorBound(text) {
+						return false
+					}
+				}
+			case []string:
+				if len(selectors) == 0 || len(selectors) > 32 {
+					return false
+				}
+				for _, text := range selectors {
+					if !outsideRepairPullRequestSelectorBound(text) {
 						return false
 					}
 				}

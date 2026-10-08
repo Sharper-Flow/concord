@@ -24,8 +24,11 @@ func workflowInstancePin(t *testing.T, s *Store, workID string) (string, int64, 
 }
 
 func startWorkflowPinnedTo(t *testing.T, s *Store, workID string, definition RegisteredDefinition) (WorkflowActor, int64) {
+	return startWorkflowPinnedToContext(t, context.Background(), s, workID, definition)
+}
+
+func startWorkflowPinnedToContext(t *testing.T, ctx context.Context, s *Store, workID string, definition RegisteredDefinition) (WorkflowActor, int64) {
 	t.Helper()
-	ctx := context.Background()
 	seedWork(t, s, workID)
 	actor := WorkflowActor{PrincipalRef: "principal:evolution", ClientRef: "client:evolution", AgentRef: "agent:evolution", SessionRef: "session:evolution", ActorClass: ActorAgent}
 	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
@@ -165,7 +168,9 @@ func TestInFlightWorkflowSurvivesSchemaMigration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	actor, version := startWorkflowPinnedTo(t, s, workID, definition)
+	// Before the migration, construct the earlier binary's historical events.
+	// Current live admission requires the fully migrated authority schema.
+	actor, version := startWorkflowPinnedToContext(t, workflowReplayContext(ctx), s, workID, definition)
 	beforeVersion, err := readSchemaManifestVersion(ctx, db)
 	if err != nil {
 		t.Fatal(err)

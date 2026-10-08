@@ -113,7 +113,9 @@
         "concord_work_transition.worktree_audit_reclaim",
         "concord_work_transition.worktree_verify",
         "concord_work_transition.worktree_destroy",
-        "concord_work_transition.correct_delivery"
+        "concord_work_transition.correct_delivery",
+        "concord_work_transition.outside_repair",
+        "concord_work_transition.outside_repair_reconcile"
       ]
     },
     {
@@ -1733,6 +1735,48 @@
         ]
       },
       "supported_budget_seconds": 300
+    },
+    {
+      "id": "concord_work_transition.outside_repair",
+      "tool": "concord_work_transition",
+      "kind": "mutation",
+      "query_id": null,
+      "input_schema": "#/schemas/work_transition_outside_repair_input",
+      "result_schema": "#/schemas/mutation_result",
+      "capability": "work_transition",
+      "consequence": "recovery",
+      "approval": "required",
+      "metadata": {
+        "context": "ambient",
+        "idempotency": "required",
+        "pagination": "none",
+        "output_bytes": 51200,
+        "versions": [
+          "1.0"
+        ]
+      },
+      "supported_budget_seconds": 300
+    },
+    {
+      "id": "concord_work_transition.outside_repair_reconcile",
+      "tool": "concord_work_transition",
+      "kind": "mutation",
+      "query_id": null,
+      "input_schema": "#/schemas/work_transition_outside_repair_reconcile_input",
+      "result_schema": "#/schemas/mutation_result",
+      "capability": "work_transition",
+      "consequence": "recovery",
+      "approval": "required",
+      "metadata": {
+        "context": "ambient",
+        "idempotency": "required",
+        "pagination": "none",
+        "output_bytes": 51200,
+        "versions": [
+          "1.0"
+        ]
+      },
+      "supported_budget_seconds": 300
     }
   ],
   "schemas": {
@@ -2191,6 +2235,14 @@
     "project_retirement_result": {
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/project_retirement_result",
       "closed": true
+    },
+    "work_transition_outside_repair_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_transition_outside_repair_input",
+      "closed": true
+    },
+    "work_transition_outside_repair_reconcile_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_transition_outside_repair_reconcile_input",
+      "closed": true
     }
   },
   "capabilities": [
@@ -2241,6 +2293,6 @@
       "digest"
     ]
   },
-  "payload_digest": "sha256:dd2f7e78effd8ee786c4e67394806b8f4e47e29e50e8278730832ef8ae3a7e34",
-  "digest": "sha256:1e5fdd393bcdbfd454384fdfda348c7120eccd13d5d4b3d1c975f1dc69c90b0c"
+  "payload_digest": "sha256:a2d6b97159356655dd1079f7a7d07abe8ff2a8e36c679286748e8fcb00496a40",
+  "digest": "sha256:d12dd830784dcdd7fe53e71d7b865eea25e3bced32b9d7dabc3c931247cc8194"
 }

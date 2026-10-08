@@ -179,11 +179,13 @@ func TestMigrationClosesInstancesOfTerminalWorkItems(t *testing.T) {
 
 	orphans := map[string]string{"orphan-cancelled": "cancelled", "orphan-completed": "completed", "orphan-superseded": "superseded"}
 	for workID, lifecycle := range orphans {
-		_, version := startWorkflowPinnedTo(t, s, workID, definition)
+		_, version := startWorkflowPinnedToContext(t, workflowReplayContext(ctx), s, workID, definition)
 		switch lifecycle {
 		case "superseded":
 			seedWork(t, s, workID+"-successor")
-			if err := applyWorkEvent(t, s, workSupersededEvent(workID+"-supersede", workID+"-successor", workID, version, version+1), workVersion(workID, version)); err != nil {
+			// This pre-migration history predates outside-repair admission.
+			// Rebuild folds it as recorded, just like the other orphan cases.
+			if err := ApplyOperation(workflowReplayContext(ctx), s, Operation{Events: []Event{workSupersededEvent(workID+"-supersede", workID+"-successor", workID, version, version+1)}, ExpectedVersions: workVersion(workID, version)}); err != nil {
 				t.Fatal(err)
 			}
 		case "completed":
@@ -200,7 +202,7 @@ func TestMigrationClosesInstancesOfTerminalWorkItems(t *testing.T) {
 		default:
 			// The action start above moves the item to in_progress (CD-0183
 			// D1), so the terminal transition starts from there.
-			if err := applyWorkEvent(t, s, workTransitionEvent(workID+"-end", workID, "in_progress", lifecycle, version, version+1), workVersion(workID, version)); err != nil {
+			if err := ApplyOperation(workflowReplayContext(ctx), s, Operation{Events: []Event{workTransitionEvent(workID+"-end", workID, "in_progress", lifecycle, version, version+1)}, ExpectedVersions: workVersion(workID, version)}); err != nil {
 				t.Fatal(err)
 			}
 		}

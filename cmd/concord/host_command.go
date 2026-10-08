@@ -292,6 +292,12 @@ func hostSessionHostCommand(ctx context.Context, dir string) (hostCommandResolut
 // 584613 here — and the truncation surfaces as a JSON parse error rather
 // than as a short read. A regular file has no such boundary.
 func probeHostConfig(ctx context.Context, argv []string, dir string) ([]byte, error) {
+	return probeHostConfigWithEnv(ctx, argv, dir, os.Environ())
+}
+
+// Both probes and execution must see the same host environment. Outside
+// repair supplies an environment without the invoking session's selection.
+func probeHostConfigWithEnv(ctx context.Context, argv []string, dir string, env []string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, hostRegistryProbeTimeout)
 	defer cancel()
 	sink, err := os.CreateTemp("", "concord-host-config-*.json")
@@ -304,6 +310,7 @@ func probeHostConfig(ctx context.Context, argv []string, dir string) ([]byte, er
 	}()
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...) //nolint:gosec // the caller supplies the operator's validated host_command argv or the fixed bare probe; this call does not invoke a shell.
 	cmd.Dir = dir
+	cmd.Env = env
 	// Only stdout carries the document. Host plugins log to stderr, and
 	// mixing the two would corrupt the JSON.
 	cmd.Stdout = sink

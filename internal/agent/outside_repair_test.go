@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -13,6 +15,29 @@ import (
 
 // Tests use an authenticated-command fake and a temporary store, never live writes.
 // proves check:outside-repair-agent-boundary.
+
+func TestOutsideRepairExternalCommandUsesFixedBinaryAndLiteralArgv(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "gh"), []byte("#!/bin/sh\nprintf '%s\\n' \"$@\"\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir)
+	marker := filepath.Join(dir, "executed")
+	argument := "$(/bin/touch " + marker + "); /bin/touch " + marker
+	output, err := DefaultExternalEvidenceCommand(context.Background(), "gh", "api", argument)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if output != "api\n"+argument {
+		t.Fatalf("argv changed: %q", output)
+	}
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("shell syntax executed: %v", err)
+	}
+	if _, err := DefaultExternalEvidenceCommand(context.Background(), "sh", "-c", argument); err == nil {
+		t.Fatal("external evidence admitted another executable")
+	}
+}
 
 var (
 	outsideFakeRepository  = "outside-fixture/concord"

@@ -615,6 +615,30 @@
     "work_pin": {
       "type": "object",
       "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "required": ["outside_repair_disposition"],
+            "properties": {
+              "outside_repair_disposition": {
+                "required": ["state"],
+                "properties": {
+                  "state": {"type": "string", "enum": ["active", "completed"]}
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {"next_valid_intents": {"type": "array", "maxItems": 0}}
+          },
+          "else": {
+            "properties": {
+              "workflow_type": {"$ref": "#/$defs/id"},
+              "step": {"$ref": "#/$defs/short"}
+            }
+          }
+        }
+      ],
       "required": [
         "work_id",
         "title",
@@ -713,17 +737,42 @@
           "$ref": "#/$defs/id"
         },
         "next_valid_intents": {
-          "oneOf": [
-            {
-              "type": "array",
-              "items": {
-                "$ref": "#/$defs/work_pin_intent"
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "tool",
+              "operation",
+              "reason_code"
+            ],
+            "properties": {
+              "tool": {
+                "$ref": "#/$defs/id"
+              },
+              "operation": {
+                "$ref": "#/$defs/short"
+              },
+              "reason_code": {
+                "$ref": "#/$defs/short"
+              },
+              "action_id": {
+                "$ref": "#/$defs/id"
+              },
+              "required_fields": {
+                "type": "array",
+                "maxItems": 32,
+                "uniqueItems": true,
+                "items": {
+                  "$ref": "#/$defs/short"
+                }
+              },
+              "expected_version": {
+                "$ref": "#/$defs/version"
               }
-            },
-            {
-              "type": "null"
             }
-          ]
+          }
         },
         "correction": {
           "oneOf": [
@@ -8546,6 +8595,9 @@
             },
             "binding": {
               "$ref": "#/$defs/worker_packet_binding"
+            },
+            "worker_job": {
+              "$ref": "#/$defs/worker_packet_worker_job"
             },
             "context": {
               "type": "string",

@@ -6571,6 +6571,49 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_pin": {
       "additionalProperties": false,
+      "allOf": [
+        {
+          "else": {
+            "properties": {
+              "step": {
+                "$ref": "#/$defs/short"
+              },
+              "workflow_type": {
+                "$ref": "#/$defs/id"
+              }
+            }
+          },
+          "if": {
+            "properties": {
+              "outside_repair_disposition": {
+                "properties": {
+                  "state": {
+                    "enum": [
+                      "active",
+                      "completed"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "state"
+                ]
+              }
+            },
+            "required": [
+              "outside_repair_disposition"
+            ]
+          },
+          "then": {
+            "properties": {
+              "next_valid_intents": {
+                "maxItems": 0,
+                "type": "array"
+              }
+            }
+          }
+        }
+      ],
       "properties": {
         "attempt": {
           "oneOf": [
@@ -6613,17 +6656,42 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "string"
         },
         "next_valid_intents": {
-          "oneOf": [
-            {
-              "items": {
-                "$ref": "#/$defs/work_pin_intent"
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "action_id": {
+                "$ref": "#/$defs/id"
               },
-              "type": "array"
+              "expected_version": {
+                "$ref": "#/$defs/version"
+              },
+              "operation": {
+                "$ref": "#/$defs/short"
+              },
+              "reason_code": {
+                "$ref": "#/$defs/short"
+              },
+              "required_fields": {
+                "items": {
+                  "$ref": "#/$defs/short"
+                },
+                "maxItems": 32,
+                "type": "array",
+                "uniqueItems": true
+              },
+              "tool": {
+                "$ref": "#/$defs/id"
+              }
             },
-            {
-              "type": "null"
-            }
-          ]
+            "required": [
+              "tool",
+              "operation",
+              "reason_code"
+            ],
+            "type": "object"
+          },
+          "maxItems": 16,
+          "type": "array"
         },
         "outside_repair_disposition": {
           "$ref": "#/$defs/outside_repair_disposition"
@@ -13091,6 +13159,9 @@ const GeneratedPayloadSchemaDocument = `{
               "maxLength": 4096,
               "minLength": 1,
               "type": "string"
+            },
+            "worker_job": {
+              "$ref": "#/$defs/worker_packet_worker_job"
             }
           },
           "required": [

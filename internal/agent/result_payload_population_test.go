@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"maps"
 	"regexp"
 	"strconv"
 	"strings"
@@ -576,7 +577,7 @@ func fixtureNumber(t *testing.T, schema map[string]any) json.Number {
 }
 
 // schemaFixtureValue synthesizes one fully populated value for a schema node:
-// every declared object member, one array item, and a bound-respecting scalar.
+// every declared object member, bound-respecting arrays, and bound-respecting scalars.
 // Optional members are populated on purpose, matching this file's fixture
 // philosophy: an undeclared field cannot hide behind a zero value.
 func schemaFixtureValue(t *testing.T, schema map[string]any, defs map[string]map[string]any, depth int) any {
@@ -625,7 +626,26 @@ func schemaFixtureValue(t *testing.T, schema map[string]any, defs map[string]map
 			if !ok {
 				t.Fatalf("array schema at depth %d carries no items", depth)
 			}
-			return []any{schemaFixtureValue(t, items, defs, depth+1)}
+			count := int64(1)
+			if minimum, ok := schema["minItems"].(json.Number); ok {
+				bound, err := minimum.Int64()
+				if err != nil {
+					t.Fatal(err)
+				}
+				count = max(count, bound)
+			}
+			if maximum, ok := schema["maxItems"].(json.Number); ok {
+				bound, err := maximum.Int64()
+				if err != nil {
+					t.Fatal(err)
+				}
+				count = min(count, bound)
+			}
+			out := make([]any, count)
+			for i := range out {
+				out[i] = schemaFixtureValue(t, items, defs, depth+1)
+			}
+			return out
 		case "object":
 			return schemaFixtureObject(t, schema, defs, depth)
 		default:
@@ -664,7 +684,65 @@ func schemaFixtureObject(t *testing.T, schema map[string]any, defs map[string]ma
 		}
 		out[name] = schemaFixtureValue(t, member, defs, depth+1)
 	}
+	rootDefs := make(map[string]any, len(defs))
+	for name, node := range defs {
+		rootDefs[name] = node
+	}
+	branches, _ := schema["allOf"].([]any)
+	for _, node := range branches {
+		branch, ok := node.(map[string]any)
+		if !ok {
+			t.Fatal("allOf member is not a schema object")
+		}
+		condition, conditional := branch["if"].(map[string]any)
+		if conditional {
+			keyword := "then"
+			if payloadschema.ValidateValue(out, condition, map[string]any{"$defs": rootDefs}, "$") != nil {
+				keyword = "else"
+			}
+			branch, _ = branch[keyword].(map[string]any)
+		}
+		constraints, _ := branch["properties"].(map[string]any)
+		for name, node := range constraints {
+			member, ok := properties[name].(map[string]any)
+			if !ok {
+				t.Fatalf("conditional property %s has no base schema", name)
+			}
+			bounds, ok := node.(map[string]any)
+			if !ok {
+				t.Fatalf("conditional property %s is not a schema object", name)
+			}
+			constrained := maps.Clone(member)
+			maps.Copy(constrained, bounds)
+			out[name] = schemaFixtureValue(t, constrained, defs, depth+1)
+		}
+	}
 	return out
+}
+
+func TestSchemaFixtureWorkPinRespectsOutsideRepairState(t *testing.T) {
+	for _, state := range []string{"active", "completed", "resumed"} {
+		t.Run(state, func(t *testing.T) {
+			defs := payloadSchemaDefs(t)
+			properties := defs["outside_repair_disposition"]["properties"].(map[string]any)
+			properties["state"] = map[string]any{"const": state}
+			value := schemaFixtureValue(t, defs["work_pin"], defs, 0).(map[string]any)
+			data, err := json.Marshal(value)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := payloadschema.Validate("work_pin", data); err != nil {
+				t.Fatalf("fixture for %s disposition is invalid: %v", state, err)
+			}
+			want := 0
+			if state == "resumed" {
+				want = 1
+			}
+			if got := len(value["next_valid_intents"].([]any)); got != want {
+				t.Fatalf("fixture for %s carries %d managed intents, want %d", state, got, want)
+			}
+		})
+	}
 }
 
 // readPopulationInputs names the dispatch input each read operation answers

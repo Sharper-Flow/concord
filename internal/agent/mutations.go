@@ -5134,7 +5134,11 @@ func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte,
 			approvalCheck := ApprovalCheck{ApprovalRef: approval, OperationDigest: digest, Scope: boundedApprovalScope(scope), Versions: versions, Consequence: consequence, ClientRef: grant.ClientRef, SessionRef: grant.SessionRef}
 			_, consumedApprovalRef, err := r.consumeApprovalTx(ctx, tx, host, inv, grant, approvalCheck)
 			if err != nil {
-				response = coreError(base, "approval_invalid", err.Error(), "request_approval", false)
+				var refusal *runtimeFailure
+				if !errors.As(err, &refusal) {
+					err = newRuntimeFailure("approval_invalid", err.Error(), "request_approval", false)
+				}
+				response = failureEnvelope(base, err)
 				resultRejected = true
 				return errors.New("approval invalid")
 			}

@@ -52,8 +52,9 @@ from scenarios import BASE_SHA, SCENARIOS, WORK
 REPO = Path(__file__).resolve().parents[4]
 ADAPTER = REPO / "adapter" / "opencode"
 PIN = json.loads((REPO / ".concord" / "docs" / "adapter-host-pin.v1.json").read_text())
-PINNED_PLUGIN_VERSION = next(
-    package["version"] for package in PIN["packages"] if package["name"] == "@opencode-ai/plugin")
+PINNED_PLUGIN = next(package for package in PIN["packages"] if package["name"] == "@opencode-ai/plugin")
+PINNED_PLUGIN_NAME = PINNED_PLUGIN["name"]
+PINNED_PLUGIN_VERSION = PINNED_PLUGIN["version"]
 
 # The semantic triple classification each production boundary serves for the
 # corpus, cross-checked against the envelopes executed in this run. The
@@ -92,32 +93,99 @@ def require(command, purpose):
     return path
 
 
-def plugin_tool_module():
-    """The real @opencode-ai/plugin tool module, through the repository's
-    accepted dependency mechanisms only, never a host-installed path.
+def pinned_package_root(node_modules):
+    """The package directory the tracked pin's name selects under a
+    node_modules directory."""
+    return node_modules.joinpath(*PINNED_PLUGIN_NAME.split("/"))
 
-    Resolution order: the repository-local plugin install
-    (.opencode/node_modules, pinned by .opencode/package.json), then an
-    isolated stdlib temporary install of the version pinned by the tracked
-    .concord/docs/adapter-host-pin.v1.json. Both failures are explicit.
-    """
-    local = REPO / ".opencode" / "node_modules" / "@opencode-ai" / "plugin" / "dist" / "tool.js"
-    if local.is_file():
-        return local
+
+def plugin_metadata_state(package_root):
+    """Classify the package.json that owns a resolved plugin module:
+    (state, metadata) with state one of ok, missing, unreadable, or
+    malformed. Only ok carries the parsed metadata object."""
+    try:
+        raw = (package_root / "package.json").read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return "missing", None
+    except OSError:
+        return "unreadable", None
+    except UnicodeDecodeError:
+        return "malformed", None
+    try:
+        metadata = json.loads(raw)
+    except ValueError:
+        return "malformed", None
+    if not isinstance(metadata, dict):
+        return "malformed", None
+    return "ok", metadata
+
+
+def metadata_pin_mismatch(metadata):
+    """Why the parsed package metadata fails to prove the tracked pin, or
+    None when it proves the exact tracked package name and version."""
+    if metadata.get("name") != PINNED_PLUGIN_NAME:
+        return f"package name {metadata.get('name')!r} is not the tracked {PINNED_PLUGIN_NAME!r}"
+    if metadata.get("version") != PINNED_PLUGIN_VERSION:
+        return f"package version {metadata.get('version')!r} is not the tracked {PINNED_PLUGIN_VERSION!r}"
+    return None
+
+
+def pinned_plugin_module():
+    """The isolated pinned-install route: install the exact tracked plugin
+    version into a stdlib temporary directory and return its module. The
+    selected module is itself accepted only when its package metadata
+    proves the tracked name and version; install, module, and identity
+    failures are explicit."""
     bun = require("bun", "installing the pinned plugin dependency")
     root = Path(tempfile.mkdtemp(prefix="concord-parity-plugin-"))
     (root / "package.json").write_text(json.dumps(
         {"name": "concord-parity-plugin", "private": True,
-         "dependencies": {"@opencode-ai/plugin": PINNED_PLUGIN_VERSION}}) + "\n")
+         "dependencies": {PINNED_PLUGIN_NAME: PINNED_PLUGIN_VERSION}}) + "\n")
     install = subprocess.run([str(bun), "install", "--cwd", str(root)], capture_output=True,
                              text=True, timeout=300)
-    module = root / "node_modules" / "@opencode-ai" / "plugin" / "dist" / "tool.js"
-    if install.returncode != 0 or not module.is_file():
+    if install.returncode != 0:
         raise AssertionError(
             "cannot resolve @opencode-ai/plugin through the repository pin "
             f"({PINNED_PLUGIN_VERSION}): bun install failed with exit {install.returncode}: "
             f"{install.stderr.strip()[:400]}")
+    package_root = pinned_package_root(root / "node_modules")
+    module = package_root / "dist" / "tool.js"
+    if not module.is_file():
+        raise AssertionError(
+            f"cannot resolve {PINNED_PLUGIN_NAME} through the repository pin "
+            f"({PINNED_PLUGIN_VERSION}): the install succeeded but placed no dist/tool.js module")
+    state, metadata = plugin_metadata_state(package_root)
+    if state != "ok":
+        raise AssertionError(
+            f"the pinned install of {PINNED_PLUGIN_NAME} {PINNED_PLUGIN_VERSION} resolved with "
+            f"{state} package metadata: the selected module cannot prove the tracked pin")
+    mismatch = metadata_pin_mismatch(metadata)
+    if mismatch is not None:
+        raise AssertionError(
+            f"the pinned install of {PINNED_PLUGIN_NAME} {PINNED_PLUGIN_VERSION} resolved the "
+            f"wrong package: {mismatch}")
     return module
+
+
+def plugin_tool_module(repo=REPO):
+    """The real @opencode-ai/plugin tool module, through the repository's
+    accepted dependency mechanisms only, never a host-installed path.
+
+    The repository-local cache (.opencode/node_modules) is selected only
+    when its own package.json proves the exact package name and version
+    the tracked .concord/docs/adapter-host-pin.v1.json pins. Missing,
+    unreadable, malformed, wrong-name, or wrong-version metadata never
+    establishes agreement: the resolver takes the isolated pinned-install
+    route instead, and that route verifies its selected module the same
+    way. Every failure is explicit.
+    """
+    package_root = pinned_package_root(repo / ".opencode" / "node_modules")
+    module = package_root / "dist" / "tool.js"
+    if module.is_file():
+        state, metadata = plugin_metadata_state(package_root)
+        if state == "ok" and metadata_pin_mismatch(metadata) is None:
+            return module
+    return pinned_plugin_module()
 
 
 def envelope_error(envelope):
@@ -527,6 +595,246 @@ class RecordingDoubleParityTests(unittest.TestCase):
         captured = semantic_envelope(envelope)
         triple = {key: captured["error"][key] for key in ("kind", "effect_state", "recovery_action", "retry_safe")}
         self.assertTrue(structural_equal(triple, PRODUCTION_RESUME_REFUSAL))
+
+
+class PluginToolModuleResolverTests(unittest.TestCase):
+    """The owning plugin resolver: which module it actually selects, and
+    that the selected module's package metadata proves the tracked pin.
+
+    Cache and installer negatives run against synthetic scratch fixtures
+    with a mocked installer; the cold-install and this-checkout tests run
+    the real isolated pinned install.
+    """
+
+    def scratch_repo(self, metadata_name=None, metadata_version=None,
+                     metadata_raw=None, with_module=True, with_metadata=True):
+        """A scratch repository whose .opencode cache holds one plugin
+        package with the given metadata shape."""
+        repo = Path(tempfile.mkdtemp(prefix="concord-parity-resolver-"))
+        self.addCleanup(shutil.rmtree, repo, ignore_errors=True)
+        package_root = pinned_package_root(repo / ".opencode" / "node_modules")
+        if with_module:
+            (package_root / "dist").mkdir(parents=True, exist_ok=True)
+            (package_root / "dist" / "tool.js").write_text("// scratch plugin module\n")
+        if with_metadata:
+            raw = metadata_raw if metadata_raw is not None else json.dumps({
+                "name": metadata_name or PINNED_PLUGIN_NAME,
+                "version": metadata_version or PINNED_PLUGIN_VERSION})
+            package_root.joinpath("package.json").write_text(raw)
+        return repo
+
+    def fake_installer(self, *, returncode=0, stderr="", name=None,
+                       version=None, with_module=True, with_metadata=True):
+        """A mocked bun-install outcome: lays the scratch install layout
+        under the --cwd root the resolver chose, then reports the given
+        install result."""
+        def install(argv, **kwargs):
+            cwd = Path(argv[argv.index("--cwd") + 1])
+            package_root = pinned_package_root(cwd / "node_modules")
+            if with_module or with_metadata:
+                package_root.mkdir(parents=True, exist_ok=True)
+            if with_module:
+                (package_root / "dist").mkdir(parents=True, exist_ok=True)
+                (package_root / "dist" / "tool.js").write_text("// scratch installed module\n")
+            if with_metadata:
+                package_root.joinpath("package.json").write_text(
+                    json.dumps({"name": name or PINNED_PLUGIN_NAME,
+                                "version": version or PINNED_PLUGIN_VERSION}))
+            return subprocess.CompletedProcess(argv, returncode, "", stderr)
+        return install
+
+    def local_module(self, repo):
+        return pinned_package_root(repo / ".opencode" / "node_modules") / "dist" / "tool.js"
+
+    def assert_module_proves_the_pin(self, module):
+        """The selected module's own package metadata must prove the exact
+        tracked package name and version — read independently of the
+        resolver helpers, from the module the resolver returned."""
+        expected = next(p for p in PIN["packages"] if p["name"] == "@opencode-ai/plugin")
+        metadata = json.loads(module.parents[1].joinpath("package.json").read_text())
+        self.assertEqual(metadata.get("name"), expected["name"])
+        self.assertEqual(metadata.get("version"), expected["version"])
+        return metadata
+
+    def test_matching_local_cache_is_selected_without_any_install(self):
+        import unittest.mock as mock
+        repo = self.scratch_repo()
+        with mock.patch.object(subprocess, "run",
+                               side_effect=AssertionError("a proving cache must not trigger an install")):
+            module = plugin_tool_module(repo=repo)
+        self.assertEqual(module, self.local_module(repo))
+        self.assert_module_proves_the_pin(module)
+
+    def test_wrong_version_local_cache_falls_back_to_the_pinned_install(self):
+        import unittest.mock as mock
+        repo = self.scratch_repo(metadata_version="1.18.34")
+        with mock.patch.object(subprocess, "run", side_effect=self.fake_installer()):
+            module = plugin_tool_module(repo=repo)
+        self.assertNotEqual(module, self.local_module(repo))
+        self.assert_module_proves_the_pin(module)
+
+    def test_wrong_name_local_cache_falls_back_to_the_pinned_install(self):
+        import unittest.mock as mock
+        repo = self.scratch_repo(metadata_name="@other/plugin")
+        with mock.patch.object(subprocess, "run", side_effect=self.fake_installer()):
+            module = plugin_tool_module(repo=repo)
+        self.assertNotEqual(module, self.local_module(repo))
+        self.assert_module_proves_the_pin(module)
+
+    def test_missing_local_metadata_falls_back_to_the_pinned_install(self):
+        import unittest.mock as mock
+        repo = self.scratch_repo(with_metadata=False)
+        with mock.patch.object(subprocess, "run", side_effect=self.fake_installer()):
+            module = plugin_tool_module(repo=repo)
+        self.assertNotEqual(module, self.local_module(repo))
+        self.assert_module_proves_the_pin(module)
+
+    def test_malformed_local_metadata_falls_back_to_the_pinned_install(self):
+        import unittest.mock as mock
+        for raw in ("{ not json", '["not", "an", "object"]', '"a string"'):
+            with self.subTest(metadata=raw):
+                repo = self.scratch_repo(metadata_raw=raw)
+                with mock.patch.object(subprocess, "run", side_effect=self.fake_installer()):
+                    module = plugin_tool_module(repo=repo)
+                self.assertNotEqual(module, self.local_module(repo))
+                self.assert_module_proves_the_pin(module)
+
+    def test_unreadable_local_metadata_falls_back_to_the_pinned_install(self):
+        import unittest.mock as mock
+        repo = self.scratch_repo()
+        target = pinned_package_root(repo / ".opencode" / "node_modules") / "package.json"
+        original_read_text = Path.read_text
+
+        def unreadable(self, *args, **kwargs):
+            if self == target:
+                raise PermissionError("scratch metadata is unreadable")
+            return original_read_text(self, *args, **kwargs)
+        with mock.patch.object(Path, "read_text", unreadable), \
+                mock.patch.object(subprocess, "run", side_effect=self.fake_installer()):
+            module = plugin_tool_module(repo=repo)
+        self.assertNotEqual(module, self.local_module(repo))
+        self.assert_module_proves_the_pin(module)
+
+    def test_invalid_encoding_local_metadata_uses_verified_fallback(self):
+        import unittest.mock as mock
+        repo = self.scratch_repo()
+        package = pinned_package_root(repo / ".opencode" / "node_modules")
+        (package / "package.json").write_bytes(b"\xff")
+        with mock.patch.object(subprocess, "run", side_effect=self.fake_installer()) as install:
+            module = plugin_tool_module(repo=repo)
+        self.assertEqual(install.call_count, 1)
+        self.assertNotEqual(module, self.local_module(repo))
+        self.assert_module_proves_the_pin(module)
+
+    def test_fallback_malformed_metadata_fails_explicitly(self):
+        import unittest.mock as mock
+        for raw in (b"\xff", b"{ not json", b"[]", b'"not an object"'):
+            with self.subTest(metadata=raw):
+                repo = self.scratch_repo(with_module=False, with_metadata=False)
+                installer = self.fake_installer()
+
+                def install(argv, **kwargs):
+                    result = installer(argv, **kwargs)
+                    root = Path(argv[argv.index("--cwd") + 1])
+                    package = pinned_package_root(root / "node_modules")
+                    (package / "package.json").write_bytes(raw)
+                    return result
+
+                with mock.patch.object(subprocess, "run", side_effect=install):
+                    with self.assertRaisesRegex(AssertionError, "malformed package metadata"):
+                        plugin_tool_module(repo=repo)
+
+    def test_fallback_unreadable_metadata_fails_explicitly(self):
+        import unittest.mock as mock
+        repo = self.scratch_repo(with_module=False, with_metadata=False)
+        original_read = Path.read_text
+
+        def unreadable(path, *args, **kwargs):
+            if path.name == "package.json" and path.parent.name == "plugin":
+                raise PermissionError("synthetic installed metadata is unreadable")
+            return original_read(path, *args, **kwargs)
+
+        with mock.patch.object(subprocess, "run", side_effect=self.fake_installer()), \
+                mock.patch.object(Path, "read_text", unreadable):
+            with self.assertRaisesRegex(AssertionError, "unreadable package metadata"):
+                plugin_tool_module(repo=repo)
+
+    def test_absent_local_module_takes_the_install_route(self):
+        import unittest.mock as mock
+        repo = self.scratch_repo(with_module=False, with_metadata=False)
+        with mock.patch.object(subprocess, "run", side_effect=self.fake_installer()) as install:
+            module = plugin_tool_module(repo=repo)
+        self.assertTrue(install.called)
+        self.assert_module_proves_the_pin(module)
+
+    def test_fallback_install_failure_fails_explicitly(self):
+        import unittest.mock as mock
+        repo = self.scratch_repo(with_module=False, with_metadata=False)
+        with mock.patch.object(subprocess, "run", side_effect=self.fake_installer(
+                returncode=1, stderr="offline: registry unreachable")):
+            with self.assertRaisesRegex(AssertionError, "plugin"):
+                plugin_tool_module(repo=repo)
+
+    def test_fallback_without_a_module_fails_explicitly(self):
+        import unittest.mock as mock
+        repo = self.scratch_repo(with_module=False, with_metadata=False)
+        with mock.patch.object(subprocess, "run", side_effect=self.fake_installer(with_module=False)):
+            with self.assertRaisesRegex(AssertionError, "no dist/tool.js"):
+                plugin_tool_module(repo=repo)
+
+    def test_fallback_with_the_wrong_version_fails_explicitly(self):
+        import unittest.mock as mock
+        repo = self.scratch_repo(with_module=False, with_metadata=False)
+        with mock.patch.object(subprocess, "run", side_effect=self.fake_installer(version="1.18.34")):
+            with self.assertRaisesRegex(AssertionError, "1.18.23"):
+                plugin_tool_module(repo=repo)
+
+    def test_fallback_with_the_wrong_name_fails_explicitly(self):
+        import unittest.mock as mock
+        repo = self.scratch_repo(with_module=False, with_metadata=False)
+        with mock.patch.object(subprocess, "run", side_effect=self.fake_installer(name="@other/plugin")):
+            with self.assertRaisesRegex(AssertionError, "wrong package"):
+                plugin_tool_module(repo=repo)
+
+    def test_fallback_with_missing_metadata_fails_explicitly(self):
+        import unittest.mock as mock
+        repo = self.scratch_repo(with_module=False, with_metadata=False)
+        with mock.patch.object(subprocess, "run", side_effect=self.fake_installer(with_metadata=False)):
+            with self.assertRaisesRegex(AssertionError, "metadata"):
+                plugin_tool_module(repo=repo)
+
+    def test_cold_scratch_install_proves_the_tracked_pin(self):
+        repo = self.scratch_repo(with_module=False, with_metadata=False)
+        module = plugin_tool_module(repo=repo)
+        self.assertTrue(module.is_file())
+        self.assertIn("concord-parity-plugin-", str(module))
+        self.assert_module_proves_the_pin(module)
+
+    def test_selected_module_on_this_checkout_proves_the_tracked_pin(self):
+        expected = next(p for p in PIN["packages"] if p["name"] == "@opencode-ai/plugin")
+        module = plugin_tool_module()
+        metadata = json.loads(module.parents[1].joinpath("package.json").read_text())
+        self.assertEqual(metadata.get("name"), expected["name"])
+        self.assertEqual(metadata.get("version"), expected["version"])
+        host_package = pinned_package_root(REPO / ".opencode" / "node_modules")
+        host_state, host_metadata = plugin_metadata_state(host_package)
+        if host_state != "ok" or (host_metadata.get("name"), host_metadata.get("version")) != (expected["name"], expected["version"]):
+            self.assertNotEqual(
+                module, host_package / "dist" / "tool.js",
+                "a host cache that does not prove the tracked pin must not be selected")
+
+    def test_checkout_selection_assertion_handles_malformed_host_metadata(self):
+        import unittest.mock as mock
+        fallback_repo = self.scratch_repo()
+        verified_module = self.local_module(fallback_repo)
+        for raw in (b"\xff", b"[]", b"{ not json"):
+            with self.subTest(metadata=raw):
+                repo = self.scratch_repo()
+                package = pinned_package_root(repo / ".opencode" / "node_modules")
+                (package / "package.json").write_bytes(raw)
+                with mock.patch(__name__ + ".REPO", repo), \
+                        mock.patch(__name__ + ".plugin_tool_module", return_value=verified_module):
+                    self.test_selected_module_on_this_checkout_proves_the_tracked_pin()
 
 
 class PrerequisiteFailureTests(unittest.TestCase):

@@ -82,6 +82,7 @@ const report = (overrides: Record<string, unknown> = {}, model = READBACK_MODEL)
 const canonicalReport = (overrides: Record<string, unknown> = {}, p: AgentLanePacket = packet()): CanonicalLaneReport =>
   ({
     ...report(overrides),
+    schema_version: p.schema_version,
     attempt_id: p.attempt_id,
     lane_id: p.lane_id,
     lane_version: p.lane_version,
@@ -2084,15 +2085,33 @@ test("legacy report identity forbids a worker-job claim", () => {
   expect(validateAgentLaneReport(report({ schema_version: "1.1", worker_job }))).toBe(true)
 })
 
-test("report admission preserves matched schema identities and refuses mixed pairs", () => {
+test("report admission derives schema identity from the packet, not the worker", () => {
   for (const schema_version of ["1.0", "1.1"] as const) {
     const p = { ...packet(), schema_version }
-    const good = resolveWorkerReportFromText(JSON.stringify(report({ schema_version })), p)
-    expect("report" in good).toBe(true)
-    if ("report" in good) expect(good.report.schema_version).toBe(schema_version)
-    const bad = resolveWorkerReportFromText(JSON.stringify(report({ schema_version: schema_version === "1.0" ? "1.1" : "1.0" })), p)
-    expect("detail" in bad).toBe(true)
+    for (const workerVersion of ["1.0", "1.1", "invalid", null, 11, undefined]) {
+      const workerReport = report({ schema_version: workerVersion })
+      for (const admitted of [
+        resolveWorkerReportFromText(JSON.stringify(workerReport), p),
+        resolveWorkerReport(runOutput("", workerReport), p),
+      ]) {
+        expect("report" in admitted).toBe(true)
+        if ("report" in admitted) expect(admitted.report.schema_version).toBe(schema_version)
+      }
+    }
   }
+})
+
+test("report admission applies worker-job schema rules to the packet identity", () => {
+  const worker_job = { job_id: "job:one", revision: 1, digest: `sha256:${"a".repeat(64)}` }
+  const current = resolveWorkerReportFromText(JSON.stringify(report({ schema_version: "1.0", worker_job })), { ...packet(), schema_version: "1.1" })
+  expect("report" in current).toBe(true)
+  if ("report" in current) {
+    expect(current.report.schema_version).toBe("1.1")
+    expect(current.report.worker_job).toEqual(worker_job)
+  }
+  const legacy = resolveWorkerReportFromText(JSON.stringify(report({ schema_version: "1.1", worker_job })), { ...packet(), schema_version: "1.0" })
+  expect("detail" in legacy).toBe(true)
+  if ("detail" in legacy) expect(legacy.detail).toContain("closed agent-lane-report.v1 schema")
 })
 
 async function terminalEvidence(carried: unknown = report(), p: AgentLanePacket = packet()) {
@@ -2125,6 +2144,16 @@ test("terminal evidence preserves both legacy and current schema pairs without r
     expect(payloads[0].report_schema_version).toBe(schema_version)
     expect(payloads[1].report_schema_version).toBe(schema_version)
   }
+})
+
+test("a legacy worker schema echo on a current packet records completion with current identity", async () => {
+  const { result, verbs, payloads } = await terminalEvidence(report({ schema_version: "1.0" }), { ...packet(), schema_version: "1.1" })
+  expect(result.outcome).toBe("ok")
+  expect(verbs).toEqual(["worker-dispatch", "worker-complete"])
+  expect(payloads[0].packet_schema_version).toBe("1.1")
+  expect(payloads[0].report_schema_version).toBe("1.1")
+  expect(payloads[1].report_schema_version).toBe("1.1")
+  expect(payloads[1].evidence).toEqual(reportEvidence())
 })
 
 // The dispatch window owns the worker directory; the report does not carry

@@ -27,10 +27,11 @@ func TestObservationAcceptsAbsentRefsAndTags(t *testing.T) {
 	if err := recordObservation(t, work, workEvent); err != nil {
 		t.Fatalf("work observation without refs or tags: %v", err)
 	}
-	rows, err := work.ObservationsForWork(ctx, "work-99", 10)
+	page, err := work.ReadWorkObservations(ctx, WorkObservationsRequest{WorkID: "work-99", Limit: 10})
 	if err != nil {
 		t.Fatal(err)
 	}
+	rows := page.Observations
 	if len(rows) != 1 || len(rows[0].Refs) != 0 || len(rows[0].Tags) != 0 {
 		t.Fatalf("work observation = %+v", rows)
 	}

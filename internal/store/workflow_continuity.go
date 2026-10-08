@@ -111,9 +111,13 @@ type ContinuitySnapshot struct {
 	// session (CD-0029). The pointer survives restarts because the snapshot
 	// itself is re-derived per call.
 	PendingMessages int64 `json:"pending_messages"`
-	// Observations carries the work's un-promoted observations, newest first,
-	// bounded (CD-0030 D2). Read-time visibility: no gate consumes this.
+	// Observations carries the newest window of the work's un-promoted
+	// observations (CD-0030 D2), at most ContinuityObservationWindow.
+	// ObservationsTotal counts the whole population, so a reader knows when
+	// the paged concord_work_trace.observations read holds more. Read-time
+	// visibility: no gate consumes this.
 	Observations        []WorkObservation            `json:"observations"`
+	ObservationsTotal   int64                        `json:"observations_total"`
 	StaleLawRevision    *StaleLawRevision            `json:"stale_law_revision,omitempty"`
 	ChangesProductTruth bool                         `json:"changes_product_truth"`
 	ArchitectureBinding *WorkflowArchitectureBinding `json:"architecture_binding,omitempty"`
@@ -458,13 +462,46 @@ func continuityReadBoundariesTx(ctx context.Context, tx *sql.Tx, work string, ou
 	}
 	rows.Close()
 	if len(out.Boundaries) > limit {
-		last := out.Boundaries[limit-1]
-		out.Boundaries = out.Boundaries[:limit]
-		raw, _ := json.Marshal(map[string]any{"v": 1, "work": work, "offset": offset + limit, "last": last.Sequence})
-		next := base64.RawURLEncoding.EncodeToString(raw)
-		out.NextCursor = &next
+		out.limitBoundaries(work, offset, limit)
 	}
 	return nil
+}
+
+// limitBoundaries keeps the first limit boundaries of the page read at
+// offset and derives the continuation cursor from the last retained one, so
+// no boundary drops without a cursor that resumes at it.
+func (snapshot *ContinuitySnapshot) limitBoundaries(work string, offset, limit int) {
+	last := snapshot.Boundaries[limit-1]
+	snapshot.Boundaries = snapshot.Boundaries[:limit]
+	raw, _ := json.Marshal(map[string]any{"v": 1, "work": work, "offset": offset + limit, "last": last.Sequence})
+	next := base64.RawURLEncoding.EncodeToString(raw)
+	snapshot.NextCursor = &next
+}
+
+// LimitWindow returns a copy of one captured snapshot that keeps complete
+// prefixes: at most observations of the newest observation window and at
+// most boundaries of the boundary page. A caller fitting a byte budget uses
+// it, so every fitted variant derives from the same read transaction. The
+// observation total stays the population count; a truncated boundary page
+// carries a cursor that resumes at its first dropped boundary.
+func (snapshot ContinuitySnapshot) LimitWindow(req ContinuityRequest, observations, boundaries int) (ContinuitySnapshot, error) {
+	// A boundary page that keeps no boundary cannot advance its cursor, so a
+	// non-empty page keeps at least one.
+	if observations < 0 || boundaries < 1 {
+		return snapshot, newFailure(KindInvalidOperation, "C19.Continuity", "continuity window bounds are out of range", false, "keep at least one boundary and no negative observation window")
+	}
+	if observations < len(snapshot.Observations) {
+		snapshot.Observations = append([]WorkObservation{}, snapshot.Observations[:observations]...)
+	}
+	if boundaries < len(snapshot.Boundaries) {
+		offset, err := continuityOffset(req.Cursor, req.Work)
+		if err != nil {
+			return snapshot, err
+		}
+		snapshot.Boundaries = append([]ContextBoundary{}, snapshot.Boundaries...)
+		snapshot.limitBoundaries(req.Work, offset, boundaries)
+	}
+	return snapshot, nil
 }
 
 // continuityReadTrailingTx fills the snapshot's trailing scalar and list
@@ -483,34 +520,22 @@ func continuityReadTrailingTx(ctx context.Context, tx *sql.Tx, work string, out 
 	if countErr := tx.QueryRowContext(ctx, `SELECT count(*) FROM work_messages WHERE recipient_work_id=? AND state='sent'`, work).Scan(&out.PendingMessages); countErr != nil {
 		return wrapFailure(KindUnavailable, "C19.Continuity", "cannot count pending messages", true, "retry once the database is readable", countErr)
 	}
-	obsRows, obsErr := tx.QueryContext(ctx, `SELECT observation_id,work_id,statement,refs,tags,recorded_at FROM work_observations WHERE work_id=? ORDER BY recorded_at DESC, observation_id LIMIT 16`, work)
-	if obsErr != nil {
-		return wrapFailure(KindUnavailable, "C19.Continuity", "cannot read observations", true, "retry once the database is readable", obsErr)
-	}
-	out.Observations = []WorkObservation{}
 	nativeRuns, nativeErr := readWorkflowNativeRunsTx(ctx, tx, work)
 	if nativeErr != nil {
 		return nativeErr
 	}
 	out.NativeRuns = nativeRuns
-	for obsRows.Next() {
-		var o WorkObservation
-		var obsRefs, obsTags string
-		if err := obsRows.Scan(&o.ObservationID, &o.WorkID, &o.Statement, &obsRefs, &obsTags, &o.RecordedAt); err != nil {
-			obsRows.Close()
-			return wrapFailure(KindUnavailable, "C19.Continuity", "cannot decode observation", true, "retry once the database is readable", err)
-		}
-		_ = json.Unmarshal([]byte(obsRefs), &o.Refs)
-		_ = json.Unmarshal([]byte(obsTags), &o.Tags)
-		out.Observations = append(out.Observations, o)
+	page, err := observationsPageForWork(ctx, tx, WorkObservationsRequest{WorkID: work, Limit: ContinuityObservationWindow})
+	if err != nil {
+		return err
 	}
-	if err := obsRows.Err(); err != nil {
-		obsRows.Close()
-		return wrapFailure(KindUnavailable, "C19.Continuity", "cannot enumerate observations", true, "retry once the database is readable", err)
-	}
-	obsRows.Close()
+	out.Observations, out.ObservationsTotal = page.Observations, page.Total
 	return nil
 }
+
+// ContinuityObservationWindow bounds the newest observations continuity
+// carries. The whole population pages through concord_work_trace.observations.
+const ContinuityObservationWindow = 16
 
 // ContinuityWorkResolution names the active work item a session directory
 // resolves to. ProductID is the first Product identity the work's Project

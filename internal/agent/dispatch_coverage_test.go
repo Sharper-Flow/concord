@@ -21,14 +21,14 @@ import (
 // arms carry effects; the claim under test is coverage, not behaviour.
 
 // dispatchRoots names the functions that route a contract operation to its
-// implementation, and the file each is declared in. mutate and read hold the
+// implementation, and the file each is declared in. mutate and readResult hold the
 // primary switches. mutateCompaction is separate because mutate routes to it by
 // tool name rather than by operation ID, so the compaction operations are named
 // there and nowhere else.
 var dispatchRoots = map[string]string{
 	"mutate":           "mutations.go",
 	"mutateCompaction": "mutations.go",
-	"read":             "runtime.go",
+	"readResult":       "runtime.go",
 }
 
 // operationID matches the tool.operation shape used for contract operation IDs.
@@ -111,7 +111,7 @@ func TestEveryContractOperationReachesADispatchArm(t *testing.T) {
 	if len(missing) != 0 {
 		sort.Strings(missing)
 		t.Fatalf("manifest operations no dispatch root selects on: %v\n"+
-			"contracts/agent-tool-surface.v1.json declares these; mutate (mutations.go) or read (runtime.go) must handle them, "+
+			"contracts/agent-tool-surface.v1.json declares these; mutate (mutations.go) or readResult (runtime.go) must handle them, "+
 			"or they reach the default arm and fail at call time with an unimplemented-operation error", missing)
 	}
 }

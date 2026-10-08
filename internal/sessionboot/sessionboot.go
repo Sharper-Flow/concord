@@ -31,14 +31,18 @@ func Build(productID string, snapshot store.ContinuitySnapshot) ([]byte, error) 
 	if !slices.Contains(snapshot.ProductIdentity, productID) {
 		return nil, fmt.Errorf("session boot Product identity %q is not bound to work %q", productID, snapshot.WorkID)
 	}
-	packet := Packet{
-		SchemaVersion: SchemaVersion, SessionType: SessionType,
-		SessionContractVersion: SessionContractVersion,
-		ManifestDigest:         agent.ManifestDigest,
-		ProductID:              productID, WorkID: snapshot.WorkID,
-		Continuity: agent.ContinuityPayload(snapshot),
-	}
-	raw, err := json.Marshal(packet)
+	// The boot read pages boundaries from the start, so the fit needs only
+	// the work identity to derive a boundary cursor.
+	raw, _, err := agent.FitContinuity(snapshot, store.ContinuityRequest{Work: snapshot.WorkID}, agent.MaxEnvelopeBytes, func(fitted store.ContinuitySnapshot) ([]byte, int, error) {
+		raw, err := json.Marshal(Packet{
+			SchemaVersion: SchemaVersion, SessionType: SessionType,
+			SessionContractVersion: SessionContractVersion,
+			ManifestDigest:         agent.ManifestDigest,
+			ProductID:              productID, WorkID: fitted.WorkID,
+			Continuity: agent.ContinuityPayload(fitted),
+		})
+		return raw, len(raw), err
+	})
 	if err != nil {
 		return nil, err
 	}

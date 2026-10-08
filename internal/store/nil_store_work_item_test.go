@@ -22,8 +22,8 @@ func TestUnopenedStoreWorkItemMethods(t *testing.T) {
 			_, err := s.OverdueAwaitsInProduct(ctx, "prod-1", time.Time{}, 10)
 			return err
 		}},
-		{"ObservationsForWork", func(s *Store) error {
-			_, err := s.ObservationsForWork(ctx, "work-1", 10)
+		{"ReadWorkObservations", func(s *Store) error {
+			_, err := s.ReadWorkObservations(ctx, WorkObservationsRequest{WorkID: "work-1", Limit: 10})
 			return err
 		}},
 		{"MessagesForWork", func(s *Store) error {

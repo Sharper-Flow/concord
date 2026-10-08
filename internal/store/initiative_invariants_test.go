@@ -165,8 +165,8 @@ func synthExec(t *testing.T, s *Store, queries ...string) {
 	db.SetMaxOpenConns(1)
 	ctx := context.Background()
 	for _, pre := range []string{
-		`DROP INDEX work_projects_one_primary`,
-		`INSERT INTO fold_guard(active) VALUES(1)`,
+		`DROP INDEX IF EXISTS work_projects_one_primary`,
+		`INSERT OR IGNORE INTO fold_guard(active) VALUES(1)`,
 	} {
 		if _, err := db.ExecContext(ctx, pre); err != nil {
 			t.Fatalf("synthetic setup: %v\n%s", err, pre)

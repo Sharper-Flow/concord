@@ -62,9 +62,14 @@ type admissionModelState struct {
 	ready string
 	// attempt is the latest worker attempt since the step's latest start:
 	// "", "completed", "failed", "failure_recorded", or "rejected".
-	attempt string
-	// A completed attempt refreshes the artifact only when its capability
-	// produces artifacts and its dispatch follows the latest stale cause.
+	// dispatched reports whether a dispatch happened since the step's latest
+	// pass boundary — the dimension the contract-correction route reads —
+	// because a held local acceptance clears the attempt but not the pass's
+	// dispatch (CD-0205 D3). A completed attempt refreshes the artifact only
+	// when its capability produces artifacts (attemptProduces) and its
+	// dispatch follows the latest stale cause (attemptFresh, CD-0209 D4).
+	attempt         string
+	dispatched      bool
 	attemptProduces bool
 	attemptFresh    bool
 	// failed is the same-step failed-attempt count, capped at the wall.
@@ -96,13 +101,25 @@ type admissionModelState struct {
 	started bool
 	proof   bool
 	mandate string
+	// jobs is the worker-job facet (CD-0205): "" no recorded revision;
+	// "required" a recorded latest revision unsatisfied; "satisfied" every
+	// recorded latest revision satisfied. integration is the qualifying
+	// verify coverage of every required Project after the required job
+	// acceptances and the phase start — the facet the delivery admission
+	// reads beside the population. jobsUnsatisfied and jobsScope are the
+	// deterministic keys the folded delivery state carries, so the
+	// conformance lift compares them verbatim.
+	jobs            string
+	integration     bool
+	jobsUnsatisfied string
+	jobsScope       string
 	// done is the completed instance with the closed work lifecycle.
 	done bool
 }
 
 func (s admissionModelState) String() string {
-	return fmt.Sprintf("(step %q debt %q ready %q attempt %q producer %v freshOrigin %v failed %d contracts %d stale %q designStale %v artifactStale %v verdict %q artifact %v observed %v started %v proof %v mandate %q done %v)",
-		s.step, s.debt, s.ready, s.attempt, s.attemptProduces, s.attemptFresh, s.failed, s.contracts, s.stale, s.designStale, s.artifactStale, s.verdict, s.artifact, s.observed, s.started, s.proof, s.mandate, s.done)
+	return fmt.Sprintf("(step %q debt %q ready %q attempt %q dispatched %v producer %v freshOrigin %v failed %d contracts %d stale %q designStale %v artifactStale %v verdict %q artifact %v observed %v started %v proof %v mandate %q jobs %q integration %v done %v)",
+		s.step, s.debt, s.ready, s.attempt, s.dispatched, s.attemptProduces, s.attemptFresh, s.failed, s.contracts, s.stale, s.designStale, s.artifactStale, s.verdict, s.artifact, s.observed, s.started, s.proof, s.mandate, s.jobs, s.integration, s.done)
 }
 
 func admissionModelStart(definition WorkflowDefinition) admissionModelState {
@@ -113,6 +130,13 @@ func admissionModelStart(definition WorkflowDefinition) admissionModelState {
 // context and never move the work, whatever mode a historical pin declares.
 func admissionContinuityAction(actionID string) bool {
 	return actionID == "checkpoint_context" || actionID == "cross_context_boundary"
+}
+
+// admissionLocalJobAcceptStep reports whether an accept at the step may be
+// local acceptance of one worker job (CD-0205): the pin carries the worker-job
+// lifecycle and the step declares record_worker_job.
+func admissionLocalJobAcceptStep(definition WorkflowDefinition, step string) bool {
+	return workflowWorkerJobsActive(definition) && stepDeclaresAction(definition, step, "record_worker_job")
 }
 
 // admissionStateActions resolves the action universe of one abstract state:
@@ -211,7 +235,7 @@ func admissionContractCorrection(definition WorkflowDefinition, state admissionM
 	case state.contracts != 1:
 		return false
 	}
-	return state.attempt == "" || state.attempt == "failed" || state.attempt == "rejected"
+	return (state.attempt == "" && !state.dispatched) || state.attempt == "failed" || state.attempt == "rejected"
 }
 
 // admissionCompleteStepCorrection folds the CD-0172 complete-step route.
@@ -257,6 +281,16 @@ func admissionWorkflowState(definition WorkflowDefinition, state admissionModelS
 		attemptState, disposition = "failed", "record_worker_failure"
 	}
 	staleErr := admissionModelStaleError(state.stale, false)
+	delivery := workflowDeliveryAdmission{Started: state.started, ProofRequired: workflowRefineProofGateActive(definition, state.step)}
+	if workflowWorkerJobsActive(definition) && state.jobs != "" {
+		// The CD-0205 job facet the one delivery admission reads: the
+		// required revisions' satisfaction and the qualifying integration
+		// coverage, folded from the same dimensions the model carries.
+		delivery.JobsRecorded = true
+		delivery.JobsUnsatisfiedKeys = state.jobsUnsatisfied
+		delivery.JobsScopeKeys = state.jobsScope
+		delivery.JobsIntegrated = state.jobs == "satisfied" && state.integration
+	}
 	folded := WorkflowAdmissionState{
 		Step:                        state.step,
 		Lifecycle:                   lifecycle,
@@ -280,7 +314,7 @@ func admissionWorkflowState(definition WorkflowDefinition, state admissionModelS
 		PendingOperatorDecision:     state.contracts == 1 && workflowOperatorDecisionPending(definition, state.step) && state.artifact,
 		CompleteStepCorrection:      admissionCompleteStepCorrection(definition, state),
 		ContractCorrectionAvailable: admissionContractCorrection(definition, state),
-		Delivery:                    workflowDeliveryAdmission{Started: state.started, ProofRequired: workflowRefineProofGateActive(definition, state.step)},
+		Delivery:                    delivery,
 	}
 	if (state.attempt == "failed" || state.attempt == "failure_recorded") && stepDeclaresAction(definition, state.step, "dispatch_worker") {
 		folded.FailedWorkerRetry = &WorkflowRetryApprovalBinding{FailedAttemptID: "attempt:model", FailedAttemptEpoch: 1}
@@ -407,11 +441,14 @@ func admissionEnterStep(definition WorkflowDefinition, state admissionModelState
 	}
 	// A delivery gate reads the incoming delivery-bearing step's start.
 	// Other step entries need their own start and a new epoch proof.
+	// Integration persists across the same-pass advance the loader still
+	// reads from the workflow's bound evidence, so the model's
+	// fold-equivalent must carry it forward.
 	if !workflowStepIsDeliveryGate(workflowStep(definition, step)) {
 		state.started = false
 	}
 	state.proof = false
-	state.step, state.attempt, state.failed = step, "", 0
+	state.step, state.attempt, state.failed, state.dispatched = step, "", 0, false
 	state.attemptProduces, state.attemptFresh = false, false
 	return state
 }
@@ -451,7 +488,8 @@ func admissionSuccessors(definition WorkflowDefinition, state admissionModelStat
 	advance := true
 	switch actionID {
 	case "dispatch_worker":
-		next.started, next.proof = true, false
+		next.started, next.proof, next.integration = true, false, false
+		next.dispatched = true
 		completed := next
 		completed.attempt = "completed"
 		completed.attemptFresh = true
@@ -477,6 +515,19 @@ func admissionSuccessors(definition WorkflowDefinition, state admissionModelStat
 		ship.attemptProduces, noShip.attemptProduces = false, false
 		ship.ready, noShip.ready = "ship", "no_ship"
 		return []admissionModelState{ship, noShip, failed}
+	case "record_worker_job":
+		// CD-0205 D1/D2: the delivery fold reads each job's latest
+		// revision only, so the recording always leaves one unsatisfied
+		// required revision — a re-recorded job reopens the required
+		// population an earlier acceptance satisfied, and the verify
+		// coverage that predates the reopened population's acceptance no
+		// longer qualifies. The recording holds the step and satisfies
+		// nothing.
+		next.jobs = "required"
+		next.jobsUnsatisfied = admissionModelJobKeys("required")
+		next.jobsScope = admissionModelJobScope("required")
+		next.integration = false
+		return []admissionModelState{next}
 	case "accept_worker_result":
 		next.attempt, next.failed = "", 0
 		if state.attempt == "completed" && state.attemptProduces && state.attemptFresh && admissionProducesAtRouteTarget(definition, state.step, "accept_worker_result") {
@@ -485,6 +536,11 @@ func admissionSuccessors(definition WorkflowDefinition, state admissionModelStat
 			// not merely a completed attempt at the route target.
 			next.artifactStale = false
 		}
+		// An acceptance does not invalidate the qualifying integration
+		// coverage in the model's fold-equivalent: the loader reads every
+		// verification binding after coverageSeq and counts each qualifying
+		// run, so the model's single bool must keep the bound evidence in
+		// scope across the same-pass accept (CD-0205 D3).
 		next.attemptProduces, next.attemptFresh = false, false
 		if next.ready != "" {
 			if next.ready == "no_ship" {
@@ -555,8 +611,10 @@ func admissionSuccessors(definition WorkflowDefinition, state admissionModelStat
 			// A fresh fenced start opens a new attempt window and releases
 			// the hold of every attempt before it.
 			next.attempt = ""
+			next.dispatched = false
 			next.attemptProduces, next.attemptFresh = false, false
 			next.started, next.proof = true, false
+			next.integration = false
 		}
 	}
 	// Direct artifact actions prove production by their own event authority,
@@ -566,7 +624,41 @@ func admissionSuccessors(definition WorkflowDefinition, state admissionModelStat
 	}
 	if advance {
 		if mode, ok := workflowActionExecutionMode(definition, actionID); ok && mode == ActionAdvance {
-			next = admissionEnterStep(definition, next, workflowNextStep(definition, state.step))
+			advanced := admissionEnterStep(definition, next, workflowNextStep(definition, state.step))
+			if actionID == "accept_worker_result" && admissionLocalJobAcceptStep(definition, state.step) {
+				// CD-0205: on a job-capable pin the accept of a job-bound
+				// attempt is local acceptance and holds the step. The held
+				// successor keeps the same-step failed wall the failed job
+				// opened (CD-0205 D4 refining CD-0164 D2) and moves the job
+				// facet: the accepted revision is satisfied, while another
+				// required revision may remain unsatisfied. The accept
+				// advances only for an attempt without a job, or — where the
+				// step exits through delivery — only when the delivery
+				// derivation admits the assertion it carries.
+				held := next
+				held.failed = state.failed
+				if state.jobs == "required" {
+					heldStillRequired := held
+					heldStillRequired.jobs = "required"
+					held.jobs = "satisfied"
+					held.jobsUnsatisfied = ""
+					if !workflowAcceptDeliveryAdmissionActive(definition, state.step) || workflowAdmitDelivery(admissionWorkflowState(definition, state), WorkflowAdmissionDecision{}).Failure == nil {
+						return []admissionModelState{heldStillRequired, held, advanced}
+					}
+					return []admissionModelState{heldStillRequired, held}
+				}
+				if !workflowAcceptDeliveryAdmissionActive(definition, state.step) || workflowAdmitDelivery(admissionWorkflowState(definition, state), WorkflowAdmissionDecision{}).Failure == nil {
+					successors := []admissionModelState{held}
+					// CD-0205 D5: when the delivery derivation admits the assertion
+					// the accept carries, the model's fold-equivalent must lift
+					// both the held-satisfied and the advancing successor, the
+					// way the loader reads the integrated delivery on either path.
+					successors = append(successors, advanced)
+					return successors
+				}
+				return []admissionModelState{held}
+			}
+			next = advanced
 		}
 	}
 	return []admissionModelState{next}
@@ -685,11 +777,22 @@ func admissionAgentMoves(definition WorkflowDefinition, state admissionModelStat
 			successors = append(successors, verified)
 		}
 	}
+	// The same route supplies the integration coverage the job facet reads
+	// (CD-0205 D3): a green verify run after the required job acceptances and
+	// the phase start, bound through an admitted evidence bind, integrates
+	// the required Projects.
+	if workflowWorkerJobsActive(definition) && state.started && state.jobs == "satisfied" && !state.integration {
+		if workflowAdmit(definition, admissionWorkflowState(definition, state), "bind_evidence").Admitted {
+			integrated := state
+			integrated.integration = true
+			successors = append(successors, integrated)
+		}
+	}
 	return successors
 }
 
 func admissionAgentMoveName(before, after admissionModelState) string {
-	if before.proof != after.proof {
+	if before.proof != after.proof || before.integration != after.integration {
 		return "worktree_verify+bind_evidence"
 	}
 	return "observation_record"
@@ -744,16 +847,32 @@ func wellFormedAdmissionStates(definition WorkflowDefinition) []admissionModelSt
 		}
 	}
 	design := admissionDeclaresAction(definition, "record_design")
+	// CD-0209 D3 replaces the family whitelist with the typed route table:
+	// every family's refinement step (the step declaring start_refine) is the
+	// source that decides whether post-rejection review debt can exist. The
+	// correction family filter (workflowCorrectionWorkflow) is gone.
 	refinement := workflowRefinementStepID(definition) != ""
+	// The worker-job facet exists only where a revision can be recorded
+	// (CD-0205 D2), so the well-formed enumeration carries it exactly there:
+	// no recorded revision, an unsatisfied required revision, and the fully
+	// satisfied population the delivery admission reads.
+	jobShapes := []string{""}
+	if workflowWorkerJobsActive(definition) {
+		jobShapes = append(jobShapes, "required", "satisfied")
+	}
 	var states []admissionModelState
 	for i, step := range definition.StepGraph.Steps {
+		stepJobShapes := jobShapes
+		if !containsString(step.Actions, "record_worker_job") {
+			stepJobShapes = []string{""}
+		}
 		contracts := []int64{0}
 		if contractIndex < 0 {
 			contracts = []int64{0, 1, 2}
 		} else if i > contractIndex {
 			contracts = []int64{1, 2}
 		}
-		attempts, walls := []string{""}, []int64{0}
+		walls := []int64{0}
 		starts := containsString(step.Actions, "dispatch_worker")
 		for _, actionID := range step.Actions {
 			if mode, ok := workflowActionExecutionMode(definition, actionID); ok && mode == ActionFenced {
@@ -761,8 +880,20 @@ func wellFormedAdmissionStates(definition WorkflowDefinition) []admissionModelSt
 			}
 		}
 		if starts {
-			attempts = []string{"", "completed", "failed", "failure_recorded", "rejected"}
 			walls = []int64{0, workflowCorrectionAttemptLimit}
+		}
+		// attemptDispatched pairs each attempt value with whether a dispatch
+		// happened since the step's latest pass boundary. Only the empty
+		// attempt splits: a live attempt implies its own dispatch, and a
+		// held local acceptance clears the attempt while the pass keeps its
+		// dispatch (CD-0205 D3).
+		type attemptDispatched struct {
+			attempt    string
+			dispatched bool
+		}
+		attemptDispatches := []attemptDispatched{{"", false}}
+		if starts {
+			attemptDispatches = []attemptDispatched{{"", false}, {"", true}, {"completed", true}, {"failed", true}, {"failure_recorded", true}, {"rejected", true}}
 		}
 		type debtShape struct {
 			debt  WorkflowReviewDebt
@@ -790,16 +921,20 @@ func wellFormedAdmissionStates(definition WorkflowDefinition) []admissionModelSt
 				for _, designStale := range designs {
 					for _, verdict := range verdicts {
 						for _, artifactStale := range artifacts {
-							for _, attempt := range attempts {
+							for _, attemptDispatch := range attemptDispatches {
 								for _, wall := range walls {
 									for _, shape := range debts {
-										for _, observation := range [][2]bool{{false, false}, {true, false}, {true, true}} {
-											states = append(states, admissionModelState{
-												step: step.ID, debt: shape.debt, ready: shape.ready,
-												attempt: attempt, failed: wall, contracts: count, stale: stale,
-												designStale: designStale, verdict: verdict, artifactStale: artifactStale,
-												artifact: observation[0], observed: observation[1],
-											})
+										for _, jobs := range stepJobShapes {
+											for _, observation := range [][2]bool{{false, false}, {true, false}, {true, true}} {
+												states = append(states, admissionModelState{
+													step: step.ID, debt: shape.debt, ready: shape.ready,
+													attempt: attemptDispatch.attempt, dispatched: attemptDispatch.dispatched,
+													failed: wall, contracts: count, stale: stale,
+													designStale: designStale, verdict: verdict, artifactStale: artifactStale,
+													artifact: observation[0], observed: observation[1],
+													jobs: jobs, jobsUnsatisfied: admissionModelJobKeys(jobs), jobsScope: admissionModelJobScope(jobs),
+												})
+											}
 										}
 									}
 								}
@@ -834,11 +969,17 @@ func wellFormedAdmissionStates(definition WorkflowDefinition) []admissionModelSt
 			if started && workflowRefineProofGateActive(definition, state.step) {
 				proofs = []bool{false, true}
 			}
+			integrations := []bool{false}
+			if started && state.jobs == "satisfied" {
+				integrations = []bool{false, true}
+			}
 			for _, proof := range proofs {
-				for _, mandate := range mandates {
-					next := state
-					next.started, next.proof, next.mandate = started, proof, mandate
-					withEvidence = append(withEvidence, next)
+				for _, integration := range integrations {
+					for _, mandate := range mandates {
+						next := state
+						next.started, next.proof, next.mandate, next.integration = started, proof, mandate, integration
+						withEvidence = append(withEvidence, next)
+					}
 				}
 			}
 		}
@@ -858,6 +999,24 @@ func wellFormedAdmissionStates(definition WorkflowDefinition) []admissionModelSt
 		}
 	}
 	return withOrigins
+}
+
+// admissionModelJobKeys and admissionModelJobScope derive the canonical
+// deterministic keys the folded delivery state carries for one model job
+// shape. Only emptiness decides, so a single synthetic revision and Project
+// stand for the whole required population.
+func admissionModelJobKeys(jobs string) string {
+	if jobs == "required" {
+		return "job:model|1"
+	}
+	return ""
+}
+
+func admissionModelJobScope(jobs string) string {
+	if jobs != "" {
+		return "p"
+	}
+	return ""
 }
 
 // admissionExits returns the admitted actions with a successor that leaves

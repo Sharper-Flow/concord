@@ -6,8 +6,12 @@ package agent
 import (
 	"context"
 	"crypto/ed25519"
+	"crypto/sha256"
 	"encoding/json"
+	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -75,17 +79,19 @@ type workflowRecoveryRouteTuple struct {
 	// before the verdict step can advance; the agent's
 	// bind_evidence schema requires it (CD-0204 D1).
 	RequiredEvidence []store.EvidenceKind
+	// RecordWorkerJob reports whether the journey must call
+	// record_worker_job before each dispatch. The CD-0205 worker-job
+	// lifecycle gates the dispatch on a ready worker-job revision at
+	// workflow.implementation v24+ and workflow.break_fix v21+.
+	RecordWorkerJob bool
 	// WorkflowID identifies the test subtest.
 	WorkflowID string
 }
 
-// workflowRecoveryRouteTuples is the one declared-route table the public
-// journey enumerates: the 14 new builtin unhealthy routes plus the
-// frozen generic_one_off v13 unhealthy route (15 unhealthy routes) and
-// the 2 complete-step supersede routes (2 supersede routes). The
-// supersede routes are owned by the separate
-// TestWorkflowRecoveryRoutesCompleteStepSupersedeAdmitsEveryDeclaredRoute
-// test; the unhealthy routes are owned by the journey test.
+// workflowRecoveryRouteTuples is the unhealthy-route table enumerated by the
+// public journey and its coverage guard. Historical pins and frozen v13 trips
+// run alongside the worker-job pins; complete-step supersessions have their
+// own executable table below.
 func workflowRecoveryRouteTuples() []workflowRecoveryRouteTuple {
 	return []workflowRecoveryRouteTuple{
 		{
@@ -232,6 +238,42 @@ func workflowRecoveryRouteTuples() []workflowRecoveryRouteTuple {
 			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
 			WorkflowID:       "generic_one_off-v13-frozen-complete",
 		},
+		{
+			Ref: "workflow.implementation", Version: 24,
+			Step: "acceptance", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execution",
+			ProducerStep: "execution", DeliveryStep: "execution", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "start_execution",
+			VerdictStep: "acceptance", BindStep: "execution", BindKind: store.EvidenceArtifact,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
+			RecordWorkerJob:  true,
+			WorkflowID:       "implementation-v24-acceptance",
+		},
+		{
+			Ref: "workflow.implementation", Version: 24,
+			Step: "release", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execution",
+			ProducerStep: "execution", DeliveryStep: "execution", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "start_execution",
+			VerdictStep: "release", BindStep: "execution", BindKind: store.EvidenceArtifact,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
+			RecordWorkerJob:  true,
+			WorkflowID:       "implementation-v24-release",
+		},
+		{
+			Ref: "workflow.break_fix", Version: 21,
+			Step: "verify", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "repair",
+			ProducerStep: "repair", DeliveryStep: "repair", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "start_repair",
+			VerdictStep: "verify", BindStep: "repair", BindKind: store.EvidenceVerification,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceVerification},
+			RecordWorkerJob:  true,
+			WorkflowID:       "break_fix-v21-verify",
+		},
+		{
+			Ref: "workflow.break_fix", Version: 21,
+			Step: "complete", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "repair",
+			ProducerStep: "repair", DeliveryStep: "repair", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "start_repair",
+			VerdictStep: "complete", BindStep: "repair", BindKind: store.EvidenceVerification,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceVerification},
+			RecordWorkerJob:  true,
+			WorkflowID:       "break_fix-v21-complete",
+		},
 	}
 }
 
@@ -243,8 +285,8 @@ func workflowRecoveryRouteTuples() []workflowRecoveryRouteTuple {
 // (ref, version) fails the test before the journey runs.
 func TestWorkflowRecoveryRoutesDeclareEveryEvaluatorStep(t *testing.T) {
 	tuples := workflowRecoveryRouteTuples()
-	if len(tuples) != 18 {
-		t.Fatalf("recovery-route journey table carries %d tuples, want 18 (16 authored unhealthy routes + 2 frozen v13 routes)", len(tuples))
+	if len(tuples) != 22 {
+		t.Fatalf("recovery-route journey table carries %d tuples, want 22 (16 authored unhealthy routes + 2 frozen v13 routes + 4 CD-0205 worker-job authors)", len(tuples))
 	}
 	seen := map[string]bool{}
 	for _, tuple := range tuples {
@@ -456,7 +498,7 @@ func runWorkerRecoveryJourney(t *testing.T, tuple workflowRecoveryRouteTuple, s 
 			t.Fatal(err)
 		}
 	}
-	runJourneyDeliveryAndAdvance(t, tuple, s, grant, invoke, version, "first")
+	runJourneyDeliveryAndAdvance(t, tuple, s, service, env, grant, invoke, version, "first")
 
 	evaluator := "verify"
 	switch tuple.Ref {
@@ -533,7 +575,7 @@ func runWorkerRecoveryJourney(t *testing.T, tuple workflowRecoveryRouteTuple, s 
 	if got := stepOf(t, s); got != tuple.Target {
 		t.Fatalf("correction target=%s, want %s", got, tuple.Target)
 	}
-	runJourneyDeliveryAndAdvance(t, tuple, s, grant, invoke, version, "fresh")
+	runJourneyDeliveryAndAdvance(t, tuple, s, service, env, grant, invoke, version, "fresh")
 	if got := stepOf(t, s); got != evaluator {
 		t.Fatalf("fresh production reached %s, want ordinary evaluator %s", got, evaluator)
 	}
@@ -668,6 +710,15 @@ func recoveryDomainRepository(t *testing.T, s *store.Store) string {
 	if err != nil {
 		t.Fatal(err)
 	}
+	toolingPath := filepath.Join(home.RepoPath, ".concord", "tooling.v1.json")
+	if err := os.WriteFile(toolingPath, []byte(`{"schema_version":"1.0","project":"fixture","tools":[{"id":"go-vet","invocation":"go vet ./...","tier":"fast"}]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{{"add", ".concord/tooling.v1.json"}, {"commit", "--quiet", "-m", "declare fixture verification tooling"}} {
+		if output, err := exec.Command("git", append([]string{"-C", home.RepoPath}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("fixture tooling: %v: %s", err, output)
+		}
+	}
 	if err := s.RebuildKnowledgeIndex(ctx, home); err != nil {
 		t.Fatal(err)
 	}
@@ -675,6 +726,13 @@ func recoveryDomainRepository(t *testing.T, s *store.Store) string {
 		if output, err := exec.Command("git", append([]string{"-C", home.RepoPath}, args...)...).CombinedOutput(); err != nil {
 			t.Fatalf("fixture repository: %v: %s", err, output)
 		}
+	}
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE project_locators SET locator_value=?1, normalized_value=?1 WHERE project_id='project-1' AND kind='canonical_path'; DELETE FROM fold_guard`, home.RepoPath); err != nil {
+		t.Fatalf("point the fixture locator at the repository: %v", err)
+	}
+	tooling, err := store.ResolveWorkProjectTooling(ctx, s, "work-1")
+	if err != nil || tooling == nil || !store.ProjectToolingInvocationDeclared(tooling, []string{"go", "vet", "./..."}) {
+		t.Fatalf("resolve the fixture's default-ref tooling: %+v, %v", tooling, err)
 	}
 	return home.RepoPath
 }
@@ -772,7 +830,7 @@ func publicRecoveryVerdict(t *testing.T, s *store.Store, service *Service, produ
 	}
 }
 
-func runJourneyDeliveryAndAdvance(t *testing.T, tuple workflowRecoveryRouteTuple, s *store.Store, grant Authority, invoke func(map[string]any) Envelope, version func() int64, suffix string) {
+func runJourneyDeliveryAndAdvance(t *testing.T, tuple workflowRecoveryRouteTuple, s *store.Store, service *Service, env CallEnvelope, grant Authority, invoke func(map[string]any) Envelope, version func() int64, suffix string) {
 	t.Helper()
 	ctx := context.Background()
 	deliveryStep := tuple.DeliveryStep
@@ -822,6 +880,14 @@ func runJourneyDeliveryAndAdvance(t *testing.T, tuple workflowRecoveryRouteTuple
 			t.Fatalf("%s %s at %q: %+v", suffix, tuple.DeliveryAction, deliveryStep, start.Error)
 		}
 	}
+	// The CD-0205 worker-job lifecycle gates the dispatch on a ready
+	// worker-job revision at workflow.implementation v24+ and
+	// workflow.break_fix v21+. Record one under the active contract
+	// before each dispatch, so the job-bound packet the dispatch
+	// sends resolves to a recorded revision.
+	if tuple.RecordWorkerJob {
+		recordRecoveryWorkerJob(t, s, service, env, "job:"+tuple.WorkflowID+":"+suffix)
+	}
 	// For the architecture_spike family, the "fresh" suffix lands
 	// at decision_record (the correction's declared target). The
 	// fresh production's typed artifact is record_decision, not a
@@ -854,6 +920,37 @@ func runJourneyDeliveryAndAdvance(t *testing.T, tuple workflowRecoveryRouteTuple
 		})
 		if accept.Outcome != OutcomeOK {
 			t.Fatalf("%s accept_worker_result at %q: %+v", suffix, deliveryStep, accept.Error)
+		}
+		if suffix == "fresh" {
+			var cutoff, dispatchSeq, acceptSeq int64
+			var capability string
+			if err := s.DatabaseForTesting().QueryRow(`SELECT MAX(seq) FROM domain_events WHERE subject_id='work-1' AND (kind=? OR (kind=? AND json_extract(payload,'$.action_id')='request_correction'))`, store.WorkflowContractSuperseded, store.WorkflowActionCompleted).Scan(&cutoff); err != nil {
+				t.Fatal(err)
+			}
+			if err := s.DatabaseForTesting().QueryRow(`SELECT seq,json_extract(payload,'$.worker_capability_class') FROM domain_events WHERE subject_id='work-1' AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=?`, store.WorkflowActionCompleted, attemptID).Scan(&dispatchSeq, &capability); err != nil {
+				t.Fatal(err)
+			}
+			if err := s.DatabaseForTesting().QueryRow(`SELECT seq FROM domain_events WHERE subject_id='work-1' AND kind=? AND json_extract(payload,'$.action_id')='accept_worker_result' AND json_extract(payload,'$.worker_attempt_id')=?`, store.WorkflowActionCompleted, attemptID).Scan(&acceptSeq); err != nil {
+				t.Fatal(err)
+			}
+			if dispatchSeq <= cutoff || acceptSeq <= dispatchSeq || !slices.Contains([]string{"implementation", "design", "research"}, capability) {
+				t.Fatalf("fresh producing acceptance: cutoff=%d dispatch=%d accept=%d capability=%s", cutoff, dispatchSeq, acceptSeq, capability)
+			}
+		}
+		if tuple.RecordWorkerJob {
+			requireRecoveryLocalAcceptance(t, s, deliveryStep, attemptID)
+			bindRecoveryIntegration(t, s, invoke, version, tuple.WorkflowID+"-"+suffix+"-producer")
+			delivery := invoke(map[string]any{
+				"work_id": "work-1", "expected_version": version(), "action_id": "record_delivery",
+				"fields":          map[string]any{"delivery_artifact": "artifact:" + tuple.WorkflowID + ":" + suffix, "delivery_state": "asserted"},
+				"idempotency_key": "regroute-" + tuple.WorkflowID + "-" + suffix + "-delivery",
+			})
+			if delivery.Outcome != OutcomeOK {
+				t.Fatalf("%s record_delivery: %+v", suffix, delivery.Error)
+			}
+			if got := stepOf(t, s); got != "refine" {
+				t.Fatalf("%s delivery reached %s, want refine", suffix, got)
+			}
 		}
 		if suffix == "first" && tuple.ProducerAction != "record_decision" {
 			return // Initial accepted result; the fixture parks at the evaluator next.
@@ -896,21 +993,68 @@ func runJourneyDeliveryAndAdvance(t *testing.T, tuple workflowRecoveryRouteTuple
 	}
 
 	// Advance through admitted actions, without fixture step switches.
-	advanceWorkerRecovery(t, tuple, s, grant, invoke, version, suffix)
+	advanceWorkerRecovery(t, tuple, s, service, env, grant, invoke, version, suffix)
 }
 
-// advanceWorkerRecovery drives each family's delivery accept to the
-// evaluator step through the public tool. Architecture_spike records
-// its decision at decision_record and parks at the verdict step; the
-// research verdict step accepts a record_report; static_analysis
-// accepts a record_report at report. implementation and break_fix
-// share the refine review path; ops_runbook is advanced via
-// record_delivery when the live path lands on a delivery step.
-func advanceWorkerRecovery(t *testing.T, tuple workflowRecoveryRouteTuple, s *store.Store, grant Authority, invoke func(map[string]any) Envelope, version func() int64, suffix string) {
+// Record the job under the active contract, including after supersession.
+func recordRecoveryWorkerJob(t *testing.T, s *store.Store, service *Service, env CallEnvelope, jobID string) {
+	t.Helper()
+	contract, err := s.LatestWorkflowContractVersion(context.Background(), "work-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	recordReadyRetryJobWithChecks(t, s, service, env, jobID, contract, []string{"go vet ./..."})
+}
+
+func requireRecoveryLocalAcceptance(t *testing.T, s *store.Store, step, attemptID string) {
+	t.Helper()
+	if got := stepOf(t, s); got != step {
+		t.Fatalf("local acceptance of %s moved %s to %s", attemptID, step, got)
+	}
+	job := authorizedWorkerJob(t, s, attemptID)
+	if job == nil {
+		t.Fatalf("attempt %s has no explicit worker-job binding", attemptID)
+	}
+	var state, action, artifact string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT j.state,json_extract(e.payload,'$.action_id'),COALESCE(json_extract(e.payload,'$.delivery_artifact'),'')
+		FROM worker_job_revisions j JOIN domain_events e ON e.event_id=j.satisfied_result_ref
+		WHERE j.work_id='work-1' AND j.job_id=? AND j.revision=? AND j.digest=?`, job.JobID, job.Revision, job.Digest).Scan(&state, &action, &artifact); err != nil {
+		t.Fatalf("read local disposition for %s: %v", attemptID, err)
+	}
+	if state != "satisfied" || action != "accept_worker_result" || artifact != "" {
+		t.Fatalf("local acceptance: state=%s action=%s delivery_artifact=%q", state, action, artifact)
+	}
+}
+
+// Each recovery fixture has one required Project. Acquire verification after
+// the result, local acceptance, and phase start; bind it through the public
+// tool. At refine this same qualifying run proves the full refine exit.
+func bindRecoveryIntegration(t *testing.T, s *store.Store, invoke func(map[string]any) Envelope, version func() int64, identity string) {
+	t.Helper()
+	var projects int
+	var project string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT COUNT(DISTINCT project_scope),MIN(project_scope) FROM worker_job_revisions WHERE work_id='work-1'`).Scan(&projects, &project); err != nil {
+		t.Fatal(err)
+	}
+	if projects != 1 || project != "project-1" {
+		t.Fatalf("integration fixture must cover every required Project: count=%d Project=%s", projects, project)
+	}
+	digest := fmt.Sprintf("%x", sha256.Sum256([]byte(identity)))
+	proof := agentSeedIntegrationVerifyRun(t, s, "work-1", digest)
+	requireRecoveryOK(t, "bind integration verification", invoke(map[string]any{
+		"work_id": "work-1", "expected_version": version(), "action_id": "bind_evidence",
+		"fields":          map[string]any{"evidence_kind": "verification", "evidence_ref": proof},
+		"idempotency_key": "regroute-" + identity + "-integration",
+	}))
+}
+
+// advanceWorkerRecovery drives each family's accepted production to the
+// evaluator through public actions, including the complete refine admission.
+func advanceWorkerRecovery(t *testing.T, tuple workflowRecoveryRouteTuple, s *store.Store, service *Service, env CallEnvelope, grant Authority, invoke func(map[string]any) Envelope, version func() int64, suffix string) {
 	t.Helper()
 	action := func(id string, fields map[string]any) {
 		t.Helper()
-		requireRecoveryOK(t, id, invoke(map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": id, "fields": fields, "idempotency_key": tuple.WorkflowID + "-" + suffix + "-" + id}))
+		requireRecoveryOK(t, id, invoke(map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": id, "fields": fields, "idempotency_key": tuple.WorkflowID + "-" + suffix + "-" + stepOf(t, s) + "-" + id}))
 	}
 	switch tuple.Ref {
 	case "workflow.break_fix", "workflow.implementation":
@@ -920,14 +1064,25 @@ func advanceWorkerRecovery(t *testing.T, tuple workflowRecoveryRouteTuple, s *st
 		action("start_refine", map[string]any{})
 		lane := recoveryProducerLane(t, "review")
 		attempt := "attempt:" + tuple.WorkflowID + ":" + suffix + ":review"
+		if tuple.RecordWorkerJob {
+			recordRecoveryWorkerJob(t, s, service, env, "job:"+tuple.WorkflowID+":"+suffix+":review")
+		}
 		action("dispatch_worker", map[string]any{"attempt_id": attempt, "worker_packet": bindPacketToRecordedState(t, s, map[string]any{
 			"schema_version": "1.0", "attempt_id": attempt, "lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest,
 			"work_id": "work-1", "step_id": "refine", "inputs": map[string]any{"task": "Review the fresh repaired result"},
 		})})
-		proof := agentSeedRefineProofRun(t, s, "work-1", strings.Repeat("b", 64))
-		action("bind_evidence", map[string]any{"evidence_kind": "verification", "evidence_ref": proof, "producer_id": "principal/fixture", "producer_run_ref": proof, "producer_watermark": "request/verify"})
 		appendLaneCompletion(t, s, grant, lane, attempt, suffix+"-review")
-		action("accept_worker_result", map[string]any{"attempt_id": attempt, "attempt_epoch": attemptEpoch(t, s, attempt), "delivery_artifact": "artifact:" + tuple.WorkflowID + ":" + suffix, "delivery_state": "asserted"})
+		if tuple.RecordWorkerJob {
+			action("accept_worker_result", map[string]any{"attempt_id": attempt, "attempt_epoch": attemptEpoch(t, s, attempt)})
+			requireRecoveryLocalAcceptance(t, s, "refine", attempt)
+			// The integrated verify run also supplies the current refine proof.
+			bindRecoveryIntegration(t, s, invoke, version, tuple.WorkflowID+"-"+suffix+"-refine")
+			action("record_delivery", map[string]any{"delivery_artifact": "artifact:" + tuple.WorkflowID + ":" + suffix, "delivery_state": "asserted"})
+		} else {
+			proof := agentSeedRefineProofRun(t, s, "work-1", strings.Repeat("b", 64))
+			action("bind_evidence", map[string]any{"evidence_kind": "verification", "evidence_ref": proof, "producer_id": "principal/fixture", "producer_run_ref": proof, "producer_watermark": "request/verify"})
+			action("accept_worker_result", map[string]any{"attempt_id": attempt, "attempt_epoch": attemptEpoch(t, s, attempt), "delivery_artifact": "artifact:" + tuple.WorkflowID + ":" + suffix, "delivery_state": "asserted"})
+		}
 		if stepOf(t, s) == "delivery" {
 			action("record_delivery", map[string]any{"delivery_artifact": "artifact:" + tuple.WorkflowID + ":" + suffix, "delivery_state": "asserted"})
 		}
@@ -950,29 +1105,14 @@ func advanceWorkerRecovery(t *testing.T, tuple workflowRecoveryRouteTuple, s *st
 // not auto-advance for families whose verdict step also declares
 // confirm_premise; the journey calls confirm_premise first, then
 // complete. Both confirm_premise and complete require operator
-// approval; the journey signs the approval and re-dispatches.
-// runJourneyCompletion drives the work item to completion after the
-// healthy verdict lands. The journey uses the public tool only; no
-// SQL step switches. The healthy verdict at the verdict step does
-// not auto-advance for families whose verdict step also declares
-// confirm_premise; the journey calls confirm_premise first, then
-// complete. Both confirm_premise and complete require operator
 // approval; the journey signs the approval through the exact
 // challenge the engine mints.
 func runJourneyCompletion(t *testing.T, tuple workflowRecoveryRouteTuple, s *store.Store, service *Service, env CallEnvelope, version func() int64) {
 	t.Helper()
 	current := stepOf(t, s)
 	if stepDeclaresConfirmPremise(t, tuple, current) {
-		// confirm_premise requires a recorded investigation
-		// observation whose refs name the current Domain and
-		// another work item, plus a decision_context_digest
-		// that matches the open operator question. The
-		// journey inserts the observation via the existing
-		// fold-guard fixture pattern, reads the open
-		// question to obtain the digest, then submits
-		// confirm_premise through approvedRecoveryAction so
-		// the signed approval carries the exact active
-		// contract version the engine binds.
+		// The caller records the investigation through the public tool.
+		// Bind confirmation to the open question's exact decision context.
 		questionDigest := readOperatorQuestionDigest(t, s, "work-1", "confirm_premise")
 		confirmInput := map[string]any{
 			"work_id": "work-1", "expected_version": version(), "action_id": "confirm_premise",
@@ -1045,17 +1185,26 @@ func TestWorkflowRecoveryRoutesFrozenGenericOneOffV13HasUnchangedDigest(t *testi
 // new builtin version of a family names for the complete-step
 // correction (CD-0172 D1/D2).
 type workflowRecoveryRouteSupersedeTuple struct {
-	Ref        string
-	Version    int64
-	Step       string
-	Target     string
-	WorkflowID string
+	Ref     string
+	Version int64
+	Step    string
+	Target  string
+	// RecordWorkerJob reports whether the post-supersede journey must
+	// call record_worker_job before each dispatch. The CD-0205
+	// worker-job lifecycle gates the dispatch on a ready worker-job
+	// revision at workflow.implementation v24+ and workflow.break_fix
+	// v21+.
+	RecordWorkerJob bool
+	WorkflowID      string
 }
 
 // workflowRecoveryRouteSupersedeTuples is the one declared supersede
 // route table the public journey enumerates: the 2 complete-step
 // supersede routes every new builtin version declares (CD-0172 D3,
-// CD-0186).
+// CD-0186), plus the 2 v24/v21 worker-job authors that publish the
+// same route through the same engine recovery table. The v24/v21
+// tuples' public-tool journeys follow the same local-accept +
+// record_delivery integration the unhealthy v24/v21 routes do.
 func workflowRecoveryRouteSupersedeTuples() []workflowRecoveryRouteSupersedeTuple {
 	return []workflowRecoveryRouteSupersedeTuple{
 		{
@@ -1065,6 +1214,18 @@ func workflowRecoveryRouteSupersedeTuples() []workflowRecoveryRouteSupersedeTupl
 		{
 			Ref: "workflow.break_fix", Version: 20,
 			Step: "complete", Target: "repair", WorkflowID: "break_fix-complete-supersede",
+		},
+		{
+			Ref: "workflow.implementation", Version: 24,
+			Step: "release", Target: "execution",
+			RecordWorkerJob: true,
+			WorkflowID:      "implementation-v24-release-supersede",
+		},
+		{
+			Ref: "workflow.break_fix", Version: 21,
+			Step: "complete", Target: "repair",
+			RecordWorkerJob: true,
+			WorkflowID:      "break_fix-v21-complete-supersede",
 		},
 	}
 }
@@ -1111,9 +1272,6 @@ func runWorkflowRecoveryRouteSupersede(t *testing.T, tuple workflowRecoveryRoute
 		t.Fatalf("initialize workflow %s v%d: %v", tuple.Ref, tuple.Version, err)
 	}
 	grant.Worktree = worktree
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE project_locators SET locator_value=?1, normalized_value=?1 WHERE project_id='project-1' AND kind='canonical_path'; DELETE FROM fold_guard`, worktree); err != nil {
-		t.Fatalf("point the fixture locator at the repository: %v", err)
-	}
 	grantActorRef, err := store.WorkflowActorRef(grantActor)
 	if err != nil {
 		t.Fatal(err)
@@ -1386,11 +1544,12 @@ func runWorkflowRecoveryRouteSupersedeContinuation(t *testing.T, tuple workflowR
 		BindStep:         bindStep,
 		BindKind:         store.EvidenceVerification,
 		RequiredEvidence: supersedeSuccessorKinds(),
+		RecordWorkerJob:  tuple.RecordWorkerJob,
 		WorkflowID:       tuple.WorkflowID,
 	}
 	// Fresh production: gated action -> dispatch_worker ->
 	// accept_worker_result -> advanceWorkerRecovery to the evaluator.
-	runJourneyDeliveryAndAdvance(t, routeTuple, s, grant, invoke, version, "fresh")
+	runJourneyDeliveryAndAdvance(t, routeTuple, s, service, env, grant, invoke, version, "fresh")
 	// Independent healthy verdict under the successor contract. The
 	// evaluator grant is issued from the shared privateKey so the
 	// signer is distinct from the original grant and the recorded
@@ -1527,22 +1686,42 @@ func appendLaneCompletion(t *testing.T, s *store.Store, grant Authority, lane st
 // appendLaneCompletionWithVerdict records the lane-actor dispatch and
 // the worker completion for one attempt through the public fold
 // (CD-0109), carrying the named review verdict when the lane
-// requires a review block.
+// requires a review block. The dispatch evidence carries the
+// worker-job binding the dispatch_worker authorization recorded
+// (CD-0205), so a job-bound pin admits the worker evidence without
+// forging a job the core did not authorize.
 func appendLaneCompletionWithVerdict(t *testing.T, s *store.Store, grant Authority, lane store.LaneDefinition, attemptID, suffix, reviewVerdict string) {
 	t.Helper()
 	ctx := context.Background()
-	dispatch := store.Event{
-		EventID: "regroute-dispatch-" + suffix + "-" + attemptID, Kind: store.WorkerDispatched, SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: 2,
-		Payload: retryJSON(store.WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, PacketDigest: "sha256:" + strings.Repeat("c", 64), ReadbackModel: "openai/gpt-5.6-luna", PacketSchemaVersion: store.WorkerPacketSchemaVersion, ReportSchemaVersion: store.WorkerReportSchemaVersion}),
+	job := authorizedWorkerJob(t, s, attemptID)
+	payload := store.WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, PacketDigest: "sha256:" + strings.Repeat("c", 64), ReadbackModel: "openai/gpt-5.6-luna", PacketSchemaVersion: store.WorkerPacketSchemaVersion, ReportSchemaVersion: store.WorkerReportSchemaVersion}
+	if job != nil {
+		payload.WorkerJob = job
 	}
-	payload := store.WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: "openai/gpt-5.6-luna", ReportSchemaVersion: store.WorkerReportSchemaVersion}
+	dispatch := store.Event{EventID: "regroute-dispatch-" + suffix + "-" + attemptID, Kind: store.WorkerDispatched, SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: 2, Payload: retryJSON(payload)}
+	completedPayload := store.WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: "openai/gpt-5.6-luna", ReportSchemaVersion: store.WorkerReportSchemaVersion}
+	if job != nil {
+		completedPayload.WorkerJob = job
+	}
 	payloadVersion := 1
 	if len(lane.RequiredReportBlocks) > 0 {
 		payloadVersion = 3
-		payload.EvidenceOrigin = store.WorkerEvidenceLegacyUnavailable
-		payload.Review = &store.WorkerReviewBlock{Verdict: reviewVerdict, Findings: []store.WorkerReviewFinding{{Severity: "P3", Confidence: "high", Detail: "the corrected producer attempt " + suffix}}}
+		completedPayload.EvidenceOrigin = store.WorkerEvidenceLegacyUnavailable
+		completedPayload.Review = &store.WorkerReviewBlock{Verdict: reviewVerdict, Findings: []store.WorkerReviewFinding{{Severity: "P3", Confidence: "high", Detail: "the corrected producer attempt " + suffix}}}
 	}
-	completion := store.Event{EventID: "regroute-completion-" + suffix + "-" + attemptID, Kind: store.WorkerCompleted, SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: payloadVersion, Payload: retryJSON(payload)}
+	// The worker_job field on the worker.completed event is reserved for
+	// payload version >= 4 (CD-0205): the fold uses the version to admit
+	// job-bound dispositions and refuses earlier payloads that carry
+	// the field, so a job-bearing completion must be written at v4+.
+	if job != nil && payloadVersion < 4 {
+		payloadVersion = 4
+	}
+	// A job-bound completion at v4+ must declare the evidence origin
+	// (CD-0205): the fold refuses payloads without it.
+	if payloadVersion >= 4 && completedPayload.EvidenceOrigin == "" {
+		completedPayload.EvidenceOrigin = store.WorkerEvidenceLegacyUnavailable
+	}
+	completion := store.Event{EventID: "regroute-completion-" + suffix + "-" + attemptID, Kind: store.WorkerCompleted, SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: payloadVersion, Payload: retryJSON(completedPayload)}
 	if err := s.Transact(ctx, func(tx *store.Transaction) error {
 		enriched, err := store.PrepareLaneActorDispatch(ctx, tx, dispatch, grant.PrincipalRef, grant.ClientRef)
 		if err != nil {

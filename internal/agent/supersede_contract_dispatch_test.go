@@ -78,6 +78,13 @@ func testSupersedeContractDispatch(t *testing.T, stage string) {
 				lane = candidate
 			}
 		}
+		// The job-capable pin (workflow.implementation v24+) refuses the
+		// dispatch without a ready worker-job revision. Record one under
+		// the v1 parent contract before authorizing the dispatch window
+		// (CD-0205). The verify lane is a verification capability class
+		// and the recorded checks cannot be empty.
+		recordReadyRetryJobWithChecks(t, s, service, env, "job:supersede-pending", 1, []string{"go test ./internal/store/"})
+		version = workflowIssue31Version(t, s)
 		payload, err := json.Marshal(map[string]any{
 			"work_id": "work-1", "expected_version": version, "action_id": "dispatch_worker", "idempotency_key": "pending-dispatch",
 			"fields": map[string]any{"attempt_id": "attempt:pending", "worker_packet": bindPacketToRecordedState(t, s, map[string]any{

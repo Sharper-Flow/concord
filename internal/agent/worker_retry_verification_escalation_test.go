@@ -316,6 +316,9 @@ func seedEscalatedVerificationWorkerMutation(t *testing.T, s *store.Store, servi
 		if start.Outcome != OutcomeOK {
 			t.Fatalf("seed verification start %d: %+v", cycle, start.Error)
 		}
+		// Each cycle executes its own recorded job: an accepted job is
+		// satisfied and never redispatches (CD-0205).
+		recordReadyRetryJob(t, s, service, env, "job:verification-"+strconv.FormatInt(cycle, 10))
 		version = workVersion(t, s, "work-1")
 		pin, err := store.ReadWorkPin(context.Background(), s, "work-1")
 		if err != nil {
@@ -343,6 +346,23 @@ func seedEscalatedVerificationWorkerMutation(t *testing.T, s *store.Store, servi
 		accept := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: retryJSON(map[string]any{"work_id": "work-1", "expected_version": version, "action_id": "accept_worker_result", "fields": map[string]any{"attempt_id": attemptID, "attempt_epoch": attemptEpoch}, "idempotency_key": "verification-accept-" + strconv.FormatInt(cycle, 10)})}, env)
 		if accept.Outcome != OutcomeOK {
 			t.Fatalf("seed verification accept %d: %+v", cycle, accept.Error)
+		}
+		// The job-bound accept is local acceptance and holds execution; the
+		// step exits through its delivery assertion. The delivery admission
+		// requires qualifying core-owned worktree verification evidence bound
+		// after the recorded acceptance, covering the job's Project
+		// (CD-0205 D3): seed one green verify run after the acceptance and
+		// bind its operation ref as the integration evidence.
+		integrationRef := agentSeedIntegrationVerifyRun(t, s, "work-1", fmt.Sprintf("%064x", 40+cycle))
+		version = workVersion(t, s, "work-1")
+		integration := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: retryJSON(map[string]any{"work_id": "work-1", "expected_version": version, "action_id": "bind_evidence", "fields": map[string]any{"evidence_kind": "verification", "evidence_ref": integrationRef}, "idempotency_key": "verification-integration-" + strconv.FormatInt(cycle, 10)})}, env)
+		if integration.Outcome != OutcomeOK {
+			t.Fatalf("seed verification integration bind %d: %+v", cycle, integration.Error)
+		}
+		version = workVersion(t, s, "work-1")
+		executionDelivery := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: retryJSON(map[string]any{"work_id": "work-1", "expected_version": version, "action_id": "record_delivery", "fields": map[string]any{"delivery_artifact": "evidence:verification-execution-" + strconv.FormatInt(cycle, 10), "delivery_state": "asserted"}, "idempotency_key": "verification-delivery-execution-" + strconv.FormatInt(cycle, 10)})}, env)
+		if executionDelivery.Outcome != OutcomeOK {
+			t.Fatalf("seed verification execution delivery %d: %+v", cycle, executionDelivery.Error)
 		}
 		version = workVersion(t, s, "work-1")
 		refineStart := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: json.RawMessage(`{"work_id":"work-1","expected_version":` + strconv.FormatInt(version, 10) + `,"action_id":"start_refine","idempotency_key":"verification-refine-start-` + strconv.FormatInt(cycle, 10) + `"}`)}, env)
@@ -382,6 +402,8 @@ func seedEscalatedVerificationWorkerMutation(t *testing.T, s *store.Store, servi
 			t.Fatalf("verification correction after cycle %d = %#v", cycle, pin.Correction)
 		}
 	}
+	// The corrective retry executes a freshly recorded job.
+	recordReadyRetryJob(t, s, service, env, "job:verification-correction")
 	pin, err := store.ReadWorkPin(context.Background(), s, "work-1")
 	if err != nil {
 		t.Fatal(err)
@@ -418,8 +440,13 @@ func recordVerificationFailure(t *testing.T, s *store.Store, service *Service, g
 func applyVerificationWorkerDispatchAndCompletion(t *testing.T, s *store.Store, grant Authority, attemptID, suffix string) {
 	t.Helper()
 	lane := retryLane(t)
-	dispatch := store.Event{EventID: suffix + "-dispatch-" + attemptID, Kind: store.WorkerDispatched, SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: 2, Payload: retryJSON(store.WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, PacketDigest: "sha256:" + strings.Repeat("c", 64), ReadbackModel: "openai/gpt-5.6-luna", PacketSchemaVersion: store.WorkerPacketSchemaVersion, ReportSchemaVersion: store.WorkerReportSchemaVersion})}
-	completion := store.Event{EventID: suffix + "-completed-" + attemptID, Kind: store.WorkerCompleted, SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: retryJSON(store.WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: "openai/gpt-5.6-luna", ReportSchemaVersion: store.WorkerReportSchemaVersion})}
+	job := authorizedWorkerJob(t, s, attemptID)
+	evidence := make([]store.WorkerReportEvidence, 0, len(lane.EvidenceObligations))
+	for _, obligation := range lane.EvidenceObligations {
+		evidence = append(evidence, store.WorkerReportEvidence{Obligation: obligation, Detail: "synthetic reported evidence for " + obligation})
+	}
+	dispatch := store.Event{EventID: suffix + "-dispatch-" + attemptID, Kind: store.WorkerDispatched, SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: 2, Payload: retryJSON(store.WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, PacketDigest: "sha256:" + strings.Repeat("c", 64), ReadbackModel: "openai/gpt-5.6-luna", PacketSchemaVersion: store.WorkerPacketSchemaVersion, ReportSchemaVersion: store.WorkerReportSchemaVersion, WorkerJob: job})}
+	completion := store.Event{EventID: suffix + "-completed-" + attemptID, Kind: store.WorkerCompleted, SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: store.WorkerEvidenceEventPayloadVersion(store.WorkerCompleted), Payload: retryJSON(store.WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: "openai/gpt-5.6-luna", ReportSchemaVersion: store.WorkerReportSchemaVersion, WorkerJob: job, EvidenceOrigin: store.WorkerEvidenceReported, Evidence: evidence})}
 	if err := s.Transact(context.Background(), func(tx *store.Transaction) error {
 		enriched, err := store.PrepareLaneActorDispatch(context.Background(), tx, dispatch, grant.PrincipalRef, grant.ClientRef)
 		if err != nil {

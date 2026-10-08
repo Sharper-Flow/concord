@@ -284,14 +284,16 @@ function realStoreRunner(binary: string, dbPath: string, realCalls: Array<{ argv
 // approved-contract state that makes dispatch_worker the next action, using
 // the transition sequence every route test shares. The premise and predicates
 // are parameters so capacity tests can approve a maximum-size premise with
-// eight synthetic predicates through the same real route.
+// eight synthetic predicates through the same real route. It returns the
+// work version the record_worker_job action reported, so dispatch callers
+// consume the store's own dispatch-ready version instead of pinning it.
 async function driveWorkflowToContract(
   workID: string,
   invoke: (toolName: string, args: { operation: string; input: Record<string, unknown> }, callContext: any, sessionDirectory?: string) => Promise<any>,
   context: any,
   premise: string = APPROVED_OBJECTIVE,
   outcomePredicates: JSONRecord[] = [WORKFLOW_PREDICATE],
-): Promise<void> {
+): Promise<number> {
   const transition = (version: number, actionID: string, idempotencyKey: string, fields: Record<string, unknown>) => invoke("concord_work_transition", { operation: "workflow_action", input: { work_id: workID, expected_version: version, action_id: actionID, idempotency_key: idempotencyKey, fields } }, context)
   let response = await transition(5, "record_reproduction", "e2e-reproduction", {})
   expect(response.outcome, JSON.stringify(response)).toBe("ok")
@@ -323,6 +325,32 @@ async function driveWorkflowToContract(
   expect(response.outcome).toBe("ok")
   const stepRead = (await invoke("concord_work_trace", { operation: "continuity", input: { work_id: workID, page: { cursor: null, limit: 1 } } }, context)).result as JSONRecord
   expect((stepRead.pinned as JSONRecord).workflow_step).toBe("repair")
+  // The job-capable break-fix definition dispatches the implement lane only
+  // under a recorded ready worker-job revision (CD-0205).
+  response = await transition(12, "record_worker_job", "e2e-worker-job", {
+    job_id: ROUTE_WORKER_JOB_ID,
+    objective: "Apply the bounded route repair.",
+    stopping_condition: "The route repair is applied and its checks pass.",
+    path_scope: ["internal/store"],
+    checks: ["go test ./internal/store/"],
+    ready: true,
+    readiness_evidence: ["evidence:route-e2e-ready"],
+  })
+  expect(response.outcome, JSON.stringify(response.error ?? null)).toBe("ok")
+  const jobRead = (await invoke("concord_work_trace", { operation: "continuity", input: { work_id: workID, page: { cursor: null, limit: 1 } } }, context)).result as JSONRecord
+  const ready = (jobRead.pinned as JSONRecord).ready_worker_jobs as JSONRecord[]
+  expect(ready.map((job) => [job.job_id, job.revision])).toEqual([[ROUTE_WORKER_JOB_ID, 1]])
+  const dispatchVersion = ((response.result as JSONRecord).changed_refs as JSONRecord[]).find((changed) => changed.entity_kind === "work_item")!.version as number
+  return dispatchVersion
+}
+
+const ROUTE_WORKER_JOB_ID = "job:route-e2e-repair"
+
+// reportWorkerJob copies the packet's worker-job binding onto the report
+// claim, as a lane worker does (CD-0205).
+function reportWorkerJob(packet: JSONRecord): JSONRecord {
+  const job = (packet.inputs as JSONRecord).worker_job as JSONRecord
+  return { job_id: job.job_id, revision: job.revision, digest: job.digest }
 }
 
 routeDeclaration("dispatches a real store route through Task completion and workflow gates", async () => {
@@ -379,8 +407,8 @@ routeDeclaration("dispatches a real store route through Task completion and work
     await driveWorkflowToContract(workID, invoke, context)
 
     let response: JSONRecord
-    const routed = laneDispatchRequest({ operation: "workflow_action", input: { work_id: workID, expected_version: 12, action_id: "dispatch_worker", idempotency_key: "e2e-dispatch", fields: { lane_id: "implement" } } })
-    expect(routed).toEqual({ work_id: workID, expected_version: 12, idempotency_key: "e2e-dispatch", lane_id: "implement" })
+    const routed = laneDispatchRequest({ operation: "workflow_action", input: { work_id: workID, expected_version: 14, action_id: "dispatch_worker", idempotency_key: "e2e-dispatch", fields: { lane_id: "implement" } } })
+    expect(routed).toEqual({ work_id: workID, expected_version: 14, idempotency_key: "e2e-dispatch", lane_id: "implement" })
     const windows = new DispatchWindows()
     let dispatchResponse: JSONRecord | undefined
     const dispatchResult = await dispatchLaneWorker(routed as any, {
@@ -419,17 +447,19 @@ routeDeclaration("dispatches a real store route through Task completion and work
     expect(packet.inputs.context).toBe(`Value: The route completes a real worker attempt.\n\nApproved law and Domains (binding Product law):\n- Domain product-root:${PRODUCT_ID}: Synthetic root — Synthetic test domain\nDomain registry: ${registryLocator}\n\nRecorded task:\nExercise the dispatch route.\n\n`)
     expect(await Bun.file(registryLocator).exists()).toBe(true)
     expect(packet.inputs.task).toBe(APPROVED_OBJECTIVE)
-    expect(packet.inputs.binding).toEqual({ objective_source: "contract_premise", work_version: 12, contract_version: 1, assigned_result: "files_touched" })
+    expect(packet.inputs.binding).toEqual({ objective_source: "contract_premise", work_version: 14, contract_version: 1, assigned_result: "files_touched" })
     expect(packet.inputs.task).not.toContain(WORKFLOW_PREDICATE.predicate_id)
     expect(packet.inputs.outcome_predicates).toEqual([WORKFLOW_PREDICATE])
     expect(packet.inputs.constraints).toBeUndefined()
+    expect(((packet.inputs as JSONRecord).worker_job as JSONRecord).job_id).toBe(ROUTE_WORKER_JOB_ID)
     expect(dispatchResponse?.result?.worker_packet_digest).toMatch(/^sha256:[0-9a-f]{64}$/)
     const dispatchEvent = dbRows(dbPath, `SELECT payload FROM domain_events WHERE kind='workflow.action_completed' AND json_extract(payload,'$.action_id')='dispatch_worker' AND subject_id='${workID}' ORDER BY seq DESC LIMIT 1`)
     expect(JSON.parse(dispatchEvent[0].payload as string).worker_packet_predicate_ids).toEqual([WORKFLOW_PREDICATE.predicate_id])
     const report = {
-      schema_version: "1.0",
+      schema_version: packet.schema_version,
       readback_model: READBACK_MODEL,
       status: "completed",
+      worker_job: reportWorkerJob(packet as JSONRecord),
       evidence: lane.evidence_obligations.map((obligation: string, index: number) => ({
         obligation,
         detail: `discharged ${obligation}`,
@@ -452,10 +482,29 @@ routeDeclaration("dispatches a real store route through Task completion and work
     const currentVersion = dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number
     response = await transition(currentVersion, "accept_worker_result", "e2e-accept-worker", { attempt_id: packet.attempt_id, attempt_epoch: 1 })
     expect(response.outcome).toBe("ok")
+    // The job-bound accept is local acceptance (CD-0205): it satisfies the
+    // recorded job and holds repair. The step exits through its own
+    // delivery assertion.
+    expect(dbValue(dbPath, `SELECT current_step FROM workflow_instances WHERE work_id='${workID}'`).current_step).toBe("repair")
+    expect(dbValue(dbPath, `SELECT state FROM worker_job_revisions WHERE work_id='${workID}' AND job_id='${ROUTE_WORKER_JOB_ID}'`).state).toBe("satisfied")
+    // The delivery admission requires qualifying core-owned worktree
+    // verification evidence bound after the recorded acceptance, covering the
+    // job's Project (CD-0205 D3): run one verify on the integrated work and
+    // bind its operation ref between the local accept and the delivery.
+    response = await invoke("concord_work_transition", { operation: "worktree_verify", input: { work_id: workID, command: ["git", "status", "--porcelain"], idempotency_key: "e2e-repair-integration-verify" } }, context)
+    expect(response.outcome, JSON.stringify(response)).toBe("ok")
+    const integrationRef = (response.result as JSONRecord).operation_ref as string
+    expect(integrationRef).toMatch(/^worktree_verify:/)
+    const integrationVersion = dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number
+    response = await transition(integrationVersion, "bind_evidence", "e2e-bind-integration", { evidence_kind: "verification", evidence_ref: integrationRef })
+    expect(response.outcome, JSON.stringify(response)).toBe("ok")
+    const repairDeliveryVersion = dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number
+    response = await transition(repairDeliveryVersion, "record_delivery", "e2e-record-repair-delivery", { delivery_artifact: ".concord/docs/dispatch-marker.txt", delivery_state: "asserted" })
+    expect(response.outcome, JSON.stringify(response)).toBe("ok")
     const refineStartVersion = dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number
     response = await transition(refineStartVersion, "start_refine", "e2e-start-refine", {})
     expect(response.outcome).toBe("ok")
-    expect(dbValue(dbPath, `SELECT definition_version FROM workflow_instances WHERE work_id='${workID}'`).definition_version).toBe(20)
+    expect(dbValue(dbPath, `SELECT definition_version FROM workflow_instances WHERE work_id='${workID}'`).definition_version).toBe(21)
     expect(dbValue(dbPath, `SELECT current_step FROM workflow_instances WHERE work_id='${workID}'`).current_step).toBe("refine")
     const refineEvidenceVersion = dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number
     response = await transition(refineEvidenceVersion, "bind_evidence", "e2e-bind-refine-artifact", { evidence_kind: "artifact" })
@@ -639,17 +688,20 @@ for (const blockedVerb of ["worker-dispatch", "worker-complete"]) {
       } }
       configureConcordAdapter({ runner })
       const invoke = (toolName: string, args: any, callContext: any) => invokeConcordOperation(toolName, args, callContext)
-      await driveWorkflowToContract(workID, invoke, context)
+      const dispatchVersion = await driveWorkflowToContract(workID, invoke, context)
       const windows = new DispatchWindows()
       const credentials = { async getPrivateKey() { return PRIVATE_SEED } }
-      const dispatch = await dispatchLaneWorker({ work_id: workID, expected_version: 12, idempotency_key: "recovery-dispatch", lane_id: lane.id }, { context, invoke, credentials, windows })
+      const dispatch = await dispatchLaneWorker({ work_id: workID, expected_version: dispatchVersion, idempotency_key: "recovery-dispatch", lane_id: lane.id }, { context, invoke, credentials, windows })
       expect(dispatch.outcome, JSON.stringify(dispatch)).toBe("ok")
       const taskArgs: JSONRecord = {}
       let nativeTaskCalls = 0
       await windows.bind(TASK_TOOL_ID, SESSION_ID, taskArgs, "recovery-task-call", async () => worktree, worktree)
       nativeTaskCalls++
       packet = JSON.parse(taskArgs.prompt)
-      const report = { schema_version: "1.0", readback_model: READBACK_MODEL, status: "completed", evidence: lane.evidence_obligations.map((obligation, index) => ({ obligation, detail: `original ${obligation}`, ...(index === 0 ? { predicate_ids: [WORKFLOW_PREDICATE.predicate_id] } : {}) })) }
+      // The synthetic original completed report claims exactly the binding
+      // the authorized packet carries (CD-0205): the packet's schema version
+      // and its dispatched worker-job revision, never invented job metadata.
+      const report = { schema_version: packet.schema_version, readback_model: READBACK_MODEL, status: "completed", worker_job: reportWorkerJob(packet), evidence: lane.evidence_obligations.map((obligation, index) => ({ obligation, detail: `original ${obligation}`, ...(index === 0 ? { predicate_ids: [WORKFLOW_PREDICATE.predicate_id] } : {}) })) }
       const output = { title: "task", output: taskResult(report), metadata: {} }
       await completeDispatchedWorker({ tool: TASK_TOOL_ID, sessionID: SESSION_ID, callID: "recovery-task-call", args: taskArgs }, output, { windows, credentials, runner, concordBinary: binary })
       const pending = JSON.parse(output.output.split("<concord_attempt>\n")[1].split("\n</concord_attempt>")[0])
@@ -787,7 +839,7 @@ routeDeclaration("dispatches an admitted maximum premise with eight synthetic pr
       invokeConcordOperation(toolName, args as any, callContext, sessionDirectory)
     await driveWorkflowToContract(workID, invoke, context, MAX_PREMISE, EIGHT_ROUTE_PREDICATES)
 
-    const routed = laneDispatchRequest({ operation: "workflow_action", input: { work_id: workID, expected_version: 12, action_id: "dispatch_worker", idempotency_key: "e2e-max-premise-dispatch", fields: { lane_id: "implement" } } })
+    const routed = laneDispatchRequest({ operation: "workflow_action", input: { work_id: workID, expected_version: 14, action_id: "dispatch_worker", idempotency_key: "e2e-max-premise-dispatch", fields: { lane_id: "implement" } } })
     const windows = new DispatchWindows()
     const dispatchResult = await dispatchLaneWorker(routed as any, {
       context, invoke,
@@ -810,7 +862,7 @@ routeDeclaration("dispatches an admitted maximum premise with eight synthetic pr
     expect(packet.inputs.task).toBe(MAX_PREMISE)
     expect(Buffer.byteLength(packet.inputs.task as string, "utf8")).toBe(4_096)
     expect(packet.inputs.task).not.toContain(workID)
-    expect(packet.inputs.binding).toEqual({ objective_source: "contract_premise", work_version: 12, contract_version: 1, assigned_result: "files_touched" })
+    expect(packet.inputs.binding).toEqual({ objective_source: "contract_premise", work_version: 14, contract_version: 1, assigned_result: "files_touched" })
     const predicates = packet.inputs.outcome_predicates as JSONRecord[]
     expect(predicates).toHaveLength(8)
     predicates.forEach((predicate, ordinal) => {
@@ -827,9 +879,10 @@ routeDeclaration("dispatches an admitted maximum premise with eight synthetic pr
     // with it, the report discharges the assigned result, and the store
     // completes the attempt.
     const report = {
-      schema_version: "1.0",
+      schema_version: packet.schema_version,
       readback_model: READBACK_MODEL,
       status: "completed",
+      worker_job: reportWorkerJob(packet as JSONRecord),
       evidence: lane.evidence_obligations.map((obligation: string, index: number) => ({
         obligation,
         detail: `discharged ${obligation}`,
@@ -891,7 +944,7 @@ routeDeclaration("records an oversized worker session through the real CLI and s
     const invoke = (toolName: string, args: { operation: string; input: Record<string, unknown> }, callContext: any, sessionDirectory?: string) =>
       invokeConcordOperation(toolName, args as any, callContext, sessionDirectory)
     await driveWorkflowToContract(workID, invoke, context)
-    const routed = laneDispatchRequest({ operation: "workflow_action", input: { work_id: workID, expected_version: 12, action_id: "dispatch_worker", idempotency_key: "e2e-oversized-dispatch", fields: { lane_id: "implement" } } })
+    const routed = laneDispatchRequest({ operation: "workflow_action", input: { work_id: workID, expected_version: 14, action_id: "dispatch_worker", idempotency_key: "e2e-oversized-dispatch", fields: { lane_id: "implement" } } })
     const windows = new DispatchWindows()
     const dispatchResult = await dispatchLaneWorker(routed as any, {
       context, invoke,
@@ -907,9 +960,10 @@ routeDeclaration("records an oversized worker session through the real CLI and s
     // that born the failure under repair.
     expect(Buffer.byteLength(exportedSession(packet, BULK_TEXT_BYTES))).toBeGreaterThan(8_388_608)
     const report = {
-      schema_version: "1.0",
+      schema_version: packet.schema_version,
       readback_model: READBACK_MODEL,
       status: "completed",
+      worker_job: reportWorkerJob(packet as JSONRecord),
       evidence: lane.evidence_obligations.map((obligation: string, index: number) => ({
         obligation,
         detail: `discharged ${obligation}`,
@@ -975,7 +1029,7 @@ routeDeclaration("records a refused readback as a durable failed attempt through
     const invoke = (toolName: string, args: { operation: string; input: Record<string, unknown> }, callContext: any, sessionDirectory?: string) =>
       invokeConcordOperation(toolName, args as any, callContext, sessionDirectory)
     await driveWorkflowToContract(workID, invoke, context)
-    const routed = laneDispatchRequest({ operation: "workflow_action", input: { work_id: workID, expected_version: 12, action_id: "dispatch_worker", idempotency_key: "e2e-refused-dispatch", fields: { lane_id: "implement" } } })
+    const routed = laneDispatchRequest({ operation: "workflow_action", input: { work_id: workID, expected_version: 14, action_id: "dispatch_worker", idempotency_key: "e2e-refused-dispatch", fields: { lane_id: "implement" } } })
     const windows = new DispatchWindows()
     const dispatchResult = await dispatchLaneWorker(routed as any, {
       context, invoke,
@@ -988,9 +1042,10 @@ routeDeclaration("records a refused readback as a durable failed attempt through
     const packet = JSON.parse(taskArgs.prompt as string) as JSONRecord
     refuseWorkerSessionRead = true
     const report = {
-      schema_version: "1.0",
+      schema_version: packet.schema_version,
       readback_model: READBACK_MODEL,
       status: "completed",
+      worker_job: reportWorkerJob(packet as JSONRecord),
       evidence: lane.evidence_obligations.map((obligation) => ({ obligation, detail: `discharged ${obligation}` })),
     }
     const completionOutput = { title: "task", output: taskResult(report), metadata: {} }

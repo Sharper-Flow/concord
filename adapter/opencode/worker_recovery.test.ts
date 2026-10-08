@@ -58,6 +58,11 @@ test("retained historical report recovery uses original event identity and prove
   expect(calls[0].request.event_id).toBe(recovery.dispatch_event_id)
   expect(calls[0].request.host_provenance).toEqual(recovery.dispatch.host_provenance)
   expect(calls[0].request.authorized_packet).toEqual(packet)
+  // The dispatch evidence keeps the legacy 1.0 packet/report schema pair the
+  // original dispatch recorded: recovery replays the historical shape and
+  // never relabels a legacy attempt with the current schema versions.
+  expect(calls[0].request.packet_schema_version).toBe("1.0")
+  expect(calls[0].request.report_schema_version).toBe("1.0")
   expect(new Set(calls.map((call) => call.request.assertion.nonce)).size).toBe(calls.length)
 })
 

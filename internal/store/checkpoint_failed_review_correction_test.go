@@ -24,7 +24,30 @@ func seedCheckpointFailedReviewMismatch(t *testing.T, workID string) (workflowRe
 // named workflow kind, parked at that kind's verification checkpoint.
 func seedCheckpointFailedReviewMismatchOn(t *testing.T, workID, definitionRef, checkpoint string) (workflowReturnRouteFixture, string, int64) {
 	t.Helper()
-	fixture := seedWorkflowReturnRouteFixtureRequiring(t, workID, definitionRef, checkpoint, []string{"verification"}, []string{"verification", "artifact"})
+	registered, err := BuiltinWorkflowDefinitionForRef(definitionRef)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return seedCheckpointFailedReviewMismatchWith(t, workID, registered, checkpoint)
+}
+
+// seedCheckpointFailedReviewMismatchAt seeds the issue 1062 shape on one
+// named definition version. The return-to-effect tests pin the version before
+// the CD-0205 worker-job lifecycle: their fresh implement dispatch carries no
+// worker job, which a job-capable pin refuses; the job-bound return route is
+// covered by TestCheckpointCorrectionReturnDispatchesARecordedWorkerJob.
+func seedCheckpointFailedReviewMismatchAt(t *testing.T, workID, definitionRef string, version int64, checkpoint string) (workflowReturnRouteFixture, string, int64) {
+	t.Helper()
+	registered, ok := BuiltinWorkflowRegistry().Lookup(definitionRef, version)
+	if !ok {
+		t.Fatalf("workflow definition %s@%d is not registered", definitionRef, version)
+	}
+	return seedCheckpointFailedReviewMismatchWith(t, workID, registered, checkpoint)
+}
+
+func seedCheckpointFailedReviewMismatchWith(t *testing.T, workID string, registered RegisteredDefinition, checkpoint string) (workflowReturnRouteFixture, string, int64) {
+	t.Helper()
+	fixture := seedWorkflowReturnRouteFixtureWithDefinition(t, workID, registered, checkpoint, []string{"verification"}, []string{"verification", "artifact"})
 	attemptID := "attempt:" + workID + ":failed-review"
 	epoch := dispatchCheckpointReviewAttempt(t, fixture, workID, checkpoint, attemptID)
 	failCheckpointReviewAttempt(t, fixture.store, workID, attemptID)
@@ -52,12 +75,12 @@ func workerAttemptPopulation(t *testing.T, s *Store, workID string) (attempts, d
 // correction must leave exactly as it found it: the pinned definition digest
 // and version, the single active contract, the failure verdict with its bound
 // evidence, and the failed attempt's failure history.
-func assertFailedReviewCorrectionPreservesPinnedState(t *testing.T, s *Store, workID, definitionRef string) {
+func assertFailedReviewCorrectionPreservesPinnedState(t *testing.T, s *Store, workID, definitionRef string, definitionVersion int64) {
 	t.Helper()
 	ctx := context.Background()
-	registered, err := BuiltinWorkflowDefinitionForRef(definitionRef)
-	if err != nil {
-		t.Fatal(err)
+	registered, ok := BuiltinWorkflowRegistry().Lookup(definitionRef, definitionVersion)
+	if !ok {
+		t.Fatalf("workflow definition %s@%d is not registered", definitionRef, definitionVersion)
 	}
 	var digest string
 	var version int64
@@ -117,7 +140,7 @@ func requestCorrectionRefusalClass(t *testing.T, s *Store, workID string) (Failu
 // only the fresh execution-step dispatch carries the bounded mismatch context.
 func TestCheckpointFailedReviewCorrectionReturnsBreakFixToRepair(t *testing.T) {
 	const workID = "checkpoint-failed-review-correction"
-	fixture, attemptID, epoch := seedCheckpointFailedReviewMismatch(t, workID)
+	fixture, attemptID, epoch := seedCheckpointFailedReviewMismatchAt(t, workID, "workflow.break_fix", 19, "verify")
 	s := fixture.store
 	ctx := context.Background()
 
@@ -174,7 +197,7 @@ func TestCheckpointFailedReviewCorrectionReturnsBreakFixToRepair(t *testing.T) {
 	// The return carries no law, contract, history, or evidence edit: the
 	// pinned digest, the one contract, the failure verdict, and the failure
 	// record all survive unchanged.
-	assertFailedReviewCorrectionPreservesPinnedState(t, s, workID, "workflow.break_fix")
+	assertFailedReviewCorrectionPreservesPinnedState(t, s, workID, "workflow.break_fix", 19)
 
 	// The return reopens the owning execution step's normal dispatch: a fresh
 	// fenced attempt mints a new identity and a strictly incremented epoch,
@@ -386,7 +409,7 @@ func TestCheckpointFailedReviewConsumedVerdictCannotReopenCorrection(t *testing.
 // the bounded mismatch context.
 func TestCheckpointFailedReviewCorrectionReturnsImplementationToExecution(t *testing.T) {
 	const workID = "checkpoint-failed-review-implementation"
-	fixture, attemptID, epoch := seedCheckpointFailedReviewMismatchOn(t, workID, "workflow.implementation", "acceptance")
+	fixture, attemptID, epoch := seedCheckpointFailedReviewMismatchAt(t, workID, "workflow.implementation", 22, "acceptance")
 	s := fixture.store
 	ctx := context.Background()
 	if err := runVerdictActionAs(t, s, workID, "record_worker_failure", json.RawMessage(`{"attempt_id":"`+attemptID+`","attempt_epoch":`+fmt.Sprint(epoch)+`}`), 0, fixture.owner); err != nil {
@@ -454,7 +477,7 @@ func TestCheckpointFailedReviewCorrectionReturnsImplementationToExecution(t *tes
 	// The return carries no law, contract, history, or evidence edit: the
 	// pinned digest, the one contract, the failure verdict, and the failure
 	// record all survive unchanged on the implementation graph.
-	assertFailedReviewCorrectionPreservesPinnedState(t, s, workID, "workflow.implementation")
+	assertFailedReviewCorrectionPreservesPinnedState(t, s, workID, "workflow.implementation", 22)
 }
 
 // TestCheckpointFailedReviewCorrectionSecondCycleCountsPriorRequests pins the
@@ -464,7 +487,7 @@ func TestCheckpointFailedReviewCorrectionReturnsImplementationToExecution(t *tes
 // count and the recorded dispatch context agree.
 func TestCheckpointFailedReviewCorrectionSecondCycleCountsPriorRequests(t *testing.T) {
 	const workID = "checkpoint-correction-second-cycle"
-	fixture, attemptID, epoch := seedCheckpointFailedReviewMismatch(t, workID)
+	fixture, attemptID, epoch := seedCheckpointFailedReviewMismatchAt(t, workID, "workflow.break_fix", 19, "verify")
 	s := fixture.store
 	ctx := context.Background()
 	if err := runVerdictActionAs(t, s, workID, "record_worker_failure", json.RawMessage(`{"attempt_id":"`+attemptID+`","attempt_epoch":`+fmt.Sprint(epoch)+`}`), 0, fixture.owner); err != nil {

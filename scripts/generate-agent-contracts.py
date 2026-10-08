@@ -436,6 +436,18 @@ def project_workflow_action_schema(document: dict, actions: list[dict], workflow
     defs["workflow_completion_payload"] = {"type": "object", "additionalProperties": False, "properties": {"evidence_commit": {"type": "string", "minLength": 1, "maxLength": 128}, "current_commit": {"type": "string", "minLength": 1, "maxLength": 128}, "staleness": {"type": "object", "additionalProperties": False, "required": ["drifted"], "properties": {"drifted": {"type": "boolean"}, "severity": {"type": "string", "enum": ["block", "warning"]}}}}}
     defs["proposal_affected_text"] = {"type": "string", "minLength": 1, "maxLength": 256}
     defs["proposal_text"] = {"type": "string", "minLength": 1, "maxLength": 512}
+    # CD-0205: record_worker_job carries bounded check and unresolved-reference
+    # text, and exact prerequisite revision references. The store re-checks
+    # each prerequisite against the recorded revisions at dispatch time.
+    defs["worker_job_text"] = {"type": "string", "minLength": 1, "maxLength": 256}
+    defs["worker_job_prerequisite"] = {
+        "type": "object", "additionalProperties": False, "required": ["job_id", "revision"],
+        "properties": {
+            "job_id": {"$ref": "#/$defs/id"},
+            "revision": {"type": "integer", "minimum": 1, "maximum": 2147483647},
+            "result_ref": {"type": "string", "minLength": 1, "maxLength": 512},
+        },
+    }
     defs["decision_record_text"] = {"type": "string", "minLength": 2, "maxLength": 128}
     defs["native_report_timestamp"] = {"type": "string", "minLength": 20, "maxLength": 64, "format": "date-time"}
     design_action = next(action for action in actions if action["id"] == "record_design")

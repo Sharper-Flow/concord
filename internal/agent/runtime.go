@@ -1656,6 +1656,13 @@ func ContinuityPayload(snapshot store.ContinuitySnapshot) map[string]any {
 	if snapshot.PendingProjectHandoff != nil {
 		pinned["pending_project_handoff"] = snapshot.PendingProjectHandoff
 	}
+	// The dispatch-ready worker-job revisions ride the pinned projection in
+	// the packet's inputs.worker_job shape (CD-0205), so the dispatcher
+	// selects one by job_id and binds its recorded content verbatim. The
+	// absent field keeps work without ready jobs byte-stable.
+	if len(snapshot.ReadyWorkerJobs) > 0 {
+		pinned["ready_worker_jobs"] = snapshot.ReadyWorkerJobs
+	}
 	payload := map[string]any{
 		"work_id":            snapshot.WorkID,
 		"pinned":             pinned,

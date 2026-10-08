@@ -129,6 +129,11 @@ type ContinuitySnapshot struct {
 	// boot renders the bounded job a receiving session must consume before
 	// managed execution. Nil when no handoff stands unconsumed.
 	PendingProjectHandoff *ProjectHandoff `json:"pending_project_handoff,omitempty"`
+	// ReadyWorkerJobs carries the work's dispatch-ready worker-job revisions
+	// in the exact inputs.worker_job packet shape (CD-0205), so the
+	// dispatcher binds a selected revision verbatim and never authors job
+	// content itself. Empty when no revision is ready.
+	ReadyWorkerJobs []WorkerPacketJob `json:"ready_worker_jobs,omitempty"`
 	// LawContext resolves the approved contract's binding law and Domains
 	// against the law_subjects and domains projections at read time. Nil
 	// when the contract binds no law and no Domain.
@@ -235,6 +240,9 @@ func ReadWorkflowContinuity(ctx context.Context, s *Store, req ContinuityRequest
 	}
 	out.DesignRecord, _, err = readCurrentWorkflowDesign(ctx, tx, req.Work)
 	if err != nil {
+		return out, err
+	}
+	if err := continuityReadReadyWorkerJobsTx(ctx, tx, req.Work, &out); err != nil {
 		return out, err
 	}
 	if err := continuityReadProposalTx(ctx, tx, req.Work, &out); err != nil {
@@ -357,6 +365,21 @@ func continuityReadCheckpointTx(ctx context.Context, tx *sql.Tx, work string, ou
 		out.LatestCheckpoint = &checkpoint
 	} else if err != sql.ErrNoRows {
 		return wrapFailure(KindUnavailable, "C19.Continuity", "cannot read latest context checkpoint", true, "retry once the database is readable", err)
+	}
+	return nil
+}
+
+// continuityReadReadyWorkerJobsTx reads the dispatch-ready worker-job
+// revisions through the one readiness predicate dispatch admission applies.
+func continuityReadReadyWorkerJobsTx(ctx context.Context, tx *sql.Tx, work string, out *ContinuitySnapshot) error {
+	views, err := readWorkerJobRevisions(ctx, tx, work)
+	if err != nil {
+		return err
+	}
+	for _, view := range views {
+		if view.Ready {
+			out.ReadyWorkerJobs = append(out.ReadyWorkerJobs, packetJobFromView(view))
+		}
 	}
 	return nil
 }

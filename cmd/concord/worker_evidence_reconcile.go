@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -9,6 +10,37 @@ import (
 
 	"github.com/sharper-flow/concord/internal/store"
 )
+
+// reconstructWorkerEvidenceAck rebuilds the event an exact acknowledgment
+// (CD-0208 D1) must equal. The CLI transport exposes no user payload
+// version — the request route stamps the registry's current version — so the
+// comparison event is reconstructed at the stored event's own raw version.
+// The stored row is never upcast or modified for the comparison, and new
+// appends still stamp the registry current version.
+//
+// A stored dispatch whose original shape carries a lane_actor_ref (issue
+// #800 / CD-0017 D4) is re-derived through the same store helper the live
+// boundary uses, from the authenticated principal and client, so the exact
+// match still proves the caller's identity equals the actor that recorded
+// the dispatch. A dispatch that predates the enrichment compares its
+// un-enriched shape unchanged.
+func reconstructWorkerEvidenceAck(ctx context.Context, tx *store.Transaction, existing, requested store.Event, principalRef, clientRef string) (store.Event, error) {
+	if existing.Kind == store.WorkerDispatched && requested.Kind == store.WorkerDispatched {
+		var original store.WorkerDispatchedPayload
+		if err := json.Unmarshal(existing.Payload, &original); err != nil {
+			return store.Event{}, err
+		}
+		if original.LaneActorRef != "" {
+			prepared, err := store.PrepareLaneActorDispatch(ctx, tx, requested, principalRef, clientRef)
+			if err != nil {
+				return store.Event{}, err
+			}
+			requested = prepared[len(prepared)-1]
+		}
+	}
+	requested.PayloadVersion = existing.PayloadVersion
+	return requested, nil
+}
 
 // An exact reconciliation authenticates a fresh assertion, but appends no new
 // evidence. Occurrence time is not payload identity: a retry observes a new time.

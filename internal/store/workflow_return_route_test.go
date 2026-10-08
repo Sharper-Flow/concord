@@ -554,6 +554,9 @@ func refineReturnRouteWorkerLabeled(t *testing.T, fixture workflowReturnRouteFix
 	if !ok {
 		t.Fatalf("workflow definition %s v%d is not registered", definitionRef, definitionVersion)
 	}
+	if workflowWorkerJobsActive(registered.Definition) {
+		workerJobIntegrationGreenRun(t, s, workID, greenRunDigest+"-integration")
+	}
 	if workflowDefinitionRequiresDeliveryPayload(registered.Definition) {
 		deliveryPayload = json.RawMessage(`{"delivery_artifact":"artifact:return-route","delivery_state":"asserted"}`)
 	}

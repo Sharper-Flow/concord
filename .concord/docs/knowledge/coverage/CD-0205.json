@@ -1,0 +1,58 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestWorkerJobDispatchRequiresRecordedRevision"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestWorkerJobRecordingBindsApprovedContractPredicates"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestWorkerJobRecordingAuthorityAndReadinessGates"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestWorkerJobLocalAcceptAtRefineHoldsWithoutDelivery"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestUnrelatedAcceptedJobPreservesCorrectionWindow"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestSatisfyingAcceptedJobResetsCorrectionWindow"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestPartialSatisfactionPreservesOtherUnresolvedJobs"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestAdmissionConformanceLocalJobAcceptHolds"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestReachableAdmissionStateReachesTerminal"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestCombinedAcceptanceRequiresIntegration"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestCombinedAcceptanceAdmitsBehindIntegrationEvidence"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestIntegrationCoverageRequiresEveryRequiredProject"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestIntegrationToolingRequiresDeclaredQualifyingRuns"
+    }
+  ],
+  "id": "CD-0205",
+  "state": "satisfied"
+}

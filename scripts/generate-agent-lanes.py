@@ -148,6 +148,15 @@ def go_slice(values: list[str]) -> str:
     return "[]string{" + ", ".join(go_string(value) for value in values) + "}"
 
 
+def current_schema_version(schema: dict) -> str:
+    """The current identity of a versioned packet/report schema: the last
+    entry of schema_version's enum. Earlier entries are released historical
+    identities a stored payload may still carry; new packets and reports
+    record the current one."""
+    versions = schema["properties"]["schema_version"]["enum"]
+    return versions[-1]
+
+
 def report_projection_constraints(report_schema: dict, lane: dict) -> list[str]:
     properties = report_schema["properties"]
     evidence_entry = report_schema["$defs"]["evidence_entry"]
@@ -158,13 +167,17 @@ def report_projection_constraints(report_schema: dict, lane: dict) -> list[str]:
     review_block = review
     review_findings = review["properties"]["findings"]
     review_finding = report_schema["$defs"]["review_finding"]
+    worker_job = properties["worker_job"]
     return [
         "Report top-level shape: "
         f"type={report_schema['type']}, "
         f"additionalProperties={json.dumps(report_schema['additionalProperties'])}, "
         f"required={json.dumps(report_schema['required'], ensure_ascii=False)}.",
         "schema_version: "
-        f"const={json.dumps(properties['schema_version']['const'], ensure_ascii=False)}.",
+        f"enum={json.dumps(properties['schema_version']['enum'], ensure_ascii=False)}; "
+        "a report records the current identity "
+        f"{json.dumps(current_schema_version(report_schema), ensure_ascii=False)}, "
+        "and only that identity may carry the worker_job claim.",
         "readback_model: "
         f"type={properties['readback_model']['type']}, "
         f"minLength={properties['readback_model']['minLength']}, "
@@ -246,6 +259,14 @@ def report_projection_constraints(report_schema: dict, lane: dict) -> list[str]:
         "review verdict consistency: "
         "the adapter and the store refuse a review block with a `ship` verdict and any P0 finding, "
         "and one with a `no_ship` verdict and zero findings.",
+        "worker_job: optional top-level object; "
+        f"type={worker_job['type']}, "
+        f"additionalProperties={json.dumps(worker_job['additionalProperties'])}, "
+        f"required={json.dumps(worker_job['required'], ensure_ascii=False)}. "
+        "When the packet carries `inputs.worker_job`, copy its `job_id`, `revision`, and `digest` here unchanged; "
+        "omit `worker_job` when the packet carries none. The store refuses a report that names another job or revision, "
+        "or omits the job its attempt was dispatched under. `inputs.worker_job.objective` bounds this attempt; "
+        "`inputs.task` stays the complete parent objective, and the job's `stopping_condition` says when to stop.",
     ]
 
 
@@ -520,6 +541,14 @@ or the recorded work question when it is `work_question`. The packet adds no
 header or trailer, so the whole task text is the objective. The workflow step
 and lane identity are packet root fields, not task text.
 
+When `inputs.worker_job` is present, its `objective` is this attempt's job.
+The parent premise in `inputs.task` is context, not an instruction to integrate
+or deliver the parent work. Follow the job's `path_scope`, `predicate_ids`,
+`checks`, and `stopping_condition`. Execute every recorded check assigned to
+verification and report its command and exit code. Repository ancestry alone
+does not discharge a recorded test command. If a required check cannot run,
+report the blocker and return `status` `failed`, not a successful empty run.
+
 `inputs.binding` is the typed authority for the objective: `objective_source`
 names where the task text came from, `work_version` and `contract_version`
 record the versions the packet binds (`contract_version` is null before a
@@ -545,7 +574,7 @@ def agent_projection(lane: dict, report_schema: dict, packet_schema: dict, premi
     detail_max = report_schema["$defs"]["evidence_entry"]["properties"]["detail"]["x-maxBytes"]
     evidence_max = report_schema["properties"]["evidence"]["maxItems"]
     report_properties = report_schema["properties"]
-    report_version = json.dumps(report_properties["schema_version"]["const"], ensure_ascii=False)
+    report_version = json.dumps(current_schema_version(report_schema), ensure_ascii=False)
     report_statuses = ", ".join(f"`{item}`" for item in report_properties["status"]["enum"])
     report_constraints = "\n".join(f"- {item}" for item in report_projection_constraints(report_schema, lane))
     concord_denies = "\n".join(f"  {tool_id}: false" for tool_id in concord_tool_ids())

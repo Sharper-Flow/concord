@@ -57,6 +57,55 @@ func agentSeedRefineProofRun(t *testing.T, s *store.Store, workID, digest string
 	return opRef
 }
 
+// agentSeedIntegrationVerifyRun seeds one green worktree_verify run of the
+// work's primary Project acquired after the work's latest recorded event —
+// the current phase start or required job acceptance, whichever is later —
+// and returns the operation ref the CD-0205 delivery admission binds as the
+// integration evidence.
+func agentSeedIntegrationVerifyRun(t *testing.T, s *store.Store, workID, digest string) string {
+	t.Helper()
+	var latest string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT occurred_at FROM domain_events WHERE subject_type='work_item' AND subject_id=? ORDER BY seq DESC LIMIT 1`, workID).Scan(&latest); err != nil {
+		t.Fatalf("read the work's latest event: %v", err)
+	}
+	anchor, err := time.Parse(time.RFC3339Nano, latest)
+	if err != nil {
+		t.Fatalf("parse the work's latest event time: %v", err)
+	}
+	var project string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT COALESCE((SELECT DISTINCT project_scope FROM worker_job_revisions WHERE work_id=? AND project_scope!='' LIMIT 1),(SELECT project_id FROM work_projects WHERE work_id=? AND role='primary' LIMIT 1),'project-1')`, workID, workID).Scan(&project); err != nil || project == "" {
+		project = "project-1"
+	}
+	leaseID := digest + ":worktree-verify:" + workID
+	opRef := "worktree_verify:" + digest
+	command := []string{"go", "vet", "./..."}
+	commandJSON, err := json.Marshal(command)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resultJSON, err := json.Marshal(store.WorktreeVerifyResult{WorkID: workID, ProjectID: project, LeaseID: leaseID, OperationRef: opRef, Command: command, TrackedFilesChanged: false})
+	if err != nil {
+		t.Fatal(err)
+	}
+	acquired := anchor.Add(time.Second).UTC().Format(time.RFC3339Nano)
+	released := anchor.Add(2 * time.Second).UTC().Format(time.RFC3339Nano)
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO worktree_verify_leases(lease_id,work_id,project_id,path,state,client_ref,agent_ref,session_ref,principal_ref,command_json,acquired_at,released_at,exit_code,outcome,result_json)
+		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		leaseID, workID, project, "/fixture/"+workID, "released", "client/fixture", "agent/fixture", "session/"+workID, "principal/fixture",
+		string(commandJSON), acquired, released, 0, "completed", string(resultJSON)); err != nil {
+		t.Fatalf("seed the integration verify lease: %v", err)
+	}
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO durable_operations
+		(op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_version,step_id,step_kind,
+		 accepted_inputs_digest,accepted_scope_snapshot,principal_ref,request_id,observed_at,contract_digest,
+		 result_kind,result_payload,evidence_refs,changed_refs,completed_at)
+		VALUES(?,1,?,'worktree.verify',1,'','external_effect','sha256:`+digest+`','{}','principal/fixture','request/verify','`+acquired+`','','completed',?,?,'[]',?)`,
+		opRef, workID, string(resultJSON), `["`+opRef+`"]`, released); err != nil {
+		t.Fatalf("seed the integration verify authority: %v", err)
+	}
+	return opRef
+}
+
 // fixtureRepoWithOrigin creates one real git repository whose origin HEAD is
 // set, the shape the tooling resolution reads the default ref from.
 func fixtureRepoWithOrigin(t *testing.T) string {

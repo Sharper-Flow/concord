@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-const ManifestDigest = "sha256:8546b132775ba1b0b6434725304c107bbc2c2a7f255d028c0d1d81962de583ae"
+const ManifestDigest = "sha256:b5d71ff790014579ef3ad92562cc928bace3e7d7d661dfe425bf6f5db0140fdf"
 
 type OperationKind string
 
@@ -302,8 +302,10 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"work_transition_worktree_reclaim_input":         {Required: []string{"work_id", "project_id", "expected_version", "idempotency_key"}, Properties: []string{"work_id", "project_id", "default_ref", "expected_version", "idempotency_key", "approval", "requested_budget_seconds"}},
 	"work_transition_worktree_verify_input":          {Required: []string{"work_id", "command", "idempotency_key"}, Properties: []string{"work_id", "command", "idempotency_key", "approval", "requested_budget_seconds"}},
 	"worker_evidence_failure_result":                 {Required: []string{"ok", "event_ids", "error"}, Properties: []string{"ok", "event_ids", "error"}},
+	"worker_job_prerequisite":                        {Required: []string{"job_id", "revision"}, Properties: []string{"job_id", "revision", "result_ref"}},
 	"worker_packet":                                  {Required: []string{"schema_version", "attempt_id", "lane_id", "lane_version", "lane_digest", "work_id", "step_id", "inputs"}, Properties: []string{"schema_version", "attempt_id", "lane_id", "lane_version", "lane_digest", "work_id", "step_id", "inputs"}},
 	"worker_packet_binding":                          {Required: []string{"objective_source", "work_version", "contract_version", "assigned_result"}, Properties: []string{"objective_source", "work_version", "contract_version", "assigned_result"}},
+	"worker_packet_worker_job":                       {Required: []string{"job_id", "revision", "digest", "objective", "stopping_condition", "project_scope", "path_scope", "predicate_ids", "checks", "prerequisites", "unresolved_refs", "reserved_integration"}, Properties: []string{"job_id", "revision", "digest", "objective", "stopping_condition", "project_scope", "path_scope", "predicate_ids", "checks", "prerequisites", "unresolved_refs", "reserved_integration"}},
 	"worker_recovery_context":                        {Required: []string{"packet_digest", "worker_worktree", "coordinator_session", "attempt_epoch", "dispatch_event_id", "lifecycle_state", "dispatch"}, Properties: []string{"packet_digest", "worker_worktree", "coordinator_session", "attempt_epoch", "dispatch_event_id", "terminal_event_id", "lifecycle_state", "dispatch"}},
 	"workflow_completion_payload":                    {Required: []string{}, Properties: []string{"evidence_commit", "current_commit", "staleness"}},
 	"workflow_contract":                              {Required: []string{"version", "premise", "outcome_predicates", "required_evidence", "route_conventions", "spec_mandate", "changes_product_truth"}, Properties: []string{"version", "premise", "outcome_predicates", "required_evidence", "route_conventions", "spec_mandate", "law_revisions", "law_modifies", "rigor_class", "changes_product_truth", "architecture_binding", "self_repair"}},

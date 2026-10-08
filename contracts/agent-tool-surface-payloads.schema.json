@@ -2759,7 +2759,6 @@
       "required": [
         "work_id",
         "pinned",
-        "latest_checkpoint",
         "boundaries",
         "typed_availability",
         "pending_messages"
@@ -2925,16 +2924,6 @@
               "const": "absent"
             }
           }
-        },
-        "latest_checkpoint": {
-          "oneOf": [
-            {
-              "$ref": "#/$defs/continuity_checkpoint"
-            },
-            {
-              "type": "null"
-            }
-          ]
         },
         "boundaries": {
           "type": "object",

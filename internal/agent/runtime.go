@@ -1114,6 +1114,41 @@ func cursorValue(page pageInput) string {
 }
 
 func (r runtime) read(ctx context.Context, base Envelope, input []byte, queryID string) (Envelope, error) {
+	response, err := r.readResult(ctx, base, input, queryID)
+	if err != nil {
+		return response, err
+	}
+	size, err := readEnvelopeSize(response)
+	if err != nil {
+		return response, err
+	}
+	if size > MaxResultEnvelopeBytes {
+		return readSizeRefusal(response, size), nil
+	}
+	return response, nil
+}
+
+// readEnvelopeSize measures the final wire object, including authenticated
+// cursors and notices. MarshalJSON retains the hard bound as a consumer backstop.
+func readEnvelopeSize(response Envelope) (int, error) {
+	if err := response.Validate(); err != nil {
+		return 0, err
+	}
+	type wire Envelope
+	raw, err := json.Marshal(wire(response))
+	return len(raw), err
+}
+
+func readSizeRefusal(response Envelope, size int) Envelope {
+	// No rejected payload or evidence belongs in a refusal. The store remains
+	// unchanged, and the byte counts name a producer bound, not a transport fault.
+	base := NewBase(response.RequestID, response.Tool, response.Operation)
+	out := coreError(base, "limit_exceeded", fmt.Sprintf("read result including fixed projection and continuation requires %d serialized bytes; envelope maximum is %d bytes; reduce the page limit where supported, but a fixed projection or single item may not fit even at limit=1", size, MaxResultEnvelopeBytes), "reduce_limit", false)
+	out.Error.Details = map[string]any{"serialized_bytes": size, "maximum_bytes": MaxResultEnvelopeBytes, "reason": "result_envelope_bytes"}
+	return out
+}
+
+func (r runtime) readResult(ctx context.Context, base Envelope, input []byte, queryID string) (Envelope, error) {
 	switch r.Tool + "." + r.Operation {
 	case "concord_product_view.resolve":
 		return r.readProductResolve(ctx, base, input)
@@ -1680,7 +1715,6 @@ func ContinuityPayload(snapshot store.ContinuitySnapshot) map[string]any {
 	payload := map[string]any{
 		"work_id":            snapshot.WorkID,
 		"pinned":             pinned,
-		"latest_checkpoint":  snapshot.LatestCheckpoint,
 		"boundaries":         map[string]any{"count": snapshot.BoundaryCount, "items": snapshot.Boundaries, "next_cursor": snapshot.NextCursor, "watermark": snapshot.Watermark},
 		"typed_availability": map[string]any{"restart": "unavailable", "reason": snapshot.RestartUnavailableReason},
 		"pending_messages":   snapshot.PendingMessages,

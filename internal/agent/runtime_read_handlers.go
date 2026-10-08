@@ -121,9 +121,9 @@ func (r runtime) readWorkList(ctx context.Context, base Envelope, input []byte) 
 	if in.ProductID == "" {
 		in.ProductID = r.Envelope.SelectedProductID
 	}
-	return pagedQuery(r, ctx, base, in.Page, pageBinding(in, func(p *workListInput) { p.Page.Cursor = nil }),
-		func(inner string) store.Q3Request {
-			return store.Q3Request{Product: in.ProductID, LifecycleStates: nonEmpty(in.Lifecycle), Limit: effectiveLimit(in.Limit, in.Page), Cursor: inner, Kind: in.Kind, ProjectIDs: in.ProjectIDs, WorkIDs: in.WorkIDs, TagIDs: in.TagIDs, PriorityMin: in.PriorityMin, PriorityMax: in.PriorityMax, TerminalSince: in.TerminalSince, Detail: in.Detail}
+	return pagedQuery(r, ctx, base, in.Page, effectiveLimit(in.Limit, in.Page), pageBinding(in, func(p *workListInput) { p.Page.Cursor = nil }),
+		func(inner string, limit int) store.Q3Request {
+			return store.Q3Request{Product: in.ProductID, LifecycleStates: nonEmpty(in.Lifecycle), Limit: limit, Cursor: inner, Kind: in.Kind, ProjectIDs: in.ProjectIDs, WorkIDs: in.WorkIDs, TagIDs: in.TagIDs, PriorityMin: in.PriorityMin, PriorityMax: in.PriorityMax, TerminalSince: in.TerminalSince, Detail: in.Detail}
 		},
 		r.Store.QueryQ3, r.q3)
 }
@@ -133,21 +133,63 @@ func (r runtime) readWorkList(ctx context.Context, base Envelope, input []byte) 
 // of the same input, query, build the response, and wrap a fresh cursor
 // around it bound to that same input. request receives the resolved inner
 // cursor; query and respond are the handler's store call and response
-// builder.
-func pagedQuery[Req any, Resp any](r runtime, ctx context.Context, base Envelope, page pageInput, binding string, request func(inner string) Req, query func(context.Context, Req) (Resp, error), respond func(Envelope, Resp) (Envelope, error)) (Envelope, error) {
+// builder. Byte fitting selects complete prefixes of one captured store page;
+// no fit iteration reads a different snapshot. The public binding keeps the
+// caller's limit, so the cursor works with the unchanged request.
+func pagedQuery[Req any, Resp interface{ LimitPage(Req, int) (Resp, error) }](r runtime, ctx context.Context, base Envelope, page pageInput, limit int, binding string, request func(inner string, limit int) Req, query func(context.Context, Req) (Resp, error), respond func(Envelope, Resp) (Envelope, error)) (Envelope, error) {
 	inner, err := r.unwrapCursor(ctx, cursorValue(page), binding, "summary")
 	if err != nil {
 		return failureEnvelope(base, err), nil
 	}
-	q, err := query(ctx, request(inner))
+	if limit == 0 {
+		limit = 20
+	}
+	requestedLimit := limit
+	req := request(inner, limit)
+	q, err := query(ctx, req)
 	if err != nil {
 		return failureEnvelope(base, err), nil
 	}
-	response, err := respond(base, q)
-	if err != nil {
-		return response, err
+	var best Envelope
+	var size int
+	low, high := 0, requestedLimit
+	for low < high {
+		candidate, err := q.LimitPage(req, limit)
+		if err != nil {
+			return failureEnvelope(base, err), nil
+		}
+		response, err := respond(base, candidate)
+		if err != nil {
+			return response, err
+		}
+		response, err = r.wrapCursor(ctx, response, binding, "summary")
+		if err != nil {
+			return response, err
+		}
+		if limit < requestedLimit && response.NextCursor != nil {
+			if len(response.Omissions) >= MaxNotices {
+				return coreError(base, "limit_exceeded", "byte-bounded page needs a continuation notice but the omission limit is exhausted", "reduce_limit", false), nil
+			}
+			response.Omissions = append(response.Omissions, Notice{Kind: "byte_bounded_page", Details: map[string]any{"requested_limit": requestedLimit, "effective_limit": limit, "maximum_bytes": MaxResultEnvelopeBytes}})
+		}
+		size, err = readEnvelopeSize(response)
+		if err != nil {
+			return response, err
+		}
+		if response.Outcome != OutcomeOK {
+			return response, nil
+		}
+		if size <= MaxResultEnvelopeBytes {
+			best, low = response, limit
+		} else {
+			high = limit - 1
+		}
+		limit = low + (high-low+1)/2
 	}
-	return r.wrapCursor(ctx, response, binding, "summary")
+	if low == 0 {
+		return readSizeRefusal(base, size), nil
+	}
+	return best, nil
 }
 
 // pageBinding returns the JSON binding of a paged read input with its cursor
@@ -164,9 +206,9 @@ func (r runtime) readWorkReady(ctx context.Context, base Envelope, input []byte)
 	if err := decodeOperationInput(input, &in); err != nil {
 		return base, err
 	}
-	return pagedQuery(r, ctx, base, in.Page, pageBinding(in, func(p *workReadyInput) { p.Page.Cursor = nil }),
-		func(inner string) store.Q5Request {
-			return store.Q5Request{Product: in.ProductID, Project: in.ProjectID, Kind: in.Kind, Limit: effectiveLimit(in.Limit, in.Page), Cursor: inner}
+	return pagedQuery(r, ctx, base, in.Page, effectiveLimit(in.Limit, in.Page), pageBinding(in, func(p *workReadyInput) { p.Page.Cursor = nil }),
+		func(inner string, limit int) store.Q5Request {
+			return store.Q5Request{Product: in.ProductID, Project: in.ProjectID, Kind: in.Kind, Limit: limit, Cursor: inner}
 		},
 		r.Store.QueryQ5, r.q5)
 }
@@ -176,9 +218,9 @@ func (r runtime) readWorkBlocked(ctx context.Context, base Envelope, input []byt
 	if err := decodeOperationInput(input, &in); err != nil {
 		return base, err
 	}
-	return pagedQuery(r, ctx, base, in.Page, pageBinding(in, func(p *workBlockedInput) { p.Page.Cursor = nil }),
-		func(inner string) store.Q4Request {
-			return store.Q4Request{Product: in.ProductID, Project: in.ProjectID, Work: in.WorkID, Kind: in.Kind, Depth: in.Depth, Limit: effectiveLimit(in.Limit, in.Page), Cursor: inner}
+	return pagedQuery(r, ctx, base, in.Page, effectiveLimit(in.Limit, in.Page), pageBinding(in, func(p *workBlockedInput) { p.Page.Cursor = nil }),
+		func(inner string, limit int) store.Q4Request {
+			return store.Q4Request{Product: in.ProductID, Project: in.ProjectID, Work: in.WorkID, Kind: in.Kind, Depth: in.Depth, Limit: limit, Cursor: inner}
 		},
 		r.Store.QueryQ4, r.q4)
 }
@@ -188,9 +230,9 @@ func (r runtime) readWorkScope(ctx context.Context, base Envelope, input []byte)
 	if err := decodeOperationInput(input, &in); err != nil {
 		return base, err
 	}
-	return pagedQuery(r, ctx, base, in.Page, pageBinding(in, func(p *workScopeInput) { p.Page.Cursor = nil }),
-		func(inner string) store.Q6Request {
-			return store.Q6Request{Product: in.ProductID, Project: in.ProjectID, Work: in.WorkID, Limit: effectiveLimit(in.Limit, in.Page), Cursor: inner}
+	return pagedQuery(r, ctx, base, in.Page, effectiveLimit(in.Limit, in.Page), pageBinding(in, func(p *workScopeInput) { p.Page.Cursor = nil }),
+		func(inner string, limit int) store.Q6Request {
+			return store.Q6Request{Product: in.ProductID, Project: in.ProjectID, Work: in.WorkID, Limit: limit, Cursor: inner}
 		},
 		r.Store.QueryQ6, r.q6)
 }

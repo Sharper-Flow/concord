@@ -838,16 +838,6 @@ const GeneratedPayloadSchemaDocument = `{
           ],
           "type": "object"
         },
-        "latest_checkpoint": {
-          "oneOf": [
-            {
-              "$ref": "#/$defs/continuity_checkpoint"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
         "observations": {
           "items": {
             "additionalProperties": false,
@@ -1083,7 +1073,6 @@ const GeneratedPayloadSchemaDocument = `{
       "required": [
         "work_id",
         "pinned",
-        "latest_checkpoint",
         "boundaries",
         "typed_availability",
         "pending_messages"

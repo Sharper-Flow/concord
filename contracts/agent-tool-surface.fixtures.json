@@ -505,25 +505,6 @@
             "next_cursor": "id-1",
             "watermark": "id-1"
           },
-          "latest_checkpoint": {
-            "active_unit": "id-1",
-            "attempt_epoch": 1,
-            "checkpoint_id": "id-1",
-            "diagnosis": "id-1",
-            "evidence_refs": [
-              "id-1"
-            ],
-            "hypothesis": "id-1",
-            "pending_decisions": [],
-            "pending_questions": [],
-            "sequence": 1,
-            "step_id": "id-1",
-            "strategy": "id-1",
-            "touched_refs": [
-              "id-1"
-            ],
-            "work_version": 1
-          },
           "pending_messages": 0,
           "pinned": {
             "contract": {
@@ -613,25 +594,6 @@
             "items": [],
             "next_cursor": "id-1",
             "watermark": "id-1"
-          },
-          "latest_checkpoint": {
-            "active_unit": "id-1",
-            "attempt_epoch": 1,
-            "checkpoint_id": "id-1",
-            "diagnosis": "id-1",
-            "evidence_refs": [
-              "id-1"
-            ],
-            "hypothesis": "id-1",
-            "pending_decisions": [],
-            "pending_questions": [],
-            "sequence": 1,
-            "step_id": "id-1",
-            "strategy": "id-1",
-            "touched_refs": [
-              "id-1"
-            ],
-            "work_version": 1
           },
           "pending_messages": 0,
           "pinned": {
@@ -723,25 +685,6 @@
             "next_cursor": "id-1",
             "watermark": "id-1"
           },
-          "latest_checkpoint": {
-            "active_unit": "id-1",
-            "attempt_epoch": 1,
-            "checkpoint_id": "id-1",
-            "diagnosis": "id-1",
-            "evidence_refs": [
-              "id-1"
-            ],
-            "hypothesis": "id-1",
-            "pending_decisions": [],
-            "pending_questions": [],
-            "sequence": 1,
-            "step_id": "id-1",
-            "strategy": "id-1",
-            "touched_refs": [
-              "id-1"
-            ],
-            "work_version": 1
-          },
           "pending_messages": 0,
           "pinned": {
             "contract": {
@@ -832,25 +775,6 @@
           "items": [],
           "next_cursor": "id-1",
           "watermark": "id-1"
-        },
-        "latest_checkpoint": {
-          "active_unit": "id-1",
-          "attempt_epoch": 1,
-          "checkpoint_id": "id-1",
-          "diagnosis": "id-1",
-          "evidence_refs": [
-            "id-1"
-          ],
-          "hypothesis": "id-1",
-          "pending_decisions": [],
-          "pending_questions": [],
-          "sequence": 1,
-          "step_id": "id-1",
-          "strategy": "id-1",
-          "touched_refs": [
-            "id-1"
-          ],
-          "work_version": 1
         },
         "pending_messages": 0,
         "pinned": {
@@ -3718,5 +3642,5 @@
       }
     }
   ],
-  "manifest_digest": "sha256:1e5fdd393bcdbfd454384fdfda348c7120eccd13d5d4b3d1c975f1dc69c90b0c"
+  "manifest_digest": "sha256:1d74fa26649bb4e23ca1ad24c4484c62e8c31a36e47027f511e3b3e2afbdfd06"
 }

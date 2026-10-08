@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -441,9 +442,47 @@ func TestHistoricalUnclassifiedBugThroughExplicitSiblingAndRCA(t *testing.T) {
 	}
 }
 
-// Every disqualifying root cause state refuses: wrong kind, wrong workflow,
-// not completed, wrong shape, cross-Product, and stale coverage that misses a
-// member of the current cluster.
+// assertRecurrenceDiagnostic holds the refusal contract every disqualifying
+// recurrence branch satisfies: the branch's own failure kind and specific
+// reason, plus the failure shape, the complete sibling total, the bounded
+// candidates, and the complete research-then-retry route, rendered inside the
+// public detail budget. It returns the typed refusal for extra assertions.
+func assertRecurrenceDiagnostic(t *testing.T, err error, wantKind FailureKind, reason, shape string, cluster []string) *Failure {
+	t.Helper()
+	if err == nil {
+		t.Fatal("recurrent bug capture was admitted")
+	}
+	var failure *Failure
+	if !failureAs(err, &failure) {
+		t.Fatalf("recurrence refusal is untyped: %v", err)
+	}
+	if failure.Kind != wantKind {
+		t.Fatalf("refusal kind=%s, want %s (detail %q)", failure.Kind, wantKind, failure.Detail)
+	}
+	if failure.RecoveryAction != recurrenceResearchRouteInstruction {
+		t.Fatalf("refusal recovery=%q, want the complete research route %q", failure.RecoveryAction, recurrenceResearchRouteInstruction)
+	}
+	if len(failure.Detail) > maxPublicRefusalDetailBytes {
+		t.Fatalf("refusal detail measures %d bytes, want at most %d: %q", len(failure.Detail), maxPublicRefusalDetailBytes, failure.Detail)
+	}
+	needles := []string{reason, "failure_shape=" + shape, fmt.Sprintf("siblings=%d", len(cluster)), recurrenceResearchRouteInstruction, "candidates="}
+	for _, needle := range needles {
+		if !strings.Contains(failure.Detail, needle) {
+			t.Fatalf("refusal detail %q does not carry %q", failure.Detail, needle)
+		}
+	}
+	if !slices.Equal(failure.CandidateIDs, boundedDefectIDs(cluster)) {
+		t.Fatalf("refusal candidates=%v, want the bounded sibling cluster %v", failure.CandidateIDs, boundedDefectIDs(cluster))
+	}
+	return failure
+}
+
+// Every disqualifying root cause state refuses through the one shared
+// diagnostic: wrong kind, wrong shape, absent or wrong workflow family,
+// cross-Product, open, cancelled, or superseded lifecycle, stale coverage that
+// misses a cluster member, and a missing item each keep their own failure kind
+// and specific reason while carrying the shape, the complete sibling total,
+// the bounded candidates, and the research-then-retry route.
 func TestRootCauseDisqualificationsRefuse(t *testing.T) {
 	t.Parallel()
 	s := defectFixture(t)
@@ -462,6 +501,18 @@ func TestRootCauseDisqualificationsRefuse(t *testing.T) {
 	// A completed research RCA on the same shape whose snapshot covers the
 	// grown cluster.
 	covering := seedCompletedResearchRCA(t, s, "work-rca-covering", "upload-checksum-mismatch", []string{"work-bug-one", "work-bug-two"})
+	// A completed task item: the wrong kind of prerequisite.
+	taskCause := "work-task-rca"
+	if err := captureDefectWork(t, s, taskCause, "task", nil); err != nil {
+		t.Fatalf("task fixture capture refused: %v", err)
+	}
+	forceWorkLifecycleTransition(t, s, taskCause, "completed", "completed as the wrong kind")
+	// A completed research RCA that pins no workflow family at all.
+	unpinned := "work-rca-unpinned"
+	if err := captureDefectWork(t, s, unpinned, "research", defectIntakeJSON("upload-checksum-mismatch", nil, "")); err != nil {
+		t.Fatalf("unpinned research capture refused: %v", err)
+	}
+	forceWorkLifecycleTransition(t, s, unpinned, "completed", "completed without a pinned family")
 	// A research item pinned to the generic workflow family rather than the
 	// research family its kind defaults to.
 	if err := captureDefectWork(t, s, "work-rca-generic", "research", defectIntakeJSON("upload-checksum-mismatch", []string{"work-bug-one", "work-bug-two"}, "")); err != nil {
@@ -504,26 +555,27 @@ func TestRootCauseDisqualificationsRefuse(t *testing.T) {
 	}
 	supersedeWorkForFixture(t, s, superseded, "work-rca-successor")
 
+	cluster := []string{"work-bug-one", "work-bug-two"}
 	cases := []struct {
 		name      string
 		rootCause string
-		needle    string
+		kind      FailureKind
+		reason    string
 	}{
-		{"wrong shape", wrongShape, "shape"},
-		{"wrong workflow family", "work-rca-generic", "workflow"},
-		{"cross product", "work-rca-otherproduct", "Product"},
-		{"stale coverage", stale, "work-bug-two"},
-		{"in progress", inProgress, "completed"},
-		{"cancelled", cancelled, "cancelled"},
-		{"superseded", superseded, "superseded"},
-		{"missing item", "work-rca-missing", "exist"},
+		{"wrong kind", taskCause, KindInvalidPayload, "root cause work item " + taskCause + " is kind task, not research"},
+		{"wrong shape", wrongShape, KindInvalidPayload, "root cause work item " + wrongShape + " carries failure_shape login-token-expiry, not upload-checksum-mismatch"},
+		{"absent workflow family", unpinned, KindInvalidPayload, "root cause work item " + unpinned + " pins no workflow family, not workflow.research"},
+		{"wrong workflow family", "work-rca-generic", KindInvalidPayload, "root cause work item work-rca-generic pins workflow family workflow.generic_one_off, not workflow.research"},
+		{"cross product", "work-rca-otherproduct", KindInvalidPayload, "root cause work item work-rca-otherproduct is not in this capture's Product"},
+		{"in progress", inProgress, KindInvalidPayload, "root cause work item " + inProgress + " is lifecycle needed, not completed"},
+		{"cancelled", cancelled, KindInvalidPayload, "root cause work item " + cancelled + " is lifecycle cancelled, not completed"},
+		{"superseded", superseded, KindInvalidPayload, "root cause work item " + superseded + " is lifecycle superseded, not completed"},
+		{"stale coverage", stale, KindInvalidPayload, "root cause work item " + stale + " does not cover cluster sibling work-bug-two"},
+		{"missing item", "work-rca-missing", KindProjectionNotFound, "root_cause_work_id work-rca-missing does not exist"},
 	}
 	for _, tc := range cases {
-		if err := captureDefectWork(t, s, "work-bug-three-"+sanitizeSlug(tc.name), "bug", defectIntakeJSON("upload-checksum-mismatch", nil, tc.rootCause)); err == nil {
-			t.Fatalf("%s root cause admitted the recurrent capture", tc.name)
-		} else if text := failureText(err); !strings.Contains(text, tc.needle) {
-			t.Fatalf("%s: refusal %q does not name %q", tc.name, text, tc.needle)
-		}
+		err := captureDefectWork(t, s, "work-bug-three-"+sanitizeSlug(tc.name), "bug", defectIntakeJSON("upload-checksum-mismatch", nil, tc.rootCause))
+		assertRecurrenceDiagnostic(t, err, tc.kind, tc.reason, "upload-checksum-mismatch", cluster)
 	}
 	// The covering RCA admits the same retry.
 	if err := captureDefectWork(t, s, "work-bug-three-good", "bug", defectIntakeJSON("upload-checksum-mismatch", nil, covering)); err != nil {

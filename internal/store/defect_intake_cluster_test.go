@@ -143,3 +143,29 @@ func TestRecurrenceRefusalDetailKeepsRouteUnderPublicBudget(t *testing.T) {
 		t.Fatalf("refusal detail enumerates candidates past its byte budget: %q", detail)
 	}
 }
+
+// A disqualifying prerequisite refusal keeps the complete diagnostic — the
+// branch's specific reason with its long identifier, the shape, the total, and
+// the research-then-retry route — inside the public message budget when the
+// sibling and the missing root cause sit at the 128-byte identifier bound:
+// only the candidate listing yields bytes (CD-0211 D2 display bounds, D3
+// route).
+func TestPrerequisiteRefusalDetailKeepsDiagnosticUnderPublicBudget(t *testing.T) {
+	t.Parallel()
+	s := defectFixture(t)
+	const shape = "budget-prerequisite-detail"
+	prefix := "work-" + strings.Repeat("p", 120)
+	first := prefix + "-01"
+	if len(first) != 128 {
+		t.Fatalf("fixture identifier %q holds %d bytes, want the 128-byte identifier bound", first, len(first))
+	}
+	if err := captureDefectWork(t, s, first, "bug", defectIntakeJSON(shape, nil, "")); err != nil {
+		t.Fatalf("long-identifier first bug capture refused: %v", err)
+	}
+	missing := prefix + "-02"
+	err := captureDefectWork(t, s, prefix+"-03", "bug", defectIntakeJSON(shape, nil, missing))
+	failure := assertRecurrenceDiagnostic(t, err, KindProjectionNotFound, "root_cause_work_id "+missing+" does not exist", shape, []string{first})
+	if !strings.Contains(failure.Detail, first) {
+		t.Fatalf("refusal detail %q does not name the long-identifier sibling %s", failure.Detail, first)
+	}
+}

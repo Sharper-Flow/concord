@@ -290,54 +290,45 @@ func defectSharesProductTx(ctx context.Context, tx *sql.Tx, workID, otherID stri
 // matching bug is recurrence, and a recurrent bug capture is admitted only
 // behind a completed workflow.research item of the same Product carrying the
 // same failure shape and a sibling snapshot that covers the complete current
-// cluster.
+// cluster. Every disqualifying branch returns the shared recurrence
+// diagnostic, so the refusal names the shape, the cluster, and the
+// research-then-retry route wherever the prerequisite fails.
 func admitRecurrenceBehindRootCauseTx(ctx context.Context, tx *sql.Tx, workID string, classification *DefectClassification, cluster []string) error {
 	if classification.RootCauseWorkID == "" {
-		failure := newFailure(KindInvalidOperation, "defect_intake",
-			recurrenceRefusalDetail(classification.FailureShape, cluster),
-			false,
-			recurrenceResearchRouteInstruction)
-		failure.CandidateIDs = boundedDefectIDs(cluster)
-		return failure
+		return recurrencePrerequisiteRefusal(KindInvalidOperation, "", classification, cluster)
 	}
 	cause := classification.RootCauseWorkID
 	var kind, lifecycle string
 	err := tx.QueryRowContext(ctx, `SELECT kind, lifecycle FROM work_items WHERE id=?`, cause).Scan(&kind, &lifecycle)
 	if err == sql.ErrNoRows {
-		return newFailure(KindProjectionNotFound, "defect_intake", "root_cause_work_id "+cause+" does not exist", false,
-			"name the completed cluster RCA work item")
+		return recurrencePrerequisiteRefusal(KindProjectionNotFound, "root_cause_work_id "+cause+" does not exist", classification, cluster)
 	}
 	if err != nil {
 		return wrapFailure(KindUnavailable, "defect_intake", "cannot read the root cause work item", true,
 			"retry once the database is readable", err)
 	}
 	if kind != "research" {
-		return newFailure(KindInvalidPayload, "defect_intake", "root cause work item "+cause+" is kind "+kind+", not research", false,
-			"name a completed workflow.research cluster RCA")
+		return recurrencePrerequisiteRefusal(KindInvalidPayload, "root cause work item "+cause+" is kind "+kind+", not research", classification, cluster)
 	}
 	if sameProduct, err := defectSharesProductTx(ctx, tx, workID, cause); err != nil {
 		return err
 	} else if !sameProduct {
-		return newFailure(KindInvalidPayload, "defect_intake", "root cause work item "+cause+" is not in this capture's Product", false,
-			"name a cluster RCA of the same Product")
+		return recurrencePrerequisiteRefusal(KindInvalidPayload, "root cause work item "+cause+" is not in this capture's Product", classification, cluster)
 	}
 	var definitionRef string
 	err = tx.QueryRowContext(ctx, `SELECT definition_ref FROM workflow_instances WHERE work_id=?`, cause).Scan(&definitionRef)
 	if err == sql.ErrNoRows {
-		return newFailure(KindInvalidPayload, "defect_intake", "root cause work item "+cause+" pins no workflow family, not workflow.research", false,
-			"name a completed workflow.research cluster RCA")
+		return recurrencePrerequisiteRefusal(KindInvalidPayload, "root cause work item "+cause+" pins no workflow family, not workflow.research", classification, cluster)
 	}
 	if err != nil {
 		return wrapFailure(KindUnavailable, "defect_intake", "cannot read the root cause workflow family", true,
 			"retry once the database is readable", err)
 	}
 	if definitionRef != "workflow.research" {
-		return newFailure(KindInvalidPayload, "defect_intake", "root cause work item "+cause+" pins workflow family "+definitionRef+", not workflow.research", false,
-			"name a completed workflow.research cluster RCA")
+		return recurrencePrerequisiteRefusal(KindInvalidPayload, "root cause work item "+cause+" pins workflow family "+definitionRef+", not workflow.research", classification, cluster)
 	}
 	if lifecycle != "completed" {
-		return newFailure(KindInvalidPayload, "defect_intake", "root cause work item "+cause+" is lifecycle "+lifecycle+", not completed", false,
-			"complete the cluster RCA before retrying the bug capture")
+		return recurrencePrerequisiteRefusal(KindInvalidPayload, "root cause work item "+cause+" is lifecycle "+lifecycle+", not completed", classification, cluster)
 	}
 	var shape, snapshotJSON string
 	err = tx.QueryRowContext(ctx, `SELECT coalesce(json_extract(intent_json, '$.defect.failure_shape'), ''), coalesce(json_extract(intent_json, '$.defect.sibling_ids'), '[]') FROM work_items WHERE id=?`, cause).Scan(&shape, &snapshotJSON)
@@ -346,8 +337,7 @@ func admitRecurrenceBehindRootCauseTx(ctx context.Context, tx *sql.Tx, workID st
 			"retry once the database is readable", err)
 	}
 	if shape != classification.FailureShape {
-		return newFailure(KindInvalidPayload, "defect_intake", "root cause work item "+cause+" carries failure_shape "+shape+", not "+classification.FailureShape, false,
-			"name a cluster RCA of the same failure shape")
+		return recurrencePrerequisiteRefusal(KindInvalidPayload, "root cause work item "+cause+" carries failure_shape "+shape+", not "+classification.FailureShape, classification, cluster)
 	}
 	var snapshot []string
 	if err := json.Unmarshal([]byte(snapshotJSON), &snapshot); err != nil {
@@ -360,8 +350,7 @@ func admitRecurrenceBehindRootCauseTx(ctx context.Context, tx *sql.Tx, workID st
 	}
 	for _, sibling := range cluster {
 		if !covered[sibling] {
-			return newFailure(KindInvalidPayload, "defect_intake", "root cause work item "+cause+" does not cover cluster sibling "+sibling, false,
-				"capture a research RCA covering the complete cluster, then retry")
+			return recurrencePrerequisiteRefusal(KindInvalidPayload, "root cause work item "+cause+" does not cover cluster sibling "+sibling, classification, cluster)
 		}
 	}
 	return nil
@@ -389,14 +378,34 @@ const maxPublicRefusalDetailBytes = 1000
 // research workflow, and the bug retry that names the completed root cause.
 const recurrenceResearchRouteInstruction = "capture kind research with this defect_intake, complete the cluster RCA, then retry the bug capture with root_cause_work_id"
 
+// recurrencePrerequisiteRefusal builds the one typed refusal every
+// disqualifying recurrence branch returns: the branch's own failure kind and
+// specific reason, plus the shared recurrence diagnostic — failure shape,
+// complete sibling total, bounded candidates, and the research-then-retry
+// route — rendered inside the public detail budget. One owner keeps the
+// diagnostic whole wherever the prerequisite fails; display bounds never
+// reduce the admission population (CD-0211 D2, D3).
+func recurrencePrerequisiteRefusal(kind FailureKind, reason string, classification *DefectClassification, cluster []string) *Failure {
+	failure := newFailure(kind, "defect_intake",
+		recurrenceRefusalDetail(reason, classification.FailureShape, cluster),
+		false,
+		recurrenceResearchRouteInstruction)
+	failure.CandidateIDs = boundedDefectIDs(cluster)
+	return failure
+}
+
 // recurrenceRefusalDetail renders the recurrence refusal inside the public
-// message budget. The shape, the total sibling count, and the research route
-// render first and always whole; the bounded candidate listing takes only the
-// bytes that remain. Display bounds never reduce the admission population
-// (CD-0211 D2): the persisted snapshot and the typed candidates keep carrying
-// the cluster this rendering shortens.
-func recurrenceRefusalDetail(shape string, cluster []string) string {
-	head := fmt.Sprintf("recurrent defect capture refused: failure_shape=%s; siblings=%d; %s", shape, len(cluster), recurrenceResearchRouteInstruction)
+// message budget. The branch's specific reason, the shape, the total sibling
+// count, and the research route render first and always whole; the bounded
+// candidate listing takes only the bytes that remain. Display bounds never
+// reduce the admission population (CD-0211 D2): the persisted snapshot and
+// the typed candidates keep carrying the cluster this rendering shortens.
+func recurrenceRefusalDetail(reason, shape string, cluster []string) string {
+	head := "recurrent defect capture refused:"
+	if reason != "" {
+		head += " " + reason + ";"
+	}
+	head += fmt.Sprintf(" failure_shape=%s; siblings=%d; %s", shape, len(cluster), recurrenceResearchRouteInstruction)
 	const separator = "; candidates="
 	budget := maxPublicRefusalDetailBytes - len(head) - len(separator)
 	if budget < 0 {

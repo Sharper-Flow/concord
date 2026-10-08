@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-const ManifestDigest = "sha256:34b82606a9436f239748d4b49baab84852249eb771372179d5b94f5972714fa1"
+const ManifestDigest = "sha256:6d9ce9b4413b63d1e57779c4e0af4d3b65b1973219e1a06622094f07403f1573"
 
 type OperationKind string
 
@@ -198,7 +198,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"outside_repair_disposition":                     {Required: []string{"work_id", "reason", "approval_ref", "state", "recorded_at"}, Properties: []string{"work_id", "reason", "approval_ref", "state", "recorded_at", "evidence"}},
 	"outside_repair_evidence":                        {Required: []string{"authority_ref", "observed_at", "repository", "pull_requests", "release_tag", "release_url", "release_sha", "published_at"}, Properties: []string{"authority_ref", "observed_at", "repository", "pull_requests", "release_tag", "release_url", "release_sha", "published_at"}},
 	"outside_repair_pull_request_evidence":           {Required: []string{"url", "number", "head_sha", "merge_sha", "merged_at", "required_checks"}, Properties: []string{"url", "number", "head_sha", "merge_sha", "merged_at", "required_checks"}},
-	"outside_repair_required_check":                  {Required: []string{"name", "url", "commit_sha", "conclusion"}, Properties: []string{"name", "url", "commit_sha", "conclusion"}},
+	"outside_repair_required_check":                  {Required: []string{"name", "url", "commit_sha", "conclusion", "check_run_id", "run_id", "job_id"}, Properties: []string{"name", "url", "commit_sha", "conclusion", "check_run_id", "run_id", "job_id"}},
 	"page":                                           {Required: []string{}, Properties: []string{"cursor", "limit"}},
 	"product_context":                                {Required: []string{"product_id", "projects"}, Properties: []string{"product_id", "stage", "projects", "candidates", "next_cursor"}},
 	"product_row":                                    {Required: []string{"product_id", "display_name", "stage", "reliance", "action_counts"}, Properties: []string{"product_id", "display_name", "display_name_suffix", "stage", "reliance", "action_counts", "focus", "focus_absent_reason"}},

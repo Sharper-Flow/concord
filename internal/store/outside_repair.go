@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -20,12 +21,18 @@ const (
 )
 
 // OutsideRepairRequiredCheck records a successful required check on the PR's
-// immutable head, not a check name or a caller-supplied success boolean.
+// immutable head, not a check name or a caller-supplied success boolean. The
+// native identities name the exact check-run, workflow run and job the
+// boundary authenticated (CD-0210 D2), so distinct checks inside one run stay
+// distinguishable and a later rerun cannot rewrite what the receipt proves.
 type OutsideRepairRequiredCheck struct {
 	Name       string `json:"name"`
 	URL        string `json:"url"`
 	CommitSHA  string `json:"commit_sha"`
 	Conclusion string `json:"conclusion"`
+	CheckRunID int64  `json:"check_run_id"`
+	RunID      int64  `json:"run_id"`
+	JobID      int64  `json:"job_id"`
 }
 
 type OutsideRepairPullRequestEvidence struct {
@@ -199,11 +206,30 @@ func validateOutsideRepairEvidenceShape(e OutsideRepairEvidence) error {
 			return invalid("outside repair requires 1..64 required check results per pull request")
 		}
 		names := map[string]bool{}
+		checkRuns := map[int64]bool{}
+		jobs := map[int64]bool{}
 		for _, check := range pr.RequiredChecks {
 			u, err := url.Parse(check.URL)
 			if !workflowString(check.Name, 128) || names[check.Name] || check.CommitSHA != pr.HeadSHA || check.Conclusion != "success" || err != nil || u.Scheme != "https" || u.Host != "github.com" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || !strings.HasPrefix(u.Path, "/"+e.Repository+"/actions/runs/") || !workflowString(check.URL, 1024) {
 				return invalid("outside repair required check is not a unique successful result on the PR head")
 			}
+			// The native identities must ride the receipt and bind it: the
+			// run the URL names is the run the identity records, the job the
+			// URL names (when it names one) is the recorded job, and one
+			// check-run or job cannot prove two required checks.
+			rest := strings.TrimPrefix(u.Path, "/"+e.Repository+"/actions/runs/")
+			runPart, jobPart, hasJob := strings.Cut(rest, "/")
+			if check.CheckRunID <= 0 || check.RunID <= 0 || check.JobID <= 0 || runPart != strconv.FormatInt(check.RunID, 10) {
+				return invalid("outside repair required check lacks its exact native check-run, run and job identity")
+			}
+			if hasJob && jobPart != "job/"+strconv.FormatInt(check.JobID, 10) {
+				return invalid("outside repair required check job identity disagrees with its URL")
+			}
+			if checkRuns[check.CheckRunID] || jobs[check.JobID] {
+				return invalid("outside repair required checks reuse one native check-run or job identity")
+			}
+			checkRuns[check.CheckRunID] = true
+			jobs[check.JobID] = true
 			names[check.Name] = true
 		}
 	}

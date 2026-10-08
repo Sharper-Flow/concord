@@ -156,6 +156,12 @@ type ghOutsideProtection struct {
 			DatabaseID int64 `json:"databaseId"`
 		} `json:"app"`
 	} `json:"requiredStatusChecks"`
+	// Classic protection expresses deployment enforcement as a boolean plus
+	// its environment list (the GraphQL BranchProtectionRule fields), not as
+	// a ruleset required_deployments rule. CD-0210 D2 counts it as effective
+	// enforcement, so the collector must read it and fail closed.
+	RequiresDeployments            *bool    `json:"requiresDeployments"`
+	RequiredDeploymentEnvironments []string `json:"requiredDeploymentEnvironments"`
 }
 
 type ghOutsideRulesResponse struct {
@@ -479,7 +485,7 @@ func (r runtime) outsideRepairReadJSON(ctx context.Context, target any, args ...
 // a failed read of either source is not evidence of absence.
 func (r runtime) outsideRepairRequiredNames(ctx context.Context, repository string, number int64, headSHA string) (map[string]int64, int64, error) {
 	owner, name, _ := strings.Cut(repository, "/")
-	const query = `query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){databaseId nameWithOwner url pullRequest(number:$number){number headRefOid baseRefName baseRef{name branchProtectionRule{requiresStatusChecks requiredStatusCheckContexts requiredStatusChecks{context app{databaseId}}}}}}}`
+	const query = `query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){databaseId nameWithOwner url pullRequest(number:$number){number headRefOid baseRefName baseRef{name branchProtectionRule{requiresStatusChecks requiredStatusCheckContexts requiredStatusChecks{context app{databaseId}} requiresDeployments requiredDeploymentEnvironments}}}}}`
 	var response ghOutsideRulesResponse
 	if err := r.outsideRepairReadJSON(ctx, &response, "graphql", "-f", "query="+query, "-f", "owner="+owner, "-f", "name="+name, "-F", "number="+strconv.FormatInt(number, 10)); err != nil {
 		return nil, 0, err
@@ -515,8 +521,14 @@ func (r runtime) outsideRepairRequiredNames(ctx context.Context, repository stri
 		if err := json.Unmarshal(protection, &rule); err != nil {
 			return nil, 0, fmt.Errorf("unparseable classic branch protection: %w", err)
 		}
-		if rule.RequiresStatusChecks == nil || rule.RequiredStatusCheckContexts == nil || rule.RequiredStatusChecks == nil {
+		if rule.RequiresStatusChecks == nil || rule.RequiredStatusCheckContexts == nil || rule.RequiredStatusChecks == nil || rule.RequiresDeployments == nil || rule.RequiredDeploymentEnvironments == nil {
 			return nil, 0, fmt.Errorf("incomplete classic branch protection")
+		}
+		if *rule.RequiresDeployments || len(rule.RequiredDeploymentEnvironments) > 0 {
+			// Same named follow-up and same fail-closed refusal as the
+			// ruleset required_deployments rule: the collector cannot
+			// certify deployment enforcement without its native receipts.
+			return nil, 0, fmt.Errorf("unsupported classic deployment enforcement (requiresDeployments): required-deployment receipts not yet collected")
 		}
 		if *rule.RequiresStatusChecks {
 			for _, context := range rule.RequiredStatusCheckContexts {
@@ -698,6 +710,7 @@ func (r runtime) outsideRepairRunProof(ctx context.Context, repository string, r
 	}
 	count, matches := 0, 0
 	seen := map[int64]bool{}
+	matchedJobID := int64(0)
 	for _, page := range pages {
 		if page.TotalCount == nil || page.Jobs == nil {
 			return zero, fmt.Errorf("incomplete Actions job page")
@@ -715,6 +728,7 @@ func (r runtime) outsideRepairRunProof(ctx context.Context, repository string, r
 				return zero, fmt.Errorf("job does not bind the required name and check to the fetched run")
 			}
 			matches++
+			matchedJobID = job.ID
 		}
 	}
 	if len(pages) == 0 || matches != 1 {
@@ -725,7 +739,11 @@ func (r runtime) outsideRepairRunProof(ctx context.Context, repository string, r
 			return zero, fmt.Errorf("job pagination is incomplete or changed during collection")
 		}
 	}
-	return store.OutsideRepairRequiredCheck{Name: check.Name, URL: run.HTMLURL, CommitSHA: run.HeadSHA, Conclusion: run.Conclusion}, nil
+	// The receipt keeps the exact native identities it authenticated (CD-0210
+	// D2): the check-run, its workflow run, and the one current job that
+	// proved it. Reruns mint new identities, so a recorded receipt cannot be
+	// rewritten by a later attempt.
+	return store.OutsideRepairRequiredCheck{Name: check.Name, URL: run.HTMLURL, CommitSHA: run.HeadSHA, Conclusion: run.Conclusion, CheckRunID: check.ID, RunID: run.ID, JobID: matchedJobID}, nil
 }
 
 func (r runtime) outsideRepairPublishedRelease(ctx context.Context, base Envelope, repository, tag string) (publishedRelease, Envelope) {

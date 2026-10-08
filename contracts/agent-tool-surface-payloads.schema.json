@@ -14829,11 +14829,15 @@
     "outside_repair_required_check": {
       "type": "object",
       "additionalProperties": false,
+      "description": "One required check the boundary authenticated on the immutable PR head, carrying its exact native check-run, workflow-run and job identities (CD-0210 D2) so distinct checks in one run stay distinguishable and a rerun cannot rewrite the receipt.",
       "required": [
         "name",
         "url",
         "commit_sha",
-        "conclusion"
+        "conclusion",
+        "check_run_id",
+        "run_id",
+        "job_id"
       ],
       "properties": {
         "name": {
@@ -14850,6 +14854,21 @@
         "conclusion": {
           "type": "string",
           "const": "success"
+        },
+        "check_run_id": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The native GitHub check-run identity that reported this required check."
+        },
+        "run_id": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The native Actions workflow-run identity whose URL the receipt names."
+        },
+        "job_id": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The native Actions job identity that proved this check on the fetched run."
         }
       }
     },

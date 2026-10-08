@@ -3339,7 +3339,13 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "outside_repair_required_check": {
       "additionalProperties": false,
+      "description": "One required check the boundary authenticated on the immutable PR head, carrying its exact native check-run, workflow-run and job identities (CD-0210 D2) so distinct checks in one run stay distinguishable and a rerun cannot rewrite the receipt.",
       "properties": {
+        "check_run_id": {
+          "description": "The native GitHub check-run identity that reported this required check.",
+          "minimum": 1,
+          "type": "integer"
+        },
         "commit_sha": {
           "$ref": "#/$defs/outside_repair_git_sha"
         },
@@ -3347,8 +3353,18 @@ const GeneratedPayloadSchemaDocument = `{
           "const": "success",
           "type": "string"
         },
+        "job_id": {
+          "description": "The native Actions job identity that proved this check on the fetched run.",
+          "minimum": 1,
+          "type": "integer"
+        },
         "name": {
           "$ref": "#/$defs/short"
+        },
+        "run_id": {
+          "description": "The native Actions workflow-run identity whose URL the receipt names.",
+          "minimum": 1,
+          "type": "integer"
         },
         "url": {
           "maxLength": 1024,
@@ -3360,7 +3376,10 @@ const GeneratedPayloadSchemaDocument = `{
         "name",
         "url",
         "commit_sha",
-        "conclusion"
+        "conclusion",
+        "check_run_id",
+        "run_id",
+        "job_id"
       ],
       "type": "object"
     },

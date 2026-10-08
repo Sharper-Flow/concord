@@ -96,8 +96,14 @@ func TestGrantRequestMintsExactOperatorChallenge(t *testing.T) {
 	if details["client_ref"] != "client-1" {
 		t.Fatalf("challenge names %v, want the calling client", details["client_ref"])
 	}
-	if !reflect.DeepEqual(details["added_capabilities"], []string{"cross_scope"}) || !reflect.DeepEqual(details["added_product_scope"], []string{"product-2"}) {
-		t.Fatalf("challenge additions = %v / %v", details["added_capabilities"], details["added_product_scope"])
+	wantScope := approvalScopeBindings(map[string]any{"client_ref": "client-1", "policy_version": details["policy_version"], "capabilities": []string{"cross_scope"}, "product_scope": []string{"product-2"}})
+	if !reflect.DeepEqual(summary.Scope, wantScope) {
+		t.Fatalf("challenge bindings = %v, want %v", summary.Scope, wantScope)
+	}
+	for _, field := range []string{"added_capabilities", "added_product_scope", "added_project_scope", "added_agent_scope"} {
+		if _, duplicated := details[field]; duplicated {
+			t.Fatalf("approval binding %q has a second wire owner in details", field)
+		}
 	}
 	client, _, err := s.TrustedClientWithKey(context.Background(), "client-1")
 	if err != nil {
@@ -475,30 +481,24 @@ func totalBoundCapabilities() []string {
 }
 
 func totalBoundProducts() []string {
-	products := make([]string, 0, 12)
-	for i := 2; i <= 13; i++ {
+	products := make([]string, 0, 24)
+	for i := 2; i <= 25; i++ {
 		products = append(products, fmt.Sprintf("product-%d", i))
 	}
 	return products
 }
 
-// TestGrantRequestOverTheTotalBoundRefuses pins the pre-challenge total bound:
-// the approval_required envelope must carry one scope binding per addition
-// plus client_ref and policy_version inside the 20-string details.scope array
-// its schema admits, so nineteen or more additions could not produce a
-// deliverable approval response. A request past that bound refuses before any
-// challenge or policy write, because a committed challenge whose approval
-// response cannot be delivered would leave the operator approving nothing
-// while the route reports an error.
+// Every addition and both client identity bindings must fit the typed summary
+// before the core writes a challenge or policy change.
 func TestGrantRequestOverTheTotalBoundRefuses(t *testing.T) {
 	t.Parallel()
 	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_relate"})
 	before := readStoredPolicy(t, s, "client-1")
 	env := grantRequestEnvelope(t, s, grant)
-	// 7 + 12 = 19 additions: one past the 18-addition total bound.
+	// 7 + 24 additions and 2 identity bindings exceed the 32-binding summary.
 	input := grantRequestInputGrants("grant-request-over", totalBoundCapabilities(), totalBoundProducts(), []string{})
 	response := dispatchGrantRequest(t, s, service, env, input)
-	if response.Error == nil || response.Error.Kind != "invalid_input" {
+	if response.Error == nil || response.Error.Kind != "limit_exceeded" || response.Error.EffectState != EffectNone || response.Error.RecoveryAction.Kind != "reduce_limit" {
 		t.Fatalf("oversized grant response = %+v", response)
 	}
 	if err := response.Validate(); err != nil {
@@ -515,19 +515,16 @@ func TestGrantRequestOverTheTotalBoundRefuses(t *testing.T) {
 	}
 }
 
-// TestGrantRequestAtTheTotalBoundMints pins the boundary itself: eighteen
-// additions fill the details.scope array to exactly its 20-string ceiling
-// (client_ref and policy_version always take two) and still mint a challenge
-// whose approval_required envelope validates against the generated envelope
-// schema, so the bound refuses only the requests the envelope could not
-// deliver.
+// A full typed summary must deliver and authorize every requested addition,
+// including a single dimension with more than twenty additions.
 func TestGrantRequestAtTheTotalBoundMints(t *testing.T) {
 	t.Parallel()
 	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_relate"})
 	before := readStoredPolicy(t, s, "client-1")
 	env := grantRequestEnvelope(t, s, grant)
-	// 7 + 11 = 18 additions: exactly at the total bound.
-	input := grantRequestInputGrants("grant-request-bound", totalBoundCapabilities(), totalBoundProducts()[:11], []string{})
+	// 7 + 23 additions and 2 identity bindings fill the 32-binding summary.
+	products := totalBoundProducts()[:23]
+	input := grantRequestInputGrants("grant-request-bound", totalBoundCapabilities(), products, []string{})
 	response := dispatchGrantRequest(t, s, service, env, input)
 	if response.Error == nil || response.Error.Kind != "approval_required" {
 		t.Fatalf("boundary grant response = %+v", response)
@@ -535,21 +532,35 @@ func TestGrantRequestAtTheTotalBoundMints(t *testing.T) {
 	if err := response.Validate(); err != nil {
 		t.Fatalf("at-bound approval_required envelope fails the generated envelope schema: %v", err)
 	}
-	bindings, ok := response.Error.Details["scope"].([]string)
-	if !ok {
-		t.Fatalf("boundary scope bindings = %T, want []string", response.Error.Details["scope"])
-	}
-	if len(bindings) != 20 {
-		t.Fatalf("boundary scope bindings = %d, want exactly the 20-string carrier (2 identity + 18 additions)", len(bindings))
-	}
-	if summary := response.Error.ConsequenceSummary; summary == nil || len(summary.Scope) != 20 {
-		t.Fatalf("boundary consequence summary = %+v, want exactly 20 scope bindings", summary)
+	scope := map[string]any{"client_ref": "client-1", "policy_version": response.Error.Details["policy_version"], "capabilities": totalBoundCapabilities(), "product_scope": normalizeStrings(products)}
+	if summary := response.Error.ConsequenceSummary; summary == nil || len(summary.Scope) != 32 || !reflect.DeepEqual(summary.Scope, approvalScopeBindings(scope)) {
+		t.Fatalf("boundary consequence summary = %+v, want all 32 scope bindings (2 identity + 30 additions)", summary)
 	}
 	if countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approval_challenges`) != 1 {
 		t.Fatal("the boundary grant request did not record its challenge")
 	}
 	if !reflect.DeepEqual(before, readStoredPolicy(t, s, "client-1")) {
 		t.Fatal("the boundary challenge changed the stored policy")
+	}
+	ref := response.Error.Details["approval_ref"].(string)
+	digest := response.Error.Details["operation_digest"].(string)
+	env.HostApproval = signedHostApproval(mustKey(t), ref, digest, scope, map[string]any{}, env.SessionRef, env.AgentRef, env.Worktree, fixedTime(), "grant-boundary-approval")
+	var approvedInput map[string]any
+	if err := json.Unmarshal([]byte(input), &approvedInput); err != nil {
+		t.Fatal(err)
+	}
+	approvedInput["approval"] = map[string]string{"approval_ref": ref}
+	raw, err := json.Marshal(approvedInput)
+	if err != nil {
+		t.Fatal(err)
+	}
+	approved := dispatchGrantRequest(t, s, service, env, string(raw))
+	if approved.Outcome != OutcomeOK {
+		t.Fatalf("boundary approval = %+v", approved)
+	}
+	stored := readStoredPolicy(t, s, "client-1")
+	if stored.PrincipalRef != before.PrincipalRef || !reflect.DeepEqual(stored.Products, normalizeStrings(append(before.Products, products...))) || !reflect.DeepEqual(stored.Capabilities, normalizeStrings(append(before.Capabilities, totalBoundCapabilities()...))) {
+		t.Fatalf("boundary approval did not preserve and apply the exact union: %+v", stored)
 	}
 }
 

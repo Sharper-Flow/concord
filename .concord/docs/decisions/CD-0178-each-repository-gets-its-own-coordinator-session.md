@@ -14,6 +14,8 @@
   CD-0105 D2, CD-0118 D3, and CD-0120 D3 at the session observation input
 - **Preserves:** CD-0102 in full, CD-0103, CD-0104 D3 to D5, CD-0151, and the
   within-repository move of CD-0098
+- **Amended by:** [CD-0182](CD-0182-session-opener.md) at D2's exclusive
+  session count, through CON-850
 
 ## Context
 
@@ -66,6 +68,12 @@ Concord creates no worker session through the host session API, and Concord
 registers no plugin tool named `task`.
 
 ### D2. One coordinator session per repository
+
+**Amended by [CD-0182](CD-0182-session-opener.md) (CON-850):** The exclusive
+session count widens to every coordinator session with a verified landing
+in the receiving Project. Each such session may use the shared handoff
+bind and dispatch under it. Repository-local execution and the refusal
+of a move into another repository stay unchanged.
 
 A work item that touches two repositories has one coordinator session in each
 repository. The first session records the second Project membership with

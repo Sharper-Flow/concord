@@ -1129,7 +1129,10 @@ export function coreDispatchFailure(lane: AgentLane | null, packet: Partial<Agen
     return failure
   }
   if (coreError.kind === "approval_required") {
-    const failure = errorEnvelope(lane, packet, "error", "approval_required", message, "request_approval", isRecord(coreError.details) ? coreError.details : undefined)
+    // The challenge metadata stays in details, and the typed summary that owns
+    // the complete scope and version bindings travels with it unchanged.
+    const challenge = isRecord(coreError.details) ? coreError.details : {}
+    const failure = errorEnvelope(lane, packet, "error", "approval_required", message, "request_approval", { details: { ...challenge, ...(isRecord(coreError.consequence_summary) ? { consequence_summary: coreError.consequence_summary } : {}) } })
     failure.error!.retry_safe = false
     return failure
   }

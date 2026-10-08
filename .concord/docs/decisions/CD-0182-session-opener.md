@@ -10,12 +10,33 @@
   consume
 - **Amends:** CD-0078 D1 and D2 and its rejected pluggable-placement
   alternative, CD-0163, CD-0176 D2
+- **Amended:** D5's consume binding widened from the authenticated
+  receiving session to the work-and-Project pair: every coordinator
+  session with a verified landing in the receiving Project may dispatch
+  under the frontier handoff's bind. The operator accepted the amendment
+  on 2026-10-07 through the delegated decision the Approval field below
+  records. The widening was first carried by work-65af7591013c1b4d4caa16ef
+  on 2026-10-06 for the Concord (CON) work item CON-850. The amendment
+  also touches CD-0178 D2 at the exclusive session count: the receiving
+  Project can reuse the one current bind from every verified landed
+  coordinator. CD-0178 D2's repository-local execution and its refusal
+  of a move into another repository stay unchanged.
 - **Related:** CD-0178, CD-0093, CD-0098, CD-0176, CD-0163
 - **Preserves:** CD-0078 D1's boundary for every Concord binary, CD-0093 D2's
   one-directory binding and D3's fail-closed canonical path, CD-0176 D1's
-  worktree landing, and CD-0178 D2's one coordinator session per repository
+  worktree landing, and CD-0178 D2's repository-local execution with its
+  refusal of a move into another repository; CD-0178 D2's exclusive session
+  count is touched by the accepted amendment above, not preserved
 - **Approval:** The operator approved the seven-outcome contract in session
-  on 2026-09-27. The pull request is the public record.
+  on 2026-09-27, and that approval covers the original record. For the D5
+  amendment, the operator delegated the decision to the coordinator
+  session in chat on 2026-10-07. The coordinator accepted a consume bound
+  to the work item and its receiving Project, usable by every verified
+  landed session, with the stale-contract and cross-Project refusals and
+  CD-0178 D2's repository-local execution unchanged. An exclusive session
+  bind adds no safety beyond verified landing and the contract version,
+  and it forced duplicate sessions. The pull request is the public
+  record.
 
 ## Context
 
@@ -108,10 +129,24 @@ before the record commits: a dirty or untracked worktree refuses, and the
 core never commits, stashes, or hides files.
 
 The receiving session consumes the recorded handoff before it runs any
-managed external effect. The consume binds the record to the authenticated
-receiving session, its target Project, and the current contract. A missing,
-wrong-target, foreign, or stale handoff refuses. Managed-execution
-admission fails closed while an unconsumed or stale handoff stands.
+managed external effect. The consume binds the record to the work item
+and its addressed receiving Project under the current contract: any
+coordinator session with a verified landing in the receiving Project may
+dispatch under the frontier handoff's bind, and every such session reads
+the frontier's bounded job.
+A session without a verified landing, or in another Project, stays
+refused. A missing, wrong-target, or stale handoff refuses.
+Managed-execution admission fails closed while an unconsumed or stale
+handoff stands, and a contract replacement refuses the stale bind equally
+for the consuming session and a later session of the Project.
+
+The session opener serves only an actual edit in the other repository,
+never a handoff-bind recovery. A placement or handoff-bind refusal in the
+receiving Project is not that evidence. While the current contract
+stands, a session records no fresh handoff and opens no new session to
+recover from such a refusal. The refusing session replays
+`concord_work_start` in its own Project, and its verified landing records
+placement.
 
 `READY_TO_CLOSE_OR_REPLACE` is a derived read, never a written state. It
 reports ready only when the session recorded an addressed handoff, its
@@ -191,6 +226,34 @@ under this record.
 - `python3 scripts/check-primary-prompts.py` and `go test ./cmd/concord/ -run
   TestLauncherAndCommandCarryNoMultiplexerKnowledge` prove D1's boundary:
   the instructions name the route, and the binaries stay multiplexer-free.
+- `go test ./internal/store/ -run
+  TestManagedExecutionGateAdmitsEveryPlacedSessionOfTheReceivingProject`
+  proves D5's widened bind: a second landed session of the receiving
+  Project dispatches under a frontier the first session consumed, the
+  stale-bind refusal after a contract replacement is equal for both
+  sessions, and an unverified or wrong-Project session stays refused.
+  `go test ./internal/store/ -run
+  TestProjectHandoffConsumeResolvesTheSharedBindForEverySessionOfTheProject`
+  proves the consume resolves the shared bind for a second session and
+  refuses an unplaced session's replay at the placement boundary, and
+  `go test ./internal/store/ -run
+  TestBootResumeRendersTheConsumedFrontierToEveryPlacedSessionOfTheProject`
+  proves the widened frontier read. `go test ./internal/store/ -run
+  TestManagedExecutionGateKeepsTheWrongProjectBindRefusedAndSourceExecutionAdmitted`
+  proves the widened bind never crosses Projects: a session placed in the
+  source Project acquires no bind while that Project's own execution stays
+  admitted. `go test ./internal/store/ -run
+  TestConsumedSharedBindSurvivesTheOriginalReceiverVacate` proves the
+  widened bind's lifetime: after the original receiver's verified vacate
+  landing releases its occupancy and its own admission fails closed, a
+  second landed session of the receiving Project still dispatches under
+  the standing bind, and its consume replay resolves as already consumed
+  with no second consumed event. `bun test
+  adapter/opencode/project_handoff_end_to_end.test.ts`
+  proves the cold second-session boot on the real boundary: the boot
+  re-reads the addressed handoff after its verified landing records
+  placement, renders the shared bind's bounded job, and resolves the
+  standing bind with no second consumed event.
 - `python3 scripts/check-doc-contract.py`,
   `python3 scripts/check-knowledge-index.py`,
   `python3 scripts/generate-knowledge-index.py --check`,

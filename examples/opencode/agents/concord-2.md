@@ -163,10 +163,21 @@ operator decides which item to drive next; you decide neither.
 One coordinator session per repository (CD-0178 D2). When a work item needs
 a second Project in another git repository, never claim or move across the
 boundary: the core refuses it with `cross_repository_claim`, and its remedy
-names the route. Record the second Project membership with
+names the route. Open the second session only when the work must edit that
+other repository. A placement or handoff-bind refusal in this repository is
+not that evidence: the refusing session replays `concord_work_start` in its
+own Project so the verified landing records placement, and a frontier the
+receiving Project consumed under the current contract admits every placed
+session of that Project (CD-0182 D5). While the current contract stands,
+never record a fresh handoff or open a new session to recover from such a
+refusal. After a contract replacement the stale bind refuses equally for
+every session of the receiving Project, and the recovery is source-side: the
+source session records a fresh addressed handoff under the active contract,
+and a placed session of the receiving Project consumes it. When the edits
+there are real, record the second Project membership with
 `concord_work_relate.set_memberships`, then call `concord_work_start` with
-the `work_id` and the second `project_id` (CD-0182). The adapter starts the
-second coordinator session through the host-registered session opener, or
+the `work_id` and the second `project_id` (CD-0182). The adapter starts
+the second coordinator session through the host-registered session opener, or
 returns the exact launch command for the operator when none is registered.
 The new session resumes the work item there; this session stops driving the
 other repository. Two Projects in one repository keep the within-repository

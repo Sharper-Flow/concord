@@ -834,6 +834,36 @@ class StrictFailureControls(unittest.TestCase):
         self.assertTrue(error.startswith("host declarations could not be installed"), error)
         self.assertIn("network unreachable", error)
 
+    def test_host_sources_refresh_without_reinstalling_dependencies(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "repository"
+            origin = root / "adapter"
+            origin.mkdir(parents=True)
+            (origin / "current.ts").write_text("export const value = 1;\n")
+            (origin / "removed.ts").write_text("export const old = true;\n")
+            workspace = Path(directory) / "workspace"
+            dependencies = workspace / "node_modules"
+            dependencies.mkdir(parents=True)
+            marker = dependencies / "installed"
+            marker.write_text("pinned dependencies\n")
+            package = workspace / "package.json"
+            package.write_text('{"private":true}\n')
+            lockfile = workspace / "bun.lock"
+            lockfile.write_text("pinned lockfile\n")
+            pin = {"sources": ["adapter"], "compiler_options": {"strict": True, "noEmit": True}}
+            with unittest.mock.patch.object(lane_checker, "ROOT", root), unittest.mock.patch.object(lane_checker.subprocess, "run") as run:
+                self.assertIsNone(lane_checker.stage_host_sources(pin, workspace))
+                (origin / "current.ts").write_text("export const value = 2;\n")
+                (origin / "removed.ts").unlink()
+                self.assertIsNone(lane_checker.stage_host_sources(pin, workspace))
+                run.assert_not_called()
+            self.assertEqual((workspace / "src/current.ts").read_text(), "export const value = 2;\n")
+            self.assertFalse((workspace / "src/removed.ts").exists())
+            self.assertEqual(marker.read_text(), "pinned dependencies\n")
+            self.assertEqual(package.read_text(), '{"private":true}\n')
+            self.assertEqual(lockfile.read_text(), "pinned lockfile\n")
+            self.assertEqual(json.loads((workspace / "tsconfig.json").read_text()), {"compilerOptions": pin["compiler_options"], "include": ["src/*.ts"]})
+
     def test_a_broken_contract_fixture_fails_the_check(self):
         # A digest that no longer matches its definition makes a valid-marked
         # fixture invalid; the corpus validators are real, so main() must

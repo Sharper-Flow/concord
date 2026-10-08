@@ -80,20 +80,16 @@ func outsideRepairCanonicalReleaseURL(repository, tag string) string {
 	return "https://github.com/" + repository + "/releases/tag/" + tag
 }
 
-// DefaultExternalEvidenceCommand runs one external command by exact argv with
+// DefaultExternalEvidenceCommand runs the GitHub CLI by exact argv with
 // a bounded wait; never a shell command string. Production installs it as the
 // Service.ExternalEvidenceCommand; tests install a deterministic fake.
 func DefaultExternalEvidenceCommand(ctx context.Context, command string, args ...string) (string, error) {
-	if command == "" {
-		return "", fmt.Errorf("external command is empty")
-	}
-	resolved, err := exec.LookPath(command)
-	if err != nil {
-		return "", fmt.Errorf("external command %q is not installed", command)
+	if command != "gh" {
+		return "", fmt.Errorf("external evidence requires the GitHub CLI")
 	}
 	run, cancel := context.WithTimeout(ctx, boundedExternalEvidenceWait)
 	defer cancel()
-	process := exec.CommandContext(run, resolved, args...)
+	process := exec.CommandContext(run, "gh", args...) //nolint:gosec // gh is fixed; the evidence collector supplies read-only argv, and values stay separate without a shell.
 	var stdout, stderr bytes.Buffer
 	process.Stdout, process.Stderr = &stdout, &stderr
 	runErr := process.Run()
@@ -660,7 +656,7 @@ func (r runtime) outsideRepairRunProof(ctx context.Context, repository string, r
 	}
 	prefix := "/" + repository + "/actions/runs/"
 	if len(u.Path) < len(prefix) || !strings.EqualFold(u.Path[:len(prefix)], prefix) {
-		return zero, fmt.Errorf("Actions URL names another repository")
+		return zero, fmt.Errorf("actions URL names another repository")
 	}
 	path := u.Path[len(prefix):]
 	parts := strings.Split(path, "/")

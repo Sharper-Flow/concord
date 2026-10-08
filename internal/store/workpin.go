@@ -211,7 +211,7 @@ func workPinOutsideRepairDispositionTx(ctx context.Context, tx *sql.Tx, workID s
 	if disposition.State == OutsideRepairStateActive {
 		pin.OutsideRepairRoute = outsideRepairRouteNames()
 	}
-	pin.NextValidIntents = nil
+	pin.NextValidIntents = []WorkPinIntent{}
 	return true, nil
 }
 

@@ -6472,6 +6472,49 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_pin": {
       "additionalProperties": false,
+      "allOf": [
+        {
+          "else": {
+            "properties": {
+              "step": {
+                "$ref": "#/$defs/short"
+              },
+              "workflow_type": {
+                "$ref": "#/$defs/id"
+              }
+            }
+          },
+          "if": {
+            "properties": {
+              "outside_repair_disposition": {
+                "properties": {
+                  "state": {
+                    "enum": [
+                      "active",
+                      "completed"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "state"
+                ]
+              }
+            },
+            "required": [
+              "outside_repair_disposition"
+            ]
+          },
+          "then": {
+            "properties": {
+              "next_valid_intents": {
+                "maxItems": 0,
+                "type": "array"
+              }
+            }
+          }
+        }
+      ],
       "properties": {
         "attempt": {
           "oneOf": [
@@ -6514,17 +6557,42 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "string"
         },
         "next_valid_intents": {
-          "oneOf": [
-            {
-              "items": {
-                "$ref": "#/$defs/work_pin_intent"
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "action_id": {
+                "$ref": "#/$defs/id"
               },
-              "type": "array"
+              "expected_version": {
+                "$ref": "#/$defs/version"
+              },
+              "operation": {
+                "$ref": "#/$defs/short"
+              },
+              "reason_code": {
+                "$ref": "#/$defs/short"
+              },
+              "required_fields": {
+                "items": {
+                  "$ref": "#/$defs/short"
+                },
+                "maxItems": 32,
+                "type": "array",
+                "uniqueItems": true
+              },
+              "tool": {
+                "$ref": "#/$defs/id"
+              }
             },
-            {
-              "type": "null"
-            }
-          ]
+            "required": [
+              "tool",
+              "operation",
+              "reason_code"
+            ],
+            "type": "object"
+          },
+          "maxItems": 16,
+          "type": "array"
         },
         "outside_repair_disposition": {
           "$ref": "#/$defs/outside_repair_disposition"
@@ -12836,6 +12904,31 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "worker_packet": {
       "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "schema_version": {
+                "const": "1.0"
+              }
+            },
+            "required": [
+              "schema_version"
+            ]
+          },
+          "then": {
+            "properties": {
+              "inputs": {
+                "not": {
+                  "required": [
+                    "worker_job"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      ],
       "description": "CD-0067 D1: closed lane worker packet bound to dispatch_worker. Mirrors adapter/opencode/dispatch.ts AgentLanePacket; every bound matches contracts/agent-lane-packet.schema.json exactly so no packet the lane contract accepts is refused here.",
       "properties": {
         "attempt_id": {
@@ -12872,6 +12965,9 @@ const GeneratedPayloadSchemaDocument = `{
               "maxLength": 4096,
               "minLength": 1,
               "type": "string"
+            },
+            "worker_job": {
+              "$ref": "#/$defs/worker_packet_worker_job"
             }
           },
           "required": [
@@ -12892,7 +12988,11 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "integer"
         },
         "schema_version": {
-          "const": "1.0"
+          "enum": [
+            "1.0",
+            "1.1"
+          ],
+          "type": "string"
         },
         "step_id": {
           "$ref": "#/$defs/id"

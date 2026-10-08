@@ -146,8 +146,14 @@ func TestInFlightWorkflowSurvivesSchemaMigration(t *testing.T) {
 	if _, err := db.ExecContext(ctx, schemaManifestDDL); err != nil {
 		t.Fatal(err)
 	}
-	priorMigrations := migrations[:len(migrations)-1]
-	for _, migration := range priorMigrations {
+	// The write path now ends in the initiative invariant validator, whose
+	// projection tables belong to the newest migration, so the fixture
+	// applies every step and then rolls the manifest and objects of exactly
+	// the newest one back: the item starts at full schema, the newest
+	// migration applies while it is open, and the mid-flight scenario keeps
+	// its original shape instead of assuming a write path that tolerates a
+	// missing validator projection.
+	for _, migration := range migrations {
 		if err := applyMigration(ctx, db, migration); err != nil {
 			t.Fatalf("migration %d: %v", migration.Version, err)
 		}
@@ -166,6 +172,17 @@ func TestInFlightWorkflowSurvivesSchemaMigration(t *testing.T) {
 		t.Fatal(err)
 	}
 	actor, version := startWorkflowPinnedTo(t, s, workID, definition)
+	last := migrations[len(migrations)-1]
+	if _, err := db.ExecContext(ctx, `DELETE FROM schema_migrations WHERE version=?`, last.Version); err != nil {
+		t.Fatalf("cannot roll the manifest back to v%d: %v", last.Version-1, err)
+	}
+	// dropMigration120Objects drops exactly the objects the newest
+	// migration creates. A migration appended after 120 fails this test
+	// loudly at the Migrate below until its objects join the helper, the
+	// same loud coupling upgrade_recovery_test.go carries for its tail.
+	if err := dropMigration120Objects(ctx, db); err != nil {
+		t.Fatalf("cannot drop migration %d objects for its mid-flight re-apply: %v", last.Version, err)
+	}
 	beforeVersion, err := readSchemaManifestVersion(ctx, db)
 	if err != nil {
 		t.Fatal(err)

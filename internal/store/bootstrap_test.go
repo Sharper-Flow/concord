@@ -293,7 +293,18 @@ func TestMigration59PreservesPopulatedBootstrapOperation(t *testing.T) {
 	if _, err := db.ExecContext(ctx, schemaManifestDDL); err != nil {
 		t.Fatal(err)
 	}
-	for _, migration := range migrations[:len(migrations)-1] {
+	// The fixture predates migration 59 exactly: the bootstrap-operation
+	// rebuild it proves is the one Migrate applies next. A [:len-1] slice
+	// silently drifted with every later migration until the newest one was
+	// the only step left to apply; pinning the boundary keeps the proof
+	// about migration 59 whatever the manifest grows to.
+	var pre59 []migration
+	for _, m := range migrations {
+		if m.Version < 59 {
+			pre59 = append(pre59, m)
+		}
+	}
+	for _, migration := range pre59 {
 		if err := applyMigration(ctx, db, migration); err != nil {
 			t.Fatalf("migration %d: %v", migration.Version, err)
 		}
@@ -304,9 +315,7 @@ func TestMigration59PreservesPopulatedBootstrapOperation(t *testing.T) {
 	if err := ensureInstallationKey(ctx, db); err != nil {
 		t.Fatal(err)
 	}
-	s := &Store{db: db, path: path}
 	repo := initBootstrapStoreRepo(t)
-	seedBootstrapStoreAuthority(t, s, repo)
 	req := bootstrapStoreRequest()
 	operationID, workID, digest, err := CanonicalBootstrapIdentity(req)
 	if err != nil {
@@ -314,16 +323,21 @@ func TestMigration59PreservesPopulatedBootstrapOperation(t *testing.T) {
 	}
 	// The populated row a completed bootstrap leaves behind, written at the
 	// seeded schema. The row shape, not the write route, is what the migration
-	// must preserve: the current binary's bootstrap route pins worktree claim
-	// columns the pre-migration schema does not carry yet.
+	// must preserve: the current binary's write path ends in the initiative
+	// invariant validator, whose projection tables belong to a later
+	// migration and do not exist yet in this fixture, so the referenced rows
+	// fold in through guarded direct SQL at the v58 shape instead.
 	stamp := time.Unix(10, 0).UTC().Format(time.RFC3339Nano)
-	// work_items is fold-only, so the referenced work item folds in through
-	// its event; the journal table itself has no fold guard.
-	if err := ApplyOperation(ctx, s, Operation{Events: []Event{
-		{EventID: "migration59-work", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: 2, Payload: json.RawMessage(`{"work_kind":"task","title":"Bootstrap","priority":1}`)},
-		{EventID: "migration59-memberships", Kind: "work.memberships_replaced", SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "operator", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"project-bootstrap","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
-	}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 0}}); err != nil {
-		t.Fatal(err)
+	for _, seed := range []string{
+		`INSERT INTO fold_guard(active) VALUES(1)`,
+		`INSERT INTO products(id,display_name,stage_maturity,stage_audience_commitment,version,created_at,updated_at) VALUES('` + req.ProductID + `','Bootstrap','prototype','operator_only',1,'2026-08-30T00:00:00Z','2026-08-30T00:00:00Z')`,
+		`INSERT INTO projects(id,display_name,version,created_at,updated_at) VALUES('` + req.ProjectID + `','Bootstrap',1,'2026-08-30T00:00:00Z','2026-08-30T00:00:00Z')`,
+		`INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at) VALUES('` + workID + `','task','Bootstrap','needed',1,2,'2026-08-30T00:00:00Z','2026-08-30T00:00:00Z')`,
+		`DELETE FROM fold_guard`,
+	} {
+		if _, err := db.ExecContext(ctx, seed); err != nil {
+			t.Fatalf("seed v58 fixture rows: %v\n%s", err, seed)
+		}
 	}
 	if _, err := db.ExecContext(ctx, `INSERT INTO bootstrap_operations(idempotency_key,operation_id,request_digest,request_json,product_id,project_id,work_id,repo_path,expected_version,state,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`,
 		req.IdempotencyKey, operationID, digest, bootstrapJSON(req), req.ProductID, req.ProjectID, workID, repo, 2, "completed", stamp, stamp); err != nil {

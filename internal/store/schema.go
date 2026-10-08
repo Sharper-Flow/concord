@@ -5746,6 +5746,88 @@ CREATE TRIGGER worker_attempts_guard_update BEFORE UPDATE ON worker_attempts FOR
 CREATE TRIGGER worker_attempts_guard_delete BEFORE DELETE ON worker_attempts FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'worker_attempts is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
 `,
 	},
+	{
+		// Outside-repair dispositions suspend managed workflow actions
+		// on a live work item, preserve the historical workflow records, and
+		// close the work through an explicit reconciliation event. The
+		// disposition lives in a fold-only projection table; the workflow
+		// instance carries its own state column so a RebuildFromLog reproduces
+		// the same row the live fold wrote. The reconciliation row records the
+		// released merge and release tag the boundary code authenticated. The
+		// workflow instance gains a closed-outside-repair terminal state without
+		// folding through the ordinary completed gate.
+		Version:        120,
+		Name:           "outside_repair_disposition_tables",
+		Breaking:       true,
+		FoldMaintained: "advance",
+		SQL: `
+ALTER TABLE workflow_instances ADD COLUMN outside_repair_state TEXT;
+CREATE TABLE workflow_instances_v120 (
+    work_id TEXT PRIMARY KEY REFERENCES work_items(id) ON DELETE RESTRICT,
+    definition_ref TEXT NOT NULL,
+    definition_version INTEGER NOT NULL,
+    definition_digest TEXT NOT NULL,
+    current_step TEXT NOT NULL,
+    instance_state TEXT NOT NULL CHECK(instance_state IN ('planned','ready','running','blocked','awaiting_condition','verifying','completed','cancelled','superseded','outside_repair')),
+    execution_actor_ref TEXT REFERENCES workflow_actors(actor_ref) ON DELETE RESTRICT,
+    execution_model TEXT NOT NULL DEFAULT '' CHECK(length(execution_model) <= 128),
+    started_at TEXT,
+    completed_at TEXT,
+    last_checkpoint_at TEXT,
+    execution_started_at TEXT,
+    outside_repair_state TEXT,
+    CHECK(definition_version > 0 AND definition_version <= 2147483647),
+    CHECK(length(definition_ref) BETWEEN 2 AND 128),
+    CHECK(length(definition_digest) = 71 AND substr(definition_digest,1,7) = 'sha256:'),
+    CHECK(length(current_step) BETWEEN 2 AND 128),
+    CHECK(outside_repair_state IS NULL OR outside_repair_state IN ('active','completed','resumed'))
+);
+INSERT INTO workflow_instances_v120
+    (work_id, definition_ref, definition_version, definition_digest, current_step, instance_state,
+     execution_actor_ref, execution_model, started_at, completed_at, last_checkpoint_at, execution_started_at, outside_repair_state)
+SELECT work_id, definition_ref, definition_version, definition_digest, current_step, instance_state,
+	       execution_actor_ref, execution_model, started_at, completed_at, last_checkpoint_at, execution_started_at, NULL
+  FROM workflow_instances;
+DROP TRIGGER IF EXISTS workflow_instances_guard_insert;
+DROP TRIGGER IF EXISTS workflow_instances_guard_update;
+DROP TRIGGER IF EXISTS workflow_instances_guard_delete;
+DROP TABLE workflow_instances;
+ALTER TABLE workflow_instances_v120 RENAME TO workflow_instances;
+CREATE INDEX workflow_instances_state ON workflow_instances(instance_state, work_id);
+CREATE TRIGGER workflow_instances_guard_insert BEFORE INSERT ON workflow_instances FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_instances is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_instances_guard_update BEFORE UPDATE ON workflow_instances FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_instances is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_instances_guard_delete BEFORE DELETE ON workflow_instances FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_instances is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TABLE outside_repair_dispositions (
+    work_id TEXT PRIMARY KEY REFERENCES work_items(id) ON DELETE RESTRICT,
+    approval_ref TEXT NOT NULL,
+    state TEXT NOT NULL CHECK(state IN ('active','completed','resumed')),
+    reason TEXT NOT NULL,
+    evidence_json TEXT NOT NULL CHECK(json_valid(evidence_json) AND json_type(evidence_json)='object'),
+    recorded_at TEXT NOT NULL,
+    CHECK(length(approval_ref) BETWEEN 9 AND 128),
+    CHECK(length(reason) BETWEEN 1 AND 4096)
+);
+CREATE INDEX outside_repair_dispositions_state ON outside_repair_dispositions(state, work_id);
+CREATE TRIGGER outside_repair_dispositions_guard_insert BEFORE INSERT ON outside_repair_dispositions FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'outside_repair_dispositions is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER outside_repair_dispositions_guard_update BEFORE UPDATE ON outside_repair_dispositions FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'outside_repair_dispositions is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER outside_repair_dispositions_guard_delete BEFORE DELETE ON outside_repair_dispositions FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'outside_repair_dispositions is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TABLE outside_repair_reconciliations (
+    reconciliation_id TEXT PRIMARY KEY,
+    work_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
+    approval_ref TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    evidence_json TEXT NOT NULL CHECK(json_valid(evidence_json) AND json_type(evidence_json)='object'),
+    recorded_at TEXT NOT NULL,
+    CHECK(length(reconciliation_id) BETWEEN 2 AND 128),
+    CHECK(length(approval_ref) BETWEEN 9 AND 128),
+    CHECK(length(reason) BETWEEN 1 AND 4096)
+);
+CREATE INDEX outside_repair_reconciliations_work ON outside_repair_reconciliations(work_id, recorded_at);
+CREATE TRIGGER outside_repair_reconciliations_guard_insert BEFORE INSERT ON outside_repair_reconciliations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'outside_repair_reconciliations is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER outside_repair_reconciliations_guard_update BEFORE UPDATE ON outside_repair_reconciliations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'outside_repair_reconciliations is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER outside_repair_reconciliations_guard_delete BEFORE DELETE ON outside_repair_reconciliations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'outside_repair_reconciliations is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

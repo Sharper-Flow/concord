@@ -512,6 +512,7 @@ var fixturePatternValues = []struct {
 	{regexp.MustCompile(`\^check:`), "check:mutation.result.conformance"},
 	{regexp.MustCompile(`\^approval:`), "approval:conformance"},
 	{regexp.MustCompile(`\^actor:`), "actor:" + strings.Repeat("0", 64)},
+	{regexp.MustCompile(`\[A-Za-z0-9._-\]\+/\[A-Za-z0-9._-\]\+\$`), "conformance/examples"},
 	{regexp.MustCompile(`\^\[0-9a-f\]\{40\}`), "7b83cbf41af2f9fa7990294a41a50cb75a1d6d1e"},
 	{regexp.MustCompile(`\\S\+\$`), "ref-1"},
 }

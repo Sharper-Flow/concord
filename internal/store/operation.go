@@ -69,6 +69,7 @@ type Project struct {
 }
 
 type projectionMutation func(context.Context, *sql.Tx, Event) error
+type scopedProjectionMutation func(context.Context, *sql.Tx, Event, *foldScope) error
 
 // operationObserver is an unexported white-box measurement surface. It is
 // passed through the operation call graph rather than stored globally, so
@@ -123,10 +124,16 @@ type EventKindRegistration struct {
 	Upcasters       map[int]Upcaster
 	ValidatePayload func(Event) error
 	Authority       EventAppendAuthority
-	Fold            projectionMutation
+	Fold            scopedProjectionMutation
 }
 
 func registerEventKind[T any](currentVersion, minSupported int, upcasters map[int]Upcaster, authority EventAppendAuthority, fold projectionMutation, semantic eventPayloadSemantic[T]) EventKindRegistration {
+	return registerScopedEventKind(currentVersion, minSupported, upcasters, authority, func(ctx context.Context, tx *sql.Tx, event Event, _ *foldScope) error {
+		return fold(ctx, tx, event)
+	}, semantic)
+}
+
+func registerScopedEventKind[T any](currentVersion, minSupported int, upcasters map[int]Upcaster, authority EventAppendAuthority, fold scopedProjectionMutation, semantic eventPayloadSemantic[T]) EventKindRegistration {
 	if upcasters == nil {
 		upcasters = map[int]Upcaster{}
 	}
@@ -266,6 +273,9 @@ var eventKindRegistry = map[string]EventKindRegistration{
 	WorkflowBacklogAlignmentRecorded:          workflowRegistration[workflowBacklogAlignmentRecordedPayload](1, nil, foldWorkflowBacklogAlignmentRecorded),
 	WorkflowDeliveryCorrected:                 workflowRegistration[workflowDeliveryCorrectedPayload](1, nil, foldWorkflowDeliveryCorrected),
 	WorkflowCompleted:                         workflowRegistration[workflowCompletedPayload](2, map[int]Upcaster{1: upcastWorkflowCompletedV1}, foldWorkflowCompleted),
+	WorkflowOutsideRepairDispositionSet:       workflowRegistration[workflowOutsideRepairDispositionPayload](1, nil, foldOutsideRepairDispositionSet),
+	WorkflowOutsideRepairReconciled:           registerScopedEventKind[workflowOutsideRepairReconcilePayload](1, 1, nil, EventAppendAuthorityWorkflow, foldOutsideRepairReconciled, validateWorkflowPayload[workflowOutsideRepairReconcilePayload]),
+	WorkflowOutsideRepairResumed:              workflowRegistration[workflowOutsideRepairResumePayload](1, nil, foldOutsideRepairResumed),
 	EventSessionOrchestratorIdentityAsserted:  registerEventKind[orchestratorIdentityAssertedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldSessionOrchestratorIdentityAsserted, validateSessionOrchestratorIdentityAssertedPayload),
 }
 
@@ -354,13 +364,17 @@ func validateRegisteredEvent(event Event) error {
 	return err
 }
 
-func foldRegisteredEvent(ctx context.Context, tx *sql.Tx, event Event) error {
+func foldRegisteredEvent(ctx context.Context, tx *sql.Tx, event Event, scopes ...*foldScope) error {
 	prepared, err := prepareRegisteredEvent(event)
 	if err != nil {
 		return attributeFailure(err, event, prepared.stage)
 	}
 	advanceWorkflowReplay(ctx, event)
-	if err := prepared.registration.Fold(ctx, tx, prepared.current); err != nil {
+	var scope *foldScope
+	if len(scopes) == 1 {
+		scope = scopes[0]
+	}
+	if err := prepared.registration.Fold(ctx, tx, prepared.current, scope); err != nil {
 		stage := StageFold
 		var failure *Failure
 		if failureAs(err, &failure) && failure.Stage != "" {
@@ -490,7 +504,7 @@ func applyOperationTx(ctx context.Context, tx *sql.Tx, operation Operation, scop
 			return output, err
 		}
 		event.Seq = seq
-		if err := foldRegisteredEvent(ctx, tx, event); err != nil {
+		if err := foldRegisteredEvent(ctx, tx, event, scope); err != nil {
 			return output, err
 		}
 	}
@@ -607,7 +621,7 @@ func applyOperationObserved(ctx context.Context, s *Store, operation Operation, 
 			return output, rollback(err)
 		}
 		event.Seq = seq
-		if err := foldRegisteredEvent(ctx, tx.Tx, event); err != nil {
+		if err := foldRegisteredEvent(ctx, tx.Tx, event, scope); err != nil {
 			return output, rollback(err)
 		}
 	}
@@ -712,8 +726,10 @@ var replayProjectionClearTables = []string{
 	"domain_observations",
 	"resource_products", "managed_resources",
 	// work-referencing RESTRICT-FK tables clear before work_items:
-	// observations (CD-0030), messages (CD-0029), claims (CD-0028).
+	// observations (CD-0030), messages (CD-0029), claims (CD-0028),
+	// outside-repair reconciliations and dispositions.
 	"work_observations", "work_messages", "resource_claims",
+	"outside_repair_reconciliations", "outside_repair_dispositions",
 	// Worktree entries fold purely from the worktree events; clearing them
 	// lets the replay rebuild every claim generation instead of upserting
 	// onto the live row of the newest claim.
@@ -785,7 +801,7 @@ func rebuildFromLogTx(ctx context.Context, tx *sql.Tx) error {
 	for _, event := range events {
 		// Historical knowledge is git-derived. Domain-log replay must not
 		// rewrite archived_work, scope edges, or git watermarks.
-		if err := foldRegisteredEvent(replayCtx, tx, event); err != nil {
+		if err := foldRegisteredEvent(replayCtx, tx, event, scope); err != nil {
 			return err
 		}
 	}

@@ -34,6 +34,9 @@ type WorkflowAdmissionState struct {
 	Lifecycle string
 	// InstanceState is the workflow instance state.
 	InstanceState string
+	// OutsideRepairActive suspends every managed action, including continuity
+	// and recovery actions. Only the operator-only outside-repair APIs clear it.
+	OutsideRepairActive bool
 	// RefinementWorkflow reports whether the pinned definition declares the
 	// refinement review shape: a step that declares start_refine. The
 	// post-rejection review debt and its settling review belong to that
@@ -240,6 +243,14 @@ func loadWorkflowAdmissionStateTx(ctx context.Context, q queryer, workID string,
 			return WorkflowAdmissionState{}, nil, nil, newFailure(KindProjectionNotFound, subject, "workflow instance is not recorded", false, "reread_entities")
 		}
 		return WorkflowAdmissionState{}, nil, nil, wrapFailure(KindUnavailable, subject, "cannot read workflow admission state", true, "retry once the database is readable", err)
+	}
+	active, err := outsideRepairActiveTx(ctx, q, workID)
+	if err != nil {
+		return WorkflowAdmissionState{}, nil, nil, err
+	}
+	state.OutsideRepairActive = active
+	if active || state.InstanceState == "outside_repair" {
+		return state, nil, nil, nil
 	}
 	// A duplicated contract projection is the supersede recovery's subject:
 	// workflowAdmitSupersede admits its route on the count alone, and the
@@ -455,6 +466,10 @@ func loadWorkflowAdmissionStateTx(ctx context.Context, q queryer, workID string,
 // against the decision's ReadyReviewAttemptID.
 func workflowAdmit(definition WorkflowDefinition, state WorkflowAdmissionState, actionID string) WorkflowAdmissionDecision {
 	decision := WorkflowAdmissionDecision{ReadyReviewAttemptID: state.ReadyReviewAttemptID, ReadyReviewSettles: state.ReadyReviewSettles}
+	if state.OutsideRepairActive {
+		decision.Failure = newOutsideRepairRouteFailure("workflow_action", "managed workflow action refused: outside-repair disposition is active")
+		return decision
+	}
 	if workflowCompletedInstanceActionImmutable(state.InstanceState, actionID, state.Lifecycle) {
 		decision.Failure = newFailure(KindInvalidOperation, "workflow_action", "terminal workflow instance is immutable", false, "start a successor workflow")
 		return decision

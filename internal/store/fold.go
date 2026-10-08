@@ -15,6 +15,18 @@ import (
 type foldScope struct {
 	tx    *sql.Tx
 	depth int
+	// Only the validated outside-repair reconciliation fold grants this exact
+	// event permission to complete held work. It is local to that fold call.
+	outsideRepairLifecycleEvent *Event
+}
+
+func (s *foldScope) permitsOutsideRepairLifecycle(tx *sql.Tx, event Event, lifecycle string) bool {
+	if s == nil || s.tx != tx || s.depth == 0 || s.outsideRepairLifecycleEvent == nil {
+		return false
+	}
+	authorized := s.outsideRepairLifecycleEvent
+	return lifecycle == "completed" && event.Kind == WorkflowOutsideRepairReconciled &&
+		authorized.EventID == event.EventID && authorized.SubjectID == event.SubjectID && authorized.Seq == event.Seq
 }
 
 // newFoldScope binds an unused scope to an open transaction. enter opens the

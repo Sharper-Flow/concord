@@ -596,7 +596,10 @@ def validate(manifest: dict) -> str:
         if set(tool) != {"id", "description", "operations"} or not tool["operations"]:
             fail(f"tool section is not closed: {tool.get('id')}")
     operations = manifest.get("operations", [])
-    expected_operations = 74
+    # 74 base operations plus the two operator-approved outside-repair
+    # transition actions (CD-0210): concord_work_transition.outside_repair and
+    # concord_work_transition.outside_repair_reconcile.
+    expected_operations = 76
     if len(operations) != expected_operations or len({o.get("id") for o in operations}) != expected_operations:
         fail(f"manifest must contain exactly {expected_operations} unique operations")
     tool_ids = {t["id"] for t in tools}

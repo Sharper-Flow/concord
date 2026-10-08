@@ -1,5 +1,6 @@
 import { test, expect, mock, beforeEach, afterEach } from "bun:test"
 import fs from "node:fs"
+import * as os from "node:os"
 import path from "node:path"
 import { hostControlPlane, MANAGED_TASK_SCOPE_KEY } from "./move-session"
 import { resetClaimedWorktrees } from "./claimed-worktree"
@@ -1037,4 +1038,83 @@ test("dispatchLaneWorker retains the core's packet digest for completion", async
   // assertion at completion.
   await windows.bind(TASK_TOOL_ID, "session-1", { subagent_type: "general", prompt: "x" }, undefined, async () => process.cwd(), process.cwd())
   expect(windows.takeInFlight("session-1")?.packetDigest).toBe(CORE_PACKET_DIGEST)
+})
+
+// CON-821 / CD-0034 on the lane route: a manifest the store would refuse at
+// the evidence fold refuses here, before the core dispatch_worker action
+// persists an authorized attempt and before any window opens. The provenance
+// producer is the real one; only the core transport and the host control
+// plane are fixtures, exactly as every other test in this file drives them.
+
+// Snapshot the host-config environment the provenance producer reads and
+// point it at a synthetic config directory, so the source count depends on
+// the fixture alone.
+function isolateProvenanceEnv(configDir: string): () => void {
+  const previous = {
+    OPENCODE_CONFIG_DIR: process.env.OPENCODE_CONFIG_DIR,
+    OPENCODE_CONFIG: process.env.OPENCODE_CONFIG,
+    CONCORD_HOST_INSTRUCTIONS: process.env.CONCORD_HOST_INSTRUCTIONS,
+  }
+  process.env.OPENCODE_CONFIG_DIR = configDir
+  delete process.env.OPENCODE_CONFIG
+  delete process.env.CONCORD_HOST_INSTRUCTIONS
+  return () => {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key]
+      else process.env[key] = value
+    }
+  }
+}
+
+test("a provenance manifest over the store bound authorizes nothing in the core on the lane route", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "provenance-lane-"))
+  fs.mkdirSync(path.join(root, "worktree"))
+  const worktree = fs.realpathSync(path.join(root, "worktree"))
+  const configDir = fs.mkdtempSync(path.join(os.tmpdir(), "provenance-lane-config-"))
+  fs.mkdirSync(path.join(worktree, ".git"), { recursive: true })
+  fs.mkdirSync(path.join(configDir, "corpus"), { recursive: true })
+  // 30 corpus files through one absolute glob plus the 3 unenumerated
+  // surfaces = 33 sources: one past the 32-source bound the store enforces.
+  for (let index = 0; index < 30; index++) {
+    fs.writeFileSync(path.join(configDir, "corpus", `rule-${String(index).padStart(2, "0")}.md`), `# corpus rule ${index}\n`)
+  }
+  fs.writeFileSync(path.join(configDir, "opencode.jsonc"), `{"instructions": [${JSON.stringify(`${configDir}/corpus/*.md`)}]}\n`)
+  const restoreEnv = isolateProvenanceEnv(configDir)
+  try {
+    let workflowCalls = 0
+    let evidenceCalls = 0
+    const invoke = async (toolName: string, args: { operation: string; input?: Record<string, unknown> }): Promise<unknown> => {
+      const key = `${toolName}.${args.operation}`
+      if (key === "concord_work_trace.continuity") return continuityEnvelope()
+      if (key === "concord_work_browse.scope") return scopeEnvelope()
+      if (key === "concord_work_transition.workflow_action") { workflowCalls++; return coreOkEnvelope(worktree) }
+      throw new Error(`unscripted ${key}`)
+    }
+    hostControlPlane().bind({
+      get: async ({ path: routePath }) => ({
+        data: { id: routePath?.id, directory: worktree, metadata: { [MANAGED_TASK_SCOPE_KEY]: "managed" } },
+        response: new Response(null, { status: 200 }),
+      }),
+      post: async () => { throw new Error("dispatch does not move the host session") },
+    })
+    const windows = new DispatchWindows()
+    const context = { sessionID: "session-1", messageID: "message-1", agent: "agent-1", worktree, directory: worktree, abort: new AbortController().signal, ask: async () => {} } as any
+    const result = await dispatchLaneWorker(
+      { work_id: WORK_ID, expected_version: 3, idempotency_key: "provenance-overflow", lane_id: lane.id },
+      { context, invoke: invoke as any, credentials: testCredentials, evidenceRunner: { async run() { evidenceCalls++; return { exitCode: 0, stdout: "", stderr: "" } } }, windows },
+    )
+    expect(result.outcome).toBe("error")
+    expect(result.dispatch_state).toBeUndefined()
+    expect(result.error?.message).toMatch(/provenance/i)
+    expect(result.error?.message).toMatch(/\b32\b/)
+    expect(result.error?.recovery_action).toBe("contact_operator")
+    expect(result.error?.retry_safe).toBe(false)
+    expect(workflowCalls).toBe(0)
+    expect(evidenceCalls).toBe(0)
+    expect(windows.has("session-1")).toBe(false)
+  } finally {
+    restoreEnv()
+    fs.rmSync(root, { recursive: true, force: true })
+    fs.rmSync(configDir, { recursive: true, force: true })
+  }
 })

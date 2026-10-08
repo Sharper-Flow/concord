@@ -660,6 +660,19 @@ func TestWorkerHostProvenanceValidation(t *testing.T) {
 	if err := ValidateWorkerHostProvenance(named); err != nil {
 		t.Fatalf("three distinctly named unenumerated sources refused: %v", err)
 	}
+	// The bound itself: 32 sources record and the 33rd refuses, matching the
+	// adapter producer's all-or-refuse bound.
+	full := make([]WorkerHostProvenanceSource, 32)
+	for i := range full {
+		full[i] = WorkerHostProvenanceSource{Kind: "instruction_file", Path: fmt.Sprintf("/synthetic/instruction-%02d.md", i), SHA256: valid.Digest}
+	}
+	if err := ValidateWorkerHostProvenance(&WorkerHostProvenance{Digest: valid.Digest, Sources: full}); err != nil {
+		t.Fatalf("32-source provenance refused: %v", err)
+	}
+	over := append(append([]WorkerHostProvenanceSource(nil), full...), WorkerHostProvenanceSource{Kind: "instruction_file", Path: "/synthetic/instruction-32.md", SHA256: valid.Digest})
+	if err := ValidateWorkerHostProvenance(&WorkerHostProvenance{Digest: valid.Digest, Sources: over}); err == nil {
+		t.Fatal("33-source provenance must refuse")
+	}
 }
 
 // CD-0034: a v3 dispatch carries host provenance into durable evidence. The

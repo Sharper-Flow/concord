@@ -19,7 +19,7 @@ import type { ToolContext } from "@opencode-ai/plugin"
 import type { ConcordInvoke } from "./packet"
 import type { CredentialStore } from "./credentials"
 import { canonicalDirectory, type DispatchWindows } from "./dispatch-window"
-import { dispatchWorker, errorEnvelopeForLane, coreDispatchFailure, contextPreflightRefusal, type AgentLanePacket, type AgentResultEnvelope, type DispatchRunner } from "./dispatch"
+import { computeHostPromptProvenance, dispatchWorker, errorEnvelopeForLane, coreDispatchFailure, contextPreflightRefusal, provenanceRefusal, type AgentLanePacket, type AgentResultEnvelope, type DispatchRunner, type HostProvenance } from "./dispatch"
 import { agentLanes, agentUtilities, type AgentLane, type AgentUtility } from "./generated-agent-lanes"
 import { buildAgentLanePacket, type AgentLanePacketFailureKind } from "./packet"
 import { hostControlPlane } from "./move-session"
@@ -217,6 +217,16 @@ export async function dispatchLaneWorker(input: LaneDispatchInput, deps: LaneDis
   const contextRefusal = contextPreflightRefusal(laneForId(packet.lane_id), packet, pinnedWorkerDirectory, contextDirectory)
   if (contextRefusal) return contextRefusal
 
+  // Bind the manifest before the core dispatch_worker action persists an
+  // authorized attempt: a manifest the store would refuse leaves nothing to
+  // reconcile. The window captures this manifest for completion.
+  let provenance: HostProvenance
+  try {
+    provenance = await computeHostPromptProvenance(packet.lane_id, workerDirectory)
+  } catch (error) {
+    return provenanceRefusal(laneForId(packet.lane_id), packet, error)
+  }
+
   // Core invoke: the dispatch_worker action with the enriched fields. The
   // core records the packet digest (CD-0067 D2) and returns a typed
   // envelope. lane_id is never forwarded — it is tool-level vocabulary the
@@ -295,5 +305,5 @@ export async function dispatchLaneWorker(input: LaneDispatchInput, deps: LaneDis
   // gate; dispatchWorker compares it with the armed claim, with the record a
   // metadata-only work_start refusal left behind, and with the durable
   // claimed worktree the core names.
-  return dispatchWorker(packet, { authorize: async () => coreResponse, credentials: deps.credentials, runner: deps.runner, evidenceRunner: deps.evidenceRunner, concordBinary: deps.concordBinary, packetDigest, sessionID: deps.context.sessionID, windows: deps.windows, workPins, workerDirectory, pinnedWorkerDirectory, authorizedWorktree, resolveWorkerDirectory: () => hostControlPlane().sessionDirectory(deps.context.sessionID, deps.context.abort), contextDirectory })
+  return dispatchWorker(packet, { authorize: async () => coreResponse, credentials: deps.credentials, runner: deps.runner, evidenceRunner: deps.evidenceRunner, concordBinary: deps.concordBinary, packetDigest, sessionID: deps.context.sessionID, windows: deps.windows, workPins, workerDirectory, pinnedWorkerDirectory, authorizedWorktree, resolveWorkerDirectory: () => hostControlPlane().sessionDirectory(deps.context.sessionID, deps.context.abort), contextDirectory, provenance })
 }

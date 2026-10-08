@@ -9,7 +9,7 @@
 import { createHash } from "node:crypto"
 import fs from "node:fs"
 import path from "node:path"
-import type { AgentLanePacket } from "./dispatch"
+import type { AgentLanePacket, HostProvenance } from "./dispatch"
 import type { ReleaseStaleness } from "./host-lease"
 import { dispatchRequiresNextTurn, TURN_MOVE_DISPATCH_REFUSAL } from "./turn-move-boundary"
 
@@ -61,6 +61,10 @@ export interface DispatchRecord {
   workerDirectory: string
   workerDirectoryIdentity: string
   callID?: string
+  // The provenance manifest captured at authorization. Completion records it
+  // instead of recomputing after the worker ran; a window opened without one
+  // carries none and completion falls back to computing it.
+  provenance?: HostProvenance
 }
 
 interface MutableToolArgs {
@@ -92,7 +96,7 @@ export class DispatchWindows {
   // receipt clears it.
   readonly #refused = new Set<string>()
 
-  open(sessionID: string, packet: AgentLanePacket, packetDigest = "", workerDirectory?: string, pinnedWorkerDirectory?: string): void {
+  open(sessionID: string, packet: AgentLanePacket, packetDigest = "", workerDirectory?: string, pinnedWorkerDirectory?: string, provenance?: HostProvenance): void {
     const running = this.#inFlight.get(sessionID)
     if (running) {
       // The in-flight refusal names its recovery route. A record that stays
@@ -122,7 +126,7 @@ export class DispatchWindows {
     if (workerDirectoryIdentity === null) {
       throw new DispatchWindowError("worker dispatch requires a resolvable worker directory identity")
     }
-    this.#open.set(sessionID, { packet, packetDigest, workerDirectory: canonicalWorkerDirectory, workerDirectoryIdentity })
+    this.#open.set(sessionID, { packet, packetDigest, workerDirectory: canonicalWorkerDirectory, workerDirectoryIdentity, provenance })
   }
 
   // close discards a window whose dispatch failed before the worker started, so

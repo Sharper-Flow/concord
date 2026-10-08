@@ -357,64 +357,42 @@ func workProductIDs(ctx context.Context, q queryer, id string) ([]string, error)
 }
 
 // validateInitiativeInvariantsTx checks the whole projection in the owning
-// transaction. Set-based reads keep query count independent of entry count:
-// this validator runs inside every mutation's exclusive SQLite writer window.
+// transaction. The whole-projection facts live in the two durable violation
+// projections migration 120 maintains through triggers on the dependency
+// tables, refreshed synchronously inside every writer's transaction, so this
+// validator answers with two indexed point reads whose plan shape is
+// independent of the entry population. The scope table gates the entry
+// table: a scope refusal is always reported first, and the entry codes keep
+// the typed-refusal precedence of the scan they replaced.
 func validateInitiativeInvariantsTx(ctx context.Context, tx queryer) error {
 	var initiative string
-	err := tx.QueryRowContext(ctx, `SELECT w.id FROM work_items w
-		LEFT JOIN work_projects wp ON wp.work_id=w.id AND wp.role='primary'
-		LEFT JOIN product_projects pp ON pp.project_id=wp.project_id
-		WHERE w.kind='initiative' GROUP BY w.id
-		HAVING count(DISTINCT pp.product_id)<>1 ORDER BY w.id LIMIT 1`).Scan(&initiative)
+	err := tx.QueryRowContext(ctx, `SELECT work_id FROM initiative_scope_violations ORDER BY work_id LIMIT 1`).Scan(&initiative)
 	if err == nil {
 		return newFailure(KindInitiativeScopeViolation, "initiative_invariants", fmt.Sprintf("Initiative %s does not derive exactly one Product", initiative), false, "repair the Initiative membership operation")
 	}
 	if err != sql.ErrNoRows {
 		return wrapFailure(KindUnavailable, "initiative_invariants", "cannot read Initiative scopes", true, "retry once the database is readable", err)
 	}
-	var kind, childProduct, initiativeProduct sql.NullString
-	var childProducts int
-	// CROSS JOIN keeps the relevant subjects as the outer loop, rather than
-	// scanning primary memberships of unrelated work before the scope lookup.
-	err = tx.QueryRowContext(ctx, `WITH subjects AS (
-		SELECT e.initiative_work_id AS work_id FROM initiative_entries e
-		JOIN work_items w ON w.id=e.initiative_work_id AND w.kind='initiative'
-		UNION
-		SELECT e.child_work_id FROM initiative_entries e
-		JOIN work_items w ON w.id=e.initiative_work_id AND w.kind='initiative'
-	), scopes AS (
-		SELECT wp.work_id, count(DISTINCT pp.product_id) AS products, min(pp.product_id) AS product
-		FROM subjects s CROSS JOIN work_projects wp ON wp.work_id=s.work_id
-		JOIN product_projects pp ON pp.project_id=wp.project_id
-		WHERE wp.role='primary' GROUP BY wp.work_id
-	)
-	SELECT child.kind, coalesce(cs.products,0), cs.product, ins.product
-	FROM initiative_entries e
-	JOIN work_items parent ON parent.id=e.initiative_work_id AND parent.kind='initiative'
-	LEFT JOIN work_items child ON child.id=e.child_work_id
-	LEFT JOIN scopes cs ON cs.work_id=e.child_work_id
-	LEFT JOIN scopes ins ON ins.work_id=e.initiative_work_id
-	LEFT JOIN relations r ON r.work_id_from=e.initiative_work_id AND r.work_id_to=e.child_work_id AND r.kind='includes'
-	WHERE child.id IS NULL OR child.kind='initiative' OR coalesce(cs.products,0)<>1
-		OR cs.product<>ins.product OR r.work_id_to IS NULL
-	ORDER BY e.initiative_work_id,e.position,e.child_work_id LIMIT 1`).Scan(&kind, &childProducts, &childProduct, &initiativeProduct)
+	var violation string
+	err = tx.QueryRowContext(ctx, `SELECT violation FROM initiative_entry_violations ORDER BY initiative_work_id, position, child_work_id LIMIT 1`).Scan(&violation)
 	if err == sql.ErrNoRows {
 		return nil
 	}
 	if err != nil {
 		return wrapFailure(KindUnavailable, "initiative_invariants", "cannot validate Initiative entries", true, "retry once the database is readable", err)
 	}
-	switch {
-	case !kind.Valid:
+	switch violation {
+	case "missing_child":
 		return newFailure(KindProjectionNotFound, "fold_event", "work item does not exist", false, "create the work item first")
-	case kind.String == "initiative":
+	case "nested":
 		return newFailure(KindInitiativeScopeViolation, "initiative_invariants", "nested Initiative entry exists", false, "remove the nested Initiative entry")
-	case childProducts != 1:
+	case "child_scope":
 		return newFailure(KindInitiativeScopeViolation, "fold_event", "Initiative and child must each derive exactly one Product", false, "assign one unambiguous shared Product scope")
-	case childProduct.String != initiativeProduct.String:
+	case "mismatch":
 		return newFailure(KindInitiativeScopeViolation, "fold_event", "Initiative child belongs to a different Product", false, "add only children in the Initiative Product scope")
 	default:
-		// relations has one row per (from, to, kind), so presence is exactly one.
+		// The projection's CHECK restricts violation to the five codes the
+		// maintenance triggers write, so the remaining code is diverged.
 		return newFailure(KindInitiativeScopeViolation, "initiative_invariants", "Initiative entry and includes relation diverged", false, "rebuild the Initiative projection from events")
 	}
 }

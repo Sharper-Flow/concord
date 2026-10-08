@@ -177,6 +177,7 @@ func TestInitiativeValidatorDoesNotBlockConcurrentWriters(t *testing.T) {
 				queries, queryRows    int64
 			}
 			holderReady := make(chan struct{})
+			waiterStarted := make(chan struct{})
 			holderDone := make(chan holderResult, 1)
 			go func() {
 				var result holderResult
@@ -193,7 +194,18 @@ func TestInitiativeValidatorDoesNotBlockConcurrentWriters(t *testing.T) {
 					err = validateInitiativeInvariantsTx(ctx, counter)
 					result.validateDur = time.Since(v0)
 					result.queries, result.queryRows = counter.queries.Load(), counter.queryRows.Load()
-					return errors.Join(err, scope.close(ctx))
+					if err != nil {
+						return err
+					}
+					// The exclusive window is microseconds once the validator is
+					// projection-backed, so a timing race cannot prove the waiter
+					// contended with it. Hold the write lock until the writer
+					// request has actually started, making the overlap exact.
+					select {
+					case <-waiterStarted:
+					case <-time.After(time.Duration(testContentionBusyTimeoutMs) * time.Millisecond):
+					}
+					return scope.close(ctx)
 				})
 				result.totalDur = time.Since(start)
 				result.released = time.Now()
@@ -205,6 +217,7 @@ func TestInitiativeValidatorDoesNotBlockConcurrentWriters(t *testing.T) {
 				t.Fatalf("holder did not acquire its transaction: %v", result.err)
 			}
 			waiterStart := time.Now()
+			close(waiterStarted)
 			waiterErr := tc.waiter()
 			waiterDur := time.Since(waiterStart)
 			holder := <-holderDone
@@ -235,7 +248,9 @@ func TestInitiativeValidatorDoesNotBlockConcurrentWriters(t *testing.T) {
 // finite projection fixtures at 150x100 (15000 entries), 300x100 (30000), and
 // 300x300 (90000). Each subbenchmark names its dimensions and reports its entry
 // population; the three points bound the measured range only and claim no
-// scaling law beyond them. Run with `-bench=BenchmarkInitiativeValidator -benchtime=5x`.
+// scaling law beyond them. The default ns/op covers the whole transaction the
+// validator runs inside; the validate_ns/op metric isolates the two validator
+// reads alone. Run with `-bench=BenchmarkInitiativeValidator -benchtime=5x`.
 func BenchmarkInitiativeValidator(b *testing.B) {
 	for _, tc := range []struct {
 		name string
@@ -266,6 +281,7 @@ func BenchmarkInitiativeValidator(b *testing.B) {
 				b.Fatal(err)
 			}
 			seedInitiativeProjection(b, s, "p-bench", "pr-bench", tc.n, tc.m)
+			var validateNanos int64
 			b.ResetTimer()
 			b.ReportMetric(float64(tc.n*tc.m), "entries/op")
 			for i := 0; i < b.N; i++ {
@@ -275,11 +291,15 @@ func BenchmarkInitiativeValidator(b *testing.B) {
 						return err
 					}
 					defer func() { _ = scope.close(ctx) }()
-					return validateInitiativeInvariantsTx(ctx, tx.tx)
+					start := time.Now()
+					err = validateInitiativeInvariantsTx(ctx, tx.tx)
+					validateNanos += int64(time.Since(start))
+					return err
 				}); err != nil {
 					b.Fatal(err)
 				}
 			}
+			b.ReportMetric(float64(validateNanos)/float64(b.N), "validate_ns/op")
 		})
 	}
 }

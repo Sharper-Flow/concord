@@ -440,8 +440,9 @@ func TestDistinctReleasedCoreBreakingUpgradeRequiresStoppedSessions(t *testing.T
 		t.Fatal(err)
 	}
 	if before.SchemaVersion != releasedPairSchema || before.CompatibilityFloor >= releasedPairSchema ||
-		len(before.PendingBreaking) != 1 || before.PendingBreaking[0].Version != 119 || !before.PendingBreaking[0].Breaking {
-		t.Fatalf("the released store must await the breaking worker-attempt migration: %+v", before)
+		len(before.PendingBreaking) != 2 || before.PendingBreaking[0].Version != 119 || !before.PendingBreaking[0].Breaking ||
+		before.PendingBreaking[1].Version != 120 || !before.PendingBreaking[1].Breaking {
+		t.Fatalf("the released store must await the breaking worker-attempt migration first: %+v", before)
 	}
 	snapshot := releaseMigrationSnapshot(t, path)
 	assertUnadvanced := func(t *testing.T) {
@@ -498,8 +499,10 @@ func TestDistinctReleasedCoreBreakingUpgradeRequiresStoppedSessions(t *testing.T
 		}
 	}
 	after, err := store.PlanUpgradeReadiness(context.Background(), path)
-	if err != nil || after.SchemaVersion != report.SchemaVersion || after.CompatibilityFloor != 119 || len(after.PendingBreaking) != 0 {
-		t.Fatalf("the breaking upgrade must raise the floor to 119: %+v %v", after, err)
+	// The floor is the highest breaking version applied: the initiative
+	// violation projection step (120) raises it past the v119 rebuild.
+	if err != nil || after.SchemaVersion != report.SchemaVersion || after.CompatibilityFloor != 120 || len(after.PendingBreaking) != 0 {
+		t.Fatalf("the breaking upgrade must raise the floor to 120: %+v %v", after, err)
 	}
 	fence, err := hostlease.ReadFence(dataRoot)
 	if err != nil || fence == nil || !fence.AuthorizesNativeMigration(currentRoot, currentBinary, report.SchemaVersion) {
@@ -517,7 +520,7 @@ func TestDistinctReleasedCoreBreakingUpgradeRequiresStoppedSessions(t *testing.T
 	upgradedSnapshot := releaseMigrationSnapshot(t, path)
 	code, out, errText = runRelease(t, oldBinary, path, "upgrade", `{}`)
 	if code != 1 || out != "" || !strings.Contains(errText, "schema_unsupported") ||
-		!strings.Contains(errText, "defines schema version 119") ||
+		!strings.Contains(errText, "defines schema version 120") ||
 		!strings.Contains(errText, fmt.Sprintf("this binary defines %d", releasedPairSchema)) {
 		t.Fatalf("the old core must refuse the breaking floor, not the maintenance fence: %d %s %s", code, out, errText)
 	}

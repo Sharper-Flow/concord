@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -964,7 +965,15 @@ func scanKnowledgeRows(rows *sql.Rows) ([]KnowledgeItem, error) {
 
 func buildKnowledgeQueryForScope(req Q9Request, kinds, tags []string, limit int, resume *knowledgeResumeKey) (string, []any) {
 	where := []string{"aw.home_project_id = ?", "aw.home_locator_id = ?"}
-	args := []any{req.Text, req.Home.HomeProjectID, req.Home.HomeLocatorID}
+	tokens := strings.Fields(strings.ToLower(req.Text))
+	inputColumns, inputValues := []string{"text"}, []string{"?"}
+	args := []any{req.Text}
+	for i, token := range tokens {
+		inputColumns = append(inputColumns, "token"+strconv.Itoa(i))
+		inputValues = append(inputValues, "?")
+		args = append(args, token)
+	}
+	args = append(args, req.Home.HomeProjectID, req.Home.HomeLocatorID)
 	if req.Product != "" {
 		where = append(where, "(aw.scope_mode = 'home' OR EXISTS (SELECT 1 FROM archived_work_products p WHERE p.work_id = aw.id AND p.home_project_id = aw.home_project_id AND p.home_locator_id = aw.home_locator_id AND p.product_id = ?))")
 		args = append(args, req.Product)
@@ -1004,9 +1013,24 @@ func buildKnowledgeQueryForScope(req Q9Request, kinds, tags []string, limit int,
 		OR EXISTS (SELECT 1 FROM archived_work_tags exact_tag WHERE exact_tag.work_id = aw.id AND exact_tag.home_project_id = aw.home_project_id AND exact_tag.home_locator_id = aw.home_locator_id AND lower(exact_tag.tag_id) = lower(input.text))
 		OR EXISTS (SELECT 1 FROM json_each(aw.lesson_tags) exact_lesson_tag WHERE lower(exact_lesson_tag.value) = lower(input.text))
 		OR (` + exactScopeMatch + `))`
-	boundedTextMatch := `(instr(lower(aw.title), lower(input.text)) > 0 OR instr(lower(aw.summary), lower(input.text)) > 0)`
-	bodyTextMatch := `EXISTS (SELECT 1 FROM law_bodies lb WHERE lb.home_project_id = aw.home_project_id AND lb.home_locator_id = aw.home_locator_id AND lb.law_id = aw.id AND instr(lower(lb.body), lower(input.text)) > 0)`
-	where = append(where, `(input.text = '' OR `+exactMatch+` OR `+boundedTextMatch+` OR `+bodyTextMatch+`)`)
+	structuredMatches, tokenMatches := make([]string, 0, len(tokens)), make([]string, 0, len(tokens))
+	for i := range tokens {
+		token := "input." + inputColumns[i+1]
+		structured := `(instr(lower(aw.id), ` + token + `) > 0
+			OR instr(lower(aw.title), ` + token + `) > 0
+			OR instr(lower(aw.summary), ` + token + `) > 0
+			OR EXISTS (SELECT 1 FROM archived_work_tags t WHERE t.work_id = aw.id AND t.home_project_id = aw.home_project_id AND t.home_locator_id = aw.home_locator_id AND instr(lower(t.tag_id), ` + token + `) > 0)
+			OR EXISTS (SELECT 1 FROM json_each(aw.lesson_tags) t WHERE instr(lower(t.value), ` + token + `) > 0))`
+		body := `EXISTS (SELECT 1 FROM law_bodies lb WHERE lb.home_project_id = aw.home_project_id AND lb.home_locator_id = aw.home_locator_id AND lb.law_id = aw.id AND instr(lower(lb.body), ` + token + `) > 0)`
+		structuredMatches = append(structuredMatches, structured)
+		tokenMatches = append(tokenMatches, "("+structured+" OR "+body+")")
+	}
+	structuredTextMatch, tokenTextMatch := "1", "1"
+	if len(tokens) > 0 {
+		structuredTextMatch = strings.Join(structuredMatches, " AND ")
+		tokenTextMatch = strings.Join(tokenMatches, " AND ")
+	}
+	where = append(where, `(input.text = '' OR `+exactMatch+` OR (`+tokenTextMatch+`))`)
 	if req.Since != "" {
 		where = append(where, "aw.completed_at >= ?")
 		args = append(args, req.Since)
@@ -1031,8 +1055,8 @@ func buildKnowledgeQueryForScope(req Q9Request, kinds, tags []string, limit int,
 		`UNION SELECT domain_id FROM law_domain_homes WHERE home_project_id=aw.home_project_id AND home_locator_id=aw.home_locator_id AND law_id=aw.id ` +
 		`UNION SELECT domain_id FROM law_domain_applicability WHERE home_project_id=aw.home_project_id AND home_locator_id=aw.home_locator_id AND law_id=aw.id ` +
 		`ORDER BY domain_id)), '[]'),`
-	return `WITH input(text) AS (VALUES (?)), ranked AS (` +
-		`SELECT aw.*, CASE WHEN input.text = '' OR ` + exactMatch + ` THEN 0 WHEN ` + boundedTextMatch + ` THEN 1 ELSE 2 END AS match_class ` +
+	return `WITH input(` + strings.Join(inputColumns, ",") + `) AS (VALUES (` + strings.Join(inputValues, ",") + `)), ranked AS (` +
+		`SELECT aw.*, CASE WHEN input.text = '' OR ` + exactMatch + ` THEN 0 WHEN ` + structuredTextMatch + ` THEN 1 ELSE 2 END AS match_class ` +
 		`FROM archived_work aw CROSS JOIN input WHERE ` + strings.Join(where, " AND ") + `) ` +
 		`SELECT aw.id,aw.type,aw.title,aw.completed_at,aw.outcome_tag,COALESCE(aw.successor_work_id,''),aw.lesson_tags,aw.summary,aw.home_project_id,aw.home_locator_id,aw.note_path,aw.commit_oid,aw.content_hash,aw.scope_mode,` +
 		`COALESCE((SELECT json_group_array(product_id) FROM (SELECT product_id FROM archived_work_products WHERE work_id=aw.id AND home_project_id=aw.home_project_id AND home_locator_id=aw.home_locator_id ORDER BY product_id)), '[]'),` +

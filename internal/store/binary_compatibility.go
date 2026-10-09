@@ -65,15 +65,13 @@ func checkWorkflowBinaryCompatibility(ctx context.Context, q queryer) error {
 		return compatibilityReadFailure(err)
 	}
 	defer func() { _ = rows.Close() }()
-	registry := BuiltinWorkflowRegistry()
 	var unsupported *WorkflowDefinitionPin
 	for rows.Next() {
 		var pin WorkflowDefinitionPin
 		if err := rows.Scan(&pin.Ref, &pin.Version, &pin.Digest); err != nil {
 			return compatibilityReadFailure(err)
 		}
-		_, ok := registry.Lookup(pin.Ref, pin.Version)
-		if !ok {
+		if !builtinWorkflowVersionRegistered(pin.Ref, pin.Version) {
 			unsupported = &pin
 			break
 		}

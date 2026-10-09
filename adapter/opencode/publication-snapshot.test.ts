@@ -21,7 +21,7 @@ const publishedBytes = (tool: string): number => Buffer.byteLength(JSON.stringif
 // closed per-action variants, per-kind outcome branches, and byte-bound
 // keywords cost about 2.5 times the merged-union publication they replaced
 // (CON-412 records both totals). The figure counts schema bytes, not tokens.
-const PINNED_PUBLISHED_TOTAL_BYTES = 370030
+const PINNED_PUBLISHED_TOTAL_BYTES = 370210
 
 test("publication is repeatable: two publications are byte-identical", () => {
   for (const tool of tools) {

@@ -9,22 +9,24 @@ on:
   # up-to-date requirement. The jobs run in parallel; wall time is the
   # slowest job, not the sum of every step.
   merge_group:
-  push:
-    branches:
-      - main
+  # The Release workflow calls this same workflow as its full verification
+  # fallback, so this file stays the one owner of the verification commands
+  # and no unconditional main-push CI run duplicates the queue run that
+  # Release admits by exact SHA.
+  workflow_call:
 
 permissions:
   contents: read
 
 concurrency:
-  # A pull_request run groups by ref, so a new push to the branch supersedes the
-  # previous run and releases its runner slots. Every other event gets a
-  # group unique to the run. GitHub cancels an
-  # existing *pending* run when a newer run joins the same group, and that
-  # happens with `cancel-in-progress: false`, so a shared group would let one
-  # main push cancel another's queued run. A cancelled merge_group run breaks
-  # the queue, and a cancelled push-to-main run destroys the mainline check
-  # evidence that release.yml consumes through `workflow_run`.
+  # A pull_request run groups by ref, so a new push to the branch supersedes
+  # the previous run and releases its runner slots. Every other event gets a
+  # group unique to the run. GitHub cancels an existing *pending* run when a
+  # newer run joins the same group, and that happens with
+  # `cancel-in-progress: false`, so a shared group would let one run cancel
+  # another's queued work: a cancelled merge_group run breaks the queue, and
+  # a run that the Release workflow calls shares the caller's `github`
+  # context, so it must never join the caller's `release-main` group either.
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
@@ -239,7 +241,7 @@ jobs:
       - name: Validate pre-push preflight parity
         run: python3 scripts/check-pre-push.py
       - name: Test release and installer tooling
-        run: python3 scripts/test-release.py && python3 scripts/test-installer.py && python3 scripts/test-primary-prompts.py && python3 scripts/test-commit-title.py && python3 scripts/test-predecessor-coverage.py && python3 scripts/test-floor-readiness.py && python3 scripts/test-maturity-readiness.py && python3 scripts/test-knowledge-index.py && python3 scripts/test-knowledge-vocabulary.py && python3 scripts/test-knowledge-closure.py && python3 scripts/test-knowledge-placement.py && python3 scripts/test-relation-vocabulary.py && python3 scripts/test-vocabulary-authority.py && python3 scripts/test-work-kinds.py && python3 scripts/test-native-run-statuses.py && python3 scripts/test-rigor-class.py && python3 scripts/test-approval-consequence.py && python3 scripts/test-archived-work-kind.py && python3 scripts/test-doc-contract.py && python3 scripts/test-agents-md.py && python3 scripts/test-agent-contracts.py && python3 scripts/test-check-json.py && python3 scripts/test-generate-law-coverage.py && python3 scripts/test-generate-knowledge-index.py && python3 scripts/test-check-domain-registry.py && python3 scripts/test-generate-agent-lanes.py && python3 scripts/test-shard-format.py && python3 scripts/test-law-coverage.py && python3 scripts/test-test-file-naming.py && python3 scripts/test-cd-allocation.py && python3 scripts/test-renumber-cd.py && python3 scripts/test-script-tests.py && python3 scripts/test-project-tooling.py && python3 scripts/test-durable-tier.py && python3 scripts/test-lane-eval-baseline.py && python3 scripts/test-typed-knowledge.py && python3 scripts/test-check-worker-scope-contract.py && python3 scripts/test-check-pr-linear-link.py && python3 scripts/test-agent-reliability-telemetry.py && python3 scripts/test-pre-push.py && python3 scripts/test-run-script-tests.py
+        run: python3 scripts/test-release.py && python3 scripts/test-release-evidence.py && python3 scripts/test-installer.py && python3 scripts/test-primary-prompts.py && python3 scripts/test-commit-title.py && python3 scripts/test-predecessor-coverage.py && python3 scripts/test-floor-readiness.py && python3 scripts/test-maturity-readiness.py && python3 scripts/test-knowledge-index.py && python3 scripts/test-knowledge-vocabulary.py && python3 scripts/test-knowledge-closure.py && python3 scripts/test-knowledge-placement.py && python3 scripts/test-relation-vocabulary.py && python3 scripts/test-vocabulary-authority.py && python3 scripts/test-work-kinds.py && python3 scripts/test-native-run-statuses.py && python3 scripts/test-rigor-class.py && python3 scripts/test-approval-consequence.py && python3 scripts/test-archived-work-kind.py && python3 scripts/test-doc-contract.py && python3 scripts/test-agents-md.py && python3 scripts/test-agent-contracts.py && python3 scripts/test-check-json.py && python3 scripts/test-generate-law-coverage.py && python3 scripts/test-generate-knowledge-index.py && python3 scripts/test-check-domain-registry.py && python3 scripts/test-generate-agent-lanes.py && python3 scripts/test-shard-format.py && python3 scripts/test-law-coverage.py && python3 scripts/test-test-file-naming.py && python3 scripts/test-cd-allocation.py && python3 scripts/test-renumber-cd.py && python3 scripts/test-script-tests.py && python3 scripts/test-project-tooling.py && python3 scripts/test-durable-tier.py && python3 scripts/test-lane-eval-baseline.py && python3 scripts/test-typed-knowledge.py && python3 scripts/test-check-worker-scope-contract.py && python3 scripts/test-check-pr-linear-link.py && python3 scripts/test-agent-reliability-telemetry.py && python3 scripts/test-pre-push.py && python3 scripts/test-run-script-tests.py
 
   # Go static analysis: build hygiene, lint, and the callgraph/complexity
   # planes. Cached module and build caches keep the pinned analysis tools

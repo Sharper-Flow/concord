@@ -309,7 +309,7 @@ func manifestVersions(ctx context.Context, db *sql.DB) (map[int]appliedMigration
 // applies, and the column's default marks every recorded row breaking, which
 // is the conservative read the manifest check expects.
 func repairManifestBreakingColumn(ctx context.Context, db *sql.DB) error {
-	tx, err := db.BeginTx(ctx, nil)
+	tx, err := beginOrdinaryTx(ctx, db)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "upgrade", "cannot begin the manifest repair", true,
 			"retry once the database is writable", err)

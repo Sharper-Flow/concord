@@ -19,7 +19,7 @@ func cleanupTerminalResearch(ctx context.Context, s *Store, ownerWorkID string) 
 	if ownerWorkID == "" {
 		return researchInvalid("terminal research cleanup requires an owner work item")
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := beginOrdinaryTx(ctx, s.db)
 	if err != nil {
 		return researchUnavailable("cannot begin terminal research cleanup", err)
 	}

@@ -255,12 +255,15 @@ class ReleaseWorkflowDriftTests(unittest.TestCase):
         self.assertEqual(needs_list(prepare), ["admit-verification"])
         self.assertEqual(
             prepare.get("if"),
-            "needs.admit-verification.result == 'success'",
+            "${{ !cancelled() && needs.admit-verification.result == 'success' }}",
             "a refused admission must prevent version computation and publication",
         )
         publish = block["build-and-publish"]
         self.assertEqual(needs_list(publish), ["prepare"])
-        self.assertEqual(publish.get("if"), "needs.prepare.outputs.should_release == 'true'")
+        self.assertEqual(
+            publish.get("if"),
+            "${{ !cancelled() && needs.prepare.result == 'success' && needs.prepare.outputs.should_release == 'true' }}",
+        )
         self.assertEqual(
             publish.get("permissions"),
             {"contents": "write", "id-token": "write", "attestations": "write"},

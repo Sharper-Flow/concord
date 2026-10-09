@@ -6,12 +6,14 @@
 #   smoke       All Go packages, adapter tests, and JSON/law validation.
 #   targeted    Caller-supplied command and arguments, passed through unchanged.
 #   conformance Gated production-like ten-process conformance harness.
+#   preflight   Lefthook pre-push gates (lefthook.yml), pinned to v2.1.14.
 #
 # Host admission control is provided by `oc-test-gate` when it is installed.
 # When it is missing the tier still runs, unthrottled, after a warning. Smoke
 # uses smoke admission; targeted uses ungated targeted admission; conformance
-# uses full admission. The continuous-integration workflow does not use this
-# wrapper; it calls the same
+# uses full admission; preflight uses ungated targeted admission because the
+# gates are the cheap CI-owned subset, not a heavy suite. The
+# continuous-integration workflow does not use this wrapper; it calls the same
 # underlying commands natively so its behavior stays deterministic.
 #
 # The tier above and the gate's admission class are separate vocabularies. A
@@ -27,11 +29,12 @@ cd "$repo_root"
 
 usage() {
   cat >&2 <<'USAGE'
-Usage: bin/oc-test smoke | targeted -- <command> [args...] | conformance
+Usage: bin/oc-test smoke | targeted -- <command> [args...] | conformance | preflight
 
   smoke        all Go packages, adapter suite, and JSON/law validation under host admission control
   targeted     caller-supplied command and arguments without heavy admission or added limits
   conformance  long uninstrumented ten-process SQLite harness under host admission control
+  preflight    Lefthook pre-push gates from lefthook.yml under targeted admission
 USAGE
   exit 64
 }
@@ -76,7 +79,13 @@ run_tier() {
 tier="${1:-}"
 [[ -n "$tier" ]] || usage
 shift || true
-[[ "${1:-}" != "--" ]] || shift
+# `targeted` accepts an optional `--` separator before its command. Tiers
+# that take no arguments must refuse it, so remember whether one was eaten.
+consumed_separator=0
+if [[ "${1:-}" == "--" ]]; then
+  consumed_separator=1
+  shift
+fi
 
 case "$tier" in
   smoke)
@@ -84,7 +93,7 @@ case "$tier" in
     run_tier smoke smoke bash -euo pipefail -c '
       go test -timeout=15m ./...
       env -u CONCORD_SELECTED_PRODUCT_ID bun test adapter/opencode/
-      env -u CONCORD_SELECTED_PRODUCT_ID CONCORD_REQUIRE_BUN=1 python3 scripts/check-json.py
+      env -u CONCORD_SELECTED_PRODUCT_ID CONCORD_REQUIRE_BUN=1 python3 scripts/check-json.py --adapter-tests-external
     '
     ;;
   targeted)
@@ -94,6 +103,20 @@ case "$tier" in
   conformance)
     [[ $# -eq 0 ]] || usage
     run_tier conformance full env CONCORD_CONFORMANCE_LONG=1 go test -count=1 -run '^TestTenProcessConformance$' ./internal/store -v
+    ;;
+  preflight)
+    [[ $# -eq 0 && "$consumed_separator" -eq 0 ]] || usage
+    # The pinned lefthook release runs the pre-push gates from lefthook.yml.
+    # Prefer an installed binary; otherwise run the pinned module version.
+    # Never install or mutate git hooks from here: lefthook.yml sets
+    # no_auto_install, and installing hooks is a one-time contributor step
+    # documented in CONTRIBUTING.md.
+    if command -v lefthook >/dev/null 2>&1; then
+      run_tier preflight targeted lefthook run pre-push
+    else
+      printf 'bin/oc-test: lefthook binary not found on PATH; using the pinned module.\n' >&2
+      run_tier preflight targeted go run github.com/evilmartians/lefthook/v2@v2.1.14 run pre-push
+    fi
     ;;
   *)
     usage

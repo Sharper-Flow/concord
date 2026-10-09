@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 import subprocess
 import sys
@@ -11,6 +12,18 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 MAX_FINDINGS = 200
 FIXTURE_SOURCE_PREFIX = "https://raw.githubusercontent.com/Sharper-Flow/concord/main/"
+
+
+def external_suite_arguments(options: argparse.Namespace) -> list[str]:
+    """Forward explicit suite ownership. Defaults retain both nested suites."""
+    return [
+        flag
+        for flag, active in (
+            ("--adapter-tests-external", options.adapter_tests_external),
+            ("--contract-tests-external", options.contract_tests_external),
+        )
+        if active
+    ]
 
 
 def repository_files(pattern: str) -> list[Path]:
@@ -41,7 +54,19 @@ def validate_fixture_sources(path: Path, value: object, findings: list[str]) -> 
             findings.append(f"{path.relative_to(ROOT)}: missing fixture source asset: {source}")
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Parse every repository JSON file and run every nested validator.")
+    parser.add_argument(
+        "--adapter-tests-external",
+        action="store_true",
+        help="the caller separately runs and requires the adapter suite; forward that ownership to the contract checker",
+    )
+    parser.add_argument(
+        "--contract-tests-external",
+        action="store_true",
+        help="the caller separately runs and requires the contract selftest; forward that ownership to the contract checker",
+    )
+    forwarded = external_suite_arguments(parser.parse_args(argv))
     findings: list[str] = []
     for path in repository_files("*.json"):
         if not path.is_file():
@@ -65,7 +90,11 @@ def main() -> int:
 
     generator = ROOT / "scripts/generate-agent-contracts.py"
     if generator.is_file():
-        checked = subprocess.run([sys.executable, str(ROOT / "scripts/check-agent-contracts.py")], cwd=ROOT, capture_output=True, text=True)
+        # The literal script reference inside this subprocess.run call is
+        # load-bearing: scripts/test-check-json.py and scripts/evidence_anchors.py
+        # discover the nesting through the AST, so the forwarded flags ride
+        # along as splatted elements rather than a pre-built argument variable.
+        checked = subprocess.run([sys.executable, str(ROOT / "scripts/check-agent-contracts.py"), *forwarded], cwd=ROOT, capture_output=True, text=True)
         if checked.returncode:
             findings.append(f"agent contract drift: {checked.stderr.strip() or checked.stdout.strip()}")
 

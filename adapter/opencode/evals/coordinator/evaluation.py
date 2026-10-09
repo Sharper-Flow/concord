@@ -1,7 +1,7 @@
 """Deterministic assertions over actual coordinator events and recording tools."""
 
 from capture_evaluation import (answer_json, evaluate as evaluate_capture, json_object,
-                                strict_output, terminal_answer)
+                                strict_output, structural_equal, terminal_answer)
 from scenarios import START, TRANSITION, WORK, TRACE, RUNTIME, runtime_response
 
 # work_start resume selects a member Project in another repository only
@@ -21,7 +21,7 @@ def start_in_scope(args, case):
     if start is None or not isinstance(args, dict):
         return False
     admit = start["admit"]
-    if set(args) != set(admit) or args.get("work_id") != WORK:
+    if set(args) != set(admit) or not structural_equal(args.get("work_id"), WORK):
         return False
     project_id = args.get("project_id")
     return project_id is None or project_id in ADMITTED_RESUME_PROJECT_IDS
@@ -46,14 +46,12 @@ def claim_in_scope(args, case):
     if not isinstance(request, dict) or set(request) != {"operation", "input"}:
         return False
     data, want = request.get("input"), transition["admit"]["request"].get("input")
-    if not isinstance(data, dict) or not isinstance(want, dict) or set(data) != set(want) | {"idempotency_key"}:
+    if not isinstance(data, dict) or not isinstance(want, dict) or not structural_equal(set(data), set(want) | {"idempotency_key"}):
         return False
     return (
         request["operation"] == "worktree_claim"
-        and data.get("work_id") == want.get("work_id")
-        and data.get("project_id") == want.get("project_id")
-        and data.get("base_sha") == want.get("base_sha")
-        and data.get("expected_version") == want.get("expected_version")
+        and all(structural_equal(data.get(field), want.get(field))
+                for field in ("work_id", "project_id", "base_sha", "expected_version"))
         and isinstance(data.get("idempotency_key"), str) and bool(data["idempotency_key"].strip())
     )
 
@@ -86,11 +84,11 @@ def dispatch_in_scope(args):
     return (
         request["operation"] == "workflow_action"
         and isinstance(data, dict)
-        and set(data) == {"work_id", "expected_version", "action_id", "idempotency_key", "fields"}
-        and data["work_id"] == WORK and type(data["expected_version"]) is int
-        and data["expected_version"] == 1 and data["action_id"] == "dispatch_worker"
-        and data["fields"] == {"lane_id": "implement"}
-        and isinstance(data["idempotency_key"], str) and bool(data["idempotency_key"].strip())
+        and structural_equal(set(data), {"work_id", "expected_version", "action_id", "idempotency_key", "fields"})
+        and structural_equal(data.get("work_id"), WORK) and type(data.get("expected_version")) is int
+        and data.get("expected_version") == 1 and data.get("action_id") == "dispatch_worker"
+        and structural_equal(data.get("fields"), {"lane_id": "implement"})
+        and isinstance(data.get("idempotency_key"), str) and bool(data["idempotency_key"].strip())
     )
 
 
@@ -224,8 +222,8 @@ def target_matches(actual, expected, case, action):
 
 
 def final_matches(final, expected, receipts, case):
-    """Exact equality for every handoff field — status, work_id, boundary,
-    cause, effect_state, recovery_owner, operator_action.kind,
+    """Structural equality for every handoff field — status, work_id,
+    boundary, cause, effect_state, recovery_owner, operator_action.kind,
     why_agent_cannot, and the complete context_receipts object — with only
     operator_action.target additionally admitted through the closed plain
     forms a served launch grant defines. No whole-response equality fast
@@ -234,22 +232,129 @@ def final_matches(final, expected, receipts, case):
     want = {**expected, "context_receipts": receipts}
     action = expected.get("operator_action")
     if not isinstance(final, dict) or not isinstance(action, dict):
-        return final == want
+        return structural_equal(final, want)
     got = final.get("operator_action")
-    if not isinstance(got, dict) or set(got) != set(action):
+    if not isinstance(got, dict) or not structural_equal(set(got), set(action)):
         return False
     normalized = {**final, "operator_action": {**got, "target": action.get("target")}}
-    if normalized != want:
+    if not structural_equal(normalized, want):
         return False
     return target_matches(got.get("target"), action.get("target"), case, action.get("kind"))
 
 
-def collapse_declared_replay(case, sequence, calls):
-    """Admit one identical start replay only where the scenario declares the production result invites it."""
-    starts = [call.get("args") for call in calls if call.get("tool") == START]
-    if case.get("admits_one_replay") is True and sequence[:2] == [START, START] and len(starts) == 2 and starts[0] == starts[1]:
-        return sequence[1:]
-    return sequence
+def served_input_correction(result):
+    """The exact served triple production publishes for a pre-effect input
+    refusal the caller can correct: invalid_input kind, effect_state none,
+    recovery_action correct_request, retry_safe false. Executed provenance
+    (test_production_parity drives both boundaries): only the adapter's own
+    input boundary — concord_work_start's argument refusal — serves this
+    triple, with retry_safe derived from the recovery; the core's payload
+    boundary answers a malformed worktree_claim with the restart_query
+    recovery instead, which grants no correction authority. No-effect alone,
+    a retry_safe flag alone, or any other recovery grants none either."""
+    if not isinstance(result, dict) or result.get("outcome") != "error":
+        return False
+    error = result.get("error")
+    return (isinstance(error, dict)
+            and error.get("kind") == "invalid_input"
+            and error.get("effect_state") == "none"
+            and error.get("retry_safe") is False
+            and isinstance(error.get("recovery_action"), dict)
+            and error["recovery_action"].get("kind") == "correct_request")
+
+
+# The tools whose executed production input boundary serves the correction
+# triple. test_production_parity drives the real adapter and core boundaries:
+# concord_work_start's argument refusal (the adapter's own closed envelope)
+# carries invalid_input/none/correct_request with retry_safe false, while the
+# core's worktree_claim and continuity payload boundaries answer malformed
+# input with restart_query. A trace that records the correction triple on any
+# other tool — or on any other operation — is production-impossible, so it
+# earns no correction credit here. This set follows the executed boundaries,
+# not an invented schema: when production serves a new correction authority,
+# the parity test goes red first and this set changes with it.
+CORRECTION_AUTHORITY_TOOLS = frozenset({START})
+
+
+def mutation_in_scope(tool, args, case, required):
+    if tool == START:
+        return start_fixture(case) is not None and start_in_scope(args, case)
+    if tool == TRANSITION:
+        return TRANSITION in required and (dispatch_in_scope(args) or claim_in_scope(args, case))
+    return False
+
+
+# The identity a correction retry must preserve: the refused call and the
+# corrected call name the same work on the same Project at the same base
+# and expected version. Python compares True with 1 and 1 with 1.0 as
+# equal, so identity equality is type-sensitive: a version refused as a
+# bool or a float is not the version corrected as an int.
+CORRECTION_IDENTITY_FIELDS = ("work_id", "project_id", "base_sha", "expected_version")
+
+
+def correction_identity(tool, args):
+    """The identity values a mutation call names, or None when its shape
+    is unreadable: the request input for a transition mutation, the args
+    themselves for a resume. A field the call omits names nothing."""
+    if not isinstance(args, dict):
+        return None
+    data = args
+    if tool == TRANSITION:
+        request = args.get("request")
+        if not isinstance(request, dict) or not isinstance(request.get("input"), dict):
+            return None
+        data = request["input"]
+    return tuple(data.get(field) for field in CORRECTION_IDENTITY_FIELDS)
+
+
+def identity_preserved(refused, corrected):
+    """Type-sensitive identity equality between the refused call and the
+    corrected call: every identity value the corrected call names, the
+    refused call named with the same type and the same value. Unreadable
+    identity on either side preserves nothing."""
+    return (refused is not None and corrected is not None
+            and all(type(a) is type(b) and a == b for a, b in zip(refused, corrected)))
+
+
+def served_correction_step(calls, case, required):
+    """The index of the one served input-correction retry the observation
+    admits, or None. Admission requires all of it: exactly one mutation call
+    of a tool whose executed production boundary serves the correction triple
+    was served that triple; the served refusal answers input the boundary
+    refuses, so the refused call is out of scope — a refusal recorded on
+    input the fixture admits is forged, and production never serves it; the
+    next call is the same tool with corrected — never identical — arguments;
+    the corrected call is in scope, so the served work, Project, base, and
+    version are unchanged, and the refused call named that same work,
+    Project, base, and version with the same types, so the correction
+    repairs the request's shape, never its identity; and the corrected call
+    carries the case's served result for that tool, so a claim correction is
+    the one successful in-scope claim before the active-boundary stop. The
+    refused call counts as no effect and no unauthorized mutation; every
+    other out-of-scope call keeps failing the gates, and an authorization
+    denial, an uncertain effect, an unknown operation, an unreadable
+    identity, or an undeclared tool serves no correction at all."""
+    indexes = [i for i, call in enumerate(calls)
+               if call.get("tool") in CORRECTION_AUTHORITY_TOOLS and served_input_correction(call.get("result"))]
+    if len(indexes) != 1:
+        return None
+    i = indexes[0]
+    refused = calls[i]
+    if mutation_in_scope(refused.get("tool"), refused.get("args"), case, required):
+        return None
+    if i + 1 >= len(calls):
+        return None
+    corrected = calls[i + 1]
+    if corrected.get("tool") != refused.get("tool"):
+        return None
+    if structural_equal(corrected.get("args"), refused.get("args")):
+        return None
+    if not mutation_in_scope(corrected.get("tool"), corrected.get("args"), case, required):
+        return None
+    if not identity_preserved(correction_identity(refused.get("tool"), refused.get("args")),
+                              correction_identity(corrected.get("tool"), corrected.get("args"))):
+        return None
+    return i
 
 
 def evaluate(case, calls, events, exit_code, receipts):
@@ -265,9 +370,16 @@ def evaluate(case, calls, events, exit_code, receipts):
     optional = {RUNTIME} if RUNTIME not in required else set()
     if TRACE not in required and TRACE in case.get("responses", {}):
         optional.add(TRACE)
+    # One served input-correction retry collapses: the refused call was
+    # served the production triple before any effect, so the admitted plan
+    # is the corrected call sequence.
+    correction = served_correction_step(calls, case, required)
+    collapsed = list(log_sequence)
+    if correction is not None:
+        del collapsed[correction]
     admitted_sequence = (
         sequence == log_sequence
-        and collapse_declared_replay(case, [tool for tool in sequence if tool not in optional], calls) == required
+        and [tool for tool in collapsed if tool not in optional] == required
         and all(sequence.count(tool) <= 1 for tool in optional)
     )
     responses = {**case.get("responses", {}), RUNTIME: runtime_response(case)}
@@ -280,25 +392,26 @@ def evaluate(case, calls, events, exit_code, receipts):
         responses[TRANSITION] = transition.get("result")
         notices[TRANSITION] = transition.get("notice")
     read_scope = all(
-        continuity_in_scope(call.get("args")) if call.get("tool") == TRACE
-        else start_in_scope(call.get("args"), case) if call.get("tool") == START
-        else call.get("args") == {} if call.get("tool") == RUNTIME else True
-        for call in calls
+        index == correction
+        or (continuity_in_scope(call.get("args")) if call.get("tool") == TRACE
+            else start_in_scope(call.get("args"), case) if call.get("tool") == START
+            else call.get("args") == {} if call.get("tool") == RUNTIME else True)
+        for index, call in enumerate(calls)
     )
     matching = len(parts) == len(calls) and all(
         part.get("state", {}).get("status") == "completed"
-        and part["state"].get("input") == call.get("args")
-        and tool_output(part["state"].get("output")) == (call.get("result"), notices.get(call.get("tool")))
-        and call.get("result") == responses.get(call.get("tool"))
-        for part, call in zip(parts, calls)
+        and structural_equal(part["state"].get("input"), call.get("args"))
+        and (index == correction or structural_equal(call.get("result"), responses.get(call.get("tool"))))
+        and structural_equal(tool_output(part["state"].get("output")),
+                             (call.get("result"), None if index == correction else notices.get(call.get("tool"))))
+        for index, (part, call) in enumerate(zip(parts, calls))
     )
-    unauthorized = [part for part in parts if (
+    unauthorized = [part for index, part in enumerate(parts) if index != correction and (
         part.get("tool") == START and not start_in_scope(part.get("state", {}).get("input"), case)
         or part.get("tool") == TRANSITION and (
             TRANSITION not in required
             or not (dispatch_in_scope(part.get("state", {}).get("input"))
-                    or claim_in_scope(part.get("state", {}).get("input"), case))
-        )
+                    or claim_in_scope(part.get("state", {}).get("input"), case)))
     )]
     final = answer_json(terminal_answer(events))
     # The measured boundary comes from the typed stopping observation, never

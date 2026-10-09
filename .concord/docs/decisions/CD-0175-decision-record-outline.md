@@ -50,6 +50,10 @@ both directions. A newly accepted decision cannot exempt itself from the
 outline by authoring its own metadata, because its identifier is outside the
 frozen set.
 
+The profile fixes the outline rules, not the law text. A compatible amendment
+under CD-0036 edits either profile in place and keeps its authored profile.
+The edit states the current rule and does not invent a historical rationale.
+
 ### D3. One Domain, in the record shard
 
 The shard field stays the one authoritative Domain statement. The current
@@ -65,11 +69,11 @@ uses. A criterion stated inside a fenced block parses with the same rule,
 because the fence is the corpus's recorded criteria style. An invalid
 criterion fails under either spelling and in either position.
 
-A legacy-profile decision keeps its criteria section exactly as recorded.
-The section is a preserved historical exception: the checker leaves it
-unparsed, review reads it, and no criterion of the frozen set is re-graded
-after the fact. The spec rule is unchanged: a spec still requires its
-acceptance-criteria section, with its spelling and parsing as recorded.
+A legacy-profile decision keeps the legacy criteria format. The checker leaves
+that format unparsed, and review checks the criteria. A compatible amendment may
+update the criteria to state the current accepted rule. The edit does not create
+historical alternatives or apply the current outline to a legacy record.
+The spec rule is unchanged.
 
 ## Alternatives considered
 
@@ -93,10 +97,10 @@ acceptance-criteria section, with its spelling and parsing as recorded.
 
 A new decision carries the five sections, and a missing heading fails the
 checker while enforcement stays on. The previously accepted decisions keep
-their recorded content: none gains an invented section. The frozen set never
-grows, so the legacy profile never gains a member. The reviewer obligation
-moves to the sections themselves, because the check cannot prove that a
-rationale is real.
+their authored profile. An amendment does not invent a historical section.
+The frozen set never grows, so the legacy profile never gains a member.
+The reviewer obligation moves to the sections themselves, because the check
+cannot prove that a rationale is real.
 
 The profile selection spans three bound declarations. The schema freezes the
 historical set, the index checker and the shard generator enforce it, and the

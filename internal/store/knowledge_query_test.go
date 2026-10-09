@@ -78,6 +78,44 @@ func TestQueryQ9MatchesEveryTextToken(t *testing.T) {
 	}
 }
 
+func TestQueryQ9TokenSearchUsesSQLiteCaseFold(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	repo := initKnowledgeRepo(t)
+	home := KnowledgeHome{HomeProjectID: "fold-project", HomeLocatorID: "fold-locator", RepoPath: repo, HeadRef: "HEAD"}
+	writeManifestFixture(t, repo, manifestFixture{
+		ID: "title-law", Kind: "decision", Path: ".concord/docs/decisions/CD-0997-title-law.md",
+		Status: "accepted", Date: "2026-09-20T00:00:00Z", Title: "Überprüfung der Regel",
+		Summary: "A title rule", Scopes: homeScope(), Content: "A storage boundary.\n",
+	}, manifestFixture{
+		ID: "body-law", Kind: "decision", Path: ".concord/docs/decisions/CD-0998-body-law.md",
+		Status: "accepted", Date: "2026-09-20T00:00:00Z", Title: "Storage boundary",
+		Summary: "A body rule", Scopes: homeScope(), Content: "Überprüfung der Regel.\n",
+	})
+	commitKnowledgeRepo(t, repo, "same-fold search laws")
+	s := openTemp(t)
+	authorizeKnowledgeProductHome(t, s, "fold-product", home)
+	if err := s.RebuildKnowledgeIndex(ctx, home); err != nil {
+		t.Fatal(err)
+	}
+	for _, text := range []string{"Überprüfung", "REGEL Überprüfung"} {
+		t.Run(text, func(t *testing.T) {
+			result, err := s.QueryQ9(ctx, Q9Request{Text: text, Kinds: []string{"decision"}, Home: home})
+			if err != nil {
+				t.Fatal(err)
+			}
+			for i, want := range []struct {
+				id    string
+				class int
+			}{{"title-law", 1}, {"body-law", 2}} {
+				if len(result.Items) <= i || result.Items[i].ID != want.id || result.Items[i].MatchClass != want.class {
+					t.Errorf("text %q: items=%+v, want %s class %d at %d", text, result.Items, want.id, want.class, i)
+				}
+			}
+		})
+	}
+}
+
 func TestQueryQ9AbsentTokenIsAuthoritativeEmpty(t *testing.T) {
 	t.Parallel()
 	s, home := seedTokenKnowledgeHome(t, 1)
@@ -147,6 +185,7 @@ func TestQueryQ9TokenSearchQueryPlan(t *testing.T) {
 	}
 	defer rows.Close()
 	t.Logf("records=%d text=%q parameters=%d", count, "law revision pin", len(args))
+	homeIndexSearch := false
 	for rows.Next() {
 		var id, parent, unused int
 		var detail string
@@ -154,9 +193,22 @@ func TestQueryQ9TokenSearchQueryPlan(t *testing.T) {
 			t.Fatal(err)
 		}
 		t.Logf("%d|%d|%s", id, parent, detail)
+		fields := strings.Fields(detail)
+		if len(fields) < 2 || (fields[1] != "aw" && fields[1] != "archived_work") {
+			continue
+		}
+		if fields[0] == "SCAN" {
+			t.Errorf("knowledge query scans archived_work: %s", detail)
+		}
+		if fields[0] == "SEARCH" && strings.Contains(detail, "INDEX ") && strings.Contains(detail, "home_project_id=? AND home_locator_id=?") {
+			homeIndexSearch = true
+		}
 	}
 	if err := rows.Err(); err != nil {
 		t.Fatal(err)
+	}
+	if !homeIndexSearch {
+		t.Error("knowledge query has no home-qualified index SEARCH on archived_work")
 	}
 }
 

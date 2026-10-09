@@ -965,12 +965,12 @@ func scanKnowledgeRows(rows *sql.Rows) ([]KnowledgeItem, error) {
 
 func buildKnowledgeQueryForScope(req Q9Request, kinds, tags []string, limit int, resume *knowledgeResumeKey) (string, []any) {
 	where := []string{"aw.home_project_id = ?", "aw.home_locator_id = ?"}
-	tokens := strings.Fields(strings.ToLower(req.Text))
+	tokens := strings.Fields(req.Text)
 	inputColumns, inputValues := []string{"text"}, []string{"?"}
 	args := []any{req.Text}
 	for i, token := range tokens {
 		inputColumns = append(inputColumns, "token"+strconv.Itoa(i))
-		inputValues = append(inputValues, "?")
+		inputValues = append(inputValues, "lower(?)")
 		args = append(args, token)
 	}
 	args = append(args, req.Home.HomeProjectID, req.Home.HomeLocatorID)

@@ -247,7 +247,7 @@ test("pre-contract research dispatch carries the recorded question as the task",
   expect(packet.inputs.task).not.toContain("Answer the recorded question")
   expect(packet.inputs.task).not.toContain(NARRATIVE)
   expect(packet.inputs.binding).toEqual({ objective_source: "work_question", work_version: 1, contract_version: null, assigned_result: "bounded_findings" })
-  expect(packet.inputs.context).toBe(NARRATIVE)
+  expect(packet.inputs.work_record).toEqual({ narrative: NARRATIVE })
   expect(packet.inputs.outcome_predicates).toBeUndefined()
   expect(packet.inputs.constraints).toBeUndefined()
   expect(windows.has("session-1")).toBe(true)

@@ -1,4 +1,5 @@
 import { createHash, sign as signBytes } from "node:crypto"
+import { RUN_EVENT_TYPES, readWorkerReportTexts, selectWorkerReport } from "./worker-report-protocol.js"
 import fs from "node:fs"
 import path from "node:path"
 import { agentLanePacketSchema, agentLaneReportSchema, laneForIdentity, workerScopeAssignedResult, type AgentLane } from "./generated-agent-lanes"
@@ -77,7 +78,47 @@ export interface AgentLanePacket {
   lane_digest: string
   work_id: string
   step_id: string
-  inputs: { task: string; binding: AgentLanePacketBinding; worker_job?: AgentLanePacketWorkerJob; context?: string; correction?: AgentLanePacketCorrection; work_context?: AgentLanePacketWorkContext; checkpoint?: AgentLanePacketCheckpoint; constraints?: string[]; outcome_predicates?: AgentLanePacketOutcomePredicate[] }
+  inputs: { task: string; binding: AgentLanePacketBinding; report_protocol?: string; worker_job?: AgentLanePacketWorkerJob; context?: string; law_context?: AgentLanePacketLawContext; design_record?: AgentLanePacketDesignRecord; proposal_record?: AgentLanePacketProposalRecord; work_record?: AgentLanePacketWorkRecord; correction?: AgentLanePacketCorrection; work_context?: AgentLanePacketWorkContext; checkpoint?: AgentLanePacketCheckpoint; constraints?: string[]; outcome_predicates?: AgentLanePacketOutcomePredicate[] }
+}
+
+// The recorded-state members below mirror inputs.law_context,
+// inputs.design_record, inputs.proposal_record, and inputs.work_record of
+// contracts/agent-lane-packet.schema.json. The builder copies each from the
+// pinned continuity or the recorded work item verbatim, because the core
+// refuses a dispatch whose member differs from the current record.
+export interface AgentLanePacketLawContext {
+  laws: {
+    roles: ("mandated" | "modified" | "added" | "obligation")[]
+    law_id: string
+    obligation_ids?: string[]
+    kind?: "constitution" | "decision" | "spec"
+    status?: "accepted" | "superseded"
+    title?: string
+    path?: string
+    criteria?: { criterion: number; predicate_id: string }[]
+  }[]
+  domains: { domain_id: string; name: string; purpose: string }[]
+  registry_path?: string
+}
+
+export interface AgentLanePacketDesignRecord {
+  work_version: number
+  approach: string
+  decisions: { id: string; question: string; choice: string; rationale: string; rejected: string[] }[]
+  touched_refs: string[]
+  recorded_at: string
+}
+
+export interface AgentLanePacketProposalRecord {
+  problem: string
+  user_outcomes: string[]
+  constraints: string[]
+}
+
+export interface AgentLanePacketWorkRecord {
+  value_statement?: string
+  task?: string
+  narrative?: string
 }
 
 // AgentLanePacketWorkerJob mirrors inputs.worker_job of
@@ -754,8 +795,6 @@ export function validateAgainstSchema(schema: unknown, value: unknown, failures?
   return validateSchema(schema, value, schema, "", failures)
 }
 
-const RUN_EVENT_TYPES = new Set(["step_start", "step_finish", "text", "reasoning", "tool_use", "error"])
-
 // hostStatusMetadata extracts a session identifier from a host plugin log
 // line that shares stdout with the run stream. The host plugin emits typed
 // message-updated events whose sessionID lets the adapter associate its log
@@ -949,116 +988,28 @@ export function readSessionParent(stdout: string, sessionID: string): string | n
   return typeof info.parentID === "string" && info.parentID !== "" ? info.parentID : null
 }
 
-// readRunTextParts returns the model's message text in emission order. The host
-// writes one JSON run event per stdout line, and the assistant's text is carried
-// only by `text` events, at `part.text`. No other event or key on the stream
-// carries it.
+// Host collection and final-report selection share one Node/Bun protocol owner.
 export function readRunTextParts(stdout: string): string[] {
-  const texts: string[] = []
-  for (const line of stdout.split("\n")) {
-    const trimmed = line.trim()
-    if (!trimmed.startsWith("{")) continue
-    let parsed: unknown
-    try { parsed = JSON.parse(trimmed) } catch { continue }
-    if (!isRecord(parsed) || parsed.type !== "text" || !isRecord(parsed.part)) continue
-    const part = parsed.part
-    if (part.type !== "text" || typeof part.text !== "string") continue
-    texts.push(part.text)
-  }
-  return texts
+  return readWorkerReportTexts(stdout).texts
 }
 
-// reportCandidates returns, in document order, every substring of one text
-// part that could be the worker's report: the whole text (which for a
-// report-only message is the report itself), the content of each Markdown
-// code fence, and each brace-delimited blob. Admission is decided by
-// JSON.parse and the closed schema downstream, not by this scan: a candidate
-// that is prose simply does not parse. `announced` marks candidates that
-// presented themselves as JSON — the whole text when it opens with a fence
-// or a brace, and every fenced block whose content opens with a brace — so
-// a broken announcement still reads as malformed rather than as silence.
-function reportCandidates(text: string): { candidate: string; announced: boolean }[] {
-  const trimmed = text.trim()
-  const result: { candidate: string; announced: boolean }[] = []
-  const fencePattern = /```[A-Za-z0-9_-]*\r?\n([\s\S]*?)```/g
-  let match: RegExpExecArray | null
-  while ((match = fencePattern.exec(text)) !== null) {
-    const body = match[1].trim()
-    result.push({ candidate: body, announced: body.startsWith("{") })
-  }
-  if (trimmed.startsWith("```")) {
-    // The whole-text fence unwraps even when the closing fence is missing or
-    // distant prose follows: the report scan treats content, not framing, as
-    // the candidate (CON-203).
-    const firstBreak = trimmed.indexOf("\n")
-    if (firstBreak > 0) {
-      const info = trimmed.slice(3, firstBreak).trim()
-      if (info.length === 0 || /^[A-Za-z0-9_-]+$/.test(info)) {
-        const withoutOpening = trimmed.slice(firstBreak + 1)
-        const closing = withoutOpening.lastIndexOf("```")
-        const body = (closing >= 0 ? withoutOpening.slice(0, closing) : withoutOpening).trim()
-        if (!result.some((entry) => entry.candidate === body)) result.push({ candidate: body, announced: body.startsWith("{") })
-      }
-    }
-  }
-  for (let start = text.indexOf("{"); start >= 0; start = text.indexOf("{", start + 1)) {
-    const end = text.lastIndexOf("}")
-    if (end <= start) break
-    const blob = text.slice(start, end + 1)
-    if (!result.some((entry) => entry.candidate === blob)) result.push({ candidate: blob, announced: false })
-  }
-  if (result.length === 0) result.push({ candidate: trimmed, announced: trimmed.startsWith("{") })
-  return result
-}
-
-// malformed carries why the last announced JSON candidate failed to parse, or
-// null when every announced candidate parsed or none was announced.
 export type WorkerReportScan = { report: Record<string, unknown> | null; malformed: string | null }
 
-// readWorkerReport locates the worker's report in the host run stream. A worker
-// emits several text parts, so neither the first nor a concatenation is the
-// report: the last text part that parses as a JSON object is, because that is
-// the worker's final answer and every earlier part is working prose it
-// superseded. `malformed` records that a part that announced itself as JSON did
-// not parse, which distinguishes a worker that returned nothing from one that
-// returned something broken.
-export function readWorkerReport(stdout: string): WorkerReportScan {
-  return scanReportTexts(readRunTextParts(stdout))
+export function readWorkerReport(stdout: string, packet?: AgentLanePacket): WorkerReportScan {
+  const collected = readWorkerReportTexts(stdout, { protocol: packet?.inputs.report_protocol })
+  if (collected.detail !== undefined) return { report: null, malformed: collected.detail }
+  return scanReportTexts(collected.texts, packet)
 }
 
-// scanReportTexts holds the scan itself, over message texts in emission order.
-// The native task route supplies the worker's single final body and the run
-// stream supplies every text part, and both admit a report the same way: the
-// last candidate anywhere in the stream that parses as a JSON object wins
-// (CON-203: a lead-in or trailing sentence does not discard a report).
-export function scanReportTexts(texts: string[]): WorkerReportScan {
-  let malformed: string | null = null
-  const found: Record<string, unknown>[] = []
-  for (const text of texts) {
-    for (const { candidate, announced } of reportCandidates(text)) {
-      if (!candidate.startsWith("{")) continue
-      let parsed: unknown
-      try { parsed = JSON.parse(candidate) } catch (error) {
-        if (announced) malformed = malformedReason(candidate, error)
-        continue
-      }
-      if (isRecord(parsed)) found.push(parsed)
-      else if (announced) malformed = malformedReason(candidate, "the document is not a JSON object")
-    }
-  }
-  return { report: found.at(-1) ?? null, malformed }
-}
-
-// malformedReason states why an announced report failed to parse: the parser's
-// message, the document length, and a bounded tail. A worker report most often
-// breaks by truncation, which the tail shows without the worker transcript.
-const MALFORMED_TAIL_CHARS = 120
-const MALFORMED_MESSAGE_CHARS = 120
-function malformedReason(candidate: string, error: unknown): string {
-  const message = (error instanceof Error ? error.message : String(error)).slice(0, MALFORMED_MESSAGE_CHARS)
-  const flat = candidate.replace(/\s+/g, " ")
-  const tail = flat.length > MALFORMED_TAIL_CHARS ? "..." + flat.slice(-MALFORMED_TAIL_CHARS) : flat
-  return `${message}; ${candidate.length} chars; ends with: ${tail}`
+export function scanReportTexts(texts: string[], packet?: AgentLanePacket): WorkerReportScan {
+  const selected = selectWorkerReport(texts, {
+    protocol: packet?.inputs.report_protocol,
+    maxBytes: MAX_OUTPUT_BYTES,
+    isReport: (candidate) => validateAgentLaneReport(workerContent(candidate, packet)),
+  })
+  return selected.kind === "selected"
+    ? { report: selected.report, malformed: null }
+    : { report: null, malformed: selected.kind === "absent" ? null : selected.detail }
 }
 
 // Dispatch-owned fields the adapter strips from a worker-authored report
@@ -1101,6 +1052,17 @@ function normalizeWorkerReport(report: Record<string, unknown>): Record<string, 
     if (findings) normalized = { ...normalized, review: { ...review, findings } }
   }
   return normalized
+}
+
+// Legacy candidate selection and admission use the same dispatch-derived shape.
+function workerContent(report: Record<string, unknown>, packet?: AgentLanePacket): Record<string, unknown> {
+  const stripped = { ...report }
+  for (const field of DISPATCH_OWNED_REPORT_FIELDS) delete stripped[field]
+  return normalizeWorkerReport({
+    ...stripped,
+    schema_version: packet?.schema_version ?? report.schema_version,
+    ...(packet ? packetWorkerJobBinding(packet) : {}),
+  })
 }
 
 // boundDetails bounds the detail of every record in entries, returning a new
@@ -1149,14 +1111,10 @@ export function contextFindingsAggregateRefusal(findings: unknown, maxArrayBytes
 function admitWorkerReport(scan: WorkerReportScan, packet: AgentLanePacket): { report: CanonicalLaneReport } | { detail: string } {
   if (!scan.report) {
     return { detail: scan.malformed !== null
-      ? `worker output carried a malformed JSON document and no agent-lane-report.v1 report: ${scan.malformed}`
+      ? `worker report selection refused: ${scan.malformed}`
       : "worker output carried no agent-lane-report.v1 report" }
   }
-  const stripped: Record<string, unknown> = { ...scan.report }
-  for (const field of DISPATCH_OWNED_REPORT_FIELDS) delete stripped[field]
-  // Validate worker content under the dispatch's identity, including the
-  // worker_job restrictions on legacy reports (CD-0205).
-  const normalized = normalizeWorkerReport({ ...stripped, schema_version: packet.schema_version, ...packetWorkerJobBinding(packet) })
+  const normalized = workerContent(scan.report, packet)
   const failures: string[] = []
   if (!validateAgentLaneReport(normalized, failures)) {
     return { detail: `worker report failed the closed agent-lane-report.v1 schema: ${failures[0] ?? "unknown field"}` }
@@ -1214,14 +1172,14 @@ function admitWorkerReport(scan: WorkerReportScan, packet: AgentLanePacket): { r
 
 // resolveWorkerReport admits a report from a worker run's captured output.
 export function resolveWorkerReport(stdout: string, packet: AgentLanePacket): { report: CanonicalLaneReport } | { detail: string } {
-  return admitWorkerReport(readWorkerReport(stdout), packet)
+  return admitWorkerReport(readWorkerReport(stdout, packet), packet)
 }
 
 // resolveWorkerReportFromText admits a report from one message body, which is
 // what the native task route carries: the host has already resolved the
 // worker's final text part before it renders the result (CD-0102 D5).
 export function resolveWorkerReportFromText(text: string, packet: AgentLanePacket): { report: CanonicalLaneReport } | { detail: string } {
-  return admitWorkerReport(scanReportTexts([text]), packet)
+  return admitWorkerReport(scanReportTexts([text], packet), packet)
 }
 
 // workerReportedFailureDetail renders a `failed` report's own evidence as the

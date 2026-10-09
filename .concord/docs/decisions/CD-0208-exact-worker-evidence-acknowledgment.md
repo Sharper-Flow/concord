@@ -111,6 +111,13 @@ Missing or conflicting proof refuses.
 The recorded dispatch model and original terminal model can differ. Each
 original record remains unchanged. Recovery adds no model-routing rule.
 
+Amended 2026-10-09 for CON-891: the recovered report is parsed by the same
+shared report-protocol owner as an ordinary completion, including the
+historical grammar an unpinned packet still carries. Retained recovery adds
+no second parser and no looser rules: a recovered result cannot parse by
+rules an ordinary report does not follow. The failed-attempt refusal in D4 is
+unchanged, and this shared parsing grants no new recovery permission.
+
 ### D6. An uncertain commit is not an acknowledgment
 
 The CD-0207 consequential transaction owns durability for the match and nonce.

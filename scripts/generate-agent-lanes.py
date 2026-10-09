@@ -177,15 +177,14 @@ def report_projection_constraints(report_schema: dict, lane: dict) -> list[str]:
     review_finding = report_schema["$defs"]["review_finding"]
     worker_job = properties["worker_job"]
     return [
-        "Report top-level shape: "
+        "Canonical report top-level shape (the adapter adds identity): "
         f"type={report_schema['type']}, "
         f"additionalProperties={json.dumps(report_schema['additionalProperties'])}, "
         f"required={json.dumps(report_schema['required'], ensure_ascii=False)}.",
         "schema_version: "
         f"enum={json.dumps(properties['schema_version']['enum'], ensure_ascii=False)}; "
-        "a report records the current identity "
-        f"{json.dumps(current_schema_version(report_schema), ensure_ascii=False)}, "
-        "and only that identity may carry the worker_job claim.",
+        "the adapter derives this identity and worker_job binding from the packet; "
+        "omit both fields from worker-authored content.",
         "readback_model: "
         f"type={properties['readback_model']['type']}, "
         f"minLength={properties['readback_model']['minLength']}, "
@@ -501,31 +500,48 @@ def repository_edit_boundary(lane: dict) -> str:
 
 def law_conformance_instructions(lane: dict) -> str:
     # The dispatched packet carries the approved contract's bound law and
-    # Domains as recorded state. The block's meaning and the disclosure the
-    # report owes are lane contract, so one shared generated block serves
-    # every lane; it states no host procedure (CD-0043 D1). Precedent: the
+    # Domains as the typed inputs.law_context member. Its meaning and the
+    # disclosure the report owes are lane contract, so one shared generated
+    # block serves every lane; it states no host procedure (CD-0043 D1). Precedent: the
     # generated packet-refusal block. The read rule follows the lane's
     # derived edit boundary: only a lane whose capabilities grant
     # edit_scoped_files is told to change files.
     if edits_scoped_files(lane):
         read_rule = (
             "Read each named law document before you change files. Conform to it. "
-            "Change a law document only when the block lists it as `modified` or `added`."
+            "Change a law document only when its `roles` list `modified` or `added`."
         )
     else:
         read_rule = "Read each named law document before you assess the result. Conform to it."
     paragraph = textwrap.fill(
-        'When `inputs.context` carries the "Approved law and Domains (binding Product '
-        'law)" block, it names the Product law and Domains the approved contract binds. '
+        "When `inputs.law_context` is present, it names the Product law and Domains "
+        "the approved contract binds. Each law carries its binding `roles` and the "
+        "`path` of its document; `criteria` names the law's acceptance criteria that "
+        "this work item's outcome predicates discharge. "
         f"{read_rule} Report any conflict between that law and the assigned result in "
         "your evidence. Return `status` `failed` when a conflict blocks the assigned result.",
         width=80,
         break_on_hyphens=False,
         break_long_words=False,
     )
-    return f"""## Approved law and architecture block
+    return f"""## Approved law and Domains
 
 {paragraph}
+"""
+
+
+def recorded_work_instructions() -> str:
+    # The packet carries the work item's recorded text and planning records
+    # as typed members the core verified against recorded state at dispatch,
+    # so the lane reads each one as recorded fact rather than adapter prose.
+    return """## Recorded work and design
+
+`inputs.work_record` carries the work item's recorded `value_statement`,
+`task`, and `narrative`. Read the value statement first: it states why the
+work matters. When `inputs.design_record` is present, its `approach` and
+`decisions` are the approved design; follow them and do not choose another
+approach. When `inputs.proposal_record` is present, its `user_outcomes` and
+`constraints` bound the result.
 """
 
 
@@ -575,16 +591,17 @@ def concord_tool_ids() -> list[str]:
 def concord_context_boundary_instructions() -> str:
     # The lane holds no Concord tool access (CD-0017 D4), so the packet is the
     # only Concord state the lane can read. Law and Domains ride the packet's
-    # law block with repository paths, and the Domain registry path names the
-    # file that carries Domain structure.
+    # typed law context with repository paths, and the Domain registry path
+    # names the file that carries Domain structure.
     return """## Concord context boundary
 
 The dispatched packet is your complete Concord context. Concord tools are
 unavailable to this lane: the lane definition denies them, and a `concord_*`
 call from a lane session is refused with no effect. Read law from the
-repository paths the packet names, and read Domain structure from the registry
-path the law block carries. Report missing context in your evidence, and
-return `status` `failed` when the missing context blocks the assigned result.
+repository paths the packet names, and read Domain structure from the file
+`inputs.law_context.registry_path` names. Report missing context in your
+evidence, and return `status` `failed` when the missing context blocks the
+assigned result.
 """
 
 
@@ -691,7 +708,6 @@ def agent_projection(lane: dict, report_schema: dict, packet_schema: dict, premi
     detail_max = report_schema["$defs"]["evidence_entry"]["properties"]["detail"]["x-maxBytes"]
     evidence_max = report_schema["properties"]["evidence"]["maxItems"]
     report_properties = report_schema["properties"]
-    report_version = json.dumps(current_schema_version(report_schema), ensure_ascii=False)
     report_statuses = ", ".join(f"`{item}`" for item in report_properties["status"]["enum"])
     report_constraints = "\n".join(f"- {item}" for item in report_projection_constraints(report_schema, lane))
     concord_denies = "\n".join(f"  {tool_id}: false" for tool_id in concord_tool_ids())
@@ -756,17 +772,26 @@ record workflow transitions, verdicts, completion, or spawn nested workers.
 
 {packet_refusal_instructions()}
 {law_conformance_instructions(lane)}
+{recorded_work_instructions()}
 {work_context_instructions(packet_schema)}
 {checkpoint_instructions()}
 {objective_binding_instructions(packet_schema, premise_max_bytes)}
 {concord_context_boundary_instructions()}
 {source_lookup_routing_instructions(reads_repository(lane))}
 {command_duration_instructions(lane)}
-Return the report as a single JSON object, and nothing else, as your final
-message. Do not include `attempt_id`, `lane_id`, `lane_version`, or
-`lane_digest`: the dispatch window owns those fields and any report that
-supplies them is refused. Set `schema_version` to `{report_version}`, `readback_model` to
-the `provider/model` identifier you are running as, and `status` to one of {report_statuses}.
+When `inputs.report_protocol` is present, return exactly one Markdown fence
+whose info string is `{packet_schema['properties']['inputs']['properties']['report_protocol']['const']}`.
+Open it with exactly three backticks and that info string on one line. Put one
+strict JSON report object inside it and close it with three backticks on their
+own line. Return the entire frame as one final text part. Do not repeat the frame,
+quote a frame example, use duplicate JSON keys, or put report content after it.
+For a historical packet without `inputs.report_protocol`, return one plain JSON
+report object as your final text part. Never return multiple report candidates.
+Do not include `attempt_id`, `lane_id`, `lane_version`, `lane_digest`, `work_id`,
+`step_id`, or `worker_job`: the dispatch packet owns those fields. Report schema
+identity also comes from the packet; omit `schema_version` rather than copying it.
+Set `readback_model` to the `provider/model` identifier you are running as, and
+`status` to one of {report_statuses}.
 
 Report contract constraints:
 {report_constraints}

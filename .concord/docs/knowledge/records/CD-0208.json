@@ -48,7 +48,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:87fcdd2311e504cb73c671cbb2ebfe59ef0a7a921951cd2e6bd7a18ac72226f2",
+  "sha256": "sha256:69405df576d6ef03f82b644751d81326e1e2886db12501a1bab97a8c24a375ad",
   "status": "accepted",
   "summary": "A fresh currently authenticated assertion can acknowledge an exact existing worker event without another evidence append. The nonce and match share the consequential FULL transaction; terminal outcomes, original packet/provenance/model identity and consumed execution authorization remain immutable. Retained completed-Task recovery uses original trusted host proof, refuses failed attempts, and keeps one caller deadline. Uncertain commits require reconciliation rather than a success or no-effect claim. Original event identifiers bound recovery; random-ID failure paths remain separate follow-up scope.",
   "tags": [

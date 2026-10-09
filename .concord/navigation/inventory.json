@@ -1344,7 +1344,7 @@
       ],
       "dependency_interpretations_to": [],
       "domain_id": "agent-surface",
-      "mapped_count": 420,
+      "mapped_count": 425,
       "mechanism_owner_ids": [
         "mechanism:adapter-transport",
         "mechanism:agent-tools",
@@ -1780,13 +1780,13 @@
           "law_refs": [
             {
               "clause_id": "Decision",
-              "content_hash": "sha256:dc2ef8b4055ca7d9c8dc0efa9ff541d5c95cb85fb273c62741dc605c5f1f03a6",
+              "content_hash": "sha256:027e479b344e6dba1661afc5054a742ed79dcebeac0f3032e0c77a604bc39fd4",
               "law_id": "CD-0196",
               "locator": ".concord/docs/decisions/CD-0196-worker-lanes-hold-no-concord-tool-access-and-the-dispatch-packet-is-their-complete-concord-context.md"
             },
             {
               "clause_id": "D1. Typed dispatch opens one authorization window",
-              "content_hash": "sha256:f96bb66e33b4338a2022a6a3e5ec57f3f66f216e525209de1894b44255c44678",
+              "content_hash": "sha256:fdff03e0d74be4c91a41ab737c22290df9c1bd348e2e432821ce0407e485a1a2",
               "law_id": "CD-0102",
               "locator": ".concord/docs/decisions/CD-0102-lane-dispatch-runs-as-a-native-task.md"
             }
@@ -2200,7 +2200,7 @@
         ]
       },
       "purpose": "Owns the typed agent plane: the read and mutation tool surface, its budget and evolution constraints, call context, lanes and worker dispatch, the adapter transport contract, and the agent result envelope.",
-      "test_count": 269,
+      "test_count": 272,
       "test_packages": [
         "github.com/sharper-flow/concord/internal/agent",
         "github.com/sharper-flow/concord/internal/store"
@@ -2252,6 +2252,8 @@
         "adapter/opencode/testenv.test.ts",
         "adapter/opencode/turn-move-boundary.test.ts",
         "adapter/opencode/work-start-publication.test.ts",
+        "adapter/opencode/worker-report-protocol.test.ts",
+        "adapter/opencode/worker-report-selector.test.ts",
         "adapter/opencode/worker_evidence.test.ts",
         "adapter/opencode/worker_recovery.test.ts",
         "adapter/opencode/workflow-status-receipt-runtime-shape.test.ts",
@@ -2455,6 +2457,7 @@
         "internal/store/worker_job_lifecycle_witness_test.go",
         "internal/store/worker_lanes_test.go",
         "internal/store/worker_packet_binding_test.go",
+        "internal/store/worker_packet_records_test.go",
         "internal/store/worker_recovery_test.go",
         "internal/store/worker_review_block_test.go",
         "internal/store/worker_spawn_directory_test.go",
@@ -7036,6 +7039,9 @@
     "adapter/opencode/work-start-publication.test.ts": "agent-surface",
     "adapter/opencode/worker-cli-required-fields.json": "agent-surface",
     "adapter/opencode/worker-evidence-vector.json": "agent-surface",
+    "adapter/opencode/worker-report-protocol.js": "agent-surface",
+    "adapter/opencode/worker-report-protocol.test.ts": "agent-surface",
+    "adapter/opencode/worker-report-selector.test.ts": "agent-surface",
     "adapter/opencode/worker_evidence.test.ts": "agent-surface",
     "adapter/opencode/worker_recovery.test.ts": "agent-surface",
     "adapter/opencode/worker_recovery.ts": "agent-surface",
@@ -7759,6 +7765,8 @@
     "internal/store/worker_lanes_test.go": "agent-surface",
     "internal/store/worker_packet_binding.go": "agent-surface",
     "internal/store/worker_packet_binding_test.go": "agent-surface",
+    "internal/store/worker_packet_records.go": "agent-surface",
+    "internal/store/worker_packet_records_test.go": "agent-surface",
     "internal/store/worker_recovery.go": "agent-surface",
     "internal/store/worker_recovery_test.go": "agent-surface",
     "internal/store/worker_review_block_test.go": "agent-surface",
@@ -8081,7 +8089,7 @@
     "skills/README.md": "agent-surface",
     "workflows/README.md": "workflow-engine"
   },
-  "mapped_count": 2003,
+  "mapped_count": 2008,
   "mechanisms": [
     {
       "check_ids": [
@@ -9578,13 +9586,13 @@
       "law_refs": [
         {
           "clause_id": "Decision",
-          "content_hash": "sha256:dc2ef8b4055ca7d9c8dc0efa9ff541d5c95cb85fb273c62741dc605c5f1f03a6",
+          "content_hash": "sha256:027e479b344e6dba1661afc5054a742ed79dcebeac0f3032e0c77a604bc39fd4",
           "law_id": "CD-0196",
           "locator": ".concord/docs/decisions/CD-0196-worker-lanes-hold-no-concord-tool-access-and-the-dispatch-packet-is-their-complete-concord-context.md"
         },
         {
           "clause_id": "D1. Typed dispatch opens one authorization window",
-          "content_hash": "sha256:f96bb66e33b4338a2022a6a3e5ec57f3f66f216e525209de1894b44255c44678",
+          "content_hash": "sha256:fdff03e0d74be4c91a41ab737c22290df9c1bd348e2e432821ce0407e485a1a2",
           "law_id": "CD-0102",
           "locator": ".concord/docs/decisions/CD-0102-lane-dispatch-runs-as-a-native-task.md"
         }

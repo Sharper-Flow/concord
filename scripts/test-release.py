@@ -90,6 +90,14 @@ def assert_release_workflow_structure(workflow: str) -> None:
     jobs = document.get("jobs")
     if not isinstance(jobs, dict):
         raise AssertionError("workflow jobs mapping is missing")
+    expected_conditions = {
+        "prepare": "${{ !cancelled() && needs.admit-verification.result == 'success' }}",
+        "build-and-publish": "${{ !cancelled() && needs.prepare.result == 'success' && needs.prepare.outputs.should_release == 'true' }}",
+    }
+    for job_name, expected_condition in expected_conditions.items():
+        job = jobs.get(job_name)
+        if not isinstance(job, dict) or job.get("if") != expected_condition:
+            raise AssertionError(f"{job_name} condition must be {expected_condition!r}")
     checkout_steps: list[tuple[str, dict[str, object]]] = []
     for job_name, job in jobs.items():
         if not isinstance(job, dict):

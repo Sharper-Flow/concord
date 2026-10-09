@@ -117,10 +117,13 @@ jobs:
           FALLBACK_RESULT: ${{ needs.ci-fallback.result }}
         run: python3 scripts/release-evidence.py gate --mode "$MODE" --lookup-result "$LOOKUP_RESULT" --refresh-result "$REFRESH_RESULT" --fallback-result "$FALLBACK_RESULT"
 
+  # One verification arm is skipped on every route. Explicit status checks keep
+  # that skip from suppressing admitted publication; cancellation and actual
+  # dependency results still refuse it.
   prepare:
     name: compute release
     needs: admit-verification
-    if: needs.admit-verification.result == 'success'
+    if: ${{ !cancelled() && needs.admit-verification.result == 'success' }}
     runs-on: ubuntu-latest
     outputs:
       should_release: ${{ steps.release.outputs.should_release }}
@@ -140,7 +143,7 @@ jobs:
   build-and-publish:
     name: build and publish release
     needs: prepare
-    if: needs.prepare.outputs.should_release == 'true'
+    if: ${{ !cancelled() && needs.prepare.result == 'success' && needs.prepare.outputs.should_release == 'true' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write

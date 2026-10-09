@@ -40,6 +40,9 @@ func checkpointDispatchPacket(t *testing.T, f workContextFixture, attemptID stri
 		"worker_job":  recordedPacketJobForTest(t, f.store, f.workID, job),
 		"constraints": []string{"do-not-modify-product-truth"},
 	}
+	for member, value := range recordedPacketRecords(t, f.store, f.workID) {
+		inputs[member] = value
+	}
 	if checkpoint != nil {
 		inputs["checkpoint"] = checkpoint
 	}

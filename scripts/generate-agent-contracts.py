@@ -808,6 +808,10 @@ WORKER_PACKET_INPUT_ALIASES = {
     "binding": "worker_packet_binding",
     "correction": "workflow_correction_context",
     "worker_job": "worker_packet_worker_job",
+    "law_context": "workflow_law_context",
+    "design_record": "workflow_design_record",
+    "proposal_record": "workflow_proposal_record",
+    "work_record": "worker_packet_work_record",
     "work_context": "work_context_view",
     "checkpoint": "continuity_checkpoint",
     "outcome_predicates": "worker_packet_outcome_predicates",
@@ -859,7 +863,7 @@ def project_worker_packet_inputs(payload: dict, lane_packet: dict) -> None:
             if alias not in payload.get("$defs", {}):
                 fail(f"worker_packet inputs alias for {name} names unknown def {alias}")
             node = {"$ref": f"#/$defs/{alias}"}
-            published = WORKER_PACKET_INPUT_PUBLISHED_TEXT.get(name)
+            published = WORKER_PACKET_INPUT_PUBLISHED_TEXT.get(name, schema.get("description"))
             if published is not None:
                 node["description"] = published
             properties[name] = node

@@ -78,7 +78,47 @@ export interface AgentLanePacket {
   lane_digest: string
   work_id: string
   step_id: string
-  inputs: { task: string; binding: AgentLanePacketBinding; report_protocol?: string; worker_job?: AgentLanePacketWorkerJob; context?: string; correction?: AgentLanePacketCorrection; work_context?: AgentLanePacketWorkContext; checkpoint?: AgentLanePacketCheckpoint; constraints?: string[]; outcome_predicates?: AgentLanePacketOutcomePredicate[] }
+  inputs: { task: string; binding: AgentLanePacketBinding; report_protocol?: string; worker_job?: AgentLanePacketWorkerJob; context?: string; law_context?: AgentLanePacketLawContext; design_record?: AgentLanePacketDesignRecord; proposal_record?: AgentLanePacketProposalRecord; work_record?: AgentLanePacketWorkRecord; correction?: AgentLanePacketCorrection; work_context?: AgentLanePacketWorkContext; checkpoint?: AgentLanePacketCheckpoint; constraints?: string[]; outcome_predicates?: AgentLanePacketOutcomePredicate[] }
+}
+
+// The recorded-state members below mirror inputs.law_context,
+// inputs.design_record, inputs.proposal_record, and inputs.work_record of
+// contracts/agent-lane-packet.schema.json. The builder copies each from the
+// pinned continuity or the recorded work item verbatim, because the core
+// refuses a dispatch whose member differs from the current record.
+export interface AgentLanePacketLawContext {
+  laws: {
+    roles: ("mandated" | "modified" | "added" | "obligation")[]
+    law_id: string
+    obligation_ids?: string[]
+    kind?: "constitution" | "decision" | "spec"
+    status?: "accepted" | "superseded"
+    title?: string
+    path?: string
+    criteria?: { criterion: number; predicate_id: string }[]
+  }[]
+  domains: { domain_id: string; name: string; purpose: string }[]
+  registry_path?: string
+}
+
+export interface AgentLanePacketDesignRecord {
+  work_version: number
+  approach: string
+  decisions: { id: string; question: string; choice: string; rationale: string; rejected: string[] }[]
+  touched_refs: string[]
+  recorded_at: string
+}
+
+export interface AgentLanePacketProposalRecord {
+  problem: string
+  user_outcomes: string[]
+  constraints: string[]
+}
+
+export interface AgentLanePacketWorkRecord {
+  value_statement?: string
+  task?: string
+  narrative?: string
 }
 
 // AgentLanePacketWorkerJob mirrors inputs.worker_job of

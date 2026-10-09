@@ -49,7 +49,40 @@ func bindPacketToRecordedState(t *testing.T, s *Store, packet map[string]any) ma
 	task, binding := recordedPacketInputs(t, s, packet["work_id"].(string), packet["lane_id"].(string))
 	inputs["task"] = task
 	inputs["binding"] = binding
+	for member, value := range recordedPacketRecords(t, s, packet["work_id"].(string)) {
+		inputs[member] = value
+	}
 	return packet
+}
+
+// recordedPacketRecords returns the recorded-state members a truthful lane
+// packet carries, as the adapter builds them: the law context, design record,
+// and proposal from the pinned continuity, and the work item's recorded value
+// statement, task, and narrative. Members with no record are absent.
+func recordedPacketRecords(t *testing.T, s *Store, workID string) map[string]any {
+	t.Helper()
+	snapshot, err := ReadWorkflowContinuity(context.Background(), s, ContinuityRequest{Work: workID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	records := map[string]any{}
+	if snapshot.LawContext != nil {
+		records["law_context"] = snapshot.LawContext
+	}
+	if snapshot.DesignRecord != nil {
+		records["design_record"] = snapshot.DesignRecord
+	}
+	if snapshot.ProposalRecord != nil {
+		records["proposal_record"] = snapshot.ProposalRecord.PacketProposal()
+	}
+	work, err := readWorkerPacketWorkRecord(context.Background(), s.DatabaseForTesting(), workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if work != nil {
+		records["work_record"] = work
+	}
+	return records
 }
 
 func dispatchBindingAttempt(t *testing.T, s *Store, seed cd0059DispatchSeed, attemptID string, packet map[string]any) error {

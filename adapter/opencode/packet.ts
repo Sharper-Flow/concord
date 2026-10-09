@@ -1,5 +1,5 @@
 import type { ToolContext } from "@opencode-ai/plugin"
-import { validateAgentLanePacket, type AgentLanePacket, type AgentLanePacketCheckpoint, type AgentLanePacketCorrection, type AgentLanePacketOutcomePredicate, type AgentLanePacketWorkContext, type AgentLanePacketWorkerJob } from "./dispatch"
+import { validateAgentLanePacket, type AgentLanePacket, type AgentLanePacketCheckpoint, type AgentLanePacketCorrection, type AgentLanePacketDesignRecord, type AgentLanePacketLawContext, type AgentLanePacketOutcomePredicate, type AgentLanePacketProposalRecord, type AgentLanePacketWorkContext, type AgentLanePacketWorkerJob, type AgentLanePacketWorkRecord } from "./dispatch"
 import { agentLanePacketSchema, agentLanes, workerScopeAssignedResult, type AgentLane } from "./generated-agent-lanes"
 import { laneStepDispatchKinds } from "./generated-lane-step-dispatch"
 
@@ -7,7 +7,6 @@ import { laneStepDispatchKinds } from "./generated-lane-step-dispatch"
 // so a contract move cannot leave the builder enforcing a stale limit.
 const INPUT_BOUNDS = agentLanePacketSchema.properties.inputs.properties
 const TASK_MAX_LENGTH: number = INPUT_BOUNDS.task.maxLength
-const CONTEXT_MAX_LENGTH: number = INPUT_BOUNDS.context.maxLength
 const CONSTRAINT_MAX_LENGTH: number = INPUT_BOUNDS.constraints.items.maxLength
 const CONSTRAINTS_MAX_ITEMS: number = INPUT_BOUNDS.constraints.maxItems
 // The packet identity is versioned (CD-0205): the builder records the
@@ -27,7 +26,7 @@ export type AgentLanePacketFailureKind =
   | "worker_job_unavailable"
   | "worker_job_ambiguous"
 
-export type AgentLanePacketField = "task" | "context" | "constraints" | "outcome_predicates"
+export type AgentLanePacketField = "task" | "constraints" | "outcome_predicates"
 
 export interface AgentLanePacketFailure {
   kind: AgentLanePacketFailureKind
@@ -77,99 +76,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 // contract admits would be refused here with a false overflow.
 function codePoints(value: string): number {
   return [...value].length
-}
-
-function renderDesignRecord(value: unknown): string {
-  if (!isRecord(value)) return ""
-  const approach = typeof value.approach === "string" ? value.approach : ""
-  const decisions = Array.isArray(value.decisions) ? value.decisions : []
-  const touchedRefs = Array.isArray(value.touched_refs) ? value.touched_refs.filter((ref): ref is string => typeof ref === "string") : []
-  if (approach.length === 0 && decisions.length === 0 && touchedRefs.length === 0) return ""
-  const lines = ["Approved design record:", `Approach: ${approach}`, "Decisions:"]
-  for (const decision of decisions) {
-    if (!isRecord(decision)) continue
-    const id = typeof decision.id === "string" ? decision.id : ""
-    const question = typeof decision.question === "string" ? decision.question : ""
-    const choice = typeof decision.choice === "string" ? decision.choice : ""
-    const rationale = typeof decision.rationale === "string" ? decision.rationale : ""
-    const rejected = Array.isArray(decision.rejected) ? decision.rejected.filter((item): item is string => typeof item === "string") : []
-    lines.push(`- ${id}: ${question} Choice: ${choice}. Rationale: ${rationale}${rejected.length > 0 ? ` Rejected: ${rejected.join(", ")}.` : ""}`)
-  }
-  lines.push(`Touched refs: ${touchedRefs.join(", ")}`, "")
-  return lines.join("\n")
-}
-
-// renderLawContext projects the pinned contract's resolved law and Domain
-// references into a readable block. The core resolves every bound ID against
-// the law_subjects and domains projections; an added law with no subject yet,
-// or a Domain missing from the registry, renders with what the core recorded.
-// A law's criteria field (CD-0180) carries the law's acceptance criteria
-// bound to this work item's own outcome predicates, so the worker sees the
-// criterion-to-predicate chaining the item discharges without opening the
-// manifest. The Domain registry path names the repository file that carries
-// Domain structure, because the lane holds no Concord tool access to fetch it.
-function renderLawContext(value: unknown): string {
-  if (!isRecord(value)) return ""
-  const laws = Array.isArray(value.laws) ? value.laws : []
-  const domains = Array.isArray(value.domains) ? value.domains : []
-  if (laws.length === 0 && domains.length === 0) return ""
-  const lines = ["Approved law and Domains (binding Product law):"]
-  for (const law of laws) {
-    if (!isRecord(law)) continue
-    const roles = Array.isArray(law.roles) ? law.roles.filter((role): role is string => typeof role === "string") : []
-    const lawId = typeof law.law_id === "string" ? law.law_id : ""
-    const obligations = Array.isArray(law.obligation_ids) ? law.obligation_ids.filter((id): id is string => typeof id === "string") : []
-    const detail = [law.title, law.kind, law.status].filter((part): part is string => typeof part === "string" && part.length > 0).join(", ")
-    const path = typeof law.path === "string" ? law.path : ""
-    const obligationText = obligations.length > 0 ? ` (obligation ${obligations.join(", ")})` : ""
-    const criteriaText = renderLawCriteria(law.criteria)
-    lines.push(`- ${roles.join(", ")} law ${lawId}${obligationText}${detail.length > 0 ? `: ${detail}` : ""}${path.length > 0 ? ` — ${path}` : ""}${criteriaText}`)
-  }
-  for (const domain of domains) {
-    if (!isRecord(domain)) continue
-    const domainId = typeof domain.domain_id === "string" ? domain.domain_id : ""
-    const name = typeof domain.name === "string" ? domain.name : ""
-    const purpose = typeof domain.purpose === "string" ? domain.purpose : ""
-    lines.push(`- Domain ${domainId}: ${name}${purpose.length > 0 ? ` — ${purpose}` : ""}`)
-  }
-  const registryPath = typeof value.registry_path === "string" ? value.registry_path : ""
-  if (registryPath.length > 0) lines.push(`Domain registry: ${registryPath}`)
-  return lines.join("\n") + "\n\n"
-}
-
-// renderLawCriteria renders the criteria the core already resolved against
-// this work item's predicates. A malformed entry renders with its surviving
-// parts rather than failing the packet: the law context is a readability
-// projection, and the typed field remains the contract's discharge record.
-function renderLawCriteria(value: unknown): string {
-  if (!Array.isArray(value) || value.length === 0) return ""
-  const bound = value
-    .filter(isRecord)
-    .map((entry) => ({ criterion: entry.criterion, predicateId: typeof entry.predicate_id === "string" ? entry.predicate_id : "" }))
-    .filter((entry): entry is { criterion: number; predicateId: string } => typeof entry.criterion === "number" && entry.predicateId.length > 0)
-  if (bound.length === 0) return ""
-  return ` (criteria bound to this work item: ${bound.map((entry) => `criterion ${entry.criterion} discharges ${entry.predicateId}`).join("; ")})`
-}
-
-// renderProposalRecord projects the recorded proposal's problem, user
-// outcomes, and constraints — typed planning state the pinned continuity
-// already exposes.
-function renderProposalRecord(value: unknown): string {
-  if (!isRecord(value)) return ""
-  const problem = typeof value.problem === "string" ? value.problem : ""
-  const outcomes = Array.isArray(value.user_outcomes) ? value.user_outcomes.filter((item): item is string => typeof item === "string") : []
-  const constraints = Array.isArray(value.constraints) ? value.constraints.filter((item): item is string => typeof item === "string") : []
-  if (problem.length === 0 && outcomes.length === 0 && constraints.length === 0) return ""
-  const lines = ["Recorded proposal:", `Problem: ${problem}`]
-  if (outcomes.length > 0) {
-    lines.push("User outcomes:")
-    for (const outcome of outcomes) lines.push(`- ${outcome}`)
-  }
-  if (constraints.length > 0) {
-    lines.push("Constraints:")
-    for (const constraint of constraints) lines.push(`- ${constraint}`)
-  }
-  return lines.join("\n") + "\n\n"
 }
 
 // The closed outcome_kind set the packet schema admits. The continuity read
@@ -344,7 +250,7 @@ export async function buildAgentLanePacket(request: AgentLanePacketRequest, deps
   const title = typeof work.title === "string" ? work.title : ""
   const recordedTask = typeof work.task === "string" ? work.task : ""
   const hasRecordedTask = recordedTask.trim().length > 0
-  const valueStatement = typeof work.value_statement === "string" ? work.value_statement.trim() : ""
+  const valueStatement = typeof work.value_statement === "string" ? work.value_statement : ""
   const workVersion = typeof work.version === "number" ? work.version : null
 
   const continuity = await readOperation("concord_work_trace", "continuity", { work_id: request.workId, page: { cursor: null, limit: 1 } }, deps)
@@ -366,10 +272,6 @@ export async function buildAgentLanePacket(request: AgentLanePacketRequest, deps
   let task: string
   let contractVersion: number | null
   let objectiveSource: "contract_premise" | "work_question"
-  // contextRecordedTask is false when the recorded task already IS the task —
-  // the read-only question prefers it — so the context never carries the
-  // duplicate copy.
-  let contextRecordedTask = true
   if (isRecord(contract)) {
     const premise = typeof contract.premise === "string" ? contract.premise : ""
     const pinnedContractVersion = typeof contract.version === "number" ? contract.version : null
@@ -396,9 +298,6 @@ export async function buildAgentLanePacket(request: AgentLanePacketRequest, deps
     task = hasRecordedTask ? recordedTask : title.trim().length > 0 ? title : narrative
     contractVersion = null
     objectiveSource = "work_question"
-    // The question already carries the recorded task or narrative text
-    // verbatim, so neither rides the context a second time.
-    contextRecordedTask = false
   } else {
     return failure("mandate_unapproved", `work ${request.workId} has no pinned workflow contract, so no required end-state has been approved to dispatch against`)
   }
@@ -424,21 +323,20 @@ export async function buildAgentLanePacket(request: AgentLanePacketRequest, deps
     return failure("projection_overflow", `inputs.task carries ${taskCodePoints} Unicode code points against a limit of ${TASK_MAX_LENGTH}`, { field: "task", limit: TASK_MAX_LENGTH, actual: taskCodePoints })
   }
 
-  const design = renderDesignRecord(pinned.design_record)
-  // The why rides ahead of the how: the item's recorded value statement
-  // renders as one line before the design record, the law context, the
-  // proposal, and the recorded task, so a dispatched worker reads why the work
-  // matters first. Older items without a value statement omit the line.
-  // A value statement may carry embedded newlines the schema permits; the
-  // packet renders one guaranteed line, so embedded line breaks collapse to
-  // single spaces and no value can place text ahead of the real design
-  // record or masquerade as another context block.
-  const valueLine = valueStatement.length > 0 ? `Value: ${valueStatement.replace(/[\r\n]+/g, " ")}\n\n` : ""
-  // The resolved contract-bound law and Domains, then the recorded proposal,
-  // ride after the design record so the worker reads binding state before the
-  // work narrative. Overflow stays fail-closed on the combined context.
-  const lawContext = renderLawContext(pinned.law_context)
-  const proposal = renderProposalRecord(pinned.proposal_record)
+  // The recorded law context, design record, and proposal ride the packet
+  // verbatim from the pinned continuity, and the work item's recorded value
+  // statement, task, and narrative ride inputs.work_record verbatim. The core
+  // refuses a dispatch whose member differs from the current record, so the
+  // builder authors no prose around them and re-derives nothing; the closed
+  // packet schema owns the bounds.
+  const lawContextValue = isRecord(pinned.law_context) ? (pinned.law_context as unknown as AgentLanePacketLawContext) : undefined
+  const designValue = isRecord(pinned.design_record) ? (pinned.design_record as unknown as AgentLanePacketDesignRecord) : undefined
+  const proposalValue = isRecord(pinned.proposal_record) ? (pinned.proposal_record as unknown as AgentLanePacketProposalRecord) : undefined
+  const workRecord: AgentLanePacketWorkRecord = {
+    ...(valueStatement.length > 0 ? { value_statement: valueStatement } : {}),
+    ...(recordedTask.length > 0 ? { task: recordedTask } : {}),
+    ...(narrative.length > 0 ? { narrative } : {}),
+  }
   const workPin = isRecord(pinned.work_pin) ? pinned.work_pin : null
   const correctionValue = workPin ? projectCorrectionContext(workPin.correction) : undefined
   // CON-887: the pin's work-context view rides the packet verbatim. The core
@@ -454,24 +352,6 @@ export async function buildAgentLanePacket(request: AgentLanePacketRequest, deps
   // envelope's byte budget admits exactly one copy of a max-size
   // checkpoint, and the work pin embeds inside that same envelope.
   const checkpointValue = isRecord(pinned.latest_checkpoint) ? (pinned.latest_checkpoint as unknown as AgentLanePacketCheckpoint) : undefined
-  // The persisted work task is the operator's recorded instruction for the
-  // worker. Under a pinned contract the premise stays the approved objective
-  // in inputs.task and the recorded task rides context ahead of the narrative,
-  // so a contract-mandated worker receives the concrete instructions too. On
-  // the read-only path the question IS the task or narrative verbatim, so the
-  // duplicate copy stays out of the context.
-  const readOnlyQuestion = objectiveSource === "work_question" ? task : null
-  const context =
-    valueLine +
-    design +
-    lawContext +
-    proposal +
-    (contextRecordedTask && hasRecordedTask ? `Recorded task:\n${recordedTask}\n\n` : "") +
-    (readOnlyQuestion !== null && narrative === readOnlyQuestion ? "" : narrative)
-  const contextCodePoints = codePoints(context)
-  if (contextCodePoints > CONTEXT_MAX_LENGTH) {
-    return failure("projection_overflow", `inputs.context carries ${contextCodePoints} Unicode code points against a limit of ${CONTEXT_MAX_LENGTH}`, { field: "context", limit: CONTEXT_MAX_LENGTH, actual: contextCodePoints })
-  }
 
   // The typed outcome predicates ride inputs.outcome_predicates as validated
   // predicate objects, decoded from the continuity read's serialized
@@ -498,7 +378,7 @@ export async function buildAgentLanePacket(request: AgentLanePacketRequest, deps
     lane_digest: lane.digest,
     work_id: request.workId,
     step_id: request.stepId,
-    inputs: { task, binding, report_protocol: agentLanePacketSchema.properties.inputs.properties.report_protocol.const, ...(workerJob ? { worker_job: workerJob as unknown as AgentLanePacketWorkerJob } : {}), ...(context.length > 0 ? { context } : {}), ...(correctionValue ? { correction: correctionValue } : {}), ...(workContextValue ? { work_context: workContextValue } : {}), ...(checkpointValue ? { checkpoint: checkpointValue } : {}), ...(decoded.predicates.length > 0 ? { outcome_predicates: decoded.predicates } : {}) },
+    inputs: { task, binding, report_protocol: agentLanePacketSchema.properties.inputs.properties.report_protocol.const, ...(workerJob ? { worker_job: workerJob as unknown as AgentLanePacketWorkerJob } : {}), ...(lawContextValue ? { law_context: lawContextValue } : {}), ...(designValue ? { design_record: designValue } : {}), ...(proposalValue ? { proposal_record: proposalValue } : {}), ...(Object.keys(workRecord).length > 0 ? { work_record: workRecord } : {}), ...(correctionValue ? { correction: correctionValue } : {}), ...(workContextValue ? { work_context: workContextValue } : {}), ...(checkpointValue ? { checkpoint: checkpointValue } : {}), ...(decoded.predicates.length > 0 ? { outcome_predicates: decoded.predicates } : {}) },
   }
 
   const packetFailures: string[] = []

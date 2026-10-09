@@ -337,12 +337,13 @@ class AgentProjectionTests(unittest.TestCase):
         # The dispatched packet carries the approved contract's bound law and
         # Domains as recorded state. A lane whose capabilities grant
         # edit_scoped_files is told to read each named law before changing
-        # files, conform to it, and edit a law document only when the block
-        # lists it as modified or added.
+        # files, conform to it, and edit a law document only when its roles
+        # list modified or added.
         lane = dict(self.LANE, capabilities=["read_repository", "edit_scoped_files", "run_tests", "report_evidence"])
         projection = lane_projection(lane, REPORT_SCHEMA)
         normalized = " ".join(projection.split())
-        self.assertIn("Approved law and architecture block", projection)
+        self.assertIn("## Approved law and Domains", projection)
+        self.assertIn("When `inputs.law_context` is present", normalized)
         self.assertIn("Read each named law document before you change files", normalized)
         self.assertIn("Conform to it.", normalized)
         self.assertIn("`modified` or `added`", normalized)
@@ -351,12 +352,13 @@ class AgentProjectionTests(unittest.TestCase):
 
     def test_projection_gives_non_editing_lanes_the_assess_rule(self):
         # A lane without edit_scoped_files reads each named law before it
-        # assesses the result, and receives no file-change rule, so the block
+        # assesses the result, and receives no file-change rule, so the law context
         # never implies edit authority the lane does not hold.
         lane = dict(self.LANE, capabilities=["read_repository", "inspect_diff", "run_targeted_checks", "report_findings"])
         projection = lane_projection(lane, REPORT_SCHEMA)
         normalized = " ".join(projection.split())
-        self.assertIn("Approved law and architecture block", projection)
+        self.assertIn("## Approved law and Domains", projection)
+        self.assertIn("When `inputs.law_context` is present", normalized)
         self.assertIn("Read each named law document before you assess the result", normalized)
         self.assertNotIn("before you change files", normalized)
         self.assertNotIn("`modified` or `added`", normalized)

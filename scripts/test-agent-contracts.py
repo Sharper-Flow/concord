@@ -328,6 +328,23 @@ class WorkerPacketMirrorProjectionTests(unittest.TestCase):
     def test_projection_is_idempotent_on_the_shipped_mirror(self):
         self.assertEqual(self.project(), payload_schema["$defs"]["worker_packet"]["properties"]["inputs"])
 
+    def test_record_fields_keep_shared_aliases_and_canonical_teaching(self):
+        projected = self.project()["properties"]
+        canonical = packet_schema["properties"]["inputs"]["properties"]
+        aliases = {
+            "law_context": "workflow_law_context",
+            "design_record": "workflow_design_record",
+            "proposal_record": "workflow_proposal_record",
+            "work_record": "worker_packet_work_record",
+        }
+        for field, alias in aliases.items():
+            with self.subTest(field=field):
+                self.assertIn(alias, payload_schema["$defs"])
+                expected = {"$ref": f"#/$defs/{alias}"}
+                if "description" in canonical[field]:
+                    expected["description"] = canonical[field]["description"]
+                self.assertEqual(projected[field], expected)
+
     def test_an_omitted_canonical_field_is_restored(self):
         # Regeneration restores a missing canonical field verbatim.
         payload = copy.deepcopy(payload_schema)

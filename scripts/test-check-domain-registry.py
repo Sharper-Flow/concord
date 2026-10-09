@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import importlib.util
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -19,6 +20,11 @@ SPEC.loader.exec_module(checker)
 
 
 class DomainRegistryParticipationTests(unittest.TestCase):
+    def setUp(self) -> None:
+        scratch = tempfile.TemporaryDirectory()
+        self.addCleanup(scratch.cleanup)
+        self.root = Path(scratch.name)
+
     @staticmethod
     def manifest(domain_ids: list[str], relations: dict[str, list[str]] | None = None) -> dict:
         relations = relations or {}
@@ -40,7 +46,7 @@ class DomainRegistryParticipationTests(unittest.TestCase):
 
     def check(self, manifest: dict) -> tuple[list[str], list[str]]:
         with patch.object(checker.knowledge_index, "compose_manifest", return_value=manifest):
-            return checker.validate(ROOT)
+            return checker.validate(self.root)
 
     def test_orphan_domain_is_advisory_without_strict(self) -> None:
         findings, participation = self.check(self.manifest(["root", "child"]))
@@ -48,11 +54,11 @@ class DomainRegistryParticipationTests(unittest.TestCase):
         self.assertEqual(findings, [])
         self.assertEqual(len(participation), 2)
         with patch.object(checker.knowledge_index, "compose_manifest", return_value=self.manifest(["root", "child"])), patch.object(
-            sys, "argv", [str(SCRIPT)]
+            sys, "argv", [str(SCRIPT), "--root", str(self.root)]
         ):
             self.assertEqual(checker.main(), 0)
         with patch.object(checker.knowledge_index, "compose_manifest", return_value=self.manifest(["root", "child"])), patch.object(
-            sys, "argv", [str(SCRIPT), "--strict"]
+            sys, "argv", [str(SCRIPT), "--root", str(self.root), "--strict"]
         ):
             self.assertEqual(checker.main(), 1)
 

@@ -1783,7 +1783,7 @@ func foldWorkflowDecisionRecord(ctx context.Context, tx *sql.Tx, event Event, ra
 			if err := json.Unmarshal(raw, &envelope); err != nil {
 				return err
 			}
-			if err := validateWorkflowActionPayload(entry.Definition, "record_decision", envelope.Fields); err != nil {
+			if err := validateWorkflowActionPayloadForReplay(entry.Definition, "record_decision", envelope.Fields); err != nil {
 				return err
 			}
 		}
@@ -1858,7 +1858,7 @@ func foldWorkflowDesignRecorded(ctx context.Context, tx *sql.Tx, event Event) er
 	if err := workflowBase(event, p.WorkflowVersionFields); err != nil {
 		return err
 	}
-	if err := validateWorkflowDesignContent(p.workflowDesignContent); err != nil {
+	if err := validateWorkflowDesignContentForReplay(p.workflowDesignContent); err != nil {
 		return err
 	}
 	if err := advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields); err != nil {
@@ -2047,7 +2047,7 @@ func validateWorkflowActionCompletedShape(p workflowActionCompletedPayload) erro
 	// outside either type would fail its own closed response schema after
 	// the effect, which the caller reads as a malformed response.
 	if p.ActionID == "reject_worker_result" {
-		if fault := workflowCorrectionSchemaValuesFault(p.CorrectionPredicateIDs, p.CorrectionEvidenceRefs, p.ResultEvidenceRefs); fault != "" {
+		if fault := workflowCorrectionSchemaValuesFaultForReplay(p.CorrectionPredicateIDs, p.CorrectionEvidenceRefs, p.ResultEvidenceRefs); fault != "" {
 			return newFailure(KindInvalidPayload, "fold_event", "rejected worker result carries correction values the closed response schema cannot represent: "+fault, false, "supply correction values the closed work_pin response schema accepts")
 		}
 	}
@@ -2061,30 +2061,27 @@ func workflowCorrectionID(value string) bool {
 	return err == nil && payloadschema.Validate("id", raw) == nil
 }
 
-// workflowCorrectionRef reports whether one reference destined for the
-// correction pin fits the generated reference schema: whitespace-free and at
-// most 128 bytes.
-func workflowCorrectionRef(value string) bool {
-	raw, err := json.Marshal(value)
-	return err == nil && payloadschema.Validate("reference", raw) == nil
+func workflowCorrectionSchemaValuesFaultForReplay(predicateIDs, correctionRefs, resultRefs []string) string {
+	return workflowCorrectionSchemaValuesFaultWithReference(predicateIDs, correctionRefs, resultRefs, replayValidReferenceSchema)
 }
 
-// workflowCorrectionSchemaValuesFault returns the first correction value the
-// closed work_pin response schema cannot represent, or the empty string when
-// every value fits.
-func workflowCorrectionSchemaValuesFault(predicateIDs, correctionRefs, resultRefs []string) string {
+func workflowCorrectionSchemaValuesFaultForAdmission(predicateIDs, correctionRefs, resultRefs []string) string {
+	return workflowCorrectionSchemaValuesFaultWithReference(predicateIDs, correctionRefs, resultRefs, ValidReference)
+}
+
+func workflowCorrectionSchemaValuesFaultWithReference(predicateIDs, correctionRefs, resultRefs []string, validReference func(string) bool) string {
 	for _, id := range predicateIDs {
 		if !workflowCorrectionID(id) {
 			return "correction_predicate_ids entry " + workflowRefExcerpt(id)
 		}
 	}
 	for _, ref := range correctionRefs {
-		if !workflowCorrectionRef(ref) {
+		if !validReference(ref) {
 			return "correction_evidence_refs entry " + workflowRefExcerpt(ref)
 		}
 	}
 	for _, ref := range resultRefs {
-		if !workflowCorrectionRef(ref) {
+		if !validReference(ref) {
 			return "result_evidence_refs entry " + workflowRefExcerpt(ref)
 		}
 	}

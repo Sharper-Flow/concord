@@ -13,11 +13,19 @@ type workflowDesignContent struct {
 }
 
 func validateWorkflowDesignContent(p workflowDesignContent) error {
+	return validateWorkflowDesignContentWithReference(p, ValidReference)
+}
+
+func validateWorkflowDesignContentForReplay(p workflowDesignContent) error {
+	return validateWorkflowDesignContentWithReference(p, replayValidReference)
+}
+
+func validateWorkflowDesignContentWithReference(p workflowDesignContent, validReference func(string) bool) error {
 	if len(p.Approach) < 2 || len(p.Approach) > 4096 || len(p.Decisions) < 1 || len(p.Decisions) > 16 || !workflowList(p.TouchedRefs, 64, 1) {
 		return newFailure(KindInvalidPayload, "fold_event", "design record is incomplete or outside its bounds", false, "supply the bounded design approach, decisions, and touched references")
 	}
 	for _, decision := range p.Decisions {
-		if !ValidReference(decision.ID) || len(decision.Question) < 1 || len(decision.Question) > 512 || len(decision.Choice) < 1 || len(decision.Choice) > 1024 || len(decision.Rationale) < 1 || len(decision.Rationale) > 1024 || len(decision.Rejected) > 8 {
+		if !validReference(decision.ID) || len(decision.Question) < 1 || len(decision.Question) > 512 || len(decision.Choice) < 1 || len(decision.Choice) > 1024 || len(decision.Rationale) < 1 || len(decision.Rationale) > 1024 || len(decision.Rejected) > 8 {
 			return newFailure(KindInvalidPayload, "fold_event", "design decision is incomplete or outside its bounds", false, "supply each bounded design decision with a non-empty choice")
 		}
 		for _, rejected := range decision.Rejected {

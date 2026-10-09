@@ -829,7 +829,7 @@ func workflowActorsDistinct(ctx context.Context, tx *sql.Tx, workID, verdictActo
 		return newFailure(KindUnauthorized, operation, "verdict actor tuple is incomplete", false, "contact_operator")
 	}
 	verdict.Model = verdictModel
-	if err := ValidateDistinctWorkflowActors(executing, verdict, requireModelDistinct); err != nil {
+	if err := validateDistinctWorkflowActorsForReplay(executing, verdict, requireModelDistinct); err != nil {
 		return err
 	}
 	return nil

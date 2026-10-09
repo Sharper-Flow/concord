@@ -3408,7 +3408,7 @@
           "law_refs": [
             {
               "clause_id": "2. The launcher's job",
-              "content_hash": "sha256:50579567ff7924dfb8ffd0ff1aeadb4a9ceec75246d3b3790b9062dc6fb38d55",
+              "content_hash": "sha256:57bba93b0e329ebb8761b18425b146119f41657f9b65492f4f175b4a702a0b7b",
               "law_id": "terminal-launcher-contract",
               "locator": ".concord/docs/terminal-launcher-contract.md"
             },
@@ -4012,7 +4012,7 @@
         }
       ],
       "domain_id": "product-memory",
-      "mapped_count": 875,
+      "mapped_count": 878,
       "mechanism_owner_ids": [
         "mechanism:domain-registry",
         "mechanism:knowledge-index"
@@ -6568,6 +6568,7 @@
     ".concord/docs/knowledge/coverage/specs-as-laws.json": "product-memory",
     ".concord/docs/knowledge/coverage/storage-spine-slice.json": "product-memory",
     ".concord/docs/knowledge/coverage/terminal-launcher-contract.json": "product-memory",
+    ".concord/docs/knowledge/coverage/terminal-launcher-entry-contract.json": "product-memory",
     ".concord/docs/knowledge/coverage/terminal-launcher-replacement-contract.json": "product-memory",
     ".concord/docs/knowledge/coverage/vertical-integration.json": "product-memory",
     ".concord/docs/knowledge/coverage/workflow-engine-contract.json": "product-memory",
@@ -6825,6 +6826,7 @@
     ".concord/docs/knowledge/records/specs-as-laws.json": "product-memory",
     ".concord/docs/knowledge/records/storage-spine-slice.json": "product-memory",
     ".concord/docs/knowledge/records/terminal-launcher-contract.json": "product-memory",
+    ".concord/docs/knowledge/records/terminal-launcher-entry-contract.json": "product-memory",
     ".concord/docs/knowledge/records/terminal-launcher-replacement-contract.json": "product-memory",
     ".concord/docs/knowledge/records/vertical-integration.json": "product-memory",
     ".concord/docs/knowledge/records/workflow-engine-contract.json": "product-memory",
@@ -6870,6 +6872,7 @@
     ".concord/docs/specs-as-laws.md": "product-memory",
     ".concord/docs/storage-spine-slice.md": "product-memory",
     ".concord/docs/terminal-launcher-contract.md": "product-memory",
+    ".concord/docs/terminal-launcher-entry-contract.md": "product-memory",
     ".concord/docs/terminal-launcher-replacement-contract.md": "product-memory",
     ".concord/docs/typed-knowledge-storage-retrieval.md": "product-memory",
     ".concord/docs/vertical-integration.md": "product-memory",
@@ -8093,7 +8096,7 @@
     "skills/README.md": "agent-surface",
     "workflows/README.md": "workflow-engine"
   },
-  "mapped_count": 2010,
+  "mapped_count": 2013,
   "mechanisms": [
     {
       "check_ids": [
@@ -8754,7 +8757,7 @@
       "law_refs": [
         {
           "clause_id": "2. The launcher's job",
-          "content_hash": "sha256:50579567ff7924dfb8ffd0ff1aeadb4a9ceec75246d3b3790b9062dc6fb38d55",
+          "content_hash": "sha256:57bba93b0e329ebb8761b18425b146119f41657f9b65492f4f175b4a702a0b7b",
           "law_id": "terminal-launcher-contract",
           "locator": ".concord/docs/terminal-launcher-contract.md"
         },

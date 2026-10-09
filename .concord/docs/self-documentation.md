@@ -31,8 +31,8 @@ follows them without restating the ranked list.
 
 ### 1.1 Spec law, browsable by Product and Domain
 - The spec system (capabilities → requirements → scenarios) is **navigable by
-  Product → Domain**. Open Concord → see the Product → Domain hierarchy and
-  typed architecture relations → drill into a Domain's current capabilities,
+  Product → Domain**. Open Concord → reach current Domain law and unresolved
+  work overlap → drill into a Domain's current capabilities,
   requirements, scenarios, decisions, and deltas.
 - Public predecessor evidence proved the value of bounded spec list/show/search;
   Concord redesigns that outcome as a Domain-bound, browsable surface rather than

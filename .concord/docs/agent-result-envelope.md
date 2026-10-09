@@ -54,7 +54,7 @@ Every outcome carries:
 | `manifest_digest` | Exact generated current-manifest digest bound to this client, session, invocation, and result. |
 | `adapter_contract_version` | Required only for `origin=adapter`: adapter envelope schema used to encode a pre-core transport/bootstrap failure; it never claims a core surface identity. |
 | `request_id` | This transport attempt; audit only, never idempotency. |
-| `origin` | `core` for a schema-valid core response; `adapter` only for fail-closed transport errors when no core envelope exists. |
+| `origin` | `core` for a schema-valid core response. `adapter` only when no core envelope exists, for a fail-closed transport error or a pre-dispatch input refusal that ran nothing. |
 | `tool`, `operation` | One accepted TS3/TS4 pair. |
 | `outcome` | `ok|pending|partial|error`. |
 | `resolved_scope` | Product/Project/work IDs actually used, or `null` when resolution failed. |
@@ -278,18 +278,20 @@ rejected result with a head, tail, middle, or other excerpt; legitimate partial
 coverage uses only the existing `partial`, `omissions`, pagination, and
 `evidence_refs` mechanisms.
 
-## 9. Adapter transport failures
+## 9. Adapter transport failures and pre-dispatch refusals
 
 When no valid core envelope is available, TS6's adapter may construct only a minimal
 TS7 `error` envelope with `origin=adapter`, `authority=unreachable`, and one of:
 
 - `transport_failure` — CLI missing/spawn/I/O failure;
 - `malformed_response` — stdout is not exactly one schema-valid envelope;
-- `timeout` — caller budget ended with no core durable outcome; or
+- `timeout` — caller budget ended with no core durable outcome;
+- `invalid_input` — the adapter refused the call before any core call because its host request wrapper is missing or malformed.
+  The effect is `none`, `retry_safe` is false, and recovery is `restart_query`; or
 - `cancelled` — cancellation completed before any authoritative effect.
 
 Adapter errors also carry closed `adapter_reason`:
-`missing_binary|spawn_failure|io_failure|malformed_core_response|timeout_no_effect|cancelled_no_effect|manifest_mismatch|grant_bootstrap_failed|unknown_effect`.
+`missing_binary|spawn_failure|io_failure|malformed_core_response|timeout_no_effect|cancelled_no_effect|manifest_mismatch|grant_bootstrap_failed|unknown_effect|invalid_request_wrapper`.
 The adapter's own `adapter_contract_version` makes this envelope schema-valid before core
 invocation; `manifest_mismatch` fails closed and recovers by regenerating the current
 manifest and restarting the session, never by parsing arbitrary details.

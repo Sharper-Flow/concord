@@ -43,7 +43,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:5bb52d1175006befad15237cf74e2f26f2350479dd1e7e82cb14a0a8db517961",
+  "sha256": "sha256:6528709c392bb34d9e249d93c05f2c9115e455c798d0ad367383ba2d0ab60fef",
   "status": "accepted",
   "summary": "Defines typed results, recovery, pagination, and bounded omissions.",
   "tags": [

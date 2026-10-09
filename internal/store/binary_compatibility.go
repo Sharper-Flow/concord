@@ -12,7 +12,7 @@ import (
 // Inspect one snapshot before migration or command execution. Compatible
 // pinned pairs keep operating even after later additive schema steps.
 func (s *Store) checkBinaryCompatibility(ctx context.Context) error {
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	tx, err := beginReadTx(ctx, s.db)
 	if err != nil {
 		return compatibilityReadFailure(err)
 	}

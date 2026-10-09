@@ -35,9 +35,18 @@ func TestReadWorkflowOperatorQuestionReadsOneTransaction(t *testing.T) {
 	if body == nil {
 		t.Fatal("ReadWorkflowOperatorQuestion not found in internal/store/workflow_operator.go")
 	}
-	var dbRefs int
-	var beginTxReceiverPos token.Pos
-	opensReadOnlyTx := false
+	readBegins, dbRefs := operatorQuestionReadSnapshotCounts(body)
+	if readBegins != 1 {
+		t.Errorf("ReadWorkflowOperatorQuestion must open exactly one read-only transaction for its reads (CD-0173 D2); got %d", readBegins)
+	}
+	allowed := 1 + readBegins // the open guard and the read owner's database argument
+	if dbRefs > allowed {
+		t.Errorf("ReadWorkflowOperatorQuestion references s.db %d times; only the open guard and the beginReadTx argument are permitted, every read must flow through the transaction", dbRefs)
+	}
+}
+
+func operatorQuestionReadSnapshotCounts(body *ast.BlockStmt) (int, int) {
+	readBegins, dbRefs := 0, 0
 	ast.Inspect(body, func(node ast.Node) bool {
 		switch n := node.(type) {
 		case *ast.SelectorExpr:
@@ -45,54 +54,46 @@ func TestReadWorkflowOperatorQuestionReadsOneTransaction(t *testing.T) {
 				dbRefs++
 			}
 		case *ast.CallExpr:
-			sel, ok := n.Fun.(*ast.SelectorExpr)
-			if !ok || sel.Sel.Name != "BeginTx" {
+			fn, ok := n.Fun.(*ast.Ident)
+			if !ok || fn.Name != "beginReadTx" || len(n.Args) != 2 {
 				return true
 			}
-			if inner, ok := sel.X.(*ast.SelectorExpr); ok {
+			if inner, ok := n.Args[1].(*ast.SelectorExpr); ok {
 				if x, ok := inner.X.(*ast.Ident); ok && x.Name == "s" && inner.Sel.Name == "db" {
-					beginTxReceiverPos = inner.Pos()
-				}
-			}
-			for _, arg := range n.Args {
-				var lit *ast.CompositeLit
-				switch a := arg.(type) {
-				case *ast.CompositeLit:
-					lit = a
-				case *ast.UnaryExpr:
-					if a.Op == token.AND {
-						if c, ok := a.X.(*ast.CompositeLit); ok {
-							lit = c
-						}
-					}
-				}
-				if lit == nil {
-					continue
-				}
-				if sel, ok := lit.Type.(*ast.SelectorExpr); ok && sel.Sel.Name == "TxOptions" {
-					for _, elt := range lit.Elts {
-						kv, ok := elt.(*ast.KeyValueExpr)
-						if !ok {
-							continue
-						}
-						if id, ok := kv.Key.(*ast.Ident); ok && id.Name == "ReadOnly" {
-							opensReadOnlyTx = true
-						}
-					}
+					readBegins++
 				}
 			}
 		}
 		return true
 	})
-	if !opensReadOnlyTx {
-		t.Error("ReadWorkflowOperatorQuestion must open one read-only transaction for its reads (CD-0173 D2)")
+	return readBegins, dbRefs
+}
+
+func TestOperatorQuestionReadSnapshotGuardBites(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name, body string
+		valid      bool
+	}{
+		{"one snapshot", `if s.db == nil { return }; tx, _ := beginReadTx(ctx, s.db); tx.QueryRowContext(ctx, "SELECT 1")`, true},
+		{"pool read", `if s.db == nil { return }; tx, _ := beginReadTx(ctx, s.db); s.db.QueryRowContext(ctx, "SELECT 1"); _ = tx`, false},
+		{"two snapshots", `if s.db == nil { return }; beginReadTx(ctx, s.db); beginReadTx(ctx, s.db)`, false},
+		{"no snapshot", `if s.db == nil { return }; s.db.QueryRowContext(ctx, "SELECT 1")`, false},
+		{"wrong database", `if s.db == nil { return }; beginReadTx(ctx, other)`, false},
 	}
-	allowed := 1 // the open guard is the only other permitted use
-	if beginTxReceiverPos.IsValid() {
-		allowed++ // the transaction is opened from the store handle itself
-	}
-	if dbRefs > allowed {
-		t.Errorf("ReadWorkflowOperatorQuestion references s.db %d times; only the open guard and the BeginTx receiver are permitted, every read must flow through the transaction", dbRefs)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			file, err := parser.ParseFile(token.NewFileSet(), "fixture.go", "package store; func read() {"+tt.body+"}", 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			body := file.Decls[0].(*ast.FuncDecl).Body
+			begins, refs := operatorQuestionReadSnapshotCounts(body)
+			valid := begins == 1 && refs <= 1+begins
+			if valid != tt.valid {
+				t.Fatalf("begins=%d pool references=%d: valid=%t, want %t", begins, refs, valid, tt.valid)
+			}
+		})
 	}
 }
 

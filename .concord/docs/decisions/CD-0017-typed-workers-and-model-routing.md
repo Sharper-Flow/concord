@@ -1,9 +1,6 @@
-# CD-0017: Typed Workers and Model Routing
+# CD-0017: Typed workers and model evidence
 
 **Status:** Accepted 2026-08-11.
-**Amended:** 2026-08-11. Clarified fallback resolution semantics and replaced Invariant 7.
-**Amended:** 2026-08-15. Added undeclared-role terminal evidence and restated `resolved ≠ readback` scope.
-**Amended:** 2026-09-14. Added exact approval and fresh retry identity and epoch for failed worker attempts.
 **Type:** Architecture decision (spike outcome)
 **Spike:** [`../research/R6-typed-workers-and-model-routing.md`](../research/R6-typed-workers-and-model-routing.md)
 **Issue:** [#57](https://github.com/Sharper-Flow/concord/issues/57)
@@ -13,24 +10,14 @@
 
 ## Context
 
-Concord has accepted workflow, tool-surface, and context-continuity law, but no law
-governs *who executes a lane of work or on which model*. Issue #57 requires every
-sub-agent used by future Concord runtime orchestration to be a typed, versioned
-Concord-owned definition, because predecessor experience showed generic host agents
-drift on policy, authority, evidence, and result shape precisely at the delegation
-boundary.
+Issue #57 requires every sub-agent used by Concord runtime orchestration to be
+a typed, versioned Concord-owned definition. Generic host agents can drift on
+policy, authority, evidence, and result shape at the delegation boundary.
 
-R6 traced the accepted law, compared three ownership options, and established
-OpenCode host feasibility from product documentation. It also separated two concerns
-the predecessor bundled: the **worker contract** (lane identity, packet/report
-schemas, budgets, evidence obligations, authority boundary) — ordinary Product law —
-and the **worker process** (spawn, model resolution, fallback) — host capability the
-host already provides and observes better than Concord can.
-
-Operational history on the host confirms the split: multi-provider fallback chains
-are routine production behavior, and a past failover-observability gap had to be
-closed with durable logging before a rollback trigger was actionable. Fallback that
-is not recorded is indistinguishable from silent substitution.
+R6 separates the **worker contract** (lane identity, packet/report schemas,
+budgets, evidence obligations, authority boundary) from the **worker process**
+(spawn and model resolution). The contract is Product law. The host owns the
+process, and Concord records the executing identity through readback.
 
 ## Decision
 
@@ -48,36 +35,20 @@ Unknown lane type, version, or digest **fails closed before work begins**.
 
 ### D2. Host owns process and model dispatch
 
-The OpenCode adapter resolves each lane to a concrete agent definition with a pinned
-model and performs dispatch through documented host mechanisms (agent frontmatter
-`model`, `opencode run --agent --model`, or SDK session creation). The adapter
-validates **envelopes and identity only**; all domain semantics remain in the Go
-core per CD-0005 D6.
+The OpenCode adapter dispatches each registered lane through documented host
+mechanisms. It selects no model and omits `--model`. OpenCode resolves the
+executing model from host configuration. The adapter validates envelopes and
+identity only; domain semantics remain in the Go core under CD-0005 D6.
 
-Every registered lane definition **must pin a model**. OpenCode's documented
-inheritance rule runs an unpinned subagent on the invoking primary's model, which
-would make executing-model identity invisible. Pinning is the distinctness control,
-not a preference. Pinning declares the lane's **preferred** model and defeats
-invisible host inheritance; it does not forbid a host-resolved, declared, recorded
-fallback per D3/D9. A pinned model that never runs because a declared fallback ran
-instead is not a pinning violation; an undeclared or unrecorded model is.
+Lane definitions are model-neutral. Capability classes describe lane intent;
+they do not select a model or define a legal resolution set. Every attempt
+records the actual executing-model identity reported by the host under D5.
 
-### D3. Model routing binds capability classes, not vendor identifiers
+### D3. Capability classes describe lane intent
 
-A lane contract names a **capability class** with context-window and cost ceilings.
-Host configuration resolves the class to a concrete preferred model plus an ordered
-fallback chain (for example through the operator's model-routing plugin). Provider
-releases then change host configuration, never durable law.
-
-Preferred-model unavailability, rate limiting, budget exhaustion, or provider
-failure produces one of two typed outcomes on the owning workflow attempt: a
-**recorded fallback resolution** (a declared fallback model resolved by host
-configuration per D9 and confirmed by readback — a legal outcome), or a **blocked**
-outcome (the declared resolution set is exhausted — a typed failure). The
-`resolved_model` recorded at dispatch is whichever member of the declared
-resolution set the host resolved to. Silent substitution — a model that ran but is
-neither declared in the resolution set nor matched by readback — is the prohibited
-defect, and whatever model actually ran must appear in evidence per D5.
+A lane contract names a **capability class** with context-window and cost
+ceilings. The class is a model-neutral label, not a runtime routing input.
+Provider releases change host configuration, never durable lane law.
 
 ### D4. Worker authority boundary
 
@@ -99,66 +70,31 @@ authority, not labor.
 Every worker attempt records durably:
 
 - requested lane identifier, version, and contract digest;
-- requested capability class, routing-policy version, and routing-policy digest;
-- resolved provider/model at dispatch, its **resolution role**
-  (`preferred` | `fallback`), and — when the role is fallback — a typed
-  **fallback reason**;
-- **readback executing-model identity** read from the host after the run;
+- executing-model identity read from the host after the run;
 - packet and report schema versions.
 
-The typed dispatch failure is `resolved ≠ readback`, or `resolved ∉` the declared
-resolution set. A fallback event recorded through readback — `resolved` is a
-declared fallback member and `readback == resolved` — is legal evidence; an
-unrecorded model change is a defect.
+Concord records which model executed the attempt. It asserts no intended
+model and no legal resolution set, so it claims no substitution detection.
 
-*(Amended 2026-08-15, issue #106 — two clarifications the mechanism can now
-back.)*
-
-*First: an executing model outside the declared resolution set, and an
-exhausted resolution chain where no model ran, are now recordable as terminal
-evidence. The dispatch payload's resolution role gains `undeclared`, legal
-only together with a forced terminal failure: `model_identity_mismatch` with
-the undeclared model recorded exactly as read back, or
-`routing_policy_exhausted` with no model. Such attempts are born `failed`,
-can never bind a completion, and exist so the prohibited outcome D5 names is
-durable evidence rather than an adapter-level rejection that is then
-discarded.*
-
-*Second: what `resolved ≠ readback` actually detects. Against the current
-host's single-shot `opencode run`, resolution and execution arrive as one
-observation — a fallback presents as a new assistant message carrying the
-fallback model, with the typed reason on a separate status action — so
-`resolved` and `readback` derive from the same reading and the comparison
-guards **attempt binding across the two CLI invocations** (crossed attempt
-ids, replay, adapter defects), not host-side substitution. A host that
-silently substitutes the model after dispatch is not detectable by this
-clause on the single-shot path. If a session-attached dispatch
-(`--attach`) ever makes resolution and execution separately observable,
-this clause should be revisited; until then no reader may infer a
-substitution guarantee.*
-
-*(Amended 2026-09-06, issue #826 — a lost readback is terminal evidence, and
-the dispatch event binds the admitted worktree.)*
-
-*A readback that yields no executing-model identity, or more than one, is not
+A readback that yields no executing-model identity, or more than one, is not
 an adapter error to discard. The adapter records exactly one failed attempt in
 one event: a dispatch born `failed`, with an empty `readback_model` and a kind
 of `model_readback_missing` or `model_readback_ambiguous`, carrying the
 refusing predicate, the export digest, and the export byte count. One event is
 one transaction, so no `dispatched` attempt can outlive a stopped process. The
 schema admits an empty `readback_model` only under those two failed kinds. The
-attempt is never retried; a new attempt is a new decision.*
+attempt is never retried; a new attempt is a new decision.
 
-*The dispatch event also records `worker_worktree_identity`, the sha256 of the
+The dispatch event also records `worker_worktree_identity`, the sha256 of the
 canonical session worktree path the core admitted under CD-0102 D7. Later
-worker evidence binds to that claim without a machine path in a public event.*
+worker evidence binds to that claim without a machine path in a public event.
 
-*A failed worker attempt remains terminal and immutable. A retry is a new fenced
+A failed worker attempt remains terminal and immutable. A retry is a new fenced
 attempt, with a new attempt identity and step epoch. The agent boundary must first
 obtain an exact operator approval bound to the failed attempt, its epoch, and the
 unchanged approved contract. Missing, stale, or reused approval refuses without a
 new dispatch. The retry limit remains three attempts, and a worker session cannot
-resume the failed attempt.*
+resume the failed attempt.
 
 `worker.completed` and `worker.failed` bind to the dispatched attempt's exact work
 item and make one transition from `dispatched`. Both terminal states are immutable;
@@ -169,8 +105,8 @@ a later terminal event cannot replace failure with success or success with failu
 CD-0013 §D5 evaluates evaluator distinctness against the *executing* identity. This
 decision extends that principle one dimension: where a workflow declares independent
 evaluation, implementation and review resolving to the **same readback model
-identity** is a structural rejection. The check evaluates actual (readback)
-identities so fallback-induced collisions are caught.
+identity** is a structural rejection. The check evaluates actual readback
+identities.
 
 Distinctness is available to every workflow and declared per workflow; it is not
 globally mandatory. R6 §5 records the measurement protocol (same-model vs
@@ -185,31 +121,6 @@ packet/report schemas, dispatch fencing, evidence recording, distinctness reject
 remains in Go tests. Behavioral evals never complete gates and never substitute for
 schema or state checks.
 
-### D8. Relationship to host model-routing infrastructure
-
-The operator's existing model-routing TUI/plugin (primary-plus-ordered-fallback per
-agent) is the **accepted host mechanism** for D3 fallback chains. Concord lane
-definitions become routing targets of that infrastructure; Concord does not
-re-implement provider fallback, and the infrastructure does not learn Concord law.
-The host mechanism provides **recovery** (preferred → ordered fallback), not merely
-evidence. The legal resolution set — the members a host chain may resolve to for a
-capability class without producing silent substitution — is declared in the
-Concord-owned routing-policy record (D9), kept consistent with the host chain. The
-host owns runtime fallback mechanics; Concord owns the evidence boundary that
-decides which resolutions are legal to record. The boundary is the same one
-capability-placement.md draws: provider mechanics are orchestrated, Product truth
-is owned.
-
-### D9. Routing-policy record
-
-A canonical routing-policy record lives in `contracts/`, generated and
-digest-pinned under the same regime as the lane registry (D1). Each entry binds a
-capability class to an ordered resolution set `[preferred, fallback…]` where
-`preferred` equals the `pinned_model` of every lane of that class. A dispatch pins
-`(capability_class, routing_policy_version, routing_policy_digest)`, and
-`resolved_model` must be a member of the declared set. Provider releases change the
-routing-policy record and host configuration, not the lane registry (D3).
-
 ## Invariants
 
 1. Every orchestration dispatch structurally references one registered lane
@@ -219,12 +130,10 @@ routing-policy record and host configuration, not the lane registry (D3).
    typed report.
 3. Unknown type/version/digest fails closed before authority changes.
 4. Worker runs never record workflow step transitions, verdicts, or completion.
-5. Every lane definition pins a model; unpinned inheritance is a registry defect.
+5. Every lane definition declares a model-neutral capability class, not a model pin.
 6. Readback executing-model identity appears in every worker attempt's evidence.
-7. A fallback produces a typed outcome — preferred resolution, recorded fallback
-   resolution (`resolved ∈` declared set, `readback == resolved`), or blocked —
-   with a recorded actual model. Silent substitution (`resolved ∉` declared set,
-   or `readback ≠ resolved`) is a defect.
+7. Missing or ambiguous executing-model readback produces one attempt born `failed`
+   with its typed failure and no executing-model value.
 8. Lane contracts and schemas evolve only through the accepted versioning mechanism.
 9. No Concord self-hosting claim occurs before this decision is implemented and
    included in replacement-readiness evidence.
@@ -236,11 +145,9 @@ routing-policy record and host configuration, not the lane registry (D3).
 - Delegation-boundary drift (#57's motivation) is closed structurally: contract,
   packet, result, and evidence stay inside Concord law while labor is delegated and
   verified by readback.
-- Best-fit model routing per lane without vendor rot in durable law.
 - R1/CD-0013 preserved: no nested workflow authority is created.
 - CD-0016's clean-restart path is unblocked: a typed registry exists for restart
   injection to target.
-- Host fallback investment is reused, not duplicated.
 
 ### Cost
 
@@ -265,13 +172,10 @@ routing-policy record and host configuration, not the lane registry (D3).
 
 ## Implementation acceptance
 
-Per issue #57 and its accepted additions:
-
 - Canonical lane registry with generated schemas and validators; deterministic
   rejection tests for unknown type/version/digest and for generic-agent dispatch.
-- Dispatch/readback evidence recorded per attempt; resolved-vs-readback mismatch is
-  a typed failure.
-- Preferred-model unavailability produces a typed fallback/blocked outcome.
+- Actual executing-model readback recorded per attempt; missing or ambiguous
+  readback produces a typed failed attempt under D5.
 - Reviewer/model distinctness rejection is deterministic where declared.
 - Research, implementation, and review lanes complete an end-to-end synthetic
   workflow with typed evidence.
@@ -281,7 +185,7 @@ Per issue #57 and its accepted additions:
 
 ## Supersession
 
-CD-0017 does not supersede CD-0005, CD-0013, or CD-0016; it amends CD-0005's scope
-by adding the worker-lane dimension above the adapter boundary. Changes to D1–D8
-follow the accepted decision-supersession path and record explicit operator
-acceptance.
+CD-0017 does not supersede CD-0005, CD-0013, or CD-0016. It adds the worker-lane
+dimension above CD-0005's adapter boundary. A compatible amendment keeps this ID
+and publishes a new content hash under CD-0036 D2. A breaking replacement uses
+an accepted new law ID and the CD-0036 cutover. The operator approves the law delta.

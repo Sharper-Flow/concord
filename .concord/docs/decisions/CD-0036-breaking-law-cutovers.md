@@ -42,6 +42,11 @@ A compatible amendment keeps the same stable law ID and publishes a new content
 hash. Existing consumers remain valid under their recorded revision; continuity
 may show that a newer compatible revision exists.
 
+A compatible amendment edits the owning record in place. Its body states the
+current rule without amendment dates, override instructions, or change history.
+Git history preserves earlier text. A new independent decision receives its own
+record. A breaking replacement follows the new-ID cutover below.
+
 A change that requires existing consumers to reconsider their contract is not a
 compatible amendment. It must publish a new law ID, mark the old record
 `superseded`, and declare the existing `supersedes` relation from the accepted

@@ -146,7 +146,7 @@
       "cli_verbs": [],
       "default_path_rules": null,
       "domain_id": "agent-surface",
-      "mapped_count": 371,
+      "mapped_count": 372,
       "name": "Agent surface",
       "owner_id": "domain:agent-surface",
       "path_rules": {
@@ -189,7 +189,7 @@
         ]
       },
       "purpose": "Owns the typed agent plane: the read and mutation tool surface, its budget and evolution constraints, call context, lanes and worker dispatch, the adapter transport contract, and the agent result envelope.",
-      "test_count": 237,
+      "test_count": 238,
       "test_packages": [
         "github.com/sharper-flow/concord/internal/agent",
         "github.com/sharper-flow/concord/internal/store"
@@ -210,6 +210,7 @@
         "adapter/opencode/evals/assertions/lane-report.test.ts",
         "adapter/opencode/evals/coordinator/test_capture_evaluation.py",
         "adapter/opencode/evals/coordinator/test_evaluation.py",
+        "adapter/opencode/evals/coordinator/test_production_parity.py",
         "adapter/opencode/evals/coordinator/test_run_cleanup.py",
         "adapter/opencode/evals/coordinator/test_run_provenance.py",
         "adapter/opencode/fixture_owner.test.ts",
@@ -2953,6 +2954,7 @@
     "adapter/opencode/evals/coordinator/scenarios.py": "agent-surface",
     "adapter/opencode/evals/coordinator/test_capture_evaluation.py": "agent-surface",
     "adapter/opencode/evals/coordinator/test_evaluation.py": "agent-surface",
+    "adapter/opencode/evals/coordinator/test_production_parity.py": "agent-surface",
     "adapter/opencode/evals/coordinator/test_run_cleanup.py": "agent-surface",
     "adapter/opencode/evals/coordinator/test_run_provenance.py": "agent-surface",
     "adapter/opencode/evals/packets/design-bounded-task.json": "agent-surface",
@@ -3951,7 +3953,7 @@
     "skills/README.md": "agent-surface",
     "workflows/README.md": "workflow-engine"
   },
-  "mapped_count": 1876,
+  "mapped_count": 1877,
   "schema_version": "1.0",
   "scope": "coarse file navigation, not law homes or semantic mechanism ownership",
   "test_coverage": {

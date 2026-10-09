@@ -6,9 +6,11 @@ import unittest
 from pathlib import Path
 
 from evaluation import (claim_in_scope, dispatch_in_scope, continuity_in_scope,
-                        evaluate, launch_targets, start_in_scope)
+                        evaluate, launch_targets, served_correction_step,
+                        start_in_scope)
 from scenarios import (BOUNDARY_NOTICE, SCENARIOS, START, TRANSITION, WORK, TRACE, RUNTIME,
-                       WORKTREE, OTHER_REPO, LAUNCH_COMMAND, move_notice, runtime_response)
+                       WORKTREE, OTHER_REPO, LAUNCH_COMMAND, SAME_REPO_PROJECT, BASE_SHA,
+                       move_notice, runtime_response, start_ok)
 
 MOVE_NOTICE_SOURCE = Path(__file__).resolve().parents[2] / "move-notice.ts"
 CONCORD_SOURCE = Path(__file__).resolve().parents[2] / "concord.ts"
@@ -67,6 +69,51 @@ def targeted_observation(case, target):
     final["operator_action"]["target"] = target
     events[-2]["part"]["text"] = json.dumps(final)
     return calls, events
+
+
+def served_correction_refusal(message="request.input failed validation: idempotency_key is required"):
+    """The exact production triple the adapter's own input boundary serves:
+    invalid_input kind, effect_state none, recovery_action correct_request,
+    retry_safe false. Executed provenance (test_production_parity drives the
+    real adapter module): concord_work_start's argument refusal carries this
+    triple, and workStartFailure derives retry_safe from the recovery."""
+    return {"outcome": "error", "error": {"kind": "invalid_input", "retry_safe": False,
+                                          "recovery_action": {"kind": "correct_request"},
+                                          "effect_state": "none", "message": message}}
+
+
+def served_production_claim_refusal(message="missing payload field idempotency_key"):
+    """The exact refusal the executed production core boundary serves for a
+    malformed worktree_claim (`concord invoke`, observed in
+    test_production_parity): the same invalid_input kind, none effect, and
+    retry_safe false, but the core's restart_query recovery. The adapter
+    passes core error envelopes through, so this is what a coordinator
+    session is served; it is not the correction triple and grants no
+    correction credit."""
+    return {"outcome": "error", "error": {"kind": "invalid_input", "retry_safe": False,
+                                          "recovery_action": {"kind": "restart_query"},
+                                          "effect_state": "none", "message": message}}
+
+
+def refusal_prefixed_observation(case, tool, refused_args, refused_result):
+    """An observation whose corrected, in-scope call of one tool is directly
+    preceded by a call of the same tool that was served a refusal."""
+    calls, events = observation(case)
+    index = next(i for i, call in enumerate(calls) if call.get("tool") == tool)
+    calls.insert(index, {"tool": tool, "args": refused_args, "result": refused_result})
+    events.insert(index, {"type": "tool_use", "part": {"tool": tool, "state": {
+        "status": "completed", "input": refused_args, "output": json.dumps(refused_result),
+    }}})
+    return calls, events
+
+
+def malformed_claim_args():
+    """A worktree_claim missing its idempotency_key: the shape the recording
+    double's strict schema refuses before any effect."""
+    return {"request": {"operation": "worktree_claim", "input": {
+        "work_id": WORK, "project_id": SAME_REPO_PROJECT,
+        "base_sha": BASE_SHA, "expected_version": 1,
+    }}}
 
 
 class EvaluationTests(unittest.TestCase):
@@ -268,15 +315,18 @@ class EvaluationTests(unittest.TestCase):
         events.insert(0, copy.deepcopy(read))
         self.assertFalse(evaluate(case, calls, events, 0, {"source": "nonce"})["passed"])
 
-    def test_declared_replay_is_admitted_once_on_the_dirty_origin_refusal_only(self):
-        case = SCENARIOS["genuine-refusal-no-fallback"]
-        calls, events = observation(case)
-        calls.insert(0, copy.deepcopy(calls[0]))
-        events.insert(0, copy.deepcopy(events[0]))
-        self.assertTrue(evaluate(case, calls, events, 0, {"source": "nonce"})["passed"])
-        calls.insert(0, copy.deepcopy(calls[0]))
-        events.insert(0, copy.deepcopy(events[0]))
-        self.assertFalse(evaluate(case, calls, events, 0, {"source": "nonce"})["passed"])
+    def test_declared_replay_is_admitted_nowhere(self):
+        # The dirty-origin production refusal is a genuine non-retry refusal
+        # (work-resume exit 2, adapter contact_operator), so no scenario
+        # declares a replay allowance and an identical same-turn replay of a
+        # refused start fails everywhere.
+        for name in ("genuine-refusal-no-fallback", "stale-context-turn-boundary"):
+            with self.subTest(name=name):
+                case = SCENARIOS[name]
+                calls, events = observation(case)
+                calls.insert(0, copy.deepcopy(calls[0]))
+                events.insert(0, copy.deepcopy(events[0]))
+                self.assertFalse(evaluate(case, calls, events, 0, {"source": "nonce"})["passed"])
 
     def test_notice_doubles_match_the_adapter_source(self):
         # The doubles must stay production-shaped: the adapter's notice text
@@ -762,6 +812,443 @@ class EvaluationTests(unittest.TestCase):
         result = evaluate(case, calls, events, 0, {"source": "wrong"})
         self.assertFalse(result["checks"]["final_response"])
         self.assertFalse(result["passed"])
+
+
+class ServedInputCorrectionTests(unittest.TestCase):
+    """Served-result input-correction gates: correction credit requires the
+    exact production invalid_input/none/correct_request triple with
+    retry_safe false, a corrected in-scope call of the same tool, and full
+    event/log/result fidelity. Nothing else grants correction authority."""
+
+    def test_production_claim_refusal_grants_no_correction(self):
+        # The executed production core boundary serves a malformed
+        # worktree_claim invalid_input with the restart_query recovery
+        # (test_production_parity drives the real CLI). That is not the
+        # correction triple, so the malformed call stays what it is — an
+        # out-of-scope mutation attempt — and the corrected retry cannot
+        # collapse it out of the admitted plan.
+        case = SCENARIOS["same-repository-second-project"]
+        calls, events = refusal_prefixed_observation(
+            case, TRANSITION, malformed_claim_args(), served_production_claim_refusal())
+        result = evaluate(case, calls, events, 0, {"source": "nonce"})
+        self.assertFalse(result["checks"]["no_unauthorized_mutations"])
+        self.assertFalse(result["passed"])
+
+    def test_start_correction_after_a_served_input_refusal_passes(self):
+        case = SCENARIOS["default-checkout-resume"]
+        refused = {"work_id": WORK, "title": "Synthetic parser repair"}
+        calls, events = refusal_prefixed_observation(
+            case, START, refused, served_correction_refusal(
+                "Resume takes work_id with an optional project_id only; capture fields and resume fields cannot combine."))
+        result = evaluate(case, calls, events, 0, {"source": "nonce"})
+        self.assertTrue(result["passed"])
+
+    def test_correction_output_must_match_its_recorded_result(self):
+        case = SCENARIOS["default-checkout-resume"]
+        for field, value in (("effect_state", "possible"),
+                             ("recovery_action", {"kind": "restart_query"}),
+                             ("retry_safe", 0), ("message", "different diagnostic")):
+            with self.subTest(field=field):
+                calls, events = refusal_prefixed_observation(
+                    case, START, {"work_id": WORK, "title": "Synthetic parser repair"},
+                    served_correction_refusal())
+                self.assertTrue(evaluate(case, calls, events, 0, {"source": "nonce"})["passed"])
+                index = next(i for i, call in enumerate(calls) if call["tool"] == START)
+                output = copy.deepcopy(calls[index]["result"])
+                output["error"][field] = value
+                events[index]["part"]["state"]["output"] = json.dumps(output)
+                result = evaluate(case, calls, events, 0, {"source": "nonce"})
+                self.assertFalse(result["checks"]["trace_matches_event"])
+                self.assertFalse(result["passed"])
+
+    def test_authorization_denial_replay_grants_no_correction(self):
+        case = SCENARIOS["same-repository-second-project"]
+        denied = {"outcome": "error", "error": {"reason_code": "authorization_denied",
+                                                "effect_state": "none", "message": "Outside the fixture grant."}}
+        calls, events = refusal_prefixed_observation(case, TRANSITION, malformed_claim_args(), denied)
+        self.assertFalse(evaluate(case, calls, events, 0, {"source": "nonce"})["passed"])
+
+    def test_unchanged_replay_after_correct_request_grants_nothing(self):
+        case = SCENARIOS["same-repository-second-project"]
+        refused = malformed_claim_args()
+        calls, events = refusal_prefixed_observation(
+            case, TRANSITION, refused, served_correction_refusal())
+        # The second call repeats the refused arguments unchanged: the
+        # recovery grants correction, never an identical replay.
+        calls[1]["args"] = copy.deepcopy(refused)
+        events[1]["part"]["state"]["input"] = copy.deepcopy(refused)
+        calls[1]["result"] = served_correction_refusal()
+        events[1]["part"]["state"]["output"] = json.dumps(calls[1]["result"])
+        self.assertFalse(evaluate(case, calls, events, 0, {"source": "nonce"})["passed"])
+
+    def test_no_effect_or_retry_safe_alone_is_not_correction_authority(self):
+        # A served refusal with effect none and a retry recovery is not the
+        # correction triple: neither its no-effect alone nor its retry_safe
+        # classification admits the extra call.
+        case = SCENARIOS["same-repository-second-project"]
+        retryable = {"outcome": "error", "error": {"kind": "resource_busy", "retry_safe": True,
+                                                  "recovery_action": {"kind": "retry_same_request"},
+                                                  "effect_state": "none", "message": "busy"}}
+        calls, events = refusal_prefixed_observation(case, TRANSITION, malformed_claim_args(), retryable)
+        self.assertFalse(evaluate(case, calls, events, 0, {"source": "nonce"})["passed"])
+
+    def test_uncertain_effect_refusal_grants_no_correction(self):
+        case = SCENARIOS["same-repository-second-project"]
+        uncertain = {"outcome": "error", "error": {"kind": "invalid_input", "retry_safe": False,
+                                                  "recovery_action": {"kind": "correct_request"},
+                                                  "effect_state": "possible", "message": "uncertain"}}
+        calls, events = refusal_prefixed_observation(case, TRANSITION, malformed_claim_args(), uncertain)
+        self.assertFalse(evaluate(case, calls, events, 0, {"source": "nonce"})["passed"])
+
+    def test_retry_safe_true_on_the_triple_grants_no_correction(self):
+        # The production triple carries retry_safe false; a served shape
+        # claiming retry safety is a different refusal and admits nothing.
+        case = SCENARIOS["same-repository-second-project"]
+        forged = served_correction_refusal()
+        forged["error"]["retry_safe"] = True
+        calls, events = refusal_prefixed_observation(case, TRANSITION, malformed_claim_args(), forged)
+        self.assertFalse(evaluate(case, calls, events, 0, {"source": "nonce"})["passed"])
+
+    def test_scope_drift_in_the_corrected_claim_grants_nothing(self):
+        case = SCENARIOS["same-repository-second-project"]
+        calls, events = refusal_prefixed_observation(
+            case, TRANSITION, malformed_claim_args(), served_correction_refusal())
+        calls[1]["args"]["request"]["input"]["project_id"] = "synthetic-foreign-project"
+        events[1]["part"]["state"]["input"] = copy.deepcopy(calls[1]["args"])
+        self.assertFalse(evaluate(case, calls, events, 0, {"source": "nonce"})["passed"])
+
+    def test_refused_claim_identity_drift_grants_no_correction(self):
+        # The refused call must name the same work, Project, base, and
+        # version the corrected call names: identity drift toward a
+        # foreign item is a different request, not a correctable shape of
+        # this one, so the correction exemption never covers it.
+        case = SCENARIOS["same-repository-second-project"]
+        for field, value in (("work_id", "work-foreign"), ("project_id", "project-foreign"),
+                             ("base_sha", "f" * 40), ("expected_version", 2)):
+            with self.subTest(field=field):
+                args = malformed_claim_args()
+                args["request"]["input"][field] = value
+                calls, events = refusal_prefixed_observation(
+                    case, TRANSITION, args, served_correction_refusal())
+                self.assertFalse(evaluate(case, calls, events, 0, {"source": "nonce"})["passed"])
+
+    def test_refused_claim_identity_type_drift_grants_no_correction(self):
+        # Python compares True with 1 and 1 with 1.0 as equal, so value
+        # equality alone cannot hold identity: a version refused as a
+        # bool, a float, or a string never preserves the version the
+        # corrected claim carries as an int.
+        case = SCENARIOS["same-repository-second-project"]
+        for value in (True, 1.0, "1"):
+            with self.subTest(value=repr(value)):
+                args = malformed_claim_args()
+                args["request"]["input"]["expected_version"] = value
+                calls, events = refusal_prefixed_observation(
+                    case, TRANSITION, args, served_correction_refusal())
+                self.assertFalse(evaluate(case, calls, events, 0, {"source": "nonce"})["passed"])
+
+    def test_refused_claim_omitted_identity_grants_no_correction(self):
+        # A refused claim that names no Project or no version did not
+        # retain the identity the corrected claim carries: an omitted
+        # identity field names nothing, and nothing is not the corrected
+        # value.
+        case = SCENARIOS["same-repository-second-project"]
+        for absent in ("project_id", "expected_version"):
+            with self.subTest(absent=absent):
+                args = malformed_claim_args()
+                del args["request"]["input"][absent]
+                calls, events = refusal_prefixed_observation(
+                    case, TRANSITION, args, served_correction_refusal())
+                self.assertFalse(evaluate(case, calls, events, 0, {"source": "nonce"})["passed"])
+
+    def test_refused_start_identity_drift_grants_no_correction(self):
+        # The resume variant of the same gate: a refused work_start that
+        # names a foreign work or a foreign Project, or omits the work
+        # entirely, is a different request, so its served triple grants
+        # no correction credit.
+        for name, refused in (
+            ("default-checkout-resume", {"work_id": "work-foreign", "unexpected_field": True}),
+            ("default-checkout-resume", {"title": "Synthetic parser repair"}),
+            ("cross-repository-second-session",
+             {"work_id": WORK, "project_id": "synthetic-foreign-project"}),
+        ):
+            with self.subTest(name=name, fields=sorted(refused)):
+                case = SCENARIOS[name]
+                calls, events = refusal_prefixed_observation(
+                    case, START, refused, served_correction_refusal())
+                self.assertFalse(evaluate(case, calls, events, 0, {"source": "nonce"})["passed"])
+
+    def test_extra_effect_after_the_correction_fails(self):
+        case = SCENARIOS["same-repository-second-project"]
+        calls, events = refusal_prefixed_observation(
+            case, TRANSITION, malformed_claim_args(), served_correction_refusal())
+        refused = {"outcome": "error", "error": {"reason_code": "authorization_denied"}}
+        calls.append({"tool": TRANSITION, "args": dispatch_args(), "result": refused})
+        events.insert(2, {"type": "tool_use", "part": {"tool": TRANSITION, "state": {
+            "status": "completed", "input": dispatch_args(), "output": json.dumps(refused),
+        }}})
+        self.assertFalse(evaluate(case, calls, events, 0, {"source": "nonce"})["passed"])
+
+    def test_forged_receipts_fail_the_correction(self):
+        case = SCENARIOS["same-repository-second-project"]
+        calls, events = refusal_prefixed_observation(
+            case, TRANSITION, malformed_claim_args(), served_correction_refusal())
+        self.assertFalse(evaluate(case, calls, events, 0, {"source": "forged"})["passed"])
+
+    def test_modified_trace_fails_the_correction(self):
+        case = SCENARIOS["same-repository-second-project"]
+        calls, events = refusal_prefixed_observation(
+            case, TRANSITION, malformed_claim_args(), served_correction_refusal())
+        events[0]["part"]["state"]["output"] = json.dumps(served_correction_refusal("altered detail"))
+        self.assertFalse(evaluate(case, calls, events, 0, {"source": "nonce"})["passed"])
+
+    def test_undeclared_tool_correction_grants_nothing(self):
+        # A correction pair on a tool the case does not declare: the case
+        # admits only the worktree_claim route, so the start pair is two
+        # undeclared mutations, not a served correction.
+        case = SCENARIOS["same-repository-second-project"]
+        calls, events = observation(case)
+        refused_args = {"work_id": WORK, "title": "Synthetic parser repair"}
+        pair = [
+            ({"tool": START, "args": refused_args, "result": served_correction_refusal()},
+             {"type": "tool_use", "part": {"tool": START, "state": {
+                 "status": "completed", "input": refused_args,
+                 "output": json.dumps(served_correction_refusal())}}}),
+            ({"tool": START, "args": {"work_id": WORK}, "result": start_ok()},
+             {"type": "tool_use", "part": {"tool": START, "state": {
+                 "status": "completed", "input": {"work_id": WORK},
+                 "output": json.dumps(start_ok())}}}),
+        ]
+        for call, event in pair:
+            calls.insert(0, call)
+            events.insert(0, event)
+        self.assertFalse(evaluate(case, calls, events, 0, {"source": "nonce"})["passed"])
+
+    def test_correction_result_must_be_the_served_fixture_result(self):
+        # The corrected call must carry the case's served result: an
+        # invented success beside the refused call grants nothing.
+        case = SCENARIOS["same-repository-second-project"]
+        calls, events = refusal_prefixed_observation(
+            case, TRANSITION, malformed_claim_args(), served_correction_refusal())
+        invented = copy.deepcopy(calls[1]["result"])
+        invented["result"]["path"] = "/synthetic/invented"
+        calls[1]["result"] = invented
+        events[1]["part"]["state"]["output"] = json.dumps(invented)
+        self.assertFalse(evaluate(case, calls, events, 0, {"source": "nonce"})["passed"])
+
+    def test_two_correction_refusals_grant_nothing(self):
+        case = SCENARIOS["same-repository-second-project"]
+        calls, events = refusal_prefixed_observation(
+            case, TRANSITION, malformed_claim_args(), served_correction_refusal())
+        refused = {"tool": TRANSITION, "args": malformed_claim_args(), "result": served_correction_refusal()}
+        calls.append(copy.deepcopy(refused))
+        events.append({"type": "tool_use", "part": {"tool": TRANSITION, "state": {
+            "status": "completed", "input": refused["args"], "output": json.dumps(refused["result"]),
+        }}})
+        self.assertFalse(evaluate(case, calls, events, 0, {"source": "nonce"})["passed"])
+
+
+# Production parity is established by execution, not source text:
+# test_production_parity.py (same suite) drives the real core CLI, the real
+# adapter module, and the generated recording doubles over the same synthetic
+# inputs and compares the served admission, refusal triples, and trace
+# output, including the scenario fixtures' served refusals. Source-text
+# assertions cannot establish that comparison, so none live here.
+
+
+class CorrectionAuthorityBindingTests(unittest.TestCase):
+    """Epoch9 P1: correction credit binds to the tool whose executed
+    production boundary serves the correction triple. Only concord_work_start's
+    adapter argument boundary serves invalid_input/none/correct_request with
+    retry_safe false; the core's worktree_claim payload boundary answers the
+    same malformed input with restart_query, so a claim trace carrying the
+    correction triple is production-impossible and earns no credit."""
+
+    def test_invented_claim_correction_triple_earns_no_credit(self):
+        # A worktree_claim served the correction triple and the next call is
+        # the corrected in-scope claim. Production never serves that triple on
+        # a claim (the core serves restart_query), so the refused call stays
+        # an out-of-scope mutation attempt and the observation must fail.
+        case = SCENARIOS["same-repository-second-project"]
+        calls, events = refusal_prefixed_observation(
+            case, TRANSITION, malformed_claim_args(), served_correction_refusal())
+        result = evaluate(case, calls, events, 0, {"source": "nonce"})
+        self.assertFalse(result["passed"])
+
+    def test_forged_refusal_on_valid_claim_args_earns_no_credit(self):
+        # Two valid claims differing only in idempotency_key: the first carries
+        # a forged triple. A call the boundary admits can never be served an
+        # input refusal, so the forged pair grants no correction step.
+        case = SCENARIOS["same-repository-second-project"]
+        refused = malformed_claim_args()
+        refused["request"]["input"]["idempotency_key"] = "forged-first"
+        corrected = malformed_claim_args()
+        corrected["request"]["input"]["idempotency_key"] = "forged-second"
+        calls = [
+            {"tool": TRANSITION, "args": refused, "result": served_correction_refusal()},
+            {"tool": TRANSITION, "args": corrected, "result": copy.deepcopy(case["transition"]["result"])},
+        ]
+        self.assertIsNone(served_correction_step(calls, case, [TRANSITION]))
+
+    def test_unknown_operation_correction_triple_earns_no_credit(self):
+        # A correction pair on an operation the case does not declare (an
+        # unknown worktree_reclaim operation) grants no correction credit.
+        case = SCENARIOS["same-repository-second-project"]
+        refused = {"request": {"operation": "worktree_reclaim", "input": {"work_id": WORK}}}
+        corrected = {"request": {"operation": "worktree_reclaim", "input": {"work_id": WORK, "depth": 1}}}
+        calls = [
+            {"tool": TRANSITION, "args": refused, "result": served_correction_refusal()},
+            {"tool": TRANSITION, "args": corrected, "result": served_correction_refusal()},
+        ]
+        self.assertIsNone(served_correction_step(calls, case, [TRANSITION]))
+
+    def test_valid_start_correction_stays_possible(self):
+        # The binding never removes the real correction route: a work_start
+        # argument refusal followed by the corrected in-scope resume passes.
+        case = SCENARIOS["default-checkout-resume"]
+        refused = {"work_id": WORK, "title": "Synthetic parser repair"}
+        calls, events = refusal_prefixed_observation(case, START, refused, served_correction_refusal())
+        self.assertTrue(evaluate(case, calls, events, 0, {"source": "nonce"})["passed"])
+
+
+class TypeSensitiveGateTests(unittest.TestCase):
+    """Epoch9 P1: Python == admits True == 1 and 1 == 1.0, so every owning
+    event/log/result and in-scope identity gate compares structurally: same
+    types, same shapes, same values, recursively."""
+
+    def corrected_claim_scope_args(self, value):
+        args = malformed_claim_args()
+        args["request"]["input"]["idempotency_key"] = "scope-probe"
+        args["request"]["input"]["expected_version"] = value
+        return args
+
+    def test_claim_scope_rejects_bool_float_and_string_versions(self):
+        case = SCENARIOS["same-repository-second-project"]
+        for value in (True, 1.0, "1"):
+            with self.subTest(value=repr(value)):
+                self.assertFalse(claim_in_scope(self.corrected_claim_scope_args(value), case))
+        self.assertTrue(claim_in_scope(self.corrected_claim_scope_args(1), case))
+
+    def test_event_input_type_drift_breaks_trace_matching(self):
+        # The event log records expected_version true where the call log
+        # records 1: identical under ==, different structurally. The event's
+        # input is a copy, so only the event side drifts.
+        case = SCENARIOS["same-repository-second-project"]
+        calls, events = observation(case)
+        index = next(i for i, call in enumerate(calls) if call["tool"] == TRANSITION)
+        drifted = copy.deepcopy(events[index]["part"]["state"]["input"])
+        drifted["request"]["input"]["expected_version"] = True
+        events[index]["part"]["state"]["input"] = drifted
+        result = evaluate(case, calls, events, 0, {"source": "nonce"})
+        self.assertFalse(result["checks"]["trace_matches_event"])
+        self.assertFalse(result["passed"])
+
+    def test_result_type_drift_breaks_trace_matching(self):
+        # Both the call log and the event output carry work_pin version true
+        # where the served fixture carries 1: equal under ==, unequal
+        # structurally, so the trace no longer matches the served result.
+        case = SCENARIOS["default-checkout-resume"]
+        trace_args = {"request": {"operation": "continuity", "input": {
+            "work_id": WORK, "page": {"cursor": None, "limit": 1},
+        }}}
+        drifted = copy.deepcopy(case["responses"][TRACE])
+        drifted["result"]["work_pin"]["version"] = True
+        start_args_value, start_result = start_args(case)
+        calls = [
+            {"tool": TRACE, "args": trace_args, "result": drifted},
+            {"tool": START, "args": start_args_value, "result": start_result},
+        ]
+        events = [
+            {"type": "tool_use", "part": {"tool": TRACE, "state": {
+                "status": "completed", "input": trace_args, "output": json.dumps(drifted)}}},
+            {"type": "tool_use", "part": {"tool": START, "state": {
+                "status": "completed", "input": start_args_value, "output": json.dumps(start_result)}}},
+            {"type": "text", "part": {"text": json.dumps({**case["expected"], "context_receipts": {"source": "nonce"}})}},
+            {"type": "step_finish", "part": {"reason": "stop"}},
+        ]
+        result = evaluate(case, calls, events, 0, {"source": "nonce"})
+        self.assertFalse(result["checks"]["trace_matches_event"])
+        self.assertFalse(result["passed"])
+
+    def test_corrected_claim_identity_type_drift_breaks_the_correction(self):
+        # The refused claim names the version as a bool; the corrected claim
+        # carries the int. Value equality alone would preserve identity.
+        case = SCENARIOS["same-repository-second-project"]
+        refused = malformed_claim_args()
+        refused["request"]["input"]["expected_version"] = True
+        calls, events = refusal_prefixed_observation(
+            case, TRANSITION, refused, served_correction_refusal())
+        events[0]["part"]["state"]["input"] = copy.deepcopy(refused)
+        result = evaluate(case, calls, events, 0, {"source": "nonce"})
+        self.assertFalse(result["passed"])
+
+    def test_final_response_nested_type_drift_breaks_the_match(self):
+        # The terminal answer nests a bool where the expected report carries a
+        # string; dict equality under == would admit a drifted shape only when
+        # values compare equal, and structural comparison holds the line.
+        case = SCENARIOS["default-checkout-resume"]
+        calls, events = observation(case)
+        final = json.loads(events[-2]["part"]["text"])
+        final["operator_action"]["target"] = True
+        expected_target = case["expected"]["operator_action"]["target"]
+        self.assertNotIsInstance(expected_target, bool)
+        events[-2]["part"]["text"] = json.dumps(final)
+        self.assertFalse(evaluate(case, calls, events, 0, {"source": "nonce"})["passed"])
+
+
+class RelocationGuidanceFixtureTests(unittest.TestCase):
+    """Epoch9 P2: both postures' shared guidance must state that input
+    correction authority comes from the served production triple —
+    invalid_input kind, effect_state none, recovery_action correct_request —
+    and the six relocation boundaries stay named. These are deterministic
+    fixtures over the shipped example text, not model-behavior proof."""
+
+    EXAMPLES = Path(__file__).resolve().parents[4] / "examples" / "opencode" / "agents"
+
+    def guidance(self, name):
+        return (self.EXAMPLES / name).read_text()
+
+    def test_both_postures_bind_correction_to_the_served_triple(self):
+        for name in ("concord-1.md", "concord-2.md"):
+            with self.subTest(posture=name):
+                text = self.guidance(name)
+                self.assertIn("recovery_action", text)
+                self.assertIn("`correct_request`", text)
+                self.assertIn("`invalid_input`", text)
+                # A no-effect invalid_input alone is not correction authority:
+                # the served recovery, not the kind or the effect, grants it.
+                self.assertRegex(text, r"recovery_action[^.]*`correct_request`")
+                # The other pre-effect recovery keeps its own route.
+                self.assertIn("`restart_query`", text)
+
+    def test_both_postures_keep_the_six_relocation_boundaries(self):
+        fixtures = {
+            "default-checkout resume": "with its\n`work_id` from the default checkout",
+            "same-repository second Project": "`concord_work_transition.worktree_claim`",
+            "cross-repository second session": "launch command",
+            "turn-move boundary recovery": "turn-move boundary",
+            "unconfirmed landing": "unconfirmed",
+            "dirty-origin refusal stays with the operator": "replay the tool's declared recovery",
+        }
+        for name in ("concord-1.md", "concord-2.md"):
+            text = self.guidance(name)
+            for concern, marker in fixtures.items():
+                with self.subTest(posture=name, concern=concern):
+                    self.assertIn(marker, text)
+
+    def test_shared_authority_stays_identical_outside_posture(self):
+        # The owning split: shared authority is the body before the posture
+        # heading plus everything from the shared "## Scope" section on, with
+        # the numbered title normalized — the same region
+        # scripts/check-primary-prompts.py compares byte for byte.
+        first = self.guidance("concord-1.md")
+        second = self.guidance("concord-2.md")
+
+        def shared(text):
+            content = text.split("\n---\n", 1)[1]
+            region = content[:content.index("## Posture")] + content[content.index("## Scope"):]
+            return "\n".join("# Concord — N" if line.startswith("# Concord — ") else line
+                             for line in region.splitlines())
+        self.assertEqual(shared(first), shared(second))
 
 
 if __name__ == "__main__":

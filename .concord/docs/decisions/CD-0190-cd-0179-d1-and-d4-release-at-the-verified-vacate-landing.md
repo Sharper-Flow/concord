@@ -168,9 +168,6 @@ session_vacate from the verified destination.
   Rejected: the registered main checkout holds no worktree row, so the replay
   target must come from the committed request, and the release stays with the
   landing verb the readback gates.
-- Reword CD-0179 in place without a new record. Rejected: accepted law
-  changes through an explicit amendment record that carries its own authority
-  and approval.
 
 ## Consequences
 

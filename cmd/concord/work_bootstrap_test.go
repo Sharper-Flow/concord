@@ -918,10 +918,10 @@ func TestWorkBootstrapDeterministicRefusalsExit2(t *testing.T) {
 	if err := os.Remove("dirty.txt"); err != nil {
 		t.Fatal(err)
 	}
-	if code := workBootstrapReadFailureExit(&store.Failure{Kind: store.KindUnavailable, RetrySafe: true}); code != 1 {
+	if code := storeFailureExit(&store.Failure{Kind: store.KindUnavailable, RetrySafe: true}); code != 1 {
 		t.Fatalf("retryable read failure code=%d, want 1", code)
 	}
-	if code := workBootstrapReadFailureExit(&store.Failure{Kind: store.KindUnavailable, RetrySafe: false}); code != workBootstrapRefusalExit {
+	if code := storeFailureExit(&store.Failure{Kind: store.KindUnavailable, RetrySafe: false}); code != workBootstrapRefusalExit {
 		t.Fatalf("unsafe read failure code=%d, want %d", code, workBootstrapRefusalExit)
 	}
 }

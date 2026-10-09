@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -580,7 +579,7 @@ func TestSessionPrepareReportsAKilledRegistryProbeAsRetryable(t *testing.T) {
 	var out, errOut bytes.Buffer
 	code := runSessionPrepare(commandSessionPrepareInput(t, result.WorkID, "run"), s, &out, &errOut,
 		func(string) error { return nil },
-		hostSessionHostCommand,
+		hostSessionPrepareRegistry,
 		func(context.Context, string, hostCommandResolution, string, string, string) (string, error) {
 			identityCalls++
 			return "concord-1", nil
@@ -626,7 +625,7 @@ func TestTimedOutRegistryProbeTypedAndExit1(t *testing.T) {
 		func(ctx context.Context, dir string) (hostCommandResolution, error) {
 			timedCtx, timedCancel := context.WithTimeout(ctx, 50*time.Millisecond)
 			defer timedCancel()
-			return hostSessionHostCommand(timedCtx, dir)
+			return hostSessionPrepareRegistry(timedCtx, dir)
 		},
 		func(context.Context, string, hostCommandResolution, string, string, string) (string, error) {
 			identityCalls++
@@ -663,7 +662,7 @@ func TestDeterministicHostRegistryRefusalsExit2(t *testing.T) {
 		var out, errOut bytes.Buffer
 		code := runSessionPrepare(commandSessionPrepareInput(t, workID, "run"), mustOpenStore(t, dbPath), &out, &errOut,
 			func(string) error { return nil },
-			hostSessionHostCommand,
+			hostSessionPrepareRegistry,
 			func(context.Context, string, hostCommandResolution, string, string, string) (string, error) {
 				t.Fatal("the identity step ran after a refused probe")
 				return "", nil
@@ -724,15 +723,16 @@ func mustOpenStore(t *testing.T, path string) *store.Store {
 // must accept exactly that payload, or work_start can never leave outcome
 // partial.
 
-// TestSessionPrepareVerifiesTheConfiguredCommandDocument covers CD-0189 on
-// the session-prepare side of the shared probe. The bare probe reads the
-// host_command option, the second probe runs through the configured command
-// in the claimed worktree, and the registration check reads that command's
-// own document: a wrapper whose registry does not register the handle
-// refuses even though the bare host's document registers it, and a wrapper
-// whose document carries the handle and the identical host_command admits
-// the preparation.
-func TestSessionPrepareVerifiesTheConfiguredCommandDocument(t *testing.T) {
+// TestSessionPrepareProbesTheCallingHostOnce covers CD-0189 D4 on the
+// session-prepare side. session-prepare launches nothing: the session it
+// prepares keeps running in the host process that called it, under that
+// process's environment. One bare probe in the claimed worktree resolves the
+// registry that process resolves there, so a configured host_command is
+// never probed, and the registration check reads the bare document: a bare
+// document that does not register the handle refuses even when the
+// configured command's document registers it, and a bare document that
+// registers the handle admits the preparation.
+func TestSessionPrepareProbesTheCallingHostOnce(t *testing.T) {
 	newFixture := func(t *testing.T) (workID string, worktree string, dbPath string) {
 		repo := initLocatorRepo(t)
 		path := filepath.Join(t.TempDir(), "concord.db")
@@ -745,15 +745,9 @@ func TestSessionPrepareVerifiesTheConfiguredCommandDocument(t *testing.T) {
 		t.Setenv(dbOverrideEnv, path)
 		return result.WorkID, result.Entry.Path, path
 	}
-	installFakes := func(t *testing.T, recordDir string) {
+	run := func(t *testing.T, bare, wrapper string) (int, string) {
 		t.Helper()
-		installFakeHost(t, recordDir)
-		installFakeWrapper(t, recordDir)
-	}
-	t.Run("a wrapper document that does not register the handle refuses", func(t *testing.T) {
 		workID, worktree, dbPath := newFixture(t)
-		bare := `{"agent":{"concord-1":{"mode":"primary"}},"plugin":[["file:///tools/concord-plugin.ts",{"host_command":["fake-wrapper"]}]]}`
-		wrapper := `{"agent":{"someone-else":{"mode":"primary"}},"plugin":[["file:///tools/concord-plugin.ts",{"host_command":["fake-wrapper"]}]]}`
 		if err := os.WriteFile(filepath.Join(worktree, "opencode.registry.json"), []byte(bare), 0o644); err != nil {
 			t.Fatal(err)
 		}
@@ -761,62 +755,45 @@ func TestSessionPrepareVerifiesTheConfiguredCommandDocument(t *testing.T) {
 			t.Fatal(err)
 		}
 		recordDir := t.TempDir()
-		installFakes(t, recordDir)
+		installFakeHost(t, recordDir)
+		installFakeWrapper(t, recordDir)
 		t.Chdir(worktree)
 		var out, errOut bytes.Buffer
 		code := runSessionPrepare(commandSessionPrepareInput(t, workID, "run"), mustOpenStore(t, dbPath), &out, &errOut,
 			func(string) error { return nil },
-			hostSessionHostCommand,
-			func(_ context.Context, dir string, host hostCommandResolution, productID, workID, agent string) (string, error) {
+			hostSessionPrepareRegistry,
+			func(_ context.Context, _ string, host hostCommandResolution, _, _, agent string) (string, error) {
 				// The production callback verifies the resolution's registry
 				// document; the stub runs that check directly so the test
-				// observes exactly what the configured command's document
-				// decides.
-				if err := verifyHostRegistersHandle(host, agent); err != nil {
-					return "", err
-				}
-				t.Fatal("the configured command's document registered the handle the bare document's refusal should have caught")
-				return "", nil
-			},
-			func(context.Context, string, string, string) ([]byte, error) { return nil, nil })
-		if code != sessionPrepareRefusalExit {
-			t.Fatalf("prepare code=%d stderr=%q", code, errOut.String())
-		}
-		if !strings.Contains(errOut.String(), "concord-1") || !strings.Contains(errOut.String(), "not registered") {
-			t.Fatalf("diagnostic=%q, want the wrapper registry's refusal", errOut.String())
-		}
-		if count := hostRecord(t, recordDir, "wrapper-probe-count"); count != "1" {
-			t.Fatalf("configured probes=%s, want the refusal right after the second probe", count)
-		}
-	})
-	t.Run("a wrapper document that registers the handle admits the preparation", func(t *testing.T) {
-		workID, worktree, dbPath := newFixture(t)
-		registry := `{"agent":{"concord-1":{"mode":"primary"}},"plugin":[["file:///tools/concord-plugin.ts",{"host_command":["fake-wrapper"]}]]}`
-		if err := os.WriteFile(filepath.Join(worktree, "opencode.registry.json"), []byte(registry), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(worktree, "wrapper.registry.json"), []byte(registry), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		recordDir := t.TempDir()
-		installFakes(t, recordDir)
-		t.Chdir(worktree)
-		var out, errOut bytes.Buffer
-		code := runSessionPrepare(commandSessionPrepareInput(t, workID, "run"), mustOpenStore(t, dbPath), &out, &errOut,
-			func(string) error { return nil },
-			hostSessionHostCommand,
-			func(_ context.Context, dir string, host hostCommandResolution, productID, workID, agent string) (string, error) {
-				if !slices.Equal(host.Command, []string{"fake-wrapper"}) {
-					t.Fatalf("orchestrator received command %q, want the configured argv", host.Command)
-				}
+				// observes exactly what the bare document decides.
 				if err := verifyHostRegistersHandle(host, agent); err != nil {
 					return "", err
 				}
 				return agent, nil
 			},
 			func(context.Context, string, string, string) ([]byte, error) { return []byte(`{}`), nil })
+		if count := hostRecord(t, recordDir, "probe-count"); count != "1" {
+			t.Fatalf("bare probes=%s, want exactly one", count)
+		}
+		if _, err := os.Stat(filepath.Join(recordDir, "wrapper-probe-count")); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("the configured host command was probed (stat err=%v); session-prepare launches nothing through it", err)
+		}
+		return code, errOut.String()
+	}
+	const configured = `"plugin":[["file:///tools/concord-plugin.ts",{"host_command":["fake-wrapper"]}]]`
+	t.Run("a bare document that does not register the handle refuses", func(t *testing.T) {
+		code, diagnostic := run(t, `{"agent":{"someone-else":{"mode":"primary"}},`+configured+`}`, `{"agent":{"concord-1":{"mode":"primary"}},`+configured+`}`)
+		if code != sessionPrepareRefusalExit {
+			t.Fatalf("prepare code=%d stderr=%q", code, diagnostic)
+		}
+		if !strings.Contains(diagnostic, "concord-1") || !strings.Contains(diagnostic, "not registered") {
+			t.Fatalf("diagnostic=%q, want the bare registry's refusal", diagnostic)
+		}
+	})
+	t.Run("a bare document that registers the handle admits the preparation", func(t *testing.T) {
+		code, diagnostic := run(t, `{"agent":{"concord-1":{"mode":"primary"}},`+configured+`}`, `{"agent":{"someone-else":{"mode":"primary"}},`+configured+`}`)
 		if code != 0 {
-			t.Fatalf("prepare code=%d stderr=%q", code, errOut.String())
+			t.Fatalf("prepare code=%d stderr=%q", code, diagnostic)
 		}
 	})
 }

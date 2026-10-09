@@ -555,7 +555,7 @@ test("a failed domain list read never reports a possible effect", async () => {
 })
 
 test("typed CLI input refusals report invalid_input and no effect", async () => {
-  for (const [tool, operation] of [[adapter.work_define, "capture"], [adapter.work_initiative, "entries"]] as const) {
+  for (const [tool, operation] of [[adapter.work_define, "capture"], [adapter.domain, "list"]] as const) {
     adapter.configureConcordAdapter({ runner: runnerWithContext({ exitCode: 64, stdout: "", stderr: "concord invoke: missing required field input" }) })
     const result: any = await rawHostResult(tool.execute(hostCall(operation, {}), contextFor()))
     assertAdapterEnvelope(result)

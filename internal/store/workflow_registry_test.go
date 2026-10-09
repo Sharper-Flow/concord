@@ -2,8 +2,55 @@ package store
 
 import (
 	"encoding/json"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"path/filepath"
+	"strings"
 	"testing"
 )
+
+func TestBuiltinRegistriesAreLazy(t *testing.T) {
+	fset := token.NewFileSet()
+	names, err := filepath.Glob("*.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	check := func(node ast.Node) {
+		ast.Inspect(node, func(node ast.Node) bool {
+			call, ok := node.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			name, ok := call.Fun.(*ast.Ident)
+			if ok && (name.Name == "NewBuiltinWorkflowRegistry" || name.Name == "BuiltinWorkflowRegistry" || name.Name == "NewBuiltinLaneRegistry" || name.Name == "builtinLaneRegistry") {
+				t.Errorf("%s: %s builds a registry during package initialization", fset.Position(call.Pos()), name.Name)
+			}
+			return true
+		})
+	}
+	for _, name := range names {
+		if strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		file, err := parser.ParseFile(fset, name, nil, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, declaration := range file.Decls {
+			switch declaration := declaration.(type) {
+			case *ast.GenDecl:
+				if declaration.Tok == token.VAR {
+					check(declaration)
+				}
+			case *ast.FuncDecl:
+				if declaration.Name.Name == "init" {
+					check(declaration.Body)
+				}
+			}
+		}
+	}
+}
 
 func workflowProductTruth(value bool) *bool { return &value }
 

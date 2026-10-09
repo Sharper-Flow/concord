@@ -721,9 +721,9 @@ func NewBuiltinWorkflowRegistry() DefinitionRegistry {
 	return registry
 }
 
-var builtinWorkflowRegistry = NewBuiltinWorkflowRegistry()
+var builtinWorkflowRegistry = sync.OnceValue(NewBuiltinWorkflowRegistry)
 
-func BuiltinWorkflowRegistry() DefinitionRegistry { return builtinWorkflowRegistry }
+func BuiltinWorkflowRegistry() DefinitionRegistry { return builtinWorkflowRegistry() }
 
 // BuiltinWorkflowDefinitionForRef resolves the immutable built-in definition
 // selected by a work item. Capture and revise use this before opening their

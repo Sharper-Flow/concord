@@ -270,9 +270,9 @@ test("request-wrapped tools refuse a missing request wrapper before any host eff
         expect(envelope.query_id).toBeUndefined()
         expect(validateGeneratedEnvelope({ ...envelope, origin: "core" })).toBe(false)
         expect(validateGeneratedEnvelope({ ...envelope, query_id: "PM1.Q1" })).toBe(false)
-        for (const error of [{ kind: "transport_failure" }, { adapter_reason: "missing_binary" }, { effect_state: "possible" }, { retry_safe: true }, { recovery_action: { kind: "retry_same_request" } }]) {
-          expect(validateGeneratedEnvelope({ ...envelope, error: { ...envelope.error, ...error } })).toBe(false)
-        }
+      }
+      for (const error of [{ kind: "transport_failure", recovery_action: { kind: "contact_operator" } }, { adapter_reason: "missing_binary" }, { effect_state: "possible" }, { retry_safe: true }, { recovery_action: { kind: "retry_same_request" } }]) {
+        expect(validateGeneratedEnvelope({ ...envelope, error: { ...envelope.error, ...error } })).toBe(false)
       }
     }
   }

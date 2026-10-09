@@ -80,33 +80,10 @@ const GeneratedEnvelopeSchemaDocument = `{
                   "properties": {
                     "adapter_reason": {
                       "const": "invalid_request_wrapper"
-                    },
-                    "effect_state": {
-                      "const": "none"
-                    },
-                    "kind": {
-                      "const": "invalid_input"
-                    },
-                    "recovery_action": {
-                      "properties": {
-                        "kind": {
-                          "const": "restart_query"
-                        }
-                      },
-                      "required": [
-                        "kind"
-                      ]
-                    },
-                    "retry_safe": {
-                      "const": false
                     }
                   },
                   "required": [
-                    "kind",
-                    "adapter_reason",
-                    "effect_state",
-                    "retry_safe",
-                    "recovery_action"
+                    "adapter_reason"
                   ]
                 },
                 "operation": {
@@ -595,6 +572,80 @@ const GeneratedEnvelopeSchemaDocument = `{
     },
     "errorOutcome": {
       "allOf": [
+        {
+          "if": {
+            "properties": {
+              "error": {
+                "anyOf": [
+                  {
+                    "properties": {
+                      "kind": {
+                        "const": "invalid_input"
+                      }
+                    },
+                    "required": [
+                      "kind"
+                    ]
+                  },
+                  {
+                    "properties": {
+                      "adapter_reason": {
+                        "const": "invalid_request_wrapper"
+                      }
+                    },
+                    "required": [
+                      "adapter_reason"
+                    ]
+                  }
+                ]
+              },
+              "origin": {
+                "const": "adapter"
+              }
+            },
+            "required": [
+              "origin",
+              "error"
+            ]
+          },
+          "then": {
+            "properties": {
+              "error": {
+                "properties": {
+                  "adapter_reason": {
+                    "const": "invalid_request_wrapper"
+                  },
+                  "effect_state": {
+                    "const": "none"
+                  },
+                  "kind": {
+                    "const": "invalid_input"
+                  },
+                  "recovery_action": {
+                    "properties": {
+                      "kind": {
+                        "const": "restart_query"
+                      }
+                    },
+                    "required": [
+                      "kind"
+                    ]
+                  },
+                  "retry_safe": {
+                    "const": false
+                  }
+                },
+                "required": [
+                  "kind",
+                  "adapter_reason",
+                  "effect_state",
+                  "retry_safe",
+                  "recovery_action"
+                ]
+              }
+            }
+          }
+        },
         {
           "$ref": "#/$defs/base"
         },

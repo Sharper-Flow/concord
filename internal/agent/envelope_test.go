@@ -168,6 +168,29 @@ func TestAdapterWrapperRefusalUnresolvedOperation(t *testing.T) {
 	}
 }
 
+func TestAdapterWrapperRefusalAcceptedOperationCoupling(t *testing.T) {
+	for _, pair := range []struct{ tool, operation string }{{"concord_work_browse", "list"}, {"concord_work_define", "capture"}} {
+		e := NewCoreError(NewBase("wrapper-coupling", pair.tool, pair.operation), TypedError{Kind: "invalid_input", RecoveryAction: RecoveryAction{Kind: "restart_query"}, EffectState: EffectNone, AdapterReason: "invalid_request_wrapper"})
+		e.Origin, e.Authority = OriginAdapter, AuthorityUnreachable
+		for name, mutate := range map[string]func(*TypedError){
+			"transport kind":  func(e *TypedError) { e.Kind, e.RecoveryAction.Kind = "transport_failure", "contact_operator" },
+			"other reason":    func(e *TypedError) { e.AdapterReason = "missing_binary" },
+			"possible effect": func(e *TypedError) { e.EffectState = EffectPossible },
+			"retry safe":      func(e *TypedError) { e.RetrySafe = true },
+			"same request":    func(e *TypedError) { e.RecoveryAction.Kind = "retry_same_request" },
+		} {
+			t.Run(pair.tool+"/"+name, func(t *testing.T) {
+				invalid, invalidError := e, *e.Error
+				invalid.Error = &invalidError
+				mutate(invalid.Error)
+				if err := invalid.Validate(); err == nil {
+					t.Fatal("contradictory wrapper refusal accepted")
+				}
+			})
+		}
+	}
+}
+
 func TestEnvelopeRejectsUnknownVariantsAndFields(t *testing.T) {
 	t.Parallel()
 	base := NewBase("req", "concord_product_view", "resolve")

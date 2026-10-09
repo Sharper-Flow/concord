@@ -30,6 +30,8 @@
       "domain_id": "workflow-engine",
       "include": [
         "internal/workflowcorpus/**", "internal/payloadschema/**", "internal/store/workflow*.go",
+        "internal/store/outside_repair.go", "internal/store/outside_repair_test.go",
+        "internal/store/outside_repair_base_test.go", "internal/store/outside_repair_review_test.go",
         "internal/store/fence*.go", "internal/store/workpin*.go", "internal/store/await_health*.go",
         "internal/store/checkpoint*_test.go", "contracts/workflow-*", "contracts/lane-step-dispatch*",
         ".concord/scenarios/workflow-engine.v1.json", "workflows/**", "internal/store/compaction_claim_preflight_test.go",
@@ -43,7 +45,7 @@
       "domain_id": "agent-surface",
       "include": [
         "internal/agent/**", "adapter/**", ".opencode/**", "examples/opencode/**", ".concord/instructions/**",
-        "internal/store/agent*.go", "internal/store/worker*.go", "internal/store/generated_agent_lanes.go",
+        "internal/store/agent*.go", "internal/store/worker*.go", "internal/store/project_handoffs.go", "internal/store/generated_agent_lanes.go",
         "internal/store/generated_typed_error_kinds.go", "internal/store/native_runs.go", "internal/store/native_run*_test.go",
         "internal/store/generated_native_run_statuses.go", "internal/store/cursor.go", "internal/store/work_collection_cursor.go",
         "internal/store/query_corpus*_test.go", "internal/store/query_recorded_intent_test.go", "internal/store/nil_store_queries_test.go", "internal/store/first_call_contract_admission_test.go", "internal/store/lane_step_dispatch_test.go", "internal/store/record_verdict_publication_parity_test.go", "internal/store/outside_repair_schema_parity_test.go",
@@ -179,7 +181,6 @@
     {"path": "internal/store/predecessor_conflict_read_test.go", "candidate_domain_ids": ["work-coordination", "operator-surface"], "reason": "Predecessor provenance reads support operator import and work placement."},
     {"path": "internal/store/predecessor_import.go", "candidate_domain_ids": ["work-coordination", "operator-surface"], "reason": "Predecessor event/membership reads support operator import and work placement."},
     {"path": "internal/store/predecessor_import_test.go", "candidate_domain_ids": ["work-coordination", "operator-surface"], "reason": "Tests predecessor event/membership reads through the import boundary."},
-    {"path": "internal/store/project_handoffs.go", "candidate_domain_ids": ["work-coordination", "agent-surface", "workflow-engine"], "reason": "Handoff binds session/project artifacts and workflow-contract preflight."},
     {"path": "internal/store/project_handoffs_test.go", "candidate_domain_ids": ["work-coordination", "agent-surface", "workflow-engine"], "reason": "Tests session/project artifacts and workflow-contract preflight together."},
     {"path": "internal/store/query.go", "candidate_domain_ids": ["agent-surface", "work-coordination", "workflow-engine"], "reason": "Public read envelopes and several semantic work/workflow projections share a file."},
     {"path": "internal/store/query_pages.go", "candidate_domain_ids": ["agent-surface", "work-coordination"], "reason": "Pagination transport and semantic work projections share a file."},

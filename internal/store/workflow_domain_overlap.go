@@ -742,7 +742,7 @@ func eventSequenceTx(ctx context.Context, tx *sql.Tx, eventID string) (int64, er
 func terminalizeWorkflowOverlapWork(ctx context.Context, tx *sql.Tx, event Event, workID string, current, resulting int64) error {
 	terminalEvent := event
 	terminalEvent.SubjectID = workID
-	if err := updateWorkLifecycle(ctx, tx, terminalEvent, "superseded", current, resulting); err != nil {
+	if err := updateWorkLifecycle(ctx, tx, terminalEvent, "superseded", current, resulting, nil); err != nil {
 		return err
 	}
 	if err := removeTerminalResearchBindings(ctx, tx, workID, event.OccurredAt); err != nil {

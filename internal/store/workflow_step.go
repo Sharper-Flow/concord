@@ -217,7 +217,7 @@ func resetWorkflowInstanceToContractStepTx(ctx context.Context, tx *sql.Tx, work
 // admission decides; every other completed-instance action, and every
 // cancelled or superseded instance, stays immutable.
 func workflowCompletedInstanceActionImmutable(state, actionID, lifecycle string) bool {
-	if state == "cancelled" || state == "superseded" {
+	if state == "cancelled" || state == "superseded" || state == "outside_repair" {
 		return true
 	}
 	if state != "completed" {

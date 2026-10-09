@@ -325,13 +325,13 @@ func TestFirstCallApproveContractAdmitsFromPublishedVariant(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(pin.Obligations) == 0 {
+	if pin.Obligations == nil || len(*pin.Obligations) == 0 {
 		t.Fatal("pinned definition declares no obligations; the fixture cannot prove declared-obligation membership")
 	}
-	if err := BuiltinWorkflowRegistry().Verify(definition.Ref, pin.WorkflowDefinitionVersion, pin.WorkflowDefinitionDigest); err != nil {
+	if err := BuiltinWorkflowRegistry().Verify(definition.Ref, *pin.WorkflowDefinitionVersion, *pin.WorkflowDefinitionDigest); err != nil {
 		t.Fatalf("pinned definition identity does not verify: %v", err)
 	}
-	pinnedObligation := pin.Obligations[0]
+	pinnedObligation := (*pin.Obligations)[0]
 
 	defs := firstCallPublishedDefs(t)
 	// The legal binding: the added law is authorized by spec_mandate, every
@@ -486,10 +486,10 @@ func firstCallBreakFixSeed(t *testing.T, workID string) (*Store, WorkflowActor, 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(pin.Obligations) == 0 {
+	if pin.Obligations == nil || len(*pin.Obligations) == 0 {
 		t.Fatal("pinned break-fix definition declares no obligations")
 	}
-	if err := BuiltinWorkflowRegistry().Verify(registered.Definition.Ref, pin.WorkflowDefinitionVersion, pin.WorkflowDefinitionDigest); err != nil {
+	if err := BuiltinWorkflowRegistry().Verify(registered.Definition.Ref, *pin.WorkflowDefinitionVersion, *pin.WorkflowDefinitionDigest); err != nil {
 		t.Fatalf("pinned break-fix definition identity does not verify: %v", err)
 	}
 	defs := firstCallPublishedDefs(t)
@@ -501,7 +501,7 @@ func firstCallBreakFixSeed(t *testing.T, workID string) (*Store, WorkflowActor, 
 			"domain_modifies":              []string{},
 			"domain_relation_modifies":     []map[string]any{},
 			"law_additions":                []map[string]any{{"law_id": "law:new", "home_domain_id": "root"}},
-			"verification_obligations":     []map[string]any{{"law_id": "spec:one", "obligation_id": pin.Obligations[0]}},
+			"verification_obligations":     []map[string]any{{"law_id": "spec:one", "obligation_id": (*pin.Obligations)[0]}},
 		}
 	}
 	approve := firstCallActionInput(t, defs, "work_transition_action_variant_approve_contract", workID, version, map[string]any{
@@ -532,7 +532,7 @@ func TestFirstCallSupersedeContractAdmitsFromPublishedVariant(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := BuiltinWorkflowRegistry().Verify(registered.Definition.Ref, pin.WorkflowDefinitionVersion, pin.WorkflowDefinitionDigest); err != nil {
+	if err := BuiltinWorkflowRegistry().Verify(registered.Definition.Ref, *pin.WorkflowDefinitionVersion, *pin.WorkflowDefinitionDigest); err != nil {
 		t.Fatalf("pinned break-fix definition identity does not verify: %v", err)
 	}
 	defs := firstCallPublishedDefs(t)
@@ -544,7 +544,7 @@ func TestFirstCallSupersedeContractAdmitsFromPublishedVariant(t *testing.T) {
 			"domain_modifies":              []string{},
 			"domain_relation_modifies":     []map[string]any{},
 			"law_additions":                []map[string]any{{"law_id": "law:successor", "home_domain_id": "root"}},
-			"verification_obligations":     []map[string]any{{"law_id": "spec:one", "obligation_id": pin.Obligations[0]}},
+			"verification_obligations":     []map[string]any{{"law_id": "spec:one", "obligation_id": (*pin.Obligations)[0]}},
 		}
 	}
 	supersedeInput := func(mutate func(fields map[string]any)) map[string]any {
@@ -554,7 +554,7 @@ func TestFirstCallSupersedeContractAdmitsFromPublishedVariant(t *testing.T) {
 				"predicate_id": "predicate:first-call-supersede", "ordinal": 0, "outcome_kind": "check",
 				"outcome_payload": map[string]any{"kind": "check", "check_ref": "check:first-call-supersede", "immutable_subject_ref": "commit:" + workID, "expected_result": "pass"},
 			}},
-			"required_evidence":    pin.Obligations,
+			"required_evidence":    *pin.Obligations,
 			"spec_mandate":         []string{"spec:one", "law:successor"},
 			"architecture_binding": successorBinding(),
 		}
@@ -642,7 +642,7 @@ func TestFirstCallSupersedeContractAdmitsFromPublishedVariant(t *testing.T) {
 			"predicate_id": "predicate:first-call-supersede", "ordinal": 0, "outcome_kind": "exists",
 			"outcome_payload": map[string]any{"kind": "check", "check_ref": "check:first-call-supersede", "immutable_subject_ref": "commit:" + workID, "expected_result": "pass"},
 		}},
-		"required_evidence":    pin.Obligations,
+		"required_evidence":    *pin.Obligations,
 		"spec_mandate":         []string{"spec:one", "law:successor"},
 		"architecture_binding": successorBinding(),
 	})
@@ -657,7 +657,7 @@ func TestFirstCallSupersedeContractAdmitsFromPublishedVariant(t *testing.T) {
 	// owns the refusal; the published pair branches close per kind.
 	pairMismatch := firstCallActionInput(t, defs, "work_transition_action_variant_supersede_contract", workID, pin.Version, map[string]any{
 		"contract_version":     2,
-		"required_evidence":    pin.Obligations,
+		"required_evidence":    *pin.Obligations,
 		"spec_mandate":         []string{"spec:one", "law:successor"},
 		"architecture_binding": successorBinding(),
 	})
@@ -688,7 +688,7 @@ func TestFirstCallSupersedeContractAdmitsFromPublishedVariant(t *testing.T) {
 	// it, and whole-store admission records the supersession.
 	pairValid := firstCallActionInput(t, defs, "work_transition_action_variant_supersede_contract", workID, verdictItemVersion(t, s, workID), map[string]any{
 		"contract_version":     3,
-		"required_evidence":    pin.Obligations,
+		"required_evidence":    *pin.Obligations,
 		"spec_mandate":         []string{"spec:one", "law:successor"},
 		"architecture_binding": successorBinding(),
 	})

@@ -18,33 +18,36 @@ import (
 
 // Workflow event names are deliberately closed. Adding one is a contract change.
 const (
-	WorkflowDefinitionSelected       = "workflow.definition_selected"
-	WorkflowContractApproved         = "workflow.contract_approved"
-	WorkflowOverlapResolved          = "workflow.overlap_resolved"
-	WorkflowContractSuperseded       = "workflow.contract_superseded"
-	WorkflowCandidateSetRevised      = "workflow.candidate_set_revised"
-	WorkflowActorRecorded            = "workflow.actor_recorded"
-	WorkflowActionStarted            = "workflow.action_started"
-	WorkflowActionCheckpointed       = "workflow.action_checkpointed"
-	WorkflowActionCompleted          = "workflow.action_completed"
-	WorkflowActionFailed             = "workflow.action_failed"
-	WorkflowEvidenceBound            = "workflow.evidence_bound"
-	WorkflowStalenessObserved        = "workflow.staleness_observed"
-	WorkflowVerdictRecorded          = "workflow.verdict_recorded"
-	WorkflowPremiseConfirmed         = "workflow.premise_confirmed"
-	WorkflowSuccessorLinked          = "workflow.successor_linked"
-	WorkflowImpactDeclared           = "workflow.impact_declared"
-	WorkflowImpactNoticeRecorded     = "workflow.impact_notice_recorded"
-	WorkflowConditionAdded           = "workflow.condition_added"
-	WorkflowConditionResolved        = "workflow.condition_resolved"
-	WorkflowConditionCancelled       = "workflow.condition_cancelled"
-	WorkflowContextCheckpointed      = "workflow.context_checkpointed"
-	WorkflowContextBoundaryCrossed   = "workflow.context_boundary_crossed"
-	WorkflowProposalRecorded         = "workflow.proposal_recorded"
-	WorkflowDesignRecorded           = "workflow.design_recorded"
-	WorkflowBacklogAlignmentRecorded = "workflow.backlog_alignment_recorded"
-	WorkflowDeliveryCorrected        = "workflow.delivery_corrected"
-	WorkflowCompleted                = "workflow.completed"
+	WorkflowDefinitionSelected          = "workflow.definition_selected"
+	WorkflowContractApproved            = "workflow.contract_approved"
+	WorkflowOverlapResolved             = "workflow.overlap_resolved"
+	WorkflowContractSuperseded          = "workflow.contract_superseded"
+	WorkflowCandidateSetRevised         = "workflow.candidate_set_revised"
+	WorkflowActorRecorded               = "workflow.actor_recorded"
+	WorkflowActionStarted               = "workflow.action_started"
+	WorkflowActionCheckpointed          = "workflow.action_checkpointed"
+	WorkflowActionCompleted             = "workflow.action_completed"
+	WorkflowActionFailed                = "workflow.action_failed"
+	WorkflowEvidenceBound               = "workflow.evidence_bound"
+	WorkflowStalenessObserved           = "workflow.staleness_observed"
+	WorkflowVerdictRecorded             = "workflow.verdict_recorded"
+	WorkflowPremiseConfirmed            = "workflow.premise_confirmed"
+	WorkflowSuccessorLinked             = "workflow.successor_linked"
+	WorkflowImpactDeclared              = "workflow.impact_declared"
+	WorkflowImpactNoticeRecorded        = "workflow.impact_notice_recorded"
+	WorkflowConditionAdded              = "workflow.condition_added"
+	WorkflowConditionResolved           = "workflow.condition_resolved"
+	WorkflowConditionCancelled          = "workflow.condition_cancelled"
+	WorkflowContextCheckpointed         = "workflow.context_checkpointed"
+	WorkflowContextBoundaryCrossed      = "workflow.context_boundary_crossed"
+	WorkflowProposalRecorded            = "workflow.proposal_recorded"
+	WorkflowDesignRecorded              = "workflow.design_recorded"
+	WorkflowBacklogAlignmentRecorded    = "workflow.backlog_alignment_recorded"
+	WorkflowDeliveryCorrected           = "workflow.delivery_corrected"
+	WorkflowCompleted                   = "workflow.completed"
+	WorkflowOutsideRepairDispositionSet = "workflow.outside_repair_disposition_set"
+	WorkflowOutsideRepairReconciled     = "workflow.outside_repair_reconciled"
+	WorkflowOutsideRepairResumed        = "workflow.outside_repair_resumed"
 )
 
 // workflowActionCompletedWorkerJobVersion is the payload version at which a
@@ -521,6 +524,22 @@ type workflowCompletedPayload struct {
 	Warnings          []string `json:"warnings,omitempty"`
 }
 
+// Outside repair records operator authority independently of workflow gates.
+type workflowOutsideRepairDispositionPayload struct {
+	WorkflowVersionFields
+	OutsideRepairApproval
+	Reason string `json:"reason"`
+	State  string `json:"state"`
+}
+
+type workflowOutsideRepairReconcilePayload struct {
+	workflowOutsideRepairDispositionPayload
+	Evidence       OutsideRepairEvidence `json:"evidence"`
+	EvidenceSource string                `json:"evidence_source"`
+}
+
+type workflowOutsideRepairResumePayload = workflowOutsideRepairDispositionPayload
+
 var workflowKinds = map[string]bool{
 	"implementation": true, "break_fix": true, "research": true,
 	"architecture_spike": true, "ops_runbook": true, "static_analysis": true,
@@ -780,6 +799,13 @@ func workflowDigest(value string) bool {
 }
 
 func foldWorkflowDefinitionSelected(ctx context.Context, tx *sql.Tx, event Event) error {
+	if !isWorkflowReplay(ctx) {
+		if active, err := outsideRepairActiveTx(ctx, tx, event.SubjectID); err != nil {
+			return err
+		} else if active {
+			return workflowAdmit(WorkflowDefinition{}, WorkflowAdmissionState{OutsideRepairActive: true}, "select_definition").Failure
+		}
+	}
 	var p workflowDefinitionSelectedPayload
 	if err := decodeWorkflowPayload(event, &p); err != nil {
 		return err
@@ -1561,6 +1587,9 @@ func foldWorkflowActionStarted(ctx context.Context, tx *sql.Tx, event Event) err
 // leaves a resumed item untouched, and the move carries no version of its
 // own: the action already advanced the work version.
 func beginWorkflowLifecycleTx(ctx context.Context, tx *sql.Tx, event Event) error {
+	if err := requireWorkLifecycleAdmissionTx(ctx, tx, event, "in_progress", nil); err != nil {
+		return err
+	}
 	now := event.OccurredAt.UTC().Format(time.RFC3339Nano)
 	result, err := tx.ExecContext(ctx, `UPDATE work_items SET lifecycle='in_progress', updated_at=? WHERE id=? AND lifecycle='needed'`, now, event.SubjectID)
 	if err != nil {
@@ -3573,6 +3602,12 @@ func foldWorkflowCompleted(ctx context.Context, tx *sql.Tx, event Event) error {
 	if err := requireActor(ctx, tx, p.VerdictActorRef); err != nil {
 		return err
 	}
+	// An outside-repair hold cannot acquire workflow completion evidence.
+	if !isWorkflowReplay(ctx) {
+		if err := requireNoOutsideRepairTx(ctx, tx, event.SubjectID, "fold_event"); err != nil {
+			return err
+		}
+	}
 	verdict, err := latestWorkflowVerdict(ctx, tx, event.SubjectID)
 	if err != nil {
 		return err
@@ -3583,7 +3618,7 @@ func foldWorkflowCompleted(ctx context.Context, tx *sql.Tx, event Event) error {
 	if err := advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields); err != nil {
 		return err
 	}
-	result, err := tx.ExecContext(ctx, `UPDATE workflow_instances SET instance_state=?,completed_at=? WHERE work_id=? AND instance_state NOT IN ('completed','cancelled','superseded')`, p.TerminalState, event.OccurredAt.UTC().Format(time.RFC3339Nano), event.SubjectID)
+	result, err := tx.ExecContext(ctx, `UPDATE workflow_instances SET instance_state=?,completed_at=? WHERE work_id=? AND instance_state NOT IN ('completed','cancelled','superseded','outside_repair')`, p.TerminalState, event.OccurredAt.UTC().Format(time.RFC3339Nano), event.SubjectID)
 	if err != nil {
 		return err
 	}

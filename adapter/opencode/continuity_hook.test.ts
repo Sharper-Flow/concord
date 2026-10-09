@@ -257,6 +257,59 @@ test("continuity transform leaves system bytes unchanged on failure, empty outpu
   expect(unreadable.system[0]).toBe(original)
 })
 
+test("continuity transform renders a held-work block without parsing step actions", async () => {
+  // Synthetic core bytes stay opaque: rendering them grants no repair or
+  // reconciliation authority and creates no adapter-owned action.
+  const heldPacket = JSON.stringify({
+    continuity: {
+      work_id: "work-869",
+      pinned: {
+        product_identity: ["concord-product"],
+        workflow_step: null,
+        step_actions: [],
+        contract: null,
+        spec_mandate: [],
+        pending_operator_decision: null,
+        latest_checkpoint: null,
+        design_record: null,
+        unresolved_failure: null,
+        work_pin: {
+          work_id: "work-869",
+          title: "Outside repair",
+          linear_issue_key: "",
+          project_id: "project-869",
+          project_display_name: "Concord",
+          version: 4,
+          lifecycle: "in_progress",
+          workflow_type: "workflow.implementation",
+          step: "execution",
+          pending_operator_decision: null,
+          outside_repair_disposition: { state: "active", reason: "bounded outside defect repair" },
+          outside_repair_route: ["outside_repair_reconcile"],
+        },
+      },
+      latest_checkpoint: null,
+      boundaries: { count: 0, items: [], next_cursor: null, watermark: "seq:0" },
+      typed_availability: { restart: "unavailable", reason: "outside-repair disposition owns the work" },
+      pending_messages: 0,
+      observations: [],
+    },
+  })
+  const transformed = output("system prefix")
+  let calls = 0
+  const transform = createContinuityTransform({
+    sessions: fakeSessions(),
+    runner: { run: async () => { calls += 1; return { exitCode: 0, stdout: heldPacket, stderr: "" } } },
+  }) as Transform
+
+  await transform({ sessionID: "ses-held" }, transformed)
+
+  expect(transformed.system[0]).toContain(`${START}\n${heldPacket}\n${END}`)
+  expect(calls).toBe(1)
+  expect(transformed.system[0]).not.toContain("step_action_pin")
+  expect(transformed.system[0]).not.toContain("next_valid_intent")
+})
+
 test("continuity transform gates spawns by session and directory for ten seconds", async () => {
   let now = 5_000
   let calls = 0

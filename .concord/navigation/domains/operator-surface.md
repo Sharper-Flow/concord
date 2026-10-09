@@ -7,7 +7,7 @@ File accountability does not change a document's law home or a handler's semanti
 ## Responsibility
 Owns the human-facing plane: the terminal launcher, the CLI verb surface and its operator diagnostics, installation and release packaging, and the navigation path an operator uses to reach Product state.
 
-Mapped files: 158; tests: 85; unresolved candidates: 31.
+Mapped files: 161; tests: 86; unresolved candidates: 31.
 Candidate counts overlap when a file has several candidates; no candidate is an assigned owner.
 
 ## Code and tests
@@ -37,8 +37,9 @@ These are catalog surface entries, not invariant/control or handler joins.
 - CLI: `product-knowledge-source-register (product knowledge-source-register)`, `product-knowledge-source-remove (product knowledge-source-remove)`, `project-locator-add (project locator-add)`, `project-locator-update (project locator-update)`, `project-locator-remove (project locator-remove)`
 - CLI: `project-canonical-path (project canonical-path)`, `cd-reservations (cd reservations)`, `backup`, `worktree-locate`, `claim-landing`
 - CLI: `vacate-landing`, `work-bootstrap`, `work-resume`, `receipt`, `work-shelve`
-- CLI: `work-cancel`, `ci-wait`, `session-prepare`, `project-resolve (project resolve)`, `restore`
-- CLI: `predecessor-inventory (predecessor inventory)`, `predecessor-import (predecessor import)`, `host-lease`, `host-leases`, `upgrade`
+- CLI: `work-cancel`, `ci-wait`, `session-prepare`, `outside-repair`, `project-resolve (project resolve)`
+- CLI: `restore`, `predecessor-inventory (predecessor inventory)`, `predecessor-import (predecessor import)`, `host-lease`, `host-leases`
+- CLI: `upgrade`
 
 ## Verification references
 Declared repository commands are shared checks, not Domain-specific acceptance or automatic execution.

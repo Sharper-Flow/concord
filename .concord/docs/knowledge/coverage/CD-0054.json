@@ -2,7 +2,11 @@
   "evidence": [
     {
       "kind": "go_test",
-      "value": "internal/store.TestMigrateV43ToV44DropsWorkerRoutingEvidenceAndPreservesRows"
+      "value": "internal/store.TestLaneRegistryIsGeneratedClosedAndDigestPinned"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/check-agent-contracts.py"
     }
   ],
   "id": "CD-0054",

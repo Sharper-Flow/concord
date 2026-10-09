@@ -7,8 +7,10 @@
   "date": "2026-08-21T00:00:00Z",
   "doc_contract_profile": "legacy",
   "evidence": [
-    ".concord/docs/decisions/CD-0017-typed-workers-and-model-routing.md",
-    "adapter/opencode/dispatch.ts"
+    "contracts/agent-lanes.schema.json",
+    "internal/store/worker_lanes_test.go",
+    "scripts/generate-agent-lanes.py",
+    "scripts/check-agent-contracts.py"
   ],
   "home_domain_id": "agent-surface",
   "id": "CD-0054",
@@ -21,13 +23,13 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:4f1ace2c7834b0c6bbdbed796e4b9c193e0b46243698c788fd68525e3f1ceeb0",
+  "sha256": "sha256:2c33b3a29af53b8636a43596ecf761d07df09057d7794fcac40d0cdcc3080ca1",
   "status": "accepted",
-  "summary": "The routing policy loads from CONCORD_ROUTING_POLICY host state with the repo record as default template, failing closed when host state is set but unreadable; the lane registry becomes model-neutral, load-time validation replaces cross-file pinning including adapter-side opencode models existence checks, and the per-attempt digest-bound evidence boundary is unchanged.",
+  "summary": "The lane registry and its generated schemas and definitions contain no model pin. Each lane declares a capability class that describes intent without a runtime model choice; host configuration owns concrete model selection.",
   "tags": [
-    "routing",
+    "model-neutral",
     "lanes",
     "host-state"
   ],
-  "title": "Routing-policy authority is load-time host state"
+  "title": "The lane registry is model-neutral"
 }

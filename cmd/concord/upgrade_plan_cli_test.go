@@ -259,6 +259,10 @@ func pendingBreakingStore(t *testing.T, path string, unpoison bool) {
 			`DROP VIEW IF EXISTS initiative_work_scope`,
 			`DROP TABLE IF EXISTS initiative_entry_violations`,
 			`DROP TABLE IF EXISTS initiative_scope_violations`,
+			// Migration 121's guarded projection is one plain CREATE TABLE:
+			// its guard triggers and index are owned by the table and drop
+			// with it.
+			`DROP TABLE IF EXISTS worktree_ref_outcomes`,
 		} {
 			if _, err := db.Exec(statement); err != nil {
 				t.Fatalf("cannot unpoison %q: %v", statement, err)

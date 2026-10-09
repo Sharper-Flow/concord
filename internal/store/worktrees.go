@@ -356,10 +356,14 @@ func recordReclaimedRefOutcomesTx(ctx context.Context, tx *sql.Tx, p worktreeRec
 		RetainedRefs    []WorktreeRetainedRef    `json:"retained_refs"`
 		BranchDeletions []WorktreeBranchDeletion `json:"branch_deletions"`
 	}
-	if len(p.GitFacts) > 0 && json.Unmarshal(p.GitFacts, &facts) != nil {
-		// Facts the plan cannot decode carry no deletions and no retentions;
-		// the reclamation itself already validated them at append time.
-		return nil
+	if len(p.GitFacts) > 0 {
+		if err := json.Unmarshal(p.GitFacts, &facts); err != nil {
+			// Every append-time surface records facts this fold can decode,
+			// so facts that cannot decode are log corruption. Refusing typed
+			// keeps the owed rows visible; folding on would commit a
+			// reclamation whose per-ref debt silently never exists.
+			return newFailure(KindInvalidPayload, "fold_event", "worktree reclamation git facts cannot decode: "+err.Error(), false, "the recorded reclamation facts are corrupt; inspect the reclaim event payload")
+		}
 	}
 	recordedAt := occurredAt.Format(time.RFC3339Nano)
 	for _, ref := range facts.RetainedRefs {
@@ -1137,7 +1141,8 @@ func (r *WorktreeNativeRemoval) recordPhase(outcome WorktreeNativeOutcome) error
 	return r.persistPhase(outcome)
 }
 
-// Durable per-ref phases (CD-0212 D3-D4, migration 123). One reclamation
+// Durable per-ref phases (CD-0212 D3-D4, the worktree_ref_outcomes
+// migration in schema.go). One reclamation
 // records every retained ref and every deletion it owes as a row in
 // worktree_ref_outcomes; the phase column is the one durable owner of the
 // row's state. A native step moves a row only along
@@ -2512,7 +2517,13 @@ func deleteBranchPinned(ctx context.Context, runner GitRunner, removal *Worktree
 	retain := func(tip, reason, refusal string, err error) (WorktreeNativeOutcome, error) {
 		outcome := WorktreeNativeOutcome{Branch: deletion.Branch, Tip: tip, Phase: WorktreeRefPhaseRetainedUnproven, Reason: reason, Refusal: refusal}
 		if recordErr := run.recordPhase(WorktreeRefStepObserveCheckouts, WorktreeRefPhaseRetainedUnproven, tip, reason); recordErr != nil {
-			return WorktreeNativeOutcome{}, recordErr
+			// The same contract restorationOwedRun carries: a record that
+			// cannot persist keeps the outcome — the settlement pass records
+			// it after the run — and carries the failure in the reason, so
+			// neither the retention nor its reason is lost behind the
+			// persist error.
+			outcome.Reason = reason + "; the phase record could not be persisted: " + recordErr.Error()
+			return outcome, err
 		}
 		return outcome, err
 	}

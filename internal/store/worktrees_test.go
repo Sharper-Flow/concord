@@ -963,6 +963,38 @@ func TestReclaimWorktreeReplaysVersionOnePayload(t *testing.T) {
 	}
 }
 
+// TestReclaimUndecodableGitFactsRefuseTheFold pins the debt-preserving
+// refusal for corrupted reclamation facts: the append-time surfaces always
+// record facts the fold can decode, so a payload whose git_facts cannot
+// decode is log corruption, and the fold must refuse it typed instead of
+// committing a reclamation whose per-ref debt rows silently never exist.
+func TestReclaimUndecodableGitFactsRefuseTheFold(t *testing.T) {
+	t.Parallel()
+	s, git, _ := worktreeFixture(t)
+	if _, err := s.ClaimWorktree(context.Background(), baseClaim(git)); err != nil {
+		t.Fatal(err)
+	}
+	corrupt := Event{
+		EventID: "corrupt-facts-reclaim", Kind: "work.worktree_reclaimed",
+		SubjectType: SubjectWorkItem, SubjectID: "work-w", Actor: "principal-1",
+		OccurredAt: time.Unix(20, 0).UTC(), PayloadVersion: 1,
+		Payload: jsonRaw(`{"expected_version":3,"resulting_version":4,"set_id":"` + WorktreeSetID("work-w") + `","project_id":"project-w","claim_op_id":"wt-op-1","git_facts":{"retained_refs":"not-an-array"}}`),
+	}
+	err := ApplyOperation(context.Background(), s, Operation{Events: []Event{corrupt}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "work-w"): 3}})
+	var failure *Failure
+	if !errors.As(err, &failure) || failure.Kind != KindInvalidPayload || !strings.Contains(failure.Detail, "cannot decode") {
+		t.Fatalf("undecodable reclamation git facts must refuse the fold typed, got %v", err)
+	}
+	entries, err := s.WorktreeEntries(context.Background(), "work-w")
+	if err != nil || len(entries) != 1 || entries[0].State != worktreeEntryActive {
+		t.Fatalf("the refused fold must leave the entry active: entries=%+v err=%v", entries, err)
+	}
+	var rows int
+	if err := s.db.QueryRow(`SELECT count(*) FROM worktree_ref_outcomes`).Scan(&rows); err != nil || rows != 0 {
+		t.Fatalf("the refused fold must record no outcome rows: rows=%d err=%v", rows, err)
+	}
+}
+
 // TestReclaimWorktreeRefusesOccupiedWorktree pins the stored occupancy gate.
 func TestReclaimWorktreeRefusesOccupiedWorktree(t *testing.T) {
 	t.Parallel()

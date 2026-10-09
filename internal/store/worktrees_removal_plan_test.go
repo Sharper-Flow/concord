@@ -470,3 +470,45 @@ func TestReclaimReplaysRecordedRemovalPlan(t *testing.T) {
 		}
 	})
 }
+
+// TestRetainedOutcomeKeepsItsReasonWhenThePhasePersistFails pins the same
+// contract restorationOwedRun already carries: a retained_unproven record
+// whose inline persist fails keeps the bounded outcome — the post-run
+// settlement pass re-records it — and carries the persist failure in the
+// reason instead of dropping the retention from the run's report behind the
+// persist error. The protection signal stays the typed refusal; the persist
+// failure stays visible in the outcome the run collected.
+func TestRetainedOutcomeKeepsItsReasonWhenThePhasePersistFails(t *testing.T) {
+	f := con829FixtureNew(t)
+	workID := "work-retain-persist-fails"
+	path, branch := f.claimWork(workID)
+	f.git(f.repoRoot, "push", "-q", "origin", branch)
+	pinned := f.refTip(branch)
+	removal := con829CommitRemoval(t, f, f.reclaimRequest(workID, "retain-persist-fails"))
+	// The claim checkout releases the ref, and the branch drifts off the tip
+	// the plan pinned, so the deletion boundary takes the retain path.
+	f.git(path, "checkout", "-q", "--detach")
+	moved := f.gitOut(f.repoRoot, "commit-tree", pinned+"^{tree}", "-m", "move the pinned tip")
+	f.git(f.repoRoot, "update-ref", "refs/heads/"+branch, moved)
+	removal.persistPhase = func(outcome WorktreeNativeOutcome) error {
+		return errors.New("synthetic phase record unavailable")
+	}
+	outcomes, runErr := RunWorktreeNativeRemoval(context.Background(), ExecGitRunner{}, removal)
+	var failure *Failure
+	if !errors.As(runErr, &failure) || failure.Kind != KindProjectionConflict || !strings.Contains(failure.Detail, "moved from the tip the reclaim pinned") {
+		t.Fatalf("the moved-tip protection must stay the run's reported error, got %v", runErr)
+	}
+	if len(outcomes) != 1 {
+		t.Fatalf("the run must collect the retained outcome for the post-run settlement, got %+v", outcomes)
+	}
+	outcome := outcomes[0]
+	if outcome.Branch != branch || outcome.Phase != WorktreeRefPhaseRetainedUnproven || outcome.Refusal != WorktreeRefRefusalMovedTip {
+		t.Fatalf("the collected outcome must be the moved-tip retention: %+v", outcome)
+	}
+	if !strings.Contains(outcome.Reason, "the phase record could not be persisted") {
+		t.Fatalf("the collected outcome must carry the persist failure in its reason: %q", outcome.Reason)
+	}
+	if !f.refExists(branch) || f.refTip(branch) != moved {
+		t.Fatalf("the retained ref must survive at its moved tip %s", moved)
+	}
+}

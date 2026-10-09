@@ -176,11 +176,12 @@ func TestInFlightWorkflowSurvivesSchemaMigration(t *testing.T) {
 	if _, err := db.ExecContext(ctx, `DELETE FROM schema_migrations WHERE version=?`, last.Version); err != nil {
 		t.Fatalf("cannot roll the manifest back to v%d: %v", last.Version-1, err)
 	}
-	// dropMigration120Objects drops exactly the objects the newest
-	// migration creates. A migration appended after 120 fails this test
-	// loudly at the Migrate below until its objects join the helper, the
-	// same loud coupling upgrade_recovery_test.go carries for its tail.
-	if err := dropMigration120Objects(ctx, db); err != nil {
+	// The drop helper must remove exactly the objects the newest migration
+	// creates, so the Migrate below re-applies the real tail. A migration
+	// appended after the current tail fails this test loudly at that Migrate
+	// until the call follows the new tail — the same loud coupling
+	// upgrade_recovery_test.go carries for its tail.
+	if err := dropMigration121Objects(ctx, db); err != nil {
 		t.Fatalf("cannot drop migration %d objects for its mid-flight re-apply: %v", last.Version, err)
 	}
 	beforeVersion, err := readSchemaManifestVersion(ctx, db)

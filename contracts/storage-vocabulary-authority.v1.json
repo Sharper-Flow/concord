@@ -453,6 +453,11 @@
       "authority": "check"
     },
     {
+      "table": "worktree_ref_outcomes",
+      "column": "phase",
+      "authority": "check"
+    },
+    {
       "table": "worktree_verify_leases",
       "column": "state",
       "authority": "check"

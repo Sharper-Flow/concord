@@ -57,7 +57,7 @@ type Q9Result struct {
 	IndexWatermark string          `json:"index_watermark"`
 	// SourceWatermarks carries the per-source freshness verdict of a
 	// Product-wide Q9 over a registered source set (CD-0200). It stays empty
-	// for the single-source path, whose output is unchanged.
+	// for a single-source answer, whose output is unchanged.
 	SourceWatermarks []KnowledgeSourceWatermark `json:"source_watermarks,omitempty"`
 }
 
@@ -957,9 +957,8 @@ func buildKnowledgeQueryForScope(req Q9Request, kinds, tags []string, limit int,
 	if resume != nil {
 		// The continuation key carries the record's source identity, so a
 		// colliding ID in two registered sources resumes past exactly the
-		// records already returned (CD-0200). In a single-home query the key's
-		// identity equals the query's own home, which keeps the predicate's
-		// inclusion set identical to the home-only form it replaces.
+		// records already returned (CD-0200). For one source, the key's
+		// identity equals the query's own home.
 		cursorWhere = " WHERE (aw.match_class > ? OR (aw.match_class = ? AND (aw.completed_at < ? OR (aw.completed_at = ? AND (aw.id > ? OR (aw.id = ? AND (aw.home_project_id > ? OR (aw.home_project_id = ? AND aw.home_locator_id > ?))))))))"
 		args = append(args, resume.MatchClass, resume.MatchClass, resume.CompletedAt, resume.CompletedAt, resume.ID, resume.ID, resume.HomeProjectID, resume.HomeProjectID, resume.HomeLocatorID)
 	}

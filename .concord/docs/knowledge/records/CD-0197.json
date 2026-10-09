@@ -23,9 +23,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:8d6905239c1c5f43591513a4946b1d39d0bad84cd8eb8bdd0bdb9aaa1693dbf8",
+  "sha256": "sha256:fe6174b56a8a9a0331e0bfbfcd640f4498f1255e24a20bd9c2ee32d4bbbb7152",
   "status": "accepted",
-  "summary": "A review lane report carries an optional typed review block: an explicit ship or no_ship verdict and up to 64 findings with a closed P0-P3 severity and a closed low, medium, high confidence. The lane manifest declares the requirement per lane and the lane digest pins it; the adapter and the store both refuse a review completion without the block, live only, and stored completions replay unchanged through a worker.completed payload upcast. For the review lane the block discharges the severity obligation, so a free-text severity entry beside the block is refused. The lane verdict is report content only: it maps to no workflow field, and the coordinator records the workflow verdict through record_verdict. Extends CD-0056.",
+  "summary": "A dispatch-pinned review report carries ship or no_ship and up to 64 ranked findings with closed severity and confidence. Oracle-bound findings classify delivery blockers, uncovered cases, follow-ups, and oracle defects, with source bindings and canonical event-sequence/ordinal lineage. Closed resolution claims name finding IDs and qualifying evidence. Ship refuses P0 or classified blockers; an outside-scope P0 follow-up remains retained no_ship without becoming repair debt. Worker.completed v6 carries oracle members; worker.failed remains v2 and historical upcasts invent nothing. The shared context exposes reported content without granting workflow verdict or acceptance authority.",
   "tags": [
     "agent-surface",
     "lanes",

@@ -305,6 +305,11 @@ as its producer. The acceptance checkpoint's verification requirement then
 resolves against the core run that produced it. A failed or mutated run records
 no authority. The gate keeps refusing unbound verification.
 
+An oracle receipt joins the same retained execution evidence; it creates no
+producer authority. The candidate subject and pinned recipe remain separate
+identities. Native-run or worktree-verification output retains its producer's
+existing bounds, and truncated output is not a full output log.
+
 ### 5.2 Fold rules and rebuild
 
 | Event family | Fold effect |
@@ -376,6 +381,12 @@ For all four kinds, unreadable data produces an undetermined result and cannot b
 treated as a pass. `outcome_mismatch` is the required typed semantic refusal for a
 weaker or incomparable delivery; the TS7 envelope amendment required by CD-0013
 D10 ships with the later surface-version change, not this documentation pass.
+
+Job-oracle controls use exit-status results and retained execution references
+(CD-0205, CD-0056). Their receipts are reported evidence, not per-predicate
+evaluation, independent verdicts, criterion discharge, or completion authority.
+Earlier-subject receipts are regression baselines. The oracle does not supply
+the deferred registered evaluator catalog or change the closed predicate union.
 
 ### 6.1 Architecture-spike record
 
@@ -694,6 +705,18 @@ a fenced action first emits `workflow.action_started` and may emit
 | `accept_worker_result` | `workflow.evidence_bound` naming the accepted attempt as its `immutable_subject_ref`, with the lane's capability class as the evidence kind, then `workflow.action_completed` v2 bound to the exact completed attempt and current step epoch; the fold rechecks dispatch order, work ownership, lifecycle, model readback, and actor distinctness before advancing. The verdict on the next step cites the attempt id. |
 | `record_worker_failure` | `workflow.action_completed` v2 in hold mode, bound to the exact failed attempt and current step epoch; the fold rechecks dispatch order, work ownership, failed lifecycle, actor distinctness, and prior recording. A fresh fenced start opens the recovery attempt. |
 
+On `workflow.implementation` v26 and `workflow.break_fix` v23,
+`record_worker_job` requires the immutable owner/case/control oracle in the
+recorded job digest (CD-0205 D1). Every admitted dispatch carries that same
+oracle. Structure and retained readiness references join existing contract,
+Domain, Project, and law authority; preparation resolves pinned recipes
+before authorization. Older pins retain oracle-free content and behavior.
+`worker.completed` v6 admits oracle receipts, ranked-finding ties, and closed
+resolution claims; historical upcasts invent none. `worker.failed` remains v2.
+Local job acceptance holds the step. Whole-work delivery still requires the
+complete parent admission, integration evidence, independent verdicts, and
+operator confirmation; an oracle pass supplies none of those authorities.
+
 ### 12.1 Correction escalation wall
 
 A failed or rejected worker correction consumes one correction attempt. The
@@ -716,11 +739,26 @@ opens the wall.
 The basis families are closed. Findings convergence requires a latest open
 findings set that is non-empty and a strict subset of the previous comparable
 reject `open_finding_ids` at the same step. The finding identifiers are
-stable, and the set holds 1 to 32 of them. Correction predicates require the
-`request_correction` predicate ids inside the open window. A latest failure
+stable, and the set holds 1 to 32 of them. Oracle-free correction histories
+compare `request_correction` predicate ids inside the open window.
+Oracle-capable rejection and correction records require the exact derived
+ranked-finding set, absent only when empty, not a caller's shorter list or
+predicate IDs. A latest failure
 supplies no findings basis, because a failure carries no findings. A
 contract supersession after the latest dispatch at any step is a changed
 approach, and a changed approach is a basis.
+
+Canonical finding IDs use terminal event sequence and ordinal: context
+findings first, ranked findings offset by their count (CD-0197). Continuations
+retain identity; uncovered variants mint new IDs and remain legitimate
+blockers. Comparability retains the approved contract, job and owner
+obligations, and every old control byte-identically, including its recipe pin
+and expected result. Added coverage may strengthen the oracle. Dropped
+findings require supported closure; omissions and replacements are not shrinkage.
+Oracle-defect closures and recipe re-pins cannot mint `findings_shrinking`.
+A required recipe change needs the existing explicit contract-supersession
+`approach_changed` route. Accepted `no_ship` and retained baseline receipts
+supply no productive acceptance or new basis family (CD-0148).
 
 Each basis admits exactly one fresh fenced attempt, and the admitted dispatch
 consumes its basis. Findings convergence compares records at one step, so a

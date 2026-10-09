@@ -23,9 +23,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:6fcfa0cdf225795b0745db4950efc2a3d53ec800e591488364620342d5f8cf25",
+  "sha256": "sha256:ad85eb4eb387da3a80d61bcf235e38eddc6c6fc894374b80609619b2e7b57d07",
   "status": "accepted",
-  "summary": "A dispatched worker lane holds no Concord read or write tool access, and the dispatch packet is its complete Concord context. Lane and utility definitions deny every concord_* tool from the derived surface list, the adapter refuses a managed-parent call with a structured no-effect envelope before the core runs, the lane text states the packet is complete, and the law context carries the Domain registry path so a lane reads Domain structure from the repository file. Extends CD-0017 D4.",
+  "summary": "A dispatched worker lane has no Concord tool access; its packet is complete Concord context under generated denial and the adapter parent boundary. Oracle-bound lanes receive the same immutable job oracle, canonical ranked findings, and prior receipt references through the shared work-context reader. Current blockers cannot disappear through context selection. Lanes read pinned sources, inspect owners, and execute declared controls within permissions; independent review can report uncovered cases. Earlier receipts are baselines, not current-subject acceptance, and missing context uses the report boundary rather than Concord calls.",
   "tags": [
     "agent-surface",
     "worker-attempts",

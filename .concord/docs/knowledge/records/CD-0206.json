@@ -34,9 +34,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:2d8ca1e67c7f31f930c3f8d17468122d2287616d34dbd668ae89905e1cae11bc",
+  "sha256": "sha256:bc34d4e53e5caa0e8e5238aa0f21fb4a9cb64ec188f59c7e92661fb507bf2434",
   "status": "accepted",
-  "summary": "A rejected refinement result and an accepted no_ship review open the same settling review obligation. An initial no_ship acceptance binds its findings, and the obligation then holds the delivery gate: record_delivery refuses while the evidence-bearing corrective return with the verification disposition stays admitted. Only a ship or absent verdict settles the obligation, only the newest completed review can bind, and no definition version changes.",
+  "summary": "A rejected refinement result and an accepted no_ship review open the same settling review obligation. Shared oracle context retains canonical finding IDs, bindings, and receipt references without productive acceptance or a new convergence basis. Existing correction records use the exact derived open set; outside-scope P0 follow-ups stay visible without becoming repair obligations. Delivery remains held until a fresh accepted ship or legacy absent verdict settles the debt. Only the newest completed review can bind; historical freshness and recovery remain unchanged.",
   "tags": [
     "workflow",
     "workflow-engine",

@@ -65,6 +65,16 @@ each repository source at its pinned commit through Git, not from the changed
 checkout. When `inputs.checkpoint` is present, its diagnosis and strategy are
 coordinator directions for the attempt.
 
+On an oracle-bound dispatch, `inputs.worker_job.acceptance_oracle` is the
+one immutable oracle copy for every admitted lane. The shared work-context
+reader projects canonical ranked findings and prior receipt references;
+current blockers cannot disappear through context selection. Lanes read the
+oracle and pinned sources, inspect its owners, and execute declared controls
+within their permissions. Independent review can report a legitimate omitted
+path as `uncovered_case`. Earlier receipts remain regression baselines, not
+current-subject acceptance. Missing context still uses the report boundary,
+never worker Concord access.
+
 ## Alternatives considered
 
 - Frontmatter denial alone. A denied utility lane still made Concord calls
@@ -107,4 +117,5 @@ coordinator directions for the attempt.
 - The live probe `opencode debug agent concord-implement` resolves the lane's
   tool rules and shows every `concord_*` tool denied, and
   `bun test adapter/opencode/packet.test.ts` pins the registry line the
-  packet renders.
+   packet renders.
+- `TestOwnerOracleImmutableProjection` and `TestOwnerOracleRepairFamily` cover the shared oracle and retained blockers and receipts.

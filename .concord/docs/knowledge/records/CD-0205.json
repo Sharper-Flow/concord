@@ -43,9 +43,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:7e0c455adcd775140c346f8714afb061ba69139de16efb4cf3f0a8d4b27b17de",
+  "sha256": "sha256:1ae11bd1eca474fdbc073240a76e93204f220dc306b080435b2f207ce01a5327",
   "status": "accepted",
-  "summary": "A worker-job revision is an immutable record under the work item; on workflow.implementation v24 and workflow.break_fix v21 every admitted lane at a job-capable step binds one ready revision through the packet, the dispatch evidence, the report, and the acceptance. Verification requires recorded executable checks. A plain accept of a job-bound attempt satisfies that revision and holds the step without delivery. Whole-work delivery keeps complete admission. Only acceptance that satisfies an unresolved obligation closes its correction window, refining CD-0164 D1-D2 and amending CD-0198 D4.",
+  "summary": "Immutable worker-job revisions bind every admitted lane end to end. Implementation v26 and break-fix v23 require one typed owner/case/control acceptance oracle in the job digest, with closed source and authority joins and retained readiness evidence. Earlier pins remain oracle-free. Local acceptance holds the step without delivery; whole-work delivery keeps complete parent admission and integration evidence. Earlier unresolved obligations require unchanged base content and byte-identical old controls; added coverage can strengthen them, but control deletion or recipe re-pinning cannot discharge debt or reset retries.",
   "tags": [
     "workflow",
     "workflow-engine",

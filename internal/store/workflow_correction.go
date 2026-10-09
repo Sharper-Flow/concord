@@ -138,7 +138,7 @@ func WorkflowFailedWorkerRetryBinding(ctx context.Context, s *Store, registry De
 	// The admission fold runs in the caller's transaction, so the pool-backed
 	// read opens its own short read transaction around the same single
 	// implementation (the store connection invariant).
-	readTx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	readTx, err := beginReadTx(ctx, s.db)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "workflow_correction", "cannot open the binding read transaction", true, "retry once the store is readable", err)
 	}
@@ -1132,7 +1132,7 @@ func workflowDeliveryGateCorrectionContext(ctx context.Context, q queryer, workI
 		if !isDB {
 			return nil, newFailure(KindUnavailable, subject, "workflow action admission folds in the caller's transaction", false, "run the admission fold inside the mutation transaction")
 		}
-		readTx, beginErr := db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+		readTx, beginErr := beginReadTx(ctx, db)
 		if beginErr != nil {
 			return nil, wrapFailure(KindUnavailable, subject, "cannot open the read transaction", true, "retry once the store is readable", beginErr)
 		}

@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 )
@@ -233,7 +234,7 @@ func (s *Store) PrepareWorkRemoval(ctx context.Context, req WorkRemovalRequest) 
 	if err != nil {
 		return WorkRemovalReceipt{}, newFailure(KindInvalidOperation, "work_removal_prepare", "handoff cannot be encoded", false, "supply a JSON-encodable handoff")
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := beginOrdinaryTx(ctx, s.db)
 	if err != nil {
 		return WorkRemovalReceipt{}, wrapFailure(KindUnavailable, "work_removal_prepare", "cannot begin removal preparation", true, "retry once the database is writable", err)
 	}
@@ -429,17 +430,23 @@ func validateRemovalDestinationQ(ctx context.Context, q queryer, req WorkRemoval
 		}
 		return nil
 	}
+	if !recorded {
+		return newFailure(KindInvalidRelation, "work_removal_prepare", "the work item has no recorded Linear issue identity", false, "record the issue identity before confirming its handoff")
+	}
+	products, productErr := productsForWorkIDs(ctx, q, []string{req.WorkID})
+	if productErr != nil {
+		return wrapFailure(KindUnavailable, "work_removal_prepare", "cannot read the work item's Product destinations", true, "retry once the database is readable", productErr)
+	}
 	if req.ProductID == "" {
-		products, productErr := productsForWorkIDs(ctx, q, []string{req.WorkID})
-		if productErr != nil {
-			return wrapFailure(KindUnavailable, "work_removal_prepare", "cannot read the work item's Product destinations", true, "retry once the database is readable", productErr)
-		}
 		return newAmbiguousScopeFailure("work_removal_prepare", "Linear confirmation has no Product destination", "supply the authorized Product", products[req.WorkID])
+	}
+	if !slices.Contains(products[req.WorkID], req.ProductID) {
+		return newFailure(KindInvalidRelation, "work_removal_prepare", "Linear confirmation names a Product outside the work item's membership", false, "confirm a Product that contains the work item")
 	}
 	if req.Linear.ProductID != req.ProductID || req.Linear.Destination != "linear" || req.Linear.RemoteIssueUUID == "" {
 		return newFailure(KindInvalidRelation, "work_removal_prepare", "Linear confirmation does not name the authorized destination", false, "confirm the exact Product and remote issue")
 	}
-	if recorded && link.RemoteIssueUUID != req.Linear.RemoteIssueUUID {
+	if link.RemoteIssueUUID != req.Linear.RemoteIssueUUID {
 		return newFailure(KindInvalidRelation, "work_removal_prepare", "Linear confirmation does not match the recorded issue identity", false, "confirm the handoff on the recorded Linear issue")
 	}
 	return nil

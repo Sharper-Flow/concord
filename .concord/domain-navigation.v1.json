@@ -67,6 +67,7 @@
         "internal/store/worktree_verify_evidence_test.go", "internal/store/worktree_verify_finalization_test.go",
         "internal/store/worktree_verify_lease_recovery_test.go", "internal/store/worktree_occupancy_release_test.go",
         "internal/store/worktree_route_test.go",
+        "internal/store/multi_project_recovery_test.go",
         "internal/store/landing.go", "internal/store/session_vacate*.go", "internal/store/freshness*.go",
         "internal/store/branch_freshness_contract_test.go", "internal/store/generated_branch_freshness.go",
         "internal/store/bootstrap*.go", "internal/store/git_runner*.go", "internal/store/project_handoffs*.go",

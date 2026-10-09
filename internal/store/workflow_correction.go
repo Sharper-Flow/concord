@@ -202,7 +202,7 @@ func workflowFailedWorkerRetryBinding(ctx context.Context, q queryer, registry D
 // The latest authorization at this step owns the identity; an older failure
 // cannot replace a newer live or completed attempt. Productive acceptance
 // resets the window through the same anchor the non-progress wall reads.
-func workflowCurrentFailedWorkerRetryBinding(ctx context.Context, q queryer, definition WorkflowDefinition, workID, stepID string) (*WorkflowRetryApprovalBinding, error) {
+func workflowCurrentFailedWorkerRetryBinding(ctx context.Context, q queryer, workID, stepID string) (*WorkflowRetryApprovalBinding, error) {
 	anchor, err := workflowNonProgressWindowAnchor(ctx, q, workID, "workflow_correction", 0)
 	if err != nil {
 		return nil, err

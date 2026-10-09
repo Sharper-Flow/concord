@@ -196,7 +196,7 @@ func workflowWorkerFailureRecovery(ctx context.Context, q queryer, workID string
 	if step := workflowStep(definition, currentStep); step == nil || step.Kind != WorkflowStepHumanCheckpoint {
 		return false, nil
 	}
-	failedBinding, bindingErr := workflowCurrentFailedWorkerRetryBinding(ctx, q, definition, workID, currentStep)
+	failedBinding, bindingErr := workflowCurrentFailedWorkerRetryBinding(ctx, q, workID, currentStep)
 	if bindingErr != nil {
 		return false, bindingErr
 	}

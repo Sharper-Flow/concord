@@ -393,7 +393,7 @@ func loadWorkflowAdmissionStateTx(ctx context.Context, q queryer, workID string,
 		}
 		state.RetryConvergence = convergence
 	}
-	failedRetry, retryErr := workflowCurrentFailedWorkerRetryBinding(ctx, q, definition, workID, currentStep)
+	failedRetry, retryErr := workflowCurrentFailedWorkerRetryBinding(ctx, q, workID, currentStep)
 	if retryErr != nil {
 		return WorkflowAdmissionState{}, nil, nil, retryErr
 	}

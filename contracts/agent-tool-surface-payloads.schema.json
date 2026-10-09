@@ -3604,20 +3604,6 @@
           "type": "string",
           "maxLength": 512
         },
-        "since": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "maxLength": 64
-        },
-        "until": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "maxLength": 64
-        },
         "allow_degraded": {
           "type": "boolean"
         },

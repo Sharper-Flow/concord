@@ -627,7 +627,7 @@ func (s *Store) RebuildKnowledgeIndex(ctx context.Context, home KnowledgeHome) e
 		}
 	}
 
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := beginOrdinaryTx(ctx, s.db)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot begin knowledge index rebuild", true, "retry once the database is writable", err)
 	}

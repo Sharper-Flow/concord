@@ -7,7 +7,7 @@ File accountability does not change a document's law home or a handler's semanti
 ## Responsibility
 Owns the typed agent plane: the read and mutation tool surface, its budget and evolution constraints, call context, lanes and worker dispatch, the adapter transport contract, and the agent result envelope.
 
-Mapped files: 426; tests: 273; unresolved candidates: 0.
+Mapped files: 427; tests: 274; unresolved candidates: 0.
 Candidate counts overlap when a file has several candidates; no candidate is an assigned owner.
 
 ## Code and tests
@@ -22,9 +22,9 @@ Full paths, unresolved reasons, and shared-test coverage: `.concord/navigation/i
 - Include: `internal/store/worktrees.go`, `internal/store/worktrees_test.go`, `internal/store/worktrees_audit_reclaim_test.go`, `internal/store/worktrees_claim_landing_test.go`, `internal/store/worktrees_claim_landing_record_test.go`
 - Include: `internal/store/worktrees_destroy_test.go`, `internal/store/worktrees_occupancy_test.go`, `internal/store/worktrees_reclaim_convergence_test.go`, `internal/store/worktrees_reclaim_identity_test.go`, `internal/store/worktrees_reclaim_replay_test.go`
 - Include: `internal/store/worktrees_tiers_test.go`, `internal/store/worktrees_unpublished_lesson_test.go`, `internal/store/worktree_verify_evidence_test.go`, `internal/store/worktree_verify_finalization_test.go`, `internal/store/worktree_verify_lease_recovery_test.go`
-- Include: `internal/store/worktree_occupancy_release_test.go`, `internal/store/worktree_route_test.go`, `internal/store/landing.go`, `internal/store/session_vacate*.go`, `internal/store/freshness*.go`
-- Include: `internal/store/branch_freshness_contract_test.go`, `internal/store/generated_branch_freshness.go`, `internal/store/bootstrap*.go`, `internal/store/git_runner*.go`, `internal/store/project_handoffs*.go`
-- Include: `internal/store/generated_lane_step_dispatch.go`, `internal/store/query.go`, `internal/store/query_pages.go`, `internal/store/query_test.go`
+- Include: `internal/store/worktree_occupancy_release_test.go`, `internal/store/worktree_route_test.go`, `internal/store/multi_project_recovery_test.go`, `internal/store/landing.go`, `internal/store/session_vacate*.go`
+- Include: `internal/store/freshness*.go`, `internal/store/branch_freshness_contract_test.go`, `internal/store/generated_branch_freshness.go`, `internal/store/bootstrap*.go`, `internal/store/git_runner*.go`
+- Include: `internal/store/project_handoffs*.go`, `internal/store/generated_lane_step_dispatch.go`, `internal/store/query.go`, `internal/store/query_pages.go`, `internal/store/query_test.go`
 - Go test package: `github.com/sharper-flow/concord/internal/agent`
 - Go test package: `github.com/sharper-flow/concord/internal/store`
 

@@ -18,7 +18,7 @@ const publishedBytes = (tool: string): number => Buffer.byteLength(JSON.stringif
 // reviewed surface, including the typed research retirement operation. Update it
 // only through a reviewed size change. The figure counts schema bytes, not
 // tokens.
-const PINNED_PUBLISHED_TOTAL_BYTES = 380503
+const PINNED_PUBLISHED_TOTAL_BYTES = 380403
 
 test("publication is repeatable: two publications are byte-identical", () => {
   for (const tool of tools) {

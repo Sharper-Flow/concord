@@ -34,7 +34,7 @@ func beginResearchMutation(ctx context.Context, s *Store, identity ResearchMutat
 	if s == nil || s.db == nil {
 		return nil, nil, false, researchUnavailable("store is not open", nil)
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := beginOrdinaryTx(ctx, s.db)
 	if err != nil {
 		return nil, nil, false, researchUnavailable("cannot begin research transaction", err)
 	}

@@ -776,6 +776,7 @@
         },
         "operation": {
           "enum": [
+            "",
             "active_work",
             "add_entry",
             "attachments",
@@ -1025,7 +1026,26 @@
       },
       "allOf": [
         {
-          "$ref": "#/$defs/toolOperation"
+          "anyOf": [
+            {
+              "$ref": "#/$defs/toolOperation"
+            },
+            {
+              "required": ["origin", "outcome", "operation", "error"],
+              "not": { "required": ["query_id"] },
+              "properties": {
+                "origin": { "const": "adapter" },
+                "outcome": { "const": "error" },
+                "operation": { "const": "" },
+                "error": {
+                  "required": ["adapter_reason"],
+                  "properties": {
+                    "adapter_reason": { "const": "invalid_request_wrapper" }
+                  }
+                }
+              }
+            }
+          ]
         },
         {
           "if": {
@@ -1587,7 +1607,9 @@
             "session_directory_unreadable",
             "worker_abandon_refused",
             "worker_abandon_receipt_failed",
-            "lane_tool_refusal"
+            "lane_tool_refusal",
+            "invalid_cli_input",
+            "invalid_request_wrapper"
           ],
           "type": "string"
         },
@@ -2805,6 +2827,19 @@
               }
             }
           ]
+        },
+        {
+          "if": {
+            "required": ["query_id"]
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                { "required": ["changed_refs"] },
+                { "required": ["next_valid_intents"] }
+              ]
+            }
+          }
         }
       ],
       "unevaluatedProperties": false
@@ -2938,6 +2973,43 @@
     "errorOutcome": {
       "allOf": [
         {
+          "if": {
+            "required": ["origin", "error"],
+            "properties": {
+              "origin": { "const": "adapter" },
+              "error": {
+                "anyOf": [
+                  {
+                    "required": ["kind"],
+                    "properties": { "kind": { "const": "invalid_input" } }
+                  },
+                  {
+                    "required": ["adapter_reason"],
+                    "properties": { "adapter_reason": { "type": "string", "enum": ["invalid_request_wrapper", "invalid_cli_input"] } }
+                  }
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "error": {
+                "required": ["kind", "adapter_reason", "effect_state", "retry_safe", "recovery_action"],
+                "properties": {
+                  "kind": { "const": "invalid_input" },
+                  "adapter_reason": { "type": "string", "enum": ["invalid_request_wrapper", "invalid_cli_input"] },
+                  "effect_state": { "const": "none" },
+                  "retry_safe": { "const": false },
+                  "recovery_action": {
+                    "required": ["kind"],
+                    "properties": { "kind": { "const": "restart_query" } }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
           "$ref": "#/$defs/base"
         },
         {
@@ -3005,7 +3077,8 @@
                       "timeout",
                       "cancelled",
                       "operation_conflict",
-                      "unauthorized"
+                      "unauthorized",
+                      "invalid_input"
                     ],
                     "type": "string"
                   }

@@ -13,7 +13,10 @@
   merged-branch, and observed-session reclaim gates; operator approval for
   destructive removal
 - **Amended by:** CD-0181 adds squash containment as the second way the
-  unpushed class and the durable gate pass.
+  unpushed class and the durable gate pass. CD-0212 re-binds D1-D2 to one
+  immutable live `HEAD` observation, so the content classes read the checked-out
+  branch or detached tip rather than the stored claim column, and the rows
+  name the live head.
 
 ## Context
 

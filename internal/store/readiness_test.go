@@ -1,13 +1,13 @@
 package store
 
 import (
+	"bufio"
 	"context"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -484,34 +484,74 @@ func TestReadinessChildHelper(t *testing.T) {
 	}
 }
 
-// childStdinPipes holds the live children's release pipes.
-var childStdinPipes []io.WriteCloser
-
 func startReadinessChild(t *testing.T, role, store string) *exec.Cmd {
 	t.Helper()
-	command := exec.Command(os.Args[0], "-test.run=TestReadinessChildHelper", "-test.v=false")
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	command := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestReadinessChildHelper$", "-test.v=false")
 	command.Env = append(os.Environ(), readinessChildRoleEnv+"="+role, "TEST_CONCORD_READINESS_CHILD_STORE="+store)
-	command.Stdout = os.Stdout
-	if role == "live-session" {
-		stdin, err := command.StdinPipe()
-		if err != nil {
-			t.Fatal(err)
-		}
-		childStdinPipes = append(childStdinPipes, stdin)
-		t.Cleanup(func() { _, _ = stdin.Write([]byte("\n")) })
+	command.Stderr = os.Stderr
+	stdin, err := command.StdinPipe()
+	if err != nil {
+		cancel()
+		t.Fatal(err)
+	}
+	stdout, err := command.StdoutPipe()
+	if err != nil {
+		cancel()
+		_ = stdin.Close()
+		t.Fatal(err)
 	}
 	if err := command.Start(); err != nil {
+		cancel()
+		_ = stdin.Close()
 		t.Fatalf("cannot start the %s child: %v", role, err)
+	}
+	// Release and reap together, including when the caller exits through Fatal.
+	t.Cleanup(func() {
+		defer cancel()
+		_ = stdin.Close()
+		if err := command.Wait(); err != nil {
+			t.Errorf("readiness child exit: %v", err)
+		}
+	})
+	// CommandContext bounds the read; finish it before cleanup calls Wait.
+	scanner := bufio.NewScanner(stdout)
+	if !scanner.Scan() {
+		t.Fatalf("readiness child closed before commit: stdout=%v, context=%v", scanner.Err(), ctx.Err())
+	}
+	if line := scanner.Text(); line != "READINESS-CHILD-LIVE" {
+		t.Fatalf("readiness child: %s", line)
 	}
 	return command
 }
 
-func releaseChildStdins(t *testing.T) {
-	t.Helper()
-	for _, pipe := range childStdinPipes {
-		_, _ = pipe.Write([]byte("\n"))
+func TestReadinessChildOwnsReapingOnEarlyExit(t *testing.T) {
+	for _, exit := range []string{"return", "skip"} {
+		t.Run(exit, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "store.db")
+			craftStoreApplyingThrough(t, path, CurrentSchemaVersion())
+			var child *exec.Cmd
+			// Reap a child left behind by a failed assertion in this regression.
+			t.Cleanup(func() {
+				if child != nil && child.ProcessState == nil {
+					_ = child.Process.Kill()
+					_ = child.Wait()
+				}
+			})
+			t.Run("caller", func(t *testing.T) {
+				child = startReadinessChild(t, "live-session", path)
+				if exit == "skip" {
+					t.Skip("exercise Goexit before any caller-owned release")
+				}
+			})
+			if child == nil || child.ProcessState == nil {
+				t.Fatal("readiness child cleanup returned without reaping the live child")
+			}
+			if !child.ProcessState.Success() {
+				t.Fatalf("readiness child did not exit cleanly: %s", child.ProcessState)
+			}
+		})
 	}
-	childStdinPipes = nil
 }
 
 // A live session in another process holds the wal-index; the plain
@@ -532,21 +572,7 @@ func TestPlanUpgradeReadinessSeesACommittedWALThroughALiveIndexCrossProcess(t *t
 	if err := db.Close(); err != nil {
 		t.Fatal(err)
 	}
-	child := startReadinessChild(t, "live-session", path)
-	defer func() { _ = child.Wait() }()
-	// Wait for the child's committed WAL frame before planning.
-	deadline := time.After(15 * time.Second)
-	for {
-		if wal, err := os.Stat(path + "-wal"); err == nil && wal.Size() > 0 {
-			break
-		}
-		select {
-		case <-deadline:
-			t.Fatal("the live child never committed into the WAL")
-		default:
-			time.Sleep(50 * time.Millisecond)
-		}
-	}
+	startReadinessChild(t, "live-session", path)
 	plan, err := PlanUpgradeReadiness(context.Background(), path)
 	if err != nil {
 		t.Fatalf("a live cross-process index must plan: %v", err)
@@ -557,5 +583,4 @@ func TestPlanUpgradeReadinessSeesACommittedWALThroughALiveIndexCrossProcess(t *t
 	if plan.ActivationBlocked {
 		t.Fatalf("the child's additive step must not block: %+v", plan)
 	}
-	releaseChildStdins(t)
 }

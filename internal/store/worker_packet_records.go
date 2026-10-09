@@ -45,10 +45,12 @@ func (record WorkerPacketWorkRecord) empty() bool {
 // the comparison is against the state the spawn lands on. A present record
 // requires the member, decoded closed and equal to the reader's canonical
 // serialization; a member that no record backs refuses. The packet builder
-// copies each member verbatim and authors no prose around it.
+// copies each member verbatim and authors no prose around it. The schema keeps
+// prose context for retained-packet recovery; new dispatch refuses that member.
 func validateWorkerPacketRecords(ctx context.Context, tx *sql.Tx, workID string, packetRaw json.RawMessage) error {
 	var packet struct {
 		Inputs struct {
+			Context        json.RawMessage `json:"context"`
 			LawContext     json.RawMessage `json:"law_context"`
 			DesignRecord   json.RawMessage `json:"design_record"`
 			ProposalRecord json.RawMessage `json:"proposal_record"`
@@ -57,6 +59,9 @@ func validateWorkerPacketRecords(ctx context.Context, tx *sql.Tx, workID string,
 	}
 	if err := json.Unmarshal(packetRaw, &packet); err != nil {
 		return newFailure(KindInvalidPayload, "workflow_action", "dispatch_worker worker_packet is malformed", false, "supply the lane packet bound to this work item and attempt")
+	}
+	if len(packet.Inputs.Context) != 0 {
+		return newFailure(KindInvalidPayload, "workflow_action", "dispatch_worker worker_packet carries unknown property $.inputs.context", false, "build a fresh packet with typed recorded input members")
 	}
 	lawContext, err := readActiveWorkflowLawContext(ctx, tx, workID)
 	if err != nil {

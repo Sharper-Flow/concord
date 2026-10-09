@@ -629,34 +629,69 @@
       "allOf": [
         {
           "if": {
-            "required": ["outside_repair_disposition"],
+            "required": [
+              "outside_repair_disposition"
+            ],
             "properties": {
               "outside_repair_disposition": {
-                "required": ["state"],
+                "required": [
+                  "state"
+                ],
                 "properties": {
-                  "state": {"type": "string", "enum": ["active", "completed"]}
+                  "state": {
+                    "type": "string",
+                    "enum": [
+                      "active",
+                      "completed"
+                    ]
+                  }
                 }
               }
             }
           },
           "then": {
             "description": "CD-0210: an active or completed outside-repair disposition grants no managed pin authority. The pin suppresses managed action prompts and carries a typed absence of the verified workflow-definition identity: the version, digest, and obligations keys are omitted, never zero-filled or fabricated, because the hold reads raw instance identity only.",
-            "properties": {"next_valid_intents": {"type": "array", "maxItems": 0}},
+            "properties": {
+              "next_valid_intents": {
+                "type": "array",
+                "maxItems": 0
+              }
+            },
             "not": {
               "anyOf": [
-                {"required": ["workflow_definition_version"]},
-                {"required": ["workflow_definition_digest"]},
-                {"required": ["obligations"]}
+                {
+                  "required": [
+                    "workflow_definition_version"
+                  ]
+                },
+                {
+                  "required": [
+                    "workflow_definition_digest"
+                  ]
+                },
+                {
+                  "required": [
+                    "obligations"
+                  ]
+                }
               ]
             }
           },
           "else": {
             "description": "CD-0210: an ordinary or resumed pin runs the managed instance read, so the workflow identity stays strict and the registry-verified definition identity — version, digest, and the declared obligation set — is required in full.",
             "properties": {
-              "workflow_type": {"$ref": "#/$defs/id"},
-              "step": {"$ref": "#/$defs/short"}
+              "workflow_type": {
+                "$ref": "#/$defs/id"
+              },
+              "step": {
+                "$ref": "#/$defs/short"
+              }
             },
-            "required": ["workflow_definition_version", "workflow_definition_digest", "obligations"]
+            "required": [
+              "workflow_definition_version",
+              "workflow_definition_digest",
+              "obligations"
+            ]
           }
         }
       ],
@@ -9329,10 +9364,6 @@
         "inputs": {
           "type": "object",
           "additionalProperties": false,
-          "required": [
-            "task",
-            "binding"
-          ],
           "properties": {
             "task": {
               "type": "string",
@@ -9342,8 +9373,19 @@
             "binding": {
               "$ref": "#/$defs/worker_packet_binding"
             },
+            "report_protocol": {
+              "type": "string",
+              "const": "concord-worker-result-v1",
+              "description": "Dispatch-owned final-report framing, covered by the authorized packet digest. New builders pin this protocol; absence identifies historical legacy output. This is not report schema or worker identity."
+            },
             "worker_job": {
               "$ref": "#/$defs/worker_packet_worker_job"
+            },
+            "context": {
+              "type": "string",
+              "minLength": 0,
+              "maxLength": 16384,
+              "description": "Prose context a packet built before the typed record members carried. The lane-packet schema keeps it so a retained packet from an attempt dispatched before that change still validates on recovery. The core dispatch admission refuses it, so no new packet carries it."
             },
             "law_context": {
               "$ref": "#/$defs/workflow_law_context",
@@ -9384,7 +9426,11 @@
             "outcome_predicates": {
               "$ref": "#/$defs/worker_packet_outcome_predicates"
             }
-          }
+          },
+          "required": [
+            "task",
+            "binding"
+          ]
         }
       },
       "allOf": [

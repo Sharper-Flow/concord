@@ -145,6 +145,13 @@ const build = (script: Record<string, unknown>, overrides: Record<string, unknow
     { context: contextFor(), invoke: scriptedInvoke(script) as any },
   )
 
+test("new packets pin the worker report protocol without changing schema identity", async () => {
+  const result = await build(defaultScript())
+  expect(result.packet).toBeDefined()
+  expect(result.packet?.schema_version).toBe("1.1")
+  expect(result.packet?.inputs.report_protocol).toBe("concord-worker-result-v1")
+})
+
 test("binding preserves recorded work and contract versions beyond signed int32", async () => {
   const version = 2_147_483_648
   const scope = scopeEnvelope() as any

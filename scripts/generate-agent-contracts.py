@@ -8,6 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "contracts/agent-tool-surface.v1.json"
 IR = ROOT / "contracts/agent-tool-surface.schema.json"
 PAYLOAD = ROOT / "contracts/agent-tool-surface-payloads.schema.json"
+LANE_PACKET = ROOT / "contracts/agent-lane-packet.schema.json"
 WORKFLOW_OUTCOME = ROOT / "contracts/workflow-outcome.schema.json"
 ENVELOPE = ROOT / "contracts/agent-tool-envelope.schema.json"
 HOST_MANIFEST = ROOT / "contracts/host-tool-surface.v1.json"
@@ -796,6 +797,87 @@ def project_workflow_action_schema(document: dict, actions: list[dict], workflow
     return projected, public_variants
 
 
+# CD-0067 D1: the payloads schema's worker_packet def mirrors the canonical
+# lane packet contract, and the mirror's inputs object is derived from
+# contracts/agent-lane-packet.schema.json, never handwritten. Fields the
+# canonical schema binds inline land verbatim; fields it binds through
+# lane-local $defs stay anchored to the payloads schema's shared defs, which
+# own the published bounds. work_context and checkpoint keep their published
+# teaching text, which deliberately trims the canonical wire text.
+WORKER_PACKET_INPUT_ALIASES = {
+    "binding": "worker_packet_binding",
+    "correction": "workflow_correction_context",
+    "worker_job": "worker_packet_worker_job",
+    "law_context": "workflow_law_context",
+    "design_record": "workflow_design_record",
+    "proposal_record": "workflow_proposal_record",
+    "work_record": "worker_packet_work_record",
+    "work_context": "work_context_view",
+    "checkpoint": "continuity_checkpoint",
+    "outcome_predicates": "worker_packet_outcome_predicates",
+}
+WORKER_PACKET_INPUT_PUBLISHED_TEXT = {
+    "work_context": (
+        "CON-887: the current work-context view the work pin carried when the "
+        "packet was built. The core refuses a dispatch whose packet does not "
+        "consume the current view byte-for-byte."
+    ),
+    "checkpoint": (
+        "CON-883: the latest context checkpoint the pinned continuity "
+        "projection carried when the packet was built. The core refuses a "
+        "dispatch whose packet does not carry the latest checkpoint "
+        "byte-for-byte."
+    ),
+}
+
+
+def contains_schema_ref(node: object) -> bool:
+    if isinstance(node, dict):
+        if isinstance(node.get("$ref"), str):
+            return True
+        return any(contains_schema_ref(value) for value in node.values())
+    if isinstance(node, list):
+        return any(contains_schema_ref(value) for value in node)
+    return False
+
+
+def project_worker_packet_inputs(payload: dict, lane_packet: dict) -> None:
+    """Derive $defs/worker_packet inputs from the canonical lane packet.
+
+    The canonical contract owns the field set and the required set; the
+    payloads schema owns the shared def aliases the aliased fields anchor
+    to. A canonical inputs change either lands here on regeneration or
+    fails --check, so the published surface cannot again omit a wire field
+    the dispatcher sends.
+    """
+    inputs = lane_packet.get("properties", {}).get("inputs")
+    if not isinstance(inputs, dict) or inputs.get("type") != "object" or inputs.get("additionalProperties") is not False:
+        fail("contracts/agent-lane-packet.schema.json: inputs is not a closed object")
+    packet = payload.get("$defs", {}).get("worker_packet")
+    if not isinstance(packet, dict) or not isinstance(packet.get("properties"), dict):
+        fail("contracts/agent-tool-surface-payloads.schema.json: $defs/worker_packet is not an object with properties")
+    properties = {}
+    for name, schema in inputs.get("properties", {}).items():
+        alias = WORKER_PACKET_INPUT_ALIASES.get(name)
+        if alias is not None:
+            if alias not in payload.get("$defs", {}):
+                fail(f"worker_packet inputs alias for {name} names unknown def {alias}")
+            node = {"$ref": f"#/$defs/{alias}"}
+            published = WORKER_PACKET_INPUT_PUBLISHED_TEXT.get(name, schema.get("description"))
+            if published is not None:
+                node["description"] = published
+            properties[name] = node
+            continue
+        if contains_schema_ref(schema):
+            fail(f"canonical lane packet inputs field {name} carries a $ref; anchor it through WORKER_PACKET_INPUT_ALIASES")
+        properties[name] = copy.deepcopy(schema)
+    projected = {"type": "object", "additionalProperties": False, "properties": properties}
+    required = list(inputs.get("required", []))
+    if required:
+        projected["required"] = required
+    packet["properties"]["inputs"] = projected
+
+
 def check_schema_keywords(node, path="schema"):
     if not isinstance(node, dict): return
     unsupported=set(node)-SCHEMA_KEYWORDS
@@ -1347,9 +1429,10 @@ def main() -> int:
         payload = json.loads(PAYLOAD.read_text())
         actions, workflows, teaching = load_workflow_action_contracts()
         projected_payload, public_variants = project_workflow_action_schema(payload, actions, workflows, teaching)
+        project_worker_packet_inputs(projected_payload, json.loads(LANE_PACKET.read_text()))
         if payload != projected_payload:
             if check:
-                fail("generated workflow action payload contract drift: contracts/agent-tool-surface-payloads.schema.json")
+                fail("generated payload contract drift (workflow action or worker packet projection): contracts/agent-tool-surface-payloads.schema.json")
             PAYLOAD.write_text(json.dumps(projected_payload, ensure_ascii=False, indent=2) + "\n")
             payload = projected_payload
         envelope = json.loads(ENVELOPE.read_text())

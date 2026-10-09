@@ -161,15 +161,23 @@ you spend inside the remaining lane budget. Treat full Go package suites
 exceed 400 seconds: give such a command an explicit `timeout` above 400000
 milliseconds, or run a narrower test tier instead.
 
-Return the report as a single JSON object, and nothing else, as your final
-message. Do not include `attempt_id`, `lane_id`, `lane_version`, or
-`lane_digest`: the dispatch window owns those fields and any report that
-supplies them is refused. Set `schema_version` to `"1.1"`, `readback_model` to
-the `provider/model` identifier you are running as, and `status` to one of `completed`, `failed`.
+When `inputs.report_protocol` is present, return exactly one Markdown fence
+whose info string is `concord-worker-result-v1`.
+Open it with exactly three backticks and that info string on one line. Put one
+strict JSON report object inside it and close it with three backticks on their
+own line. Return the entire frame as one final text part. Do not repeat the frame,
+quote a frame example, use duplicate JSON keys, or put report content after it.
+For a historical packet without `inputs.report_protocol`, return one plain JSON
+report object as your final text part. Never return multiple report candidates.
+Do not include `attempt_id`, `lane_id`, `lane_version`, `lane_digest`, `work_id`,
+`step_id`, or `worker_job`: the dispatch packet owns those fields. Report schema
+identity also comes from the packet; omit `schema_version` rather than copying it.
+Set `readback_model` to the `provider/model` identifier you are running as, and
+`status` to one of `completed`, `failed`.
 
 Report contract constraints:
-- Report top-level shape: type=object, additionalProperties=false, required=["schema_version", "readback_model", "status", "evidence"].
-- schema_version: enum=["1.0", "1.1"]; a report records the current identity "1.1", and only that identity may carry the worker_job claim.
+- Canonical report top-level shape (the adapter adds identity): type=object, additionalProperties=false, required=["schema_version", "readback_model", "status", "evidence"].
+- schema_version: enum=["1.0", "1.1"]; the adapter derives this identity and worker_job binding from the packet; omit both fields from worker-authored content.
 - readback_model: type=string, minLength=3, maxLength=128, pattern="^[a-z][a-z0-9_.-]*(/[a-zA-Z0-9][a-zA-Z0-9._-]*)+$".
 - status: enum=["completed", "failed"].
 - evidence: type=array, minItems=1, maxItems=64, items={"$ref": "#/$defs/evidence_entry"}.

@@ -137,6 +137,19 @@ resolves the report, signs the dispatch and terminal assertions, and records the
 attempt outcome. A single blocking call cannot span the two, because the host
 runs the worker between them.
 
+*(Amended 2026-10-09, [Linear](https://linear.app/sharper-flow/issue/CON-891/give-the-workers-final-report-an-explicit-protocol-identity-instead-of) — the final part carries a framed report.)*
+The worker emits its lane report as one Markdown fence with the info string
+`concord-worker-result-v1`, as the last text part of its session, with no
+report content after it. One shared report-protocol parser selects the report
+wherever the adapter observes worker output — native Task completion and
+streamed run admission alike — so neither route admits by rules the other
+does not follow. Unrelated prose or JSON after the designated frame does not
+compete with it, and a second designated frame refuses the attempt as
+ambiguous. A dispatch whose packet declares the protocol and whose output
+carries no designated frame fails the attempt; ordinary malformed JSON
+invents no report. The dispatch window stays single-use: this changes how
+the report is identified, not how the worker is authorized.
+
 ### D6. The child-process route is removed
 
 `dispatch_worker` starts a worker one way. The `opencode run` spawn, its

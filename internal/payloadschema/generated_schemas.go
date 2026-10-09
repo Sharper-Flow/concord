@@ -18591,6 +18591,12 @@ const GeneratedPayloadSchemaDocument = `{
               "minItems": 0,
               "type": "array"
             },
+            "context": {
+              "description": "Prose context a packet built before the typed record members carried. The lane-packet schema keeps it so a retained packet from an attempt dispatched before that change still validates on recovery. The core dispatch admission refuses it, so no new packet carries it.",
+              "maxLength": 16384,
+              "minLength": 0,
+              "type": "string"
+            },
             "correction": {
               "$ref": "#/$defs/workflow_correction_context"
             },
@@ -18608,6 +18614,11 @@ const GeneratedPayloadSchemaDocument = `{
             "proposal_record": {
               "$ref": "#/$defs/workflow_proposal_record",
               "description": "The recorded proposal's problem, user outcomes, and constraints. The core refuses a dispatch whose packet member differs from the current recorded state, omits a present record, or carries a member no record backs."
+            },
+            "report_protocol": {
+              "const": "concord-worker-result-v1",
+              "description": "Dispatch-owned final-report framing, covered by the authorized packet digest. New builders pin this protocol; absence identifies historical legacy output. This is not report schema or worker identity.",
+              "type": "string"
             },
             "task": {
               "maxLength": 4096,

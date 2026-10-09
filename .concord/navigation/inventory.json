@@ -148,7 +148,7 @@
       "cli_verbs": [],
       "default_path_rules": null,
       "domain_id": "agent-surface",
-      "mapped_count": 382,
+      "mapped_count": 385,
       "name": "Agent surface",
       "owner_id": "domain:agent-surface",
       "path_rules": {
@@ -192,7 +192,7 @@
         ]
       },
       "purpose": "Owns the typed agent plane: the read and mutation tool surface, its budget and evolution constraints, call context, lanes and worker dispatch, the adapter transport contract, and the agent result envelope.",
-      "test_count": 244,
+      "test_count": 246,
       "test_packages": [
         "github.com/sharper-flow/concord/internal/agent",
         "github.com/sharper-flow/concord/internal/store"
@@ -244,6 +244,8 @@
         "adapter/opencode/testenv.test.ts",
         "adapter/opencode/turn-move-boundary.test.ts",
         "adapter/opencode/work-start-publication.test.ts",
+        "adapter/opencode/worker-report-protocol.test.ts",
+        "adapter/opencode/worker-report-selector.test.ts",
         "adapter/opencode/worker_evidence.test.ts",
         "adapter/opencode/worker_recovery.test.ts",
         "adapter/opencode/workflow-status-receipt-runtime-shape.test.ts",
@@ -3070,6 +3072,9 @@
     "adapter/opencode/work-start-publication.test.ts": "agent-surface",
     "adapter/opencode/worker-cli-required-fields.json": "agent-surface",
     "adapter/opencode/worker-evidence-vector.json": "agent-surface",
+    "adapter/opencode/worker-report-protocol.js": "agent-surface",
+    "adapter/opencode/worker-report-protocol.test.ts": "agent-surface",
+    "adapter/opencode/worker-report-selector.test.ts": "agent-surface",
     "adapter/opencode/worker_evidence.test.ts": "agent-surface",
     "adapter/opencode/worker_recovery.test.ts": "agent-surface",
     "adapter/opencode/worker_recovery.ts": "agent-surface",
@@ -4030,7 +4035,7 @@
     "skills/README.md": "agent-surface",
     "workflows/README.md": "workflow-engine"
   },
-  "mapped_count": 1918,
+  "mapped_count": 1921,
   "schema_version": "1.0",
   "scope": "coarse file navigation, not law homes or semantic mechanism ownership",
   "test_coverage": {

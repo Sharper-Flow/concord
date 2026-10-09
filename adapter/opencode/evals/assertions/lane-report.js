@@ -30,6 +30,7 @@
 
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { readWorkerReportTexts, selectWorkerReport } from "../../worker-report-protocol.js";
 
 const readContract = (name) =>
   JSON.parse(readFileSync(new URL(`../../../../contracts/${name}`, import.meta.url), "utf8"));
@@ -289,60 +290,6 @@ function laneCompletionFailure(report, lane) {
   return null;
 }
 
-// The host writes one JSON run event per stdout line and carries the model's
-// message text only on `text` events, at `part.text`. This mirrors
-// readWorkerReport in adapter/opencode/dispatch.ts, which is the enforcing
-// implementation; the shape comes from a real `opencode run --format json`
-// capture.
-function textParts(output) {
-  const texts = [];
-  for (const line of String(output).split("\n")) {
-    const trimmed = line.trim();
-    if (!trimmed.startsWith("{")) continue;
-    let parsed;
-    try {
-      parsed = JSON.parse(trimmed);
-    } catch {
-      continue;
-    }
-    if (!parsed || typeof parsed !== "object" || parsed.type !== "text") continue;
-    const part = parsed.part;
-    if (!part || typeof part !== "object" || part.type !== "text" || typeof part.text !== "string") continue;
-    texts.push(part.text);
-  }
-  return texts;
-}
-
-// One enclosing Markdown fence is unwrapped. Anything further would be heuristic
-// salvage out of prose, and a report needing salvage should fail closed.
-function stripFence(text) {
-  const trimmed = text.trim();
-  if (!trimmed.startsWith("```") || !trimmed.endsWith("```") || trimmed.length < 6) return trimmed;
-  const firstBreak = trimmed.indexOf("\n");
-  if (firstBreak < 0) return trimmed;
-  const info = trimmed.slice(3, firstBreak).trim();
-  if (info.length > 0 && !/^[A-Za-z0-9_-]+$/.test(info)) return trimmed;
-  return trimmed.slice(firstBreak + 1, trimmed.length - 3).trim();
-}
-
-// A worker emits several text parts. The last one that parses as a JSON object
-// is its final answer; earlier parts are working prose it superseded.
-function candidates(output) {
-  const found = [];
-  for (const text of textParts(output)) {
-    const candidate = stripFence(text);
-    if (!candidate.startsWith("{")) continue;
-    let parsed;
-    try {
-      parsed = JSON.parse(candidate);
-    } catch {
-      continue;
-    }
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) found.push(parsed);
-  }
-  return found;
-}
-
 // A lane never delegates: the generated frontmatter denies task dispatch, so
 // a task tool-use event in the run stream is the observable violation. Other
 // tool use is not judged here; the report contract remains the authority for
@@ -404,11 +351,6 @@ function packetWorkerJobBinding(packet) {
 }
 
 export default function (output, context) {
-  const reports = candidates(output);
-  if (reports.length === 0) {
-    return { pass: false, score: 0, reason: "no agent-lane-report.v1 document found in worker output" };
-  }
-
   // promptfoo hands the rendered prompt back as the raw packet document; the
   // lane identity and the seeded-defect markers below key on it.
   let packet = null;
@@ -418,19 +360,20 @@ export default function (output, context) {
     packet = null;
   }
 
+  const collected = readWorkerReportTexts(String(output), { protocol: packet?.inputs?.report_protocol });
+  if (collected.detail !== undefined) return { pass: false, score: 0, reason: collected.detail };
+  const selected = selectWorkerReport(collected.texts, {
+    protocol: packet?.inputs?.report_protocol,
+    isReport: (candidate) => validateSchema(CONTRACT, reportContent(candidate, packet), CONTRACT),
+  });
+  if (selected.kind !== "selected") {
+    return { pass: false, score: 0, reason: selected.kind === "absent" ? "no agent-lane-report.v1 document found in worker output" : selected.detail };
+  }
+
   // Compose dispatch-owned report identity before closed-schema validation.
   // Standalone synthetic contexts retain their report schema identity; a
   // malformed packet version never falls back to a worker-authored value.
-  const stripped = { ...reports[reports.length - 1] };
-  for (const field of DISPATCH_OWNED_REPORT_FIELDS) delete stripped[field];
-  const packetIdentity = isRecord(packet) && Object.hasOwn(packet, "schema_version")
-    ? { schema_version: packet.schema_version }
-    : {};
-  const report = normalizeWorkerReport({
-    ...stripped,
-    ...packetIdentity,
-    ...packetWorkerJobBinding(packet),
-  });
+  const report = reportContent(selected.report, packet);
 
   const packetNamesIdentity = isRecord(packet)
     && typeof packet.lane_id === "string"
@@ -475,4 +418,19 @@ export default function (output, context) {
   }
 
   return { pass: true, score: 1, reason: "report satisfies the closed agent-lane-report.v1 surface and stays inside worker authority" };
+}
+
+// The protocol selector and final admission see the same dispatch-owned shape.
+function reportContent(candidate, packet) {
+  const stripped = { ...candidate };
+  for (const field of DISPATCH_OWNED_REPORT_FIELDS) delete stripped[field];
+  const packetIdentity = isRecord(packet) && Object.hasOwn(packet, "schema_version")
+    ? { schema_version: packet.schema_version }
+    : {};
+  return normalizeWorkerReport({
+    ...stripped,
+    ...packetIdentity,
+    ...packetWorkerJobBinding(packet),
+  });
+
 }

@@ -513,7 +513,9 @@
         "attempt_limit",
         "escalated",
         "predicate_ids",
-        "evidence_refs"
+        "evidence_refs",
+        "source_event_id",
+        "source_event_seq"
       ],
       "properties": {
         "disposition": {
@@ -572,6 +574,15 @@
         },
         "failed_attempt_epoch": {
           "$ref": "#/$defs/version"
+        },
+        "source_event_id": {
+          "$ref": "#/$defs/id",
+          "description": "The durable failure, rejection, or correction-request event that opened this correction; its diagnosis and strategy are that event's directions."
+        },
+        "source_event_seq": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
         }
       }
     },

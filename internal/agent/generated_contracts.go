@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-const ManifestDigest = "sha256:afd40a6f1a3d83036cc7177e3dc61302aba0251e8929989973c1c8a80d971c0b"
+const ManifestDigest = "sha256:ee5009590c6e524ead21c2570fe560c3d6960620dc8fee3b983de182ee2bcf66"
 
 type OperationKind string
 
@@ -318,7 +318,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"worker_recovery_context":                        {Required: []string{"packet_digest", "worker_worktree", "coordinator_session", "attempt_epoch", "dispatch_event_id", "lifecycle_state", "dispatch"}, Properties: []string{"packet_digest", "worker_worktree", "coordinator_session", "attempt_epoch", "dispatch_event_id", "terminal_event_id", "lifecycle_state", "dispatch"}},
 	"workflow_completion_payload":                    {Required: []string{}, Properties: []string{"evidence_commit", "current_commit", "staleness"}},
 	"workflow_contract":                              {Required: []string{"version", "premise", "outcome_predicates", "required_evidence", "route_conventions", "spec_mandate", "changes_product_truth"}, Properties: []string{"version", "premise", "outcome_predicates", "required_evidence", "route_conventions", "spec_mandate", "law_revisions", "law_modifies", "rigor_class", "changes_product_truth", "architecture_binding", "self_repair"}},
-	"workflow_correction_context":                    {Required: []string{"disposition", "attempt_count", "attempt_limit", "escalated", "predicate_ids", "evidence_refs"}, Properties: []string{"disposition", "attempt_count", "attempt_limit", "escalated", "predicate_ids", "evidence_refs", "diagnosis", "strategy", "failure_kind", "failure_detail", "failed_attempt_id", "failed_attempt_epoch"}},
+	"workflow_correction_context":                    {Required: []string{"disposition", "attempt_count", "attempt_limit", "escalated", "predicate_ids", "evidence_refs", "source_event_id", "source_event_seq"}, Properties: []string{"disposition", "attempt_count", "attempt_limit", "escalated", "predicate_ids", "evidence_refs", "diagnosis", "strategy", "failure_kind", "failure_detail", "failed_attempt_id", "failed_attempt_epoch", "source_event_id", "source_event_seq"}},
 	"workflow_delivery_assertion":                    {Required: []string{"event_id", "seq", "target_payload_version", "artifact", "state", "actor_ref", "asserted_at", "effective_artifact"}, Properties: []string{"event_id", "seq", "target_payload_version", "artifact", "state", "actor_ref", "asserted_at", "effective_artifact", "correction"}},
 	"workflow_delivery_correction":                   {Required: []string{"event_id", "reason", "artifact", "evidence_source", "approval_ref", "corrected_at"}, Properties: []string{"event_id", "reason", "artifact", "evidence_source", "approval_ref", "corrected_at"}},
 	"workflow_design_content":                        {Required: []string{"approach", "decisions", "touched_refs"}, Properties: []string{"approach", "decisions", "touched_refs"}},

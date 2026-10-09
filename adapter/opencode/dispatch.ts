@@ -140,6 +140,12 @@ export interface AgentLanePacketCorrection {
   failure_detail?: string
   predicate_ids: string[]
   evidence_refs: string[]
+  failed_attempt_id?: string
+  failed_attempt_epoch?: number
+  // The durable event that opened the correction; the core refuses a packet
+  // whose correction names a different source.
+  source_event_id?: string
+  source_event_seq?: number
 }
 
 // AgentLanePacketWorkContext mirrors inputs.work_context of

@@ -224,6 +224,10 @@ function projectCorrectionContext(value: unknown): AgentLanePacketCorrection | u
   const failureDetail = typeof value.failure_detail === "string" ? value.failure_detail : ""
   const predicateIDs = Array.isArray(value.predicate_ids) ? value.predicate_ids.filter((item): item is string => typeof item === "string") : []
   const evidenceRefs = Array.isArray(value.evidence_refs) ? value.evidence_refs.filter((item): item is string => typeof item === "string") : []
+  const failedAttemptID = typeof value.failed_attempt_id === "string" ? value.failed_attempt_id : ""
+  const failedAttemptEpoch = typeof value.failed_attempt_epoch === "number" ? value.failed_attempt_epoch : 0
+  const sourceEventID = typeof value.source_event_id === "string" ? value.source_event_id : ""
+  const sourceEventSeq = typeof value.source_event_seq === "number" ? value.source_event_seq : 0
   // The count is not bounded by the limit. Each operator-authorized retry past
   // the limit increments it, so a correction legitimately carries a count above
   // attempt_limit, and `escalated` is what marks that state. Dropping the
@@ -243,6 +247,10 @@ function projectCorrectionContext(value: unknown): AgentLanePacketCorrection | u
     ...(failureDetail.length > 0 ? { failure_detail: failureDetail } : {}),
     predicate_ids: predicateIDs,
     evidence_refs: evidenceRefs,
+    ...(failedAttemptID.length > 0 ? { failed_attempt_id: failedAttemptID } : {}),
+    ...(failedAttemptEpoch > 0 ? { failed_attempt_epoch: failedAttemptEpoch } : {}),
+    ...(sourceEventID.length > 0 ? { source_event_id: sourceEventID } : {}),
+    ...(sourceEventSeq > 0 ? { source_event_seq: sourceEventSeq } : {}),
   }
 }
 

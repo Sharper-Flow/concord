@@ -14079,6 +14079,15 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "array",
           "uniqueItems": true
         },
+        "source_event_id": {
+          "$ref": "#/$defs/id",
+          "description": "The durable failure, rejection, or correction-request event that opened this correction; its diagnosis and strategy are that event's directions."
+        },
+        "source_event_seq": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "type": "integer"
+        },
         "strategy": {
           "maxLength": 4096,
           "type": "string"
@@ -14090,7 +14099,9 @@ const GeneratedPayloadSchemaDocument = `{
         "attempt_limit",
         "escalated",
         "predicate_ids",
-        "evidence_refs"
+        "evidence_refs",
+        "source_event_id",
+        "source_event_seq"
       ],
       "type": "object"
     },

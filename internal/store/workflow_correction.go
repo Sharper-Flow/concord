@@ -111,6 +111,13 @@ type WorkflowCorrectionContext struct {
 	FailureDetail      string   `json:"failure_detail,omitempty"`
 	FailedAttemptID    string   `json:"failed_attempt_id,omitempty"`
 	FailedAttemptEpoch int64    `json:"failed_attempt_epoch,omitempty"`
+	// SourceEventID and SourceEventSeq name the durable failure, rejection,
+	// or correction-request event that opened this correction. The diagnosis
+	// and strategy are that event's directions; the identity lets a packet
+	// consumer qualify them by source and lets admission refuse a packet
+	// built from a different correction record carrying equal prose.
+	SourceEventID  string `json:"source_event_id"`
+	SourceEventSeq int64  `json:"source_event_seq"`
 }
 
 // WorkflowRetryApprovalBinding names the exact failed attempt and contract
@@ -1514,6 +1521,10 @@ func workflowCorrectionContextForDispatch(ctx context.Context, q queryer, workID
 		return nil, nil
 	}
 	fields := record.fields
+	var sourceEventID string
+	if err := q.QueryRowContext(ctx, `SELECT event_id FROM domain_events WHERE seq=?`, record.seq).Scan(&sourceEventID); err != nil {
+		return nil, wrapFailure(KindUnavailable, "workflow_correction", "cannot read the correction source event", true, "retry once the workflow event log is readable", err)
+	}
 	if fields.ActionID == "request_correction" {
 		// The CD-0164 D4 window the recorded request owns opens at the same
 		// comparable-healthy baseline the admission derived before it admitted
@@ -1531,6 +1542,7 @@ func workflowCorrectionContextForDispatch(ctx context.Context, q queryer, workID
 		return &WorkflowCorrectionContext{
 			Disposition: "verification", AttemptCount: attempts, AttemptLimit: workflowCorrectionAttemptLimit, Escalated: attempts > workflowCorrectionAttemptLimit,
 			PredicateIDs: correctionReferenceStrings(fields.CorrectionPredicates), EvidenceRefs: correctionReferenceStrings(fields.CorrectionEvidence), Diagnosis: fields.CorrectionDiagnosis, Strategy: fields.CorrectionStrategy,
+			SourceEventID: sourceEventID, SourceEventSeq: record.seq,
 		}, nil
 	}
 	if fields.AttemptID == "" && fields.ActionID != "request_correction" {
@@ -1569,6 +1581,7 @@ func workflowCorrectionContextForDispatch(ctx context.Context, q queryer, workID
 		PredicateIDs: correctionReferenceStrings(fields.CorrectionPredicates), EvidenceRefs: correctionReferenceStrings(append(fields.CorrectionEvidence, fields.ResultEvidence...)),
 		Diagnosis: fields.CorrectionDiagnosis, Strategy: fields.CorrectionStrategy, FailureKind: failureKind, FailureDetail: failureDetail,
 		FailedAttemptID: fields.AttemptID, FailedAttemptEpoch: fields.AttemptEpoch,
+		SourceEventID: sourceEventID, SourceEventSeq: record.seq,
 	}, nil
 }
 
@@ -1678,7 +1691,7 @@ func validateWorkerPacketCorrection(ctx context.Context, q queryer, workID, curr
 }
 
 func sameWorkflowCorrection(left, right *WorkflowCorrectionContext) bool {
-	return left.Disposition == right.Disposition && left.AttemptCount == right.AttemptCount && left.AttemptLimit == right.AttemptLimit && left.Escalated == right.Escalated && left.Diagnosis == right.Diagnosis && left.Strategy == right.Strategy && left.FailureKind == right.FailureKind && left.FailureDetail == right.FailureDetail && sameCorrectionStrings(left.PredicateIDs, right.PredicateIDs) && sameCorrectionStrings(left.EvidenceRefs, right.EvidenceRefs)
+	return left.SourceEventID == right.SourceEventID && left.SourceEventSeq == right.SourceEventSeq && left.FailedAttemptID == right.FailedAttemptID && left.FailedAttemptEpoch == right.FailedAttemptEpoch && left.Disposition == right.Disposition && left.AttemptCount == right.AttemptCount && left.AttemptLimit == right.AttemptLimit && left.Escalated == right.Escalated && left.Diagnosis == right.Diagnosis && left.Strategy == right.Strategy && left.FailureKind == right.FailureKind && left.FailureDetail == right.FailureDetail && sameCorrectionStrings(left.PredicateIDs, right.PredicateIDs) && sameCorrectionStrings(left.EvidenceRefs, right.EvidenceRefs)
 }
 
 func sameCorrectionStrings(left, right []string) bool {

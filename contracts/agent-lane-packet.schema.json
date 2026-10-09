@@ -149,6 +149,27 @@
                 "minLength": 1,
                 "maxLength": 256
               }
+            },
+            "failed_attempt_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "failed_attempt_epoch": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 2147483647
+            },
+            "source_event_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "description": "The durable failure, rejection, or correction-request event that opened this correction. The diagnosis and strategy are that event's directions. The core refuses a packet whose correction names a different source than the current correction."
+            },
+            "source_event_seq": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
             }
           }
         },

@@ -22,6 +22,7 @@ func checkpointFailedReviewCorrectionContext() map[string]any {
 		"diagnosis":         "the checkpoint review attempt failed and the latest verification verdict is not healthy",
 		"strategy":          "return to the repair step and dispatch a fresh attempt",
 		"failed_attempt_id": "attempt:work-1:failed-review", "failed_attempt_epoch": 1,
+		"source_event_id": "request_correction-work-1-9:semantic", "source_event_seq": 9,
 	}
 }
 

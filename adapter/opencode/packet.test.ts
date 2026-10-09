@@ -247,6 +247,10 @@ test("a correction projects recorded failure fields into the packet", async () =
     failure_detail: "the worker could not reach the service",
     predicate_ids: [],
     evidence_refs: [],
+    failed_attempt_id: "attempt-7",
+    failed_attempt_epoch: 2,
+    source_event_id: "record_worker_failure-work-1-12:semantic",
+    source_event_seq: 12,
   }
   const built = await build({
     ...defaultScript(),

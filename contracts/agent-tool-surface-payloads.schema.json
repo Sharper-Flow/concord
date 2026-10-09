@@ -1544,10 +1544,7 @@
     "merge_evidence": {
       "type": "string",
       "$ref": "#/$defs/reference",
-      "pattern": "^https://",
-      "not": {
-        "pattern": "//[^/]*@"
-      }
+      "pattern": "^https://(?:\\[[0-9A-Fa-f:.]+\\]|[^/?#@:\\x00-\\x20\\x5b\\x5d\\x7f]+)(?::[0-9]+)?(?:[/?#][^\\x00-\\x1f\\x7f]*)?$"
     },
     "workflow_delivery_correction": {
       "type": "object",
@@ -9832,8 +9829,8 @@
       "maxLength": 128,
       "x-minBytes": 2,
       "x-maxBytes": 128,
-      "pattern": "^\\S+$",
-      "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths."
+      "pattern": "^[^\\x09-\\x0d    -     　]+$",
+      "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths."
     },
     "workflow_outcome_surface": {
       "type": "string",
@@ -12465,8 +12462,8 @@
               "maxLength": 128,
               "x-minBytes": 2,
               "x-maxBytes": 128,
-              "pattern": "^\\S+$",
-              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths."
+              "pattern": "^[^\\x09-\\x0d    -     　]+$",
+              "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths."
             },
             "evidence_kind": {
               "type": "string",
@@ -12486,8 +12483,8 @@
               "maxLength": 128,
               "x-minBytes": 2,
               "x-maxBytes": 128,
-              "pattern": "^\\S+$",
-              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths."
+              "pattern": "^[^\\x09-\\x0d    -     　]+$",
+              "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths."
             },
             "producer_id": {
               "type": "string",
@@ -12495,8 +12492,8 @@
               "maxLength": 128,
               "x-minBytes": 2,
               "x-maxBytes": 128,
-              "pattern": "^\\S+$",
-              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths."
+              "pattern": "^[^\\x09-\\x0d    -     　]+$",
+              "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths."
             },
             "producer_run_ref": {
               "type": "string",
@@ -12504,8 +12501,8 @@
               "maxLength": 128,
               "x-minBytes": 2,
               "x-maxBytes": 128,
-              "pattern": "^\\S+$",
-              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths."
+              "pattern": "^[^\\x09-\\x0d    -     　]+$",
+              "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths."
             },
             "producer_watermark": {
               "type": "string",
@@ -12513,8 +12510,8 @@
               "maxLength": 128,
               "x-minBytes": 2,
               "x-maxBytes": 128,
-              "pattern": "^\\S+$",
-              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths."
+              "pattern": "^[^\\x09-\\x0d    -     　]+$",
+              "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths."
             }
           }
         }
@@ -12615,8 +12612,8 @@
               "maxLength": 128,
               "x-minBytes": 2,
               "x-maxBytes": 128,
-              "pattern": "^\\S+$",
-              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths."
+              "pattern": "^[^\\x09-\\x0d    -     　]+$",
+              "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths."
             },
             "attempt_epoch": {
               "type": "integer",
@@ -12726,8 +12723,8 @@
               "maxLength": 128,
               "x-minBytes": 2,
               "x-maxBytes": 128,
-              "pattern": "^\\S+$",
-              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths."
+              "pattern": "^[^\\x09-\\x0d    -     　]+$",
+              "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths."
             },
             "attempt_epoch": {
               "type": "integer",
@@ -12740,8 +12737,8 @@
               "maxLength": 128,
               "x-minBytes": 2,
               "x-maxBytes": 128,
-              "pattern": "^\\S+$",
-              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths."
+              "pattern": "^[^\\x09-\\x0d    -     　]+$",
+              "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths."
             },
             "delivery_state": {
               "type": "string",
@@ -12851,8 +12848,8 @@
               "maxLength": 128,
               "x-minBytes": 2,
               "x-maxBytes": 128,
-              "pattern": "^\\S+$",
-              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths."
+              "pattern": "^[^\\x09-\\x0d    -     　]+$",
+              "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths."
             },
             "await_type": {
               "type": "string",
@@ -12870,8 +12867,8 @@
               "maxLength": 128,
               "x-minBytes": 2,
               "x-maxBytes": 128,
-              "pattern": "^\\S+$",
-              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths."
+              "pattern": "^[^\\x09-\\x0d    -     　]+$",
+              "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths."
             },
             "resolution_authority": {
               "type": "string",
@@ -12879,8 +12876,8 @@
               "maxLength": 128,
               "x-minBytes": 2,
               "x-maxBytes": 128,
-              "pattern": "^\\S+$",
-              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths."
+              "pattern": "^[^\\x09-\\x0d    -     　]+$",
+              "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths."
             },
             "expected_within_seconds": {
               "type": "integer",
@@ -13458,8 +13455,8 @@
               "maxLength": 128,
               "x-minBytes": 2,
               "x-maxBytes": 128,
-              "pattern": "^\\S+$",
-              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths."
+              "pattern": "^[^\\x09-\\x0d    -     　]+$",
+              "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths."
             },
             "evidence_kind": {
               "type": "string",
@@ -13479,8 +13476,8 @@
               "maxLength": 128,
               "x-minBytes": 2,
               "x-maxBytes": 128,
-              "pattern": "^\\S+$",
-              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths."
+              "pattern": "^[^\\x09-\\x0d    -     　]+$",
+              "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths."
             },
             "producer_id": {
               "type": "string",
@@ -13488,8 +13485,8 @@
               "maxLength": 128,
               "x-minBytes": 2,
               "x-maxBytes": 128,
-              "pattern": "^\\S+$",
-              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths."
+              "pattern": "^[^\\x09-\\x0d    -     　]+$",
+              "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths."
             },
             "producer_run_ref": {
               "type": "string",
@@ -13497,8 +13494,8 @@
               "maxLength": 128,
               "x-minBytes": 2,
               "x-maxBytes": 128,
-              "pattern": "^\\S+$",
-              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths."
+              "pattern": "^[^\\x09-\\x0d    -     　]+$",
+              "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths."
             },
             "producer_watermark": {
               "type": "string",
@@ -13506,8 +13503,8 @@
               "maxLength": 128,
               "x-minBytes": 2,
               "x-maxBytes": 128,
-              "pattern": "^\\S+$",
-              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths."
+              "pattern": "^[^\\x09-\\x0d    -     　]+$",
+              "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths."
             }
           }
         }
@@ -13607,8 +13604,8 @@
               "maxLength": 128,
               "x-minBytes": 2,
               "x-maxBytes": 128,
-              "pattern": "^\\S+$",
-              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths."
+              "pattern": "^[^\\x09-\\x0d    -     　]+$",
+              "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths."
             },
             "evidence_kind": {
               "type": "string",
@@ -13628,8 +13625,8 @@
               "maxLength": 128,
               "x-minBytes": 2,
               "x-maxBytes": 128,
-              "pattern": "^\\S+$",
-              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths."
+              "pattern": "^[^\\x09-\\x0d    -     　]+$",
+              "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths."
             },
             "producer_id": {
               "type": "string",
@@ -13637,8 +13634,8 @@
               "maxLength": 128,
               "x-minBytes": 2,
               "x-maxBytes": 128,
-              "pattern": "^\\S+$",
-              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths."
+              "pattern": "^[^\\x09-\\x0d    -     　]+$",
+              "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths."
             },
             "producer_run_ref": {
               "type": "string",
@@ -13646,8 +13643,8 @@
               "maxLength": 128,
               "x-minBytes": 2,
               "x-maxBytes": 128,
-              "pattern": "^\\S+$",
-              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths."
+              "pattern": "^[^\\x09-\\x0d    -     　]+$",
+              "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths."
             },
             "producer_watermark": {
               "type": "string",
@@ -13655,8 +13652,8 @@
               "maxLength": 128,
               "x-minBytes": 2,
               "x-maxBytes": 128,
-              "pattern": "^\\S+$",
-              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths."
+              "pattern": "^[^\\x09-\\x0d    -     　]+$",
+              "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths."
             }
           }
         }
@@ -13757,8 +13754,8 @@
               "maxLength": 128,
               "x-minBytes": 2,
               "x-maxBytes": 128,
-              "pattern": "^\\S+$",
-              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths."
+              "pattern": "^[^\\x09-\\x0d    -     　]+$",
+              "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths."
             },
             "cancellation_authority": {
               "type": "string",
@@ -13781,8 +13778,8 @@
               "maxLength": 128,
               "x-minBytes": 2,
               "x-maxBytes": 128,
-              "pattern": "^\\S+$",
-              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths."
+              "pattern": "^[^\\x09-\\x0d    -     　]+$",
+              "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths."
             }
           },
           "required": [
@@ -14071,8 +14068,8 @@
               "maxLength": 128,
               "x-minBytes": 2,
               "x-maxBytes": 128,
-              "pattern": "^\\S+$",
-              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths."
+              "pattern": "^[^\\x09-\\x0d    -     　]+$",
+              "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths."
             },
             "checkpoint_sequence": {
               "type": "integer",
@@ -14711,8 +14708,8 @@
               "maxLength": 128,
               "x-minBytes": 2,
               "x-maxBytes": 128,
-              "pattern": "^\\S+$",
-              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths."
+              "pattern": "^[^\\x09-\\x0d    -     　]+$",
+              "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths."
             },
             "native_subject_ref": {
               "type": "string",
@@ -15107,8 +15104,8 @@
               "maxLength": 128,
               "x-minBytes": 2,
               "x-maxBytes": 128,
-              "pattern": "^\\S+$",
-              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths."
+              "pattern": "^[^\\x09-\\x0d    -     　]+$",
+              "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths."
             },
             "boundary_sequence": {
               "type": "integer",
@@ -15236,8 +15233,8 @@
               "maxLength": 128,
               "x-minBytes": 2,
               "x-maxBytes": 128,
-              "pattern": "^\\S+$",
-              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths."
+              "pattern": "^[^\\x09-\\x0d    -     　]+$",
+              "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths."
             },
             "edge_id": {
               "type": "string",
@@ -15245,8 +15242,8 @@
               "maxLength": 128,
               "x-minBytes": 2,
               "x-maxBytes": 128,
-              "pattern": "^\\S+$",
-              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths."
+              "pattern": "^[^\\x09-\\x0d    -     　]+$",
+              "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths."
             },
             "edge_kind": {
               "type": "string",
@@ -15556,8 +15553,8 @@
               "maxLength": 128,
               "x-minBytes": 2,
               "x-maxBytes": 128,
-              "pattern": "^\\S+$",
-              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths."
+              "pattern": "^[^\\x09-\\x0d    -     　]+$",
+              "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths."
             },
             "worker_packet": {
               "$ref": "#/$defs/worker_packet"
@@ -15665,8 +15662,8 @@
               "maxLength": 128,
               "x-minBytes": 2,
               "x-maxBytes": 128,
-              "pattern": "^\\S+$",
-              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths."
+              "pattern": "^[^\\x09-\\x0d    -     　]+$",
+              "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths."
             }
           },
           "required": [
@@ -15961,8 +15958,8 @@
               "maxLength": 128,
               "x-minBytes": 2,
               "x-maxBytes": 128,
-              "pattern": "^\\S+$",
-              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths."
+              "pattern": "^[^\\x09-\\x0d    -     　]+$",
+              "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths."
             }
           },
           "required": [
@@ -16469,8 +16466,8 @@
               "maxLength": 128,
               "x-minBytes": 2,
               "x-maxBytes": 128,
-              "pattern": "^\\S+$",
-              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths."
+              "pattern": "^[^\\x09-\\x0d    -     　]+$",
+              "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths."
             },
             "delivery_state": {
               "type": "string",
@@ -16887,8 +16884,8 @@
               "maxLength": 128,
               "x-minBytes": 2,
               "x-maxBytes": 128,
-              "pattern": "^\\S+$",
-              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths."
+              "pattern": "^[^\\x09-\\x0d    -     　]+$",
+              "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths."
             },
             "native_subject_ref": {
               "type": "string",
@@ -17282,8 +17279,8 @@
               "maxLength": 128,
               "x-minBytes": 2,
               "x-maxBytes": 128,
-              "pattern": "^\\S+$",
-              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths."
+              "pattern": "^[^\\x09-\\x0d    -     　]+$",
+              "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths."
             },
             "evidence_kind": {
               "type": "string",
@@ -17303,8 +17300,8 @@
               "maxLength": 128,
               "x-minBytes": 2,
               "x-maxBytes": 128,
-              "pattern": "^\\S+$",
-              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths."
+              "pattern": "^[^\\x09-\\x0d    -     　]+$",
+              "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths."
             },
             "producer_id": {
               "type": "string",
@@ -17312,8 +17309,8 @@
               "maxLength": 128,
               "x-minBytes": 2,
               "x-maxBytes": 128,
-              "pattern": "^\\S+$",
-              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths."
+              "pattern": "^[^\\x09-\\x0d    -     　]+$",
+              "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths."
             },
             "producer_run_ref": {
               "type": "string",
@@ -17321,8 +17318,8 @@
               "maxLength": 128,
               "x-minBytes": 2,
               "x-maxBytes": 128,
-              "pattern": "^\\S+$",
-              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths."
+              "pattern": "^[^\\x09-\\x0d    -     　]+$",
+              "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths."
             },
             "producer_watermark": {
               "type": "string",
@@ -17330,8 +17327,8 @@
               "maxLength": 128,
               "x-minBytes": 2,
               "x-maxBytes": 128,
-              "pattern": "^\\S+$",
-              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths."
+              "pattern": "^[^\\x09-\\x0d    -     　]+$",
+              "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths."
             }
           }
         }
@@ -17522,8 +17519,8 @@
               "maxLength": 128,
               "x-minBytes": 2,
               "x-maxBytes": 128,
-              "pattern": "^\\S+$",
-              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths."
+              "pattern": "^[^\\x09-\\x0d    -     　]+$",
+              "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths."
             },
             "evidence_kind": {
               "type": "string",
@@ -17543,8 +17540,8 @@
               "maxLength": 128,
               "x-minBytes": 2,
               "x-maxBytes": 128,
-              "pattern": "^\\S+$",
-              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths."
+              "pattern": "^[^\\x09-\\x0d    -     　]+$",
+              "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths."
             },
             "producer_id": {
               "type": "string",
@@ -17552,8 +17549,8 @@
               "maxLength": 128,
               "x-minBytes": 2,
               "x-maxBytes": 128,
-              "pattern": "^\\S+$",
-              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths."
+              "pattern": "^[^\\x09-\\x0d    -     　]+$",
+              "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths."
             },
             "producer_run_ref": {
               "type": "string",
@@ -17561,8 +17558,8 @@
               "maxLength": 128,
               "x-minBytes": 2,
               "x-maxBytes": 128,
-              "pattern": "^\\S+$",
-              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths."
+              "pattern": "^[^\\x09-\\x0d    -     　]+$",
+              "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths."
             },
             "producer_watermark": {
               "type": "string",
@@ -17570,8 +17567,8 @@
               "maxLength": 128,
               "x-minBytes": 2,
               "x-maxBytes": 128,
-              "pattern": "^\\S+$",
-              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths."
+              "pattern": "^[^\\x09-\\x0d    -     　]+$",
+              "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths."
             }
           }
         }
@@ -17770,8 +17767,8 @@
                   "maxLength": 128,
                   "x-minBytes": 2,
                   "x-maxBytes": 128,
-                  "pattern": "^\\S+$",
-                  "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths."
+                  "pattern": "^[^\\x09-\\x0d    -     　]+$",
+                  "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths."
                 },
                 "verdict_kind": {
                   "type": "string",
@@ -17936,8 +17933,8 @@
               "maxLength": 128,
               "x-minBytes": 2,
               "x-maxBytes": 128,
-              "pattern": "^\\S+$",
-              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths."
+              "pattern": "^[^\\x09-\\x0d    -     　]+$",
+              "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths."
             },
             "attempt_epoch": {
               "type": "integer",
@@ -18047,8 +18044,8 @@
               "maxLength": 128,
               "x-minBytes": 2,
               "x-maxBytes": 128,
-              "pattern": "^\\S+$",
-              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths."
+              "pattern": "^[^\\x09-\\x0d    -     　]+$",
+              "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths."
             },
             "objective": {
               "type": "string",
@@ -18235,8 +18232,8 @@
               "maxLength": 128,
               "x-minBytes": 2,
               "x-maxBytes": 128,
-              "pattern": "^\\S+$",
-              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths."
+              "pattern": "^[^\\x09-\\x0d    -     　]+$",
+              "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths."
             },
             "attempt_epoch": {
               "type": "integer",
@@ -18525,8 +18522,8 @@
               "maxLength": 128,
               "x-minBytes": 2,
               "x-maxBytes": 128,
-              "pattern": "^\\S+$",
-              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths."
+              "pattern": "^[^\\x09-\\x0d    -     　]+$",
+              "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths."
             },
             "resolution_evidence": {
               "type": "array",
@@ -18543,8 +18540,8 @@
               "maxLength": 128,
               "x-minBytes": 2,
               "x-maxBytes": 128,
-              "pattern": "^\\S+$",
-              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths."
+              "pattern": "^[^\\x09-\\x0d    -     　]+$",
+              "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths."
             }
           }
         }
@@ -18657,8 +18654,8 @@
               "maxLength": 128,
               "x-minBytes": 2,
               "x-maxBytes": 128,
-              "pattern": "^\\S+$",
-              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths."
+              "pattern": "^[^\\x09-\\x0d    -     　]+$",
+              "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths."
             },
             "added": {
               "type": "array",
@@ -18786,8 +18783,8 @@
               "maxLength": 128,
               "x-minBytes": 2,
               "x-maxBytes": 128,
-              "pattern": "^\\S+$",
-              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths."
+              "pattern": "^[^\\x09-\\x0d    -     　]+$",
+              "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths."
             },
             "native_subject_ref": {
               "type": "string",
@@ -19477,8 +19474,8 @@
               "maxLength": 128,
               "x-minBytes": 2,
               "x-maxBytes": 128,
-              "pattern": "^\\S+$",
-              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths."
+              "pattern": "^[^\\x09-\\x0d    -     　]+$",
+              "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths."
             },
             "native_subject_ref": {
               "type": "string",

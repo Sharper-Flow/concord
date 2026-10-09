@@ -172,7 +172,8 @@ Knowledge that outlives the change that produced it.
 |---|---|---|
 | Publish a canonical durable note to a deterministic home, with publish proof | Covered | PM6; `internal/store/git_knowledge.go` |
 | Verify a published note still matches its recorded digest | Covered | `VerifyCommittedNote`, `internal/store/git_knowledge.go` |
-| Search durable knowledge by kind, tag, text, and time window | Covered | Q9, `internal/store/knowledge_query.go` |
+| Search durable knowledge by kind, tag, and text | Covered | Q9, `internal/store/knowledge_query.go` |
+| Filter durable knowledge search by a time window | Excluded | CD-0020 D2 excludes a time-window filter from Q9. Law lookup has no time job, and each Q9 result still carries its record date. |
 | Resolve the canonical note for a completed unit of work | Covered | Q10, `internal/store/knowledge_query.go` |
 | Keep specifications as binding law with typed relations between them | Covered | CD-0015; `.concord/docs/decisions/CD-0015-typed-law-relations.md` |
 | Bind a law change to the work that justified it, so law and history move together | Covered | `law_modifies` amendment path, `internal/store/workflow_completion.go` |
@@ -203,9 +204,9 @@ Territory that appears across all six and is an outcome in its own right.
 |---|---|
 | Covered | 62 |
 | Not covered | 0 |
-| Excluded with reason | 12 |
+| Excluded with reason | 13 |
 
-**Total enumerated outcomes: 74.**
+**Total enumerated outcomes: 75.**
 
 No enumerated outcome remains not covered: the floor bar (covered with evidence or
 excluded with an accepted reason) is met. The clustering list is retained below

@@ -1536,7 +1536,7 @@
           "law_refs": [
             {
               "clause_id": "1. Decision",
-              "content_hash": "sha256:d5120e54fe3afc1c40a147cf2f67e4964df3a26af5f1155864d395eb4ab45231",
+              "content_hash": "sha256:1ab4109410e62cf7d15f76861daba7619edbe30a04601383d92c433d29b7cd1d",
               "law_id": "TS3",
               "locator": ".concord/docs/agent-read-tool-contract.md"
             },
@@ -4125,13 +4125,13 @@
           "law_refs": [
             {
               "clause_id": "D1. Retain the current manifest-primary hybrid",
-              "content_hash": "sha256:16f856c1de2aa7af31e9c78eee329271b6edd8d6f7134c238997f39fc9dbf59b",
+              "content_hash": "sha256:5ef9f24f24727c60cd3b9cdbc4313ecc782ddd483392ca703772c32c310a716d",
               "law_id": "CD-0020",
               "locator": ".concord/docs/decisions/CD-0020-retain-knowledge-index-shape.md"
             },
             {
               "clause_id": "D2. Retain PM1.Q9 and Q10 as the knowledge-query boundary",
-              "content_hash": "sha256:16f856c1de2aa7af31e9c78eee329271b6edd8d6f7134c238997f39fc9dbf59b",
+              "content_hash": "sha256:5ef9f24f24727c60cd3b9cdbc4313ecc782ddd483392ca703772c32c310a716d",
               "law_id": "CD-0020",
               "locator": ".concord/docs/decisions/CD-0020-retain-knowledge-index-shape.md"
             }
@@ -8287,7 +8287,7 @@
       "law_refs": [
         {
           "clause_id": "1. Decision",
-          "content_hash": "sha256:d5120e54fe3afc1c40a147cf2f67e4964df3a26af5f1155864d395eb4ab45231",
+          "content_hash": "sha256:1ab4109410e62cf7d15f76861daba7619edbe30a04601383d92c433d29b7cd1d",
           "law_id": "TS3",
           "locator": ".concord/docs/agent-read-tool-contract.md"
         },
@@ -8517,13 +8517,13 @@
       "law_refs": [
         {
           "clause_id": "D1. Retain the current manifest-primary hybrid",
-          "content_hash": "sha256:16f856c1de2aa7af31e9c78eee329271b6edd8d6f7134c238997f39fc9dbf59b",
+          "content_hash": "sha256:5ef9f24f24727c60cd3b9cdbc4313ecc782ddd483392ca703772c32c310a716d",
           "law_id": "CD-0020",
           "locator": ".concord/docs/decisions/CD-0020-retain-knowledge-index-shape.md"
         },
         {
           "clause_id": "D2. Retain PM1.Q9 and Q10 as the knowledge-query boundary",
-          "content_hash": "sha256:16f856c1de2aa7af31e9c78eee329271b6edd8d6f7134c238997f39fc9dbf59b",
+          "content_hash": "sha256:5ef9f24f24727c60cd3b9cdbc4313ecc782ddd483392ca703772c32c310a716d",
           "law_id": "CD-0020",
           "locator": ".concord/docs/decisions/CD-0020-retain-knowledge-index-shape.md"
         }

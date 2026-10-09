@@ -365,13 +365,8 @@ func validateArchitectureBindingTx(ctx context.Context, tx *sql.Tx, workID strin
 	if err := validateArchitectureBindingDomainsTx(ctx, tx, productID, affected, registryHash); err != nil {
 		return err
 	}
-	for _, relation := range binding.DomainRelationModifies {
-		if _, ok := affected[relation.SourceDomainID]; !ok {
-			return newFailure(KindUnknownScope, "workflow_architecture_binding", "relation source is outside affected Domains", false, "include relation endpoints in affected_domain_ids")
-		}
-		if _, ok := affected[relation.TargetDomainID]; !ok {
-			return newFailure(KindUnknownScope, "workflow_architecture_binding", "relation target is outside affected Domains", false, "include relation endpoints in affected_domain_ids")
-		}
+	if err := validateArchitectureBindingRelationsTx(ctx, tx, productID, registryHash, affected, binding.DomainRelationModifies); err != nil {
+		return err
 	}
 	homeProjectID, homeLocatorID, err := productKnowledgeHomeTx(ctx, tx, productID)
 	if err != nil {
@@ -456,6 +451,27 @@ func validateArchitectureBindingDomainsTx(ctx context.Context, tx *sql.Tx, produ
 		}
 		if status != "current" || hash != registryHash {
 			return newFailure(KindStaleRequiresReview, "workflow_architecture_binding", "architecture binding names a non-current or stale Domain: "+domainID, false, "rebuild the current Product Domain registry")
+		}
+	}
+	return nil
+}
+
+// validateArchitectureBindingRelationsTx resolves each exact tuple in the
+// Product's pinned registry inside the admission transaction.
+func validateArchitectureBindingRelationsTx(ctx context.Context, tx *sql.Tx, productID, registryHash string, affected map[string]struct{}, relations []WorkflowDomainRelationModification) error {
+	for _, relation := range relations {
+		if _, ok := affected[relation.SourceDomainID]; !ok {
+			return newFailure(KindUnknownScope, "workflow_architecture_binding", "relation source is outside affected Domains", false, "include relation endpoints in affected_domain_ids")
+		}
+		if _, ok := affected[relation.TargetDomainID]; !ok {
+			return newFailure(KindUnknownScope, "workflow_architecture_binding", "relation target is outside affected Domains", false, "include relation endpoints in affected_domain_ids")
+		}
+		var exists bool
+		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM domain_architecture_relations WHERE product_id=? AND registry_content_hash=? AND source_domain_id=? AND kind=? AND target_domain_id=?)`, productID, registryHash, relation.SourceDomainID, relation.Kind, relation.TargetDomainID).Scan(&exists); err != nil {
+			return wrapFailure(KindUnavailable, "workflow_architecture_binding", "cannot read named Domain relation", true, "retry once the Domain relation projection is readable", err)
+		}
+		if !exists {
+			return newFailure(KindUnknownScope, "workflow_architecture_binding", "architecture binding names an unknown Domain relation: "+relation.SourceDomainID+"/"+relation.Kind+"/"+relation.TargetDomainID, false, "name a current canonical relation in the Product's pinned Domain registry")
 		}
 	}
 	return nil

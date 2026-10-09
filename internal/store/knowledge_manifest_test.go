@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -469,6 +470,41 @@ func TestQueryQ9StructuredTextRankingIsCursorSafe(t *testing.T) {
 	}
 	_, err = s.QueryQ9(ctx, Q9Request{Text: "SQLITE", Limit: 1, Cursor: legacy, Home: home})
 	assertFailureKind(t, err, KindInvalidCursor)
+	_, err = s.QueryQ9(ctx, Q9Request{Text: "SQLITE", Limit: 1, Cursor: withCursorKey(t, *first.NextCursor, "Since", "2026-08-09T00:00:00Z"), Home: home})
+	assertFailureKind(t, err, KindInvalidCursor)
+	_, err = s.QueryQ9(ctx, Q9Request{Text: "SQLITE", Limit: 1, Cursor: withCursorSuffix(t, *first.NextCursor, " {}"), Home: home})
+	assertFailureKind(t, err, KindInvalidCursor)
+}
+
+// withCursorSuffix appends bytes after a knowledge cursor's JSON object. A
+// cursor is one JSON value; trailing data is a malformed cursor.
+func withCursorSuffix(t *testing.T, raw, suffix string) string {
+	t.Helper()
+	b, err := base64.RawURLEncoding.DecodeString(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return base64.RawURLEncoding.EncodeToString(append(b, suffix...))
+}
+
+// withCursorKey re-encodes a knowledge cursor with one extra key, the shape
+// of a cursor minted under a retired filter. Q9 dropped its time window
+// (CD-0020 D2); a cursor bound to a window must not resume a windowless query.
+func withCursorKey(t *testing.T, raw, key, value string) string {
+	t.Helper()
+	b, err := base64.RawURLEncoding.DecodeString(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fields map[string]any
+	if err := json.Unmarshal(b, &fields); err != nil {
+		t.Fatal(err)
+	}
+	fields[key] = value
+	if b, err = json.Marshal(fields); err != nil {
+		t.Fatal(err)
+	}
+	return base64.RawURLEncoding.EncodeToString(b)
 }
 
 func TestQueryQ9StructuredTextExactFieldsAreCaseInsensitiveAndUnique(t *testing.T) {

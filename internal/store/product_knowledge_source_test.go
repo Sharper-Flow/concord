@@ -542,7 +542,6 @@ func TestFederatedQ9RefusesMalformedFilters(t *testing.T) {
 		"SRC-LAW", ".concord/docs/decisions/CD-0913-filter-law.md", "Filter source law")
 	for _, req := range []Q9Request{
 		{Product: "flt-product", Text: strings.Repeat("x", 257)},
-		{Product: "flt-product", Since: "not-a-date"},
 	} {
 		result, err := s.QueryQ9(ctx, req)
 		if err == nil {
@@ -569,6 +568,14 @@ func TestFederatedQ9CursorBindsToProjectFilter(t *testing.T) {
 	var failure *Failure
 	if !errors.As(err, &failure) || failure.Kind != KindInvalidCursor {
 		t.Fatalf("Product cursor accepted for a different Project filter: %v", err)
+	}
+	_, err = s.QueryQ9(ctx, Q9Request{Product: "curp-product", Limit: 1, Cursor: withCursorKey(t, *first.NextCursor, "Until", "2026-01-01T00:00:00Z")})
+	if !errors.As(err, &failure) || failure.Kind != KindInvalidCursor {
+		t.Fatalf("cursor minted under a retired time window resumed a windowless query: %v", err)
+	}
+	_, err = s.QueryQ9(ctx, Q9Request{Product: "curp-product", Limit: 1, Cursor: withCursorSuffix(t, *first.NextCursor, " {}")})
+	if !errors.As(err, &failure) || failure.Kind != KindInvalidCursor {
+		t.Fatalf("cursor with trailing data resumed a query: %v", err)
 	}
 }
 

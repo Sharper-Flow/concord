@@ -65,49 +65,50 @@ per source, and registration stays explicit operator configuration.
 
 Q9 remains the bounded search job for durable Product knowledge. Its accepted
 surface includes Product/Project/Domain scope, closed kinds, tags, bounded
-text, time window, cursor/limit, canonical locator, commit/content identity, and
-index watermark. Q10 remains the single canonical-locator resolution job and
-keeps its typed negative: an absent canonical locator resolves to the typed
+text, cursor/limit, canonical locator, commit/content identity, and index
+watermark. Q10 remains the single canonical-locator resolution job and keeps
+its typed negative: an absent canonical locator resolves to the typed
 `knowledge_missing` answer through `resolve_note`, never to a ranked
 substitute.
 
 No FTS, semantic/vector retrieval, arbitrary query language, unbounded artifact
-body, or generic graph traversal is added. A new operation or query shape requires
-a named unmet Product-memory job and the PM1/TS3 amendment path.
+body, time-window filter, or generic graph traversal is added. A new operation
+or query shape requires a named unmet Product-memory job and the PM1/TS3
+amendment path.
 
-Amended 2026-09-20 through that path, with ranked body discovery as the named
-unmet job. This section names three distinct retrieval jobs:
+This section names three distinct retrieval jobs:
 
 - **Exact lookup.** Resolve one record from identity the caller already holds:
   a stable ID or a canonical locator. Q10 owns this job, and its typed negative
   stands.
 - **Closed filters.** Select records with conjunctive closed inputs: kinds,
-  tags, Product/Project/Domain scope, and a time window, with no text. Q9 owns
-  this job.
-- **Ranked body discovery.** Admit records whose Git-stored body matches the
-  bounded text, ranked after exact structured matches, inside the existing Q9
-  envelope, bounds, and watermark semantics. This is the named unmet job: the
-  live search admitted only ID, title, tags, and summary, so an accepted law
-  record whose title and summary omit the sought words stayed invisible to
-  text search. Accepted research observed the gap live
+  tags, and Product/Project/Domain scope, with no text. Q9 owns this job.
+- **Ranked text discovery.** Split the bounded text on whitespace into
+  case-insensitive tokens. A record matches when every token occurs in its ID,
+  title, summary, a tag, or its Git-stored body. Token order and adjacency do
+  not matter. Exact structured matches rank first, then title, ID, summary, and
+  tag matches, then body-only matches. Q9 owns this job inside its existing
+  envelope, bounds, and watermark semantics. A whole-phrase substring rule is
+  not sufficient: an accepted law whose title holds the sought words in another
+  order, or whose title and summary omit them, must not read as absent.
+  Accepted research observed the body gap live
   (`work-d9df5a8a07c69f6e1ef85d70`, observation `obs:c8685c173cf8558a`).
 
-Ranked body discovery stays non-authoritative under Invariant 4. Rank order
-and match evidence never become law authority, and a body match never
+Ranked text discovery stays non-authoritative under Invariant 4. Rank order
+and match evidence never become law authority, and a text match never
 substitutes for Q10 identity resolution. The D1 split is unchanged: a body is
 read from the Git blob the manifest already references, and the SQLite
 projection may carry derived admission data but cannot author it. No
-replacement index, vector, FTS, or graph authority is added.
+replacement index, vector, FTS, or graph authority is added. An empty Q9 answer
+is an authoritative negative only under an authoritative watermark for every
+requested source and kind.
 
-The record-kind vocabulary is canonical as of 2026-09-20. The stored kinds are
-`work_note`, `constitution`, `decision`, `spec`, `lesson`, `reference`, and
-`research`: the set `.concord/docs/knowledge/manifest.json` declares, the store
-enforces, and the typed knowledge-record draft schema uses. The TS3 agent
-surface accepts `note` and `specification` as input aliases for `work_note`
-and `spec`, and translates results back. An alias lives at the agent boundary
-only and never enters stored data or law text. The draft schema also admits
-`external` in its reference-kinds enum. That is a reference kind, not a record
-kind.
+The record-kind vocabulary is canonical. The stored kinds are `work_note`,
+`constitution`, `decision`, `spec`, `lesson`, `reference`, and `research`: the
+set `.concord/docs/knowledge/manifest.json` declares and the store enforces.
+The TS3 agent surface accepts `note` and `specification` as input aliases for
+`work_note` and `spec`, and translates results back. An alias lives at the
+agent boundary only and never enters stored data or law text.
 
 The CD-0159 authority-tier interaction is reconciled as of 2026-09-20. A
 record's `authority.tier` value, `legislated` or `derived`, is a recorded fact
@@ -237,7 +238,6 @@ new read operation. Architecture expansion and conformance repair remain separat
 - `internal/store/knowledge_index_projection.go`
 - `internal/store/knowledge_query.go`
 - `internal/agent/runtime.go` (TS3 kind aliases)
-- `.concord/schemas/knowledge-record.v1.schema.json` (typed record kinds)
 - GitHub issue [#93](https://github.com/Sharper-Flow/concord/issues/93)
 
 ## Public comparison evidence

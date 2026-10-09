@@ -7,18 +7,18 @@ File accountability does not change a document's law home or a handler's semanti
 ## Responsibility
 Owns the typed agent plane: the read and mutation tool surface, its budget and evolution constraints, call context, lanes and worker dispatch, the adapter transport contract, and the agent result envelope.
 
-Mapped files: 372; tests: 238; unresolved candidates: 39.
+Mapped files: 375; tests: 239; unresolved candidates: 38.
 Candidate counts overlap when a file has several candidates; no candidate is an assigned owner.
 
 ## Code and tests
 Full paths, unresolved reasons, shared-test coverage, and source fingerprints: `.concord/navigation/inventory.json`.
 - Include: `internal/agent/**`, `adapter/**`, `.opencode/**`, `examples/opencode/**`, `.concord/instructions/**`
-- Include: `internal/store/agent*.go`, `internal/store/worker*.go`, `internal/store/generated_agent_lanes.go`, `internal/store/generated_typed_error_kinds.go`, `internal/store/native_runs.go`
-- Include: `internal/store/native_run*_test.go`, `internal/store/generated_native_run_statuses.go`, `internal/store/cursor.go`, `internal/store/work_collection_cursor.go`, `internal/store/query_corpus*_test.go`
-- Include: `internal/store/query_recorded_intent_test.go`, `internal/store/nil_store_queries_test.go`, `internal/store/first_call_contract_admission_test.go`, `internal/store/lane_step_dispatch_test.go`, `internal/store/record_verdict_publication_parity_test.go`
-- Include: `internal/store/outside_repair_schema_parity_test.go`, `internal/store/nil_store_agent*_test.go`, `internal/store/pm8_pm9_absence_test.go`, `contracts/agent-*`, `contracts/host-tool-*`
-- Include: `contracts/native-run-*`, `contracts/worker-*`, `contracts/adapter-*`, `.concord/scenarios/agent-jobs.v1.json`, `.concord/scenarios/adapter-continuity.v1.json`
-- Include: `skills/**`, `bunfig.toml`, `internal/store/typed_error_kinds_test.go`
+- Include: `internal/store/agent*.go`, `internal/store/worker*.go`, `internal/store/project_handoffs.go`, `internal/store/generated_agent_lanes.go`, `internal/store/generated_typed_error_kinds.go`
+- Include: `internal/store/native_runs.go`, `internal/store/native_run*_test.go`, `internal/store/generated_native_run_statuses.go`, `internal/store/cursor.go`, `internal/store/work_collection_cursor.go`
+- Include: `internal/store/query_corpus*_test.go`, `internal/store/query_recorded_intent_test.go`, `internal/store/nil_store_queries_test.go`, `internal/store/first_call_contract_admission_test.go`, `internal/store/lane_step_dispatch_test.go`
+- Include: `internal/store/record_verdict_publication_parity_test.go`, `internal/store/outside_repair_schema_parity_test.go`, `internal/store/nil_store_agent*_test.go`, `internal/store/pm8_pm9_absence_test.go`, `contracts/agent-*`
+- Include: `contracts/host-tool-*`, `contracts/native-run-*`, `contracts/worker-*`, `contracts/adapter-*`, `.concord/scenarios/agent-jobs.v1.json`
+- Include: `.concord/scenarios/adapter-continuity.v1.json`, `skills/**`, `bunfig.toml`, `internal/store/typed_error_kinds_test.go`
 - Go test package: `github.com/sharper-flow/concord/internal/agent`
 - Go test package: `github.com/sharper-flow/concord/internal/store`
 
@@ -33,7 +33,7 @@ These are catalog surface entries, not invariant/control or handler joins.
 - `concord_work_initiative`: `add_entry`, `change_requiredness`, `create`, `entries`, `remove_entry`, `reorder_entry`, `revise_narrative`
 - `concord_work_relate`: `client_policy_grant_request`, `link`, `message_send`, `message_withdraw`, `product_project_add`, `resolve_overlap`, `resource_claim`, `resource_release`, `restore_superseded`, `set_memberships`, `supersede`, `unlink`
 - `concord_work_trace`: `continuity`, `external_observations`, `history`, `observations`, `project_retirement`, `relations`, `research`
-- `concord_work_transition`: `correct_delivery`, `lifecycle`, `project_handoff_consume`, `project_handoff_record`, `remove`, `session_vacate`, `worker_abandon`, `worker_reconcile`, `workflow_action`, `worktree_audit_reclaim`, `worktree_claim`, `worktree_destroy`, `worktree_reclaim`, `worktree_verify`
+- `concord_work_transition`: `correct_delivery`, `lifecycle`, `outside_repair`, `outside_repair_reconcile`, `project_handoff_consume`, `project_handoff_record`, `remove`, `session_vacate`, `worker_abandon`, `worker_reconcile`, `workflow_action`, `worktree_audit_reclaim`, `worktree_claim`, `worktree_destroy`, `worktree_reclaim`, `worktree_verify`
 
 ## Verification references
 Declared repository commands are shared checks, not Domain-specific acceptance or automatic execution.
@@ -51,5 +51,5 @@ Invariant/control joins, allowed-dependency interpretation, observed import/call
 non-law navigation homes, CON-887 packet reading, and CON-890 owner oracles remain later work.
 Required-reading entries will be pinned references, not inlined card content.
 
-Navigation source fingerprint: `sha256:ff2ebd25a4e4bdc6412f03ae22aaf399d8651998960d6aee311552fb4384f8ca`.
+Navigation source fingerprint: `sha256:3e6935764e333c9f41167f06bff410fb9446cc90e281427c907ffd30374ae80c`.
 Other fingerprints and the exact file universe are in the generated inventory.

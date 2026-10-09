@@ -19,7 +19,7 @@ type CacheEntry = { attemptedAt: number; block?: string }
 // the managed-parent boundary and the live session directory.
 export type ContinuitySessionSource = {
   hasManagedParent(sessionID: string): Promise<boolean>
-  sessionDirectory(sessionID: string): Promise<string>
+  sessionDirectory(sessionID: string, signal?: AbortSignal): Promise<string>
 }
 
 type ContinuityOptions = { runner?: DispatchRunner; now?: () => number; sessions?: ContinuitySessionSource }
@@ -45,6 +45,8 @@ export function createContinuityTransform(options: ContinuityOptions = {}) {
   const sessions = options.sessions ?? hostControlPlane()
   const cache = new Map<string, CacheEntry>()
 
+  // Transport the core packet unchanged. A hold is context, not authority
+  // for this hook to dispatch repair or reconcile its outcome.
   return async (input: ContinuityInput, output: ContinuityOutput): Promise<void> => {
     try {
       // A transform without a session identity (the Agent.generate path) has

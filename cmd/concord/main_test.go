@@ -691,6 +691,22 @@ func TestTopLevelHelpUnchanged(t *testing.T) {
 	}
 }
 
+func TestOutsideRepairHelpDeclaresJSONAndSeparateTTY(t *testing.T) {
+	in := &countingStdin{}
+	var out, errOut bytes.Buffer
+	if code := runWithInput([]string{"outside-repair", "--help"}, in, &out, &errOut); code != 0 {
+		t.Fatalf("help: %d %s", code, errOut.String())
+	}
+	for _, required := range []string{"concord outside-repair < JSON stdin", "required: work_id, agent", "controlling TTY", "exact directory and argv", "/dev/tty"} {
+		if !strings.Contains(out.String(), required) {
+			t.Errorf("help omits %q", required)
+		}
+	}
+	if in.reads != 0 {
+		t.Fatal("help consumed JSON input")
+	}
+}
+
 func TestProductStageUpdateCLIRecordsPromotion(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "concord.db")
 	seedCLIProduct(t, dbPath, "stage-update-product", "stage-update-project")

@@ -3,7 +3,9 @@ package store
 import (
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"sort"
@@ -12,6 +14,39 @@ import (
 func validateWorkerDispatchWorktree(ctx context.Context, q queryer, workID, sessionWorktree string) error {
 	_, err := activeWorkerClaimedWorktree(ctx, q, workID, sessionWorktree)
 	return err
+}
+
+// workerAttemptProjectTx resolves ownership from the attempt's own dispatch
+// authorization, including reclaimed entries whose native directory is gone.
+// Legacy authorizations without a worktree binding cannot prove a Project:
+// they retain the conservative occupancy check across the whole work item.
+func workerAttemptProjectTx(ctx context.Context, tx *sql.Tx, workID, attemptID string) (string, error) {
+	window, err := FindAuthorizedDispatchWindowTx(ctx, tx, workID, attemptID)
+	if err != nil {
+		var failure *Failure
+		if errors.As(err, &failure) && failure.Kind == KindUnauthorizedDispatch {
+			return "", nil
+		}
+		return "", err
+	}
+	if window.WorktreeIdentity == "" {
+		return "", nil
+	}
+	entries, err := worktreeEntriesCore(ctx, tx, workID)
+	if err != nil {
+		return "", err
+	}
+	for _, entry := range entries {
+		// The durable path survives native removal. A reachable symlinked
+		// path can also match the canonical identity recorded at dispatch.
+		if workerWorktreeIdentity(filepath.Clean(entry.Path)) == window.WorktreeIdentity {
+			return entry.ProjectID, nil
+		}
+		if canonical, err := canonicalWorkerWorktreePath(entry.Path); err == nil && workerWorktreeIdentity(canonical) == window.WorktreeIdentity {
+			return entry.ProjectID, nil
+		}
+	}
+	return "", newFailure(KindWorktreeOwnershipConflict, "worker_fail", "worker attempt worktree identity has no recorded Project", false, "restore the attempt's recorded worktree claim before abandonment")
 }
 
 // activeWorkerClaimedWorktree answers the canonical path of the durable active

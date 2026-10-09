@@ -542,6 +542,7 @@ func validateRemovalGatesQ(ctx context.Context, q queryer, req WorkRemovalReques
 		{`SELECT count(*) FROM bootstrap_operations WHERE work_id=? AND state IN ('pending','creating','native_ready','rolling_back')`, "work has an incomplete bootstrap effect"},
 		{`SELECT count(*) FROM active_research_consumers WHERE consumer_work_id=? AND required=1`, "work has a required research consumer"},
 		{`SELECT count(*) FROM active_research_consumers c JOIN active_research_packs p ON p.pack_id=c.pack_id WHERE p.owner_work_id=? AND c.required=1 AND c.consumer_work_id<>?`, "work has a required research consumer that depends on its findings"},
+		{`SELECT count(*) FROM active_research_packs WHERE owner_work_id=?`, "work still owns research packs; retire them through research_retire before removal"},
 		{`SELECT count(*) FROM durable_operations WHERE work_id=? AND (result_kind IS NULL OR result_kind IN ('pending','partial'))`, "work has an unreconciled durable operation"},
 	}
 	for _, check := range checks {
@@ -596,6 +597,13 @@ func foldWorkRemoved(ctx context.Context, tx *sql.Tx, event Event) error {
 		return newFailure(KindIdempotencyConflict, "fold_event", "removal event does not match its prepared operation", false, "reuse the prepared removal operation")
 	}
 	if err := validateRemovalGatesQ(ctx, tx, WorkRemovalRequest{WorkID: event.SubjectID, ExpectedVersion: payload.ExpectedVersion}); err != nil {
+		return err
+	}
+	// Removal is a terminal route: it releases the removed work's consuming
+	// pins and advances each affected pack once, exactly as every other
+	// terminal fold does. Owned packs are not touched here — the gate above
+	// refuses removal while they remain, and only research_retire deletes them.
+	if err := removeTerminalResearchBindings(ctx, tx, event.SubjectID, event.OccurredAt); err != nil {
 		return err
 	}
 	if err := deleteWorkOwnedProjections(ctx, tx, event.SubjectID); err != nil {
@@ -676,8 +684,6 @@ func deleteWorkOwnedProjections(ctx context.Context, tx *sql.Tx, workID string) 
 		table string
 		query string
 	}{
-		{"active_research_consumers", `DELETE FROM active_research_consumers WHERE consumer_work_id=?`},
-		{"active_research_finding_scopes", `DELETE FROM active_research_finding_scopes WHERE pack_id IN (SELECT pack_id FROM active_research_packs WHERE owner_work_id=?)`},
 		{"bootstrap_operations", `DELETE FROM bootstrap_operations WHERE work_id=?`},
 		{"worktree_verify_leases", `DELETE FROM worktree_verify_leases WHERE work_id=?`},
 		{"durable_operations", `DELETE FROM durable_operations WHERE work_id=?`},
@@ -693,31 +699,6 @@ func deleteWorkOwnedProjections(ctx context.Context, tx *sql.Tx, workID string) 
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM worktree_entries WHERE set_id=?`, WorktreeSetID(workID)); err != nil {
 		return projectionDeleteFailure("worktree_entries", err)
-	}
-	var packs []string
-	packRows, err := tx.QueryContext(ctx, `SELECT pack_id FROM active_research_packs WHERE owner_work_id=?`, workID)
-	if err != nil {
-		return projectionDeleteFailure("active_research_packs", err)
-	}
-	for packRows.Next() {
-		var pack string
-		if err := packRows.Scan(&pack); err != nil {
-			packRows.Close()
-			return projectionDeleteFailure("active_research_packs", err)
-		}
-		packs = append(packs, pack)
-	}
-	if err := packRows.Err(); err != nil {
-		packRows.Close()
-		return projectionDeleteFailure("active_research_packs", err)
-	}
-	packRows.Close()
-	for _, pack := range packs {
-		for _, table := range []string{"active_research_consumers", "active_research_finding_sources", "active_research_sources", "active_research_findings", "active_research_revisions", "active_research_packs"} {
-			if _, err := tx.ExecContext(ctx, `DELETE FROM `+table+` WHERE pack_id=?`, pack); err != nil { //nolint:gosec // table comes only from the closed active-research projection list above and the pack ID stays parameter-bound.
-				return projectionDeleteFailure(table, err)
-			}
-		}
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM work_items WHERE id=?`, workID); err != nil {
 		return wrapFailure(KindUnavailable, "fold_event", "cannot remove the work item", false, "reconcile remaining foreign-key owners", err)

@@ -566,6 +566,13 @@ func dropMigration122Objects(ctx context.Context, db *sql.DB) error {
 	return err
 }
 
+// dropMigration123Objects removes every schema object migration 123 creates:
+// the retirement delete guard is one trigger on a pre-existing table.
+func dropMigration123Objects(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `DROP TRIGGER IF EXISTS active_research_packs_retirement_delete_guard`)
+	return err
+}
+
 // synthExecPath runs statements on an external connection opened straight
 // from a path, arming the fold guard the canonical guard triggers require.
 func synthExecPath(t *testing.T, path string, queries ...string) {

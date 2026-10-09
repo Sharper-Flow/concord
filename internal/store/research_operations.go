@@ -34,9 +34,6 @@ func beginResearchMutation(ctx context.Context, s *Store, identity ResearchMutat
 	if s == nil || s.db == nil {
 		return nil, nil, false, researchUnavailable("store is not open", nil)
 	}
-	if err := reconcileTerminalResearchOwners(ctx, s); err != nil {
-		return nil, nil, false, err
-	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, nil, false, researchUnavailable("cannot begin research transaction", err)
@@ -175,25 +172,6 @@ func lockResearchPack(ctx context.Context, tx *sql.Tx, id string, expected int64
 	if err != nil {
 		return p, researchUnavailable("cannot read research pack", err)
 	}
-	var lifecycle string
-	if err := tx.QueryRowContext(ctx, `SELECT lifecycle FROM work_items WHERE id=?`, p.OwnerWorkID).Scan(&lifecycle); err == nil && isTerminalLifecycle(lifecycle) {
-		var linked int
-		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM archived_work a WHERE a.id=? AND a.type='work_note')`, p.OwnerWorkID).Scan(&linked); err != nil {
-			return p, researchUnavailable("cannot inspect research compaction linkage", err)
-		}
-		if linked != 0 {
-			var blocked string
-			err := tx.QueryRowContext(ctx, `SELECT c.consumer_work_id FROM active_research_consumers c JOIN work_items w ON w.id=c.consumer_work_id WHERE c.pack_id=? AND c.required=1 AND w.lifecycle NOT IN ('completed','cancelled','superseded') LIMIT 1`, id).Scan(&blocked)
-			if err == nil {
-				return p, newFailure(KindResearchConsumerBlocked, "research_mutation", "required active consumer remains bound: "+blocked, false, "unbind, rebind, or terminalize every required active consumer")
-			}
-			if err != sql.ErrNoRows {
-				return p, researchUnavailable("cannot inspect linked research consumers", err)
-			}
-		}
-	} else if err != sql.ErrNoRows && err != nil {
-		return p, researchUnavailable("cannot inspect research owner lifecycle", err)
-	}
 	if p.ExpectedVersion != expected {
 		f := newFailure(KindVersionConflict, "research_mutation", fmt.Sprintf("research pack %s has version %d, want %d", id, p.ExpectedVersion, expected), false, "reload the pack and retry with its current version")
 		// Research packs do not use SubjectRef; the typed current version is
@@ -203,6 +181,26 @@ func lockResearchPack(ctx context.Context, tx *sql.Tx, id string, expected int64
 		return p, f
 	}
 	return p, nil
+}
+
+// ensureResearchPackAuthorable refuses content writes on a retained pack. A
+// terminal owner ends authoring (CD-0215): the pack stays readable, pinnable,
+// freshness-reviewable, and releasable, but it cannot gain or lose content —
+// only an explicit research_retire batch deletes it. Pin and freshness writes
+// call lockResearchPack without this guard.
+func ensureResearchPackAuthorable(ctx context.Context, tx *sql.Tx, p ResearchPack) error {
+	var lifecycle string
+	err := tx.QueryRowContext(ctx, `SELECT lifecycle FROM work_items WHERE id=?`, p.OwnerWorkID).Scan(&lifecycle)
+	if err == sql.ErrNoRows {
+		return newFailure(KindInvariantViolation, "research_mutation", "research pack has no owner work item", false, "repair the research owner reference before writing")
+	}
+	if err != nil {
+		return researchUnavailable("cannot inspect research owner lifecycle", err)
+	}
+	if isTerminalLifecycle(lifecycle) {
+		return newFailure(KindInvalidOperation, "research_mutation", "retained research pack is read-only: its owner work is terminal", false, "retire the pack through research_retire or record a freshness review")
+	}
+	return nil
 }
 func bumpResearchPack(ctx context.Context, tx *sql.Tx, id string, expected int64, observedAt time.Time) error {
 	res, err := tx.ExecContext(ctx, `UPDATE active_research_packs SET expected_version=expected_version+1,updated_at=? WHERE pack_id=? AND expected_version=?`, observedAt.UTC().Format(time.RFC3339Nano), id, expected)

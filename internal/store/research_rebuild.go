@@ -3,104 +3,17 @@ package store
 import (
 	"context"
 	"database/sql"
-	"errors"
 )
 
-// cleanupTerminalResearch is the archive reconciliation step. It is separate
-// from the compaction event fold because active research is direct-table
-// authority; repeating it is safe after a crash between the two local commits.
-// The archived-work existence join matches work_note rows only: note ids are
-// home scoped, and a foreign home may reuse this owner's id for a decision or
-// lesson without this work being archived.
-func cleanupTerminalResearch(ctx context.Context, s *Store, ownerWorkID string) error {
-	if s == nil || s.db == nil {
-		return researchUnavailable("store is not open", nil)
-	}
-	if ownerWorkID == "" {
-		return researchInvalid("terminal research cleanup requires an owner work item")
-	}
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return researchUnavailable("cannot begin terminal research cleanup", err)
-	}
-	rows, err := tx.QueryContext(ctx, `SELECT p.pack_id FROM active_research_packs p JOIN work_items w ON w.id=p.owner_work_id JOIN archived_work a ON a.id=p.owner_work_id AND a.type='work_note' WHERE p.owner_work_id=? AND w.lifecycle IN ('completed','cancelled','superseded') ORDER BY p.pack_id`, ownerWorkID)
-	if err != nil {
-		_ = tx.Rollback()
-		return researchUnavailable("cannot find terminal research packs", err)
-	}
-	var packs []string
-	for rows.Next() {
-		var packID string
-		if err := rows.Scan(&packID); err != nil {
-			_ = rows.Close()
-			_ = tx.Rollback()
-			return researchUnavailable("cannot decode terminal research pack", err)
-		}
-		packs = append(packs, packID)
-	}
-	if err := rows.Err(); err != nil {
-		_ = rows.Close()
-		_ = tx.Rollback()
-		return researchUnavailable("cannot read terminal research packs", err)
-	}
-	_ = rows.Close()
-	var blockedConsumer string
-	for _, packID := range packs {
-		var blocked string
-		err := tx.QueryRowContext(ctx, `SELECT c.consumer_work_id FROM active_research_consumers c JOIN work_items w ON w.id=c.consumer_work_id WHERE c.pack_id=? AND c.required=1 AND w.lifecycle NOT IN ('completed','cancelled','superseded') LIMIT 1`, packID).Scan(&blocked)
-		if err == nil {
-			blockedConsumer = blocked
-			break
-		}
-		if err != sql.ErrNoRows {
-			_ = tx.Rollback()
-			return researchUnavailable("cannot inspect terminal research consumers", err)
-		}
-		if _, err := tx.ExecContext(ctx, `DELETE FROM active_research_packs WHERE pack_id=?`, packID); err != nil {
-			_ = tx.Rollback()
-			return researchUnavailable("cannot remove terminal research pack", err)
-		}
-	}
-	if blockedConsumer != "" {
-		_ = tx.Rollback()
-		return newFailure(KindResearchConsumerBlocked, "terminal_research_cleanup", "required active consumer remains bound: "+blockedConsumer, false, "unbind, rebind, or terminalize every required active consumer")
-	}
-	if err := tx.Commit(); err != nil {
-		return researchUnavailable("cannot commit terminal research cleanup", err)
-	}
-	return nil
-}
-
-func reconcileTerminalResearchOwners(ctx context.Context, s *Store) error {
-	rows, err := s.db.QueryContext(ctx, `SELECT DISTINCT p.owner_work_id FROM active_research_packs p JOIN work_items w ON w.id=p.owner_work_id JOIN archived_work a ON a.id=p.owner_work_id AND a.type='work_note' WHERE w.lifecycle IN ('completed','cancelled','superseded') ORDER BY p.owner_work_id`)
-	if err != nil {
-		return researchUnavailable("cannot find terminal research owners", err)
-	}
-	var owners []string
-	for rows.Next() {
-		var owner string
-		if err := rows.Scan(&owner); err != nil {
-			_ = rows.Close()
-			return researchUnavailable("cannot decode terminal research owner", err)
-		}
-		owners = append(owners, owner)
-	}
-	if err := rows.Err(); err != nil {
-		_ = rows.Close()
-		return researchUnavailable("cannot read terminal research owners", err)
-	}
-	_ = rows.Close()
-	for _, owner := range owners {
-		if err := cleanupTerminalResearch(ctx, s, owner); err != nil {
-			var blocked *Failure
-			if errors.As(err, &blocked) && blocked.Kind == KindResearchConsumerBlocked {
-				continue
-			}
-			return err
-		}
-	}
-	return nil
-}
+// researchRetirementDeleteGuardName is the migration 123 trigger that applies
+// retirement authority to every delete from active_research_packs: only a
+// pack whose owner is terminal and that carries no active consumer pin
+// (required or optional) may be deleted, which is exactly the eligibility the
+// explicit research_retire batch classifies. Projection rebuild stages and
+// restores the pack rows byte for byte inside one transaction, so the rebuild
+// drops this trigger before its staging delete and recreates it after the
+// restore, following the migration 52 locator guard.
+const researchRetirementDeleteGuardName = "active_research_packs_retirement_delete_guard"
 
 func snapshotActiveResearchForRebuild(ctx context.Context, tx *sql.Tx) error {
 	for _, table := range []string{"packs", "revisions", "findings", "sources", "finding_sources", "finding_scopes", "consumers"} {

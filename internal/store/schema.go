@@ -6098,6 +6098,36 @@ CREATE TRIGGER worktree_ref_outcomes_guard_update BEFORE UPDATE ON worktree_ref_
 CREATE TRIGGER worktree_ref_outcomes_guard_delete BEFORE DELETE ON worktree_ref_outcomes FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'worktree_ref_outcomes is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
 `,
 	},
+	{
+		// The retirement delete guard re-derives retire eligibility inside
+		// the deleting transaction: a pack leaves only while its owner work
+		// is terminal and no consumer pin (required or optional) is active,
+		// the same eligibility the research_retire batch classifies. A
+		// missing owner work row is an unmet eligibility, so the guard fails
+		// closed and refuses the delete at the schema. Projection rebuild
+		// drops this trigger before staging and recreates it after the
+		// restore, as the migration 52 locator guard does. The guard rejects
+		// an older binary's writes, so the step is breaking.
+		Version:  123,
+		Name:     "research_retirement_delete_guard",
+		Breaking: true,
+		SQL: `
+CREATE TRIGGER active_research_packs_retirement_delete_guard
+BEFORE DELETE ON active_research_packs FOR EACH ROW
+WHEN NOT (
+    COALESCE((SELECT lifecycle FROM work_items WHERE id = OLD.owner_work_id), '') IN ('completed','cancelled','superseded')
+    AND NOT EXISTS (
+        SELECT 1 FROM active_research_consumers c
+        LEFT JOIN work_items cw ON cw.id = c.consumer_work_id
+        WHERE c.pack_id = OLD.pack_id
+          AND (cw.id IS NULL OR cw.lifecycle NOT IN ('completed','cancelled','superseded'))
+    )
+)
+BEGIN
+    SELECT RAISE(ABORT, 'active_research_packs deletes only retire-eligible packs through research_retire');
+END;
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

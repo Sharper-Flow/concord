@@ -162,8 +162,7 @@ func TestWitnessJobFailureBeforeDispositionKeepsWindowThroughUnrelatedSuccess(t 
 	// The same failed dispatch stays counted in the same-step wall's window
 	// too: the wall anchor and the counting window share the same walk's
 	// opening, and the unrelated success moved neither.
-	def := mustBuiltinDefinition(t, "workflow.break_fix").Definition
-	before, err := workflowSameStepFailedAttemptCount(context.Background(), s.DatabaseForTesting(), def, workID, "repair", "witness")
+	before, err := workflowNonProgressAttemptCount(context.Background(), s.DatabaseForTesting(), workID, "witness")
 	if err != nil || before != 1 {
 		t.Fatalf("same-step failed count after the unrelated acceptance = (%d, %v), want the one failed dispatch still counted", before, err)
 	}

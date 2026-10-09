@@ -3,185 +3,197 @@ package agent
 import (
 	"context"
 	"encoding/json"
-	"errors"
-	"fmt"
-	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/sharper-flow/concord/internal/store"
 )
 
-// seedSameStepWallWithoutCorrection drives three failed review-lane attempts
-// through the verify checkpoint's dispatch action and completes a fourth
-// operator-approved attempt without acceptance, so the same-step wall stands
-// armed with no correction record behind it: the fourth dispatch consumed the
-// third failure record, and a completed attempt is neither a counted failure
-// nor a window reset (CD-0164 D1). It returns the latest counted failed
-// attempt's identity and the attempt epoch its dispatch completion recorded.
-func seedSameStepWallWithoutCorrection(t *testing.T, s *store.Store, grant Authority, worktree string) (string, int64) {
-	t.Helper()
-	owner := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
-	const failedID = "attempt:work-1:verify-3"
-	for cycle := 1; cycle <= 3; cycle++ {
-		attemptID := fmt.Sprintf("attempt:work-1:verify-%d", cycle)
-		runGenericOneOffStoreAction(t, s, "dispatch_worker", map[string]any{
-			"attempt_id":    attemptID,
-			"worker_packet": verifyWallPacket(t, s, attemptID, nil),
-		}, owner, worktree, "dispatch-"+strconv.Itoa(cycle))
-		applyVerifyWallDispatchAndFailure(t, s, grant, attemptID)
-	}
-
-	// The fourth attempt dispatches behind the operator approval and its
-	// worker completes without acceptance.
-	fourth := "attempt:work-1:verify-4"
-	version := workVersion(t, s, "work-1")
-	payload, err := json.Marshal(map[string]any{
-		"attempt_id":    fourth,
-		"worker_packet": verifyWallPacket(t, s, fourth, nil),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := s.Transact(context.Background(), func(tx *store.Transaction) error {
-		_, err := store.ApplyWorkflowActionTx(context.Background(), tx, store.BuiltinWorkflowRegistry(), store.WorkflowActionExecutionRequest{
-			WorkID: "work-1", ExpectedVersion: version, ActionID: "dispatch_worker", Payload: payload,
-			Actor: owner, SessionWorktree: worktree, EscalatedRetryApproved: true,
-			AcceptedInputsDigest: "sha256:" + strings.Repeat("e", 64), IdempotencyIdentity: "same-step-completed-4", OperationID: "same-step-completed-4",
-			PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "same-step-completed-4", RequestID: "request:same-step-completed-4",
-			ContractDigest: ManifestDigest, Now: fixedTime(),
-		})
-		return err
-	}); err != nil {
-		t.Fatalf("approved fourth dispatch: %v", err)
-	}
-	recordGenericOneOffWorkerDispatch(t, s, grant, fourth, "same-step-completed")
-	// The fourth attempt rides the review lane, so its live completion carries
-	// the typed review block (CD-0197).
-	completion := store.Event{EventID: "same-step-completed-" + fourth, Kind: store.WorkerCompleted, SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: 3, Payload: retryJSON(store.WorkerCompletedPayload{AttemptID: fourth, ReadbackModel: "openai/gpt-5.6-luna", ReportSchemaVersion: store.WorkerReportSchemaVersion, EvidenceOrigin: store.WorkerEvidenceLegacyUnavailable, Review: &store.WorkerReviewBlock{Verdict: "ship", Findings: []store.WorkerReviewFinding{{Severity: "P3", Confidence: "high", Detail: "the bounded change matches the approved contract"}}}})}
-	if err := s.Transact(context.Background(), func(tx *store.Transaction) error {
-		_, err := store.ApplyOperationTx(context.Background(), tx, store.Operation{Events: []store.Event{completion}})
-		return err
-	}); err != nil {
-		t.Fatalf("record completed attempt %s: %v", fourth, err)
-	}
-
-	// The wall still holds three counted failures, and no correction record
-	// stands behind them.
-	count, err := store.WorkflowFailedWorkerRetryBinding(context.Background(), s, nil, "work-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if count == nil {
-		t.Fatal("the same-step wall holds three counted failures but no retry binding exists")
-	}
-	if count.FailedAttemptID != failedID || count.FailedAttemptEpoch <= 0 {
-		t.Fatalf("retry binding = %+v, want the latest counted failed attempt %s", count, failedID)
-	}
-	return failedID, count.FailedAttemptEpoch
-}
-
-// TestSameStepWallAfterACompletedAttemptMintsTheApprovalChallenge pins the
-// same-step wall's escape on the mutation boundary when no correction record
-// stands behind it: three counted failed review dispatches, one completed
-// attempt that consumed the failure record, then a fresh dispatch on the
-// review lane. The wall refuses, the boundary mints the approval challenge
-// bound to the latest counted failed attempt's identity, epoch, and contract,
-// and one signed approval admits exactly that dispatch.
-func TestSameStepWallAfterACompletedAttemptMintsTheApprovalChallenge(t *testing.T) {
+// TestSameStepWallWithoutCorrectionRecordStaysConvergenceGated pins the
+// amended CD-0148 same-step wall when no correction record stands behind it:
+// three counted failed review dispatches with no recorded disposition. The
+// wall refuses the next dispatch with missing_evidence and mints no approval
+// challenge; a supplied operator approval has no effect; a superseded
+// contract derives the approach_changed basis and admits one fresh dispatch
+// without any challenge; the interrupted dispatch consumes the basis, so the
+// blind re-dispatch refuses until a fresh supersession re-opens the wall.
+func TestSameStepWallWithoutCorrectionRecordStaysConvergenceGated(t *testing.T) {
 	s, service, grant, privateKey := mutationDispatchFixture(t, []Capability{"work_transition", "worker_dispatch"})
 	worktree := seedGenericOneOffVerifyWorkflow(t, s, grant)
 	grant.Worktree = worktree
-	failedID, failedEpoch := seedSameStepWallWithoutCorrection(t, s, grant, worktree)
+	seedGenericOneOffVerifyWall(t, s, grant, worktree)
 	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(grant, scopeVersion)
+	owner := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
 
-	// The store-level wall refusal fires on an unapproved dispatch with the
-	// exact counted-population text.
-	retryID := "attempt:work-1:verify-5"
-	unapprovedPayload, err := json.Marshal(map[string]any{
-		"attempt_id":    retryID,
-		"worker_packet": verifyWallPacket(t, s, retryID, nil),
-	})
+	// The armed wall keeps no approval binding: nothing on the boundary
+	// can mint a retry challenge for it.
+	binding, err := store.WorkflowFailedWorkerRetryBinding(context.Background(), s, nil, "work-1")
+	if err != nil || binding != nil {
+		t.Fatalf("retry approval binding behind the same-step wall = %+v err=%v, want none", binding, err)
+	}
+	pin, err := store.ReadWorkPin(context.Background(), s, "work-1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	unapprovedVersion := workVersion(t, s, "work-1")
-	unapprovedErr := s.Transact(context.Background(), func(tx *store.Transaction) error {
-		_, err := store.ApplyWorkflowActionTx(context.Background(), tx, store.BuiltinWorkflowRegistry(), store.WorkflowActionExecutionRequest{
-			WorkID: "work-1", ExpectedVersion: unapprovedVersion, ActionID: "dispatch_worker", Payload: unapprovedPayload,
-			Actor:                store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent},
-			SessionWorktree:      worktree,
-			AcceptedInputsDigest: "sha256:" + strings.Repeat("f", 64), IdempotencyIdentity: "same-step-unapproved-5", OperationID: "same-step-unapproved-5",
-			PrincipalRef: grant.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "same-step-unapproved-5", RequestID: "request:same-step-unapproved-5",
-			ContractDigest: ManifestDigest, Now: fixedTime(),
-		})
-		return err
-	})
-	var refusal *store.Failure
-	if !errors.As(unapprovedErr, &refusal) || refusal.Kind != store.KindApprovalRequired {
-		t.Fatalf("unapproved same-step dispatch = %v, want approval_required", unapprovedErr)
+	if pin.Correction != nil {
+		t.Fatalf("correction record behind the bare same-step wall = %+v, want none", pin.Correction)
 	}
-	if !strings.Contains(refusal.Detail, "worker dispatch at step verify reached the three-failed-attempt limit: 3 failed attempts dispatched at this step since the last accepted result or step entry") {
-		t.Fatalf("same-step refusal does not name the counted population: %q", refusal.Detail)
+	reason := ""
+	for _, intent := range pin.NextValidIntents {
+		if intent.ActionID == "dispatch_worker" {
+			reason = intent.ReasonCode
+		}
+	}
+	if reason != "escalated_retry_requires_convergence" {
+		t.Fatalf("pin dispatch reason behind the bare wall = %q, want escalated_retry_requires_convergence", reason)
 	}
 
-	// The mutation boundary mints the operator challenge bound to the latest
-	// counted failed attempt, its dispatch completion epoch, and the active
-	// contract, so the wall's escape stays operator approvable.
+	// The wall refuses a fresh dispatch with the counted-population
+	// refusal, and the refusal is never an operator approval ask.
 	version := workVersion(t, s, "work-1")
-	input := map[string]any{
-		"work_id": "work-1", "expected_version": version, "action_id": "dispatch_worker",
-		"idempotency_key": "same-step-challenge-1", "fields": map[string]any{"attempt_id": retryID, "worker_packet": verifyWallPacket(t, s, retryID, nil)},
+	retryID := "attempt:work-1:verify-4"
+	input, raw := verifyWallDispatchInput(t, s, retryID, "same-step-convergence-1", nil)
+	env.RequestID = "request:same-step-convergence-1"
+	refused := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: raw}, env)
+	if refused.Error == nil || refused.Error.Kind != "missing_evidence" {
+		t.Fatalf("same-step retry without a basis = %+v, want missing_evidence", refused.Error)
 	}
-	raw, err := json.Marshal(input)
-	if err != nil {
-		t.Fatal(err)
+	if !strings.Contains(refused.Error.Message, "worker correction reached the three-attempt limit without a convergence basis: 3 non-progress attempts since the last accepted productive result (step verify)") {
+		t.Fatalf("same-step refusal does not name the counted population: %q", refused.Error.Message)
 	}
-	env.RequestID = "request:same-step-challenge-1"
-	challenge := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: raw}, env)
-	if challenge.Error == nil || challenge.Error.Kind != "approval_required" {
-		t.Fatalf("same-step wall retry without approval = %+v, want approval_required", challenge.Error)
+	if refused.Error.RecoveryAction.Kind != "provide_evidence" {
+		t.Fatalf("same-step refusal recovery = %q, want provide_evidence and never an approval ask", refused.Error.RecoveryAction.Kind)
 	}
-	details := challenge.Error.Details
-	challengeRef, _ := details["approval_ref"].(string)
-	if len(challengeRef) != 64 {
-		t.Fatalf("same-step wall challenge carries no approval reference: %+v", details)
+	if refused.Error.ConsequenceSummary != nil {
+		t.Fatal("same-step refusal carries a consequence summary, but no challenge was minted")
 	}
-	if got, _ := details["action_id"].(string); got != "dispatch_worker" {
-		t.Fatalf("same-step wall challenge action_id = %v", details["action_id"])
+	if ref, ok := refused.Error.Details["approval_ref"].(string); ok && ref != "" {
+		t.Fatalf("same-step refusal carries approval_ref %q, but no challenge was minted", ref)
 	}
-	summary := challenge.Error.ConsequenceSummary
-	if summary == nil {
-		t.Fatal("challenge lacks a consequence summary")
+	if got := verifyWallChallenges(t, s); got != 0 {
+		t.Fatalf("same-step refusal minted %d approval challenges, want 0", got)
 	}
-	assertBindingContains(t, summary.Scope, "failed_attempt_id:"+failedID)
-	assertBindingContains(t, summary.Versions, "failed_attempt_epoch:"+strconv.FormatInt(failedEpoch, 10))
-	assertBindingContains(t, summary.Versions, "contract:1")
-	assertBindingContains(t, summary.Versions, "work:"+strconv.FormatInt(version, 10))
+	if got := verifyWallDispatchCompletions(t, s, retryID); got != 0 {
+		t.Fatalf("refused same-step retry recorded %d dispatch completions, want 0", got)
+	}
+	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts WHERE work_id='work-1' AND attempt_id='`+retryID+`'`); got != 0 {
+		t.Fatalf("refused same-step retry created %d worker attempt rows, want 0", got)
+	}
+	if after := workVersion(t, s, "work-1"); after != version {
+		t.Fatalf("refused same-step retry changed the work version %d -> %d", version, after)
+	}
 
-	// The signed approval admits exactly one dispatch intent.
-	approvedInput := cloneWithApproval(t, input, challengeRef)
+	// A supplied operator approval neither opens the wall nor mints a
+	// challenge: no basis exists, and none can be approved into existence.
+	approvedInput := cloneWithApproval(t, input, strings.Repeat("d", 64))
 	approvedRaw, err := json.Marshal(approvedInput)
 	if err != nil {
 		t.Fatal(err)
 	}
-	scope := map[string]any{"product_id": "product-1", "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}, "failed_attempt_id": failedID, "scope_version": scopeVersion}
-	versions := map[string]any{"work": version, "contract": int64(1), "failed_attempt_epoch": failedEpoch}
-	env.HostApproval = signedHostApproval(privateKey, challengeRef, mutationDigest("concord_work_transition", "workflow_action", env, approvedRaw), scope, versions, grant.SessionRef, grant.AgentRef, grant.Worktree, fixedTime(), nonceForChallenge(challengeRef))
-	env.RequestID = "request:same-step-approved-1"
-	approved := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: approvedRaw}, env)
-	if approved.Outcome != OutcomeOK {
-		t.Fatalf("approved same-step wall retry = %+v", approved.Error)
+	scope := map[string]any{"product_id": "product-1", "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}, "scope_version": scopeVersion}
+	versions := map[string]any{"work": version, "contract": int64(1)}
+	env.HostApproval = signedHostApproval(privateKey, strings.Repeat("d", 64), mutationDigest("concord_work_transition", "workflow_action", env, approvedRaw), scope, versions, grant.SessionRef, grant.AgentRef, grant.Worktree, fixedTime(), "same-step-unused-approval")
+	env.RequestID = "request:same-step-convergence-2"
+	bypass := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: approvedRaw}, env)
+	if bypass.Error == nil || bypass.Error.Kind != "missing_evidence" {
+		t.Fatalf("same-step retry behind a supplied approval = %+v, want missing_evidence", bypass.Error)
 	}
-	var completions int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id='work-1' AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=?`, store.WorkflowActionCompleted, retryID).Scan(&completions); err != nil {
+	if got := verifyWallChallenges(t, s); got != 0 {
+		t.Fatalf("supplied approval minted %d approval challenges, want 0", got)
+	}
+	if after := workVersion(t, s, "work-1"); after != version {
+		t.Fatalf("supplied approval changed the work version %d -> %d", version, after)
+	}
+	env.HostApproval = nil
+
+	// A superseded contract after the latest dispatch is a changed
+	// approach: the store derives the basis, the pin flips its reason, and
+	// the boundary admits the dispatch with no approval at all.
+	supersedeVerifyWallContract(t, s, owner, workVersion(t, s, "work-1"), 2, "the same-step wall demanded a changed approach")
+	pin, err = store.ReadWorkPin(context.Background(), s, "work-1")
+	if err != nil {
 		t.Fatal(err)
 	}
-	if completions != 1 {
-		t.Fatalf("approved retry recorded %d dispatch completions for %s, want 1", completions, retryID)
+	reason = ""
+	for _, intent := range pin.NextValidIntents {
+		if intent.ActionID == "dispatch_worker" {
+			reason = intent.ReasonCode
+		}
+	}
+	if reason != "escalated_retry_convergence_recorded" {
+		t.Fatalf("pin dispatch reason behind the derived basis = %q, want escalated_retry_convergence_recorded", reason)
+	}
+	// No correction record stands, so the converging packet carries none.
+	if pin.Correction != nil {
+		t.Fatalf("correction record after the supersession = %+v, want none", pin.Correction)
+	}
+	_, admittedRaw := verifyWallDispatchInput(t, s, retryID, "same-step-convergence-3", nil)
+	env.RequestID = "request:same-step-convergence-3"
+	admitted := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: admittedRaw}, env)
+	if admitted.Outcome != OutcomeOK {
+		t.Fatalf("converging same-step retry without any approval = %+v", admitted.Error)
+	}
+	if got := verifyWallChallenges(t, s); got != 0 {
+		t.Fatalf("converging same-step retry minted %d approval challenges, want 0", got)
+	}
+	if got := verifyWallDispatchCompletions(t, s, retryID); got != 1 {
+		t.Fatalf("converging same-step retry recorded %d dispatch completions, want 1", got)
+	}
+	basis := verifyWallRecordedConvergence(t, s, retryID)
+	if basis.Basis != "approach_changed" || basis.SupersededSeq == 0 || basis.PreviousRecordSeq != 0 || basis.LatestRecordSeq != 0 {
+		t.Fatalf("recorded convergence = %+v, want the approach_changed basis naming its supersession sequence", basis)
+	}
+
+	// The session dies before the host dispatches the worker: the
+	// half-materialized dispatch consumed the basis, so the blind
+	// re-dispatch refuses without a challenge. The wall re-armed.
+	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts WHERE work_id='work-1' AND attempt_id='`+retryID+`' AND lifecycle_state='in_flight'`); got != 1 {
+		t.Fatalf("interrupted retry left %d in-flight worker attempt rows, want 1", got)
+	}
+	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM domain_events WHERE subject_id='work-1' AND kind='`+string(store.WorkerDispatched)+`' AND json_extract(payload,'$.attempt_id')='`+retryID+`'`); got != 0 {
+		t.Fatalf("interrupted retry shows %d lane dispatches, want 0", got)
+	}
+	version = workVersion(t, s, "work-1")
+	secondID := "attempt:work-1:verify-5"
+	pin, err = store.ReadWorkPin(context.Background(), s, "work-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, blindRaw := verifyWallDispatchInput(t, s, secondID, "same-step-convergence-4", pin.Correction)
+	env.RequestID = "request:same-step-convergence-4"
+	blind := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: blindRaw}, env)
+	if blind.Error == nil || blind.Error.Kind != "missing_evidence" {
+		t.Fatalf("blind re-dispatch after the consumed basis = %+v, want missing_evidence", blind.Error)
+	}
+	if got := verifyWallChallenges(t, s); got != 0 {
+		t.Fatalf("blind re-dispatch minted %d approval challenges, want 0", got)
+	}
+	if got := verifyWallDispatchCompletions(t, s, secondID); got != 0 {
+		t.Fatalf("blind re-dispatch recorded %d dispatch completions, want 0", got)
+	}
+	if after := workVersion(t, s, "work-1"); after != version {
+		t.Fatalf("blind re-dispatch changed the work version %d -> %d", version, after)
+	}
+
+	// A fresh supersession derives a fresh basis: each basis buys exactly
+	// one more fresh fenced attempt, and the whole journey minted no
+	// approval challenge.
+	supersedeVerifyWallContract(t, s, owner, workVersion(t, s, "work-1"), 3, "the interrupted converging retry needed a renewed approach")
+	_, renewedRaw := verifyWallDispatchInput(t, s, secondID, "same-step-convergence-5", nil)
+	env.RequestID = "request:same-step-convergence-5"
+	renewed := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: renewedRaw}, env)
+	if renewed.Outcome != OutcomeOK {
+		t.Fatalf("renewed converging same-step retry = %+v", renewed.Error)
+	}
+	if got := verifyWallChallenges(t, s); got != 0 {
+		t.Fatalf("the whole same-step journey minted %d approval challenges, want 0", got)
+	}
+	renewedBasis := verifyWallRecordedConvergence(t, s, secondID)
+	if renewedBasis.Basis != "approach_changed" || renewedBasis.SupersededSeq <= basis.SupersededSeq {
+		t.Fatalf("renewed convergence = %+v, want a fresh supersession after seq %d", renewedBasis, basis.SupersededSeq)
 	}
 }

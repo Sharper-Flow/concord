@@ -98,16 +98,21 @@ func TestUpgradeResumesAfterTheCollisionIsRepaired(t *testing.T) {
 	// Remove the colliding objects; the pending migrations recreate them
 	// with their checksummed definitions. The v119 worker_attempts rebuild
 	// needs no drop: it renames and recreates, so its re-run is shaped by its
-	// own DDL whether or not the objects already exist.
+	// own DDL whether or not the objects already exist. Migration 120's
+	// maintenance triggers attach to pre-existing tables, so they drop by
+	// name before its tables do.
 	if _, err := db.ExecContext(context.Background(), `DROP TABLE project_handoffs; DROP TABLE durability_commits; DROP TABLE runtime_state_writers; DROP TABLE worker_job_revisions;`); err != nil {
 		t.Fatalf("cannot drop the colliding table: %v", err)
+	}
+	if err := dropMigration120Objects(context.Background(), db); err != nil {
+		t.Fatalf("cannot drop migration 120's colliding objects: %v", err)
 	}
 	_ = db.Close()
 	report, err := Upgrade(context.Background(), path, nil)
 	if err != nil {
 		t.Fatalf("the repaired tail must apply: %v", err)
 	}
-	if len(report.Applied) != 5 || report.Applied[0] != 115 || report.Applied[1] != 116 || report.Applied[2] != 117 || report.Applied[3] != 118 || report.Applied[4] != 119 || report.SchemaVersion != CurrentSchemaVersion() {
+	if len(report.Applied) != 6 || report.Applied[0] != 115 || report.Applied[1] != 116 || report.Applied[2] != 117 || report.Applied[3] != 118 || report.Applied[4] != 119 || report.Applied[5] != 120 || report.SchemaVersion != CurrentSchemaVersion() {
 		t.Fatalf("the repaired tail must reapply exactly the removed steps: %+v", report)
 	}
 	plan, err := PlanUpgradeReadiness(context.Background(), path)

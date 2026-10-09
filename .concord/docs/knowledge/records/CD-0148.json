@@ -42,9 +42,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:3cb46de6f8f8f3287f290ab58eeeab174020bd19e9a60ffeb7bed21ce8c30722",
+  "sha256": "sha256:662bb1edf4cdd6edc2a59941906d2684a0761361d70797b9b7820108976f825c",
   "status": "accepted",
-  "summary": "Failed worker retries require exact approval bound to the failed attempt, contract, work version, scope, and request digest, and each admitted retry receives a fresh attempt identity and fenced epoch. The three-attempt escalation wall is operator approvable through the same challenge.",
+  "summary": "Failed worker retries below the escalation wall require exact operator approval and a fresh fenced attempt. Escalated retries require a store-derived convergence basis; approval cannot substitute for it. Each basis admits one dispatch and is durably recorded with its source event sequences.",
   "tags": [
     "worker",
     "retry",

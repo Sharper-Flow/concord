@@ -177,7 +177,18 @@ func TestMigration95PreservesVerifyLeasesAndTheirRefusals(t *testing.T) {
 	if _, err := db.ExecContext(ctx, schemaManifestDDL); err != nil {
 		t.Fatal(err)
 	}
-	for _, migration := range migrations[:len(migrations)-1] {
+	// The fixture predates migration 95 exactly: the lease-preserving
+	// rebuild it proves is the one Migrate applies next. A [:len-1] slice
+	// silently drifted with every later migration until the newest one was
+	// the only step left to apply; pinning the boundary keeps the proof
+	// about migration 95 whatever the manifest grows to.
+	var pre95 []migration
+	for _, m := range migrations {
+		if m.Version < 95 {
+			pre95 = append(pre95, m)
+		}
+	}
+	for _, migration := range pre95 {
 		if err := applyMigration(ctx, db, migration); err != nil {
 			t.Fatalf("migration %d: %v", migration.Version, err)
 		}
@@ -188,15 +199,21 @@ func TestMigration95PreservesVerifyLeasesAndTheirRefusals(t *testing.T) {
 	if err := ensureInstallationKey(ctx, db); err != nil {
 		t.Fatal(err)
 	}
-	s := &Store{db: db, path: path}
-	if err := ApplyOperation(ctx, s, Operation{Events: []Event{locatorProductEvent("product-w"), locatorProjectEvent("project-w"), locatorMembershipEvent("product-w", "project-w")}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProduct, "product-w"): 0, VersionRef(SubjectProject, "project-w"): 0}}); err != nil {
-		t.Fatal(err)
-	}
-	if err := ApplyOperation(ctx, s, Operation{Events: []Event{
-		{EventID: "migration95-work", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: "work-w", Actor: "operator", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: 2, Payload: jsonRaw(`{"work_kind":"task","title":"Migration","priority":1}`)},
-		{EventID: "migration95-membership", Kind: "work.memberships_replaced", SubjectType: SubjectWorkItem, SubjectID: "work-w", Actor: "operator", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 1, Payload: jsonRaw(`{"memberships":[{"project_id":"project-w","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
-	}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "work-w"): 0}}); err != nil {
-		t.Fatal(err)
+	// The work fixture is seeded at the v94 shape with guarded direct SQL,
+	// not the current write path: every ApplyOperation now ends in the
+	// initiative invariant validator, whose projection tables belong to a
+	// later migration and do not exist yet in this fixture. The subject
+	// under test is what Migrate preserves, not the write path.
+	for _, seed := range []string{
+		`INSERT INTO fold_guard(active) VALUES(1)`,
+		`INSERT INTO projects(id,display_name,version,created_at,updated_at) VALUES('project-w','Migration',1,'2026-09-20T00:00:00Z','2026-09-20T00:00:00Z')`,
+		`INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at) VALUES('work-w','task','Migration','needed',1,2,'2026-09-20T00:00:00Z','2026-09-20T00:00:00Z')`,
+		`INSERT INTO work_projects(work_id,project_id,role) VALUES('work-w','project-w','primary')`,
+		`DELETE FROM fold_guard`,
+	} {
+		if _, err := db.ExecContext(ctx, seed); err != nil {
+			t.Fatalf("seed v94 work fixture: %v\n%s", err, seed)
+		}
 	}
 	// Rows written at the v94 vocabulary: a held lease with no recorded
 	// outcome and a finished one with its result.

@@ -4607,20 +4607,20 @@ finally:
     connection.close()
 
 
-# The shipped manifest keeps its recorded compatibility floor: migration 119
-# widens the worker-attempt schema identities through a breaking rebuild.
+# The live manifest's compatibility floor is 120: Initiative maintenance
+# triggers attach to pre-existing dependency tables and classify as breaking.
 # The earlier compound-CHECK rebuilds stay breaking too.
 with open(check.SCHEMA, encoding="utf-8", newline="") as handle:
     live_source = handle.read()
 live_failures, live_breaking = check.evaluate(check.migrations(live_source))
 if live_failures:
     FAILURES.append(f"live manifest drew refusals: {live_failures}")
-if max(live_breaking, default=0) != 119:
+if max(live_breaking, default=0) != 120:
     FAILURES.append(
         f"live compatibility floor moved: {max(live_breaking, default=0)}")
-if 110 not in live_breaking or 111 not in live_breaking or 119 not in live_breaking:
+if not {110, 111, 119, 120}.issubset(live_breaking):
     FAILURES.append(
-        f"shipped rebuild migrations left breaking: {live_breaking}")
+        f"required migrations left breaking: {live_breaking}")
 
 
 def main() -> int:

@@ -1557,6 +1557,7 @@ var builtinActionPolicies = map[string]builtinActionPolicy{
 	),
 	"reject_worker_result": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventGeneric,
 		actionRefField("attempt_id", true), actionIntegerField("attempt_epoch", true, 2147483647), actionStringField("diagnosis", true, 4096), actionStringField("strategy", true, 4096), actionIDListField("predicate_ids", true, 1, 8), actionListField("evidence_refs", true, 1, 32),
+		actionIDListField("open_finding_ids", false, 1, 32),
 	),
 	"request_correction": actionPolicy(ActionInternalSQLite, ActionApprovalRequired, ActionHold, ActionEventGeneric,
 		actionStringField("diagnosis", true, 4096), actionStringField("strategy", true, 4096), actionListField("predicate_ids", true, 1, 8), actionListField("evidence_refs", true, 1, 32),

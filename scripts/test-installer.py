@@ -3879,6 +3879,21 @@ class DeriveAdapterFilesTest(unittest.TestCase):
         self.assertIn(installer.PLUGIN_ENTRY_FILE, derived)
         self.assertEqual(derived, installer.ADAPTER_FILES)
 
+    def test_shipped_watcher_module_carries_no_autoloadable_tool_export(self) -> None:
+        # The release ships ADAPTER_FILES flat into the host custom tools
+        # directory, where the host autoloads every tool-shaped named export
+        # as `<file>_<export>` beside the plugin registration. The watcher is
+        # a plugin-registered tool only (CD-0199 D1): the shipped module
+        # carries no autoloadable tool export, and the plugin entry keeps the
+        # canonical registration. The adapter suite proves the export shape
+        # at runtime; this pins the shipped bytes at the installer boundary.
+        repo_adapter = SCRIPT.parent.parent / "adapter" / "opencode"
+        watcher = repo_adapter / "ci-watch.ts"
+        self.assertIn("ci-watch.ts", installer.ADAPTER_FILES)
+        self.assertNotIn("export const concord_ci_watch", watcher.read_text(encoding="utf-8"))
+        plugin = (repo_adapter / installer.PLUGIN_ENTRY_FILE).read_text(encoding="utf-8")
+        self.assertIn("concord_ci_watch:", plugin)
+
 
 class StandaloneInstallerTest(unittest.TestCase):
     """The documented procedure runs the installer with no checkout present.

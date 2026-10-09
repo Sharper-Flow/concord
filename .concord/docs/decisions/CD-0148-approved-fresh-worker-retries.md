@@ -15,9 +15,10 @@ operator reviewed. A retry also needs a durable bound to the approved contract.
 
 ## Decision
 
-After a worker attempt fails, the agent mutation boundary must challenge for an
-exact operator decision. The challenge binds the failed attempt ID, failed
-attempt epoch, active contract version, work version, scope, and request digest.
+After a worker attempt fails below the escalation wall, the agent mutation
+boundary must challenge for an exact operator decision. The challenge binds
+the failed attempt ID, failed attempt epoch, active contract version, work
+version, scope, and request digest.
 The failed attempt remains immutable and terminal.
 
 Only the matching, unused, unexpired approval can admit `dispatch_worker`. The
@@ -25,40 +26,78 @@ retry must use a new attempt ID and the next fenced step epoch. A missing, stale
 expired, or reused approval refuses without a new attempt or dispatch event.
 The host deletes any resume task identity when it consumes a dispatch window.
 
-The existing limit of three correction attempts remains in force. Once the
-limit is reached, the work pin removes `dispatch_worker` from the ordinary
-intent set. The wall itself is operator approvable, not a dead end. A
-`dispatch_worker` against an escalated correction mints the standard approval
-challenge, and the challenge carries the metadata the adapter validates. The
-challenge binds the failed attempt ID, failed attempt epoch, active contract
-version, and work version. One operator approval admits exactly one fresh
-fenced attempt of the unchanged approved contract. A missing, stale, expired,
-or reused approval has no effect, and the wall re-arms for the next attempt.
-Below the limit nothing changes: a failed disposition keeps the
-approval-gated retry, and a rejected completed result keeps its ordinary
-correction dispatch without a second approval. A worker cannot record workflow
-transitions, verdicts, completion, or resume a failed worker session.
+The existing limit of three correction attempts remains in force. A
+correction escalates when a comparator of CD-0164 D4 reaches the limit or
+when the nonprogress wall of CD-0164 D1 reaches three. The work pin keeps
+`dispatch_worker` visible under the escalation reason of CD-0173 D1. The
+wall is basis-gated, not a dead end.
+
+A store-derived convergence basis alone admits a `dispatch_worker` against
+an escalated correction, and the boundary mints no retry approval challenge
+at the wall. The store derives the basis in the same transaction that folds
+the dispatch. Without a derivable basis the fold refuses the dispatch with
+`missing_evidence` and mints no challenge. An operator approval neither
+substitutes for a basis nor opens the wall.
+
+The basis families are closed. Findings convergence requires a latest open
+findings set that is non-empty and a strict subset of the previous comparable
+reject `open_finding_ids`. The finding identifiers are stable, and the set
+holds 1 to 32 of them. Correction predicates require the `request_correction`
+predicate ids inside the open window. A latest failure supplies no findings
+basis, because a failure carries no findings. A contract supersession after
+the latest dispatch at any step is a changed approach, and a changed
+approach is a basis.
+
+Each basis admits exactly one fresh fenced attempt, and the admitted
+dispatch consumes its basis. Findings convergence compares records at one
+step, so a step change yields no reusable findings basis. Dispatch
+completion durably records the derived basis token (`findings_shrinking` or
+`approach_changed`) and the sequence references of the events the basis was
+derived from. A convergence dispatch opens no new window: the correction
+stays escalated until a productive acceptance resets the nonprogress budget
+(CD-0164 D2). Below the
+limit nothing changes: a failed disposition keeps the approval-gated retry,
+and a rejected completed result keeps its ordinary correction dispatch
+without a second approval. A worker cannot record workflow transitions,
+verdicts, completion, or resume a failed worker session.
 
 ## Consequences
 
 - The approval challenge exposes the failed attempt and contract bindings.
 - A valid retry creates a distinct worker attempt and step epoch.
 - Invalid approval and retry identity changes have no durable workflow effect.
-- An escalated correction offers the operator the same exact approval decision
-  as a failed retry below the limit.
+- A dispatch without a basis refuses with `missing_evidence`, mints no
+  challenge, and an operator approval has no effect.
+- An escalated correction admits a dispatch only behind a store-derived
+  convergence basis, and the exact approval decision stays a below-limit
+  mechanism.
+- Dispatch completion records the derived basis and its sequence references,
+  so every escalated dispatch carries the basis that admitted it.
 - CD-0027's fresh dispatch path remains stateless and does not become typed restart.
 
 ## Verification
 
 - Agent mutation tests prove the challenge, fresh identity, stale approval,
-  reused approval, and retry-limit boundaries.
-- Agent mutation tests prove the escalated wall mints a bindable challenge,
-  one approval admits one fresh fenced attempt, a stale or reused approval
-  refuses, and the wall re-arms.
+  reused approval, and retry-limit boundaries
+  (`internal/agent.TestWorkerRetryMutationRequiresExactApprovalAndFreshAttempt`,
+  `internal/agent.TestGenericOneOffBelowWallFailedRetryKeepsTheExactApproval`).
+- Agent mutation tests prove the escalated wall mints no challenge, a derived
+  basis admits one fresh fenced attempt, a dispatch without a basis refuses
+  with `missing_evidence`, the refusal holds behind an approval, and the wall
+  re-arms (`internal/agent.TestEscalatedFailedCorrectionWallAdmitsOnlyBehindApproachConvergence`,
+  `internal/agent.TestGenericOneOffEscalatedWallAdmitsOnlyBehindStoreConvergence`).
+- Agent mutation tests prove the findings basis admits one escalated retry on
+  the correction and verification paths
+  (`internal/agent.TestGenericOneOffFindingsConvergenceAdmitsOneEscalatedRetry`,
+  `internal/agent.TestEscalatedVerificationCorrectionWallGatesOnFindingsConvergence`).
 - Store tests prove failed-attempt immutability, fresh attempt identity, fresh
   epoch fencing, and the three-attempt limit.
-- Store tests prove the escalated dispatch fold refuses without the
-  boundary-consumed approval and admits exactly the approved dispatch.
+- Store tests prove the escalated dispatch fold refuses without a derivable
+  basis, admits exactly the one dispatch the basis buys, and records the
+  derived basis and sequence references at dispatch completion
+  (`internal/store.TestWorkflowFourthCorrectionDispatchRefusesWithApprovalRequired`,
+  `internal/store.TestConvergenceBasisAdmitsTheSameStepDispatch`,
+  `internal/store.TestHalfMaterializedDispatchConsumesTheConvergenceBasis`).
 - Adapter tests prove approval forwarding and removal of a resume task identity.
-- Adapter tests prove the escalated challenge round-trips its failed attempt
-  bindings, and a metadata-less refusal fail-closes without an operator ask.
+- Adapter tests prove approval forwarding stays below the limit, and a
+  `missing_evidence` refusal fail-closes without an operator ask.

@@ -696,22 +696,46 @@ a fenced action first emits `workflow.action_started` and may emit
 
 ### 12.1 Correction escalation wall
 
-A failed or rejected worker correction consumes one correction attempt. When
-the count reaches the three-attempt limit, the correction is escalated: the
-work pin removes `dispatch_worker` from the ordinary intent set, and an
-unapproved dispatch refuses with `approval_required`. The wall is operator
-approvable, not terminal. A `dispatch_worker` against an escalated correction
-mints the standard approval challenge bound to the failed attempt ID, failed
-attempt epoch, active contract version, work version, scope, and request
-digest. One operator approval admits exactly one fresh fenced attempt of the
-unchanged approved contract; the dispatch fold opens the wall only behind the
-approval the mutation boundary consumed in the same transaction. A missing,
-stale, expired, or reused approval has no effect, and the wall re-arms after
-each admitted attempt fails. Below the limit nothing changes: a failed
-disposition requires the same approval-gated retry (CD-0148), and a rejected
-completed result dispatches through its ordinary correction without a second
-approval. The store-level preflight surface never opens the wall; it reports
-the escalated correction, and the approval-gated boundary owns every admission.
+A failed or rejected worker correction consumes one correction attempt. The
+failure and rejection path escalates at an existing dispatch count of at
+least three. The verification path escalates at a request count above three
+(CD-0164 D4). The nonprogress wall escalates at three distinct failed,
+rejected, or completed `no_ship` attempts on the whole work item since the
+last accepted productive result (CD-0164 D1). The count spans steps, and no
+step entry, correction request, supersession, or disposition change renews
+it. When the correction is escalated, the work pin keeps `dispatch_worker`
+visible under the escalation reason of CD-0173 D1.
+
+A store-derived convergence basis alone admits the dispatch, and the
+boundary mints no retry approval challenge at the wall. The store derives
+the basis in the same transaction that folds the dispatch. Without a
+derivable basis the fold refuses the dispatch with `missing_evidence` and
+mints no challenge. An operator approval neither substitutes for a basis nor
+opens the wall.
+
+The basis families are closed. Findings convergence requires a latest open
+findings set that is non-empty and a strict subset of the previous comparable
+reject `open_finding_ids` at the same step. The finding identifiers are
+stable, and the set holds 1 to 32 of them. Correction predicates require the
+`request_correction` predicate ids inside the open window. A latest failure
+supplies no findings basis, because a failure carries no findings. A
+contract supersession after the latest dispatch at any step is a changed
+approach, and a changed approach is a basis.
+
+Each basis admits exactly one fresh fenced attempt, and the admitted dispatch
+consumes its basis. Findings convergence compares records at one step, so a
+step change yields no reusable findings basis. Dispatch completion durably
+records the derived basis token (`findings_shrinking` or `approach_changed`)
+and the sequence references of the events the basis was derived from.
+
+A convergence dispatch opens no new window: the correction stays escalated
+until a productive acceptance resets the nonprogress budget. The wall re-arms
+after each admitted attempt fails or is rejected without a further basis.
+Below the limit nothing changes: a failed disposition requires the same
+approval-gated retry (CD-0148), and a rejected completed result dispatches
+through its ordinary correction without a second approval. The store-level
+preflight surface never opens the wall. It reports the escalated correction,
+and the store-derived basis owns every admission.
 
 `action_definitions` carry closed payload field definitions and execution modes
 for each ID. Every registered definition declares an explicit `execution_mode`

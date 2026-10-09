@@ -815,27 +815,11 @@ func scopeFromMap(scope map[string]any) *Scope {
 	// product_ids stays out of the wire scope: it is derived authority
 	// bookkeeping (deriveMutationProducts, approval scope bindings, stored
 	// idempotency snapshots), and the envelope schema closes resolved_scope
-	// to product_id, project_ids, work_ids, and scope_version.
-	if value, ok := scope["project_ids"].([]any); ok {
-		for _, item := range value {
-			if text, ok := item.(string); ok {
-				result.ProjectIDs = append(result.ProjectIDs, text)
-			}
-		}
-	}
-	if value, ok := scope["project_ids"].([]string); ok {
-		result.ProjectIDs = append(result.ProjectIDs, value...)
-	}
-	if value, ok := scope["work_ids"].([]any); ok {
-		for _, item := range value {
-			if text, ok := item.(string); ok {
-				result.WorkIDs = append(result.WorkIDs, text)
-			}
-		}
-	}
-	if value, ok := scope["work_ids"].([]string); ok {
-		result.WorkIDs = append(result.WorkIDs, value...)
-	}
+	// to product_id, project_ids, work_ids, and scope_version. The list
+	// members go through the shared scope-list owner so a path that names
+	// the same identity twice resolves to one unique wire scope.
+	result.ProjectIDs = scopeListValues(scope["project_ids"])
+	result.WorkIDs = scopeListValues(scope["work_ids"])
 	if value, ok := scope["scope_version"].(string); ok {
 		result.ScopeVersion = value
 	}
@@ -1097,18 +1081,8 @@ func (r runtime) workflowActionReplayPreflight(ctx context.Context, base Envelop
 // retry approval binds to, and returns the bound contract version. A contract
 // version of zero is the absence of a contract, not a version: pre-contract
 // retries bind the attempt identity, the attempt epoch, and the work version,
-// and the contract key travels only when a contract is pinned. An escalated
-// verification correction carries no failed attempt, so its approval binds
-// the correction's attempt count and the approved contract instead.
+// and the contract key travels only when a contract is pinned.
 func applyRetryApprovalBinding(scope map[string]any, versions map[string]any, binding *store.WorkflowRetryApprovalBinding) int64 {
-	if binding.FailedAttemptID == "" {
-		versions["correction_attempts"] = binding.CorrectionAttempts
-		if binding.ContractVersion > 0 {
-			versions["contract"] = binding.ContractVersion
-			return binding.ContractVersion
-		}
-		return 0
-	}
 	scope["failed_attempt_id"] = binding.FailedAttemptID
 	versions["failed_attempt_epoch"] = binding.FailedAttemptEpoch
 	if binding.ContractVersion > 0 {
@@ -1130,34 +1104,11 @@ func retryApprovalContractBound(versions map[string]any, binding *store.Workflow
 	return binding.ContractVersion == 0
 }
 
-// retryApprovalApprovedAttempts reads the escalated correction's attempt count
-// from the version bindings the operator's signed approval carries. The
-// approval binds the count the wall armed at, so the transaction-time fence
-// compares the live escalated correction against what the operator approved.
-func retryApprovalApprovedAttempts(assertion *HostApprovalAssertion) (int64, bool) {
-	if assertion == nil {
-		return 0, false
-	}
-	for _, binding := range assertion.Versions {
-		value, found := strings.CutPrefix(binding, "correction_attempts:")
-		if !found {
-			continue
-		}
-		attempts, parseErr := strconv.ParseInt(value, 10, 64)
-		if parseErr != nil {
-			return 0, false
-		}
-		return attempts, true
-	}
-	return 0, false
-}
-
 // retryApprovalFenceTx fences both the presence and absence of a retry
 // requirement inside the action transaction. A newly failed attempt requires
 // a fresh read and exact approval. An approved retry must preserve its failed
-// attempt identity and epoch, or its escalated correction count, and its
-// approved contract binding.
-func retryApprovalFenceTx(ctx context.Context, tx *store.Transaction, registry store.DefinitionRegistry, workID string, required bool, scope, versions map[string]any, approval *HostApprovalAssertion) error {
+// attempt identity, epoch, and approved contract binding.
+func retryApprovalFenceTx(ctx context.Context, tx *store.Transaction, registry store.DefinitionRegistry, workID string, required bool, scope, versions map[string]any) error {
 	binding, err := store.WorkflowFailedWorkerRetryBindingTx(ctx, tx, registry, workID)
 	if err != nil {
 		return err
@@ -1165,13 +1116,6 @@ func retryApprovalFenceTx(ctx context.Context, tx *store.Transaction, registry s
 	if !required {
 		if binding != nil {
 			return newRuntimeFailure("version_conflict", "worker retry approval requirement changed before dispatch", "reread_entities", false)
-		}
-		return nil
-	}
-	if binding != nil && binding.FailedAttemptID == "" {
-		approvedAttempts, attemptsOK := retryApprovalApprovedAttempts(approval)
-		if !attemptsOK || binding.CorrectionAttempts != approvedAttempts || binding.FailedAttemptEpoch != 0 || !retryApprovalContractBound(versions, binding) {
-			return newRuntimeFailure("approval_invalid", "worker correction changed after approval challenge", "request_approval", false)
 		}
 		return nil
 	}
@@ -1278,12 +1222,8 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 			return failureEnvelope(base, bindingErr), nil
 		}
 		if binding != nil {
-			// A failed disposition below the limit, an escalated rejected
-			// correction, an escalated verification correction, and a
-			// same-step wall binding with no correction record all dispatch
-			// only behind an operator approval bound to the wall's durable
-			// identity. The escalation wall is operator approvable; it is
-			// not a dead end.
+			// Only failed retries below the convergence wall need an exact
+			// approval. The store checks escalated convergence at dispatch.
 			retryApproval = true
 			contractVersion = applyRetryApprovalBinding(scope, versions, binding)
 		}
@@ -1388,7 +1328,7 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 	var resultRejected bool
 	scopeJSON, _ := json.Marshal(scope)
 	versionsJSON, _ := json.Marshal(versions)
-	actionRequest := store.WorkflowActionExecutionRequest{WorkID: in.WorkID, ExpectedVersion: in.ExpectedVersion, ActionID: in.ActionID, SelectedChoice: in.SelectedChoice, DecisionContextDigest: in.DecisionContextDigest, Payload: payload, EvidenceRefs: evidenceLocators(in.Evidence), EvidenceKinds: evidenceKinds(in.Evidence), Actor: store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}, SessionWorktree: r.Envelope.Worktree, EscalatedRetryApproved: retryApproval, ResearchBindings: researchBindingDeclarations(in.ResearchBindings), AcceptedInputsDigest: digest, IdempotencyIdentity: in.IdempotencyKey, OperationID: operationID, PrincipalRef: grant.PrincipalRef, Tool: r.Tool, IdempotencyKey: in.IdempotencyKey, RequestID: r.Envelope.RequestID, AcceptedScope: string(scopeJSON), ContractDigest: ManifestDigest, Now: r.Authority.now()}
+	actionRequest := store.WorkflowActionExecutionRequest{WorkID: in.WorkID, ExpectedVersion: in.ExpectedVersion, ActionID: in.ActionID, SelectedChoice: in.SelectedChoice, DecisionContextDigest: in.DecisionContextDigest, Payload: payload, EvidenceRefs: evidenceLocators(in.Evidence), EvidenceKinds: evidenceKinds(in.Evidence), Actor: store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}, SessionWorktree: r.Envelope.Worktree, FailedRetryApproved: retryApproval, ResearchBindings: researchBindingDeclarations(in.ResearchBindings), AcceptedInputsDigest: digest, IdempotencyIdentity: in.IdempotencyKey, OperationID: operationID, PrincipalRef: grant.PrincipalRef, Tool: r.Tool, IdempotencyKey: in.IdempotencyKey, RequestID: r.Envelope.RequestID, AcceptedScope: string(scopeJSON), ContractDigest: ManifestDigest, Now: r.Authority.now()}
 	actionRequest.ApprovalOperationDigest = digest
 	actionRequest.ApprovalScopeJSON = string(scopeJSON)
 	actionRequest.ApprovalVersionsJSON = string(versionsJSON)
@@ -1418,7 +1358,7 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 	ctx = verifiedCtx
 	err = store.AuthorizeWorkflowActionAtBoundaryWithPreflightTx(ctx, r.Store, registry, store.WorkflowActionPreflightRequest{WorkID: in.WorkID, ExpectedVersion: in.ExpectedVersion, ActionID: in.ActionID, SelectedChoice: in.SelectedChoice, DecisionContextDigest: in.DecisionContextDigest, Payload: payload, Actor: actionRequest.Actor, SessionWorktree: r.Envelope.Worktree}, nil, time.Time{}, r.workflowActionReplayPreflight(ctx, base, digest, scope, grant, in, &result, &resultRejected), func(tx *store.Transaction) error {
 		if in.ActionID == "dispatch_worker" {
-			if err := retryApprovalFenceTx(ctx, tx, registry, in.WorkID, retryApproval, scope, versions, r.Envelope.HostApproval); err != nil {
+			if err := retryApprovalFenceTx(ctx, tx, registry, in.WorkID, retryApproval, scope, versions); err != nil {
 				return err
 			}
 		}
@@ -2160,13 +2100,9 @@ func (r runtime) planLessonPublish(ctx context.Context, base Envelope, raw []byt
 		plan.approval = in.Approval.ApprovalRef
 	}
 	plan.requiresApproval = true
-	// The scope bindings render canonically sorted and unique, so naming the
-	// same work twice is one binding: a publication that pins itself as its
-	// own publication work must not double the work_ids entry, or the
-	// challenge envelope refuses to marshal and the approval prompt never
-	// reaches the operator.
+	// Self-publication legitimately names the same work in both roles.
 	workIDs := []string{in.WorkID}
-	if in.PublicationWorkID != "" && in.PublicationWorkID != in.WorkID {
+	if in.PublicationWorkID != "" {
 		workIDs = append(workIDs, in.PublicationWorkID)
 	}
 	plan.scope["work_ids"] = workIDs
@@ -2292,6 +2228,25 @@ func (r runtime) planMessageSend(_ context.Context, base Envelope, raw []byte, d
 	}
 	if in.RecipientWorkID != "" && in.Broadcast {
 		return coreError(base, "invalid_input", "message cannot both target one work and broadcast", "resolve_ambiguity", false), nil, true
+	}
+	// The store fold and CHECK prohibit self-delivery. Refuse before approval
+	// because consent cannot authorize an effect the store must reject.
+	// CON-880 owns the pending Product-law decision; this refusal cites only
+	// the existing implementation invariant, not Product law.
+	if in.RecipientWorkID == in.WorkID {
+		// reread_entities, not contact_operator: the envelope schema
+		// couples an options-less invariant_violation to that recovery
+		// action, and the refusal must cross the boundary encodable.
+		refusal := coreError(base, "invariant_violation", "a direct message cannot be addressed to the sending work item itself: the store prohibits self-delivery (foldMessageSent and the work_messages CHECK constraint)", "reread_entities", false)
+		refusal.Error.Details = map[string]any{
+			"work_id":           in.WorkID,
+			"recipient_work_id": in.RecipientWorkID,
+			"invariant_sources": []string{
+				"internal/store/work_messages.go foldMessageSent rejects RecipientWorkID == event.SubjectID",
+				"internal/store/schema.go work_messages CHECK(recipient_work_id != sender_work_id)",
+			},
+		}
+		return refusal, nil, true
 	}
 	plan.versions["work"] = in.ExpectedVersion
 	plan.scope["work_ids"] = []string{in.WorkID}
@@ -5339,17 +5294,11 @@ func (r runtime) replayCachedMutationTx(ctx context.Context, tx *store.Transacti
 
 func mutationScopeWorkIDs(scope map[string]any) []string {
 	values, _ := scope["work_ids"].([]string)
-	seen := make(map[string]struct{}, len(values))
 	out := make([]string, 0, len(values))
-	for _, value := range values {
-		if value == "" {
-			continue
+	for _, value := range normalizeScopeList(values) {
+		if value != "" {
+			out = append(out, value)
 		}
-		if _, exists := seen[value]; exists {
-			continue
-		}
-		seen[value] = struct{}{}
-		out = append(out, value)
 	}
 	return out
 }

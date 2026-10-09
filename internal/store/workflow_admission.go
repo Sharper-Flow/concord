@@ -23,7 +23,7 @@ const (
 // item's history — step, lifecycle, contract count, law pin staleness,
 // impact and external conditions, design currency, attempt state and
 // capability class, latest result disposition, review debt and its settling
-// verdict, the recovery routes, the same-step wall, the dispatch hold, and
+// verdict, the recovery routes, the non-progress wall, the dispatch hold, and
 // the outstanding evidence — and workflowAdmit consumes it, so every
 // admission site that loads and admits answers identically for the same
 // state instead of re-deriving the conditions per site.
@@ -121,18 +121,20 @@ type WorkflowAdmissionState struct {
 	// CorrectionEscalated reports a recorded worker correction that reached
 	// the attempt limit.
 	CorrectionEscalated bool
-	// SameStepFailedAttempts is the failed-attempt count the same-step wall
-	// counts at the current step.
-	SameStepFailedAttempts int64
+	// RetryConvergence is derived from recorded finding sets or a contract
+	// supersession. An escalated retry needs this basis, not an approval.
+	RetryConvergence WorkflowRetryConvergence
+	// NonProgressAttempts counts failed, rejected, and no_ship attempts across
+	// the work item since the last productive acceptance.
+	NonProgressAttempts int64
 	// FailedWorkerRetry names the current terminal authorization that requires
 	// exact retry approval, including a failure without dispatch evidence or
 	// a coordinator disposition. Identity fields are carried for the binding;
 	// admission depends only on whether this current failure exists.
 	FailedWorkerRetry *WorkflowRetryApprovalBinding
-	// EscalatedRetryApproved carries the request's operator approval for a
-	// failed retry or an escalation wall; the calling guard fills it from the
-	// request identity before the pure decision runs.
-	EscalatedRetryApproved bool
+	// FailedRetryApproved carries the exact approval for an ordinary failed
+	// retry. An escalated retry instead needs RetryConvergence.
+	FailedRetryApproved bool
 	// DispatchHold reports a dispatched worker holding the step's advance.
 	DispatchHold bool
 	// EvidenceRecoveryRoute reports an outstanding contract evidence
@@ -175,9 +177,11 @@ type WorkflowAdmissionState struct {
 type WorkflowAdmissionDecision struct {
 	Admitted bool
 	// ApprovalRequired classifies the mutation boundary's exact retry
-	// approval. An escalation wall also carries Failure; an ordinary retry
-	// keeps its declared route while the boundary obtains that approval.
-	ApprovalRequired        bool
+	// approval. An ordinary failed retry keeps its declared route while the
+	// boundary obtains that approval; an escalated retry needs convergence.
+	ApprovalRequired bool
+	// ConvergenceRequired keeps the refused retry visible on the work pin.
+	ConvergenceRequired     bool
 	RecoveryRoute           bool
 	ConsequentialConditions bool
 	// OffStep marks the structural step-legality refusal. The callers apply
@@ -201,7 +205,7 @@ type WorkflowAdmissionDecision struct {
 	// OperatorQuestionClosed marks the closed-question answer over
 	// confirm_premise: the step declares the approval-required confirmation
 	// and no operator question stands open behind it. It is an advertisement
-	// wall like an escalated approval refusal — the work pin drops the unadmitted
+	// wall — the work pin drops the unadmitted
 	// intent, and the interactive refusal plus the payload checks (the
 	// closed choice, the decision-context digest, the operator identity)
 	// stay with the operator-selection chain the payload-blind admission
@@ -363,12 +367,33 @@ func loadWorkflowAdmissionStateTx(ctx context.Context, q queryer, workID string,
 	} else if correctionErr == nil && correction != nil {
 		state.CorrectionEscalated = correction.Escalated
 	}
-	sameStepFailed, wallErr := workflowSameStepFailedAttemptCount(ctx, q, definition, workID, currentStep, subject)
+	nonProgress, wallErr := workflowNonProgressAttemptCount(ctx, q, workID, subject)
 	if wallErr != nil {
 		return WorkflowAdmissionState{}, nil, nil, wallErr
 	}
-	state.SameStepFailedAttempts = sameStepFailed
-	failedRetry, retryErr := workflowCurrentFailedWorkerRetryBinding(ctx, q, definition, workID, currentStep)
+	state.NonProgressAttempts = nonProgress
+	if !state.CorrectionEscalated {
+		// Materialization closes an unbound correction record, not the wall
+		// its converging retry crossed. Only productive acceptance opens
+		// a new window; another retry needs another basis in this window.
+		anchor, err := workflowNonProgressWindowAnchor(ctx, q, workID, subject, 0)
+		if err != nil {
+			return WorkflowAdmissionState{}, nil, nil, err
+		}
+		var continued bool
+		if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.retry_convergence') IS NOT NULL AND seq>?)`, string(SubjectWorkItem), workID, WorkflowActionCompleted, anchor).Scan(&continued); err != nil {
+			return WorkflowAdmissionState{}, nil, nil, workflowProjectionError(err, "cannot read the continued convergence window")
+		}
+		state.CorrectionEscalated = continued
+	}
+	if state.retryEscalated() {
+		convergence, err := workflowRetryConvergence(ctx, q, workID, currentStep)
+		if err != nil {
+			return WorkflowAdmissionState{}, nil, nil, err
+		}
+		state.RetryConvergence = convergence
+	}
+	failedRetry, retryErr := workflowCurrentFailedWorkerRetryBinding(ctx, q, workID, currentStep)
 	if retryErr != nil {
 		return WorkflowAdmissionState{}, nil, nil, retryErr
 	}
@@ -442,11 +467,11 @@ func loadWorkflowAdmissionStateTx(ctx context.Context, q queryer, workID string,
 // and a defined answer for every action the definitions declare. It decides
 // the terminal immutability, the breaking-impact and consequential-condition
 // boundaries, the supersede classification, the dispatch hold behind a stale
-// design, an escalated correction, or the same-step wall, the staleness
+// design, an escalated correction, or the non-progress wall, the staleness
 // classes, the review-debt advances, the recovery routes, and the step
 // legality. The folded conditions hide only the advances they name — the
 // recorded delivery at a review step and the refinement-step accept under
-// review debt, a dispatch behind a stale design, the same-step wall, or an
+// review debt, a dispatch behind a stale design, the non-progress wall, or an
 // escalated correction, and a consequential action behind a breaking impact
 // notice or an open external condition — because each condition blocks a
 // result, not the work: dispatch, recovery, and continuity actions stay
@@ -479,14 +504,9 @@ func workflowAdmit(definition WorkflowDefinition, state WorkflowAdmissionState, 
 			decision.Failure = newFailure(KindMissingEvidence, "worker_dispatch", "contract correction invalidated the recorded design", false, "use supersede_contract with design_record before worker dispatch")
 			return decision
 		}
-		if state.CorrectionEscalated && !state.EscalatedRetryApproved {
-			decision.Failure = newFailure(KindApprovalRequired, "workflow_action", "worker correction reached the three-attempt limit", false, "escalate the failed or rejected result to the operator")
-			decision.ApprovalRequired = true
-			return decision
-		}
-		if state.SameStepFailedAttempts >= workflowCorrectionAttemptLimit && !state.EscalatedRetryApproved {
-			decision.Failure = workflowSameStepWallFailure(state.Step, state.SameStepFailedAttempts)
-			decision.ApprovalRequired = true
+		if state.retryEscalated() && !state.RetryConvergence.valid() {
+			decision.Failure = workflowRetryConvergenceFailure(state)
+			decision.ConvergenceRequired = true
 			return decision
 		}
 	}
@@ -584,7 +604,7 @@ func workflowAdmit(definition WorkflowDefinition, state WorkflowAdmissionState, 
 		decision.Failure = newFailure(KindIllegalLifecycleTransition, "workflow_action", "workflow action is not declared on the current step", false, "reread_entities")
 		return decision
 	}
-	if actionID == "dispatch_worker" && state.FailedWorkerRetry != nil && !state.EscalatedRetryApproved {
+	if actionID == "dispatch_worker" && !state.retryEscalated() && state.FailedWorkerRetry != nil && !state.FailedRetryApproved {
 		// The ordinary retry stays a declared route only after the other
 		// admission gates pass. Its exact approval belongs to the mutation
 		// boundary; an unrelated refusal must never become an approval route.

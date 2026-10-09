@@ -215,7 +215,7 @@ func TestWorkflowDefinitionVersionPinsHold(t *testing.T) {
 	t.Parallel()
 	for pin, digest := range workflowDefinitionVersionPins {
 		ref, version := pin[0], pin[1]
-		entry, ok := builtinWorkflowRegistry.Lookup(ref, pinVersion(t, version))
+		entry, ok := BuiltinWorkflowRegistry().Lookup(ref, pinVersion(t, version))
 		if !ok {
 			t.Errorf("%s version %s is not registered", ref, version)
 			continue
@@ -228,7 +228,7 @@ func TestWorkflowDefinitionVersionPinsHold(t *testing.T) {
 		if entry.Digest != digest || computed != digest {
 			t.Errorf("%s version %s digest drifted: registered %s computed %s pinned %s — ship changed content as a new version instead of editing a released one", ref, version, entry.Digest, computed, digest)
 		}
-		if err := builtinWorkflowRegistry.Verify(ref, pinVersion(t, version), digest); err != nil {
+		if err := BuiltinWorkflowRegistry().Verify(ref, pinVersion(t, version), digest); err != nil {
 			t.Errorf("%s version %s pin does not verify: %v", ref, version, err)
 		}
 	}
@@ -268,7 +268,7 @@ func TestBuiltinDefinitionVersionsAreGapless(t *testing.T) {
 // predicate_id optional beside the verdicts array.
 func TestWorkflowVerdictSingleFormAcrossPinnedAndBatchVersions(t *testing.T) {
 	t.Parallel()
-	pinned, ok := builtinWorkflowRegistry.Lookup("workflow.implementation", 19)
+	pinned, ok := BuiltinWorkflowRegistry().Lookup("workflow.implementation", 19)
 	if !ok {
 		t.Fatal("workflow.implementation v19 is not registered")
 	}

@@ -31,8 +31,6 @@ const (
 	ProductRowFocusAuthoritativeEmpty   = "authoritative_empty"
 )
 
-var productRowWorkflowRegistry = BuiltinWorkflowRegistry()
-
 // ProductRowStage is the declared Product or Project stage. A Project's paired
 // override is authoritative and inherits the Product default when absent.
 type ProductRowStage struct {
@@ -577,7 +575,7 @@ func scanProductRowPage(ctx context.Context, tx *sql.Tx, args []any) ([]rawProdu
 	// below the ceiling over-allocates by at most queryMaxLimit rows.
 	products := make([]rawProductRow, 0, queryMaxLimit+1)
 	productIndex := make(map[string]int)
-	registry := productRowWorkflowRegistry
+	registry := BuiltinWorkflowRegistry()
 	definitionCache := make(map[string]RegisteredDefinition)
 	for rows.Next() {
 		var p Product

@@ -629,34 +629,69 @@
       "allOf": [
         {
           "if": {
-            "required": ["outside_repair_disposition"],
+            "required": [
+              "outside_repair_disposition"
+            ],
             "properties": {
               "outside_repair_disposition": {
-                "required": ["state"],
+                "required": [
+                  "state"
+                ],
                 "properties": {
-                  "state": {"type": "string", "enum": ["active", "completed"]}
+                  "state": {
+                    "type": "string",
+                    "enum": [
+                      "active",
+                      "completed"
+                    ]
+                  }
                 }
               }
             }
           },
           "then": {
             "description": "CD-0210: an active or completed outside-repair disposition grants no managed pin authority. The pin suppresses managed action prompts and carries a typed absence of the verified workflow-definition identity: the version, digest, and obligations keys are omitted, never zero-filled or fabricated, because the hold reads raw instance identity only.",
-            "properties": {"next_valid_intents": {"type": "array", "maxItems": 0}},
+            "properties": {
+              "next_valid_intents": {
+                "type": "array",
+                "maxItems": 0
+              }
+            },
             "not": {
               "anyOf": [
-                {"required": ["workflow_definition_version"]},
-                {"required": ["workflow_definition_digest"]},
-                {"required": ["obligations"]}
+                {
+                  "required": [
+                    "workflow_definition_version"
+                  ]
+                },
+                {
+                  "required": [
+                    "workflow_definition_digest"
+                  ]
+                },
+                {
+                  "required": [
+                    "obligations"
+                  ]
+                }
               ]
             }
           },
           "else": {
             "description": "CD-0210: an ordinary or resumed pin runs the managed instance read, so the workflow identity stays strict and the registry-verified definition identity — version, digest, and the declared obligation set — is required in full.",
             "properties": {
-              "workflow_type": {"$ref": "#/$defs/id"},
-              "step": {"$ref": "#/$defs/short"}
+              "workflow_type": {
+                "$ref": "#/$defs/id"
+              },
+              "step": {
+                "$ref": "#/$defs/short"
+              }
             },
-            "required": ["workflow_definition_version", "workflow_definition_digest", "obligations"]
+            "required": [
+              "workflow_definition_version",
+              "workflow_definition_digest",
+              "obligations"
+            ]
           }
         }
       ],
@@ -3127,13 +3162,11 @@
         "domain_cards": {
           "type": "array",
           "minItems": 0,
-          "maxItems": 0,
+          "maxItems": 32,
           "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {}
+            "$ref": "#/$defs/work_context_reading_source_repository_file"
           },
-          "description": "The reserved per-Domain card slot. The current foundation never generates cards."
+          "description": "Pinned repository_file references derived by the shared reader. The group supplies the validated Domain identity. Cards also occupy the existing required_reading bound; content is never inlined."
         }
       }
     },

@@ -1780,7 +1780,7 @@
           "law_refs": [
             {
               "clause_id": "Decision",
-              "content_hash": "sha256:6fcfa0cdf225795b0745db4950efc2a3d53ec800e591488364620342d5f8cf25",
+              "content_hash": "sha256:dc2ef8b4055ca7d9c8dc0efa9ff541d5c95cb85fb273c62741dc605c5f1f03a6",
               "law_id": "CD-0196",
               "locator": ".concord/docs/decisions/CD-0196-worker-lanes-hold-no-concord-tool-access-and-the-dispatch-packet-is-their-complete-concord-context.md"
             },
@@ -5555,7 +5555,7 @@
         }
       ],
       "domain_id": "workflow-engine",
-      "mapped_count": 194,
+      "mapped_count": 196,
       "mechanism_owner_ids": [
         "mechanism:workflow-actions",
         "mechanism:workflow-definitions"
@@ -5764,6 +5764,7 @@
             "internal/store/fence.go",
             "internal/store/outside_repair.go",
             "internal/store/work_context.go",
+            "internal/store/work_context_navigation.go",
             "internal/store/workflow.go",
             "internal/store/workflow_admission.go",
             "internal/store/workflow_completion.go",
@@ -5887,9 +5888,7 @@
           "internal/store/workflow_test_support_test.go"
         ],
         "include": [
-          "internal/store/work_context_test.go",
-          "internal/store/work_context_packet_test.go",
-          "internal/store/work_context.go",
+          "internal/store/work_context*.go",
           "internal/workflowcorpus/**",
           "internal/payloadschema/**",
           "internal/store/workflow*.go",
@@ -5916,7 +5915,7 @@
         ]
       },
       "purpose": "Owns work lifecycle: workflow types and their contracts, workflow actions and transitions, completion predicates and verdicts, evidence binding, architecture overlap resolution, and terminal-state law.",
-      "test_count": 140,
+      "test_count": 141,
       "test_packages": [
         "github.com/sharper-flow/concord/internal/payloadschema",
         "github.com/sharper-flow/concord/internal/store"
@@ -5948,6 +5947,7 @@
         "internal/store/outside_repair_review_test.go",
         "internal/store/outside_repair_test.go",
         "internal/store/verdict_evidence_binding_test.go",
+        "internal/store/work_context_navigation_test.go",
         "internal/store/work_context_packet_test.go",
         "internal/store/work_context_test.go",
         "internal/store/workflow_accept_delivery_test.go",
@@ -7712,6 +7712,8 @@
     "internal/store/work_closure_test.go": "operator-surface",
     "internal/store/work_collection_cursor.go": "agent-surface",
     "internal/store/work_context.go": "workflow-engine",
+    "internal/store/work_context_navigation.go": "workflow-engine",
+    "internal/store/work_context_navigation_test.go": "workflow-engine",
     "internal/store/work_context_packet_test.go": "workflow-engine",
     "internal/store/work_context_test.go": "workflow-engine",
     "internal/store/work_external_observations.go": "work-coordination",
@@ -8056,7 +8058,7 @@
     "skills/README.md": "agent-surface",
     "workflows/README.md": "workflow-engine"
   },
-  "mapped_count": 1987,
+  "mapped_count": 1989,
   "mechanisms": [
     {
       "check_ids": [
@@ -9553,7 +9555,7 @@
       "law_refs": [
         {
           "clause_id": "Decision",
-          "content_hash": "sha256:6fcfa0cdf225795b0745db4950efc2a3d53ec800e591488364620342d5f8cf25",
+          "content_hash": "sha256:dc2ef8b4055ca7d9c8dc0efa9ff541d5c95cb85fb273c62741dc605c5f1f03a6",
           "law_id": "CD-0196",
           "locator": ".concord/docs/decisions/CD-0196-worker-lanes-hold-no-concord-tool-access-and-the-dispatch-packet-is-their-complete-concord-context.md"
         },
@@ -9781,6 +9783,7 @@
         "internal/store/fence.go",
         "internal/store/outside_repair.go",
         "internal/store/work_context.go",
+        "internal/store/work_context_navigation.go",
         "internal/store/workflow.go",
         "internal/store/workflow_admission.go",
         "internal/store/workflow_completion.go",

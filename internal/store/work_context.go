@@ -101,10 +101,9 @@ type WorkContextFindingView struct {
 	Ordinal              int      `json:"ordinal"`
 }
 
-// WorkContextDomainCard is the reserved per-Domain card slot. This
-// foundation never generates cards; the slot exists so the packet shape
-// stops moving when generation arrives.
-type WorkContextDomainCard struct{}
+// WorkContextDomainCard reuses the repository_file source identity. Its
+// enclosing group supplies the validated Domain identity; content stays in Git.
+type WorkContextDomainCard WorkContextReadingSource
 
 // WorkContextDomainGroup partitions the current view's readings and findings
 // by Domain, in the contract's approved affected-Domain order. Empty slots
@@ -599,8 +598,8 @@ func workContextOriginForKind(kind string) string {
 // anchor. The queries are bounded: the report scan reads at most 33
 // findings-bearing events, and any work-wide current view past 32 findings
 // or 64 KiB of findings content refuses the read explicitly instead of
-// truncating. A work item with no declaration and no report findings reads
-// as the typed absent view (nil).
+// truncating. Without declarations or findings, adopted navigation can still
+// supply required cards. A work item without any required context reads as nil.
 func readWorkContextView(ctx context.Context, q queryer, workID string) (*WorkContextView, error) {
 	view := WorkContextView{RequiredReading: []WorkContextReading{}, Findings: []WorkContextFindingView{}, DomainGroups: []WorkContextDomainGroup{}}
 	if err := q.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind IN (?,?,?)`, workID, WorkflowWorkContextRecorded, WorkerCompleted, WorkerFailed).Scan(&view.SourceEventFrontier); err != nil {
@@ -689,9 +688,6 @@ func readWorkContextView(ctx context.Context, q queryer, workID string) (*WorkCo
 			addFinding(workContextFindingView(finding, WorkContextOriginWorkerReport, row.event.EventID, row.seq, ordinal))
 		}
 	}
-	if anchorErr == sql.ErrNoRows && len(order) == 0 {
-		return nil, nil
-	}
 	if len(order) > WorkContextViewFindingsMax {
 		return nil, workContextFailure(KindLimitExceeded, "work_context_read", fmt.Sprintf("the current work context holds %d findings; the view bound is %d and the read refuses instead of truncating", len(order), WorkContextViewFindingsMax), "supersede or drop findings through a later declaration before reading the current context")
 	}
@@ -707,6 +703,9 @@ func readWorkContextView(ctx context.Context, q queryer, workID string) (*WorkCo
 	}
 	if err := assembleWorkContextDomainGroups(ctx, q, workID, &view); err != nil {
 		return nil, err
+	}
+	if anchorErr == sql.ErrNoRows && len(order) == 0 && len(view.RequiredReading) == 0 {
+		return nil, nil
 	}
 	return &view, nil
 }
@@ -747,6 +746,10 @@ func assembleWorkContextDomainGroups(ctx context.Context, q queryer, workID stri
 			return wrapFailure(KindUnavailable, "work_context_read", "cannot read the contract architecture binding", true, "retry once the contract projection is readable", bindingErr)
 		}
 	}
+	cards, err := assembleWorkContextNavigation(ctx, q, workID, orderedDomains, view)
+	if err != nil {
+		return err
+	}
 	grouped := make(map[string]*WorkContextDomainGroup)
 	ordered := make(map[string]bool, len(orderedDomains))
 	for _, domainID := range orderedDomains {
@@ -765,7 +768,11 @@ func assembleWorkContextDomainGroups(ctx context.Context, q queryer, workID stri
 		return group
 	}
 	for ordinal, reading := range view.RequiredReading {
-		groupFor(reading.DomainID).RequiredReadingOrdinals = append(groupFor(reading.DomainID).RequiredReadingOrdinals, ordinal)
+		group := groupFor(reading.DomainID)
+		group.RequiredReadingOrdinals = append(group.RequiredReadingOrdinals, ordinal)
+		if refs := cards[reading.DomainID]; refs != nil {
+			group.DomainCards = refs
+		}
 	}
 	for _, finding := range view.Findings {
 		groupFor(finding.DomainID).FindingIDs = append(groupFor(finding.DomainID).FindingIDs, finding.FindingID)

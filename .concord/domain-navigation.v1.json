@@ -30,7 +30,7 @@
     },
     {
       "domain_id": "workflow-engine",
-      "include": ["internal/store/work_context_test.go", "internal/store/work_context_packet_test.go", "internal/store/work_context.go",
+      "include": ["internal/store/work_context*.go",
         "internal/workflowcorpus/**", "internal/payloadschema/**", "internal/store/workflow*.go",
         "internal/store/outside_repair.go", "internal/store/outside_repair_test.go",
         "internal/store/outside_repair_base_test.go", "internal/store/outside_repair_review_test.go",
@@ -199,7 +199,7 @@
       "owner_id": "mechanism:workflow-actions",
       "domain_id": "workflow-engine",
       "responsibility": "Store-side workflow action admission: transitions, fences, workpins, awaits and await health, checkpoints, evidence binding, verdicts and their correction, architecture overlap resolution, and terminal-state law on the work-item subject.",
-      "source_paths": ["internal/store/await_health.go", "internal/store/fence.go", "internal/store/outside_repair.go", "internal/store/work_context.go", "internal/store/workflow.go", "internal/store/workflow_admission.go", "internal/store/workflow_completion.go", "internal/store/workflow_domain_overlap.go", "internal/store/workflow_step.go", "internal/store/workflow_verdict.go", "internal/store/workpin.go"],
+      "source_paths": ["internal/store/await_health.go", "internal/store/fence.go", "internal/store/outside_repair.go", "internal/store/work_context.go", "internal/store/work_context_navigation.go", "internal/store/workflow.go", "internal/store/workflow_admission.go", "internal/store/workflow_completion.go", "internal/store/workflow_domain_overlap.go", "internal/store/workflow_step.go", "internal/store/workflow_verdict.go", "internal/store/workpin.go"],
       "contract_refs": ["contracts/workflow-engine-scenarios.schema.json", "contracts/workflow-engine.fixtures.json"],
       "law_refs": [
         {"law_id": "CD-0013", "clause_id": "D2. Workflow state lives on the work-item subject"},

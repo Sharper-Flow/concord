@@ -327,6 +327,10 @@ Unsupported recipes and missing dependencies remain unavailable; no install,
 download, shell fallback, or aggregate scratch-quota guarantee is implied.
 A pass requires actual run and terminal pass events for every selected case
 witness, not exit zero alone, a skipped test, or package-level success.
+The selected case events come from the process that links the candidate.
+The producer does not authenticate those events against candidate code.
+Independent review judges candidate code for harness subversion, including
+process exit, output forgery, and initialization effects.
 Independent review still judges the semantic adequacy of those witnesses.
 
 Before test-program launch, the native owner proves the persisted dispatch's

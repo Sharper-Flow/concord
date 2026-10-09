@@ -56,7 +56,7 @@ Bindings and interpretations are advisory joins; navigation does not prove dispa
 - Interpretation `depends_on` from `product-memory` (advisory, not an import allowlist).
 - Interpretation `depends_on` from `work-coordination` (advisory, not an import allowlist).
 - Interpretation `depends_on` from `workflow-engine` (advisory, not an import allowlist).
-- Observed package imports: 38 distinct paths; package-level only; intra-package edges unmeasured; no symbol graph or execution permission.
+- Observed package imports: 41 distinct paths; package-level only; intra-package edges unmeasured; no symbol graph or execution permission.
 - Observed package edge via `github.com/sharper-flow/concord/internal/store` -> `agent-surface`, `durable-authority`, `operator-surface`, `product-memory`, `repository-verification`, `work-coordination`, `workflow-engine` (advisory).
 - Observed package edge via `github.com/sharper-flow/concord/internal/store/storetest/neighbor` -> `repository-verification` (advisory).
 - Observed package edge via `github.com/sharper-flow/concord/internal/testenv` -> `repository-verification` (advisory).

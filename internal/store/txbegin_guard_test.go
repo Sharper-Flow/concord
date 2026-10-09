@@ -1,14 +1,25 @@
 package store
 
 import (
+	"context"
+	"encoding/json"
+	"fmt"
 	"go/ast"
+	"go/constant"
+	"go/importer"
 	"go/parser"
 	"go/token"
+	"go/types"
+	"io"
 	"io/fs"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 )
 
 func TestTxBeginGuard(t *testing.T) {
@@ -35,7 +46,7 @@ func TestTxBeginGuard(t *testing.T) {
 		if !strings.HasSuffix(rel, ".go") || strings.HasSuffix(rel, "_test.go") {
 			return nil
 		}
-		file, err := parser.ParseFile(fset, path, nil, 0)
+		file, err := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
 		if err != nil {
 			return err
 		}
@@ -56,10 +67,14 @@ func TestTxBeginGuard(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, pkg := range packages {
-		txBeginResolveConstants(pkg)
+	imports := txBeginImporter(t, fset)
+	for dir, pkg := range packages {
+		info := txBeginTypes(t, "github.com/sharper-flow/concord/"+filepath.ToSlash(dir), fset, pkg, imports, false)
+		if info == nil {
+			t.Fatalf("cannot type-check production package %s", dir)
+		}
 		for path, file := range pkg {
-			findings, reads, writes := scanTxBeginFile(path, file, fset)
+			findings, reads, writes := scanTxBeginFile(path, file, fset, info)
 			readBegins += reads
 			writeBegins += writes
 			for _, finding := range findings {
@@ -112,11 +127,12 @@ func TestTxBeginGuardBites(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			fset := token.NewFileSet()
-			file, err := parser.ParseFile(fset, tt.path, tt.source, 0)
+			file, err := parser.ParseFile(fset, tt.path, tt.source, parser.SkipObjectResolution)
 			if err != nil {
 				t.Fatal(err)
 			}
-			findings, _, _ := scanTxBeginFile(tt.path, file, fset)
+			info := txBeginFixtureTypes(t, fset, map[string]*ast.File{tt.path: file})
+			findings, _, _ := scanTxBeginFile(tt.path, file, fset, info)
 			if len(findings) != 1 || !strings.HasPrefix(findings[0], tt.path+":1:") {
 				t.Fatalf("want one call-site finding, got %v", findings)
 			}
@@ -138,11 +154,12 @@ func TestTxBeginGuardOwners(t *testing.T) {
 	}
 	for _, tt := range tests {
 		fset := token.NewFileSet()
-		file, err := parser.ParseFile(fset, tt.path, tt.source, 0)
+		file, err := parser.ParseFile(fset, tt.path, tt.source, parser.SkipObjectResolution)
 		if err != nil {
 			t.Fatal(err)
 		}
-		findings, reads, writes := scanTxBeginFile(tt.path, file, fset)
+		info := txBeginFixtureTypes(t, fset, map[string]*ast.File{tt.path: file})
+		findings, reads, writes := scanTxBeginFile(tt.path, file, fset, info)
 		if len(findings) != 0 || reads != tt.reads || writes != tt.writes {
 			t.Errorf("%s: findings=%v, reads=%d, writes=%d", tt.path, findings, reads, writes)
 		}
@@ -159,52 +176,114 @@ func TestTxBeginGuardPackageConstants(t *testing.T) {
 	}
 	files := map[string]*ast.File{}
 	for path, source := range sources {
-		file, err := parser.ParseFile(fset, path, source, 0)
+		file, err := parser.ParseFile(fset, path, source, parser.SkipObjectResolution)
 		if err != nil {
 			t.Fatal(err)
 		}
 		files[path] = file
 	}
-	txBeginResolveConstants(files)
-	findings, _, _ := scanTxBeginFile("internal/store/query.go", files["query.go"], fset)
+	info := txBeginFixtureTypes(t, fset, files)
+	findings, _, _ := scanTxBeginFile("internal/store/query.go", files["query.go"], fset, info)
 	if len(findings) != 1 || !strings.HasPrefix(findings[0], "internal/store/query.go:1:") {
 		t.Fatalf("want one cross-file SQL finding, got %v", findings)
 	}
 }
 
-// The parser resolves lexical names within a file. Only unresolved names can
-// refer to package constants in another file, so local shadows keep their own
-// objects and cannot overwrite these bindings.
-func txBeginResolveConstants(files map[string]*ast.File) {
-	constants := map[string]*ast.Object{}
-	for _, file := range files {
-		for _, decl := range file.Decls {
-			group, ok := decl.(*ast.GenDecl)
-			if !ok || group.Tok != token.CONST {
-				continue
-			}
-			for _, spec := range group.Specs {
-				if value, ok := spec.(*ast.ValueSpec); ok {
-					for _, name := range value.Names {
-						constants[name.Name] = name.Obj
-					}
-				}
-			}
+// Export data gives the standard type checker module-aware imports. It resolves
+// package and imported constants without deprecated parser object resolution.
+var txBeginExports = sync.OnceValues(func() (map[string]string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "go", "list", "-deps", "-export", "-json", "./...")
+	cmd.Dir = txScopeRepoRoot()
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("go list exports: %w\n%s", err, output)
+	}
+	exports := map[string]string{}
+	decoder := json.NewDecoder(strings.NewReader(string(output)))
+	for {
+		var pkg struct{ ImportPath, Export string }
+		err := decoder.Decode(&pkg)
+		if err == io.EOF {
+			return exports, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		if pkg.Export != "" {
+			exports[pkg.ImportPath] = pkg.Export
 		}
 	}
-	for _, file := range files {
-		for _, name := range file.Unresolved {
-			if name.Obj == nil {
-				name.Obj = constants[name.Name]
-			}
-		}
+})
+
+func txBeginImporter(t *testing.T, fset *token.FileSet) types.Importer {
+	t.Helper()
+	exports, err := txBeginExports()
+	if err != nil {
+		t.Fatal(err)
 	}
+	return importer.ForCompiler(fset, "gc", func(path string) (io.ReadCloser, error) {
+		export, ok := exports[path]
+		if !ok {
+			return nil, fmt.Errorf("missing export data for %s", path)
+		}
+		return os.Open(export)
+	})
+}
+
+func txBeginTypes(t *testing.T, pkgPath string, fset *token.FileSet, files map[string]*ast.File, imports types.Importer, fixture bool) *types.Info {
+	t.Helper()
+	info := &types.Info{Types: map[ast.Expr]types.TypeAndValue{}, Uses: map[*ast.Ident]types.Object{}}
+	config := types.Config{Importer: imports, Error: func(err error) {
+		if !fixture {
+			t.Error(err)
+		}
+	}}
+	sources := make([]*ast.File, 0, len(files))
+	for _, file := range files {
+		sources = append(sources, file)
+	}
+	_, err := config.Check(pkgPath, fset, sources, info)
+	if err != nil && !fixture {
+		return nil
+	}
+	return info
+}
+
+func txBeginFixtureTypes(t *testing.T, fset *token.FileSet, files map[string]*ast.File) *types.Info {
+	t.Helper()
+	var name string
+	for _, file := range files {
+		name = file.Name.Name
+		break
+	}
+	support := `package ` + name + `
+type fixtureDB struct{}
+func (fixtureDB) BeginTx(any, any) {}
+func (fixtureDB) Begin() {}
+func (fixtureDB) Exec(...any) {}
+func (fixtureDB) ExecContext(...any) {}
+var db, conn fixtureDB
+var ctx, options any
+type Store struct{}
+func (*Store) DatabaseForTesting() fixtureDB { return db }
+var s *Store
+`
+	file, err := parser.ParseFile(fset, "fixture-support.go", support, parser.SkipObjectResolution)
+	if err != nil {
+		t.Fatal(err)
+	}
+	files["fixture-support.go"] = file
+	// Bite snippets intentionally omit unrelated declarations or use invalid
+	// expressions. Only production type-check failures must refuse discovery.
+	return txBeginTypes(t, "fixture/"+name, fset, files, txBeginImporter(t, fset), true)
 }
 
 // scanTxBeginFile admits only direct begins in the two owning functions. It
 // also visits their bodies: a helper name cannot hide a read option regression
 // or a captured method that can later receive different options.
-func scanTxBeginFile(path string, file *ast.File, fset *token.FileSet) ([]string, int, int) {
+func scanTxBeginFile(path string, file *ast.File, fset *token.FileSet, info *types.Info) ([]string, int, int) {
 	var findings []string
 	reads, writes := 0, 0
 	for _, imp := range file.Imports {
@@ -254,7 +333,7 @@ func scanTxBeginFile(path string, file *ast.File, fset *token.FileSet) ([]string
 			message := "raw " + sel.Sel.Name + " outside transaction owners; use beginReadTx or beginWriteTx"
 			if call, owner := readCalls[sel]; owner {
 				reads++
-				if txBeginReadOnly(call, file) {
+				if txBeginReadOnly(call, file, info) {
 					return true
 				}
 				message = "read owner must pass &sql.TxOptions{ReadOnly: true} directly"
@@ -269,8 +348,8 @@ func scanTxBeginFile(path string, file *ast.File, fset *token.FileSet) ([]string
 		// literal or constant-concatenated BEGIN from this check.
 		switch expr := node.(type) {
 		case *ast.BasicLit, *ast.BinaryExpr:
-			text, known := txBeginConstantString(expr.(ast.Expr), map[*ast.Object]bool{})
-			if known && txBeginSQL(text) {
+			value := info.Types[expr.(ast.Expr)].Value
+			if value != nil && value.Kind() == constant.String && txBeginSQL(constant.StringVal(value)) {
 				findings = append(findings, path+":"+strconv.Itoa(fset.Position(node.Pos()).Line)+": raw SQL BEGIN outside transaction owners")
 				return false
 			}
@@ -280,7 +359,7 @@ func scanTxBeginFile(path string, file *ast.File, fset *token.FileSet) ([]string
 	return findings, reads, writes
 }
 
-func txBeginReadOnly(call *ast.CallExpr, file *ast.File) bool {
+func txBeginReadOnly(call *ast.CallExpr, file *ast.File, info *types.Info) bool {
 	if len(call.Args) != 2 {
 		return false
 	}
@@ -320,43 +399,11 @@ func txBeginReadOnly(call *ast.CallExpr, file *ast.File) bool {
 		}
 		key, ok := kv.Key.(*ast.Ident)
 		value, literal := kv.Value.(*ast.Ident)
-		if ok && key.Name == "ReadOnly" && literal && value.Name == "true" && value.Obj == nil {
+		if ok && key.Name == "ReadOnly" && literal && value.Name == "true" && info.Uses[value] == types.Universe.Lookup("true") {
 			return true
 		}
 	}
 	return false
-}
-
-func txBeginConstantString(expr ast.Expr, visiting map[*ast.Object]bool) (string, bool) {
-	switch value := expr.(type) {
-	case *ast.BasicLit:
-		if value.Kind == token.STRING {
-			text, err := strconv.Unquote(value.Value)
-			return text, err == nil
-		}
-	case *ast.Ident:
-		if value.Obj == nil || value.Obj.Kind != ast.Con || visiting[value.Obj] {
-			return "", false
-		}
-		visiting[value.Obj] = true
-		defer delete(visiting, value.Obj)
-		if spec, ok := value.Obj.Decl.(*ast.ValueSpec); ok {
-			for i, name := range spec.Names {
-				if name.Name == value.Name && i < len(spec.Values) {
-					return txBeginConstantString(spec.Values[i], visiting)
-				}
-			}
-		}
-	case *ast.BinaryExpr:
-		if value.Op == token.ADD {
-			left, leftKnown := txBeginConstantString(value.X, visiting)
-			right, rightKnown := txBeginConstantString(value.Y, visiting)
-			return left + right, leftKnown && rightKnown
-		}
-	case *ast.ParenExpr:
-		return txBeginConstantString(value.X, visiting)
-	}
-	return "", false
 }
 
 // SQLite treats comments as whitespace. Quoted text is one token, including

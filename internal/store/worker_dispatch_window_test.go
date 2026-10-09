@@ -680,7 +680,15 @@ func dispatchWorkerPacket(t *testing.T, s *Store, workID, stepID, attemptID stri
 	t.Helper()
 	laneVersion, laneDigest := implementLaneIdentity()
 	task, binding := recordedPacketInputs(t, s, workID, "implement")
-	return map[string]any{
+	inputs := map[string]any{
+		"task":        task,
+		"binding":     binding,
+		"constraints": []string{"do-not-modify-product-truth"},
+	}
+	for member, value := range recordedPacketRecords(t, s, workID) {
+		inputs[member] = value
+	}
+	packet := map[string]any{
 		"schema_version": "1.0",
 		"attempt_id":     attemptID,
 		"lane_id":        "implement",
@@ -688,12 +696,9 @@ func dispatchWorkerPacket(t *testing.T, s *Store, workID, stepID, attemptID stri
 		"lane_digest":    laneDigest,
 		"work_id":        workID,
 		"step_id":        stepID,
-		"inputs": map[string]any{
-			"task":        task,
-			"binding":     binding,
-			"constraints": []string{"do-not-modify-product-truth"},
-		},
+		"inputs": inputs,
 	}
+	return packet
 }
 
 // seedDispatchFixture seeds a workflow instance for workflow.implementation

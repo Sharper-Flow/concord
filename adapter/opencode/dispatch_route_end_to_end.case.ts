@@ -441,11 +441,14 @@ routeDeclaration("dispatches a real store route through Task completion and work
     // typed binding carries the objective source, the versions, and the one
     // assigned result. The typed outcome predicates ride
     // inputs.outcome_predicates with each serialized payload decoded. The
-    // context leads with the item's value line, carries the contract's
-    // resolved home Domain with the knowledge home's absolute registry
-    // locator, and the recorded task ahead of the narrative.
+    // core-verified law context carries the contract's resolved home Domain
+    // with the knowledge home's absolute registry locator, and the work
+    // record carries the item's recorded value statement and task.
     const registryLocator = join(repo, ".concord/docs/knowledge/domain-registry.json")
-    expect(packet.inputs.context).toBe(`Value: The route completes a real worker attempt.\n\nApproved law and Domains (binding Product law):\n- Domain product-root:${PRODUCT_ID}: Synthetic root — Synthetic test domain\nDomain registry: ${registryLocator}\n\nRecorded task:\nExercise the dispatch route.\n\n`)
+    expect(packet.inputs.law_context).toEqual({ laws: [], domains: [{ domain_id: `product-root:${PRODUCT_ID}`, name: "Synthetic root", purpose: "Synthetic test domain" }], registry_path: registryLocator })
+    expect(packet.inputs.work_record).toEqual({ value_statement: "The route completes a real worker attempt.", task: "Exercise the dispatch route." })
+    expect(packet.inputs.design_record).toBeUndefined()
+    expect(packet.inputs.proposal_record).toBeUndefined()
     expect(await Bun.file(registryLocator).exists()).toBe(true)
     expect(packet.inputs.task).toBe(APPROVED_OBJECTIVE)
     expect(packet.inputs.binding).toEqual({ objective_source: "contract_premise", work_version: 14, contract_version: 1, assigned_result: "files_touched" })

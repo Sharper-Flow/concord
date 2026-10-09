@@ -1569,6 +1569,12 @@ func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoc
 			if err := validateWorkerPacketCheckpoint(in.ctx, in.tx, in.request.WorkID, packetRaw); err != nil {
 				return events, "", err
 			}
+			// The recorded law context, design record, proposal, and work
+			// text ride the packet as typed members the core holds to the
+			// current records, never as adapter-authored prose.
+			if err := validateWorkerPacketRecords(in.ctx, in.tx, in.request.WorkID, packetRaw); err != nil {
+				return events, "", err
+			}
 			// CD-0205: the completion records the selected worker-job
 			// revision the packet binds, so worker.dispatched, the report,
 			// and the acceptance can each be held to that exact revision.

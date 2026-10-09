@@ -479,31 +479,48 @@ def repository_edit_boundary(lane: dict) -> str:
 
 def law_conformance_instructions(lane: dict) -> str:
     # The dispatched packet carries the approved contract's bound law and
-    # Domains as recorded state. The block's meaning and the disclosure the
-    # report owes are lane contract, so one shared generated block serves
-    # every lane; it states no host procedure (CD-0043 D1). Precedent: the
+    # Domains as the typed inputs.law_context member. Its meaning and the
+    # disclosure the report owes are lane contract, so one shared generated
+    # block serves every lane; it states no host procedure (CD-0043 D1). Precedent: the
     # generated packet-refusal block. The read rule follows the lane's
     # derived edit boundary: only a lane whose capabilities grant
     # edit_scoped_files is told to change files.
     if edits_scoped_files(lane):
         read_rule = (
             "Read each named law document before you change files. Conform to it. "
-            "Change a law document only when the block lists it as `modified` or `added`."
+            "Change a law document only when its `roles` list `modified` or `added`."
         )
     else:
         read_rule = "Read each named law document before you assess the result. Conform to it."
     paragraph = textwrap.fill(
-        'When `inputs.context` carries the "Approved law and Domains (binding Product '
-        'law)" block, it names the Product law and Domains the approved contract binds. '
+        "When `inputs.law_context` is present, it names the Product law and Domains "
+        "the approved contract binds. Each law carries its binding `roles` and the "
+        "`path` of its document; `criteria` names the law's acceptance criteria that "
+        "this work item's outcome predicates discharge. "
         f"{read_rule} Report any conflict between that law and the assigned result in "
         "your evidence. Return `status` `failed` when a conflict blocks the assigned result.",
         width=80,
         break_on_hyphens=False,
         break_long_words=False,
     )
-    return f"""## Approved law and architecture block
+    return f"""## Approved law and Domains
 
 {paragraph}
+"""
+
+
+def recorded_work_instructions() -> str:
+    # The packet carries the work item's recorded text and planning records
+    # as typed members the core verified against recorded state at dispatch,
+    # so the lane reads each one as recorded fact rather than adapter prose.
+    return """## Recorded work and design
+
+`inputs.work_record` carries the work item's recorded `value_statement`,
+`task`, and `narrative`. Read the value statement first: it states why the
+work matters. When `inputs.design_record` is present, its `approach` and
+`decisions` are the approved design; follow them and do not choose another
+approach. When `inputs.proposal_record` is present, its `user_outcomes` and
+`constraints` bound the result.
 """
 
 
@@ -553,16 +570,17 @@ def concord_tool_ids() -> list[str]:
 def concord_context_boundary_instructions() -> str:
     # The lane holds no Concord tool access (CD-0017 D4), so the packet is the
     # only Concord state the lane can read. Law and Domains ride the packet's
-    # law block with repository paths, and the Domain registry path names the
-    # file that carries Domain structure.
+    # typed law context with repository paths, and the Domain registry path
+    # names the file that carries Domain structure.
     return """## Concord context boundary
 
 The dispatched packet is your complete Concord context. Concord tools are
 unavailable to this lane: the lane definition denies them, and a `concord_*`
 call from a lane session is refused with no effect. Read law from the
-repository paths the packet names, and read Domain structure from the registry
-path the law block carries. Report missing context in your evidence, and
-return `status` `failed` when the missing context blocks the assigned result.
+repository paths the packet names, and read Domain structure from the file
+`inputs.law_context.registry_path` names. Report missing context in your
+evidence, and return `status` `failed` when the missing context blocks the
+assigned result.
 """
 
 
@@ -734,6 +752,7 @@ record workflow transitions, verdicts, completion, or spawn nested workers.
 
 {packet_refusal_instructions()}
 {law_conformance_instructions(lane)}
+{recorded_work_instructions()}
 {work_context_instructions(packet_schema)}
 {checkpoint_instructions()}
 {objective_binding_instructions(packet_schema, premise_max_bytes)}

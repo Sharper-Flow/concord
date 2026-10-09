@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-const ManifestDigest = "sha256:ee5009590c6e524ead21c2570fe560c3d6960620dc8fee3b983de182ee2bcf66"
+const ManifestDigest = "sha256:ad1fd229bcb18b2ec6fb0051a530a36fd4c768171fea8b31fc3a7df4e75b5848"
 
 type OperationKind string
 
@@ -314,6 +314,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"worker_job_prerequisite":                        {Required: []string{"job_id", "revision"}, Properties: []string{"job_id", "revision", "result_ref"}},
 	"worker_packet":                                  {Required: []string{"schema_version", "attempt_id", "lane_id", "lane_version", "lane_digest", "work_id", "step_id", "inputs"}, Properties: []string{"schema_version", "attempt_id", "lane_id", "lane_version", "lane_digest", "work_id", "step_id", "inputs"}},
 	"worker_packet_binding":                          {Required: []string{"objective_source", "work_version", "contract_version", "assigned_result"}, Properties: []string{"objective_source", "work_version", "contract_version", "assigned_result"}},
+	"worker_packet_work_record":                      {Required: []string{}, Properties: []string{"value_statement", "task", "narrative"}},
 	"worker_packet_worker_job":                       {Required: []string{"job_id", "revision", "digest", "objective", "stopping_condition", "project_scope", "path_scope", "predicate_ids", "checks", "prerequisites", "unresolved_refs", "reserved_integration"}, Properties: []string{"job_id", "revision", "digest", "objective", "stopping_condition", "project_scope", "path_scope", "predicate_ids", "checks", "prerequisites", "unresolved_refs", "reserved_integration"}},
 	"worker_recovery_context":                        {Required: []string{"packet_digest", "worker_worktree", "coordinator_session", "attempt_epoch", "dispatch_event_id", "lifecycle_state", "dispatch"}, Properties: []string{"packet_digest", "worker_worktree", "coordinator_session", "attempt_epoch", "dispatch_event_id", "terminal_event_id", "lifecycle_state", "dispatch"}},
 	"workflow_completion_payload":                    {Required: []string{}, Properties: []string{"evidence_commit", "current_commit", "staleness"}},
@@ -326,8 +327,9 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"workflow_design_record":                         {Required: []string{"work_version", "approach", "decisions", "touched_refs", "recorded_at"}, Properties: []string{"work_version", "approach", "decisions", "touched_refs", "recorded_at"}},
 	"workflow_forward_relation":                      {Required: []string{"kind"}, Properties: []string{"kind", "class", "severity"}},
 	"workflow_law_context":                           {Required: []string{"laws", "domains"}, Properties: []string{"laws", "domains", "registry_path"}},
+	"workflow_law_context_criterion":                 {Required: []string{"criterion", "predicate_id"}, Properties: []string{"criterion", "predicate_id"}},
 	"workflow_law_context_domain":                    {Required: []string{"domain_id", "name", "purpose"}, Properties: []string{"domain_id", "name", "purpose"}},
-	"workflow_law_context_law":                       {Required: []string{"roles", "law_id"}, Properties: []string{"roles", "law_id", "obligation_ids", "kind", "status", "title", "path"}},
+	"workflow_law_context_law":                       {Required: []string{"roles", "law_id"}, Properties: []string{"roles", "law_id", "obligation_ids", "kind", "status", "title", "path", "criteria"}},
 	"workflow_outcome_absent":                        {Required: []string{"kind", "surface", "subjects", "distinguish_from"}, Properties: []string{"kind", "surface", "subjects", "distinguish_from"}},
 	"workflow_outcome_check":                         {Required: []string{"kind", "check_ref", "immutable_subject_ref", "expected_result"}, Properties: []string{"kind", "check_ref", "immutable_subject_ref", "expected_result"}},
 	"workflow_outcome_decision_record":               {Required: []string{"question", "options_considered", "decision", "rationale", "consequences", "inputs", "poc_findings", "supersedes", "superseded_by", "unknowns", "required_to_decide", "reviewer_actor_ref", "operator_approval_ref"}, Properties: []string{"question", "options_considered", "decision", "rationale", "consequences", "inputs", "poc_findings", "supersedes", "superseded_by", "unknowns", "required_to_decide", "reviewer_actor_ref", "operator_approval_ref"}},

@@ -1,0 +1,58 @@
+{
+  "authority": {
+    "tier": "derived"
+  },
+  "date": "2026-10-09T00:00:00Z",
+  "doc_contract_profile": "current",
+  "evidence": [
+    ".concord/docs/knowledge/coverage/CD-0213.json",
+    "scripts/check-pr-linear-link.py"
+  ],
+  "home_domain_id": "work-coordination",
+  "id": "CD-0213",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "supersedes",
+      "target_id": "CD-0121"
+    },
+    {
+      "kind": "supersedes",
+      "target_id": "CD-0155"
+    },
+    {
+      "kind": "supersedes",
+      "target_id": "CD-0167"
+    },
+    {
+      "kind": "supersedes",
+      "target_id": "CD-0171"
+    },
+    {
+      "kind": "supersedes",
+      "target_id": "CD-0188"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0041"
+    }
+  ],
+  "path": ".concord/docs/decisions/CD-0213-linear-mcp-is-the-only-planning-authority.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:14d840e7b43eda2460f44e2274d6ba30005ecbbb78ee3b7ec46c10c78eeda43d",
+  "status": "accepted",
+  "summary": "Linear, reached only through the Linear MCP server, is the only planning authority. Concord keeps managed execution state and at most one recorded Linear issue identity per managed work unit, mirrors no planning change, holds no Linear credential, keeps planning events replayable, and requires a non-closing Related to reference on each pull request.",
+  "tags": [
+    "linear",
+    "planning",
+    "authority",
+    "work-coordination"
+  ],
+  "title": "Linear MCP is the only planning authority"
+}

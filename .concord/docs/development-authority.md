@@ -1,7 +1,8 @@
 # Concord development authority
 
-**Status:** Accepted under CD-0089, amended by CD-0121, CD-0122, CD-0155,
-and CD-0167.
+**Status:** Superseded by
+[`managed-development-authority.md`](managed-development-authority.md)
+under [CD-0213](decisions/CD-0213-linear-mcp-is-the-only-planning-authority.md).
 **Approval date:** 2026-09-09.
 **Approval:** Operator approval for the Product-scoped development policy.
 

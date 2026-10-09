@@ -11,9 +11,9 @@
 > **Does not decide:** PM5 Project-membership roles/order, exact DDL/indexes, agent
 > tools, workflow/gate ceremony, PM8 WIP-byte exclusion, PM9 no-receipt boundary, PM10 recovery, or
 > external-system polling.
-> **Amended by CD-0041, CD-0042, and CD-0142:** Initiative is the current grouping kind; Initiative
-> membership uses the dedicated `includes`/entry projection rather than generic
-> `parent`; architecture-overlap resolutions extend the work-pair grammar.
+> **Amended by CD-0041, CD-0042, CD-0142, and CD-0213:** business grouping lives in Linear, and
+> Concord stores no grouping kind or membership; architecture-overlap resolutions extend the
+> work-pair grammar.
 > CD-0142 adds operator-directed removal of nonterminal execution projections
 > without adding a lifecycle state. The planning record and exact event history remain.
 > Issues #196/#197 replace obsolete pre-go-live forms directly, without aliases,
@@ -63,18 +63,13 @@ summary flags to drift from truth. Accepted PM5 now supplies Q6 membership ident
 `blocked`, `ready`, `active`, and `terminal` are not lifecycle states. No independent
 `is_blocked`, `is_ready`, or `is_terminal` column exists.
 
-CD-0009 as amended by CD-0041 fixes two ordinary work-item kinds without adding
+CD-0009 as amended by CD-0041 and CD-0213 fixes one ordinary work-item kind without adding
 lifecycle states:
 
-- `initiative`: finite single-Product business/outcome context; entries retain
-  independent workflows/recovery/architecture bindings and project bounded
-  `initiative_entries(initiative_work_id, child_work_id, position, required)` metadata;
 - `research`: independently trackable investigation that may conclude `no change`.
 
-New Initiative entries default to `required=true`; optionality is explicit. An Initiative cannot
-complete while any required child or typed external condition remains nonterminal.
-Removing an entry atomically removes its Initiative entry relation/order metadata without
-cancelling the child. Embedded research is not another work item.
+Embedded research is not another work item. A historical work item of kind `initiative` stays
+readable with no grouping behavior, and capture refuses a new one under CD-0213 D8.
 
 ### 2.2 Allowed transitions
 

@@ -65,15 +65,13 @@ func checkWorkflowBinaryCompatibility(ctx context.Context, q queryer) error {
 		return compatibilityReadFailure(err)
 	}
 	defer func() { _ = rows.Close() }()
-	registry := BuiltinWorkflowRegistry()
 	var unsupported *WorkflowDefinitionPin
 	for rows.Next() {
 		var pin WorkflowDefinitionPin
 		if err := rows.Scan(&pin.Ref, &pin.Version, &pin.Digest); err != nil {
 			return compatibilityReadFailure(err)
 		}
-		_, ok := registry.Lookup(pin.Ref, pin.Version)
-		if !ok {
+		if !builtinWorkflowVersionRegistered(pin.Ref, pin.Version) && !registryHolds(pin) {
 			unsupported = &pin
 			break
 		}
@@ -89,6 +87,15 @@ func checkWorkflowBinaryCompatibility(ctx context.Context, q queryer) error {
 			fmt.Sprintf("workflow definition %s version %d is not registered by this binary", unsupported.Ref, unsupported.Version))
 	}
 	return nil
+}
+
+// registryHolds is the slow path for a pin outside the built-in current
+// versions table: it builds the registry, which also holds definitions
+// registered at runtime (test fixture families). Store open reaches it only
+// for such a pin or for one this binary refuses.
+func registryHolds(pin WorkflowDefinitionPin) bool {
+	_, ok := BuiltinWorkflowRegistry().Lookup(pin.Ref, pin.Version)
+	return ok
 }
 
 func binaryCompatibilityFailure(ctx context.Context, q queryer, surface, ref string, required int64, digest, detail string) error {

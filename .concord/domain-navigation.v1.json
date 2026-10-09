@@ -112,6 +112,18 @@
       "exclude": [".github/ISSUE_TEMPLATE/**", ".github/workflows/release.yml"]
     }
   ],
+  "default_rules": [
+    {
+      "domain_id": "durable-authority",
+      "include": ["internal/store/**"],
+      "exclude": ["internal/store/**/*_test.go"]
+    },
+    {
+      "domain_id": "repository-verification",
+      "include": ["internal/store/**/*_test.go", "contracts/**", ".concord/scenarios/**"],
+      "exclude": []
+    }
+  ],
   "unresolved": [
     {"path": "contracts/branch-freshness.digest", "candidate_domain_ids": ["work-coordination", "agent-surface"], "reason": "Freshness admission spans worktree ownership and the caller boundary."},
     {"path": "contracts/branch-freshness.fixtures.json", "candidate_domain_ids": ["work-coordination", "agent-surface"], "reason": "Freshness admission spans worktree ownership and the caller boundary."},

@@ -11,7 +11,7 @@ Mapped files: 865; tests: 41; unresolved candidates: 13.
 Candidate counts overlap when a file has several candidates; no candidate is an assigned owner.
 
 ## Code and tests
-Full paths, unresolved reasons, shared-test coverage, and source fingerprints: `.concord/navigation/inventory.json`.
+Full paths, unresolved reasons, and shared-test coverage: `.concord/navigation/inventory.json`.
 - Include: `.concord/docs/**`, `.concord/schemas/**`, `.concord/domain-navigation.v1.json`, `.concord/navigation/**`, `internal/store/knowledge*.go`
 - Include: `internal/store/research*.go`, `internal/store/product_knowledge*.go`, `internal/store/law_*.go`, `internal/store/lesson_publish*.go`, `internal/store/git_knowledge*.go`
 - Include: `internal/store/domain_attachments*.go`, `internal/store/domain_observations*.go`, `internal/store/cd_reservations.go`, `internal/store/home_pair_binding*.go`, `internal/store/federated_law_boundary_test.go`
@@ -38,6 +38,3 @@ Run the narrow selected command with `bin/oc-test targeted -- <command> [args...
 Invariant/control joins, allowed-dependency interpretation, observed import/call edges,
 non-law navigation homes, CON-887 packet reading, and CON-890 owner oracles remain later work.
 Required-reading entries will be pinned references, not inlined card content.
-
-Navigation source fingerprint: `sha256:2bb06aaabbb1741089cc4fb37ee2699f54556ba77ec2bc434b26ebf7b2455e09`.
-Other fingerprints and the exact file universe are in the generated inventory.

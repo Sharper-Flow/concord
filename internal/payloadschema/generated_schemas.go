@@ -13242,6 +13242,11 @@ const GeneratedPayloadSchemaDocument = `{
             "outcome_predicates": {
               "$ref": "#/$defs/worker_packet_outcome_predicates"
             },
+            "report_protocol": {
+              "const": "concord-worker-result-v1",
+              "description": "Dispatch-owned final-report framing, covered by the authorized packet digest. New builders pin this protocol; absence identifies historical legacy output. This is not report schema or worker identity.",
+              "type": "string"
+            },
             "task": {
               "maxLength": 4096,
               "minLength": 1,

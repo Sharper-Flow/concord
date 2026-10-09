@@ -19,6 +19,7 @@ import type { CredentialStore } from "./credentials"
 import type { DispatchRunner } from "./dispatch"
 import { agentLanes } from "./generated-agent-lanes"
 import { contractOperations } from "./generated-contracts"
+import { WORKER_REPORT_PROTOCOL } from "./worker-report-protocol.js"
 import { hostControlPlane, MANAGED_TASK_SCOPE_KEY, SESSION_MESSAGES_ROUTE, SESSION_ROUTE } from "./move-session"
 
 const PRODUCT_ID = "product-e2e"
@@ -123,11 +124,15 @@ function contextFor(directory: string) {
   } as any
 }
 
+function reportText(report: JSONRecord): string {
+  return `\`\`\`${WORKER_REPORT_PROTOCOL}\n${JSON.stringify(report)}\n\`\`\``
+}
+
 function taskResult(report: JSONRecord): string {
   return [
     `<task id="worker-session" state="completed">`,
     "<task_result>",
-    JSON.stringify(report),
+    reportText(report),
     "</task_result>",
     "</task>",
   ].join("\n")
@@ -433,6 +438,7 @@ routeDeclaration("dispatches a real store route through Task completion and work
     const taskArgs: Record<string, unknown> = { subagent_type: "general", prompt: "model input", description: "model task" }
     await windows.bind(TASK_TOOL_ID, SESSION_ID, taskArgs, undefined, async () => worktree, worktree)
     const packet = JSON.parse(taskArgs.prompt as string) as JSONRecord
+    expect(packet.inputs.report_protocol).toBe(WORKER_REPORT_PROTOCOL)
     boundPacket = packet
     expect(taskArgs.subagent_type).toBe("concord-implement")
     expect(packet.step_id).toBe("repair")
@@ -715,7 +721,7 @@ for (const blockedVerb of ["worker-dispatch", "worker-complete"]) {
       expect(before.map((event) => event.kind)).toEqual(blockedVerb === "worker-dispatch" ? ["worker.dispatched"] : ["worker.dispatched", "worker.completed"])
       const child = JSON.parse(exportedSession(packet))
       child.info = { id: "worker-session", parentID: SESSION_ID, directory: worktree }
-      child.messages[child.messages.length - 1].parts = [{ type: "text", text: JSON.stringify(report) }]
+      child.messages[child.messages.length - 1].parts = [{ type: "text", text: reportText(report) }]
       const fixture = { binary, dbPath, worktree, sessionID: SESSION_ID, parent: { info: { id: SESSION_ID, directory: worktree, metadata }, messages: [{ info: { id: MESSAGE_ID, sessionID: SESSION_ID, role: "assistant" }, parts: [{ id: "retained-task-part", sessionID: SESSION_ID, type: "tool", tool: TASK_TOOL_ID, state: { status: "completed", input: taskArgs, output: output.output } }] }] }, child, request: { operation: "worker_reconcile", input: { work_id: workID, attempt_id: packet.attempt_id, task_part_id: "retained-task-part", idempotency_key: "recover-original-report" } } }
       const recover = async (body: JSONRecord = fixture) => {
         const result = await runProcess([process.execPath, "-e", RECOVERY_PROCESS], JSON.stringify(body), join(import.meta.dir, "..", ".."))

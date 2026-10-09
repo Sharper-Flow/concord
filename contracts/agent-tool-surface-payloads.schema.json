@@ -9104,10 +9104,6 @@
         "inputs": {
           "type": "object",
           "additionalProperties": false,
-          "required": [
-            "task",
-            "binding"
-          ],
           "properties": {
             "task": {
               "type": "string",
@@ -9116,6 +9112,11 @@
             },
             "binding": {
               "$ref": "#/$defs/worker_packet_binding"
+            },
+            "report_protocol": {
+              "type": "string",
+              "const": "concord-worker-result-v1",
+              "description": "Dispatch-owned final-report framing, covered by the authorized packet digest. New builders pin this protocol; absence identifies historical legacy output. This is not report schema or worker identity."
             },
             "worker_job": {
               "$ref": "#/$defs/worker_packet_worker_job"
@@ -9149,7 +9150,11 @@
             "outcome_predicates": {
               "$ref": "#/$defs/worker_packet_outcome_predicates"
             }
-          }
+          },
+          "required": [
+            "task",
+            "binding"
+          ]
         }
       },
       "allOf": [

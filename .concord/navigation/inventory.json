@@ -3851,7 +3851,7 @@
     ".concord/domain-navigation.v1.json": "sha256:cb9829a148a5045bbb92bcb62ce7be7b1f028460802f12a0aaf63d16be31bdd1",
     ".concord/tooling.v1.json": "sha256:b6f0c6d9b77a53235ecdae1cc2344edf13382a6e51d7f8e02fe7efed55dc1850",
     "cmd/concord/main.go": "sha256:a679ae090350f256f13a6a20541b05eba5da95c068bb840bbdd19d6e4c93d22e",
-    "contracts/agent-tool-surface.v1.json": "sha256:a2782ec5723243a35b22fe4c62f02f53d3bf582d341ff7e9e2e27c002d2efa83",
+    "contracts/agent-tool-surface.v1.json": "sha256:36e7b3f08fc3663ec43bf74038146bb0b6df53c3f8a638a55f570bab5c9f3c9f",
     "go.mod": "sha256:7c76ec3b5b4906d067a2d4245e3cc1b3e45b8668497298a210a6c33b87be72f3",
     "scripts/domain-navigation-cli/main.go": "sha256:d440f0ed930a34741a5c1e230e3f554fa9a17717d76c2dcb4ea607007239d75a",
     "scripts/domain_navigation.py": "sha256:2c7d9cdb8b2b0b26c1ed2fe32104d9cc16492c9bdcc93fc959b8afac2f20d89c"

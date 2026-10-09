@@ -304,6 +304,106 @@ class EvidenceBoundParityTests(unittest.TestCase):
             self.check(payload=value)
 
 
+class WorkerPacketMirrorProjectionTests(unittest.TestCase):
+    """The TS8 worker_packet inputs mirror is derived from the canonical
+    lane packet contract, not handwritten.
+
+    A canonical inline input field must reach the published surface on
+    regeneration. A missing projection fails --check before the core can
+    refuse the dispatcher's packet as an unknown property.
+    """
+
+    def project(self, payload=None, packet=None):
+        value = copy.deepcopy(payload_schema if payload is None else payload)
+        canonical = copy.deepcopy(packet_schema if packet is None else packet)
+        generator.project_worker_packet_inputs(value, canonical)
+        return value["$defs"]["worker_packet"]["properties"]["inputs"]
+
+    def test_shipped_mirror_carries_every_canonical_input_field(self):
+        canonical = packet_schema["properties"]["inputs"]
+        mirror = payload_schema["$defs"]["worker_packet"]["properties"]["inputs"]
+        self.assertEqual(sorted(mirror["properties"]), sorted(canonical["properties"]))
+        self.assertEqual(mirror.get("required"), canonical.get("required"))
+
+    def test_projection_is_idempotent_on_the_shipped_mirror(self):
+        self.assertEqual(self.project(), payload_schema["$defs"]["worker_packet"]["properties"]["inputs"])
+
+    def test_an_omitted_canonical_field_is_restored(self):
+        # Regeneration restores a missing canonical field verbatim.
+        payload = copy.deepcopy(payload_schema)
+        del payload["$defs"]["worker_packet"]["properties"]["inputs"]["properties"]["report_protocol"]
+        restored = self.project(payload=payload)
+        self.assertEqual(
+            restored["properties"]["report_protocol"],
+            packet_schema["properties"]["inputs"]["properties"]["report_protocol"],
+        )
+
+    def test_a_new_canonical_inline_field_lands_verbatim(self):
+        packet = copy.deepcopy(packet_schema)
+        packet["properties"]["inputs"]["properties"]["focus"] = {"type": "string", "minLength": 1, "maxLength": 64}
+        projected = self.project(packet=packet)
+        self.assertEqual(projected["properties"]["focus"], {"type": "string", "minLength": 1, "maxLength": 64})
+
+    def test_a_removed_canonical_field_leaves_the_mirror(self):
+        packet = copy.deepcopy(packet_schema)
+        del packet["properties"]["inputs"]["properties"]["report_protocol"]
+        projected = self.project(packet=packet)
+        self.assertNotIn("report_protocol", projected["properties"])
+
+    def test_the_required_set_follows_canonical(self):
+        packet = copy.deepcopy(packet_schema)
+        packet["properties"]["inputs"]["required"].append("context")
+        projected = self.project(packet=packet)
+        self.assertEqual(projected["required"], ["task", "binding", "context"])
+
+    def test_a_canonical_ref_field_without_an_alias_is_rejected(self):
+        # A field the canonical schema binds through a lane-local $ref cannot
+        # be copied verbatim: the ref target does not exist in the payloads
+        # document. Generation must fail naming the field, so anchoring a new
+        # alias is a deliberate act.
+        packet = copy.deepcopy(packet_schema)
+        packet["properties"]["inputs"]["properties"]["plan"] = {"$ref": "#/$defs/lane_plan"}
+        with self.assertRaises(ValueError) as ctx:
+            self.project(packet=packet)
+        self.assertIn("plan", str(ctx.exception))
+
+    def test_an_aliased_field_ignores_the_canonical_node_shape(self):
+        # binding is aliased: the payloads schema's shared def owns the
+        # published bound. A canonical change to the aliased node must not
+        # leak into the mirror through a verbatim copy.
+        packet = copy.deepcopy(packet_schema)
+        packet["properties"]["inputs"]["properties"]["binding"] = {"$ref": "#/$defs/lane_other"}
+        projected = self.project(packet=packet)
+        self.assertEqual(projected["properties"]["binding"], {"$ref": "#/$defs/worker_packet_binding"})
+
+    def test_context_fields_keep_their_aliases_and_published_text(self):
+        projected = self.project()
+        shipped = payload_schema["$defs"]["worker_packet"]["properties"]["inputs"]["properties"]
+        self.assertEqual(projected["properties"]["work_context"], shipped["work_context"])
+        self.assertEqual(projected["properties"]["checkpoint"], shipped["checkpoint"])
+        self.assertEqual(projected["properties"]["work_context"]["$ref"], "#/$defs/work_context_view")
+        self.assertEqual(projected["properties"]["checkpoint"]["$ref"], "#/$defs/continuity_checkpoint")
+        self.assertEqual(projected["properties"]["work_context"]["description"],
+                         generator.WORKER_PACKET_INPUT_PUBLISHED_TEXT["work_context"])
+        self.assertEqual(projected["properties"]["checkpoint"]["description"],
+                         generator.WORKER_PACKET_INPUT_PUBLISHED_TEXT["checkpoint"])
+
+    def test_an_alias_naming_an_unknown_def_is_rejected(self):
+        payload = copy.deepcopy(payload_schema)
+        del payload["$defs"]["continuity_checkpoint"]
+        with self.assertRaises(ValueError) as ctx:
+            self.project(payload=payload)
+        self.assertIn("continuity_checkpoint", str(ctx.exception))
+
+    def test_the_packets_top_level_fields_stay_declared(self):
+        # The projection derives only the inputs object; the packet's
+        # top-level fields remain the payloads schema's own declaration.
+        payload = copy.deepcopy(payload_schema)
+        payload["$defs"]["worker_packet"]["properties"]["lane_digest"] = {"$ref": "#/$defs/id"}
+        self.project(payload=payload)
+        self.assertEqual(payload["$defs"]["worker_packet"]["properties"]["lane_digest"], {"$ref": "#/$defs/id"})
+
+
 class EnvelopeOperationVocabularyTests(unittest.TestCase):
     """Issue #352: every tool/operation pair the envelope declares must be satisfiable."""
 

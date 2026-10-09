@@ -1,7 +1,7 @@
 import { test, expect, mock } from "bun:test"
 import { manifestDigest } from "./generated-contracts"
 import { validateGeneratedEnvelope, validateGeneratedPayload } from "./generated-contract-tests"
-import { configureCoreBinary, validateAgentLanePacket, type AgentLanePacketBinding, type AgentLanePacketCorrection, type AgentLanePacketWorkContext } from "./dispatch"
+import { configureCoreBinary, validateAgentLanePacket, type AgentLanePacketBinding, type AgentLanePacketCorrection, type AgentLanePacketLawContext, type AgentLanePacketWorkContext } from "./dispatch"
 import { agentLaneReportSchema, agentLanes, workerScopeAssignedResult } from "./generated-agent-lanes"
 
 // The builder reaches core through the adapter transport in concord.ts, which
@@ -529,7 +529,7 @@ test("the packet carries the pinned design record verbatim", async () => {
 // The core resolves the approved contract's bound law and Domains at
 // continuity read time; the builder carries that law context and the
 // recorded proposal verbatim as typed packet members.
-const LAW_CONTEXT = {
+const LAW_CONTEXT: AgentLanePacketLawContext = {
   laws: [
     { roles: ["added"], law_id: "law:new" },
     { roles: ["mandated", "modified", "obligation"], law_id: "spec:one", kind: "spec", status: "accepted", title: "Synthetic test law", path: ".concord/docs/spec.md", obligation_ids: ["verification"] },
@@ -581,7 +581,7 @@ test("a contract with no bound law dispatches without a law context or proposal"
 // them typed on the law entry so the worker sees which criterion each of this
 // item's predicates discharges.
 test("the law context carries the mandated criteria bound to this work item's predicates", async () => {
-  const lawContext = {
+  const lawContext: AgentLanePacketLawContext = {
     laws: [
       { roles: ["mandated"], law_id: "spec:one", kind: "spec", status: "accepted", title: "Synthetic test law", path: ".concord/docs/spec.md", criteria: [{ criterion: 2, predicate_id: "predicate:criterion-bindings-predicate-form" }, { criterion: 1, predicate_id: "predicate:packet-mandated-criteria" }] },
       { roles: ["mandated"], law_id: "spec:plain", kind: "spec", status: "accepted", title: "Unbound spec", path: ".concord/docs/plain.md" },

@@ -59,6 +59,12 @@ gains `registry_path`, the Domain registry's repository path, when the
 contract binds a Domain. A lane reads Domain structure from that file instead
 of a tool call.
 
+The packet carries prior work state as typed members, not as a tool read.
+When `inputs.work_context` is present, the lane reads it first. The lane reads
+each repository source at its pinned commit through Git, not from the changed
+checkout. When `inputs.checkpoint` is present, its diagnosis and strategy are
+coordinator directions for the attempt.
+
 ## Alternatives considered
 
 - Frontmatter denial alone. A denied utility lane still made Concord calls

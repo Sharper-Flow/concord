@@ -77,7 +77,7 @@ export interface AgentLanePacket {
   lane_digest: string
   work_id: string
   step_id: string
-  inputs: { task: string; binding: AgentLanePacketBinding; worker_job?: AgentLanePacketWorkerJob; context?: string; correction?: AgentLanePacketCorrection; constraints?: string[]; outcome_predicates?: AgentLanePacketOutcomePredicate[] }
+  inputs: { task: string; binding: AgentLanePacketBinding; worker_job?: AgentLanePacketWorkerJob; context?: string; correction?: AgentLanePacketCorrection; work_context?: AgentLanePacketWorkContext; checkpoint?: AgentLanePacketCheckpoint; constraints?: string[]; outcome_predicates?: AgentLanePacketOutcomePredicate[] }
 }
 
 // AgentLanePacketWorkerJob mirrors inputs.worker_job of
@@ -140,6 +140,81 @@ export interface AgentLanePacketCorrection {
   failure_detail?: string
   predicate_ids: string[]
   evidence_refs: string[]
+  failed_attempt_id?: string
+  failed_attempt_epoch?: number
+  // The durable event that opened the correction; the core refuses a packet
+  // whose correction names a different source.
+  source_event_id?: string
+  source_event_seq?: number
+}
+
+// AgentLanePacketWorkContext mirrors inputs.work_context of
+// contracts/agent-lane-packet.schema.json: the core reader's current
+// work-context view (CON-887), carried verbatim from the work pin. The
+// closed packet schema owns the bounds; the builder never re-derives or
+// truncates the view, because the core refuses a dispatch whose bytes differ
+// from the current view.
+export interface AgentLanePacketWorkContextReadingSource {
+  kind: "repository_file" | "knowledge"
+  project_id?: string
+  path?: string
+  commit_oid?: string
+  source_id?: string
+  law_id?: string
+  content_hash?: string
+}
+
+export interface AgentLanePacketWorkContextReading {
+  domain_id: string
+  reason: string
+  product_wide_rationale?: string
+  source: AgentLanePacketWorkContextReadingSource
+}
+
+export interface AgentLanePacketWorkContextFindingView {
+  finding_id: string
+  kind: "observation" | "inference" | "hypothesis" | "rejected_approach" | "open_question" | "contradiction" | "direction"
+  statement: string
+  subject_ref: string
+  evidence_refs: string[]
+  domain_id: string
+  product_wide_rationale?: string
+  origin: "declaration" | "worker_report"
+  status: "reported"
+  source_event_id: string
+  source_event_seq: number
+  ordinal: number
+}
+
+export interface AgentLanePacketWorkContext {
+  source_event_frontier: number
+  required_reading: AgentLanePacketWorkContextReading[]
+  findings: AgentLanePacketWorkContextFindingView[]
+  domain_groups: { domain_id: string; required_reading_ordinals: number[]; finding_ids: string[]; domain_cards: [] }[]
+}
+
+// AgentLanePacketCheckpoint mirrors inputs.checkpoint of
+// contracts/agent-lane-packet.schema.json: the owning continuity reader's
+// latest context checkpoint (CON-883), carried verbatim from the pinned
+// continuity projection. The closed packet schema owns the bounds; the
+// builder never re-derives or filters the checkpoint, because the core
+// refuses a dispatch whose bytes differ from the latest checkpoint.
+// strategy and diagnosis are coordinator directions the worker follows for
+// the attempt.
+export interface AgentLanePacketCheckpoint {
+  checkpoint_id: string
+  work_version: number
+  sequence: number
+  step_id: string
+  attempt_epoch: number
+  active_unit: string
+  hypothesis: string
+  diagnosis: string
+  strategy: string
+  touched_refs: string[]
+  evidence_refs: string[]
+  pending_questions: string[]
+  pending_decisions: string[]
 }
 
 // AgentLaneReport mirrors contracts/agent-lane-report.schema.json, which the
@@ -191,11 +266,27 @@ export interface AgentLaneReportReview {
   findings: AgentLaneReportReviewFinding[]
 }
 
+// AgentLaneReportContextFinding mirrors one entry of the optional top-level
+// context_findings array of contracts/agent-lane-report.schema.json
+// (CON-887). A finding is worker-claimed terminal content only: it records
+// no acceptance, no verdict, and no transition, and subject_ref is the
+// worker's claim about what the finding concerns — never dispatch-owned
+// subject authority. The closed schema, not this type, owns the bounds.
+export interface AgentLaneReportContextFinding {
+  kind: "observation" | "inference" | "hypothesis" | "rejected_approach" | "open_question" | "contradiction" | "direction"
+  statement: string
+  subject_ref: string
+  evidence_refs: string[]
+  domain_id: string
+  product_wide_rationale?: string
+}
+
 export interface AgentLaneReport {
   schema_version: AgentLaneReportSchemaVersion
   readback_model: string
   status: AgentLaneReportStatus
   evidence: AgentLaneReportEvidence[]
+  context_findings?: AgentLaneReportContextFinding[]
   base_comparison?: AgentLaneReportBaseComparison
   review?: AgentLaneReportReview
   worker_job?: AgentLaneReportWorkerJob
@@ -1017,6 +1108,28 @@ function boundDetails(entries: unknown, schema: { "x-maxBytes"?: number }): unkn
   return changed ? bounded : null
 }
 
+// The context_findings aggregate bound (CON-887). The contract declares it as
+// x-maxArrayBytes on the optional context_findings array because the schema
+// subset expresses no serialized-size keyword; admission enforces it here.
+// The cast keeps compilation sound before the generated schema embed carries
+// the member: until regeneration the closed schema refuses the undeclared
+// property first, so the zero fallback never governs an admitted report.
+const CONTEXT_FINDINGS_MAX_ARRAY_BYTES = ((agentLaneReportSchema.properties as Record<string, { "x-maxArrayBytes"?: number }>).context_findings)?.["x-maxArrayBytes"] ?? 0
+
+// contextFindingsAggregateRefusal measures the compact JSON serialization of
+// a context_findings array in UTF-8 bytes against the contract's aggregate
+// bound and returns the refusal detail when it exceeds it. The compact form
+// is the smallest serialization of the admitted value, so a report that fits
+// the bound here fits every derived store form. A typed finding is never
+// truncated to fit: the report is refused whole, and the input is left
+// untouched.
+export function contextFindingsAggregateRefusal(findings: unknown, maxArrayBytes: number): string | null {
+  if (maxArrayBytes <= 0 || findings === undefined || findings === null) return null
+  const bytes = Buffer.byteLength(JSON.stringify(findings), "utf8")
+  if (bytes <= maxArrayBytes) return null
+  return `worker report failed the closed agent-lane-report.v1 schema: context_findings: serialize to ${bytes} UTF-8 bytes against a limit of ${maxArrayBytes}; the findings are refused, never truncated`
+}
+
 // admitWorkerReport is the CD-0056 D7 admission boundary. The model-authored
 // report carries worker-owned content only: dispatch-owned fields are stripped
 // before validation, and the closed schema's additionalProperties:false still
@@ -1038,6 +1151,11 @@ function admitWorkerReport(scan: WorkerReportScan, packet: AgentLanePacket): { r
   if (!validateAgentLaneReport(normalized, failures)) {
     return { detail: `worker report failed the closed agent-lane-report.v1 schema: ${failures[0] ?? "unknown field"}` }
   }
+  // The context_findings aggregate is enforced after per-entry validation and
+  // before any completion check: an over-bound array is an invalid report,
+  // so its findings never reach a terminal record in a smaller shape.
+  const aggregateRefusal = contextFindingsAggregateRefusal(normalized.context_findings, CONTEXT_FINDINGS_MAX_ARRAY_BYTES)
+  if (aggregateRefusal !== null) return { detail: aggregateRefusal }
   const admitted = normalized
   const lane = laneForPacket(packet)
   if (!lane) return { detail: "worker report packet names an unregistered lane identity or digest" }
@@ -2155,13 +2273,18 @@ async function completeWorkerSession(
     return provenanceRefusal(lane, packet, error, "reconcile_operation", "worker evidence was not recorded; the authorized attempt requires reconciliation")
   }
 
-  const terminal: { verb: "worker-complete"; report: CanonicalLaneReport } | { verb: "worker-fail"; failure_kind: string; detail: string } =
+  // The terminal record carries the admitted report's optional typed context
+  // findings (CON-887) on both terminal verbs: a completed report and a valid
+  // failed report retain worker-claimed content. The host-failure and
+  // invalid-report arms below carry no findings by construction — an invalid
+  // report is a diagnostic, and diagnostics never supply active findings.
+  const terminal: { verb: "worker-complete"; report: CanonicalLaneReport } | { verb: "worker-fail"; failure_kind: string; detail: string; context_findings?: AgentLaneReportContextFinding[] } =
     hostFailure !== undefined
       ? { verb: "worker-fail", failure_kind: "worker_error", detail: boundedTextPrefix(hostFailure, MAX_FAILURE_DETAIL_BYTES) }
       : "detail" in resolution
       ? { verb: "worker-fail", failure_kind: "invalid_report", detail: boundedTextPrefix(resolution.detail, MAX_FAILURE_DETAIL_BYTES) }
       : resolution.report.status === "failed"
-        ? { verb: "worker-fail", failure_kind: "worker_error", detail: workerReportedFailureDetail(resolution.report) }
+        ? { verb: "worker-fail", failure_kind: "worker_error", detail: workerReportedFailureDetail(resolution.report), context_findings: resolution.report.context_findings }
         : { verb: "worker-complete", report: resolution.report }
 
   // CD-0067 D6: the dispatch assertion's packet_digest quotes the value
@@ -2268,6 +2391,7 @@ async function completeWorkerSession(
       readback_model: readback.readback_model,
       failure_kind: terminal.failure_kind,
       detail: terminal.detail,
+      context_findings: terminal.context_findings,
       assertion: terminalAssertion,
     }, signal)
     if (failureRecordFailure) return workerEvidenceEnvelope(lane, packet, failureRecordFailure)
@@ -2287,6 +2411,7 @@ async function completeWorkerSession(
     report_schema_version: terminal.report.schema_version,
     evidence_origin: "reported",
     evidence: terminal.report.evidence,
+    context_findings: terminal.report.context_findings,
     base_comparison: terminal.report.base_comparison,
     review: terminal.report.review,
     worker_job: terminal.report.worker_job,

@@ -1,12 +1,14 @@
 package store
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"path/filepath"
 	"strconv"
+	"strings"
 )
 
 const continuityMaxOffset = 1000000
@@ -142,6 +144,13 @@ type ContinuitySnapshot struct {
 	// against the law_subjects and domains projections at read time. Nil
 	// when the contract binds no law and no Domain.
 	LawContext *WorkflowLawContext `json:"law_context,omitempty"`
+	// WorkContext carries the current work-context view the tx-scoped
+	// reader assembles (CON-887): the latest declaration anchor's required
+	// reading, the active findings, and the Domain grouping. Nil when the
+	// work holds no declaration and no terminal-report findings; a current
+	// view past its bounds leaves this absent and the dedicated context
+	// read owns the explicit refusal.
+	WorkContext *WorkContextView `json:"work_context,omitempty"`
 	// OutsideRepairDisposition names the work's outside-repair disposition
 	// when one is recorded. The store keeps the typed evidence the boundary
 	// authenticated and refuses every managed workflow move while the
@@ -301,6 +310,19 @@ func ReadWorkflowContinuity(ctx context.Context, s *Store, req ContinuityRequest
 	if err := continuityReadTrailingTx(ctx, tx, req.Work, &out); err != nil {
 		return out, err
 	}
+	// CON-887: the current work-context view rides the pinned projection
+	// when records or findings exist. The overflow refusal leaves the field
+	// absent — session boot must not strand on a work-wide bound the
+	// dedicated context read and dispatch admission own.
+	view, viewErr := readWorkContextView(ctx, tx, req.Work)
+	if viewErr != nil {
+		var limit *Failure
+		if !failureAs(viewErr, &limit) || limit.Kind != KindLimitExceeded {
+			return out, viewErr
+		}
+		view = nil
+	}
+	out.WorkContext = view
 	return out, nil
 }
 
@@ -421,18 +443,79 @@ func continuityResolveLawMandateTx(ctx context.Context, tx *sql.Tx, work string,
 	return nil
 }
 
-// continuityReadCheckpointTx reads the latest context checkpoint. A
-// checkpoint row with malformed arrays is an invariant violation.
-func continuityReadCheckpointTx(ctx context.Context, tx *sql.Tx, work string, out *ContinuitySnapshot) error {
+// readLatestContextCheckpointTx is the one latest-checkpoint derivation the
+// continuity snapshot and the dispatch packet admission share. It reads the
+// newest row of the checkpoint projection inside the caller's transaction;
+// the projection carries no source event identity, so the checkpoint's own
+// durable identity (checkpoint_id, work_version, sequence) is the identity
+// every consumer compares. A checkpoint row with malformed arrays is an
+// invariant violation.
+func readLatestContextCheckpointTx(ctx context.Context, q queryer, workID, operation string) (*ContextCheckpoint, error) {
 	var checkpoint ContextCheckpoint
 	var touched, evidence, questions, decisions string
-	if err := tx.QueryRowContext(ctx, `SELECT checkpoint_id,work_version,checkpoint_sequence,step_id,attempt_epoch,active_unit,hypothesis,diagnosis,strategy,touched_refs,evidence_refs,pending_questions,pending_decisions FROM workflow_context_checkpoints WHERE work_id=? ORDER BY checkpoint_sequence DESC LIMIT 1`, work).Scan(&checkpoint.CheckpointID, &checkpoint.WorkVersion, &checkpoint.Sequence, &checkpoint.StepID, &checkpoint.AttemptEpoch, &checkpoint.ActiveUnit, &checkpoint.Hypothesis, &checkpoint.Diagnosis, &checkpoint.Strategy, &touched, &evidence, &questions, &decisions); err == nil {
+	if err := q.QueryRowContext(ctx, `SELECT checkpoint_id,work_version,checkpoint_sequence,step_id,attempt_epoch,active_unit,hypothesis,diagnosis,strategy,touched_refs,evidence_refs,pending_questions,pending_decisions FROM workflow_context_checkpoints WHERE work_id=? ORDER BY checkpoint_sequence DESC LIMIT 1`, workID).Scan(&checkpoint.CheckpointID, &checkpoint.WorkVersion, &checkpoint.Sequence, &checkpoint.StepID, &checkpoint.AttemptEpoch, &checkpoint.ActiveUnit, &checkpoint.Hypothesis, &checkpoint.Diagnosis, &checkpoint.Strategy, &touched, &evidence, &questions, &decisions); err == nil {
 		if json.Unmarshal([]byte(touched), &checkpoint.TouchedRefs) != nil || json.Unmarshal([]byte(evidence), &checkpoint.EvidenceRefs) != nil || json.Unmarshal([]byte(questions), &checkpoint.PendingQuestions) != nil || json.Unmarshal([]byte(decisions), &checkpoint.PendingDecisions) != nil {
-			return newFailure(KindInvariantViolation, "C19.Continuity", "context checkpoint projection contains malformed arrays", false, "rebuild projections from the event log")
+			return nil, newFailure(KindInvariantViolation, operation, "context checkpoint projection contains malformed arrays", false, "rebuild projections from the event log")
 		}
-		out.LatestCheckpoint = &checkpoint
+		return &checkpoint, nil
 	} else if err != sql.ErrNoRows {
-		return wrapFailure(KindUnavailable, "C19.Continuity", "cannot read latest context checkpoint", true, "retry once the database is readable", err)
+		return nil, wrapFailure(KindUnavailable, operation, "cannot read latest context checkpoint", true, "retry once the database is readable", err)
+	}
+	return nil, nil
+}
+
+// continuityReadCheckpointTx reads the latest context checkpoint onto the
+// snapshot through the shared tx-scoped reader.
+func continuityReadCheckpointTx(ctx context.Context, tx *sql.Tx, work string, out *ContinuitySnapshot) error {
+	checkpoint, err := readLatestContextCheckpointTx(ctx, tx, work, "C19.Continuity")
+	if err != nil {
+		return err
+	}
+	out.LatestCheckpoint = checkpoint
+	return nil
+}
+
+// validateWorkerPacketCheckpoint refuses a dispatch whose packet does not
+// carry the latest context checkpoint (CON-883), mirroring the correction
+// and work-context admissions above it. The latest checkpoint is re-read
+// inside the dispatch transaction through the same tx-scoped derivation the
+// continuity snapshot projects, so the comparison is against the state the
+// spawn will land on. A present checkpoint requires the member, decoded
+// closed and equal byte-for-byte to the reader's canonical serialization; a
+// packet carrying a checkpoint no record backs refuses.
+func validateWorkerPacketCheckpoint(ctx context.Context, q queryer, workID string, packetRaw json.RawMessage) error {
+	var packet struct {
+		Inputs struct {
+			Checkpoint json.RawMessage `json:"checkpoint"`
+		} `json:"inputs"`
+	}
+	if err := json.Unmarshal(packetRaw, &packet); err != nil {
+		return newFailure(KindInvalidPayload, "workflow_action", "dispatch_worker worker_packet is malformed", false, "supply the lane packet bound to this work item and attempt")
+	}
+	current, err := readLatestContextCheckpointTx(ctx, q, workID, "workflow_action")
+	if err != nil {
+		return err
+	}
+	present := len(packet.Inputs.Checkpoint) != 0 && string(packet.Inputs.Checkpoint) != "null"
+	if current == nil {
+		if present {
+			return newFailure(KindInvalidPayload, "workflow_action", "worker packet carries a context checkpoint without a latest context checkpoint", false, "build the packet from the current work pin")
+		}
+		return nil
+	}
+	if !present {
+		return newFailure(KindInvalidPayload, "workflow_action", "worker packet does not carry the latest context checkpoint", false, "build a fresh packet from the current work pin")
+	}
+	decoder := json.NewDecoder(strings.NewReader(string(packet.Inputs.Checkpoint)))
+	decoder.DisallowUnknownFields()
+	var claimed ContextCheckpoint
+	if err := decoder.Decode(&claimed); err != nil {
+		return newFailure(KindInvalidPayload, "workflow_action", "worker packet inputs.checkpoint is not one closed context checkpoint", false, "build a fresh packet from the current work pin")
+	}
+	claimedJSON, claimedErr := json.Marshal(claimed)
+	currentJSON, currentErr := json.Marshal(current)
+	if claimedErr != nil || currentErr != nil || !bytes.Equal(claimedJSON, currentJSON) {
+		return newFailure(KindInvalidPayload, "workflow_action", "worker packet does not carry the latest context checkpoint", false, "build a fresh packet from the current work pin")
 	}
 	return nil
 }

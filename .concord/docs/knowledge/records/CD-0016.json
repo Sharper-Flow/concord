@@ -10,6 +10,8 @@
   "date": "2026-08-11T00:00:00Z",
   "doc_contract_profile": "legacy",
   "evidence": [
+    "internal/store/work_context.go",
+    "internal/store/work_context_test.go",
     "internal/store/workflow_continuity.go",
     "internal/store/workflow_continuity_test.go"
   ],
@@ -24,9 +26,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:36eb66947c3ca56361d5a10956e3edea4ac0e376ddd5a8fcd6c4fa720cedfafb",
+  "sha256": "sha256:56b4fe358f209424f7893efcb9ab9bf44bfbfa991fc0bb3336b07c563e8d3933",
   "status": "accepted",
-  "summary": "Defines durable checkpoints, bounded boundaries, derived pinned context, and typed restart availability.",
+  "summary": "Defines durable checkpoints, bounded boundaries, derived pinned context, typed restart availability, and the event-owned work-context view.",
   "tags": [
     "context-continuity",
     "workflow",

@@ -258,10 +258,7 @@ func dispatchJobBoundAttempt(t *testing.T, s *Store, workID, stepID, attemptID s
 	packet := dispatchWorkerPacket(t, s, workID, stepID, attemptID)
 	packet["schema_version"] = WorkerPacketSchemaVersion
 	if correction != nil {
-		packet["inputs"].(map[string]any)["correction"] = map[string]any{
-			"disposition": correction.Disposition, "attempt_count": correction.AttemptCount, "attempt_limit": correction.AttemptLimit, "escalated": correction.Escalated,
-			"diagnosis": correction.Diagnosis, "strategy": correction.Strategy, "failure_kind": correction.FailureKind, "failure_detail": correction.FailureDetail, "predicate_ids": correction.PredicateIDs, "evidence_refs": correction.EvidenceRefs,
-		}
+		packet["inputs"].(map[string]any)["correction"] = correction
 	}
 	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, *job)
 	if err := dispatchJobPacketForTest(t, s, workID, attemptID, actor, key, packet); err != nil {

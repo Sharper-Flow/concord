@@ -161,6 +161,49 @@ class AgentProjectionTests(unittest.TestCase):
         self.assertIn("decided by the completion verdicts, never by this report", normalized)
         self.assertNotIn("must name every declared", normalized)
 
+    def test_projection_teaches_the_work_context_first_read(self):
+        # CON-887: when the packet carries inputs.work_context the worker
+        # reads it before the objective's own sources, walks the readings in
+        # order at the pinned commits, and records new typed findings on the
+        # report. The bounds the block states are read off the packet
+        # schema, not restated as literals.
+        projection = lane_projection(self.LANE, REPORT_SCHEMA)
+        normalized = " ".join(projection.split())
+        self.assertIn("When `inputs.work_context` is present, read it first", normalized)
+        self.assertIn("`required_reading` in order", normalized)
+        self.assertIn("at its pinned `commit_oid` through git, not from the changed checkout", normalized)
+        self.assertIn("`domain_groups`", normalized)
+        self.assertIn("Record new conclusions, rejected routes, and open questions as report `context_findings`", normalized)
+        view = PACKET_SCHEMA["$defs"]["lane_work_context_view"]
+        self.assertIn(
+            f"at most {view['properties']['required_reading']['maxItems']} readings and {view['properties']['findings']['maxItems']} findings",
+            normalized,
+        )
+
+    def test_projection_work_context_bounds_track_the_packet_schema(self):
+        # The numbers in the work-context block are parameters fed from the
+        # packet schema, not literals in the generator body.
+        changed = copy.deepcopy(PACKET_SCHEMA)
+        changed["$defs"]["lane_work_context_view"]["properties"]["required_reading"]["maxItems"] = 5
+        changed["$defs"]["lane_work_context_view"]["properties"]["findings"]["maxItems"] = 6
+        normalized = " ".join(generator.agent_projection(self.LANE, REPORT_SCHEMA, changed, PREMISE_MAX_BYTES).split())
+        self.assertIn("at most 5 readings and 6 findings", normalized)
+        self.assertNotIn("at most 32 readings", normalized)
+
+    def test_projection_teaches_the_checkpoint_as_coordinator_directions(self):
+        # CON-883: when the packet carries inputs.checkpoint its strategy
+        # and diagnosis are coordinator directions the worker follows for
+        # the attempt, and a departure is recorded on the report rather
+        # than silently taken.
+        projection = lane_projection(self.LANE, REPORT_SCHEMA)
+        normalized = " ".join(projection.split())
+        self.assertIn("When `inputs.checkpoint` is present", normalized)
+        self.assertIn("`strategy` and `diagnosis` are coordinator directions to follow", normalized)
+        self.assertIn("`hypothesis` states what the coordinator believed", normalized)
+        self.assertIn("`touched_refs` and `evidence_refs`", normalized)
+        self.assertIn("Record the departure as report `context_findings`", normalized)
+        self.assertIn("never by silently ignoring the checkpoint", normalized)
+
     def test_projection_states_the_declared_budget_as_a_command_duration_rule(self):
         # The registry declares a per-lane time budget, and the body must
         # project it: a verify attempt that widens to a full Go package suite

@@ -1355,7 +1355,7 @@ func assembleWorkflowActionEventsTx(ctx context.Context, tx *sql.Tx, in workflow
 // completed-action fold never moves the step on them, whatever execution mode
 // a pinned definition declares (CD-0112 D1).
 func workflowActionOmitsGenericCompletion(actionID string) bool {
-	return actionID == "checkpoint_context" || actionID == "cross_context_boundary" || actionID == "supersede_contract"
+	return actionID == "checkpoint_context" || actionID == "cross_context_boundary" || actionID == "supersede_contract" || actionID == "record_work_context"
 }
 
 // workflowActionAdvancesStep reports whether a completed action moves the
@@ -1534,6 +1534,19 @@ func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoc
 				return events, "", err
 			}
 			if err := validateWorkerPacketCorrection(in.ctx, in.tx, in.request.WorkID, in.currentStep, packetRaw); err != nil {
+				return events, "", err
+			}
+			// CON-887: the packet must consume the current work-context
+			// view the same way it consumes the current correction — the
+			// spawn compares the pinned bytes against current state.
+			if err := validateWorkerPacketWorkContext(in.ctx, in.tx, in.request.WorkID, packetRaw); err != nil {
+				return events, "", err
+			}
+			// CON-883: the packet must carry the latest context
+			// checkpoint the same way it consumes the current correction,
+			// so coordinator directions recorded before the spawn reach
+			// the worker the core dispatched.
+			if err := validateWorkerPacketCheckpoint(in.ctx, in.tx, in.request.WorkID, packetRaw); err != nil {
 				return events, "", err
 			}
 			// CD-0205: the completion records the selected worker-job

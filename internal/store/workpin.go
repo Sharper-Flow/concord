@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"strconv"
 )
 
@@ -55,6 +56,12 @@ type WorkPin struct {
 	// derived from workflow actors and actions, not session identity evidence.
 	DrivingSessions []WorkPinDrivingSession    `json:"driving_sessions"`
 	Correction      *WorkflowCorrectionContext `json:"correction,omitempty"`
+	// WorkContext carries the tx-scoped reader's current work-context view
+	// (CON-887): the exact bytes a dispatch packet must consume. It stays
+	// nil when the work holds no declaration and no terminal-report
+	// findings, and a view past its bounds leaves it nil rather than
+	// failing the pin — the dispatch admission owns that refusal.
+	WorkContext *WorkContextView `json:"work_context,omitempty"`
 	// VerifiedCriteria carries the approved contract predicates and their latest
 	// verdict kinds only after a workflow reaches completed.
 	VerifiedCriteria []WorkPinVerifiedCriterion `json:"verified_criteria,omitempty"`
@@ -213,7 +220,32 @@ func ReadWorkPinTx(ctx context.Context, tx *sql.Tx, workID string) (WorkPin, err
 	if err := workPinRecoveryIntentsTx(ctx, tx, workID, &pin, registered.Definition, instanceState, state); err != nil {
 		return pin, err
 	}
+	if err := workPinReadWorkContextTx(ctx, tx, workID, &pin); err != nil {
+		return pin, err
+	}
 	return pin, nil
+}
+
+// workPinReadWorkContextTx seats the current work-context view on the pin
+// through the same tx-scoped reader the continuity projection and the
+// dispatch packet admission share, so a packet built from the pin and the
+// admission check that compares it read identical bytes. The read inherits
+// the caller's transaction through the queryer interface: the pooled single
+// connection never sees a nested store call. A view past its bounds omits
+// the member instead of failing the pin; every other reader error
+// propagates.
+func workPinReadWorkContextTx(ctx context.Context, tx *sql.Tx, workID string, pin *WorkPin) error {
+	view, err := readWorkContextView(ctx, tx, workID)
+	if err != nil {
+		var failure *Failure
+		if errors.As(err, &failure) && failure.Kind == KindLimitExceeded {
+			pin.WorkContext = nil
+			return nil
+		}
+		return err
+	}
+	pin.WorkContext = view
+	return nil
 }
 
 // workPinOutsideRepairDispositionTx populates the pin's outside-repair

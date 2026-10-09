@@ -344,13 +344,33 @@ func TestRejectWorkerResultRecordsCorrectionContext(t *testing.T) {
 	if !hasFailureKind(err, KindInvalidPayload) {
 		t.Fatalf("dispatch without correction context error=%v, want invalid_payload", err)
 	}
-	correction := pin.Correction
-	correctionPayload := map[string]any{
-		"disposition": correction.Disposition, "attempt_count": correction.AttemptCount, "attempt_limit": correction.AttemptLimit, "escalated": correction.Escalated,
-		"diagnosis": correction.Diagnosis, "strategy": correction.Strategy, "failure_kind": correction.FailureKind, "failure_detail": correction.FailureDetail, "predicate_ids": correction.PredicateIDs, "evidence_refs": correction.EvidenceRefs,
+	// Equal prose and counts from a different source event do not consume the
+	// current correction: the source identity is part of the typed state.
+	if pin.Correction.SourceEventID == "" || pin.Correction.SourceEventSeq < 1 {
+		t.Fatalf("pin correction carries no source event identity: %#v", pin.Correction)
+	}
+	foreign := *pin.Correction
+	foreign.SourceEventSeq++
+	foreignPacket := dispatchWorkerPacket(t, s, workID, "execution", "attempt:fresh-"+workID)
+	foreignPacket["inputs"].(map[string]any)["correction"] = foreign
+	packetPayload, err = json.Marshal(foreignPacket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fieldsPayload, err = json.Marshal(map[string]any{"attempt_id": "attempt:fresh-" + workID, "worker_packet": json.RawMessage(packetPayload)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = invokeWorkflowActionForCD0059(ctx, t, s, WorkflowActionExecutionRequest{
+		WorkID: workID, ExpectedVersion: 12, ActionID: "dispatch_worker", Payload: fieldsPayload, SessionWorktree: dispatchSessionWorktree(t, s, workID),
+		Actor: owner, AcceptedInputsDigest: "sha256:" + strings.Repeat("e", 64), IdempotencyIdentity: "dispatch-foreign:" + workID, OperationID: "dispatch-foreign:" + workID,
+		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "dispatch-foreign:" + workID, RequestID: "request:dispatch-foreign:" + workID, ContractDigest: testManifestDigest, Now: time.Unix(5, 0).UTC(),
+	})
+	if !hasFailureKind(err, KindInvalidPayload) || !strings.Contains(err.Error(), "does not consume the current correction context") {
+		t.Fatalf("dispatch with a foreign correction source error=%v, want the correction-consumption refusal", err)
 	}
 	packet := dispatchWorkerPacket(t, s, workID, "execution", "attempt:fresh-"+workID)
-	packet["inputs"].(map[string]any)["correction"] = correctionPayload
+	packet["inputs"].(map[string]any)["correction"] = pin.Correction
 	packetPayload, err = json.Marshal(packet)
 	if err != nil {
 		t.Fatal(err)
@@ -870,10 +890,7 @@ func issue1013StartRepair(t *testing.T, s *Store, workID string, owner WorkflowA
 func issue1013CorrectionDispatchPayload(t *testing.T, s *Store, workID, stepID, attemptID string, correction *WorkflowCorrectionContext) json.RawMessage {
 	t.Helper()
 	packet := dispatchWorkerPacket(t, s, workID, stepID, attemptID)
-	packet["inputs"].(map[string]any)["correction"] = map[string]any{
-		"disposition": correction.Disposition, "attempt_count": correction.AttemptCount, "attempt_limit": correction.AttemptLimit, "escalated": correction.Escalated,
-		"diagnosis": correction.Diagnosis, "strategy": correction.Strategy, "failure_kind": correction.FailureKind, "failure_detail": correction.FailureDetail, "predicate_ids": correction.PredicateIDs, "evidence_refs": correction.EvidenceRefs,
-	}
+	packet["inputs"].(map[string]any)["correction"] = correction
 	packetPayload, err := json.Marshal(packet)
 	if err != nil {
 		t.Fatal(err)

@@ -1,5 +1,5 @@
 import type { ToolContext } from "@opencode-ai/plugin"
-import { validateAgentLanePacket, type AgentLanePacket, type AgentLanePacketCorrection, type AgentLanePacketOutcomePredicate, type AgentLanePacketWorkerJob } from "./dispatch"
+import { validateAgentLanePacket, type AgentLanePacket, type AgentLanePacketCheckpoint, type AgentLanePacketCorrection, type AgentLanePacketOutcomePredicate, type AgentLanePacketWorkContext, type AgentLanePacketWorkerJob } from "./dispatch"
 import { agentLanePacketSchema, agentLanes, workerScopeAssignedResult, type AgentLane } from "./generated-agent-lanes"
 import { laneStepDispatchKinds } from "./generated-lane-step-dispatch"
 
@@ -224,6 +224,10 @@ function projectCorrectionContext(value: unknown): AgentLanePacketCorrection | u
   const failureDetail = typeof value.failure_detail === "string" ? value.failure_detail : ""
   const predicateIDs = Array.isArray(value.predicate_ids) ? value.predicate_ids.filter((item): item is string => typeof item === "string") : []
   const evidenceRefs = Array.isArray(value.evidence_refs) ? value.evidence_refs.filter((item): item is string => typeof item === "string") : []
+  const failedAttemptID = typeof value.failed_attempt_id === "string" ? value.failed_attempt_id : ""
+  const failedAttemptEpoch = typeof value.failed_attempt_epoch === "number" ? value.failed_attempt_epoch : 0
+  const sourceEventID = typeof value.source_event_id === "string" ? value.source_event_id : ""
+  const sourceEventSeq = typeof value.source_event_seq === "number" ? value.source_event_seq : 0
   // The count is not bounded by the limit. Each operator-authorized retry past
   // the limit increments it, so a correction legitimately carries a count above
   // attempt_limit, and `escalated` is what marks that state. Dropping the
@@ -243,6 +247,10 @@ function projectCorrectionContext(value: unknown): AgentLanePacketCorrection | u
     ...(failureDetail.length > 0 ? { failure_detail: failureDetail } : {}),
     predicate_ids: predicateIDs,
     evidence_refs: evidenceRefs,
+    ...(failedAttemptID.length > 0 ? { failed_attempt_id: failedAttemptID } : {}),
+    ...(failedAttemptEpoch > 0 ? { failed_attempt_epoch: failedAttemptEpoch } : {}),
+    ...(sourceEventID.length > 0 ? { source_event_id: sourceEventID } : {}),
+    ...(sourceEventSeq > 0 ? { source_event_seq: sourceEventSeq } : {}),
   }
 }
 
@@ -433,6 +441,19 @@ export async function buildAgentLanePacket(request: AgentLanePacketRequest, deps
   const proposal = renderProposalRecord(pinned.proposal_record)
   const workPin = isRecord(pinned.work_pin) ? pinned.work_pin : null
   const correctionValue = workPin ? projectCorrectionContext(workPin.correction) : undefined
+  // CON-887: the pin's work-context view rides the packet verbatim. The core
+  // refuses a dispatch whose inputs.work_context differs from the current
+  // view byte-for-byte, so any re-derivation, filtering, or truncation here
+  // would strand the dispatch; the closed packet schema owns the bounds.
+  const workContextValue = workPin && isRecord(workPin.work_context) ? (workPin.work_context as unknown as AgentLanePacketWorkContext) : undefined
+  // CON-883: the pinned projection's latest context checkpoint rides the
+  // packet verbatim. The core refuses a dispatch whose inputs.checkpoint
+  // differs from the latest checkpoint byte-for-byte, so the builder never
+  // re-derives or filters the coordinator directions it carries. The
+  // checkpoint stays seated on the continuity snapshot alone: the pinned
+  // envelope's byte budget admits exactly one copy of a max-size
+  // checkpoint, and the work pin embeds inside that same envelope.
+  const checkpointValue = isRecord(pinned.latest_checkpoint) ? (pinned.latest_checkpoint as unknown as AgentLanePacketCheckpoint) : undefined
   // The persisted work task is the operator's recorded instruction for the
   // worker. Under a pinned contract the premise stays the approved objective
   // in inputs.task and the recorded task rides context ahead of the narrative,
@@ -477,7 +498,7 @@ export async function buildAgentLanePacket(request: AgentLanePacketRequest, deps
     lane_digest: lane.digest,
     work_id: request.workId,
     step_id: request.stepId,
-    inputs: { task, binding, ...(workerJob ? { worker_job: workerJob as unknown as AgentLanePacketWorkerJob } : {}), ...(context.length > 0 ? { context } : {}), ...(correctionValue ? { correction: correctionValue } : {}), ...(decoded.predicates.length > 0 ? { outcome_predicates: decoded.predicates } : {}) },
+    inputs: { task, binding, ...(workerJob ? { worker_job: workerJob as unknown as AgentLanePacketWorkerJob } : {}), ...(context.length > 0 ? { context } : {}), ...(correctionValue ? { correction: correctionValue } : {}), ...(workContextValue ? { work_context: workContextValue } : {}), ...(checkpointValue ? { checkpoint: checkpointValue } : {}), ...(decoded.predicates.length > 0 ? { outcome_predicates: decoded.predicates } : {}) },
   }
 
   const packetFailures: string[] = []

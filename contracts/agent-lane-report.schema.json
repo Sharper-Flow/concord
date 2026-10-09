@@ -38,6 +38,16 @@
         "$ref": "#/$defs/evidence_entry"
       }
     },
+    "context_findings": {
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 16,
+      "x-maxArrayBytes": 16384,
+      "description": "Optional worker-claimed context findings (CON-887): typed terminal-report content a worker may report on any status. The findings record no acceptance and no verdict, and subject_ref is the worker's claim about what a finding concerns, never dispatch subject authority. x-maxArrayBytes bounds the compact JSON serialization of the whole array in UTF-8 bytes; the adapter enforces that aggregate and refuses the report rather than truncating a typed finding.",
+      "items": {
+        "$ref": "#/$defs/context_finding"
+      }
+    },
     "base_comparison": {
       "type": "object",
       "additionalProperties": false,
@@ -134,6 +144,68 @@
         "verification_commands",
         "visual_artifacts"
       ]
+    },
+    "context_finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "statement",
+        "subject_ref",
+        "evidence_refs",
+        "domain_id"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "observation",
+            "inference",
+            "hypothesis",
+            "rejected_approach",
+            "open_question",
+            "contradiction",
+            "direction"
+          ]
+        },
+        "statement": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024,
+          "x-maxBytes": 1024
+        },
+        "subject_ref": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "x-maxBytes": 128,
+          "description": "What the finding concerns, as the worker's claim: a path, a symbol, a command, or another bounded reference. It names no dispatch-owned subject authority."
+        },
+        "evidence_refs": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 8,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "x-maxBytes": 256
+          }
+        },
+        "domain_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "x-maxBytes": 256,
+          "description": "The registry Domain the finding concerns. The store validates it against the current Product Domain registry and the approved affected Domain scope; name the root Domain only for a claim that spans every Domain, with product_wide_rationale."
+        },
+        "product_wide_rationale": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "x-maxBytes": 512,
+          "description": "Why the claim spans every Domain. Required when domain_id names the root Domain; refused on a child Domain."
+        }
+      }
     },
     "base_comparison_check": {
       "type": "object",

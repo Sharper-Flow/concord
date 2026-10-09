@@ -67,12 +67,19 @@ through a fallback command. CD-0049 D4 admits no degraded start.
 
 ### D4. Every Go-core host invocation uses it
 
-The Product/work launch, the Project-path launch, and the registry probe
-shared by `concord session` and session-prepare all run the resolved
-command. One resolution per start keeps the probe and the launch on one host
-for every entry: the launcher TUI, `concord zl`, the CD-0182 opener, and
-`concord_work_start`. The Project-path launch gains the bootstrap probe; it
-carries no agent registry to check.
+The Product/work launch, the Project-path launch, and the `concord session`
+registry probe run the resolved command. One resolution per start keeps the
+probe and the launch on one host for every launching entry: the launcher TUI,
+`concord zl`, and the CD-0182 opener. The Project-path launch gains the
+bootstrap probe; it carries no agent registry to check.
+
+session-prepare runs one bare probe and does not resolve the command. It
+launches nothing: `concord_work_start` moves the calling session, which keeps
+running in the host process that called it, and session-prepare inherits that
+process's environment. The bare probe under that environment resolves the
+registry the calling host resolves in the claimed worktree. A probe through
+the configured command would resolve the registry of a wrapper launch that
+never happens, so it would verify a host that does not execute.
 
 Adapter worker dispatch and the move-session version diagnostic stay on the
 bare host. Worker lanes are not operator-resumable sessions.
@@ -91,8 +98,9 @@ ships no wrapper name and hard-codes none; the setting is operator data.
 
 ## Costs
 
-- A configured command adds one probe to each start: the bare probe that
-  reads the option, and the second probe through the command.
+- A configured command adds one probe to each `concord session` start: the
+  bare probe that reads the option, and the second probe through the
+  command. session-prepare runs the bare probe alone.
 - The probe through a wrapper runs that wrapper's own start and exit
   behavior. A wrapper that is slow to start adds that cost once to every
   session start, before the launch itself runs through the wrapper.
@@ -139,8 +147,8 @@ the one the session asserted against.
   launches: the bare launch and single probe without the option, the
   configured launch through the fake wrapper with the bare host never
   starting, and the refusal that starts no host.
-- `go test ./cmd/concord/ -run TestSessionPrepareVerifiesTheConfiguredCommandDocument`
-  proves the shared probe on the session-prepare side.
+- `go test ./cmd/concord/ -run TestSessionPrepareProbesTheCallingHostOnce`
+  proves the single bare probe on the session-prepare side.
 - `python3 scripts/check-doc-contract.py`,
   `python3 scripts/check-knowledge-index.py`,
   `python3 scripts/generate-knowledge-index.py --check`,

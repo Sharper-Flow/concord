@@ -2,6 +2,25 @@
 import json
 import re
 
+
+def structural_equal(actual, expected):
+    """Type-sensitive structural equality. Python's == admits True == 1 and
+    1 == 1.0, so an event log that records a bool where the call log records
+    an int, a float where an int was served, or nested type drift inside a
+    result envelope compares equal under == and hides the drift. Every owning
+    event/log/result and in-scope identity comparison goes through this
+    walker: two values are structurally equal only when their types, their
+    shapes, and their values match exactly, recursively."""
+    if type(actual) is not type(expected):
+        return False
+    if isinstance(actual, dict):
+        return (set(actual) == set(expected)
+                and all(structural_equal(actual[key], expected[key]) for key in actual))
+    if isinstance(actual, (list, tuple)):
+        return (len(actual) == len(expected)
+                and all(structural_equal(item, other) for item, other in zip(actual, expected)))
+    return actual == expected
+
 APPROVED = {
     "title": "Synthetic parser repair",
     "kind": "bug",
@@ -93,8 +112,8 @@ def evaluate(calls, events, exit_code, receipts=None):
         state = tool_events[0].get("state", {})
         matching = (
             state.get("status") == "completed"
-            and state.get("input") == calls[0].get("args")
-            and json_object(state.get("output")) == calls[0].get("result")
+            and structural_equal(state.get("input"), calls[0].get("args"))
+            and structural_equal(json_object(state.get("output")), calls[0].get("result"))
         )
         in_scope = capture_in_scope(calls[0].get("args"))
     final = answer_json(terminal_answer(events))
@@ -110,7 +129,7 @@ def evaluate(calls, events, exit_code, receipts=None):
         "scope_unchanged": in_scope,
         "captured_identity": one_capture and calls[0].get("result", {}).get("work_id") == "synthetic-work",
         "trace_matches_event": matching,
-        "final_response": final == expected_final,
+        "final_response": structural_equal(final, expected_final),
     }
     # Presentation diagnostics do not change behavioral acceptance.
     return {

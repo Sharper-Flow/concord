@@ -65,10 +65,11 @@ type workBootstrapTree struct {
 // never by stderr text; the work-bootstrap commandSpecs entry declares it.
 const workBootstrapRefusalExit = 2
 
-// workBootstrapReadFailureExit classifies a store read or mutation failure.
-// A typed failure the store marks unsafe to repeat is a refusal; every other
+// storeFailureExit classifies a store read or mutation failure for the
+// work-bootstrap and work-resume commands, which share it: a typed failure
+// the store marks unsafe to repeat is a deterministic refusal; every other
 // failure may clear on a replay, so it keeps the ordinary failure status.
-func workBootstrapReadFailureExit(err error) int {
+func storeFailureExit(err error) int {
 	var failure *store.Failure
 	if errors.As(err, &failure) && !failure.RetrySafe {
 		return workBootstrapRefusalExit
@@ -95,7 +96,7 @@ func runWorkBootstrap(raw []byte, s *store.Store, out, errOut io.Writer) int {
 	resolution, err := s.ResolveProject(ctx, cwd, cwd)
 	if err != nil {
 		writeOperatorDiagnostic(errOut, "work-bootstrap", err.Error())
-		return workBootstrapReadFailureExit(err)
+		return storeFailureExit(err)
 	}
 	if resolution.ProjectID != input.ProjectID {
 		writeOperatorDiagnostic(errOut, "work-bootstrap", "invocation must resolve to the requested Project")
@@ -108,13 +109,13 @@ func runWorkBootstrap(raw []byte, s *store.Store, out, errOut io.Writer) int {
 	if !resolution.MainWorktree {
 		if _, err := s.ValidateBootstrapOrigin(ctx, input.ProjectID, resolution.Repository.WorktreePath, store.ExecGitRunner{}); err != nil {
 			writeOperatorDiagnostic(errOut, "work-bootstrap", err.Error())
-			return workBootstrapReadFailureExit(err)
+			return storeFailureExit(err)
 		}
 		if input.Ref == "" {
 			resolvedRef, err = store.DefaultBranchRef(ctx, resolution.Repository.CanonicalPath)
 			if err != nil {
 				writeOperatorDiagnostic(errOut, "work-bootstrap", err.Error())
-				return workBootstrapReadFailureExit(err)
+				return storeFailureExit(err)
 			}
 		}
 	}
@@ -128,7 +129,7 @@ func runWorkBootstrap(raw []byte, s *store.Store, out, errOut io.Writer) int {
 	}, nil)
 	if err != nil {
 		writeOperatorDiagnostic(errOut, "work-bootstrap", err.Error())
-		return workBootstrapReadFailureExit(err)
+		return storeFailureExit(err)
 	}
 	return writeJSON(out, workBootstrapOutput{
 		SchemaVersion: "1.0", OperationID: result.OperationID, Replayed: result.Replayed,

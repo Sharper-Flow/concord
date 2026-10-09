@@ -161,8 +161,7 @@ func TestWitnessUnrelatedLocalAcceptHoldsSameStepWall(t *testing.T) {
 	dispatchJobBoundAttempt(t, s, id, "repair", "attempt:"+id+":1", nil, f.owner, 0, "witness-wall-1", job)
 	failWorkerAttemptWithKind(t, s, id, "attempt:"+id+":1", "fallback blocked")
 	applyRecordWorkerFailureForTest(t, s, id, f.owner, "attempt:"+id+":1", latestStepStartEpoch(t, s, id, "repair"), readWorkVersion(t, s, id), "witness-wall-fail")
-	def := mustBuiltinDefinition(t, "workflow.break_fix").Definition
-	before, err := workflowSameStepFailedAttemptCount(context.Background(), s.DatabaseForTesting(), def, id, "repair", "witness")
+	before, err := workflowNonProgressAttemptCount(context.Background(), s.DatabaseForTesting(), id, "witness")
 	if err != nil || before != 1 {
 		t.Fatalf("before=%d err=%v, want the one failed dispatch counted", before, err)
 	}
@@ -172,7 +171,7 @@ func TestWitnessUnrelatedLocalAcceptHoldsSameStepWall(t *testing.T) {
 	unrelated := &WorkerJobBinding{JobID: "job:witness-unrelated", Revision: 1}
 	dispatchJobBoundAttempt(t, s, id, "repair", "attempt:"+id+":2", pin.Correction, f.owner, pin.Version, "witness-wall-2", unrelated)
 	completeAndAcceptAttempt(t, s, id, "attempt:"+id+":2", BuiltinLaneDefinitions()[0], reviewGateAcceptor(id))
-	after, err := workflowSameStepFailedAttemptCount(context.Background(), s.DatabaseForTesting(), def, id, "repair", "witness")
+	after, err := workflowNonProgressAttemptCount(context.Background(), s.DatabaseForTesting(), id, "witness")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -196,8 +195,7 @@ func TestWitnessSatisfyingLocalAcceptResetsSameStepWall(t *testing.T) {
 	dispatchJobBoundAttempt(t, s, id, "repair", "attempt:"+id+":1", nil, f.owner, 0, "witness-satisfy-1", job)
 	failWorkerAttemptWithKind(t, s, id, "attempt:"+id+":1", "fallback blocked")
 	applyRecordWorkerFailureForTest(t, s, id, f.owner, "attempt:"+id+":1", latestStepStartEpoch(t, s, id, "repair"), readWorkVersion(t, s, id), "witness-satisfy-fail")
-	def := mustBuiltinDefinition(t, "workflow.break_fix").Definition
-	before, err := workflowSameStepFailedAttemptCount(context.Background(), s.DatabaseForTesting(), def, id, "repair", "witness")
+	before, err := workflowNonProgressAttemptCount(context.Background(), s.DatabaseForTesting(), id, "witness")
 	if err != nil || before != 1 {
 		t.Fatalf("before=%d err=%v, want the one failed dispatch counted", before, err)
 	}
@@ -212,7 +210,7 @@ func TestWitnessSatisfyingLocalAcceptResetsSameStepWall(t *testing.T) {
 	if pin := issue1013Pin(t, s, id); pin.Correction != nil {
 		t.Fatalf("satisfying acceptance left the correction window open: %#v", pin.Correction)
 	}
-	after, err := workflowSameStepFailedAttemptCount(context.Background(), s.DatabaseForTesting(), def, id, "repair", "witness")
+	after, err := workflowNonProgressAttemptCount(context.Background(), s.DatabaseForTesting(), id, "witness")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1499,6 +1499,9 @@ func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoc
 	// does not compute the digest itself, so the assertion's evidence
 	// is bound to the exact bytes the core digested and authorized.
 	if in.request.ActionID == "dispatch_worker" {
+		if in.admission != nil && in.admission.retryEscalated() {
+			completionValues["retry_convergence"] = in.admission.RetryConvergence
+		}
 		attemptID := workflowFieldStringDefault(fields, "attempt_id", "")
 		completionValues["worker_attempt_id"] = attemptID
 		packetRaw := workflowFieldRaw(fields, "worker_packet")
@@ -1606,6 +1609,11 @@ func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoc
 		completionValues["correction_strategy"] = workflowFieldStringDefault(fields, "strategy", "")
 		completionValues["correction_predicate_ids"] = workflowFieldStrings(fields, "predicate_ids")
 		completionValues["correction_evidence_refs"] = workflowFieldStrings(fields, "evidence_refs")
+	}
+	if in.request.ActionID == "reject_worker_result" {
+		if _, present := fields["open_finding_ids"]; present {
+			completionValues["correction_open_finding_ids"] = workflowFieldStrings(fields, "open_finding_ids")
+		}
 	}
 	events = append(events, workflowTypedEvent(in.request.OperationID+":completed", WorkflowActionCompleted, in.request.WorkID, in.eventActor, in.request.Now, resultVersion-1, completionValues))
 	return events, workerPacketDigest, nil

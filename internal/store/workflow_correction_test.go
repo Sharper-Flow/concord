@@ -476,6 +476,34 @@ func TestCorrectionDispatchClearsPinContextForLaterLane(t *testing.T) {
 	}
 }
 
+// convergenceSupersedeBasis pins one active contract on a worker-correction
+// fixture and supersedes it through the real operator action, so the
+// supersession event the escalation wall reads is a store-recorded contract
+// change with a complete architecture binding. A supersession recorded after
+// the latest dispatch is a changed approach, and a changed approach is the
+// CON-885 convergence basis that admits one escalated dispatch.
+func convergenceSupersedeBasis(t *testing.T, s *Store, workID string, owner WorkflowActor) error {
+	t.Helper()
+	ownerRef, err := WorkflowActorRef(owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seedIssue31DomainRegistry(t, s)
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES(?,1,'failed worker contract','internal_sqlite','["verification"]','[]','now',?,'[]','[]',1,'prototype_internal'); INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload) VALUES(?,1,'predicate:primary',0,'check','{"kind":"check","check_ref":"check:workflow","immutable_subject_ref":"commit:old","expected_result":"pass"}'); DELETE FROM fold_guard`, workID, ownerRef, workID); err != nil {
+		t.Fatal(err)
+	}
+	binding := `{"domain_registry_content_hash":"sha256:` + strings.Repeat("b", 64) + `","home_domain_id":"root","affected_domain_ids":["root"],"domain_modifies":[],"domain_relation_modifies":[],"law_additions":[],"verification_obligations":[]}`
+	successor := json.RawMessage(`{"contract_version":2,"premise":"corrected predicate subject","outcome_predicates":[{"predicate_id":"predicate:primary","ordinal":0,"outcome_kind":"check","outcome_payload":{"kind":"check","check_ref":"check:workflow","immutable_subject_ref":"commit:e3d7c6e6","expected_result":"pass"}}],"required_evidence":["verification"],"route_conventions":[],"spec_mandate":[],"law_modifies":[],"rigor_class":"prototype_internal","architecture_binding":` + binding + `,"supersede_reason":"the pinned subject named an unrelated commit","audit_evidence":["evidence:` + workID + `-supersede"]}`)
+	return runIssue933OperatorAction(t, s, workID, "supersede_contract", successor, owner, operatorVerdictActor(t, workID))
+}
+
+// The escalation wall is basis-gated: the fourth correction dispatch refuses
+// with missing_evidence, the operator approval representation the
+// below-limit retry once consumed cannot bypass the missing basis, no retry
+// approval binding exists at the wall, and a contract supersession recorded
+// after the latest dispatch derives the approach_changed basis that admits
+// exactly one fresh dispatch. The admitted dispatch consumes its basis —
+// materialized or not — so the fifth dispatch faces the wall again.
 func TestWorkflowFourthCorrectionDispatchRefusesWithApprovalRequired(t *testing.T) {
 	const workID = "issue1013-fourth-correction-preflight"
 	s, owner, pin := seedIssue1013EscalatedCorrection(t, workID)
@@ -490,37 +518,79 @@ func TestWorkflowFourthCorrectionDispatchRefusesWithApprovalRequired(t *testing.
 	}
 	_, err := invokeWorkflowActionForCD0059(context.Background(), t, s, base)
 	var failure *Failure
-	if !errors.As(err, &failure) || failure.Kind != KindApprovalRequired {
-		t.Fatalf("fourth correction dispatch failure=%v, want approval_required", err)
+	if !errors.As(err, &failure) || failure.Kind != KindMissingEvidence || !strings.Contains(failure.Detail, "without a convergence basis") {
+		t.Fatalf("fourth correction dispatch failure=%v, want the missing-basis refusal", err)
 	}
 
-	// The wall admits exactly one dispatch behind the boundary-consumed
-	// approval representation. Nothing else opens it.
+	// The operator approval neither substitutes for a basis nor opens the
+	// wall, and the refusal records no effect.
 	approved := base
-	approved.EscalatedRetryApproved = true
+	approved.FailedRetryApproved = true
 	approved.IdempotencyIdentity = "issue1013-escalated-dispatch-approved"
 	approved.OperationID = approved.IdempotencyIdentity
 	approved.IdempotencyKey = approved.IdempotencyIdentity
 	approved.RequestID = "request:" + approved.IdempotencyIdentity
-	if _, err := invokeWorkflowActionForCD0059(context.Background(), t, s, approved); err != nil {
-		t.Fatalf("approved fourth correction dispatch: %v", err)
+	if _, err := invokeWorkflowActionForCD0059(context.Background(), t, s, approved); !hasFailureKind(err, KindMissingEvidence) {
+		t.Fatalf("approved fourth correction dispatch = %v, want the missing-basis refusal", err)
 	}
-	var dispatched int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.worker_attempt_id')=?`, workID, WorkflowActionCompleted, attemptID).Scan(&dispatched); err != nil {
+	if version := readWorkVersion(t, s, workID); version != pin.Version {
+		t.Fatalf("refused dispatch changed the work version: %d -> %d", pin.Version, version)
+	}
+	if binding, bindingErr := WorkflowFailedWorkerRetryBinding(context.Background(), s, nil, workID); bindingErr != nil || binding != nil {
+		t.Fatalf("retry approval binding at the wall = %+v, %v, want none", binding, bindingErr)
+	}
+
+	// A contract supersession recorded after the latest dispatch is a
+	// changed approach, and a changed approach is the basis that admits
+	// exactly one dispatch.
+	if err := convergenceSupersedeBasis(t, s, workID, owner); err != nil {
+		t.Fatalf("supersede the contract behind the escalation wall: %v", err)
+	}
+	pin = issue1013Pin(t, s, workID)
+	payload = issue1013CorrectionDispatchPayload(t, s, workID, "repair", attemptID, pin.Correction)
+	converging := base
+	converging.ExpectedVersion = pin.Version
+	converging.Payload = payload
+	converging.IdempotencyIdentity = "issue1013-escalated-dispatch-converging"
+	converging.OperationID = converging.IdempotencyIdentity
+	converging.IdempotencyKey = converging.IdempotencyIdentity
+	converging.RequestID = "request:" + converging.IdempotencyIdentity
+	if _, err := invokeWorkflowActionForCD0059(context.Background(), t, s, converging); err != nil {
+		t.Fatalf("converging fourth correction dispatch: %v", err)
+	}
+	var basis string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.retry_convergence.basis') FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=?`, workID, WorkflowActionCompleted, attemptID).Scan(&basis); err != nil {
 		t.Fatal(err)
 	}
-	if dispatched != 1 {
-		t.Fatalf("approved escalated dispatch recorded %d completions for %s, want 1", dispatched, attemptID)
+	if basis != "approach_changed" {
+		t.Fatalf("escalated dispatch recorded basis = %q, want approach_changed", basis)
+	}
+
+	// The interrupted dispatch still consumed its basis, so the fifth
+	// dispatch faces the wall again with no approval escape.
+	fifth := "attempt:" + workID + ":5"
+	payload = issue1013CorrectionDispatchPayload(t, s, workID, "repair", fifth, pin.Correction)
+	retry := base
+	retry.ExpectedVersion = readWorkVersion(t, s, workID)
+	retry.Payload = payload
+	retry.IdempotencyIdentity = "issue1013-escalated-dispatch-fifth"
+	retry.OperationID = retry.IdempotencyIdentity
+	retry.IdempotencyKey = retry.IdempotencyIdentity
+	retry.RequestID = "request:" + retry.IdempotencyIdentity
+	if _, err := invokeWorkflowActionForCD0059(context.Background(), t, s, retry); !hasFailureKind(err, KindMissingEvidence) {
+		t.Fatalf("fifth correction dispatch after the consumed basis = %v, want the missing-basis refusal", err)
 	}
 }
 
-// An escalated correction keeps dispatch_worker visible, but only as the
-// approval-gated route: the pin advertises the action under the escalated
-// reason so an agent finds the CD-0148 approval wall instead of a dead end.
+// An escalated correction keeps dispatch_worker visible as the
+// convergence-gated route: without a derivable basis the pin advertises the
+// action under escalated_retry_requires_convergence, and a recorded basis
+// replaces the reason with escalated_retry_convergence_recorded, so an agent
+// finds the CON-885 boundary instead of a dead end (CD-0173 D1).
 func TestWorkPinEscalatedCorrectionAdvertisesApprovalGatedRetry(t *testing.T) {
 	t.Parallel()
 	const workID = "issue1013-escalated-correction-pin"
-	s, _, pin := seedIssue1013EscalatedCorrection(t, workID)
+	s, owner, pin := seedIssue1013EscalatedCorrection(t, workID)
 	defer s.Close()
 
 	if workflowCorrectionAttemptLimit != 3 {
@@ -535,12 +605,30 @@ func TestWorkPinEscalatedCorrectionAdvertisesApprovalGatedRetry(t *testing.T) {
 			continue
 		}
 		advertised = true
-		if intent.ReasonCode != "escalated_retry_requires_approval" {
-			t.Fatalf("escalated dispatch intent reason = %q, want escalated_retry_requires_approval", intent.ReasonCode)
+		if intent.ReasonCode != "escalated_retry_requires_convergence" {
+			t.Fatalf("escalated dispatch intent reason = %q, want escalated_retry_requires_convergence", intent.ReasonCode)
 		}
 	}
 	if !advertised {
 		t.Fatalf("escalated correction hid dispatch_worker: %#v", pin.NextValidIntents)
+	}
+	// A store-derived basis replaces the reason, so an agent reading the pin
+	// finds the recorded convergence.
+	if err := convergenceSupersedeBasis(t, s, workID, owner); err != nil {
+		t.Fatalf("supersede the contract behind the escalation wall: %v", err)
+	}
+	converged := false
+	for _, intent := range issue1013Pin(t, s, workID).NextValidIntents {
+		if intent.ActionID != "dispatch_worker" {
+			continue
+		}
+		converged = true
+		if intent.ReasonCode != "escalated_retry_convergence_recorded" {
+			t.Fatalf("converging dispatch intent reason = %q, want escalated_retry_convergence_recorded", intent.ReasonCode)
+		}
+	}
+	if !converged {
+		t.Fatalf("converging escalation hid dispatch_worker: %#v", issue1013Pin(t, s, workID).NextValidIntents)
 	}
 }
 
@@ -551,8 +639,8 @@ func TestWorkPinEscalatedCorrectionAdvertisesApprovalGatedRetry(t *testing.T) {
 // outcome_mismatch verdict, then the correction request records through the
 // same declared action — so the log holds four recorded requests with no
 // synthetic events. Three recorded verification corrections keep dispatch
-// approval-free; the fourth request arms the wall, and its dispatch faces the
-// operator approval bound to the correction's attempt count.
+// approval-free; the fourth request arms the wall, and its dispatch refuses
+// without a store-derived convergence basis.
 func TestVerificationCorrectionWallArmsOnTheFourthRequest(t *testing.T) {
 	t.Parallel()
 	const workID = "verification-wall-fourth-request"
@@ -647,15 +735,18 @@ func TestVerificationCorrectionWallArmsOnTheFourthRequest(t *testing.T) {
 		recordCorrectionCycle(count)
 	}
 	recordCorrectionCycle(4)
+	// The armed wall mints no retry approval binding: an escalated
+	// correction admits a dispatch only behind a store-derived convergence
+	// basis, and an operator approval has no effect (CON-885).
 	binding, bindingErr := WorkflowFailedWorkerRetryBinding(ctx, fixture.store, nil, workID)
 	if bindingErr != nil {
 		t.Fatal(bindingErr)
 	}
-	if binding == nil || binding.FailedAttemptID != "" || binding.FailedAttemptEpoch != 0 || binding.CorrectionAttempts != 4 || binding.ContractVersion != 1 {
-		t.Fatalf("fourth request binding = %+v, want the correction-count binding", binding)
+	if binding != nil {
+		t.Fatalf("fourth request minted a retry binding %+v, want none behind the convergence wall", binding)
 	}
 	// The armed wall admits no fresh delivery, so no new verdict exists for a
-	// fifth request to correct, and the escalated binding stays unchanged.
+	// fifth request to correct, and the wall stays armed without a binding.
 	payload := json.RawMessage(`{"diagnosis":"the delivered subject still fails","strategy":"repeat the external effect","predicate_ids":["predicate:return-route"],"evidence_refs":["evidence:return-route-verification"]}`)
 	if err := runIssue933OperatorAction(t, fixture.store, workID, "request_correction", payload, fixture.owner, fixture.operator); err == nil {
 		t.Fatal("fifth request_correction recorded while the escalation wall is armed")
@@ -664,8 +755,8 @@ func TestVerificationCorrectionWallArmsOnTheFourthRequest(t *testing.T) {
 	if afterErr != nil {
 		t.Fatal(afterErr)
 	}
-	if after == nil || after.CorrectionAttempts != 4 {
-		t.Fatalf("binding after refused fifth request = %+v, want correction attempts 4", after)
+	if after != nil {
+		t.Fatalf("binding after refused fifth request = %+v, want none behind the convergence wall", after)
 	}
 }
 
@@ -1422,11 +1513,11 @@ func correctionCountingJourney(t *testing.T, s *Store, workID string, owner, wor
 	return pin
 }
 
-// The bound counts every dispatched attempt since the last accepted result
-// (CD-0164), whatever the attempt returned. fallback_blocked is an
-// infrastructure failure kind: the lane never returned a judgeable result,
-// and each dispatch still consumes the bound. The third such failure
-// escalates and removes dispatch_worker.
+// The bound counts every dispatched attempt since the last accepted
+// productive result (CD-0164), whatever the attempt returned. fallback_blocked
+// is an infrastructure failure kind: the lane never returned a judgeable
+// result, and each dispatch still consumes the bound. The third such failure
+// escalates the correction behind the convergence wall.
 func TestInfrastructureFailureKindConsumesCorrectionAttemptBound(t *testing.T) {
 	const workID = "correction-count-infra"
 	s, owner, attemptID, _ := seedOldDefinitionWorker(t, workID)
@@ -1451,13 +1542,13 @@ func TestInfrastructureFailureKindConsumesCorrectionAttemptBound(t *testing.T) {
 		t.Fatalf("correction after three infrastructure failures = %#v, want three counted attempts and escalation", pin.Correction)
 	}
 	// CD-0173: the escalated pin advertises the retry route under the
-	// approval-gated reason instead of hiding it.
+	// convergence-gated reason instead of hiding it.
 	if !issue1013HasIntent(pin, "dispatch_worker") {
 		t.Fatalf("escalated correction hid dispatch_worker: %#v", pin.NextValidIntents)
 	}
 	for _, intent := range pin.NextValidIntents {
-		if intent.ActionID == "dispatch_worker" && intent.ReasonCode != "escalated_retry_requires_approval" {
-			t.Fatalf("escalated dispatch intent reason = %q, want escalated_retry_requires_approval", intent.ReasonCode)
+		if intent.ActionID == "dispatch_worker" && intent.ReasonCode != "escalated_retry_requires_convergence" {
+			t.Fatalf("escalated dispatch intent reason = %q, want escalated_retry_requires_convergence", intent.ReasonCode)
 		}
 	}
 	if workflowCorrectionAttemptLimit != 3 {
@@ -1471,8 +1562,8 @@ func TestInfrastructureFailureKindConsumesCorrectionAttemptBound(t *testing.T) {
 		PrincipalRef: worker.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "infra-count-4", RequestID: "request:infra-count-4", ContractDigest: testManifestDigest, Now: time.Unix(30, 0).UTC(),
 	})
 	var failure *Failure
-	if !errors.As(err, &failure) || failure.Kind != KindApprovalRequired {
-		t.Fatalf("fourth dispatch after infrastructure failures error=%v, want approval_required", err)
+	if !errors.As(err, &failure) || failure.Kind != KindMissingEvidence {
+		t.Fatalf("fourth dispatch after infrastructure failures error=%v, want missing_evidence", err)
 	}
 }
 
@@ -1641,7 +1732,7 @@ func TestCorrectionAttemptCountSurvivesContractSupersession(t *testing.T) {
 		t.Fatalf("correction under the successor contract = %#v, want three counted attempts and escalation", pin.Correction)
 	}
 	// CD-0173: the escalated pin keeps dispatch_worker visible as the
-	// approval-gated route, also under a successor contract.
+	// convergence-gated route, also under a successor contract.
 	if !issue1013HasIntent(pin, "dispatch_worker") {
 		t.Fatalf("escalated correction under the successor hid dispatch_worker: %#v", pin.NextValidIntents)
 	}

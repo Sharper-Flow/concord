@@ -113,29 +113,17 @@ type WorkflowCorrectionContext struct {
 	FailedAttemptEpoch int64    `json:"failed_attempt_epoch,omitempty"`
 }
 
-// WorkflowRetryApprovalBinding is the durable identity that an operator
-// approval must bind before a failed worker attempt can run again. It also
-// names the one correction an escalated wall admission may consume. An
-// escalated verification correction carries no failed attempt, so its wall
-// binds the correction's attempt count instead.
+// WorkflowRetryApprovalBinding names the exact failed attempt and contract
+// an approval binds for a failed retry below the convergence wall.
 type WorkflowRetryApprovalBinding struct {
 	FailedAttemptID    string
 	FailedAttemptEpoch int64
 	ContractVersion    int64
-	CorrectionAttempts int64
 }
 
-// WorkflowFailedWorkerRetryBinding reads the current failed worker attempt
-// and active contract without opening a nested store connection. An escalated
-// rejected result carries the same failed attempt identity, so its wall
-// admission binds it exactly like a failed disposition. An escalated
-// verification correction binds its attempt count, because the request that
-// closed the correction carried no worker attempt. A rejected result below
-// the limit keeps its ordinary approval-free correction dispatch. When no
-// correction record stands behind the current step and the same-step failed
-// count reaches the limit, the binding keys to the latest counted failed
-// attempt at the step, so the same-step wall keeps its operator-approvable
-// escape. A nil registry means the builtin registry.
+// WorkflowFailedWorkerRetryBinding reads the ordinary failed-retry approval
+// binding. Escalated retries need convergence instead, so they return nil.
+// A nil registry means the builtin registry.
 func WorkflowFailedWorkerRetryBinding(ctx context.Context, s *Store, registry DefinitionRegistry, workID string) (*WorkflowRetryApprovalBinding, error) {
 	if s == nil || s.db == nil {
 		return nil, newFailure(KindUnavailable, "workflow_correction", "store is not open", false, "open the authority database")
@@ -177,16 +165,14 @@ func workflowFailedWorkerRetryBinding(ctx context.Context, q queryer, registry D
 	if err != nil {
 		return nil, err
 	}
-	// The wall and escalation admission is the shared derivation: the fold
-	// carries the correction escalation and the same-step wall count, and the
-	// pure workflowAdmit decides whether a dispatch stands behind the
-	// operator's approval. The identity reads below bind that admission to
-	// the attempt the approval must name.
 	state, _, _, err := loadWorkflowAdmissionStateTx(ctx, q, workID, definition, stepID, "workflow_correction")
 	if err != nil {
 		return nil, err
 	}
 	decision := workflowAdmit(definition, state, "dispatch_worker")
+	if state.retryEscalated() {
+		return nil, nil
+	}
 	if !decision.Admitted && !decision.ApprovalRequired {
 		return nil, nil
 	}
@@ -197,33 +183,8 @@ func workflowFailedWorkerRetryBinding(ctx context.Context, q queryer, registry D
 	if err != nil {
 		return nil, err
 	}
-	if correction == nil {
-		// No correction record stands behind the current refusal — a later
-		// dispatch whose attempt materialized consumed the record — but the
-		// same-step wall can still refuse: CD-0164 keeps that wall operator
-		// approvable, so when the folded admission arms the wall the binding
-		// keys to the latest counted failed attempt instead of a consumed
-		// correction.
-		if !decision.ApprovalRequired {
-			return nil, nil
-		}
-		return workflowSameStepWallRetryBinding(ctx, q, definition, workID, stepID)
-	}
-	verification := correction.Escalated && correction.Disposition == "verification" && correction.FailedAttemptID == ""
-	switch {
-	case correction.Disposition == "failed":
-	case verification:
-	case correction.Escalated && correction.Disposition == "rejected" && correction.FailedAttemptID != "":
-	default:
-		// The record behind the current refusal admits no approval-free
-		// dispatch, but the same-step wall can still refuse: CD-0164 keeps
-		// that wall operator approvable, so when the folded admission arms
-		// the wall the binding keys to the latest counted failed attempt
-		// instead of this correction.
-		if !decision.ApprovalRequired {
-			return nil, nil
-		}
-		return workflowSameStepWallRetryBinding(ctx, q, definition, workID, stepID)
+	if correction == nil || correction.Disposition != "failed" {
+		return nil, nil
 	}
 	contractVersion, err := latestWorkflowContractVersion(ctx, q, workID)
 	if err != nil {
@@ -233,19 +194,16 @@ func workflowFailedWorkerRetryBinding(ctx context.Context, q queryer, registry D
 		FailedAttemptID: correction.FailedAttemptID, FailedAttemptEpoch: correction.FailedAttemptEpoch,
 		ContractVersion: contractVersion,
 	}
-	if verification {
-		binding.CorrectionAttempts = correction.AttemptCount
-	}
 	return binding, nil
 }
 
 // A terminal authorization needs exact retry approval even when its worker
 // supplied no admissible dispatch evidence or its failure has no disposition.
 // The latest authorization at this step owns the identity; an older failure
-// cannot replace a newer live or completed attempt. Step entry and acceptance
-// reset the window through the same anchor the failed-attempt wall reads.
+// cannot replace a newer live or completed attempt. Productive acceptance
+// resets the window through the same anchor the non-progress wall reads.
 func workflowCurrentFailedWorkerRetryBinding(ctx context.Context, q queryer, definition WorkflowDefinition, workID, stepID string) (*WorkflowRetryApprovalBinding, error) {
-	anchor, err := workflowSameStepWindowAnchor(ctx, q, definition, workID, "workflow_correction", 0)
+	anchor, err := workflowNonProgressWindowAnchor(ctx, q, workID, "workflow_correction", 0)
 	if err != nil {
 		return nil, err
 	}
@@ -268,33 +226,8 @@ func workflowCurrentFailedWorkerRetryBinding(ctx context.Context, q queryer, def
 	return &WorkflowRetryApprovalBinding{FailedAttemptID: attemptID, FailedAttemptEpoch: epoch, ContractVersion: contractVersion}, nil
 }
 
-// workflowSameStepWallRetryBinding binds the same-step wall's approval when
-// no correction record stands behind it. The caller's folded admission owns
-// the arming decision; this read names the durable identity the approval
-// must bind — the latest counted failed attempt's id plus the attempt epoch
-// its dispatch completion recorded — and the active contract version. Below
-// the limit, or with no counted failed attempt, the wall is not armed and no
-// binding exists.
-func workflowSameStepWallRetryBinding(ctx context.Context, q queryer, definition WorkflowDefinition, workID, currentStep string) (*WorkflowRetryApprovalBinding, error) {
-	count, attemptID, attemptEpoch, err := workflowSameStepWallState(ctx, q, definition, workID, currentStep, "workflow_correction")
-	if err != nil {
-		return nil, err
-	}
-	if count < workflowCorrectionAttemptLimit || attemptID == "" {
-		return nil, nil
-	}
-	contractVersion, err := latestWorkflowContractVersion(ctx, q, workID)
-	if err != nil {
-		return nil, err
-	}
-	return &WorkflowRetryApprovalBinding{
-		FailedAttemptID: attemptID, FailedAttemptEpoch: attemptEpoch, ContractVersion: contractVersion,
-	}, nil
-}
-
-// workflowPinnedDefinitionForBinding resolves the pinned workflow definition
-// the same-step window anchor needs. A nil registry means the builtin
-// registry.
+// workflowPinnedDefinitionForBinding resolves the binding's workflow pin.
+// A nil registry means the builtin registry.
 func workflowPinnedDefinitionForBinding(registry DefinitionRegistry, pin WorkflowDefinitionPin) (WorkflowDefinition, error) {
 	if registry == nil {
 		registry = BuiltinWorkflowRegistry()
@@ -341,6 +274,9 @@ func workflowCorrectionActionDefinition() WorkflowActionDefinition {
 func validateRejectCorrectionPinValues(payload json.RawMessage, evidenceRefs []string) error {
 	fields, err := workflowActionObject(payload)
 	if err != nil {
+		return err
+	}
+	if err := validateWorkflowOpenFindingsPayload(fields); err != nil {
 		return err
 	}
 	fault := workflowCorrectionSchemaValuesFault(workflowFieldStrings(fields, "predicate_ids"), workflowFieldStrings(fields, "evidence_refs"), evidenceRefs)
@@ -557,7 +493,7 @@ func workflowCorrectionWindowBoundary(ctx context.Context, q queryer, workID str
 // projections use this history's obligation discharge rule (CD-0205 D4), not
 // the current attempt lifecycle, so historical reads keep replay parity.
 func workflowCorrectionWalk(ctx context.Context, q queryer, workID string, prefix int64, subject string) (*workflowCorrectionHistory, error) {
-	rows, err := q.QueryContext(ctx, `SELECT e.seq, e.kind, COALESCE(json_extract(e.payload,'$.attempt_id'),''), COALESCE(json_extract(e.payload,'$.worker_attempt_id'),''), COALESCE(json_extract(e.payload,'$.action_id'),''), COALESCE(json_extract(e.payload,'$.worker_job.job_id'),''), COALESCE(json_extract(e.payload,'$.worker_job.revision'),0), e.payload FROM domain_events e WHERE e.subject_type=? AND e.subject_id=? AND e.seq<=? AND ((e.kind=? AND json_extract(e.payload,'$.attempt_id') IS NOT NULL) OR (e.kind=? AND json_extract(e.payload,'$.action_id') IN ('record_worker_failure','reject_worker_result','request_correction','accept_worker_result','dispatch_worker')) OR e.kind=? OR e.kind=?) ORDER BY e.seq`, string(SubjectWorkItem), workID, prefix, WorkerDispatched, WorkflowActionCompleted, WorkerJobRecorded, WorkerFailed)
+	rows, err := q.QueryContext(ctx, `SELECT e.seq, e.kind, COALESCE(json_extract(e.payload,'$.attempt_id'),''), COALESCE(json_extract(e.payload,'$.worker_attempt_id'),''), COALESCE(json_extract(e.payload,'$.action_id'),''), COALESCE(json_extract(e.payload,'$.worker_job.job_id'),''), COALESCE(json_extract(e.payload,'$.worker_job.revision'),0), e.payload FROM domain_events e WHERE e.subject_type=? AND e.subject_id=? AND e.seq<=? AND ((e.kind=? AND json_extract(e.payload,'$.attempt_id') IS NOT NULL) OR (e.kind=? AND json_extract(e.payload,'$.action_id') IN ('record_worker_failure','reject_worker_result','request_correction','accept_worker_result','dispatch_worker')) OR e.kind=? OR e.kind=? OR e.kind=?) ORDER BY e.seq`, string(SubjectWorkItem), workID, prefix, WorkerDispatched, WorkflowActionCompleted, WorkerJobRecorded, WorkerFailed, WorkerCompleted)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, subject, "cannot read the correction window history", true, "retry once the workflow event log is readable", err)
 	}
@@ -568,6 +504,7 @@ func workflowCorrectionWalk(ctx context.Context, q queryer, workID string, prefi
 		dispatchJob:  make(map[string]string),
 		materialized: make(map[string]bool),
 		obligations:  make(map[string]string),
+		nonSettling:  make(map[string]bool),
 	}
 	for rows.Next() {
 		var row workflowCorrectionHistoryRow
@@ -591,6 +528,7 @@ type workflowCorrectionHistory struct {
 	dispatchJob  map[string]string
 	materialized map[string]bool
 	obligations  map[string]string
+	nonSettling  map[string]bool
 	records      []workflowCorrectionRecordState
 	completions  []workflowCorrectionDispatchCompletion
 }
@@ -608,6 +546,18 @@ type workflowCorrectionHistoryRow struct {
 
 func (h *workflowCorrectionHistory) observe(row workflowCorrectionHistoryRow, subject string) error {
 	switch row.kind {
+	case string(WorkerCompleted):
+		var report WorkerCompletedPayload
+		if err := json.Unmarshal([]byte(row.payload), &report); err != nil {
+			return newFailure(KindInvariantViolation, subject, "worker completion payload is malformed", false, "rebuild workflow projections from the event log")
+		}
+		if report.Review != nil && report.Review.Verdict == "no_ship" {
+			if h.nonSettling == nil {
+				h.nonSettling = make(map[string]bool)
+			}
+			h.nonSettling[row.dispatchAttempt] = true
+			h.fail(row.dispatchAttempt)
+		}
 	case string(WorkerFailed):
 		// A failure creates debt before any coordinator disposition, including
 		// an authorized attempt that never supplied dispatch evidence.
@@ -643,7 +593,7 @@ func (h *workflowCorrectionHistory) observe(row workflowCorrectionHistoryRow, su
 		}
 		h.records = append(h.records, workflowCorrectionRecordState{seq: row.seq, fields: fields, jobKey: key})
 	case "accept_worker_result":
-		if h.discharge(row.jobID, row.jobRevision) {
+		if !h.nonSettling[row.actionAttempt] && h.discharge(row.jobID, row.jobRevision) {
 			h.boundary = row.seq
 		}
 	}
@@ -751,120 +701,44 @@ func workerJobObligationKey(payload WorkerJobRecordedPayload) string {
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
-// workflowSameStepFailedAttemptCount counts the failed worker attempts whose
-// dispatch completed at the current step after the window anchor. The anchor
-// and the counted population have one owner: workflowSameStepWallState.
-func workflowSameStepFailedAttemptCount(ctx context.Context, q queryer, definition WorkflowDefinition, workID, currentStep, subject string) (int64, error) {
-	count, _, _, err := workflowSameStepWallState(ctx, q, definition, workID, currentStep, subject)
-	return count, err
-}
-
-// workflowSameStepWallState returns the same-step failed attempt count and
-// the latest counted failed attempt's identity. The window anchor is the
-// later of the last accepted worker result (the CD-0164 D2 reset) and the
-// latest step entry. An entry is a completion whose fold moves the instance
-// between steps: an advancing action's completion or a correction request's
-// return. A supersede_contract completion holds the step except at the pinned
-// complete step, and CD-0164 D3 keeps counted dispatches across an
-// operator-approved supersession, so only the complete-step correction shape
-// opens the window. Dispatch actions and fresh fenced starts do not reset the
-// window, so a coordinator that re-dispatches a failed lane without a
-// correction record climbs the same wall a recorded correction climbs.
-func workflowSameStepWallState(ctx context.Context, q queryer, definition WorkflowDefinition, workID, currentStep, subject string) (int64, string, int64, error) {
-	anchor, err := workflowSameStepWindowAnchor(ctx, q, definition, workID, subject, 0)
+// workflowNonProgressAttemptCount counts distinct failed, rejected, or no_ship
+// attempts across the work item. Authorization and dispatch evidence name the
+// same attempt, so they consume one slot. Only productive acceptance that
+// discharges the correction window renews the budget.
+func workflowNonProgressAttemptCount(ctx context.Context, q queryer, workID, subject string) (int64, error) {
+	anchor, err := workflowNonProgressWindowAnchor(ctx, q, workID, subject, 0)
 	if err != nil {
-		return 0, "", 0, err
+		return 0, err
 	}
 	var count int64
-	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM worker_attempts a JOIN domain_events dc ON dc.subject_type=? AND dc.subject_id=a.work_id AND dc.kind=? AND json_extract(dc.payload,'$.action_id')='dispatch_worker' AND json_extract(dc.payload,'$.worker_attempt_id')=a.attempt_id AND json_extract(dc.payload,'$.step_id')=? WHERE a.work_id=? AND a.lifecycle_state='failed' AND dc.seq>?`, string(SubjectWorkItem), WorkflowActionCompleted, currentStep, workID, anchor).Scan(&count); err != nil {
-		return 0, "", 0, wrapFailure(KindUnavailable, subject, "cannot count same-step failed attempts", true, "retry once the worker attempt projection is readable", err)
+	args := []any{string(SubjectWorkItem), WorkflowActionCompleted, WorkerDispatched, workID, anchor, WorkflowActionCompleted, WorkerCompleted}
+	population := ` FROM worker_attempts a JOIN domain_events dc ON dc.subject_type=? AND dc.subject_id=a.work_id
+		AND ((dc.kind=? AND json_extract(dc.payload,'$.action_id')='dispatch_worker' AND json_extract(dc.payload,'$.worker_attempt_id')=a.attempt_id)
+		OR (dc.kind=? AND json_extract(dc.payload,'$.attempt_id')=a.attempt_id))
+		WHERE a.work_id=? AND dc.seq>? AND (a.lifecycle_state='failed' OR EXISTS (
+		SELECT 1 FROM domain_events r WHERE r.subject_type=dc.subject_type AND r.subject_id=a.work_id
+		AND ((r.kind=? AND json_extract(r.payload,'$.action_id')='reject_worker_result' AND json_extract(r.payload,'$.worker_attempt_id')=a.attempt_id)
+		OR (r.kind=? AND json_extract(r.payload,'$.attempt_id')=a.attempt_id AND json_extract(r.payload,'$.review.verdict')='no_ship'))))`
+	if err := q.QueryRowContext(ctx, `SELECT count(DISTINCT a.attempt_id)`+population, args...).Scan(&count); err != nil {
+		return 0, wrapFailure(KindUnavailable, subject, "cannot count non-progress attempts", true, "retry once the worker attempt projection is readable", err)
 	}
-	var attemptID string
-	var attemptEpoch int64
-	if err := q.QueryRowContext(ctx, `SELECT COALESCE(json_extract(dc.payload,'$.worker_attempt_id'),''),COALESCE(json_extract(dc.payload,'$.attempt_epoch'),0) FROM worker_attempts a JOIN domain_events dc ON dc.subject_type=? AND dc.subject_id=a.work_id AND dc.kind=? AND json_extract(dc.payload,'$.action_id')='dispatch_worker' AND json_extract(dc.payload,'$.worker_attempt_id')=a.attempt_id AND json_extract(dc.payload,'$.step_id')=? WHERE a.work_id=? AND a.lifecycle_state='failed' AND dc.seq>? ORDER BY dc.seq DESC LIMIT 1`, string(SubjectWorkItem), WorkflowActionCompleted, currentStep, workID, anchor).Scan(&attemptID, &attemptEpoch); err != nil {
-		if err == sql.ErrNoRows {
-			return count, "", 0, nil
-		}
-		return 0, "", 0, wrapFailure(KindUnavailable, subject, "cannot read the latest same-step failed attempt", true, "retry once the worker attempt projection is readable", err)
-	}
-	return count, attemptID, attemptEpoch, nil
+	return count, nil
 }
 
-// workflowHeldJobAcceptPredicate is the SQL shape of an accept_worker_result
-// completion that recorded a held local job acceptance (CD-0205 D3): the
-// completion carries a worker-job disposition and asserts no delivery. Such
-// an acceptance holds the parent step, so it never enters a new step window.
-// A completion without a worker-job disposition — every acceptance a pre-job
-// version records, and the delivery-asserting accept — never matches, so the
-// CD-0164 D2 step-entry behavior those histories keep is byte-for-byte
-// unchanged. The acceptance reset itself is not decided here: it is the
-// correction window boundary's own discharge rule, so the wall and the
-// counting window share one owner.
+// workflowHeldJobAcceptPredicate excludes a held local job acceptance from
+// workflow step-entry detection. Acceptance reset belongs to the correction
+// history's obligation discharge rule instead.
 const workflowHeldJobAcceptPredicate = `(COALESCE(json_extract(payload,'$.action_id'),'')<>'accept_worker_result' OR json_extract(payload,'$.worker_job') IS NULL OR COALESCE(json_extract(payload,'$.delivery_state'),'')<>'')`
 
-// workflowSameStepWindowAnchor returns the event sequence the same-step
-// window opens after: the later of the last window-opening accepted result
-// and the latest step entry. The acceptance term is the correction window
-// boundary's own walk (CD-0164 D2 refined by CD-0205 D4): an accepted result
-// resets the wall exactly when it opens a counting window — every acceptance
-// while no recorded job obligation is unresolved, and the held local
-// acceptance that discharges the last unresolved obligation. A held local
-// acceptance of an unrelated or rewritten job resets nothing, so the wall it
-// opened and its exact retry binding stay. Histories with no job binding on
-// any dispatched attempt keep the CD-0164 D2 reset byte-for-byte, because
-// every acceptance opens a window when no obligation stands unresolved.
-// excludeSeq names the fold's own in-flight completion, which must not count
-// against its admission; read surfaces pass zero so every settled event counts.
-func workflowSameStepWindowAnchor(ctx context.Context, q queryer, definition WorkflowDefinition, workID, subject string, excludeSeq int64) (int64, error) {
+// workflowNonProgressWindowAnchor shares the correction window's productive
+// acceptance rule. A step or disposition change resets nothing. excludeSeq
+// keeps the fold's in-flight completion out of its own admission.
+func workflowNonProgressWindowAnchor(ctx context.Context, q queryer, workID, subject string, excludeSeq int64) (int64, error) {
 	prefix := int64(1) << 62
 	if excludeSeq > 0 {
 		prefix = excludeSeq
 	}
-	anchor, err := workflowCorrectionWindowBoundary(ctx, q, workID, prefix, subject)
-	if err != nil {
-		return 0, err
-	}
-	entries := append(advancingWorkflowActions(definition), "request_correction")
-	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(entries)), ",")
-	args := []any{string(SubjectWorkItem), workID, WorkflowActionCompleted}
-	for _, action := range entries {
-		args = append(args, action)
-	}
-	entryBound := ""
-	if excludeSeq > 0 {
-		entryBound = " AND seq<>?"
-		args = append(args, excludeSeq)
-	}
-	rows, err := q.QueryContext(ctx, `SELECT seq,json_extract(payload,'$.action_id'),json_extract(payload,'$.step_id') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id') IN (`+placeholders+`) AND `+workflowHeldJobAcceptPredicate+entryBound, args...)
-	if err != nil {
-		return 0, wrapFailure(KindUnavailable, subject, "cannot inspect the workflow step's entries", true, "retry once the workflow event log is readable", err)
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var seq int64
-		var actionID, stepID string
-		if err := rows.Scan(&seq, &actionID, &stepID); err != nil {
-			return 0, wrapFailure(KindUnavailable, subject, "cannot scan the workflow step's entries", true, "retry once the workflow event log is readable", err)
-		}
-		if actionID == "supersede_contract" && !stepDeclaresAction(definition, stepID, "complete") {
-			continue
-		}
-		if seq > anchor {
-			anchor = seq
-		}
-	}
-	if err := rows.Err(); err != nil {
-		return 0, wrapFailure(KindUnavailable, subject, "cannot scan the workflow step's entries", true, "retry once the workflow event log is readable", err)
-	}
-	return anchor, nil
-}
-
-// workflowSameStepWallFailure is the wall refusal's typed form, so the shared
-// admission and the folding guard carry one refusal.
-func workflowSameStepWallFailure(currentStep string, count int64) *Failure {
-	return newFailure(KindApprovalRequired, "workflow_action",
-		fmt.Sprintf("worker dispatch at step %s reached the three-failed-attempt limit: %d failed attempts dispatched at this step since the last accepted result or step entry", currentStep, count),
-		false, "escalate the failed attempts to the operator")
+	return workflowCorrectionWindowBoundary(ctx, q, workID, prefix, subject)
 }
 
 func workflowCorrectionVerdictState(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, subject string) (*workflowCorrectionVerdictPrerequisites, error) {
@@ -1409,7 +1283,7 @@ func workflowCheckpointFailedReviewCorrection(ctx context.Context, q queryer, wo
 	if recorded == 0 {
 		return nil, workflowCorrectionMissingFailureDisposition, nil
 	}
-	anchor, anchorErr := workflowSameStepWindowAnchor(ctx, q, definition, workID, subject, excludeSeq)
+	anchor, anchorErr := workflowNonProgressWindowAnchor(ctx, q, workID, subject, excludeSeq)
 	if anchorErr != nil {
 		return nil, workflowCorrectionMissingNone, anchorErr
 	}
@@ -1562,10 +1436,8 @@ func validateCorrectionRequestPayload(ctx context.Context, q queryer, workID str
 	if diagnosis == "" || strategy == "" || len(predicates) == 0 || len(evidence) == 0 {
 		return newFailure(KindInvalidPayload, subject, "request_correction requires diagnosis, strategy, predicate IDs, and bound evidence", false, "supply the complete correction disposition")
 	}
-	// The request path records every correction the verdict admits, including
-	// the escalated one: CD-0164 D4 arms the approval wall at dispatch when the
-	// request count passes the limit, so the wall stays operator approvable
-	// (CD-0148) instead of refusing the record a fresh attempt is bound to.
+	// A request records the correction even when the count exceeds the limit.
+	// Dispatch admission separately requires convergence (CD-0148/CD-0164 D4).
 	for _, predicate := range predicates {
 		if !contains(context.PredicateIDs, predicate) {
 			return newFailure(KindInvalidPayload, subject, "request_correction names a predicate without a current non-ok verdict", false, "name only affected approved predicates")
@@ -1606,6 +1478,8 @@ type workflowCorrectionRecordState struct {
 // correction record.
 type workflowCorrectionCompletionFields struct {
 	ActionID             string   `json:"action_id"`
+	StepID               string   `json:"step_id"`
+	OpenFindingIDs       []string `json:"correction_open_finding_ids"`
 	AttemptID            string   `json:"worker_attempt_id"`
 	AttemptEpoch         int64    `json:"attempt_epoch"`
 	CorrectionDiagnosis  string   `json:"correction_diagnosis"`
@@ -1773,7 +1647,7 @@ func workflowRejectedWorkerResultAvailable(ctx context.Context, q queryer, workI
 }
 
 // validateWorkerPacketCorrection refuses a packet that does not consume the
-// current correction context. The same-step wall and the escalation stay out
+// current correction context. The non-progress wall and escalation stay out
 // of this check: the pure workflowAdmit decides them over the folded state,
 // and the fold refuses before event assembly runs, so re-deriving them here
 // would be a second derivation of the folded conditions.

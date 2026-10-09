@@ -22,10 +22,32 @@ from types import SimpleNamespace
 from unittest import mock
 from pathlib import Path
 
+import git_environment
+
+# CON-896: this suite drives the real Git binary through an absolute
+# `shutil.which` resolution with an environment copied from this process, so
+# a hook that launched it must not keep a redirecting Git namespace in place.
+# The scrub runs before the in-process installer helper loads.
+git_environment.scrub_inherited()
+
 import install as installer
 
 
 SCRIPT = Path(__file__).with_name("install.py")
+
+
+def _repository_snapshot(root: Path) -> dict[str, bytes]:
+    """Byte inventory of everything a redirected Git child could mutate."""
+    inventory: dict[str, bytes] = {}
+    for path in sorted(root.rglob("*")):
+        rel = str(path.relative_to(root))
+        if path.is_symlink():
+            inventory[rel] = os.readlink(path).encode()
+        elif path.is_dir():
+            inventory[rel + os.sep] = b""
+        else:
+            inventory[rel] = path.read_bytes()
+    return inventory
 
 
 
@@ -2787,6 +2809,64 @@ esac''',
         self.assertEqual(tracked_config.read_text(encoding="utf-8"), tracked_original)
         self.assertEqual(self.run_real_git(tracked, "status", "--short").stdout, "")
         self.assertEqual(self.run_real_git(untracked, "status", "--short").stdout, "")
+
+    def test_hook_inherited_git_dir_cannot_reach_an_outer_repository(self) -> None:
+        """CON-896 regression: this real suite under a hook's inherited GIT_DIR.
+
+        The worktree-links testcase owns this suite's real Git writes
+        (init/add/commit/status through the absolute `run_real_git` binary).
+        It runs again as a child process with GIT_DIR pointing at a scratch
+        outer repository: without startup sanitization those writes are
+        redirected into the outer repository, with it the outer repository
+        stays byte-for-byte untouched and the child still passes.
+        """
+        with tempfile.TemporaryDirectory(prefix="con-896-outer-") as outer_dir:
+            outer = Path(outer_dir) / "outer-repository"
+            outer.mkdir()
+
+            def outer_git(*arguments: str) -> None:
+                git = shutil.which("git", path=os.defpath)
+                self.assertIsNotNone(git)
+                subprocess.run(
+                    [git, "-C", str(outer), *arguments],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                    env={key: value for key, value in os.environ.items() if not key.startswith("GIT_")},
+                )
+
+            outer_git("init", "--quiet")
+            outer_git("config", "user.name", "Outer Keeper")
+            outer_git("config", "user.email", "outer-keeper@example.invalid")
+            (outer / "outer-file.txt").write_text("outer worktree content\n", encoding="utf-8")
+            outer_git("add", "outer-file.txt")
+            outer_git("commit", "--quiet", "--message", "outer baseline")
+            outer_git("tag", "outer-tag")
+            before = _repository_snapshot(outer)
+            environment = os.environ.copy()
+            environment["GIT_DIR"] = str(outer / ".git")
+            child = subprocess.run(
+                [
+                    sys.executable,
+                    str(Path(__file__)),
+                    "InstallerTests.test_worktree_links_preserve_tracked_and_untracked_config_state",
+                ],
+                env=environment,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            after = _repository_snapshot(outer)
+        changed = sorted(set(before) ^ set(after)) + sorted(key for key in before if before[key] != after.get(key))
+        # The snapshot comparison runs before the exit-code check so a broken
+        # child still reports the writes it managed.
+        self.assertEqual(
+            before,
+            after,
+            "the inherited GIT_DIR redirected this suite's real Git writes "
+            f"into the outer repository ({len(changed)} paths changed: {', '.join(changed[:10])})",
+        )
+        self.assertEqual(child.returncode, 0, child.stderr)
 
     def test_uninstall_unlinks_worktree_pointers_and_preserves_worktrees(self) -> None:
         self.make_release("v1.0.0")

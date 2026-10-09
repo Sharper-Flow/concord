@@ -99,6 +99,12 @@ const staleLawRecoveryActions = "supersede_contract,terminal_work"
 func workflowContractRecoveryActionDefinition() WorkflowActionDefinition {
 	return WorkflowActionDefinition{
 		ID: "supersede_contract", Consequence: ActionInternalSQLite, Approval: ActionApprovalRequired, ExecutionMode: ActionAdvance,
+		// The successor outcome shape — the successor supplies exactly one
+		// outcome group — is engine-owned typed data resolved through
+		// workflowActionCrossField("supersede_contract"), not digest-covered
+		// definition content: core validation and the generated published
+		// supersede variant derive their oneOf branches from that one
+		// declaration (CON-412, CD-0115 D1).
 		Payload: WorkflowPayloadDefinition{Closed: true, Fields: workflowContractRecoveryPayloadFields()},
 	}
 }
@@ -1156,13 +1162,21 @@ func resolveLawContextDomains(ctx context.Context, tx *sql.Tx, productID string,
 	return domains, nil
 }
 
+// validateWorkflowContractRecoveryPayload enforces the successor contract
+// payload against its one registry declaration: the field list, the required
+// set, and the exactly-one outcome group all come from
+// workflowContractRecoveryActionDefinition, so no handwritten field-name list
+// or outcome-shape branch can drift from the declaration the published
+// variant generates from (CON-412).
 func validateWorkflowContractRecoveryPayload(raw json.RawMessage) error {
 	fields, err := workflowActionObject(raw)
 	if err != nil {
 		return err
 	}
+	declaration := workflowContractRecoveryActionDefinition().Payload
+	crossField := workflowActionCrossField("supersede_contract")
 	allowed := make(map[string]WorkflowPayloadField)
-	for _, field := range workflowContractRecoveryPayloadFields() {
+	for _, field := range declaration.Fields {
 		allowed[field.Name] = field
 	}
 	for name, value := range fields {
@@ -1170,22 +1184,43 @@ func validateWorkflowContractRecoveryPayload(raw json.RawMessage) error {
 		if !ok || !validateWorkflowPayloadValue(field, value) {
 			return newFailure(KindInvalidPayload, "workflow_action", "successor contract contains an undeclared or invalid field", false, "supply the typed successor contract")
 		}
+		// The declared schema refs bind here exactly as the action payload
+		// preflight binds them: the per-kind outcome_predicates items and
+		// the closed object fields the published successor variant projects
+		// refuse at this boundary, not first at the fold (CON-412).
+		if err := validateWorkflowPayloadSchema(field, value); err != nil {
+			return err
+		}
 	}
-	for _, name := range []string{"contract_version", "premise", "required_evidence", "route_conventions", "spec_mandate", "law_modifies", "rigor_class", "supersede_reason", "audit_evidence"} {
-		if _, ok := fields[name]; !ok {
+	for _, field := range declaration.Fields {
+		if !field.Required {
+			continue
+		}
+		if _, ok := fields[field.Name]; !ok {
 			return newFailure(KindInvalidPayload, "workflow_action", "successor contract requires a fully supplied contract", false, "supply every successor contract field")
 		}
 	}
-	hasPredicates := fields["outcome_predicates"] != nil
-	hasLegacyOutcome := fields["outcome_kind"] != nil && fields["outcome_payload"] != nil
-	if !hasPredicates && !hasLegacyOutcome {
+	switch complete, partial := workflowPayloadAlternativeGroups(crossField.Alternatives, fields); {
+	case complete == 1 && !partial:
+	case complete == 0 && !partial:
 		return newFailure(KindInvalidPayload, "workflow_action", "successor contract requires outcome_predicates or the outcome pair", false, "supply the complete successor outcome")
-	}
-	if hasPredicates && hasLegacyOutcome {
+	case complete >= 2:
 		return newFailure(KindInvalidPayload, "workflow_action", "successor contract must supply one outcome shape", false, "supply outcome_predicates or the outcome pair")
+	default:
+		// A partially supplied second outcome group: the published closed
+		// branches refuse it, so the engine guard refuses it too
+		// (CON-412).
+		return newFailure(KindInvalidPayload, "workflow_action", "successor contract must supply one outcome shape: a field of the other outcome group is present without its complete group", false, "complete the started outcome group or remove its fields")
 	}
 	if workflowFieldInt(fields, "contract_version", 0) <= 0 || workflowFieldStringDefault(fields, "premise", "") == "" || workflowFieldStringDefault(fields, "rigor_class", "") == "" || workflowFieldStringDefault(fields, "supersede_reason", "") == "" {
 		return newFailure(KindInvalidPayload, "workflow_action", "successor contract has an empty required field", false, "supply the complete successor contract")
+	}
+	// The nested discriminator equality the declaration carries: a successor
+	// outcome pair whose outcome_kind and outcome_payload.kind disagree is
+	// refused here, at the same declaration the published pair branches
+	// close per kind (CON-412). The fold keeps its deeper decode guard.
+	if match, fieldKind, objectKind, violated := workflowPayloadKindMatchViolation(crossField, fields); violated {
+		return workflowPayloadKindMatchRefusal("supersede_contract", match, fieldKind, objectKind)
 	}
 	return nil
 }

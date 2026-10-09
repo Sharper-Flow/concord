@@ -44,15 +44,16 @@ class DomainRegistryParticipationTests(unittest.TestCase):
             records.append({"id": f"law-{domain_id}", "status": "accepted", "home_domain_id": domain_id})
         return {"domain_registry": {"root_domain_id": domain_ids[0], "domains": domains}, "records": records}
 
-    def check(self, manifest: dict) -> tuple[list[str], list[str]]:
+    def check(self, manifest: dict) -> tuple[list[str], list[str], list[str]]:
         with patch.object(checker.knowledge_index, "compose_manifest", return_value=manifest):
             return checker.validate(self.root)
 
     def test_orphan_domain_is_advisory_without_strict(self) -> None:
-        findings, participation = self.check(self.manifest(["root", "child"]))
+        findings, participation, advisories = self.check(self.manifest(["root", "child"]))
 
         self.assertEqual(findings, [])
         self.assertEqual(len(participation), 2)
+        self.assertEqual(advisories, [])
         with patch.object(checker.knowledge_index, "compose_manifest", return_value=self.manifest(["root", "child"])), patch.object(
             sys, "argv", [str(SCRIPT), "--root", str(self.root)]
         ):
@@ -63,7 +64,7 @@ class DomainRegistryParticipationTests(unittest.TestCase):
             self.assertEqual(checker.main(), 1)
 
     def test_target_only_domain_participates(self) -> None:
-        findings, participation = self.check(
+        findings, participation, _ = self.check(
             self.manifest(["root", "sink"], {"root": ["sink"]})
         )
 
@@ -71,7 +72,7 @@ class DomainRegistryParticipationTests(unittest.TestCase):
         self.assertEqual(participation, [])
 
     def test_single_domain_needs_no_relation(self) -> None:
-        findings, participation = self.check(self.manifest(["root"]))
+        findings, participation, _ = self.check(self.manifest(["root"]))
 
         self.assertEqual(findings, [])
         self.assertEqual(participation, [])

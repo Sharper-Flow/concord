@@ -1,7 +1,6 @@
 package store
 
 import (
-	"encoding/json"
 	"fmt"
 	"testing"
 )
@@ -65,12 +64,12 @@ import (
 // optional recovery_routes table. The omitempty field keeps every released
 // manifest above byte-identical; the released versions resolve the same
 // routes through workflowReleasedRecoveryRoutes until instances pin these.
-// CON-887 ships the work-context action: implementation 25, break_fix 22,
-// research 15, architecture_spike 16, ops_runbook 17, static_analysis 14,
-// and generic_one_off 15 add record_work_context to every step except the
+// CON-887 ships the work-context action: implementation 26, break_fix 23,
+// research 16, architecture_spike 17, ops_runbook 18, static_analysis 15,
+// and generic_one_off 16 add record_work_context to every step except the
 // closed delivery gates, whose four-action shape the gate reader pins.
 // CON-890 ships the owner-level acceptance oracle on the two job-capable
-// repair families: implementation 26 and break_fix 23 declare the required
+// repair families: implementation 27 and break_fix 24 declare the required
 // acceptance_oracle member on record_worker_job's payload. Every released
 // version below keeps the payload it was pinned under, so oracle capability
 // is a declared action member, never a behavior flag on a historical pin.
@@ -187,7 +186,9 @@ var workflowDefinitionVersionPins = map[[2]string]string{
 	{"workflow.implementation", "22"}:     "sha256:1bef12c2d072dae7bfcc65a2b097248678770481cc849bf79107cc9833b3b7f4",
 	{"workflow.break_fix", "19"}:          "sha256:df5d441762daf131a1ae62c1abc9897f0269ebd3890322fff6c9a480ca769cc7",
 	{"workflow.implementation", "24"}:     "sha256:2f5b7148662ffb007d1e489b74bda8ef51dfce45225c59b386292ba233312257",
+	{"workflow.implementation", "25"}:     "sha256:82ee5b214f1ed53be13b20f29bb0ae5d8c7810ca8576599dc805d4abfd8cb261",
 	{"workflow.break_fix", "21"}:          "sha256:9cae99acc96a249252a7c094e8b6958c470ca089dd8bc9e0fddd8a7430f39b85",
+	{"workflow.break_fix", "22"}:          "sha256:edc03d0011ca9e967be5eb73e3336adcf5bfdd5d8125b319ee3e361e7ceb0b7c",
 	{"workflow.research", "13"}:           "sha256:ec79e80293f12dd40fc11eac4f0413a4acd45cf76c0289436e7477b882cc3d9f",
 	{"workflow.architecture_spike", "14"}: "sha256:4cafbb1659213f0d80faf45483be186d29fcc9577090d0382989a42aa437726b",
 	{"workflow.ops_runbook", "15"}:        "sha256:547286502ff9c69fad47f5c880508a25803592f9a3befaa7700ca1541843255d",
@@ -196,19 +197,48 @@ var workflowDefinitionVersionPins = map[[2]string]string{
 	{"workflow.implementation", "23"}:     "sha256:01e95e83fbe78a4d5fc1d7a4f0c173c30b8225a62393b8a8270bfef9f6b0361b",
 	{"workflow.break_fix", "20"}:          "sha256:ceaca11a0c5df7b3feaec11eed79616a06f5c1723d234fb8cd3cbe17bd787e1e",
 	{"workflow.research", "14"}:           "sha256:4fbb43fd5ecdff2d8625584dc8e99689982a842396b3ed86bb67c2c9ab6ccb0b",
+	{"workflow.research", "15"}:           "sha256:c9b0c5a8219c846322f0cc36a38de46f47765591ca4b1a29abcf72e36abe897f",
 	{"workflow.architecture_spike", "15"}: "sha256:b8b3397d7918be844bd847e429ec5a224cf1bfe3683ef4f839077c06453bc38d",
+	{"workflow.architecture_spike", "16"}: "sha256:db298cde3c4818f873cb41e27935d3ee404273832e788212aedf3592bb1f0ba7",
 	{"workflow.ops_runbook", "16"}:        "sha256:561dfbf45762ae9ec6deca2bf599a2cd79b3befa0e521f33fb59565b827054d1",
+	{"workflow.ops_runbook", "17"}:        "sha256:6115e9c12d7ee98c1ab1f6d311eafe2eb7b8f9f1f1d577a61b7571471d6f08a0",
 	{"workflow.static_analysis", "13"}:    "sha256:ee5b49431e30dca99e60c651aa7de54f4f99fae71aa927baf034bf90fecce8ae",
+	{"workflow.static_analysis", "14"}:    "sha256:9dcc6f432eb1da4963b86e8494a20aeabc49c0b5ac459838a80704e145284299",
 	{"workflow.generic_one_off", "14"}:    "sha256:727d5743776421aa55fc0a196412bdd57005cec6e3a1125d523d0cc27d9e79b2",
-	{"workflow.implementation", "25"}:     "sha256:20fcde59a232094e7814cc341bf9fabafedde19f7a7b10e0ab458aa21f9087b4",
-	{"workflow.break_fix", "22"}:          "sha256:ea453dd201191abf9416ec7de58377da178206e014ffb323acc10677879e423a",
-	{"workflow.research", "15"}:           "sha256:39459c5619cfa1eaaa0e562d4371f21a4f9b1c4dec60aafe889e9e281c3e936f",
-	{"workflow.architecture_spike", "16"}: "sha256:729a3d0a8d08c8a16e44ce81f3638046775f70cce5bbe7a03668b97e7aaddce1",
-	{"workflow.ops_runbook", "17"}:        "sha256:f5ba15ab3ade8917adc01ade6e8ba9c3b71ce97877579eb75e75a29bf63f5d66",
-	{"workflow.static_analysis", "14"}:    "sha256:baa3b734b8574bd730366238a858cf87973596bc43ece75f35afa5f13f5cd738",
-	{"workflow.generic_one_off", "15"}:    "sha256:038d5b757f2ec92ae3cb2ef71de6a0d1e0fc984b6bf985b3b3185e6aa878c064",
-	{"workflow.implementation", "26"}:     "sha256:d3d6a16f7fab7b46112848a4fa16f3c3a0538ea30ebe73728b247762935aa1b9",
-	{"workflow.break_fix", "23"}:          "sha256:c985bcf9db9f500d2b6fe2d4c062bd4c4ad871c9161dd01013a010f26c178290",
+	{"workflow.generic_one_off", "15"}:    "sha256:263e045c468d31248a33e3f563c7703707a0428e7160cf2e28cbacdd9b8f0abe",
+	{"workflow.implementation", "26"}:     "sha256:c4a5623f94eda4ac4578462b54b84f4475997780b3e75c457367971196c02ad1",
+	{"workflow.implementation", "27"}:     "sha256:a4510246b78d843cc27efad6d09f290c057dc2fc9b21f4a92a6ad8d1c9a42252",
+	{"workflow.break_fix", "23"}:          "sha256:abd2369cdb1614c52cfe54eab9f3040e87d37ffcf70c232d1c5088e9d92f42e0",
+	{"workflow.break_fix", "24"}:          "sha256:6e4445beac1027d110bc9512a7961ee9ecdac55054f10e861fdcc89c0a056137",
+	{"workflow.research", "16"}:           "sha256:df5941b03aaf8a47af83bb070b749ae322974ed026b2d9cf44f9a066eeff5018",
+	{"workflow.architecture_spike", "17"}: "sha256:3e9d434cba63d47aadea18399c3f950b89e93a5cc69317b8685fbbee2d245e55",
+	{"workflow.ops_runbook", "18"}:        "sha256:354390116b3faf7a73524ca4bfbbfe962650f8ed8eaf73a68845d812daade63a",
+	{"workflow.static_analysis", "15"}:    "sha256:5a561e9d53d26fc0ddec0f84aa72ca5cd2a0018e92dfa5dd0732efd0a8b32ade",
+	{"workflow.generic_one_off", "16"}:    "sha256:05e53c76e3f6c712cc62f7421c22a3df4719767aba91f7a07049ba973190d8d7",
+}
+
+// TestWorkflowDefinitionDraftVersionDigests prints only the unreleased
+// definitions whose digest pins must be recorded after composing their content.
+// Run with: bin/oc-test targeted -- go test ./internal/store -run '^TestWorkflowDefinitionDraftVersionDigests$' -v -count=1 -timeout=180s
+func TestWorkflowDefinitionDraftVersionDigests(t *testing.T) {
+	for _, definition := range []WorkflowDefinition{
+		implementationWorkContextV26(), implementationOwnerOracleV27(),
+		breakFixWorkContextV23(), breakFixOwnerOracleV24(),
+		researchWorkContextV16(), architectureWorkContextV17(),
+		opsRunbookWorkContextV18(), staticAnalysisWorkContextV15(), genericOneOffWorkContextV16(),
+	} {
+		digest, err := WorkflowDefinitionDigest(definition)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Logf("%s v%d %s", definition.Ref, definition.Version, digest)
+	}
+}
+
+func TestWorkflowDefinitionDraftPromotionRetainsGaplessPins(t *testing.T) {
+	t.Run("pins", TestBuiltinDefinitionsCoverExactlyThePinnedVersions)
+	t.Run("gapless", TestBuiltinDefinitionVersionsAreGapless)
+	t.Run("latest", TestBuiltinDefinitionForRefResolvesTheLatestVersion)
 }
 
 func TestWorkflowDefinitionVersionPinsHold(t *testing.T) {
@@ -328,32 +358,26 @@ func TestWorkflowVerdictSingleFormAcrossPinnedAndBatchVersions(t *testing.T) {
 	if err := validateWorkflowActionPayload(current, "record_verdict", batchedForm); err != nil {
 		t.Fatalf("batched verdict against the batched version refused: %v", err)
 	}
-	// The store refuses the cross-field shapes the declaration cannot state:
-	// a call with both forms, neither, or an entry-level field beside the
-	// batch refuses through the shared normalizer.
-	if _, err := normalizeWorkflowVerdictEntries(mustDecodeWorkflowFields(singleForm, batchedForm)); err == nil {
-		t.Fatal("normalize admitted predicate_id beside verdicts")
+	// The store refuses the cross-field shapes the flat field list cannot
+	// state: a call with both forms, neither, or an entry-level field
+	// beside the batch refuses through the engine cross-field declaration
+	// the preflight enforces and publication branches from (CON-412);
+	// normalizeWorkflowVerdictEntries only decodes the wire shapes.
+	both := []byte(`{"contract_version":1,"predicate_id":"predicate:one","verdicts":[{"predicate_id":"predicate:one"}]}`)
+	if err := validateWorkflowActionPayload(current, "record_verdict", both); err == nil {
+		t.Fatal("validation admitted predicate_id beside verdicts")
 	}
-	neither := []byte(`{"verdict_kind":"ok"}`)
-	if _, err := normalizeWorkflowVerdictEntries(mustDecodeWorkflowFields(neither, neither)); err == nil {
-		t.Fatal("normalize admitted a call with neither form")
+	neither := []byte(`{"contract_version":1,"verdict_kind":"ok"}`)
+	if err := validateWorkflowActionPayload(current, "record_verdict", neither); err == nil {
+		t.Fatal("validation admitted a call with neither form")
 	}
-	bothAndEntry := []byte(`{"verdicts":[{"predicate_id":"predicate:one"}],"evaluation_evidence":["evidence:one"]}`)
-	if _, err := normalizeWorkflowVerdictEntries(mustDecodeWorkflowFields(bothAndEntry, bothAndEntry)); err == nil {
-		t.Fatal("normalize admitted an entry-level field beside the batch")
+	bothAndEntry := []byte(`{"contract_version":1,"verdicts":[{"predicate_id":"predicate:one"}],"evaluation_evidence":["evidence:one"]}`)
+	if err := validateWorkflowActionPayload(current, "record_verdict", bothAndEntry); err == nil {
+		t.Fatal("validation admitted an entry-level field beside the batch")
 	}
-}
-
-// mustDecodeWorkflowFields decodes payload bytes into the field map shape the
-// verdict normalizer reads, failing the test on malformed test input.
-func mustDecodeWorkflowFields(payloads ...json.RawMessage) map[string]json.RawMessage {
-	fields := map[string]json.RawMessage{}
-	for _, payload := range payloads {
-		if err := json.Unmarshal(payload, &fields); err != nil {
-			panic(err)
-		}
+	if err := validateWorkflowActionPayload(pinned.Definition, "record_verdict", singleForm); err != nil {
+		t.Fatalf("single-form verdict against the pinned version refused: %v", err)
 	}
-	return fields
 }
 
 func TestBuiltinDefinitionVersionContinuityRejectsGap(t *testing.T) {
@@ -374,13 +398,13 @@ func TestBuiltinDefinitionVersionContinuityRejectsGap(t *testing.T) {
 func TestBuiltinDefinitionForRefResolvesTheLatestVersion(t *testing.T) {
 	t.Parallel()
 	cases := map[string]int64{
-		"workflow.break_fix":          23,
-		"workflow.implementation":     26,
-		"workflow.generic_one_off":    15,
-		"workflow.research":           15,
-		"workflow.architecture_spike": 16,
-		"workflow.ops_runbook":        17,
-		"workflow.static_analysis":    14,
+		"workflow.break_fix":          24,
+		"workflow.implementation":     27,
+		"workflow.generic_one_off":    16,
+		"workflow.research":           16,
+		"workflow.architecture_spike": 17,
+		"workflow.ops_runbook":        18,
+		"workflow.static_analysis":    15,
 	}
 	for ref, version := range cases {
 		registered, err := BuiltinWorkflowDefinitionForRef(ref)

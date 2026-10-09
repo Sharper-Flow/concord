@@ -492,11 +492,6 @@ for these distinct populations.
   and the convention cutoff stays exact. The complete-step
   supersede is the implementation or break_fix external-effect
   return, and the rest of the families refuse the route.
-- **Rewriting CD-0143, CD-0201, CD-0204 in place.** Rejected:
-  accepted law changes through an explicit amendment record that
-  carries its own authority and approval. The amendments D1 names
-  are pointer amendments only, and the body of each accepted
-  record is preserved.
 - **Fabricating a workflow record for the operator authorization.**
   Rejected: CD-0122 D2 forbids fabricating, rewriting, or
   inferring Concord workflow records. The amendment runs under the

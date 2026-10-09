@@ -34,7 +34,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:bc34d4e53e5caa0e8e5238aa0f21fb4a9cb64ec188f59c7e92661fb507bf2434",
+  "sha256": "sha256:e4bd502be60f7101597e5a50a16d59d4bab594b9bda60a82ca901983854e7e47",
   "status": "accepted",
   "summary": "A rejected refinement result and an accepted no_ship review open the same settling review obligation. Shared oracle context retains canonical finding IDs, bindings, and receipt references without productive acceptance or a new convergence basis. Existing correction records use the exact derived open set; outside-scope P0 follow-ups stay visible without becoming repair obligations. Delivery remains held until a fresh accepted ship or legacy absent verdict settles the debt. Only the newest completed review can bind; historical freshness and recovery remain unchanged.",
   "tags": [

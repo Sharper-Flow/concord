@@ -38,6 +38,11 @@ type actionContract struct {
 	// unauthorable. The closed-empty shapes are the pre-contract open
 	// payload era and keep their historical handling.
 	LegacyPayloads []store.WorkflowPayloadDefinition `json:"legacy_payloads"`
+	// CrossField projects the engine registry's cross-field declaration for
+	// this action — the same single declaration workflowActionCrossField
+	// resolves for core validation. It rides the action contract, never the
+	// digest-covered payload definition (CON-412).
+	CrossField store.WorkflowActionCrossField `json:"cross_field"`
 }
 
 type workflowOutcomeContract struct {
@@ -48,9 +53,10 @@ type workflowOutcomeContract struct {
 }
 
 type contractProjection struct {
-	SchemaVersion string                    `json:"schema_version"`
-	Actions       []actionContract          `json:"actions"`
-	Workflows     []workflowOutcomeContract `json:"workflows"`
+	SchemaVersion string                         `json:"schema_version"`
+	Actions       []actionContract               `json:"actions"`
+	Workflows     []workflowOutcomeContract      `json:"workflows"`
+	Teaching      store.WorkflowContractTeaching `json:"teaching"`
 }
 
 // canonicalPayload normalizes a payload for comparison: a nil field list
@@ -100,7 +106,7 @@ func collectActionContracts(current []store.WorkflowDefinition, recovery []store
 		variant := payloadVariant{Payload: canonicalPayload(action.Payload), PublicPayload: canonicalPayload(public)}
 		contract, ok := contracts[action.ID]
 		if !ok {
-			contract = actionContract{ID: action.ID, Variants: []payloadVariant{}, LegacyPayloads: []store.WorkflowPayloadDefinition{}}
+			contract = actionContract{ID: action.ID, Variants: []payloadVariant{}, LegacyPayloads: []store.WorkflowPayloadDefinition{}, CrossField: store.WorkflowActionCrossFieldRules(action.ID)}
 		}
 		for _, existing := range contract.Variants {
 			if reflect.DeepEqual(existing, variant) {
@@ -217,7 +223,7 @@ func main() {
 			DecisionRecordRequired: definition.OutcomeSchema.DecisionRecordRequired,
 		})
 	}
-	projection := contractProjection{SchemaVersion: "1.0", Actions: make([]actionContract, 0, len(ids)), Workflows: workflows}
+	projection := contractProjection{SchemaVersion: "1.0", Actions: make([]actionContract, 0, len(ids)), Workflows: workflows, Teaching: store.WorkflowContractTeachingRules()}
 	for _, id := range ids {
 		projection.Actions = append(projection.Actions, contracts[id])
 	}

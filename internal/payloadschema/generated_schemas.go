@@ -3202,6 +3202,217 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "object"
     },
+    "outside_repair_disposition": {
+      "additionalProperties": false,
+      "properties": {
+        "approval_ref": {
+          "$ref": "#/$defs/id"
+        },
+        "evidence": {
+          "$ref": "#/$defs/outside_repair_evidence"
+        },
+        "reason": {
+          "maxLength": 4096,
+          "minLength": 2,
+          "type": "string"
+        },
+        "recorded_at": {
+          "maxLength": 64,
+          "minLength": 1,
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "active",
+            "completed",
+            "resumed"
+          ],
+          "type": "string"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "reason",
+        "approval_ref",
+        "state",
+        "recorded_at"
+      ],
+      "type": "object"
+    },
+    "outside_repair_evidence": {
+      "additionalProperties": false,
+      "properties": {
+        "authority_ref": {
+          "$ref": "#/$defs/id"
+        },
+        "observed_at": {
+          "format": "date-time",
+          "maxLength": 64,
+          "minLength": 20,
+          "type": "string"
+        },
+        "published_at": {
+          "format": "date-time",
+          "maxLength": 64,
+          "minLength": 20,
+          "type": "string"
+        },
+        "pull_requests": {
+          "items": {
+            "$ref": "#/$defs/outside_repair_pull_request_evidence"
+          },
+          "maxItems": 32,
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "release_sha": {
+          "$ref": "#/$defs/outside_repair_git_sha"
+        },
+        "release_tag": {
+          "$ref": "#/$defs/outside_repair_release_tag"
+        },
+        "release_url": {
+          "maxLength": 768,
+          "minLength": 24,
+          "type": "string"
+        },
+        "repository": {
+          "maxLength": 256,
+          "minLength": 3,
+          "pattern": "^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "authority_ref",
+        "observed_at",
+        "repository",
+        "pull_requests",
+        "release_tag",
+        "release_url",
+        "release_sha",
+        "published_at"
+      ],
+      "type": "object"
+    },
+    "outside_repair_git_sha": {
+      "maxLength": 64,
+      "minLength": 40,
+      "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
+      "type": "string"
+    },
+    "outside_repair_pr_selectors": {
+      "description": "Bounded caller selectors for the merged pull requests the outside repair closes from.",
+      "items": {
+        "minimum": 1,
+        "type": "integer"
+      },
+      "maxItems": 32,
+      "minItems": 1,
+      "type": "array",
+      "uniqueItems": true
+    },
+    "outside_repair_pull_request_evidence": {
+      "additionalProperties": false,
+      "properties": {
+        "head_sha": {
+          "$ref": "#/$defs/outside_repair_git_sha"
+        },
+        "merge_sha": {
+          "$ref": "#/$defs/outside_repair_git_sha"
+        },
+        "merged_at": {
+          "format": "date-time",
+          "maxLength": 64,
+          "minLength": 20,
+          "type": "string"
+        },
+        "number": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "required_checks": {
+          "items": {
+            "$ref": "#/$defs/outside_repair_required_check"
+          },
+          "maxItems": 64,
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "url": {
+          "maxLength": 512,
+          "minLength": 20,
+          "type": "string"
+        }
+      },
+      "required": [
+        "url",
+        "number",
+        "head_sha",
+        "merge_sha",
+        "merged_at",
+        "required_checks"
+      ],
+      "type": "object"
+    },
+    "outside_repair_release_tag": {
+      "description": "Bounded caller selector for the published release the outside repair closes against.",
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9._-]+$",
+      "type": "string"
+    },
+    "outside_repair_required_check": {
+      "additionalProperties": false,
+      "description": "One required check the boundary authenticated on the immutable PR head, carrying its exact native check-run, workflow-run and job identities (CD-0210 D2) so distinct checks in one run stay distinguishable and a rerun cannot rewrite the receipt.",
+      "properties": {
+        "check_run_id": {
+          "description": "The native GitHub check-run identity that reported this required check.",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "commit_sha": {
+          "$ref": "#/$defs/outside_repair_git_sha"
+        },
+        "conclusion": {
+          "const": "success",
+          "type": "string"
+        },
+        "job_id": {
+          "description": "The native Actions job identity that proved this check on the fetched run.",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "name": {
+          "$ref": "#/$defs/short"
+        },
+        "run_id": {
+          "description": "The native Actions workflow-run identity whose URL the receipt names.",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "url": {
+          "maxLength": 1024,
+          "minLength": 14,
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "url",
+        "commit_sha",
+        "conclusion",
+        "check_run_id",
+        "run_id",
+        "job_id"
+      ],
+      "type": "object"
+    },
     "page": {
       "additionalProperties": false,
       "properties": {
@@ -4074,11 +4285,13 @@ const GeneratedPayloadSchemaDocument = `{
       "type": "string"
     },
     "reference": {
-      "description": "A workflow reference list item: whitespace-free, 2-128 chars, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths.",
+      "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths.",
       "maxLength": 128,
-      "minLength": 2,
+      "minLength": 1,
       "pattern": "^\\S+$",
-      "type": "string"
+      "type": "string",
+      "x-maxBytes": 128,
+      "x-minBytes": 2
     },
     "relation_link_kind": {
       "description": "Stored relation kinds an ordinary relate.link request may name. Derived from contracts/relation-vocabulary.v1.json: every kind whose link is allowed or refused. A refused kind is admitted here so the runtime can answer with the composite operation that owns it, rather than a bare enum mismatch.",
@@ -6781,6 +6994,75 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_pin": {
       "additionalProperties": false,
+      "allOf": [
+        {
+          "else": {
+            "description": "CD-0210: an ordinary or resumed pin runs the managed instance read, so the workflow identity stays strict and the registry-verified definition identity — version, digest, and the declared obligation set — is required in full.",
+            "properties": {
+              "step": {
+                "$ref": "#/$defs/short"
+              },
+              "workflow_type": {
+                "$ref": "#/$defs/id"
+              }
+            },
+            "required": [
+              "workflow_definition_version",
+              "workflow_definition_digest",
+              "obligations"
+            ]
+          },
+          "if": {
+            "properties": {
+              "outside_repair_disposition": {
+                "properties": {
+                  "state": {
+                    "enum": [
+                      "active",
+                      "completed"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "state"
+                ]
+              }
+            },
+            "required": [
+              "outside_repair_disposition"
+            ]
+          },
+          "then": {
+            "description": "CD-0210: an active or completed outside-repair disposition grants no managed pin authority. The pin suppresses managed action prompts and carries a typed absence of the verified workflow-definition identity: the version, digest, and obligations keys are omitted, never zero-filled or fabricated, because the hold reads raw instance identity only.",
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "workflow_definition_version"
+                  ]
+                },
+                {
+                  "required": [
+                    "workflow_definition_digest"
+                  ]
+                },
+                {
+                  "required": [
+                    "obligations"
+                  ]
+                }
+              ]
+            },
+            "properties": {
+              "next_valid_intents": {
+                "maxItems": 0,
+                "type": "array"
+              }
+            }
+          }
+        }
+      ],
       "properties": {
         "attempt": {
           "oneOf": [
@@ -6860,6 +7142,33 @@ const GeneratedPayloadSchemaDocument = `{
           "maxItems": 16,
           "type": "array"
         },
+        "obligations": {
+          "description": "Sorted exact evidence obligation IDs the pinned definition declares across root, step, and rigor declarations; the same collector admission reads.",
+          "items": {
+            "maxLength": 64,
+            "minLength": 3,
+            "type": "string"
+          },
+          "maxItems": 64,
+          "minItems": 0,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "outside_repair_disposition": {
+          "$ref": "#/$defs/outside_repair_disposition"
+        },
+        "outside_repair_route": {
+          "description": "The declared outside-repair reconciliation operation, with completed and resume modes (CD-0210).",
+          "items": {
+            "enum": [
+              "outside_repair_reconcile"
+            ],
+            "type": "string"
+          },
+          "maxItems": 1,
+          "minItems": 1,
+          "type": "array"
+        },
         "pending_operator_decision": {
           "oneOf": [
             {
@@ -6887,7 +7196,8 @@ const GeneratedPayloadSchemaDocument = `{
           ]
         },
         "step": {
-          "$ref": "#/$defs/short"
+          "maxLength": 256,
+          "type": "string"
         },
         "title": {
           "$ref": "#/$defs/short"
@@ -6930,8 +7240,18 @@ const GeneratedPayloadSchemaDocument = `{
         "work_id": {
           "$ref": "#/$defs/id"
         },
+        "workflow_definition_digest": {
+          "$ref": "#/$defs/digest",
+          "description": "Registry digest of the pinned workflow definition; verifies through the builtin registry."
+        },
+        "workflow_definition_version": {
+          "description": "Version of the pinned workflow definition the registry verified for this pin.",
+          "minimum": 1,
+          "type": "integer"
+        },
         "workflow_type": {
-          "$ref": "#/$defs/id"
+          "maxLength": 128,
+          "type": "string"
         }
       },
       "required": [
@@ -8274,15 +8594,298 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_transition_action_input": {
       "additionalProperties": false,
+      "anyOf": [
+        {
+          "$ref": "#/$defs/work_transition_action_variant_accept_decision"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_accept_worker_evidence"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_accept_worker_result"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_add_condition"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_approve_contract"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_approve_operation"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_bind_evidence"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_cancel_condition"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_checkpoint_action"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_checkpoint_analysis"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_checkpoint_context"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_checkpoint_execution"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_checkpoint_poc"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_checkpoint_refine"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_checkpoint_repair"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_checkpoint_run"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_cleanup_run"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_complete"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_confirm_premise"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_cross_context_boundary"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_declare_impact"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_declare_scope"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_discard_poc"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_dispatch_worker"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_frame_question"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_frame_research"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_link_successor"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_record_alignment"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_record_conclusion"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_record_decision"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_record_delivery"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_record_design"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_record_discovery"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_record_finding"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_record_health"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_record_option"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_record_proposal"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_record_report"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_record_reproduction"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_record_research"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_record_root_cause"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_record_verdict"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_record_work_context"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_record_worker_failure"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_record_worker_job"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_reject_worker_result"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_request_correction"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_resolve_condition"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_revise_candidates"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_rollback_run"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_run_analysis"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_start_action"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_start_execution"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_start_poc"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_start_refine"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_start_repair"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_start_run"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_supersede_contract"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_legacy_input"
+        }
+      ],
+      "properties": {
+        "action_id": {
+          "$ref": "#/$defs/id"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "decision_context_digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/evidence"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "fields": {},
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "research_bindings": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "pack_id": {
+                "$ref": "#/$defs/id"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "revision": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "use_role": {
+                "enum": [
+                  "context",
+                  "design_input",
+                  "verification_basis",
+                  "decision_basis"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "pack_id",
+              "revision",
+              "use_role",
+              "required"
+            ],
+            "type": "object"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "type": "array"
+        },
+        "selected_choice": {
+          "enum": [
+            "confirm",
+            "revise",
+            "stop"
+          ],
+          "type": "string"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "expected_version",
+        "action_id",
+        "idempotency_key"
+      ],
+      "type": "object"
+    },
+    "work_transition_action_legacy_input": {
+      "additionalProperties": false,
       "allOf": [
         {
-          "$ref": "#/$defs/work_transition_action_shared_input"
+          "anyOf": [
+            {
+              "properties": {
+                "action_id": {
+                  "enum": [
+                    "accept_worker_result",
+                    "record_decision",
+                    "record_delivery",
+                    "record_design",
+                    "record_proposal",
+                    "record_worker_job"
+                  ],
+                  "type": "string"
+                }
+              },
+              "required": [
+                "action_id"
+              ]
+            }
+          ]
         },
         {
           "if": {
             "properties": {
               "action_id": {
-                "const": "dispatch_worker"
+                "const": "accept_worker_result"
               }
             },
             "required": [
@@ -8290,37 +8893,314 @@ const GeneratedPayloadSchemaDocument = `{
             ]
           },
           "then": {
-            "not": {
-              "anyOf": [
-                {
-                  "required": [
-                    "selected_choice"
-                  ]
-                },
-                {
-                  "required": [
-                    "decision_context_digest"
-                  ]
-                }
-              ]
-            },
             "properties": {
               "fields": {
                 "additionalProperties": false,
                 "maxProperties": 32,
                 "properties": {
-                  "attempt_id": {
-                    "$ref": "#/$defs/reference",
-                    "maxLength": 128,
-                    "minLength": 2
+                  "attempt_epoch": {
+                    "maximum": 2147483647,
+                    "minimum": 1,
+                    "type": "integer"
                   },
-                  "worker_packet": {
-                    "$ref": "#/$defs/worker_packet"
+                  "attempt_id": {
+                    "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths.",
+                    "maxLength": 128,
+                    "minLength": 1,
+                    "pattern": "^\\S+$",
+                    "type": "string",
+                    "x-maxBytes": 128,
+                    "x-minBytes": 2
                   }
                 },
                 "required": [
                   "attempt_id",
-                  "worker_packet"
+                  "attempt_epoch"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "fields"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action_id": {
+                "const": "record_decision"
+              }
+            },
+            "required": [
+              "action_id"
+            ]
+          },
+          "then": {
+            "properties": {
+              "fields": {
+                "additionalProperties": false,
+                "maxProperties": 32,
+                "properties": {},
+                "type": "object"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action_id": {
+                "const": "record_delivery"
+              }
+            },
+            "required": [
+              "action_id"
+            ]
+          },
+          "then": {
+            "properties": {
+              "fields": {
+                "additionalProperties": false,
+                "maxProperties": 32,
+                "properties": {},
+                "type": "object"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action_id": {
+                "const": "record_design"
+              }
+            },
+            "required": [
+              "action_id"
+            ]
+          },
+          "then": {
+            "properties": {
+              "fields": {
+                "additionalProperties": false,
+                "maxProperties": 32,
+                "properties": {},
+                "type": "object"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action_id": {
+                "const": "record_proposal"
+              }
+            },
+            "required": [
+              "action_id"
+            ]
+          },
+          "then": {
+            "anyOf": [
+              {
+                "properties": {
+                  "fields": {
+                    "additionalProperties": false,
+                    "maxProperties": 32,
+                    "properties": {},
+                    "type": "object"
+                  }
+                }
+              },
+              {
+                "properties": {
+                  "fields": {
+                    "additionalProperties": false,
+                    "maxProperties": 32,
+                    "properties": {
+                      "affected": {
+                        "items": {
+                          "$ref": "#/$defs/proposal_affected_text"
+                        },
+                        "maxItems": 16,
+                        "minItems": 1,
+                        "type": "array",
+                        "uniqueItems": true
+                      },
+                      "constraints": {
+                        "items": {
+                          "$ref": "#/$defs/proposal_text"
+                        },
+                        "maxItems": 16,
+                        "minItems": 0,
+                        "type": "array",
+                        "uniqueItems": true
+                      },
+                      "open_questions": {
+                        "items": {
+                          "$ref": "#/$defs/proposal_text"
+                        },
+                        "maxItems": 16,
+                        "minItems": 0,
+                        "type": "array",
+                        "uniqueItems": true
+                      },
+                      "problem": {
+                        "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
+                        "maxLength": 4096,
+                        "minLength": 1,
+                        "pattern": "\\S",
+                        "type": "string",
+                        "x-maxBytes": 4096
+                      },
+                      "stakes": {
+                        "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
+                        "maxLength": 2048,
+                        "minLength": 1,
+                        "pattern": "\\S",
+                        "type": "string",
+                        "x-maxBytes": 2048
+                      },
+                      "user_outcomes": {
+                        "items": {
+                          "$ref": "#/$defs/proposal_text"
+                        },
+                        "maxItems": 16,
+                        "minItems": 1,
+                        "type": "array",
+                        "uniqueItems": true
+                      }
+                    },
+                    "required": [
+                      "problem",
+                      "affected",
+                      "stakes",
+                      "user_outcomes"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "fields"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action_id": {
+                "const": "record_worker_job"
+              }
+            },
+            "required": [
+              "action_id"
+            ]
+          },
+          "then": {
+            "properties": {
+              "fields": {
+                "additionalProperties": false,
+                "maxProperties": 32,
+                "properties": {
+                  "checks": {
+                    "items": {
+                      "$ref": "#/$defs/worker_job_text"
+                    },
+                    "maxItems": 64,
+                    "minItems": 0,
+                    "type": "array",
+                    "uniqueItems": true
+                  },
+                  "job_id": {
+                    "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths.",
+                    "maxLength": 128,
+                    "minLength": 1,
+                    "pattern": "^\\S+$",
+                    "type": "string",
+                    "x-maxBytes": 128,
+                    "x-minBytes": 2
+                  },
+                  "objective": {
+                    "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
+                    "maxLength": 4096,
+                    "minLength": 1,
+                    "pattern": "\\S",
+                    "type": "string",
+                    "x-maxBytes": 4096
+                  },
+                  "path_scope": {
+                    "items": {
+                      "$ref": "#/$defs/reference"
+                    },
+                    "maxItems": 64,
+                    "minItems": 0,
+                    "type": "array",
+                    "uniqueItems": true
+                  },
+                  "predicate_ids": {
+                    "items": {
+                      "$ref": "#/$defs/id"
+                    },
+                    "maxItems": 8,
+                    "minItems": 0,
+                    "type": "array",
+                    "uniqueItems": true
+                  },
+                  "prerequisites": {
+                    "items": {
+                      "$ref": "#/$defs/worker_job_prerequisite"
+                    },
+                    "maxItems": 64,
+                    "minItems": 0,
+                    "type": "array"
+                  },
+                  "readiness_evidence": {
+                    "items": {
+                      "$ref": "#/$defs/reference"
+                    },
+                    "maxItems": 16,
+                    "minItems": 0,
+                    "type": "array",
+                    "uniqueItems": true
+                  },
+                  "ready": {
+                    "type": "boolean"
+                  },
+                  "reserved_integration": {
+                    "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
+                    "maxLength": 4096,
+                    "minLength": 1,
+                    "pattern": "\\S",
+                    "type": "string",
+                    "x-maxBytes": 4096
+                  },
+                  "stopping_condition": {
+                    "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
+                    "maxLength": 2048,
+                    "minLength": 1,
+                    "pattern": "\\S",
+                    "type": "string",
+                    "x-maxBytes": 2048
+                  },
+                  "unresolved_refs": {
+                    "items": {
+                      "$ref": "#/$defs/worker_job_text"
+                    },
+                    "maxItems": 64,
+                    "minItems": 0,
+                    "type": "array",
+                    "uniqueItems": true
+                  }
+                },
+                "required": [
+                  "job_id",
+                  "objective",
+                  "stopping_condition",
+                  "ready"
                 ],
                 "type": "object"
               }
@@ -8416,57 +9296,180 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_transition_action_public_input": {
       "additionalProperties": false,
-      "allOf": [
+      "anyOf": [
         {
-          "$ref": "#/$defs/work_transition_action_shared_input"
+          "$ref": "#/$defs/work_transition_action_variant_accept_decision"
         },
         {
-          "if": {
-            "properties": {
-              "action_id": {
-                "const": "dispatch_worker"
-              }
-            },
-            "required": [
-              "action_id"
-            ]
-          },
-          "then": {
-            "not": {
-              "anyOf": [
-                {
-                  "required": [
-                    "selected_choice"
-                  ]
-                },
-                {
-                  "required": [
-                    "decision_context_digest"
-                  ]
-                }
-              ]
-            },
-            "properties": {
-              "fields": {
-                "additionalProperties": false,
-                "maxProperties": 32,
-                "properties": {
-                  "lane_id": {
-                    "$ref": "#/$defs/reference",
-                    "maxLength": 128,
-                    "minLength": 2
-                  }
-                },
-                "required": [
-                  "lane_id"
-                ],
-                "type": "object"
-              }
-            },
-            "required": [
-              "fields"
-            ]
-          }
+          "$ref": "#/$defs/work_transition_action_variant_accept_worker_evidence"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_accept_worker_result"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_add_condition"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_approve_contract"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_approve_operation"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_bind_evidence"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_cancel_condition"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_checkpoint_action"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_checkpoint_analysis"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_checkpoint_context"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_checkpoint_execution"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_checkpoint_poc"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_checkpoint_refine"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_checkpoint_repair"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_checkpoint_run"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_cleanup_run"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_complete"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_confirm_premise"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_cross_context_boundary"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_declare_impact"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_declare_scope"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_discard_poc"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_public_variant_dispatch_worker"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_frame_question"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_frame_research"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_link_successor"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_record_alignment"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_record_conclusion"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_record_decision"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_record_delivery"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_record_design"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_record_discovery"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_record_finding"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_record_health"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_record_option"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_record_proposal"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_record_report"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_record_reproduction"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_record_research"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_record_root_cause"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_record_verdict"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_record_work_context"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_record_worker_failure"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_record_worker_job"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_reject_worker_result"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_request_correction"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_resolve_condition"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_revise_candidates"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_rollback_run"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_run_analysis"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_start_action"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_start_execution"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_start_poc"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_start_refine"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_start_repair"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_start_run"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_supersede_contract"
         }
       ],
       "properties": {
@@ -8552,4237 +9555,2477 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "object"
     },
-    "work_transition_action_shared_input": {
+    "work_transition_action_public_variant_dispatch_worker": {
       "additionalProperties": false,
-      "allOf": [
-        {
-          "if": {
-            "properties": {
-              "action_id": {
-                "const": "accept_decision"
-              }
-            },
-            "required": [
-              "action_id"
-            ]
-          },
-          "then": {
-            "not": {
-              "anyOf": [
-                {
-                  "required": [
-                    "selected_choice"
-                  ]
-                },
-                {
-                  "required": [
-                    "decision_context_digest"
-                  ]
-                }
-              ]
-            },
-            "properties": {
-              "fields": {
-                "additionalProperties": false,
-                "maxProperties": 32,
-                "properties": {
-                  "evidence_kind": {
-                    "enum": [
-                      "verification",
-                      "review",
-                      "approval",
-                      "commit",
-                      "durable_note",
-                      "native_run",
-                      "artifact"
-                    ],
-                    "type": "string"
-                  },
-                  "evidence_ref": {
-                    "$ref": "#/$defs/reference",
-                    "maxLength": 128,
-                    "minLength": 2
-                  },
-                  "immutable_subject_ref": {
-                    "$ref": "#/$defs/reference",
-                    "maxLength": 128,
-                    "minLength": 2
-                  },
-                  "producer_id": {
-                    "$ref": "#/$defs/reference",
-                    "maxLength": 128,
-                    "minLength": 2
-                  },
-                  "producer_run_ref": {
-                    "$ref": "#/$defs/reference",
-                    "maxLength": 128,
-                    "minLength": 2
-                  },
-                  "producer_watermark": {
-                    "$ref": "#/$defs/reference",
-                    "maxLength": 128,
-                    "minLength": 2
-                  }
-                },
-                "type": "object"
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "action_id": {
-                "const": "accept_worker_evidence"
-              }
-            },
-            "required": [
-              "action_id"
-            ]
-          },
-          "then": {
-            "not": {
-              "anyOf": [
-                {
-                  "required": [
-                    "selected_choice"
-                  ]
-                },
-                {
-                  "required": [
-                    "decision_context_digest"
-                  ]
-                }
-              ]
-            },
-            "properties": {
-              "fields": {
-                "additionalProperties": false,
-                "maxProperties": 32,
-                "properties": {
-                  "attempt_epoch": {
-                    "maximum": 2147483647,
-                    "minimum": 1,
-                    "type": "integer"
-                  },
-                  "attempt_id": {
-                    "$ref": "#/$defs/reference",
-                    "maxLength": 128,
-                    "minLength": 2
-                  }
-                },
-                "required": [
-                  "attempt_id",
-                  "attempt_epoch"
-                ],
-                "type": "object"
-              }
-            },
-            "required": [
-              "fields"
-            ]
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "action_id": {
-                "const": "accept_worker_result"
-              }
-            },
-            "required": [
-              "action_id"
-            ]
-          },
-          "then": {
-            "anyOf": [
-              {
-                "not": {
-                  "anyOf": [
-                    {
-                      "required": [
-                        "selected_choice"
-                      ]
-                    },
-                    {
-                      "required": [
-                        "decision_context_digest"
-                      ]
-                    }
-                  ]
-                },
-                "properties": {
-                  "fields": {
-                    "additionalProperties": false,
-                    "maxProperties": 32,
-                    "properties": {
-                      "attempt_epoch": {
-                        "maximum": 2147483647,
-                        "minimum": 1,
-                        "type": "integer"
-                      },
-                      "attempt_id": {
-                        "$ref": "#/$defs/reference",
-                        "maxLength": 128,
-                        "minLength": 2
-                      },
-                      "delivery_artifact": {
-                        "$ref": "#/$defs/reference",
-                        "maxLength": 128,
-                        "minLength": 2
-                      },
-                      "delivery_state": {
-                        "enum": [
-                          "asserted"
-                        ],
-                        "type": "string"
-                      }
-                    },
-                    "required": [
-                      "attempt_id",
-                      "attempt_epoch"
-                    ],
-                    "type": "object"
-                  }
-                },
-                "required": [
-                  "fields"
-                ]
-              },
-              {
-                "not": {
-                  "anyOf": [
-                    {
-                      "required": [
-                        "selected_choice"
-                      ]
-                    },
-                    {
-                      "required": [
-                        "decision_context_digest"
-                      ]
-                    }
-                  ]
-                },
-                "properties": {
-                  "fields": {
-                    "additionalProperties": false,
-                    "maxProperties": 32,
-                    "properties": {
-                      "attempt_epoch": {
-                        "maximum": 2147483647,
-                        "minimum": 1,
-                        "type": "integer"
-                      },
-                      "attempt_id": {
-                        "$ref": "#/$defs/reference",
-                        "maxLength": 128,
-                        "minLength": 2
-                      }
-                    },
-                    "required": [
-                      "attempt_id",
-                      "attempt_epoch"
-                    ],
-                    "type": "object"
-                  }
-                },
-                "required": [
-                  "fields"
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "action_id": {
-                "const": "add_condition"
-              }
-            },
-            "required": [
-              "action_id"
-            ]
-          },
-          "then": {
-            "not": {
-              "anyOf": [
-                {
-                  "required": [
-                    "selected_choice"
-                  ]
-                },
-                {
-                  "required": [
-                    "decision_context_digest"
-                  ]
-                }
-              ]
-            },
-            "properties": {
-              "fields": {
-                "additionalProperties": false,
-                "maxProperties": 32,
-                "properties": {
-                  "await_ref": {
-                    "$ref": "#/$defs/reference",
-                    "maxLength": 128,
-                    "minLength": 2
-                  },
-                  "await_type": {
-                    "enum": [
-                      "pr_merge",
-                      "ci_result",
-                      "timer",
-                      "human_approval",
-                      "remote_work_state"
-                    ],
-                    "type": "string"
-                  },
-                  "condition_id": {
-                    "$ref": "#/$defs/reference",
-                    "maxLength": 128,
-                    "minLength": 2
-                  },
-                  "expected_within_seconds": {
-                    "description": "CD-0184: this wait bounds an event a declared authority can resolve while the item is open. Do not hold the item open to observe production over a time window. Capture that observation as a follow-up work item and link it raised_from the delivering item.",
-                    "maximum": 31536000,
-                    "minimum": 1,
-                    "type": "integer"
-                  },
-                  "resolution_authority": {
-                    "$ref": "#/$defs/reference",
-                    "maxLength": 128,
-                    "minLength": 2
-                  }
-                },
-                "type": "object"
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "action_id": {
-                "const": "approve_contract"
-              }
-            },
-            "required": [
-              "action_id"
-            ]
-          },
-          "then": {
-            "not": {
-              "anyOf": [
-                {
-                  "required": [
-                    "selected_choice"
-                  ]
-                },
-                {
-                  "required": [
-                    "decision_context_digest"
-                  ]
-                }
-              ]
-            },
-            "properties": {
-              "fields": {
-                "additionalProperties": false,
-                "maxProperties": 32,
-                "properties": {
-                  "architecture_binding": {
-                    "$ref": "#/$defs/architecture_binding"
-                  },
-                  "contract_version": {
-                    "maximum": 2147483647,
-                    "minimum": 1,
-                    "type": "integer"
-                  },
-                  "law_modifies": {
-                    "items": {
-                      "$ref": "#/$defs/law_id"
-                    },
-                    "maxItems": 32,
-                    "minItems": 0,
-                    "type": "array",
-                    "uniqueItems": true
-                  },
-                  "outcome_predicates": {
-                    "$ref": "#/$defs/workflow_action_outcome_predicates",
-                    "maxItems": 8,
-                    "minItems": 1
-                  },
-                  "premise": {
-                    "description": "JSON Schema maxLength counts Unicode code points. Store admission also applies the same numerical limit to UTF-8 bytes (WorkflowPremiseMaxLength), so multibyte objectives must fit the byte allowance. This approval bound applies to objective content, not an OpenCode Task prompt or model-token limit. Do not truncate an approved objective or repeat its approval to repair packet projection.",
-                    "maxLength": 4096,
-                    "minLength": 1,
-                    "not": {
-                      "enum": [
-                        "workflow premise"
-                      ],
-                      "type": "string"
-                    },
-                    "pattern": "\\S",
-                    "type": "string"
-                  },
-                  "proposed_route_conventions": {
-                    "items": {
-                      "$ref": "#/$defs/reference"
-                    },
-                    "maxItems": 16,
-                    "minItems": 0,
-                    "type": "array",
-                    "uniqueItems": true
-                  },
-                  "required_evidence": {
-                    "items": {
-                      "enum": [
-                        "verification",
-                        "review",
-                        "approval",
-                        "commit",
-                        "durable_note",
-                        "native_run",
-                        "artifact"
-                      ],
-                      "type": "string"
-                    },
-                    "maxItems": 7,
-                    "minItems": 0,
-                    "type": "array",
-                    "uniqueItems": true
-                  },
-                  "required_route_conventions": {
-                    "items": {
-                      "$ref": "#/$defs/reference"
-                    },
-                    "maxItems": 16,
-                    "minItems": 0,
-                    "type": "array",
-                    "uniqueItems": true
-                  },
-                  "rigor_class": {
-                    "enum": [
-                      "prototype_internal",
-                      "prototype_trusted",
-                      "prototype_public",
-                      "prototype_safety_critical",
-                      "production_internal",
-                      "production_trusted",
-                      "production_public",
-                      "production_safety_critical",
-                      "critical_internal",
-                      "critical_trusted",
-                      "critical_public",
-                      "critical_safety_critical"
-                    ],
-                    "type": "string"
-                  },
-                  "route_convention": {
-                    "enum": [
-                      "workflow_action"
-                    ],
-                    "type": "string"
-                  },
-                  "route_conventions": {
-                    "items": {
-                      "$ref": "#/$defs/reference"
-                    },
-                    "maxItems": 16,
-                    "minItems": 0,
-                    "type": "array",
-                    "uniqueItems": true
-                  },
-                  "spec_mandate": {
-                    "items": {
-                      "$ref": "#/$defs/law_id"
-                    },
-                    "maxItems": 32,
-                    "minItems": 0,
-                    "type": "array",
-                    "uniqueItems": true
-                  }
-                },
-                "required": [
-                  "premise",
-                  "outcome_predicates"
-                ],
-                "type": "object"
-              }
-            },
-            "required": [
-              "fields"
-            ]
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "action_id": {
-                "const": "approve_operation"
-              }
-            },
-            "required": [
-              "action_id"
-            ]
-          },
-          "then": {
-            "not": {
-              "anyOf": [
-                {
-                  "required": [
-                    "selected_choice"
-                  ]
-                },
-                {
-                  "required": [
-                    "decision_context_digest"
-                  ]
-                }
-              ]
-            },
-            "properties": {
-              "fields": {
-                "additionalProperties": false,
-                "maxProperties": 32,
-                "properties": {
-                  "evidence_kind": {
-                    "enum": [
-                      "verification",
-                      "review",
-                      "approval",
-                      "commit",
-                      "durable_note",
-                      "native_run",
-                      "artifact"
-                    ],
-                    "type": "string"
-                  },
-                  "evidence_ref": {
-                    "$ref": "#/$defs/reference",
-                    "maxLength": 128,
-                    "minLength": 2
-                  },
-                  "immutable_subject_ref": {
-                    "$ref": "#/$defs/reference",
-                    "maxLength": 128,
-                    "minLength": 2
-                  },
-                  "producer_id": {
-                    "$ref": "#/$defs/reference",
-                    "maxLength": 128,
-                    "minLength": 2
-                  },
-                  "producer_run_ref": {
-                    "$ref": "#/$defs/reference",
-                    "maxLength": 128,
-                    "minLength": 2
-                  },
-                  "producer_watermark": {
-                    "$ref": "#/$defs/reference",
-                    "maxLength": 128,
-                    "minLength": 2
-                  }
-                },
-                "type": "object"
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "action_id": {
-                "const": "bind_evidence"
-              }
-            },
-            "required": [
-              "action_id"
-            ]
-          },
-          "then": {
-            "not": {
-              "anyOf": [
-                {
-                  "required": [
-                    "selected_choice"
-                  ]
-                },
-                {
-                  "required": [
-                    "decision_context_digest"
-                  ]
-                }
-              ]
-            },
-            "properties": {
-              "fields": {
-                "additionalProperties": false,
-                "maxProperties": 32,
-                "properties": {
-                  "evidence_kind": {
-                    "enum": [
-                      "verification",
-                      "review",
-                      "approval",
-                      "commit",
-                      "durable_note",
-                      "native_run",
-                      "artifact"
-                    ],
-                    "type": "string"
-                  },
-                  "evidence_ref": {
-                    "$ref": "#/$defs/reference",
-                    "maxLength": 128,
-                    "minLength": 2
-                  },
-                  "immutable_subject_ref": {
-                    "$ref": "#/$defs/reference",
-                    "maxLength": 128,
-                    "minLength": 2
-                  },
-                  "producer_id": {
-                    "$ref": "#/$defs/reference",
-                    "maxLength": 128,
-                    "minLength": 2
-                  },
-                  "producer_run_ref": {
-                    "$ref": "#/$defs/reference",
-                    "maxLength": 128,
-                    "minLength": 2
-                  },
-                  "producer_watermark": {
-                    "$ref": "#/$defs/reference",
-                    "maxLength": 128,
-                    "minLength": 2
-                  }
-                },
-                "type": "object"
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "action_id": {
-                "const": "cancel_condition"
-              }
-            },
-            "required": [
-              "action_id"
-            ]
-          },
-          "then": {
-            "not": {
-              "anyOf": [
-                {
-                  "required": [
-                    "selected_choice"
-                  ]
-                },
-                {
-                  "required": [
-                    "decision_context_digest"
-                  ]
-                }
-              ]
-            },
-            "properties": {
-              "fields": {
-                "additionalProperties": false,
-                "maxProperties": 32,
-                "properties": {
-                  "cancellation_authority": {
-                    "enum": [
-                      "operator"
-                    ],
-                    "type": "string"
-                  },
-                  "cancellation_evidence": {
-                    "items": {
-                      "$ref": "#/$defs/reference"
-                    },
-                    "maxItems": 32,
-                    "minItems": 1,
-                    "type": "array",
-                    "uniqueItems": true
-                  },
-                  "cancelled_by_event": {
-                    "$ref": "#/$defs/reference",
-                    "maxLength": 128,
-                    "minLength": 2
-                  },
-                  "condition_id": {
-                    "$ref": "#/$defs/reference",
-                    "maxLength": 128,
-                    "minLength": 2
-                  }
-                },
-                "required": [
-                  "condition_id",
-                  "cancellation_authority",
-                  "cancellation_evidence",
-                  "cancelled_by_event"
-                ],
-                "type": "object"
-              }
-            },
-            "required": [
-              "fields"
-            ]
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "action_id": {
-                "const": "checkpoint_action"
-              }
-            },
-            "required": [
-              "action_id"
-            ]
-          },
-          "then": {
-            "not": {
-              "anyOf": [
-                {
-                  "required": [
-                    "selected_choice"
-                  ]
-                },
-                {
-                  "required": [
-                    "decision_context_digest"
-                  ]
-                }
-              ]
-            },
-            "properties": {
-              "fields": {
-                "additionalProperties": false,
-                "maxProperties": 32,
-                "properties": {},
-                "type": "object"
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "action_id": {
-                "const": "checkpoint_analysis"
-              }
-            },
-            "required": [
-              "action_id"
-            ]
-          },
-          "then": {
-            "not": {
-              "anyOf": [
-                {
-                  "required": [
-                    "selected_choice"
-                  ]
-                },
-                {
-                  "required": [
-                    "decision_context_digest"
-                  ]
-                }
-              ]
-            },
-            "properties": {
-              "fields": {
-                "additionalProperties": false,
-                "maxProperties": 32,
-                "properties": {},
-                "type": "object"
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "action_id": {
-                "const": "checkpoint_context"
-              }
-            },
-            "required": [
-              "action_id"
-            ]
-          },
-          "then": {
-            "not": {
-              "anyOf": [
-                {
-                  "required": [
-                    "selected_choice"
-                  ]
-                },
-                {
-                  "required": [
-                    "decision_context_digest"
-                  ]
-                }
-              ]
-            },
-            "properties": {
-              "fields": {
-                "additionalProperties": false,
-                "maxProperties": 32,
-                "properties": {
-                  "active_unit": {
-                    "maxLength": 256,
-                    "minLength": 1,
-                    "pattern": "\\S",
-                    "type": "string"
-                  },
-                  "checkpoint_id": {
-                    "$ref": "#/$defs/reference",
-                    "maxLength": 128,
-                    "minLength": 2
-                  },
-                  "checkpoint_sequence": {
-                    "maximum": 2147483647,
-                    "minimum": 1,
-                    "type": "integer"
-                  },
-                  "diagnosis": {
-                    "maxLength": 4096,
-                    "minLength": 1,
-                    "pattern": "\\S",
-                    "type": "string"
-                  },
-                  "evidence_refs": {
-                    "items": {
-                      "$ref": "#/$defs/reference"
-                    },
-                    "maxItems": 64,
-                    "minItems": 1,
-                    "type": "array",
-                    "uniqueItems": true
-                  },
-                  "hypothesis": {
-                    "maxLength": 4096,
-                    "minLength": 1,
-                    "pattern": "\\S",
-                    "type": "string"
-                  },
-                  "pending_decisions": {
-                    "items": {
-                      "$ref": "#/$defs/reference"
-                    },
-                    "maxItems": 16,
-                    "minItems": 0,
-                    "type": "array",
-                    "uniqueItems": true
-                  },
-                  "pending_questions": {
-                    "items": {
-                      "$ref": "#/$defs/reference"
-                    },
-                    "maxItems": 16,
-                    "minItems": 0,
-                    "type": "array",
-                    "uniqueItems": true
-                  },
-                  "strategy": {
-                    "maxLength": 4096,
-                    "minLength": 1,
-                    "pattern": "\\S",
-                    "type": "string"
-                  },
-                  "touched_refs": {
-                    "items": {
-                      "$ref": "#/$defs/reference"
-                    },
-                    "maxItems": 64,
-                    "minItems": 1,
-                    "type": "array",
-                    "uniqueItems": true
-                  }
-                },
-                "required": [
-                  "active_unit",
-                  "hypothesis",
-                  "diagnosis",
-                  "strategy",
-                  "touched_refs",
-                  "evidence_refs",
-                  "pending_questions",
-                  "pending_decisions"
-                ],
-                "type": "object"
-              }
-            },
-            "required": [
-              "fields"
-            ]
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "action_id": {
-                "const": "checkpoint_execution"
-              }
-            },
-            "required": [
-              "action_id"
-            ]
-          },
-          "then": {
-            "not": {
-              "anyOf": [
-                {
-                  "required": [
-                    "selected_choice"
-                  ]
-                },
-                {
-                  "required": [
-                    "decision_context_digest"
-                  ]
-                }
-              ]
-            },
-            "properties": {
-              "fields": {
-                "additionalProperties": false,
-                "maxProperties": 32,
-                "properties": {},
-                "type": "object"
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "action_id": {
-                "const": "checkpoint_poc"
-              }
-            },
-            "required": [
-              "action_id"
-            ]
-          },
-          "then": {
-            "not": {
-              "anyOf": [
-                {
-                  "required": [
-                    "selected_choice"
-                  ]
-                },
-                {
-                  "required": [
-                    "decision_context_digest"
-                  ]
-                }
-              ]
-            },
-            "properties": {
-              "fields": {
-                "additionalProperties": false,
-                "maxProperties": 32,
-                "properties": {},
-                "type": "object"
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "action_id": {
-                "const": "checkpoint_refine"
-              }
-            },
-            "required": [
-              "action_id"
-            ]
-          },
-          "then": {
-            "not": {
-              "anyOf": [
-                {
-                  "required": [
-                    "selected_choice"
-                  ]
-                },
-                {
-                  "required": [
-                    "decision_context_digest"
-                  ]
-                }
-              ]
-            },
-            "properties": {
-              "fields": {
-                "additionalProperties": false,
-                "maxProperties": 32,
-                "properties": {},
-                "type": "object"
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "action_id": {
-                "const": "checkpoint_repair"
-              }
-            },
-            "required": [
-              "action_id"
-            ]
-          },
-          "then": {
-            "not": {
-              "anyOf": [
-                {
-                  "required": [
-                    "selected_choice"
-                  ]
-                },
-                {
-                  "required": [
-                    "decision_context_digest"
-                  ]
-                }
-              ]
-            },
-            "properties": {
-              "fields": {
-                "additionalProperties": false,
-                "maxProperties": 32,
-                "properties": {},
-                "type": "object"
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "action_id": {
-                "const": "checkpoint_run"
-              }
-            },
-            "required": [
-              "action_id"
-            ]
-          },
-          "then": {
-            "not": {
-              "anyOf": [
-                {
-                  "required": [
-                    "selected_choice"
-                  ]
-                },
-                {
-                  "required": [
-                    "decision_context_digest"
-                  ]
-                }
-              ]
-            },
-            "properties": {
-              "fields": {
-                "additionalProperties": false,
-                "maxProperties": 32,
-                "properties": {},
-                "type": "object"
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "action_id": {
-                "const": "cleanup_run"
-              }
-            },
-            "required": [
-              "action_id"
-            ]
-          },
-          "then": {
-            "not": {
-              "anyOf": [
-                {
-                  "required": [
-                    "selected_choice"
-                  ]
-                },
-                {
-                  "required": [
-                    "decision_context_digest"
-                  ]
-                }
-              ]
-            },
-            "properties": {
-              "fields": {
-                "additionalProperties": false,
-                "maxProperties": 32,
-                "properties": {
-                  "asserted_at": {
-                    "$ref": "#/$defs/native_report_timestamp",
-                    "maxLength": 64,
-                    "minLength": 1,
-                    "pattern": "\\S"
-                  },
-                  "evidence_digest": {
-                    "$ref": "#/$defs/digest"
-                  },
-                  "evidence_ref": {
-                    "maxLength": 2048,
-                    "minLength": 1,
-                    "pattern": "\\S",
-                    "type": "string"
-                  },
-                  "native_subject_ref": {
-                    "maxLength": 2048,
-                    "minLength": 1,
-                    "pattern": "\\S",
-                    "type": "string"
-                  },
-                  "run_id": {
-                    "$ref": "#/$defs/reference",
-                    "maxLength": 128,
-                    "minLength": 2
-                  },
-                  "status": {
-                    "enum": [
-                      "cleaned",
-                      "cleanup_failed"
-                    ],
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "run_id",
-                  "native_subject_ref",
-                  "status",
-                  "evidence_ref",
-                  "evidence_digest"
-                ],
-                "type": "object"
-              }
-            },
-            "required": [
-              "fields"
-            ]
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "action_id": {
-                "const": "complete"
-              }
-            },
-            "required": [
-              "action_id"
-            ]
-          },
-          "then": {
-            "not": {
-              "anyOf": [
-                {
-                  "required": [
-                    "selected_choice"
-                  ]
-                },
-                {
-                  "required": [
-                    "decision_context_digest"
-                  ]
-                }
-              ]
-            },
-            "properties": {
-              "fields": {
-                "additionalProperties": false,
-                "maxProperties": 32,
-                "properties": {
-                  "current_commit": {
-                    "maxLength": 128,
-                    "minLength": 1,
-                    "pattern": "\\S",
-                    "type": "string"
-                  },
-                  "evidence_commit": {
-                    "maxLength": 128,
-                    "minLength": 1,
-                    "pattern": "\\S",
-                    "type": "string"
-                  },
-                  "evidence_kind": {
-                    "enum": [
-                      "verification",
-                      "review",
-                      "approval",
-                      "commit",
-                      "durable_note",
-                      "native_run",
-                      "artifact"
-                    ],
-                    "type": "string"
-                  },
-                  "evidence_refs": {
-                    "items": {
-                      "$ref": "#/$defs/reference"
-                    },
-                    "maxItems": 32,
-                    "minItems": 1,
-                    "type": "array",
-                    "uniqueItems": true
-                  },
-                  "impact_verdict": {
-                    "enum": [
-                      "breaking",
-                      "non-breaking"
-                    ],
-                    "type": "string"
-                  },
-                  "payload": {
-                    "$ref": "#/$defs/workflow_completion_payload"
-                  },
-                  "verdict_actor_ref": {
-                    "maxLength": 70,
-                    "minLength": 1,
-                    "pattern": "\\S",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "impact_verdict"
-                ],
-                "type": "object"
-              }
-            },
-            "required": [
-              "fields"
-            ]
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "action_id": {
-                "const": "confirm_premise"
-              }
-            },
-            "required": [
-              "action_id"
-            ]
-          },
-          "then": {
-            "not": {
-              "required": [
-                "fields"
-              ]
-            },
-            "required": [
-              "selected_choice",
-              "decision_context_digest"
-            ]
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "action_id": {
-                "const": "cross_context_boundary"
-              }
-            },
-            "required": [
-              "action_id"
-            ]
-          },
-          "then": {
-            "not": {
-              "anyOf": [
-                {
-                  "required": [
-                    "selected_choice"
-                  ]
-                },
-                {
-                  "required": [
-                    "decision_context_digest"
-                  ]
-                }
-              ]
-            },
-            "properties": {
-              "fields": {
-                "additionalProperties": false,
-                "maxProperties": 32,
-                "properties": {
-                  "boundary_kind": {
-                    "enum": [
-                      "summary",
-                      "restart"
-                    ],
-                    "type": "string"
-                  },
-                  "boundary_sequence": {
-                    "maximum": 2147483647,
-                    "minimum": 1,
-                    "type": "integer"
-                  },
-                  "checkpoint_id": {
-                    "$ref": "#/$defs/reference",
-                    "maxLength": 128,
-                    "minLength": 2
-                  },
-                  "checkpoint_sequence": {
-                    "maximum": 2147483647,
-                    "minimum": 1,
-                    "type": "integer"
-                  },
-                  "mode": {
-                    "enum": [
-                      "summary",
-                      "restart"
-                    ],
-                    "type": "string"
-                  },
-                  "restart": {
-                    "type": "boolean"
-                  },
-                  "summary": {
-                    "maxLength": 16384,
-                    "minLength": 1,
-                    "pattern": "\\S",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "boundary_kind",
-                  "mode",
-                  "checkpoint_id",
-                  "summary"
-                ],
-                "type": "object"
-              }
-            },
-            "required": [
-              "fields"
-            ]
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "action_id": {
-                "const": "declare_impact"
-              }
-            },
-            "required": [
-              "action_id"
-            ]
-          },
-          "then": {
-            "not": {
-              "anyOf": [
-                {
-                  "required": [
-                    "selected_choice"
-                  ]
-                },
-                {
-                  "required": [
-                    "decision_context_digest"
-                  ]
-                }
-              ]
-            },
-            "properties": {
-              "fields": {
-                "additionalProperties": false,
-                "maxProperties": 32,
-                "properties": {
-                  "edge_class": {
-                    "enum": [
-                      "hard",
-                      "soft",
-                      "none"
-                    ],
-                    "type": "string"
-                  },
-                  "edge_id": {
-                    "$ref": "#/$defs/reference",
-                    "maxLength": 128,
-                    "minLength": 2
-                  },
-                  "edge_kind": {
-                    "enum": [
-                      "modifies",
-                      "depends_on",
-                      "forward_link"
-                    ],
-                    "type": "string"
-                  },
-                  "severity": {
-                    "enum": [
-                      "breaking",
-                      "non-breaking",
-                      "informational"
-                    ],
-                    "type": "string"
-                  },
-                  "target_work_id": {
-                    "$ref": "#/$defs/reference",
-                    "maxLength": 128,
-                    "minLength": 2
-                  }
-                },
-                "required": [
-                  "target_work_id"
-                ],
-                "type": "object"
-              }
-            },
-            "required": [
-              "fields"
-            ]
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "action_id": {
-                "const": "declare_scope"
-              }
-            },
-            "required": [
-              "action_id"
-            ]
-          },
-          "then": {
-            "not": {
-              "anyOf": [
-                {
-                  "required": [
-                    "selected_choice"
-                  ]
-                },
-                {
-                  "required": [
-                    "decision_context_digest"
-                  ]
-                }
-              ]
-            },
-            "properties": {
-              "fields": {
-                "additionalProperties": false,
-                "maxProperties": 32,
-                "properties": {},
-                "type": "object"
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "action_id": {
-                "const": "discard_poc"
-              }
-            },
-            "required": [
-              "action_id"
-            ]
-          },
-          "then": {
-            "not": {
-              "anyOf": [
-                {
-                  "required": [
-                    "selected_choice"
-                  ]
-                },
-                {
-                  "required": [
-                    "decision_context_digest"
-                  ]
-                }
-              ]
-            },
-            "properties": {
-              "fields": {
-                "additionalProperties": false,
-                "maxProperties": 32,
-                "properties": {},
-                "type": "object"
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "action_id": {
-                "const": "frame_question"
-              }
-            },
-            "required": [
-              "action_id"
-            ]
-          },
-          "then": {
-            "not": {
-              "anyOf": [
-                {
-                  "required": [
-                    "selected_choice"
-                  ]
-                },
-                {
-                  "required": [
-                    "decision_context_digest"
-                  ]
-                }
-              ]
-            },
-            "properties": {
-              "fields": {
-                "additionalProperties": false,
-                "maxProperties": 32,
-                "properties": {},
-                "type": "object"
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "action_id": {
-                "const": "frame_research"
-              }
-            },
-            "required": [
-              "action_id"
-            ]
-          },
-          "then": {
-            "not": {
-              "anyOf": [
-                {
-                  "required": [
-                    "selected_choice"
-                  ]
-                },
-                {
-                  "required": [
-                    "decision_context_digest"
-                  ]
-                }
-              ]
-            },
-            "properties": {
-              "fields": {
-                "additionalProperties": false,
-                "maxProperties": 32,
-                "properties": {},
-                "type": "object"
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "action_id": {
-                "const": "link_successor"
-              }
-            },
-            "required": [
-              "action_id"
-            ]
-          },
-          "then": {
-            "not": {
-              "anyOf": [
-                {
-                  "required": [
-                    "selected_choice"
-                  ]
-                },
-                {
-                  "required": [
-                    "decision_context_digest"
-                  ]
-                }
-              ]
-            },
-            "properties": {
-              "fields": {
-                "additionalProperties": false,
-                "maxProperties": 32,
-                "properties": {
-                  "relation": {
-                    "enum": [
-                      "forward_link"
-                    ],
-                    "type": "string"
-                  },
-                  "relation_data": {
-                    "$ref": "#/$defs/workflow_forward_relation"
-                  },
-                  "successor_work_id": {
-                    "$ref": "#/$defs/reference",
-                    "maxLength": 128,
-                    "minLength": 2
-                  }
-                },
-                "required": [
-                  "successor_work_id"
-                ],
-                "type": "object"
-              }
-            },
-            "required": [
-              "fields"
-            ]
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "action_id": {
-                "const": "record_alignment"
-              }
-            },
-            "required": [
-              "action_id"
-            ]
-          },
-          "then": {
-            "not": {
-              "anyOf": [
-                {
-                  "required": [
-                    "selected_choice"
-                  ]
-                },
-                {
-                  "required": [
-                    "decision_context_digest"
-                  ]
-                }
-              ]
-            },
-            "properties": {
-              "fields": {
-                "additionalProperties": false,
-                "maxProperties": 32,
-                "properties": {
-                  "outcome": {
-                    "enum": [
-                      "related_found",
-                      "none_found"
-                    ],
-                    "type": "string"
-                  },
-                  "related_ids": {
-                    "items": {
-                      "$ref": "#/$defs/id"
-                    },
-                    "maxItems": 64,
-                    "minItems": 1,
-                    "type": "array",
-                    "uniqueItems": true
-                  },
-                  "searched": {
-                    "maxLength": 4096,
-                    "minLength": 2,
-                    "pattern": "\\S",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "searched",
-                  "outcome"
-                ],
-                "type": "object"
-              }
-            },
-            "required": [
-              "fields"
-            ]
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "action_id": {
-                "const": "record_conclusion"
-              }
-            },
-            "required": [
-              "action_id"
-            ]
-          },
-          "then": {
-            "not": {
-              "anyOf": [
-                {
-                  "required": [
-                    "selected_choice"
-                  ]
-                },
-                {
-                  "required": [
-                    "decision_context_digest"
-                  ]
-                }
-              ]
-            },
-            "properties": {
-              "fields": {
-                "additionalProperties": false,
-                "maxProperties": 32,
-                "properties": {},
-                "type": "object"
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "action_id": {
-                "const": "record_decision"
-              }
-            },
-            "required": [
-              "action_id"
-            ]
-          },
-          "then": {
-            "anyOf": [
-              {
-                "not": {
-                  "anyOf": [
-                    {
-                      "required": [
-                        "selected_choice"
-                      ]
-                    },
-                    {
-                      "required": [
-                        "decision_context_digest"
-                      ]
-                    }
-                  ]
-                },
-                "properties": {
-                  "fields": {
-                    "additionalProperties": false,
-                    "maxProperties": 32,
-                    "properties": {
-                      "consequences": {
-                        "items": {
-                          "$ref": "#/$defs/decision_record_text"
-                        },
-                        "maxItems": 16,
-                        "minItems": 1,
-                        "type": "array",
-                        "uniqueItems": true
-                      },
-                      "decision": {
-                        "enum": [
-                          "accepted_decision",
-                          "insufficient_evidence"
-                        ],
-                        "type": "string"
-                      },
-                      "inputs": {
-                        "items": {
-                          "$ref": "#/$defs/decision_record_text"
-                        },
-                        "maxItems": 32,
-                        "minItems": 1,
-                        "type": "array",
-                        "uniqueItems": true
-                      },
-                      "options_considered": {
-                        "items": {
-                          "$ref": "#/$defs/decision_record_text"
-                        },
-                        "maxItems": 16,
-                        "minItems": 1,
-                        "type": "array",
-                        "uniqueItems": true
-                      },
-                      "poc_findings": {
-                        "maxLength": 4096,
-                        "minLength": 2,
-                        "pattern": "\\S",
-                        "type": "string"
-                      },
-                      "question": {
-                        "maxLength": 4096,
-                        "minLength": 2,
-                        "pattern": "\\S",
-                        "type": "string"
-                      },
-                      "rationale": {
-                        "maxLength": 4096,
-                        "minLength": 2,
-                        "pattern": "\\S",
-                        "type": "string"
-                      }
-                    },
-                    "required": [
-                      "question",
-                      "options_considered",
-                      "decision",
-                      "rationale",
-                      "consequences",
-                      "inputs",
-                      "poc_findings"
-                    ],
-                    "type": "object"
-                  }
-                },
-                "required": [
-                  "fields"
-                ]
-              },
-              {
-                "not": {
-                  "anyOf": [
-                    {
-                      "required": [
-                        "selected_choice"
-                      ]
-                    },
-                    {
-                      "required": [
-                        "decision_context_digest"
-                      ]
-                    }
-                  ]
-                },
-                "properties": {
-                  "fields": {
-                    "additionalProperties": false,
-                    "maxProperties": 32,
-                    "properties": {},
-                    "type": "object"
-                  }
-                }
-              }
-            ]
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "action_id": {
-                "const": "record_delivery"
-              }
-            },
-            "required": [
-              "action_id"
-            ]
-          },
-          "then": {
-            "anyOf": [
-              {
-                "not": {
-                  "anyOf": [
-                    {
-                      "required": [
-                        "selected_choice"
-                      ]
-                    },
-                    {
-                      "required": [
-                        "decision_context_digest"
-                      ]
-                    }
-                  ]
-                },
-                "properties": {
-                  "fields": {
-                    "additionalProperties": false,
-                    "maxProperties": 32,
-                    "properties": {
-                      "delivery_artifact": {
-                        "$ref": "#/$defs/reference",
-                        "maxLength": 128,
-                        "minLength": 2
-                      },
-                      "delivery_state": {
-                        "enum": [
-                          "asserted"
-                        ],
-                        "type": "string"
-                      }
-                    },
-                    "required": [
-                      "delivery_artifact",
-                      "delivery_state"
-                    ],
-                    "type": "object"
-                  }
-                },
-                "required": [
-                  "fields"
-                ]
-              },
-              {
-                "not": {
-                  "anyOf": [
-                    {
-                      "required": [
-                        "selected_choice"
-                      ]
-                    },
-                    {
-                      "required": [
-                        "decision_context_digest"
-                      ]
-                    }
-                  ]
-                },
-                "properties": {
-                  "fields": {
-                    "additionalProperties": false,
-                    "maxProperties": 32,
-                    "properties": {},
-                    "type": "object"
-                  }
-                }
-              }
-            ]
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "action_id": {
-                "const": "record_design"
-              }
-            },
-            "required": [
-              "action_id"
-            ]
-          },
-          "then": {
-            "anyOf": [
-              {
-                "not": {
-                  "anyOf": [
-                    {
-                      "required": [
-                        "selected_choice"
-                      ]
-                    },
-                    {
-                      "required": [
-                        "decision_context_digest"
-                      ]
-                    }
-                  ]
-                },
-                "properties": {
-                  "fields": {
-                    "additionalProperties": false,
-                    "maxProperties": 32,
-                    "properties": {
-                      "approach": {
-                        "maxLength": 4096,
-                        "minLength": 2,
-                        "pattern": "\\S",
-                        "type": "string"
-                      },
-                      "decisions": {
-                        "items": {
-                          "$ref": "#/$defs/workflow_design_decision"
-                        },
-                        "maxItems": 16,
-                        "minItems": 1,
-                        "type": "array"
-                      },
-                      "touched_refs": {
-                        "items": {
-                          "$ref": "#/$defs/reference"
-                        },
-                        "maxItems": 64,
-                        "minItems": 1,
-                        "type": "array",
-                        "uniqueItems": true
-                      }
-                    },
-                    "required": [
-                      "approach",
-                      "decisions",
-                      "touched_refs"
-                    ],
-                    "type": "object"
-                  }
-                },
-                "required": [
-                  "fields"
-                ]
-              },
-              {
-                "not": {
-                  "anyOf": [
-                    {
-                      "required": [
-                        "selected_choice"
-                      ]
-                    },
-                    {
-                      "required": [
-                        "decision_context_digest"
-                      ]
-                    }
-                  ]
-                },
-                "properties": {
-                  "fields": {
-                    "additionalProperties": false,
-                    "maxProperties": 32,
-                    "properties": {},
-                    "type": "object"
-                  }
-                }
-              }
-            ]
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "action_id": {
-                "const": "record_discovery"
-              }
-            },
-            "required": [
-              "action_id"
-            ]
-          },
-          "then": {
-            "not": {
-              "anyOf": [
-                {
-                  "required": [
-                    "selected_choice"
-                  ]
-                },
-                {
-                  "required": [
-                    "decision_context_digest"
-                  ]
-                }
-              ]
-            },
-            "properties": {
-              "fields": {
-                "additionalProperties": false,
-                "maxProperties": 32,
-                "properties": {},
-                "type": "object"
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "action_id": {
-                "const": "record_finding"
-              }
-            },
-            "required": [
-              "action_id"
-            ]
-          },
-          "then": {
-            "not": {
-              "anyOf": [
-                {
-                  "required": [
-                    "selected_choice"
-                  ]
-                },
-                {
-                  "required": [
-                    "decision_context_digest"
-                  ]
-                }
-              ]
-            },
-            "properties": {
-              "fields": {
-                "additionalProperties": false,
-                "maxProperties": 32,
-                "properties": {},
-                "type": "object"
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "action_id": {
-                "const": "record_health"
-              }
-            },
-            "required": [
-              "action_id"
-            ]
-          },
-          "then": {
-            "not": {
-              "anyOf": [
-                {
-                  "required": [
-                    "selected_choice"
-                  ]
-                },
-                {
-                  "required": [
-                    "decision_context_digest"
-                  ]
-                }
-              ]
-            },
-            "properties": {
-              "fields": {
-                "additionalProperties": false,
-                "maxProperties": 32,
-                "properties": {
-                  "asserted_at": {
-                    "$ref": "#/$defs/native_report_timestamp",
-                    "maxLength": 64,
-                    "minLength": 1,
-                    "pattern": "\\S"
-                  },
-                  "evidence_digest": {
-                    "$ref": "#/$defs/digest"
-                  },
-                  "evidence_ref": {
-                    "maxLength": 2048,
-                    "minLength": 1,
-                    "pattern": "\\S",
-                    "type": "string"
-                  },
-                  "native_subject_ref": {
-                    "maxLength": 2048,
-                    "minLength": 1,
-                    "pattern": "\\S",
-                    "type": "string"
-                  },
-                  "run_id": {
-                    "$ref": "#/$defs/reference",
-                    "maxLength": 128,
-                    "minLength": 2
-                  },
-                  "status": {
-                    "enum": [
-                      "healthy",
-                      "degraded",
-                      "failed"
-                    ],
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "run_id",
-                  "native_subject_ref",
-                  "status",
-                  "evidence_ref",
-                  "evidence_digest"
-                ],
-                "type": "object"
-              }
-            },
-            "required": [
-              "fields"
-            ]
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "action_id": {
-                "const": "record_option"
-              }
-            },
-            "required": [
-              "action_id"
-            ]
-          },
-          "then": {
-            "not": {
-              "anyOf": [
-                {
-                  "required": [
-                    "selected_choice"
-                  ]
-                },
-                {
-                  "required": [
-                    "decision_context_digest"
-                  ]
-                }
-              ]
-            },
-            "properties": {
-              "fields": {
-                "additionalProperties": false,
-                "maxProperties": 32,
-                "properties": {},
-                "type": "object"
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "action_id": {
-                "const": "record_proposal"
-              }
-            },
-            "required": [
-              "action_id"
-            ]
-          },
-          "then": {
-            "anyOf": [
-              {
-                "not": {
-                  "anyOf": [
-                    {
-                      "required": [
-                        "selected_choice"
-                      ]
-                    },
-                    {
-                      "required": [
-                        "decision_context_digest"
-                      ]
-                    }
-                  ]
-                },
-                "properties": {
-                  "fields": {
-                    "additionalProperties": false,
-                    "maxProperties": 32,
-                    "properties": {
-                      "affected": {
-                        "items": {
-                          "$ref": "#/$defs/proposal_affected_text"
-                        },
-                        "maxItems": 16,
-                        "minItems": 1,
-                        "type": "array",
-                        "uniqueItems": true
-                      },
-                      "constraints": {
-                        "items": {
-                          "$ref": "#/$defs/proposal_text"
-                        },
-                        "maxItems": 16,
-                        "minItems": 0,
-                        "type": "array",
-                        "uniqueItems": true
-                      },
-                      "open_questions": {
-                        "items": {
-                          "$ref": "#/$defs/proposal_text"
-                        },
-                        "maxItems": 16,
-                        "minItems": 0,
-                        "type": "array",
-                        "uniqueItems": true
-                      },
-                      "out_of_scope": {
-                        "items": {
-                          "$ref": "#/$defs/proposal_text"
-                        },
-                        "maxItems": 16,
-                        "minItems": 0,
-                        "type": "array",
-                        "uniqueItems": true
-                      },
-                      "problem": {
-                        "maxLength": 4096,
-                        "minLength": 1,
-                        "pattern": "\\S",
-                        "type": "string"
-                      },
-                      "stakes": {
-                        "maxLength": 2048,
-                        "minLength": 1,
-                        "pattern": "\\S",
-                        "type": "string"
-                      },
-                      "user_outcomes": {
-                        "items": {
-                          "$ref": "#/$defs/proposal_text"
-                        },
-                        "maxItems": 16,
-                        "minItems": 1,
-                        "type": "array",
-                        "uniqueItems": true
-                      }
-                    },
-                    "required": [
-                      "problem",
-                      "affected",
-                      "stakes",
-                      "user_outcomes"
-                    ],
-                    "type": "object"
-                  }
-                },
-                "required": [
-                  "fields"
-                ]
-              },
-              {
-                "not": {
-                  "anyOf": [
-                    {
-                      "required": [
-                        "selected_choice"
-                      ]
-                    },
-                    {
-                      "required": [
-                        "decision_context_digest"
-                      ]
-                    }
-                  ]
-                },
-                "properties": {
-                  "fields": {
-                    "additionalProperties": false,
-                    "maxProperties": 32,
-                    "properties": {},
-                    "type": "object"
-                  }
-                }
-              },
-              {
-                "not": {
-                  "anyOf": [
-                    {
-                      "required": [
-                        "selected_choice"
-                      ]
-                    },
-                    {
-                      "required": [
-                        "decision_context_digest"
-                      ]
-                    }
-                  ]
-                },
-                "properties": {
-                  "fields": {
-                    "additionalProperties": false,
-                    "maxProperties": 32,
-                    "properties": {
-                      "affected": {
-                        "items": {
-                          "$ref": "#/$defs/proposal_affected_text"
-                        },
-                        "maxItems": 16,
-                        "minItems": 1,
-                        "type": "array",
-                        "uniqueItems": true
-                      },
-                      "constraints": {
-                        "items": {
-                          "$ref": "#/$defs/proposal_text"
-                        },
-                        "maxItems": 16,
-                        "minItems": 0,
-                        "type": "array",
-                        "uniqueItems": true
-                      },
-                      "open_questions": {
-                        "items": {
-                          "$ref": "#/$defs/proposal_text"
-                        },
-                        "maxItems": 16,
-                        "minItems": 0,
-                        "type": "array",
-                        "uniqueItems": true
-                      },
-                      "problem": {
-                        "maxLength": 4096,
-                        "minLength": 1,
-                        "pattern": "\\S",
-                        "type": "string"
-                      },
-                      "stakes": {
-                        "maxLength": 2048,
-                        "minLength": 1,
-                        "pattern": "\\S",
-                        "type": "string"
-                      },
-                      "user_outcomes": {
-                        "items": {
-                          "$ref": "#/$defs/proposal_text"
-                        },
-                        "maxItems": 16,
-                        "minItems": 1,
-                        "type": "array",
-                        "uniqueItems": true
-                      }
-                    },
-                    "required": [
-                      "problem",
-                      "affected",
-                      "stakes",
-                      "user_outcomes"
-                    ],
-                    "type": "object"
-                  }
-                },
-                "required": [
-                  "fields"
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "action_id": {
-                "const": "record_report"
-              }
-            },
-            "required": [
-              "action_id"
-            ]
-          },
-          "then": {
-            "not": {
-              "anyOf": [
-                {
-                  "required": [
-                    "selected_choice"
-                  ]
-                },
-                {
-                  "required": [
-                    "decision_context_digest"
-                  ]
-                }
-              ]
-            },
-            "properties": {
-              "fields": {
-                "additionalProperties": false,
-                "maxProperties": 32,
-                "properties": {
-                  "evidence_kind": {
-                    "enum": [
-                      "verification",
-                      "review",
-                      "approval",
-                      "commit",
-                      "durable_note",
-                      "native_run",
-                      "artifact"
-                    ],
-                    "type": "string"
-                  },
-                  "evidence_ref": {
-                    "$ref": "#/$defs/reference",
-                    "maxLength": 128,
-                    "minLength": 2
-                  },
-                  "immutable_subject_ref": {
-                    "$ref": "#/$defs/reference",
-                    "maxLength": 128,
-                    "minLength": 2
-                  },
-                  "producer_id": {
-                    "$ref": "#/$defs/reference",
-                    "maxLength": 128,
-                    "minLength": 2
-                  },
-                  "producer_run_ref": {
-                    "$ref": "#/$defs/reference",
-                    "maxLength": 128,
-                    "minLength": 2
-                  },
-                  "producer_watermark": {
-                    "$ref": "#/$defs/reference",
-                    "maxLength": 128,
-                    "minLength": 2
-                  }
-                },
-                "type": "object"
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "action_id": {
-                "const": "record_reproduction"
-              }
-            },
-            "required": [
-              "action_id"
-            ]
-          },
-          "then": {
-            "not": {
-              "anyOf": [
-                {
-                  "required": [
-                    "selected_choice"
-                  ]
-                },
-                {
-                  "required": [
-                    "decision_context_digest"
-                  ]
-                }
-              ]
-            },
-            "properties": {
-              "fields": {
-                "additionalProperties": false,
-                "maxProperties": 32,
-                "properties": {},
-                "type": "object"
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "action_id": {
-                "const": "record_research"
-              }
-            },
-            "required": [
-              "action_id"
-            ]
-          },
-          "then": {
-            "not": {
-              "anyOf": [
-                {
-                  "required": [
-                    "selected_choice"
-                  ]
-                },
-                {
-                  "required": [
-                    "decision_context_digest"
-                  ]
-                }
-              ]
-            },
-            "properties": {
-              "fields": {
-                "additionalProperties": false,
-                "maxProperties": 32,
-                "properties": {
-                  "evidence_kind": {
-                    "enum": [
-                      "verification",
-                      "review",
-                      "approval",
-                      "commit",
-                      "durable_note",
-                      "native_run",
-                      "artifact"
-                    ],
-                    "type": "string"
-                  },
-                  "evidence_ref": {
-                    "$ref": "#/$defs/reference",
-                    "maxLength": 128,
-                    "minLength": 2
-                  },
-                  "immutable_subject_ref": {
-                    "$ref": "#/$defs/reference",
-                    "maxLength": 128,
-                    "minLength": 2
-                  },
-                  "producer_id": {
-                    "$ref": "#/$defs/reference",
-                    "maxLength": 128,
-                    "minLength": 2
-                  },
-                  "producer_run_ref": {
-                    "$ref": "#/$defs/reference",
-                    "maxLength": 128,
-                    "minLength": 2
-                  },
-                  "producer_watermark": {
-                    "$ref": "#/$defs/reference",
-                    "maxLength": 128,
-                    "minLength": 2
-                  }
-                },
-                "type": "object"
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "action_id": {
-                "const": "record_root_cause"
-              }
-            },
-            "required": [
-              "action_id"
-            ]
-          },
-          "then": {
-            "not": {
-              "anyOf": [
-                {
-                  "required": [
-                    "selected_choice"
-                  ]
-                },
-                {
-                  "required": [
-                    "decision_context_digest"
-                  ]
-                }
-              ]
-            },
-            "properties": {
-              "fields": {
-                "additionalProperties": false,
-                "maxProperties": 32,
-                "properties": {},
-                "type": "object"
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "action_id": {
-                "const": "record_verdict"
-              }
-            },
-            "required": [
-              "action_id"
-            ]
-          },
-          "then": {
-            "not": {
-              "anyOf": [
-                {
-                  "required": [
-                    "selected_choice"
-                  ]
-                },
-                {
-                  "required": [
-                    "decision_context_digest"
-                  ]
-                }
-              ]
-            },
-            "properties": {
-              "fields": {
-                "additionalProperties": false,
-                "maxProperties": 32,
-                "properties": {
-                  "contract_version": {
-                    "maximum": 2147483647,
-                    "minimum": 1,
-                    "type": "integer"
-                  },
-                  "evaluation_evidence": {
-                    "items": {
-                      "$ref": "#/$defs/reference"
-                    },
-                    "maxItems": 32,
-                    "minItems": 1,
-                    "type": "array",
-                    "uniqueItems": true
-                  },
-                  "incomparable_with_approved": {
-                    "type": "boolean"
-                  },
-                  "predicate_id": {
-                    "$ref": "#/$defs/reference",
-                    "maxLength": 128,
-                    "minLength": 2
-                  },
-                  "verdict_actor_ref": {
-                    "maxLength": 70,
-                    "minLength": 1,
-                    "pattern": "\\S",
-                    "type": "string"
-                  },
-                  "verdict_kind": {
-                    "enum": [
-                      "ok",
-                      "outcome_mismatch",
-                      "insufficient_evidence"
-                    ],
-                    "type": "string"
-                  },
-                  "verdicts": {
-                    "items": {
-                      "$ref": "#/$defs/workflow_verdict_batch_entry"
-                    },
-                    "maxItems": 8,
-                    "minItems": 1,
-                    "type": "array"
-                  }
-                },
-                "type": "object"
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "action_id": {
-                "const": "record_work_context"
-              }
-            },
-            "required": [
-              "action_id"
-            ]
-          },
-          "then": {
-            "not": {
-              "anyOf": [
-                {
-                  "required": [
-                    "selected_choice"
-                  ]
-                },
-                {
-                  "required": [
-                    "decision_context_digest"
-                  ]
-                }
-              ]
-            },
-            "properties": {
-              "fields": {
-                "additionalProperties": false,
-                "maxProperties": 32,
-                "properties": {
-                  "context_findings": {
-                    "items": {
-                      "$ref": "#/$defs/work_context_finding"
-                    },
-                    "maxItems": 16,
-                    "minItems": 0,
-                    "type": "array"
-                  },
-                  "finding_refs": {
-                    "items": {
-                      "$ref": "#/$defs/reference"
-                    },
-                    "maxItems": 32,
-                    "minItems": 0,
-                    "type": "array",
-                    "uniqueItems": true
-                  },
-                  "required_reading": {
-                    "items": {
-                      "$ref": "#/$defs/work_context_reading"
-                    },
-                    "maxItems": 32,
-                    "minItems": 0,
-                    "type": "array"
-                  }
-                },
-                "type": "object"
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "action_id": {
-                "const": "record_worker_failure"
-              }
-            },
-            "required": [
-              "action_id"
-            ]
-          },
-          "then": {
-            "not": {
-              "anyOf": [
-                {
-                  "required": [
-                    "selected_choice"
-                  ]
-                },
-                {
-                  "required": [
-                    "decision_context_digest"
-                  ]
-                }
-              ]
-            },
-            "properties": {
-              "fields": {
-                "additionalProperties": false,
-                "maxProperties": 32,
-                "properties": {
-                  "attempt_epoch": {
-                    "maximum": 2147483647,
-                    "minimum": 1,
-                    "type": "integer"
-                  },
-                  "attempt_id": {
-                    "$ref": "#/$defs/reference",
-                    "maxLength": 128,
-                    "minLength": 2
-                  }
-                },
-                "required": [
-                  "attempt_id",
-                  "attempt_epoch"
-                ],
-                "type": "object"
-              }
-            },
-            "required": [
-              "fields"
-            ]
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "action_id": {
-                "const": "record_worker_job"
-              }
-            },
-            "required": [
-              "action_id"
-            ]
-          },
-          "then": {
-            "anyOf": [
-              {
-                "not": {
-                  "anyOf": [
-                    {
-                      "required": [
-                        "selected_choice"
-                      ]
-                    },
-                    {
-                      "required": [
-                        "decision_context_digest"
-                      ]
-                    }
-                  ]
-                },
-                "properties": {
-                  "fields": {
-                    "additionalProperties": false,
-                    "maxProperties": 32,
-                    "properties": {
-                      "acceptance_oracle": {
-                        "$ref": "#/$defs/worker_acceptance_oracle"
-                      },
-                      "checks": {
-                        "items": {
-                          "$ref": "#/$defs/worker_job_text"
-                        },
-                        "maxItems": 64,
-                        "minItems": 0,
-                        "type": "array",
-                        "uniqueItems": true
-                      },
-                      "job_id": {
-                        "$ref": "#/$defs/reference",
-                        "maxLength": 128,
-                        "minLength": 2
-                      },
-                      "objective": {
-                        "maxLength": 4096,
-                        "minLength": 1,
-                        "pattern": "\\S",
-                        "type": "string"
-                      },
-                      "path_scope": {
-                        "items": {
-                          "$ref": "#/$defs/reference"
-                        },
-                        "maxItems": 64,
-                        "minItems": 0,
-                        "type": "array",
-                        "uniqueItems": true
-                      },
-                      "predicate_ids": {
-                        "items": {
-                          "$ref": "#/$defs/id"
-                        },
-                        "maxItems": 8,
-                        "minItems": 0,
-                        "type": "array",
-                        "uniqueItems": true
-                      },
-                      "prerequisites": {
-                        "items": {
-                          "$ref": "#/$defs/worker_job_prerequisite"
-                        },
-                        "maxItems": 64,
-                        "minItems": 0,
-                        "type": "array"
-                      },
-                      "readiness_evidence": {
-                        "items": {
-                          "$ref": "#/$defs/reference"
-                        },
-                        "maxItems": 16,
-                        "minItems": 0,
-                        "type": "array",
-                        "uniqueItems": true
-                      },
-                      "ready": {
-                        "type": "boolean"
-                      },
-                      "reserved_integration": {
-                        "maxLength": 4096,
-                        "minLength": 1,
-                        "pattern": "\\S",
-                        "type": "string"
-                      },
-                      "stopping_condition": {
-                        "maxLength": 2048,
-                        "minLength": 1,
-                        "pattern": "\\S",
-                        "type": "string"
-                      },
-                      "unresolved_refs": {
-                        "items": {
-                          "$ref": "#/$defs/worker_job_text"
-                        },
-                        "maxItems": 64,
-                        "minItems": 0,
-                        "type": "array",
-                        "uniqueItems": true
-                      }
-                    },
-                    "required": [
-                      "job_id",
-                      "objective",
-                      "stopping_condition",
-                      "ready",
-                      "acceptance_oracle"
-                    ],
-                    "type": "object"
-                  }
-                },
-                "required": [
-                  "fields"
-                ]
-              },
-              {
-                "not": {
-                  "anyOf": [
-                    {
-                      "required": [
-                        "selected_choice"
-                      ]
-                    },
-                    {
-                      "required": [
-                        "decision_context_digest"
-                      ]
-                    }
-                  ]
-                },
-                "properties": {
-                  "fields": {
-                    "additionalProperties": false,
-                    "maxProperties": 32,
-                    "properties": {
-                      "checks": {
-                        "items": {
-                          "$ref": "#/$defs/worker_job_text"
-                        },
-                        "maxItems": 64,
-                        "minItems": 0,
-                        "type": "array",
-                        "uniqueItems": true
-                      },
-                      "job_id": {
-                        "$ref": "#/$defs/reference",
-                        "maxLength": 128,
-                        "minLength": 2
-                      },
-                      "objective": {
-                        "maxLength": 4096,
-                        "minLength": 1,
-                        "pattern": "\\S",
-                        "type": "string"
-                      },
-                      "path_scope": {
-                        "items": {
-                          "$ref": "#/$defs/reference"
-                        },
-                        "maxItems": 64,
-                        "minItems": 0,
-                        "type": "array",
-                        "uniqueItems": true
-                      },
-                      "predicate_ids": {
-                        "items": {
-                          "$ref": "#/$defs/id"
-                        },
-                        "maxItems": 8,
-                        "minItems": 0,
-                        "type": "array",
-                        "uniqueItems": true
-                      },
-                      "prerequisites": {
-                        "items": {
-                          "$ref": "#/$defs/worker_job_prerequisite"
-                        },
-                        "maxItems": 64,
-                        "minItems": 0,
-                        "type": "array"
-                      },
-                      "readiness_evidence": {
-                        "items": {
-                          "$ref": "#/$defs/reference"
-                        },
-                        "maxItems": 16,
-                        "minItems": 0,
-                        "type": "array",
-                        "uniqueItems": true
-                      },
-                      "ready": {
-                        "type": "boolean"
-                      },
-                      "reserved_integration": {
-                        "maxLength": 4096,
-                        "minLength": 1,
-                        "pattern": "\\S",
-                        "type": "string"
-                      },
-                      "stopping_condition": {
-                        "maxLength": 2048,
-                        "minLength": 1,
-                        "pattern": "\\S",
-                        "type": "string"
-                      },
-                      "unresolved_refs": {
-                        "items": {
-                          "$ref": "#/$defs/worker_job_text"
-                        },
-                        "maxItems": 64,
-                        "minItems": 0,
-                        "type": "array",
-                        "uniqueItems": true
-                      }
-                    },
-                    "required": [
-                      "job_id",
-                      "objective",
-                      "stopping_condition",
-                      "ready"
-                    ],
-                    "type": "object"
-                  }
-                },
-                "required": [
-                  "fields"
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "action_id": {
-                "const": "reject_worker_result"
-              }
-            },
-            "required": [
-              "action_id"
-            ]
-          },
-          "then": {
-            "not": {
-              "anyOf": [
-                {
-                  "required": [
-                    "selected_choice"
-                  ]
-                },
-                {
-                  "required": [
-                    "decision_context_digest"
-                  ]
-                }
-              ]
-            },
-            "properties": {
-              "fields": {
-                "additionalProperties": false,
-                "maxProperties": 32,
-                "properties": {
-                  "attempt_epoch": {
-                    "maximum": 2147483647,
-                    "minimum": 1,
-                    "type": "integer"
-                  },
-                  "attempt_id": {
-                    "$ref": "#/$defs/reference",
-                    "maxLength": 128,
-                    "minLength": 2
-                  },
-                  "diagnosis": {
-                    "maxLength": 4096,
-                    "minLength": 1,
-                    "pattern": "\\S",
-                    "type": "string"
-                  },
-                  "evidence_refs": {
-                    "items": {
-                      "$ref": "#/$defs/reference"
-                    },
-                    "maxItems": 32,
-                    "minItems": 1,
-                    "type": "array",
-                    "uniqueItems": true
-                  },
-                  "open_finding_ids": {
-                    "items": {
-                      "$ref": "#/$defs/id"
-                    },
-                    "maxItems": 32,
-                    "minItems": 1,
-                    "type": "array",
-                    "uniqueItems": true
-                  },
-                  "predicate_ids": {
-                    "items": {
-                      "$ref": "#/$defs/id"
-                    },
-                    "maxItems": 8,
-                    "minItems": 1,
-                    "type": "array",
-                    "uniqueItems": true
-                  },
-                  "strategy": {
-                    "maxLength": 4096,
-                    "minLength": 1,
-                    "pattern": "\\S",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "attempt_id",
-                  "attempt_epoch",
-                  "diagnosis",
-                  "strategy",
-                  "predicate_ids",
-                  "evidence_refs"
-                ],
-                "type": "object"
-              }
-            },
-            "required": [
-              "fields"
-            ]
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "action_id": {
-                "const": "request_correction"
-              }
-            },
-            "required": [
-              "action_id"
-            ]
-          },
-          "then": {
-            "anyOf": [
-              {
-                "not": {
-                  "anyOf": [
-                    {
-                      "required": [
-                        "selected_choice"
-                      ]
-                    },
-                    {
-                      "required": [
-                        "decision_context_digest"
-                      ]
-                    }
-                  ]
-                },
-                "properties": {
-                  "fields": {
-                    "additionalProperties": false,
-                    "maxProperties": 32,
-                    "properties": {
-                      "diagnosis": {
-                        "maxLength": 4096,
-                        "minLength": 1,
-                        "pattern": "\\S",
-                        "type": "string"
-                      },
-                      "evidence_refs": {
-                        "items": {
-                          "$ref": "#/$defs/reference"
-                        },
-                        "maxItems": 32,
-                        "minItems": 1,
-                        "type": "array",
-                        "uniqueItems": true
-                      },
-                      "open_finding_ids": {
-                        "items": {
-                          "$ref": "#/$defs/id"
-                        },
-                        "maxItems": 32,
-                        "minItems": 1,
-                        "type": "array",
-                        "uniqueItems": true
-                      },
-                      "predicate_ids": {
-                        "items": {
-                          "$ref": "#/$defs/reference"
-                        },
-                        "maxItems": 8,
-                        "minItems": 1,
-                        "type": "array",
-                        "uniqueItems": true
-                      },
-                      "strategy": {
-                        "maxLength": 4096,
-                        "minLength": 1,
-                        "pattern": "\\S",
-                        "type": "string"
-                      }
-                    },
-                    "required": [
-                      "diagnosis",
-                      "strategy",
-                      "predicate_ids",
-                      "evidence_refs"
-                    ],
-                    "type": "object"
-                  }
-                },
-                "required": [
-                  "fields"
-                ]
-              },
-              {
-                "not": {
-                  "anyOf": [
-                    {
-                      "required": [
-                        "selected_choice"
-                      ]
-                    },
-                    {
-                      "required": [
-                        "decision_context_digest"
-                      ]
-                    }
-                  ]
-                },
-                "properties": {
-                  "fields": {
-                    "additionalProperties": false,
-                    "maxProperties": 32,
-                    "properties": {
-                      "diagnosis": {
-                        "maxLength": 4096,
-                        "minLength": 1,
-                        "pattern": "\\S",
-                        "type": "string"
-                      },
-                      "evidence_refs": {
-                        "items": {
-                          "$ref": "#/$defs/reference"
-                        },
-                        "maxItems": 32,
-                        "minItems": 1,
-                        "type": "array",
-                        "uniqueItems": true
-                      },
-                      "predicate_ids": {
-                        "items": {
-                          "$ref": "#/$defs/reference"
-                        },
-                        "maxItems": 8,
-                        "minItems": 1,
-                        "type": "array",
-                        "uniqueItems": true
-                      },
-                      "strategy": {
-                        "maxLength": 4096,
-                        "minLength": 1,
-                        "pattern": "\\S",
-                        "type": "string"
-                      }
-                    },
-                    "required": [
-                      "diagnosis",
-                      "strategy",
-                      "predicate_ids",
-                      "evidence_refs"
-                    ],
-                    "type": "object"
-                  }
-                },
-                "required": [
-                  "fields"
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "action_id": {
-                "const": "resolve_condition"
-              }
-            },
-            "required": [
-              "action_id"
-            ]
-          },
-          "then": {
-            "not": {
-              "anyOf": [
-                {
-                  "required": [
-                    "selected_choice"
-                  ]
-                },
-                {
-                  "required": [
-                    "decision_context_digest"
-                  ]
-                }
-              ]
-            },
-            "properties": {
-              "fields": {
-                "additionalProperties": false,
-                "maxProperties": 32,
-                "properties": {
-                  "condition_id": {
-                    "$ref": "#/$defs/reference",
-                    "maxLength": 128,
-                    "minLength": 2
-                  },
-                  "resolution_evidence": {
-                    "items": {
-                      "$ref": "#/$defs/reference"
-                    },
-                    "maxItems": 32,
-                    "minItems": 1,
-                    "type": "array",
-                    "uniqueItems": true
-                  },
-                  "resolved_by_event": {
-                    "$ref": "#/$defs/reference",
-                    "maxLength": 128,
-                    "minLength": 2
-                  }
-                },
-                "type": "object"
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "action_id": {
-                "const": "revise_candidates"
-              }
-            },
-            "required": [
-              "action_id"
-            ]
-          },
-          "then": {
-            "not": {
-              "anyOf": [
-                {
-                  "required": [
-                    "selected_choice"
-                  ]
-                },
-                {
-                  "required": [
-                    "decision_context_digest"
-                  ]
-                }
-              ]
-            },
-            "properties": {
-              "fields": {
-                "additionalProperties": false,
-                "maxProperties": 32,
-                "properties": {
-                  "added": {
-                    "items": {
-                      "$ref": "#/$defs/reference"
-                    },
-                    "maxItems": 64,
-                    "minItems": 1,
-                    "type": "array",
-                    "uniqueItems": true
-                  },
-                  "candidate_ids": {
-                    "items": {
-                      "$ref": "#/$defs/reference"
-                    },
-                    "maxItems": 64,
-                    "minItems": 1,
-                    "type": "array",
-                    "uniqueItems": true
-                  },
-                  "candidate_kind": {
-                    "enum": [
-                      "work_item",
-                      "product",
-                      "project"
-                    ],
-                    "type": "string"
-                  },
-                  "candidate_ref": {
-                    "$ref": "#/$defs/reference",
-                    "maxLength": 128,
-                    "minLength": 2
-                  },
-                  "contract_version": {
-                    "maximum": 2147483647,
-                    "minimum": 1,
-                    "type": "integer"
-                  },
-                  "removed": {
-                    "items": {
-                      "$ref": "#/$defs/reference"
-                    },
-                    "maxItems": 64,
-                    "minItems": 1,
-                    "type": "array",
-                    "uniqueItems": true
-                  }
-                },
-                "type": "object"
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "action_id": {
-                "const": "rollback_run"
-              }
-            },
-            "required": [
-              "action_id"
-            ]
-          },
-          "then": {
-            "not": {
-              "anyOf": [
-                {
-                  "required": [
-                    "selected_choice"
-                  ]
-                },
-                {
-                  "required": [
-                    "decision_context_digest"
-                  ]
-                }
-              ]
-            },
-            "properties": {
-              "fields": {
-                "additionalProperties": false,
-                "maxProperties": 32,
-                "properties": {
-                  "asserted_at": {
-                    "$ref": "#/$defs/native_report_timestamp",
-                    "maxLength": 64,
-                    "minLength": 1,
-                    "pattern": "\\S"
-                  },
-                  "evidence_digest": {
-                    "$ref": "#/$defs/digest"
-                  },
-                  "evidence_ref": {
-                    "maxLength": 2048,
-                    "minLength": 1,
-                    "pattern": "\\S",
-                    "type": "string"
-                  },
-                  "native_subject_ref": {
-                    "maxLength": 2048,
-                    "minLength": 1,
-                    "pattern": "\\S",
-                    "type": "string"
-                  },
-                  "run_id": {
-                    "$ref": "#/$defs/reference",
-                    "maxLength": 128,
-                    "minLength": 2
-                  },
-                  "status": {
-                    "enum": [
-                      "rolled_back",
-                      "partially_rolled_back",
-                      "rollback_failed"
-                    ],
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "run_id",
-                  "native_subject_ref",
-                  "status",
-                  "evidence_ref",
-                  "evidence_digest"
-                ],
-                "type": "object"
-              }
-            },
-            "required": [
-              "fields"
-            ]
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "action_id": {
-                "const": "run_analysis"
-              }
-            },
-            "required": [
-              "action_id"
-            ]
-          },
-          "then": {
-            "not": {
-              "anyOf": [
-                {
-                  "required": [
-                    "selected_choice"
-                  ]
-                },
-                {
-                  "required": [
-                    "decision_context_digest"
-                  ]
-                }
-              ]
-            },
-            "properties": {
-              "fields": {
-                "additionalProperties": false,
-                "maxProperties": 32,
-                "properties": {},
-                "type": "object"
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "action_id": {
-                "const": "start_action"
-              }
-            },
-            "required": [
-              "action_id"
-            ]
-          },
-          "then": {
-            "not": {
-              "anyOf": [
-                {
-                  "required": [
-                    "selected_choice"
-                  ]
-                },
-                {
-                  "required": [
-                    "decision_context_digest"
-                  ]
-                }
-              ]
-            },
-            "properties": {
-              "fields": {
-                "additionalProperties": false,
-                "maxProperties": 32,
-                "properties": {},
-                "type": "object"
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "action_id": {
-                "const": "start_execution"
-              }
-            },
-            "required": [
-              "action_id"
-            ]
-          },
-          "then": {
-            "not": {
-              "anyOf": [
-                {
-                  "required": [
-                    "selected_choice"
-                  ]
-                },
-                {
-                  "required": [
-                    "decision_context_digest"
-                  ]
-                }
-              ]
-            },
-            "properties": {
-              "fields": {
-                "additionalProperties": false,
-                "maxProperties": 32,
-                "properties": {},
-                "type": "object"
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "action_id": {
-                "const": "start_poc"
-              }
-            },
-            "required": [
-              "action_id"
-            ]
-          },
-          "then": {
-            "not": {
-              "anyOf": [
-                {
-                  "required": [
-                    "selected_choice"
-                  ]
-                },
-                {
-                  "required": [
-                    "decision_context_digest"
-                  ]
-                }
-              ]
-            },
-            "properties": {
-              "fields": {
-                "additionalProperties": false,
-                "maxProperties": 32,
-                "properties": {},
-                "type": "object"
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "action_id": {
-                "const": "start_refine"
-              }
-            },
-            "required": [
-              "action_id"
-            ]
-          },
-          "then": {
-            "not": {
-              "anyOf": [
-                {
-                  "required": [
-                    "selected_choice"
-                  ]
-                },
-                {
-                  "required": [
-                    "decision_context_digest"
-                  ]
-                }
-              ]
-            },
-            "properties": {
-              "fields": {
-                "additionalProperties": false,
-                "maxProperties": 32,
-                "properties": {},
-                "type": "object"
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "action_id": {
-                "const": "start_repair"
-              }
-            },
-            "required": [
-              "action_id"
-            ]
-          },
-          "then": {
-            "not": {
-              "anyOf": [
-                {
-                  "required": [
-                    "selected_choice"
-                  ]
-                },
-                {
-                  "required": [
-                    "decision_context_digest"
-                  ]
-                }
-              ]
-            },
-            "properties": {
-              "fields": {
-                "additionalProperties": false,
-                "maxProperties": 32,
-                "properties": {},
-                "type": "object"
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "action_id": {
-                "const": "start_run"
-              }
-            },
-            "required": [
-              "action_id"
-            ]
-          },
-          "then": {
-            "not": {
-              "anyOf": [
-                {
-                  "required": [
-                    "selected_choice"
-                  ]
-                },
-                {
-                  "required": [
-                    "decision_context_digest"
-                  ]
-                }
-              ]
-            },
-            "properties": {
-              "fields": {
-                "additionalProperties": false,
-                "maxProperties": 32,
-                "properties": {
-                  "asserted_at": {
-                    "$ref": "#/$defs/native_report_timestamp",
-                    "maxLength": 64,
-                    "minLength": 1,
-                    "pattern": "\\S"
-                  },
-                  "evidence_digest": {
-                    "$ref": "#/$defs/digest"
-                  },
-                  "evidence_ref": {
-                    "maxLength": 2048,
-                    "minLength": 1,
-                    "pattern": "\\S",
-                    "type": "string"
-                  },
-                  "native_subject_ref": {
-                    "maxLength": 2048,
-                    "minLength": 1,
-                    "pattern": "\\S",
-                    "type": "string"
-                  },
-                  "run_id": {
-                    "$ref": "#/$defs/reference",
-                    "maxLength": 128,
-                    "minLength": 2
-                  },
-                  "status": {
-                    "enum": [
-                      "started",
-                      "failed_to_start"
-                    ],
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "run_id",
-                  "native_subject_ref",
-                  "status",
-                  "evidence_ref",
-                  "evidence_digest"
-                ],
-                "type": "object"
-              }
-            },
-            "required": [
-              "fields"
-            ]
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "action_id": {
-                "const": "supersede_contract"
-              }
-            },
-            "required": [
-              "action_id"
-            ]
-          },
-          "then": {
-            "not": {
-              "anyOf": [
-                {
-                  "required": [
-                    "selected_choice"
-                  ]
-                },
-                {
-                  "required": [
-                    "decision_context_digest"
-                  ]
-                }
-              ]
-            },
-            "properties": {
-              "fields": {
-                "additionalProperties": false,
-                "maxProperties": 32,
-                "properties": {
-                  "architecture_binding": {
-                    "$ref": "#/$defs/architecture_binding"
-                  },
-                  "audit_evidence": {
-                    "items": {
-                      "$ref": "#/$defs/reference"
-                    },
-                    "maxItems": 32,
-                    "minItems": 1,
-                    "type": "array",
-                    "uniqueItems": true
-                  },
-                  "contract_version": {
-                    "maximum": 2147483647,
-                    "minimum": 1,
-                    "type": "integer"
-                  },
-                  "design_record": {
-                    "$ref": "#/$defs/workflow_design_content"
-                  },
-                  "law_modifies": {
-                    "items": {
-                      "$ref": "#/$defs/law_id"
-                    },
-                    "maxItems": 32,
-                    "minItems": 0,
-                    "type": "array",
-                    "uniqueItems": true
-                  },
-                  "outcome_kind": {
-                    "enum": [
-                      "exists",
-                      "absent",
-                      "outcome",
-                      "check"
-                    ],
-                    "type": "string"
-                  },
-                  "outcome_payload": {
-                    "$ref": "#/$defs/workflow_action_outcome"
-                  },
-                  "outcome_predicates": {
-                    "$ref": "#/$defs/workflow_action_outcome_predicates",
-                    "maxItems": 8,
-                    "minItems": 1
-                  },
-                  "predecessor_contract_versions": {
-                    "items": {
-                      "$ref": "#/$defs/workflow_contract_version"
-                    },
-                    "maxItems": 32,
-                    "minItems": 1,
-                    "type": "array"
-                  },
-                  "premise": {
-                    "description": "JSON Schema maxLength counts Unicode code points. Store admission also applies the same numerical limit to UTF-8 bytes (WorkflowPremiseMaxLength), so multibyte objectives must fit the byte allowance. This approval bound applies to objective content, not an OpenCode Task prompt or model-token limit. Do not truncate an approved objective or repeat its approval to repair packet projection.",
-                    "maxLength": 4096,
-                    "minLength": 1,
-                    "not": {
-                      "enum": [
-                        "workflow premise"
-                      ],
-                      "type": "string"
-                    },
-                    "pattern": "\\S",
-                    "type": "string"
-                  },
-                  "required_evidence": {
-                    "items": {
-                      "enum": [
-                        "verification",
-                        "review",
-                        "approval",
-                        "commit",
-                        "durable_note",
-                        "native_run",
-                        "artifact"
-                      ],
-                      "type": "string"
-                    },
-                    "maxItems": 7,
-                    "minItems": 0,
-                    "type": "array",
-                    "uniqueItems": true
-                  },
-                  "rigor_class": {
-                    "enum": [
-                      "prototype_internal",
-                      "prototype_trusted",
-                      "prototype_public",
-                      "prototype_safety_critical",
-                      "production_internal",
-                      "production_trusted",
-                      "production_public",
-                      "production_safety_critical",
-                      "critical_internal",
-                      "critical_trusted",
-                      "critical_public",
-                      "critical_safety_critical"
-                    ],
-                    "type": "string"
-                  },
-                  "route_conventions": {
-                    "items": {
-                      "$ref": "#/$defs/reference"
-                    },
-                    "maxItems": 16,
-                    "minItems": 0,
-                    "type": "array",
-                    "uniqueItems": true
-                  },
-                  "self_repair": {
-                    "$ref": "#/$defs/workflow_self_repair"
-                  },
-                  "spec_mandate": {
-                    "items": {
-                      "$ref": "#/$defs/law_id"
-                    },
-                    "maxItems": 32,
-                    "minItems": 0,
-                    "type": "array",
-                    "uniqueItems": true
-                  },
-                  "supersede_reason": {
-                    "maxLength": 4096,
-                    "minLength": 1,
-                    "pattern": "\\S",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "contract_version",
-                  "premise",
-                  "required_evidence",
-                  "route_conventions",
-                  "spec_mandate",
-                  "law_modifies",
-                  "rigor_class",
-                  "supersede_reason",
-                  "audit_evidence"
-                ],
-                "type": "object"
-              }
-            },
-            "required": [
-              "fields"
-            ]
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "action_id": {
-                "const": "supersede_contract"
-              }
-            },
-            "required": [
-              "action_id"
-            ]
-          },
-          "then": {
-            "not": {
-              "anyOf": [
-                {
-                  "required": [
-                    "selected_choice"
-                  ]
-                },
-                {
-                  "required": [
-                    "decision_context_digest"
-                  ]
-                }
-              ]
-            },
-            "properties": {
-              "fields": {
-                "additionalProperties": false,
-                "maxProperties": 32,
-                "oneOf": [
-                  {
-                    "required": [
-                      "outcome_predicates"
-                    ]
-                  },
-                  {
-                    "required": [
-                      "outcome_kind",
-                      "outcome_payload"
-                    ]
-                  }
-                ],
-                "properties": {
-                  "architecture_binding": {
-                    "$ref": "#/$defs/architecture_binding"
-                  },
-                  "audit_evidence": {
-                    "items": {
-                      "$ref": "#/$defs/reference"
-                    },
-                    "maxItems": 32,
-                    "minItems": 1,
-                    "type": "array",
-                    "uniqueItems": true
-                  },
-                  "contract_version": {
-                    "maximum": 2147483647,
-                    "minimum": 1,
-                    "type": "integer"
-                  },
-                  "design_record": {
-                    "$ref": "#/$defs/workflow_design_content"
-                  },
-                  "law_modifies": {
-                    "items": {
-                      "$ref": "#/$defs/law_id"
-                    },
-                    "maxItems": 32,
-                    "minItems": 0,
-                    "type": "array",
-                    "uniqueItems": true
-                  },
-                  "outcome_kind": {
-                    "enum": [
-                      "exists",
-                      "absent",
-                      "outcome",
-                      "check"
-                    ],
-                    "type": "string"
-                  },
-                  "outcome_payload": {
-                    "$ref": "#/$defs/workflow_action_outcome"
-                  },
-                  "outcome_predicates": {
-                    "$ref": "#/$defs/workflow_action_outcome_predicates",
-                    "maxItems": 8,
-                    "minItems": 1
-                  },
-                  "predecessor_contract_versions": {
-                    "items": {
-                      "$ref": "#/$defs/workflow_contract_version"
-                    },
-                    "maxItems": 32,
-                    "minItems": 1,
-                    "type": "array"
-                  },
-                  "premise": {
-                    "description": "JSON Schema maxLength counts Unicode code points. Store admission also applies the same numerical limit to UTF-8 bytes (WorkflowPremiseMaxLength), so multibyte objectives must fit the byte allowance. This approval bound applies to objective content, not an OpenCode Task prompt or model-token limit. Do not truncate an approved objective or repeat its approval to repair packet projection.",
-                    "maxLength": 4096,
-                    "minLength": 1,
-                    "not": {
-                      "enum": [
-                        "workflow premise"
-                      ],
-                      "type": "string"
-                    },
-                    "pattern": "\\S",
-                    "type": "string"
-                  },
-                  "required_evidence": {
-                    "items": {
-                      "enum": [
-                        "verification",
-                        "review",
-                        "approval",
-                        "commit",
-                        "durable_note",
-                        "native_run",
-                        "artifact"
-                      ],
-                      "type": "string"
-                    },
-                    "maxItems": 7,
-                    "minItems": 0,
-                    "type": "array",
-                    "uniqueItems": true
-                  },
-                  "rigor_class": {
-                    "enum": [
-                      "prototype_internal",
-                      "prototype_trusted",
-                      "prototype_public",
-                      "prototype_safety_critical",
-                      "production_internal",
-                      "production_trusted",
-                      "production_public",
-                      "production_safety_critical",
-                      "critical_internal",
-                      "critical_trusted",
-                      "critical_public",
-                      "critical_safety_critical"
-                    ],
-                    "type": "string"
-                  },
-                  "route_conventions": {
-                    "items": {
-                      "$ref": "#/$defs/reference"
-                    },
-                    "maxItems": 16,
-                    "minItems": 0,
-                    "type": "array",
-                    "uniqueItems": true
-                  },
-                  "self_repair": {
-                    "$ref": "#/$defs/workflow_self_repair"
-                  },
-                  "spec_mandate": {
-                    "items": {
-                      "$ref": "#/$defs/law_id"
-                    },
-                    "maxItems": 32,
-                    "minItems": 0,
-                    "type": "array",
-                    "uniqueItems": true
-                  },
-                  "supersede_reason": {
-                    "maxLength": 4096,
-                    "minLength": 1,
-                    "pattern": "\\S",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "contract_version",
-                  "premise",
-                  "required_evidence",
-                  "route_conventions",
-                  "spec_mandate",
-                  "law_modifies",
-                  "rigor_class",
-                  "supersede_reason",
-                  "audit_evidence"
-                ],
-                "type": "object"
-              }
-            },
-            "required": [
-              "fields"
-            ]
-          }
-        }
-      ],
       "properties": {
         "action_id": {
+          "const": "dispatch_worker",
+          "type": "string"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/evidence"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "fields": {
+          "additionalProperties": false,
+          "maxProperties": 32,
+          "properties": {
+            "lane_id": {
+              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths.",
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^\\S+$",
+              "type": "string",
+              "x-maxBytes": 128,
+              "x-minBytes": 2
+            }
+          },
+          "required": [
+            "lane_id"
+          ],
+          "type": "object"
+        },
+        "idempotency_key": {
           "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "research_bindings": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "pack_id": {
+                "$ref": "#/$defs/id"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "revision": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "use_role": {
+                "enum": [
+                  "context",
+                  "design_input",
+                  "verification_basis",
+                  "decision_basis"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "pack_id",
+              "revision",
+              "use_role",
+              "required"
+            ],
+            "type": "object"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "type": "array"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "expected_version",
+        "action_id",
+        "idempotency_key",
+        "fields"
+      ],
+      "type": "object"
+    },
+    "work_transition_action_variant_accept_decision": {
+      "additionalProperties": false,
+      "properties": {
+        "action_id": {
+          "const": "accept_decision",
+          "type": "string"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/evidence"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "fields": {
+          "additionalProperties": false,
+          "maxProperties": 32,
+          "properties": {
+            "evidence_kind": {
+              "enum": [
+                "verification",
+                "review",
+                "approval",
+                "commit",
+                "durable_note",
+                "native_run",
+                "artifact"
+              ],
+              "type": "string"
+            },
+            "evidence_ref": {
+              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths.",
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^\\S+$",
+              "type": "string",
+              "x-maxBytes": 128,
+              "x-minBytes": 2
+            },
+            "immutable_subject_ref": {
+              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths.",
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^\\S+$",
+              "type": "string",
+              "x-maxBytes": 128,
+              "x-minBytes": 2
+            },
+            "producer_id": {
+              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths.",
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^\\S+$",
+              "type": "string",
+              "x-maxBytes": 128,
+              "x-minBytes": 2
+            },
+            "producer_run_ref": {
+              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths.",
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^\\S+$",
+              "type": "string",
+              "x-maxBytes": 128,
+              "x-minBytes": 2
+            },
+            "producer_watermark": {
+              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths.",
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^\\S+$",
+              "type": "string",
+              "x-maxBytes": 128,
+              "x-minBytes": 2
+            }
+          },
+          "type": "object"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "research_bindings": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "pack_id": {
+                "$ref": "#/$defs/id"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "revision": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "use_role": {
+                "enum": [
+                  "context",
+                  "design_input",
+                  "verification_basis",
+                  "decision_basis"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "pack_id",
+              "revision",
+              "use_role",
+              "required"
+            ],
+            "type": "object"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "type": "array"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "expected_version",
+        "action_id",
+        "idempotency_key"
+      ],
+      "type": "object"
+    },
+    "work_transition_action_variant_accept_worker_evidence": {
+      "additionalProperties": false,
+      "properties": {
+        "action_id": {
+          "const": "accept_worker_evidence",
+          "type": "string"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/evidence"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "fields": {
+          "additionalProperties": false,
+          "maxProperties": 32,
+          "properties": {
+            "attempt_epoch": {
+              "maximum": 2147483647,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "attempt_id": {
+              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths.",
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^\\S+$",
+              "type": "string",
+              "x-maxBytes": 128,
+              "x-minBytes": 2
+            }
+          },
+          "required": [
+            "attempt_id",
+            "attempt_epoch"
+          ],
+          "type": "object"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "research_bindings": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "pack_id": {
+                "$ref": "#/$defs/id"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "revision": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "use_role": {
+                "enum": [
+                  "context",
+                  "design_input",
+                  "verification_basis",
+                  "decision_basis"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "pack_id",
+              "revision",
+              "use_role",
+              "required"
+            ],
+            "type": "object"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "type": "array"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "expected_version",
+        "action_id",
+        "idempotency_key",
+        "fields"
+      ],
+      "type": "object"
+    },
+    "work_transition_action_variant_accept_worker_result": {
+      "additionalProperties": false,
+      "properties": {
+        "action_id": {
+          "const": "accept_worker_result",
+          "type": "string"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/evidence"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "fields": {
+          "anyOf": [
+            {
+              "additionalProperties": false,
+              "maxProperties": 32,
+              "properties": {
+                "attempt_epoch": {
+                  "maximum": 2147483647,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "attempt_id": {
+                  "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths.",
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^\\S+$",
+                  "type": "string",
+                  "x-maxBytes": 128,
+                  "x-minBytes": 2
+                },
+                "delivery_artifact": {
+                  "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths.",
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^\\S+$",
+                  "type": "string",
+                  "x-maxBytes": 128,
+                  "x-minBytes": 2
+                },
+                "delivery_state": {
+                  "enum": [
+                    "asserted"
+                  ],
+                  "type": "string"
+                }
+              },
+              "required": [
+                "attempt_id",
+                "attempt_epoch"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "maxProperties": 32,
+              "properties": {
+                "attempt_epoch": {
+                  "maximum": 2147483647,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "attempt_id": {
+                  "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths.",
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^\\S+$",
+                  "type": "string",
+                  "x-maxBytes": 128,
+                  "x-minBytes": 2
+                }
+              },
+              "required": [
+                "attempt_id",
+                "attempt_epoch"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "research_bindings": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "pack_id": {
+                "$ref": "#/$defs/id"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "revision": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "use_role": {
+                "enum": [
+                  "context",
+                  "design_input",
+                  "verification_basis",
+                  "decision_basis"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "pack_id",
+              "revision",
+              "use_role",
+              "required"
+            ],
+            "type": "object"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "type": "array"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "expected_version",
+        "action_id",
+        "idempotency_key",
+        "fields"
+      ],
+      "type": "object"
+    },
+    "work_transition_action_variant_add_condition": {
+      "additionalProperties": false,
+      "properties": {
+        "action_id": {
+          "const": "add_condition",
+          "type": "string"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/evidence"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "fields": {
+          "additionalProperties": false,
+          "maxProperties": 32,
+          "properties": {
+            "await_ref": {
+              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths.",
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^\\S+$",
+              "type": "string",
+              "x-maxBytes": 128,
+              "x-minBytes": 2
+            },
+            "await_type": {
+              "enum": [
+                "pr_merge",
+                "ci_result",
+                "timer",
+                "human_approval",
+                "remote_work_state"
+              ],
+              "type": "string"
+            },
+            "condition_id": {
+              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths.",
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^\\S+$",
+              "type": "string",
+              "x-maxBytes": 128,
+              "x-minBytes": 2
+            },
+            "expected_within_seconds": {
+              "description": "CD-0184: this wait bounds an event a declared authority can resolve while the item is open. Do not hold the item open to observe production over a time window. Capture that observation as a follow-up work item and link it raised_from the delivering item.",
+              "maximum": 31536000,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "resolution_authority": {
+              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths.",
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^\\S+$",
+              "type": "string",
+              "x-maxBytes": 128,
+              "x-minBytes": 2
+            }
+          },
+          "type": "object"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "research_bindings": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "pack_id": {
+                "$ref": "#/$defs/id"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "revision": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "use_role": {
+                "enum": [
+                  "context",
+                  "design_input",
+                  "verification_basis",
+                  "decision_basis"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "pack_id",
+              "revision",
+              "use_role",
+              "required"
+            ],
+            "type": "object"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "type": "array"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "expected_version",
+        "action_id",
+        "idempotency_key"
+      ],
+      "type": "object"
+    },
+    "work_transition_action_variant_approve_contract": {
+      "additionalProperties": false,
+      "properties": {
+        "action_id": {
+          "const": "approve_contract",
+          "type": "string"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/evidence"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "fields": {
+          "additionalProperties": false,
+          "maxProperties": 32,
+          "properties": {
+            "architecture_binding": {
+              "$ref": "#/$defs/architecture_binding",
+              "description": "Architecture bindings must name Domains that exist in the pinned domain registry, home every added or modified law in a declared Domain, and modify Domain relations only through current canonical tuples; the store refuses an unknown Domain or relation."
+            },
+            "contract_version": {
+              "maximum": 2147483647,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "law_modifies": {
+              "items": {
+                "$ref": "#/$defs/law_id"
+              },
+              "maxItems": 32,
+              "minItems": 0,
+              "type": "array",
+              "uniqueItems": true
+            },
+            "outcome_predicates": {
+              "description": "CD-0184: acceptance is decidable at delivery. Each predicate names an end state verification can decide when the change is delivered. Post-delivery observation over a time window (traffic, an error rate, a metric over hours or days) is not acceptance: capture a follow-up work item and link it raised_from the delivering item before that item completes. A one-shot live check that verification can decide at delivery stays allowed.",
+              "items": {
+                "oneOf": [
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "ordinal": {
+                        "description": "The store refuses an outcome predicate whose ordinal is not its own zero-based position in outcome_predicates: the predicate at array position N must carry ordinal N (0, 1, 2, ...).",
+                        "maximum": 7,
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "outcome_kind": {
+                        "const": "exists",
+                        "description": "The store refuses an outcome predicate whose outcome_kind and outcome_payload.kind disagree: supply the outcome_payload variant that matches the declared outcome_kind.",
+                        "type": "string"
+                      },
+                      "outcome_payload": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "kind": {
+                            "const": "exists"
+                          },
+                          "subjects": {
+                            "items": {
+                              "$ref": "#/$defs/workflow_outcome_subject"
+                            },
+                            "maxItems": 100,
+                            "minItems": 1,
+                            "type": "array",
+                            "uniqueItems": true
+                          },
+                          "surface": {
+                            "$ref": "#/$defs/workflow_outcome_surface"
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "surface",
+                          "subjects"
+                        ],
+                        "type": "object"
+                      },
+                      "predicate_id": {
+                        "$ref": "#/$defs/id",
+                        "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\"."
+                      }
+                    },
+                    "required": [
+                      "predicate_id",
+                      "ordinal",
+                      "outcome_kind",
+                      "outcome_payload"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "ordinal": {
+                        "description": "The store refuses an outcome predicate whose ordinal is not its own zero-based position in outcome_predicates: the predicate at array position N must carry ordinal N (0, 1, 2, ...).",
+                        "maximum": 7,
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "outcome_kind": {
+                        "const": "absent",
+                        "description": "The store refuses an outcome predicate whose outcome_kind and outcome_payload.kind disagree: supply the outcome_payload variant that matches the declared outcome_kind.",
+                        "type": "string"
+                      },
+                      "outcome_payload": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "distinguish_from": {
+                            "items": {
+                              "enum": [
+                                "archived",
+                                "relocated",
+                                "renamed",
+                                "disabled"
+                              ],
+                              "type": "string"
+                            },
+                            "maxItems": 4,
+                            "minItems": 1,
+                            "type": "array",
+                            "uniqueItems": true
+                          },
+                          "kind": {
+                            "const": "absent"
+                          },
+                          "subjects": {
+                            "items": {
+                              "$ref": "#/$defs/workflow_outcome_subject"
+                            },
+                            "maxItems": 100,
+                            "minItems": 1,
+                            "type": "array",
+                            "uniqueItems": true
+                          },
+                          "surface": {
+                            "$ref": "#/$defs/workflow_outcome_surface"
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "surface",
+                          "subjects",
+                          "distinguish_from"
+                        ],
+                        "type": "object"
+                      },
+                      "predicate_id": {
+                        "$ref": "#/$defs/id",
+                        "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\"."
+                      }
+                    },
+                    "required": [
+                      "predicate_id",
+                      "ordinal",
+                      "outcome_kind",
+                      "outcome_payload"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "ordinal": {
+                        "description": "The store refuses an outcome predicate whose ordinal is not its own zero-based position in outcome_predicates: the predicate at array position N must carry ordinal N (0, 1, 2, ...).",
+                        "maximum": 7,
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "outcome_kind": {
+                        "const": "outcome",
+                        "description": "The store refuses an outcome predicate whose outcome_kind and outcome_payload.kind disagree: supply the outcome_payload variant that matches the declared outcome_kind.",
+                        "type": "string"
+                      },
+                      "outcome_payload": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "allowed": {
+                            "description": "The store pins which outcome tokens the contract of the work item being approved may carry, per its workflow type: workflow.architecture_spike admits accepted_decision, insufficient_evidence (decision_record required); workflow.generic_one_off admits no_change, accepted_decision, insufficient_evidence, resolved, remediated, report_recorded, completed, operator_defined; workflow.research admits no_change, resolved, report_recorded; workflow.break_fix, workflow.implementation, workflow.ops_runbook, workflow.static_analysis admit no outcome tokens (only exists, absent and check predicate kinds).",
+                            "items": {
+                              "enum": [
+                                "no_change",
+                                "accepted_decision",
+                                "insufficient_evidence",
+                                "resolved",
+                                "remediated",
+                                "report_recorded",
+                                "completed",
+                                "operator_defined"
+                              ],
+                              "type": "string"
+                            },
+                            "maxItems": 8,
+                            "minItems": 1,
+                            "type": "array",
+                            "uniqueItems": true
+                          },
+                          "decision_record": {
+                            "$ref": "#/$defs/workflow_outcome_decision_record"
+                          },
+                          "kind": {
+                            "const": "outcome"
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "allowed"
+                        ],
+                        "type": "object"
+                      },
+                      "predicate_id": {
+                        "$ref": "#/$defs/id",
+                        "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\"."
+                      }
+                    },
+                    "required": [
+                      "predicate_id",
+                      "ordinal",
+                      "outcome_kind",
+                      "outcome_payload"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "ordinal": {
+                        "description": "The store refuses an outcome predicate whose ordinal is not its own zero-based position in outcome_predicates: the predicate at array position N must carry ordinal N (0, 1, 2, ...).",
+                        "maximum": 7,
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "outcome_kind": {
+                        "const": "check",
+                        "description": "The store refuses an outcome predicate whose outcome_kind and outcome_payload.kind disagree: supply the outcome_payload variant that matches the declared outcome_kind.",
+                        "type": "string"
+                      },
+                      "outcome_payload": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "check_ref": {
+                            "maxLength": 134,
+                            "minLength": 7,
+                            "pattern": "^check:[a-z][a-z0-9_.:/-]{1,127}$",
+                            "type": "string"
+                          },
+                          "expected_result": {
+                            "enum": [
+                              "true",
+                              "false",
+                              "pass",
+                              "fail",
+                              "present",
+                              "absent",
+                              "healthy",
+                              "unhealthy",
+                              "accepted",
+                              "rejected"
+                            ],
+                            "type": "string"
+                          },
+                          "immutable_subject_ref": {
+                            "maxLength": 256,
+                            "minLength": 2,
+                            "pattern": "^[a-z][a-z0-9_.:/-]{1,255}$",
+                            "type": "string"
+                          },
+                          "kind": {
+                            "const": "check"
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "check_ref",
+                          "immutable_subject_ref",
+                          "expected_result"
+                        ],
+                        "type": "object"
+                      },
+                      "predicate_id": {
+                        "$ref": "#/$defs/id",
+                        "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\"."
+                      }
+                    },
+                    "required": [
+                      "predicate_id",
+                      "ordinal",
+                      "outcome_kind",
+                      "outcome_payload"
+                    ],
+                    "type": "object"
+                  }
+                ]
+              },
+              "maxItems": 8,
+              "minItems": 1,
+              "type": "array"
+            },
+            "premise": {
+              "description": "JSON Schema maxLength counts Unicode code points. Store admission also applies the same numerical limit to UTF-8 bytes (WorkflowPremiseMaxLength), so multibyte objectives must fit the byte allowance. This approval bound applies to objective content, not an OpenCode Task prompt or model-token limit. Do not truncate an approved objective or repeat its approval to repair packet projection.",
+              "maxLength": 4096,
+              "minLength": 1,
+              "not": {
+                "enum": [
+                  "workflow premise"
+                ],
+                "type": "string"
+              },
+              "pattern": "\\S",
+              "type": "string",
+              "x-maxBytes": 4096,
+              "x-minBytes": 2
+            },
+            "proposed_route_conventions": {
+              "items": {
+                "$ref": "#/$defs/reference"
+              },
+              "maxItems": 16,
+              "minItems": 0,
+              "type": "array",
+              "uniqueItems": true
+            },
+            "required_evidence": {
+              "description": "Evidence obligations are admitted only when the work item's pinned workflow definition declares them at root, step, or rigor level; the WorkPin obligations list publishes that exact sorted membership.",
+              "items": {
+                "enum": [
+                  "verification",
+                  "review",
+                  "approval",
+                  "commit",
+                  "durable_note",
+                  "native_run",
+                  "artifact"
+                ],
+                "type": "string"
+              },
+              "maxItems": 7,
+              "minItems": 0,
+              "type": "array",
+              "uniqueItems": true
+            },
+            "required_route_conventions": {
+              "items": {
+                "$ref": "#/$defs/reference"
+              },
+              "maxItems": 16,
+              "minItems": 0,
+              "type": "array",
+              "uniqueItems": true
+            },
+            "rigor_class": {
+              "enum": [
+                "prototype_internal",
+                "prototype_trusted",
+                "prototype_public",
+                "prototype_safety_critical",
+                "production_internal",
+                "production_trusted",
+                "production_public",
+                "production_safety_critical",
+                "critical_internal",
+                "critical_trusted",
+                "critical_public",
+                "critical_safety_critical"
+              ],
+              "type": "string"
+            },
+            "route_convention": {
+              "enum": [
+                "workflow_action"
+              ],
+              "type": "string"
+            },
+            "route_conventions": {
+              "items": {
+                "$ref": "#/$defs/reference"
+              },
+              "maxItems": 16,
+              "minItems": 0,
+              "type": "array",
+              "uniqueItems": true
+            },
+            "spec_mandate": {
+              "items": {
+                "$ref": "#/$defs/law_id"
+              },
+              "maxItems": 32,
+              "minItems": 0,
+              "type": "array",
+              "uniqueItems": true
+            }
+          },
+          "required": [
+            "premise",
+            "outcome_predicates"
+          ],
+          "type": "object"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "research_bindings": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "pack_id": {
+                "$ref": "#/$defs/id"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "revision": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "use_role": {
+                "enum": [
+                  "context",
+                  "design_input",
+                  "verification_basis",
+                  "decision_basis"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "pack_id",
+              "revision",
+              "use_role",
+              "required"
+            ],
+            "type": "object"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "type": "array"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "expected_version",
+        "action_id",
+        "idempotency_key",
+        "fields"
+      ],
+      "type": "object"
+    },
+    "work_transition_action_variant_approve_operation": {
+      "additionalProperties": false,
+      "properties": {
+        "action_id": {
+          "const": "approve_operation",
+          "type": "string"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/evidence"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "fields": {
+          "additionalProperties": false,
+          "maxProperties": 32,
+          "properties": {
+            "evidence_kind": {
+              "enum": [
+                "verification",
+                "review",
+                "approval",
+                "commit",
+                "durable_note",
+                "native_run",
+                "artifact"
+              ],
+              "type": "string"
+            },
+            "evidence_ref": {
+              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths.",
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^\\S+$",
+              "type": "string",
+              "x-maxBytes": 128,
+              "x-minBytes": 2
+            },
+            "immutable_subject_ref": {
+              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths.",
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^\\S+$",
+              "type": "string",
+              "x-maxBytes": 128,
+              "x-minBytes": 2
+            },
+            "producer_id": {
+              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths.",
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^\\S+$",
+              "type": "string",
+              "x-maxBytes": 128,
+              "x-minBytes": 2
+            },
+            "producer_run_ref": {
+              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths.",
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^\\S+$",
+              "type": "string",
+              "x-maxBytes": 128,
+              "x-minBytes": 2
+            },
+            "producer_watermark": {
+              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths.",
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^\\S+$",
+              "type": "string",
+              "x-maxBytes": 128,
+              "x-minBytes": 2
+            }
+          },
+          "type": "object"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "research_bindings": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "pack_id": {
+                "$ref": "#/$defs/id"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "revision": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "use_role": {
+                "enum": [
+                  "context",
+                  "design_input",
+                  "verification_basis",
+                  "decision_basis"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "pack_id",
+              "revision",
+              "use_role",
+              "required"
+            ],
+            "type": "object"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "type": "array"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "expected_version",
+        "action_id",
+        "idempotency_key"
+      ],
+      "type": "object"
+    },
+    "work_transition_action_variant_bind_evidence": {
+      "additionalProperties": false,
+      "properties": {
+        "action_id": {
+          "const": "bind_evidence",
+          "type": "string"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/evidence"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "fields": {
+          "additionalProperties": false,
+          "maxProperties": 32,
+          "properties": {
+            "evidence_kind": {
+              "enum": [
+                "verification",
+                "review",
+                "approval",
+                "commit",
+                "durable_note",
+                "native_run",
+                "artifact"
+              ],
+              "type": "string"
+            },
+            "evidence_ref": {
+              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths.",
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^\\S+$",
+              "type": "string",
+              "x-maxBytes": 128,
+              "x-minBytes": 2
+            },
+            "immutable_subject_ref": {
+              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths.",
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^\\S+$",
+              "type": "string",
+              "x-maxBytes": 128,
+              "x-minBytes": 2
+            },
+            "producer_id": {
+              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths.",
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^\\S+$",
+              "type": "string",
+              "x-maxBytes": 128,
+              "x-minBytes": 2
+            },
+            "producer_run_ref": {
+              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths.",
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^\\S+$",
+              "type": "string",
+              "x-maxBytes": 128,
+              "x-minBytes": 2
+            },
+            "producer_watermark": {
+              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths.",
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^\\S+$",
+              "type": "string",
+              "x-maxBytes": 128,
+              "x-minBytes": 2
+            }
+          },
+          "type": "object"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "research_bindings": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "pack_id": {
+                "$ref": "#/$defs/id"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "revision": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "use_role": {
+                "enum": [
+                  "context",
+                  "design_input",
+                  "verification_basis",
+                  "decision_basis"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "pack_id",
+              "revision",
+              "use_role",
+              "required"
+            ],
+            "type": "object"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "type": "array"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "expected_version",
+        "action_id",
+        "idempotency_key"
+      ],
+      "type": "object"
+    },
+    "work_transition_action_variant_cancel_condition": {
+      "additionalProperties": false,
+      "properties": {
+        "action_id": {
+          "const": "cancel_condition",
+          "type": "string"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/evidence"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "fields": {
+          "additionalProperties": false,
+          "maxProperties": 32,
+          "properties": {
+            "cancellation_authority": {
+              "enum": [
+                "operator"
+              ],
+              "type": "string"
+            },
+            "cancellation_evidence": {
+              "items": {
+                "$ref": "#/$defs/reference"
+              },
+              "maxItems": 32,
+              "minItems": 1,
+              "type": "array",
+              "uniqueItems": true
+            },
+            "cancelled_by_event": {
+              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths.",
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^\\S+$",
+              "type": "string",
+              "x-maxBytes": 128,
+              "x-minBytes": 2
+            },
+            "condition_id": {
+              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths.",
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^\\S+$",
+              "type": "string",
+              "x-maxBytes": 128,
+              "x-minBytes": 2
+            }
+          },
+          "required": [
+            "condition_id",
+            "cancellation_authority",
+            "cancellation_evidence",
+            "cancelled_by_event"
+          ],
+          "type": "object"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "research_bindings": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "pack_id": {
+                "$ref": "#/$defs/id"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "revision": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "use_role": {
+                "enum": [
+                  "context",
+                  "design_input",
+                  "verification_basis",
+                  "decision_basis"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "pack_id",
+              "revision",
+              "use_role",
+              "required"
+            ],
+            "type": "object"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "type": "array"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "expected_version",
+        "action_id",
+        "idempotency_key",
+        "fields"
+      ],
+      "type": "object"
+    },
+    "work_transition_action_variant_checkpoint_action": {
+      "additionalProperties": false,
+      "properties": {
+        "action_id": {
+          "const": "checkpoint_action",
+          "type": "string"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/evidence"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "fields": {
+          "additionalProperties": false,
+          "maxProperties": 32,
+          "properties": {},
+          "type": "object"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "research_bindings": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "pack_id": {
+                "$ref": "#/$defs/id"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "revision": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "use_role": {
+                "enum": [
+                  "context",
+                  "design_input",
+                  "verification_basis",
+                  "decision_basis"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "pack_id",
+              "revision",
+              "use_role",
+              "required"
+            ],
+            "type": "object"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "type": "array"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "expected_version",
+        "action_id",
+        "idempotency_key"
+      ],
+      "type": "object"
+    },
+    "work_transition_action_variant_checkpoint_analysis": {
+      "additionalProperties": false,
+      "properties": {
+        "action_id": {
+          "const": "checkpoint_analysis",
+          "type": "string"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/evidence"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "fields": {
+          "additionalProperties": false,
+          "maxProperties": 32,
+          "properties": {},
+          "type": "object"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "research_bindings": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "pack_id": {
+                "$ref": "#/$defs/id"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "revision": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "use_role": {
+                "enum": [
+                  "context",
+                  "design_input",
+                  "verification_basis",
+                  "decision_basis"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "pack_id",
+              "revision",
+              "use_role",
+              "required"
+            ],
+            "type": "object"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "type": "array"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "expected_version",
+        "action_id",
+        "idempotency_key"
+      ],
+      "type": "object"
+    },
+    "work_transition_action_variant_checkpoint_context": {
+      "additionalProperties": false,
+      "properties": {
+        "action_id": {
+          "const": "checkpoint_context",
+          "type": "string"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/evidence"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "fields": {
+          "additionalProperties": false,
+          "maxProperties": 32,
+          "properties": {
+            "active_unit": {
+              "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "\\S",
+              "type": "string",
+              "x-maxBytes": 256
+            },
+            "checkpoint_id": {
+              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths.",
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^\\S+$",
+              "type": "string",
+              "x-maxBytes": 128,
+              "x-minBytes": 2
+            },
+            "checkpoint_sequence": {
+              "maximum": 2147483647,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "diagnosis": {
+              "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
+              "maxLength": 4096,
+              "minLength": 1,
+              "pattern": "\\S",
+              "type": "string",
+              "x-maxBytes": 4096
+            },
+            "evidence_refs": {
+              "items": {
+                "$ref": "#/$defs/reference"
+              },
+              "maxItems": 64,
+              "minItems": 1,
+              "type": "array",
+              "uniqueItems": true
+            },
+            "hypothesis": {
+              "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
+              "maxLength": 4096,
+              "minLength": 1,
+              "pattern": "\\S",
+              "type": "string",
+              "x-maxBytes": 4096
+            },
+            "pending_decisions": {
+              "items": {
+                "$ref": "#/$defs/reference"
+              },
+              "maxItems": 16,
+              "minItems": 0,
+              "type": "array",
+              "uniqueItems": true
+            },
+            "pending_questions": {
+              "items": {
+                "$ref": "#/$defs/reference"
+              },
+              "maxItems": 16,
+              "minItems": 0,
+              "type": "array",
+              "uniqueItems": true
+            },
+            "strategy": {
+              "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
+              "maxLength": 4096,
+              "minLength": 1,
+              "pattern": "\\S",
+              "type": "string",
+              "x-maxBytes": 4096
+            },
+            "touched_refs": {
+              "items": {
+                "$ref": "#/$defs/reference"
+              },
+              "maxItems": 64,
+              "minItems": 1,
+              "type": "array",
+              "uniqueItems": true
+            }
+          },
+          "required": [
+            "active_unit",
+            "hypothesis",
+            "diagnosis",
+            "strategy",
+            "touched_refs",
+            "evidence_refs",
+            "pending_questions",
+            "pending_decisions"
+          ],
+          "type": "object"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "research_bindings": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "pack_id": {
+                "$ref": "#/$defs/id"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "revision": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "use_role": {
+                "enum": [
+                  "context",
+                  "design_input",
+                  "verification_basis",
+                  "decision_basis"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "pack_id",
+              "revision",
+              "use_role",
+              "required"
+            ],
+            "type": "object"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "type": "array"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "expected_version",
+        "action_id",
+        "idempotency_key",
+        "fields"
+      ],
+      "type": "object"
+    },
+    "work_transition_action_variant_checkpoint_execution": {
+      "additionalProperties": false,
+      "properties": {
+        "action_id": {
+          "const": "checkpoint_execution",
+          "type": "string"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/evidence"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "fields": {
+          "additionalProperties": false,
+          "maxProperties": 32,
+          "properties": {},
+          "type": "object"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "research_bindings": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "pack_id": {
+                "$ref": "#/$defs/id"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "revision": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "use_role": {
+                "enum": [
+                  "context",
+                  "design_input",
+                  "verification_basis",
+                  "decision_basis"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "pack_id",
+              "revision",
+              "use_role",
+              "required"
+            ],
+            "type": "object"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "type": "array"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "expected_version",
+        "action_id",
+        "idempotency_key"
+      ],
+      "type": "object"
+    },
+    "work_transition_action_variant_checkpoint_poc": {
+      "additionalProperties": false,
+      "properties": {
+        "action_id": {
+          "const": "checkpoint_poc",
+          "type": "string"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/evidence"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "fields": {
+          "additionalProperties": false,
+          "maxProperties": 32,
+          "properties": {},
+          "type": "object"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "research_bindings": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "pack_id": {
+                "$ref": "#/$defs/id"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "revision": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "use_role": {
+                "enum": [
+                  "context",
+                  "design_input",
+                  "verification_basis",
+                  "decision_basis"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "pack_id",
+              "revision",
+              "use_role",
+              "required"
+            ],
+            "type": "object"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "type": "array"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "expected_version",
+        "action_id",
+        "idempotency_key"
+      ],
+      "type": "object"
+    },
+    "work_transition_action_variant_checkpoint_refine": {
+      "additionalProperties": false,
+      "properties": {
+        "action_id": {
+          "const": "checkpoint_refine",
+          "type": "string"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/evidence"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "fields": {
+          "additionalProperties": false,
+          "maxProperties": 32,
+          "properties": {},
+          "type": "object"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "research_bindings": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "pack_id": {
+                "$ref": "#/$defs/id"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "revision": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "use_role": {
+                "enum": [
+                  "context",
+                  "design_input",
+                  "verification_basis",
+                  "decision_basis"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "pack_id",
+              "revision",
+              "use_role",
+              "required"
+            ],
+            "type": "object"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "type": "array"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "expected_version",
+        "action_id",
+        "idempotency_key"
+      ],
+      "type": "object"
+    },
+    "work_transition_action_variant_checkpoint_repair": {
+      "additionalProperties": false,
+      "properties": {
+        "action_id": {
+          "const": "checkpoint_repair",
+          "type": "string"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/evidence"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "fields": {
+          "additionalProperties": false,
+          "maxProperties": 32,
+          "properties": {},
+          "type": "object"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "research_bindings": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "pack_id": {
+                "$ref": "#/$defs/id"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "revision": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "use_role": {
+                "enum": [
+                  "context",
+                  "design_input",
+                  "verification_basis",
+                  "decision_basis"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "pack_id",
+              "revision",
+              "use_role",
+              "required"
+            ],
+            "type": "object"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "type": "array"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "expected_version",
+        "action_id",
+        "idempotency_key"
+      ],
+      "type": "object"
+    },
+    "work_transition_action_variant_checkpoint_run": {
+      "additionalProperties": false,
+      "properties": {
+        "action_id": {
+          "const": "checkpoint_run",
+          "type": "string"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/evidence"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "fields": {
+          "additionalProperties": false,
+          "maxProperties": 32,
+          "properties": {},
+          "type": "object"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "research_bindings": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "pack_id": {
+                "$ref": "#/$defs/id"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "revision": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "use_role": {
+                "enum": [
+                  "context",
+                  "design_input",
+                  "verification_basis",
+                  "decision_basis"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "pack_id",
+              "revision",
+              "use_role",
+              "required"
+            ],
+            "type": "object"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "type": "array"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "expected_version",
+        "action_id",
+        "idempotency_key"
+      ],
+      "type": "object"
+    },
+    "work_transition_action_variant_cleanup_run": {
+      "additionalProperties": false,
+      "properties": {
+        "action_id": {
+          "const": "cleanup_run",
+          "type": "string"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/evidence"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "fields": {
+          "additionalProperties": false,
+          "maxProperties": 32,
+          "properties": {
+            "asserted_at": {
+              "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
+              "format": "date-time",
+              "maxLength": 64,
+              "minLength": 1,
+              "pattern": "\\S",
+              "type": "string",
+              "x-maxBytes": 64
+            },
+            "evidence_digest": {
+              "$ref": "#/$defs/digest"
+            },
+            "evidence_ref": {
+              "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
+              "maxLength": 2048,
+              "minLength": 1,
+              "pattern": "\\S",
+              "type": "string",
+              "x-maxBytes": 2048
+            },
+            "native_subject_ref": {
+              "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
+              "maxLength": 2048,
+              "minLength": 1,
+              "pattern": "\\S",
+              "type": "string",
+              "x-maxBytes": 2048
+            },
+            "run_id": {
+              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths.",
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^\\S+$",
+              "type": "string",
+              "x-maxBytes": 128,
+              "x-minBytes": 2
+            },
+            "status": {
+              "enum": [
+                "cleaned",
+                "cleanup_failed"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "run_id",
+            "native_subject_ref",
+            "status",
+            "evidence_ref",
+            "evidence_digest"
+          ],
+          "type": "object"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "research_bindings": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "pack_id": {
+                "$ref": "#/$defs/id"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "revision": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "use_role": {
+                "enum": [
+                  "context",
+                  "design_input",
+                  "verification_basis",
+                  "decision_basis"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "pack_id",
+              "revision",
+              "use_role",
+              "required"
+            ],
+            "type": "object"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "type": "array"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "expected_version",
+        "action_id",
+        "idempotency_key",
+        "fields"
+      ],
+      "type": "object"
+    },
+    "work_transition_action_variant_complete": {
+      "additionalProperties": false,
+      "properties": {
+        "action_id": {
+          "const": "complete",
+          "type": "string"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/evidence"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "fields": {
+          "additionalProperties": false,
+          "maxProperties": 32,
+          "properties": {
+            "current_commit": {
+              "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "\\S",
+              "type": "string",
+              "x-maxBytes": 128
+            },
+            "evidence_commit": {
+              "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "\\S",
+              "type": "string",
+              "x-maxBytes": 128
+            },
+            "evidence_kind": {
+              "enum": [
+                "verification",
+                "review",
+                "approval",
+                "commit",
+                "durable_note",
+                "native_run",
+                "artifact"
+              ],
+              "type": "string"
+            },
+            "evidence_refs": {
+              "items": {
+                "$ref": "#/$defs/reference"
+              },
+              "maxItems": 32,
+              "minItems": 1,
+              "type": "array",
+              "uniqueItems": true
+            },
+            "impact_verdict": {
+              "enum": [
+                "breaking",
+                "non-breaking"
+              ],
+              "type": "string"
+            },
+            "payload": {
+              "$ref": "#/$defs/workflow_completion_payload"
+            },
+            "verdict_actor_ref": {
+              "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
+              "maxLength": 70,
+              "minLength": 1,
+              "pattern": "\\S",
+              "type": "string",
+              "x-maxBytes": 70
+            }
+          },
+          "required": [
+            "impact_verdict"
+          ],
+          "type": "object"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "research_bindings": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "pack_id": {
+                "$ref": "#/$defs/id"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "revision": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "use_role": {
+                "enum": [
+                  "context",
+                  "design_input",
+                  "verification_basis",
+                  "decision_basis"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "pack_id",
+              "revision",
+              "use_role",
+              "required"
+            ],
+            "type": "object"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "type": "array"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "expected_version",
+        "action_id",
+        "idempotency_key",
+        "fields"
+      ],
+      "type": "object"
+    },
+    "work_transition_action_variant_confirm_premise": {
+      "additionalProperties": false,
+      "properties": {
+        "action_id": {
+          "const": "confirm_premise",
+          "type": "string"
         },
         "approval": {
           "$ref": "#/$defs/approval"
@@ -12800,7 +12043,6 @@ const GeneratedPayloadSchemaDocument = `{
         "expected_version": {
           "$ref": "#/$defs/version"
         },
-        "fields": {},
         "idempotency_key": {
           "$ref": "#/$defs/id"
         },
@@ -12859,7 +12101,5559 @@ const GeneratedPayloadSchemaDocument = `{
         "work_id",
         "expected_version",
         "action_id",
+        "idempotency_key",
+        "selected_choice",
+        "decision_context_digest"
+      ],
+      "type": "object"
+    },
+    "work_transition_action_variant_cross_context_boundary": {
+      "additionalProperties": false,
+      "properties": {
+        "action_id": {
+          "const": "cross_context_boundary",
+          "type": "string"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/evidence"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "fields": {
+          "additionalProperties": false,
+          "maxProperties": 32,
+          "properties": {
+            "boundary_kind": {
+              "enum": [
+                "summary",
+                "restart"
+              ],
+              "type": "string"
+            },
+            "boundary_sequence": {
+              "maximum": 2147483647,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "checkpoint_id": {
+              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths.",
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^\\S+$",
+              "type": "string",
+              "x-maxBytes": 128,
+              "x-minBytes": 2
+            },
+            "checkpoint_sequence": {
+              "maximum": 2147483647,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "mode": {
+              "enum": [
+                "summary",
+                "restart"
+              ],
+              "type": "string"
+            },
+            "restart": {
+              "type": "boolean"
+            },
+            "summary": {
+              "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
+              "maxLength": 16384,
+              "minLength": 1,
+              "pattern": "\\S",
+              "type": "string",
+              "x-maxBytes": 16384
+            }
+          },
+          "required": [
+            "boundary_kind",
+            "mode",
+            "checkpoint_id",
+            "summary"
+          ],
+          "type": "object"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "research_bindings": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "pack_id": {
+                "$ref": "#/$defs/id"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "revision": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "use_role": {
+                "enum": [
+                  "context",
+                  "design_input",
+                  "verification_basis",
+                  "decision_basis"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "pack_id",
+              "revision",
+              "use_role",
+              "required"
+            ],
+            "type": "object"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "type": "array"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "expected_version",
+        "action_id",
+        "idempotency_key",
+        "fields"
+      ],
+      "type": "object"
+    },
+    "work_transition_action_variant_declare_impact": {
+      "additionalProperties": false,
+      "properties": {
+        "action_id": {
+          "const": "declare_impact",
+          "type": "string"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/evidence"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "fields": {
+          "additionalProperties": false,
+          "maxProperties": 32,
+          "properties": {
+            "edge_class": {
+              "enum": [
+                "hard",
+                "soft",
+                "none"
+              ],
+              "type": "string"
+            },
+            "edge_id": {
+              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths.",
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^\\S+$",
+              "type": "string",
+              "x-maxBytes": 128,
+              "x-minBytes": 2
+            },
+            "edge_kind": {
+              "enum": [
+                "modifies",
+                "depends_on",
+                "forward_link"
+              ],
+              "type": "string"
+            },
+            "severity": {
+              "enum": [
+                "breaking",
+                "non-breaking",
+                "informational"
+              ],
+              "type": "string"
+            },
+            "target_work_id": {
+              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths.",
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^\\S+$",
+              "type": "string",
+              "x-maxBytes": 128,
+              "x-minBytes": 2
+            }
+          },
+          "required": [
+            "target_work_id"
+          ],
+          "type": "object"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "research_bindings": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "pack_id": {
+                "$ref": "#/$defs/id"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "revision": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "use_role": {
+                "enum": [
+                  "context",
+                  "design_input",
+                  "verification_basis",
+                  "decision_basis"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "pack_id",
+              "revision",
+              "use_role",
+              "required"
+            ],
+            "type": "object"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "type": "array"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "expected_version",
+        "action_id",
+        "idempotency_key",
+        "fields"
+      ],
+      "type": "object"
+    },
+    "work_transition_action_variant_declare_scope": {
+      "additionalProperties": false,
+      "properties": {
+        "action_id": {
+          "const": "declare_scope",
+          "type": "string"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/evidence"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "fields": {
+          "additionalProperties": false,
+          "maxProperties": 32,
+          "properties": {},
+          "type": "object"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "research_bindings": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "pack_id": {
+                "$ref": "#/$defs/id"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "revision": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "use_role": {
+                "enum": [
+                  "context",
+                  "design_input",
+                  "verification_basis",
+                  "decision_basis"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "pack_id",
+              "revision",
+              "use_role",
+              "required"
+            ],
+            "type": "object"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "type": "array"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "expected_version",
+        "action_id",
         "idempotency_key"
+      ],
+      "type": "object"
+    },
+    "work_transition_action_variant_discard_poc": {
+      "additionalProperties": false,
+      "properties": {
+        "action_id": {
+          "const": "discard_poc",
+          "type": "string"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/evidence"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "fields": {
+          "additionalProperties": false,
+          "maxProperties": 32,
+          "properties": {},
+          "type": "object"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "research_bindings": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "pack_id": {
+                "$ref": "#/$defs/id"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "revision": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "use_role": {
+                "enum": [
+                  "context",
+                  "design_input",
+                  "verification_basis",
+                  "decision_basis"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "pack_id",
+              "revision",
+              "use_role",
+              "required"
+            ],
+            "type": "object"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "type": "array"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "expected_version",
+        "action_id",
+        "idempotency_key"
+      ],
+      "type": "object"
+    },
+    "work_transition_action_variant_dispatch_worker": {
+      "additionalProperties": false,
+      "properties": {
+        "action_id": {
+          "const": "dispatch_worker",
+          "type": "string"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/evidence"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "fields": {
+          "additionalProperties": false,
+          "maxProperties": 32,
+          "properties": {
+            "attempt_id": {
+              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths.",
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^\\S+$",
+              "type": "string",
+              "x-maxBytes": 128,
+              "x-minBytes": 2
+            },
+            "worker_packet": {
+              "$ref": "#/$defs/worker_packet"
+            }
+          },
+          "required": [
+            "attempt_id",
+            "worker_packet"
+          ],
+          "type": "object"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "research_bindings": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "pack_id": {
+                "$ref": "#/$defs/id"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "revision": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "use_role": {
+                "enum": [
+                  "context",
+                  "design_input",
+                  "verification_basis",
+                  "decision_basis"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "pack_id",
+              "revision",
+              "use_role",
+              "required"
+            ],
+            "type": "object"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "type": "array"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "expected_version",
+        "action_id",
+        "idempotency_key",
+        "fields"
+      ],
+      "type": "object"
+    },
+    "work_transition_action_variant_frame_question": {
+      "additionalProperties": false,
+      "properties": {
+        "action_id": {
+          "const": "frame_question",
+          "type": "string"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/evidence"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "fields": {
+          "additionalProperties": false,
+          "maxProperties": 32,
+          "properties": {},
+          "type": "object"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "research_bindings": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "pack_id": {
+                "$ref": "#/$defs/id"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "revision": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "use_role": {
+                "enum": [
+                  "context",
+                  "design_input",
+                  "verification_basis",
+                  "decision_basis"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "pack_id",
+              "revision",
+              "use_role",
+              "required"
+            ],
+            "type": "object"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "type": "array"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "expected_version",
+        "action_id",
+        "idempotency_key"
+      ],
+      "type": "object"
+    },
+    "work_transition_action_variant_frame_research": {
+      "additionalProperties": false,
+      "properties": {
+        "action_id": {
+          "const": "frame_research",
+          "type": "string"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/evidence"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "fields": {
+          "additionalProperties": false,
+          "maxProperties": 32,
+          "properties": {},
+          "type": "object"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "research_bindings": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "pack_id": {
+                "$ref": "#/$defs/id"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "revision": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "use_role": {
+                "enum": [
+                  "context",
+                  "design_input",
+                  "verification_basis",
+                  "decision_basis"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "pack_id",
+              "revision",
+              "use_role",
+              "required"
+            ],
+            "type": "object"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "type": "array"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "expected_version",
+        "action_id",
+        "idempotency_key"
+      ],
+      "type": "object"
+    },
+    "work_transition_action_variant_link_successor": {
+      "additionalProperties": false,
+      "properties": {
+        "action_id": {
+          "const": "link_successor",
+          "type": "string"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/evidence"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "fields": {
+          "additionalProperties": false,
+          "maxProperties": 32,
+          "properties": {
+            "relation": {
+              "enum": [
+                "forward_link"
+              ],
+              "type": "string"
+            },
+            "relation_data": {
+              "$ref": "#/$defs/workflow_forward_relation"
+            },
+            "successor_work_id": {
+              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths.",
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^\\S+$",
+              "type": "string",
+              "x-maxBytes": 128,
+              "x-minBytes": 2
+            }
+          },
+          "required": [
+            "successor_work_id"
+          ],
+          "type": "object"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "research_bindings": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "pack_id": {
+                "$ref": "#/$defs/id"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "revision": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "use_role": {
+                "enum": [
+                  "context",
+                  "design_input",
+                  "verification_basis",
+                  "decision_basis"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "pack_id",
+              "revision",
+              "use_role",
+              "required"
+            ],
+            "type": "object"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "type": "array"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "expected_version",
+        "action_id",
+        "idempotency_key",
+        "fields"
+      ],
+      "type": "object"
+    },
+    "work_transition_action_variant_record_alignment": {
+      "additionalProperties": false,
+      "properties": {
+        "action_id": {
+          "const": "record_alignment",
+          "type": "string"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/evidence"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "fields": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "maxProperties": 32,
+              "properties": {
+                "outcome": {
+                  "const": "related_found",
+                  "type": "string"
+                },
+                "related_ids": {
+                  "description": "record_alignment couples outcome and related_ids: outcome related_found requires a non-empty related_ids list, and outcome none_found must omit related_ids entirely; the store refuses any other combination.",
+                  "items": {
+                    "$ref": "#/$defs/id"
+                  },
+                  "maxItems": 64,
+                  "minItems": 1,
+                  "type": "array",
+                  "uniqueItems": true
+                },
+                "searched": {
+                  "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
+                  "maxLength": 4096,
+                  "minLength": 1,
+                  "pattern": "\\S",
+                  "type": "string",
+                  "x-maxBytes": 4096,
+                  "x-minBytes": 2
+                }
+              },
+              "required": [
+                "searched",
+                "outcome",
+                "related_ids"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "maxProperties": 32,
+              "properties": {
+                "outcome": {
+                  "const": "none_found",
+                  "type": "string"
+                },
+                "searched": {
+                  "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
+                  "maxLength": 4096,
+                  "minLength": 1,
+                  "pattern": "\\S",
+                  "type": "string",
+                  "x-maxBytes": 4096,
+                  "x-minBytes": 2
+                }
+              },
+              "required": [
+                "searched",
+                "outcome"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "research_bindings": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "pack_id": {
+                "$ref": "#/$defs/id"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "revision": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "use_role": {
+                "enum": [
+                  "context",
+                  "design_input",
+                  "verification_basis",
+                  "decision_basis"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "pack_id",
+              "revision",
+              "use_role",
+              "required"
+            ],
+            "type": "object"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "type": "array"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "expected_version",
+        "action_id",
+        "idempotency_key",
+        "fields"
+      ],
+      "type": "object"
+    },
+    "work_transition_action_variant_record_conclusion": {
+      "additionalProperties": false,
+      "properties": {
+        "action_id": {
+          "const": "record_conclusion",
+          "type": "string"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/evidence"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "fields": {
+          "additionalProperties": false,
+          "maxProperties": 32,
+          "properties": {},
+          "type": "object"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "research_bindings": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "pack_id": {
+                "$ref": "#/$defs/id"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "revision": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "use_role": {
+                "enum": [
+                  "context",
+                  "design_input",
+                  "verification_basis",
+                  "decision_basis"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "pack_id",
+              "revision",
+              "use_role",
+              "required"
+            ],
+            "type": "object"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "type": "array"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "expected_version",
+        "action_id",
+        "idempotency_key"
+      ],
+      "type": "object"
+    },
+    "work_transition_action_variant_record_decision": {
+      "additionalProperties": false,
+      "properties": {
+        "action_id": {
+          "const": "record_decision",
+          "type": "string"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/evidence"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "fields": {
+          "additionalProperties": false,
+          "maxProperties": 32,
+          "properties": {
+            "consequences": {
+              "items": {
+                "$ref": "#/$defs/decision_record_text"
+              },
+              "maxItems": 16,
+              "minItems": 1,
+              "type": "array",
+              "uniqueItems": true
+            },
+            "decision": {
+              "enum": [
+                "accepted_decision",
+                "insufficient_evidence"
+              ],
+              "type": "string"
+            },
+            "inputs": {
+              "items": {
+                "$ref": "#/$defs/decision_record_text"
+              },
+              "maxItems": 32,
+              "minItems": 1,
+              "type": "array",
+              "uniqueItems": true
+            },
+            "options_considered": {
+              "items": {
+                "$ref": "#/$defs/decision_record_text"
+              },
+              "maxItems": 16,
+              "minItems": 1,
+              "type": "array",
+              "uniqueItems": true
+            },
+            "poc_findings": {
+              "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
+              "maxLength": 4096,
+              "minLength": 1,
+              "pattern": "\\S",
+              "type": "string",
+              "x-maxBytes": 4096,
+              "x-minBytes": 2
+            },
+            "question": {
+              "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
+              "maxLength": 4096,
+              "minLength": 1,
+              "pattern": "\\S",
+              "type": "string",
+              "x-maxBytes": 4096,
+              "x-minBytes": 2
+            },
+            "rationale": {
+              "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
+              "maxLength": 4096,
+              "minLength": 1,
+              "pattern": "\\S",
+              "type": "string",
+              "x-maxBytes": 4096,
+              "x-minBytes": 2
+            }
+          },
+          "required": [
+            "question",
+            "options_considered",
+            "decision",
+            "rationale",
+            "consequences",
+            "inputs",
+            "poc_findings"
+          ],
+          "type": "object"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "research_bindings": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "pack_id": {
+                "$ref": "#/$defs/id"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "revision": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "use_role": {
+                "enum": [
+                  "context",
+                  "design_input",
+                  "verification_basis",
+                  "decision_basis"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "pack_id",
+              "revision",
+              "use_role",
+              "required"
+            ],
+            "type": "object"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "type": "array"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "expected_version",
+        "action_id",
+        "idempotency_key",
+        "fields"
+      ],
+      "type": "object"
+    },
+    "work_transition_action_variant_record_delivery": {
+      "additionalProperties": false,
+      "properties": {
+        "action_id": {
+          "const": "record_delivery",
+          "type": "string"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/evidence"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "fields": {
+          "additionalProperties": false,
+          "maxProperties": 32,
+          "properties": {
+            "delivery_artifact": {
+              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths.",
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^\\S+$",
+              "type": "string",
+              "x-maxBytes": 128,
+              "x-minBytes": 2
+            },
+            "delivery_state": {
+              "enum": [
+                "asserted"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "delivery_artifact",
+            "delivery_state"
+          ],
+          "type": "object"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "research_bindings": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "pack_id": {
+                "$ref": "#/$defs/id"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "revision": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "use_role": {
+                "enum": [
+                  "context",
+                  "design_input",
+                  "verification_basis",
+                  "decision_basis"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "pack_id",
+              "revision",
+              "use_role",
+              "required"
+            ],
+            "type": "object"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "type": "array"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "expected_version",
+        "action_id",
+        "idempotency_key",
+        "fields"
+      ],
+      "type": "object"
+    },
+    "work_transition_action_variant_record_design": {
+      "additionalProperties": false,
+      "properties": {
+        "action_id": {
+          "const": "record_design",
+          "type": "string"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/evidence"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "fields": {
+          "additionalProperties": false,
+          "maxProperties": 32,
+          "properties": {
+            "approach": {
+              "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
+              "maxLength": 4096,
+              "minLength": 1,
+              "pattern": "\\S",
+              "type": "string",
+              "x-maxBytes": 4096,
+              "x-minBytes": 2
+            },
+            "decisions": {
+              "items": {
+                "$ref": "#/$defs/workflow_design_decision"
+              },
+              "maxItems": 16,
+              "minItems": 1,
+              "type": "array"
+            },
+            "touched_refs": {
+              "items": {
+                "$ref": "#/$defs/reference"
+              },
+              "maxItems": 64,
+              "minItems": 1,
+              "type": "array",
+              "uniqueItems": true
+            }
+          },
+          "required": [
+            "approach",
+            "decisions",
+            "touched_refs"
+          ],
+          "type": "object"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "research_bindings": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "pack_id": {
+                "$ref": "#/$defs/id"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "revision": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "use_role": {
+                "enum": [
+                  "context",
+                  "design_input",
+                  "verification_basis",
+                  "decision_basis"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "pack_id",
+              "revision",
+              "use_role",
+              "required"
+            ],
+            "type": "object"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "type": "array"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "expected_version",
+        "action_id",
+        "idempotency_key",
+        "fields"
+      ],
+      "type": "object"
+    },
+    "work_transition_action_variant_record_discovery": {
+      "additionalProperties": false,
+      "properties": {
+        "action_id": {
+          "const": "record_discovery",
+          "type": "string"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/evidence"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "fields": {
+          "additionalProperties": false,
+          "maxProperties": 32,
+          "properties": {},
+          "type": "object"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "research_bindings": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "pack_id": {
+                "$ref": "#/$defs/id"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "revision": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "use_role": {
+                "enum": [
+                  "context",
+                  "design_input",
+                  "verification_basis",
+                  "decision_basis"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "pack_id",
+              "revision",
+              "use_role",
+              "required"
+            ],
+            "type": "object"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "type": "array"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "expected_version",
+        "action_id",
+        "idempotency_key"
+      ],
+      "type": "object"
+    },
+    "work_transition_action_variant_record_finding": {
+      "additionalProperties": false,
+      "properties": {
+        "action_id": {
+          "const": "record_finding",
+          "type": "string"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/evidence"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "fields": {
+          "additionalProperties": false,
+          "maxProperties": 32,
+          "properties": {},
+          "type": "object"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "research_bindings": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "pack_id": {
+                "$ref": "#/$defs/id"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "revision": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "use_role": {
+                "enum": [
+                  "context",
+                  "design_input",
+                  "verification_basis",
+                  "decision_basis"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "pack_id",
+              "revision",
+              "use_role",
+              "required"
+            ],
+            "type": "object"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "type": "array"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "expected_version",
+        "action_id",
+        "idempotency_key"
+      ],
+      "type": "object"
+    },
+    "work_transition_action_variant_record_health": {
+      "additionalProperties": false,
+      "properties": {
+        "action_id": {
+          "const": "record_health",
+          "type": "string"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/evidence"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "fields": {
+          "additionalProperties": false,
+          "maxProperties": 32,
+          "properties": {
+            "asserted_at": {
+              "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
+              "format": "date-time",
+              "maxLength": 64,
+              "minLength": 1,
+              "pattern": "\\S",
+              "type": "string",
+              "x-maxBytes": 64
+            },
+            "evidence_digest": {
+              "$ref": "#/$defs/digest"
+            },
+            "evidence_ref": {
+              "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
+              "maxLength": 2048,
+              "minLength": 1,
+              "pattern": "\\S",
+              "type": "string",
+              "x-maxBytes": 2048
+            },
+            "native_subject_ref": {
+              "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
+              "maxLength": 2048,
+              "minLength": 1,
+              "pattern": "\\S",
+              "type": "string",
+              "x-maxBytes": 2048
+            },
+            "run_id": {
+              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths.",
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^\\S+$",
+              "type": "string",
+              "x-maxBytes": 128,
+              "x-minBytes": 2
+            },
+            "status": {
+              "enum": [
+                "healthy",
+                "degraded",
+                "failed"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "run_id",
+            "native_subject_ref",
+            "status",
+            "evidence_ref",
+            "evidence_digest"
+          ],
+          "type": "object"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "research_bindings": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "pack_id": {
+                "$ref": "#/$defs/id"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "revision": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "use_role": {
+                "enum": [
+                  "context",
+                  "design_input",
+                  "verification_basis",
+                  "decision_basis"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "pack_id",
+              "revision",
+              "use_role",
+              "required"
+            ],
+            "type": "object"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "type": "array"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "expected_version",
+        "action_id",
+        "idempotency_key",
+        "fields"
+      ],
+      "type": "object"
+    },
+    "work_transition_action_variant_record_option": {
+      "additionalProperties": false,
+      "properties": {
+        "action_id": {
+          "const": "record_option",
+          "type": "string"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/evidence"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "fields": {
+          "additionalProperties": false,
+          "maxProperties": 32,
+          "properties": {},
+          "type": "object"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "research_bindings": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "pack_id": {
+                "$ref": "#/$defs/id"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "revision": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "use_role": {
+                "enum": [
+                  "context",
+                  "design_input",
+                  "verification_basis",
+                  "decision_basis"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "pack_id",
+              "revision",
+              "use_role",
+              "required"
+            ],
+            "type": "object"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "type": "array"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "expected_version",
+        "action_id",
+        "idempotency_key"
+      ],
+      "type": "object"
+    },
+    "work_transition_action_variant_record_proposal": {
+      "additionalProperties": false,
+      "properties": {
+        "action_id": {
+          "const": "record_proposal",
+          "type": "string"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/evidence"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "fields": {
+          "anyOf": [
+            {
+              "additionalProperties": false,
+              "maxProperties": 32,
+              "properties": {
+                "affected": {
+                  "items": {
+                    "$ref": "#/$defs/proposal_affected_text"
+                  },
+                  "maxItems": 16,
+                  "minItems": 1,
+                  "type": "array",
+                  "uniqueItems": true
+                },
+                "constraints": {
+                  "items": {
+                    "$ref": "#/$defs/proposal_text"
+                  },
+                  "maxItems": 16,
+                  "minItems": 0,
+                  "type": "array",
+                  "uniqueItems": true
+                },
+                "open_questions": {
+                  "items": {
+                    "$ref": "#/$defs/proposal_text"
+                  },
+                  "maxItems": 16,
+                  "minItems": 0,
+                  "type": "array",
+                  "uniqueItems": true
+                },
+                "out_of_scope": {
+                  "items": {
+                    "$ref": "#/$defs/proposal_text"
+                  },
+                  "maxItems": 16,
+                  "minItems": 0,
+                  "type": "array",
+                  "uniqueItems": true
+                },
+                "problem": {
+                  "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
+                  "maxLength": 4096,
+                  "minLength": 1,
+                  "pattern": "\\S",
+                  "type": "string",
+                  "x-maxBytes": 4096
+                },
+                "stakes": {
+                  "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
+                  "maxLength": 2048,
+                  "minLength": 1,
+                  "pattern": "\\S",
+                  "type": "string",
+                  "x-maxBytes": 2048
+                },
+                "user_outcomes": {
+                  "items": {
+                    "$ref": "#/$defs/proposal_text"
+                  },
+                  "maxItems": 16,
+                  "minItems": 1,
+                  "type": "array",
+                  "uniqueItems": true
+                }
+              },
+              "required": [
+                "problem",
+                "affected",
+                "stakes",
+                "user_outcomes"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "maxProperties": 32,
+              "properties": {
+                "affected": {
+                  "items": {
+                    "$ref": "#/$defs/proposal_affected_text"
+                  },
+                  "maxItems": 16,
+                  "minItems": 1,
+                  "type": "array",
+                  "uniqueItems": true
+                },
+                "constraints": {
+                  "items": {
+                    "$ref": "#/$defs/proposal_text"
+                  },
+                  "maxItems": 16,
+                  "minItems": 0,
+                  "type": "array",
+                  "uniqueItems": true
+                },
+                "open_questions": {
+                  "items": {
+                    "$ref": "#/$defs/proposal_text"
+                  },
+                  "maxItems": 16,
+                  "minItems": 0,
+                  "type": "array",
+                  "uniqueItems": true
+                },
+                "problem": {
+                  "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
+                  "maxLength": 4096,
+                  "minLength": 1,
+                  "pattern": "\\S",
+                  "type": "string",
+                  "x-maxBytes": 4096
+                },
+                "stakes": {
+                  "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
+                  "maxLength": 2048,
+                  "minLength": 1,
+                  "pattern": "\\S",
+                  "type": "string",
+                  "x-maxBytes": 2048
+                },
+                "user_outcomes": {
+                  "items": {
+                    "$ref": "#/$defs/proposal_text"
+                  },
+                  "maxItems": 16,
+                  "minItems": 1,
+                  "type": "array",
+                  "uniqueItems": true
+                }
+              },
+              "required": [
+                "problem",
+                "affected",
+                "stakes",
+                "user_outcomes"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "research_bindings": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "pack_id": {
+                "$ref": "#/$defs/id"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "revision": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "use_role": {
+                "enum": [
+                  "context",
+                  "design_input",
+                  "verification_basis",
+                  "decision_basis"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "pack_id",
+              "revision",
+              "use_role",
+              "required"
+            ],
+            "type": "object"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "type": "array"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "expected_version",
+        "action_id",
+        "idempotency_key",
+        "fields"
+      ],
+      "type": "object"
+    },
+    "work_transition_action_variant_record_report": {
+      "additionalProperties": false,
+      "properties": {
+        "action_id": {
+          "const": "record_report",
+          "type": "string"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/evidence"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "fields": {
+          "additionalProperties": false,
+          "maxProperties": 32,
+          "properties": {
+            "evidence_kind": {
+              "enum": [
+                "verification",
+                "review",
+                "approval",
+                "commit",
+                "durable_note",
+                "native_run",
+                "artifact"
+              ],
+              "type": "string"
+            },
+            "evidence_ref": {
+              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths.",
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^\\S+$",
+              "type": "string",
+              "x-maxBytes": 128,
+              "x-minBytes": 2
+            },
+            "immutable_subject_ref": {
+              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths.",
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^\\S+$",
+              "type": "string",
+              "x-maxBytes": 128,
+              "x-minBytes": 2
+            },
+            "producer_id": {
+              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths.",
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^\\S+$",
+              "type": "string",
+              "x-maxBytes": 128,
+              "x-minBytes": 2
+            },
+            "producer_run_ref": {
+              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths.",
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^\\S+$",
+              "type": "string",
+              "x-maxBytes": 128,
+              "x-minBytes": 2
+            },
+            "producer_watermark": {
+              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths.",
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^\\S+$",
+              "type": "string",
+              "x-maxBytes": 128,
+              "x-minBytes": 2
+            }
+          },
+          "type": "object"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "research_bindings": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "pack_id": {
+                "$ref": "#/$defs/id"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "revision": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "use_role": {
+                "enum": [
+                  "context",
+                  "design_input",
+                  "verification_basis",
+                  "decision_basis"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "pack_id",
+              "revision",
+              "use_role",
+              "required"
+            ],
+            "type": "object"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "type": "array"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "expected_version",
+        "action_id",
+        "idempotency_key"
+      ],
+      "type": "object"
+    },
+    "work_transition_action_variant_record_reproduction": {
+      "additionalProperties": false,
+      "properties": {
+        "action_id": {
+          "const": "record_reproduction",
+          "type": "string"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/evidence"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "fields": {
+          "additionalProperties": false,
+          "maxProperties": 32,
+          "properties": {},
+          "type": "object"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "research_bindings": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "pack_id": {
+                "$ref": "#/$defs/id"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "revision": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "use_role": {
+                "enum": [
+                  "context",
+                  "design_input",
+                  "verification_basis",
+                  "decision_basis"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "pack_id",
+              "revision",
+              "use_role",
+              "required"
+            ],
+            "type": "object"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "type": "array"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "expected_version",
+        "action_id",
+        "idempotency_key"
+      ],
+      "type": "object"
+    },
+    "work_transition_action_variant_record_research": {
+      "additionalProperties": false,
+      "properties": {
+        "action_id": {
+          "const": "record_research",
+          "type": "string"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/evidence"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "fields": {
+          "additionalProperties": false,
+          "maxProperties": 32,
+          "properties": {
+            "evidence_kind": {
+              "enum": [
+                "verification",
+                "review",
+                "approval",
+                "commit",
+                "durable_note",
+                "native_run",
+                "artifact"
+              ],
+              "type": "string"
+            },
+            "evidence_ref": {
+              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths.",
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^\\S+$",
+              "type": "string",
+              "x-maxBytes": 128,
+              "x-minBytes": 2
+            },
+            "immutable_subject_ref": {
+              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths.",
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^\\S+$",
+              "type": "string",
+              "x-maxBytes": 128,
+              "x-minBytes": 2
+            },
+            "producer_id": {
+              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths.",
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^\\S+$",
+              "type": "string",
+              "x-maxBytes": 128,
+              "x-minBytes": 2
+            },
+            "producer_run_ref": {
+              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths.",
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^\\S+$",
+              "type": "string",
+              "x-maxBytes": 128,
+              "x-minBytes": 2
+            },
+            "producer_watermark": {
+              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths.",
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^\\S+$",
+              "type": "string",
+              "x-maxBytes": 128,
+              "x-minBytes": 2
+            }
+          },
+          "type": "object"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "research_bindings": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "pack_id": {
+                "$ref": "#/$defs/id"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "revision": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "use_role": {
+                "enum": [
+                  "context",
+                  "design_input",
+                  "verification_basis",
+                  "decision_basis"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "pack_id",
+              "revision",
+              "use_role",
+              "required"
+            ],
+            "type": "object"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "type": "array"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "expected_version",
+        "action_id",
+        "idempotency_key"
+      ],
+      "type": "object"
+    },
+    "work_transition_action_variant_record_root_cause": {
+      "additionalProperties": false,
+      "properties": {
+        "action_id": {
+          "const": "record_root_cause",
+          "type": "string"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/evidence"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "fields": {
+          "additionalProperties": false,
+          "maxProperties": 32,
+          "properties": {},
+          "type": "object"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "research_bindings": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "pack_id": {
+                "$ref": "#/$defs/id"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "revision": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "use_role": {
+                "enum": [
+                  "context",
+                  "design_input",
+                  "verification_basis",
+                  "decision_basis"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "pack_id",
+              "revision",
+              "use_role",
+              "required"
+            ],
+            "type": "object"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "type": "array"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "expected_version",
+        "action_id",
+        "idempotency_key"
+      ],
+      "type": "object"
+    },
+    "work_transition_action_variant_record_verdict": {
+      "additionalProperties": false,
+      "properties": {
+        "action_id": {
+          "const": "record_verdict",
+          "type": "string"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/evidence"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "fields": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "maxProperties": 32,
+              "properties": {
+                "contract_version": {
+                  "maximum": 2147483647,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "evaluation_evidence": {
+                  "items": {
+                    "$ref": "#/$defs/reference"
+                  },
+                  "maxItems": 32,
+                  "minItems": 1,
+                  "type": "array",
+                  "uniqueItems": true
+                },
+                "incomparable_with_approved": {
+                  "type": "boolean"
+                },
+                "predicate_id": {
+                  "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths.",
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^\\S+$",
+                  "type": "string",
+                  "x-maxBytes": 128,
+                  "x-minBytes": 2
+                },
+                "verdict_actor_ref": {
+                  "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
+                  "maxLength": 70,
+                  "minLength": 1,
+                  "pattern": "\\S",
+                  "type": "string",
+                  "x-maxBytes": 70
+                },
+                "verdict_kind": {
+                  "enum": [
+                    "ok",
+                    "outcome_mismatch",
+                    "insufficient_evidence"
+                  ],
+                  "type": "string"
+                }
+              },
+              "required": [
+                "predicate_id"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "maxProperties": 32,
+              "properties": {
+                "contract_version": {
+                  "maximum": 2147483647,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "verdict_actor_ref": {
+                  "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
+                  "maxLength": 70,
+                  "minLength": 1,
+                  "pattern": "\\S",
+                  "type": "string",
+                  "x-maxBytes": 70
+                },
+                "verdicts": {
+                  "items": {
+                    "$ref": "#/$defs/workflow_verdict_batch_entry"
+                  },
+                  "maxItems": 8,
+                  "minItems": 1,
+                  "type": "array"
+                }
+              },
+              "required": [
+                "verdicts"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "research_bindings": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "pack_id": {
+                "$ref": "#/$defs/id"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "revision": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "use_role": {
+                "enum": [
+                  "context",
+                  "design_input",
+                  "verification_basis",
+                  "decision_basis"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "pack_id",
+              "revision",
+              "use_role",
+              "required"
+            ],
+            "type": "object"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "type": "array"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "expected_version",
+        "action_id",
+        "idempotency_key",
+        "fields"
+      ],
+      "type": "object"
+    },
+    "work_transition_action_variant_record_work_context": {
+      "additionalProperties": false,
+      "properties": {
+        "action_id": {
+          "const": "record_work_context",
+          "type": "string"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/evidence"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "fields": {
+          "additionalProperties": false,
+          "maxProperties": 32,
+          "properties": {
+            "context_findings": {
+              "items": {
+                "$ref": "#/$defs/work_context_finding"
+              },
+              "maxItems": 16,
+              "minItems": 0,
+              "type": "array"
+            },
+            "finding_refs": {
+              "items": {
+                "$ref": "#/$defs/reference"
+              },
+              "maxItems": 32,
+              "minItems": 0,
+              "type": "array",
+              "uniqueItems": true
+            },
+            "required_reading": {
+              "items": {
+                "$ref": "#/$defs/work_context_reading"
+              },
+              "maxItems": 32,
+              "minItems": 0,
+              "type": "array"
+            }
+          },
+          "type": "object"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "research_bindings": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "pack_id": {
+                "$ref": "#/$defs/id"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "revision": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "use_role": {
+                "enum": [
+                  "context",
+                  "design_input",
+                  "verification_basis",
+                  "decision_basis"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "pack_id",
+              "revision",
+              "use_role",
+              "required"
+            ],
+            "type": "object"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "type": "array"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "expected_version",
+        "action_id",
+        "idempotency_key"
+      ],
+      "type": "object"
+    },
+    "work_transition_action_variant_record_worker_failure": {
+      "additionalProperties": false,
+      "properties": {
+        "action_id": {
+          "const": "record_worker_failure",
+          "type": "string"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/evidence"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "fields": {
+          "additionalProperties": false,
+          "maxProperties": 32,
+          "properties": {
+            "attempt_epoch": {
+              "maximum": 2147483647,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "attempt_id": {
+              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths.",
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^\\S+$",
+              "type": "string",
+              "x-maxBytes": 128,
+              "x-minBytes": 2
+            }
+          },
+          "required": [
+            "attempt_id",
+            "attempt_epoch"
+          ],
+          "type": "object"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "research_bindings": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "pack_id": {
+                "$ref": "#/$defs/id"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "revision": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "use_role": {
+                "enum": [
+                  "context",
+                  "design_input",
+                  "verification_basis",
+                  "decision_basis"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "pack_id",
+              "revision",
+              "use_role",
+              "required"
+            ],
+            "type": "object"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "type": "array"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "expected_version",
+        "action_id",
+        "idempotency_key",
+        "fields"
+      ],
+      "type": "object"
+    },
+    "work_transition_action_variant_record_worker_job": {
+      "additionalProperties": false,
+      "properties": {
+        "action_id": {
+          "const": "record_worker_job",
+          "type": "string"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/evidence"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "fields": {
+          "anyOf": [
+            {
+              "additionalProperties": false,
+              "maxProperties": 32,
+              "properties": {
+                "acceptance_oracle": {
+                  "$ref": "#/$defs/worker_acceptance_oracle"
+                },
+                "checks": {
+                  "items": {
+                    "$ref": "#/$defs/worker_job_text"
+                  },
+                  "maxItems": 64,
+                  "minItems": 0,
+                  "type": "array",
+                  "uniqueItems": true
+                },
+                "job_id": {
+                  "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths.",
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^\\S+$",
+                  "type": "string",
+                  "x-maxBytes": 128,
+                  "x-minBytes": 2
+                },
+                "objective": {
+                  "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
+                  "maxLength": 4096,
+                  "minLength": 1,
+                  "pattern": "\\S",
+                  "type": "string",
+                  "x-maxBytes": 4096
+                },
+                "path_scope": {
+                  "items": {
+                    "$ref": "#/$defs/reference"
+                  },
+                  "maxItems": 64,
+                  "minItems": 0,
+                  "type": "array",
+                  "uniqueItems": true
+                },
+                "predicate_ids": {
+                  "items": {
+                    "$ref": "#/$defs/id"
+                  },
+                  "maxItems": 8,
+                  "minItems": 0,
+                  "type": "array",
+                  "uniqueItems": true
+                },
+                "prerequisites": {
+                  "items": {
+                    "$ref": "#/$defs/worker_job_prerequisite"
+                  },
+                  "maxItems": 64,
+                  "minItems": 0,
+                  "type": "array"
+                },
+                "readiness_evidence": {
+                  "items": {
+                    "$ref": "#/$defs/reference"
+                  },
+                  "maxItems": 16,
+                  "minItems": 0,
+                  "type": "array",
+                  "uniqueItems": true
+                },
+                "ready": {
+                  "type": "boolean"
+                },
+                "reserved_integration": {
+                  "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
+                  "maxLength": 4096,
+                  "minLength": 1,
+                  "pattern": "\\S",
+                  "type": "string",
+                  "x-maxBytes": 4096
+                },
+                "stopping_condition": {
+                  "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
+                  "maxLength": 2048,
+                  "minLength": 1,
+                  "pattern": "\\S",
+                  "type": "string",
+                  "x-maxBytes": 2048
+                },
+                "unresolved_refs": {
+                  "items": {
+                    "$ref": "#/$defs/worker_job_text"
+                  },
+                  "maxItems": 64,
+                  "minItems": 0,
+                  "type": "array",
+                  "uniqueItems": true
+                }
+              },
+              "required": [
+                "job_id",
+                "objective",
+                "stopping_condition",
+                "ready",
+                "acceptance_oracle"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "maxProperties": 32,
+              "properties": {
+                "checks": {
+                  "items": {
+                    "$ref": "#/$defs/worker_job_text"
+                  },
+                  "maxItems": 64,
+                  "minItems": 0,
+                  "type": "array",
+                  "uniqueItems": true
+                },
+                "job_id": {
+                  "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths.",
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^\\S+$",
+                  "type": "string",
+                  "x-maxBytes": 128,
+                  "x-minBytes": 2
+                },
+                "objective": {
+                  "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
+                  "maxLength": 4096,
+                  "minLength": 1,
+                  "pattern": "\\S",
+                  "type": "string",
+                  "x-maxBytes": 4096
+                },
+                "path_scope": {
+                  "items": {
+                    "$ref": "#/$defs/reference"
+                  },
+                  "maxItems": 64,
+                  "minItems": 0,
+                  "type": "array",
+                  "uniqueItems": true
+                },
+                "predicate_ids": {
+                  "items": {
+                    "$ref": "#/$defs/id"
+                  },
+                  "maxItems": 8,
+                  "minItems": 0,
+                  "type": "array",
+                  "uniqueItems": true
+                },
+                "prerequisites": {
+                  "items": {
+                    "$ref": "#/$defs/worker_job_prerequisite"
+                  },
+                  "maxItems": 64,
+                  "minItems": 0,
+                  "type": "array"
+                },
+                "readiness_evidence": {
+                  "items": {
+                    "$ref": "#/$defs/reference"
+                  },
+                  "maxItems": 16,
+                  "minItems": 0,
+                  "type": "array",
+                  "uniqueItems": true
+                },
+                "ready": {
+                  "type": "boolean"
+                },
+                "reserved_integration": {
+                  "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
+                  "maxLength": 4096,
+                  "minLength": 1,
+                  "pattern": "\\S",
+                  "type": "string",
+                  "x-maxBytes": 4096
+                },
+                "stopping_condition": {
+                  "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
+                  "maxLength": 2048,
+                  "minLength": 1,
+                  "pattern": "\\S",
+                  "type": "string",
+                  "x-maxBytes": 2048
+                },
+                "unresolved_refs": {
+                  "items": {
+                    "$ref": "#/$defs/worker_job_text"
+                  },
+                  "maxItems": 64,
+                  "minItems": 0,
+                  "type": "array",
+                  "uniqueItems": true
+                }
+              },
+              "required": [
+                "job_id",
+                "objective",
+                "stopping_condition",
+                "ready"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "research_bindings": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "pack_id": {
+                "$ref": "#/$defs/id"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "revision": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "use_role": {
+                "enum": [
+                  "context",
+                  "design_input",
+                  "verification_basis",
+                  "decision_basis"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "pack_id",
+              "revision",
+              "use_role",
+              "required"
+            ],
+            "type": "object"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "type": "array"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "expected_version",
+        "action_id",
+        "idempotency_key",
+        "fields"
+      ],
+      "type": "object"
+    },
+    "work_transition_action_variant_reject_worker_result": {
+      "additionalProperties": false,
+      "properties": {
+        "action_id": {
+          "const": "reject_worker_result",
+          "type": "string"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/evidence"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "fields": {
+          "additionalProperties": false,
+          "maxProperties": 32,
+          "properties": {
+            "attempt_epoch": {
+              "maximum": 2147483647,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "attempt_id": {
+              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths.",
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^\\S+$",
+              "type": "string",
+              "x-maxBytes": 128,
+              "x-minBytes": 2
+            },
+            "diagnosis": {
+              "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
+              "maxLength": 4096,
+              "minLength": 1,
+              "pattern": "\\S",
+              "type": "string",
+              "x-maxBytes": 4096
+            },
+            "evidence_refs": {
+              "items": {
+                "$ref": "#/$defs/reference"
+              },
+              "maxItems": 32,
+              "minItems": 1,
+              "type": "array",
+              "uniqueItems": true
+            },
+            "open_finding_ids": {
+              "items": {
+                "$ref": "#/$defs/id"
+              },
+              "maxItems": 32,
+              "minItems": 1,
+              "type": "array",
+              "uniqueItems": true
+            },
+            "predicate_ids": {
+              "items": {
+                "$ref": "#/$defs/id"
+              },
+              "maxItems": 8,
+              "minItems": 1,
+              "type": "array",
+              "uniqueItems": true
+            },
+            "strategy": {
+              "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
+              "maxLength": 4096,
+              "minLength": 1,
+              "pattern": "\\S",
+              "type": "string",
+              "x-maxBytes": 4096
+            }
+          },
+          "required": [
+            "attempt_id",
+            "attempt_epoch",
+            "diagnosis",
+            "strategy",
+            "predicate_ids",
+            "evidence_refs"
+          ],
+          "type": "object"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "research_bindings": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "pack_id": {
+                "$ref": "#/$defs/id"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "revision": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "use_role": {
+                "enum": [
+                  "context",
+                  "design_input",
+                  "verification_basis",
+                  "decision_basis"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "pack_id",
+              "revision",
+              "use_role",
+              "required"
+            ],
+            "type": "object"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "type": "array"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "expected_version",
+        "action_id",
+        "idempotency_key",
+        "fields"
+      ],
+      "type": "object"
+    },
+    "work_transition_action_variant_request_correction": {
+      "additionalProperties": false,
+      "properties": {
+        "action_id": {
+          "const": "request_correction",
+          "type": "string"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/evidence"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "fields": {
+          "anyOf": [
+            {
+              "additionalProperties": false,
+              "maxProperties": 32,
+              "properties": {
+                "diagnosis": {
+                  "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
+                  "maxLength": 4096,
+                  "minLength": 1,
+                  "pattern": "\\S",
+                  "type": "string",
+                  "x-maxBytes": 4096
+                },
+                "evidence_refs": {
+                  "items": {
+                    "$ref": "#/$defs/reference"
+                  },
+                  "maxItems": 32,
+                  "minItems": 1,
+                  "type": "array",
+                  "uniqueItems": true
+                },
+                "open_finding_ids": {
+                  "items": {
+                    "$ref": "#/$defs/id"
+                  },
+                  "maxItems": 32,
+                  "minItems": 1,
+                  "type": "array",
+                  "uniqueItems": true
+                },
+                "predicate_ids": {
+                  "items": {
+                    "$ref": "#/$defs/reference"
+                  },
+                  "maxItems": 8,
+                  "minItems": 1,
+                  "type": "array",
+                  "uniqueItems": true
+                },
+                "strategy": {
+                  "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
+                  "maxLength": 4096,
+                  "minLength": 1,
+                  "pattern": "\\S",
+                  "type": "string",
+                  "x-maxBytes": 4096
+                }
+              },
+              "required": [
+                "diagnosis",
+                "strategy",
+                "predicate_ids",
+                "evidence_refs"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "maxProperties": 32,
+              "properties": {
+                "diagnosis": {
+                  "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
+                  "maxLength": 4096,
+                  "minLength": 1,
+                  "pattern": "\\S",
+                  "type": "string",
+                  "x-maxBytes": 4096
+                },
+                "evidence_refs": {
+                  "items": {
+                    "$ref": "#/$defs/reference"
+                  },
+                  "maxItems": 32,
+                  "minItems": 1,
+                  "type": "array",
+                  "uniqueItems": true
+                },
+                "predicate_ids": {
+                  "items": {
+                    "$ref": "#/$defs/reference"
+                  },
+                  "maxItems": 8,
+                  "minItems": 1,
+                  "type": "array",
+                  "uniqueItems": true
+                },
+                "strategy": {
+                  "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
+                  "maxLength": 4096,
+                  "minLength": 1,
+                  "pattern": "\\S",
+                  "type": "string",
+                  "x-maxBytes": 4096
+                }
+              },
+              "required": [
+                "diagnosis",
+                "strategy",
+                "predicate_ids",
+                "evidence_refs"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "research_bindings": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "pack_id": {
+                "$ref": "#/$defs/id"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "revision": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "use_role": {
+                "enum": [
+                  "context",
+                  "design_input",
+                  "verification_basis",
+                  "decision_basis"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "pack_id",
+              "revision",
+              "use_role",
+              "required"
+            ],
+            "type": "object"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "type": "array"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "expected_version",
+        "action_id",
+        "idempotency_key",
+        "fields"
+      ],
+      "type": "object"
+    },
+    "work_transition_action_variant_resolve_condition": {
+      "additionalProperties": false,
+      "properties": {
+        "action_id": {
+          "const": "resolve_condition",
+          "type": "string"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/evidence"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "fields": {
+          "additionalProperties": false,
+          "maxProperties": 32,
+          "properties": {
+            "condition_id": {
+              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths.",
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^\\S+$",
+              "type": "string",
+              "x-maxBytes": 128,
+              "x-minBytes": 2
+            },
+            "resolution_evidence": {
+              "items": {
+                "$ref": "#/$defs/reference"
+              },
+              "maxItems": 32,
+              "minItems": 1,
+              "type": "array",
+              "uniqueItems": true
+            },
+            "resolved_by_event": {
+              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths.",
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^\\S+$",
+              "type": "string",
+              "x-maxBytes": 128,
+              "x-minBytes": 2
+            }
+          },
+          "type": "object"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "research_bindings": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "pack_id": {
+                "$ref": "#/$defs/id"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "revision": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "use_role": {
+                "enum": [
+                  "context",
+                  "design_input",
+                  "verification_basis",
+                  "decision_basis"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "pack_id",
+              "revision",
+              "use_role",
+              "required"
+            ],
+            "type": "object"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "type": "array"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "expected_version",
+        "action_id",
+        "idempotency_key"
+      ],
+      "type": "object"
+    },
+    "work_transition_action_variant_revise_candidates": {
+      "additionalProperties": false,
+      "properties": {
+        "action_id": {
+          "const": "revise_candidates",
+          "type": "string"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/evidence"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "fields": {
+          "additionalProperties": false,
+          "maxProperties": 32,
+          "properties": {
+            "added": {
+              "items": {
+                "$ref": "#/$defs/reference"
+              },
+              "maxItems": 64,
+              "minItems": 1,
+              "type": "array",
+              "uniqueItems": true
+            },
+            "candidate_ids": {
+              "items": {
+                "$ref": "#/$defs/reference"
+              },
+              "maxItems": 64,
+              "minItems": 1,
+              "type": "array",
+              "uniqueItems": true
+            },
+            "candidate_kind": {
+              "enum": [
+                "work_item",
+                "product",
+                "project"
+              ],
+              "type": "string"
+            },
+            "candidate_ref": {
+              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths.",
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^\\S+$",
+              "type": "string",
+              "x-maxBytes": 128,
+              "x-minBytes": 2
+            },
+            "contract_version": {
+              "maximum": 2147483647,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "removed": {
+              "items": {
+                "$ref": "#/$defs/reference"
+              },
+              "maxItems": 64,
+              "minItems": 1,
+              "type": "array",
+              "uniqueItems": true
+            }
+          },
+          "type": "object"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "research_bindings": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "pack_id": {
+                "$ref": "#/$defs/id"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "revision": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "use_role": {
+                "enum": [
+                  "context",
+                  "design_input",
+                  "verification_basis",
+                  "decision_basis"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "pack_id",
+              "revision",
+              "use_role",
+              "required"
+            ],
+            "type": "object"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "type": "array"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "expected_version",
+        "action_id",
+        "idempotency_key"
+      ],
+      "type": "object"
+    },
+    "work_transition_action_variant_rollback_run": {
+      "additionalProperties": false,
+      "properties": {
+        "action_id": {
+          "const": "rollback_run",
+          "type": "string"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/evidence"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "fields": {
+          "additionalProperties": false,
+          "maxProperties": 32,
+          "properties": {
+            "asserted_at": {
+              "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
+              "format": "date-time",
+              "maxLength": 64,
+              "minLength": 1,
+              "pattern": "\\S",
+              "type": "string",
+              "x-maxBytes": 64
+            },
+            "evidence_digest": {
+              "$ref": "#/$defs/digest"
+            },
+            "evidence_ref": {
+              "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
+              "maxLength": 2048,
+              "minLength": 1,
+              "pattern": "\\S",
+              "type": "string",
+              "x-maxBytes": 2048
+            },
+            "native_subject_ref": {
+              "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
+              "maxLength": 2048,
+              "minLength": 1,
+              "pattern": "\\S",
+              "type": "string",
+              "x-maxBytes": 2048
+            },
+            "run_id": {
+              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths.",
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^\\S+$",
+              "type": "string",
+              "x-maxBytes": 128,
+              "x-minBytes": 2
+            },
+            "status": {
+              "enum": [
+                "rolled_back",
+                "partially_rolled_back",
+                "rollback_failed"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "run_id",
+            "native_subject_ref",
+            "status",
+            "evidence_ref",
+            "evidence_digest"
+          ],
+          "type": "object"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "research_bindings": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "pack_id": {
+                "$ref": "#/$defs/id"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "revision": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "use_role": {
+                "enum": [
+                  "context",
+                  "design_input",
+                  "verification_basis",
+                  "decision_basis"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "pack_id",
+              "revision",
+              "use_role",
+              "required"
+            ],
+            "type": "object"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "type": "array"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "expected_version",
+        "action_id",
+        "idempotency_key",
+        "fields"
+      ],
+      "type": "object"
+    },
+    "work_transition_action_variant_run_analysis": {
+      "additionalProperties": false,
+      "properties": {
+        "action_id": {
+          "const": "run_analysis",
+          "type": "string"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/evidence"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "fields": {
+          "additionalProperties": false,
+          "maxProperties": 32,
+          "properties": {},
+          "type": "object"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "research_bindings": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "pack_id": {
+                "$ref": "#/$defs/id"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "revision": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "use_role": {
+                "enum": [
+                  "context",
+                  "design_input",
+                  "verification_basis",
+                  "decision_basis"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "pack_id",
+              "revision",
+              "use_role",
+              "required"
+            ],
+            "type": "object"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "type": "array"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "expected_version",
+        "action_id",
+        "idempotency_key"
+      ],
+      "type": "object"
+    },
+    "work_transition_action_variant_start_action": {
+      "additionalProperties": false,
+      "properties": {
+        "action_id": {
+          "const": "start_action",
+          "type": "string"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/evidence"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "fields": {
+          "additionalProperties": false,
+          "maxProperties": 32,
+          "properties": {},
+          "type": "object"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "research_bindings": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "pack_id": {
+                "$ref": "#/$defs/id"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "revision": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "use_role": {
+                "enum": [
+                  "context",
+                  "design_input",
+                  "verification_basis",
+                  "decision_basis"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "pack_id",
+              "revision",
+              "use_role",
+              "required"
+            ],
+            "type": "object"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "type": "array"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "expected_version",
+        "action_id",
+        "idempotency_key"
+      ],
+      "type": "object"
+    },
+    "work_transition_action_variant_start_execution": {
+      "additionalProperties": false,
+      "properties": {
+        "action_id": {
+          "const": "start_execution",
+          "type": "string"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/evidence"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "fields": {
+          "additionalProperties": false,
+          "maxProperties": 32,
+          "properties": {},
+          "type": "object"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "research_bindings": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "pack_id": {
+                "$ref": "#/$defs/id"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "revision": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "use_role": {
+                "enum": [
+                  "context",
+                  "design_input",
+                  "verification_basis",
+                  "decision_basis"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "pack_id",
+              "revision",
+              "use_role",
+              "required"
+            ],
+            "type": "object"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "type": "array"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "expected_version",
+        "action_id",
+        "idempotency_key"
+      ],
+      "type": "object"
+    },
+    "work_transition_action_variant_start_poc": {
+      "additionalProperties": false,
+      "properties": {
+        "action_id": {
+          "const": "start_poc",
+          "type": "string"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/evidence"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "fields": {
+          "additionalProperties": false,
+          "maxProperties": 32,
+          "properties": {},
+          "type": "object"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "research_bindings": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "pack_id": {
+                "$ref": "#/$defs/id"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "revision": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "use_role": {
+                "enum": [
+                  "context",
+                  "design_input",
+                  "verification_basis",
+                  "decision_basis"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "pack_id",
+              "revision",
+              "use_role",
+              "required"
+            ],
+            "type": "object"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "type": "array"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "expected_version",
+        "action_id",
+        "idempotency_key"
+      ],
+      "type": "object"
+    },
+    "work_transition_action_variant_start_refine": {
+      "additionalProperties": false,
+      "properties": {
+        "action_id": {
+          "const": "start_refine",
+          "type": "string"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/evidence"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "fields": {
+          "additionalProperties": false,
+          "maxProperties": 32,
+          "properties": {},
+          "type": "object"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "research_bindings": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "pack_id": {
+                "$ref": "#/$defs/id"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "revision": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "use_role": {
+                "enum": [
+                  "context",
+                  "design_input",
+                  "verification_basis",
+                  "decision_basis"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "pack_id",
+              "revision",
+              "use_role",
+              "required"
+            ],
+            "type": "object"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "type": "array"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "expected_version",
+        "action_id",
+        "idempotency_key"
+      ],
+      "type": "object"
+    },
+    "work_transition_action_variant_start_repair": {
+      "additionalProperties": false,
+      "properties": {
+        "action_id": {
+          "const": "start_repair",
+          "type": "string"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/evidence"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "fields": {
+          "additionalProperties": false,
+          "maxProperties": 32,
+          "properties": {},
+          "type": "object"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "research_bindings": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "pack_id": {
+                "$ref": "#/$defs/id"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "revision": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "use_role": {
+                "enum": [
+                  "context",
+                  "design_input",
+                  "verification_basis",
+                  "decision_basis"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "pack_id",
+              "revision",
+              "use_role",
+              "required"
+            ],
+            "type": "object"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "type": "array"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "expected_version",
+        "action_id",
+        "idempotency_key"
+      ],
+      "type": "object"
+    },
+    "work_transition_action_variant_start_run": {
+      "additionalProperties": false,
+      "properties": {
+        "action_id": {
+          "const": "start_run",
+          "type": "string"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/evidence"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "fields": {
+          "additionalProperties": false,
+          "maxProperties": 32,
+          "properties": {
+            "asserted_at": {
+              "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
+              "format": "date-time",
+              "maxLength": 64,
+              "minLength": 1,
+              "pattern": "\\S",
+              "type": "string",
+              "x-maxBytes": 64
+            },
+            "evidence_digest": {
+              "$ref": "#/$defs/digest"
+            },
+            "evidence_ref": {
+              "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
+              "maxLength": 2048,
+              "minLength": 1,
+              "pattern": "\\S",
+              "type": "string",
+              "x-maxBytes": 2048
+            },
+            "native_subject_ref": {
+              "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
+              "maxLength": 2048,
+              "minLength": 1,
+              "pattern": "\\S",
+              "type": "string",
+              "x-maxBytes": 2048
+            },
+            "run_id": {
+              "description": "A workflow reference list item: whitespace-free, 2-128 UTF-8 bytes, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths.",
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^\\S+$",
+              "type": "string",
+              "x-maxBytes": 128,
+              "x-minBytes": 2
+            },
+            "status": {
+              "enum": [
+                "started",
+                "failed_to_start"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "run_id",
+            "native_subject_ref",
+            "status",
+            "evidence_ref",
+            "evidence_digest"
+          ],
+          "type": "object"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "research_bindings": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "pack_id": {
+                "$ref": "#/$defs/id"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "revision": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "use_role": {
+                "enum": [
+                  "context",
+                  "design_input",
+                  "verification_basis",
+                  "decision_basis"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "pack_id",
+              "revision",
+              "use_role",
+              "required"
+            ],
+            "type": "object"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "type": "array"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "expected_version",
+        "action_id",
+        "idempotency_key",
+        "fields"
+      ],
+      "type": "object"
+    },
+    "work_transition_action_variant_supersede_contract": {
+      "additionalProperties": false,
+      "properties": {
+        "action_id": {
+          "const": "supersede_contract",
+          "type": "string"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/evidence"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "fields": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "maxProperties": 32,
+              "properties": {
+                "architecture_binding": {
+                  "$ref": "#/$defs/architecture_binding",
+                  "description": "Architecture bindings must name Domains that exist in the pinned domain registry, home every added or modified law in a declared Domain, and modify Domain relations only through current canonical tuples; the store refuses an unknown Domain or relation."
+                },
+                "audit_evidence": {
+                  "items": {
+                    "$ref": "#/$defs/reference"
+                  },
+                  "maxItems": 32,
+                  "minItems": 1,
+                  "type": "array",
+                  "uniqueItems": true
+                },
+                "contract_version": {
+                  "maximum": 2147483647,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "design_record": {
+                  "$ref": "#/$defs/workflow_design_content"
+                },
+                "law_modifies": {
+                  "items": {
+                    "$ref": "#/$defs/law_id"
+                  },
+                  "maxItems": 32,
+                  "minItems": 0,
+                  "type": "array",
+                  "uniqueItems": true
+                },
+                "outcome_predicates": {
+                  "description": "CD-0184: acceptance is decidable at delivery. Each predicate names an end state verification can decide when the change is delivered. Post-delivery observation over a time window (traffic, an error rate, a metric over hours or days) is not acceptance: capture a follow-up work item and link it raised_from the delivering item before that item completes. A one-shot live check that verification can decide at delivery stays allowed.",
+                  "items": {
+                    "oneOf": [
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "ordinal": {
+                            "description": "The store refuses an outcome predicate whose ordinal is not its own zero-based position in outcome_predicates: the predicate at array position N must carry ordinal N (0, 1, 2, ...).",
+                            "maximum": 7,
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "outcome_kind": {
+                            "const": "exists",
+                            "description": "The store refuses an outcome predicate whose outcome_kind and outcome_payload.kind disagree: supply the outcome_payload variant that matches the declared outcome_kind.",
+                            "type": "string"
+                          },
+                          "outcome_payload": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "kind": {
+                                "const": "exists"
+                              },
+                              "subjects": {
+                                "items": {
+                                  "$ref": "#/$defs/workflow_outcome_subject"
+                                },
+                                "maxItems": 100,
+                                "minItems": 1,
+                                "type": "array",
+                                "uniqueItems": true
+                              },
+                              "surface": {
+                                "$ref": "#/$defs/workflow_outcome_surface"
+                              }
+                            },
+                            "required": [
+                              "kind",
+                              "surface",
+                              "subjects"
+                            ],
+                            "type": "object"
+                          },
+                          "predicate_id": {
+                            "$ref": "#/$defs/id",
+                            "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\"."
+                          }
+                        },
+                        "required": [
+                          "predicate_id",
+                          "ordinal",
+                          "outcome_kind",
+                          "outcome_payload"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "ordinal": {
+                            "description": "The store refuses an outcome predicate whose ordinal is not its own zero-based position in outcome_predicates: the predicate at array position N must carry ordinal N (0, 1, 2, ...).",
+                            "maximum": 7,
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "outcome_kind": {
+                            "const": "absent",
+                            "description": "The store refuses an outcome predicate whose outcome_kind and outcome_payload.kind disagree: supply the outcome_payload variant that matches the declared outcome_kind.",
+                            "type": "string"
+                          },
+                          "outcome_payload": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "distinguish_from": {
+                                "items": {
+                                  "enum": [
+                                    "archived",
+                                    "relocated",
+                                    "renamed",
+                                    "disabled"
+                                  ],
+                                  "type": "string"
+                                },
+                                "maxItems": 4,
+                                "minItems": 1,
+                                "type": "array",
+                                "uniqueItems": true
+                              },
+                              "kind": {
+                                "const": "absent"
+                              },
+                              "subjects": {
+                                "items": {
+                                  "$ref": "#/$defs/workflow_outcome_subject"
+                                },
+                                "maxItems": 100,
+                                "minItems": 1,
+                                "type": "array",
+                                "uniqueItems": true
+                              },
+                              "surface": {
+                                "$ref": "#/$defs/workflow_outcome_surface"
+                              }
+                            },
+                            "required": [
+                              "kind",
+                              "surface",
+                              "subjects",
+                              "distinguish_from"
+                            ],
+                            "type": "object"
+                          },
+                          "predicate_id": {
+                            "$ref": "#/$defs/id",
+                            "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\"."
+                          }
+                        },
+                        "required": [
+                          "predicate_id",
+                          "ordinal",
+                          "outcome_kind",
+                          "outcome_payload"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "ordinal": {
+                            "description": "The store refuses an outcome predicate whose ordinal is not its own zero-based position in outcome_predicates: the predicate at array position N must carry ordinal N (0, 1, 2, ...).",
+                            "maximum": 7,
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "outcome_kind": {
+                            "const": "outcome",
+                            "description": "The store refuses an outcome predicate whose outcome_kind and outcome_payload.kind disagree: supply the outcome_payload variant that matches the declared outcome_kind.",
+                            "type": "string"
+                          },
+                          "outcome_payload": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "allowed": {
+                                "description": "The store pins which outcome tokens the contract of the work item being approved may carry, per its workflow type: workflow.architecture_spike admits accepted_decision, insufficient_evidence (decision_record required); workflow.generic_one_off admits no_change, accepted_decision, insufficient_evidence, resolved, remediated, report_recorded, completed, operator_defined; workflow.research admits no_change, resolved, report_recorded; workflow.break_fix, workflow.implementation, workflow.ops_runbook, workflow.static_analysis admit no outcome tokens (only exists, absent and check predicate kinds).",
+                                "items": {
+                                  "enum": [
+                                    "no_change",
+                                    "accepted_decision",
+                                    "insufficient_evidence",
+                                    "resolved",
+                                    "remediated",
+                                    "report_recorded",
+                                    "completed",
+                                    "operator_defined"
+                                  ],
+                                  "type": "string"
+                                },
+                                "maxItems": 8,
+                                "minItems": 1,
+                                "type": "array",
+                                "uniqueItems": true
+                              },
+                              "decision_record": {
+                                "$ref": "#/$defs/workflow_outcome_decision_record"
+                              },
+                              "kind": {
+                                "const": "outcome"
+                              }
+                            },
+                            "required": [
+                              "kind",
+                              "allowed"
+                            ],
+                            "type": "object"
+                          },
+                          "predicate_id": {
+                            "$ref": "#/$defs/id",
+                            "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\"."
+                          }
+                        },
+                        "required": [
+                          "predicate_id",
+                          "ordinal",
+                          "outcome_kind",
+                          "outcome_payload"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "ordinal": {
+                            "description": "The store refuses an outcome predicate whose ordinal is not its own zero-based position in outcome_predicates: the predicate at array position N must carry ordinal N (0, 1, 2, ...).",
+                            "maximum": 7,
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "outcome_kind": {
+                            "const": "check",
+                            "description": "The store refuses an outcome predicate whose outcome_kind and outcome_payload.kind disagree: supply the outcome_payload variant that matches the declared outcome_kind.",
+                            "type": "string"
+                          },
+                          "outcome_payload": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "check_ref": {
+                                "maxLength": 134,
+                                "minLength": 7,
+                                "pattern": "^check:[a-z][a-z0-9_.:/-]{1,127}$",
+                                "type": "string"
+                              },
+                              "expected_result": {
+                                "enum": [
+                                  "true",
+                                  "false",
+                                  "pass",
+                                  "fail",
+                                  "present",
+                                  "absent",
+                                  "healthy",
+                                  "unhealthy",
+                                  "accepted",
+                                  "rejected"
+                                ],
+                                "type": "string"
+                              },
+                              "immutable_subject_ref": {
+                                "maxLength": 256,
+                                "minLength": 2,
+                                "pattern": "^[a-z][a-z0-9_.:/-]{1,255}$",
+                                "type": "string"
+                              },
+                              "kind": {
+                                "const": "check"
+                              }
+                            },
+                            "required": [
+                              "kind",
+                              "check_ref",
+                              "immutable_subject_ref",
+                              "expected_result"
+                            ],
+                            "type": "object"
+                          },
+                          "predicate_id": {
+                            "$ref": "#/$defs/id",
+                            "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\"."
+                          }
+                        },
+                        "required": [
+                          "predicate_id",
+                          "ordinal",
+                          "outcome_kind",
+                          "outcome_payload"
+                        ],
+                        "type": "object"
+                      }
+                    ]
+                  },
+                  "maxItems": 8,
+                  "minItems": 1,
+                  "type": "array"
+                },
+                "predecessor_contract_versions": {
+                  "items": {
+                    "$ref": "#/$defs/workflow_contract_version"
+                  },
+                  "maxItems": 32,
+                  "minItems": 1,
+                  "type": "array"
+                },
+                "premise": {
+                  "description": "JSON Schema maxLength counts Unicode code points. Store admission also applies the same numerical limit to UTF-8 bytes (WorkflowPremiseMaxLength), so multibyte objectives must fit the byte allowance. This approval bound applies to objective content, not an OpenCode Task prompt or model-token limit. Do not truncate an approved objective or repeat its approval to repair packet projection.",
+                  "maxLength": 4096,
+                  "minLength": 1,
+                  "not": {
+                    "enum": [
+                      "workflow premise"
+                    ],
+                    "type": "string"
+                  },
+                  "pattern": "\\S",
+                  "type": "string",
+                  "x-maxBytes": 4096
+                },
+                "required_evidence": {
+                  "description": "Evidence obligations are admitted only when the work item's pinned workflow definition declares them at root, step, or rigor level; the WorkPin obligations list publishes that exact sorted membership.",
+                  "items": {
+                    "enum": [
+                      "verification",
+                      "review",
+                      "approval",
+                      "commit",
+                      "durable_note",
+                      "native_run",
+                      "artifact"
+                    ],
+                    "type": "string"
+                  },
+                  "maxItems": 7,
+                  "minItems": 0,
+                  "type": "array",
+                  "uniqueItems": true
+                },
+                "rigor_class": {
+                  "enum": [
+                    "prototype_internal",
+                    "prototype_trusted",
+                    "prototype_public",
+                    "prototype_safety_critical",
+                    "production_internal",
+                    "production_trusted",
+                    "production_public",
+                    "production_safety_critical",
+                    "critical_internal",
+                    "critical_trusted",
+                    "critical_public",
+                    "critical_safety_critical"
+                  ],
+                  "type": "string"
+                },
+                "route_conventions": {
+                  "items": {
+                    "$ref": "#/$defs/reference"
+                  },
+                  "maxItems": 16,
+                  "minItems": 0,
+                  "type": "array",
+                  "uniqueItems": true
+                },
+                "self_repair": {
+                  "$ref": "#/$defs/workflow_self_repair"
+                },
+                "spec_mandate": {
+                  "items": {
+                    "$ref": "#/$defs/law_id"
+                  },
+                  "maxItems": 32,
+                  "minItems": 0,
+                  "type": "array",
+                  "uniqueItems": true
+                },
+                "supersede_reason": {
+                  "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
+                  "maxLength": 4096,
+                  "minLength": 1,
+                  "pattern": "\\S",
+                  "type": "string",
+                  "x-maxBytes": 4096
+                }
+              },
+              "required": [
+                "contract_version",
+                "premise",
+                "outcome_predicates",
+                "required_evidence",
+                "route_conventions",
+                "spec_mandate",
+                "law_modifies",
+                "rigor_class",
+                "supersede_reason",
+                "audit_evidence"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "maxProperties": 32,
+              "properties": {
+                "architecture_binding": {
+                  "$ref": "#/$defs/architecture_binding",
+                  "description": "Architecture bindings must name Domains that exist in the pinned domain registry, home every added or modified law in a declared Domain, and modify Domain relations only through current canonical tuples; the store refuses an unknown Domain or relation."
+                },
+                "audit_evidence": {
+                  "items": {
+                    "$ref": "#/$defs/reference"
+                  },
+                  "maxItems": 32,
+                  "minItems": 1,
+                  "type": "array",
+                  "uniqueItems": true
+                },
+                "contract_version": {
+                  "maximum": 2147483647,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "design_record": {
+                  "$ref": "#/$defs/workflow_design_content"
+                },
+                "law_modifies": {
+                  "items": {
+                    "$ref": "#/$defs/law_id"
+                  },
+                  "maxItems": 32,
+                  "minItems": 0,
+                  "type": "array",
+                  "uniqueItems": true
+                },
+                "outcome_kind": {
+                  "const": "exists",
+                  "type": "string"
+                },
+                "outcome_payload": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "kind": {
+                      "const": "exists"
+                    },
+                    "subjects": {
+                      "items": {
+                        "$ref": "#/$defs/workflow_outcome_subject"
+                      },
+                      "maxItems": 100,
+                      "minItems": 1,
+                      "type": "array",
+                      "uniqueItems": true
+                    },
+                    "surface": {
+                      "$ref": "#/$defs/workflow_outcome_surface"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "surface",
+                    "subjects"
+                  ],
+                  "type": "object"
+                },
+                "predecessor_contract_versions": {
+                  "items": {
+                    "$ref": "#/$defs/workflow_contract_version"
+                  },
+                  "maxItems": 32,
+                  "minItems": 1,
+                  "type": "array"
+                },
+                "premise": {
+                  "description": "JSON Schema maxLength counts Unicode code points. Store admission also applies the same numerical limit to UTF-8 bytes (WorkflowPremiseMaxLength), so multibyte objectives must fit the byte allowance. This approval bound applies to objective content, not an OpenCode Task prompt or model-token limit. Do not truncate an approved objective or repeat its approval to repair packet projection.",
+                  "maxLength": 4096,
+                  "minLength": 1,
+                  "not": {
+                    "enum": [
+                      "workflow premise"
+                    ],
+                    "type": "string"
+                  },
+                  "pattern": "\\S",
+                  "type": "string",
+                  "x-maxBytes": 4096
+                },
+                "required_evidence": {
+                  "description": "Evidence obligations are admitted only when the work item's pinned workflow definition declares them at root, step, or rigor level; the WorkPin obligations list publishes that exact sorted membership.",
+                  "items": {
+                    "enum": [
+                      "verification",
+                      "review",
+                      "approval",
+                      "commit",
+                      "durable_note",
+                      "native_run",
+                      "artifact"
+                    ],
+                    "type": "string"
+                  },
+                  "maxItems": 7,
+                  "minItems": 0,
+                  "type": "array",
+                  "uniqueItems": true
+                },
+                "rigor_class": {
+                  "enum": [
+                    "prototype_internal",
+                    "prototype_trusted",
+                    "prototype_public",
+                    "prototype_safety_critical",
+                    "production_internal",
+                    "production_trusted",
+                    "production_public",
+                    "production_safety_critical",
+                    "critical_internal",
+                    "critical_trusted",
+                    "critical_public",
+                    "critical_safety_critical"
+                  ],
+                  "type": "string"
+                },
+                "route_conventions": {
+                  "items": {
+                    "$ref": "#/$defs/reference"
+                  },
+                  "maxItems": 16,
+                  "minItems": 0,
+                  "type": "array",
+                  "uniqueItems": true
+                },
+                "self_repair": {
+                  "$ref": "#/$defs/workflow_self_repair"
+                },
+                "spec_mandate": {
+                  "items": {
+                    "$ref": "#/$defs/law_id"
+                  },
+                  "maxItems": 32,
+                  "minItems": 0,
+                  "type": "array",
+                  "uniqueItems": true
+                },
+                "supersede_reason": {
+                  "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
+                  "maxLength": 4096,
+                  "minLength": 1,
+                  "pattern": "\\S",
+                  "type": "string",
+                  "x-maxBytes": 4096
+                }
+              },
+              "required": [
+                "contract_version",
+                "premise",
+                "outcome_kind",
+                "outcome_payload",
+                "required_evidence",
+                "route_conventions",
+                "spec_mandate",
+                "law_modifies",
+                "rigor_class",
+                "supersede_reason",
+                "audit_evidence"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "maxProperties": 32,
+              "properties": {
+                "architecture_binding": {
+                  "$ref": "#/$defs/architecture_binding",
+                  "description": "Architecture bindings must name Domains that exist in the pinned domain registry, home every added or modified law in a declared Domain, and modify Domain relations only through current canonical tuples; the store refuses an unknown Domain or relation."
+                },
+                "audit_evidence": {
+                  "items": {
+                    "$ref": "#/$defs/reference"
+                  },
+                  "maxItems": 32,
+                  "minItems": 1,
+                  "type": "array",
+                  "uniqueItems": true
+                },
+                "contract_version": {
+                  "maximum": 2147483647,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "design_record": {
+                  "$ref": "#/$defs/workflow_design_content"
+                },
+                "law_modifies": {
+                  "items": {
+                    "$ref": "#/$defs/law_id"
+                  },
+                  "maxItems": 32,
+                  "minItems": 0,
+                  "type": "array",
+                  "uniqueItems": true
+                },
+                "outcome_kind": {
+                  "const": "absent",
+                  "type": "string"
+                },
+                "outcome_payload": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "distinguish_from": {
+                      "items": {
+                        "enum": [
+                          "archived",
+                          "relocated",
+                          "renamed",
+                          "disabled"
+                        ],
+                        "type": "string"
+                      },
+                      "maxItems": 4,
+                      "minItems": 1,
+                      "type": "array",
+                      "uniqueItems": true
+                    },
+                    "kind": {
+                      "const": "absent"
+                    },
+                    "subjects": {
+                      "items": {
+                        "$ref": "#/$defs/workflow_outcome_subject"
+                      },
+                      "maxItems": 100,
+                      "minItems": 1,
+                      "type": "array",
+                      "uniqueItems": true
+                    },
+                    "surface": {
+                      "$ref": "#/$defs/workflow_outcome_surface"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "surface",
+                    "subjects",
+                    "distinguish_from"
+                  ],
+                  "type": "object"
+                },
+                "predecessor_contract_versions": {
+                  "items": {
+                    "$ref": "#/$defs/workflow_contract_version"
+                  },
+                  "maxItems": 32,
+                  "minItems": 1,
+                  "type": "array"
+                },
+                "premise": {
+                  "description": "JSON Schema maxLength counts Unicode code points. Store admission also applies the same numerical limit to UTF-8 bytes (WorkflowPremiseMaxLength), so multibyte objectives must fit the byte allowance. This approval bound applies to objective content, not an OpenCode Task prompt or model-token limit. Do not truncate an approved objective or repeat its approval to repair packet projection.",
+                  "maxLength": 4096,
+                  "minLength": 1,
+                  "not": {
+                    "enum": [
+                      "workflow premise"
+                    ],
+                    "type": "string"
+                  },
+                  "pattern": "\\S",
+                  "type": "string",
+                  "x-maxBytes": 4096
+                },
+                "required_evidence": {
+                  "description": "Evidence obligations are admitted only when the work item's pinned workflow definition declares them at root, step, or rigor level; the WorkPin obligations list publishes that exact sorted membership.",
+                  "items": {
+                    "enum": [
+                      "verification",
+                      "review",
+                      "approval",
+                      "commit",
+                      "durable_note",
+                      "native_run",
+                      "artifact"
+                    ],
+                    "type": "string"
+                  },
+                  "maxItems": 7,
+                  "minItems": 0,
+                  "type": "array",
+                  "uniqueItems": true
+                },
+                "rigor_class": {
+                  "enum": [
+                    "prototype_internal",
+                    "prototype_trusted",
+                    "prototype_public",
+                    "prototype_safety_critical",
+                    "production_internal",
+                    "production_trusted",
+                    "production_public",
+                    "production_safety_critical",
+                    "critical_internal",
+                    "critical_trusted",
+                    "critical_public",
+                    "critical_safety_critical"
+                  ],
+                  "type": "string"
+                },
+                "route_conventions": {
+                  "items": {
+                    "$ref": "#/$defs/reference"
+                  },
+                  "maxItems": 16,
+                  "minItems": 0,
+                  "type": "array",
+                  "uniqueItems": true
+                },
+                "self_repair": {
+                  "$ref": "#/$defs/workflow_self_repair"
+                },
+                "spec_mandate": {
+                  "items": {
+                    "$ref": "#/$defs/law_id"
+                  },
+                  "maxItems": 32,
+                  "minItems": 0,
+                  "type": "array",
+                  "uniqueItems": true
+                },
+                "supersede_reason": {
+                  "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
+                  "maxLength": 4096,
+                  "minLength": 1,
+                  "pattern": "\\S",
+                  "type": "string",
+                  "x-maxBytes": 4096
+                }
+              },
+              "required": [
+                "contract_version",
+                "premise",
+                "outcome_kind",
+                "outcome_payload",
+                "required_evidence",
+                "route_conventions",
+                "spec_mandate",
+                "law_modifies",
+                "rigor_class",
+                "supersede_reason",
+                "audit_evidence"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "maxProperties": 32,
+              "properties": {
+                "architecture_binding": {
+                  "$ref": "#/$defs/architecture_binding",
+                  "description": "Architecture bindings must name Domains that exist in the pinned domain registry, home every added or modified law in a declared Domain, and modify Domain relations only through current canonical tuples; the store refuses an unknown Domain or relation."
+                },
+                "audit_evidence": {
+                  "items": {
+                    "$ref": "#/$defs/reference"
+                  },
+                  "maxItems": 32,
+                  "minItems": 1,
+                  "type": "array",
+                  "uniqueItems": true
+                },
+                "contract_version": {
+                  "maximum": 2147483647,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "design_record": {
+                  "$ref": "#/$defs/workflow_design_content"
+                },
+                "law_modifies": {
+                  "items": {
+                    "$ref": "#/$defs/law_id"
+                  },
+                  "maxItems": 32,
+                  "minItems": 0,
+                  "type": "array",
+                  "uniqueItems": true
+                },
+                "outcome_kind": {
+                  "const": "outcome",
+                  "type": "string"
+                },
+                "outcome_payload": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "allowed": {
+                      "description": "The store pins which outcome tokens the contract of the work item being approved may carry, per its workflow type: workflow.architecture_spike admits accepted_decision, insufficient_evidence (decision_record required); workflow.generic_one_off admits no_change, accepted_decision, insufficient_evidence, resolved, remediated, report_recorded, completed, operator_defined; workflow.research admits no_change, resolved, report_recorded; workflow.break_fix, workflow.implementation, workflow.ops_runbook, workflow.static_analysis admit no outcome tokens (only exists, absent and check predicate kinds).",
+                      "items": {
+                        "enum": [
+                          "no_change",
+                          "accepted_decision",
+                          "insufficient_evidence",
+                          "resolved",
+                          "remediated",
+                          "report_recorded",
+                          "completed",
+                          "operator_defined"
+                        ],
+                        "type": "string"
+                      },
+                      "maxItems": 8,
+                      "minItems": 1,
+                      "type": "array",
+                      "uniqueItems": true
+                    },
+                    "decision_record": {
+                      "$ref": "#/$defs/workflow_outcome_decision_record"
+                    },
+                    "kind": {
+                      "const": "outcome"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "allowed"
+                  ],
+                  "type": "object"
+                },
+                "predecessor_contract_versions": {
+                  "items": {
+                    "$ref": "#/$defs/workflow_contract_version"
+                  },
+                  "maxItems": 32,
+                  "minItems": 1,
+                  "type": "array"
+                },
+                "premise": {
+                  "description": "JSON Schema maxLength counts Unicode code points. Store admission also applies the same numerical limit to UTF-8 bytes (WorkflowPremiseMaxLength), so multibyte objectives must fit the byte allowance. This approval bound applies to objective content, not an OpenCode Task prompt or model-token limit. Do not truncate an approved objective or repeat its approval to repair packet projection.",
+                  "maxLength": 4096,
+                  "minLength": 1,
+                  "not": {
+                    "enum": [
+                      "workflow premise"
+                    ],
+                    "type": "string"
+                  },
+                  "pattern": "\\S",
+                  "type": "string",
+                  "x-maxBytes": 4096
+                },
+                "required_evidence": {
+                  "description": "Evidence obligations are admitted only when the work item's pinned workflow definition declares them at root, step, or rigor level; the WorkPin obligations list publishes that exact sorted membership.",
+                  "items": {
+                    "enum": [
+                      "verification",
+                      "review",
+                      "approval",
+                      "commit",
+                      "durable_note",
+                      "native_run",
+                      "artifact"
+                    ],
+                    "type": "string"
+                  },
+                  "maxItems": 7,
+                  "minItems": 0,
+                  "type": "array",
+                  "uniqueItems": true
+                },
+                "rigor_class": {
+                  "enum": [
+                    "prototype_internal",
+                    "prototype_trusted",
+                    "prototype_public",
+                    "prototype_safety_critical",
+                    "production_internal",
+                    "production_trusted",
+                    "production_public",
+                    "production_safety_critical",
+                    "critical_internal",
+                    "critical_trusted",
+                    "critical_public",
+                    "critical_safety_critical"
+                  ],
+                  "type": "string"
+                },
+                "route_conventions": {
+                  "items": {
+                    "$ref": "#/$defs/reference"
+                  },
+                  "maxItems": 16,
+                  "minItems": 0,
+                  "type": "array",
+                  "uniqueItems": true
+                },
+                "self_repair": {
+                  "$ref": "#/$defs/workflow_self_repair"
+                },
+                "spec_mandate": {
+                  "items": {
+                    "$ref": "#/$defs/law_id"
+                  },
+                  "maxItems": 32,
+                  "minItems": 0,
+                  "type": "array",
+                  "uniqueItems": true
+                },
+                "supersede_reason": {
+                  "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
+                  "maxLength": 4096,
+                  "minLength": 1,
+                  "pattern": "\\S",
+                  "type": "string",
+                  "x-maxBytes": 4096
+                }
+              },
+              "required": [
+                "contract_version",
+                "premise",
+                "outcome_kind",
+                "outcome_payload",
+                "required_evidence",
+                "route_conventions",
+                "spec_mandate",
+                "law_modifies",
+                "rigor_class",
+                "supersede_reason",
+                "audit_evidence"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "maxProperties": 32,
+              "properties": {
+                "architecture_binding": {
+                  "$ref": "#/$defs/architecture_binding",
+                  "description": "Architecture bindings must name Domains that exist in the pinned domain registry, home every added or modified law in a declared Domain, and modify Domain relations only through current canonical tuples; the store refuses an unknown Domain or relation."
+                },
+                "audit_evidence": {
+                  "items": {
+                    "$ref": "#/$defs/reference"
+                  },
+                  "maxItems": 32,
+                  "minItems": 1,
+                  "type": "array",
+                  "uniqueItems": true
+                },
+                "contract_version": {
+                  "maximum": 2147483647,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "design_record": {
+                  "$ref": "#/$defs/workflow_design_content"
+                },
+                "law_modifies": {
+                  "items": {
+                    "$ref": "#/$defs/law_id"
+                  },
+                  "maxItems": 32,
+                  "minItems": 0,
+                  "type": "array",
+                  "uniqueItems": true
+                },
+                "outcome_kind": {
+                  "const": "check",
+                  "type": "string"
+                },
+                "outcome_payload": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "check_ref": {
+                      "maxLength": 134,
+                      "minLength": 7,
+                      "pattern": "^check:[a-z][a-z0-9_.:/-]{1,127}$",
+                      "type": "string"
+                    },
+                    "expected_result": {
+                      "enum": [
+                        "true",
+                        "false",
+                        "pass",
+                        "fail",
+                        "present",
+                        "absent",
+                        "healthy",
+                        "unhealthy",
+                        "accepted",
+                        "rejected"
+                      ],
+                      "type": "string"
+                    },
+                    "immutable_subject_ref": {
+                      "maxLength": 256,
+                      "minLength": 2,
+                      "pattern": "^[a-z][a-z0-9_.:/-]{1,255}$",
+                      "type": "string"
+                    },
+                    "kind": {
+                      "const": "check"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "check_ref",
+                    "immutable_subject_ref",
+                    "expected_result"
+                  ],
+                  "type": "object"
+                },
+                "predecessor_contract_versions": {
+                  "items": {
+                    "$ref": "#/$defs/workflow_contract_version"
+                  },
+                  "maxItems": 32,
+                  "minItems": 1,
+                  "type": "array"
+                },
+                "premise": {
+                  "description": "JSON Schema maxLength counts Unicode code points. Store admission also applies the same numerical limit to UTF-8 bytes (WorkflowPremiseMaxLength), so multibyte objectives must fit the byte allowance. This approval bound applies to objective content, not an OpenCode Task prompt or model-token limit. Do not truncate an approved objective or repeat its approval to repair packet projection.",
+                  "maxLength": 4096,
+                  "minLength": 1,
+                  "not": {
+                    "enum": [
+                      "workflow premise"
+                    ],
+                    "type": "string"
+                  },
+                  "pattern": "\\S",
+                  "type": "string",
+                  "x-maxBytes": 4096
+                },
+                "required_evidence": {
+                  "description": "Evidence obligations are admitted only when the work item's pinned workflow definition declares them at root, step, or rigor level; the WorkPin obligations list publishes that exact sorted membership.",
+                  "items": {
+                    "enum": [
+                      "verification",
+                      "review",
+                      "approval",
+                      "commit",
+                      "durable_note",
+                      "native_run",
+                      "artifact"
+                    ],
+                    "type": "string"
+                  },
+                  "maxItems": 7,
+                  "minItems": 0,
+                  "type": "array",
+                  "uniqueItems": true
+                },
+                "rigor_class": {
+                  "enum": [
+                    "prototype_internal",
+                    "prototype_trusted",
+                    "prototype_public",
+                    "prototype_safety_critical",
+                    "production_internal",
+                    "production_trusted",
+                    "production_public",
+                    "production_safety_critical",
+                    "critical_internal",
+                    "critical_trusted",
+                    "critical_public",
+                    "critical_safety_critical"
+                  ],
+                  "type": "string"
+                },
+                "route_conventions": {
+                  "items": {
+                    "$ref": "#/$defs/reference"
+                  },
+                  "maxItems": 16,
+                  "minItems": 0,
+                  "type": "array",
+                  "uniqueItems": true
+                },
+                "self_repair": {
+                  "$ref": "#/$defs/workflow_self_repair"
+                },
+                "spec_mandate": {
+                  "items": {
+                    "$ref": "#/$defs/law_id"
+                  },
+                  "maxItems": 32,
+                  "minItems": 0,
+                  "type": "array",
+                  "uniqueItems": true
+                },
+                "supersede_reason": {
+                  "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
+                  "maxLength": 4096,
+                  "minLength": 1,
+                  "pattern": "\\S",
+                  "type": "string",
+                  "x-maxBytes": 4096
+                }
+              },
+              "required": [
+                "contract_version",
+                "premise",
+                "outcome_kind",
+                "outcome_payload",
+                "required_evidence",
+                "route_conventions",
+                "spec_mandate",
+                "law_modifies",
+                "rigor_class",
+                "supersede_reason",
+                "audit_evidence"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "research_bindings": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "pack_id": {
+                "$ref": "#/$defs/id"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "revision": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "use_role": {
+                "enum": [
+                  "context",
+                  "design_input",
+                  "verification_basis",
+                  "decision_basis"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "pack_id",
+              "revision",
+              "use_role",
+              "required"
+            ],
+            "type": "object"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "type": "array"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "expected_version",
+        "action_id",
+        "idempotency_key",
+        "fields"
       ],
       "type": "object"
     },
@@ -12954,6 +17748,119 @@ const GeneratedPayloadSchemaDocument = `{
         "expected_version",
         "target",
         "reason",
+        "idempotency_key"
+      ],
+      "type": "object"
+    },
+    "work_transition_outside_repair_input": {
+      "additionalProperties": false,
+      "properties": {
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "reason": {
+          "maxLength": 4096,
+          "minLength": 2,
+          "type": "string"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "expected_version",
+        "reason",
+        "idempotency_key"
+      ],
+      "type": "object"
+    },
+    "work_transition_outside_repair_reconcile_input": {
+      "additionalProperties": false,
+      "oneOf": [
+        {
+          "description": "A completed reconcile closes the held work from boundary-authenticated GitHub evidence bound to the selected pull requests and published release.",
+          "properties": {
+            "mode": {
+              "const": "completed"
+            }
+          },
+          "required": [
+            "release_tag",
+            "pull_requests"
+          ]
+        },
+        {
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "release_tag"
+                ]
+              },
+              {
+                "required": [
+                  "pull_requests"
+                ]
+              }
+            ]
+          },
+          "properties": {
+            "mode": {
+              "const": "resume"
+            }
+          }
+        }
+      ],
+      "properties": {
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "mode": {
+          "enum": [
+            "completed",
+            "resume"
+          ],
+          "type": "string"
+        },
+        "pull_requests": {
+          "$ref": "#/$defs/outside_repair_pr_selectors"
+        },
+        "reason": {
+          "maxLength": 4096,
+          "minLength": 2,
+          "type": "string"
+        },
+        "release_tag": {
+          "$ref": "#/$defs/outside_repair_release_tag"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "expected_version",
+        "reason",
+        "mode",
         "idempotency_key"
       ],
       "type": "object"
@@ -14697,50 +19604,262 @@ const GeneratedPayloadSchemaDocument = `{
     "workflow_action_outcome_predicates": {
       "description": "CD-0184: acceptance is decidable at delivery. Each predicate names an end state verification can decide when the change is delivered. Post-delivery observation over a time window (traffic, an error rate, a metric over hours or days) is not acceptance: capture a follow-up work item and link it raised_from the delivering item before that item completes. A one-shot live check that verification can decide at delivery stays allowed.",
       "items": {
-        "additionalProperties": false,
-        "properties": {
-          "ordinal": {
-            "maximum": 7,
-            "minimum": 0,
-            "type": "integer"
-          },
-          "outcome_kind": {
-            "enum": [
-              "exists",
-              "absent",
-              "outcome",
-              "check"
-            ],
-            "type": "string"
-          },
-          "outcome_payload": {
-            "oneOf": [
-              {
-                "$ref": "#/$defs/workflow_outcome_exists"
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "ordinal": {
+                "description": "The store refuses an outcome predicate whose ordinal is not its own zero-based position in outcome_predicates: the predicate at array position N must carry ordinal N (0, 1, 2, ...).",
+                "maximum": 7,
+                "minimum": 0,
+                "type": "integer"
               },
-              {
-                "$ref": "#/$defs/workflow_outcome_absent"
+              "outcome_kind": {
+                "const": "exists",
+                "description": "The store refuses an outcome predicate whose outcome_kind and outcome_payload.kind disagree: supply the outcome_payload variant that matches the declared outcome_kind.",
+                "type": "string"
               },
-              {
-                "$ref": "#/$defs/workflow_outcome_outcome"
+              "outcome_payload": {
+                "additionalProperties": false,
+                "properties": {
+                  "kind": {
+                    "const": "exists"
+                  },
+                  "subjects": {
+                    "items": {
+                      "$ref": "#/$defs/workflow_outcome_subject"
+                    },
+                    "maxItems": 100,
+                    "minItems": 1,
+                    "type": "array",
+                    "uniqueItems": true
+                  },
+                  "surface": {
+                    "$ref": "#/$defs/workflow_outcome_surface"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "surface",
+                  "subjects"
+                ],
+                "type": "object"
               },
-              {
-                "$ref": "#/$defs/workflow_outcome_check"
+              "predicate_id": {
+                "$ref": "#/$defs/id",
+                "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\"."
               }
-            ]
+            },
+            "required": [
+              "predicate_id",
+              "ordinal",
+              "outcome_kind",
+              "outcome_payload"
+            ],
+            "type": "object"
           },
-          "predicate_id": {
-            "$ref": "#/$defs/id",
-            "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\"."
+          {
+            "additionalProperties": false,
+            "properties": {
+              "ordinal": {
+                "description": "The store refuses an outcome predicate whose ordinal is not its own zero-based position in outcome_predicates: the predicate at array position N must carry ordinal N (0, 1, 2, ...).",
+                "maximum": 7,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "outcome_kind": {
+                "const": "absent",
+                "description": "The store refuses an outcome predicate whose outcome_kind and outcome_payload.kind disagree: supply the outcome_payload variant that matches the declared outcome_kind.",
+                "type": "string"
+              },
+              "outcome_payload": {
+                "additionalProperties": false,
+                "properties": {
+                  "distinguish_from": {
+                    "items": {
+                      "enum": [
+                        "archived",
+                        "relocated",
+                        "renamed",
+                        "disabled"
+                      ],
+                      "type": "string"
+                    },
+                    "maxItems": 4,
+                    "minItems": 1,
+                    "type": "array",
+                    "uniqueItems": true
+                  },
+                  "kind": {
+                    "const": "absent"
+                  },
+                  "subjects": {
+                    "items": {
+                      "$ref": "#/$defs/workflow_outcome_subject"
+                    },
+                    "maxItems": 100,
+                    "minItems": 1,
+                    "type": "array",
+                    "uniqueItems": true
+                  },
+                  "surface": {
+                    "$ref": "#/$defs/workflow_outcome_surface"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "surface",
+                  "subjects",
+                  "distinguish_from"
+                ],
+                "type": "object"
+              },
+              "predicate_id": {
+                "$ref": "#/$defs/id",
+                "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\"."
+              }
+            },
+            "required": [
+              "predicate_id",
+              "ordinal",
+              "outcome_kind",
+              "outcome_payload"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "ordinal": {
+                "description": "The store refuses an outcome predicate whose ordinal is not its own zero-based position in outcome_predicates: the predicate at array position N must carry ordinal N (0, 1, 2, ...).",
+                "maximum": 7,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "outcome_kind": {
+                "const": "outcome",
+                "description": "The store refuses an outcome predicate whose outcome_kind and outcome_payload.kind disagree: supply the outcome_payload variant that matches the declared outcome_kind.",
+                "type": "string"
+              },
+              "outcome_payload": {
+                "additionalProperties": false,
+                "properties": {
+                  "allowed": {
+                    "description": "The store pins which outcome tokens the contract of the work item being approved may carry, per its workflow type: workflow.architecture_spike admits accepted_decision, insufficient_evidence (decision_record required); workflow.generic_one_off admits no_change, accepted_decision, insufficient_evidence, resolved, remediated, report_recorded, completed, operator_defined; workflow.research admits no_change, resolved, report_recorded; workflow.break_fix, workflow.implementation, workflow.ops_runbook, workflow.static_analysis admit no outcome tokens (only exists, absent and check predicate kinds).",
+                    "items": {
+                      "enum": [
+                        "no_change",
+                        "accepted_decision",
+                        "insufficient_evidence",
+                        "resolved",
+                        "remediated",
+                        "report_recorded",
+                        "completed",
+                        "operator_defined"
+                      ],
+                      "type": "string"
+                    },
+                    "maxItems": 8,
+                    "minItems": 1,
+                    "type": "array",
+                    "uniqueItems": true
+                  },
+                  "decision_record": {
+                    "$ref": "#/$defs/workflow_outcome_decision_record"
+                  },
+                  "kind": {
+                    "const": "outcome"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "allowed"
+                ],
+                "type": "object"
+              },
+              "predicate_id": {
+                "$ref": "#/$defs/id",
+                "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\"."
+              }
+            },
+            "required": [
+              "predicate_id",
+              "ordinal",
+              "outcome_kind",
+              "outcome_payload"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "ordinal": {
+                "description": "The store refuses an outcome predicate whose ordinal is not its own zero-based position in outcome_predicates: the predicate at array position N must carry ordinal N (0, 1, 2, ...).",
+                "maximum": 7,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "outcome_kind": {
+                "const": "check",
+                "description": "The store refuses an outcome predicate whose outcome_kind and outcome_payload.kind disagree: supply the outcome_payload variant that matches the declared outcome_kind.",
+                "type": "string"
+              },
+              "outcome_payload": {
+                "additionalProperties": false,
+                "properties": {
+                  "check_ref": {
+                    "maxLength": 134,
+                    "minLength": 7,
+                    "pattern": "^check:[a-z][a-z0-9_.:/-]{1,127}$",
+                    "type": "string"
+                  },
+                  "expected_result": {
+                    "enum": [
+                      "true",
+                      "false",
+                      "pass",
+                      "fail",
+                      "present",
+                      "absent",
+                      "healthy",
+                      "unhealthy",
+                      "accepted",
+                      "rejected"
+                    ],
+                    "type": "string"
+                  },
+                  "immutable_subject_ref": {
+                    "maxLength": 256,
+                    "minLength": 2,
+                    "pattern": "^[a-z][a-z0-9_.:/-]{1,255}$",
+                    "type": "string"
+                  },
+                  "kind": {
+                    "const": "check"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "check_ref",
+                  "immutable_subject_ref",
+                  "expected_result"
+                ],
+                "type": "object"
+              },
+              "predicate_id": {
+                "$ref": "#/$defs/id",
+                "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\"."
+              }
+            },
+            "required": [
+              "predicate_id",
+              "ordinal",
+              "outcome_kind",
+              "outcome_payload"
+            ],
+            "type": "object"
           }
-        },
-        "required": [
-          "predicate_id",
-          "ordinal",
-          "outcome_kind",
-          "outcome_payload"
-        ],
-        "type": "object"
+        ]
       },
       "maxItems": 8,
       "minItems": 1,
@@ -15076,10 +20195,13 @@ const GeneratedPayloadSchemaDocument = `{
       "maxProperties": 32,
       "properties": {
         "approach": {
+          "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
           "maxLength": 4096,
-          "minLength": 2,
+          "minLength": 1,
           "pattern": "\\S",
-          "type": "string"
+          "type": "string",
+          "x-maxBytes": 4096,
+          "x-minBytes": 2
         },
         "decisions": {
           "items": {
@@ -15964,7 +21086,8 @@ const GeneratedPayloadSchemaDocument = `{
             "timeout",
             "transport_failure",
             "malformed_response",
-            "internal_error"
+            "internal_error",
+            "outside_repair_active"
           ],
           "type": "string"
         }

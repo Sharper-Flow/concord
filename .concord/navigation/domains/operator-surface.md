@@ -7,11 +7,11 @@ File accountability does not change a document's law home or a handler's semanti
 ## Responsibility
 Owns the human-facing plane: the terminal launcher, the CLI verb surface and its operator diagnostics, installation and release packaging, and the navigation path an operator uses to reach Product state.
 
-Mapped files: 159; tests: 86; unresolved candidates: 31.
+Mapped files: 162; tests: 87; unresolved candidates: 31.
 Candidate counts overlap when a file has several candidates; no candidate is an assigned owner.
 
 ## Code and tests
-Full paths, unresolved reasons, shared-test coverage, and source fingerprints: `.concord/navigation/inventory.json`.
+Full paths, unresolved reasons, and shared-test coverage: `.concord/navigation/inventory.json`.
 - Include: `cmd/**`, `brand/**`, `internal/launcher/**`, `internal/portfolio/**`, `internal/predecessor/**`
 - Include: `internal/receipt/**`, `internal/sessionboot/**`, `internal/version/**`, `internal/store/operator.go`, `internal/store/product_stage*.go`
 - Include: `internal/store/product_row*.go`, `internal/store/launcher*.go`, `internal/store/project_locator*.go`, `internal/store/project_stage_test.go`, `internal/store/display_name_bound_test.go`
@@ -37,8 +37,9 @@ These are catalog surface entries, not invariant/control or handler joins.
 - CLI: `product-knowledge-source-register (product knowledge-source-register)`, `product-knowledge-source-remove (product knowledge-source-remove)`, `project-locator-add (project locator-add)`, `project-locator-update (project locator-update)`, `project-locator-remove (project locator-remove)`
 - CLI: `project-canonical-path (project canonical-path)`, `cd-reservations (cd reservations)`, `backup`, `worktree-locate`, `claim-landing`
 - CLI: `vacate-landing`, `work-bootstrap`, `work-resume`, `receipt`, `work-shelve`
-- CLI: `work-cancel`, `ci-wait`, `session-prepare`, `project-resolve (project resolve)`, `restore`
-- CLI: `predecessor-inventory (predecessor inventory)`, `predecessor-import (predecessor import)`, `host-lease`, `host-leases`, `upgrade`
+- CLI: `work-cancel`, `ci-wait`, `session-prepare`, `outside-repair`, `project-resolve (project resolve)`
+- CLI: `restore`, `predecessor-inventory (predecessor inventory)`, `predecessor-import (predecessor import)`, `host-lease`, `host-leases`
+- CLI: `upgrade`
 
 ## Verification references
 Declared repository commands are shared checks, not Domain-specific acceptance or automatic execution.
@@ -48,12 +49,10 @@ Run the narrow selected command with `bin/oc-test targeted -- <command> [args...
 - `go-vet` (fast): `go vet ./...`
 - `gofmt` (fast): `gofmt -l .`
 - `govulncheck` (standard): `go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...`
+- `lefthook-preflight` (standard): `bin/oc-test preflight`
 - `repo-validators` (fast): `python3 scripts/check-json.py`
 
 ## Not covered by slice A
 Invariant/control joins, allowed-dependency interpretation, observed import/call edges,
 non-law navigation homes, CON-887 packet reading, and CON-890 owner oracles remain later work.
 Required-reading entries will be pinned references, not inlined card content.
-
-Navigation source fingerprint: `sha256:9323ffcfb084a119e963bd876e23eb6be301e6eea59907451fc4d0010e3c9bba`.
-Other fingerprints and the exact file universe are in the generated inventory.

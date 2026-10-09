@@ -1,4 +1,4 @@
-import { contractOperations, hostToolSchemas } from "./generated-contracts"
+import { contractOperations, hostToolSchemas, workflowActionPublicVariants } from "./generated-contracts"
 import { ciWatchTool, publishCiWatchDefinition } from "./ci-watch"
 import { domain, knowledge, product_view, publishWorkStartDefinition, work_browse, work_compact, work_define, work_initiative, work_relate, work_start, work_trace, work_transition } from "./concord"
 
@@ -17,31 +17,34 @@ const tools: Record<string, any> = {
   concord_work_compact: work_compact,
 }
 
-// Apply the production hook to the host's per-field schema. The expected
-// contract is used for comparison only, never to repair the observed schema.
+// Apply the production hook to the registration view. The expected contract
+// is used for comparison only, never to repair the observed schema.
 const expectedWorkStart = object(hostToolSchemas.concord_work_start, "generated work start schema")
 const expectedWorkStartBranches = (expectedWorkStart.oneOf as any[]).filter((branch) => object(branch, "generated work start branch"))
 if (expectedWorkStartBranches.length !== 2) fail("generated work start schema must carry the capture and resume branches")
-const expectedWorkStartProperties = Object.assign({}, ...expectedWorkStartBranches.map((branch) => object(branch.properties, "generated work start branch properties")))
 const workStartDefinition = {
   description: work_start.description,
   parameters: {},
-  jsonSchema: publishedArgsSchema(work_start.args, "work start schema"),
+  jsonSchema: undefined as unknown,
 }
 await publishWorkStartDefinition({ toolID: "concord_work_start" }, workStartDefinition)
+// The definition hook publishes the closed capture/resume contract itself:
+// each branch keeps its required set and field surface, instead of merging
+// into one all-optional object a caller cannot read modes from.
 const workStartRoot = object(workStartDefinition.jsonSchema, "published work start schema")
-const workStartProperties = object(workStartRoot.properties, "work start properties")
-if (JSON.stringify(Object.keys(workStartProperties).sort()) !== JSON.stringify(Object.keys(expectedWorkStartProperties).sort())) {
-  fail("concord_work_start does not publish the generated argument set")
+if (JSON.stringify(workStartRoot) !== JSON.stringify(expectedWorkStart)) {
+  fail("concord_work_start does not publish the generated closed capture/resume contract")
 }
-if (workStartRoot.required.length !== 0) fail("concord_work_start published view must keep every argument optional")
-for (const [name, expected] of Object.entries(expectedWorkStartProperties)) {
-  const actual = object(workStartProperties[name], `published work start property ${name}`)
-  for (const [keyword, value] of Object.entries(object(expected, `generated work start property ${name}`))) {
-    if (JSON.stringify(actual[keyword]) !== JSON.stringify(value)) fail(`concord_work_start ${name}.${keyword} differs from the generated contract`)
-  }
+const publishedBranches = (workStartRoot.oneOf as any[]).map((branch) => object(branch, "published work start branch"))
+for (const [index, branch] of publishedBranches.entries()) {
+  if (JSON.stringify(branch.required) !== JSON.stringify(expectedWorkStartBranches[index].required)) fail(`published work start branch ${index} loses its required set`)
+  if (branch.additionalProperties !== false) fail(`published work start branch ${index} is not closed`)
 }
 inspect(workStartRoot)
+// The registration map is the host's per-parameter rendering channel; its
+// field schemas must still match the generated branches exactly.
+const workStartRegistration = publishedArgsSchema(work_start.args, "work start registration schema")
+inspect(workStartRegistration)
 
 function fail(message: string): never {
   throw new Error(message)
@@ -52,27 +55,34 @@ function object(value: unknown, label: string): Record<string, any> {
   return value as Record<string, any>
 }
 
-function inspect(value: unknown, path = "$", seen = new Set<unknown>()): void {
+function inspect(value: unknown, path = "$", seen = new Set<unknown>(), insideNot = false): void {
   if (typeof value !== "object" || value === null || seen.has(value)) return
   seen.add(value)
   if (Array.isArray(value)) {
-    value.forEach((item, index) => inspect(item, `${path}[${index}]`, seen))
+    value.forEach((item, index) => inspect(item, `${path}[${index}]`, seen, insideNot))
     return
   }
   for (const [key, item] of Object.entries(value)) {
     if (key === "~standard" || key === "def") fail(`published schema contains Zod implementation key ${path}.${key}`)
-    if (key === "$ref" || key === "anyOf" || key === "allOf" || key === "definitions") fail(`published schema contains host-unsafe ${key} at ${path}`)
+    if (key === "$ref" || key === "definitions" || key === "allOf") fail(`published schema contains host-unsafe ${key} at ${path}`)
+    // anyOf survives only as an authored cross-field exclusion nested inside
+    // not (the action variants' selected_choice/decision_context_digest rule).
+    // A bare anyOf anywhere else is still a merge fault.
+    if (key === "anyOf" && !insideNot) fail(`published schema contains host-unsafe ${key} at ${path}`)
     if (key === "oneOf") {
-      // A oneOf is host-safe exactly when every branch is a self-contained
-      // closed object the host renders directly: the bounded outcome_payload
-      // variant union. Open, nested, or non-object unions stay merged.
+      // Publication emits authored structure verbatim, and the authored
+      // contracts use oneOf in every documented form: bounded closed-object
+      // variant unions (outcome_payload), legal-combination condition
+      // members (the resolve product/project selector), scalar type
+      // alternations (lesson issue identifiers), and inlined refs. Each
+      // member must be a schema object; the closed-branch convention applies
+      // to the per-operation request unions this probe checks separately.
       if (!Array.isArray(item)) fail(`published schema contains a non-list oneOf at ${path}`)
       for (const [index, branch] of item.entries()) {
         if (typeof branch !== "object" || branch === null || Array.isArray(branch)) fail(`published schema oneOf branch ${path}[${index}] is not an object`)
-        if ((branch as Record<string, unknown>).additionalProperties !== false) fail(`published schema oneOf branch ${path}[${index}] is not closed`)
       }
     }
-    inspect(item, `${path}.${key}`, seen)
+    inspect(item, `${path}.${key}`, seen, insideNot || key === "not")
   }
 }
 
@@ -88,14 +98,19 @@ for (const [toolName, exportedTool] of Object.entries(tools)) {
   if (JSON.stringify(request.required) !== JSON.stringify(["operation", "input"])) fail(`${toolName} request fields are not required`)
   const operation = object(request.properties.operation, `${toolName} operation`)
   if (JSON.stringify(operation.enum) !== JSON.stringify(expected.map((candidate: any) => candidate.id.slice(candidate.id.indexOf(".") + 1)))) fail(`${toolName} operation enum differs from the generated contract`)
-  // The published request is one closed branch per operation: the branch
-  // names the operation with a const and its input states the required set
-  // and the admitted fields the core enforces. The const keeps branches
-  // mutually exclusive, and no branch admits a field a sibling operation owns.
+  // The published request is one closed branch per operation — and for
+  // workflow_action, one closed branch per registry action variant: the
+  // branch names the operation (and action) with a const, and its input
+  // states the required set and the admitted fields the core enforces. The
+  // const keeps branches mutually exclusive, and no branch admits a field a
+  // sibling operation or action owns.
   const requestBranches = request.oneOf
   if (!Array.isArray(requestBranches)) fail(`${toolName} request carries no per-operation branches`)
-  if (requestBranches.length !== expected.length) fail(`${toolName} publishes ${requestBranches.length} request branches for ${expected.length} operations`)
+  const variantExtra = toolName === "concord_work_transition" ? workflowActionPublicVariants.length - 1 : 0
+  if (requestBranches.length !== expected.length + variantExtra) fail(`${toolName} publishes ${requestBranches.length} request branches for ${expected.length + variantExtra} closed shapes`)
   const operationEnum = operation.enum as string[]
+  let operationIndex = -1
+  let inVariantRun = false
   for (const [index, branch] of requestBranches.entries()) {
     if (typeof branch !== "object" || branch === null) fail(`${toolName} request branch ${index} is not an object`)
     const node = object(branch, `${toolName} request branch ${index}`)
@@ -104,18 +119,36 @@ for (const [toolName, exportedTool] of Object.entries(tools)) {
     const branchProperties = object(node.properties, `${toolName} request branch ${index} properties`)
     if (JSON.stringify(Object.keys(branchProperties)) !== JSON.stringify(["operation", "input"])) fail(`${toolName} request branch ${index} exposes fields outside operation and input`)
     const branchOperation = object(branchProperties.operation, `${toolName} request branch ${index} operation`)
-    if (branchOperation.const !== operationEnum[index]) fail(`${toolName} request branch ${index} does not name ${operationEnum[index]}`)
     const input = object(branchProperties.input, `${toolName} request branch ${index} input`)
+    if (branchOperation.const === "workflow_action" && input.properties?.action_id?.const !== undefined) {
+      // An action variant branch names its action with a const. The whole
+      // variant run sits at the workflow_action position in operation order;
+      // the run consumes that one discriminator entry.
+      if (operationEnum[operationIndex + 1] !== "workflow_action") fail(`${toolName} action variant branch ${index} does not sit at the workflow_action discriminator`)
+      if (!workflowActionPublicVariants.some((candidate) => candidate.action_id === input.properties.action_id.const)) fail(`${toolName} request branch ${index} names action ${input.properties.action_id.const} no registry variant declares`)
+      inVariantRun = true
+      continue
+    }
+    if (inVariantRun) {
+      operationIndex += 1
+      inVariantRun = false
+    }
+    operationIndex += 1
+    if (branchOperation.const !== operationEnum[operationIndex]) fail(`${toolName} request branch ${index} does not name ${operationEnum[operationIndex]}`)
     if (input.type !== "object") fail(`${toolName} request branch ${index} input is not an object`)
     const branchRequired: unknown = input.required
-    if (!Array.isArray(branchRequired)) fail(`${toolName} input branch ${index} states no required set`)
+    // required is the authored set exactly: an operation that requires
+    // nothing publishes no required array.
+    if (branchRequired !== undefined && !Array.isArray(branchRequired)) fail(`${toolName} input branch ${index} states a non-list required set`)
     const inputProperties = object(input.properties, `${toolName} input branch ${index} properties`)
     if (Object.keys(inputProperties).length === 0) fail(`${toolName} input branch ${index} names no fields`)
     if (input.additionalProperties !== false) fail(`${toolName} input branch ${index} is not closed`)
-    for (const name of branchRequired) {
+    for (const name of Array.isArray(branchRequired) ? branchRequired : []) {
       if (!(name in inputProperties)) fail(`${toolName} input branch ${index} requires unknown field ${name}`)
     }
   }
+  if (inVariantRun) operationIndex += 1
+  if (operationIndex !== operationEnum.length - 1) fail(`${toolName} publishes branches for only ${operationIndex + 1} of ${operationEnum.length} operations`)
 }
 
 const workDefineRoot = publishedArgsSchema(work_define.args, "work define schema")
@@ -125,17 +158,27 @@ if (JSON.stringify(captureInput.required) !== JSON.stringify(["title", "value_st
 const urgency = object(object(captureInput.properties, "capture input properties").urgency, "capture urgency")
 if (JSON.stringify(urgency.enum) !== JSON.stringify(["standard", "expedite"])) fail("capture urgency enum is not published")
 
-// The transition action branch must name every field the core admits for the
-// workflow_action operation, including the conditional ones.
+// Every workflow action variant branch must name the fields the core admits
+// for that action, including the conditional ones, and each action the
+// registry declares must have exactly one branch.
 const transitionRoot = publishedArgsSchema(work_transition.args, "work transition schema")
 const transitionRequest = object(object(transitionRoot.properties, "work transition properties").request, "work transition request")
 if (!Array.isArray(transitionRequest.oneOf)) fail("work transition request carries no branch list")
 const transitionBranches = (transitionRequest.oneOf as unknown[]).map((branch) => object(branch, "action request branch"))
-const actionBranch = transitionBranches.find((branch) => object(branch.properties, "action request properties").operation.const === "workflow_action")
-if (actionBranch === undefined) fail("concord_work_transition publishes no workflow_action branch")
-const actionProperties = Object.keys(object(object(actionBranch.properties, "action request properties").input, "action input").properties)
-for (const field of ["action_id", "selected_choice", "decision_context_digest", "fields", "requested_budget_seconds"]) {
-  if (!actionProperties.includes(field)) fail(`the published workflow_action branch does not name ${field}`)
+const publishedActionIds = transitionBranches
+  .filter((branch) => object(branch.properties, "action request properties").operation.const === "workflow_action")
+  .map((branch) => object(object(branch.properties, "action request properties").input, "action input").properties.action_id.const)
+if (JSON.stringify(publishedActionIds) !== JSON.stringify(workflowActionPublicVariants.map((variant) => variant.action_id))) {
+  fail("concord_work_transition does not publish exactly one closed branch per registry action, in registry order")
+}
+for (const branch of transitionBranches) {
+  const actionInput = object(object(branch.properties, "action request properties").input, "action input")
+  const actionConst = (actionInput.properties as Record<string, any>).action_id?.const
+  if (actionConst === undefined) continue
+  const actionProperties = Object.keys((actionInput.properties as Record<string, unknown>))
+  for (const field of ["action_id", "selected_choice", "decision_context_digest", "requested_budget_seconds"]) {
+    if (!actionProperties.includes(field)) fail(`the published ${actionConst} variant does not name ${field}`)
+  }
 }
 
 // The watcher is a direct tool: its args are the published argument fields

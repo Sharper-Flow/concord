@@ -66,6 +66,8 @@
         "concord_work_trace.research",
         "concord_work_transition.correct_delivery",
         "concord_work_transition.lifecycle",
+        "concord_work_transition.outside_repair",
+        "concord_work_transition.outside_repair_reconcile",
         "concord_work_transition.project_handoff_consume",
         "concord_work_transition.project_handoff_record",
         "concord_work_transition.remove",
@@ -125,6 +127,16 @@
         },
         {
           "automation_path": ".github/workflows/ci.yml",
+          "config_path": "lefthook.yml",
+          "cost_hint": "Cheaper than the smoke tier; gates whose globs match no pushed file are skipped.",
+          "id": "lefthook-preflight",
+          "invocation": "bin/oc-test preflight",
+          "notes": "Advisory preflight, not a full verify and not an exhaustive test mapping; CI stays the verification owner. Parity is enforced by scripts/check-pre-push.py and the pinned upstream release is v2.1.14.",
+          "purpose": "Advisory, file-selected Lefthook pre-push preflight gates.",
+          "tier": "standard"
+        },
+        {
+          "automation_path": ".github/workflows/ci.yml",
           "cost_hint": "Expected to complete in seconds.",
           "id": "repo-validators",
           "invocation": "python3 scripts/check-json.py",
@@ -134,8 +146,9 @@
         }
       ],
       "cli_verbs": [],
+      "default_path_rules": null,
       "domain_id": "agent-surface",
-      "mapped_count": 380,
+      "mapped_count": 390,
       "name": "Agent surface",
       "owner_id": "domain:agent-surface",
       "path_rules": {
@@ -149,6 +162,7 @@
           ".concord/instructions/**",
           "internal/store/agent*.go",
           "internal/store/worker*.go",
+          "internal/store/project_handoffs.go",
           "internal/store/generated_agent_lanes.go",
           "internal/store/generated_typed_error_kinds.go",
           "internal/store/native_runs.go",
@@ -159,6 +173,10 @@
           "internal/store/query_corpus*_test.go",
           "internal/store/query_recorded_intent_test.go",
           "internal/store/nil_store_queries_test.go",
+          "internal/store/first_call_contract_admission_test.go",
+          "internal/store/lane_step_dispatch_test.go",
+          "internal/store/record_verdict_publication_parity_test.go",
+          "internal/store/outside_repair_schema_parity_test.go",
           "internal/store/nil_store_agent*_test.go",
           "internal/store/pm8_pm9_absence_test.go",
           "contracts/agent-*",
@@ -174,7 +192,7 @@
         ]
       },
       "purpose": "Owns the typed agent plane: the read and mutation tool surface, its budget and evolution constraints, call context, lanes and worker dispatch, the adapter transport contract, and the agent result envelope.",
-      "test_count": 241,
+      "test_count": 249,
       "test_packages": [
         "github.com/sharper-flow/concord/internal/agent",
         "github.com/sharper-flow/concord/internal/store"
@@ -195,6 +213,7 @@
         "adapter/opencode/evals/assertions/lane-report.test.ts",
         "adapter/opencode/evals/coordinator/test_capture_evaluation.py",
         "adapter/opencode/evals/coordinator/test_evaluation.py",
+        "adapter/opencode/evals/coordinator/test_production_parity.py",
         "adapter/opencode/evals/coordinator/test_run_cleanup.py",
         "adapter/opencode/evals/coordinator/test_run_provenance.py",
         "adapter/opencode/fixture_owner.test.ts",
@@ -214,6 +233,7 @@
         "adapter/opencode/payload_consistency.test.ts",
         "adapter/opencode/project_handoff.test.ts",
         "adapter/opencode/project_handoff_end_to_end.test.ts",
+        "adapter/opencode/publication-snapshot.test.ts",
         "adapter/opencode/published_schema_conformance.test.ts",
         "adapter/opencode/session-scope.test.ts",
         "adapter/opencode/session-vacate-move.test.ts",
@@ -307,6 +327,7 @@
         "internal/agent/observation_law_revision_boundary_test.go",
         "internal/agent/observation_read_dispatch_test.go",
         "internal/agent/operator_verdict_test.go",
+        "internal/agent/outside_repair_test.go",
         "internal/agent/overlap_guard_scope_test.go",
         "internal/agent/overlap_recovery_test.go",
         "internal/agent/pagination_input_test.go",
@@ -347,6 +368,7 @@
         "internal/agent/version_pin_regression_test.go",
         "internal/agent/work_messages_dispatch_test.go",
         "internal/agent/work_pin_evidence_bound_test.go",
+        "internal/agent/work_pin_mutation_envelope_test.go",
         "internal/agent/work_removal_linear_test.go",
         "internal/agent/work_summary_bounds_test.go",
         "internal/agent/worker_evidence_test.go",
@@ -387,15 +409,19 @@
         "internal/store/agent_authority_test.go",
         "internal/store/agent_mutation_boundary_test.go",
         "internal/store/agent_reads_test.go",
+        "internal/store/first_call_contract_admission_test.go",
+        "internal/store/lane_step_dispatch_test.go",
         "internal/store/native_run_status_vocabulary_test.go",
         "internal/store/native_run_verification_test.go",
         "internal/store/nil_store_agent_authority_test.go",
         "internal/store/nil_store_agent_mutation_test.go",
         "internal/store/nil_store_queries_test.go",
+        "internal/store/outside_repair_schema_parity_test.go",
         "internal/store/pm8_pm9_absence_test.go",
         "internal/store/query_corpus_cross_test.go",
         "internal/store/query_corpus_test.go",
         "internal/store/query_recorded_intent_test.go",
+        "internal/store/record_verdict_publication_parity_test.go",
         "internal/store/typed_error_kinds_test.go",
         "internal/store/worker_authority_boundary_test.go",
         "internal/store/worker_authorized_failure_recovery_test.go",
@@ -422,7 +448,7 @@
         "internal/store/worker_spawn_directory_test.go",
         "internal/store/worker_worktree_test.go"
       ],
-      "unresolved_candidate_count": 38,
+      "unresolved_candidate_count": 36,
       "unresolved_candidates": [
         "contracts/branch-freshness.digest",
         "contracts/branch-freshness.fixtures.json",
@@ -440,9 +466,7 @@
         "internal/store/generated_branch_freshness.go",
         "internal/store/generated_lane_step_dispatch.go",
         "internal/store/landing.go",
-        "internal/store/lane_step_dispatch_test.go",
         "internal/store/nil_store_work_item_test.go",
-        "internal/store/project_handoffs.go",
         "internal/store/project_handoffs_test.go",
         "internal/store/query.go",
         "internal/store/query_pages.go",
@@ -512,6 +536,16 @@
         },
         {
           "automation_path": ".github/workflows/ci.yml",
+          "config_path": "lefthook.yml",
+          "cost_hint": "Cheaper than the smoke tier; gates whose globs match no pushed file are skipped.",
+          "id": "lefthook-preflight",
+          "invocation": "bin/oc-test preflight",
+          "notes": "Advisory preflight, not a full verify and not an exhaustive test mapping; CI stays the verification owner. Parity is enforced by scripts/check-pre-push.py and the pinned upstream release is v2.1.14.",
+          "purpose": "Advisory, file-selected Lefthook pre-push preflight gates.",
+          "tier": "standard"
+        },
+        {
+          "automation_path": ".github/workflows/ci.yml",
           "cost_hint": "Expected to complete in seconds.",
           "id": "repo-validators",
           "invocation": "python3 scripts/check-json.py",
@@ -521,6 +555,15 @@
         }
       ],
       "cli_verbs": [],
+      "default_path_rules": {
+        "domain_id": "durable-authority",
+        "exclude": [
+          "internal/store/**/*_test.go"
+        ],
+        "include": [
+          "internal/store/**"
+        ]
+      },
       "domain_id": "durable-authority",
       "mapped_count": 65,
       "name": "Durable authority",
@@ -674,6 +717,16 @@
           "invocation": "go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...",
           "notes": "The version pin is load-bearing; CI rejects an unpinned run.",
           "purpose": "Go vulnerability scan against the pinned govulncheck version.",
+          "tier": "standard"
+        },
+        {
+          "automation_path": ".github/workflows/ci.yml",
+          "config_path": "lefthook.yml",
+          "cost_hint": "Cheaper than the smoke tier; gates whose globs match no pushed file are skipped.",
+          "id": "lefthook-preflight",
+          "invocation": "bin/oc-test preflight",
+          "notes": "Advisory preflight, not a full verify and not an exhaustive test mapping; CI stays the verification owner. Parity is enforced by scripts/check-pre-push.py and the pinned upstream release is v2.1.14.",
+          "purpose": "Advisory, file-selected Lefthook pre-push preflight gates.",
           "tier": "standard"
         },
         {
@@ -880,6 +933,10 @@
           "two_word": ""
         },
         {
+          "canonical": "outside-repair",
+          "two_word": ""
+        },
+        {
           "canonical": "project-resolve",
           "two_word": "project resolve"
         },
@@ -908,8 +965,9 @@
           "two_word": ""
         }
       ],
+      "default_path_rules": null,
       "domain_id": "operator-surface",
-      "mapped_count": 159,
+      "mapped_count": 162,
       "name": "Operator surface",
       "owner_id": "domain:operator-surface",
       "path_rules": {
@@ -941,7 +999,7 @@
         ]
       },
       "purpose": "Owns the human-facing plane: the terminal launcher, the CLI verb surface and its operator diagnostics, installation and release packaging, and the navigation path an operator uses to reach Product state.",
-      "test_count": 86,
+      "test_count": 87,
       "test_packages": [
         "github.com/sharper-flow/concord/cmd/concord",
         "github.com/sharper-flow/concord/internal/launcher",
@@ -979,6 +1037,7 @@
         "cmd/concord/linear_link_refresh_test.go",
         "cmd/concord/main_test.go",
         "cmd/concord/maintenance_lock_interop_cli_test.go",
+        "cmd/concord/outside_repair_launch_test.go",
         "cmd/concord/project_canonical_path_test.go",
         "cmd/concord/project_resolve_test.go",
         "cmd/concord/receipt_test.go",
@@ -1123,6 +1182,16 @@
         },
         {
           "automation_path": ".github/workflows/ci.yml",
+          "config_path": "lefthook.yml",
+          "cost_hint": "Cheaper than the smoke tier; gates whose globs match no pushed file are skipped.",
+          "id": "lefthook-preflight",
+          "invocation": "bin/oc-test preflight",
+          "notes": "Advisory preflight, not a full verify and not an exhaustive test mapping; CI stays the verification owner. Parity is enforced by scripts/check-pre-push.py and the pinned upstream release is v2.1.14.",
+          "purpose": "Advisory, file-selected Lefthook pre-push preflight gates.",
+          "tier": "standard"
+        },
+        {
+          "automation_path": ".github/workflows/ci.yml",
           "cost_hint": "Expected to complete in seconds.",
           "id": "repo-validators",
           "invocation": "python3 scripts/check-json.py",
@@ -1132,8 +1201,9 @@
         }
       ],
       "cli_verbs": [],
+      "default_path_rules": null,
       "domain_id": "product-memory",
-      "mapped_count": 865,
+      "mapped_count": 868,
       "name": "Product memory and law",
       "owner_id": "domain:product-memory",
       "path_rules": {
@@ -1282,6 +1352,16 @@
         },
         {
           "automation_path": ".github/workflows/ci.yml",
+          "config_path": "lefthook.yml",
+          "cost_hint": "Cheaper than the smoke tier; gates whose globs match no pushed file are skipped.",
+          "id": "lefthook-preflight",
+          "invocation": "bin/oc-test preflight",
+          "notes": "Advisory preflight, not a full verify and not an exhaustive test mapping; CI stays the verification owner. Parity is enforced by scripts/check-pre-push.py and the pinned upstream release is v2.1.14.",
+          "purpose": "Advisory, file-selected Lefthook pre-push preflight gates.",
+          "tier": "standard"
+        },
+        {
+          "automation_path": ".github/workflows/ci.yml",
           "cost_hint": "Expected to complete in seconds.",
           "id": "repo-validators",
           "invocation": "python3 scripts/check-json.py",
@@ -1291,6 +1371,7 @@
         }
       ],
       "cli_verbs": [],
+      "default_path_rules": null,
       "domain_id": "product-root:concord",
       "mapped_count": 5,
       "name": "Concord",
@@ -1361,6 +1442,16 @@
         },
         {
           "automation_path": ".github/workflows/ci.yml",
+          "config_path": "lefthook.yml",
+          "cost_hint": "Cheaper than the smoke tier; gates whose globs match no pushed file are skipped.",
+          "id": "lefthook-preflight",
+          "invocation": "bin/oc-test preflight",
+          "notes": "Advisory preflight, not a full verify and not an exhaustive test mapping; CI stays the verification owner. Parity is enforced by scripts/check-pre-push.py and the pinned upstream release is v2.1.14.",
+          "purpose": "Advisory, file-selected Lefthook pre-push preflight gates.",
+          "tier": "standard"
+        },
+        {
+          "automation_path": ".github/workflows/ci.yml",
           "cost_hint": "Expected to complete in seconds.",
           "id": "repo-validators",
           "invocation": "python3 scripts/check-json.py",
@@ -1370,8 +1461,17 @@
         }
       ],
       "cli_verbs": [],
+      "default_path_rules": {
+        "domain_id": "repository-verification",
+        "exclude": [],
+        "include": [
+          "internal/store/**/*_test.go",
+          "contracts/**",
+          ".concord/scenarios/**"
+        ]
+      },
       "domain_id": "repository-verification",
-      "mapped_count": 177,
+      "mapped_count": 183,
       "name": "Repository verification",
       "owner_id": "domain:repository-verification",
       "path_rules": {
@@ -1381,6 +1481,7 @@
           ".github/workflows/release.yml"
         ],
         "include": [
+          "lefthook.yml",
           "scripts/**",
           "bin/**",
           "internal/testenv/**",
@@ -1412,7 +1513,7 @@
         ]
       },
       "purpose": "Owns the authority a repository check may hold: what a validator may assert, what it may block, how required checks bind to declared coverage, and the boundary between a check's finding and accepted Product law.",
-      "test_count": 78,
+      "test_count": 80,
       "test_packages": [
         "github.com/sharper-flow/concord/internal/gittest",
         "github.com/sharper-flow/concord/internal/pm1fixture",
@@ -1484,6 +1585,7 @@
         "scripts/test-migration-compatibility.py",
         "scripts/test-native-run-statuses.py",
         "scripts/test-oc-test.py",
+        "scripts/test-pre-push.py",
         "scripts/test-predecessor-coverage.py",
         "scripts/test-predecessor-harvest.py",
         "scripts/test-predecessor-independence.py",
@@ -1494,6 +1596,7 @@
         "scripts/test-release.py",
         "scripts/test-renumber-cd.py",
         "scripts/test-rigor-class.py",
+        "scripts/test-run-script-tests.py",
         "scripts/test-script-tests.py",
         "scripts/test-shard-format.py",
         "scripts/test-test-file-naming.py",
@@ -1560,6 +1663,16 @@
         },
         {
           "automation_path": ".github/workflows/ci.yml",
+          "config_path": "lefthook.yml",
+          "cost_hint": "Cheaper than the smoke tier; gates whose globs match no pushed file are skipped.",
+          "id": "lefthook-preflight",
+          "invocation": "bin/oc-test preflight",
+          "notes": "Advisory preflight, not a full verify and not an exhaustive test mapping; CI stays the verification owner. Parity is enforced by scripts/check-pre-push.py and the pinned upstream release is v2.1.14.",
+          "purpose": "Advisory, file-selected Lefthook pre-push preflight gates.",
+          "tier": "standard"
+        },
+        {
+          "automation_path": ".github/workflows/ci.yml",
           "cost_hint": "Expected to complete in seconds.",
           "id": "repo-validators",
           "invocation": "python3 scripts/check-json.py",
@@ -1569,6 +1682,7 @@
         }
       ],
       "cli_verbs": [],
+      "default_path_rules": null,
       "domain_id": "work-coordination",
       "mapped_count": 46,
       "name": "Work coordination",
@@ -1636,7 +1750,7 @@
         "internal/store/work_removal_test.go",
         "internal/store/work_removal_worker_attempt_test.go"
       ],
-      "unresolved_candidate_count": 79,
+      "unresolved_candidate_count": 78,
       "unresolved_candidates": [
         "contracts/branch-freshness.digest",
         "contracts/branch-freshness.fixtures.json",
@@ -1685,7 +1799,6 @@
         "internal/store/predecessor_conflict_read_test.go",
         "internal/store/predecessor_import.go",
         "internal/store/predecessor_import_test.go",
-        "internal/store/project_handoffs.go",
         "internal/store/project_handoffs_test.go",
         "internal/store/query.go",
         "internal/store/query_pages.go",
@@ -1767,6 +1880,16 @@
         },
         {
           "automation_path": ".github/workflows/ci.yml",
+          "config_path": "lefthook.yml",
+          "cost_hint": "Cheaper than the smoke tier; gates whose globs match no pushed file are skipped.",
+          "id": "lefthook-preflight",
+          "invocation": "bin/oc-test preflight",
+          "notes": "Advisory preflight, not a full verify and not an exhaustive test mapping; CI stays the verification owner. Parity is enforced by scripts/check-pre-push.py and the pinned upstream release is v2.1.14.",
+          "purpose": "Advisory, file-selected Lefthook pre-push preflight gates.",
+          "tier": "standard"
+        },
+        {
+          "automation_path": ".github/workflows/ci.yml",
           "cost_hint": "Expected to complete in seconds.",
           "id": "repo-validators",
           "invocation": "python3 scripts/check-json.py",
@@ -1776,8 +1899,9 @@
         }
       ],
       "cli_verbs": [],
+      "default_path_rules": null,
       "domain_id": "workflow-engine",
-      "mapped_count": 187,
+      "mapped_count": 197,
       "name": "Workflow engine",
       "owner_id": "domain:workflow-engine",
       "path_rules": {
@@ -1794,6 +1918,10 @@
           "internal/workflowcorpus/**",
           "internal/payloadschema/**",
           "internal/store/workflow*.go",
+          "internal/store/outside_repair.go",
+          "internal/store/outside_repair_test.go",
+          "internal/store/outside_repair_base_test.go",
+          "internal/store/outside_repair_review_test.go",
           "internal/store/fence*.go",
           "internal/store/workpin*.go",
           "internal/store/await_health*.go",
@@ -1813,7 +1941,7 @@
         ]
       },
       "purpose": "Owns work lifecycle: workflow types and their contracts, workflow actions and transitions, completion predicates and verdicts, evidence binding, architecture overlap resolution, and terminal-state law.",
-      "test_count": 133,
+      "test_count": 142,
       "test_packages": [
         "github.com/sharper-flow/concord/internal/payloadschema",
         "github.com/sharper-flow/concord/internal/store"
@@ -1822,9 +1950,11 @@
         "internal/payloadschema/absent_variant_test.go",
         "internal/payloadschema/composed_variant_description_test.go",
         "internal/payloadschema/historical_validation_test.go",
+        "internal/payloadschema/outside_repair_workpin_test.go",
         "internal/payloadschema/refusal_names_the_field_test.go",
         "internal/payloadschema/scrub_env_test.go",
         "internal/payloadschema/validation_test.go",
+        "internal/payloadschema/workflow_action_corpus_test.go",
         "internal/store/await_health_test.go",
         "internal/store/checkpoint_failed_review_correction_test.go",
         "internal/store/checkpoint_failed_review_test.go",
@@ -1839,6 +1969,9 @@
         "internal/store/inflight_evolution_test.go",
         "internal/store/laneless_research_test.go",
         "internal/store/operator_verdict_test.go",
+        "internal/store/outside_repair_base_test.go",
+        "internal/store/outside_repair_review_test.go",
+        "internal/store/outside_repair_test.go",
         "internal/store/verdict_evidence_binding_test.go",
         "internal/store/work_context_packet_test.go",
         "internal/store/work_context_test.go",
@@ -1876,6 +2009,7 @@
         "internal/store/workflow_correction_test.go",
         "internal/store/workflow_d7_boundary_refusal_test.go",
         "internal/store/workflow_d7_compaction_merge_boundary_test.go",
+        "internal/store/workflow_definition_digest_matrix_test.go",
         "internal/store/workflow_definition_version_pins_test.go",
         "internal/store/workflow_delivery_admission_test.go",
         "internal/store/workflow_delivery_correction_test.go",
@@ -1885,6 +2019,7 @@
         "internal/store/workflow_design_refine_recovery_test.go",
         "internal/store/workflow_design_test.go",
         "internal/store/workflow_domain_overlap_test.go",
+        "internal/store/workflow_draft_composition_test.go",
         "internal/store/workflow_evaluation_test.go",
         "internal/store/workflow_event_shape_test.go",
         "internal/store/workflow_evidence_reachability_test.go",
@@ -1914,6 +2049,7 @@
         "internal/store/workflow_payload_consistency_test.go",
         "internal/store/workflow_payload_contract_test.go",
         "internal/store/workflow_payload_coverage_test.go",
+        "internal/store/workflow_payload_cross_field_rules_test.go",
         "internal/store/workflow_phase_b_test.go",
         "internal/store/workflow_predicate_refusal_test.go",
         "internal/store/workflow_predispatch_correction_test.go",
@@ -1949,19 +2085,18 @@
         "internal/store/workpin_codriver_test.go",
         "internal/store/workpin_driving_plan_test.go",
         "internal/store/workpin_evidence_recovery_test.go",
+        "internal/store/workpin_obligations_test.go",
         "internal/store/workpin_terminal_intents_test.go",
         "internal/store/workpin_test.go",
         "internal/store/worktrees_test.go"
       ],
-      "unresolved_candidate_count": 12,
+      "unresolved_candidate_count": 10,
       "unresolved_candidates": [
         "internal/store/domain_reads.go",
         "internal/store/domain_reads_metadata_test.go",
         "internal/store/domain_reads_test.go",
         "internal/store/generated_lane_step_dispatch.go",
-        "internal/store/lane_step_dispatch_test.go",
         "internal/store/nil_store_work_item_test.go",
-        "internal/store/project_handoffs.go",
         "internal/store/project_handoffs_test.go",
         "internal/store/query.go",
         "internal/store/query_test.go",
@@ -2188,6 +2323,7 @@
     ".concord/docs/decisions/CD-0207-a-durable-commit-replaces-the-checkpoint-barrier.md": "product-memory",
     ".concord/docs/decisions/CD-0208-exact-worker-evidence-acknowledgment.md": "product-memory",
     ".concord/docs/decisions/CD-0209-declared-recovery-routes-preserve-artifact-truth.md": "product-memory",
+    ".concord/docs/decisions/CD-0210-outside-repair-route-narrows-CD-0183-D-4.md": "product-memory",
     ".concord/docs/decisions/CD-0211-defect-intake-classifies-recurrence-before-fix.md": "product-memory",
     ".concord/docs/decisions/license-evidence/github.com/aymanbagabas/go-udiff/v0.4.1/LICENSE-BSD": "product-memory",
     ".concord/docs/decisions/license-evidence/github.com/aymanbagabas/go-udiff/v0.4.1/LICENSE-MIT": "product-memory",
@@ -2401,6 +2537,7 @@
     ".concord/docs/knowledge/coverage/CD-0207.json": "product-memory",
     ".concord/docs/knowledge/coverage/CD-0208.json": "product-memory",
     ".concord/docs/knowledge/coverage/CD-0209.json": "product-memory",
+    ".concord/docs/knowledge/coverage/CD-0210.json": "product-memory",
     ".concord/docs/knowledge/coverage/CD-0211.json": "product-memory",
     ".concord/docs/knowledge/coverage/PM1.json": "product-memory",
     ".concord/docs/knowledge/coverage/PM10.json": "product-memory",
@@ -2656,6 +2793,7 @@
     ".concord/docs/knowledge/records/CD-0207.json": "product-memory",
     ".concord/docs/knowledge/records/CD-0208.json": "product-memory",
     ".concord/docs/knowledge/records/CD-0209.json": "product-memory",
+    ".concord/docs/knowledge/records/CD-0210.json": "product-memory",
     ".concord/docs/knowledge/records/CD-0211.json": "product-memory",
     ".concord/docs/knowledge/records/PM1.json": "product-memory",
     ".concord/docs/knowledge/records/PM10.json": "product-memory",
@@ -2850,6 +2988,7 @@
     "adapter/opencode/evals/coordinator/scenarios.py": "agent-surface",
     "adapter/opencode/evals/coordinator/test_capture_evaluation.py": "agent-surface",
     "adapter/opencode/evals/coordinator/test_evaluation.py": "agent-surface",
+    "adapter/opencode/evals/coordinator/test_production_parity.py": "agent-surface",
     "adapter/opencode/evals/coordinator/test_run_cleanup.py": "agent-surface",
     "adapter/opencode/evals/coordinator/test_run_provenance.py": "agent-surface",
     "adapter/opencode/evals/packets/design-bounded-task.json": "agent-surface",
@@ -2908,6 +3047,7 @@
     "adapter/opencode/project_handoff.test.ts": "agent-surface",
     "adapter/opencode/project_handoff_end_to_end.case.ts": "agent-surface",
     "adapter/opencode/project_handoff_end_to_end.test.ts": "agent-surface",
+    "adapter/opencode/publication-snapshot.test.ts": "agent-surface",
     "adapter/opencode/published_schema_conformance.test.ts": "agent-surface",
     "adapter/opencode/session-scope.test.ts": "agent-surface",
     "adapter/opencode/session-vacate-move.test.ts": "agent-surface",
@@ -2992,6 +3132,8 @@
     "cmd/concord/main.go": "operator-surface",
     "cmd/concord/main_test.go": "operator-surface",
     "cmd/concord/maintenance_lock_interop_cli_test.go": "operator-surface",
+    "cmd/concord/outside_repair_launch.go": "operator-surface",
+    "cmd/concord/outside_repair_launch_test.go": "operator-surface",
     "cmd/concord/predecessor_import.go": "operator-surface",
     "cmd/concord/project_canonical_path_test.go": "operator-surface",
     "cmd/concord/project_resolve.go": "operator-surface",
@@ -3011,6 +3153,7 @@
     "cmd/concord/session_prepare_multi_project_test.go": "operator-surface",
     "cmd/concord/session_test.go": "operator-surface",
     "cmd/concord/session_vacate_landing.go": "operator-surface",
+    "cmd/concord/testdata/outside-repair-host.go": "operator-surface",
     "cmd/concord/testdata/top-level-help.golden": "operator-surface",
     "cmd/concord/upgrade_fence_ownership_cli_test.go": "operator-surface",
     "cmd/concord/upgrade_plan_cli_test.go": "operator-surface",
@@ -3165,6 +3308,8 @@
     "internal/agent/observation_law_revision_boundary_test.go": "agent-surface",
     "internal/agent/observation_read_dispatch_test.go": "agent-surface",
     "internal/agent/operator_verdict_test.go": "agent-surface",
+    "internal/agent/outside_repair.go": "agent-surface",
+    "internal/agent/outside_repair_test.go": "agent-surface",
     "internal/agent/overlap_guard_scope_test.go": "agent-surface",
     "internal/agent/overlap_recovery_test.go": "agent-surface",
     "internal/agent/pagination_input_test.go": "agent-surface",
@@ -3208,6 +3353,7 @@
     "internal/agent/version_pin_regression_test.go": "agent-surface",
     "internal/agent/work_messages_dispatch_test.go": "agent-surface",
     "internal/agent/work_pin_evidence_bound_test.go": "agent-surface",
+    "internal/agent/work_pin_mutation_envelope_test.go": "agent-surface",
     "internal/agent/work_removal_linear_test.go": "agent-surface",
     "internal/agent/work_summary_bounds_test.go": "agent-surface",
     "internal/agent/worker_evidence.go": "agent-surface",
@@ -3285,10 +3431,12 @@
     "internal/payloadschema/composed_variant_description_test.go": "workflow-engine",
     "internal/payloadschema/generated_schemas.go": "workflow-engine",
     "internal/payloadschema/historical_validation_test.go": "workflow-engine",
+    "internal/payloadschema/outside_repair_workpin_test.go": "workflow-engine",
     "internal/payloadschema/refusal_names_the_field_test.go": "workflow-engine",
     "internal/payloadschema/scrub_env_test.go": "workflow-engine",
     "internal/payloadschema/validation.go": "workflow-engine",
     "internal/payloadschema/validation_test.go": "workflow-engine",
+    "internal/payloadschema/workflow_action_corpus_test.go": "workflow-engine",
     "internal/pm1fixture/domain_evidence.go": "repository-verification",
     "internal/pm1fixture/domain_payload_evidence.go": "repository-verification",
     "internal/pm1fixture/knowledge_shards.go": "repository-verification",
@@ -3372,6 +3520,7 @@
     "internal/store/federated_law_boundary_test.go": "product-memory",
     "internal/store/fence.go": "workflow-engine",
     "internal/store/fence_test.go": "workflow-engine",
+    "internal/store/first_call_contract_admission_test.go": "agent-surface",
     "internal/store/fold.go": "durable-authority",
     "internal/store/fold_guard_repair_test.go": "durable-authority",
     "internal/store/fold_guard_seeded_recovery_test.go": "durable-authority",
@@ -3424,6 +3573,7 @@
     "internal/store/knowledge_shards_test.go": "product-memory",
     "internal/store/knowledge_taxonomy_test.go": "product-memory",
     "internal/store/knowledge_vocabulary_test.go": "product-memory",
+    "internal/store/lane_step_dispatch_test.go": "agent-surface",
     "internal/store/laneless_research_test.go": "workflow-engine",
     "internal/store/launcher_domains_test.go": "operator-surface",
     "internal/store/launcher_forward_test.go": "operator-surface",
@@ -3458,6 +3608,11 @@
     "internal/store/operational_rebuild.go": "durable-authority",
     "internal/store/operator.go": "operator-surface",
     "internal/store/operator_verdict_test.go": "workflow-engine",
+    "internal/store/outside_repair.go": "workflow-engine",
+    "internal/store/outside_repair_base_test.go": "workflow-engine",
+    "internal/store/outside_repair_review_test.go": "workflow-engine",
+    "internal/store/outside_repair_schema_parity_test.go": "agent-surface",
+    "internal/store/outside_repair_test.go": "workflow-engine",
     "internal/store/pm8_pm9_absence_test.go": "agent-surface",
     "internal/store/product_knowledge_home.go": "product-memory",
     "internal/store/product_knowledge_home_test.go": "product-memory",
@@ -3467,6 +3622,7 @@
     "internal/store/product_row_test.go": "operator-surface",
     "internal/store/product_stage.go": "operator-surface",
     "internal/store/product_stage_test.go": "operator-surface",
+    "internal/store/project_handoffs.go": "agent-surface",
     "internal/store/project_locator.go": "operator-surface",
     "internal/store/project_locator_test.go": "operator-surface",
     "internal/store/project_stage_test.go": "operator-surface",
@@ -3485,6 +3641,7 @@
     "internal/store/rebuild_clear_list_test.go": "durable-authority",
     "internal/store/rebuild_msg_test.go": "durable-authority",
     "internal/store/reconstruction.go": "durable-authority",
+    "internal/store/record_verdict_publication_parity_test.go": "agent-surface",
     "internal/store/recovery.go": "durable-authority",
     "internal/store/relation_vocabulary_test.go": "work-coordination",
     "internal/store/research_mutations.go": "product-memory",
@@ -3621,6 +3778,7 @@
     "internal/store/workflow_correction_test.go": "workflow-engine",
     "internal/store/workflow_d7_boundary_refusal_test.go": "workflow-engine",
     "internal/store/workflow_d7_compaction_merge_boundary_test.go": "workflow-engine",
+    "internal/store/workflow_definition_digest_matrix_test.go": "workflow-engine",
     "internal/store/workflow_definition_version_pins_test.go": "workflow-engine",
     "internal/store/workflow_delivery_admission_test.go": "workflow-engine",
     "internal/store/workflow_delivery_correction.go": "workflow-engine",
@@ -3634,6 +3792,7 @@
     "internal/store/workflow_dispatch.go": "workflow-engine",
     "internal/store/workflow_domain_overlap.go": "workflow-engine",
     "internal/store/workflow_domain_overlap_test.go": "workflow-engine",
+    "internal/store/workflow_draft_composition_test.go": "workflow-engine",
     "internal/store/workflow_evaluation.go": "workflow-engine",
     "internal/store/workflow_evaluation_test.go": "workflow-engine",
     "internal/store/workflow_event_constructors.go": "workflow-engine",
@@ -3669,6 +3828,7 @@
     "internal/store/workflow_payload_consistency_test.go": "workflow-engine",
     "internal/store/workflow_payload_contract_test.go": "workflow-engine",
     "internal/store/workflow_payload_coverage_test.go": "workflow-engine",
+    "internal/store/workflow_payload_cross_field_rules_test.go": "workflow-engine",
     "internal/store/workflow_phase_b_test.go": "workflow-engine",
     "internal/store/workflow_predicate_refusal_test.go": "workflow-engine",
     "internal/store/workflow_predispatch_correction_test.go": "workflow-engine",
@@ -3719,6 +3879,7 @@
     "internal/store/workpin_codriver_test.go": "workflow-engine",
     "internal/store/workpin_driving_plan_test.go": "workflow-engine",
     "internal/store/workpin_evidence_recovery_test.go": "workflow-engine",
+    "internal/store/workpin_obligations_test.go": "workflow-engine",
     "internal/store/workpin_terminal_intents_test.go": "workflow-engine",
     "internal/store/workpin_test.go": "workflow-engine",
     "internal/store/worktrees.go": "workflow-engine",
@@ -3731,6 +3892,7 @@
     "internal/testenv/testenv_test.go": "repository-verification",
     "internal/version/version.go": "operator-surface",
     "internal/workflowcorpus/coverage.go": "workflow-engine",
+    "lefthook.yml": "repository-verification",
     "scripts/README.md": "repository-verification",
     "scripts/agent-reliability-telemetry.py": "repository-verification",
     "scripts/check-agent-contracts.py": "repository-verification",
@@ -3757,6 +3919,7 @@
     "scripts/check-migration-compatibility.py": "repository-verification",
     "scripts/check-native-run-statuses.py": "repository-verification",
     "scripts/check-pr-linear-link.py": "repository-verification",
+    "scripts/check-pre-push.py": "repository-verification",
     "scripts/check-predecessor-coverage.py": "repository-verification",
     "scripts/check-predecessor-independence.py": "repository-verification",
     "scripts/check-primary-prompts.py": "repository-verification",
@@ -3789,6 +3952,7 @@
     "scripts/generate-native-run-statuses.py": "repository-verification",
     "scripts/generate-relation-vocabulary.py": "repository-verification",
     "scripts/generate-work-kinds.py": "repository-verification",
+    "scripts/git_environment.py": "repository-verification",
     "scripts/go-test-assertions/main.go": "repository-verification",
     "scripts/install.py": "repository-verification",
     "scripts/knowledge_index.py": "repository-verification",
@@ -3797,6 +3961,7 @@
     "scripts/probe-adapter-host-result.py": "repository-verification",
     "scripts/release.py": "repository-verification",
     "scripts/renumber-cd.py": "repository-verification",
+    "scripts/run-script-tests.py": "repository-verification",
     "scripts/shard_format.py": "repository-verification",
     "scripts/test-agent-contracts.py": "repository-verification",
     "scripts/test-agent-reliability-telemetry.py": "repository-verification",
@@ -3832,6 +3997,7 @@
     "scripts/test-migration-compatibility.py": "repository-verification",
     "scripts/test-native-run-statuses.py": "repository-verification",
     "scripts/test-oc-test.py": "repository-verification",
+    "scripts/test-pre-push.py": "repository-verification",
     "scripts/test-predecessor-coverage.py": "repository-verification",
     "scripts/test-predecessor-harvest.py": "repository-verification",
     "scripts/test-predecessor-independence.py": "repository-verification",
@@ -3842,6 +4008,7 @@
     "scripts/test-release.py": "repository-verification",
     "scripts/test-renumber-cd.py": "repository-verification",
     "scripts/test-rigor-class.py": "repository-verification",
+    "scripts/test-run-script-tests.py": "repository-verification",
     "scripts/test-script-tests.py": "repository-verification",
     "scripts/test-shard-format.py": "repository-verification",
     "scripts/test-test-file-naming.py": "repository-verification",
@@ -3856,20 +4023,9 @@
     "skills/README.md": "agent-surface",
     "workflows/README.md": "workflow-engine"
   },
-  "mapped_count": 1884,
-  "path_set_fingerprint": "sha256:19985675ec79dded9b41ce2fc61ba2b1bcc20eadd877fd9f390565be385cd2da",
+  "mapped_count": 1916,
   "schema_version": "1.0",
   "scope": "coarse file navigation, not law homes or semantic mechanism ownership",
-  "source_fingerprints": {
-    ".concord/docs/knowledge/domain-registry.json": "sha256:02d9eb99b0f57aca2bfc2905d1f3994a7c926e9b2252cecbe324852cbe47d7de",
-    ".concord/domain-navigation.v1.json": "sha256:9323ffcfb084a119e963bd876e23eb6be301e6eea59907451fc4d0010e3c9bba",
-    ".concord/tooling.v1.json": "sha256:b6f0c6d9b77a53235ecdae1cc2344edf13382a6e51d7f8e02fe7efed55dc1850",
-    "cmd/concord/main.go": "sha256:a679ae090350f256f13a6a20541b05eba5da95c068bb840bbdd19d6e4c93d22e",
-    "contracts/agent-tool-surface.v1.json": "sha256:3aae8e1823f0286d16ad6aafe64655b6b4eb349da36396d9e5571d3b4e81528c",
-    "go.mod": "sha256:7c76ec3b5b4906d067a2d4245e3cc1b3e45b8668497298a210a6c33b87be72f3",
-    "scripts/domain-navigation-cli/main.go": "sha256:d440f0ed930a34741a5c1e230e3f554fa9a17717d76c2dcb4ea607007239d75a",
-    "scripts/domain_navigation.py": "sha256:2c7d9cdb8b2b0b26c1ed2fe32104d9cc16492c9bdcc93fc959b8afac2f20d89c"
-  },
   "test_coverage": {
     "internal/store/conformance_test.go": [
       "domain:durable-authority",
@@ -4074,14 +4230,6 @@
       ],
       "path": "internal/store/landing.go",
       "reason": "Landing binds work, session, directory, and process identity together."
-    },
-    {
-      "candidate_domain_ids": [
-        "agent-surface",
-        "workflow-engine"
-      ],
-      "path": "internal/store/lane_step_dispatch_test.go",
-      "reason": "Tests the generated lane-capability/workflow-step join."
     },
     {
       "candidate_domain_ids": [
@@ -4315,15 +4463,6 @@
       ],
       "path": "internal/store/predecessor_import_test.go",
       "reason": "Tests predecessor event/membership reads through the import boundary."
-    },
-    {
-      "candidate_domain_ids": [
-        "work-coordination",
-        "agent-surface",
-        "workflow-engine"
-      ],
-      "path": "internal/store/project_handoffs.go",
-      "reason": "Handoff binds session/project artifacts and workflow-contract preflight."
     },
     {
       "candidate_domain_ids": [
@@ -4585,5 +4724,5 @@
       "reason": "Tests reclamation preservation coupled to unpublished knowledge."
     }
   ],
-  "unresolved_count": 87
+  "unresolved_count": 85
 }

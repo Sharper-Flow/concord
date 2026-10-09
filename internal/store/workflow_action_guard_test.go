@@ -19,7 +19,10 @@ import (
 // directly: guardOperatorPremiseActor and guardRecordedActorTuple. The folded
 // admission owns the spec-mandate boundary. dispatch_worker carries no guard
 // either: workflowAdmit owns its design-currency boundary, and the packet
-// and identity checks the fold keeps are not action guards.
+// and identity checks the fold keeps are not action guards. record_alignment
+// carries no guard: its cross-field payload rule is declared on the registry
+// payload and enforced by validateWorkflowActionPayload like every other
+// payload-shape rule (CON-412).
 var guardedActions = map[string]workflowActionGuardPhase{
 	"supersede_contract":     guardPhaseRecovery,
 	"reject_worker_result":   guardPhaseRecovery,
@@ -29,7 +32,6 @@ var guardedActions = map[string]workflowActionGuardPhase{
 	"accept_worker_result":   guardPhaseClaim,
 	"accept_worker_evidence": guardPhaseClaim,
 	"link_successor":         guardPhasePostValidation,
-	"record_alignment":       guardPhasePostValidation,
 	"cross_context_boundary": guardPhaseClaim,
 	"record_delivery":        guardPhaseClaim,
 }

@@ -16,11 +16,11 @@ import (
 // compare requested predicates; oracle pins require a proven smaller finding
 // set. Approval never substitutes for either basis or permits its reuse.
 func TestEscalatedVerificationCorrectionWallGatesOnFindingsConvergence(t *testing.T) {
-	runVerificationCorrectionWall(t, 25)
+	runVerificationCorrectionWall(t, 26)
 }
 
 func TestWorkerRetryVerificationOracleRequiresFindingClosure(t *testing.T) {
-	runVerificationCorrectionWall(t, 26)
+	runVerificationCorrectionWall(t, 27)
 }
 
 func runVerificationCorrectionWall(t *testing.T, definitionVersion int64) {
@@ -31,7 +31,7 @@ func runVerificationCorrectionWall(t *testing.T, definitionVersion int64) {
 		admit          bool
 	}{
 		{"unchanged request predicates keep the wall closed", []string{"predicate:primary", "predicate:secondary"}, false},
-		{"shrinking request predicates require a comparable basis", []string{"predicate:primary"}, definitionVersion == 25},
+		{"shrinking request predicates require a comparable basis", []string{"predicate:primary"}, definitionVersion == 26},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s, service, grant, privateKey := mutationDispatchFixture(t, []Capability{"work_transition", "worker_dispatch"})

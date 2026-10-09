@@ -151,6 +151,15 @@ type ContinuitySnapshot struct {
 	// view past its bounds leaves this absent and the dedicated context
 	// read owns the explicit refusal.
 	WorkContext *WorkContextView `json:"work_context,omitempty"`
+	// OutsideRepairDisposition names the work's outside-repair disposition
+	// when one is recorded. The store keeps the typed evidence the boundary
+	// authenticated and refuses every managed workflow move while the
+	// disposition is active.
+	OutsideRepairDisposition *OutsideRepairDisposition `json:"outside_repair_disposition,omitempty"`
+	// OutsideRepairRoute is the declared recovery route the boundary code
+	// dispatches when the disposition holds the work. The store owns the
+	// typed route and never fabricates a workflow action list as a remedy.
+	OutsideRepairRoute []string `json:"outside_repair_route,omitempty"`
 }
 
 type ContinuityRequest struct {
@@ -203,11 +212,13 @@ func ReadWorkflowContinuity(ctx context.Context, s *Store, req ContinuityRequest
 	out.StepActions = []string{}
 	out.UnresolvedOverlaps = []WorkflowDomainOverlap{}
 	out.CompatibleLawAmendments = []CompatibleLawAmendment{}
-	instance, err := readContinuityInstanceTx(ctx, tx, req.Work, &out)
+	exists, err := workExistsCore(ctx, tx, req.Work)
 	if err != nil {
 		return out, err
 	}
-	currentStep, definition, workVersion, instancePresent := instance.step, instance.definition, instance.workVersion, instance.present
+	if !exists {
+		return out, newFailure(KindProjectionNotFound, "C19.Continuity", "work item is not recorded", false, "reread_entities")
+	}
 	rows, err := tx.QueryContext(ctx, `SELECT DISTINCT pp.product_id FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=? ORDER BY pp.product_id LIMIT 65`, req.Work)
 	if err != nil {
 		return out, wrapFailure(KindUnavailable, "C19.Continuity", "cannot read Product identity", true, "retry once the database is readable", err)
@@ -230,6 +241,35 @@ func ReadWorkflowContinuity(ctx context.Context, s *Store, req ContinuityRequest
 	if len(out.ProductIdentity) > 64 {
 		return out, newFailure(KindLimitExceeded, "C19.Continuity", "Product identity exceeds the continuity snapshot bound", false, "reduce_limit")
 	}
+	// Outside repair is readable without trusting the workflow it must repair.
+	// Establish work and Product identity first, then stop before definition,
+	// contract, admission, or managed history enrichment.
+	if err := continuityReadOutsideRepairTx(ctx, tx, req.Work, &out); err != nil {
+		return out, err
+	}
+	if disposition := out.OutsideRepairDisposition; disposition != nil && disposition.State != OutsideRepairStateResumed {
+		pin, err := ReadWorkPinTx(ctx, tx, req.Work)
+		if err != nil {
+			return out, err
+		}
+		out.WorkPin = &pin
+		out.Watermark = pin.Watermark
+		out.WorkflowInstance = WorkflowInstanceAbsent
+		err = tx.QueryRowContext(ctx, `SELECT current_step FROM workflow_instances WHERE work_id=?`, req.Work).Scan(&out.WorkflowStep)
+		if err == nil {
+			out.WorkflowInstance = WorkflowInstancePresent
+		} else if err != sql.ErrNoRows {
+			return out, workflowProjectionError(err, "cannot read outside-repair workflow identity")
+		}
+		out.NativeRuns = []NativeRunReport{}
+		out.Observations = []WorkObservation{}
+		return out, nil
+	}
+	instance, err := readContinuityInstanceTx(ctx, tx, req.Work, &out)
+	if err != nil {
+		return out, err
+	}
+	currentStep, definition, workVersion, instancePresent := instance.step, instance.definition, instance.workVersion, instance.present
 	activeContractVersion, contractErr := activeWorkflowContractVersion(ctx, tx, req.Work, "C19.Continuity")
 	if contractErr != nil && contractErr != sql.ErrNoRows {
 		return out, contractErr
@@ -284,6 +324,30 @@ func ReadWorkflowContinuity(ctx context.Context, s *Store, req ContinuityRequest
 	}
 	out.WorkContext = view
 	return out, nil
+}
+
+// continuityReadOutsideRepairTx exposes the work's outside-repair disposition
+// and the declared recovery route the boundary code dispatches. The route is
+// present while a disposition is active, regardless of whether the work item
+// also carries a workflow instance, so a host process can drive the reconcile
+// without rereading the workflow projection.
+func continuityReadOutsideRepairTx(ctx context.Context, tx *sql.Tx, work string, out *ContinuitySnapshot) error {
+	disposition, err := outsideRepairDispositionTx(ctx, tx, work)
+	if err != nil {
+		return err
+	}
+	out.OutsideRepairDisposition = disposition
+	if disposition != nil && disposition.State == OutsideRepairStateActive {
+		out.OutsideRepairRoute = outsideRepairRouteNames()
+	}
+	if disposition != nil && disposition.State != OutsideRepairStateResumed {
+		out.StepActions = []string{}
+		out.PendingOperatorDecision = nil
+		out.WithheldOperatorDecision = nil
+		out.RestartAvailable = false
+		out.RestartUnavailableReason = "outside-repair disposition owns the work"
+	}
+	return nil
 }
 
 // continuityReadContractTx reads the one active contract and every enrichment

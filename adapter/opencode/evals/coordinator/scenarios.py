@@ -351,10 +351,12 @@ worktree of another item, synthetic-origin-work. The operator asks to resume
                       "resume_failure",
                       "concord work-resume: store: work_bootstrap: invalid_operation: cannot chain "
                       "from dirty worktree of synthetic-origin-work",
-                      "retry_same_request", True)},
-        # Production maps every work-resume exit to retry_same_request, so one
-        # identical replay follows the declared recovery and is not a fallback.
-        "admits_one_replay": True,
+                      "contact_operator", False)},
+        # Production classifies the dirty-origin refusal as a genuine
+        # non-retry refusal — work-resume exits 2 and the adapter serves
+        # contact_operator with retry_safe false at both resume call sites —
+        # so no identical replay is served or admitted, and the recovery
+        # stays with the operator who owns the origin worktree state.
         "expected": report("needs_operator", work_id=WORK, boundary="work_bootstrap",
                            cause="resume_failure", effect="none", owner="operator",
                            action="choose_scope", target=ORIGIN_WORKTREE,

@@ -160,6 +160,18 @@ func uniqueDomainBindingIDs(values []string) bool {
 	return true
 }
 
+// workflowLawAdditionMandateTeaching states the rule
+// architectureBindingRevisionMandate and validateLawModificationSubset
+// enforce; the teaching projection beside this guard publishes the same
+// text, so the published guidance cannot drift from admission.
+const workflowLawAdditionMandateTeaching = "Every law addition must be authorized by spec_mandate of the contract being approved and must stay disjoint from law modifications and revisions; the store refuses an addition outside the mandate."
+
+// workflowArchitectureDomainTeaching states the Domain-membership rule the
+// binding guards above enforce: added and modified law must name a home
+// Domain that exists in the pinned domain registry, and Domain relation
+// modifications must use current canonical relations.
+const workflowArchitectureDomainTeaching = "Architecture bindings must name Domains that exist in the pinned domain registry, home every added or modified law in a declared Domain, and modify Domain relations only through current canonical tuples; the store refuses an unknown Domain or relation."
+
 func architectureBindingRevisionMandate(specMandate []string, additions []WorkflowLawAddition) ([]string, error) {
 	if err := validateLawModificationSubset(specMandate, []string{}); err != nil {
 		return nil, err
@@ -227,6 +239,69 @@ func workflowDefinitionObligations(definition WorkflowDefinition) map[string]str
 		}
 	}
 	return result
+}
+
+// workflowObligationMembershipTeaching states the membership rule
+// workflowDefinitionObligations (the collector behind
+// workflowDefinitionObligationIDs) enforces at admission; the teaching
+// projection publishes the same text from this guard site.
+const workflowObligationMembershipTeaching = "Evidence obligations are admitted only when the work item's pinned workflow definition declares them at root, step, or rigor level; the WorkPin obligations list publishes that exact sorted membership."
+
+// WorkflowContractTeaching carries the typed descriptions of the relational
+// and live-context constraints the store enforces. Every rule is a
+// constant defined beside the owner that enforces it (the predicate ordinal
+// guard in workflow.go, the alignment combination declaration in
+// workflow_registry.go, and the mandate, Domain, and obligation collectors in
+// this file), so the generated publication and the refusal guidance cannot
+// drift from admission. The projection in scripts/workflow-action-contracts
+// renders these strings into the published schema; no second policy enforces
+// them.
+type WorkflowContractTeaching struct {
+	// PredicateOrdinalRule states the zero-based position equality the
+	// approve/supersede fold enforces on every outcome predicate.
+	PredicateOrdinalRule string `json:"predicate_ordinal_rule"`
+	// LawAdditionMandateRule states the mandate subset and disjointness the
+	// law boundary and architecture-binding guards enforce.
+	LawAdditionMandateRule string `json:"law_addition_mandate_rule"`
+	// ObligationMembershipRule states where the exact admitted obligation
+	// membership is published: the pinned definition the WorkPin projects.
+	ObligationMembershipRule string `json:"obligation_membership_rule"`
+	// ArchitectureDomainRule states the Domain-membership and canonical
+	// relation rules the architecture-binding guards enforce.
+	ArchitectureDomainRule string `json:"architecture_domain_rule"`
+	// AlignmentCombinationRule states the cross-field rule the
+	// record_alignment registry declaration enforces at payload validation.
+	AlignmentCombinationRule string `json:"alignment_combination_rule"`
+	// OutcomeKindEqualityRule states the nested equality the
+	// approve/supersede fold enforces on every outcome predicate and the
+	// engine kind-match declaration enforces at payload validation.
+	OutcomeKindEqualityRule string `json:"outcome_kind_equality_rule"`
+}
+
+// WorkflowContractTeachingRules returns the guard-owned teaching texts,
+// consuming each guard-site constant directly.
+func WorkflowContractTeachingRules() WorkflowContractTeaching {
+	return WorkflowContractTeaching{
+		PredicateOrdinalRule:     workflowPredicateOrdinalTeaching,
+		LawAdditionMandateRule:   workflowLawAdditionMandateTeaching,
+		ObligationMembershipRule: workflowObligationMembershipTeaching,
+		ArchitectureDomainRule:   workflowArchitectureDomainTeaching,
+		AlignmentCombinationRule: workflowAlignmentCombinationTeaching,
+		OutcomeKindEqualityRule:  workflowOutcomeKindEqualityTeaching,
+	}
+}
+
+// workflowDefinitionObligationIDs projects the admission collector's
+// obligation set into the sorted exact ID list a WorkPin publishes. It reads
+// no second source: the set and the list derive from one collector.
+func workflowDefinitionObligationIDs(definition WorkflowDefinition) []string {
+	membership := workflowDefinitionObligations(definition)
+	ids := make([]string, 0, len(membership))
+	for id := range membership {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	return ids
 }
 
 func architectureBindingProjectionHash(binding WorkflowArchitectureBinding) string {

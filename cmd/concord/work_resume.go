@@ -294,6 +294,15 @@ func truncateRunes(value string, limit int) (string, bool) {
 	return string(runes[:limit]), true
 }
 
+// workResumeRefusalExit is the typed exit status work-resume reports for a
+// deterministic refusal: invalid input, a Project the invocation does not
+// resolve to, an origin or default-branch check that fails the same way until
+// state changes, or a typed store failure the store marks unsafe to repeat.
+// Callers classify by this status alone, never by stderr text; the work-resume
+// commandSpecs entry declares it. Store failures classify through the shared
+// storeFailureExit classifier work-bootstrap owns.
+const workResumeRefusalExit = 2
+
 // runWorkResume resolves the worktree a session enters when it resumes an
 // existing work item by work identity (issue #891). It reads an active entry
 // first and keeps that path read-only. If no entry exists, it applies the
@@ -303,11 +312,11 @@ func runWorkResume(raw []byte, s *store.Store, out, errOut io.Writer) int {
 	var input workResumeInput
 	if err := decodeObject(raw, &input); err != nil {
 		writeOperatorDiagnostic(errOut, "work-resume", err.Error())
-		return 1
+		return workResumeRefusalExit
 	}
 	if !sessionPrepareID.MatchString(input.ProductID) || !sessionPrepareID.MatchString(input.ProjectID) || !sessionPrepareID.MatchString(input.WorkID) {
 		writeOperatorDiagnostic(errOut, "work-resume", "product_id, project_id, and work_id are required")
-		return 1
+		return workResumeRefusalExit
 	}
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -316,27 +325,31 @@ func runWorkResume(raw []byte, s *store.Store, out, errOut io.Writer) int {
 	}
 	ctx := context.Background()
 	resolution, err := s.ResolveProject(ctx, cwd, cwd)
-	if err != nil || resolution.ProjectID != input.ProjectID {
+	if err != nil {
+		writeOperatorDiagnostic(errOut, "work-resume", err.Error())
+		return storeFailureExit(err)
+	}
+	if resolution.ProjectID != input.ProjectID {
 		writeOperatorDiagnostic(errOut, "work-resume", "invocation must resolve to the requested Project")
-		return 1
+		return workResumeRefusalExit
 	}
 	entry, err := s.ResumeWorktreeLocation(ctx, input.ProductID, input.ProjectID, input.WorkID)
 	if err != nil {
 		var failure *store.Failure
 		if !errors.As(err, &failure) || failure.Kind != store.KindProjectionNotFound {
 			writeOperatorDiagnostic(errOut, "work-resume", err.Error())
-			return 1
+			return storeFailureExit(err)
 		}
 		var ref string
 		if !resolution.MainWorktree {
 			if _, err := s.ValidateBootstrapOrigin(ctx, input.ProjectID, resolution.Repository.WorktreePath, store.ExecGitRunner{}); err != nil {
 				writeOperatorDiagnostic(errOut, "work-resume", err.Error())
-				return 1
+				return storeFailureExit(err)
 			}
 			ref, err = store.DefaultBranchRef(ctx, resolution.Repository.CanonicalPath)
 			if err != nil {
 				writeOperatorDiagnostic(errOut, "work-resume", err.Error())
-				return 1
+				return storeFailureExit(err)
 			}
 		}
 		result, bootstrapErr := s.BootstrapExistingWorktree(ctx, store.ExistingBootstrapRequest{
@@ -344,7 +357,7 @@ func runWorkResume(raw []byte, s *store.Store, out, errOut io.Writer) int {
 		}, nil)
 		if bootstrapErr != nil {
 			writeOperatorDiagnostic(errOut, "work-resume", bootstrapErr.Error())
-			return 1
+			return storeFailureExit(bootstrapErr)
 		}
 		entry = result.Entry
 	}
@@ -355,7 +368,7 @@ func runWorkResume(raw []byte, s *store.Store, out, errOut io.Writer) int {
 	if !resolution.MainWorktree && !samePath(cwd, entry.Path) {
 		if _, err := s.ValidateBootstrapOrigin(ctx, input.ProjectID, resolution.Repository.WorktreePath, store.ExecGitRunner{}); err != nil {
 			writeOperatorDiagnostic(errOut, "work-resume", err.Error())
-			return 1
+			return storeFailureExit(err)
 		}
 	}
 	output := workResumeOutput{
@@ -383,7 +396,7 @@ func runWorkResume(raw []byte, s *store.Store, out, errOut io.Writer) int {
 	handoff, err := store.ReadPendingProjectHandoffForProject(ctx, s, input.WorkID, input.ProjectID, input.SessionRef)
 	if err != nil {
 		writeOperatorDiagnostic(errOut, "work-resume", err.Error())
-		return 1
+		return storeFailureExit(err)
 	}
 	if handoff != nil {
 		output.ProjectHandoff = &projectHandoffSection{

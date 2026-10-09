@@ -93,7 +93,7 @@ type workflowRecoveryRouteTuple struct {
 // run alongside the worker-job pins; complete-step supersessions have their
 // own executable table below.
 func workflowRecoveryRouteTuples() []workflowRecoveryRouteTuple {
-	return []workflowRecoveryRouteTuple{
+	tuples := []workflowRecoveryRouteTuple{
 		{
 			Ref: "workflow.implementation", Version: 23,
 			Step: "acceptance", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execution",
@@ -256,9 +256,7 @@ func workflowRecoveryRouteTuples() []workflowRecoveryRouteTuple {
 			RecordWorkerJob:  true,
 			WorkflowID:       "implementation-v24-release",
 		},
-		// The CON-887 work-context versions republish the same recovery
-		// tables the worker-job versions pinned, so the public journey
-		// enumerates them at their own versions.
+		// Premise-floor promotions carry their own public-tool journeys.
 		{
 			Ref: "workflow.implementation", Version: 25,
 			Step: "acceptance", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execution",
@@ -317,40 +315,40 @@ func workflowRecoveryRouteTuples() []workflowRecoveryRouteTuple {
 		// tables the work-context versions pinned; their journeys record the
 		// oracle-bearing worker jobs the definitions require.
 		{
-			Ref: "workflow.implementation", Version: 26,
+			Ref: "workflow.implementation", Version: 27,
 			Step: "acceptance", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execution",
 			ProducerStep: "execution", DeliveryStep: "execution", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "start_execution",
 			VerdictStep: "acceptance", BindStep: "execution", BindKind: store.EvidenceArtifact,
 			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
 			RecordWorkerJob:  true,
-			WorkflowID:       "implementation-v26-acceptance",
+			WorkflowID:       "implementation-v27-acceptance",
 		},
 		{
-			Ref: "workflow.implementation", Version: 26,
+			Ref: "workflow.implementation", Version: 27,
 			Step: "release", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execution",
 			ProducerStep: "execution", DeliveryStep: "execution", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "start_execution",
 			VerdictStep: "release", BindStep: "execution", BindKind: store.EvidenceArtifact,
 			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
 			RecordWorkerJob:  true,
-			WorkflowID:       "implementation-v26-release",
+			WorkflowID:       "implementation-v27-release",
 		},
 		{
-			Ref: "workflow.break_fix", Version: 23,
+			Ref: "workflow.break_fix", Version: 24,
 			Step: "verify", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "repair",
 			ProducerStep: "repair", DeliveryStep: "repair", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "start_repair",
 			VerdictStep: "verify", BindStep: "repair", BindKind: store.EvidenceVerification,
 			RequiredEvidence: []store.EvidenceKind{store.EvidenceVerification},
 			RecordWorkerJob:  true,
-			WorkflowID:       "break_fix-v23-verify",
+			WorkflowID:       "break_fix-v24-verify",
 		},
 		{
-			Ref: "workflow.break_fix", Version: 23,
+			Ref: "workflow.break_fix", Version: 24,
 			Step: "complete", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "repair",
 			ProducerStep: "repair", DeliveryStep: "repair", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "start_repair",
 			VerdictStep: "complete", BindStep: "repair", BindKind: store.EvidenceVerification,
 			RequiredEvidence: []store.EvidenceKind{store.EvidenceVerification},
 			RecordWorkerJob:  true,
-			WorkflowID:       "break_fix-v23-complete",
+			WorkflowID:       "break_fix-v24-complete",
 		},
 		{
 			Ref: "workflow.research", Version: 15,
@@ -449,6 +447,22 @@ func workflowRecoveryRouteTuples() []workflowRecoveryRouteTuple {
 			WorkflowID:       "generic_one_off-v15-complete",
 		},
 	}
+	// Context promotions preserve the premise-floor routes and execute the
+	// same journeys under their own pins. Keep the released journeys too.
+	contextPredecessors := map[string]int64{
+		"workflow.implementation": 25, "workflow.break_fix": 22,
+		"workflow.research": 15, "workflow.architecture_spike": 16,
+		"workflow.ops_runbook": 17, "workflow.static_analysis": 14,
+		"workflow.generic_one_off": 15,
+	}
+	for _, tuple := range slices.Clone(tuples) {
+		if predecessor, ok := contextPredecessors[tuple.Ref]; ok && tuple.Version == predecessor {
+			tuple.Version++
+			tuple.WorkflowID = fmt.Sprintf("%s-v%d-%s", strings.TrimPrefix(tuple.Ref, "workflow."), tuple.Version, tuple.Step)
+			tuples = append(tuples, tuple)
+		}
+	}
+	return tuples
 }
 
 // TestWorkflowRecoveryRoutesDeclareEveryEvaluatorStep is the static
@@ -459,8 +473,8 @@ func workflowRecoveryRouteTuples() []workflowRecoveryRouteTuple {
 // (ref, version) fails the test before the journey runs.
 func TestWorkflowRecoveryRoutesDeclareEveryEvaluatorStep(t *testing.T) {
 	tuples := workflowRecoveryRouteTuples()
-	if len(tuples) != 42 {
-		t.Fatalf("recovery-route journey table carries %d tuples, want 42 (16 authored unhealthy routes + 2 frozen v13 routes + 4 CD-0205 worker-job authors + 16 CON-887 work-context versions + 4 CON-890 oracle-capable authors)", len(tuples))
+	if len(tuples) != 58 {
+		t.Fatalf("recovery-route journey table carries %d tuples, want 58 (16 authored unhealthy routes + 2 frozen v13 routes + 4 CD-0205 worker-job authors + 16 premise-floor versions + 16 CON-887 context versions + 4 CON-890 oracle versions)", len(tuples))
 	}
 	seen := map[string]bool{}
 	for _, tuple := range tuples {
@@ -1375,10 +1389,11 @@ type workflowRecoveryRouteSupersedeTuple struct {
 // workflowRecoveryRouteSupersedeTuples is the one declared supersede
 // route table the public journey enumerates: the 2 complete-step
 // supersede routes every new builtin version declares (CD-0172 D3,
-// CD-0186), plus the 2 v24/v21 worker-job authors that publish the
-// same route through the same engine recovery table. The v24/v21
-// tuples' public-tool journeys follow the same local-accept +
-// record_delivery integration the unhealthy v24/v21 routes do.
+// CD-0186), plus the 2 v24/v21 worker-job authors and the 2 v25/v22
+// premise-floor promotions that publish the same route through the
+// same engine recovery table. The worker-job tuples' public-tool
+// journeys follow the same local-accept + record_delivery integration
+// the unhealthy worker-job routes do.
 func workflowRecoveryRouteSupersedeTuples() []workflowRecoveryRouteSupersedeTuple {
 	return []workflowRecoveryRouteSupersedeTuple{
 		{
@@ -1401,9 +1416,6 @@ func workflowRecoveryRouteSupersedeTuples() []workflowRecoveryRouteSupersedeTupl
 			RecordWorkerJob: true,
 			WorkflowID:      "break_fix-v21-complete-supersede",
 		},
-		// The CON-887 work-context versions republish the same complete-step
-		// supersede routes; their journeys follow the same local-accept +
-		// record_delivery integration the v24/v21 authors do.
 		{
 			Ref: "workflow.implementation", Version: 25,
 			Step: "release", Target: "execution",
@@ -1418,7 +1430,19 @@ func workflowRecoveryRouteSupersedeTuples() []workflowRecoveryRouteSupersedeTupl
 		},
 		// The CON-890 oracle-capable versions republish the same complete-step
 		// supersede routes; their journeys follow the same local-accept +
-		// record_delivery integration the v25/v22 authors do.
+		// record_delivery integration the context authors do.
+		{
+			Ref: "workflow.implementation", Version: 27,
+			Step: "release", Target: "execution",
+			RecordWorkerJob: true,
+			WorkflowID:      "implementation-v27-release-supersede",
+		},
+		{
+			Ref: "workflow.break_fix", Version: 24,
+			Step: "complete", Target: "repair",
+			RecordWorkerJob: true,
+			WorkflowID:      "break_fix-v24-complete-supersede",
+		},
 		{
 			Ref: "workflow.implementation", Version: 26,
 			Step: "release", Target: "execution",

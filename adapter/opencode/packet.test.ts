@@ -95,7 +95,7 @@ function assertNoMandateSplice(packet: { inputs: { constraints?: string[] } }): 
   expect(packet.inputs.constraints).toBeUndefined()
 }
 
-const continuityEnvelope = (contract: unknown = pinnedContract(), designRecord: unknown = null, workPin: unknown = null, lawContext: unknown = null, proposalRecord: unknown = null) => coreEnvelope("concord_work_trace", "continuity", "C19.Continuity", "ok", {
+const continuityEnvelope = (contract: unknown = pinnedContract(), designRecord: unknown = null, workPin: unknown = null, lawContext: unknown = null, proposalRecord: unknown = null, latestCheckpoint: unknown = null) => coreEnvelope("concord_work_trace", "continuity", "C19.Continuity", "ok", {
   result: {
     work_id: WORK_ID,
     pinned: {
@@ -105,7 +105,7 @@ const continuityEnvelope = (contract: unknown = pinnedContract(), designRecord: 
       contract,
       spec_mandate: [],
       pending_operator_decision: null,
-      latest_checkpoint: null,
+      latest_checkpoint: latestCheckpoint,
       design_record: designRecord,
        ...(workPin === null ? {} : { work_pin: workPin }),
       ...(lawContext === null ? {} : { law_context: lawContext }),
@@ -377,6 +377,58 @@ test("a malformed or over-bound work context refuses the packet", async () => {
     expect(built.failure).toBeDefined()
     expect(built.failure!.kind).toBe("packet_refused")
     expect(validateAgentLanePacket({ ...built.packet, inputs: { ...built.packet?.inputs, work_context } } as any)).toBe(false)
+  }
+})
+
+// CON-883: the pinned projection's latest context checkpoint rides the
+// packet verbatim. The core refuses a dispatch whose inputs.checkpoint
+// differs from the latest checkpoint byte-for-byte, so any re-derivation
+// here would strand the dispatch.
+const CHECKPOINT = {
+  checkpoint_id: "checkpoint-context-work-6:context-checkpoint",
+  work_version: 6,
+  sequence: 2,
+  step_id: "repair",
+  attempt_epoch: 1,
+  active_unit: "the bounded unit",
+  hypothesis: "the bounded hypothesis",
+  diagnosis: "the bounded diagnosis",
+  strategy: "follow the recorded strategy",
+  touched_refs: ["internal/store/work_context.go"],
+  evidence_refs: ["evidence:checkpoint"],
+  pending_questions: [],
+  pending_decisions: [],
+}
+
+test("a latest checkpoint projects verbatim into the packet", async () => {
+  const built = await build({
+    ...defaultScript(),
+    "concord_work_trace.continuity": continuityEnvelope(pinnedContract(), null, null, null, null, CHECKPOINT),
+  })
+  expect(built.failure).toBeUndefined()
+  const packet = built.packet!
+  expect(packet.inputs.checkpoint).toEqual(CHECKPOINT)
+  expect(validateAgentLanePacket(packet)).toBe(true)
+})
+
+test("a pinned projection without a checkpoint adds no packet member", async () => {
+  const built = await build(defaultScript())
+  expect(built.failure).toBeUndefined()
+  expect("checkpoint" in built.packet!.inputs).toBe(false)
+  expect(validateAgentLanePacket(built.packet!)).toBe(true)
+})
+
+test("a malformed checkpoint refuses the packet", async () => {
+  const malformed = { ...CHECKPOINT, strategy: "x" }
+  const unknownMember = { ...CHECKPOINT, extra: true }
+  for (const checkpoint of [malformed, unknownMember]) {
+    const built = await build({
+      ...defaultScript(),
+      "concord_work_trace.continuity": continuityEnvelope(pinnedContract(), null, null, null, null, checkpoint),
+    })
+    expect(built.failure).toBeDefined()
+    expect(built.failure!.kind).toBe("packet_refused")
+    expect(validateAgentLanePacket({ ...built.packet, inputs: { ...built.packet?.inputs, checkpoint } } as any)).toBe(false)
   }
 })
 

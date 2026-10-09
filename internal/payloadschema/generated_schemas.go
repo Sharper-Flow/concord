@@ -13211,6 +13211,10 @@ const GeneratedPayloadSchemaDocument = `{
             "binding": {
               "$ref": "#/$defs/worker_packet_binding"
             },
+            "checkpoint": {
+              "$ref": "#/$defs/continuity_checkpoint",
+              "description": "CON-883: the latest context checkpoint the pinned continuity projection carried when the packet was built. The core refuses a dispatch whose packet does not carry the latest checkpoint byte-for-byte."
+            },
             "constraints": {
               "items": {
                 "maxLength": 512,

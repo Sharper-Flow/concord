@@ -588,6 +588,22 @@ with a `domain_id` from the packet's Domains. The view carries at most
 """
 
 
+def checkpoint_instructions() -> str:
+    # CON-883: when the packet carries the latest context checkpoint, its
+    # strategy and diagnosis are coordinator directions the worker follows
+    # for the attempt, and a departure is recorded on the report rather
+    # than silently taken.
+    return """## Coordinator checkpoint
+
+When `inputs.checkpoint` is present, its `strategy` and `diagnosis` are
+coordinator directions to follow for this attempt. Its `hypothesis` states
+what the coordinator believed the work faces, and its `touched_refs` and
+`evidence_refs` bound where the coordinator already worked. Record the
+departure as report `context_findings`, never by silently ignoring the
+checkpoint.
+"""
+
+
 def objective_binding_instructions(packet_schema: dict, premise_max_bytes: int) -> str:
     # The packet task is the objective verbatim and inputs.binding is the typed
     # authority for it, so the guidance teaches both and keeps the three count
@@ -719,6 +735,7 @@ record workflow transitions, verdicts, completion, or spawn nested workers.
 {packet_refusal_instructions()}
 {law_conformance_instructions(lane)}
 {work_context_instructions(packet_schema)}
+{checkpoint_instructions()}
 {objective_binding_instructions(packet_schema, premise_max_bytes)}
 {concord_context_boundary_instructions()}
 {execute_source_lookup_instructions()}

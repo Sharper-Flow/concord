@@ -1562,6 +1562,13 @@ func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoc
 			if err := validateWorkerPacketWorkContext(in.ctx, in.tx, in.request.WorkID, packetRaw); err != nil {
 				return events, "", err
 			}
+			// CON-883: the packet must carry the latest context
+			// checkpoint the same way it consumes the current correction,
+			// so coordinator directions recorded before the spawn reach
+			// the worker the core dispatched.
+			if err := validateWorkerPacketCheckpoint(in.ctx, in.tx, in.request.WorkID, packetRaw); err != nil {
+				return events, "", err
+			}
 			// CD-0205: the completion records the selected worker-job
 			// revision the packet binds, so worker.dispatched, the report,
 			// and the acceptance can each be held to that exact revision.

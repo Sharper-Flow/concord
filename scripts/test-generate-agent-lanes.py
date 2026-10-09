@@ -190,6 +190,20 @@ class AgentProjectionTests(unittest.TestCase):
         self.assertIn("at most 5 readings and 6 findings", normalized)
         self.assertNotIn("at most 32 readings", normalized)
 
+    def test_projection_teaches_the_checkpoint_as_coordinator_directions(self):
+        # CON-883: when the packet carries inputs.checkpoint its strategy
+        # and diagnosis are coordinator directions the worker follows for
+        # the attempt, and a departure is recorded on the report rather
+        # than silently taken.
+        projection = lane_projection(self.LANE, REPORT_SCHEMA)
+        normalized = " ".join(projection.split())
+        self.assertIn("When `inputs.checkpoint` is present", normalized)
+        self.assertIn("`strategy` and `diagnosis` are coordinator directions to follow", normalized)
+        self.assertIn("`hypothesis` states what the coordinator believed", normalized)
+        self.assertIn("`touched_refs` and `evidence_refs`", normalized)
+        self.assertIn("Record the departure as report `context_findings`", normalized)
+        self.assertIn("never by silently ignoring the checkpoint", normalized)
+
     def test_projection_states_the_declared_budget_as_a_command_duration_rule(self):
         # The registry declares a per-lane time budget, and the body must
         # project it: a verify attempt that widens to a full Go package suite

@@ -64,6 +64,15 @@ conclusions, rejected routes, and open questions as report `context_findings`
 with a `domain_id` from the packet's Domains. The view carries at most
 32 readings and 32 findings.
 
+## Coordinator checkpoint
+
+When `inputs.checkpoint` is present, its `strategy` and `diagnosis` are
+coordinator directions to follow for this attempt. Its `hypothesis` states
+what the coordinator believed the work faces, and its `touched_refs` and
+`evidence_refs` bound where the coordinator already worked. Record the
+departure as report `context_findings`, never by silently ignoring the
+checkpoint.
+
 ## Objective and binding
 
 `inputs.task` is the canonical objective, carried verbatim: the approved

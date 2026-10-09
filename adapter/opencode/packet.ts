@@ -1,5 +1,5 @@
 import type { ToolContext } from "@opencode-ai/plugin"
-import { validateAgentLanePacket, type AgentLanePacket, type AgentLanePacketCorrection, type AgentLanePacketOutcomePredicate, type AgentLanePacketWorkContext, type AgentLanePacketWorkerJob } from "./dispatch"
+import { validateAgentLanePacket, type AgentLanePacket, type AgentLanePacketCheckpoint, type AgentLanePacketCorrection, type AgentLanePacketOutcomePredicate, type AgentLanePacketWorkContext, type AgentLanePacketWorkerJob } from "./dispatch"
 import { agentLanePacketSchema, agentLanes, workerScopeAssignedResult, type AgentLane } from "./generated-agent-lanes"
 import { laneStepDispatchKinds } from "./generated-lane-step-dispatch"
 
@@ -438,6 +438,14 @@ export async function buildAgentLanePacket(request: AgentLanePacketRequest, deps
   // view byte-for-byte, so any re-derivation, filtering, or truncation here
   // would strand the dispatch; the closed packet schema owns the bounds.
   const workContextValue = workPin && isRecord(workPin.work_context) ? (workPin.work_context as unknown as AgentLanePacketWorkContext) : undefined
+  // CON-883: the pinned projection's latest context checkpoint rides the
+  // packet verbatim. The core refuses a dispatch whose inputs.checkpoint
+  // differs from the latest checkpoint byte-for-byte, so the builder never
+  // re-derives or filters the coordinator directions it carries. The
+  // checkpoint stays seated on the continuity snapshot alone: the pinned
+  // envelope's byte budget admits exactly one copy of a max-size
+  // checkpoint, and the work pin embeds inside that same envelope.
+  const checkpointValue = isRecord(pinned.latest_checkpoint) ? (pinned.latest_checkpoint as unknown as AgentLanePacketCheckpoint) : undefined
   // The persisted work task is the operator's recorded instruction for the
   // worker. Under a pinned contract the premise stays the approved objective
   // in inputs.task and the recorded task rides context ahead of the narrative,
@@ -482,7 +490,7 @@ export async function buildAgentLanePacket(request: AgentLanePacketRequest, deps
     lane_digest: lane.digest,
     work_id: request.workId,
     step_id: request.stepId,
-    inputs: { task, binding, ...(workerJob ? { worker_job: workerJob as unknown as AgentLanePacketWorkerJob } : {}), ...(context.length > 0 ? { context } : {}), ...(correctionValue ? { correction: correctionValue } : {}), ...(workContextValue ? { work_context: workContextValue } : {}), ...(decoded.predicates.length > 0 ? { outcome_predicates: decoded.predicates } : {}) },
+    inputs: { task, binding, ...(workerJob ? { worker_job: workerJob as unknown as AgentLanePacketWorkerJob } : {}), ...(context.length > 0 ? { context } : {}), ...(correctionValue ? { correction: correctionValue } : {}), ...(workContextValue ? { work_context: workContextValue } : {}), ...(checkpointValue ? { checkpoint: checkpointValue } : {}), ...(decoded.predicates.length > 0 ? { outcome_predicates: decoded.predicates } : {}) },
   }
 
   const packetFailures: string[] = []

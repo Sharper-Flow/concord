@@ -77,7 +77,7 @@ export interface AgentLanePacket {
   lane_digest: string
   work_id: string
   step_id: string
-  inputs: { task: string; binding: AgentLanePacketBinding; worker_job?: AgentLanePacketWorkerJob; context?: string; correction?: AgentLanePacketCorrection; work_context?: AgentLanePacketWorkContext; constraints?: string[]; outcome_predicates?: AgentLanePacketOutcomePredicate[] }
+  inputs: { task: string; binding: AgentLanePacketBinding; worker_job?: AgentLanePacketWorkerJob; context?: string; correction?: AgentLanePacketCorrection; work_context?: AgentLanePacketWorkContext; checkpoint?: AgentLanePacketCheckpoint; constraints?: string[]; outcome_predicates?: AgentLanePacketOutcomePredicate[] }
 }
 
 // AgentLanePacketWorkerJob mirrors inputs.worker_job of
@@ -185,6 +185,30 @@ export interface AgentLanePacketWorkContext {
   required_reading: AgentLanePacketWorkContextReading[]
   findings: AgentLanePacketWorkContextFindingView[]
   domain_groups: { domain_id: string; required_reading_ordinals: number[]; finding_ids: string[]; domain_cards: [] }[]
+}
+
+// AgentLanePacketCheckpoint mirrors inputs.checkpoint of
+// contracts/agent-lane-packet.schema.json: the owning continuity reader's
+// latest context checkpoint (CON-883), carried verbatim from the pinned
+// continuity projection. The closed packet schema owns the bounds; the
+// builder never re-derives or filters the checkpoint, because the core
+// refuses a dispatch whose bytes differ from the latest checkpoint.
+// strategy and diagnosis are coordinator directions the worker follows for
+// the attempt.
+export interface AgentLanePacketCheckpoint {
+  checkpoint_id: string
+  work_version: number
+  sequence: number
+  step_id: string
+  attempt_epoch: number
+  active_unit: string
+  hypothesis: string
+  diagnosis: string
+  strategy: string
+  touched_refs: string[]
+  evidence_refs: string[]
+  pending_questions: string[]
+  pending_decisions: string[]
 }
 
 // AgentLaneReport mirrors contracts/agent-lane-report.schema.json, which the

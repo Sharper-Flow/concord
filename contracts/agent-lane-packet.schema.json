@@ -156,6 +156,10 @@
           "$ref": "#/$defs/lane_work_context_view",
           "description": "CON-887: the current work-context view the work pin carried when the packet was built. The core refuses a dispatch whose packet does not consume the current view byte-for-byte, exactly as it refuses a packet that skips a durable correction."
         },
+        "checkpoint": {
+          "$ref": "#/$defs/lane_context_checkpoint",
+          "description": "CON-883: the latest context checkpoint the pinned continuity projection carried when the packet was built, with its durable identity. The core refuses a dispatch whose packet does not carry the latest checkpoint byte-for-byte; its strategy and diagnosis are coordinator directions to follow."
+        },
         "constraints": {
           "type": "array",
           "minItems": 0,
@@ -1151,6 +1155,121 @@
           "minItems": 0,
           "maxItems": 0,
           "description": "The reserved per-Domain card slot. The current foundation never generates cards."
+        }
+      }
+    },
+    "lane_context_checkpoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "The owning continuity reader's latest context checkpoint (CON-883), carried verbatim from the pinned continuity projection. Every bound mirrors internal/store ContextCheckpoint exactly; the projection carries no source event identity, so checkpoint_id, work_version, and sequence are the durable identity.",
+      "required": [
+        "checkpoint_id",
+        "work_version",
+        "sequence",
+        "step_id",
+        "attempt_epoch",
+        "active_unit",
+        "hypothesis",
+        "diagnosis",
+        "strategy",
+        "touched_refs",
+        "evidence_refs",
+        "pending_questions",
+        "pending_decisions"
+      ],
+      "properties": {
+        "checkpoint_id": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 128
+        },
+        "work_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "step_id": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 128
+        },
+        "attempt_epoch": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "active_unit": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 256
+        },
+        "hypothesis": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 4096
+        },
+        "diagnosis": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 4096
+        },
+        "strategy": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 4096,
+          "description": "Coordinator direction the worker follows for this attempt."
+        },
+        "touched_refs": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 128,
+            "pattern": "^\\S+$",
+            "description": "A workflow reference list item: whitespace-free, 2-128 chars, matching the store's ValidReference. Slashes are allowed because touched refs name repository paths."
+          }
+        },
+        "evidence_refs": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 128,
+            "pattern": "^\\S+$",
+            "description": "A workflow reference list item: whitespace-free, 2-128 chars, matching the store's ValidReference."
+          }
+        },
+        "pending_questions": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 16,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 128,
+            "pattern": "^\\S+$"
+          }
+        },
+        "pending_decisions": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 16,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 128,
+            "pattern": "^\\S+$"
+          }
         }
       }
     }

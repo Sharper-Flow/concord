@@ -1464,7 +1464,7 @@
         ]
       },
       "domain_id": "repository-verification",
-      "mapped_count": 182,
+      "mapped_count": 184,
       "name": "Repository verification",
       "owner_id": "domain:repository-verification",
       "path_rules": {
@@ -1506,7 +1506,7 @@
         ]
       },
       "purpose": "Owns the authority a repository check may hold: what a validator may assert, what it may block, how required checks bind to declared coverage, and the boundary between a check's finding and accepted Product law.",
-      "test_count": 79,
+      "test_count": 80,
       "test_packages": [
         "github.com/sharper-flow/concord/internal/gittest",
         "github.com/sharper-flow/concord/internal/pm1fixture",
@@ -1585,6 +1585,7 @@
         "scripts/test-project-tooling.py",
         "scripts/test-reachability.py",
         "scripts/test-relation-vocabulary.py",
+        "scripts/test-release-evidence.py",
         "scripts/test-release.py",
         "scripts/test-renumber-cd.py",
         "scripts/test-rigor-class.py",
@@ -3961,6 +3962,7 @@
     "scripts/linear-issue-state/main.go": "repository-verification",
     "scripts/predecessor-harvest.py": "repository-verification",
     "scripts/probe-adapter-host-result.py": "repository-verification",
+    "scripts/release-evidence.py": "repository-verification",
     "scripts/release.py": "repository-verification",
     "scripts/renumber-cd.py": "repository-verification",
     "scripts/run-script-tests.py": "repository-verification",
@@ -4007,6 +4009,7 @@
     "scripts/test-project-tooling.py": "repository-verification",
     "scripts/test-reachability.py": "repository-verification",
     "scripts/test-relation-vocabulary.py": "repository-verification",
+    "scripts/test-release-evidence.py": "repository-verification",
     "scripts/test-release.py": "repository-verification",
     "scripts/test-renumber-cd.py": "repository-verification",
     "scripts/test-rigor-class.py": "repository-verification",
@@ -4024,7 +4027,7 @@
     "skills/README.md": "agent-surface",
     "workflows/README.md": "workflow-engine"
   },
-  "mapped_count": 1914,
+  "mapped_count": 1916,
   "schema_version": "1.0",
   "scope": "coarse file navigation, not law homes or semantic mechanism ownership",
   "test_coverage": {

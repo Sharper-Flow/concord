@@ -595,7 +595,8 @@ const GeneratedEnvelopeSchemaDocument = `{
                       "timeout",
                       "cancelled",
                       "operation_conflict",
-                      "unauthorized"
+                      "unauthorized",
+                      "invalid_input"
                     ],
                     "type": "string"
                   }
@@ -2660,7 +2661,8 @@ const GeneratedEnvelopeSchemaDocument = `{
             "session_directory_unreadable",
             "worker_abandon_refused",
             "worker_abandon_receipt_failed",
-            "lane_tool_refusal"
+            "lane_tool_refusal",
+            "invalid_cli_input"
           ],
           "type": "string"
         },

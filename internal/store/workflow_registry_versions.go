@@ -611,6 +611,74 @@ func withCurrentPremiseContract(definition WorkflowDefinition) WorkflowDefinitio
 	return definition
 }
 
+// withCurrentPremiseFloor restates approve_contract's premise field at the
+// enforced workflowString floor (workflowStringMinBytes). Raising the declared
+// minimum inside actionPremiseField would rewrite every released definition
+// digest, so the floor ships as each family's next version: released versions
+// keep the declared minimum they were pinned under, and the enforcing
+// workflowString guard already refused a one-byte premise everywhere
+// (CD-0115 D1, CON-412).
+func withCurrentPremiseFloor(definition WorkflowDefinition) WorkflowDefinition {
+	definition = cloneWorkflowDefinition(definition)
+	for i := range definition.ActionDefinitions {
+		if definition.ActionDefinitions[i].ID != "approve_contract" {
+			continue
+		}
+		for j := range definition.ActionDefinitions[i].Payload.Fields {
+			field := &definition.ActionDefinitions[i].Payload.Fields[j]
+			if field.Name == "premise" {
+				field.MinLength = workflowInt(workflowStringMinBytes)
+			}
+		}
+	}
+	return definition
+}
+
+// Each builder below ships the declared premise floor at its family's next
+// version. The definition content stays the predecessor's; the only content
+// change is approve_contract's declared premise minimum.
+func implementationPremiseFloorV25() WorkflowDefinition {
+	d := withCurrentPremiseFloor(implementationWorkerJobsV24())
+	d.Version = 25
+	return d
+}
+
+func breakFixPremiseFloorV22() WorkflowDefinition {
+	d := withCurrentPremiseFloor(breakFixWorkerJobsV21())
+	d.Version = 22
+	return d
+}
+
+func researchPremiseFloorV15() WorkflowDefinition {
+	d := withCurrentPremiseFloor(researchRecoveryRoutesV14())
+	d.Version = 15
+	return d
+}
+
+func architecturePremiseFloorV16() WorkflowDefinition {
+	d := withCurrentPremiseFloor(architectureRecoveryRoutesV15())
+	d.Version = 16
+	return d
+}
+
+func opsRunbookPremiseFloorV17() WorkflowDefinition {
+	d := withCurrentPremiseFloor(opsRunbookRecoveryRoutesV16())
+	d.Version = 17
+	return d
+}
+
+func staticAnalysisPremiseFloorV14() WorkflowDefinition {
+	d := withCurrentPremiseFloor(staticAnalysisRecoveryRoutesV13())
+	d.Version = 14
+	return d
+}
+
+func genericOneOffPremiseFloorV15() WorkflowDefinition {
+	d := withCurrentPremiseFloor(genericOneOffRecoveryRoutesV14())
+	d.Version = 15
+	return d
+}
+
 func releasedResearchV5() WorkflowDefinition {
 	d := withWorkerActions(builtinResearch(true), true)
 	d.Version = 5
@@ -1289,44 +1357,44 @@ func withWorkContext(definition WorkflowDefinition) WorkflowDefinition {
 // next version. The definition content stays the predecessor's; the only
 // content change is the work-context action joining every step, so every
 // released version above keeps its digest.
-func implementationWorkContextV25() WorkflowDefinition {
-	d := implementationWorkerJobsV24()
-	d.Version = 25
+func implementationWorkContextV26() WorkflowDefinition {
+	d := implementationPremiseFloorV25()
+	d.Version = 26
 	return withWorkContext(d)
 }
 
-func breakFixWorkContextV22() WorkflowDefinition {
-	d := breakFixWorkerJobsV21()
-	d.Version = 22
+func breakFixWorkContextV23() WorkflowDefinition {
+	d := breakFixPremiseFloorV22()
+	d.Version = 23
 	return withWorkContext(d)
 }
 
-func researchWorkContextV15() WorkflowDefinition {
-	d := researchRecoveryRoutesV14()
-	d.Version = 15
-	return withWorkContext(d)
-}
-
-func architectureWorkContextV16() WorkflowDefinition {
-	d := architectureRecoveryRoutesV15()
+func researchWorkContextV16() WorkflowDefinition {
+	d := researchPremiseFloorV15()
 	d.Version = 16
 	return withWorkContext(d)
 }
 
-func opsRunbookWorkContextV17() WorkflowDefinition {
-	d := opsRunbookRecoveryRoutesV16()
+func architectureWorkContextV17() WorkflowDefinition {
+	d := architecturePremiseFloorV16()
 	d.Version = 17
 	return withWorkContext(d)
 }
 
-func staticAnalysisWorkContextV14() WorkflowDefinition {
-	d := staticAnalysisRecoveryRoutesV13()
-	d.Version = 14
+func opsRunbookWorkContextV18() WorkflowDefinition {
+	d := opsRunbookPremiseFloorV17()
+	d.Version = 18
 	return withWorkContext(d)
 }
 
-func genericOneOffWorkContextV15() WorkflowDefinition {
-	d := genericOneOffRecoveryRoutesV14()
+func staticAnalysisWorkContextV15() WorkflowDefinition {
+	d := staticAnalysisPremiseFloorV14()
 	d.Version = 15
+	return withWorkContext(d)
+}
+
+func genericOneOffWorkContextV16() WorkflowDefinition {
+	d := genericOneOffPremiseFloorV15()
+	d.Version = 16
 	return withWorkContext(d)
 }

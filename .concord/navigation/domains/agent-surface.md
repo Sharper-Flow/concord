@@ -7,7 +7,7 @@ File accountability does not change a document's law home or a handler's semanti
 ## Responsibility
 Owns the typed agent plane: the read and mutation tool surface, its budget and evolution constraints, call context, lanes and worker dispatch, the adapter transport contract, and the agent result envelope.
 
-Mapped files: 370; tests: 235; unresolved candidates: 39.
+Mapped files: 375; tests: 240; unresolved candidates: 39.
 Candidate counts overlap when a file has several candidates; no candidate is an assigned owner.
 
 ## Code and tests
@@ -15,9 +15,10 @@ Full paths, unresolved reasons, shared-test coverage, and source fingerprints: `
 - Include: `internal/agent/**`, `adapter/**`, `.opencode/**`, `examples/opencode/**`, `.concord/instructions/**`
 - Include: `internal/store/agent*.go`, `internal/store/worker*.go`, `internal/store/generated_agent_lanes.go`, `internal/store/generated_typed_error_kinds.go`, `internal/store/native_runs.go`
 - Include: `internal/store/native_run*_test.go`, `internal/store/generated_native_run_statuses.go`, `internal/store/cursor.go`, `internal/store/work_collection_cursor.go`, `internal/store/query_corpus*_test.go`
-- Include: `internal/store/query_recorded_intent_test.go`, `internal/store/nil_store_queries_test.go`, `internal/store/lane_step_dispatch_test.go`, `internal/store/nil_store_agent*_test.go`, `internal/store/pm8_pm9_absence_test.go`
-- Include: `contracts/agent-*`, `contracts/host-tool-*`, `contracts/native-run-*`, `contracts/worker-*`, `contracts/adapter-*`
-- Include: `.concord/scenarios/agent-jobs.v1.json`, `.concord/scenarios/adapter-continuity.v1.json`, `skills/**`, `bunfig.toml`, `internal/store/typed_error_kinds_test.go`
+- Include: `internal/store/query_recorded_intent_test.go`, `internal/store/nil_store_queries_test.go`, `internal/store/first_call_contract_admission_test.go`, `internal/store/lane_step_dispatch_test.go`, `internal/store/record_verdict_publication_parity_test.go`
+- Include: `internal/store/outside_repair_schema_parity_test.go`, `internal/store/nil_store_agent*_test.go`, `internal/store/pm8_pm9_absence_test.go`, `contracts/agent-*`, `contracts/host-tool-*`
+- Include: `contracts/native-run-*`, `contracts/worker-*`, `contracts/adapter-*`, `.concord/scenarios/agent-jobs.v1.json`, `.concord/scenarios/adapter-continuity.v1.json`
+- Include: `skills/**`, `bunfig.toml`, `internal/store/typed_error_kinds_test.go`
 - Go test package: `github.com/sharper-flow/concord/internal/agent`
 - Go test package: `github.com/sharper-flow/concord/internal/store`
 
@@ -49,5 +50,5 @@ Invariant/control joins, allowed-dependency interpretation, observed import/call
 non-law navigation homes, CON-887 packet reading, and CON-890 owner oracles remain later work.
 Required-reading entries will be pinned references, not inlined card content.
 
-Navigation source fingerprint: `sha256:deacc5a27c3f7b0f4b5717b62a5e29548da214ed09a0b8a3e88cd66ebd7c4d3b`.
+Navigation source fingerprint: `sha256:232e392ca8b8ffbb79d27b051f0e69c9125000e7c1fecca79cb1b1bf0b91103a`.
 Other fingerprints and the exact file universe are in the generated inventory.

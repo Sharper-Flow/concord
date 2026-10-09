@@ -589,7 +589,14 @@ func workflowBase(event Event, fields WorkflowVersionFields) error {
 	return nil
 }
 
-func workflowString(value string, upper int) bool { return len(value) >= 2 && len(value) <= upper }
+// workflowStringMinBytes is the floor every workflowString guard holds a
+// workflow string to, in UTF-8 bytes. Declared payload limits derive from
+// this constant so the advertised floor is the enforced one (CON-412).
+const workflowStringMinBytes = 2
+
+func workflowString(value string, upper int) bool {
+	return len(value) >= workflowStringMinBytes && len(value) <= upper
+}
 
 // workflowOperationEvidenceRefBound is the per-operation evidence bound: the
 // number of distinct evidence references one workflow action operation may
@@ -1407,9 +1414,9 @@ func overlap(a, b []string) bool {
 // one row per named work id. It does not reuse workflow_candidate_sets, whose
 // foreign key binds to workflow_contracts(work_id, contract_version) and
 // which therefore cannot hold a row before planning approves a contract. The
-// guard refusing an outcome that contradicts the id list runs at the action
-// boundary; the fold repeats the check because replay applies events without
-// the boundary.
+// outcome/related_ids cross-field rule is the record_alignment registry
+// declaration's; the fold evaluates the same declaration here because replay
+// applies events without the action boundary, rendering its own fold refusal.
 func foldWorkflowBacklogAlignmentRecorded(ctx context.Context, tx *sql.Tx, event Event) error {
 	var p workflowBacklogAlignmentRecordedPayload
 	if err := decodeWorkflowPayload(event, &p); err != nil {
@@ -1421,11 +1428,24 @@ func foldWorkflowBacklogAlignmentRecorded(ctx context.Context, tx *sql.Tx, event
 	if !workflowString(p.Searched, 4096) || !contains([]string{"related_found", "none_found"}, p.Outcome) {
 		return newFailure(KindInvalidPayload, "fold_event", "backlog_alignment_recorded has invalid search or outcome fields", false, "supply the search scope and a closed outcome")
 	}
+	// Presence is a non-empty id list, the event's own recorded shape: the
+	// constructor writes related_ids only when the search found work.
+	alignmentFields := map[string]json.RawMessage{"outcome": []byte(`"` + p.Outcome + `"`)}
+	if len(p.RelatedIDs) != 0 {
+		encoded, err := json.Marshal(p.RelatedIDs)
+		if err != nil {
+			return workflowProjectionError(err, "cannot encode the alignment related ids")
+		}
+		alignmentFields["related_ids"] = encoded
+	}
+	if rule, _, requires, violated := workflowPayloadCombinationViolation(workflowActionCrossField("record_alignment"), alignmentFields); violated {
+		if requires {
+			return newFailure(KindInvalidPayload, "fold_event", "backlog_alignment_recorded outcome "+rule.Value+" requires one to sixty-four unique related ids", false, "name the related work items the search found")
+		}
+		return newFailure(KindInvalidPayload, "fold_event", "backlog_alignment_recorded outcome "+rule.Value+" cannot carry related_ids", false, "drop related_ids or record outcome related_found")
+	}
 	if p.Outcome == "related_found" && !workflowList(p.RelatedIDs, 64, 1) {
 		return newFailure(KindInvalidPayload, "fold_event", "backlog_alignment_recorded outcome related_found requires one to sixty-four unique related ids", false, "name the related work items the search found")
-	}
-	if p.Outcome == "none_found" && len(p.RelatedIDs) != 0 {
-		return newFailure(KindInvalidPayload, "fold_event", "backlog_alignment_recorded outcome none_found cannot carry related_ids", false, "drop related_ids or record outcome related_found")
 	}
 	if err := advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields); err != nil {
 		return err
@@ -3676,6 +3696,20 @@ func nullableInt(v int64) any {
 	}
 	return v
 }
+
+// workflowPredicateOrdinalTeaching states the position rule
+// validateWorkflowContractPredicate enforces on every outcome predicate; the
+// teaching projection publishes the same text from this guard site.
+const workflowPredicateOrdinalTeaching = "The store refuses an outcome predicate whose ordinal is not its own zero-based position in outcome_predicates: the predicate at array position N must carry ordinal N (0, 1, 2, ...)."
+
+// workflowOutcomeKindEqualityTeaching states the nested equality the
+// contract_approved fold enforces through DecodeWorkflowPredicate — the
+// decoded payload's kind must equal the entry's outcome_kind — and the
+// engine's cross-field kind-match declaration enforces at payload
+// validation. The teaching projection publishes the same text from this
+// guard site, and the generated per-kind item branches carry it on the
+// discriminated outcome_kind (CON-412).
+const workflowOutcomeKindEqualityTeaching = "The store refuses an outcome predicate whose outcome_kind and outcome_payload.kind disagree: supply the outcome_payload variant that matches the declared outcome_kind."
 
 // validateWorkflowContractPredicate refuses one outcome predicate and names the
 // rule it broke and the value that broke it. The predicate set carries seven

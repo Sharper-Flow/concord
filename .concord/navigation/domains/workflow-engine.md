@@ -7,7 +7,7 @@ File accountability does not change a document's law home or a handler's semanti
 ## Responsibility
 Owns work lifecycle: workflow types and their contracts, workflow actions and transitions, completion predicates and verdicts, evidence binding, architecture overlap resolution, and terminal-state law.
 
-Mapped files: 185; tests: 132; unresolved candidates: 11.
+Mapped files: 189; tests: 136; unresolved candidates: 11.
 Candidate counts overlap when a file has several candidates; no candidate is an assigned owner.
 
 ## Code and tests
@@ -40,5 +40,5 @@ Invariant/control joins, allowed-dependency interpretation, observed import/call
 non-law navigation homes, CON-887 packet reading, and CON-890 owner oracles remain later work.
 Required-reading entries will be pinned references, not inlined card content.
 
-Navigation source fingerprint: `sha256:deacc5a27c3f7b0f4b5717b62a5e29548da214ed09a0b8a3e88cd66ebd7c4d3b`.
+Navigation source fingerprint: `sha256:232e392ca8b8ffbb79d27b051f0e69c9125000e7c1fecca79cb1b1bf0b91103a`.
 Other fingerprints and the exact file universe are in the generated inventory.

@@ -224,21 +224,15 @@ func workflowReviseCandidatesEvents(request WorkflowActionExecutionRequest, acto
 // workflowRecordAlignmentEvents builds the typed CD-0156 alignment event. The
 // action records the candidate set only: it creates no relation, so the
 // related ids travel as recorded search output, and relation creation stays
-// with concord_work_relate.link and resolve_overlap. Each related id names a
-// real work item, refused here at the boundary rather than at the fold's
-// foreign key, matching the declare_impact target rule (issue #823).
+// with concord_work_relate.link and resolve_overlap. The outcome enum and the
+// outcome/related_ids legal input combinations are declared on the
+// record_alignment registry payload and enforced by
+// validateWorkflowActionPayload before any event is built, so this
+// constructor does not restate them. Each related id names a real work item,
+// refused here at the boundary rather than at the fold's foreign key,
+// matching the declare_impact target rule (issue #823).
 func workflowRecordAlignmentEvents(ctx context.Context, tx *sql.Tx, request WorkflowActionExecutionRequest, actor string, fields map[string]json.RawMessage, eventID string, expected int64) ([]Event, error) {
-	outcome, ok := workflowFieldString(fields, "outcome")
-	if !ok || (outcome != "related_found" && outcome != "none_found") {
-		return nil, newFailure(KindInvalidPayload, "workflow_action", "record_alignment requires outcome related_found or none_found", false, "record the closed search outcome")
-	}
 	relatedIDs := workflowFieldStrings(fields, "related_ids")
-	if outcome == "related_found" && len(relatedIDs) == 0 {
-		return nil, newFailure(KindInvalidPayload, "workflow_action", "record_alignment outcome related_found requires related_ids", false, "name the related work items the search found")
-	}
-	if outcome == "none_found" && len(relatedIDs) != 0 {
-		return nil, newFailure(KindInvalidPayload, "workflow_action", "record_alignment outcome none_found cannot carry related_ids", false, "drop related_ids or record outcome related_found")
-	}
 	for _, relatedID := range relatedIDs {
 		var exists int
 		err := tx.QueryRowContext(ctx, `SELECT 1 FROM work_items WHERE id=?`, relatedID).Scan(&exists)
@@ -248,7 +242,7 @@ func workflowRecordAlignmentEvents(ctx context.Context, tx *sql.Tx, request Work
 			return nil, workflowProjectionError(err, "cannot read the alignment related work item")
 		}
 	}
-	values := map[string]any{"searched": workflowFieldStringDefault(fields, "searched", ""), "outcome": outcome}
+	values := map[string]any{"searched": workflowFieldStringDefault(fields, "searched", ""), "outcome": workflowFieldStringDefault(fields, "outcome", "")}
 	if len(relatedIDs) != 0 {
 		values["related_ids"] = relatedIDs
 	}
@@ -418,19 +412,20 @@ type workflowVerdictBatchEntry struct {
 
 // normalizeWorkflowVerdictEntries reduces both record_verdict wire shapes to
 // one ordered entry list, so the store runs one validation and event path.
-// Exactly one shape is allowed: the single predicate_id form or the verdicts
-// array. The entry-level fields (verdict_kind, evaluation_evidence,
-// incomparable_with_approved) may not ride at the top level beside the batch,
-// where their value would silently apply to every entry.
+// It only decodes: the exactly-one-of predicate_id/verdicts rule and the
+// entry-fields-beside-batch exclusion are the engine cross-field
+// declaration's (builtinActionPolicies["record_verdict"].CrossField),
+// enforced by validateWorkflowPayloadCrossFieldRules before any constructor
+// or guard normalizes, and published from the same declaration (CON-412).
+// A caller that bypasses payload validation gets an empty entry list for a
+// shape that carries neither form; the constructor refuses to record zero
+// verdicts.
 func normalizeWorkflowVerdictEntries(fields map[string]json.RawMessage) ([]workflowVerdictBatchEntry, error) {
 	batchRaw, batchPresent := fields["verdicts"]
 	predicateID, singlePresent := workflowFieldString(fields, "predicate_id")
-	if batchPresent && singlePresent {
-		return nil, newFailure(KindInvalidPayload, "workflow_action", "record_verdict carries predicate_id and verdicts; supply exactly one form", false, "drop predicate_id or the verdicts array")
-	}
 	if !batchPresent {
 		if !singlePresent || predicateID == "" {
-			return nil, newFailure(KindInvalidPayload, "workflow_action", "record_verdict requires predicate_id or verdicts", false, "name one approved predicate or supply the verdicts array")
+			return nil, nil
 		}
 		return []workflowVerdictBatchEntry{{
 			PredicateID:              predicateID,
@@ -438,11 +433,6 @@ func normalizeWorkflowVerdictEntries(fields map[string]json.RawMessage) ([]workf
 			EvaluationEvidence:       workflowFieldStrings(fields, "evaluation_evidence"),
 			IncomparableWithApproved: workflowFieldBool(fields, "incomparable_with_approved"),
 		}}, nil
-	}
-	for _, name := range []string{"verdict_kind", "evaluation_evidence", "incomparable_with_approved"} {
-		if _, present := fields[name]; present {
-			return nil, newFailure(KindInvalidPayload, "workflow_action", "record_verdict field "+name+" belongs inside each verdicts entry, not beside the batch", false, "move the field into the verdicts entries")
-		}
 	}
 	var decoded []struct {
 		PredicateID              string   `json:"predicate_id"`
@@ -513,6 +503,13 @@ func workflowRecordVerdictEvents(ctx context.Context, tx *sql.Tx, definition Wor
 	entries, entriesErr := normalizeWorkflowVerdictEntries(fields)
 	if entriesErr != nil {
 		return nil, entriesErr
+	}
+	if len(entries) == 0 {
+		// Unreachable through payload validation, which the engine cross-
+		// field declaration owns: a call carrying neither wire form is
+		// refused there. The constructor still refuses to record zero
+		// verdicts, so a bypassed caller cannot mint an empty judgment.
+		return nil, newFailure(KindInvalidPayload, "workflow_action", "record_verdict recorded no verdict entries", false, "supply predicate_id or the verdicts array")
 	}
 	seen := make(map[string]bool, len(entries))
 	for _, entry := range entries {

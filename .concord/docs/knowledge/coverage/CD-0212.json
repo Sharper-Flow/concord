@@ -1,0 +1,134 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestCorrectionCheckoutReclaimsAcrossAllPaths"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestDestroyMergedTerminalWorkReclaims"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestDestroyRefusesDirtyTreeAndNamesDestructiveRoute"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestReclaimFailedPreObservationLeavesDurableUncertainty"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestReclaimFailsClosedWhenNoDefaultIsEstablished"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestReclaimIncompleteInventoryNeverAuthorizesDeletion"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestReclaimInterruptedRestorationDebtSurvivesLogRebuild"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestReclaimNativePhaseSurvivesInterruptionMatrix"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestReclaimNativePlanProtectsChangedTipsAndConverges"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestReclaimPostDeleteRecoveryDebtPersistsAcrossReplay"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestReclaimPreReadHolderRefusesDeletionAndKeepsPhase"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestReclaimProtectsCheckoutRaceAtDeletionBoundary"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestReclaimProtectsUnprovenLiveHead"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestReclaimRecordsLongLiveBranchRetention"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestReclaimRefOutcomeRowsSurviveLogRebuild"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestReclaimRefusalReasonMatrix"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestReclaimReplaysRecordedRemovalPlan"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestReclaimRetainsAndReportsUnprovenStoredRef"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestReclaimRevalidatesDefaultOwnershipAtNativeDeletion"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestReclaimSettlementCommitsNoStrandedFoldGuard"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestReclaimValidReftableIdentityIsNotNarrowed"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestReclaimWorktreeAcceptsSquashMergedBranchWithDeletedRemote"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestReclaimWorktreeConvergesOnUnfoldedReclaimEvent"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestReclaimWorktreeHoldsNoWriteLockDuringNativeRemove"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestReclaimWorktreeRefusesCommitsBeyondTheMergedPatch"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestReclaimWorktreeRefusesEmptyNetDiff"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestWorktreeAuditReclaimRefusesPushedUnpublishedLesson"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestWorktreeAuditReclaimsMergedTerminalWork"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestWorktreeAuditReclaimsSquashContainedTerminalWork"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestWorktreeInventoryParsingIsCompleteAndSymbolic"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestWorktreeRefPhaseMatrixCoversAllOrderedPairs"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestWorktreeRefPhaseReplayResumesRecordedPredecessor"
+    }
+  ],
+  "id": "CD-0212",
+  "state": "satisfied"
+}

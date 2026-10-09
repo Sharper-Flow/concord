@@ -925,6 +925,37 @@ func TestCompletionAndBoundaryWriteNoContextContent(t *testing.T) {
 	if err := applyWorkflowTestOperation(context.Background(), fixture.store, Operation{Events: []Event{completion}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, fixture.workID): version}}); err != nil {
 		t.Fatalf("completion after context records refused: %v", err)
 	}
+	// Closing the lifecycle keeps the context as claims: the closed item
+	// still answers every declared and worker-reported finding verbatim,
+	// each still reported, and the reading reference unchanged.
+	version = verdictItemVersion(t, fixture.store, fixture.workID)
+	closePayload := mustJSONValue(map[string]any{"from": "in_progress", "to": "completed", "reason": "the work context stays claims at close", "expected_version": version, "resulting_version": version + 1})
+	if err := ApplyOperation(context.Background(), fixture.store, Operation{Events: []Event{{EventID: "ctx-close-" + fixture.workID, Kind: "work.transitioned", SubjectType: SubjectWorkItem, SubjectID: fixture.workID, Actor: "operator", OccurredAt: time.Unix(20, 0).UTC(), PayloadVersion: 1, Payload: closePayload}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, fixture.workID): version}}); err != nil {
+		t.Fatalf("close the lifecycle after the terminal completion: %v", err)
+	}
+	var lifecycle string
+	if err := fixture.store.DatabaseForTesting().QueryRow(`SELECT lifecycle FROM work_items WHERE id=?`, fixture.workID).Scan(&lifecycle); err != nil {
+		t.Fatal(err)
+	}
+	if lifecycle != "completed" {
+		t.Fatalf("lifecycle after the terminal completion = %q, want completed", lifecycle)
+	}
+	closed, err := readWorkContextView(context.Background(), fixture.store.DatabaseForTesting(), fixture.workID)
+	if err != nil {
+		t.Fatalf("read work context after close: %v", err)
+	}
+	if closed == nil || len(closed.RequiredReading) != 1 || closed.RequiredReading[0].Reason != readingMarker {
+		t.Fatalf("required reading after close = %+v", closed)
+	}
+	statements := map[string]string{}
+	for _, finding := range closed.Findings {
+		statements[finding.Statement] = finding.Status
+	}
+	for _, statement := range []string{findingMarker + "-A", findingMarker + "-B", workerMarker} {
+		if status, ok := statements[statement]; !ok || status != WorkContextFindingStatusReported {
+			t.Fatalf("finding %q after close has status %q (present %v), want reported; findings %v", statement, status, ok, statements)
+		}
+	}
 	// No event outside the declaration and worker-report kinds carries the
 	// markers, and no knowledge-side promotion row exists.
 	rows, err := fixture.store.DatabaseForTesting().Query(`SELECT kind, payload FROM domain_events WHERE subject_id=? AND (payload LIKE '%CON887-%')`, fixture.workID)

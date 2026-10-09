@@ -53,6 +53,17 @@ Read each named law document before you assess the result. Conform to it. Report
 any conflict between that law and the assigned result in your evidence. Return
 `status` `failed` when a conflict blocks the assigned result.
 
+## Work context
+
+When `inputs.work_context` is present, read it first. Walk `required_reading`
+in order: a `repository_file` source is read at its pinned `commit_oid`
+through git, not from the changed checkout. Then read the findings in the
+order `domain_groups` groups them by Domain. Reuse a finding your evidence
+still supports, and investigate where one drifted or contradicts. Record new
+conclusions, rejected routes, and open questions as report `context_findings`
+with a `domain_id` from the packet's Domains. The view carries at most
+32 readings and 32 findings.
+
 ## Objective and binding
 
 `inputs.task` is the canonical objective, carried verbatim: the approved

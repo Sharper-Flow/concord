@@ -1556,6 +1556,12 @@ func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoc
 			if err := validateWorkerPacketCorrection(in.ctx, in.tx, in.request.WorkID, in.currentStep, packetRaw); err != nil {
 				return events, "", err
 			}
+			// CON-887: the packet must consume the current work-context
+			// view the same way it consumes the current correction — the
+			// spawn compares the pinned bytes against current state.
+			if err := validateWorkerPacketWorkContext(in.ctx, in.tx, in.request.WorkID, packetRaw); err != nil {
+				return events, "", err
+			}
 			// CD-0205: the completion records the selected worker-job
 			// revision the packet binds, so worker.dispatched, the report,
 			// and the acceptance can each be held to that exact revision.

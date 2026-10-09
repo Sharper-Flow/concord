@@ -77,7 +77,7 @@ export interface AgentLanePacket {
   lane_digest: string
   work_id: string
   step_id: string
-  inputs: { task: string; binding: AgentLanePacketBinding; worker_job?: AgentLanePacketWorkerJob; context?: string; correction?: AgentLanePacketCorrection; constraints?: string[]; outcome_predicates?: AgentLanePacketOutcomePredicate[] }
+  inputs: { task: string; binding: AgentLanePacketBinding; worker_job?: AgentLanePacketWorkerJob; context?: string; correction?: AgentLanePacketCorrection; work_context?: AgentLanePacketWorkContext; constraints?: string[]; outcome_predicates?: AgentLanePacketOutcomePredicate[] }
 }
 
 // AgentLanePacketWorkerJob mirrors inputs.worker_job of
@@ -140,6 +140,51 @@ export interface AgentLanePacketCorrection {
   failure_detail?: string
   predicate_ids: string[]
   evidence_refs: string[]
+}
+
+// AgentLanePacketWorkContext mirrors inputs.work_context of
+// contracts/agent-lane-packet.schema.json: the core reader's current
+// work-context view (CON-887), carried verbatim from the work pin. The
+// closed packet schema owns the bounds; the builder never re-derives or
+// truncates the view, because the core refuses a dispatch whose bytes differ
+// from the current view.
+export interface AgentLanePacketWorkContextReadingSource {
+  kind: "repository_file" | "knowledge"
+  project_id?: string
+  path?: string
+  commit_oid?: string
+  source_id?: string
+  law_id?: string
+  content_hash?: string
+}
+
+export interface AgentLanePacketWorkContextReading {
+  domain_id: string
+  reason: string
+  product_wide_rationale?: string
+  source: AgentLanePacketWorkContextReadingSource
+}
+
+export interface AgentLanePacketWorkContextFindingView {
+  finding_id: string
+  kind: "observation" | "inference" | "hypothesis" | "rejected_approach" | "open_question" | "contradiction" | "direction"
+  statement: string
+  subject_ref: string
+  evidence_refs: string[]
+  domain_id: string
+  product_wide_rationale?: string
+  origin: "declaration" | "worker_report"
+  status: "reported"
+  source_event_id: string
+  source_event_seq: number
+  ordinal: number
+}
+
+export interface AgentLanePacketWorkContext {
+  source_event_frontier: number
+  required_reading: AgentLanePacketWorkContextReading[]
+  findings: AgentLanePacketWorkContextFindingView[]
+  domain_groups: { domain_id: string; required_reading_ordinals: number[]; finding_ids: string[]; domain_cards: [] }[]
 }
 
 // AgentLaneReport mirrors contracts/agent-lane-report.schema.json, which the

@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-const ManifestDigest = "sha256:7004491d06527466f09723fc432cea8fc8297e2ee65e0d77238aa54d2a19f224"
+const ManifestDigest = "sha256:d8bc7e8792f039adccf9a1b43f8bb941704f3e526c7395b78189910fd5d93b18"
 
 type OperationKind string
 
@@ -265,7 +265,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"work_observation_input":                         {Required: []string{"work_id"}, Properties: []string{"work_id", "page", "limit"}},
 	"work_observation_page":                          {Required: []string{"observations", "total"}, Properties: []string{"total", "observations"}},
 	"work_page":                                      {Required: []string{"items"}, Properties: []string{"items", "next_cursor", "readiness_evidence"}},
-	"work_pin":                                       {Required: []string{"work_id", "title", "linear_issue_key", "project_id", "project_display_name", "version", "lifecycle", "cancelled_instance_closes", "workflow_type", "step", "attempt", "pending_operator_decision", "driving_sessions", "watermark", "next_valid_intents"}, Properties: []string{"work_id", "title", "linear_issue_key", "project_id", "project_display_name", "version", "lifecycle", "cancelled_instance_closes", "workflow_type", "self_repair", "step", "attempt", "pending_operator_decision", "driving_sessions", "withheld_operator_decision", "watermark", "next_valid_intents", "correction", "verdict_evidence", "verified_criteria"}},
+	"work_pin":                                       {Required: []string{"work_id", "title", "linear_issue_key", "project_id", "project_display_name", "version", "lifecycle", "cancelled_instance_closes", "workflow_type", "step", "attempt", "pending_operator_decision", "driving_sessions", "watermark", "next_valid_intents"}, Properties: []string{"work_id", "title", "linear_issue_key", "project_id", "project_display_name", "version", "lifecycle", "cancelled_instance_closes", "workflow_type", "self_repair", "step", "attempt", "pending_operator_decision", "driving_sessions", "withheld_operator_decision", "watermark", "next_valid_intents", "correction", "work_context", "verdict_evidence", "verified_criteria"}},
 	"work_pin_attempt":                               {Required: []string{"id", "epoch", "lane", "state"}, Properties: []string{"id", "epoch", "lane", "state"}},
 	"work_pin_driving_session":                       {Required: []string{"session_ref", "last_action_id", "last_acted_at"}, Properties: []string{"session_ref", "last_action_id", "last_acted_at"}},
 	"work_pin_evidence":                              {Required: []string{"evidence_kind", "immutable_subject_ref"}, Properties: []string{"evidence_kind", "immutable_subject_ref"}},

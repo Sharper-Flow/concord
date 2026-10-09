@@ -1,5 +1,5 @@
 import type { ToolContext } from "@opencode-ai/plugin"
-import { validateAgentLanePacket, type AgentLanePacket, type AgentLanePacketCorrection, type AgentLanePacketOutcomePredicate, type AgentLanePacketWorkerJob } from "./dispatch"
+import { validateAgentLanePacket, type AgentLanePacket, type AgentLanePacketCorrection, type AgentLanePacketOutcomePredicate, type AgentLanePacketWorkContext, type AgentLanePacketWorkerJob } from "./dispatch"
 import { agentLanePacketSchema, agentLanes, workerScopeAssignedResult, type AgentLane } from "./generated-agent-lanes"
 import { laneStepDispatchKinds } from "./generated-lane-step-dispatch"
 
@@ -433,6 +433,11 @@ export async function buildAgentLanePacket(request: AgentLanePacketRequest, deps
   const proposal = renderProposalRecord(pinned.proposal_record)
   const workPin = isRecord(pinned.work_pin) ? pinned.work_pin : null
   const correctionValue = workPin ? projectCorrectionContext(workPin.correction) : undefined
+  // CON-887: the pin's work-context view rides the packet verbatim. The core
+  // refuses a dispatch whose inputs.work_context differs from the current
+  // view byte-for-byte, so any re-derivation, filtering, or truncation here
+  // would strand the dispatch; the closed packet schema owns the bounds.
+  const workContextValue = workPin && isRecord(workPin.work_context) ? (workPin.work_context as unknown as AgentLanePacketWorkContext) : undefined
   // The persisted work task is the operator's recorded instruction for the
   // worker. Under a pinned contract the premise stays the approved objective
   // in inputs.task and the recorded task rides context ahead of the narrative,
@@ -477,7 +482,7 @@ export async function buildAgentLanePacket(request: AgentLanePacketRequest, deps
     lane_digest: lane.digest,
     work_id: request.workId,
     step_id: request.stepId,
-    inputs: { task, binding, ...(workerJob ? { worker_job: workerJob as unknown as AgentLanePacketWorkerJob } : {}), ...(context.length > 0 ? { context } : {}), ...(correctionValue ? { correction: correctionValue } : {}), ...(decoded.predicates.length > 0 ? { outcome_predicates: decoded.predicates } : {}) },
+    inputs: { task, binding, ...(workerJob ? { worker_job: workerJob as unknown as AgentLanePacketWorkerJob } : {}), ...(context.length > 0 ? { context } : {}), ...(correctionValue ? { correction: correctionValue } : {}), ...(workContextValue ? { work_context: workContextValue } : {}), ...(decoded.predicates.length > 0 ? { outcome_predicates: decoded.predicates } : {}) },
   }
 
   const packetFailures: string[] = []

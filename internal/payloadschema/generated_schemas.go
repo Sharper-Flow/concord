@@ -6874,6 +6874,17 @@ const GeneratedPayloadSchemaDocument = `{
         "withheld_operator_decision": {
           "$ref": "#/$defs/operator_decision_withheld"
         },
+        "work_context": {
+          "description": "CON-887: the current work-context view the tx-scoped reader assembles. Absent when the work holds no declaration and no terminal-report findings; a view past its bounds leaves this absent and the dispatch admission owns the refusal.",
+          "oneOf": [
+            {
+              "$ref": "#/$defs/work_context_view"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "work_id": {
           "$ref": "#/$defs/id"
         },
@@ -13225,6 +13236,10 @@ const GeneratedPayloadSchemaDocument = `{
               "maxLength": 4096,
               "minLength": 1,
               "type": "string"
+            },
+            "work_context": {
+              "$ref": "#/$defs/work_context_view",
+              "description": "CON-887: the current work-context view the work pin carried when the packet was built. The core refuses a dispatch whose packet does not consume the current view byte-for-byte."
             },
             "worker_job": {
               "$ref": "#/$defs/worker_packet_worker_job"

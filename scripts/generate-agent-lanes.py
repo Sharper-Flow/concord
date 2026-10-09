@@ -566,6 +566,28 @@ return `status` `failed` when the missing context blocks the assigned result.
 """
 
 
+def work_context_instructions(packet_schema: dict) -> str:
+    # CON-887: when the packet carries the typed work context, the worker
+    # reads it before the objective's own sources, walks the readings in
+    # order at the pinned commits, and records new typed findings on the
+    # report. The bounds the block states are read off the packet schema,
+    # never restated as literals.
+    view = packet_schema["$defs"]["lane_work_context_view"]
+    readings_max = view["properties"]["required_reading"]["maxItems"]
+    findings_max = view["properties"]["findings"]["maxItems"]
+    return f"""## Work context
+
+When `inputs.work_context` is present, read it first. Walk `required_reading`
+in order: a `repository_file` source is read at its pinned `commit_oid`
+through git, not from the changed checkout. Then read the findings in the
+order `domain_groups` groups them by Domain. Reuse a finding your evidence
+still supports, and investigate where one drifted or contradicts. Record new
+conclusions, rejected routes, and open questions as report `context_findings`
+with a `domain_id` from the packet's Domains. The view carries at most
+{readings_max} readings and {findings_max} findings.
+"""
+
+
 def objective_binding_instructions(packet_schema: dict, premise_max_bytes: int) -> str:
     # The packet task is the objective verbatim and inputs.binding is the typed
     # authority for it, so the guidance teaches both and keeps the three count
@@ -696,6 +718,7 @@ record workflow transitions, verdicts, completion, or spawn nested workers.
 
 {packet_refusal_instructions()}
 {law_conformance_instructions(lane)}
+{work_context_instructions(packet_schema)}
 {objective_binding_instructions(packet_schema, premise_max_bytes)}
 {concord_context_boundary_instructions()}
 {execute_source_lookup_instructions()}

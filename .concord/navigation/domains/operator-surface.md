@@ -7,7 +7,7 @@ File accountability does not change a document's law home or a handler's semanti
 ## Responsibility
 Owns the human-facing plane: the terminal launcher, the CLI verb surface and its operator diagnostics, installation and release packaging, and the navigation path an operator uses to reach Product state.
 
-Mapped files: 159; tests: 86; unresolved candidates: 31.
+Mapped files: 162; tests: 87; unresolved candidates: 31.
 Candidate counts overlap when a file has several candidates; no candidate is an assigned owner.
 
 ## Code and tests
@@ -37,8 +37,9 @@ These are catalog surface entries, not invariant/control or handler joins.
 - CLI: `product-knowledge-source-register (product knowledge-source-register)`, `product-knowledge-source-remove (product knowledge-source-remove)`, `project-locator-add (project locator-add)`, `project-locator-update (project locator-update)`, `project-locator-remove (project locator-remove)`
 - CLI: `project-canonical-path (project canonical-path)`, `cd-reservations (cd reservations)`, `backup`, `worktree-locate`, `claim-landing`
 - CLI: `vacate-landing`, `work-bootstrap`, `work-resume`, `receipt`, `work-shelve`
-- CLI: `work-cancel`, `ci-wait`, `session-prepare`, `project-resolve (project resolve)`, `restore`
-- CLI: `predecessor-inventory (predecessor inventory)`, `predecessor-import (predecessor import)`, `host-lease`, `host-leases`, `upgrade`
+- CLI: `work-cancel`, `ci-wait`, `session-prepare`, `outside-repair`, `project-resolve (project resolve)`
+- CLI: `restore`, `predecessor-inventory (predecessor inventory)`, `predecessor-import (predecessor import)`, `host-lease`, `host-leases`
+- CLI: `upgrade`
 
 ## Verification references
 Declared repository commands are shared checks, not Domain-specific acceptance or automatic execution.
@@ -56,5 +57,5 @@ Invariant/control joins, allowed-dependency interpretation, observed import/call
 non-law navigation homes, CON-887 packet reading, and CON-890 owner oracles remain later work.
 Required-reading entries will be pinned references, not inlined card content.
 
-Navigation source fingerprint: `sha256:9ff00dd78ed975640bfb9731e4ce4dfac64a27868573825bae9840f9f4a69fa6`.
+Navigation source fingerprint: `sha256:77a169488e5f7eebdbc99679759854259f0b511f4d1500d1d3a9205e0f95d584`.
 Other fingerprints and the exact file universe are in the generated inventory.

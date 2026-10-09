@@ -768,6 +768,9 @@ func ValidateWorkerDispatchWindow(ctx context.Context, transaction *Transaction,
 	if err != nil {
 		return err
 	}
+	if err := requireNoOutsideRepairTx(ctx, tx, workID, "worker_dispatch_window"); err != nil {
+		return err
+	}
 	window, err := FindAuthorizedDispatchWindowTx(ctx, tx, workID, attemptID)
 	if err != nil {
 		// CD-0059 D5: on the CLI path (no explicit step) a work item with
@@ -917,6 +920,11 @@ func modelReadbackFailureKind(value string) bool {
 }
 
 func foldWorkerDispatched(ctx context.Context, tx *sql.Tx, event Event) error {
+	if !isWorkflowReplay(ctx) {
+		if err := requireNoOutsideRepairTx(ctx, tx, event.SubjectID, "worker_dispatch"); err != nil {
+			return err
+		}
+	}
 	var payload WorkerDispatchedPayload
 	if err := decodeClosedWorkerPayload(event, &payload); err != nil {
 		return err

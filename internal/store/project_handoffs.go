@@ -1127,6 +1127,12 @@ func readSessionClaimedWorktreeTx(ctx context.Context, transaction *Transaction,
 // failed event for the same step and attempt epoch) also block. It runs
 // inside the caller's transaction.
 func sessionOwnedExecutionStoppedTx(ctx context.Context, tx *sql.Tx, workID, sessionRef string) (bool, error) {
+	return workExecutionStoppedTx(ctx, tx, workID, sessionRef)
+}
+
+// An empty session selects all execution on the work. Session retirement uses
+// the same derivation with its ownership filter; outside repair holds all of it.
+func workExecutionStoppedTx(ctx context.Context, tx *sql.Tx, workID, sessionRef string) (bool, error) {
 	rows, err := tx.QueryContext(ctx, `SELECT attempt_id FROM worker_attempts WHERE work_id=? AND lifecycle_state IN ('in_flight','dispatched')`, workID)
 	if err != nil {
 		return false, wrapFailure(KindUnavailable, "project_retirement", "cannot read the work's open worker attempts", true, "retry once the database is readable", err)
@@ -1145,6 +1151,9 @@ func sessionOwnedExecutionStoppedTx(ctx context.Context, tx *sql.Tx, workID, ses
 		return false, wrapFailure(KindUnavailable, "project_retirement", "cannot finish the open worker attempts read", true, "retry once the database is readable", err)
 	}
 	rows.Close()
+	if sessionRef == "" && len(attempts) != 0 {
+		return false, nil
+	}
 	for _, attemptID := range attempts {
 		// The dispatch authorization WorkerAttemptID/ActorRef pair is the
 		// only core ownership evidence: read the authorizing actor from the
@@ -1184,15 +1193,15 @@ func sessionOwnedExecutionStoppedTx(ctx context.Context, tx *sql.Tx, workID, ses
 	// else acted on the work since.
 	var open int
 	err = tx.QueryRowContext(ctx, `SELECT count(*) FROM domain_events f
-		JOIN workflow_actors a ON a.actor_ref=json_extract(f.payload,'$.actor_ref')
-		WHERE f.kind='workflow.action_started' AND f.subject_id=? AND a.session_ref=?
+		LEFT JOIN workflow_actors a ON a.actor_ref=json_extract(f.payload,'$.actor_ref')
+		WHERE f.kind='workflow.action_started' AND f.subject_id=? AND (?='' OR a.session_ref=?)
 		  AND NOT EXISTS (
 		    SELECT 1 FROM domain_events c
 		    WHERE c.subject_id=f.subject_id AND c.kind IN ('workflow.action_completed','workflow.action_failed')
 		      AND c.seq>f.seq
 		      AND json_extract(c.payload,'$.step_id')=json_extract(f.payload,'$.step_id')
 		      AND json_extract(c.payload,'$.attempt_epoch')=json_extract(f.payload,'$.attempt_epoch')
-		  )`, workID, sessionRef).Scan(&open)
+		  )`, workID, sessionRef, sessionRef).Scan(&open)
 	if err != nil {
 		return false, wrapFailure(KindUnavailable, "project_retirement", "cannot read the session's nonterminal workflow actions", true, "retry once the database is readable", err)
 	}

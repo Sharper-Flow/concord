@@ -1491,6 +1491,11 @@ type mutationPlan struct {
 	// success, so the same request retries and converges the committed
 	// reclaim instead of replaying it.
 	nativeFinalize func(ctx context.Context) error
+	// outsideEvidence carries the outside-repair completion proof the
+	// boundary collected before any transaction opened (CD-0210). The typed
+	// effect embeds it in the store request; the store validates the receipt
+	// shape again inside the fold.
+	outsideEvidence *store.OutsideRepairEvidence
 }
 
 func newMutationPlan(envelope CallEnvelope, op ContractOperation) *mutationPlan {
@@ -4279,6 +4284,10 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Au
 		answer, err, handled = r.planProjectHandoffConsume(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_transition.correct_delivery":
 		answer, err, handled = r.planCorrectDelivery(ctx, base, raw, digest, grant, op, plan)
+	case "concord_work_transition.outside_repair":
+		answer, err, handled = r.planOutsideRepairDisposition(ctx, base, raw, digest, grant, op, plan)
+	case "concord_work_transition.outside_repair_reconcile":
+		answer, err, handled = r.planOutsideRepairReconcile(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_transition.worktree_reclaim":
 		answer, err, handled = r.planWorktreeReclaim(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_transition.worktree_destroy":
@@ -5348,6 +5357,13 @@ func mutationConsequence(tool, operation string) OperationConsequence {
 }
 
 func mutationIsOverlapRecovery(tool, operation string, raw []byte) bool {
+	// The outside-repair route (CD-0122 D2, CD-0210) must be enterable while
+	// an overlap stands exactly on the blocked item it recovers, so no
+	// Domain-overlap gate and no law pin may close the hold, the reconcile,
+	// and the resume.
+	if tool == "concord_work_transition" && (operation == "outside_repair" || operation == "outside_repair_reconcile") {
+		return true
+	}
 	if tool == "concord_work_relate" && (operation == "resolve_overlap" || operation == "supersede" || operation == "restore_superseded") {
 		return true
 	}
@@ -5433,7 +5449,7 @@ func (r runtime) consumeApprovalTx(ctx context.Context, tx *store.Transaction, h
 func boundedApprovalScope(scope map[string]any) map[string]any {
 	out := make(map[string]any, len(scope))
 	for key, value := range scope {
-		if key != "product_id" && key != "product_ids" && key != "project_ids" && key != "work_ids" && key != "failed_attempt_id" && key != "scope_version" && key != "project_id" && key != "role" && key != "client_ref" && key != "policy_version" && key != "capabilities" && key != "product_scope" && key != "project_scope" && key != "agent_scope" {
+		if key != "product_id" && key != "product_ids" && key != "project_ids" && key != "work_ids" && key != "failed_attempt_id" && key != "scope_version" && key != "project_id" && key != "role" && key != "client_ref" && key != "policy_version" && key != "capabilities" && key != "product_scope" && key != "project_scope" && key != "agent_scope" && key != "release_tag" && key != "pull_requests" {
 			continue
 		}
 		switch typed := value.(type) {

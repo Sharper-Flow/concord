@@ -3202,6 +3202,217 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "object"
     },
+    "outside_repair_disposition": {
+      "additionalProperties": false,
+      "properties": {
+        "approval_ref": {
+          "$ref": "#/$defs/id"
+        },
+        "evidence": {
+          "$ref": "#/$defs/outside_repair_evidence"
+        },
+        "reason": {
+          "maxLength": 4096,
+          "minLength": 2,
+          "type": "string"
+        },
+        "recorded_at": {
+          "maxLength": 64,
+          "minLength": 1,
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "active",
+            "completed",
+            "resumed"
+          ],
+          "type": "string"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "reason",
+        "approval_ref",
+        "state",
+        "recorded_at"
+      ],
+      "type": "object"
+    },
+    "outside_repair_evidence": {
+      "additionalProperties": false,
+      "properties": {
+        "authority_ref": {
+          "$ref": "#/$defs/id"
+        },
+        "observed_at": {
+          "format": "date-time",
+          "maxLength": 64,
+          "minLength": 20,
+          "type": "string"
+        },
+        "published_at": {
+          "format": "date-time",
+          "maxLength": 64,
+          "minLength": 20,
+          "type": "string"
+        },
+        "pull_requests": {
+          "items": {
+            "$ref": "#/$defs/outside_repair_pull_request_evidence"
+          },
+          "maxItems": 32,
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "release_sha": {
+          "$ref": "#/$defs/outside_repair_git_sha"
+        },
+        "release_tag": {
+          "$ref": "#/$defs/outside_repair_release_tag"
+        },
+        "release_url": {
+          "maxLength": 768,
+          "minLength": 24,
+          "type": "string"
+        },
+        "repository": {
+          "maxLength": 256,
+          "minLength": 3,
+          "pattern": "^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "authority_ref",
+        "observed_at",
+        "repository",
+        "pull_requests",
+        "release_tag",
+        "release_url",
+        "release_sha",
+        "published_at"
+      ],
+      "type": "object"
+    },
+    "outside_repair_git_sha": {
+      "maxLength": 64,
+      "minLength": 40,
+      "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
+      "type": "string"
+    },
+    "outside_repair_pr_selectors": {
+      "description": "Bounded caller selectors for the merged pull requests the outside repair closes from.",
+      "items": {
+        "minimum": 1,
+        "type": "integer"
+      },
+      "maxItems": 32,
+      "minItems": 1,
+      "type": "array",
+      "uniqueItems": true
+    },
+    "outside_repair_pull_request_evidence": {
+      "additionalProperties": false,
+      "properties": {
+        "head_sha": {
+          "$ref": "#/$defs/outside_repair_git_sha"
+        },
+        "merge_sha": {
+          "$ref": "#/$defs/outside_repair_git_sha"
+        },
+        "merged_at": {
+          "format": "date-time",
+          "maxLength": 64,
+          "minLength": 20,
+          "type": "string"
+        },
+        "number": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "required_checks": {
+          "items": {
+            "$ref": "#/$defs/outside_repair_required_check"
+          },
+          "maxItems": 64,
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "url": {
+          "maxLength": 512,
+          "minLength": 20,
+          "type": "string"
+        }
+      },
+      "required": [
+        "url",
+        "number",
+        "head_sha",
+        "merge_sha",
+        "merged_at",
+        "required_checks"
+      ],
+      "type": "object"
+    },
+    "outside_repair_release_tag": {
+      "description": "Bounded caller selector for the published release the outside repair closes against.",
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9._-]+$",
+      "type": "string"
+    },
+    "outside_repair_required_check": {
+      "additionalProperties": false,
+      "description": "One required check the boundary authenticated on the immutable PR head, carrying its exact native check-run, workflow-run and job identities (CD-0210 D2) so distinct checks in one run stay distinguishable and a rerun cannot rewrite the receipt.",
+      "properties": {
+        "check_run_id": {
+          "description": "The native GitHub check-run identity that reported this required check.",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "commit_sha": {
+          "$ref": "#/$defs/outside_repair_git_sha"
+        },
+        "conclusion": {
+          "const": "success",
+          "type": "string"
+        },
+        "job_id": {
+          "description": "The native Actions job identity that proved this check on the fetched run.",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "name": {
+          "$ref": "#/$defs/short"
+        },
+        "run_id": {
+          "description": "The native Actions workflow-run identity whose URL the receipt names.",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "url": {
+          "maxLength": 1024,
+          "minLength": 14,
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "url",
+        "commit_sha",
+        "conclusion",
+        "check_run_id",
+        "run_id",
+        "job_id"
+      ],
+      "type": "object"
+    },
     "page": {
       "additionalProperties": false,
       "properties": {
@@ -6747,6 +6958,75 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_pin": {
       "additionalProperties": false,
+      "allOf": [
+        {
+          "else": {
+            "description": "CD-0210: an ordinary or resumed pin runs the managed instance read, so the workflow identity stays strict and the registry-verified definition identity — version, digest, and the declared obligation set — is required in full.",
+            "properties": {
+              "step": {
+                "$ref": "#/$defs/short"
+              },
+              "workflow_type": {
+                "$ref": "#/$defs/id"
+              }
+            },
+            "required": [
+              "workflow_definition_version",
+              "workflow_definition_digest",
+              "obligations"
+            ]
+          },
+          "if": {
+            "properties": {
+              "outside_repair_disposition": {
+                "properties": {
+                  "state": {
+                    "enum": [
+                      "active",
+                      "completed"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "state"
+                ]
+              }
+            },
+            "required": [
+              "outside_repair_disposition"
+            ]
+          },
+          "then": {
+            "description": "CD-0210: an active or completed outside-repair disposition grants no managed pin authority. The pin suppresses managed action prompts and carries a typed absence of the verified workflow-definition identity: the version, digest, and obligations keys are omitted, never zero-filled or fabricated, because the hold reads raw instance identity only.",
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "workflow_definition_version"
+                  ]
+                },
+                {
+                  "required": [
+                    "workflow_definition_digest"
+                  ]
+                },
+                {
+                  "required": [
+                    "obligations"
+                  ]
+                }
+              ]
+            },
+            "properties": {
+              "next_valid_intents": {
+                "maxItems": 0,
+                "type": "array"
+              }
+            }
+          }
+        }
+      ],
       "properties": {
         "attempt": {
           "oneOf": [
@@ -6838,6 +7118,21 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "array",
           "uniqueItems": true
         },
+        "outside_repair_disposition": {
+          "$ref": "#/$defs/outside_repair_disposition"
+        },
+        "outside_repair_route": {
+          "description": "The declared outside-repair reconciliation operation, with completed and resume modes (CD-0210).",
+          "items": {
+            "enum": [
+              "outside_repair_reconcile"
+            ],
+            "type": "string"
+          },
+          "maxItems": 1,
+          "minItems": 1,
+          "type": "array"
+        },
         "pending_operator_decision": {
           "oneOf": [
             {
@@ -6865,7 +7160,8 @@ const GeneratedPayloadSchemaDocument = `{
           ]
         },
         "step": {
-          "$ref": "#/$defs/short"
+          "maxLength": 256,
+          "type": "string"
         },
         "title": {
           "$ref": "#/$defs/short"
@@ -6918,7 +7214,8 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "integer"
         },
         "workflow_type": {
-          "$ref": "#/$defs/id"
+          "maxLength": 128,
+          "type": "string"
         }
       },
       "required": [
@@ -6936,10 +7233,7 @@ const GeneratedPayloadSchemaDocument = `{
         "pending_operator_decision",
         "driving_sessions",
         "watermark",
-        "next_valid_intents",
-        "workflow_definition_version",
-        "workflow_definition_digest",
-        "obligations"
+        "next_valid_intents"
       ],
       "type": "object"
     },
@@ -17549,6 +17843,119 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "object"
     },
+    "work_transition_outside_repair_input": {
+      "additionalProperties": false,
+      "properties": {
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "reason": {
+          "maxLength": 4096,
+          "minLength": 2,
+          "type": "string"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "expected_version",
+        "reason",
+        "idempotency_key"
+      ],
+      "type": "object"
+    },
+    "work_transition_outside_repair_reconcile_input": {
+      "additionalProperties": false,
+      "oneOf": [
+        {
+          "description": "A completed reconcile closes the held work from boundary-authenticated GitHub evidence bound to the selected pull requests and published release.",
+          "properties": {
+            "mode": {
+              "const": "completed"
+            }
+          },
+          "required": [
+            "release_tag",
+            "pull_requests"
+          ]
+        },
+        {
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "release_tag"
+                ]
+              },
+              {
+                "required": [
+                  "pull_requests"
+                ]
+              }
+            ]
+          },
+          "properties": {
+            "mode": {
+              "const": "resume"
+            }
+          }
+        }
+      ],
+      "properties": {
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "mode": {
+          "enum": [
+            "completed",
+            "resume"
+          ],
+          "type": "string"
+        },
+        "pull_requests": {
+          "$ref": "#/$defs/outside_repair_pr_selectors"
+        },
+        "reason": {
+          "maxLength": 4096,
+          "minLength": 2,
+          "type": "string"
+        },
+        "release_tag": {
+          "$ref": "#/$defs/outside_repair_release_tag"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "expected_version",
+        "reason",
+        "mode",
+        "idempotency_key"
+      ],
+      "type": "object"
+    },
     "work_transition_project_handoff_consume_input": {
       "additionalProperties": false,
       "properties": {
@@ -20253,7 +20660,8 @@ const GeneratedPayloadSchemaDocument = `{
             "timeout",
             "transport_failure",
             "malformed_response",
-            "internal_error"
+            "internal_error",
+            "outside_repair_active"
           ],
           "type": "string"
         }

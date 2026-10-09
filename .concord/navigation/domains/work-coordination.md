@@ -7,7 +7,7 @@ File accountability does not change a document's law home or a handler's semanti
 ## Responsibility
 Owns the work item as an entity: its declared attributes and urgency, provenance, the typed relation vocabulary between work items, durable inter-agent resource claims, work-addressed peer messages, and non-authoritative mid-execution observations. It owns what a work item means and how work items refer to one another, not how work executes and not how it persists.
 
-Mapped files: 46; tests: 26; unresolved candidates: 81.
+Mapped files: 46; tests: 26; unresolved candidates: 80.
 Candidate counts overlap when a file has several candidates; no candidate is an assigned owner.
 
 ## Code and tests
@@ -40,5 +40,5 @@ Invariant/control joins, allowed-dependency interpretation, observed import/call
 non-law navigation homes, CON-887 packet reading, and CON-890 owner oracles remain later work.
 Required-reading entries will be pinned references, not inlined card content.
 
-Navigation source fingerprint: `sha256:9ff00dd78ed975640bfb9731e4ce4dfac64a27868573825bae9840f9f4a69fa6`.
+Navigation source fingerprint: `sha256:77a169488e5f7eebdbc99679759854259f0b511f4d1500d1d3a9205e0f95d584`.
 Other fingerprints and the exact file universe are in the generated inventory.

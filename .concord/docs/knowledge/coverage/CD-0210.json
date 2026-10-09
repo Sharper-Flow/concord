@@ -1,0 +1,134 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestOutsideRepairTypedHoldBaseReproduction"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestOutsideRepairHoldRequiresApprovalNotCompletionEvidence"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestOutsideRepairCentralAdmissionSuppressesAllActionsAndLifecycleBypasses"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestOutsideRepairReconcileBothLiveLifecyclesAndReplay"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestOutsideRepairResumePreservesStateAndAllowsAnotherHold"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestOutsideRepairRefusesInactiveDuplicateTerminalAndStaleMutations"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestOutsideRepairReconciliationEvidenceRefusesInvalidReceipts"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestOutsideRepairGenericAppendCannotAcquireAuthority"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestOutsideRepairFoldRejectsFabricatedApprovalAndEvidence"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestOutsideRepairDoesNotChangeOrdinaryCompletion"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestWorkflowCompletedRefusesWhileOutsideRepairActive"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestOutsideRepairMigrationPreservesPopulatedWorkflowInstance"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestOutsideRepairHoldRequiresApprovalAndRecordsHold"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestOutsideRepairReconcileCompletedClosesFromBoundaryEvidence"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestOutsideRepairReconcileAnnotatedTagResolvesToCommit"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestOutsideRepairReconcileResumeClearsHoldWithoutFetch"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestOutsideRepairReconcileWithoutHoldRefuses"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestOutsideRepairReconcileNonAncestorMergeRefuses"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestOutsideRepairReconcileDraftReleaseRefuses"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestOutsideRepairReconcilePRBodyWithoutLinearRefRefuses"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestOutsideRepairApprovalBindsExactOperation"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestOutsideRepairIdempotentReplayReplaysRecordedResult"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/check-cd-allocation.py"
+    },
+    {
+      "kind": "go_test",
+      "value": "cmd/concord.TestOutsideRepairActualChildInFreshBranch"
+    },
+    {
+      "kind": "go_test",
+      "value": "cmd/concord.TestOutsideRepairTerminalAfterJSONPipe"
+    },
+    {
+      "kind": "go_test",
+      "value": "cmd/concord.TestDistinctReleasedCoresCoexistOnOneStore"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/check-doc-contract.py"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/check-knowledge-index.py"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/check-knowledge-closure.py"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/check-knowledge-vocabulary.py"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/check-law-coverage.py"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/check-migration-compatibility.py"
+    }
+  ],
+  "id": "CD-0210",
+  "state": "satisfied"
+}

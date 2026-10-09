@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -253,9 +254,7 @@ func TestQueryLauncherDomainsRelationVolumeNeverBoundsTheSection(t *testing.T) {
 			t.Fatalf("relation volume reached the launcher read: %#v", result.Omissions)
 		}
 	}
-	for _, key := range result.OrderingKeys {
-		if strings.Contains(key, "domain_id") && key != "domain_id" {
-			t.Fatalf("launcher read orders by a relation key: %#v", result.OrderingKeys)
-		}
+	if !slices.Equal(result.OrderingKeys, []string{"name", "domain_id"}) {
+		t.Fatalf("launcher ordering keys = %#v, want name and domain_id only", result.OrderingKeys)
 	}
 }

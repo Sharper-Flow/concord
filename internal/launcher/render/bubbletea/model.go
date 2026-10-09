@@ -1030,7 +1030,7 @@ func abnormalProbeLines(probes []launcher.ProbeStatus) []string {
 }
 
 // abnormalDomainLines names the Domain context only when it is abnormal: an
-// unavailable section, an incomplete registry, a bounded relation or overlap
+// unavailable section, an incomplete registry, a bounded overlap
 // read, or unresolved overlaps. A clean Domain registry stays silent.
 func abnormalDomainLines(snapshot launcher.Snapshot) []string {
 	section := snapshot.Domains

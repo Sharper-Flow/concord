@@ -166,14 +166,10 @@ func absentRegistryStore(t *testing.T) *store.Store {
 	return s
 }
 
-// The defect this floor row exists for. A projected registry and an
-// unprojected one can both leave the section without overlap pairs, so an
-// empty list cannot tell the two apart. The pair that can is outcome plus
-// section state: an authoritative section states
-// "authoritative" and carries a Git-anchored registry watermark, while an
-// unreadable one states "unavailable" with a typed reason and no watermark at
-// all. Screen coverage follows the work read in both cases; only the Domain
-// section separates the two.
+// A projected registry yields an authoritative section with a Git-anchored
+// watermark. An unprojected registry yields a typed unavailable section with
+// no watermark. Screen coverage follows the work read in both cases, and an
+// unavailable Domain section must not withhold the Product work list.
 func TestS2ArchitectureRelationsAreAuthoritativeEmptyNotUnavailable(t *testing.T) {
 	empty := readDomainSection(t, domainEvidenceStore(t))
 	// Non-vacuity: the same section carries projected law and Domain-bound

@@ -45,6 +45,16 @@
       "notes": "The version pin is load-bearing; CI rejects an unpinned run."
     },
     {
+      "id": "lefthook-preflight",
+      "purpose": "Advisory, file-selected Lefthook pre-push preflight gates.",
+      "invocation": "bin/oc-test preflight",
+      "tier": "standard",
+      "cost_hint": "Cheaper than the smoke tier; gates whose globs match no pushed file are skipped.",
+      "config_path": "lefthook.yml",
+      "automation_path": ".github/workflows/ci.yml",
+      "notes": "Advisory preflight, not a full verify and not an exhaustive test mapping; CI stays the verification owner. Parity is enforced by scripts/check-pre-push.py and the pinned upstream release is v2.1.14."
+    },
+    {
       "id": "repo-validators",
       "purpose": "Repository contract drift checks; check-json.py chains the validator suite.",
       "invocation": "python3 scripts/check-json.py",

@@ -56,9 +56,6 @@ order.
   text and the narrative is long markdown, so the content field is the
   correct target; this would also flatten Projects that already carry the
   narrative in content.
-- Reword CD-0171 D2 in place without a new record. Rejected: accepted law
-  changes through an explicit amendment record that carries its own authority
-  and approval.
 
 ## Consequences
 

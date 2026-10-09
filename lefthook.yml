@@ -1,0 +1,90 @@
+# Concord pre-push preflight gates (CON-893).
+#
+# Preflight, not full-suite proof: these gates stop an obviously broken push
+# before it reaches CI. CI remains the verification owner; the full Go test
+# suite, the adapter suite, the race detector, and acceptance stay CI-only.
+#
+# Every gate command is identical to the CI step that owns the same command
+# in .github/workflows/ci.yml. scripts/check-pre-push.py fails when a gate,
+# command, environment, or pin drifts from CI, so the two sides cannot
+# silently diverge.
+#
+# Routing: a command whose glob matches none of the pushed files is skipped,
+# so a documentation-only or Python-only push skips the Go gates. Lefthook's
+# default matcher compiles patterns without a path separator, so a single
+# `*` also crosses directory boundaries, and matching is case-insensitive
+# against the repository-relative path. The required routes are executable
+# conformance fixtures in scripts/test-pre-push.py, which runs the real
+# pinned release over this file's glob lists.
+#
+# `no_auto_install: true` keeps `lefthook run pre-push` (what
+# `bin/oc-test preflight` executes) from touching the installed hooks.
+# `assert_lefthook_installed: true` makes an installed hook fail loudly when
+# the lefthook binary disappears, instead of silently running nothing.
+min_version: 2.1.14
+assert_lefthook_installed: true
+no_auto_install: true
+
+pre-push:
+  parallel: true
+  commands:
+    gofmt:
+      glob: &go_planes
+        - "*.go"
+        - go.mod
+        - go.sum
+        - .golangci.yml
+        - .github/workflows/ci.yml
+        - lefthook.yml
+      run: test -z "$(gofmt -l .)"
+    go-vet:
+      glob: *go_planes
+      run: go vet ./...
+    go-build:
+      glob: *go_planes
+      run: go build ./...
+    go-compile-tests:
+      glob: *go_planes
+      run: "go test -run '^$' -timeout=15m ./..."
+    go-lint:
+      glob: *go_planes
+      run: go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.1 run --output.text.colors=false ./...
+    check-json:
+      glob:
+        - "contracts/*"
+        - ".concord/*"
+        - "adapter/*.ts"
+        - "scripts/check-*.py"
+        - "scripts/generate-*.py"
+        - .github/workflows/ci.yml
+        - lefthook.yml
+      env:
+        CONCORD_REQUIRE_BUN: "1"
+      run: python3 scripts/check-json.py --adapter-tests-external --contract-tests-external
+    check-reachability:
+      glob:
+        - "*.go"
+        - go.mod
+        - go.sum
+        - .github/workflows/ci.yml
+        - lefthook.yml
+        - scripts/check-reachability.py
+        - ".concord/docs/reachability-exceptions.v1.json"
+      run: python3 scripts/check-reachability.py
+    check-complexity:
+      glob:
+        - "*.go"
+        - go.mod
+        - go.sum
+        - .github/workflows/ci.yml
+        - lefthook.yml
+        - scripts/check-complexity.py
+      run: python3 scripts/check-complexity.py
+    script-tests:
+      glob:
+        - "scripts/*.py"
+        - bin/oc-test
+        - lefthook.yml
+        - .github/workflows/ci.yml
+        - ".concord/tooling.v1.json"
+      run: "python3 scripts/run-script-tests.py -- {push_files}"

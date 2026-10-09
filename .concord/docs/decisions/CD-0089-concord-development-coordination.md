@@ -65,17 +65,21 @@ Concord while retaining the external authority boundaries in D2.
 This decision supersedes only CD-0010's self-hosting prohibition. It also
 retires equivalent restatements in CD-0007 D5, CD-0017 D9, CD-0019 D4,
 CD-0021's consequences, CD-0047's context and consequences, CD-0082 D2, and
-CD-0084's context. Those records retain their historical text. CD-0010's
+CD-0084's context. CD-0010's
 planning, review, merge, isolation, Product-law, and Advance rules remain
-current. The CD-0010 file and historical research records remain unchanged.
+current. Historical research records remain unchanged.
+
+The self-hosting prohibition is not current law. A compatible edit states the
+current rule in the owning record under CD-0036. Git history preserves the
+earlier prohibition and the decision that removed it.
 
 CD-0088 D5 records the same self-hosting prohibition for the host-owned work
 bootstrap. This decision supersedes that prohibition after the issue #600 release.
 CD-0088's authority boundaries and bootstrap contract remain current.
 
 Current instructions and living law cite this decision where they describe
-Concord development authority. Historical decisions retain their original text
-and are superseded by this record only at the boundary named above.
+Concord development authority. This record supersedes only the boundary named
+above.
 
 ## Consequences
 

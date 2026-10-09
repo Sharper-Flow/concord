@@ -13,7 +13,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:966e52bc11ac0ecfdcf53cb854354943970c0f5dfb2cbf4796e5d60c15d5af2c",
+  "sha256": "sha256:5a3afc39fd4fc5b4d473b47c4c70da653e76afa0cc96d31ff709ef312c68d6dc",
   "status": "published",
   "summary": "Navigation entry point for the Concord documentation set. States the reading order, names the companion documents and their roles, and records the current status of the set.",
   "tags": [

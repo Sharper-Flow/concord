@@ -511,7 +511,7 @@ routeDeclaration("composes implementation and independent review through one ord
       if (toolName === "concord_work_transition" && args.input.action_id === "dispatch_worker") expect(sessionDirectory).toBe(worktree)
       return invokeConcordOperation(toolName, args as any, callContext, sessionDirectory)
     }
-    const transition = (version: number, actionID: string, idempotencyKey: string, fields: Record<string, unknown>) => invoke("concord_work_transition", { operation: "workflow_action", input: { work_id: workID, expected_version: version, action_id: actionID, idempotency_key: idempotencyKey, fields } }, context)
+    const transition = (version: number, actionID: string, idempotencyKey: string, fields: Record<string, unknown>): Promise<JSONRecord> => invoke("concord_work_transition", { operation: "workflow_action", input: { work_id: workID, expected_version: version, action_id: actionID, idempotency_key: idempotencyKey, fields } }, context)
 
     await driveWorkflowToContract(workID, invoke, context, APPROVED_OBJECTIVE, [predicate], ["verification", "review"])
 

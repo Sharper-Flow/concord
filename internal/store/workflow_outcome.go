@@ -685,24 +685,19 @@ func WorkflowActorRef(actor WorkflowActor) (string, error) {
 	return "actor:" + hex.EncodeToString(sum[:]), nil
 }
 
-// ValidateDistinctWorkflowActors enforces CD-0013 D5 evaluator-actor
-// distinctness unconditionally, and the CD-0017 D6 readback-model dimension
-// when the owning workflow declares independent evaluation. D6 is available to
-// every workflow and mandatory for none, so the declared flag is supplied by
-// the caller from the workflow definition.
-func ValidateDistinctWorkflowActors(executing, verdict WorkflowActor, requireModelDistinct bool) error {
-	return validateDistinctWorkflowActorsWithReference(executing, verdict, requireModelDistinct, ValidReference)
-}
-
+// validateDistinctWorkflowActorsForReplay enforces CD-0013 D5
+// evaluator-actor distinctness unconditionally, and the CD-0017 D6
+// readback-model dimension when the owning workflow declares independent
+// evaluation. D6 is available to every workflow and mandatory for none, so
+// the declared flag is supplied by the caller from the workflow definition.
+// Every caller validates actor rows read from persisted projections, so the
+// reference rule is the replay rule: replay must read every actor any past
+// admission rule accepted.
 func validateDistinctWorkflowActorsForReplay(executing, verdict WorkflowActor, requireModelDistinct bool) error {
-	return validateDistinctWorkflowActorsWithReference(executing, verdict, requireModelDistinct, replayValidReference)
-}
-
-func validateDistinctWorkflowActorsWithReference(executing, verdict WorkflowActor, requireModelDistinct bool, validReference func(string) bool) error {
-	if err := validateWorkflowActorWithReference(executing, validReference); err != nil {
+	if err := validateWorkflowActorWithReference(executing, replayValidReference); err != nil {
 		return err
 	}
-	if err := validateWorkflowActorWithReference(verdict, validReference); err != nil {
+	if err := validateWorkflowActorWithReference(verdict, replayValidReference); err != nil {
 		return err
 	}
 	if err := ValidateWorkflowActorModel(executing.Model); err != nil {

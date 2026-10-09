@@ -592,8 +592,19 @@ func canonicalWorkflowDefinitionWithReference(definition WorkflowDefinition, val
 	return json.Marshal(manifest)
 }
 
+// workflowDefinitionDigest hashes one canonical manifest. Every digest path
+// shares this helper so the hash never forks.
+func workflowDefinitionDigest(canonical []byte) string {
+	sum := sha256.Sum256(canonical)
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
 func WorkflowDefinitionDigest(definition WorkflowDefinition) (string, error) {
-	return workflowDefinitionDigestWithReference(definition, ValidReference)
+	canonical, err := CanonicalWorkflowDefinition(definition)
+	if err != nil {
+		return "", err
+	}
+	return workflowDefinitionDigest(canonical), nil
 }
 
 func workflowDefinitionDigestWithReference(definition WorkflowDefinition, validReference func(string) bool) (string, error) {
@@ -601,8 +612,7 @@ func workflowDefinitionDigestWithReference(definition WorkflowDefinition, validR
 	if err != nil {
 		return "", err
 	}
-	sum := sha256.Sum256(canonical)
-	return "sha256:" + hex.EncodeToString(sum[:]), nil
+	return workflowDefinitionDigest(canonical), nil
 }
 
 func normalizeWorkflowDefinition(definition WorkflowDefinition) WorkflowDefinition {

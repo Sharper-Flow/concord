@@ -590,7 +590,11 @@ const GeneratedEnvelopeSchemaDocument = `{
                   {
                     "properties": {
                       "adapter_reason": {
-                        "const": "invalid_request_wrapper"
+                        "enum": [
+                          "invalid_request_wrapper",
+                          "invalid_cli_input"
+                        ],
+                        "type": "string"
                       }
                     },
                     "required": [
@@ -613,7 +617,11 @@ const GeneratedEnvelopeSchemaDocument = `{
               "error": {
                 "properties": {
                   "adapter_reason": {
-                    "const": "invalid_request_wrapper"
+                    "enum": [
+                      "invalid_request_wrapper",
+                      "invalid_cli_input"
+                    ],
+                    "type": "string"
                   },
                   "effect_state": {
                     "const": "none"
@@ -2798,6 +2806,7 @@ const GeneratedEnvelopeSchemaDocument = `{
             "worker_abandon_refused",
             "worker_abandon_receipt_failed",
             "lane_tool_refusal",
+            "invalid_cli_input",
             "invalid_request_wrapper"
           ],
           "type": "string"

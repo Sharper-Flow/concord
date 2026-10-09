@@ -1605,6 +1605,7 @@
             "worker_abandon_refused",
             "worker_abandon_receipt_failed",
             "lane_tool_refusal",
+            "invalid_cli_input",
             "invalid_request_wrapper"
           ],
           "type": "string"
@@ -2980,7 +2981,7 @@
                   },
                   {
                     "required": ["adapter_reason"],
-                    "properties": { "adapter_reason": { "const": "invalid_request_wrapper" } }
+                    "properties": { "adapter_reason": { "type": "string", "enum": ["invalid_request_wrapper", "invalid_cli_input"] } }
                   }
                 ]
               }
@@ -2992,7 +2993,7 @@
                 "required": ["kind", "adapter_reason", "effect_state", "retry_safe", "recovery_action"],
                 "properties": {
                   "kind": { "const": "invalid_input" },
-                  "adapter_reason": { "const": "invalid_request_wrapper" },
+                  "adapter_reason": { "type": "string", "enum": ["invalid_request_wrapper", "invalid_cli_input"] },
                   "effect_state": { "const": "none" },
                   "retry_safe": { "const": false },
                   "recovery_action": {

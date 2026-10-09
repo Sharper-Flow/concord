@@ -444,15 +444,16 @@ func TestQueryQ9StructuredTextRankingIsCursorSafe(t *testing.T) {
 	if err != nil || len(first.Items) != 1 || first.Items[0].ID != "sqlite" || first.NextCursor == nil {
 		t.Fatalf("first page = %#v, err %v", first, err)
 	}
-	firstCursor, err := decodeKnowledgeCursor(*first.NextCursor, Q9Request{Text: "SQLITE", Limit: 1, Home: home}, nil, nil)
-	if err != nil || firstCursor.Version != 2 || firstCursor.MatchClass != 0 {
+	digest := knowledgeSourceSetDigest([]KnowledgeHome{home})
+	firstCursor, err := decodeFederatedKnowledgeCursor(*first.NextCursor, Q9Request{Text: "SQLITE", Limit: 1, Home: home}, nil, nil, digest)
+	if err != nil || firstCursor.Version != 3 || firstCursor.MatchClass != 0 {
 		t.Fatalf("first cursor = %#v, err %v", firstCursor, err)
 	}
 	second, err := s.QueryQ9(ctx, Q9Request{Text: "SQLITE", Limit: 1, Cursor: *first.NextCursor, Home: home})
 	if err != nil || len(second.Items) != 1 || second.Items[0].ID != "newer-text" || second.NextCursor == nil {
 		t.Fatalf("second page = %#v, err %v", second, err)
 	}
-	secondCursor, err := decodeKnowledgeCursor(*second.NextCursor, Q9Request{Text: "SQLITE", Limit: 1, Home: home}, nil, nil)
+	secondCursor, err := decodeFederatedKnowledgeCursor(*second.NextCursor, Q9Request{Text: "SQLITE", Limit: 1, Home: home}, nil, nil, digest)
 	if err != nil || secondCursor.MatchClass != 1 {
 		t.Fatalf("second cursor = %#v, err %v", secondCursor, err)
 	}
@@ -464,12 +465,11 @@ func TestQueryQ9StructuredTextRankingIsCursorSafe(t *testing.T) {
 	if err != nil || len(fourth.Items) != 0 || fourth.NextCursor != nil {
 		t.Fatalf("fourth page = %#v, err %v", fourth, err)
 	}
-	legacy, err := encodeKnowledgeCursor(knowledgeCursor{Version: 1, Text: "SQLITE", HomeProjectID: home.HomeProjectID, HomeLocatorID: home.HomeLocatorID, HeadRef: home.HeadRef, CompletedAt: first.Items[0].CompletedAt, ID: first.Items[0].ID})
-	if err != nil {
-		t.Fatal(err)
+	for _, version := range []int{1, 2} {
+		legacy := base64.RawURLEncoding.EncodeToString([]byte(fmt.Sprintf(`{"version":%d,"Text":"SQLITE","HomeProjectID":"project","HomeLocatorID":"locator","HeadRef":"HEAD","match_class":0,"CompletedAt":"2026-08-08T00:00:00Z","ID":"sqlite"}`, version)))
+		_, err = s.QueryQ9(ctx, Q9Request{Text: "SQLITE", Limit: 1, Cursor: legacy, Home: home})
+		assertFailureKind(t, err, KindInvalidCursor)
 	}
-	_, err = s.QueryQ9(ctx, Q9Request{Text: "SQLITE", Limit: 1, Cursor: legacy, Home: home})
-	assertFailureKind(t, err, KindInvalidCursor)
 	_, err = s.QueryQ9(ctx, Q9Request{Text: "SQLITE", Limit: 1, Cursor: withCursorKey(t, *first.NextCursor, "Since", "2026-08-09T00:00:00Z"), Home: home})
 	assertFailureKind(t, err, KindInvalidCursor)
 	_, err = s.QueryQ9(ctx, Q9Request{Text: "SQLITE", Limit: 1, Cursor: withCursorSuffix(t, *first.NextCursor, " {}"), Home: home})

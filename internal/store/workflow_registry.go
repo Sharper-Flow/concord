@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"unicode"
 )
 
 // WorkKind identifies a work class in the code-owned v1 workflow-definition
@@ -372,7 +373,7 @@ func (r *workflowDefinitionRegistry) Verify(ref string, version int64, digest st
 	if !ok {
 		return definitionFailure(KindDefinitionDigestMismatch, "pinned workflow definition is not registered")
 	}
-	computed, err := WorkflowDefinitionDigest(entry.Definition)
+	computed, err := workflowDefinitionDigestWithReference(entry.Definition, replayValidReference)
 	if err != nil {
 		return err
 	}
@@ -406,6 +407,10 @@ func validWorkflowID(value string) bool  { return workflowIDPattern.MatchString(
 func validWorkflowRef(value string) bool { return workflowRefPattern.MatchString(value) }
 
 func ValidateWorkflowDefinition(definition WorkflowDefinition) error {
+	return validateWorkflowDefinitionWithReference(definition, ValidReference)
+}
+
+func validateWorkflowDefinitionWithReference(definition WorkflowDefinition, validReference func(string) bool) error {
 	if !validWorkflowRef(definition.Ref) || definition.Version < 1 || definition.Version > 2147483647 || !validWorkKind(definition.WorkKind) {
 		return definitionFailure(KindInvalidDefinition, "definition identity or work kind is invalid")
 	}
@@ -504,7 +509,7 @@ func ValidateWorkflowDefinition(definition WorkflowDefinition) error {
 		return definitionFailure(KindInvalidDefinition, "definition evidence, outcome, rigor, staleness, or composition rules are invalid")
 	}
 	for _, rule := range definition.StalenessRules {
-		if !validWorkflowID(rule.ID) || !validWorkflowRef(rule.InputRef) && !ValidReference(rule.InputRef) || (rule.Severity != "warning" && rule.Severity != "block") {
+		if !validWorkflowID(rule.ID) || !validWorkflowRef(rule.InputRef) && !validReference(rule.InputRef) || (rule.Severity != "warning" && rule.Severity != "block") {
 			return definitionFailure(KindInvalidDefinition, "staleness rule is invalid")
 		}
 	}
@@ -546,7 +551,11 @@ func graphHasCycle(adjacency map[string][]string, steps map[string]WorkflowStep)
 const workflowDefinitionSchemaVersion = "1.3"
 
 func CanonicalWorkflowDefinition(definition WorkflowDefinition) ([]byte, error) {
-	if err := ValidateWorkflowDefinition(definition); err != nil {
+	return canonicalWorkflowDefinitionWithReference(definition, ValidReference)
+}
+
+func canonicalWorkflowDefinitionWithReference(definition WorkflowDefinition, validReference func(string) bool) ([]byte, error) {
+	if err := validateWorkflowDefinitionWithReference(definition, validReference); err != nil {
 		return nil, err
 	}
 	// json.Marshal follows the field order below. The digest is deliberately not
@@ -584,7 +593,11 @@ func CanonicalWorkflowDefinition(definition WorkflowDefinition) ([]byte, error) 
 }
 
 func WorkflowDefinitionDigest(definition WorkflowDefinition) (string, error) {
-	canonical, err := CanonicalWorkflowDefinition(definition)
+	return workflowDefinitionDigestWithReference(definition, ValidReference)
+}
+
+func workflowDefinitionDigestWithReference(definition WorkflowDefinition, validReference func(string) bool) (string, error) {
+	canonical, err := canonicalWorkflowDefinitionWithReference(definition, validReference)
 	if err != nil {
 		return "", err
 	}
@@ -1185,12 +1198,30 @@ func validActionExecutionMode(value ActionExecutionMode) bool {
 // drift apart.
 const WorkflowPremiseMaxLength = 4096
 
-// ValidReference reports whether a workflow reference list item is storable.
+// ValidReference reports whether a new workflow reference is admissible.
 // The generated continuity read schema carries the same rule in
 // $defs/reference; internal/agent's round-trip test fails when the two drift
 // apart.
 func ValidReference(value string) bool {
+	if len(value) < 2 || len(value) > 128 {
+		return false
+	}
+	for _, char := range value {
+		if unicode.IsSpace(char) {
+			return false
+		}
+	}
+	return true
+}
+
+// replayValidReference preserves the reference rule that admitted stored events.
+func replayValidReference(value string) bool {
 	return len(value) >= 2 && len(value) <= 128 && !strings.ContainsAny(value, " \t\r\n")
+}
+
+// replayValidReferenceSchema preserves the prior Go RE2 ^\S+$ schema rule.
+func replayValidReferenceSchema(value string) bool {
+	return len(value) >= 2 && len(value) <= 128 && !strings.ContainsAny(value, " \t\n\f\r")
 }
 func containsString(values []string, want string) bool {
 	for _, value := range values {

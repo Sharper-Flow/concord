@@ -286,7 +286,7 @@ func validateRejectCorrectionPinValues(payload json.RawMessage, evidenceRefs []s
 	if err := validateWorkflowOpenFindingsPayload(fields); err != nil {
 		return err
 	}
-	fault := workflowCorrectionSchemaValuesFault(workflowFieldStrings(fields, "predicate_ids"), workflowFieldStrings(fields, "evidence_refs"), evidenceRefs)
+	fault := workflowCorrectionSchemaValuesFaultForAdmission(workflowFieldStrings(fields, "predicate_ids"), workflowFieldStrings(fields, "evidence_refs"), evidenceRefs)
 	if fault == "" {
 		return nil
 	}
@@ -1612,7 +1612,7 @@ func correctionReferenceStrings(values []string) []string {
 	out := make([]string, 0, len(values))
 	seen := make(map[string]struct{}, len(values))
 	for _, value := range values {
-		if !ValidReference(value) {
+		if !replayValidReference(value) {
 			continue
 		}
 		if _, duplicate := seen[value]; duplicate {

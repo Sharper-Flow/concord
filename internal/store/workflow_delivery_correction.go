@@ -4,8 +4,11 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/url"
 	"time"
+
+	"github.com/sharper-flow/concord/internal/payloadschema"
 )
 
 // DeliveryEvidenceSourceCoordinatorAsserted is the closed provenance value
@@ -73,6 +76,9 @@ func ApplyWorkflowDeliveryCorrectionTx(ctx context.Context, tx *Transaction, req
 	if err != nil {
 		return ApplyOperationResult{}, err
 	}
+	if err := validateMergeEvidenceAdmission(request.DeliveryArtifact, "$.delivery_artifact"); err != nil {
+		return ApplyOperationResult{}, newFailure(KindInvalidPayload, "workflow_delivery_correction", fmt.Sprintf("delivery_artifact is invalid: %v", err), false, "supply a schema-valid https merge reference")
+	}
 	if request.OccurredAt.IsZero() {
 		request.OccurredAt = tx.now()
 	}
@@ -136,8 +142,11 @@ func foldWorkflowDeliveryCorrected(ctx context.Context, tx *sql.Tx, event Event)
 		return err
 	}
 	if !workflowString(p.TargetEventID, 256) || p.TargetSeq <= 0 || p.TargetPayloadVersion <= 0 || !workflowString(p.Reason, 1024) ||
-		!ValidReference(p.DeliveryArtifact) || p.DeliveryState != "asserted" || p.EvidenceSource != DeliveryEvidenceSourceCoordinatorAsserted {
+		p.DeliveryState != "asserted" || p.EvidenceSource != DeliveryEvidenceSourceCoordinatorAsserted {
 		return newFailure(KindInvalidPayload, "fold_event", "delivery correction has incomplete or unbounded fields", false, "supply the target identity, version, reason, merge evidence, and coordinator provenance")
+	}
+	if !replayValidReference(p.DeliveryArtifact) {
+		return newFailure(KindInvalidPayload, "fold_event", "delivery_artifact is not a reference admitted by a supported historical rule", false, "supply a bounded delivery reference")
 	}
 	if p.ApprovalRef == "" || !validDigest(p.ApprovalOperationDigest) || p.ApprovalScopeJSON == "" || p.ApprovalVersionsJSON == "" || p.ApprovalConsequence == "" {
 		return newFailure(KindInvalidPayload, "fold_event", "delivery correction carries no complete operator approval binding", false, "request the core operator approval for this correction")
@@ -167,8 +176,8 @@ func foldWorkflowDeliveryCorrected(ctx context.Context, tx *sql.Tx, event Event)
 	if targetArtifact == p.DeliveryArtifact {
 		return newFailure(KindInvalidOperation, "fold_event", "delivery correction restates the asserted artifact", false, "supply the merged delivery evidence the assertion is missing")
 	}
-	if !validMergeEvidenceReference(p.DeliveryArtifact) {
-		return newFailure(KindInvalidPayload, "fold_event", "delivery correction merge evidence is not an external merge reference", false, "supply the https merge URL the coordinator asserts, not a repository path")
+	if !replayValidMergeEvidenceReference(p.DeliveryArtifact) {
+		return newFailure(KindInvalidPayload, "fold_event", "delivery_artifact does not match a supported merge_evidence rule", false, "supply the https merge URL the coordinator asserts, not a repository path")
 	}
 	latestSeq, err := workflowLatestDeliveryAssertionSeqTx(ctx, tx, event.SubjectID)
 	if err != nil {
@@ -335,14 +344,44 @@ func effectiveDeliveryArtifact(assertion *WorkflowReadDeliveryAssertion) string 
 	return assertion.Artifact
 }
 
-// validMergeEvidenceReference reports whether a coordinator-supplied merge
-// evidence value is an absolute https URL. A repository path cannot carry a
-// merge: admitting one would present an in-repo path as the proof of an
-// out-of-repo merge the core never verified. The generated contract carries
-// the same rule in $defs/merge_evidence.
-func validMergeEvidenceReference(value string) bool {
+func mergeEvidenceSchemaParts() (map[string]any, map[string]any, string, error) {
+	document := payloadschema.Document()
+	definitions, _ := document["$defs"].(map[string]any)
+	reference, _ := definitions["reference"].(map[string]any)
+	mergeEvidence, _ := definitions["merge_evidence"].(map[string]any)
+	pattern, _ := mergeEvidence["pattern"].(string)
+	if reference == nil || pattern == "" {
+		return nil, nil, "", fmt.Errorf("published merge_evidence schema is incomplete")
+	}
+	return document, reference, pattern, nil
+}
+
+// validMergeEvidenceURLSyntax applies the URL pattern owned by the published schema.
+func validMergeEvidenceURLSyntax(value string) bool {
+	document, _, pattern, err := mergeEvidenceSchemaParts()
+	if err != nil {
+		return false
+	}
+	return payloadschema.ValidateValue(value, map[string]any{"pattern": pattern}, document, "$") == nil
+}
+
+func validateMergeEvidenceAdmission(value, path string) error {
+	document, reference, pattern, err := mergeEvidenceSchemaParts()
+	if err != nil {
+		return err
+	}
+	if err := payloadschema.ValidateValue(value, reference, document, path); err != nil {
+		return err
+	}
+	return payloadschema.ValidateValue(value, map[string]any{"pattern": pattern}, document, path)
+}
+
+// replayValidMergeEvidenceReference keeps legacy URLs readable and accepts
+// URLs admitted by the current published syntax.
+func replayValidMergeEvidenceReference(value string) bool {
 	parsed, err := url.Parse(value)
-	return err == nil && parsed.Scheme == "https" && parsed.Host != "" && parsed.User == nil
+	legacy := err == nil && parsed.Scheme == "https" && parsed.Host != "" && parsed.User == nil
+	return legacy || validMergeEvidenceURLSyntax(value)
 }
 
 // workflowDeliveryCorrectionRegisteredVersion returns the registry's current

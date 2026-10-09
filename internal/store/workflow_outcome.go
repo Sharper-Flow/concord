@@ -493,7 +493,7 @@ func evaluateWorkflowOutcomePredicateCore(approved, delivered OutcomePredicate, 
 		if context.ExecutingActor == nil || context.VerdictActor == nil {
 			return WorkflowOutcomeEvaluation{}, newFailure(KindUnauthorized, "workflow_outcome", "evaluator actor tuple is incomplete", false, "supply complete executing and verdict actor tuples")
 		}
-		if err := ValidateDistinctWorkflowActors(*context.ExecutingActor, *context.VerdictActor, false); err != nil {
+		if err := validateDistinctWorkflowActorsForReplay(*context.ExecutingActor, *context.VerdictActor, false); err != nil {
 			return WorkflowOutcomeEvaluation{}, err
 		}
 	}
@@ -658,7 +658,11 @@ func ValidateWorkflowActorModel(model string) error {
 }
 
 func ValidateWorkflowActor(actor WorkflowActor) error {
-	if !ValidReference(actor.PrincipalRef) || !ValidReference(actor.ClientRef) || !ValidReference(actor.AgentRef) || !ValidReference(actor.SessionRef) || (actor.ActorClass != ActorAgent && actor.ActorClass != ActorOperator) {
+	return validateWorkflowActorWithReference(actor, ValidReference)
+}
+
+func validateWorkflowActorWithReference(actor WorkflowActor, validReference func(string) bool) error {
+	if !validReference(actor.PrincipalRef) || !validReference(actor.ClientRef) || !validReference(actor.AgentRef) || !validReference(actor.SessionRef) || (actor.ActorClass != ActorAgent && actor.ActorClass != ActorOperator) {
 		return newFailure(KindUnauthorized, "workflow_actor", "actor tuple is incomplete or has an unknown actor class", false, "supply all four authenticated actor references")
 	}
 	if actor.ActorRef != "" && actor.ActorRef != DeriveWorkflowActorRef(actor.PrincipalRef, actor.ClientRef, actor.AgentRef, actor.SessionRef) {
@@ -687,10 +691,18 @@ func WorkflowActorRef(actor WorkflowActor) (string, error) {
 // every workflow and mandatory for none, so the declared flag is supplied by
 // the caller from the workflow definition.
 func ValidateDistinctWorkflowActors(executing, verdict WorkflowActor, requireModelDistinct bool) error {
-	if err := ValidateWorkflowActor(executing); err != nil {
+	return validateDistinctWorkflowActorsWithReference(executing, verdict, requireModelDistinct, ValidReference)
+}
+
+func validateDistinctWorkflowActorsForReplay(executing, verdict WorkflowActor, requireModelDistinct bool) error {
+	return validateDistinctWorkflowActorsWithReference(executing, verdict, requireModelDistinct, replayValidReference)
+}
+
+func validateDistinctWorkflowActorsWithReference(executing, verdict WorkflowActor, requireModelDistinct bool, validReference func(string) bool) error {
+	if err := validateWorkflowActorWithReference(executing, validReference); err != nil {
 		return err
 	}
-	if err := ValidateWorkflowActor(verdict); err != nil {
+	if err := validateWorkflowActorWithReference(verdict, validReference); err != nil {
 		return err
 	}
 	if err := ValidateWorkflowActorModel(executing.Model); err != nil {

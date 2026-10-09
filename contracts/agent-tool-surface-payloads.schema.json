@@ -2753,6 +2753,331 @@
         }
       }
     },
+    "work_context_reading_source_repository_file": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "project_id",
+        "path",
+        "commit_oid"
+      ],
+      "properties": {
+        "kind": {
+          "const": "repository_file"
+        },
+        "project_id": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 128
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "description": "A normalized relative repository-contained path. Absolute paths, traversal segments, and a leading tmp segment refuse: the context never requires a tmp source."
+        },
+        "commit_oid": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40,64}$"
+        }
+      }
+    },
+    "work_context_reading_source_knowledge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "source_id",
+        "law_id",
+        "content_hash"
+      ],
+      "properties": {
+        "kind": {
+          "const": "knowledge"
+        },
+        "source_id": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 128
+        },
+        "law_id": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 256
+        },
+        "content_hash": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "description": "The store's law-revision content hash identity."
+        }
+      }
+    },
+    "work_context_reading": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "domain_id",
+        "reason",
+        "source"
+      ],
+      "properties": {
+        "domain_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "description": "A current Domain of the Product registry, validated against the registry and the approved affected scope at admission."
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 512,
+          "pattern": "\\S"
+        },
+        "product_wide_rationale": {
+          "type": "string",
+          "maxLength": 512,
+          "description": "Required exactly when domain_id names the registry's root Domain; a child Domain never carries one."
+        },
+        "source": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/work_context_reading_source_repository_file"
+            },
+            {
+              "$ref": "#/$defs/work_context_reading_source_knowledge"
+            }
+          ]
+        }
+      }
+    },
+    "work_context_finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "statement",
+        "subject_ref",
+        "evidence_refs",
+        "domain_id"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "observation",
+            "inference",
+            "hypothesis",
+            "rejected_approach",
+            "open_question",
+            "contradiction",
+            "direction"
+          ]
+        },
+        "statement": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024
+        },
+        "subject_ref": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "description": "The author's claim about what the finding concerns; never dispatch-owned subject identity."
+        },
+        "evidence_refs": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 8,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          }
+        },
+        "domain_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "description": "A current Domain of the Product registry, validated against the registry and the approved affected scope at admission."
+        },
+        "product_wide_rationale": {
+          "type": "string",
+          "maxLength": 512,
+          "description": "Required exactly when domain_id names the registry's root Domain; a child Domain never carries one."
+        }
+      }
+    },
+    "work_context_finding_view": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "finding_id",
+        "kind",
+        "statement",
+        "subject_ref",
+        "evidence_refs",
+        "domain_id",
+        "origin",
+        "status",
+        "source_event_id",
+        "source_event_seq",
+        "ordinal"
+      ],
+      "properties": {
+        "finding_id": {
+          "type": "string",
+          "pattern": "^finding:[0-9]+:[0-9]+$",
+          "description": "Core-derived from the source event sequence and ordinal; never authored."
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "observation",
+            "inference",
+            "hypothesis",
+            "rejected_approach",
+            "open_question",
+            "contradiction",
+            "direction"
+          ]
+        },
+        "statement": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024
+        },
+        "subject_ref": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "evidence_refs": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 8,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          }
+        },
+        "domain_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "product_wide_rationale": {
+          "type": "string",
+          "maxLength": 512
+        },
+        "origin": {
+          "type": "string",
+          "enum": [
+            "declaration",
+            "worker_report"
+          ]
+        },
+        "status": {
+          "const": "reported",
+          "description": "A finding is a reported claim, never acceptance."
+        },
+        "source_event_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "source_event_seq": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "ordinal": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "work_context_domain_group": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "domain_id",
+        "required_reading_ordinals",
+        "finding_ids",
+        "domain_cards"
+      ],
+      "properties": {
+        "domain_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "required_reading_ordinals": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 32,
+          "items": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "finding_ids": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 32,
+          "items": {
+            "type": "string",
+            "pattern": "^finding:[0-9]+:[0-9]+$"
+          }
+        },
+        "domain_cards": {
+          "type": "array",
+          "maxItems": 0,
+          "description": "The reserved per-Domain card slot. The current foundation never generates cards."
+        }
+      }
+    },
+    "work_context_view": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_event_frontier",
+        "required_reading",
+        "findings",
+        "domain_groups"
+      ],
+      "properties": {
+        "source_event_frontier": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "The work item's maximum event sequence at read time, so a packet built from this view can be compared against current state before spawn."
+        },
+        "required_reading": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/work_context_reading"
+          }
+        },
+        "findings": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/work_context_finding_view"
+          }
+        },
+        "domain_groups": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 64,
+          "items": {
+            "$ref": "#/$defs/work_context_domain_group"
+          }
+        }
+      }
+    },
     "continuity_snapshot": {
       "type": "object",
       "additionalProperties": false,
@@ -2925,6 +3250,10 @@
             "workflow_instance": {
               "description": "Typed workflow-instance absence. Present only when the work item holds no workflow instance; the packet fabricates no step for it, and a launch never creates one.",
               "const": "absent"
+            },
+            "work_context": {
+              "$ref": "#/$defs/work_context_view",
+              "description": "CON-887: the current work-context view the tx-scoped reader assembles. Absent when the work holds no declaration and no terminal-report findings; a view past its bounds leaves this absent and the dedicated context read owns the refusal."
             }
           }
         },
@@ -12643,6 +12972,68 @@
                     },
                     "minItems": 1,
                     "maxItems": 8
+                  }
+                }
+              }
+            },
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "selected_choice"
+                  ]
+                },
+                {
+                  "required": [
+                    "decision_context_digest"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action_id": {
+                "const": "record_work_context"
+              }
+            },
+            "required": [
+              "action_id"
+            ]
+          },
+          "then": {
+            "properties": {
+              "fields": {
+                "type": "object",
+                "additionalProperties": false,
+                "maxProperties": 32,
+                "properties": {
+                  "required_reading": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/work_context_reading"
+                    },
+                    "minItems": 0,
+                    "maxItems": 32
+                  },
+                  "finding_refs": {
+                    "type": "array",
+                    "uniqueItems": true,
+                    "items": {
+                      "$ref": "#/$defs/reference"
+                    },
+                    "minItems": 0,
+                    "maxItems": 32
+                  },
+                  "context_findings": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/work_context_finding"
+                    },
+                    "minItems": 0,
+                    "maxItems": 16
                   }
                 }
               }

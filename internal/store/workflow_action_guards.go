@@ -1375,7 +1375,7 @@ func assembleWorkflowActionEventsTx(ctx context.Context, tx *sql.Tx, in workflow
 // completed-action fold never moves the step on them, whatever execution mode
 // a pinned definition declares (CD-0112 D1).
 func workflowActionOmitsGenericCompletion(actionID string) bool {
-	return actionID == "checkpoint_context" || actionID == "cross_context_boundary" || actionID == "supersede_contract"
+	return actionID == "checkpoint_context" || actionID == "cross_context_boundary" || actionID == "supersede_contract" || actionID == "record_work_context"
 }
 
 // workflowActionAdvancesStep reports whether a completed action moves the

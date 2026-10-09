@@ -1250,3 +1250,83 @@ func genericOneOffRecoveryRoutesV14() WorkflowDefinition {
 	d.RecoveryRoutes = genericOneOffRecoveryRoutes()
 	return d
 }
+
+// withWorkContext publishes the CON-887 work-context action:
+// record_work_context joins every step except the delivery gates, so a
+// coordinator declares the durable working context wherever the work stands.
+// The delivery-gate reader (workflowStepIsDeliveryGate, pinned by
+// workflow_dispatch.go and its scenario corpus) holds the gate steps at a
+// closed four-action shape ending in the continuity pair, so the work-context
+// action stays off them rather than widening that closed shape here. On the
+// steps it joins it sits immediately before the trailing continuity pair.
+// The declaration's Domain validation, finding-reference resolution, and
+// fold live in work_context.go; the behavior this version gates is the
+// action's presence on the definition.
+func withWorkContext(definition WorkflowDefinition) WorkflowDefinition {
+	definition = cloneWorkflowDefinition(definition)
+	record := currentActionDefinition("record_work_context", true)
+	definition.AvailableActions = append(definition.AvailableActions, record.ID)
+	definition.ActionDefinitions = append(definition.ActionDefinitions, record)
+	for i := range definition.StepGraph.Steps {
+		actions := definition.StepGraph.Steps[i].Actions
+		if workflowStepIsDeliveryGate(&WorkflowStep{Actions: actions}) {
+			continue
+		}
+		at := len(actions)
+		if at >= 2 && actions[at-2] == "checkpoint_context" && actions[at-1] == "cross_context_boundary" {
+			at -= 2
+		}
+		expanded := make([]string, 0, len(actions)+1)
+		expanded = append(expanded, actions[:at]...)
+		expanded = append(expanded, record.ID)
+		expanded = append(expanded, actions[at:]...)
+		definition.StepGraph.Steps[i].Actions = expanded
+	}
+	return definition
+}
+
+// Each builder below ships the record_work_context action at its family's
+// next version. The definition content stays the predecessor's; the only
+// content change is the work-context action joining every step, so every
+// released version above keeps its digest.
+func implementationWorkContextV25() WorkflowDefinition {
+	d := implementationWorkerJobsV24()
+	d.Version = 25
+	return withWorkContext(d)
+}
+
+func breakFixWorkContextV22() WorkflowDefinition {
+	d := breakFixWorkerJobsV21()
+	d.Version = 22
+	return withWorkContext(d)
+}
+
+func researchWorkContextV15() WorkflowDefinition {
+	d := researchRecoveryRoutesV14()
+	d.Version = 15
+	return withWorkContext(d)
+}
+
+func architectureWorkContextV16() WorkflowDefinition {
+	d := architectureRecoveryRoutesV15()
+	d.Version = 16
+	return withWorkContext(d)
+}
+
+func opsRunbookWorkContextV17() WorkflowDefinition {
+	d := opsRunbookRecoveryRoutesV16()
+	d.Version = 17
+	return withWorkContext(d)
+}
+
+func staticAnalysisWorkContextV14() WorkflowDefinition {
+	d := staticAnalysisRecoveryRoutesV13()
+	d.Version = 14
+	return withWorkContext(d)
+}
+
+func genericOneOffWorkContextV15() WorkflowDefinition {
+	d := genericOneOffRecoveryRoutesV14()
+	d.Version = 15
+	return withWorkContext(d)
+}

@@ -40,6 +40,7 @@ const (
 	WorkflowConditionCancelled       = "workflow.condition_cancelled"
 	WorkflowContextCheckpointed      = "workflow.context_checkpointed"
 	WorkflowContextBoundaryCrossed   = "workflow.context_boundary_crossed"
+	WorkflowWorkContextRecorded      = "workflow.work_context_recorded"
 	WorkflowProposalRecorded         = "workflow.proposal_recorded"
 	WorkflowDesignRecorded           = "workflow.design_recorded"
 	WorkflowBacklogAlignmentRecorded = "workflow.backlog_alignment_recorded"

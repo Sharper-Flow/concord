@@ -46,12 +46,25 @@ const (
 	workerCompletedWorkerJobVersion  = 4
 )
 
+// workerCompletedContextFindingsVersion and workerFailedContextFindingsVersion
+// are the payload versions at which each terminal worker event kind may first
+// carry typed context findings (CON-887). A stored or supplied event whose
+// recorded source version sits below the boundary cannot carry
+// context_findings bytes: the field did not exist when that version was
+// released, so any bytes that name it are fabricated worker claims that no
+// store ever recorded. The fold rejects them closed so the live boundary and
+// log-ordered replay enforce one rule.
+const (
+	workerCompletedContextFindingsVersion = 5
+	workerFailedContextFindingsVersion    = 2
+)
+
 // WorkerEvidenceEventPayloadVersion resolves the payload version the event
 // registry currently owns for the named worker evidence kind (CD-0205), so
 // callers at the emission boundary — the CLI command routes in
 // cmd/concord, and the fixture helpers in this package — cannot hand-write a
-// competing version that drifts from the registry. WorkerFailed has no job
-// capability and is registered at version 1.
+// competing version that drifts from the registry. WorkerFailed is registered
+// at version 2, the findings-capable payload (CON-887).
 func WorkerEvidenceEventPayloadVersion(kind string) int {
 	switch kind {
 	case WorkerDispatched, WorkerCompleted, WorkerFailed:
@@ -268,6 +281,14 @@ type WorkerCompletedPayload struct {
 	// dispatched under, and requires its absence when the dispatch bound no
 	// job, so a report can claim neither another job nor a later revision.
 	WorkerJob *WorkerJobBinding `json:"worker_job,omitempty"`
+	// ContextFindings is the optional typed context content the worker
+	// reported on its terminal report (CON-887). A finding is worker-claimed
+	// content only: it joins no obligation vocabulary, discharges no
+	// predicate, and records no verdict. subject_ref is the worker's claim
+	// about what a finding concerns, never dispatch-owned subject identity.
+	// Nil (absent) and empty are both legal; an over-bound array is refused
+	// whole, never truncated.
+	ContextFindings []WorkerContextFinding `json:"context_findings,omitempty"`
 }
 
 type WorkerFailedPayload struct {
@@ -275,6 +296,13 @@ type WorkerFailedPayload struct {
 	ReadbackModel string `json:"readback_model"`
 	FailureKind   string `json:"failure_kind"`
 	Detail        string `json:"detail"`
+	// ContextFindings is the optional typed context content the worker
+	// reported on its terminal failure (CON-887). Only the worker-reported
+	// failure kind worker_error may retain findings: the diagnostic and host
+	// failure kinds — invalid_report, fallback_blocked, model identity and
+	// readback failures, and abandonment — carry no worker claims. Nil
+	// (absent) and empty are both legal on every kind.
+	ContextFindings []WorkerContextFinding `json:"context_findings,omitempty"`
 }
 
 // WorkerHostProvenance is the typed record of host prompt-injection surfaces
@@ -341,6 +369,9 @@ func validateWorkerCompletedPayload(_ Event, payload WorkerCompletedPayload) err
 		return err
 	}
 	if err := validateWorkerReviewBlock(payload.Review); err != nil {
+		return err
+	}
+	if err := ValidateWorkerContextFindings(payload.ContextFindings); err != nil {
 		return err
 	}
 	return validateWorkerReportEvidence(payload.EvidenceOrigin, payload.Evidence)
@@ -573,7 +604,15 @@ func validateWorkerFailedPayload(_ Event, payload WorkerFailedPayload) error {
 	if payload.AttemptID == "" || !readbackValid || !validWorkerFailureKind(payload.FailureKind) || len(payload.Detail) < 1 || len(payload.Detail) > 4096 {
 		return invalidWorkerPayload("worker.failed payload has invalid identity or failure")
 	}
-	return nil
+	// CON-887: findings are worker-reported claims, so only the
+	// worker-reported failure kind retains them. The diagnostic and host
+	// failure kinds close attempts the worker's report never validly
+	// shaped, and their payloads carry no worker claims. An absent or empty
+	// array stays legal on every kind.
+	if len(payload.ContextFindings) > 0 && payload.FailureKind != WorkerFailureWorkerError {
+		return invalidWorkerPayload("worker.failed context_findings are reserved for the worker_error failure kind")
+	}
+	return ValidateWorkerContextFindings(payload.ContextFindings)
 }
 
 func decodeClosedWorkerPayload(event Event, target any) error {
@@ -1094,6 +1133,14 @@ func foldWorkerCompleted(ctx context.Context, tx *sql.Tx, event Event) error {
 	if payload.WorkerJob != nil && event.replaySourcePayloadVersion != 0 && event.replaySourcePayloadVersion < workerCompletedWorkerJobVersion {
 		return newFailure(KindInvalidPayload, "fold_event", "worker.completed worker_job is reserved for payload version >= 4", false, "record the worker_job on the current completion payload")
 	}
+	// CON-887: context findings were introduced at the completed
+	// findings-capable payload version. A replayed event whose recorded
+	// source version sits below the boundary cannot carry context_findings
+	// bytes: any bytes that name them are fabricated worker claims that no
+	// store ever recorded.
+	if payload.ContextFindings != nil && event.replaySourcePayloadVersion != 0 && event.replaySourcePayloadVersion < workerCompletedContextFindingsVersion {
+		return newFailure(KindInvalidPayload, "fold_event", "worker.completed context_findings are reserved for payload version >= 5", false, "record the context_findings on the current completion payload")
+	}
 	attempt, err := readWorkerTerminalAttempt(ctx, tx, event, payload.AttemptID, map[string]bool{"dispatched": true})
 	if err != nil {
 		return err
@@ -1181,6 +1228,14 @@ func foldWorkerFailed(ctx context.Context, tx *sql.Tx, event Event) error {
 	var payload WorkerFailedPayload
 	if err := decodeClosedWorkerPayload(event, &payload); err != nil {
 		return err
+	}
+	// CON-887: context findings were introduced at the failed
+	// findings-capable payload version (workerFailedContextFindingsVersion).
+	// A replayed event whose recorded source version sits below the boundary
+	// cannot carry context_findings bytes: any bytes that name them are
+	// fabricated worker claims that no store ever recorded.
+	if payload.ContextFindings != nil && event.replaySourcePayloadVersion != 0 && event.replaySourcePayloadVersion < workerFailedContextFindingsVersion {
+		return newFailure(KindInvalidPayload, "fold_event", "worker.failed context_findings are reserved for payload version >= 2", false, "record the context_findings on the current failure payload")
 	}
 	// A dispatched attempt is closable by every failure kind. An in_flight
 	// binding — authorized by a dispatch_worker completion whose window was
@@ -1599,5 +1654,24 @@ func upcastWorkerDispatchedV4(event Event) (Event, error) {
 // a job claim, exactly as the worker returned it.
 func upcastWorkerCompletedV3(event Event) (Event, error) {
 	event.PayloadVersion = 4
+	return event, nil
+}
+
+// upcastWorkerCompletedV4 carries a v4 completion into the v5 payload that
+// may carry typed context findings (CON-887). v4 payloads never carried any,
+// so the upcast is the bytes unchanged at the new version: a replayed
+// completion stays a report without findings, exactly as the worker returned
+// it, and no upcaster fabricates worker claims.
+func upcastWorkerCompletedV4(event Event) (Event, error) {
+	event.PayloadVersion = 5
+	return event, nil
+}
+
+// upcastWorkerFailedV1 carries a v1 failure into the v2 payload that may
+// carry typed context findings (CON-887). v1 payloads never carried any, so
+// the upcast is the bytes unchanged at the new version: a replayed failure
+// stays the diagnostic the host recorded, with no fabricated worker claims.
+func upcastWorkerFailedV1(event Event) (Event, error) {
+	event.PayloadVersion = 2
 	return event, nil
 }

@@ -8,6 +8,69 @@ import (
 	"github.com/sharper-flow/concord/internal/testenv"
 )
 
+func TestExtractEarlyDispatch(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		source  string
+		want    []string
+		wantErr bool
+	}{
+		{"guarded route", "package fixture\nfunc run(args []string) {\n\tif len(args) > 0 && args[0] == \"repair\" {\n\t\t_ = args\n\t}\n}", []string{"repair"}, false},
+		{"literal first", "package fixture\nfunc run(args []string) {\n\tif len(args) > 0 && \"zl\" == args[0] {\n\t\t_ = args\n\t}\n}", []string{"zl"}, false},
+		{"guard after comparison", "package fixture\nfunc run(args []string) {\n\tif args[0] == \"ci-wait\" && len(args) > 0 {\n\t\t_ = args\n\t}\n}", []string{"ci-wait"}, false},
+		{"two routes", "package fixture\nfunc run(args []string) {\n\tif len(args) > 0 && args[0] == \"session\" {\n\t\t_ = args\n\t}\n\tif len(args) > 0 && args[0] == \"launcher\" {\n\t\t_ = args\n\t}\n}", []string{"launcher", "session"}, false},
+		{"exact-length flag is not a command", "package fixture\nfunc run(args []string) {\n\tif len(args) == 1 && args[0] == \"--version\" {\n\t\t_ = args\n\t}\n}", nil, false},
+		{"unguarded comparison", "package fixture\nfunc run(args []string) {\n\tif args[0] == \"solo\" {\n\t\t_ = args\n\t}\n}", nil, false},
+		{"switch case", "package fixture\nfunc run(args []string) {\n\tswitch {\n\tcase len(args) == 1 && args[0] == \"--list\":\n\t\t_ = args\n\t}\n}", nil, false},
+		{"index one is not a command", "package fixture\nfunc run(args []string) {\n\tif len(args) > 1 && args[1] == \"nested\" {\n\t\t_ = args\n\t}\n}", nil, false},
+		{"duplicate token", "package fixture\nfunc run(args []string) {\n\tif len(args) > 0 && args[0] == \"repair\" {\n\t\t_ = args\n\t}\n\tif len(args) > 0 && args[0] == \"repair\" {\n\t\t_ = args\n\t}\n}", nil, true},
+		{"missing file", "", nil, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "commands.go")
+			if err := os.WriteFile(path, []byte(tc.source), 0600); err != nil {
+				t.Fatal(err)
+			}
+			got, err := extractEarlyDispatch(path)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("unsupported source accepted: %+v", got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("extractEarlyDispatch = %v", err)
+			}
+			if len(got) != len(tc.want) {
+				t.Fatalf("extractEarlyDispatch = %+v, want %+v", got, tc.want)
+			}
+			for i := range got {
+				if got[i] != tc.want[i] {
+					t.Fatalf("extractEarlyDispatch = %+v, want %+v", got, tc.want)
+				}
+			}
+		})
+	}
+}
+
+func TestEarlyDispatchSurfaceOfConcordMain(t *testing.T) {
+	path := filepath.Join("..", "..", "cmd", "concord", "main.go")
+	got, err := extractEarlyDispatch(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"ci-wait", "continuity-block", "host-lease", "host-leases", "launcher",
+		"recover-fold-guard", "repair", "session", "upgrade", "zl"}
+	if len(got) != len(want) {
+		t.Fatalf("early dispatch surface = %+v, want %+v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("early dispatch surface = %+v, want %+v", got, want)
+		}
+	}
+}
+
 func TestMain(m *testing.M) {
 	dir := testenv.ScrubEnv()
 	code := m.Run()

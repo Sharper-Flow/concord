@@ -37,7 +37,7 @@ func beginResearchMutation(ctx context.Context, s *Store, identity ResearchMutat
 	if err := reconcileTerminalResearchOwners(ctx, s); err != nil {
 		return nil, nil, false, err
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := beginOrdinaryTx(ctx, s.db)
 	if err != nil {
 		return nil, nil, false, researchUnavailable("cannot begin research transaction", err)
 	}

@@ -121,6 +121,76 @@ func TestNonMutationEnvelopesOmitMutationMetadata(t *testing.T) {
 	}
 }
 
+func TestAdapterWrapperRefusalMarshals(t *testing.T) {
+	e := NewCoreError(NewBase("wrapper-refusal", "concord_work_browse", "list"), TypedError{Kind: "invalid_input", RetrySafe: false, RecoveryAction: RecoveryAction{Kind: "restart_query"}, EffectState: EffectNone, AdapterReason: "invalid_request_wrapper"})
+	e.Origin, e.Authority = OriginAdapter, AuthorityUnreachable
+	if _, err := e.Encode(); err != nil {
+		t.Fatalf("adapter wrapper refusal cannot marshal: %v", err)
+	}
+	e.Error.EffectState = EffectPossible
+	if err := e.Validate(); err == nil {
+		t.Fatal("pre-effect adapter input refusal accepted a possible effect")
+	}
+}
+
+func TestAdapterWrapperRefusalUnresolvedOperation(t *testing.T) {
+	e := NewCoreError(NewBase("wrapper-unresolved", "concord_work_browse", ""), TypedError{Kind: "invalid_input", RecoveryAction: RecoveryAction{Kind: "restart_query"}, EffectState: EffectNone, AdapterReason: "invalid_request_wrapper"})
+	e.Origin, e.Authority = OriginAdapter, AuthorityUnreachable
+	encoded, err := e.Encode()
+	if err != nil {
+		t.Fatalf("unresolved wrapper refusal cannot marshal: %v", err)
+	}
+	var decoded Envelope
+	if err := json.Unmarshal(encoded, &decoded); err != nil {
+		t.Fatalf("unresolved wrapper refusal cannot decode: %v", err)
+	}
+	if decoded.Operation != "" || decoded.QueryID != "" {
+		t.Fatal("unresolved wrapper refusal fabricated an operation or query")
+	}
+	for name, mutate := range map[string]func(*Envelope){
+		"core origin":       func(e *Envelope) { e.Origin = OriginCore },
+		"unknown operation": func(e *Envelope) { e.Operation = "unknown" },
+		"query identity":    func(e *Envelope) { e.QueryID = "PM1.Q1" },
+		"transport kind":    func(e *Envelope) { e.Error.Kind = "transport_failure" },
+		"other reason":      func(e *Envelope) { e.Error.AdapterReason = "missing_binary" },
+		"possible effect":   func(e *Envelope) { e.Error.EffectState = EffectPossible },
+		"retry safe":        func(e *Envelope) { e.Error.RetrySafe = true },
+		"same request":      func(e *Envelope) { e.Error.RecoveryAction.Kind = "retry_same_request" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			invalid, invalidError := e, *e.Error
+			invalid.Error = &invalidError
+			mutate(&invalid)
+			if err := invalid.Validate(); err == nil {
+				t.Fatal("invalid unresolved refusal accepted")
+			}
+		})
+	}
+}
+
+func TestAdapterWrapperRefusalAcceptedOperationCoupling(t *testing.T) {
+	for _, pair := range []struct{ tool, operation string }{{"concord_work_browse", "list"}, {"concord_work_define", "capture"}} {
+		e := NewCoreError(NewBase("wrapper-coupling", pair.tool, pair.operation), TypedError{Kind: "invalid_input", RecoveryAction: RecoveryAction{Kind: "restart_query"}, EffectState: EffectNone, AdapterReason: "invalid_request_wrapper"})
+		e.Origin, e.Authority = OriginAdapter, AuthorityUnreachable
+		for name, mutate := range map[string]func(*TypedError){
+			"transport kind":  func(e *TypedError) { e.Kind, e.RecoveryAction.Kind = "transport_failure", "contact_operator" },
+			"other reason":    func(e *TypedError) { e.AdapterReason = "missing_binary" },
+			"possible effect": func(e *TypedError) { e.EffectState = EffectPossible },
+			"retry safe":      func(e *TypedError) { e.RetrySafe = true },
+			"same request":    func(e *TypedError) { e.RecoveryAction.Kind = "retry_same_request" },
+		} {
+			t.Run(pair.tool+"/"+name, func(t *testing.T) {
+				invalid, invalidError := e, *e.Error
+				invalid.Error = &invalidError
+				mutate(invalid.Error)
+				if err := invalid.Validate(); err == nil {
+					t.Fatal("contradictory wrapper refusal accepted")
+				}
+			})
+		}
+	}
+}
+
 func TestReadOKEnvelopeRejectsMutationMetadata(t *testing.T) {
 	t.Parallel()
 	for _, populated := range []bool{false, true} {

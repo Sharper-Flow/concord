@@ -116,7 +116,7 @@ func ReadWorkflowOperatorQuestion(ctx context.Context, s *Store, workID string) 
 	if s == nil || s.db == nil {
 		return nil, newFailure(KindUnavailable, "workflow_operator_question", "store is not open", false, "open the authority database")
 	}
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	tx, err := beginReadTx(ctx, s.db)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "workflow_operator_question", "cannot open a consistent question snapshot", true, "retry once the database is readable", err)
 	}
@@ -220,7 +220,7 @@ func workflowOperatorQuestionTx(ctx context.Context, q queryer, workID, currentS
 // precondition in one read-only transaction, so the Product work-item count and
 // the investigation-ref reads see one snapshot (CD-0173 D2).
 func requireRecordedInvestigationArtifactSnapshot(ctx context.Context, s *Store, workID string) error {
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	tx, err := beginReadTx(ctx, s.db)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "workflow_operator_question", "cannot open a consistent investigation snapshot", true, "retry once the database is readable", err)
 	}

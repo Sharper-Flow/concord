@@ -643,6 +643,7 @@ function validateSchema(schema: any, value: unknown, root: any, path = "", failu
     if (schema.maxLength !== undefined && length > schema.maxLength) return fail(`carries ${length} Unicode code points against a limit of ${schema.maxLength}`)
     const bytes = Buffer.byteLength(value)
     if (schema["x-maxBytes"] !== undefined && bytes > schema["x-maxBytes"]) return fail(`carries ${bytes} UTF-8 bytes against a limit of ${schema["x-maxBytes"]}`)
+    if (schema["x-minBytes"] !== undefined && bytes < schema["x-minBytes"]) return fail(`carries ${bytes} UTF-8 bytes against a minimum of ${schema["x-minBytes"]}`)
     if (schema.pattern && !new RegExp(schema.pattern).test(value)) return fail(`does not match ${schema.pattern}`)
   }
   if (typeof value === "number") {
@@ -694,6 +695,23 @@ function validateSchema(schema: any, value: unknown, root: any, path = "", failu
     if (matched.length !== 1) {
       const reasons = branchFailures.flatMap((reasons_, index) => reasons_.map((reason) => `branch ${index}: ${reason}`))
       return fail(`matches ${matched.length} oneOf branches ([${matched.join(", ")}]); exactly one is required${reasons.length > 0 ? `: ${reasons.slice(0, 8).join("; ")}` : ""}`)
+    }
+  }
+  // anyOf admits at least one branch, mirroring the store's payload validator.
+  // The published action variants carry their cross-field exclusions as
+  // not.anyOf members, so a validator without anyOf would vacuously match
+  // every not and refuse every legal call (CON-412).
+  if (Array.isArray(schema.anyOf)) {
+    const branchFailures: string[][] = []
+    const matched: number[] = []
+    for (const [index, branch] of schema.anyOf.entries()) {
+      const branchFailure: string[] = []
+      if (validateSchema(branch, value, root, path, branchFailure)) matched.push(index)
+      branchFailures.push(branchFailure)
+    }
+    if (matched.length < 1) {
+      const reasons = branchFailures.flatMap((reasons_, index) => reasons_.map((reason) => `branch ${index}: ${reason}`))
+      return fail(`matches ${matched.length} anyOf branches; at least one is required${reasons.length > 0 ? `: ${reasons.slice(0, 8).join("; ")}` : ""}`)
     }
   }
   // if/then/else applies exactly one branch: then when the condition holds,

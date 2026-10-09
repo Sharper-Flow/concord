@@ -103,10 +103,15 @@ that decision. Prior approval covers the same unchanged scope.
 Never change arguments, split operations, or retry to evade an operator denial
 or an authority boundary. A rejected operator decision stays rejected.
 
-A pre-effect `invalid_input` is not an operator decision. When `effect_state`
-is `none`, read the tool contract, identify the invalid fields, and correct the
-arguments within the approved scope. Do not repeat the unchanged invalid
-request. Input correction grants no authority and does not bypass admission.
+A pre-effect `invalid_input` is not an operator decision. Correction belongs
+to the caller only when the served refusal carries the correction triple: kind
+`invalid_input`, `effect_state` `none`, `recovery_action` `correct_request`,
+and `retry_safe` false. Then read the tool contract, identify the invalid
+fields, and correct the arguments within the approved scope. A served
+`restart_query`, a retry recovery, or an operator contact keeps its declared
+route: no-effect alone and retry classification alone grant no correction
+authority. Do not repeat the unchanged invalid request. Input correction
+grants no authority and does not bypass admission.
 
 ## Refusal handling
 

@@ -29,7 +29,28 @@ type WorkPin struct {
 	// It stays nil when a question is open and when the step has none.
 	WithheldOperatorDecision *WorkflowOperatorQuestionWithheld `json:"withheld_operator_decision,omitempty"`
 	Watermark                string                            `json:"watermark"`
-	NextValidIntents         []WorkPinIntent                   `json:"next_valid_intents"`
+	// WorkflowDefinitionVersion and WorkflowDefinitionDigest carry the
+	// identity of the pinned definition the registry verified for this pin.
+	// They come from the same instance-row read and the same
+	// verifyReadWorkflowDefinition call the pin's intents derive from, so a
+	// caller can cite the exact definition the admission collector used.
+	// The pointers are the typed absence CD-0210 holds open: nil means the
+	// pin's reader verified no definition — the outside-repair hold reads raw
+	// identity only and grants no managed pin authority — so the keys stay
+	// absent on the wire instead of carrying a zero-value or fabricated
+	// definition identity. Only workPinReadInstanceTx sets them.
+	WorkflowDefinitionVersion *int64  `json:"workflow_definition_version,omitempty"`
+	WorkflowDefinitionDigest  *string `json:"workflow_definition_digest,omitempty"`
+	// Obligations lists the sorted exact evidence obligation IDs the pinned
+	// definition declares, collected from the same root, step, and rigor
+	// declarations the architecture-binding admission collector reads
+	// (workflowDefinitionObligations). The pin teaches what the enforcing
+	// collector admits instead of a hand-copied list. The pointer keeps the
+	// same typed absence as the definition identity above, while a managed
+	// pin still emits the key even for a definition that declares no
+	// obligations.
+	Obligations      *[]string       `json:"obligations,omitempty"`
+	NextValidIntents []WorkPinIntent `json:"next_valid_intents"`
 	// DrivingSessions lists the distinct agent sessions that have driven this
 	// workflow, with each session's most recent action and action time. It is
 	// derived from workflow actors and actions, not session identity evidence.
@@ -48,6 +69,15 @@ type WorkPin struct {
 	// record_verdict is declarable, so a caller cites qualifying refs without
 	// a raw store read (#974). It stays nil at every other step.
 	VerdictEvidence []WorkPinEvidence `json:"verdict_evidence,omitempty"`
+	// OutsideRepairDisposition names the work's outside-repair disposition
+	// when one is recorded. The pin exposes the same typed record the
+	// continuity snapshot does, so a host process reaches the disposition
+	// through either read surface.
+	OutsideRepairDisposition *OutsideRepairDisposition `json:"outside_repair_disposition,omitempty"`
+	// OutsideRepairRoute is the declared recovery route the boundary code
+	// dispatches when the disposition holds the work. Managed intents remain
+	// empty; outside-repair operations are not workflow actions.
+	OutsideRepairRoute []string `json:"outside_repair_route,omitempty"`
 }
 
 type WorkPinVerifiedCriterion struct {
@@ -126,6 +156,17 @@ func ReadWorkPinTx(ctx context.Context, tx *sql.Tx, workID string) (WorkPin, err
 	}
 	if err := workPinReadIdentityTx(ctx, tx, workID, &pin); err != nil {
 		return pin, err
+	}
+	if held, err := workPinOutsideRepairDispositionTx(ctx, tx, workID, &pin); err != nil {
+		return pin, err
+	} else if held {
+		// A hold must remain readable even when the workflow pin is broken or
+		// absent. Read raw identity only; outside repair grants no pin authority.
+		err := tx.QueryRowContext(ctx, `SELECT definition_ref,current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&pin.WorkflowType, &pin.Step)
+		if err != nil && err != sql.ErrNoRows {
+			return pin, err
+		}
+		return pin, nil
 	}
 	registered, readDefinition, instanceState, err := workPinReadInstanceTx(ctx, tx, workID, &pin)
 	if err != nil {
@@ -207,6 +248,26 @@ func workPinReadWorkContextTx(ctx context.Context, tx *sql.Tx, workID string, pi
 	return nil
 }
 
+// workPinOutsideRepairDispositionTx populates the pin's outside-repair
+// disposition fields and overrides the advertised intents with the boundary
+// route when the disposition is active. The active flag returns true so
+// the caller returns the pin as-is and skips the managed workflow path.
+func workPinOutsideRepairDispositionTx(ctx context.Context, tx *sql.Tx, workID string, pin *WorkPin) (bool, error) {
+	disposition, err := outsideRepairDispositionTx(ctx, tx, workID)
+	if err != nil {
+		return false, err
+	}
+	pin.OutsideRepairDisposition = disposition
+	if disposition == nil || disposition.State == OutsideRepairStateResumed {
+		return false, nil
+	}
+	if disposition.State == OutsideRepairStateActive {
+		pin.OutsideRepairRoute = outsideRepairRouteNames()
+	}
+	pin.NextValidIntents = []WorkPinIntent{}
+	return true, nil
+}
+
 // workPinReadIdentityTx fills the pin's item identity: version, lifecycle,
 // title, Linear key, primary project, the closed-instance count, the
 // watermark, and the driving sessions. The watermark belongs on every pin
@@ -250,10 +311,19 @@ func workPinReadInstanceTx(ctx context.Context, tx *sql.Tx, workID string, pin *
 		return RegisteredDefinition{}, WorkflowReadDefinition{}, "", wrapFailure(KindUnavailable, "work_pin", "cannot read workflow instance", true, "retry once the database is readable", err)
 	}
 	pin.WorkflowType = definition.Ref
+	pin.WorkflowDefinitionVersion = &definition.Version
+	pin.WorkflowDefinitionDigest = &definition.Digest
 	registered, err := verifyReadWorkflowDefinition(definition)
 	if err != nil {
 		return RegisteredDefinition{}, WorkflowReadDefinition{}, "", err
 	}
+	// The obligation list uses the verified registered definition — the same
+	// verification and the same collector the architecture-binding admission
+	// reads — so the pin and admission cannot disagree on declared membership.
+	// The pointer stays non-nil even for an empty membership, so a managed pin
+	// always carries the obligations key.
+	obligations := workflowDefinitionObligationIDs(registered.Definition)
+	pin.Obligations = &obligations
 	return registered, definition, instanceState, nil
 }
 

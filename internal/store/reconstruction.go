@@ -92,7 +92,8 @@ func ReconstructSubjectAt(ctx context.Context, s *Store, subject SubjectRef, asO
 				"retry once the temporary database is available", err))
 		}
 	}
-	if err := enterFold(ctx, tx); err != nil {
+	scope, err := beginFold(ctx, tx)
+	if err != nil {
 		return rollback(err)
 	}
 	if err := seedReconstructionEndpoints(ctx, tx, subject, events); err != nil {
@@ -106,11 +107,11 @@ func ReconstructSubjectAt(ctx context.Context, s *Store, subject SubjectRef, asO
 		if excludedFromReconstructionSnapshot(event.Kind) {
 			continue
 		}
-		if err := foldRegisteredEvent(replayCtx, tx, event); err != nil {
+		if err := foldRegisteredEvent(replayCtx, tx, event, scope); err != nil {
 			return rollback(err)
 		}
 	}
-	if err := leaveFold(ctx, tx); err != nil {
+	if err := scope.close(ctx); err != nil {
 		return rollback(err)
 	}
 	if err := tx.Commit(); err != nil {

@@ -18,7 +18,7 @@ import { syntheticHostVersionFixture } from "./host-version.test-support"
 
 syntheticHostVersionFixture()
 
-test("work start publishes optional fields through the host definition hook", async () => {
+test("work start publishes the closed capture and resume contract through the host definition hook", async () => {
   const plugin = await ConcordAdapterPlugin()
   // The host's legacy JSON-schema conversion drops undefined entries and
   // requires every remaining property before it invokes tool.definition.
@@ -31,11 +31,18 @@ test("work start publishes optional fields through the host definition hook", as
     jsonSchema: { type: "object", properties, required: Object.keys(properties) },
   }
   const hook = Reflect.get(plugin, "tool.definition")
-  if (typeof hook === "function") await hook({ toolID: "concord_work_start" }, output)
+  if (typeof hook !== "function") throw new Error("plugin registers no tool.definition hook")
+  await hook({ toolID: "concord_work_start" }, output)
   const published = JSON.parse(JSON.stringify(output.jsonSchema))
-  const expected = Object.assign({}, ...hostToolSchemas.concord_work_start.oneOf.map((branch) => branch.properties))
-  expect(published).toEqual({ type: "object", properties: expected, required: [], additionalProperties: false })
-  expect(published.properties.work_id).toEqual(expected.work_id)
+  // The hook publishes the closed two-branch contract from the generated
+  // host manifest: each mode's required set and field surface survive
+  // publication instead of merging into one all-optional object.
+  expect(published).toEqual(JSON.parse(JSON.stringify(hostToolSchemas.concord_work_start)))
+  expect(published.oneOf).toHaveLength(2)
+  expect(published.oneOf[0].required).toEqual(["title", "value_statement", "kind", "task", "idempotency_key"])
+  expect(published.oneOf[1].required).toEqual(["work_id"])
+  expect(published.oneOf[0].properties.work_id).toBeUndefined()
+  expect(published.oneOf[1].properties.title).toBeUndefined()
   expect(output.parameters).toBe(parameters)
   expect(output.description).toBe(plugin.tool.concord_work_start.description)
 })
@@ -170,10 +177,12 @@ test("work start definition hook leaves other tool definitions unchanged", async
 
 test("published work start schemas cannot mutate runtime validation", async () => {
   const plugin = await ConcordAdapterPlugin()
-  const output = { description: "work start", parameters: {}, jsonSchema: { properties: plugin.tool.concord_work_start.args } }
+  const output: { description: string; parameters: Record<string, unknown>; jsonSchema: Record<string, any> } = {
+    description: "work start", parameters: {}, jsonSchema: { properties: plugin.tool.concord_work_start.args },
+  }
   await plugin["tool.definition"]({ toolID: "concord_work_start" }, output)
   const argsTitle = plugin.tool.concord_work_start.args.title
-  const publishedTitle = output.jsonSchema.properties.title
+  const publishedTitle = output.jsonSchema.oneOf[0].properties.title
   const expectedTitle = hostToolSchemas.concord_work_start.oneOf[0].properties.title
   const maximum = expectedTitle.maxLength
   try {

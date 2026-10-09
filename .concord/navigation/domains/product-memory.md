@@ -7,11 +7,11 @@ File accountability does not change a document's law home or a handler's semanti
 ## Responsibility
 Owns Product knowledge: the knowledge index and its records, the Domain registry as law, law-coverage and conformance records, lessons and research, and compaction and retention policy.
 
-Mapped files: 865; tests: 41; unresolved candidates: 13.
+Mapped files: 868; tests: 41; unresolved candidates: 13.
 Candidate counts overlap when a file has several candidates; no candidate is an assigned owner.
 
 ## Code and tests
-Full paths, unresolved reasons, shared-test coverage, and source fingerprints: `.concord/navigation/inventory.json`.
+Full paths, unresolved reasons, and shared-test coverage: `.concord/navigation/inventory.json`.
 - Include: `.concord/docs/**`, `.concord/schemas/**`, `.concord/domain-navigation.v1.json`, `.concord/navigation/**`, `internal/store/knowledge*.go`
 - Include: `internal/store/research*.go`, `internal/store/product_knowledge*.go`, `internal/store/law_*.go`, `internal/store/lesson_publish*.go`, `internal/store/git_knowledge*.go`
 - Include: `internal/store/domain_attachments*.go`, `internal/store/domain_observations*.go`, `internal/store/cd_reservations.go`, `internal/store/home_pair_binding*.go`, `internal/store/federated_law_boundary_test.go`
@@ -32,12 +32,10 @@ Run the narrow selected command with `bin/oc-test targeted -- <command> [args...
 - `go-vet` (fast): `go vet ./...`
 - `gofmt` (fast): `gofmt -l .`
 - `govulncheck` (standard): `go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...`
+- `lefthook-preflight` (standard): `bin/oc-test preflight`
 - `repo-validators` (fast): `python3 scripts/check-json.py`
 
 ## Not covered by slice A
 Invariant/control joins, allowed-dependency interpretation, observed import/call edges,
 non-law navigation homes, CON-887 packet reading, and CON-890 owner oracles remain later work.
 Required-reading entries will be pinned references, not inlined card content.
-
-Navigation source fingerprint: `sha256:cb9829a148a5045bbb92bcb62ce7be7b1f028460802f12a0aaf63d16be31bdd1`.
-Other fingerprints and the exact file universe are in the generated inventory.

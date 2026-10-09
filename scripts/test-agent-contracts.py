@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import copy, importlib.util, io, json, os, re, tempfile, unittest, unittest.mock
+import copy, importlib.util, io, json, os, re, subprocess, tempfile, unittest, unittest.mock
 from contextlib import ExitStack, redirect_stderr, redirect_stdout
 from pathlib import Path
 
@@ -636,13 +636,8 @@ class DeliveryDecidableTeachingTests(unittest.TestCase):
     """
 
     def _add_condition_branches(self, defs):
-        for condition in defs["work_transition_action_shared_input"]["allOf"]:
-            trigger = condition.get("if", {}).get("properties", {}).get("action_id", {}).get("const")
-            if trigger != "add_condition":
-                continue
-            then = condition["then"]
-            return then.get("anyOf") or [then]
-        return None
+        branches = [defs[name] for name in generator.ADD_CONDITION_VARIANTS if name in defs]
+        return branches or None
 
     def test_shipped_predicate_array_teaches_the_rule(self):
         items = payload_schema["$defs"]["workflow_action_outcome_predicates"]
@@ -670,11 +665,8 @@ class DeliveryDecidableTeachingTests(unittest.TestCase):
 
     def test_generator_refuses_a_projection_without_the_add_condition_condition(self):
         defs = copy.deepcopy(payload_schema["$defs"])
-        conditions = defs["work_transition_action_shared_input"]["allOf"]
-        defs["work_transition_action_shared_input"]["allOf"] = [
-            condition for condition in conditions
-            if condition.get("if", {}).get("properties", {}).get("action_id", {}).get("const") != "add_condition"
-        ]
+        for name in generator.ADD_CONDITION_VARIANTS:
+            defs.pop(name, None)
         with self.assertRaises(ValueError):
             generator.require_delivery_rule_teaching(defs)
 
@@ -736,8 +728,8 @@ class MutationApprovalPropertyTests(unittest.TestCase):
         self.assertTrue(any("concord_work_define.observation_record" in f for f in refusals), refusals)
 
 
-def verify_job_steps() -> list[dict]:
-    """The verify job's steps as name/run/env records.
+def workflow_job_steps(job_name: str) -> list[dict]:
+    """One job's steps as name/run/env records.
 
     Pinned to the indents scripts/check-script-tests.py enforces (step names
     at six spaces, `run:` and `env:` at eight, their bodies at ten), so the
@@ -757,9 +749,9 @@ def verify_job_steps() -> list[dict]:
             and not stripped.startswith("#")
             and stripped.endswith(":")
         ):
-            break  # the next job's key ends the verify job
+            break  # the next job's key ends this job
         if not in_job:
-            if line == "  verify:":
+            if line == f"  {job_name}:":
                 in_job = True
             continue
         if line.startswith("      - name:"):
@@ -786,42 +778,144 @@ def verify_job_steps() -> list[dict]:
     return steps
 
 
+def workflow_job_block(job_name: str) -> str:
+    """The job's YAML text, from its key line to the next job-level key."""
+    text = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    body: list[str] = []
+    collecting = False
+    for line in text.splitlines():
+        if not collecting:
+            collecting = line == f"  {job_name}:"
+            if collecting:
+                body.append(line)
+            continue
+        if (
+            line.startswith("  ")
+            and not line.startswith("   ")
+            and not line.strip().startswith("#")
+            and line.strip().endswith(":")
+        ):
+            break  # the next job's key ends this job
+        body.append(line)
+    return "\n".join(body)
+
+
+def job_needs(block: str) -> list[str]:
+    """The job's `needs` dependencies, inline or as a block list."""
+    inline = re.search(r"^ {4}needs: (.+)$", block, re.MULTILINE)
+    if inline:
+        return re.findall(r"[a-z][a-z0-9-]*", inline.group(1))
+    listed = re.search(r"^ {4}needs:\n((?: {6}- .+\n?)+)", block, re.MULTILINE)
+    return re.findall(r"- ([a-z][a-z0-9-]*)", listed.group(1)) if listed else []
+
+
+AGGREGATE_DEPENDENCIES = ("verify-history", "verify-contracts", "verify-adapter", "verify-tooling")
+
+
 class CIContractRoutingTests(unittest.TestCase):
-    """The complete contract check executes once, through the JSON umbrella.
+    """Each suite has one owner, and the required gate demands all owners pass."""
 
-    The verify job used to run scripts/check-agent-contracts.py twice: once
-    directly under CONCORD_REQUIRE_BUN=1 and once nested through
-    scripts/check-json.py without it, so the nested copy degraded to the
-    contributor-laptop fallbacks whenever Bun was missing. The duplicate
-    direct step is gone; the strict environment lives on the umbrella step
-    and reaches the nested checker because subprocess.run without `env=`
-    inherits the caller's environment. These assertions fail on the old
-    wiring (a direct step exists, the umbrella carries no env) and pass on
-    the new one.
-    """
-
-    def test_the_complete_contract_check_runs_only_through_the_umbrella(self):
-        steps = verify_job_steps()
+    def test_verify_contracts_runs_the_umbrella_with_both_external_suite_options(self):
+        steps = workflow_job_steps("verify-contracts")
         direct = [step for step in steps if "scripts/check-agent-contracts.py" in step["run"]]
         self.assertEqual(
             direct,
             [],
             f"standalone complete-contract steps must not exist: {[step['name'] for step in direct]}",
         )
+        for owner, command in (
+            ("verify-adapter", "bun test adapter/opencode"),
+            ("verify-tooling", "scripts/test-agent-contracts.py"),
+        ):
+            duplicated = [step for step in steps if command in step["run"]]
+            self.assertEqual(
+                duplicated,
+                [],
+                f"{command} belongs to {owner}; verify-contracts must pass the matching external-suite option instead",
+            )
         umbrella = [step for step in steps if "scripts/check-json.py" in step["run"]]
-        self.assertEqual(len(umbrella), 1, "expected exactly one JSON umbrella step")
+        self.assertEqual(len(umbrella), 1, "expected exactly one JSON umbrella step in verify-contracts")
+        for flag in ("--adapter-tests-external", "--contract-tests-external"):
+            self.assertIn(
+                flag,
+                umbrella[0]["run"],
+                f"the umbrella step must pass {flag}: that suite runs as its own CI step",
+            )
         self.assertEqual(
             umbrella[0]["env"].get("CONCORD_REQUIRE_BUN"),
             "1",
             "the umbrella must run under CONCORD_REQUIRE_BUN=1 so the nested check fails closed",
         )
 
-    def test_the_direct_adapter_suite_step_is_retained(self):
-        # The nested contract check also runs `bun test adapter/opencode`,
-        # but the adapter_test evidence anchors resolve only against a direct
+    def test_verify_adapter_runs_the_adapter_suite_directly(self):
+        # The adapter_test evidence anchors resolve only against a direct
         # workflow invocation, so deleting the direct step would strand them.
-        direct = [step for step in verify_job_steps() if "bun test adapter/opencode" in step["run"]]
-        self.assertTrue(direct, "the direct bun test adapter/opencode/ step is required coverage")
+        direct = [step for step in workflow_job_steps("verify-adapter") if "bun test adapter/opencode" in step["run"]]
+        self.assertTrue(direct, "verify-adapter must run the adapter suite directly")
+
+    def test_verify_tooling_runs_the_contract_selftest_directly(self):
+        direct = [step for step in workflow_job_steps("verify-tooling") if "scripts/test-agent-contracts.py" in step["run"]]
+        self.assertTrue(direct, "verify-tooling must run scripts/test-agent-contracts.py directly")
+
+    def test_the_aggregate_verify_job_gates_every_dependency_on_success(self):
+        block = workflow_job_block("verify")
+        needs = job_needs(block)
+        for dependency in AGGREGATE_DEPENDENCIES:
+            self.assertIn(dependency, needs, f"the aggregate verify job must depend on {dependency}")
+        self.assertRegex(
+            block,
+            r"(?m)^ {4}if: always\(\)$",
+            "the aggregate must run its gates even when a dependency failed",
+        )
+        gated: set[str] = set()
+        for step in workflow_job_steps("verify"):
+            text = " ".join(step["env"].values()) + " " + step["run"]
+            referenced = {dependency for dependency in AGGREGATE_DEPENDENCIES if f"needs.{dependency}.result" in text}
+            if not referenced:
+                continue
+            self.assertIn(
+                "success",
+                step["run"],
+                f"step {step['name']!r} reads a dependency result but does not refuse non-success results",
+            )
+            gated |= referenced
+        self.assertEqual(
+            gated,
+            set(AGGREGATE_DEPENDENCIES),
+            f"dependencies without a success gate: {sorted(set(AGGREGATE_DEPENDENCIES) - gated)}",
+        )
+
+    def test_the_real_gate_refuses_each_non_success_owner(self):
+        steps = workflow_job_steps("verify")
+        bindings = {
+            key: dependency
+            for step in steps
+            for key, value in step["env"].items()
+            for dependency in AGGREGATE_DEPENDENCIES
+            if value == f"${{{{ needs.{dependency}.result }}}}"
+        }
+        self.assertEqual(set(bindings.values()), set(AGGREGATE_DEPENDENCIES))
+        command = "\n".join(step["run"] for step in steps)
+        environment = dict(os.environ, **{key: "success" for key in bindings})
+        passed = subprocess.run(["bash", "-e", "-c", command], env=environment, capture_output=True)
+        self.assertEqual(passed.returncode, 0, passed.stderr)
+        for key, dependency in bindings.items():
+            for result in ("failure", "cancelled", "skipped"):
+                with self.subTest(owner=dependency, result=result):
+                    failed = subprocess.run(
+                        ["bash", "-e", "-c", command],
+                        env=dict(environment, **{key: result}), capture_output=True,
+                    )
+                    self.assertNotEqual(failed.returncode, 0, "a non-success owner must fail verify")
+
+    def test_each_direct_suite_has_exactly_one_owner(self):
+        text = (ROOT / ".github/workflows/ci.yml").read_text()
+        jobs = re.findall(r"^  ([a-z][a-z0-9-]*):$", text, re.MULTILINE)
+        runs = [step["run"] for job in jobs for step in workflow_job_steps(job)]
+        for command in ("bun test adapter/opencode", "scripts/test-agent-contracts.py", "scripts/check-json.py"):
+            self.assertEqual(sum(run.count(command) for run in runs), 1, command)
+        self.assertFalse(any("scripts/check-project-tooling.py" in run for run in runs),
+                         "the JSON umbrella owns project tooling validation")
 
 
 class _Completed:
@@ -882,7 +976,7 @@ class StrictFailureControls(unittest.TestCase):
             with redirect_stdout(out), redirect_stderr(err):
                 if not require_bun:
                     os.environ.pop("CONCORD_REQUIRE_BUN", None)
-                code = lane_checker.main()
+                code = lane_checker.main([])
         return code, out.getvalue(), err.getvalue()
 
     def test_missing_bun_fails_closed_under_the_strict_environment(self):
@@ -1004,9 +1098,547 @@ class StrictFailureControls(unittest.TestCase):
         out, err = io.StringIO(), io.StringIO()
         with unittest.mock.patch.object(lane_checker, "_load_json", broken_fixture):
             with redirect_stdout(out), redirect_stderr(err):
-                code = lane_checker.main()
+                code = lane_checker.main([])
         self.assertEqual(code, 1)
         self.assertIn("expected valid instance", err.getvalue())
+
+
+class ExternalSuiteRoutingOptionsTests(unittest.TestCase):
+    """CON-893: the external-suite options omit exactly one subprocess each.
+
+    CI splits the old verify job so each suite runs as its own step, and the
+    nested complete check must not duplicate them. Each option removes only
+    its suite subprocess: every other obligation — the selftest, the
+    generated checks, the lane validators, the Bun builds, the fixture probe,
+    the expected-suite presence check, the host typecheck, and both strict
+    failures — still runs and still propagates failure. A default invocation
+    runs the complete check with both suites.
+    """
+
+    MINIMAL_PIN = {
+        "sources": ["adapter/opencode"],
+        "packages": [],
+        "typescript": "5.9.3",
+        "compiler_options": {},
+        "allowances": [],
+        "runtime_probe": {},
+    }
+
+    def _main(self, argv, fake=None, which="/fake/bun", staging=lambda *args: None, require_bun=False):
+        fake = fake if fake is not None else _FakeSubprocess()
+        patches = [
+            unittest.mock.patch.object(lane_checker, "subprocess", fake),
+            unittest.mock.patch.object(lane_checker, "stage_host_workspace", staging),
+            unittest.mock.patch.object(lane_checker, "load_host_pin", lambda findings: copy.deepcopy(self.MINIMAL_PIN)),
+            unittest.mock.patch("shutil.which", return_value=which),
+        ]
+        patches.append(unittest.mock.patch.dict(os.environ, {"CONCORD_REQUIRE_BUN": "1"} if require_bun else {}))
+        out, err = io.StringIO(), io.StringIO()
+        with ExitStack() as stack:
+            for patch in patches:
+                stack.enter_context(patch)
+            if not require_bun:
+                os.environ.pop("CONCORD_REQUIRE_BUN", None)
+            with redirect_stdout(out), redirect_stderr(err):
+                code = lane_checker.main(list(argv))
+        return code, fake.calls, out.getvalue(), err.getvalue()
+
+    @staticmethod
+    def _selftest_calls(calls):
+        return [call for call in calls if any("test-agent-contracts.py" in word for word in call)]
+
+    @staticmethod
+    def _adapter_suite_calls(calls):
+        return [call for call in calls if call[1:3] == ["test", "adapter/opencode"]]
+
+    def test_a_default_invocation_runs_both_suites(self):
+        code, calls, out, _ = self._main([])
+        self.assertEqual(code, 0)
+        self.assertTrue(self._selftest_calls(calls), "a default invocation must run the contract selftest")
+        self.assertTrue(self._adapter_suite_calls(calls), "a default invocation must run the adapter suite")
+        self.assertIn("agent contract check passed", out)
+
+    def test_adapter_tests_external_omits_only_the_adapter_suite(self):
+        code, calls, out, _ = self._main(["--adapter-tests-external"])
+        self.assertEqual(code, 0)
+        self.assertFalse(self._adapter_suite_calls(calls), "the adapter suite subprocess must be omitted")
+        self.assertTrue(self._selftest_calls(calls), "the contract selftest must still run")
+        self.assertTrue(any(call[1] == "build" for call in calls), "the Bun builds must still run")
+
+    def test_contract_tests_external_omits_only_the_selftest(self):
+        code, calls, _, _ = self._main(["--contract-tests-external"])
+        self.assertEqual(code, 0)
+        self.assertFalse(self._selftest_calls(calls), "the contract selftest subprocess must be omitted")
+        self.assertTrue(self._adapter_suite_calls(calls), "the adapter suite must still run")
+
+    def test_both_options_retain_every_other_subprocess(self):
+        code, calls, out, _ = self._main(["--adapter-tests-external", "--contract-tests-external"])
+        self.assertEqual(code, 0)
+        self.assertFalse(self._selftest_calls(calls))
+        self.assertFalse(self._adapter_suite_calls(calls))
+        self.assertEqual(len([call for call in calls if call[1] == "build"]), 2, "both Bun builds must still run")
+        self.assertTrue(any(call[1] == "run" for call in calls), "the fixture probe and host schema probe must still run")
+        self.assertTrue(any(call[1] == "x" for call in calls), "the host typecheck must still run")
+        self.assertTrue(any(any("generate-agent-contracts.py" in word for word in call) for call in calls))
+        self.assertTrue(any(any("generate-agent-lanes.py" in word for word in call) for call in calls))
+
+    def test_the_expected_suite_presence_check_survives_adapter_tests_external(self):
+        # The option skips the suite subprocess, never the obligation that
+        # the suite files exist: a job running the suite externally still has
+        # to carry it.
+        real_glob = Path.glob
+
+        def hiding_glob(self, pattern):
+            return iter(()) if pattern == "*.test.ts" else real_glob(self, pattern)
+
+        with unittest.mock.patch.object(Path, "glob", hiding_glob):
+            code, _, _, err = self._main(["--adapter-tests-external"])
+        self.assertEqual(code, 1)
+        self.assertIn("adapter test suite missing", err)
+
+    def test_a_selftest_failure_propagates_under_adapter_tests_external(self):
+        fake = _FakeSubprocess(results=[(
+            lambda words: any("test-agent-contracts.py" in word for word in words),
+            _Completed(1, "", "simulated selftest failure"),
+        )])
+        code, _, _, _ = self._main(["--adapter-tests-external"], fake=fake)
+        self.assertEqual(code, 1)
+
+    def test_an_adapter_suite_failure_propagates_under_contract_tests_external(self):
+        fake = _FakeSubprocess(results=[(
+            lambda words: words[1:3] == ["test", "adapter/opencode"],
+            _Completed(1),
+        )])
+        code, _, _, _ = self._main(["--contract-tests-external"], fake=fake)
+        self.assertEqual(code, 1)
+
+    def test_a_generated_contract_check_failure_propagates_under_both_options(self):
+        fake = _FakeSubprocess(results=[(
+            lambda words: any("generate-agent-contracts.py" in word for word in words),
+            _Completed(1),
+        )])
+        code, _, _, _ = self._main(["--adapter-tests-external", "--contract-tests-external"], fake=fake)
+        self.assertEqual(code, 1)
+
+    def test_a_bun_build_failure_propagates_under_both_options(self):
+        fake = _FakeSubprocess(results=[(lambda words: len(words) > 1 and words[1] == "build", _Completed(1))])
+        code, _, _, _ = self._main(["--adapter-tests-external", "--contract-tests-external"], fake=fake)
+        self.assertEqual(code, 1)
+
+    def test_a_host_typecheck_failure_propagates_under_both_options(self):
+        # TS9999 is not a code the TypeScript compiler emits, so no recorded
+        # allowance can absorb the simulated diagnostic.
+        typecheck = _Completed(1, "src/concord.ts(1,1): error TS9999: simulated host type failure\n", "")
+        fake = _FakeSubprocess(results=[(lambda words: len(words) > 1 and words[1] == "x", typecheck)])
+        code, _, _, err = self._main(["--adapter-tests-external", "--contract-tests-external"], fake=fake)
+        self.assertEqual(code, 1)
+        self.assertIn("TS9999", err)
+        self.assertIn("does not satisfy the pinned host declarations", err)
+
+    def test_missing_bun_fails_closed_under_both_options(self):
+        code, _, _, err = self._main(["--adapter-tests-external", "--contract-tests-external"], which=None, require_bun=True)
+        self.assertEqual(code, 1)
+        self.assertIn("Bun is not installed", err)
+
+    def test_an_unreachable_registry_fails_closed_under_both_options(self):
+        error = "host declarations could not be installed: simulated registry unreachable"
+        code, _, _, err = self._main(
+            ["--adapter-tests-external", "--contract-tests-external"],
+            staging=lambda *args: error,
+            require_bun=True,
+        )
+        self.assertEqual(code, 1)
+        self.assertIn(error, err)
+
+
+class WorkflowActionVariantCorpusTests(unittest.TestCase):
+    """Registry-derived deterministic corpus over every published workflow
+    action variant (CON-412).
+
+    The corpus derives its cases from the live registry projection (the same
+    `go run ./scripts/workflow-action-contracts` output the generator reads),
+    not from the frozen JSON, so an action the registry adds without a
+    generated closed variant fails here. For each action it proves:
+
+    - a valid sample built from the variant's own required/properties admits
+      against the variant schema (published shape), the core input union, and
+      the public variant when one exists;
+    - missing-required, unknown-field, cross-variant-field, bad-enum,
+      bad-type, and bad-range mutants are refused by the variant schema AND
+      by the core input union AND by the public variant, so the published
+      closed branch and the core cannot admit differently;
+    - the legal input combinations the store's guards enforce (the registry
+      projection's combinations, authored beside the guards) are exact: each
+      discriminator value's required fields are required and its forbidden
+      fields are refused, in every published and core shape.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.actions, cls.workflows, cls.teaching = generator.load_workflow_action_contracts()
+        cls.defs = payload_schema["$defs"]
+
+    def _variants(self):
+        for action in self.actions:
+            name = f"work_transition_action_variant_{action['id']}"
+            self.assertIn(name, self.defs, f"registry action {action['id']} has no closed variant")
+            yield action, self.defs[name]
+
+    def _schema_names(self, action, shape="core"):
+        if shape == "core":
+            names = [f"work_transition_action_variant_{action['id']}", "work_transition_action_input"]
+        else:
+            names = [f"work_transition_action_public_variant_{action['id']}", "work_transition_action_public_input"]
+        return names
+
+    def _shapes(self, action):
+        # The core payload answers to the core union; a divergent public
+        # payload (dispatch_worker, whose core attempt identity the adapter
+        # authors) answers to the public union the agent boundary validates.
+        shapes = [("core", f"work_transition_action_variant_{action['id']}", self._schema_names(action, "core"))]
+        public = f"work_transition_action_public_variant_{action['id']}"
+        if public in self.defs:
+            shapes.append(("public", public, self._schema_names(action, "public")))
+        return shapes
+
+    def _legacy_layout(self, action, value):
+        # The core input keeps admitting recorded historical payload layouts
+        # (CON-412: historic execution preserved, never advertised). A mutant
+        # whose fields object is absent or empty is exactly that layout for
+        # an action that records legacy payloads, and only that.
+        if not action.get("legacy_payloads"):
+            return False
+        fields = value.get("fields", {})
+        return fields == {} or fields is None
+
+    def _assert_verdict(self, value, schema_name, should_admit, label):
+        try:
+            generator.schema_validate(value, self.defs[schema_name], payload_schema, schema_name)
+        except ValueError as err:
+            if should_admit:
+                self.fail(f"{label}: {schema_name} refused a payload its contract admits ({err})")
+            return
+        if not should_admit:
+            self.fail(f"{label}: {schema_name} admitted a payload its contract refuses")
+
+    # Node-derived mutant walks. Each returns (label, value, path) mutants
+    # for one schema node against the sample value that reaches it.
+    def _enum_mutants(self, schema, value, path=()):
+        if isinstance(schema, dict) and "$ref" in schema:
+            schema = self.defs.get(schema["$ref"].removeprefix("#/$defs/"), schema)
+        if not isinstance(schema, dict):
+            return
+        if "enum" in schema and path and isinstance(value, (str, int)) and not isinstance(value, bool):
+            yield "; ".join(path) + " bad enum", "__corpus_not_an_enum_value__", path
+        kind = schema.get("type")
+        kind = next((candidate for candidate in (kind if isinstance(kind, list) else [kind]) if candidate != "null"), None) if kind else None
+        if isinstance(value, dict):
+            for name, child in (schema.get("properties") or {}).items():
+                if name not in value:
+                    continue
+                yield from self._enum_mutants(child, value[name], path + (name,))
+        elif isinstance(value, list) and value:
+            yield from self._enum_mutants(schema.get("items", {}), value[0], path + ("0",))
+
+    def _type_mutants(self, schema, value, path=()):
+        if isinstance(schema, dict) and "$ref" in schema:
+            schema = self.defs.get(schema["$ref"].removeprefix("#/$defs/"), schema)
+        if not isinstance(schema, dict):
+            return
+        kind = schema.get("type")
+        if kind and path:
+            primary = next((candidate for candidate in (kind if isinstance(kind, list) else [kind]) if candidate != "null"), None)
+            if primary == "string":
+                yield "; ".join(path) + " bad type", 17, path
+            elif primary is not None:
+                yield "; ".join(path) + " bad type", "corpus-wrong-type", path
+        if isinstance(value, dict):
+            for name, child in (schema.get("properties") or {}).items():
+                if name not in value:
+                    continue
+                yield from self._type_mutants(child, value[name], path + (name,))
+        elif isinstance(value, list) and value:
+            yield from self._type_mutants(schema.get("items", {}), value[0], path + ("0",))
+
+    def _range_mutants(self, schema, value, path=()):
+        if isinstance(schema, dict) and "$ref" in schema:
+            schema = self.defs.get(schema["$ref"].removeprefix("#/$defs/"), schema)
+        if not isinstance(schema, dict):
+            return
+        if isinstance(value, str):
+            if schema.get("minLength", 0) > 0 and len(value) >= schema["minLength"]:
+                yield "; ".join(path) + " under minLength", "v" * (schema["minLength"] - 1), path
+            if "maxLength" in schema and len(value) <= schema["maxLength"]:
+                yield "; ".join(path) + " over maxLength", "v" * (schema["maxLength"] + 1), path
+            return
+        if isinstance(value, list):
+            items = schema.get("items", {})
+            if schema.get("minItems", 0) > 0 and len(value) >= schema["minItems"]:
+                under = [self._sample(items)] * (schema["minItems"] - 1)
+                yield "; ".join(path) + " under minItems", under, path
+            if "maxItems" in schema and len(value) <= schema["maxItems"]:
+                over = [self._sample(items)] * (schema["maxItems"] + 1)
+                yield "; ".join(path) + " over maxItems", over, path
+            if value:
+                yield from self._range_mutants(items, value[0], path + ("0",))
+            return
+        if isinstance(value, dict):
+            for name, child in (schema.get("properties") or {}).items():
+                if name not in value:
+                    continue
+                yield from self._range_mutants(child, value[name], path + (name,))
+            return
+        if isinstance(value, int) and not isinstance(value, bool):
+            if "minimum" in schema and value >= schema["minimum"]:
+                yield "; ".join(path) + " under minimum", schema["minimum"] - 1, path
+            if "maximum" in schema and value <= schema["maximum"]:
+                yield "; ".join(path) + " over maximum", schema["maximum"] + 1, path
+
+    def test_valid_samples_admit_and_mutants_refuse(self):
+        own_fields = {action["id"]: {field["name"] for field in action["payload"]["fields"]} for action in self.actions}
+        for action, variant in self._variants():
+            for kind, shape_name, names in self._shapes(action):
+                valid = self._sample(self.defs[shape_name])
+                for name in names:
+                    self._assert_verdict(valid, name, True, f"{action['id']} {kind} valid sample")
+                required = [key for key in self.defs[shape_name].get("required", []) if key != "action_id"]
+                if required:
+                    mutant = copy.deepcopy(valid); del mutant[required[0]]
+                    for name in names:
+                        if name.endswith("_input") and self._legacy_layout(action, mutant):
+                            self._assert_verdict(mutant, name, True, f"{action['id']} {kind} recorded legacy layout")
+                            continue
+                        self._assert_verdict(mutant, name, False, f"{action['id']} {kind} missing required {required[0]}")
+                mutant = copy.deepcopy(valid); mutant["unknown_field"] = True
+                for name in names:
+                    self._assert_verdict(mutant, name, False, f"{action['id']} {kind} unknown field")
+                fields = valid.get("fields")
+                if isinstance(fields, dict) and fields:
+                    mutant = copy.deepcopy(valid); del mutant["fields"][next(iter(fields))]
+                    cross = next((name for other in self.actions if other["id"] != action["id"]
+                                  for name in {field["name"] for field in other["payload"]["fields"]}
+                                  if name not in own_fields[action["id"]]), None)
+                    if cross is not None:
+                        mutant["fields"][cross] = "cross-variant"
+                    for name in names:
+                        if name.endswith("_input") and self._legacy_layout(action, mutant):
+                            self._assert_verdict(mutant, name, True, f"{action['id']} {kind} recorded legacy layout")
+                            continue
+                        self._assert_verdict(mutant, name, False, f"{action['id']} {kind} cross-variant or unknown fields field")
+                # Node-derived enum, type, and range mutants: every one must
+                # be refused by the published shape and the core union alike.
+                for walker in (self._enum_mutants, self._type_mutants, self._range_mutants):
+                    for label, replacement, path in walker(self.defs[shape_name], valid):
+                        path = tuple(int(step) if isinstance(step, str) and step.isdigit() else step for step in path)
+                        mutant = copy.deepcopy(valid)
+                        node = mutant
+                        for step in path[:-1]:
+                            node = node[int(step)] if isinstance(node, list) else node[step]
+                        if path:
+                            final = path[-1]
+                            if isinstance(node, list): node[int(final)] = replacement
+                            else: node[final] = replacement
+                        for name in names:
+                            if name.endswith("_input") and self._legacy_layout(action, mutant):
+                                self._assert_verdict(mutant, name, True, f"{action['id']} {kind} recorded legacy layout")
+                                continue
+                            self._assert_verdict(mutant, name, False, f"{action['id']} {kind} {label}")
+
+    def test_cross_field_rule_mutants_refuse_everywhere(self):
+        # The registry payload declarations state the cross-field rules core
+        # admission enforces: legal input combinations (one branch per enum
+        # value) and alternative field groups (exactly one supplied). The
+        # published variant must refuse every rule's own invalid mutant
+        # exactly — a forbidden field under one discriminator value, a
+        # missing required field under another, a withheld alternative group,
+        # and two groups supplied together — and admit each rule's legal
+        # payload.
+        for action, variant in self._variants():
+            cross = action.get("cross_field") or {}
+            combinations = cross.get("combinations", [])
+            alternatives = cross.get("alternatives", [])
+            if not combinations and not alternatives:
+                continue
+            fields_schema = variant["properties"]["fields"]
+            self.assertIn("oneOf", fields_schema, f"{action['id']} declares cross-field rules but its variant publishes none")
+
+            def branch_property(name):
+                # A combination field lives in the branch that declares it;
+                # a forbidden-under-this-value field lives in a sibling branch.
+                for branch in fields_schema["oneOf"]:
+                    property = branch.get("properties", {}).get(name)
+                    if property is not None:
+                        return property
+                return {"type": "string"}
+
+            def envelope_with(fields):
+                base = {key: self._sample(variant["properties"][key]) for key in variant.get("required", []) if key != "fields"}
+                base["fields"] = fields
+                return base
+
+            by_value = {combination["value"]: combination for combination in combinations}
+            # A kind-match declaration expands one alternative group into
+            # per-kind branches (outcome_kind consts on supersede_contract):
+            # each is registry-declared through the match, not through a
+            # combination, so it carries no requires/forbids to expand.
+            kind_match_fields = {match["field"] for match in cross.get("kind_matches", [])}
+            for branch in fields_schema["oneOf"]:
+                discriminator = next((name for name, property in branch.get("properties", {}).items() if "const" in property), None)
+                if discriminator is None:
+                    continue
+                value = branch["properties"][discriminator]["const"]
+                if discriminator in kind_match_fields:
+                    continue
+                combination = by_value.get(value)
+                self.assertIsNotNone(combination, f"{action['id']} publishes a branch for {discriminator}={value} the registry does not declare")
+                base = envelope_with(self._sample(branch, fallback_properties=branch.get("properties")))
+                base["fields"][discriminator] = value
+                for _kind, _shape_name, names in self._shapes(action):
+                    for forbidden in combination.get("forbids", []):
+                        if forbidden == discriminator:
+                            continue
+                        mutant = copy.deepcopy(base)
+                        mutant["fields"][forbidden] = self._sample(branch_property(forbidden))
+                        for name in names:
+                            self._assert_verdict(mutant, name, False, f"{action['id']} {discriminator}={value} carries forbidden {forbidden}")
+                        # Stripping the forbidden field leaves a legal payload.
+                        legal = copy.deepcopy(mutant); legal["fields"].pop(forbidden)
+                        for name in names:
+                            self._assert_verdict(legal, name, True, f"{action['id']} {discriminator}={value} without {forbidden}")
+                    for required_under_value in combination.get("requires", []):
+                        if required_under_value == discriminator:
+                            continue
+                        mutant = copy.deepcopy(base)
+                        mutant["fields"].pop(required_under_value, None)
+                        for name in names:
+                            self._assert_verdict(mutant, name, False, f"{action['id']} {discriminator}={value} drops required {required_under_value}")
+                        legal = copy.deepcopy(mutant)
+                        legal["fields"][required_under_value] = self._sample(branch_property(required_under_value))
+                        for name in names:
+                            self._assert_verdict(legal, name, True, f"{action['id']} {discriminator}={value} with {required_under_value}")
+
+            # Alternative groups: each declared group names the fields its
+            # closed branch requires; a branch answers to the group whose
+            # names it carries. A kind-matched group expands into one closed
+            # branch per declared kind, so only the plain groups map 1:1 to
+            # const-free branches (CON-412).
+            group_branches = [branch for branch in fields_schema["oneOf"] if not any("const" in property for property in branch.get("properties", {}).values())]
+
+            def branch_for(group):
+                for branch in fields_schema["oneOf"]:
+                    required = set(branch.get("required", []))
+                    if all(name in required for name in group["fields"]):
+                        return branch
+                self.fail(f"{action['id']} declares alternative group {group['fields']} with no published branch")
+
+            if alternatives:
+                plain_groups = [group for group in alternatives if not (kind_match_fields & set(group["fields"]))]
+                kind_groups = [group for group in alternatives if kind_match_fields & set(group["fields"])]
+                self.assertEqual(len(group_branches), len(plain_groups), f"{action['id']} alternative branches and declaration groups disagree")
+                for group in kind_groups:
+                    match = next(match for match in cross.get("kind_matches", []) if match["field"] in group["fields"])
+                    branches = [branch for branch in fields_schema["oneOf"] if match["field"] in branch.get("properties", {}) and "const" in branch["properties"][match["field"]]]
+                    self.assertGreater(len(branches), 0, f"{action['id']} kind-matched group {group['fields']} publishes no per-kind branch")
+                    for branch in branches:
+                        self.assertEqual(
+                            branch["properties"][match["field"]]["const"],
+                            branch["properties"][match["object"]]["properties"][match["discriminator"]]["const"],
+                            f"{action['id']} per-kind branch does not bind {match['field']} to {match['object']}.{match['discriminator']}",
+                        )
+                for group in alternatives:
+                    branch = branch_for(group)
+                    for _kind, _shape_name, names in self._shapes(action):
+                        legal = envelope_with(self._sample(branch, fallback_properties=branch.get("properties")))
+                        for name in names:
+                            self._assert_verdict(copy.deepcopy(legal), name, True, f"{action['id']} alternative group {group['fields']} supplied")
+                        withheld = {key: value for key, value in legal["fields"].items()}
+                        for name in group["fields"]:
+                            withheld.pop(name, None)
+                        for name in names:
+                            self._assert_verdict(envelope_with(withheld), name, False, f"{action['id']} alternative group {group['fields']} withheld")
+                    # A field the group forbids beside it is omitted from the
+                    # branch entirely and refused when carried — one negative
+                    # mutant for each newly owned cross-field rule.
+                    for forbidden in group.get("forbids", []):
+                        self.assertNotIn(forbidden, branch.get("properties", {}), f"{action['id']} branch for {group['fields']} publishes forbidden {forbidden}")
+                        mutant = envelope_with(self._sample(branch, fallback_properties=branch.get("properties")))
+                        mutant["fields"][forbidden] = self._sample(branch_property(forbidden))
+                        for _kind, _shape_name, names in self._shapes(action):
+                            for name in names:
+                                self._assert_verdict(copy.deepcopy(mutant), name, False, f"{action['id']} group {group['fields']} carries forbidden {forbidden}")
+                    if len(alternatives) > 1:
+                        for other_group in alternatives:
+                            if other_group is group:
+                                continue
+                            other = branch_for(other_group)
+                            for exclusive in other_group["fields"]:
+                                if exclusive in branch.get("properties", {}):
+                                    continue
+                                mutant = envelope_with(self._sample(branch, fallback_properties=branch.get("properties")))
+                                mutant["fields"][exclusive] = self._sample(other["properties"][exclusive])
+                                for _kind, _shape_name, names in self._shapes(action):
+                                    for name in names:
+                                        self._assert_verdict(copy.deepcopy(mutant), name, False, f"{action['id']} alternative groups carry {exclusive} together")
+
+    def test_guard_owned_teaching_is_published(self):
+        # CON-412: the items close per kind; every branch teaches the ordinal
+        # position rule and the outcome_kind/outcome_payload.kind equality
+        # rule from the guard-owned projection.
+        items = self.defs["workflow_action_outcome_predicates"]["items"]["oneOf"]
+        self.assertEqual(len(items), 4)
+        for branch in items:
+            self.assertEqual(branch["properties"]["ordinal"]["description"], self.teaching["predicate_ordinal_rule"])
+            self.assertEqual(branch["properties"]["outcome_kind"]["description"], self.teaching["outcome_kind_equality_rule"])
+            self.assertEqual(branch["properties"]["outcome_kind"]["const"], branch["properties"]["outcome_payload"]["properties"]["kind"]["const"])
+        approve = self.defs["work_transition_action_variant_approve_contract"]["properties"]["fields"]["properties"]
+        if "required_evidence" in approve:
+            self.assertEqual(approve["required_evidence"].get("description"), self.teaching["obligation_membership_rule"])
+
+    def test_every_registry_action_has_one_closed_variant(self):
+        names = {f"work_transition_action_variant_{action['id']}" for action in self.actions}
+        published = {name for name in self.defs if name.startswith("work_transition_action_variant_") or name.startswith("work_transition_action_public_variant_")}
+        self.assertEqual(published - {f"work_transition_action_public_variant_{a['id']}" for a in self.actions if a["payload"] != a["public_payload"]}, names)
+
+    def _sample(self, schema, path="$", fallback_properties=None):
+        schema = self.defs[schema["$ref"].removeprefix("#/$defs/")] if "$ref" in schema else schema
+        if "const" in schema: return schema["const"]
+        if "enum" in schema: return schema["enum"][0]
+        if "oneOf" in schema:
+            base = {key: self._sample(self._property(schema, fallback_properties, key), f"{path}.{key}") for key in schema.get("required", [])}
+            branch_value = self._sample(schema["oneOf"][0], f"{path}.oneOf[0]", schema.get("properties"))
+            if isinstance(branch_value, dict):
+                for key, value in branch_value.items():
+                    base.setdefault(key, value)
+            return base
+        if "allOf" in schema:
+            base = self._sample({k: v for k, v in schema.items() if k != "allOf"}, path, fallback_properties)
+            for member in schema["allOf"]:
+                merged = self._sample(member, path, fallback_properties)
+                if isinstance(base, dict) and isinstance(merged, dict): base.update(merged)
+            return base
+        kind = schema.get("type")
+        if isinstance(kind, list): kind = next((candidate for candidate in kind if candidate != "null"), kind[0])
+        if kind is None and ("properties" in schema or "required" in schema): kind = "object"
+        if kind == "object":
+            result = {}
+            for key in schema.get("required", []):
+                result[key] = self._sample(self._property(schema, fallback_properties, key), f"{path}.{key}")
+            return result
+        if kind == "array": return [] if not schema.get("minItems") else [self._sample(schema.get("items", {"type": "string"}), path)]
+        if kind == "integer": return schema.get("minimum", 0)
+        if kind == "boolean": return True
+        if schema.get("format") == "date-time": return "2026-08-08T00:00:00Z"
+        pattern = schema.get("pattern", "")
+        if "sha256:" in pattern: return "sha256:" + "0" * 64
+        if "[0-9a-f]{40}" in pattern: return "0" * 40
+        if pattern.startswith("^msg:"): return "msg:" + "0" * 32
+        if pattern.startswith("^https://"): return "https://example.test/pull/1"
+        if schema.get("minLength"): return "v" * schema["minLength"]
+        return "id-1"
+
+    def _property(self, schema, fallback_properties, key):
+        properties = schema.get("properties") or fallback_properties or {}
+        return properties.get(key, {"type": "string"})
 
 
 if __name__ == "__main__": unittest.main()

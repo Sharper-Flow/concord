@@ -79,8 +79,6 @@ No definition version changes. Admission code is not definition content
 - Hold the refinement step instead of the gate. Rejected: the merged
   recovery holds the gate, and rewriting recorded history is not admission
   code's to do (CD-0115 D2).
-- Amend CD-0166 D6 in place instead of by record. Rejected: the corpus amends
-  by explicit amendment record, so accepted history stays readable.
 - Let any pending review bind after a newer one completes. Rejected: the
   newer evidence supersedes the older findings.
 

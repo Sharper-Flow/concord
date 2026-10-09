@@ -4639,7 +4639,7 @@
       ],
       "dependency_interpretations_to": [],
       "domain_id": "repository-verification",
-      "mapped_count": 190,
+      "mapped_count": 192,
       "mechanism_owner_ids": [
         "mechanism:repo-validators",
         "mechanism:test-infrastructure"
@@ -4849,7 +4849,7 @@
         ]
       },
       "purpose": "Owns the authority a repository check may hold: what a validator may assert, what it may block, how required checks bind to declared coverage, and the boundary between a check's finding and accepted Product law.",
-      "test_count": 86,
+      "test_count": 87,
       "test_packages": [
         "github.com/sharper-flow/concord/internal/gittest",
         "github.com/sharper-flow/concord/internal/pm1fixture",
@@ -4915,6 +4915,7 @@
         "scripts/test-generate-dependency-inventory.py",
         "scripts/test-generate-knowledge-index.py",
         "scripts/test-generate-law-coverage.py",
+        "scripts/test-go-test-shard.py",
         "scripts/test-installer.py",
         "scripts/test-knowledge-closure.py",
         "scripts/test-knowledge-index.py",
@@ -8032,6 +8033,7 @@
     "scripts/generate-work-kinds.py": "repository-verification",
     "scripts/git_environment.py": "repository-verification",
     "scripts/go-test-assertions/main.go": "repository-verification",
+    "scripts/go-test-shard.py": "repository-verification",
     "scripts/install.py": "repository-verification",
     "scripts/knowledge_index.py": "repository-verification",
     "scripts/linear-issue-state/main.go": "repository-verification",
@@ -8065,6 +8067,7 @@
     "scripts/test-generate-dependency-inventory.py": "repository-verification",
     "scripts/test-generate-knowledge-index.py": "repository-verification",
     "scripts/test-generate-law-coverage.py": "repository-verification",
+    "scripts/test-go-test-shard.py": "repository-verification",
     "scripts/test-installer.py": "repository-verification",
     "scripts/test-knowledge-closure.py": "repository-verification",
     "scripts/test-knowledge-index.py": "repository-verification",
@@ -8102,7 +8105,7 @@
     "skills/README.md": "agent-surface",
     "workflows/README.md": "workflow-engine"
   },
-  "mapped_count": 2012,
+  "mapped_count": 2014,
   "mechanisms": [
     {
       "check_ids": [

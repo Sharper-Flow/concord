@@ -26,7 +26,10 @@ assert_lefthook_installed: true
 no_auto_install: true
 
 pre-push:
-  parallel: true
+  # Serial, not parallel: every agent worktree runs these whole-repository
+  # Go gates on push, and five of them at once per push saturated the shared
+  # host (CON-907).
+  parallel: false
   commands:
     gofmt:
       glob: &go_planes

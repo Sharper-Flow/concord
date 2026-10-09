@@ -148,7 +148,7 @@
       "cli_verbs": [],
       "default_path_rules": null,
       "domain_id": "agent-surface",
-      "mapped_count": 375,
+      "mapped_count": 376,
       "name": "Agent surface",
       "owner_id": "domain:agent-surface",
       "path_rules": {
@@ -192,7 +192,7 @@
         ]
       },
       "purpose": "Owns the typed agent plane: the read and mutation tool surface, its budget and evolution constraints, call context, lanes and worker dispatch, the adapter transport contract, and the agent result envelope.",
-      "test_count": 239,
+      "test_count": 240,
       "test_packages": [
         "github.com/sharper-flow/concord/internal/agent",
         "github.com/sharper-flow/concord/internal/store"
@@ -242,6 +242,7 @@
         "adapter/opencode/test_preload.ts",
         "adapter/opencode/testenv.test.ts",
         "adapter/opencode/turn-move-boundary.test.ts",
+        "adapter/opencode/work-start-publication.test.ts",
         "adapter/opencode/worker_evidence.test.ts",
         "adapter/opencode/worker_recovery.test.ts",
         "adapter/opencode/workflow-status-receipt-runtime-shape.test.ts",
@@ -3041,6 +3042,7 @@
     "adapter/opencode/testenv.test.ts": "agent-surface",
     "adapter/opencode/turn-move-boundary.test.ts": "agent-surface",
     "adapter/opencode/turn-move-boundary.ts": "agent-surface",
+    "adapter/opencode/work-start-publication.test.ts": "agent-surface",
     "adapter/opencode/worker-cli-required-fields.json": "agent-surface",
     "adapter/opencode/worker-evidence-vector.json": "agent-surface",
     "adapter/opencode/worker_evidence.test.ts": "agent-surface",
@@ -3982,7 +3984,7 @@
     "skills/README.md": "agent-surface",
     "workflows/README.md": "workflow-engine"
   },
-  "mapped_count": 1892,
+  "mapped_count": 1893,
   "schema_version": "1.0",
   "scope": "coarse file navigation, not law homes or semantic mechanism ownership",
   "test_coverage": {

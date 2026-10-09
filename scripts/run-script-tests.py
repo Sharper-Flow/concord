@@ -26,6 +26,12 @@ with the real YAML parser (PyYAML), never from a curated copy:
 
 Push files arrive as whole `argv` elements: Lefthook single-quotes expanded
 placeholders, and the forwarded `--` keeps a dash-prefixed path positional.
+
+Suites are spawned with the hook-inherited Git namespace cleared
+(scripts/git_environment.py, CON-896): a suite building its own scratch
+repository would otherwise have its Git operations redirected into the outer
+repository the hook serves. If that namespace cannot be discovered, no suite
+is spawned at all.
 """
 
 from __future__ import annotations
@@ -38,6 +44,8 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+
+import git_environment
 
 try:
     import yaml
@@ -236,8 +244,15 @@ def main(argv: list[str] | None = None) -> int:
     if args.dry_run:
         return 0
 
+    try:
+        child_environment = git_environment.sanitized_environment()
+    except git_environment.GitEnvironmentError as error:
+        print(f"run-script-tests: {error}", file=sys.stderr)
+        print("run-script-tests: refusing to spawn suites with an unknown Git environment", file=sys.stderr)
+        return 2
+
     for command in selection.commands:
-        completed = subprocess.run(command, cwd=root, check=False)
+        completed = subprocess.run(command, cwd=root, check=False, env=child_environment)
         if completed.returncode:
             print(
                 f"run-script-tests: suite failed (exit {completed.returncode}): {' '.join(command)}",

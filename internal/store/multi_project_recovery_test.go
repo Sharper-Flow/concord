@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 	"time"
@@ -18,7 +19,11 @@ type multiProjectRecoveryFixture struct {
 
 func newMultiProjectRecoveryFixture(t *testing.T) multiProjectRecoveryFixture {
 	t.Helper()
-	s := openTemp(t)
+	return multiProjectRecoveryFixtureForStore(t, openTemp(t))
+}
+
+func multiProjectRecoveryFixtureForStore(t *testing.T, s *Store) multiProjectRecoveryFixture {
+	t.Helper()
 	seed := seedDispatchFixture(t, s, "work-multi-recovery")
 	ctx := context.Background()
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{
@@ -174,6 +179,31 @@ func TestMultiProjectRecoveryRefusesUnresolvedAttemptOwnership(t *testing.T) {
 		t.Fatalf("unresolved bound ownership did not refuse: %v", err)
 	}
 	assertWorkerAttemptState(t, f.store, f.seed.workID, "attempt-unresolved", "in_flight")
+}
+
+func TestMultiProjectRecoveryAbandonsMissingSymlinkedWorktree(t *testing.T) {
+	alias := filepath.Join(t.TempDir(), "store-link")
+	if err := os.Symlink(t.TempDir(), alias); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Open(context.Background(), filepath.Join(alias, "concord.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	f := multiProjectRecoveryFixtureForStore(t, s)
+	f.dispatch(t, "attempt-symlinked")
+	f.occupy(t, "project-sibling", true)
+	entry := f.entries["project"]
+	runBootstrapGit(t, entry.RepositoryID, "worktree", "remove", entry.Path)
+	if err := os.Remove(filepath.Dir(entry.Path)); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.abandon("attempt-symlinked"); err != nil {
+		t.Fatalf("missing worktree below a symlinked store lost ownership: %v", err)
+	}
+	assertWorkerAttemptState(t, s, f.seed.workID, "attempt-symlinked", "failed")
+	f.assertSiblingUnchanged(t)
 }
 
 func TestMultiProjectRecoveryKeepsLegacyAttemptConservative(t *testing.T) {

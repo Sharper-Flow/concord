@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
 )
@@ -37,16 +38,39 @@ func workerAttemptProjectTx(ctx context.Context, tx *sql.Tx, workID, attemptID s
 		return "", err
 	}
 	for _, entry := range entries {
-		// The durable path survives native removal. A reachable symlinked
-		// path can also match the canonical identity recorded at dispatch.
+		// The durable path survives native removal. Resolving its surviving
+		// ancestors also preserves dispatch identity beneath a symlinked root.
 		if workerWorktreeIdentity(filepath.Clean(entry.Path)) == window.WorktreeIdentity {
 			return entry.ProjectID, nil
 		}
-		if canonical, err := canonicalWorkerWorktreePath(entry.Path); err == nil && workerWorktreeIdentity(canonical) == window.WorktreeIdentity {
+		if canonical, err := canonicalWorkerRecoveryPath(entry.Path); err == nil && workerWorktreeIdentity(canonical) == window.WorktreeIdentity {
 			return entry.ProjectID, nil
 		}
 	}
 	return "", newFailure(KindWorktreeOwnershipConflict, "worker_fail", "worker attempt worktree identity has no recorded Project", false, "restore the attempt's recorded worktree claim before abandonment")
+}
+
+// canonicalWorkerRecoveryPath resolves surviving ancestors without requiring
+// the lost native worktree itself. Dispatch still requires an existing path
+// through canonicalWorkerWorktreePath.
+func canonicalWorkerRecoveryPath(value string) (string, error) {
+	path, err := filepath.Abs(value)
+	if err != nil {
+		return "", err
+	}
+	var missing []string
+	for {
+		resolved, err := filepath.EvalSymlinks(path)
+		if err == nil {
+			return filepath.Join(append([]string{resolved}, missing...)...), nil
+		}
+		parent := filepath.Dir(path)
+		if !os.IsNotExist(err) || parent == path {
+			return "", err
+		}
+		missing = append([]string{filepath.Base(path)}, missing...)
+		path = parent
+	}
 }
 
 // activeWorkerClaimedWorktree answers the canonical path of the durable active

@@ -192,20 +192,57 @@ class AgentProjectionTests(unittest.TestCase):
         self.assertNotIn("pwd", projection)
         self.assertNotIn("cwd", projection)
 
-    def test_projection_requires_a_real_execute_source_lookup(self):
-        # Every lane must attempt one real Context7 or Exa call per bounded
-        # technical task through `execute`, discover signatures first, and
-        # report an unconnected service instead of inventing a result.
-        projection = lane_projection(self.LANE, REPORT_SCHEMA)
+    def test_projection_routes_source_lookups_by_source_class(self):
+        # A lane whose capabilities grant repository reads routes each
+        # lookup to the source class that owns the fact: repository facts
+        # come from local source lookup, unknown library or platform facts
+        # from Context7, and current external facts from Exa. No external
+        # quota applies to repository-only tasks, and the block still
+        # requires an actually consulted source, signature discovery, host
+        # connection ownership, and honest gap reporting.
+        lane = dict(self.LANE, capabilities=["read_repository", "inspect_diff", "run_targeted_checks", "report_findings"])
+        projection = lane_projection(lane, REPORT_SCHEMA)
         normalized = " ".join(projection.split())
-        self.assertIn("Source lookup through `execute`", projection)
-        self.assertIn("one real source lookup", normalized)
-        self.assertIn("applies to repository-only tasks", normalized)
-        self.assertIn("look up a relevant external technology", normalized)
-        self.assertIn("repository sources, not external search results", normalized)
+        self.assertIn("## Source lookup routing", projection)
+        self.assertIn("Route each technical lookup to the source class that owns the fact", normalized)
+        self.assertIn("from local source lookup", normalized)
+        self.assertIn("`read` and `grep`", normalized)
+        self.assertIn("connected code-search tool through `execute`", normalized)
+        self.assertIn("tools.lgrep.search_semantic", normalized)
+        self.assertIn("Query Context7 for a library, API, platform, or tool fact the repository does not settle", normalized)
+        self.assertIn("Search Exa for current external facts that change over time", normalized)
+        self.assertIn("Ground each technical claim in a source you actually consulted this attempt and cite it", normalized)
+        self.assertIn("recall is not a lookup", normalized)
         self.assertIn("Discover the exact callable signatures first", normalized)
         self.assertIn("host-connected options", normalized)
+        self.assertIn("the host, not this instruction, controls whether they are connected", normalized)
+        self.assertIn("state that plainly, name the missing source", normalized)
         self.assertIn("Never invent a lookup result", normalized)
+        self.assertNotIn("For each bounded technical task", normalized)
+        self.assertNotIn("one real source lookup", normalized)
+        self.assertNotIn("applies to repository-only tasks", normalized)
+        self.assertNotIn("look up a relevant external technology", normalized)
+
+    def test_projection_without_read_repository_keeps_external_routing_only(self):
+        # The repository paragraph is derived from the read_repository
+        # capability, never from the lane id: a lane that cannot read the
+        # repository keeps the external routing, consulted-source citation,
+        # signature discovery, and honest gap reporting, and receives no
+        # repository-source lookup guidance.
+        lane = dict(self.LANE, capabilities=["inspect_diff", "run_targeted_checks", "report_findings"])
+        projection = lane_projection(lane, REPORT_SCHEMA)
+        normalized = " ".join(projection.split())
+        self.assertIn("## Source lookup routing", projection)
+        self.assertIn("Route each technical lookup to the source class that owns the fact", normalized)
+        self.assertIn("Query Context7 for a library, API, platform, or tool fact.", normalized)
+        self.assertIn("Search Exa for current external facts that change over time", normalized)
+        self.assertIn("Ground each technical claim in a source you actually consulted this attempt and cite it", normalized)
+        self.assertIn("Discover the exact callable signatures first", normalized)
+        self.assertIn("Never invent a lookup result", normalized)
+        self.assertNotIn("local source lookup", normalized)
+        self.assertNotIn("`read` and `grep`", normalized)
+        self.assertNotIn("lgrep", normalized)
+        self.assertNotIn("the repository does not settle", normalized)
 
     def test_projection_keeps_the_file_change_rules_for_editing_lanes(self):
         # The dispatched packet carries the approved contract's bound law and
@@ -277,7 +314,7 @@ class AgentProjectionTests(unittest.TestCase):
         self.assertIn("Do not edit files", projection)
         self.assertIn("Object.keys(tools)", projection)
         self.assertIn("tools.lgrep.search_semantic", projection)
-        self.assertIn("query Context7", projection)
+        self.assertIn("Query Context7", projection)
         self.assertIn("MCP access depends on host connections", projection)
         self.assertIn("Use read-only tools only", projection)
 
@@ -339,9 +376,36 @@ class AgentProjectionTests(unittest.TestCase):
                 "time_seconds_max": 600,
             }
             projection = generator.utility_projection(utility)
-            self.assertIn("Source lookup through `execute`", projection, utility_id)
+            self.assertIn("## Source lookup routing", projection, utility_id)
             self.assertIn("Context7", projection, utility_id)
             self.assertIn("Exa", projection, utility_id)
+
+    def test_external_only_lookup_projection_carries_no_repository_source_guidance(self):
+        # The lookup utility is external research only: its declared tools
+        # grant no repository reads, and its body forbids inspecting the
+        # repository. The shared routing block must therefore never direct
+        # it to repository files, `read`/`grep`, or a connected code-search
+        # tool, while the external routing, consulted-source citation, and
+        # signature discovery stay.
+        utility = {
+            "id": "lookup",
+            "purpose": "Research bounded external questions.",
+            "allowed_tools": ["webfetch", "execute"],
+            "allowed_commands": [],
+            "time_seconds_max": 600,
+        }
+        projection = generator.utility_projection(utility)
+        normalized = " ".join(projection.split())
+        self.assertIn("## Source lookup routing", projection)
+        self.assertIn("Query Context7 for a library, API, platform, or tool fact", normalized)
+        self.assertIn("Search Exa for current external facts that change over time", normalized)
+        self.assertIn("Ground each technical claim in a source you actually consulted", normalized)
+        self.assertIn("Discover the exact callable signatures first", normalized)
+        self.assertIn("Do not inspect or edit the repository", normalized)
+        self.assertNotIn("local source lookup", normalized)
+        self.assertNotIn("`read` and `grep`", normalized)
+        self.assertNotIn("lgrep", normalized)
+        self.assertNotIn("the repository does not settle", normalized)
 
     def test_bash_only_projection_never_receives_the_source_lookup_block(self):
         # The block is gated on declared `execute` access, not on the utility
@@ -354,10 +418,39 @@ class AgentProjectionTests(unittest.TestCase):
             "time_seconds_max": 1800,
         }
         projection = generator.utility_projection(utility)
-        self.assertNotIn("Source lookup through `execute`", projection)
+        self.assertNotIn("## Source lookup routing", projection)
         self.assertNotIn("Context7", projection)
 
+    def test_utility_repository_routing_follows_declared_tools(self):
+        manifest = json.loads((ROOT / "contracts/agent-lanes.v1.json").read_text())
+        for utility in manifest["utilities"]:
+            with self.subTest(utility=utility["id"]):
+                projection = generator.utility_projection(utility)
+                permits_reads = bool({"read", "grep"} & set(utility["allowed_tools"]))
+                self.assertEqual("local source lookup" in projection, permits_reads)
+                self.assertEqual("tools.lgrep.search_semantic" in projection, permits_reads)
+
+    def test_all_registered_projections_omit_external_call_quotas(self):
+        manifest = json.loads((ROOT / "contracts/agent-lanes.v1.json").read_text())
+        projections = [
+            (lane["id"], lane_projection(lane)) for lane in manifest["lanes"]
+        ] + [
+            (utility["id"], generator.utility_projection(utility))
+            for utility in manifest["utilities"]
+        ]
+        for agent_id, projection in projections:
+            with self.subTest(agent=agent_id):
+                normalized = " ".join(projection.split())
+                self.assertNotIn("For each bounded technical task, make one real source lookup", normalized)
+                self.assertNotIn("whether or not the parent supplied URLs", normalized)
+                self.assertNotIn("look up a relevant external technology", normalized)
+
     def test_lookup_projection_names_the_services_and_discovers_signatures(self):
+        # The lookup method searches connected services as needed for
+        # external evidence the supplied URLs do not settle. Fetching a
+        # supplied authoritative source is itself external research, so no
+        # unrelated Context7/Exa quota rides on a question the supplied
+        # URLs already answer.
         utility = {
             "id": "lookup",
             "purpose": "Research bounded external questions.",
@@ -367,10 +460,14 @@ class AgentProjectionTests(unittest.TestCase):
         }
         projection = generator.utility_projection(utility)
         normalized = " ".join(projection.split())
-        self.assertIn("whether or not the parent supplied URLs", normalized)
+        self.assertIn("Fetch each supplied source URL with `webfetch`", normalized)
+        self.assertIn("Fetching a supplied authoritative source is external research", normalized)
+        self.assertIn("as needed for external evidence the supplied URLs do not settle", normalized)
         self.assertIn("Context7 for library documentation", normalized)
         self.assertIn("Exa for", normalized)
         self.assertIn("Discover the exact callable signature first", normalized)
+        self.assertNotIn("whether or not the parent supplied URLs", normalized)
+        self.assertNotIn("the required source lookup", normalized)
 
     def test_advisory_projection_uses_collaborative_body_with_model_statement(self):
         # CD-0157 D2-D4. The adviser receives a problem, never a proposed
@@ -393,7 +490,7 @@ class AgentProjectionTests(unittest.TestCase):
         self.assertIn("No concerns", projection)
         self.assertIn("model that served this opinion", projection)
         self.assertIn("search connected tools through `execute` first", " ".join(projection.split()))
-        self.assertIn("one real source lookup", projection)
+        self.assertIn("Ground each technical claim in a source you actually consulted", " ".join(projection.split()))
         self.assertIn("line range", projection)
         self.assertIn("10 minutes", projection)
 

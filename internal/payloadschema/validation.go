@@ -495,6 +495,16 @@ func validateStringKeywords(text string, schema map[string]any, path string) err
 	if n, ok := schema["maxLength"].(json.Number); ok && codePoints > numberInt(n) {
 		return fmt.Errorf("maxLength at %s: carries %d Unicode code points against a limit of %d", path, codePoints, numberInt(n))
 	}
+	// The store's enforcing string bounds count UTF-8 bytes; the generated
+	// x-maxBytes/x-minBytes keywords carry those byte bounds beside the
+	// derived code-point bounds, so this validator refuses a byte-overrun
+	// string the code-point maxLength alone would admit (CON-412).
+	if n, ok := schema["x-maxBytes"].(json.Number); ok && len(text) > numberInt(n) {
+		return fmt.Errorf("x-maxBytes at %s: carries %d UTF-8 bytes against a limit of %d", path, len(text), numberInt(n))
+	}
+	if n, ok := schema["x-minBytes"].(json.Number); ok && len(text) < numberInt(n) {
+		return fmt.Errorf("x-minBytes at %s: carries %d UTF-8 bytes against a minimum of %d", path, len(text), numberInt(n))
+	}
 	if pattern, ok := schema["pattern"].(string); ok {
 		matched, _ := regexp.MatchString(pattern, text)
 		if !matched {

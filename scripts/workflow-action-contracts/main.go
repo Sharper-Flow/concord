@@ -15,6 +15,11 @@ type actionContract struct {
 	Payload        store.WorkflowPayloadDefinition   `json:"payload"`
 	PublicPayload  store.WorkflowPayloadDefinition   `json:"public_payload"`
 	LegacyPayloads []store.WorkflowPayloadDefinition `json:"legacy_payloads"`
+	// CrossField projects the engine registry's cross-field declaration for
+	// this action — the same single declaration workflowActionCrossField
+	// resolves for core validation. It rides the action contract, never the
+	// digest-covered payload definition (CON-412).
+	CrossField store.WorkflowActionCrossField `json:"cross_field"`
 }
 
 type workflowOutcomeContract struct {
@@ -25,9 +30,10 @@ type workflowOutcomeContract struct {
 }
 
 type contractProjection struct {
-	SchemaVersion string                    `json:"schema_version"`
-	Actions       []actionContract          `json:"actions"`
-	Workflows     []workflowOutcomeContract `json:"workflows"`
+	SchemaVersion string                         `json:"schema_version"`
+	Actions       []actionContract               `json:"actions"`
+	Workflows     []workflowOutcomeContract      `json:"workflows"`
+	Teaching      store.WorkflowContractTeaching `json:"teaching"`
 }
 
 func main() {
@@ -37,7 +43,11 @@ func main() {
 		if action.PublicPayload != nil {
 			publicPayload = *action.PublicPayload
 		}
-		contract := actionContract{ID: action.ID, Payload: action.Payload, PublicPayload: publicPayload, LegacyPayloads: []store.WorkflowPayloadDefinition{}}
+		// The cross-field rules ride the engine registry declaration,
+		// resolved through the same accessor core validation reads — the
+		// registry action declaration is the single owner the published
+		// variants generate their closed branches from (CON-412).
+		contract := actionContract{ID: action.ID, Payload: action.Payload, PublicPayload: publicPayload, LegacyPayloads: []store.WorkflowPayloadDefinition{}, CrossField: store.WorkflowActionCrossFieldRules(action.ID)}
 		if previous, ok := payloads[action.ID]; ok && !reflect.DeepEqual(previous, contract) {
 			fmt.Fprintf(os.Stderr, "action %s has inconsistent current payload contracts\n", action.ID)
 			os.Exit(1)
@@ -109,7 +119,7 @@ func main() {
 			DecisionRecordRequired: definition.OutcomeSchema.DecisionRecordRequired,
 		})
 	}
-	projection := contractProjection{SchemaVersion: "1.0", Actions: make([]actionContract, 0, len(ids)), Workflows: workflows}
+	projection := contractProjection{SchemaVersion: "1.0", Actions: make([]actionContract, 0, len(ids)), Workflows: workflows, Teaching: store.WorkflowContractTeachingRules()}
 	for _, id := range ids {
 		projection.Actions = append(projection.Actions, payloads[id])
 	}

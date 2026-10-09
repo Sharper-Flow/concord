@@ -23,45 +23,69 @@ export function envelopeFailurePath(value: unknown): string | null {
 // authoring guidance only: the store does not refuse a predicate for it. The
 // store's ValidateOperationPayload stays the closed admission boundary; this
 // checks only what the advertised surface teaches. The published request is
-// one closed branch per operation; the workflow_action branch is the one
-// whose operation const names it.
+// one closed branch per operation, and workflow_action publishes one closed
+// branch per registry action variant.
 export function advertisedAdmissionTeachingGaps(published: unknown): string[] {
   const gaps: string[] = [];
   const requestBranches: any[] = Array.isArray((published as any)?.oneOf) ? (published as any).oneOf : [];
-  const actionInput = requestBranches.find((branch) => branch?.properties?.operation?.const === "workflow_action")?.properties?.input;
-  const items = actionInput?.properties?.fields?.properties?.outcome_predicates?.items;
-  const required: string[] = Array.isArray(items?.required) ? items.required : [];
+  // workflow_action publishes one closed branch per action variant; the
+  // teaching checks read whichever variant carries the taught field.
+  const actionInputs: any[] = requestBranches
+    .filter((branch) => branch?.properties?.operation?.const === "workflow_action")
+    .map((branch) => branch?.properties?.input)
+    .filter((input) => input?.properties?.fields?.properties);
+  const items = actionInputs.map((input) => input.properties.fields.properties.outcome_predicates?.items).find((candidate) => candidate !== undefined);
+  // The published item is closed per kind: outcome_kind consts to the branch
+  // and outcome_payload carries that branch's payload, so a mismatched
+  // outcome_kind/outcome_payload pair validates no branch (CON-412).
+  const kindBranches: any[] = Array.isArray(items?.oneOf) ? items.oneOf : [];
+  const firstBranch = kindBranches[0] ?? {};
+  const required: string[] = Array.isArray(firstBranch.required) ? firstBranch.required : [];
   for (const field of ["predicate_id", "ordinal", "outcome_kind", "outcome_payload"]) {
     if (!required.includes(field)) gaps.push(`outcome_predicates items do not require ${field}`);
   }
-  const payload = items?.properties?.outcome_payload;
-  const branches: any[] = Array.isArray(payload?.oneOf) ? payload.oneOf : [];
-  if (branches.length !== 4) {
-    gaps.push(`outcome_payload carries ${branches.length} oneOf branches, expected the 4 strict variants`);
+  if (kindBranches.length !== 4) {
+    gaps.push(`outcome_predicates items carry ${kindBranches.length} per-kind branches, expected the 4 strict variants`);
   } else {
-    const kinds = new Set(branches.map((branch) => branch?.properties?.kind?.const ?? branch?.properties?.kind?.enum?.[0]));
+    const kinds = new Set(kindBranches.map((branch) => branch?.properties?.outcome_kind?.const));
     for (const kind of ["exists", "absent", "outcome", "check"]) {
-      if (!kinds.has(kind)) gaps.push(`outcome_payload oneOf lacks the ${kind} variant`);
+      if (!kinds.has(kind)) gaps.push(`outcome_predicates items lack the ${kind} variant`);
     }
-    for (const branch of branches) {
-      if (branch?.additionalProperties !== false) gaps.push("outcome_payload oneOf branch is not closed");
-      if (!Array.isArray(branch?.required) || !branch.required.includes("kind")) gaps.push("outcome_payload oneOf branch does not require kind");
+    for (const branch of kindBranches) {
+      if (branch?.additionalProperties !== false) gaps.push("outcome_predicates item branch is not closed");
+      const payload = branch?.properties?.outcome_payload;
+      if (payload?.additionalProperties !== false) gaps.push("outcome_payload branch is not closed");
+      if (branch?.properties?.outcome_kind?.const !== payload?.properties?.kind?.const) {
+        gaps.push(`outcome_predicates item does not bind outcome_kind to outcome_payload.kind on ${branch?.properties?.outcome_kind?.const}`);
+      }
+      if (!Array.isArray(payload?.required) || !payload.required.includes("kind")) gaps.push("outcome_payload branch does not require kind");
     }
   }
-  const prefix: unknown = items?.properties?.predicate_id?.description;
+  const prefix: unknown = firstBranch?.properties?.predicate_id?.description;
   if (typeof prefix !== "string" || !prefix.includes("predicate:")) gaps.push("predicate_id description does not name the predicate: prefix");
-  const allowedBranch = branches.find((branch) => branch?.properties?.allowed);
-  const tokens: unknown = allowedBranch?.properties?.allowed?.description;
+  const ordinalRule: unknown = firstBranch?.properties?.ordinal?.description;
+  if (typeof ordinalRule !== "string" || !ordinalRule.includes("zero-based position")) gaps.push("ordinal description does not teach the zero-based position rule");
+  const allowedBranch = kindBranches.find((branch) => branch?.properties?.outcome_kind?.const === "outcome");
+  const tokens: unknown = allowedBranch?.properties?.outcome_payload?.properties?.allowed?.description;
   if (typeof tokens !== "string" || !tokens.includes("workflow.research") || !tokens.includes("report_recorded") || !tokens.includes("no outcome tokens")) {
     gaps.push("allowed description does not name the per-workflow pinned outcome tokens");
   }
-  const delivery: unknown = actionInput?.properties?.fields?.properties?.outcome_predicates?.description;
-  if (delivery !== "CD-0184: acceptance is decidable at delivery. Each predicate names an end state verification can decide when the change is delivered. Post-delivery observation over a time window (traffic, an error rate, a metric over hours or days) is not acceptance: capture a follow-up work item and link it raised_from the delivering item before that item completes. A one-shot live check that verification can decide at delivery stays allowed.") {
-    gaps.push("outcome_predicates description does not teach the delivery-decidable rule (CD-0184)");
+  // More than one action variant can carry the taught field (approve_contract
+  // and supersede_contract share outcome_predicates): every carrier must
+  // teach the rule, or a drop from one variant hides behind its sibling.
+  const predicateCarriers = actionInputs.filter((input) => input.properties.fields.properties.outcome_predicates !== undefined);
+  for (const input of predicateCarriers) {
+    const delivery: unknown = input.properties.fields.properties.outcome_predicates?.description;
+    if (delivery !== "CD-0184: acceptance is decidable at delivery. Each predicate names an end state verification can decide when the change is delivered. Post-delivery observation over a time window (traffic, an error rate, a metric over hours or days) is not acceptance: capture a follow-up work item and link it raised_from the delivering item before that item completes. A one-shot live check that verification can decide at delivery stays allowed.") {
+      gaps.push(`outcome_predicates description does not teach the delivery-decidable rule (CD-0184) on action ${input?.properties?.action_id?.const}`);
+    }
   }
-  const wait: unknown = actionInput?.properties?.fields?.properties?.expected_within_seconds?.description;
-  if (wait !== "CD-0184: this wait bounds an event a declared authority can resolve while the item is open. Do not hold the item open to observe production over a time window. Capture that observation as a follow-up work item and link it raised_from the delivering item.") {
-    gaps.push("expected_within_seconds description does not teach the delivery-decidable rule (CD-0184)");
+  const waitCarriers = actionInputs.filter((input) => input.properties.fields.properties.expected_within_seconds !== undefined);
+  for (const input of waitCarriers) {
+    const wait: unknown = input.properties.fields.properties.expected_within_seconds?.description;
+    if (wait !== "CD-0184: this wait bounds an event a declared authority can resolve while the item is open. Do not hold the item open to observe production over a time window. Capture that observation as a follow-up work item and link it raised_from the delivering item.") {
+      gaps.push(`expected_within_seconds description does not teach the delivery-decidable rule (CD-0184) on action ${input?.properties?.action_id?.const}`);
+    }
   }
   return gaps;
 }
@@ -84,7 +108,7 @@ function validateSchema(schema: any, value: unknown, root: Record<string, unknow
   if ("const" in schema && JSON.stringify(schema.const) !== JSON.stringify(value)) return fail(path || "<root>");
   if (schema.enum && !schema.enum.some((candidate: unknown) => JSON.stringify(candidate) === JSON.stringify(value))) return fail(path || "<root>");
   if (schema.type) { const types = Array.isArray(schema.type) ? schema.type : [schema.type]; if (!types.some((kind: string) => kind === "null" ? value === null : kind === "array" ? Array.isArray(value) : kind === "object" ? value !== null && typeof value === "object" && !Array.isArray(value) : kind === "integer" ? typeof value === "number" && Number.isInteger(value) : typeof value === kind || kind === "number" && typeof value === "number")) return fail(path || "<root>"); }
-  if (typeof value === "string") { const length = Array.from(value).length; if (schema.minLength !== undefined && length < schema.minLength || schema.maxLength !== undefined && length > schema.maxLength || schema.pattern && !(new RegExp(schema.pattern).test(value))) return fail(path || "<root>"); if (schema.format === "date-time" && !dateTime(value)) return fail(path || "<root>"); }
+  if (typeof value === "string") { const length = Array.from(value).length; if (schema.minLength !== undefined && length < schema.minLength || schema.maxLength !== undefined && length > schema.maxLength || schema.pattern && !(new RegExp(schema.pattern).test(value))) return fail(path || "<root>"); if (schema.format === "date-time" && !dateTime(value)) return fail(path || "<root>"); const bytes = Buffer.byteLength(value); if (schema["x-maxBytes"] !== undefined && bytes > schema["x-maxBytes"]) return fail(path || "<root>"); if (schema["x-minBytes"] !== undefined && bytes < schema["x-minBytes"]) return fail(path || "<root>"); }
   if (typeof value === "number" && (schema.minimum !== undefined && value < schema.minimum || schema.maximum !== undefined && value > schema.maximum)) return fail(path || "<root>");
   if (value !== null && typeof value === "object" && !Array.isArray(value)) {
     const object = value as Record<string, unknown>; const properties = schema.properties ?? {}; const patterns = schema.patternProperties ?? {}; const known = new Set<string>();

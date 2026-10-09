@@ -28,7 +28,28 @@ type WorkPin struct {
 	// It stays nil when a question is open and when the step has none.
 	WithheldOperatorDecision *WorkflowOperatorQuestionWithheld `json:"withheld_operator_decision,omitempty"`
 	Watermark                string                            `json:"watermark"`
-	NextValidIntents         []WorkPinIntent                   `json:"next_valid_intents"`
+	// WorkflowDefinitionVersion and WorkflowDefinitionDigest carry the
+	// identity of the pinned definition the registry verified for this pin.
+	// They come from the same instance-row read and the same
+	// verifyReadWorkflowDefinition call the pin's intents derive from, so a
+	// caller can cite the exact definition the admission collector used.
+	// The pointers are the typed absence CD-0210 holds open: nil means the
+	// pin's reader verified no definition — the outside-repair hold reads raw
+	// identity only and grants no managed pin authority — so the keys stay
+	// absent on the wire instead of carrying a zero-value or fabricated
+	// definition identity. Only workPinReadInstanceTx sets them.
+	WorkflowDefinitionVersion *int64  `json:"workflow_definition_version,omitempty"`
+	WorkflowDefinitionDigest  *string `json:"workflow_definition_digest,omitempty"`
+	// Obligations lists the sorted exact evidence obligation IDs the pinned
+	// definition declares, collected from the same root, step, and rigor
+	// declarations the architecture-binding admission collector reads
+	// (workflowDefinitionObligations). The pin teaches what the enforcing
+	// collector admits instead of a hand-copied list. The pointer keeps the
+	// same typed absence as the definition identity above, while a managed
+	// pin still emits the key even for a definition that declares no
+	// obligations.
+	Obligations      *[]string       `json:"obligations,omitempty"`
+	NextValidIntents []WorkPinIntent `json:"next_valid_intents"`
 	// DrivingSessions lists the distinct agent sessions that have driven this
 	// workflow, with each session's most recent action and action time. It is
 	// derived from workflow actors and actions, not session identity evidence.
@@ -258,10 +279,19 @@ func workPinReadInstanceTx(ctx context.Context, tx *sql.Tx, workID string, pin *
 		return RegisteredDefinition{}, WorkflowReadDefinition{}, "", wrapFailure(KindUnavailable, "work_pin", "cannot read workflow instance", true, "retry once the database is readable", err)
 	}
 	pin.WorkflowType = definition.Ref
+	pin.WorkflowDefinitionVersion = &definition.Version
+	pin.WorkflowDefinitionDigest = &definition.Digest
 	registered, err := verifyReadWorkflowDefinition(definition)
 	if err != nil {
 		return RegisteredDefinition{}, WorkflowReadDefinition{}, "", err
 	}
+	// The obligation list uses the verified registered definition — the same
+	// verification and the same collector the architecture-binding admission
+	// reads — so the pin and admission cannot disagree on declared membership.
+	// The pointer stays non-nil even for an empty membership, so a managed pin
+	// always carries the obligations key.
+	obligations := workflowDefinitionObligationIDs(registered.Definition)
+	pin.Obligations = &obligations
 	return registered, definition, instanceState, nil
 }
 

@@ -552,6 +552,9 @@ func validateWorkflowActionPayload(definition WorkflowDefinition, actionID strin
 			return err
 		}
 	}
+	if err := validateWorkflowPayloadCrossFieldRules(actionID, fields); err != nil {
+		return err
+	}
 	// The proposal document rule is cross-field, so it runs only for a pinned
 	// definition that declares the document. A definition pinned before the
 	// typed payload keeps its empty call.
@@ -560,6 +563,181 @@ func validateWorkflowActionPayload(definition WorkflowDefinition, actionID strin
 		return err
 	}
 	return nil
+}
+
+// validateWorkflowPayloadCrossFieldRules enforces the legal input
+// combinations and alternative field groups the action's ENGINE registry
+// declaration names — the same single declaration (resolved through
+// workflowActionCrossField) the generated published variants build their
+// closed branches from, so a payload any published variant refuses, core
+// admission refuses too, and vice versa (CON-412). The rules are
+// version-invariant engine law: they bind whatever action version the
+// pinned definition carries, exactly as the released engine guard table
+// always did.
+func validateWorkflowPayloadCrossFieldRules(actionID string, fields map[string]json.RawMessage) error {
+	declaration := workflowActionCrossField(actionID)
+	if combination, field, requires, violated := workflowPayloadCombinationViolation(declaration, fields); violated {
+		remedy := combination.Remedy
+		if remedy == "" {
+			remedy = "supply the fields the declared " + combination.Field + " value requires"
+		}
+		if requires {
+			return newFailure(KindInvalidPayload, "workflow_action_preflight", fmt.Sprintf("%s %s %s requires %s", actionID, combination.Field, combination.Value, field), false, remedy)
+		}
+		return newFailure(KindInvalidPayload, "workflow_action_preflight", fmt.Sprintf("%s %s %s cannot carry %s", actionID, combination.Field, combination.Value, field), false, remedy)
+	}
+	if declaration.Alternatives != nil {
+		complete, partial := workflowPayloadAlternativeGroups(declaration.Alternatives, fields)
+		if complete == 1 && !partial {
+			if err := workflowAlternativeForbids(actionID, declaration.Alternatives, fields); err != nil {
+				return err
+			}
+		} else {
+			groups := make([]string, 0, len(declaration.Alternatives))
+			for _, group := range declaration.Alternatives {
+				groups = append(groups, strings.Join(group.Fields, "+"))
+			}
+			switch {
+			case complete == 0 && !partial:
+				return newFailure(KindInvalidPayload, "workflow_action_preflight", fmt.Sprintf("%s requires one of the declared field groups: %s", actionID, strings.Join(groups, "; ")), false, "supply exactly one declared field group")
+			case complete >= 2:
+				return newFailure(KindInvalidPayload, "workflow_action_preflight", fmt.Sprintf("%s must supply exactly one declared field group, not several of: %s", actionID, strings.Join(groups, "; ")), false, "supply exactly one declared field group")
+			default:
+				// Zero or one complete group plus a partially supplied other
+				// group. Counting only complete groups admitted these payloads
+				// while the published closed branches refused them; the closed
+				// branch semantics is the declaring owner's (CON-412).
+				return newFailure(KindInvalidPayload, "workflow_action_preflight", fmt.Sprintf("%s must supply exactly one declared field group: a field of another group is present without its complete group (%s)", actionID, strings.Join(groups, "; ")), false, "complete the started field group or remove its fields")
+			}
+		}
+	}
+	if match, fieldKind, objectKind, violated := workflowPayloadKindMatchViolation(declaration, fields); violated {
+		return workflowPayloadKindMatchRefusal(actionID, match, fieldKind, objectKind)
+	}
+	return nil
+}
+
+// workflowAlternativeForbids enforces the one complete group's Forbids: a
+// field the declaration forbids beside that group cannot ride at the top
+// level even though no group claims it (record_verdict's entry-level fields
+// beside the batch, CD-0198 D1). The refusal names the field and the group
+// it cannot ride beside, from the same declaration the published variant
+// builds its closed branch from (CON-412).
+func workflowAlternativeForbids(actionID string, alternatives []WorkflowPayloadAlternative, fields map[string]json.RawMessage) error {
+	for _, group := range alternatives {
+		present := 0
+		for _, name := range group.Fields {
+			if _, ok := fields[name]; ok {
+				present++
+			}
+		}
+		if present != len(group.Fields) {
+			continue
+		}
+		for _, name := range group.Forbids {
+			if _, ok := fields[name]; ok {
+				remedy := group.Remedy
+				if remedy == "" {
+					remedy = "drop " + name + " or supply the other declared field group"
+				}
+				return newFailure(KindInvalidPayload, "workflow_action_preflight", fmt.Sprintf("%s field %s cannot ride beside the %s group", actionID, name, strings.Join(group.Fields, "+")), false, remedy)
+			}
+		}
+		return nil
+	}
+	return nil
+}
+
+// workflowPayloadCombinationViolation evaluates the supplied fields against
+// the declaration's legal input combinations and reports the first broken
+// rule: which combination, the requires/forbids field that broke it, and
+// whether the broken side is a required (absent) or forbidden (present)
+// field. Callers render their own typed refusal; this function and the
+// declaration are the rule's only owners (CON-412).
+func workflowPayloadCombinationViolation(declaration WorkflowActionCrossField, fields map[string]json.RawMessage) (combination WorkflowPayloadCombination, field string, requires bool, violated bool) {
+	for _, candidate := range declaration.Combinations {
+		value, ok := workflowFieldString(fields, candidate.Field)
+		if !ok || value != candidate.Value {
+			continue
+		}
+		for _, name := range candidate.Requires {
+			if _, present := fields[name]; !present {
+				return candidate, name, true, true
+			}
+		}
+		for _, name := range candidate.Forbids {
+			if _, present := fields[name]; present {
+				return candidate, name, false, true
+			}
+		}
+	}
+	return WorkflowPayloadCombination{}, "", false, false
+}
+
+// workflowPayloadAlternativeGroups reports how many of the declaration's
+// alternative field groups the payload supplies completely, and whether any
+// group is partially engaged (a member present without its whole group).
+// The published closed branches accept exactly one complete group with no
+// field of any other group present, so a partially supplied second group is
+// a violation, not a neutral payload (CON-412).
+func workflowPayloadAlternativeGroups(alternatives []WorkflowPayloadAlternative, fields map[string]json.RawMessage) (complete int, partial bool) {
+	for _, group := range alternatives {
+		present := 0
+		for _, name := range group.Fields {
+			if _, ok := fields[name]; ok {
+				present++
+			}
+		}
+		if present == len(group.Fields) {
+			complete++
+		} else if present > 0 {
+			partial = true
+		}
+	}
+	return complete, partial
+}
+
+// workflowPayloadKindMatchViolation evaluates the declaration's nested
+// discriminator equalities against the supplied fields and reports the first
+// broken match: which match, the scalar value, and the object's
+// discriminator value. The caller renders the field-named typed refusal;
+// this function and the declaration are the rule's only owners (CON-412).
+func workflowPayloadKindMatchViolation(declaration WorkflowActionCrossField, fields map[string]json.RawMessage) (match WorkflowPayloadKindMatch, fieldKind, objectKind string, violated bool) {
+	for _, candidate := range declaration.KindMatches {
+		scalar, ok := workflowFieldString(fields, candidate.Field)
+		if !ok {
+			continue
+		}
+		raw, present := fields[candidate.Object]
+		if !present {
+			continue
+		}
+		var object map[string]json.RawMessage
+		if json.Unmarshal(raw, &object) != nil {
+			continue
+		}
+		kindRaw, carries := object[candidate.Discriminator]
+		if !carries {
+			continue
+		}
+		if json.Unmarshal(kindRaw, &objectKind) != nil || objectKind == "" {
+			continue
+		}
+		if scalar != objectKind {
+			return candidate, scalar, objectKind, true
+		}
+	}
+	return WorkflowPayloadKindMatch{}, "", "", false
+}
+
+// workflowPayloadKindMatchRefusal renders the field-named refusal for a
+// broken nested discriminator equality, naming both fields and both values.
+func workflowPayloadKindMatchRefusal(actionID string, match WorkflowPayloadKindMatch, fieldKind, objectKind string) error {
+	remedy := match.Remedy
+	if remedy == "" {
+		remedy = "supply the " + match.Object + " whose " + match.Discriminator + " equals " + match.Field
+	}
+	return newFailure(KindInvalidPayload, "workflow_action_preflight", fmt.Sprintf("%s field %q is %q but field %q carries %s %q", actionID, match.Field, fieldKind, match.Object, match.Discriminator, objectKind), false, remedy)
 }
 
 func validateEvidenceBindingReferences(actionID string, fields map[string]json.RawMessage) error {
@@ -703,7 +881,14 @@ func validateWorkflowPayloadValue(field WorkflowPayloadField, raw json.RawMessag
 		if len(field.Enum) != 0 && !containsString(field.Enum, text) {
 			return false
 		}
-		if field.MinLength != nil && int64(len([]rune(text))) < *field.MinLength || field.MaxLength != nil && int64(len([]rune(text))) > *field.MaxLength {
+		// String bounds count UTF-8 bytes, not runes: every enforcing
+		// workflowString guard counts bytes, so the declared limits carry
+		// the enforcing owner's unit and a schema-bound payload cannot be
+		// refused by a deeper guard for length alone. JSON Schema
+		// minLength/maxLength count code points — that published
+		// representation limit is recorded beside the corpus tests
+		// (CON-412).
+		if field.MinLength != nil && int64(len(text)) < *field.MinLength || field.MaxLength != nil && int64(len(text)) > *field.MaxLength {
 			return false
 		}
 		return true

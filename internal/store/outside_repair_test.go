@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/sharper-flow/concord/internal/payloadschema"
 )
 
 func seedOutsideRepairTestWork(t *testing.T, s *Store, workID string) {
@@ -33,7 +35,10 @@ func seedOutsideRepairTestWork(t *testing.T, s *Store, workID string) {
 // database or forge is involved in store tests.
 func outsideRepairSampleEvidence() OutsideRepairEvidence {
 	at := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
-	e := OutsideRepairEvidence{AuthorityRef: "client/github", ObservedAt: at.Add(2 * time.Hour), Repository: "octo-org/concord", ReleaseTag: "v1.2.3", ReleaseURL: "https://github.com/octo-org/concord/releases/tag/v1.2.3", ReleaseSHA: strings.Repeat("1", 40), PublishedAt: at.Add(time.Hour)}
+	// AuthorityRef models the receipt the agent boundary records:
+	// "approval:" plus the consumed approval reference, which the published
+	// outside_repair_evidence contract admits as an id-shaped string.
+	e := OutsideRepairEvidence{AuthorityRef: "approval:outside-repair-sample", ObservedAt: at.Add(2 * time.Hour), Repository: "octo-org/concord", ReleaseTag: "v1.2.3", ReleaseURL: "https://github.com/octo-org/concord/releases/tag/v1.2.3", ReleaseSHA: strings.Repeat("1", 40), PublishedAt: at.Add(time.Hour)}
 	for i := int64(1); i <= 2; i++ {
 		head := strings.Repeat(jsonInt(i+1), 40)
 		e.PullRequests = append(e.PullRequests, OutsideRepairPullRequestEvidence{URL: "https://github.com/octo-org/concord/pull/" + jsonInt(i), Number: i, HeadSHA: head, MergeSHA: strings.Repeat(jsonInt(i+3), 40), MergedAt: at,
@@ -578,4 +583,95 @@ SELECT work_id, definition_ref, definition_version, definition_digest, current_s
 		return err
 	}
 	return tx.Commit()
+}
+
+// TestOutsideRepairWorkPinPopulation pins the two WorkPin populations CD-0210
+// admits, at the store producer and against the published work_pin contract
+// together. A hold and a completed reconciliation grant no managed pin
+// authority, so the pin carries a typed absence of the workflow-definition
+// identity: the three definition keys are omitted outright, never zero-filled
+// and never fabricated, while the raw instance identity (workflow type, step)
+// the disposition preserves stays readable. The never-held and resumed
+// populations run the managed instance read, so the same three keys are
+// present and the pin still validates against the strict ordinary branch.
+func TestOutsideRepairWorkPinPopulation(t *testing.T) {
+	s := openTemp(t)
+	work := "outside-pin-population"
+	seedOutsideRepairTestWork(t, s, work)
+
+	definitionKeys := []string{"workflow_definition_version", "workflow_definition_digest", "obligations"}
+	read := func() map[string]json.RawMessage {
+		pin, err := ReadWorkPin(context.Background(), s, work)
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw, err := json.Marshal(pin)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var object map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &object); err != nil {
+			t.Fatal(err)
+		}
+		if err := payloadschema.Validate("work_pin", raw); err != nil {
+			t.Fatalf("pin does not validate against the published work_pin contract: %v; pin=%s", err, raw)
+		}
+		return object
+	}
+	requireManagedIdentity := func(object map[string]json.RawMessage) {
+		t.Helper()
+		for _, key := range definitionKeys {
+			value, present := object[key]
+			if !present {
+				t.Fatalf("managed pin omits %s: %v", key, object)
+			}
+			if key == "obligations" && strings.TrimSpace(string(value)) == "null" {
+				t.Fatalf("managed pin carries null obligations: %v", object)
+			}
+		}
+		var version json.Number
+		if err := json.Unmarshal(object["workflow_definition_version"], &version); err != nil || version.String() == "0" {
+			t.Fatalf("managed pin definition version = %s", object["workflow_definition_version"])
+		}
+	}
+	requireTypedAbsence := func(object map[string]json.RawMessage, state string) {
+		t.Helper()
+		for _, key := range definitionKeys {
+			if _, present := object[key]; present {
+				t.Fatalf("%s pin carries managed definition key %s: the hold grants no pin authority and absence must stay typed, not zero-filled: %v", state, key, object)
+			}
+		}
+		if string(object["workflow_type"]) != `"workflow.implementation"` || string(object["step"]) == `""` {
+			t.Fatalf("%s pin lost the preserved raw instance identity: %v", state, object)
+		}
+		if string(object["next_valid_intents"]) != "[]" {
+			t.Fatalf("%s pin advertises managed intents: %v", state, object)
+		}
+	}
+
+	// Population one: never-held. The managed instance read owns the three
+	// definition keys.
+	requireManagedIdentity(read())
+
+	// Population two: active hold. Typed absence, preserved raw identity.
+	if err := outsideRepairApply(t, s, outsideRepairTestRequest(t, s, work, "hold"), WorkflowOutsideRepairDispositionSet, OutsideRepairEvidence{}); err != nil {
+		t.Fatal(err)
+	}
+	requireTypedAbsence(read(), "held")
+
+	// Population three: resumed. The managed read owns the keys again.
+	if err := outsideRepairApply(t, s, outsideRepairTestRequest(t, s, work, "resume"), WorkflowOutsideRepairResumed, OutsideRepairEvidence{}); err != nil {
+		t.Fatal(err)
+	}
+	requireManagedIdentity(read())
+
+	// Population four: reconcile-completed. The retained instance keeps its
+	// step and history, and the pin keeps the typed absence.
+	if err := outsideRepairApply(t, s, outsideRepairTestRequest(t, s, work, "hold-2"), WorkflowOutsideRepairDispositionSet, OutsideRepairEvidence{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := outsideRepairApply(t, s, outsideRepairTestRequest(t, s, work, "reconcile"), WorkflowOutsideRepairReconciled, outsideRepairSampleEvidence()); err != nil {
+		t.Fatal(err)
+	}
+	requireTypedAbsence(read(), "completed")
 }

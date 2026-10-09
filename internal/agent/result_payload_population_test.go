@@ -702,6 +702,23 @@ func schemaFixtureObject(t *testing.T, schema map[string]any, defs map[string]ma
 			}
 			branch, _ = branch[keyword].(map[string]any)
 		}
+		// A branch may forbid keys the base schema declares, expressed as
+		// not.anyOf of required lists: the branch admits the value only when
+		// none of those keys is present. The fixture must omit every forbidden
+		// key of the branch it selected, so the populated optional members
+		// above cannot smuggle a key the branch refuses.
+		if forbidden, ok := branch["not"].(map[string]any); ok {
+			if alternatives, ok := forbidden["anyOf"].([]any); ok {
+				for _, alternative := range alternatives {
+					required, _ := alternative.(map[string]any)["required"].([]any)
+					for _, raw := range required {
+						if name, ok := raw.(string); ok {
+							delete(out, name)
+						}
+					}
+				}
+			}
+		}
 		constraints, _ := branch["properties"].(map[string]any)
 		for name, node := range constraints {
 			member, ok := properties[name].(map[string]any)

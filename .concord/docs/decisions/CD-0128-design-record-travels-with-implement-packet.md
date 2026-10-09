@@ -18,15 +18,22 @@ The implementation workflow has a design step, but `record_design` carried no ty
 The continuity projection exposes the latest current design record. A contract
 supersession invalidates design records that precede it in the applied work
 version sequence. Those records remain in audit history, but continuity does not
-present them as current. The adapter renders a current record before the work
-narrative in `inputs.context` for the implement lane. The adapter refuses a
-combined design record and narrative above the closed context bound.
+present them as current. The packet carries the current record as the typed
+`inputs.design_record` member. The packet carries the resolved law context as
+`inputs.law_context`, the recorded proposal as `inputs.proposal_record`, and
+the work item's recorded value statement, task, and narrative as
+`inputs.work_record`. The adapter copies each member verbatim and writes no
+prose around it. The closed packet schema bounds each member, and the adapter
+refuses a packet outside those bounds.
 
 The packet also carries the pinned work-context view of CD-0016 as
 `inputs.work_context` and the latest context checkpoint as `inputs.checkpoint`.
-The adapter copies both verbatim. The dispatch transaction re-reads both and
-refuses a packet whose member differs from the current state, omits a present
-member, or carries a member that no record backs.
+The adapter copies both verbatim. The dispatch transaction re-reads these two
+members and the four record members above. It refuses a packet whose member
+differs from the current state, omits a present member, or carries a member
+that no record backs. The core refuses the prose `inputs.context` member on
+dispatch. The lane packet schema keeps that member only so that recovery can
+validate a packet that an earlier adapter sent.
 
 The record describes the change's decisions. It does not describe lane procedure, review method, or verification method. Research inputs use the existing `research_bindings` field with `use_role=design_input`.
 

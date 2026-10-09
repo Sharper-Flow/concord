@@ -82,14 +82,44 @@ const undeclaredDetail = keys => "carries undeclared propert" + (keys.length ===
 const missingDetail = keys => "is missing required propert" + (keys.length === 1 ? "y" : "ies") + " " + keys.join(", ");
 const adapterInputRefusal = message => ({outcome:"error",error:{kind:"invalid_input",effect_state:"none",recovery_action:{kind:"correct_request"},retry_safe:false,message}});
 const coreInputRefusal = message => ({outcome:"error",error:{kind:"invalid_input",effect_state:"none",recovery_action:{kind:"restart_query"},retry_safe:false,message}});
-// The core's executed payload diagnostics for the shared corpus: a missing
-// idempotency_key names the missing field; a short base_sha names the length
-// against the 40-code-point minimum. The double classifies with the same
-// public constraints the core's payload contract states, and the parity test
-// holds the served messages to the executed core's bytes.
-const coreInputDetail = data => {
-  if (typeof data.idempotency_key !== "string" || !data.idempotency_key.trim()) return "missing payload field idempotency_key";
-  if (typeof data.base_sha === "string" && [...data.base_sha].length < 40) return "minLength at $.base_sha: carries " + [...data.base_sha].length + " Unicode code points against a minimum of 40";
+// The core's executed payload classification, in the core's own order: the
+// closed per-operation rule names every missing required field in declared
+// order, then the payload schema validates each present value stop-at-first —
+// minLength, then maxLength, then pattern. The double classifies with the
+// same public constraints the core's payload contract states ($defs/id and
+// the inline base_sha rule), and the parity test holds every served message
+// to the executed core's bytes. Non-string values never reach this
+// classifier: the tool schema layer types every field before it.
+const idFieldRule = {minLength: 1, maxLength: 128, pattern: /^[A-Za-z0-9][A-Za-z0-9._:-]*$/};
+const payloadFieldRules = {
+  worktree_claim: {
+    required: ["work_id", "project_id", "base_sha", "expected_version", "idempotency_key"],
+    strings: {work_id: idFieldRule, project_id: idFieldRule,
+      base_sha: {minLength: 40, maxLength: 64, pattern: /^[0-9a-f]{40}([0-9a-f]{24})?$/},
+      idempotency_key: idFieldRule},
+  },
+  workflow_action: {
+    required: ["work_id", "expected_version", "action_id", "idempotency_key"],
+    strings: {work_id: idFieldRule, action_id: idFieldRule, idempotency_key: idFieldRule},
+  },
+};
+const coreInputDetail = (operation, data) => {
+  const rule = payloadFieldRules[operation];
+  if (rule === undefined) return null;
+  const missing = rule.required.filter(name => data[name] === undefined);
+  if (missing.length !== 0) return missing.map(name => "missing payload field " + name).join("; ");
+  // The core validates present properties in map order and stops at the
+  // first invalid value; the double walks one fixed order, which the
+  // single-violation corpus makes equivalent.
+  for (const name of rule.required) {
+    const strings = rule.strings[name];
+    const value = data[name];
+    if (strings === undefined || typeof value !== "string") continue;
+    const length = [...value].length;
+    if (length < strings.minLength) return "minLength at $." + name + ": carries " + length + " Unicode code points against a minimum of " + strings.minLength;
+    if (length > strings.maxLength) return "maxLength at $." + name + ": carries " + length + " Unicode code points against a limit of " + strings.maxLength;
+    if (!strings.pattern.test(value)) return "pattern at $." + name;
+  }
   return null;
 };
 export const work_start = recordingTool("concord_work_start", {
@@ -147,7 +177,7 @@ export const work_transition = recordingTool("concord_work_transition", {
     // The core's input boundary classifies the payload before admission:
     // the shared corpus reaches this classification, and the parity test
     // holds the served envelope to the executed core's bytes.
-    const inputDetail = coreInputDetail(data);
+    const inputDetail = coreInputDetail(args.request.operation, data);
     if (inputDetail !== null) return result("concord_work_transition", args, coreInputRefusal(inputDetail));
     let admitted = false;
     let value = responses.concord_work_transition ?? refused;

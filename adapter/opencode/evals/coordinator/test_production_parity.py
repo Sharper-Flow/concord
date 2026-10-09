@@ -81,6 +81,16 @@ MANIFEST_DIGEST = (REPO / "contracts" / "agent-tool-surface.digest").read_text()
 DIRTY_ORIGIN_STDERR = ("concord work-resume: store: work_bootstrap: invalid_operation: "
                        "cannot chain from dirty worktree of synthetic-origin-work")
 SHORT_BASE_SHA = "aabbcc"
+# The blank, oversize, and pattern-refusing payload variants: each one passes
+# the double's tool schema (every value is a string) and reaches the core's
+# payload-schema value validation, which classifies it by the public
+# constraints the payload contract states ($defs/id and the inline base_sha
+# rule) — never as a missing field.
+EMPTY_IDEMPOTENCY_KEY = ""
+WHITESPACE_IDEMPOTENCY_KEY = "   "
+OVERSIZE_IDEMPOTENCY_KEY = "a" * 129
+PATTERN_BASE_SHA = "a" * 45
+OVERSIZE_BASE_SHA = "a" * 65
 
 
 def require(command, purpose):
@@ -219,17 +229,6 @@ def invoke_request(input_value, request_id):
     }
 
 
-def claim_input(**overrides):
-    """The corpus claim input: every field except the overridden one is the
-    corrected shape production admits at the input boundary."""
-    base = {
-        "work_id": WORK, "project_id": "synthetic-same-repo-project",
-        "base_sha": BASE_SHA, "expected_version": 1, "idempotency_key": "parity-claim-key",
-    }
-    base.update(overrides)
-    return base
-
-
 def malformed_claim_args():
     """A worktree_claim missing its idempotency_key (the common malformed case)."""
     return {"request": {"operation": "worktree_claim", "input": {
@@ -248,6 +247,36 @@ def short_base_claim_args():
     args = corrected_claim_args()
     args["request"]["input"]["base_sha"] = SHORT_BASE_SHA
     return args
+
+
+def claim_args_with(**overrides):
+    """Corrected claim args with the named input fields overridden."""
+    args = corrected_claim_args()
+    args["request"]["input"].update(overrides)
+    return args
+
+
+def claim_corpus_args():
+    """The shared claim corpus as driven tool args, in execution order: every
+    input except the corrected shape is a malformed variant the core's input
+    boundary refuses before admission."""
+    return {
+        "claim-missing-idem": malformed_claim_args(),
+        "claim-empty-idem": claim_args_with(idempotency_key=EMPTY_IDEMPOTENCY_KEY),
+        "claim-whitespace-idem": claim_args_with(idempotency_key=WHITESPACE_IDEMPOTENCY_KEY),
+        "claim-oversize-idem": claim_args_with(idempotency_key=OVERSIZE_IDEMPOTENCY_KEY),
+        "claim-short-base": short_base_claim_args(),
+        "claim-pattern-base": claim_args_with(base_sha=PATTERN_BASE_SHA),
+        "claim-oversize-base": claim_args_with(base_sha=OVERSIZE_BASE_SHA),
+        "claim-corrected": corrected_claim_args(),
+    }
+
+
+def execute_core_boundary_corpus(invoke):
+    """The executed production core envelopes for the claim corpus, driven
+    through one invoke(input_value, request_id) callable."""
+    return {label: invoke(args["request"]["input"], "parity-" + label)[1]
+            for label, args in claim_corpus_args().items()}
 
 
 def build_core_boundary(root):
@@ -276,14 +305,9 @@ def invoke_core(binary, store, input_value, request_id):
 def execute_core_corpus(root):
     """The executed production core envelopes for the claim corpus."""
     binary, store = build_core_boundary(root)
-    return {
-        "missing-idempotency_key": invoke_core(
-            binary, store, {k: v for k, v in claim_input().items() if k != "idempotency_key"},
-            "parity-missing-idem")[1],
-        "short-base_sha": invoke_core(binary, store, claim_input(base_sha=SHORT_BASE_SHA),
-                                      "parity-short-base")[1],
-        "corrected": invoke_core(binary, store, claim_input(), "parity-corrected")[1],
-    }
+    def invoke(input_value, request_id):
+        return invoke_core(binary, store, input_value, request_id)
+    return execute_core_boundary_corpus(invoke)
 
 
 def execute_adapter_corpus():
@@ -320,16 +344,11 @@ class ProductionCoreBoundaryTests(unittest.TestCase):
 
     def captured(self):
         """The executed production envelopes for the whole claim corpus."""
-        return {
-            "missing-idempotency_key": self.invoke(
-                {k: v for k, v in claim_input().items() if k != "idempotency_key"},
-                "parity-missing-idem")[1],
-            "short-base_sha": self.invoke(claim_input(base_sha=SHORT_BASE_SHA), "parity-short-base")[1],
-            "corrected": self.invoke(claim_input(), "parity-corrected")[1],
-        }
+        return execute_core_boundary_corpus(self.invoke)
+
     def test_malformed_claim_corpus_serves_the_core_input_refusal(self):
         for name, envelope in self.captured().items():
-            if name == "corrected":
+            if name == "claim-corrected":
                 continue
             with self.subTest(case=name):
                 self.assertEqual(envelope.get("outcome"), "error")
@@ -345,7 +364,7 @@ class ProductionCoreBoundaryTests(unittest.TestCase):
         # empty isolated store the refusal that answers it is the authority
         # gate, not invalid_input — exactly the separation the correction
         # credit depends on.
-        envelope = self.captured()["corrected"]
+        envelope = self.captured()["claim-corrected"]
         self.assertEqual(envelope.get("outcome"), "error")
         captured = semantic_envelope(envelope)
         triple = {key: captured["error"][key] for key in ("kind", "effect_state", "recovery_action", "retry_safe")}
@@ -356,9 +375,9 @@ class ProductionCoreBoundaryTests(unittest.TestCase):
         # envelope's transport members are per-invocation framing. This check
         # proves they are present and consistent on the executed capture, so
         # excluding them from the double comparison hides no semantic drift.
-        envelope = self.captured()["missing-idempotency_key"]
+        envelope = self.captured()["claim-missing-idem"]
         self.assertEqual(envelope.get("schema_version"), "1.0")
-        self.assertEqual(envelope.get("request_id"), "parity-missing-idem")
+        self.assertEqual(envelope.get("request_id"), "parity-claim-missing-idem")
         self.assertEqual(envelope.get("manifest_digest"), MANIFEST_DIGEST)
         self.assertEqual(envelope.get("origin"), "core")
         self.assertEqual(envelope.get("tool"), "concord_work_transition")
@@ -381,9 +400,7 @@ async function call(name, tool, args) {
 }
 await call("start-mixed", work_start, {start_mixed});
 await call("start-corrected", work_start, {start_corrected});
-await call("claim-missing-idem", work_transition, {claim_missing_idem});
-await call("claim-short-base", work_transition, {claim_short_base});
-await call("claim-corrected", work_transition, {claim_corrected});
+{claim_calls}
 """
 
 ADAPTER_DRIVER = """
@@ -481,13 +498,14 @@ class RecordingDoubleParityTests(unittest.TestCase):
             target = root / relative
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(content)
+        claim_calls = "\n".join(
+            f'await call({json.dumps(label)}, work_transition, {json.dumps(args)});'
+            for label, args in claim_corpus_args().items())
         driver = (DOUBLE_DRIVER
                   .replace("{tools_import}", json.dumps(str(root / ".opencode/tools/concord.ts")))
                   .replace("{start_mixed}", json.dumps({"work_id": WORK, "title": "Both shapes at once"}))
                   .replace("{start_corrected}", json.dumps({"work_id": WORK}))
-                  .replace("{claim_missing_idem}", json.dumps(malformed_claim_args()))
-                  .replace("{claim_short_base}", json.dumps(short_base_claim_args()))
-                  .replace("{claim_corrected}", json.dumps(corrected_claim_args())))
+                  .replace("{claim_calls}", claim_calls))
         run = run_bun(root, driver)
         if run.returncode != 0:
             raise AssertionError(f"double driver failed:\n{run.stderr}")
@@ -510,9 +528,7 @@ class RecordingDoubleParityTests(unittest.TestCase):
             "start-mixed": adapter_observation["start-mixed"]["envelope"],
             "start-corrected": adapter_observation["start-corrected"]["envelope"],
             "start-corrected-children": adapter_observation["start-corrected"]["children"],
-            "claim-missing-idem": captured["missing-idempotency_key"],
-            "claim-short-base": captured["short-base_sha"],
-            "claim-corrected": captured["corrected"],
+            **captured,
         }
 
     def assert_double_matches_production(self, double_envelope, production_envelope, label):
@@ -532,7 +548,8 @@ class RecordingDoubleParityTests(unittest.TestCase):
         # nothing; only these captured envelopes do.
         double = self.double_observation()
         production = self.production_capture()
-        for label in ("start-mixed", "claim-missing-idem", "claim-short-base"):
+        malformed = (label for label in claim_corpus_args() if label != "claim-corrected")
+        for label in ("start-mixed", *malformed):
             with self.subTest(corpus=label):
                 self.assert_double_matches_production(double[label]["envelope"], production[label], label)
 
@@ -573,14 +590,13 @@ class RecordingDoubleParityTests(unittest.TestCase):
         # call's output line — compared structurally, not by string luck.
         observation = self.double_observation()
         trace = observation["trace"]
-        self.assertEqual(len(trace), 5)
         corpus = (
             ("concord_work_start", "start-mixed", {"work_id": WORK, "title": "Both shapes at once"}),
             ("concord_work_start", "start-corrected", {"work_id": WORK}),
-            ("concord_work_transition", "claim-missing-idem", malformed_claim_args()),
-            ("concord_work_transition", "claim-short-base", short_base_claim_args()),
-            ("concord_work_transition", "claim-corrected", corrected_claim_args()),
+            *(("concord_work_transition", label, args)
+              for label, args in claim_corpus_args().items()),
         )
+        self.assertEqual(len(trace), len(corpus))
         for entry, (tool, label, args) in zip(trace, corpus):
             with self.subTest(corpus=label):
                 self.assertEqual(entry.get("tool"), tool)

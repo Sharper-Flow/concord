@@ -11,7 +11,7 @@ Mapped files: 181; tests: 79; unresolved candidates: 7.
 Candidate counts overlap when a file has several candidates; no candidate is an assigned owner.
 
 ## Code and tests
-Full paths, unresolved reasons, shared-test coverage, and source fingerprints: `.concord/navigation/inventory.json`.
+Full paths, unresolved reasons, and shared-test coverage: `.concord/navigation/inventory.json`.
 - Include: `lefthook.yml`, `scripts/**`, `bin/**`, `internal/testenv/**`, `internal/gittest/**`
 - Include: `internal/pm1fixture/**`, `internal/store/storetest/**`, `internal/store/project_tooling.go`, `internal/store/conformance*_test.go`, `internal/store/test_fixture_test.go`
 - Include: `internal/store/scrub_env_test.go`, `internal/store/workflow_test_support_test.go`, `internal/store/race*_test.go`, `internal/store/worktrees_tx_subprocess_test.go`, `internal/store/neighbor_test.go`
@@ -19,6 +19,10 @@ Full paths, unresolved reasons, shared-test coverage, and source fingerprints: `
 - Include: `contracts/README.md`, `.concord/tooling.v1.json`, `.concord/scenarios/README.md`, `AGENTS.md`, `.github/**`
 - Include: `.gitattributes`, `.gitignore`, `.editorconfig`, `.golangci.yml`
 - Exclude: `.github/ISSUE_TEMPLATE/**`, `.github/workflows/release.yml`
+Explicit rules win over directory defaults; named legacy gaps remain unresolved.
+- Default include: `internal/store/**/*_test.go`
+- Default include: `contracts/**`
+- Default include: `.concord/scenarios/**`
 - Go test package: `github.com/sharper-flow/concord/internal/gittest`
 - Go test package: `github.com/sharper-flow/concord/internal/pm1fixture`
 - Go test package: `github.com/sharper-flow/concord/internal/store`
@@ -46,6 +50,3 @@ Run the narrow selected command with `bin/oc-test targeted -- <command> [args...
 Invariant/control joins, allowed-dependency interpretation, observed import/call edges,
 non-law navigation homes, CON-887 packet reading, and CON-890 owner oracles remain later work.
 Required-reading entries will be pinned references, not inlined card content.
-
-Navigation source fingerprint: `sha256:3e6935764e333c9f41167f06bff410fb9446cc90e281427c907ffd30374ae80c`.
-Other fingerprints and the exact file universe are in the generated inventory.

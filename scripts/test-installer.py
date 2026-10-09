@@ -3873,6 +3873,96 @@ class DeriveAdapterFilesTest(unittest.TestCase):
             with self.assertRaises(installer.InstallerError):
                 installer.derive_adapter_files(root)
 
+    def test_an_explicit_js_specifier_ships_the_plain_js_module_under_its_exact_name(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "concord-plugin.ts").write_text(
+                'import { readWorkerReport } from "./worker-report-protocol.js"\n',
+                encoding="utf-8",
+            )
+            (root / "worker-report-protocol.js").write_text(
+                "export const readWorkerReport = 1\n", encoding="utf-8"
+            )
+            derived = installer.derive_adapter_files(root)
+            self.assertEqual(derived, ("concord-plugin.ts", "worker-report-protocol.js"))
+            self.assertNotIn("worker-report-protocol.js.ts", derived)
+
+    def test_an_exact_js_file_wins_over_a_same_stem_ts_sibling(self) -> None:
+        # The runtime loads the file the specifier names, so the graph must
+        # ship that file alone, not the sibling source beside it.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "concord-plugin.ts").write_text(
+                'import { a } from "./shared.js"\n', encoding="utf-8"
+            )
+            (root / "shared.js").write_text("export const a = 1\n", encoding="utf-8")
+            (root / "shared.ts").write_text("export const a = 2\n", encoding="utf-8")
+            self.assertEqual(
+                installer.derive_adapter_files(root),
+                ("concord-plugin.ts", "shared.js"),
+            )
+
+    def test_a_plain_js_module_walks_its_own_relative_import_chain(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "concord-plugin.ts").write_text(
+                'import { first } from "./first.js"\n', encoding="utf-8"
+            )
+            (root / "first.js").write_text(
+                'import { second } from "./second.js"\n', encoding="utf-8"
+            )
+            (root / "second.js").write_text("export const second = 2\n", encoding="utf-8")
+            self.assertEqual(
+                installer.derive_adapter_files(root),
+                ("concord-plugin.ts", "first.js", "second.js"),
+            )
+
+    def test_an_explicit_js_specifier_without_the_plain_js_module_refuses(self) -> None:
+        # The graph ships source modules: a declared .js import must find
+        # the actual .js file. Substituting a same-stem .ts source would
+        # conceal the loss of the declared module at release time.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "concord-plugin.ts").write_text(
+                'import { a } from "./emitted.js"\n', encoding="utf-8"
+            )
+            (root / "emitted.ts").write_text("export const a = 1\n", encoding="utf-8")
+            with self.assertRaises(installer.InstallerError):
+                installer.derive_adapter_files(root)
+
+    def test_an_explicit_ts_specifier_resolves_under_its_own_name(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "concord-plugin.ts").write_text(
+                'import { a } from "./named.ts"\n', encoding="utf-8"
+            )
+            (root / "named.ts").write_text("export const a = 1\n", encoding="utf-8")
+            self.assertEqual(
+                installer.derive_adapter_files(root),
+                ("concord-plugin.ts", "named.ts"),
+            )
+
+    def test_a_js_specifier_with_neither_a_js_nor_a_ts_module_refuses(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "concord-plugin.ts").write_text(
+                'import { a } from "./gone.js"\n', encoding="utf-8"
+            )
+            with self.assertRaises(installer.InstallerError):
+                installer.derive_adapter_files(root)
+
+    def test_an_escaping_import_inside_a_plain_js_module_refuses(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "concord-plugin.ts").write_text(
+                'import { a } from "./plain.js"\n', encoding="utf-8"
+            )
+            (root / "plain.js").write_text(
+                'import { b } from "../escape"\n', encoding="utf-8"
+            )
+            with self.assertRaises(installer.InstallerError):
+                installer.derive_adapter_files(root)
+
     def test_real_checkout_derivation_includes_the_plugin_entry(self) -> None:
         repo_adapter = SCRIPT.parent.parent / "adapter" / "opencode"
         derived = installer.derive_adapter_files(repo_adapter)

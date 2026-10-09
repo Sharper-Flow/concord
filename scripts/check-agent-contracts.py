@@ -92,7 +92,7 @@ def stage_host_sources(pin: dict, workspace: Path) -> str | None:
         shutil.rmtree(source)
     source.mkdir(parents=True)
     for _, origin in origins:
-        for path in sorted(origin.glob("*.ts")) + sorted(origin.glob("*.json")):
+        for path in sorted(origin.glob("*.ts")) + sorted(origin.glob("*.js")) + sorted(origin.glob("*.json")):
             shutil.copy2(path, source / path.name)
     (workspace / "tsconfig.json").write_text(json.dumps({"compilerOptions": pin["compiler_options"], "include": ["src/*.ts"]}), encoding="utf-8")
     return None

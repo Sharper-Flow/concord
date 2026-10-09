@@ -250,6 +250,52 @@ class AgentProjectionTests(unittest.TestCase):
         self.assertIn("host-connected options", normalized)
         self.assertIn("Never invent a lookup result", normalized)
 
+    def test_projection_frames_the_report_when_the_packet_pins_a_report_protocol(self):
+        projection = lane_projection(self.LANE, REPORT_SCHEMA)
+        marker = PACKET_SCHEMA["properties"]["inputs"]["properties"]["report_protocol"]["const"]
+        normalized = " ".join(projection.split())
+        self.assertIn(
+            f"When `inputs.report_protocol` is present, return exactly one Markdown fence whose info string is `{marker}`.",
+            normalized,
+        )
+        self.assertIn("exactly three backticks and that info string on one line", normalized)
+        self.assertIn("Return the entire frame as one final text part", normalized)
+
+    def test_projection_takes_the_frame_marker_from_the_packet_schema(self):
+        # The reserved fence info string belongs to the packet schema, not
+        # the generator: changing the schema const must change the marker the
+        # lane is told to use, with no generator-side literal left behind.
+        changed = copy.deepcopy(PACKET_SCHEMA)
+        changed["properties"]["inputs"]["properties"]["report_protocol"]["const"] = "concord-worker-result-test9"
+        normalized = " ".join(generator.agent_projection(self.LANE, REPORT_SCHEMA, changed, PREMISE_MAX_BYTES).split())
+        self.assertIn("info string is `concord-worker-result-test9`", normalized)
+        self.assertNotIn("concord-worker-result-v1", normalized)
+
+    def test_projection_names_the_legacy_plain_object_branch(self):
+        # A historical packet carries no `inputs.report_protocol`; the lane
+        # must be told that branch by name instead of guessing a format.
+        projection = lane_projection(self.LANE, REPORT_SCHEMA)
+        normalized = " ".join(projection.split())
+        self.assertIn(
+            "For a historical packet without `inputs.report_protocol`, return one plain JSON report object as your final text part.",
+            normalized,
+        )
+        self.assertIn("Never return multiple report candidates", normalized)
+
+    def test_projection_directs_omission_of_packet_owned_report_identity(self):
+        # `schema_version` and `worker_job` are opaque packet-owned identity:
+        # the adapter derives both from the packet. The lane definition must
+        # carry no instruction to copy either field, while `readback_model`
+        # stays worker-authored.
+        projection = lane_projection(self.LANE, REPORT_SCHEMA)
+        normalized = " ".join(projection.split())
+        self.assertNotIn("Set `schema_version` to", normalized)
+        self.assertIn("omit `schema_version` rather than copying it", normalized)
+        self.assertIn("the dispatch packet owns those fields", normalized)
+        self.assertIn("`worker_job`", normalized)
+        self.assertIn("the adapter derives this identity and worker_job binding from the packet", normalized)
+        self.assertIn("Set `readback_model` to", normalized)
+
     def test_projection_keeps_the_file_change_rules_for_editing_lanes(self):
         # The dispatched packet carries the approved contract's bound law and
         # Domains as recorded state. A lane whose capabilities grant

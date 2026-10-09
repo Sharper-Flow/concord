@@ -177,15 +177,14 @@ def report_projection_constraints(report_schema: dict, lane: dict) -> list[str]:
     review_finding = report_schema["$defs"]["review_finding"]
     worker_job = properties["worker_job"]
     return [
-        "Report top-level shape: "
+        "Canonical report top-level shape (the adapter adds identity): "
         f"type={report_schema['type']}, "
         f"additionalProperties={json.dumps(report_schema['additionalProperties'])}, "
         f"required={json.dumps(report_schema['required'], ensure_ascii=False)}.",
         "schema_version: "
         f"enum={json.dumps(properties['schema_version']['enum'], ensure_ascii=False)}; "
-        "a report records the current identity "
-        f"{json.dumps(current_schema_version(report_schema), ensure_ascii=False)}, "
-        "and only that identity may carry the worker_job claim.",
+        "the adapter derives this identity and worker_job binding from the packet; "
+        "omit both fields from worker-authored content.",
         "readback_model: "
         f"type={properties['readback_model']['type']}, "
         f"minLength={properties['readback_model']['minLength']}, "
@@ -669,7 +668,6 @@ def agent_projection(lane: dict, report_schema: dict, packet_schema: dict, premi
     detail_max = report_schema["$defs"]["evidence_entry"]["properties"]["detail"]["x-maxBytes"]
     evidence_max = report_schema["properties"]["evidence"]["maxItems"]
     report_properties = report_schema["properties"]
-    report_version = json.dumps(current_schema_version(report_schema), ensure_ascii=False)
     report_statuses = ", ".join(f"`{item}`" for item in report_properties["status"]["enum"])
     report_constraints = "\n".join(f"- {item}" for item in report_projection_constraints(report_schema, lane))
     concord_denies = "\n".join(f"  {tool_id}: false" for tool_id in concord_tool_ids())
@@ -740,11 +738,19 @@ record workflow transitions, verdicts, completion, or spawn nested workers.
 {concord_context_boundary_instructions()}
 {execute_source_lookup_instructions()}
 {command_duration_instructions(lane)}
-Return the report as a single JSON object, and nothing else, as your final
-message. Do not include `attempt_id`, `lane_id`, `lane_version`, or
-`lane_digest`: the dispatch window owns those fields and any report that
-supplies them is refused. Set `schema_version` to `{report_version}`, `readback_model` to
-the `provider/model` identifier you are running as, and `status` to one of {report_statuses}.
+When `inputs.report_protocol` is present, return exactly one Markdown fence
+whose info string is `{packet_schema['properties']['inputs']['properties']['report_protocol']['const']}`.
+Open it with exactly three backticks and that info string on one line. Put one
+strict JSON report object inside it and close it with three backticks on their
+own line. Return the entire frame as one final text part. Do not repeat the frame,
+quote a frame example, use duplicate JSON keys, or put report content after it.
+For a historical packet without `inputs.report_protocol`, return one plain JSON
+report object as your final text part. Never return multiple report candidates.
+Do not include `attempt_id`, `lane_id`, `lane_version`, `lane_digest`, `work_id`,
+`step_id`, or `worker_job`: the dispatch packet owns those fields. Report schema
+identity also comes from the packet; omit `schema_version` rather than copying it.
+Set `readback_model` to the `provider/model` identifier you are running as, and
+`status` to one of {report_statuses}.
 
 Report contract constraints:
 {report_constraints}

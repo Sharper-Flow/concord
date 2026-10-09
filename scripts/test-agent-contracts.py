@@ -390,6 +390,7 @@ class AdapterHostPinTests(unittest.TestCase):
                 "target": "es2022", "module": "esnext", "moduleResolution": "bundler",
                 "lib": ["es2022"], "types": ["runtime-types"], "strict": True, "noEmit": True,
                 "skipLibCheck": True, "resolveJsonModule": True, "forceConsistentCasingInFileNames": True,
+                "allowJs": True,
             },
             "allowances": [{"file": "example.ts", "code": "TS2322", "count": 1, "state": "outstanding", "issue": 1, "reason": "a recorded divergence"}],
             "runtime_probe": {
@@ -862,6 +863,28 @@ class StrictFailureControls(unittest.TestCase):
             self.assertEqual(marker.read_text(), "pinned dependencies\n")
             self.assertEqual(package.read_text(), '{"private":true}\n')
             self.assertEqual(lockfile.read_text(), "pinned lockfile\n")
+            self.assertEqual(json.loads((workspace / "tsconfig.json").read_text()), {"compilerOptions": pin["compiler_options"], "include": ["src/*.ts"]})
+
+    def test_a_plain_js_source_module_stages_beside_the_typescript(self):
+        # The adapter ships plain JavaScript source modules that the
+        # TypeScript imports directly (worker-report-protocol.js); a staging
+        # glob that drops them breaks the import graph the pinned typecheck
+        # walks. The .js enters through allowJs when a .ts root imports it,
+        # so the include list stays TypeScript-only.
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "repository"
+            origin = root / "adapter"
+            origin.mkdir(parents=True)
+            (origin / "entry.ts").write_text('import { a } from "./plain.js"\n', encoding="utf-8")
+            (origin / "plain.js").write_text("export const a = 1\n", encoding="utf-8")
+            (origin / "notes.json").write_text("{}\n", encoding="utf-8")
+            workspace = Path(directory) / "workspace"
+            pin = {"sources": ["adapter"], "compiler_options": {"strict": True, "noEmit": True, "allowJs": True}}
+            with unittest.mock.patch.object(lane_checker, "ROOT", root):
+                self.assertIsNone(lane_checker.stage_host_sources(pin, workspace))
+            self.assertTrue((workspace / "src/entry.ts").is_file())
+            self.assertTrue((workspace / "src/plain.js").is_file())
+            self.assertTrue((workspace / "src/notes.json").is_file())
             self.assertEqual(json.loads((workspace / "tsconfig.json").read_text()), {"compilerOptions": pin["compiler_options"], "include": ["src/*.ts"]})
 
     def test_a_broken_contract_fixture_fails_the_check(self):

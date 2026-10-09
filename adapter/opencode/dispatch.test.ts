@@ -2427,7 +2427,7 @@ test("an unparseable report is worker-fail with invalid_report", async () => {
   const { result, verbs, payloads } = await terminalEvidence('{"schema_version": "1.0", "lane_id":')
   expect(verbs).toEqual(["worker-dispatch", "worker-fail"])
   expect(payloads[1].failure_kind).toBe("invalid_report")
-  expect(payloads[1].detail).toContain("malformed JSON document")
+  expect(payloads[1].detail).toContain("malformed legacy report")
   // The detail carries the parser's reason and the document's tail, so a
   // recorded failure shows why the report did not parse (truncation, a stray
   // token) without the worker transcript.
@@ -2605,7 +2605,7 @@ test("a real opencode run --format json capture parses to session metadata and r
   expect(readWorkerReport(stdout).report).toEqual(report())
 })
 
-test("the last text part wins when an earlier part is working prose", async () => {
+test("legacy stream refuses distinct report candidates beside working prose", async () => {
   const stdout = [
     JSON.stringify({ type: "step_start", timestamp: 1, sessionID: "session-1", part: { type: "step-start" } }),
     reportEvent("I read the lane registry and will now return the report."),
@@ -2613,7 +2613,8 @@ test("the last text part wins when an earlier part is working prose", async () =
     reportEvent(report()),
     JSON.stringify({ type: "step_finish", timestamp: 2, sessionID: "session-1", part: { type: "step-finish", reason: "stop" } }),
   ].join("\n")
-  expect(readWorkerReport(stdout)).toEqual({ report: report(), malformed: null })
+  expect(readWorkerReport(stdout).report).toBeNull()
+  expect(readWorkerReport(stdout).malformed).toContain("ambiguous")
 })
 
 test("a fenced report is admitted and prose around the JSON no longer discards it", async () => {
@@ -3253,10 +3254,8 @@ test("resolveCoreBinary falls through an unbound override to the stamped constan
   expect(resolveCoreBinary(undefined, null, "")).toBe("")
 })
 
-// CON-203: a worker that wraps its report in prose is answering, not
-// failing. The scan admits the last parseable JSON object across every
-// fenced block and brace candidate, because admission stays closed at the
-// schema and the last-parseable rule already decides between candidates.
+// A unique historical report can have surrounding prose without granting
+// unrelated JSON or a later candidate authority to replace it.
 test("scanReportTexts admits a report wrapped in surrounding prose", () => {
   const json = JSON.stringify(report())
   const cases: [string, string][] = [
@@ -3282,8 +3281,9 @@ test("scanReportTexts still distinguishes broken announced json from prose", () 
   // A long broken document keeps only a bounded tail in the reason.
   const long = scanReportTexts(["```json\n{\"detail\": \"" + "x".repeat(5000) + "\n```"]).malformed ?? ""
   expect(long.length).toBeLessThan(400)
-  const lastWins = scanReportTexts([`earlier superseded answer ${JSON.stringify(report({ status: "failed" }))}`, `final answer:\n\`\`\`json\n${JSON.stringify(report())}\n\`\`\``])
-  expect(lastWins.report).toEqual(report())
+  const ambiguous = scanReportTexts([`earlier answer ${JSON.stringify(report({ status: "failed" }))}`, `final answer:\n\`\`\`json\n${JSON.stringify(report())}\n\`\`\``])
+  expect(ambiguous.report).toBeNull()
+  expect(ambiguous.malformed).toContain("ambiguous")
 })
 
 // CD-0056 D7 as amended 2026-09-17: the adapter strips dispatch-owned fields

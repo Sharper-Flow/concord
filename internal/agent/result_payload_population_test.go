@@ -512,7 +512,8 @@ var fixturePatternValues = []struct {
 	{regexp.MustCompile(`\^check:`), "check:mutation.result.conformance"},
 	{regexp.MustCompile(`\^approval:`), "approval:conformance"},
 	{regexp.MustCompile(`\^actor:`), "actor:" + strings.Repeat("0", 64)},
-	{regexp.MustCompile(`\^\[0-9a-f\]\{40\}`), "7b83cbf41af2f9fa7990294a41a50cb75a1d6d1e"},
+	{regexp.MustCompile(`\^\[0-9a-f\]\{40(,64)?\}`), "7b83cbf41af2f9fa7990294a41a50cb75a1d6d1e"},
+	{regexp.MustCompile(`\^finding:`), "finding:1:0"},
 	{regexp.MustCompile(`\\S\+\$`), "ref-1"},
 }
 
@@ -623,6 +624,11 @@ func schemaFixtureValue(t *testing.T, schema map[string]any, defs map[string]map
 			items, ok := schema["items"].(map[string]any)
 			if !ok {
 				t.Fatalf("array schema at depth %d carries no items", depth)
+			}
+			// A reserved slot bounded to zero items admits only the empty
+			// array; one item would violate the bound the schema declares.
+			if upper, ok := schema["maxItems"].(json.Number); ok && upper.String() == "0" {
+				return []any{}
 			}
 			return []any{schemaFixtureValue(t, items, defs, depth+1)}
 		case "object":

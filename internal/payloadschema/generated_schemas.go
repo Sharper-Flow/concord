@@ -5561,7 +5561,13 @@ const GeneratedPayloadSchemaDocument = `{
       "properties": {
         "domain_cards": {
           "description": "The reserved per-Domain card slot. The current foundation never generates cards.",
+          "items": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          },
           "maxItems": 0,
+          "minItems": 0,
           "type": "array"
         },
         "domain_id": {

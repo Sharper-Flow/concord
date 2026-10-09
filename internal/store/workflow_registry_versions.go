@@ -1,5 +1,7 @@
 package store
 
+import "slices"
+
 // Version-1 workflow definitions, frozen for the instances that pin them
 // (issue #861). CD-0112 replaced this content in place at version 1, which
 // moved the version-1 digests and left 158 live instances failing definition
@@ -1276,11 +1278,9 @@ func withWorkContext(definition WorkflowDefinition) WorkflowDefinition {
 		if at >= 2 && actions[at-2] == "checkpoint_context" && actions[at-1] == "cross_context_boundary" {
 			at -= 2
 		}
-		expanded := make([]string, 0, len(actions)+1)
-		expanded = append(expanded, actions[:at]...)
-		expanded = append(expanded, record.ID)
-		expanded = append(expanded, actions[at:]...)
-		definition.StepGraph.Steps[i].Actions = expanded
+		// Insert into a copy: the step's slice may share a backing array
+		// with the predecessor definition, whose digest must not move.
+		definition.StepGraph.Steps[i].Actions = slices.Insert(slices.Clone(actions), at, record.ID)
 	}
 	return definition
 }

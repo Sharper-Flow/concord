@@ -1154,6 +1154,11 @@
           "type": "array",
           "minItems": 0,
           "maxItems": 0,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {}
+          },
           "description": "The reserved per-Domain card slot. The current foundation never generates cards."
         }
       }

@@ -2077,7 +2077,7 @@ test("a refused readback that cannot bind provenance records no born-failed evid
 // CD-0056 D7 / issue #333: the adapter parses the report it already receives,
 // carries its evidence into worker-complete, and turns anything it cannot admit
 // into a typed worker-fail rather than a completion.
-import { readWorkerReport, resolveWorkerReport, resolveWorkerReportFromText, scanReportTexts, validateAgentLaneReport, validateAgainstSchema, type AgentLaneReportBaseComparison } from "./dispatch"
+import { readWorkerReport, resolveWorkerReport, resolveWorkerReportFromText, scanReportTexts, validateAgentLaneReport, validateAgainstSchema, type AgentLaneReportBaseComparison, type AgentLaneReportContextFinding } from "./dispatch"
 
 test("legacy report identity forbids a worker-job claim", () => {
   const worker_job = { job_id: "job:one", revision: 1, digest: `sha256:${"a".repeat(64)}` }
@@ -2805,9 +2805,9 @@ test("context_findings stay optional content on both report schema identities", 
 })
 
 test("admission preserves reported context_findings through both report routes", () => {
-  const findings = [
-    contextFinding(),
-    contextFinding({ kind: "open_question", statement: "which tier owns the readback bound", subject_ref: "adapter/opencode/dispatch.ts", evidence_refs: [] }),
+  const findings: AgentLaneReportContextFinding[] = [
+    { kind: "observation", statement: "the failure reproduces only under WAL replay", subject_ref: "internal/store/txscope_test.go", evidence_refs: ["internal/store/txscope_test.go:40", "bin/oc-test"], domain_id: "domain:store" },
+    { kind: "open_question", statement: "which tier owns the readback bound", subject_ref: "adapter/opencode/dispatch.ts", evidence_refs: [], domain_id: "domain:store" },
   ]
   const fromText = resolveWorkerReportFromText(JSON.stringify(report({ context_findings: findings })), packet())
   expect("report" in fromText && fromText.report.context_findings).toEqual(findings)

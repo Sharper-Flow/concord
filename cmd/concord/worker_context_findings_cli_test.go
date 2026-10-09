@@ -46,16 +46,17 @@ func cliContextFindings() []map[string]any {
 // product-wide rationale is the admissible finding Domain.
 const cliContextRootDomain = "cli-root"
 
-// seedCLIWorkDomain installs a current Domain registry for the work's
-// primary Product, so the live terminal fold can validate finding Domains.
-func seedCLIWorkDomain(t *testing.T, dbPath, workID string) {
+// seedCLIWorkDomain installs a current Domain registry for the primary
+// Product of work-1, the work seedWorkerEvidenceAttempt dispatches, so the
+// live terminal fold can validate finding Domains.
+func seedCLIWorkDomain(t *testing.T, dbPath string) {
 	t.Helper()
 	s, err := store.Open(context.Background(), dbPath)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var productID string
-	err = s.DatabaseForTesting().QueryRow(`SELECT pp.product_id FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=? AND wp.role='primary'`, workID).Scan(&productID)
+	err = s.DatabaseForTesting().QueryRow(`SELECT pp.product_id FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=? AND wp.role='primary'`, "work-1").Scan(&productID)
 	s.Close()
 	if err != nil {
 		t.Fatalf("resolve the work's primary Product: %v", err)
@@ -99,7 +100,7 @@ func TestWorkerCompleteCLIRetainsTypedContextFindings(t *testing.T) {
 	lane := store.BuiltinLaneDefinitions()[0]
 	readback := preferredLaneModel(lane)
 	seedWorkerEvidenceAttempt(t, key, lane, dbPath, readback)
-	seedCLIWorkDomain(t, dbPath, "work-1")
+	seedCLIWorkDomain(t, dbPath)
 
 	request, assertion := workerEvidenceRequest(t, agent.WorkerEvidenceVerbComplete, lane, readback, "nonce-complete-findings01")
 	request["event_id"] = "complete-findings"
@@ -146,15 +147,17 @@ func TestWorkerCompleteCLIReturnsTheAggregateBoundRefusal(t *testing.T) {
 	lane := store.BuiltinLaneDefinitions()[0]
 	readback := preferredLaneModel(lane)
 	seedWorkerEvidenceAttempt(t, key, lane, dbPath, readback)
-	seedCLIWorkDomain(t, dbPath, "work-1")
+	seedCLIWorkDomain(t, dbPath)
 
 	oversized := make([]map[string]any, 16)
 	for i := range oversized {
 		oversized[i] = map[string]any{
-			"kind":          "observation",
-			"statement":     strings.Repeat("x", 1024),
-			"subject_ref":   strings.Repeat("s", 128),
-			"evidence_refs": []string{},
+			"kind":                   "observation",
+			"statement":              strings.Repeat("x", 1024),
+			"subject_ref":            strings.Repeat("s", 128),
+			"evidence_refs":          []string{},
+			"domain_id":              cliContextRootDomain,
+			"product_wide_rationale": "the bound applies to every Domain of the Product",
 		}
 	}
 	request, assertion := workerEvidenceRequest(t, agent.WorkerEvidenceVerbComplete, lane, readback, "nonce-complete-overbound1")
@@ -162,8 +165,8 @@ func TestWorkerCompleteCLIReturnsTheAggregateBoundRefusal(t *testing.T) {
 	request["context_findings"] = oversized
 	request["assertion"] = signWorkerEvidence(t, key, assertion)
 	code, out, stderr := runWorkerCLI(t, "worker-complete", mustJSON(t, request))
-	if code == 0 || !strings.Contains(out+stderr, "context_findings") {
-		t.Fatalf("over-bound completion exit=%d out=%q stderr=%q, want a context_findings refusal", code, out, stderr)
+	if code == 0 || !strings.Contains(out+stderr, "16384-byte aggregate bound") {
+		t.Fatalf("over-bound completion exit=%d out=%q stderr=%q, want the context_findings aggregate bound refusal", code, out, stderr)
 	}
 	assertNoTerminalWorkerEvent(t, dbPath, stderr)
 }
@@ -177,7 +180,7 @@ func TestWorkerFailCLIRetainsTypedContextFindingsOnWorkerErrorOnly(t *testing.T)
 	lane := store.BuiltinLaneDefinitions()[0]
 	readback := preferredLaneModel(lane)
 	seedWorkerEvidenceAttempt(t, key, lane, dbPath, readback)
-	seedCLIWorkDomain(t, dbPath, "work-1")
+	seedCLIWorkDomain(t, dbPath)
 
 	request, assertion := workerEvidenceRequest(t, agent.WorkerEvidenceVerbFail, lane, readback, "nonce-fail-findings001")
 	request["event_id"] = "fail-findings"
@@ -272,7 +275,7 @@ func TestWorkerEvidenceRepeatAdmissionKeepsTheOriginalFindingsBytes(t *testing.T
 	lane := store.BuiltinLaneDefinitions()[0]
 	readback := preferredLaneModel(lane)
 	seedWorkerEvidenceAttempt(t, key, lane, dbPath, readback)
-	seedCLIWorkDomain(t, dbPath, "work-1")
+	seedCLIWorkDomain(t, dbPath)
 
 	request, assertion := workerEvidenceRequest(t, agent.WorkerEvidenceVerbComplete, lane, readback, "nonce-complete-repeat001")
 	request["event_id"] = "complete-findings-repeat"

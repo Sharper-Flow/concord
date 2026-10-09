@@ -1,7 +1,7 @@
 import { test, expect, mock } from "bun:test"
 import { manifestDigest } from "./generated-contracts"
 import { validateGeneratedEnvelope, validateGeneratedPayload } from "./generated-contract-tests"
-import { configureCoreBinary, validateAgentLanePacket, type AgentLanePacketBinding, type AgentLanePacketCorrection } from "./dispatch"
+import { configureCoreBinary, validateAgentLanePacket, type AgentLanePacketBinding, type AgentLanePacketCorrection, type AgentLanePacketWorkContext } from "./dispatch"
 import { agentLaneReportSchema, agentLanes, workerScopeAssignedResult } from "./generated-agent-lanes"
 
 // The builder reaches core through the adapter transport in concord.ts, which
@@ -312,7 +312,7 @@ test("a correction past the attempt limit still projects into the packet", async
 // CON-887: the pin's work-context view rides the packet verbatim. The core
 // refuses a dispatch whose inputs.work_context differs from the current view
 // byte-for-byte, so any re-derivation here would strand the dispatch.
-const WORK_CONTEXT = {
+const WORK_CONTEXT: AgentLanePacketWorkContext = {
   source_event_frontier: 19,
   required_reading: [
     {

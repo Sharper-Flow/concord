@@ -43,6 +43,20 @@ test("every declared tool/operation pair is satisfiable at the adapter boundary"
   expect(refused.map((pair) => `${pair.tool}.${pair.operation}`)).toEqual([])
 })
 
+test("every declared read refuses mutation metadata even when empty", () => {
+  for (const pair of declaredPairs.filter((pair) => !mutationPairs.has(`${pair.tool}.${pair.operation}`))) {
+    const read = coreEnvelope(pair)
+    expect(validateGeneratedEnvelope(read)).toBe(true)
+    for (const changed of [[], [{ entity_kind: "work", id: "work-1", version: "1" }]]) {
+      expect(validateGeneratedEnvelope({ ...read, changed_refs: changed }), `${pair.tool}.${pair.operation}: changed_refs`).toBe(false)
+    }
+    for (const intents of [[], [{ tool: "concord_work_browse", operation: "list", query_id: "PM1.Q3", reason_code: "inspect" }]]) {
+      expect(validateGeneratedEnvelope({ ...read, next_valid_intents: intents }), `${pair.tool}.${pair.operation}: next_valid_intents`).toBe(false)
+    }
+    expect(validateGeneratedEnvelope({ ...read, changed_refs: [], next_valid_intents: [] })).toBe(false)
+  }
+})
+
 test("the four operations issue #352 reported, and their controls, all validate", () => {
   // The controls were never broken. They fail here only if the validator has
   // become permissive rather than correct, which is the way a green run of the

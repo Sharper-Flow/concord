@@ -72,6 +72,12 @@
         "worker_job": {
           "$ref": "#/$defs/lane_packet_worker_job"
         },
+        "context": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 16384,
+          "description": "Prose context a packet built before the typed record members carried. The lane-packet schema keeps it so a retained packet from an attempt dispatched before that change still validates on recovery. The core dispatch admission refuses it, so no new packet carries it."
+        },
         "law_context": {
           "description": "The approved contract's binding law and Domains the pinned continuity resolved. The core refuses a dispatch whose packet member differs from the current recorded state, omits a present record, or carries a member no record backs.",
           "$ref": "#/$defs/lane_law_context"

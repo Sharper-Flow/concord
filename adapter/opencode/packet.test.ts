@@ -555,6 +555,19 @@ test("the packet carries the resolved law context and proposal verbatim", async 
   expect(built.packet!.inputs.work_record).toEqual({ narrative: NARRATIVE })
 })
 
+// A retained packet from an attempt dispatched before the typed record
+// members carried prose in inputs.context. Recovery re-validates that exact
+// packet, so the lane-packet schema still admits the member, while the
+// builder never emits it.
+test("a retained pre-record packet with prose context still validates, and the builder never emits it", async () => {
+  const built = await build({ ...defaultScript(), "concord_work_trace.continuity": continuityEnvelope(pinnedContract(), DESIGN_RECORD, null, LAW_CONTEXT, PROPOSAL) })
+  expect(built.failure).toBeUndefined()
+  expect("context" in built.packet!.inputs).toBe(false)
+  const { law_context: _law, design_record: _design, proposal_record: _proposal, work_record: _work, ...legacyInputs } = built.packet!.inputs
+  const failures: string[] = []
+  expect(validateAgentLanePacket({ ...built.packet!, inputs: { ...legacyInputs, context: `Approved design record:\n${NARRATIVE}` } }, failures), failures.join("; ")).toBe(true)
+})
+
 test("a contract with no bound law dispatches without a law context or proposal", async () => {
   const built = await build(defaultScript())
   expect(built.failure, JSON.stringify(built.failure)).toBeUndefined()

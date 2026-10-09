@@ -54,6 +54,9 @@ func TestDispatchRefusesPacketRecordMismatch(t *testing.T) {
 		{"unknown work record member", func(_ *testing.T, inputs map[string]any) {
 			inputs["work_record"] = map[string]any{"narrative": "x", "summary": "x"}
 		}, "unknown property $.inputs.work_record.summary"},
+		{"legacy prose context", func(_ *testing.T, inputs map[string]any) {
+			inputs["context"] = "prose the core cannot hold to a record"
+		}, "unknown property $.inputs.context"},
 		{"unbacked design record", func(_ *testing.T, inputs map[string]any) {
 			inputs["design_record"] = map[string]any{"work_version": 1, "approach": "an approach no record backs", "decisions": []any{map[string]any{"id": "decision:unbacked", "question": "q", "choice": "c", "rationale": "r", "rejected": []any{}}}, "touched_refs": []any{"path:unbacked"}, "recorded_at": "2026-01-01T00:00:00Z"}
 		}, "worker packet carries inputs.design_record that no current record backs"},

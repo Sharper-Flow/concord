@@ -251,6 +251,25 @@ test("all exported tools return one serialized Concord envelope", async () => {
   }
 })
 
+test("request-wrapped tools refuse a missing request wrapper before any host effect", async () => {
+  const tools = { product_view: adapter.product_view, work_browse: adapter.work_browse, work_trace: adapter.work_trace, knowledge: adapter.knowledge, work_define: adapter.work_define, domain: adapter.domain, work_initiative: adapter.work_initiative, work_transition: adapter.work_transition, work_relate: adapter.work_relate, work_compact: adapter.work_compact }
+  let calls = 0
+  adapter.configureConcordAdapter({ runner: { run: async () => { calls++; throw new Error("must not run") } } })
+  for (const [name, exportedTool] of Object.entries(tools)) {
+    const toolName = `concord_${name}`
+    const operation = contractOperations.find((candidate) => candidate.tool === toolName)!.id.split(".")[1]
+    for (const args of [{ operation, input: {} }, { operation, request: null }, { operation, request: [] }]) {
+      const result: any = await exportedTool.execute(args as any, contextFor())
+      const envelope = JSON.parse(result.output)
+      expect(envelope.error).toMatchObject({ kind: "invalid_input", effect_state: "none", retry_safe: false, recovery_action: { kind: "restart_query" } })
+      expect(envelope.error.message).toContain("request wrapper")
+      expect(envelope.tool).toBe(toolName)
+      expect(validateGeneratedEnvelope(envelope), result.output).toBe(true)
+    }
+  }
+  expect(calls).toBe(0)
+})
+
 test("request-wrapped tools accept the Code Mode double-wrapped argument shape", async () => {
   let invokeStdin = ""
   const core = coreEnvelope("concord_work_browse", "list", "error", {

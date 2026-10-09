@@ -488,10 +488,74 @@ func TestRunHelpListsExactCommandFormsAndStdinShapes(t *testing.T) {
 	if errOut.Len() != 0 {
 		t.Fatalf("help stderr = %q, want empty", errOut.String())
 	}
-	// The bound detects runaway help output. It is not a size budget for the
-	// documented command surface, which commandSpecs owns.
-	if out.Len() > 17500 {
-		t.Fatalf("help output is unbounded: %d bytes", out.Len())
+	if err := commandHelpSectionsError(out.String(), commandSpecs); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// commandHelpSectionsError requires exactly the forms and JSON-stdin shapes
+// commandSpecs declares, in order, with no repeated or unexplained output.
+// Documentation growth is bounded by the declarations, not a fixed byte budget.
+func commandHelpSectionsError(help string, specs []commandSpec) error {
+	const heading = "Commands read one strict JSON object from stdin:\n"
+	if strings.Count(help, heading) != 1 {
+		return fmt.Errorf("help must contain exactly one JSON-stdin command heading")
+	}
+	_, sections, _ := strings.Cut(help, heading)
+	var want []string
+	for _, spec := range specs {
+		want = append(want, "  concord "+spec.Canonical+" < JSON stdin")
+		if spec.TwoWord != "" {
+			want = append(want, "  concord "+spec.TwoWord+" < JSON stdin")
+		}
+		want = append(want, "    required: "+formatRequiredFields(spec.RequiredFields))
+		if spec.Optional != "" && spec.Optional != "none" {
+			want = append(want, "    optional: "+spec.Optional)
+		}
+		if spec.Enums != "" && spec.Enums != "none" {
+			want = append(want, "    accepted values: "+spec.Enums)
+		}
+	}
+	if sections != strings.Join(want, "\n")+"\n" {
+		return fmt.Errorf("help command sections differ from commandSpecs: missing, repeated, reordered, or unexpected documentation")
+	}
+	return nil
+}
+
+func TestCommandHelpSectionsFollowDeclaredDocumentation(t *testing.T) {
+	spec := commandSpec{
+		Canonical:      "fixture-command",
+		TwoWord:        "fixture command",
+		RequiredFields: requiredFields(nestedField("payload", "value")),
+		Optional:       strings.Repeat("declared documentation; ", 800),
+		Enums:          "value: first | second",
+	}
+	var section bytes.Buffer
+	writeCommandSection(&section, spec)
+	body := section.String()
+	heading := "Commands read one strict JSON object from stdin:\n"
+	valid := heading + body
+	for _, tc := range []struct {
+		name string
+		help string
+		want bool
+	}{
+		{"declared growth", valid, true},
+		{"duplicate section", valid + body, false},
+		{"duplicate heading", heading + valid, false},
+		{"missing heading", body, false},
+		{"missing canonical form", strings.Replace(valid, "  concord fixture-command < JSON stdin\n", "", 1), false},
+		{"missing two-word form", strings.Replace(valid, "  concord fixture command < JSON stdin\n", "", 1), false},
+		{"changed required shape", strings.Replace(valid, "payload{value}", "payload", 1), false},
+		{"missing optional documentation", strings.Replace(valid, "    optional: "+spec.Optional+"\n", "", 1), false},
+		{"missing accepted values", strings.Replace(valid, "    accepted values: "+spec.Enums+"\n", "", 1), false},
+		{"unexpected trailing output", valid + "unexplained output\n", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := commandHelpSectionsError(tc.help, []commandSpec{spec}); (err == nil) != tc.want {
+				t.Fatalf("help admission error = %v, want admitted %v", err, tc.want)
+			}
+		})
 	}
 }
 

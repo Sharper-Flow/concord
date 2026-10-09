@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"encoding/json"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/sharper-flow/concord/internal/store"
@@ -199,7 +200,11 @@ func TestWorkflowCorpusWF46RejectsRemovedAgentReplayShape(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if response.Outcome != OutcomeError || response.Error == nil || response.Error.Kind != "invalid_transition" {
+	// The closed action-variant surface owns the removed-action refusal
+	// (CON-412): the historical replay shape never reaches authority, the
+	// boundary refuses it with a field-named invalid_input naming action_id,
+	// and no event is appended either way.
+	if response.Outcome != OutcomeError || response.Error == nil || response.Error.Kind != "invalid_input" || !strings.Contains(response.Error.Message, "action_id") {
 		if response.Error == nil {
 			t.Fatalf("WF46 removed replay response=%+v", response)
 		}

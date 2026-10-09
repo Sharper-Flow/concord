@@ -75,7 +75,6 @@ var workflowActionGuards = map[string]workflowActionGuard{
 	"accept_worker_result":   {guardPhaseClaim, guardAcceptWorkerResultDeliveryRoute},
 	"accept_worker_evidence": {guardPhaseClaim, guardAcceptWorkerEvidenceRoute},
 	"link_successor":         {guardPhasePostValidation, guardForwardLinkOnly},
-	"record_alignment":       {guardPhasePostValidation, guardRecordAlignmentConsistency},
 	"cross_context_boundary": {guardPhaseClaim, guardNoRestartDispatch},
 	"record_delivery":        {guardPhaseClaim, guardDeliveryAdmission},
 }
@@ -581,6 +580,11 @@ func workflowLateVerdictRecoveryForActionPayload(ctx context.Context, q queryer,
 	if entriesErr != nil {
 		return false, nil
 	}
+	if len(entries) == 0 {
+		// A call carrying neither wire form is not recovery-eligible;
+		// payload validation owns that refusal.
+		return false, nil
+	}
 	contractVersion, present := workflowFieldIntOK(fields, "contract_version")
 	if !present {
 		if _, batchPresent := fields["verdicts"]; batchPresent {
@@ -613,30 +617,6 @@ func workflowLateVerdictRecoveryForActionPayload(ctx context.Context, q queryer,
 
 func guardCompleteBoundary(g *workflowActionGuardContext) error {
 	return workflowCompletionBoundaryPreflight(g.request.Payload)
-}
-
-// guardRecordAlignmentConsistency refuses an alignment payload whose outcome
-// contradicts its related_ids list (CD-0156 D3): a related_found outcome with
-// no ids records a claim about nothing, and a none_found outcome with ids
-// records a found set the search did not return. The declared payload bounds
-// cannot express the cross-field rule, so this guard owns it.
-func guardRecordAlignmentConsistency(g *workflowActionGuardContext) error {
-	fields, fieldErr := workflowActionObject(g.defaultedPayload())
-	if fieldErr != nil {
-		return fieldErr
-	}
-	relatedIDs := workflowFieldStrings(fields, "related_ids")
-	switch workflowFieldStringDefault(fields, "outcome", "") {
-	case "related_found":
-		if len(relatedIDs) == 0 {
-			return newFailure(KindInvalidPayload, "workflow_action", "record_alignment outcome related_found requires related_ids", false, "name the related work items the search found")
-		}
-	case "none_found":
-		if len(relatedIDs) != 0 {
-			return newFailure(KindInvalidPayload, "workflow_action", "record_alignment outcome none_found cannot carry related_ids", false, "drop related_ids or record outcome related_found")
-		}
-	}
-	return nil
 }
 
 // guardForwardLinkOnly rejects nested or non-forward workflow composition.

@@ -24,7 +24,7 @@ func TestWorktreeAuditClassifiesTerminalPresentWorktrees(t *testing.T) {
 	s, git, _ := worktreeFixture(t)
 	ctx := context.Background()
 	auditWork(t, s, git, "work-live", true)
-	git.ahead["work/work-live"] = 1
+	git.divergeBranch("work/work-live", 1, 0)
 	auditWork(t, s, git, "work-done", true)
 	completeAuditWork(t, s, "work-done")
 
@@ -51,7 +51,7 @@ func TestWorktreeAuditReclaimsMergedTerminalWork(t *testing.T) {
 	s, git, _ := worktreeFixture(t)
 	ctx := context.Background()
 	auditWork(t, s, git, "work-live", true)
-	git.ahead["work/work-live"] = 1
+	git.divergeBranch("work/work-live", 1, 0)
 	donePath := auditWork(t, s, git, "work-done", true)
 	completeAuditWork(t, s, "work-done")
 	dirtyPath := auditWork(t, s, git, "work-dirty", true)
@@ -256,7 +256,7 @@ func TestWorktreeAuditClassifiesUnstartedPresentWorktrees(t *testing.T) {
 	ctx := context.Background()
 	unstartedPath := auditWork(t, s, git, "work-unstarted", true)
 	auditWork(t, s, git, "work-ahead", true)
-	git.ahead["work/work-ahead"] = 2
+	git.divergeBranch("work/work-ahead", 2, 0)
 	dirtyPath := auditWork(t, s, git, "work-dirty-unstarted", true)
 	git.dirty[dirtyPath] = true
 	auditWork(t, s, git, "work-started", true)
@@ -300,7 +300,7 @@ func TestWorktreeAuditReclaimsUnstartedPresentWorktrees(t *testing.T) {
 	ctx := context.Background()
 	unstartedPath := auditWork(t, s, git, "work-unstarted", true)
 	auditWork(t, s, git, "work-ahead", true)
-	git.ahead["work/work-ahead"] = 1
+	git.divergeBranch("work/work-ahead", 1, 0)
 
 	result, err := s.WorktreeAuditReclaim(ctx, WorktreeAuditReclaimRequest{ProductID: "product-w", DefaultRef: "origin/main", PrincipalRef: "principal-1", RequestID: "unstarted-reclaim-1", Now: time.Unix(40, 0).UTC(), Runner: git, Limit: 100})
 	if err != nil {
@@ -350,7 +350,7 @@ func TestWorktreeAuditProtectsUncommittedAndUnpushedContent(t *testing.T) {
 	dirtyPath := auditWork(t, s, git, "work-dirty-content", true)
 	git.dirty[dirtyPath] = true
 	unpushedPath := auditWork(t, s, git, "work-unpushed-content", true)
-	git.unpushed["work/work-unpushed-content"] = 2
+	git.divergeBranch("work/work-unpushed-content", 2, 2)
 	completeAuditWork(t, s, "work-dirty-content")
 	completeAuditWork(t, s, "work-unpushed-content")
 
@@ -397,10 +397,10 @@ func TestWorktreeAuditReclaimsSquashContainedTerminalWork(t *testing.T) {
 	s, git, _ := worktreeFixture(t)
 	ctx := context.Background()
 	auditWork(t, s, git, "work-live", true)
-	git.ahead["work/work-live"] = 1
+	git.divergeBranch("work/work-live", 1, 0)
 	squashedPath := auditWork(t, s, git, "work-squashed", true)
 	completeAuditWork(t, s, "work-squashed")
-	git.unpushed["work/work-squashed"] = 2
+	git.divergeBranch("work/work-squashed", 2, 2)
 	git.squashMergeIntoDefault("work/work-squashed")
 
 	audit, err := s.WorktreeAudit(ctx, WorktreeAuditRequest{ProductID: "product-w", Limit: 100, Runner: git, DefaultRef: "origin/main"})
@@ -443,7 +443,7 @@ func TestWorktreeAuditReclaimRefusesUnstartedWorktreeWithEquivalentTree(t *testi
 	s, git, _ := worktreeFixture(t)
 	ctx := context.Background()
 	path := auditWork(t, s, git, "work-revert-pair", true)
-	git.ahead["work/work-revert-pair"] = 2
+	git.divergeBranch("work/work-revert-pair", 2, 0)
 	git.content["work-revert-pair"] = git.branches["main"]
 
 	result, err := s.WorktreeAuditReclaim(ctx, WorktreeAuditReclaimRequest{ProductID: "product-w", DefaultRef: "origin/main", PrincipalRef: "principal-1", RequestID: "unstarted-equivalent-tree", Now: time.Unix(40, 0).UTC(), Runner: git, Limit: 100})

@@ -7,16 +7,18 @@ File accountability does not change a document's law home or a handler's semanti
 ## Responsibility
 Owns the work item as an entity: its declared attributes and urgency, provenance, the typed relation vocabulary between work items, durable inter-agent resource claims, work-addressed peer messages, and non-authoritative mid-execution observations. It owns what a work item means and how work items refer to one another, not how work executes and not how it persists.
 
-Mapped files: 46; tests: 26; unresolved candidates: 80.
+Mapped files: 55; tests: 34; unresolved candidates: 77.
 Candidate counts overlap when a file has several candidates; no candidate is an assigned owner.
 
 ## Code and tests
 Full paths, unresolved reasons, and shared-test coverage: `.concord/navigation/inventory.json`.
-- Include: `internal/linearclient/**`, `internal/store/lifecycle.go`, `internal/store/generated_work_kinds.go`, `internal/store/generated_relation_vocabulary.go`, `internal/store/work_messages.go`
-- Include: `internal/store/work_observations.go`, `internal/store/work_external_observations.go`, `internal/store/external_observation*.go`, `internal/store/resource_claims.go`, `internal/store/managed_resources*.go`
-- Include: `internal/store/work_removal*.go`, `internal/store/defect_intake*.go`, `internal/store/initiative*.go`, `internal/store/observation_optional_lists_test.go`, `internal/store/work_observation_pages_test.go`
-- Include: `internal/store/urgency_and_relation_order_test.go`, `internal/store/work_kind_vocabulary_test.go`, `internal/store/relation_vocabulary_test.go`, `internal/store/external_ref_collision_test.go`, `internal/store/lifecycle_relations_test.go`
-- Include: `internal/store/work_observations_test.go`, `contracts/work-kinds*`, `contracts/relation-vocabulary*`
+- Include: `internal/store/worktrees.go`, `internal/store/worktrees_test.go`, `internal/store/worktrees_audit_reclaim_test.go`, `internal/store/worktrees_live_head_reclaim_test.go`, `internal/store/worktrees_native_admission_test.go`
+- Include: `internal/store/worktrees_native_phase_matrix_test.go`, `internal/store/worktrees_ref_boundary_test.go`, `internal/store/worktrees_removal_plan_test.go`, `internal/store/worktrees_replay_determinism_test.go`, `internal/linearclient/**`
+- Include: `internal/store/lifecycle.go`, `internal/store/generated_work_kinds.go`, `internal/store/generated_relation_vocabulary.go`, `internal/store/work_messages.go`, `internal/store/work_observations.go`
+- Include: `internal/store/work_external_observations.go`, `internal/store/external_observation*.go`, `internal/store/resource_claims.go`, `internal/store/managed_resources*.go`, `internal/store/work_removal*.go`
+- Include: `internal/store/defect_intake*.go`, `internal/store/initiative*.go`, `internal/store/observation_optional_lists_test.go`, `internal/store/work_observation_pages_test.go`, `internal/store/urgency_and_relation_order_test.go`
+- Include: `internal/store/work_kind_vocabulary_test.go`, `internal/store/relation_vocabulary_test.go`, `internal/store/external_ref_collision_test.go`, `internal/store/lifecycle_relations_test.go`, `internal/store/work_observations_test.go`
+- Include: `contracts/work-kinds*`, `contracts/relation-vocabulary*`
 - Go test package: `github.com/sharper-flow/concord/internal/linearclient`
 - Go test package: `github.com/sharper-flow/concord/internal/store`
 

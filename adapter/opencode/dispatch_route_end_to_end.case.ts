@@ -19,6 +19,7 @@ import type { CredentialStore } from "./credentials"
 import type { DispatchRunner } from "./dispatch"
 import { agentLanes } from "./generated-agent-lanes"
 import { contractOperations } from "./generated-contracts"
+import { WORKER_REPORT_PROTOCOL } from "./worker-report-protocol.js"
 import { hostControlPlane, MANAGED_TASK_SCOPE_KEY, SESSION_MESSAGES_ROUTE, SESSION_ROUTE } from "./move-session"
 
 const PRODUCT_ID = "product-e2e"
@@ -123,11 +124,15 @@ function contextFor(directory: string) {
   } as any
 }
 
+function reportText(report: JSONRecord): string {
+  return `\`\`\`${WORKER_REPORT_PROTOCOL}\n${JSON.stringify(report)}\n\`\`\``
+}
+
 function taskResult(report: JSONRecord): string {
   return [
     `<task id="worker-session" state="completed">`,
     "<task_result>",
-    JSON.stringify(report),
+    reportText(report),
     "</task_result>",
     "</task>",
   ].join("\n")
@@ -433,6 +438,7 @@ routeDeclaration("dispatches a real store route through Task completion and work
     const taskArgs: Record<string, unknown> = { subagent_type: "general", prompt: "model input", description: "model task" }
     await windows.bind(TASK_TOOL_ID, SESSION_ID, taskArgs, undefined, async () => worktree, worktree)
     const packet = JSON.parse(taskArgs.prompt as string) as JSONRecord
+    expect(packet.inputs.report_protocol).toBe(WORKER_REPORT_PROTOCOL)
     boundPacket = packet
     expect(taskArgs.subagent_type).toBe("concord-implement")
     expect(packet.step_id).toBe("repair")
@@ -441,11 +447,14 @@ routeDeclaration("dispatches a real store route through Task completion and work
     // typed binding carries the objective source, the versions, and the one
     // assigned result. The typed outcome predicates ride
     // inputs.outcome_predicates with each serialized payload decoded. The
-    // context leads with the item's value line, carries the contract's
-    // resolved home Domain with the knowledge home's absolute registry
-    // locator, and the recorded task ahead of the narrative.
+    // core-verified law context carries the contract's resolved home Domain
+    // with the knowledge home's absolute registry locator, and the work
+    // record carries the item's recorded value statement and task.
     const registryLocator = join(repo, ".concord/docs/knowledge/domain-registry.json")
-    expect(packet.inputs.context).toBe(`Value: The route completes a real worker attempt.\n\nApproved law and Domains (binding Product law):\n- Domain product-root:${PRODUCT_ID}: Synthetic root — Synthetic test domain\nDomain registry: ${registryLocator}\n\nRecorded task:\nExercise the dispatch route.\n\n`)
+    expect(packet.inputs.law_context).toEqual({ laws: [], domains: [{ domain_id: `product-root:${PRODUCT_ID}`, name: "Synthetic root", purpose: "Synthetic test domain" }], registry_path: registryLocator })
+    expect(packet.inputs.work_record).toEqual({ value_statement: "The route completes a real worker attempt.", task: "Exercise the dispatch route." })
+    expect(packet.inputs.design_record).toBeUndefined()
+    expect(packet.inputs.proposal_record).toBeUndefined()
     expect(await Bun.file(registryLocator).exists()).toBe(true)
     expect(packet.inputs.task).toBe(APPROVED_OBJECTIVE)
     expect(packet.inputs.binding).toEqual({ objective_source: "contract_premise", work_version: 14, contract_version: 1, assigned_result: "files_touched" })
@@ -505,7 +514,7 @@ routeDeclaration("dispatches a real store route through Task completion and work
     const refineStartVersion = dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number
     response = await transition(refineStartVersion, "start_refine", "e2e-start-refine", {})
     expect(response.outcome).toBe("ok")
-    expect(dbValue(dbPath, `SELECT definition_version FROM workflow_instances WHERE work_id='${workID}'`).definition_version).toBe(22)
+    expect(dbValue(dbPath, `SELECT definition_version FROM workflow_instances WHERE work_id='${workID}'`).definition_version).toBe(23)
     expect(dbValue(dbPath, `SELECT current_step FROM workflow_instances WHERE work_id='${workID}'`).current_step).toBe("refine")
     const refineEvidenceVersion = dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number
     response = await transition(refineEvidenceVersion, "bind_evidence", "e2e-bind-refine-artifact", { evidence_kind: "artifact" })
@@ -715,7 +724,7 @@ for (const blockedVerb of ["worker-dispatch", "worker-complete"]) {
       expect(before.map((event) => event.kind)).toEqual(blockedVerb === "worker-dispatch" ? ["worker.dispatched"] : ["worker.dispatched", "worker.completed"])
       const child = JSON.parse(exportedSession(packet))
       child.info = { id: "worker-session", parentID: SESSION_ID, directory: worktree }
-      child.messages[child.messages.length - 1].parts = [{ type: "text", text: JSON.stringify(report) }]
+      child.messages[child.messages.length - 1].parts = [{ type: "text", text: reportText(report) }]
       const fixture = { binary, dbPath, worktree, sessionID: SESSION_ID, parent: { info: { id: SESSION_ID, directory: worktree, metadata }, messages: [{ info: { id: MESSAGE_ID, sessionID: SESSION_ID, role: "assistant" }, parts: [{ id: "retained-task-part", sessionID: SESSION_ID, type: "tool", tool: TASK_TOOL_ID, state: { status: "completed", input: taskArgs, output: output.output } }] }] }, child, request: { operation: "worker_reconcile", input: { work_id: workID, attempt_id: packet.attempt_id, task_part_id: "retained-task-part", idempotency_key: "recover-original-report" } } }
       const recover = async (body: JSONRecord = fixture) => {
         const result = await runProcess([process.execPath, "-e", RECOVERY_PROCESS], JSON.stringify(body), join(import.meta.dir, "..", ".."))

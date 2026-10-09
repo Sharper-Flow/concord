@@ -19014,6 +19014,7 @@ const GeneratedPayloadSchemaDocument = `{
               "type": "array"
             },
             "context": {
+              "description": "Prose context a packet built before the typed record members carried. The lane-packet schema keeps it so a retained packet from an attempt dispatched before that change still validates on recovery. The core dispatch admission refuses it, so no new packet carries it.",
               "maxLength": 16384,
               "minLength": 0,
               "type": "string"
@@ -19021,8 +19022,25 @@ const GeneratedPayloadSchemaDocument = `{
             "correction": {
               "$ref": "#/$defs/workflow_correction_context"
             },
+            "design_record": {
+              "$ref": "#/$defs/workflow_design_record",
+              "description": "The current typed design record (CD-0128). The core refuses a dispatch whose packet member differs from the current recorded state, omits a present record, or carries a member no record backs."
+            },
+            "law_context": {
+              "$ref": "#/$defs/workflow_law_context",
+              "description": "The approved contract's binding law and Domains the pinned continuity resolved. The core refuses a dispatch whose packet member differs from the current recorded state, omits a present record, or carries a member no record backs."
+            },
             "outcome_predicates": {
               "$ref": "#/$defs/worker_packet_outcome_predicates"
+            },
+            "proposal_record": {
+              "$ref": "#/$defs/workflow_proposal_record",
+              "description": "The recorded proposal's problem, user outcomes, and constraints. The core refuses a dispatch whose packet member differs from the current recorded state, omits a present record, or carries a member no record backs."
+            },
+            "report_protocol": {
+              "const": "concord-worker-result-v1",
+              "description": "Dispatch-owned final-report framing, covered by the authorized packet digest. New builders pin this protocol; absence identifies historical legacy output. This is not report schema or worker identity.",
+              "type": "string"
             },
             "task": {
               "maxLength": 4096,
@@ -19032,6 +19050,9 @@ const GeneratedPayloadSchemaDocument = `{
             "work_context": {
               "$ref": "#/$defs/work_context_view",
               "description": "CON-887: the current work-context view the work pin carried when the packet was built. The core refuses a dispatch whose packet does not consume the current view byte-for-byte."
+            },
+            "work_record": {
+              "$ref": "#/$defs/worker_packet_work_record"
             },
             "worker_job": {
               "$ref": "#/$defs/worker_packet_worker_job"
@@ -19272,6 +19293,29 @@ const GeneratedPayloadSchemaDocument = `{
       "maxItems": 8,
       "minItems": 1,
       "type": "array"
+    },
+    "worker_packet_work_record": {
+      "additionalProperties": false,
+      "description": "The work item's recorded value statement, task, and narrative, each verbatim and present exactly when the recorded text is not blank. The core refuses a dispatch whose packet member differs from the recorded work item.",
+      "properties": {
+        "narrative": {
+          "maxLength": 16384,
+          "minLength": 1,
+          "type": "string"
+        },
+        "task": {
+          "maxLength": 8192,
+          "minLength": 1,
+          "type": "string"
+        },
+        "value_statement": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [],
+      "type": "object"
     },
     "worker_packet_worker_job": {
       "additionalProperties": false,
@@ -20369,6 +20413,26 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "object"
     },
+    "workflow_law_context_criterion": {
+      "additionalProperties": false,
+      "properties": {
+        "criterion": {
+          "maximum": 2147483647,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "predicate_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "criterion",
+        "predicate_id"
+      ],
+      "type": "object"
+    },
     "workflow_law_context_domain": {
       "additionalProperties": false,
       "properties": {
@@ -20394,6 +20458,15 @@ const GeneratedPayloadSchemaDocument = `{
     "workflow_law_context_law": {
       "additionalProperties": false,
       "properties": {
+        "criteria": {
+          "description": "The law's acceptance criteria bound to the reading work item's own outcome predicates (CD-0180). Present only when at least one criterion binds this work item.",
+          "items": {
+            "$ref": "#/$defs/workflow_law_context_criterion"
+          },
+          "maxItems": 128,
+          "minItems": 1,
+          "type": "array"
+        },
         "kind": {
           "description": "The law_subjects record kind. Constitution records are law-bearing and project into law_subjects, so a contract can mandate them.",
           "enum": [
@@ -21145,7 +21218,8 @@ const GeneratedPayloadSchemaDocument = `{
               },
               "claim_state": {
                 "enum": [
-                  "verified"
+                  "verified",
+                  "reclaimed"
                 ],
                 "type": "string"
               },
@@ -21158,13 +21232,23 @@ const GeneratedPayloadSchemaDocument = `{
                   "unstarted_present",
                   "uncommitted_content",
                   "unpushed_content",
-                  "unpublished_lesson"
+                  "unpublished_lesson",
+                  "retained_ref"
                 ],
                 "type": "string"
               },
               "commits_ahead": {
                 "minimum": 0,
                 "type": "integer"
+              },
+              "head_branch": {
+                "description": "CD-0212 D1: the live branch the row's one immutable live-HEAD observation read. Empty when the live HEAD is detached; differs from the claim when the checkout drifted. An observed live ref carries no upper bound the claim surface owns, because a reftable-backed repository admits identities no loose pathname could hold.",
+                "minLength": 1,
+                "type": "string"
+              },
+              "head_detached": {
+                "description": "CD-0212 D1: the live-HEAD observation read a detached HEAD rather than a branch checkout.",
+                "type": "boolean"
               },
               "lifecycle": {
                 "$ref": "#/$defs/lifecycle"
@@ -21184,6 +21268,17 @@ const GeneratedPayloadSchemaDocument = `{
                   "worktree_claim",
                   "worktree_inspect"
                 ],
+                "type": "string"
+              },
+              "retained_branch": {
+                "description": "CD-0212 D3: one branch ref a completed reclamation retained. The ref survived the reclaim with its branch, tip, and reason recorded in the reclamation facts; the operator decides its disposal. A retained live ref carries no upper bound the claim surface owns, so the full retained identity reports without truncation.",
+                "minLength": 1,
+                "type": "string"
+              },
+              "retained_tip": {
+                "description": "CD-0212 D3: the tip the reclamation observed when it retained the ref named by retained_branch.",
+                "maxLength": 64,
+                "minLength": 40,
                 "type": "string"
               },
               "risk": {
@@ -21297,7 +21392,8 @@ const GeneratedPayloadSchemaDocument = `{
               },
               "claim_state": {
                 "enum": [
-                  "verified"
+                  "verified",
+                  "reclaimed"
                 ],
                 "type": "string"
               },
@@ -21310,13 +21406,23 @@ const GeneratedPayloadSchemaDocument = `{
                   "unstarted_present",
                   "uncommitted_content",
                   "unpushed_content",
-                  "unpublished_lesson"
+                  "unpublished_lesson",
+                  "retained_ref"
                 ],
                 "type": "string"
               },
               "commits_ahead": {
                 "minimum": 0,
                 "type": "integer"
+              },
+              "head_branch": {
+                "description": "CD-0212 D1: the live branch the row's one immutable live-HEAD observation read. Empty when the live HEAD is detached; differs from the claim when the checkout drifted. An observed live ref carries no upper bound the claim surface owns, because a reftable-backed repository admits identities no loose pathname could hold.",
+                "minLength": 1,
+                "type": "string"
+              },
+              "head_detached": {
+                "description": "CD-0212 D1: the live-HEAD observation read a detached HEAD rather than a branch checkout.",
+                "type": "boolean"
               },
               "lifecycle": {
                 "$ref": "#/$defs/lifecycle"
@@ -21336,6 +21442,17 @@ const GeneratedPayloadSchemaDocument = `{
                   "worktree_claim",
                   "worktree_inspect"
                 ],
+                "type": "string"
+              },
+              "retained_branch": {
+                "description": "CD-0212 D3: one branch ref a completed reclamation retained. The ref survived the reclaim with its branch, tip, and reason recorded in the reclamation facts; the operator decides its disposal. A retained live ref carries no upper bound the claim surface owns, so the full retained identity reports without truncation.",
+                "minLength": 1,
+                "type": "string"
+              },
+              "retained_tip": {
+                "description": "CD-0212 D3: the tip the reclamation observed when it retained the ref named by retained_branch.",
+                "maxLength": 64,
+                "minLength": 40,
                 "type": "string"
               },
               "risk": {
@@ -21398,6 +21515,36 @@ const GeneratedPayloadSchemaDocument = `{
                 "maxLength": 64,
                 "minLength": 1,
                 "type": "string"
+              },
+              "retained_refs": {
+                "description": "CD-0212 D3: branch refs the reclamation proved it must not delete and retained instead, visible after directory removal.",
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "branch": {
+                      "description": "CD-0212 D3: a retained ref carries no upper bound the claim surface owns, so a valid long live branch retained by the reclamation reports its full identity.",
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "reason": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "tip": {
+                      "maxLength": 64,
+                      "minLength": 40,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "branch",
+                    "reason"
+                  ],
+                  "type": "object"
+                },
+                "maxItems": 16,
+                "type": "array"
               },
               "version": {
                 "$ref": "#/$defs/version"

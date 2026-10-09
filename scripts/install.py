@@ -50,12 +50,34 @@ class InstallerError(Exception):
     """An actionable refusal that must not leave a partial installation."""
 
 
+def resolve_adapter_module(adapter_dir: Path, specifier: str) -> str | None:
+    """Resolve one relative import specifier to its shipped module name.
+
+    The adapter directory holds two module kinds: TypeScript sources the
+    host runs directly, and plain JavaScript modules. The graph ships
+    source modules, so a specifier resolves the exact file it names: an
+    explicit .ts suffix resolves that .ts file, an explicit .js suffix
+    resolves the plain JavaScript module of that exact name, and an
+    extensionless specifier names a TypeScript source. A declared .js
+    module with no such file refuses rather than substituting a same-stem
+    .ts source, which would conceal the loss at release time.
+    """
+    module = specifier[2:]
+    if not module.endswith((".ts", ".js")):
+        module = f"{module}.ts"
+    if (adapter_dir / module).is_file():
+        return module
+    return None
+
+
 def derive_adapter_files(adapter_dir: Path) -> tuple[str, ...]:
     """Derive the deployable adapter set from the entry's import graph.
 
-    Every relative import must resolve to a TypeScript module inside the
-    adapter directory. An unresolvable or escaping import refuses rather
-    than shipping a set that breaks at module load.
+    A relative import may name a TypeScript source (extensionless or with
+    an explicit .ts suffix) or a plain JavaScript module (an explicit .js
+    suffix). Every specifier must resolve to a module inside the adapter
+    directory. An unresolvable or escaping import refuses rather than
+    shipping a set that breaks at module load.
 
     Regenerate the ADAPTER_FILES literal with, from the repository root::
 
@@ -76,8 +98,10 @@ def derive_adapter_files(adapter_dir: Path) -> tuple[str, ...]:
             target = match.group(2)
             if target.startswith("../"):
                 raise InstallerError(f"adapter module graph leaves the adapter directory at {target!r}")
-            module = target[2:]
-            pending.append(f"{module}.ts")
+            resolved = resolve_adapter_module(adapter_dir, target)
+            if resolved is None:
+                raise InstallerError(f"adapter module graph references missing file {target!r}")
+            pending.append(resolved)
     return tuple(sorted(shipped))
 
 
@@ -121,6 +145,7 @@ ADAPTER_FILES = (
     "project-link.ts",
     "task-result.ts",
     "turn-move-boundary.ts",
+    "worker-report-protocol.js",
     "worker_recovery.ts",
     "workflow-status.ts",
 )

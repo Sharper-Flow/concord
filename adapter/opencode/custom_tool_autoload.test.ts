@@ -23,6 +23,17 @@ const RELEASE_ROOT = "/synthetic-release"
 // walk scripts/install.py derives ADAPTER_FILES from, so no file list is
 // restated here. scripts/test-installer.py pins the installer literal to
 // this same graph.
+function resolveAdapterModule(target: string): string | undefined {
+  // An explicit .ts suffix resolves that .ts file and an extensionless
+  // specifier names a TypeScript source. An explicit .js suffix resolves
+  // the plain JavaScript module of that exact name; no same-stem .ts
+  // substitute exists, so a missing declared module fails the walk.
+  const module = target.endsWith(".ts") || target.endsWith(".js")
+    ? target.slice(2)
+    : `${target.slice(2)}.ts`
+  return fs.existsSync(path.join(ADAPTER_DIR, module)) ? module : undefined
+}
+
 function shippedAdapterFiles(): string[] {
   const shipped = new Set<string>()
   const pending = [ENTRY_FILE]
@@ -34,7 +45,9 @@ function shippedAdapterFiles(): string[] {
     for (const match of source.matchAll(/(?:from\s+|import\(\s*)(["'])(\.[^"']+)\1/g)) {
       const target = match[2]
       if (target.startsWith("../")) throw new Error(`${name} imports outside the adapter directory at ${target}`)
-      pending.push(`${target.slice(2)}.ts`)
+      const resolved = resolveAdapterModule(target)
+      if (!resolved) throw new Error(`${name} imports a missing adapter module at ${target}`)
+      pending.push(resolved)
     }
   }
   return [...shipped].sort()
@@ -99,7 +112,9 @@ test("every tool-shaped export of a shipped module autoloads only under a plugin
   expect(files).toContain("ci-watch.ts")
   const foreign: string[] = []
   for (const file of files) {
-    const namespace = path.basename(file, ".ts")
+    // The host derives the autoload namespace from the file's own name, so
+    // a plain .js module namespaces under its stem like a .ts module.
+    const namespace = path.basename(file, path.extname(file))
     const mod = (await import(pathToFileURL(path.join(ADAPTER_DIR, file)).href)) as Record<string, unknown>
     for (const [exportName, value] of Object.entries(mod)) {
       if (!isToolShaped(value)) continue

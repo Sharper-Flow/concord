@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-27
-- **Scope:** The knowledge manifest's criterion bindings, the doc-contract checker's resolution rule, the law context projection, and the lane packet's law block
+- **Scope:** The knowledge manifest's criterion bindings, the doc-contract checker's resolution rule, the law context projection, and the lane packet's law context
 - **Related:** CD-0114, CD-0159, CD-0177
 - **Approval:** The operator approved this decision in contract version 1 of
   work item `work-439bd3dfda3079826824710f`.
@@ -42,8 +42,9 @@ shapes at authoring.
 
 The law_subjects projection carries each law's authored bindings, and the
 continuity read resolves the ones naming the dispatching work item into that
-law's criteria. The packet's law block lists them on the law's line, so the
-worker reads which criterion each of this item's predicates discharges. The
+law's criteria. The packet's `inputs.law_context` carries them on the law's
+entry, so the worker reads which criterion each of this item's predicates
+discharges. The
 verdict path is unchanged, because the predicate verdicts and the
 law-revision pins already bind the item to the exact law it discharges.
 

@@ -175,6 +175,25 @@ packet, and the closed schema still refuses every other property the worker
 was not asked for. The adapter supplies each oracle receipt's candidate
 subject from the dispatch subject, never from a worker echo.
 
+Amended 2026-10-09 for the explicit report protocol
+([Linear](https://linear.app/sharper-flow/issue/CON-891/give-the-workers-final-report-an-explicit-protocol-identity-instead-of)):
+the report is framed, not found. A packet that declares its output protocol
+(CD-0067 D2) makes one Markdown fence — info string
+`concord-worker-result-v1` — the only report route, and the frame body is
+exactly one strict JSON object of worker-owned report content. Duplicate JSON
+keys are invalid. More than one designated frame in one result is ambiguous
+and refuses, whatever the bodies hold: neither first nor last wins, and equal
+bodies do not merge. A designated frame that fails to parse, carries
+duplicate keys, or names an unknown reserved version refuses the report even
+when an earlier JSON object parsed, and trailing JSON outside the frame never
+replaces it. Framing selects the frame; it admits no content. The closed
+schema, lane-obligation, model-readback, and semantic checks still run after
+framing succeeds. A packet that predates the declaration is read only through
+schema-aware legacy candidate enumeration: exactly one strict report-shaped
+candidate selects, an announced malformed final candidate refuses, and two
+candidates refuse as ambiguous. No admission path selects a report by taking
+the last parseable JSON object.
+
 ### D8. What this decision does not do
 
 It does not connect lane evidence to the workflow `EvidenceKind` enum. Those
@@ -208,10 +227,11 @@ step graph under CD-0013 D1.
 - Every lane digest is unchanged from before this decision.
 - The adapter turns an unparseable or invalid report into `worker.failed` with
   `invalid_report` rather than a completion.
-- The admitted canonical report carries `attempt_id`, `lane_id`, `lane_version`,
-  and `lane_digest` from the dispatch packet, never from the worker's output. A
-  worker echo of those fields is stripped before validation, and no supplied
-  identity can change the canonical report.
+- The admitted canonical report takes `schema_version`, `worker_job`,
+  `attempt_id`, `lane_id`, `lane_version`, and `lane_digest` from the
+  authorized dispatch packet, never from the worker's output. A worker echo
+  of any dispatch-owned field, `work_id` and `step_id` included, is stripped
+  before validation, so the model's value never reaches the canonical report.
 - `TestOwnerOracleReceipt`, `TestOwnerOracleReceiptShapeCoupling`, and
   `TestOwnerOracleRepairFamily` cover receipt joins, closed results, and
   current-subject closure without losing earlier controls.

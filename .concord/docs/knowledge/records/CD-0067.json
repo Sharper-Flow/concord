@@ -27,7 +27,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:9a3efa6a626f213824178fe096f33759509f871668735d75f8430dab32754e6d",
+  "sha256": "sha256:798c19ecf858a504c0c9d825f1ac9a6da9390552d5ba2818d8e6740a1604600b",
   "status": "accepted",
   "summary": "D1 binds a closed worker packet to dispatch_worker; D2 records its digest and identity; D5 routes dispatch through work_transition.workflow_action; CD-0143 adds the fresh packet and epoch needed after a completed and accepted worker delivery requests correction.",
   "tags": [

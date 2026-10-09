@@ -27,7 +27,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:8df074ee77e48377e238445de4cc97b6a30f6ca735c870a886460f36e2d98d2d",
+  "sha256": "sha256:eff3173d73230e88191f76b93fd9e1b34b4b40c8938f96d886597a5f36912ebe",
   "status": "accepted",
   "summary": "Lane reports cover their closed declared evidence obligations and retain reported or legacy_unavailable origin. Optional oracle receipts share the evidence array and join controls, cases, pinned recipes, host-derived subjects, and retained execution authority without certifying semantic truth or full output logs. Finding resolutions use durably bound evidence or qualifying current-subject receipts; independently_executed controls require independent bound evidence. The dispatch pins schema and identity, and the adapter strips identity echoes. Worker.completed v6 preserves source-version boundaries; worker.failed remains v2. Workers gain no workflow verdict or completion authority.",
   "tags": [

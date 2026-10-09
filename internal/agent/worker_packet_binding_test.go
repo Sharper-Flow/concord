@@ -49,6 +49,9 @@ func bindPacketToRecordedState(t *testing.T, s *store.Store, packet map[string]a
 		inputs["task"] = premise
 	}
 	inputs["binding"] = binding
+	for member, value := range recordedPacketRecords(t, s, workID) {
+		inputs[member] = value
+	}
 	// A job-executing lane also binds the work's one dispatch-ready worker-job
 	// revision, as the adapter selects it from the continuity projection
 	// (CD-0205). Call it immediately before the dispatch the packet rides.
@@ -67,6 +70,37 @@ func bindPacketToRecordedState(t *testing.T, s *store.Store, packet map[string]a
 		}
 	}
 	return packet
+}
+
+// recordedPacketRecords returns the recorded-state members a truthful lane
+// packet carries, as the adapter builds them: the law context, design record,
+// and proposal from the pinned continuity, and the work item's recorded value
+// statement, task, and narrative from the scope read. Members with no record
+// are absent.
+func recordedPacketRecords(t *testing.T, s *store.Store, workID string) map[string]any {
+	t.Helper()
+	snapshot, err := store.ReadWorkflowContinuity(context.Background(), s, store.ContinuityRequest{Work: workID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	records := map[string]any{}
+	if snapshot.LawContext != nil {
+		records["law_context"] = snapshot.LawContext
+	}
+	if snapshot.DesignRecord != nil {
+		records["design_record"] = snapshot.DesignRecord
+	}
+	if snapshot.ProposalRecord != nil {
+		records["proposal_record"] = snapshot.ProposalRecord.PacketProposal()
+	}
+	var work store.WorkerPacketWorkRecord
+	if err := s.DatabaseForTesting().QueryRow(`SELECT coalesce(json_extract(intent_json, '$.value_statement'), ''), coalesce(json_extract(intent_json, '$.task'), ''), coalesce(narrative, '') FROM work_items WHERE id=?`, workID).Scan(&work.ValueStatement, &work.Task, &work.Narrative); err != nil {
+		t.Fatal(err)
+	}
+	if work != (store.WorkerPacketWorkRecord{}) {
+		records["work_record"] = work
+	}
+	return records
 }
 
 func builtinLane(laneID string) (store.LaneDefinition, bool) {

@@ -1,5 +1,6 @@
 import { test, expect } from "bun:test"
 import assertLaneReport from "./lane-report.js"
+import { WORKER_REPORT_PROTOCOL } from "../../worker-report-protocol.js"
 
 // Unit coverage for the lane behavioural evals' shared assertion. The
 // assertion is the behavioural gate for eval runs (CD-0017 D7) and mirrors
@@ -311,13 +312,29 @@ test("a report inside one Markdown fence is unwrapped", () => {
   expect(assertLaneReport(output, { prompt: JSON.stringify(reviewPacket()) })).toMatchObject({ pass: true, score: 1 })
 })
 
-test("the last JSON object in the stream is the report", () => {
+test("a report-shaped invalid candidate cannot be hidden by a later valid report", () => {
   const output = [
     { type: "text", part: { type: "text", text: "working prose, no report here" } },
     { type: "text", part: { type: "text", text: JSON.stringify({ status: "done" }) } },
     { type: "text", part: { type: "text", text: JSON.stringify(report()) } },
   ].map((event) => JSON.stringify(event)).join("\n") + "\n"
-  expect(assertLaneReport(output, { prompt: JSON.stringify(reviewPacket()) })).toMatchObject({ pass: true, score: 1 })
+  expect(assertLaneReport(output, { prompt: JSON.stringify(reviewPacket()) })).toMatchObject({ pass: false, score: 0 })
+  expect(assertLaneReport(output, { prompt: JSON.stringify(reviewPacket()) }).reason).toContain("malformed legacy report")
+})
+
+test("deterministic assertions honor the current report pin without legacy fallback", () => {
+  const packet = reviewPacket({ inputs: { task: "Review the bounded change.", report_protocol: WORKER_REPORT_PROTOCOL } })
+  const output = (text: string) => [
+    { type: "step_start", sessionID: "session-protocol", part: { type: "step-start" } },
+    { type: "text", sessionID: "session-protocol", part: { type: "text", id: "part-result", sessionID: "session-protocol", text } },
+    { type: "step_finish", sessionID: "session-protocol", part: { type: "step-finish", reason: "stop" } },
+  ].map(event => JSON.stringify(event)).join("\n")
+  const frame = `\`\`\`${WORKER_REPORT_PROTOCOL}\n${JSON.stringify(report())}\n\`\`\``
+  const context = { prompt: JSON.stringify(packet) }
+  expect(assertLaneReport(output(`${frame}\n{"example":true}`), context)).toMatchObject({ pass: true, score: 1 })
+  for (const text of [JSON.stringify(report()), `${frame}\n${frame}`, `${frame}\n\`\`\`concord-worker-result-v2\n{}\n\`\`\``]) {
+    expect(assertLaneReport(output(text), context)).toMatchObject({ pass: false, score: 0 })
+  }
 })
 
 test("output carrying no report document is refused", () => {

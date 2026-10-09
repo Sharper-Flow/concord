@@ -30,16 +30,15 @@ func TestContinuityPayloadProjectsLawContextAndProposal(t *testing.T) {
 	if len(lawContext.Laws) != 1 || lawContext.Laws[0].LawID != "spec:one" {
 		t.Fatalf("law_context laws = %+v", lawContext.Laws)
 	}
-	proposal, ok := pinned["proposal_record"].(map[string]any)
+	proposal, ok := pinned["proposal_record"].(store.WorkerPacketProposal)
 	if !ok {
 		t.Fatalf("proposal_record payload type = %T", pinned["proposal_record"])
 	}
-	if proposal["problem"] != "Workers receive bare law IDs" {
-		t.Fatalf("proposal problem = %v", proposal["problem"])
+	if proposal.Problem != "Workers receive bare law IDs" {
+		t.Fatalf("proposal problem = %v", proposal.Problem)
 	}
-	constraints, ok := proposal["constraints"].([]string)
-	if !ok || len(constraints) != 0 {
-		t.Fatalf("proposal constraints = %#v, want a normalized empty list", proposal["constraints"])
+	if proposal.Constraints == nil || len(proposal.Constraints) != 0 {
+		t.Fatalf("proposal constraints = %#v, want a normalized empty list", proposal.Constraints)
 	}
 }
 

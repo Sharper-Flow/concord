@@ -3828,7 +3828,7 @@ test.each([false, true])("an ok worker_abandon releases its exact authorization 
     lane_digest: "sha256:" + "a".repeat(64),
     work_id: "work-1",
     step_id: "repair",
-    inputs: { task: "do the bounded thing", binding: { objective_source: "contract_premise" as const, work_version: 1, contract_version: 1, assigned_result: "files_touched" }, context: "", constraints: [] },
+    inputs: { task: "do the bounded thing", binding: { objective_source: "contract_premise" as const, work_version: 1, contract_version: 1, assigned_result: "files_touched" }, constraints: [] },
   }
   windows.open(context.sessionID, retained, "sha256:" + "c".repeat(64), process.cwd())
   if (consumed) {
@@ -3880,7 +3880,7 @@ test("a worker_abandon refusal for a never-dispatched attempt releases the retai
     lane_digest: "sha256:" + "b".repeat(64),
     work_id: "work-1",
     step_id: "repair",
-    inputs: { task: "do the bounded thing", binding: { objective_source: "contract_premise" as const, work_version: 1, contract_version: 1, assigned_result: "files_touched" }, context: "", constraints: [] },
+    inputs: { task: "do the bounded thing", binding: { objective_source: "contract_premise" as const, work_version: 1, contract_version: 1, assigned_result: "files_touched" }, constraints: [] },
   }
   windows.open(context.sessionID, retained, "sha256:" + "d".repeat(64), process.cwd())
   await windows.bind(TASK_TOOL_ID, context.sessionID, { subagent_type: "x", prompt: "y", description: "z" }, "call-stranded", async () => process.cwd(), process.cwd())
@@ -3925,7 +3925,7 @@ test("a nothing-durable abandon for a foreign attempt leaves the retained record
     lane_digest: "sha256:" + "b".repeat(64),
     work_id: "work-1",
     step_id: "repair",
-    inputs: { task: "do the bounded thing", binding: { objective_source: "contract_premise" as const, work_version: 1, contract_version: 1, assigned_result: "files_touched" }, context: "", constraints: [] },
+    inputs: { task: "do the bounded thing", binding: { objective_source: "contract_premise" as const, work_version: 1, contract_version: 1, assigned_result: "files_touched" }, constraints: [] },
   }
   windows.open(context.sessionID, retained, "sha256:" + "e".repeat(64), process.cwd())
   await windows.bind(TASK_TOOL_ID, context.sessionID, { subagent_type: "x", prompt: "y", description: "z" }, "call-foreign", async () => process.cwd(), process.cwd())
@@ -3984,7 +3984,7 @@ test("an own-row recovery reports a refused re-land without invoking a receipt f
   windows.open(sessionID, {
     schema_version: "1.0", attempt_id: "attempt-1", lane_id: "implement", lane_version: 1,
     lane_digest: "sha256:" + "a".repeat(64), work_id: "work-1", step_id: "repair",
-    inputs: { task: "the bounded task", binding: { objective_source: "contract_premise", work_version: 1, contract_version: 1, assigned_result: "files_touched" }, context: "", constraints: [] },
+    inputs: { task: "the bounded task", binding: { objective_source: "contract_premise", work_version: 1, contract_version: 1, assigned_result: "files_touched" }, constraints: [] },
   }, "sha256:" + "b".repeat(64), process.cwd())
   adapter.configureConcordAdapter({
     credentials: { async getPrivateKey() { return new Uint8Array(32).fill(7) } },
@@ -4069,7 +4069,7 @@ test.each([false, true])("own-row abandonment records its receipt from the confi
   windows.open(sessionID, {
     schema_version: "1.0", attempt_id: "attempt-1", lane_id: "implement", lane_version: 1,
     lane_digest: "sha256:" + "a".repeat(64), work_id: "work-1", step_id: "repair",
-    inputs: { task: "the bounded task", binding: { objective_source: "contract_premise", work_version: 1, contract_version: 1, assigned_result: "files_touched" }, context: "", constraints: [] },
+    inputs: { task: "the bounded task", binding: { objective_source: "contract_premise", work_version: 1, contract_version: 1, assigned_result: "files_touched" }, constraints: [] },
   }, "sha256:" + "b".repeat(64), process.cwd())
   let abandonCalls = 0
   const receiptDirectories: string[] = []
@@ -4124,7 +4124,7 @@ test.each([false, true])("a terminal abandon releases only its authorization whe
   windows.open(sessionID, {
     schema_version: "1.0", attempt_id: "attempt-1", lane_id: "implement", lane_version: 1,
     lane_digest: "sha256:" + "a".repeat(64), work_id: "work-1", step_id: "repair",
-    inputs: { task: "the bounded task", binding: { objective_source: "contract_premise", work_version: 1, contract_version: 1, assigned_result: "files_touched" }, context: "", constraints: [] },
+    inputs: { task: "the bounded task", binding: { objective_source: "contract_premise", work_version: 1, contract_version: 1, assigned_result: "files_touched" }, constraints: [] },
   }, "sha256:" + "b".repeat(64), process.cwd())
   adapter.configureConcordAdapter({
     credentials: { async getPrivateKey() { return new Uint8Array(32).fill(7) } },

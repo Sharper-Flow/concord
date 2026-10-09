@@ -133,8 +133,17 @@ func TestUpgradeRefusesWhileALiveLeaseHoldsAnOlderSchema(t *testing.T) {
 	if report.SchemaVersion != CurrentSchemaVersion() {
 		t.Fatalf("report.SchemaVersion = %d, want %d", report.SchemaVersion, CurrentSchemaVersion())
 	}
-	if len(report.Applied) != CurrentSchemaVersion()-applied || report.Applied[0] != applied+1 {
-		t.Fatalf("report.Applied = %v, want versions %d..%d", report.Applied, applied+1, CurrentSchemaVersion())
+	// The applied tail is the migration versions this binary defines above
+	// the applied stamp — derived from the schema, never from a contiguous
+	// range, so out-of-order version arrivals across branches stay honest.
+	want := []int{}
+	for _, m := range migrations {
+		if m.Version > applied {
+			want = append(want, m.Version)
+		}
+	}
+	if len(report.Applied) != len(want) || report.Applied[0] != want[0] {
+		t.Fatalf("report.Applied = %v, want versions %v", report.Applied, want)
 	}
 	s, err := Open(context.Background(), path)
 	if err != nil {

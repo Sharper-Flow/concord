@@ -2,7 +2,7 @@
 """Unit tests for scripts/release.py using temporary Git repositories."""
 from __future__ import annotations
 
-import dataclasses
+import importlib.util
 import os
 import subprocess
 import sys
@@ -22,184 +22,66 @@ import release
 
 
 CHECKOUT_ACTION = "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
-HEAD_SHA_REF = "${{ github.event.workflow_run.head_sha }}"
+TARGET_SHA_REF = "${{ github.sha }}"
 WORKFLOW_PATH = Path(__file__).parents[1] / ".github" / "workflows" / "release.yml"
+
+# The publication path checks out the admitted push SHA with tags for version
+# computation; only the publishing checkout may persist credentials. Every
+# admission job (evidence lookup, refresh checks, admission gate) checks out
+# the same exact SHA with full history and no persisted credentials.
+ADMISSION_CHECKOUTS = ("verify-lookup", "refresh-main-checks", "admit-verification")
+PUBLICATION_CHECKOUTS = {
+    "prepare": {
+        "ref": TARGET_SHA_REF,
+        "fetch-depth": 0,
+        "fetch-tags": True,
+        "persist-credentials": False,
+    },
+    "build-and-publish": {
+        "ref": TARGET_SHA_REF,
+        "fetch-depth": 0,
+        "fetch-tags": True,
+        "persist-credentials": True,
+    },
+}
+ADMISSION_CHECKOUT_INPUTS = {
+    "ref": TARGET_SHA_REF,
+    "fetch-depth": 0,
+    "persist-credentials": False,
+}
+
+
+def load_release_evidence():
+    """Import scripts/release-evidence.py, whose dashed name is not a module."""
+    spec = importlib.util.spec_from_file_location(
+        "release_evidence_for_release_tests", Path(__file__).with_name("release-evidence.py")
+    )
+    if spec is None or spec.loader is None:
+        raise AssertionError("scripts/release-evidence.py cannot be loaded")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["release_evidence_for_release_tests"] = module
+    spec.loader.exec_module(module)
+    return module
 
 
 class WorkflowParseError(ValueError):
-    """The release workflow is outside the parser's supported YAML subset."""
-
-
-@dataclasses.dataclass(frozen=True)
-class WorkflowLine:
-    indent: int
-    text: str
-    number: int
-
-
-def _strip_yaml_comment(text: str) -> str:
-    quote: str | None = None
-    escaped = False
-    for index, character in enumerate(text):
-        if quote == '"':
-            if escaped:
-                escaped = False
-            elif character == "\\":
-                escaped = True
-            elif character == '"':
-                quote = None
-            continue
-        if quote == "'":
-            if character == "'":
-                if index + 1 < len(text) and text[index + 1] == "'":
-                    continue
-                quote = None
-            continue
-        if character in ('"', "'"):
-            quote = character
-        elif character == "#" and (index == 0 or text[index - 1].isspace()):
-            return text[:index].rstrip()
-    return text.rstrip()
-
-
-def _mapping_entry(text: str, number: int) -> tuple[str, str]:
-    quote: str | None = None
-    for index, character in enumerate(text):
-        if quote:
-            if character == quote:
-                quote = None
-            continue
-        if character in ('"', "'"):
-            quote = character
-        elif character == ":":
-            key = text[:index].strip()
-            if not key:
-                break
-            return key.strip('"\''), text[index + 1 :].strip()
-    raise WorkflowParseError(f"line {number}: expected a mapping entry")
-
-
-def _scalar(value: str, number: int) -> object:
-    if value.startswith(("|", ">")):
-        return ""
-    if value in ("true", "false"):
-        return value == "true"
-    if value and value.lstrip("-").isdigit():
-        return int(value)
-    if len(value) >= 2 and value[0] == value[-1] and value[0] in ('"', "'"):
-        return value[1:-1]
-    return value
-
-
-def _tokens(workflow: str) -> list[WorkflowLine]:
-    result: list[WorkflowLine] = []
-    block_scalar_indent: int | None = None
-    for number, physical_line in enumerate(workflow.splitlines(), 1):
-        if physical_line.lstrip(" ").startswith("\t") or "\t" in physical_line[: len(physical_line) - len(physical_line.lstrip(" "))]:
-            raise WorkflowParseError(f"line {number}: tabs are not valid indentation")
-        indent = len(physical_line) - len(physical_line.lstrip(" "))
-        if block_scalar_indent is not None:
-            if not physical_line.strip() or indent > block_scalar_indent:
-                continue
-            block_scalar_indent = None
-        text = _strip_yaml_comment(physical_line[indent:])
-        if not text:
-            continue
-        result.append(WorkflowLine(indent, text, number))
-        if not text.startswith("-"):
-            try:
-                _, value = _mapping_entry(text, number)
-            except WorkflowParseError:
-                continue
-            if value.startswith(("|", ">")):
-                block_scalar_indent = indent
-    return result
-
-
-def _add_mapping_value(mapping: dict[str, object], key: str, value: object, number: int) -> None:
-    if key in mapping:
-        raise WorkflowParseError(f"line {number}: duplicate key: {key}")
-    mapping[key] = value
-
-
-def _parse_block(lines: list[WorkflowLine], index: int, indent: int) -> tuple[object, int]:
-    if index >= len(lines) or lines[index].indent != indent:
-        raise WorkflowParseError(f"line {lines[index].number if index < len(lines) else 'end'}: invalid indentation")
-    if lines[index].text.startswith("-"):
-        return _parse_sequence(lines, index, indent)
-    return _parse_mapping(lines, index, indent)
-
-
-def _parse_mapping(lines: list[WorkflowLine], index: int, indent: int) -> tuple[dict[str, object], int]:
-    mapping: dict[str, object] = {}
-    while index < len(lines) and lines[index].indent == indent:
-        line = lines[index]
-        if line.text.startswith("-"):
-            raise WorkflowParseError(f"line {line.number}: sequence item in mapping")
-        key, raw_value = _mapping_entry(line.text, line.number)
-        index += 1
-        if not raw_value:
-            if index < len(lines) and lines[index].indent > indent:
-                value, index = _parse_block(lines, index, lines[index].indent)
-            else:
-                value = {}
-        else:
-            value = _scalar(raw_value, line.number)
-            if index < len(lines) and lines[index].indent > indent:
-                raise WorkflowParseError(f"line {lines[index].number}: unexpected indentation")
-        _add_mapping_value(mapping, key, value, line.number)
-    return mapping, index
-
-
-def _parse_sequence(lines: list[WorkflowLine], index: int, indent: int) -> tuple[list[object], int]:
-    sequence: list[object] = []
-    while index < len(lines) and lines[index].indent == indent:
-        line = lines[index]
-        if not line.text.startswith("-"):
-            raise WorkflowParseError(f"line {line.number}: expected a sequence item")
-        item = line.text[1:].strip()
-        index += 1
-        if not item:
-            if index < len(lines) and lines[index].indent > indent:
-                value, index = _parse_block(lines, index, lines[index].indent)
-            else:
-                value = None
-        elif ":" in item:
-            key, raw_value = _mapping_entry(item, line.number)
-            mapping: dict[str, object] = {}
-            if raw_value:
-                value = _scalar(raw_value, line.number)
-            elif index < len(lines) and lines[index].indent > indent:
-                value, index = _parse_block(lines, index, lines[index].indent)
-            else:
-                value = {}
-            _add_mapping_value(mapping, key, value, line.number)
-            if index < len(lines) and lines[index].indent > indent:
-                child, index = _parse_mapping(lines, index, lines[index].indent)
-                for child_key, child_value in child.items():
-                    _add_mapping_value(mapping, child_key, child_value, lines[index - 1].number)
-            value = mapping
-        else:
-            value = _scalar(item, line.number)
-            if index < len(lines) and lines[index].indent > indent:
-                raise WorkflowParseError(f"line {lines[index].number}: unexpected indentation")
-        sequence.append(value)
-    return sequence, index
+    """The release workflow is not acceptable strict YAML."""
 
 
 def parse_release_workflow(workflow: str) -> dict[str, object]:
-    """Parse the workflow's supported YAML subset with structural safeguards.
+    """Parse the workflow with the real YAML parser (PyYAML), strictly.
 
-    This is intentionally not a general YAML parser: anchors, aliases, flow
-    collections, tags, and advanced scalar rules are unsupported. It does
-    support the block mappings/sequences and scalars used by release.yml.
+    Duplicate keys and malformed YAML are refused, so a workflow GitHub would
+    misparse cannot pass the structure checks below. The strict loader lives
+    in scripts/release-evidence.py; one real parser serves every consumer.
     """
-    lines = _tokens(workflow)
-    if not lines or lines[0].indent != 0:
-        raise WorkflowParseError("workflow must start with a top-level mapping")
-    document, index = _parse_mapping(lines, 0, 0)
-    if index != len(lines):
-        raise WorkflowParseError(f"line {lines[index].number}: unparsed workflow content")
+    release_evidence = load_release_evidence()
+    try:
+        document = release_evidence.strict_yaml_load(workflow)
+    except release_evidence.WorkflowYamlError as error:
+        raise WorkflowParseError(str(error)) from error
+    if not isinstance(document, dict):
+        raise WorkflowParseError("workflow must parse to a YAML mapping")
     return document
 
 
@@ -208,7 +90,14 @@ def assert_release_workflow_structure(workflow: str) -> None:
     jobs = document.get("jobs")
     if not isinstance(jobs, dict):
         raise AssertionError("workflow jobs mapping is missing")
-    expected_persist = {"prepare": False, "build-and-publish": True}
+    expected_conditions = {
+        "prepare": "${{ !cancelled() && needs.admit-verification.result == 'success' }}",
+        "build-and-publish": "${{ !cancelled() && needs.prepare.result == 'success' && needs.prepare.outputs.should_release == 'true' }}",
+    }
+    for job_name, expected_condition in expected_conditions.items():
+        job = jobs.get(job_name)
+        if not isinstance(job, dict) or job.get("if") != expected_condition:
+            raise AssertionError(f"{job_name} condition must be {expected_condition!r}")
     checkout_steps: list[tuple[str, dict[str, object]]] = []
     for job_name, job in jobs.items():
         if not isinstance(job, dict):
@@ -221,25 +110,28 @@ def assert_release_workflow_structure(workflow: str) -> None:
             for step in steps
             if isinstance(step, dict) and step.get("uses") == CHECKOUT_ACTION
         )
-    if len(checkout_steps) != 2:
-        raise AssertionError(f"expected exactly two pinned checkout steps, found {len(checkout_steps)}")
-    for job_name, expected_credentials in expected_persist.items():
+    expected_checkouts = PUBLICATION_CHECKOUTS | {
+        name: ADMISSION_CHECKOUT_INPUTS for name in ADMISSION_CHECKOUTS
+    }
+    expected_total = len(expected_checkouts)
+    if len(checkout_steps) != expected_total:
+        raise AssertionError(
+            f"expected exactly {expected_total} pinned checkout steps, found {len(checkout_steps)}"
+        )
+    for job_name, expected_inputs in expected_checkouts.items():
         matches = [step for name, step in checkout_steps if name == job_name]
         if len(matches) != 1:
             raise AssertionError(f"expected one pinned checkout step in {job_name}")
         with_mapping = matches[0].get("with")
         if not isinstance(with_mapping, dict):
             raise AssertionError(f"checkout step in {job_name} has no with mapping")
-        expected = {
-            "ref": HEAD_SHA_REF,
-            "fetch-depth": 0,
-            "fetch-tags": True,
-            "persist-credentials": expected_credentials,
-        }
-        for key, expected_value in expected.items():
-            actual = with_mapping.get(key)
-            if type(actual) is not type(expected_value) or actual != expected_value:
-                raise AssertionError(f"{job_name} checkout input {key} is incorrect")
+        if with_mapping.keys() != expected_inputs.keys() or any(
+            type(with_mapping[key]) is not type(value) or with_mapping[key] != value
+            for key, value in expected_inputs.items()
+        ):
+            raise AssertionError(
+                f"{job_name} checkout inputs {with_mapping!r} are not exactly {expected_inputs!r}"
+            )
 
 
 def replace_once(workflow: str, old: str, new: str) -> str:
@@ -431,6 +323,14 @@ class ReleaseTests(unittest.TestCase):
     def test_release_workflow_checkouts_have_mapping_aware_inputs(self) -> None:
         assert_release_workflow_structure(WORKFLOW_PATH.read_text(encoding="utf-8"))
 
+    def test_release_workflow_binds_packaging_to_the_push_sha(self) -> None:
+        """The build, tag, and error paths must all name the admitted push SHA."""
+        workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+        self.assertNotIn("workflow_run", workflow)
+        self.assertIn('test "$(git rev-parse HEAD)" = "${{ github.sha }}"', workflow)
+        self.assertIn('if [ "$tagged" != "${{ github.sha }}" ]; then', workflow)
+        self.assertIn('git tag --annotate "$VERSION" "${{ github.sha }}"', workflow)
+
     def test_release_workflow_never_names_an_adapter_file_it_copies(self) -> None:
         """The packing step reads ADAPTER_FILES; it must not restate the set.
 
@@ -500,6 +400,18 @@ class ReleaseTests(unittest.TestCase):
         mutated = replace_once(workflow, "          fetch-depth: 0\n", '          fetch-depth: "0"\n')
         with self.assertRaises(AssertionError):
             assert_release_workflow_structure(mutated)
+
+    def test_workflow_validator_preserves_exact_checkout_input_types(self) -> None:
+        workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+        for old, new in (
+            ("fetch-depth: 0", "fetch-depth: false"),
+            ("persist-credentials: false", "persist-credentials: 0"),
+            ("fetch-tags: true", "fetch-tags: 1"),
+            ("persist-credentials: true", "persist-credentials: 1"),
+        ):
+            with self.subTest(input=old):
+                with self.assertRaises(AssertionError):
+                    assert_release_workflow_structure(replace_once(workflow, old, new))
 
     def test_workflow_validator_rejects_wrong_checkout_action(self) -> None:
         workflow = WORKFLOW_PATH.read_text(encoding="utf-8")

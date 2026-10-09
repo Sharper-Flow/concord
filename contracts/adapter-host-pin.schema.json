@@ -84,7 +84,8 @@
         "noEmit",
         "skipLibCheck",
         "resolveJsonModule",
-        "forceConsistentCasingInFileNames"
+        "forceConsistentCasingInFileNames",
+        "allowJs"
       ],
       "properties": {
         "target": {
@@ -139,6 +140,10 @@
           "type": "boolean"
         },
         "forceConsistentCasingInFileNames": {
+          "type": "boolean"
+        },
+        "allowJs": {
+          "description": "Admits shipped JavaScript source modules and infers their JSDoc types for TypeScript consumers. JavaScript behavior remains covered by the adapter tests.",
           "type": "boolean"
         }
       }

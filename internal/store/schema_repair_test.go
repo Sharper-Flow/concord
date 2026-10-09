@@ -282,7 +282,10 @@ func TestManifestWithoutCompatibilityColumnReadsAsBreaking(t *testing.T) {
 		`SELECT COUNT(*) FROM schema_migrations WHERE breaking = 1`).Scan(&breaking); err != nil {
 		t.Fatalf("read the restored column: %v", err)
 	}
-	if breaking != CurrentSchemaVersion() {
-		t.Fatalf("restored rows breaking=%d, want all %d rows breaking", breaking, CurrentSchemaVersion())
+	// Every applied row must read breaking: the count is the number of
+	// migrations this binary defines, which stays correct when versions
+	// arrive out of order across branches.
+	if breaking != len(migrations) {
+		t.Fatalf("restored rows breaking=%d, want all %d rows breaking", breaking, len(migrations))
 	}
 }

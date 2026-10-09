@@ -156,7 +156,10 @@ const RESOLVED_SOURCES = {
 const SIGNAL = new AbortController().signal
 
 test("the oracle packet fixture passes the closed packet schema", () => {
-  expect(validateAgentLanePacket(oraclePacket())).toBe(true)
+  const failures: string[] = []
+  const valid = validateAgentLanePacket(oraclePacket(), failures)
+  expect(failures).toEqual([])
+  expect(valid).toBe(true)
 })
 
 test("an oracle packet passes readiness when every pinned source resolves as an exact Git object and path", async () => {

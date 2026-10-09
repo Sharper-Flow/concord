@@ -18,7 +18,15 @@ import (
 func joinPacketFor(t *testing.T, s *Store, workID, stepID, attemptID, laneID string, laneVersion int64, laneDigest string) map[string]any {
 	t.Helper()
 	task, binding := recordedPacketInputs(t, s, workID, laneID)
-	return map[string]any{
+	inputs := map[string]any{
+		"task":        task,
+		"binding":     binding,
+		"constraints": []string{"do-not-modify-product-truth"},
+	}
+	for member, value := range recordedPacketRecords(t, s, workID) {
+		inputs[member] = value
+	}
+	packet := map[string]any{
 		"schema_version": WorkerPacketSchemaVersion,
 		"attempt_id":     attemptID,
 		"lane_id":        laneID,
@@ -26,12 +34,9 @@ func joinPacketFor(t *testing.T, s *Store, workID, stepID, attemptID, laneID str
 		"lane_digest":    laneDigest,
 		"work_id":        workID,
 		"step_id":        stepID,
-		"inputs": map[string]any{
-			"task":        task,
-			"binding":     binding,
-			"constraints": []string{"do-not-modify-product-truth"},
-		},
+		"inputs":         inputs,
 	}
+	return packet
 }
 
 // implementLaneIdentity answers the registered implement lane's version and
@@ -450,8 +455,8 @@ func TestRepinReachesTheCheckpointReviewDefinition(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if current.Definition.Version != 22 {
-		t.Fatalf("current break-fix version = %d, want 22", current.Definition.Version)
+	if current.Definition.Version != 23 {
+		t.Fatalf("current break-fix version = %d, want 23", current.Definition.Version)
 	}
 	if err := s.Transact(context.Background(), func(transaction *Transaction) error {
 		return RepinWorkflowTx(context.Background(), transaction, WorkflowRepinRequest{WorkID: workID, EventID: workID + "-repin", Definition: current, Actor: fixture.owner, Now: time.Unix(50, 0).UTC()})

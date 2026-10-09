@@ -148,7 +148,7 @@
       "cli_verbs": [],
       "default_path_rules": null,
       "domain_id": "agent-surface",
-      "mapped_count": 391,
+      "mapped_count": 396,
       "name": "Agent surface",
       "owner_id": "domain:agent-surface",
       "path_rules": {
@@ -192,7 +192,7 @@
         ]
       },
       "purpose": "Owns the typed agent plane: the read and mutation tool surface, its budget and evolution constraints, call context, lanes and worker dispatch, the adapter transport contract, and the agent result envelope.",
-      "test_count": 250,
+      "test_count": 253,
       "test_packages": [
         "github.com/sharper-flow/concord/internal/agent",
         "github.com/sharper-flow/concord/internal/store"
@@ -246,6 +246,8 @@
         "adapter/opencode/testenv.test.ts",
         "adapter/opencode/turn-move-boundary.test.ts",
         "adapter/opencode/work-start-publication.test.ts",
+        "adapter/opencode/worker-report-protocol.test.ts",
+        "adapter/opencode/worker-report-selector.test.ts",
         "adapter/opencode/worker_evidence.test.ts",
         "adapter/opencode/worker_recovery.test.ts",
         "adapter/opencode/workflow-status-receipt-runtime-shape.test.ts",
@@ -444,12 +446,13 @@
         "internal/store/worker_oracle_subject_test.go",
         "internal/store/worker_oracle_test.go",
         "internal/store/worker_packet_binding_test.go",
+        "internal/store/worker_packet_records_test.go",
         "internal/store/worker_recovery_test.go",
         "internal/store/worker_review_block_test.go",
         "internal/store/worker_spawn_directory_test.go",
         "internal/store/worker_worktree_test.go"
       ],
-      "unresolved_candidate_count": 36,
+      "unresolved_candidate_count": 35,
       "unresolved_candidates": [
         "contracts/branch-freshness.digest",
         "contracts/branch-freshness.fixtures.json",
@@ -478,7 +481,6 @@
         "internal/store/session_vacate_test.go",
         "internal/store/worktree_occupancy_release_test.go",
         "internal/store/worktree_route_test.go",
-        "internal/store/worktrees_audit_reclaim_test.go",
         "internal/store/worktrees_claim_landing_record_test.go",
         "internal/store/worktrees_claim_landing_test.go",
         "internal/store/worktrees_destroy_test.go",
@@ -1204,7 +1206,7 @@
       "cli_verbs": [],
       "default_path_rules": null,
       "domain_id": "product-memory",
-      "mapped_count": 868,
+      "mapped_count": 871,
       "name": "Product memory and law",
       "owner_id": "domain:product-memory",
       "path_rules": {
@@ -1472,7 +1474,7 @@
         ]
       },
       "domain_id": "repository-verification",
-      "mapped_count": 183,
+      "mapped_count": 185,
       "name": "Repository verification",
       "owner_id": "domain:repository-verification",
       "path_rules": {
@@ -1514,7 +1516,7 @@
         ]
       },
       "purpose": "Owns the authority a repository check may hold: what a validator may assert, what it may block, how required checks bind to declared coverage, and the boundary between a check's finding and accepted Product law.",
-      "test_count": 80,
+      "test_count": 81,
       "test_packages": [
         "github.com/sharper-flow/concord/internal/gittest",
         "github.com/sharper-flow/concord/internal/pm1fixture",
@@ -1594,6 +1596,7 @@
         "scripts/test-project-tooling.py",
         "scripts/test-reachability.py",
         "scripts/test-relation-vocabulary.py",
+        "scripts/test-release-evidence.py",
         "scripts/test-release.py",
         "scripts/test-renumber-cd.py",
         "scripts/test-rigor-class.py",
@@ -1685,13 +1688,22 @@
       "cli_verbs": [],
       "default_path_rules": null,
       "domain_id": "work-coordination",
-      "mapped_count": 46,
+      "mapped_count": 55,
       "name": "Work coordination",
       "owner_id": "domain:work-coordination",
       "path_rules": {
         "domain_id": "work-coordination",
         "exclude": [],
         "include": [
+          "internal/store/worktrees.go",
+          "internal/store/worktrees_test.go",
+          "internal/store/worktrees_audit_reclaim_test.go",
+          "internal/store/worktrees_live_head_reclaim_test.go",
+          "internal/store/worktrees_native_admission_test.go",
+          "internal/store/worktrees_native_phase_matrix_test.go",
+          "internal/store/worktrees_ref_boundary_test.go",
+          "internal/store/worktrees_removal_plan_test.go",
+          "internal/store/worktrees_replay_determinism_test.go",
           "internal/linearclient/**",
           "internal/store/lifecycle.go",
           "internal/store/generated_work_kinds.go",
@@ -1718,7 +1730,7 @@
         ]
       },
       "purpose": "Owns the work item as an entity: its declared attributes and urgency, provenance, the typed relation vocabulary between work items, durable inter-agent resource claims, work-addressed peer messages, and non-authoritative mid-execution observations. It owns what a work item means and how work items refer to one another, not how work executes and not how it persists.",
-      "test_count": 26,
+      "test_count": 34,
       "test_packages": [
         "github.com/sharper-flow/concord/internal/linearclient",
         "github.com/sharper-flow/concord/internal/store"
@@ -1749,9 +1761,17 @@
         "internal/store/work_observation_pages_test.go",
         "internal/store/work_observations_test.go",
         "internal/store/work_removal_test.go",
-        "internal/store/work_removal_worker_attempt_test.go"
+        "internal/store/work_removal_worker_attempt_test.go",
+        "internal/store/worktrees_audit_reclaim_test.go",
+        "internal/store/worktrees_live_head_reclaim_test.go",
+        "internal/store/worktrees_native_admission_test.go",
+        "internal/store/worktrees_native_phase_matrix_test.go",
+        "internal/store/worktrees_ref_boundary_test.go",
+        "internal/store/worktrees_removal_plan_test.go",
+        "internal/store/worktrees_replay_determinism_test.go",
+        "internal/store/worktrees_test.go"
       ],
-      "unresolved_candidate_count": 78,
+      "unresolved_candidate_count": 77,
       "unresolved_candidates": [
         "contracts/branch-freshness.digest",
         "contracts/branch-freshness.fixtures.json",
@@ -1821,7 +1841,6 @@
         "internal/store/worktree_verify_evidence_test.go",
         "internal/store/worktree_verify_finalization_test.go",
         "internal/store/worktree_verify_lease_recovery_test.go",
-        "internal/store/worktrees_audit_reclaim_test.go",
         "internal/store/worktrees_claim_landing_record_test.go",
         "internal/store/worktrees_claim_landing_test.go",
         "internal/store/worktrees_destroy_test.go",
@@ -1902,7 +1921,7 @@
       "cli_verbs": [],
       "default_path_rules": null,
       "domain_id": "workflow-engine",
-      "mapped_count": 197,
+      "mapped_count": 195,
       "name": "Workflow engine",
       "owner_id": "domain:workflow-engine",
       "path_rules": {
@@ -1911,8 +1930,6 @@
           "internal/store/workflow_test_support_test.go"
         ],
         "include": [
-          "internal/store/worktrees_test.go",
-          "internal/store/worktrees.go",
           "internal/store/work_context_test.go",
           "internal/store/work_context_packet_test.go",
           "internal/store/work_context.go",
@@ -1942,7 +1959,7 @@
         ]
       },
       "purpose": "Owns work lifecycle: workflow types and their contracts, workflow actions and transitions, completion predicates and verdicts, evidence binding, architecture overlap resolution, and terminal-state law.",
-      "test_count": 142,
+      "test_count": 141,
       "test_packages": [
         "github.com/sharper-flow/concord/internal/payloadschema",
         "github.com/sharper-flow/concord/internal/store"
@@ -2088,8 +2105,7 @@
         "internal/store/workpin_evidence_recovery_test.go",
         "internal/store/workpin_obligations_test.go",
         "internal/store/workpin_terminal_intents_test.go",
-        "internal/store/workpin_test.go",
-        "internal/store/worktrees_test.go"
+        "internal/store/workpin_test.go"
       ],
       "unresolved_candidate_count": 10,
       "unresolved_candidates": [
@@ -2326,6 +2342,7 @@
     ".concord/docs/decisions/CD-0209-declared-recovery-routes-preserve-artifact-truth.md": "product-memory",
     ".concord/docs/decisions/CD-0210-outside-repair-route-narrows-CD-0183-D-4.md": "product-memory",
     ".concord/docs/decisions/CD-0211-defect-intake-classifies-recurrence-before-fix.md": "product-memory",
+    ".concord/docs/decisions/CD-0212-reclaim-gates-the-live-head-and-records-retained-refs.md": "product-memory",
     ".concord/docs/decisions/license-evidence/github.com/aymanbagabas/go-udiff/v0.4.1/LICENSE-BSD": "product-memory",
     ".concord/docs/decisions/license-evidence/github.com/aymanbagabas/go-udiff/v0.4.1/LICENSE-MIT": "product-memory",
     ".concord/docs/decisions/license-evidence/github.com/charmbracelet/x/exp/golden/v0.0.0-20250806222409-83e3a29d542f/LICENSE": "product-memory",
@@ -2540,6 +2557,7 @@
     ".concord/docs/knowledge/coverage/CD-0209.json": "product-memory",
     ".concord/docs/knowledge/coverage/CD-0210.json": "product-memory",
     ".concord/docs/knowledge/coverage/CD-0211.json": "product-memory",
+    ".concord/docs/knowledge/coverage/CD-0212.json": "product-memory",
     ".concord/docs/knowledge/coverage/PM1.json": "product-memory",
     ".concord/docs/knowledge/coverage/PM10.json": "product-memory",
     ".concord/docs/knowledge/coverage/PM2.json": "product-memory",
@@ -2796,6 +2814,7 @@
     ".concord/docs/knowledge/records/CD-0209.json": "product-memory",
     ".concord/docs/knowledge/records/CD-0210.json": "product-memory",
     ".concord/docs/knowledge/records/CD-0211.json": "product-memory",
+    ".concord/docs/knowledge/records/CD-0212.json": "product-memory",
     ".concord/docs/knowledge/records/PM1.json": "product-memory",
     ".concord/docs/knowledge/records/PM10.json": "product-memory",
     ".concord/docs/knowledge/records/PM2.json": "product-memory",
@@ -3066,6 +3085,9 @@
     "adapter/opencode/work-start-publication.test.ts": "agent-surface",
     "adapter/opencode/worker-cli-required-fields.json": "agent-surface",
     "adapter/opencode/worker-evidence-vector.json": "agent-surface",
+    "adapter/opencode/worker-report-protocol.js": "agent-surface",
+    "adapter/opencode/worker-report-protocol.test.ts": "agent-surface",
+    "adapter/opencode/worker-report-selector.test.ts": "agent-surface",
     "adapter/opencode/worker_evidence.test.ts": "agent-surface",
     "adapter/opencode/worker_recovery.test.ts": "agent-surface",
     "adapter/opencode/worker_recovery.ts": "agent-surface",
@@ -3726,6 +3748,8 @@
     "internal/store/worker_oracle_test.go": "agent-surface",
     "internal/store/worker_packet_binding.go": "agent-surface",
     "internal/store/worker_packet_binding_test.go": "agent-surface",
+    "internal/store/worker_packet_records.go": "agent-surface",
+    "internal/store/worker_packet_records_test.go": "agent-surface",
     "internal/store/worker_recovery.go": "agent-surface",
     "internal/store/worker_recovery_test.go": "agent-surface",
     "internal/store/worker_review_block_test.go": "agent-surface",
@@ -3884,8 +3908,15 @@
     "internal/store/workpin_obligations_test.go": "workflow-engine",
     "internal/store/workpin_terminal_intents_test.go": "workflow-engine",
     "internal/store/workpin_test.go": "workflow-engine",
-    "internal/store/worktrees.go": "workflow-engine",
-    "internal/store/worktrees_test.go": "workflow-engine",
+    "internal/store/worktrees.go": "work-coordination",
+    "internal/store/worktrees_audit_reclaim_test.go": "work-coordination",
+    "internal/store/worktrees_live_head_reclaim_test.go": "work-coordination",
+    "internal/store/worktrees_native_admission_test.go": "work-coordination",
+    "internal/store/worktrees_native_phase_matrix_test.go": "work-coordination",
+    "internal/store/worktrees_ref_boundary_test.go": "work-coordination",
+    "internal/store/worktrees_removal_plan_test.go": "work-coordination",
+    "internal/store/worktrees_replay_determinism_test.go": "work-coordination",
+    "internal/store/worktrees_test.go": "work-coordination",
     "internal/store/worktrees_tx_subprocess_test.go": "repository-verification",
     "internal/testenv/guard_test.go": "repository-verification",
     "internal/testenv/scrub_env_test.go": "repository-verification",
@@ -3961,6 +3992,7 @@
     "scripts/linear-issue-state/main.go": "repository-verification",
     "scripts/predecessor-harvest.py": "repository-verification",
     "scripts/probe-adapter-host-result.py": "repository-verification",
+    "scripts/release-evidence.py": "repository-verification",
     "scripts/release.py": "repository-verification",
     "scripts/renumber-cd.py": "repository-verification",
     "scripts/run-script-tests.py": "repository-verification",
@@ -4007,6 +4039,7 @@
     "scripts/test-project-tooling.py": "repository-verification",
     "scripts/test-reachability.py": "repository-verification",
     "scripts/test-relation-vocabulary.py": "repository-verification",
+    "scripts/test-release-evidence.py": "repository-verification",
     "scripts/test-release.py": "repository-verification",
     "scripts/test-renumber-cd.py": "repository-verification",
     "scripts/test-rigor-class.py": "repository-verification",
@@ -4025,7 +4058,7 @@
     "skills/README.md": "agent-surface",
     "workflows/README.md": "workflow-engine"
   },
-  "mapped_count": 1917,
+  "mapped_count": 1934,
   "schema_version": "1.0",
   "scope": "coarse file navigation, not law homes or semantic mechanism ownership",
   "test_coverage": {
@@ -4650,14 +4683,6 @@
         "work-coordination",
         "agent-surface"
       ],
-      "path": "internal/store/worktrees_audit_reclaim_test.go",
-      "reason": "Tests audit/reclaim through the mixed worktree/session lifecycle owner."
-    },
-    {
-      "candidate_domain_ids": [
-        "work-coordination",
-        "agent-surface"
-      ],
       "path": "internal/store/worktrees_claim_landing_record_test.go",
       "reason": "Tests claim/landing records through the mixed worktree/session owner."
     },
@@ -4726,5 +4751,5 @@
       "reason": "Tests reclamation preservation coupled to unpublished knowledge."
     }
   ],
-  "unresolved_count": 85
+  "unresolved_count": 84
 }

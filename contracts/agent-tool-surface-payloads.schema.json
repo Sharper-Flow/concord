@@ -2820,6 +2820,15 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 1024
+        },
+        "criteria": {
+          "description": "The law's acceptance criteria bound to the reading work item's own outcome predicates (CD-0180). Present only when at least one criterion binds this work item.",
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 128,
+          "items": {
+            "$ref": "#/$defs/workflow_law_context_criterion"
+          }
         }
       }
     },
@@ -8312,7 +8321,8 @@
                   "unstarted_present",
                   "uncommitted_content",
                   "unpushed_content",
-                  "unpublished_lesson"
+                  "unpublished_lesson",
+                  "retained_ref"
                 ]
               },
               "project_id": {
@@ -8329,7 +8339,8 @@
               "claim_state": {
                 "type": "string",
                 "enum": [
-                  "verified"
+                  "verified",
+                  "reclaimed"
                 ]
               },
               "lifecycle": {
@@ -8360,6 +8371,26 @@
               "claim_age_seconds": {
                 "type": "integer",
                 "minimum": 0
+              },
+              "head_branch": {
+                "description": "CD-0212 D1: the live branch the row's one immutable live-HEAD observation read. Empty when the live HEAD is detached; differs from the claim when the checkout drifted. An observed live ref carries no upper bound the claim surface owns, because a reftable-backed repository admits identities no loose pathname could hold.",
+                "type": "string",
+                "minLength": 1
+              },
+              "head_detached": {
+                "description": "CD-0212 D1: the live-HEAD observation read a detached HEAD rather than a branch checkout.",
+                "type": "boolean"
+              },
+              "retained_branch": {
+                "description": "CD-0212 D3: one branch ref a completed reclamation retained. The ref survived the reclaim with its branch, tip, and reason recorded in the reclamation facts; the operator decides its disposal. A retained live ref carries no upper bound the claim surface owns, so the full retained identity reports without truncation.",
+                "type": "string",
+                "minLength": 1
+              },
+              "retained_tip": {
+                "description": "CD-0212 D3: the tip the reclamation observed when it retained the ref named by retained_branch.",
+                "type": "string",
+                "minLength": 40,
+                "maxLength": 64
               }
             }
           }
@@ -9668,10 +9699,6 @@
         "inputs": {
           "type": "object",
           "additionalProperties": false,
-          "required": [
-            "task",
-            "binding"
-          ],
           "properties": {
             "task": {
               "type": "string",
@@ -9681,13 +9708,34 @@
             "binding": {
               "$ref": "#/$defs/worker_packet_binding"
             },
+            "report_protocol": {
+              "type": "string",
+              "const": "concord-worker-result-v1",
+              "description": "Dispatch-owned final-report framing, covered by the authorized packet digest. New builders pin this protocol; absence identifies historical legacy output. This is not report schema or worker identity."
+            },
             "worker_job": {
               "$ref": "#/$defs/worker_packet_worker_job"
             },
             "context": {
               "type": "string",
               "minLength": 0,
-              "maxLength": 16384
+              "maxLength": 16384,
+              "description": "Prose context a packet built before the typed record members carried. The lane-packet schema keeps it so a retained packet from an attempt dispatched before that change still validates on recovery. The core dispatch admission refuses it, so no new packet carries it."
+            },
+            "law_context": {
+              "$ref": "#/$defs/workflow_law_context",
+              "description": "The approved contract's binding law and Domains the pinned continuity resolved. The core refuses a dispatch whose packet member differs from the current recorded state, omits a present record, or carries a member no record backs."
+            },
+            "design_record": {
+              "$ref": "#/$defs/workflow_design_record",
+              "description": "The current typed design record (CD-0128). The core refuses a dispatch whose packet member differs from the current recorded state, omits a present record, or carries a member no record backs."
+            },
+            "proposal_record": {
+              "$ref": "#/$defs/workflow_proposal_record",
+              "description": "The recorded proposal's problem, user outcomes, and constraints. The core refuses a dispatch whose packet member differs from the current recorded state, omits a present record, or carries a member no record backs."
+            },
+            "work_record": {
+              "$ref": "#/$defs/worker_packet_work_record"
             },
             "correction": {
               "$ref": "#/$defs/workflow_correction_context"
@@ -9713,7 +9761,11 @@
             "outcome_predicates": {
               "$ref": "#/$defs/worker_packet_outcome_predicates"
             }
-          }
+          },
+          "required": [
+            "task",
+            "binding"
+          ]
         }
       },
       "allOf": [
@@ -10126,6 +10178,36 @@
                 "type": "string",
                 "minLength": 1,
                 "maxLength": 512
+              },
+              "retained_refs": {
+                "description": "CD-0212 D3: branch refs the reclamation proved it must not delete and retained instead, visible after directory removal.",
+                "type": "array",
+                "maxItems": 16,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "branch",
+                    "reason"
+                  ],
+                  "properties": {
+                    "branch": {
+                      "description": "CD-0212 D3: a retained ref carries no upper bound the claim surface owns, so a valid long live branch retained by the reclamation reports its full identity.",
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "tip": {
+                      "type": "string",
+                      "minLength": 40,
+                      "maxLength": 64
+                    },
+                    "reason": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 256
+                    }
+                  }
+                }
               }
             }
           }
@@ -10153,7 +10235,8 @@
                   "unstarted_present",
                   "uncommitted_content",
                   "unpushed_content",
-                  "unpublished_lesson"
+                  "unpublished_lesson",
+                  "retained_ref"
                 ]
               },
               "project_id": {
@@ -10170,7 +10253,8 @@
               "claim_state": {
                 "type": "string",
                 "enum": [
-                  "verified"
+                  "verified",
+                  "reclaimed"
                 ]
               },
               "lifecycle": {
@@ -10201,6 +10285,26 @@
               "claim_age_seconds": {
                 "type": "integer",
                 "minimum": 0
+              },
+              "head_branch": {
+                "description": "CD-0212 D1: the live branch the row's one immutable live-HEAD observation read. Empty when the live HEAD is detached; differs from the claim when the checkout drifted. An observed live ref carries no upper bound the claim surface owns, because a reftable-backed repository admits identities no loose pathname could hold.",
+                "type": "string",
+                "minLength": 1
+              },
+              "head_detached": {
+                "description": "CD-0212 D1: the live-HEAD observation read a detached HEAD rather than a branch checkout.",
+                "type": "boolean"
+              },
+              "retained_branch": {
+                "description": "CD-0212 D3: one branch ref a completed reclamation retained. The ref survived the reclaim with its branch, tip, and reason recorded in the reclamation facts; the operator decides its disposal. A retained live ref carries no upper bound the claim surface owns, so the full retained identity reports without truncation.",
+                "type": "string",
+                "minLength": 1
+              },
+              "retained_tip": {
+                "description": "CD-0212 D3: the tip the reclamation observed when it retained the ref named by retained_branch.",
+                "type": "string",
+                "minLength": 40,
+                "maxLength": 64
               }
             }
           }
@@ -21652,6 +21756,49 @@
           }
         }
       ]
+    },
+    "workflow_law_context_criterion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "criterion",
+        "predicate_id"
+      ],
+      "properties": {
+        "criterion": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
+        },
+        "predicate_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        }
+      }
+    },
+    "worker_packet_work_record": {
+      "description": "The work item's recorded value statement, task, and narrative, each verbatim and present exactly when the recorded text is not blank. The core refuses a dispatch whose packet member differs from the recorded work item.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [],
+      "properties": {
+        "value_statement": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "task": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8192
+        },
+        "narrative": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16384
+        }
+      }
     }
   }
 }

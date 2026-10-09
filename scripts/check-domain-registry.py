@@ -55,15 +55,15 @@ def report(findings: list[str], subject: str, blocking: list[str] | None = None)
     return 0
 
 
-def validate(root: Path, *, base_ref: str = "HEAD") -> tuple[list[str], list[str]]:
+def validate(root: Path, *, base_ref: str = "HEAD") -> tuple[list[str], list[str], list[str]]:
     findings: list[str] = []
     try:
         manifest = knowledge_index.compose_manifest(root)
     except knowledge_index.ComposeError as exc:
-        return list(exc.findings), []
+        return list(exc.findings), [], []
     registry = manifest.get("domain_registry")
     if not isinstance(registry, dict):
-        return [".concord/docs/knowledge: no domain_registry"], []
+        return [".concord/docs/knowledge: no domain_registry"], [], []
 
     root_id = registry.get("root_domain_id")
     domains = registry.get("domains", [])
@@ -146,8 +146,9 @@ def validate(root: Path, *, base_ref: str = "HEAD") -> tuple[list[str], list[str
             if domain_id not in participating
         )
 
-    findings.extend(domain_navigation.validate_companion(root, registry, base_ref=base_ref))
-    return findings, participation_findings
+    navigation_findings, navigation_advisories = domain_navigation.validate_companion(root, registry, base_ref=base_ref)
+    findings.extend(navigation_findings)
+    return findings, participation_findings, navigation_advisories
 
 
 def main() -> int:
@@ -157,8 +158,8 @@ def main() -> int:
     parser.add_argument("--base-ref", default="HEAD", help="Git revision for the optional navigation companion's unresolved-path ratchet")
     args = parser.parse_args()
 
-    findings, participation_findings = validate(args.root.resolve(), base_ref=args.base_ref)
-    all_findings = findings + participation_findings
+    findings, participation_findings, navigation_advisories = validate(args.root.resolve(), base_ref=args.base_ref)
+    all_findings = findings + participation_findings + navigation_advisories
     blocking = findings + (participation_findings if args.strict else [])
     return report(all_findings, "domain registry", blocking)
 

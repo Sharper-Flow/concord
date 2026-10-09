@@ -11,7 +11,7 @@ Mapped files: 194; tests: 140; unresolved candidates: 10.
 Candidate counts overlap when a file has several candidates; no candidate is an assigned owner.
 
 ## Code and tests
-Full paths, unresolved reasons, shared-test coverage, and source fingerprints: `.concord/navigation/inventory.json`.
+Full paths, unresolved reasons, and shared-test coverage: `.concord/navigation/inventory.json`.
 - Include: `internal/store/work_context_test.go`, `internal/store/work_context_packet_test.go`, `internal/store/work_context.go`, `internal/workflowcorpus/**`, `internal/payloadschema/**`
 - Include: `internal/store/workflow*.go`, `internal/store/outside_repair.go`, `internal/store/outside_repair_test.go`, `internal/store/outside_repair_base_test.go`, `internal/store/outside_repair_review_test.go`
 - Include: `internal/store/fence*.go`, `internal/store/workpin*.go`, `internal/store/await_health*.go`, `internal/store/checkpoint*_test.go`, `contracts/workflow-*`
@@ -41,6 +41,3 @@ Run the narrow selected command with `bin/oc-test targeted -- <command> [args...
 Invariant/control joins, allowed-dependency interpretation, observed import/call edges,
 non-law navigation homes, CON-887 packet reading, and CON-890 owner oracles remain later work.
 Required-reading entries will be pinned references, not inlined card content.
-
-Navigation source fingerprint: `sha256:77a169488e5f7eebdbc99679759854259f0b511f4d1500d1d3a9205e0f95d584`.
-Other fingerprints and the exact file universe are in the generated inventory.

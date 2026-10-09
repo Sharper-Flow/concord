@@ -11,7 +11,7 @@ Mapped files: 65; tests: 42; unresolved candidates: 5.
 Candidate counts overlap when a file has several candidates; no candidate is an assigned owner.
 
 ## Code and tests
-Full paths, unresolved reasons, shared-test coverage, and source fingerprints: `.concord/navigation/inventory.json`.
+Full paths, unresolved reasons, and shared-test coverage: `.concord/navigation/inventory.json`.
 - Include: `internal/hostlease/**`, `internal/store/store.go`, `internal/store/schema.go`, `internal/store/events.go`, `internal/store/operation.go`
 - Include: `internal/store/transaction.go`, `internal/store/durable*.go`, `internal/store/generated_durable_tier_budget.go`, `internal/store/fold.go`, `internal/store/recovery.go`
 - Include: `internal/store/errors.go`, `internal/store/queryer.go`, `internal/store/reconstruction.go`, `internal/store/binary_compatibility*.go`, `internal/store/readiness*.go`
@@ -20,6 +20,9 @@ Full paths, unresolved reasons, shared-test coverage, and source fingerprints: `
 - Include: `internal/store/constraint_classification_test.go`, `internal/store/contention_budget*_test.go`, `internal/store/events*_test.go`, `internal/store/errors_effect_test.go`, `internal/store/version_conflict*_test.go`
 - Include: `internal/store/clock_test.go`, `internal/store/nil_store_test.go`, `internal/store/read_neighbor_test.go`, `internal/store/rebuild_clear_list_test.go`, `internal/store/rebuild_msg_test.go`
 - Include: `internal/store/operation_test.go`, `internal/store/schema_test.go`, `internal/store/store_test.go`, `contracts/durable-tier-budget.schema.json`, `contracts/storage-vocabulary-authority*`
+Explicit rules win over directory defaults; named legacy gaps remain unresolved.
+- Default include: `internal/store/**`
+- Default exclude: `internal/store/**/*_test.go`
 - Go test package: `github.com/sharper-flow/concord/internal/hostlease`
 - Go test package: `github.com/sharper-flow/concord/internal/store`
 
@@ -42,6 +45,3 @@ Run the narrow selected command with `bin/oc-test targeted -- <command> [args...
 Invariant/control joins, allowed-dependency interpretation, observed import/call edges,
 non-law navigation homes, CON-887 packet reading, and CON-890 owner oracles remain later work.
 Required-reading entries will be pinned references, not inlined card content.
-
-Navigation source fingerprint: `sha256:77a169488e5f7eebdbc99679759854259f0b511f4d1500d1d3a9205e0f95d584`.
-Other fingerprints and the exact file universe are in the generated inventory.

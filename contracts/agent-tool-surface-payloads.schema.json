@@ -626,6 +626,40 @@
     "work_pin": {
       "type": "object",
       "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "required": ["outside_repair_disposition"],
+            "properties": {
+              "outside_repair_disposition": {
+                "required": ["state"],
+                "properties": {
+                  "state": {"type": "string", "enum": ["active", "completed"]}
+                }
+              }
+            }
+          },
+          "then": {
+            "description": "CD-0210: an active or completed outside-repair disposition grants no managed pin authority. The pin suppresses managed action prompts and carries a typed absence of the verified workflow-definition identity: the version, digest, and obligations keys are omitted, never zero-filled or fabricated, because the hold reads raw instance identity only.",
+            "properties": {"next_valid_intents": {"type": "array", "maxItems": 0}},
+            "not": {
+              "anyOf": [
+                {"required": ["workflow_definition_version"]},
+                {"required": ["workflow_definition_digest"]},
+                {"required": ["obligations"]}
+              ]
+            }
+          },
+          "else": {
+            "description": "CD-0210: an ordinary or resumed pin runs the managed instance read, so the workflow identity stays strict and the registry-verified definition identity — version, digest, and the declared obligation set — is required in full.",
+            "properties": {
+              "workflow_type": {"$ref": "#/$defs/id"},
+              "step": {"$ref": "#/$defs/short"}
+            },
+            "required": ["workflow_definition_version", "workflow_definition_digest", "obligations"]
+          }
+        }
+      ],
       "required": [
         "work_id",
         "title",
@@ -641,10 +675,7 @@
         "pending_operator_decision",
         "driving_sessions",
         "watermark",
-        "next_valid_intents",
-        "workflow_definition_version",
-        "workflow_definition_digest",
-        "obligations"
+        "next_valid_intents"
       ],
       "properties": {
         "work_id": {
@@ -675,7 +706,8 @@
           "description": "All-time count of work items in this item's primary Project that have lifecycle completed while their workflow instance is cancelled (the CD-0183 D4 repair route)."
         },
         "workflow_type": {
-          "$ref": "#/$defs/id"
+          "type": "string",
+          "maxLength": 128
         },
         "self_repair": {
           "oneOf": [
@@ -688,7 +720,8 @@
           ]
         },
         "step": {
-          "$ref": "#/$defs/short"
+          "type": "string",
+          "maxLength": 256
         },
         "attempt": {
           "oneOf": [
@@ -817,6 +850,21 @@
           "uniqueItems": true,
           "items": {
             "$ref": "#/$defs/work_pin_verified_criterion"
+          }
+        },
+        "outside_repair_disposition": {
+          "$ref": "#/$defs/outside_repair_disposition"
+        },
+        "outside_repair_route": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "description": "The declared outside-repair reconciliation operation, with completed and resume modes (CD-0210).",
+          "items": {
+            "type": "string",
+            "enum": [
+              "outside_repair_reconcile"
+            ]
           }
         }
       }
@@ -3292,14 +3340,6 @@
               "description": "The work's newest unconsumed Project-session handoff (CD-0182 amendment): the bounded repository job a receiving session must consume through project_handoff_consume before managed execution. Absent when no handoff stands unconsumed on the work.",
               "$ref": "#/$defs/continuity_pending_project_handoff"
             },
-            "ready_worker_jobs": {
-              "description": "CD-0205: the work's dispatch-ready worker-job revisions in the exact inputs.worker_job packet shape, so a dispatcher selects one by job_id and binds its recorded content verbatim. Readiness is the one predicate dispatch admission applies. Absent when no revision is ready.",
-              "type": "array",
-              "maxItems": 256,
-              "items": {
-                "$ref": "#/$defs/worker_packet_worker_job"
-              }
-            },
             "active_verify_leases": {
               "description": "CD-0096 D5: the reading session's held verify leases, newest first, bounded. Absent when the session named no identity or holds none.",
               "type": "array",
@@ -3315,6 +3355,14 @@
             "work_context": {
               "$ref": "#/$defs/work_context_view",
               "description": "CON-887: the current work-context view the tx-scoped reader assembles. Absent when the work holds no declaration and no terminal-report findings; a view past its bounds leaves this absent and the dedicated context read owns the refusal."
+            },
+            "ready_worker_jobs": {
+              "description": "CD-0205: the work's dispatch-ready worker-job revisions in the exact inputs.worker_job packet shape, so a dispatcher selects one by job_id and binds its recorded content verbatim. Readiness is the one predicate dispatch admission applies. Absent when no revision is ready.",
+              "type": "array",
+              "maxItems": 256,
+              "items": {
+                "$ref": "#/$defs/worker_packet_worker_job"
+              }
             }
           }
         },
@@ -9420,136 +9468,6 @@
         }
       ]
     },
-    "worker_packet_worker_job": {
-      "type": "object",
-      "additionalProperties": false,
-      "description": "The selected ready worker-job revision this attempt executes (CD-0205). The core refuses a packet whose worker_job is not a ready recorded revision with this exact content, and refuses the member on a pinned definition that predates worker jobs. inputs.task stays the complete parent contract premise; this object bounds the attempt's own objective.",
-      "required": [
-        "job_id",
-        "revision",
-        "digest",
-        "objective",
-        "stopping_condition",
-        "project_scope",
-        "path_scope",
-        "predicate_ids",
-        "checks",
-        "prerequisites",
-        "unresolved_refs",
-        "reserved_integration"
-      ],
-      "properties": {
-        "job_id": {
-          "type": "string",
-          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{1,127}$",
-          "minLength": 2,
-          "maxLength": 128
-        },
-        "revision": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 2147483647
-        },
-        "digest": {
-          "type": "string",
-          "pattern": "^sha256:[0-9a-f]{64}$",
-          "minLength": 71,
-          "maxLength": 71
-        },
-        "objective": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 4096
-        },
-        "stopping_condition": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 2048
-        },
-        "project_scope": {
-          "type": "string",
-          "maxLength": 128,
-          "minLength": 0
-        },
-        "path_scope": {
-          "type": "array",
-          "maxItems": 64,
-          "items": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 512
-          },
-          "minItems": 0
-        },
-        "predicate_ids": {
-          "type": "array",
-          "maxItems": 8,
-          "items": {
-            "type": "string",
-            "pattern": "^predicate:[A-Za-z0-9][A-Za-z0-9._:-]*$",
-            "minLength": 11,
-            "maxLength": 128
-          },
-          "minItems": 0
-        },
-        "checks": {
-          "type": "array",
-          "maxItems": 64,
-          "items": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 256
-          },
-          "minItems": 0
-        },
-        "prerequisites": {
-          "type": "array",
-          "maxItems": 64,
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "job_id",
-              "revision"
-            ],
-            "properties": {
-              "job_id": {
-                "type": "string",
-                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{1,127}$",
-                "minLength": 2,
-                "maxLength": 128
-              },
-              "revision": {
-                "type": "integer",
-                "minimum": 1,
-                "maximum": 2147483647
-              },
-              "result_ref": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 512
-              }
-            }
-          },
-          "minItems": 0
-        },
-        "unresolved_refs": {
-          "type": "array",
-          "maxItems": 64,
-          "items": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 512
-          },
-          "minItems": 0
-        },
-        "reserved_integration": {
-          "type": "string",
-          "maxLength": 4096,
-          "minLength": 0
-        }
-      }
-    },
     "work_transition_worktree_destroy_input": {
       "type": "object",
       "additionalProperties": false,
@@ -11088,7 +11006,8 @@
             "timeout",
             "transport_failure",
             "malformed_response",
-            "internal_error"
+            "internal_error",
+            "outside_repair_active"
           ]
         },
         "blocked_operation": {
@@ -12048,6 +11967,460 @@
             "minLength": 1,
             "maxLength": 512
           }
+        }
+      }
+    },
+    "outside_repair_release_tag": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9._-]+$",
+      "description": "Bounded caller selector for the published release the outside repair closes against."
+    },
+    "outside_repair_pr_selectors": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 32,
+      "uniqueItems": true,
+      "items": {
+        "type": "integer",
+        "minimum": 1
+      },
+      "description": "Bounded caller selectors for the merged pull requests the outside repair closes from."
+    },
+    "outside_repair_git_sha": {
+      "type": "string",
+      "minLength": 40,
+      "maxLength": 64,
+      "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$"
+    },
+    "outside_repair_required_check": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "One required check the boundary authenticated on the immutable PR head, carrying its exact native check-run, workflow-run and job identities (CD-0210 D2) so distinct checks in one run stay distinguishable and a rerun cannot rewrite the receipt.",
+      "required": [
+        "name",
+        "url",
+        "commit_sha",
+        "conclusion",
+        "check_run_id",
+        "run_id",
+        "job_id"
+      ],
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/short"
+        },
+        "url": {
+          "type": "string",
+          "minLength": 14,
+          "maxLength": 1024
+        },
+        "commit_sha": {
+          "$ref": "#/$defs/outside_repair_git_sha"
+        },
+        "conclusion": {
+          "type": "string",
+          "const": "success"
+        },
+        "check_run_id": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The native GitHub check-run identity that reported this required check."
+        },
+        "run_id": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The native Actions workflow-run identity whose URL the receipt names."
+        },
+        "job_id": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The native Actions job identity that proved this check on the fetched run."
+        }
+      }
+    },
+    "outside_repair_pull_request_evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "url",
+        "number",
+        "head_sha",
+        "merge_sha",
+        "merged_at",
+        "required_checks"
+      ],
+      "properties": {
+        "url": {
+          "type": "string",
+          "minLength": 20,
+          "maxLength": 512
+        },
+        "number": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "head_sha": {
+          "$ref": "#/$defs/outside_repair_git_sha"
+        },
+        "merge_sha": {
+          "$ref": "#/$defs/outside_repair_git_sha"
+        },
+        "merged_at": {
+          "type": "string",
+          "format": "date-time",
+          "minLength": 20,
+          "maxLength": 64
+        },
+        "required_checks": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/outside_repair_required_check"
+          }
+        }
+      }
+    },
+    "outside_repair_evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "authority_ref",
+        "observed_at",
+        "repository",
+        "pull_requests",
+        "release_tag",
+        "release_url",
+        "release_sha",
+        "published_at"
+      ],
+      "properties": {
+        "authority_ref": {
+          "$ref": "#/$defs/id"
+        },
+        "observed_at": {
+          "type": "string",
+          "format": "date-time",
+          "minLength": 20,
+          "maxLength": 64
+        },
+        "repository": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 256,
+          "pattern": "^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$"
+        },
+        "pull_requests": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/outside_repair_pull_request_evidence"
+          }
+        },
+        "release_tag": {
+          "$ref": "#/$defs/outside_repair_release_tag"
+        },
+        "release_url": {
+          "type": "string",
+          "minLength": 24,
+          "maxLength": 768
+        },
+        "release_sha": {
+          "$ref": "#/$defs/outside_repair_git_sha"
+        },
+        "published_at": {
+          "type": "string",
+          "format": "date-time",
+          "minLength": 20,
+          "maxLength": 64
+        }
+      }
+    },
+    "outside_repair_disposition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "work_id",
+        "reason",
+        "approval_ref",
+        "state",
+        "recorded_at"
+      ],
+      "properties": {
+        "work_id": {
+          "$ref": "#/$defs/id"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 4096
+        },
+        "approval_ref": {
+          "$ref": "#/$defs/id"
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "active",
+            "completed",
+            "resumed"
+          ]
+        },
+        "recorded_at": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "evidence": {
+          "$ref": "#/$defs/outside_repair_evidence"
+        }
+      }
+    },
+    "work_transition_outside_repair_input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "work_id",
+        "expected_version",
+        "reason",
+        "idempotency_key"
+      ],
+      "properties": {
+        "work_id": {
+          "$ref": "#/$defs/id"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 4096
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        }
+      }
+    },
+    "work_transition_outside_repair_reconcile_input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "work_id",
+        "expected_version",
+        "reason",
+        "mode",
+        "idempotency_key"
+      ],
+      "properties": {
+        "work_id": {
+          "$ref": "#/$defs/id"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 4096
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "completed",
+            "resume"
+          ]
+        },
+        "release_tag": {
+          "$ref": "#/$defs/outside_repair_release_tag"
+        },
+        "pull_requests": {
+          "$ref": "#/$defs/outside_repair_pr_selectors"
+        }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "mode": {
+              "const": "completed"
+            }
+          },
+          "required": [
+            "release_tag",
+            "pull_requests"
+          ],
+          "description": "A completed reconcile closes the held work from boundary-authenticated GitHub evidence bound to the selected pull requests and published release."
+        },
+        {
+          "properties": {
+            "mode": {
+              "const": "resume"
+            }
+          },
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "release_tag"
+                ]
+              },
+              {
+                "required": [
+                  "pull_requests"
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "worker_packet_worker_job": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "The selected ready worker-job revision this attempt executes (CD-0205). The core refuses a packet whose worker_job is not a ready recorded revision with this exact content, and refuses the member on a pinned definition that predates worker jobs. inputs.task stays the complete parent contract premise; this object bounds the attempt's own objective.",
+      "required": [
+        "job_id",
+        "revision",
+        "digest",
+        "objective",
+        "stopping_condition",
+        "project_scope",
+        "path_scope",
+        "predicate_ids",
+        "checks",
+        "prerequisites",
+        "unresolved_refs",
+        "reserved_integration"
+      ],
+      "properties": {
+        "job_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{1,127}$",
+          "minLength": 2,
+          "maxLength": 128
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "minLength": 71,
+          "maxLength": 71
+        },
+        "objective": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "stopping_condition": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "project_scope": {
+          "type": "string",
+          "maxLength": 128,
+          "minLength": 0
+        },
+        "path_scope": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          },
+          "minItems": 0
+        },
+        "predicate_ids": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "type": "string",
+            "pattern": "^predicate:[A-Za-z0-9][A-Za-z0-9._:-]*$",
+            "minLength": 11,
+            "maxLength": 128
+          },
+          "minItems": 0
+        },
+        "checks": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "minItems": 0
+        },
+        "prerequisites": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "job_id",
+              "revision"
+            ],
+            "properties": {
+              "job_id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{1,127}$",
+                "minLength": 2,
+                "maxLength": 128
+              },
+              "revision": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 2147483647
+              },
+              "result_ref": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512
+              }
+            }
+          },
+          "minItems": 0
+        },
+        "unresolved_refs": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          },
+          "minItems": 0
+        },
+        "reserved_integration": {
+          "type": "string",
+          "maxLength": 4096,
+          "minLength": 0
         }
       }
     },

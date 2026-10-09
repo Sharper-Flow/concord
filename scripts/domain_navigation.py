@@ -2,16 +2,16 @@
 
 Rules are case-sensitive POSIX segments. * and ? match within one segment;
 ** as a whole segment matches zero or more segments, including hidden paths.
-Includes form a union per Domain, then excludes subtract. Domains have no
-precedence. The universe is tracked and non-ignored untracked regular files,
-plus the generator's declared outputs. A missing companion is an opt-out.
+Includes form a union per Domain, then excludes subtract. Explicit rules precede
+directory defaults; Domains within a tier have no precedence. Named legacy gaps
+remain unresolved. The universe is tracked and non-ignored untracked regular
+files, plus declared outputs. A missing companion is an opt-out.
 """
 
 from __future__ import annotations
 
 from fnmatch import fnmatchcase
 from functools import lru_cache
-import hashlib
 import json
 from pathlib import Path
 import re
@@ -113,10 +113,54 @@ def strings(value, subject):
     return value
 
 
+def rule_set(root: Path, items: list, domains: set[str], files: set[str], root_id: str, *, defaults: bool = False) -> dict:
+    if not isinstance(items, list):
+        raise NavigationError("navigation rules must be an array")
+    rules = {}
+    for rule in items:
+        closed(rule, ("domain_id", "include", "exclude"), "navigation rule")
+        domain = rule["domain_id"]
+        if not isinstance(domain, str) or domain not in domains or domain in rules:
+            raise NavigationError(f"unknown or duplicate navigation Domain: {domain!r}")
+        for field in ("include", "exclude"):
+            for pattern in strings(rule[field], f"{domain}.{field}"):
+                selector(pattern, pattern=True)
+                if defaults:
+                    parts = pattern.split("/")
+                    fixed = []
+                    for segment in parts:
+                        if "*" in segment or "?" in segment:
+                            break
+                        fixed.append(segment)
+                    if len(fixed) == len(parts):
+                        fixed.pop()
+                    if not fixed or not (root / "/".join(fixed)).is_dir():
+                        raise NavigationError(f"directory default must name an existing directory: {pattern}")
+                elif not any(matches(p, pattern) for p in files):
+                    raise NavigationError(f"dead navigation rule: {domain}: {pattern}")
+        if domain == root_id and any(p in ("*", "**", "**/*") for p in rule["include"]):
+            raise NavigationError("the root Domain is not a file catch-all")
+        rules[domain] = rule
+    return rules
+
+
+def assigned_domains(path: str, rules: dict) -> list[str]:
+    return [domain for domain, rule in rules.items()
+            if any(matches(path, p) for p in rule["include"])
+            and not any(matches(path, p) for p in rule["exclude"])]
+
+
+def mapping_remediation(path: str) -> str:
+    return f"{path}; navmap-style remediation: add an explicit rule or directory default in {COMPANION}"
+
+
 def partition(root: Path, registry: dict, *, base_ref: str = "HEAD") -> dict:
     base_ref = git(root, "rev-parse", "--verify", "--end-of-options", f"{base_ref}^{{commit}}").decode().strip()
     navigation = read_json(root, COMPANION)
-    closed(navigation, ("schema_version", "rules", "unresolved", "test_coverage"), COMPANION)
+    fields = ("schema_version", "rules", "unresolved", "test_coverage")
+    if "default_rules" in navigation:
+        fields += ("default_rules",)
+    closed(navigation, fields, COMPANION)
     if navigation["schema_version"] != "1.0":
         raise NavigationError("navigation schema_version must be 1.0")
     for field in ("rules", "unresolved", "test_coverage"):
@@ -129,20 +173,8 @@ def partition(root: Path, registry: dict, *, base_ref: str = "HEAD") -> dict:
         target = root / path
         if target.is_symlink() or not target.resolve().is_relative_to(root.resolve()):
             raise NavigationError(f"navigation source escapes or is a symlink: {path}")
-    rules = {}
-    for rule in navigation["rules"]:
-        closed(rule, ("domain_id", "include", "exclude"), "navigation rule")
-        domain = rule["domain_id"]
-        if not isinstance(domain, str) or domain not in domains or domain in rules:
-            raise NavigationError(f"unknown or duplicate navigation Domain: {domain!r}")
-        for field in ("include", "exclude"):
-            for pattern in strings(rule[field], f"{domain}.{field}"):
-                selector(pattern, pattern=True)
-                if not any(matches(p, pattern) for p in files):
-                    raise NavigationError(f"dead navigation rule: {domain}: {pattern}")
-        if domain == registry["root_domain_id"] and any(p in ("*", "**", "**/*") for p in rule["include"]):
-            raise NavigationError("the root Domain is not a file catch-all")
-        rules[domain] = rule
+    rules = rule_set(root, navigation["rules"], domains, files, registry["root_domain_id"])
+    defaults = rule_set(root, navigation.get("default_rules", []), domains, files, registry["root_domain_id"], defaults=True)
     if set(rules) != domains:
         raise NavigationError("navigation rules must name every current Domain exactly once")
     unresolved = {}
@@ -159,13 +191,15 @@ def partition(root: Path, registry: dict, *, base_ref: str = "HEAD") -> dict:
         unresolved[path] = item
     owners = {}
     for path in sorted(files):
-        assigned = [domain for domain, rule in rules.items()
-                    if any(matches(path, p) for p in rule["include"])
-                    and not any(matches(path, p) for p in rule["exclude"])]
+        assigned = assigned_domains(path, rules)
         if len(assigned) > 1 or (assigned and path in unresolved):
             raise NavigationError(f"overlapping navigation owners: {path}: {assigned}")
         if not assigned and path not in unresolved:
-            raise NavigationError(f"unmapped repository path: {path}")
+            assigned = assigned_domains(path, defaults)
+            if len(assigned) > 1:
+                raise NavigationError(f"overlapping default navigation owners: {path}: {assigned}")
+            if not assigned:
+                raise NavigationError(f"unmapped repository path: {mapping_remediation(path)}")
         if assigned:
             owners[path] = assigned[0]
     baseline_paths = set(git(root, "ls-tree", "-r", "--name-only", "-z", base_ref).decode().split("\0"))
@@ -175,11 +209,12 @@ def partition(root: Path, registry: dict, *, base_ref: str = "HEAD") -> dict:
         if not set(unresolved) <= previous_unresolved:
             raise NavigationError("legacy unresolved list may only shrink")
     changed = set(git(root, "diff", "--name-only", "-z", base_ref, "--").decode().split("\0"))
+    advisories = []
     for path in unresolved:
         if path not in baseline_paths:
-            raise NavigationError(f"new unresolved path must map: {path}")
+            raise NavigationError(f"new unresolved path must map: {mapping_remediation(path)}")
         if path in changed or git(root, "show", f"{base_ref}:{path}") != (root / path).read_bytes():
-            raise NavigationError(f"changed unresolved path must map: {path}")
+            advisories.append(f"domain navigation advisory: changed legacy unresolved path: {path}; ownership remains unresolved")
     coverage = {}
     for item in navigation["test_coverage"]:
         closed(item, ("path", "covers_owner_ids"), "test coverage")
@@ -190,21 +225,22 @@ def partition(root: Path, registry: dict, *, base_ref: str = "HEAD") -> dict:
         if not targets or not set(targets) <= {f"domain:{d}" for d in domains}:
             raise NavigationError(f"unknown covered owner: {path}")
         coverage[path] = targets
-    return {"navigation": navigation, "owners": owners, "unresolved": unresolved, "coverage": coverage}
+    return {"navigation": navigation, "owners": owners, "unresolved": unresolved, "coverage": coverage,
+            "default_rules": defaults, "advisories": advisories}
 
 
-def validate_companion(root: Path, registry: dict, *, base_ref: str = "HEAD") -> list[str]:
+def validate_companion(root: Path, registry: dict, *, base_ref: str = "HEAD") -> tuple[list[str], list[str]]:
     try:
         if not (root / COMPANION).exists():
             if (root / ".git").exists():
                 base = git(root, "rev-parse", "--verify", "--end-of-options", f"{base_ref}^{{commit}}").decode().strip()
                 if COMPANION in git(root, "ls-tree", "-r", "--name-only", base).decode().splitlines():
-                    return ["domain navigation: an adopted companion cannot be removed"]
-            return []
-        partition(root, registry, base_ref=base_ref)
+                    return ["domain navigation: an adopted companion cannot be removed"], []
+            return [], []
+        state = partition(root, registry, base_ref=base_ref)
     except (NavigationError, OSError, ValueError, KeyError, TypeError) as exc:
-        return [f"domain navigation: {exc}"]
-    return []
+        return [f"domain navigation: {exc}"], []
+    return [], state["advisories"]
 
 
 def is_test(path: str) -> bool:
@@ -212,16 +248,8 @@ def is_test(path: str) -> bool:
     return name.endswith("_test.go") or ".test." in name or ".spec." in name or name.startswith(("test-", "test_"))
 
 
-def sha(data: bytes) -> str:
-    return "sha256:" + hashlib.sha256(data).hexdigest()
-
-
 def inventory(root: Path, registry: dict, *, base_ref: str = "HEAD") -> dict:
     state = partition(root, registry, base_ref=base_ref)
-    source_paths = [COMPANION, REGISTRY, ".concord/tooling.v1.json", "contracts/agent-tool-surface.v1.json",
-                    "cmd/concord/main.go", "go.mod", "scripts/domain_navigation.py",
-                    "scripts/domain-navigation-cli/main.go"]
-    fingerprints = {p: sha((root / p).read_bytes()) for p in source_paths}
     module_lines = re.findall(r'^module\s+(\S+)\s*$', (root / "go.mod").read_text(), re.M)
     if len(module_lines) != 1:
         raise NavigationError("go.mod must declare exactly one module path")
@@ -248,6 +276,7 @@ def inventory(root: Path, registry: dict, *, base_ref: str = "HEAD") -> dict:
         rule = next(r for r in state["navigation"]["rules"] if r["domain_id"] == domain_id)
         domains.append({"domain_id": domain_id, "owner_id": f"domain:{domain_id}", "name": domain["name"],
                         "purpose": domain["purpose"], "card_path": card_path(domain_id), "path_rules": rule,
+                        "default_path_rules": state["default_rules"].get(domain_id),
                         "mapped_count": len(paths), "test_count": len(tests), "unresolved_candidate_count": len(candidates),
                         "unresolved_candidates": candidates,
                         "test_packages": sorted({module + "/" + str(Path(p).parent) for p in tests if p.endswith(".go")}),
@@ -256,24 +285,28 @@ def inventory(root: Path, registry: dict, *, base_ref: str = "HEAD") -> dict:
                         "agent_operations": operations if owners.get("contracts/agent-tool-surface.v1.json") == domain_id else [],
                         "checks": tools})
     return {"_generated": GENERATED, "schema_version": "1.0", "scope": "coarse file navigation, not law homes or semantic mechanism ownership",
-            "source_fingerprints": fingerprints, "path_set_fingerprint": sha("\n".join(sorted(owners.keys() | state["unresolved"].keys())).encode()),
             "mapped_count": len(owners), "unresolved_count": len(state["unresolved"]), "domains": domains,
             "files": owners, "unresolved": sorted(state["unresolved"].values(), key=lambda i: i["path"]),
             "test_coverage": state["coverage"]}
 
 
-def card(domain: dict, fingerprints: dict) -> str:
+def card(domain: dict) -> str:
     lines = [f"<!-- {GENERATED} -->", f"# {domain['name']}", "",
              f"Domain: `{domain['domain_id']}`. Coarse navigation owner: `{domain['owner_id']}`.",
              "File accountability does not change a document's law home or a handler's semantic owner.", "",
              "## Responsibility", domain["purpose"], "",
              f"Mapped files: {domain['mapped_count']}; tests: {domain['test_count']}; unresolved candidates: {domain['unresolved_candidate_count']}.",
              "Candidate counts overlap when a file has several candidates; no candidate is an assigned owner.", "",
-             "## Code and tests", "Full paths, unresolved reasons, shared-test coverage, and source fingerprints: `.concord/navigation/inventory.json`."]
+             "## Code and tests", "Full paths, unresolved reasons, and shared-test coverage: `.concord/navigation/inventory.json`."]
     for field, label in (("include", "Include"), ("exclude", "Exclude")):
         patterns = domain["path_rules"][field]
         for start in range(0, len(patterns), 5):
             lines.append(f"- {label}: " + ", ".join(f"`{p}`" for p in patterns[start:start + 5]))
+    if domain["default_path_rules"] is not None:
+        lines.append("Explicit rules win over directory defaults; named legacy gaps remain unresolved.")
+        for field, label in (("include", "Default include"), ("exclude", "Default exclude")):
+            for pattern in domain["default_path_rules"][field]:
+                lines.append(f"- {label}: `{pattern}`")
     for package in domain["test_packages"]:
         lines.append(f"- Go test package: `{package}`")
     lines.extend(["", "## Entry surfaces", "These are catalog surface entries, not invariant/control or handler joins."])
@@ -291,9 +324,7 @@ def card(domain: dict, fingerprints: dict) -> str:
         lines.append(f"- `{tool['id']}` ({tool['tier']}): `{tool['invocation']}`")
     lines.extend(["", "## Not covered by slice A", "Invariant/control joins, allowed-dependency interpretation, observed import/call edges,",
                   "non-law navigation homes, CON-887 packet reading, and CON-890 owner oracles remain later work.",
-                  "Required-reading entries will be pinned references, not inlined card content.", "",
-                  f"Navigation source fingerprint: `{fingerprints[COMPANION]}`.",
-                  "Other fingerprints and the exact file universe are in the generated inventory."])
+                  "Required-reading entries will be pinned references, not inlined card content."])
     text = "\n".join(lines) + "\n"
     if len(text.encode()) > 8192 or len(lines) > 120:
         raise NavigationError(f"card exceeds 8 KiB / 120 lines: {domain['domain_id']}")
@@ -304,5 +335,5 @@ def artifacts(root: Path, *, base_ref: str = "HEAD") -> dict[str, bytes]:
     registry = read_json(root, REGISTRY)
     data = inventory(root, registry, base_ref=base_ref)
     result = {f"{OUTPUT}/inventory.json": (json.dumps(data, indent=2, sort_keys=True) + "\n").encode()}
-    result.update({d["card_path"]: card(d, data["source_fingerprints"]).encode() for d in data["domains"]})
+    result.update({d["card_path"]: card(d).encode() for d in data["domains"]})
     return result

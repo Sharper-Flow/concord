@@ -34,6 +34,9 @@ type WorkflowAdmissionState struct {
 	Lifecycle string
 	// InstanceState is the workflow instance state.
 	InstanceState string
+	// OutsideRepairActive suspends every managed action, including continuity
+	// and recovery actions. Only the operator-only outside-repair APIs clear it.
+	OutsideRepairActive bool
 	// RefinementWorkflow reports whether the pinned definition declares the
 	// refinement review shape: a step that declares start_refine. The
 	// post-rejection review debt and its settling review belong to that
@@ -245,6 +248,14 @@ func loadWorkflowAdmissionStateTx(ctx context.Context, q queryer, workID string,
 		}
 		return WorkflowAdmissionState{}, nil, nil, wrapFailure(KindUnavailable, subject, "cannot read workflow admission state", true, "retry once the database is readable", err)
 	}
+	active, err := outsideRepairActiveTx(ctx, q, workID)
+	if err != nil {
+		return WorkflowAdmissionState{}, nil, nil, err
+	}
+	state.OutsideRepairActive = active
+	if active || state.InstanceState == "outside_repair" {
+		return state, nil, nil, nil
+	}
 	// A duplicated contract projection is the supersede recovery's subject:
 	// workflowAdmitSupersede admits its route on the count alone, and the
 	// singular active-contract reader refuses duplicates. The conditional
@@ -373,16 +384,9 @@ func loadWorkflowAdmissionStateTx(ctx context.Context, q queryer, workID string,
 	}
 	state.NonProgressAttempts = nonProgress
 	if !state.CorrectionEscalated {
-		// Materialization closes an unbound correction record, not the wall
-		// its converging retry crossed. Only productive acceptance opens
-		// a new window; another retry needs another basis in this window.
-		anchor, err := workflowNonProgressWindowAnchor(ctx, q, workID, subject, 0)
-		if err != nil {
-			return WorkflowAdmissionState{}, nil, nil, err
-		}
-		var continued bool
-		if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.retry_convergence') IS NOT NULL AND seq>?)`, string(SubjectWorkItem), workID, WorkflowActionCompleted, anchor).Scan(&continued); err != nil {
-			return WorkflowAdmissionState{}, nil, nil, workflowProjectionError(err, "cannot read the continued convergence window")
+		continued, continuedErr := workflowCorrectionWindowContinued(ctx, q, workID, subject)
+		if continuedErr != nil {
+			return WorkflowAdmissionState{}, nil, nil, continuedErr
 		}
 		state.CorrectionEscalated = continued
 	}
@@ -462,6 +466,23 @@ func loadWorkflowAdmissionStateTx(ctx context.Context, q queryer, workID string,
 	return state, proofRuns, integrationRuns, nil
 }
 
+// workflowCorrectionWindowContinued reports whether a converged retry already
+// crossed the current non-progress window. Materialization closes an unbound
+// correction record, not the wall its converging retry crossed. Only
+// productive acceptance opens a new window; another retry needs another basis
+// in this window.
+func workflowCorrectionWindowContinued(ctx context.Context, q queryer, workID, subject string) (bool, error) {
+	anchor, err := workflowNonProgressWindowAnchor(ctx, q, workID, subject, 0)
+	if err != nil {
+		return false, err
+	}
+	var continued bool
+	if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.retry_convergence') IS NOT NULL AND seq>?)`, string(SubjectWorkItem), workID, WorkflowActionCompleted, anchor).Scan(&continued); err != nil {
+		return false, workflowProjectionError(err, "cannot read the continued convergence window")
+	}
+	return continued, nil
+}
+
 // workflowAdmit decides one action's admission over one folded admission
 // state. It is pure and total: no store access, no clock, no request payload,
 // and a defined answer for every action the definitions declare. It decides
@@ -480,6 +501,10 @@ func loadWorkflowAdmissionStateTx(ctx context.Context, q queryer, workID string,
 // against the decision's ReadyReviewAttemptID.
 func workflowAdmit(definition WorkflowDefinition, state WorkflowAdmissionState, actionID string) WorkflowAdmissionDecision {
 	decision := WorkflowAdmissionDecision{ReadyReviewAttemptID: state.ReadyReviewAttemptID, ReadyReviewSettles: state.ReadyReviewSettles}
+	if state.OutsideRepairActive {
+		decision.Failure = newOutsideRepairRouteFailure("workflow_action", "managed workflow action refused: outside-repair disposition is active")
+		return decision
+	}
 	if workflowCompletedInstanceActionImmutable(state.InstanceState, actionID, state.Lifecycle) {
 		decision.Failure = newFailure(KindInvalidOperation, "workflow_action", "terminal workflow instance is immutable", false, "start a successor workflow")
 		return decision

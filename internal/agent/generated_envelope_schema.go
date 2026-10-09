@@ -277,7 +277,9 @@ const GeneratedEnvelopeSchemaDocument = `{
             "product_project_add",
             "project_handoff_consume",
             "project_handoff_record",
-            "project_retirement"
+            "project_retirement",
+            "outside_repair",
+            "outside_repair_reconcile"
           ],
           "type": "string"
         },
@@ -894,7 +896,9 @@ const GeneratedEnvelopeSchemaDocument = `{
             "product_project_add",
             "project_handoff_consume",
             "project_handoff_record",
-            "project_retirement"
+            "project_retirement",
+            "outside_repair",
+            "outside_repair_reconcile"
           ],
           "type": "string"
         },
@@ -1078,7 +1082,9 @@ const GeneratedEnvelopeSchemaDocument = `{
                       "worktree_destroy",
                       "worktree_reclaim",
                       "worktree_verify",
-                      "workflow_action"
+                      "workflow_action",
+                      "outside_repair",
+                      "outside_repair_reconcile"
                     ],
                     "type": "string"
                   },
@@ -2004,7 +2010,9 @@ const GeneratedEnvelopeSchemaDocument = `{
                 "worktree_destroy",
                 "worktree_reclaim",
                 "worktree_audit_reclaim",
-                "worktree_verify"
+                "worktree_verify",
+                "outside_repair",
+                "outside_repair_reconcile"
               ],
               "type": "string"
             },
@@ -3025,7 +3033,8 @@ const GeneratedEnvelopeSchemaDocument = `{
             "timeout",
             "transport_failure",
             "malformed_response",
-            "internal_error"
+            "internal_error",
+            "outside_repair_active"
           ],
           "type": "string"
         },

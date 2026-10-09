@@ -484,6 +484,104 @@ func TestWorkResumeSameTargetSkipsTheOriginGate(t *testing.T) {
 	}
 }
 
+// TestWorkResumeDeterministicRefusalsExit2 pins the typed exit contract the
+// work-resume commandSpecs entry declares: a deterministic refusal — invalid
+// input, a Project the invocation does not resolve to, a dirty origin, or a
+// typed store failure the store marks unsafe to repeat — exits 2 so callers
+// classify by status alone, while a retryable failure keeps the ordinary
+// failure status. The core boundary diagnostic travels unchanged.
+func TestWorkResumeDeterministicRefusalsExit2(t *testing.T) {
+	repo := initLocatorRepo(t)
+	s := mustOpenStore(t, filepath.Join(t.TempDir(), "concord.db"))
+	seedLocatorAuthority(t, s, repo)
+	var out, errOut bytes.Buffer
+
+	if code := runWorkResume([]byte("[]"), s, &out, &errOut); code != workResumeRefusalExit {
+		t.Fatalf("malformed input code=%d stderr=%q", code, errOut.String())
+	}
+	missing, err := json.Marshal(workResumeInput{ProductID: "product-wl", ProjectID: "project-wl"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, errOut = bytes.Buffer{}, bytes.Buffer{}
+	if code := runWorkResume(missing, s, &out, &errOut); code != workResumeRefusalExit || !strings.Contains(errOut.String(), "work_id") {
+		t.Fatalf("missing work_id code=%d stderr=%q", code, errOut.String())
+	}
+
+	origin, err := s.BootstrapWorktree(context.Background(), bootstrapRequest(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(repo)
+	mismatch, err := json.Marshal(workResumeInput{ProductID: "product-wl", ProjectID: "project-other", WorkID: origin.WorkID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, errOut = bytes.Buffer{}, bytes.Buffer{}
+	if code := runWorkResume(mismatch, s, &out, &errOut); code != workResumeRefusalExit || !strings.Contains(errOut.String(), "requested Project") {
+		t.Fatalf("project mismatch code=%d stderr=%q", code, errOut.String())
+	}
+
+	// Typed non-retry store refusals keep their complete core diagnostic and
+	// classify as refusals: unknown work, terminal work.
+	out, errOut = bytes.Buffer{}, bytes.Buffer{}
+	unknown, err := json.Marshal(workResumeInput{ProductID: "product-wl", ProjectID: "project-wl", WorkID: "work-missing"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code := runWorkResume(unknown, s, &out, &errOut); code != workResumeRefusalExit || !strings.Contains(errOut.String(), "concord work-resume: store: work_resume: unknown_scope: work item does not exist") {
+		t.Fatalf("unknown work code=%d stderr=%q", code, errOut.String())
+	}
+	doomed, err := s.BootstrapWorktree(context.Background(), func() store.BootstrapRequest {
+		request := bootstrapRequest()
+		request.IdempotencyKey = "resume-refusal-terminal"
+		return request
+	}(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	transitionWorkItem(t, s, doomed.WorkID, "needed", "cancelled", doomed.WorkVersion)
+	out, errOut = bytes.Buffer{}, bytes.Buffer{}
+	terminal, err := json.Marshal(workResumeInput{ProductID: "product-wl", ProjectID: "project-wl", WorkID: doomed.WorkID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code := runWorkResume(terminal, s, &out, &errOut); code != workResumeRefusalExit || !strings.Contains(errOut.String(), "cannot resume terminal work item") {
+		t.Fatalf("terminal work code=%d stderr=%q", code, errOut.String())
+	}
+
+	// The dirty origin refusal carries the owning core boundary verbatim.
+	live, err := s.BootstrapWorktree(context.Background(), func() store.BootstrapRequest {
+		request := bootstrapRequest()
+		request.IdempotencyKey = "resume-refusal-live"
+		return request
+	}(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(origin.Entry.Path, "dirty.txt"), []byte("operator changes\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Remove(filepath.Join(origin.Entry.Path, "dirty.txt")) }()
+	out, errOut = bytes.Buffer{}, bytes.Buffer{}
+	dirty, err := json.Marshal(workResumeInput{ProductID: "product-wl", ProjectID: "project-wl", WorkID: live.WorkID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(origin.Entry.Path)
+	if code := runWorkResume(dirty, s, &out, &errOut); code != workResumeRefusalExit || !strings.Contains(errOut.String(), "concord work-resume: store: work_bootstrap: invalid_operation: cannot chain from dirty worktree of "+origin.WorkID) {
+		t.Fatalf("dirty origin code=%d stderr=%q", code, errOut.String())
+	}
+
+	// The shared classifier preserves the store's retry-safety split.
+	if code := storeFailureExit(&store.Failure{Kind: store.KindUnavailable, RetrySafe: true}); code != 1 {
+		t.Fatalf("retryable read failure code=%d, want 1", code)
+	}
+	if code := storeFailureExit(&store.Failure{Kind: store.KindUnavailable, RetrySafe: false}); code != workResumeRefusalExit {
+		t.Fatalf("unsafe read failure code=%d, want %d", code, workResumeRefusalExit)
+	}
+}
+
 func TestSessionPrepareAcceptsEmptyTask(t *testing.T) {
 	repo := initLocatorRepo(t)
 	dbPath := filepath.Join(t.TempDir(), "concord.db")

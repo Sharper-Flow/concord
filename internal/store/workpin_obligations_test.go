@@ -42,19 +42,19 @@ func workPinDeclaredObligationsAndIdentity(t *testing.T, s *Store, workID string
 		t.Fatal(err)
 	}
 	want := workPinObligationDeclarationIDs(t, registered.Definition)
-	if !reflect.DeepEqual(pin.Obligations, want) {
+	if pin.Obligations == nil || !reflect.DeepEqual(*pin.Obligations, want) {
 		t.Fatalf("pin obligations=%v, want the sorted root/step/rigor declarations %v", pin.Obligations, want)
 	}
-	if !sort.StringsAreSorted(pin.Obligations) {
-		t.Fatalf("pin obligations=%v are not sorted", pin.Obligations)
+	if !sort.StringsAreSorted(*pin.Obligations) {
+		t.Fatalf("pin obligations=%v are not sorted", *pin.Obligations)
 	}
-	if pin.WorkflowDefinitionVersion != version {
-		t.Fatalf("pin definition version=%d, want the pinned instance version %d", pin.WorkflowDefinitionVersion, version)
+	if pin.WorkflowDefinitionVersion == nil || *pin.WorkflowDefinitionVersion != version {
+		t.Fatalf("pin definition version=%v, want the pinned instance version %d", pin.WorkflowDefinitionVersion, version)
 	}
-	if pin.WorkflowDefinitionDigest != registered.Digest {
-		t.Fatalf("pin definition digest=%q, want the registry digest %q", pin.WorkflowDefinitionDigest, registered.Digest)
+	if pin.WorkflowDefinitionDigest == nil || *pin.WorkflowDefinitionDigest != registered.Digest {
+		t.Fatalf("pin definition digest=%v, want the registry digest %q", pin.WorkflowDefinitionDigest, registered.Digest)
 	}
-	if err := BuiltinWorkflowRegistry().Verify(registered.Definition.Ref, version, pin.WorkflowDefinitionDigest); err != nil {
+	if err := BuiltinWorkflowRegistry().Verify(registered.Definition.Ref, version, *pin.WorkflowDefinitionDigest); err != nil {
 		t.Fatalf("pin definition digest does not verify: %v", err)
 	}
 	// The continuity envelope — the pinned projection every session boot
@@ -72,8 +72,9 @@ func workPinDeclaredObligationsAndIdentity(t *testing.T, s *Store, workID string
 	if !reflect.DeepEqual(snapshot.WorkPin.Obligations, pin.Obligations) {
 		t.Fatalf("continuity envelope obligations=%v, pin obligations=%v", snapshot.WorkPin.Obligations, pin.Obligations)
 	}
-	if snapshot.WorkPin.WorkflowDefinitionVersion != pin.WorkflowDefinitionVersion || snapshot.WorkPin.WorkflowDefinitionDigest != pin.WorkflowDefinitionDigest {
-		t.Fatalf("continuity envelope definition identity=(%d, %s), pin identity=(%d, %s)",
+	if snapshot.WorkPin.WorkflowDefinitionVersion == nil || *snapshot.WorkPin.WorkflowDefinitionVersion != *pin.WorkflowDefinitionVersion ||
+		snapshot.WorkPin.WorkflowDefinitionDigest == nil || *snapshot.WorkPin.WorkflowDefinitionDigest != *pin.WorkflowDefinitionDigest {
+		t.Fatalf("continuity envelope definition identity=(%v, %v), pin identity=(%v, %v)",
 			snapshot.WorkPin.WorkflowDefinitionVersion, snapshot.WorkPin.WorkflowDefinitionDigest,
 			pin.WorkflowDefinitionVersion, pin.WorkflowDefinitionDigest)
 	}

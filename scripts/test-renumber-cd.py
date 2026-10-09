@@ -11,6 +11,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import git_environment
+
+# CON-896: this suite drives Git directly, so a hook that launched it must
+# not keep a redirecting Git namespace in place. The scrub runs before the
+# in-process renumber tool loads.
+git_environment.scrub_inherited()
+
 
 SCRIPT = Path(__file__).with_name("renumber-cd.py")
 SPEC = importlib.util.spec_from_file_location("renumber_cd", SCRIPT)

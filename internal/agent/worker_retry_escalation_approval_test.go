@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strconv"
 	"strings"
 	"testing"
@@ -11,13 +12,21 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 )
 
-// TestEscalatedCorrectionRetryMintsBindableChallenge pins the repaired
-// escalation wall: dispatch_worker against a correction at the three-attempt
-// limit mints the standard approval challenge, and one operator approval
-// admits exactly one fresh fenced attempt of the unchanged approved contract.
-// Before the repair this dispatch returned approval_required with no approval
-// reference, so the correction could never leave the limit.
-func TestEscalatedCorrectionRetryMintsBindableChallengeAndAdmitsOneAttempt(t *testing.T) {
+// TestEscalatedFailedCorrectionWallAdmitsOnlyBehindApproachConvergence pins
+// the CON885 convergence gate on a failed-disposition escalated correction at
+// the default workflow's execution step. Three recorded failed corrections
+// arm the wall; the next dispatch refuses with missing_evidence and mints no
+// approval challenge, a supplied operator approval has no effect, and the
+// boundary keeps no retry approval binding (WorkflowFailedWorkerRetryBinding
+// returns nil behind the escalated wall). A store-level contract supersession
+// derives the approach_changed basis and admits exactly one fresh fenced
+// attempt with no approval at all; the interrupted dispatch consumes the
+// basis, the recorded failure of the admitted attempt re-arms the wall, and
+// only a fresh supersession derives a fresh basis. The whole journey mints
+// zero approval challenges: below the wall the ordinary failed-retry exact
+// approval (worker_retry_approval_test.go) still governs, at the wall only a
+// stored convergence basis admits.
+func TestEscalatedFailedCorrectionWallAdmitsOnlyBehindApproachConvergence(t *testing.T) {
 	s, service, grant, privateKey := mutationDispatchFixture(t, []Capability{"work_transition", "worker_dispatch"})
 	version, failedAttemptID, worktree := seedEscalatedFailedWorkerMutation(t, s, service, grant)
 	grant.Worktree = worktree
@@ -26,180 +35,213 @@ func TestEscalatedCorrectionRetryMintsBindableChallengeAndAdmitsOneAttempt(t *te
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(grant, scopeVersion)
-	retryAttemptID := "attempt:work-1:escalated-4"
-	pin, err := store.ReadWorkPin(context.Background(), s, "work-1")
-	if err != nil || pin.Correction == nil || !pin.Correction.Escalated {
-		t.Fatalf("read escalated correction: pin=%#v err=%v", pin.Correction, err)
+	owner := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
+	if got := verifyWallChallenges(t, s); got != 0 {
+		t.Fatalf("fixture minted %d approval challenges, want 0", got)
 	}
+
+	// The armed wall keeps no approvable identity: the retry approval binding
+	// the ordinary failed-retry route mints is absent behind the escalation.
+	binding, err := store.WorkflowFailedWorkerRetryBinding(context.Background(), s, nil, "work-1")
+	if err != nil || binding != nil {
+		t.Fatalf("retry approval binding behind the escalated wall = %+v err=%v, want none", binding, err)
+	}
+
+	// The wall refuses a fresh dispatch with the convergence refusal, and the
+	// refusal is never an operator approval ask.
+	retryID := "attempt:work-1:escalated-4"
 	input := map[string]any{
 		"work_id": "work-1", "expected_version": version, "action_id": "dispatch_worker",
-		"idempotency_key": "escalated-retry-1", "fields": map[string]any{"attempt_id": retryAttemptID, "worker_packet": retryMutationPacket(t, s, retryAttemptID, pin.Correction)},
+		"idempotency_key": "escalated-convergence-1", "fields": map[string]any{"attempt_id": retryID, "worker_packet": retryMutationPacket(t, s, retryID, verifyWallPinCorrection(t, s))},
 	}
 	raw, err := json.Marshal(input)
 	if err != nil {
 		t.Fatal(err)
 	}
-	challenge := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: raw}, env)
-	if challenge.Error == nil || challenge.Error.Kind != "approval_required" {
-		t.Fatalf("escalated retry without approval = %+v, want approval_required", challenge.Error)
+	env.RequestID = "request:escalated-convergence-1"
+	refused := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: raw}, env)
+	if refused.Error == nil || refused.Error.Kind != "missing_evidence" {
+		t.Fatalf("escalated retry without a basis = %+v, want missing_evidence", refused.Error)
 	}
-	details := challenge.Error.Details
-	challengeRef, _ := details["approval_ref"].(string)
-	if len(challengeRef) != 64 {
-		t.Fatalf("escalated challenge carries no approval reference: %+v", details)
+	if !strings.Contains(refused.Error.Message, "worker correction reached the three-attempt limit without a convergence basis") {
+		t.Fatalf("escalated refusal does not name the convergence limit: %q", refused.Error.Message)
 	}
-	if got, _ := details["operation_digest"].(string); got == "" {
-		t.Fatalf("escalated challenge carries no operation digest: %+v", details)
+	if refused.Error.RecoveryAction.Kind != "provide_evidence" {
+		t.Fatalf("escalated refusal recovery = %q, want provide_evidence and never an approval ask", refused.Error.RecoveryAction.Kind)
 	}
-	if got, _ := details["work_id"].(string); got != "work-1" {
-		t.Fatalf("escalated challenge work_id = %v", details["work_id"])
+	if refused.Error.ConsequenceSummary != nil {
+		t.Fatal("escalated refusal carries a consequence summary, but no challenge was minted")
 	}
-	if got, _ := details["action_id"].(string); got != "dispatch_worker" {
-		t.Fatalf("escalated challenge action_id = %v", details["action_id"])
+	if ref, ok := refused.Error.Details["approval_ref"].(string); ok && ref != "" {
+		t.Fatalf("escalated refusal carries approval_ref %q, but no challenge was minted", ref)
 	}
-	if got, _ := details["contract_version"].(string); got != "1" {
-		t.Fatalf("escalated challenge contract_version = %v, want the approved contract version", details["contract_version"])
+	if got := verifyWallChallenges(t, s); got != 0 {
+		t.Fatalf("escalated refusal minted %d approval challenges, want 0", got)
 	}
-	if got, _ := details["premise_summary"].(string); got != "approved retry objective" {
-		t.Fatalf("escalated challenge premise_summary = %q, want the approved contract premise", details["premise_summary"])
+	if got := verifyWallDispatchCompletions(t, s, retryID); got != 0 {
+		t.Fatalf("refused escalation recorded %d dispatch completions, want 0", got)
 	}
-	summary := challenge.Error.ConsequenceSummary
-	if summary == nil {
-		t.Fatal("challenge lacks a consequence summary")
+	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts WHERE work_id='work-1' AND attempt_id='`+retryID+`'`); got != 0 {
+		t.Fatalf("refused escalation created %d worker attempt rows, want 0", got)
 	}
-	assertBindingContains(t, summary.Scope, "failed_attempt_id:"+failedAttemptID)
-	assertBindingContains(t, summary.Versions, "failed_attempt_epoch:3")
-	assertBindingContains(t, summary.Versions, "contract:1")
-	assertBindingContains(t, summary.Versions, "work:"+strconv.FormatInt(version, 10))
-	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts WHERE work_id='work-1'`); got != 3 {
-		t.Fatalf("challenge created %d worker attempts, want 3", got)
+	if after := workVersion(t, s, "work-1"); after != version {
+		t.Fatalf("refused escalation changed the work version %d -> %d", version, after)
 	}
 
-	approvedInput := cloneWithApproval(t, input, challengeRef)
-	approvedRaw, _ := json.Marshal(approvedInput)
+	// A supplied operator approval has no effect: no challenge exists to
+	// consume, and the fold still refuses without a basis. The approval binds
+	// the exact identity the pre-CON885 wall would have minted a challenge
+	// for, so the refusal proves the route is gone, not misbound.
+	approvedInput := cloneWithApproval(t, input, strings.Repeat("b", 64))
+	approvedRaw, err := json.Marshal(approvedInput)
+	if err != nil {
+		t.Fatal(err)
+	}
 	scope := map[string]any{"product_id": "product-1", "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}, "failed_attempt_id": failedAttemptID, "scope_version": scopeVersion}
 	versions := map[string]any{"work": version, "contract": int64(1), "failed_attempt_epoch": int64(3)}
-	env.HostApproval = signedHostApproval(privateKey, challengeRef, mutationDigest("concord_work_transition", "workflow_action", env, approvedRaw), scope, versions, grant.SessionRef, grant.AgentRef, grant.Worktree, fixedTime(), nonceForChallenge(challengeRef))
-	approved := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: approvedRaw}, env)
-	if approved.Outcome != OutcomeOK {
-		t.Fatalf("approved escalated retry = %+v", approved.Error)
+	env.HostApproval = signedHostApproval(privateKey, strings.Repeat("b", 64), mutationDigest("concord_work_transition", "workflow_action", env, approvedRaw), scope, versions, grant.SessionRef, grant.AgentRef, grant.Worktree, fixedTime(), "escalated-convergence-unused-approval")
+	env.RequestID = "request:escalated-convergence-2"
+	bypass := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: approvedRaw}, env)
+	if bypass.Error == nil || bypass.Error.Kind != "missing_evidence" {
+		t.Fatalf("escalated retry behind a supplied approval = %+v, want missing_evidence", bypass.Error)
 	}
-	var retryEpoch int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.attempt_epoch') FROM domain_events WHERE kind=? AND subject_id='work-1' AND json_extract(payload,'$.action_id')='dispatch_worker' ORDER BY seq DESC LIMIT 1`, store.WorkflowActionStarted).Scan(&retryEpoch); err != nil {
-		t.Fatal(err)
+	if got := verifyWallChallenges(t, s); got != 0 {
+		t.Fatalf("supplied approval minted %d approval challenges, want 0", got)
 	}
-	if retryEpoch != 4 {
-		t.Fatalf("approved escalated retry epoch=%d, want 4", retryEpoch)
+	if after := workVersion(t, s, "work-1"); after != version {
+		t.Fatalf("supplied approval changed the work version %d -> %d", version, after)
 	}
-}
+	env.HostApproval = nil
 
-// TestEscalatedCorrectionRetryRefusesStaleAndReusedApproval pins the fence
-// around the approvable wall: a stale or reused approval has no effect, and
-// the wall re-arms so the next attempt needs a fresh operator decision.
-func TestEscalatedCorrectionRetryRefusesStaleAndReusedApproval(t *testing.T) {
-	s, service, grant, privateKey := mutationDispatchFixture(t, []Capability{"work_transition", "worker_dispatch"})
-	version, failedAttemptID, worktree := seedEscalatedFailedWorkerMutation(t, s, service, grant)
-	grant.Worktree = worktree
-	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	env := mutationEnvelope(grant, scopeVersion)
-	retryAttemptID := "attempt:work-1:escalated-4"
+	// A superseded contract after the latest dispatch is a changed approach:
+	// the store derives the basis, the pin flips its dispatch reason, and the
+	// boundary admits the dispatch with no approval at all. The successor
+	// contract retires the seed's job revision, so the fixture records a
+	// fresh ready job under it before the dispatch, as the adapter does.
+	supersedeEscalatedCorrectionContract(t, s, owner, workVersion(t, s, "work-1"), 2, "the escalated correction wall demanded a changed approach")
+	recordReadyRetryJobUnderContract(t, s, service, mutationEnvelope(grant, mustScopeVersion(t, s)), "job:retry-objective-2", 2)
 	pin, err := store.ReadWorkPin(context.Background(), s, "work-1")
-	if err != nil || pin.Correction == nil {
-		t.Fatalf("read escalated correction: pin=%#v err=%v", pin.Correction, err)
-	}
-	input := map[string]any{
-		"work_id": "work-1", "expected_version": version, "action_id": "dispatch_worker",
-		"idempotency_key": "escalated-retry-stale", "fields": map[string]any{"attempt_id": retryAttemptID, "worker_packet": retryMutationPacket(t, s, retryAttemptID, pin.Correction)},
-	}
-	raw, err := json.Marshal(input)
 	if err != nil {
 		t.Fatal(err)
 	}
-	challenge := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: raw}, env)
-	challengeRef, _ := challenge.Error.Details["approval_ref"].(string)
-	if challengeRef == "" {
-		t.Fatalf("escalated challenge = %+v", challenge.Error)
+	reason := ""
+	for _, intent := range pin.NextValidIntents {
+		if intent.ActionID == "dispatch_worker" {
+			reason = intent.ReasonCode
+		}
 	}
-
-	// A stale approval names a superseded failed attempt epoch. The boundary
-	// compares the signed bindings against the current failed attempt, so the
-	// mismatch refuses with no durable effect.
-	bindingScope := map[string]any{"product_id": "product-1", "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}, "failed_attempt_id": failedAttemptID, "scope_version": scopeVersion}
-	staleVersions := map[string]any{"work": version, "contract": int64(1), "failed_attempt_epoch": int64(1)}
-	staleInput := cloneWithApproval(t, input, challengeRef)
-	staleRaw, _ := json.Marshal(staleInput)
-	env.HostApproval = signedHostApproval(privateKey, challengeRef, mutationDigest("concord_work_transition", "workflow_action", env, staleRaw), bindingScope, staleVersions, grant.SessionRef, grant.AgentRef, grant.Worktree, fixedTime(), nonceForChallenge(challengeRef))
-	stale := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: staleRaw}, env)
-	if stale.Outcome != OutcomeError || stale.Error == nil || !strings.Contains(stale.Error.Message, "scope or versions invalid") {
-		t.Fatalf("stale approval = %+v, want a stale-binding refusal", stale.Error)
-	}
-	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts WHERE work_id='work-1'`); got != 3 {
-		t.Fatalf("stale approval created %d worker attempts, want 3", got)
-	}
-
-	// Consume the challenge with a valid approval, fail the retry, and reuse
-	// the spent challenge on the next escalated correction. The spent
-	// challenge refuses with no new attempt even though the approval matches
-	// the current binding.
-	approvedVersions := map[string]any{"work": version, "contract": int64(1), "failed_attempt_epoch": int64(3)}
-	approvedInput := cloneWithApproval(t, input, challengeRef)
-	approvedRaw, _ := json.Marshal(approvedInput)
-	env.HostApproval = signedHostApproval(privateKey, challengeRef, mutationDigest("concord_work_transition", "workflow_action", env, approvedRaw), bindingScope, approvedVersions, grant.SessionRef, grant.AgentRef, grant.Worktree, fixedTime(), nonceForChallenge(challengeRef))
-	approved := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: approvedRaw}, env)
-	if approved.Outcome != OutcomeOK {
-		t.Fatalf("approved escalated retry = %+v", approved.Error)
-	}
-	recordFailureForEscalatedRetry(t, s, service, grant, retryAttemptID, 4)
-
-	nextAttemptID := "attempt:work-1:escalated-5"
-	nextPin, err := store.ReadWorkPin(context.Background(), s, "work-1")
-	if err != nil || nextPin.Correction == nil || nextPin.Correction.FailedAttemptID != retryAttemptID || !nextPin.Correction.Escalated {
-		t.Fatalf("reread escalated correction after retry: pin=%#v err=%v", nextPin.Correction, err)
+	if reason != "escalated_retry_convergence_recorded" {
+		t.Fatalf("pin dispatch reason behind a derived basis = %q, want escalated_retry_convergence_recorded", reason)
 	}
 	version = workVersion(t, s, "work-1")
-	reusedInput := map[string]any{
+	input = map[string]any{
 		"work_id": "work-1", "expected_version": version, "action_id": "dispatch_worker",
-		"idempotency_key": "escalated-retry-reuse", "fields": map[string]any{"attempt_id": nextAttemptID, "worker_packet": retryMutationPacket(t, s, nextAttemptID, nextPin.Correction)},
+		"idempotency_key": "escalated-convergence-3", "fields": map[string]any{"attempt_id": retryID, "worker_packet": retryMutationPacket(t, s, retryID, verifyWallPinCorrection(t, s))},
 	}
-	withSpentApproval := cloneWithApproval(t, reusedInput, challengeRef)
-	reusedRaw, _ := json.Marshal(withSpentApproval)
-	currentScope := map[string]any{"product_id": "product-1", "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}, "failed_attempt_id": retryAttemptID, "scope_version": scopeVersion}
-	currentVersions := map[string]any{"work": version, "contract": int64(1), "failed_attempt_epoch": int64(4)}
-	env.HostApproval = signedHostApproval(privateKey, challengeRef, mutationDigest("concord_work_transition", "workflow_action", env, reusedRaw), currentScope, currentVersions, grant.SessionRef, grant.AgentRef, grant.Worktree, fixedTime(), nonceForChallenge(challengeRef))
-	reusedResponse := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: reusedRaw}, env)
-	if reusedResponse.Outcome != OutcomeError || reusedResponse.Error == nil || !strings.Contains(reusedResponse.Error.Message, "approval challenge binding invalid") {
-		t.Fatalf("reused approval = %+v, want an approval-binding refusal", reusedResponse.Error)
+	raw, err = json.Marshal(input)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts WHERE work_id='work-1'`); got != 4 {
-		t.Fatalf("reused approval created %d worker attempts, want 4", got)
+	env.RequestID = "request:escalated-convergence-3"
+	admitted := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: raw}, env)
+	if admitted.Outcome != OutcomeOK {
+		t.Fatalf("converging escalated retry without any approval = %+v", admitted.Error)
+	}
+	if got := verifyWallChallenges(t, s); got != 0 {
+		t.Fatalf("converging escalated retry minted %d approval challenges, want 0", got)
+	}
+	if got := verifyWallDispatchCompletions(t, s, retryID); got != 1 {
+		t.Fatalf("converging escalated retry recorded %d dispatch completions, want 1", got)
+	}
+	if epoch := escalatedDispatchEpoch(t, s); epoch != 4 {
+		t.Fatalf("converging escalated retry epoch=%d, want the fresh fenced epoch 4", epoch)
+	}
+	basis := verifyWallRecordedConvergence(t, s, retryID)
+	if basis.Basis != "approach_changed" || basis.SupersededSeq == 0 || basis.PreviousRecordSeq != 0 || basis.LatestRecordSeq != 0 {
+		t.Fatalf("recorded convergence = %+v, want the approach_changed basis naming its supersession sequence", basis)
 	}
 
-	// The wall re-arms: a fresh request mints a fresh challenge bound to the
-	// new failed attempt, and its approval admits the next fenced attempt.
-	freshInput := map[string]any{
-		"work_id": "work-1", "expected_version": version, "action_id": "dispatch_worker",
-		"idempotency_key": "escalated-retry-fresh", "fields": map[string]any{"attempt_id": nextAttemptID, "worker_packet": retryMutationPacket(t, s, nextAttemptID, nextPin.Correction)},
+	// Replaying the identical admitted request returns the recorded result:
+	// one basis bought one authorization, and the replay creates no second
+	// attempt or completion. The envelope is byte-identical to the admitted
+	// call, so the idempotency digest matches the recorded one.
+	env.HostApproval = nil
+	replayed := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: raw}, env)
+	if replayed.Outcome != OutcomeOK || !replayed.Replayed {
+		t.Fatalf("replay of the admitted escalation = %+v replayed=%v, want the recorded result", replayed.Error, replayed.Replayed)
 	}
-	freshRaw, _ := json.Marshal(freshInput)
-	freshChallenge := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: freshRaw}, env)
-	freshRef, _ := freshChallenge.Error.Details["approval_ref"].(string)
-	if freshRef == "" || freshRef == challengeRef {
-		t.Fatalf("fresh escalated challenge = %+v, want a new approval reference", freshChallenge.Error)
+	if got := verifyWallDispatchCompletions(t, s, retryID); got != 1 {
+		t.Fatalf("replayed escalation recorded %d dispatch completions, want 1", got)
 	}
-	if got, _ := freshChallenge.Error.Details["premise_summary"].(string); got != "approved retry objective" {
-		t.Fatalf("fresh escalated challenge premise_summary = %q", freshChallenge.Error.Details["premise_summary"])
+	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts WHERE work_id='work-1'`); got != 4 {
+		t.Fatalf("replayed escalation left %d worker attempts, want 4", got)
 	}
-	freshApproved := cloneWithApproval(t, freshInput, freshRef)
-	freshApprovedRaw, _ := json.Marshal(freshApproved)
-	freshScope := map[string]any{"product_id": "product-1", "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}, "failed_attempt_id": retryAttemptID, "scope_version": scopeVersion}
-	freshVersions := map[string]any{"work": version, "contract": int64(1), "failed_attempt_epoch": int64(4)}
-	env.HostApproval = signedHostApproval(privateKey, freshRef, mutationDigest("concord_work_transition", "workflow_action", env, freshApprovedRaw), freshScope, freshVersions, grant.SessionRef, grant.AgentRef, grant.Worktree, fixedTime(), nonceForChallenge(freshRef))
-	valid := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: freshApprovedRaw}, env)
-	if valid.Outcome != OutcomeOK {
-		t.Fatalf("fresh approved escalated retry = %+v", valid.Error)
+
+	// The session dies before the host dispatches the worker: the
+	// half-materialized dispatch consumed the basis, so a blind re-dispatch
+	// refuses and mints no challenge.
+	secondID := "attempt:work-1:escalated-5"
+	nextInput := map[string]any{
+		"work_id": "work-1", "expected_version": workVersion(t, s, "work-1"), "action_id": "dispatch_worker",
+		"idempotency_key": "escalated-convergence-4", "fields": map[string]any{"attempt_id": secondID, "worker_packet": retryMutationPacket(t, s, secondID, verifyWallPinCorrection(t, s))},
+	}
+	blindRaw, err := json.Marshal(nextInput)
+	if err != nil {
+		t.Fatal(err)
+	}
+	env.RequestID = "request:escalated-convergence-4"
+	blind := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: blindRaw}, env)
+	if blind.Error == nil || blind.Error.Kind != "missing_evidence" {
+		t.Fatalf("blind re-dispatch after the consumed basis = %+v, want missing_evidence", blind.Error)
+	}
+	if got := verifyWallChallenges(t, s); got != 0 {
+		t.Fatalf("blind re-dispatch minted %d approval challenges, want 0", got)
+	}
+	if got := verifyWallDispatchCompletions(t, s, secondID); got != 0 {
+		t.Fatalf("blind re-dispatch recorded %d dispatch completions, want 0", got)
+	}
+	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts WHERE work_id='work-1' AND attempt_id='`+secondID+`'`); got != 0 {
+		t.Fatalf("blind re-dispatch created %d worker attempt rows, want 0", got)
+	}
+
+	// The admitted attempt fails and the failure records: the correction
+	// re-arms at four counted failures bound to the new attempt identity, and
+	// the wall still keeps no approval binding.
+	recordFailureForEscalatedRetry(t, s, service, grant, retryID, 4)
+	rearmed := verifyWallPinCorrection(t, s)
+	if rearmed.Disposition != "failed" || !rearmed.Escalated || rearmed.AttemptCount != 4 || rearmed.FailedAttemptID != retryID || rearmed.FailedAttemptEpoch != 4 {
+		t.Fatalf("re-armed correction = %+v, want four counted failures bound to %s at epoch 4", rearmed, retryID)
+	}
+	if binding, err := store.WorkflowFailedWorkerRetryBinding(context.Background(), s, nil, "work-1"); err != nil || binding != nil {
+		t.Fatalf("retry approval binding behind the re-armed wall = %+v err=%v, want none", binding, err)
+	}
+
+	// A fresh supersession derives a fresh basis, and each basis buys exactly
+	// one more fresh fenced attempt.
+	supersedeEscalatedCorrectionContract(t, s, owner, workVersion(t, s, "work-1"), 3, "the failed converging retry needed a renewed approach")
+	recordReadyRetryJobUnderContract(t, s, service, mutationEnvelope(grant, mustScopeVersion(t, s)), "job:retry-objective-3", 3)
+	renewedInput := map[string]any{
+		"work_id": "work-1", "expected_version": workVersion(t, s, "work-1"), "action_id": "dispatch_worker",
+		"idempotency_key": "escalated-convergence-5", "fields": map[string]any{"attempt_id": secondID, "worker_packet": retryMutationPacket(t, s, secondID, verifyWallPinCorrection(t, s))},
+	}
+	renewedRaw, err := json.Marshal(renewedInput)
+	if err != nil {
+		t.Fatal(err)
+	}
+	env.RequestID = "request:escalated-convergence-5"
+	renewed := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: renewedRaw}, env)
+	if renewed.Outcome != OutcomeOK {
+		t.Fatalf("renewed converging retry = %+v", renewed.Error)
+	}
+	if got := verifyWallChallenges(t, s); got != 0 {
+		t.Fatalf("the whole escalated journey minted %d approval challenges, want 0", got)
+	}
+	if epoch := escalatedDispatchEpoch(t, s); epoch != 5 {
+		t.Fatalf("renewed converging retry epoch=%d, want the fresh fenced epoch 5", epoch)
+	}
+	renewedBasis := verifyWallRecordedConvergence(t, s, secondID)
+	if renewedBasis.Basis != "approach_changed" || renewedBasis.SupersededSeq <= basis.SupersededSeq {
+		t.Fatalf("renewed convergence = %+v, want a fresh supersession after seq %d", renewedBasis, basis.SupersededSeq)
 	}
 }
 
@@ -225,9 +267,22 @@ func assertBindingContains(t *testing.T, bindings any, want string) {
 	t.Fatalf("challenge bindings %v omit %q", list, want)
 }
 
+// escalatedDispatchEpoch reads the epoch the latest dispatch start fenced.
+func escalatedDispatchEpoch(t *testing.T, s *store.Store) int64 {
+	t.Helper()
+	var epoch int64
+	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.attempt_epoch') FROM domain_events WHERE subject_id='work-1' AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' ORDER BY seq DESC LIMIT 1`, store.WorkflowActionStarted).Scan(&epoch); err != nil {
+		t.Fatal(err)
+	}
+	return epoch
+}
+
 // seedEscalatedFailedWorkerMutation drives three full failed correction
-// attempts through the mutation boundary, so the fourth dispatch faces the
-// escalated wall with a durable failed attempt identity to bind.
+// attempts through the mutation boundary — each cycle's dispatch stays
+// approval-free below the limit, as the ordinary below-wall route keeps it —
+// so the fourth dispatch faces the escalated wall with a durable failed
+// attempt identity. The wall itself owns no approval binding under CON885,
+// so the seed pins only the correction record.
 func seedEscalatedFailedWorkerMutation(t *testing.T, s *store.Store, service *Service, grant Authority) (int64, string, string) {
 	t.Helper()
 	if got := seedAgentWorkflow(t, s, grant); got != 4 {
@@ -286,10 +341,54 @@ func seedEscalatedFailedWorkerMutation(t *testing.T, s *store.Store, service *Se
 	if pin.Correction == nil || !pin.Correction.Escalated || pin.Correction.AttemptCount != 3 || pin.Correction.FailedAttemptID != attemptID || pin.Correction.FailedAttemptEpoch != 3 {
 		t.Fatalf("escalated correction = %#v, want three failed attempts", pin.Correction)
 	}
-	if binding, err := store.WorkflowFailedWorkerRetryBinding(context.Background(), s, nil, "work-1"); err != nil || binding == nil || binding.FailedAttemptID != attemptID || binding.FailedAttemptEpoch != 3 || binding.ContractVersion != 1 {
-		t.Fatalf("escalated retry binding=%+v err=%v", binding, err)
-	}
 	return version, attemptID, path
+}
+
+// supersedeEscalatedCorrectionContract runs the operator-approved contract
+// supersession at store level: the changed approach the convergence basis
+// reads. The default workflow family is Product-changing, so the successor
+// carries the complete architecture binding, and the store-level run mints
+// nothing on the agent challenge table.
+func supersedeEscalatedCorrectionContract(t *testing.T, s *store.Store, owner store.WorkflowActor, version, next int64, reason string) {
+	t.Helper()
+	approvalRef := strings.Repeat("a", 64)
+	operator := store.WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "approval:" + approvalRef, SessionRef: "session/escalated-supersede", ActorClass: store.ActorOperator}
+	fields := map[string]any{
+		"contract_version": next,
+		"premise":          fmt.Sprintf("corrected retry objective %d: %s", next, reason),
+		"outcome_predicates": []map[string]any{{
+			"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "check",
+			"outcome_payload": map[string]any{"kind": "check", "check_ref": "check:workflow", "immutable_subject_ref": "commit:escalated-retry", "expected_result": "pass"},
+		}},
+		"required_evidence": []string{"artifact"}, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{},
+		"architecture_binding": workflowArchitectureBindingFixture(),
+		"rigor_class":          "prototype_internal", "supersede_reason": reason, "audit_evidence": []string{"evidence:escalated-supersede"},
+	}
+	raw, err := json.Marshal(fields)
+	if err != nil {
+		t.Fatal(err)
+	}
+	operationID := "escalated-supersede-" + strconv.FormatInt(next, 10)
+	if err := s.Transact(context.Background(), func(tx *store.Transaction) error {
+		_, err := store.ApplyWorkflowActionTx(context.Background(), tx, store.BuiltinWorkflowRegistry(), store.WorkflowActionExecutionRequest{
+			WorkID: "work-1", ExpectedVersion: version, ActionID: "supersede_contract", Payload: raw, Actor: owner,
+			OperatorActor: &operator, OperatorApprovalRef: approvalRef,
+			ApprovalOperationDigest: "sha256:" + strings.Repeat("c", 64), ApprovalScopeJSON: `{}`, ApprovalVersionsJSON: fmt.Sprintf(`{"work":%d}`, version), ApprovalConsequence: "recovery",
+			AcceptedInputsDigest: "sha256:" + strings.Repeat("f", 64) + operationID, IdempotencyIdentity: operationID, OperationID: operationID,
+			PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID, RequestID: "request:" + operationID,
+			ContractDigest: ManifestDigest, Now: fixedTime(),
+		})
+		return err
+	}); err != nil {
+		t.Fatalf("supersede contract v%d: %v", next, err)
+	}
+	var active int64
+	if err := s.DatabaseForTesting().QueryRow(`SELECT contract_version FROM workflow_contracts WHERE work_id='work-1' AND superseded_by IS NULL`).Scan(&active); err != nil {
+		t.Fatal(err)
+	}
+	if active != next {
+		t.Fatalf("active contract after supersession = %d, want %d", active, next)
+	}
 }
 
 func applyEscalatedWorkerDispatchAndFailure(t *testing.T, s *store.Store, grant Authority, attemptID, suffix string) {
@@ -323,7 +422,7 @@ func recordFailureForEscalatedRetry(t *testing.T, s *store.Store, service *Servi
 		t.Fatal(err)
 	}
 	version := workVersion(t, s, "work-1")
-	record := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: retryJSON(map[string]any{"work_id": "work-1", "expected_version": version, "action_id": "record_worker_failure", "fields": map[string]any{"attempt_id": attemptID, "attempt_epoch": epoch}, "idempotency_key": "escalated-retry-record"})}, mutationEnvelope(grant, scopeVersion))
+	record := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: retryJSON(map[string]any{"work_id": "work-1", "expected_version": version, "action_id": "record_worker_failure", "fields": map[string]any{"attempt_id": attemptID, "attempt_epoch": epoch}, "idempotency_key": "escalated-retry-record-" + attemptID})}, mutationEnvelope(grant, scopeVersion))
 	if record.Outcome != OutcomeOK {
 		t.Fatalf("record escalated retry failure: %+v", record.Error)
 	}

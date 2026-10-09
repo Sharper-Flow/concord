@@ -11004,6 +11004,15 @@ const GeneratedPayloadSchemaDocument = `{
                     "type": "array",
                     "uniqueItems": true
                   },
+                  "open_finding_ids": {
+                    "items": {
+                      "$ref": "#/$defs/id"
+                    },
+                    "maxItems": 32,
+                    "minItems": 1,
+                    "type": "array",
+                    "uniqueItems": true
+                  },
                   "predicate_ids": {
                     "items": {
                       "$ref": "#/$defs/id"

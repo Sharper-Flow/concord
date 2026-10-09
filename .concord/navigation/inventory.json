@@ -1462,7 +1462,7 @@
         ]
       },
       "domain_id": "repository-verification",
-      "mapped_count": 181,
+      "mapped_count": 182,
       "name": "Repository verification",
       "owner_id": "domain:repository-verification",
       "path_rules": {
@@ -3912,6 +3912,7 @@
     "scripts/generate-native-run-statuses.py": "repository-verification",
     "scripts/generate-relation-vocabulary.py": "repository-verification",
     "scripts/generate-work-kinds.py": "repository-verification",
+    "scripts/git_environment.py": "repository-verification",
     "scripts/go-test-assertions/main.go": "repository-verification",
     "scripts/install.py": "repository-verification",
     "scripts/knowledge_index.py": "repository-verification",
@@ -3981,7 +3982,7 @@
     "skills/README.md": "agent-surface",
     "workflows/README.md": "workflow-engine"
   },
-  "mapped_count": 1891,
+  "mapped_count": 1892,
   "schema_version": "1.0",
   "scope": "coarse file navigation, not law homes or semantic mechanism ownership",
   "test_coverage": {

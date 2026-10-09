@@ -1344,7 +1344,7 @@
       ],
       "dependency_interpretations_to": [],
       "domain_id": "agent-surface",
-      "mapped_count": 426,
+      "mapped_count": 427,
       "mechanism_owner_ids": [
         "mechanism:adapter-transport",
         "mechanism:agent-tools",
@@ -2185,6 +2185,7 @@
           "internal/store/worktree_verify_lease_recovery_test.go",
           "internal/store/worktree_occupancy_release_test.go",
           "internal/store/worktree_route_test.go",
+          "internal/store/multi_project_recovery_test.go",
           "internal/store/landing.go",
           "internal/store/session_vacate*.go",
           "internal/store/freshness*.go",
@@ -2200,7 +2201,7 @@
         ]
       },
       "purpose": "Owns the typed agent plane: the read and mutation tool surface, its budget and evolution constraints, call context, lanes and worker dispatch, the adapter transport contract, and the agent result envelope.",
-      "test_count": 273,
+      "test_count": 274,
       "test_packages": [
         "github.com/sharper-flow/concord/internal/agent",
         "github.com/sharper-flow/concord/internal/store"
@@ -2427,6 +2428,7 @@
         "internal/store/freshness_test.go",
         "internal/store/git_runner_test.go",
         "internal/store/lane_step_dispatch_test.go",
+        "internal/store/multi_project_recovery_test.go",
         "internal/store/native_run_status_vocabulary_test.go",
         "internal/store/native_run_verification_test.go",
         "internal/store/nil_store_agent_authority_test.go",
@@ -2593,7 +2595,7 @@
         }
       ],
       "domain_id": "durable-authority",
-      "mapped_count": 67,
+      "mapped_count": 68,
       "mechanism_owner_ids": [
         "mechanism:durable-store"
       ],
@@ -2681,9 +2683,13 @@
         "github.com/sharper-flow/concord/internal/testenv",
         "github.com/sharper-flow/concord/internal/version",
         "go/ast",
+        "go/constant",
+        "go/importer",
         "go/parser",
         "go/token",
+        "go/types",
         "io",
+        "io/fs",
         "modernc.org/sqlite",
         "modernc.org/sqlite/lib",
         "net/url",
@@ -2785,7 +2791,7 @@
         ]
       },
       "purpose": "Owns the durable state envelope: the SQLite authority, the append-only event log, typed projections, migrations, fold guards, and the transactional guarantees that make an acknowledged write durable.",
-      "test_count": 44,
+      "test_count": 45,
       "test_packages": [
         "github.com/sharper-flow/concord/internal/hostlease",
         "github.com/sharper-flow/concord/internal/store"
@@ -2827,6 +2833,7 @@
         "internal/store/schema_test.go",
         "internal/store/store_test.go",
         "internal/store/tx_subprocess_guard_test.go",
+        "internal/store/txbegin_guard_test.go",
         "internal/store/txscope_test.go",
         "internal/store/unstamped_open_test.go",
         "internal/store/upgrade_recovery_test.go",
@@ -7619,6 +7626,7 @@
     "internal/store/managed_resources_test.go": "work-coordination",
     "internal/store/membership.go": "work-coordination",
     "internal/store/membership_test.go": "work-coordination",
+    "internal/store/multi_project_recovery_test.go": "agent-surface",
     "internal/store/native_run_status_vocabulary_test.go": "agent-surface",
     "internal/store/native_run_verification_test.go": "agent-surface",
     "internal/store/native_runs.go": "agent-surface",
@@ -7720,6 +7728,7 @@
     "internal/store/test_fixture_test.go": "repository-verification",
     "internal/store/transaction.go": "durable-authority",
     "internal/store/tx_subprocess_guard_test.go": "durable-authority",
+    "internal/store/txbegin_guard_test.go": "durable-authority",
     "internal/store/txscope_test.go": "durable-authority",
     "internal/store/typed_error_kinds_test.go": "agent-surface",
     "internal/store/unprocessed_knowledge.go": "product-memory",
@@ -8093,7 +8102,7 @@
     "skills/README.md": "agent-surface",
     "workflows/README.md": "workflow-engine"
   },
-  "mapped_count": 2010,
+  "mapped_count": 2012,
   "mechanisms": [
     {
       "check_ids": [

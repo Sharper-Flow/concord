@@ -233,7 +233,7 @@ func (s *Store) PrepareWorkRemoval(ctx context.Context, req WorkRemovalRequest) 
 	if err != nil {
 		return WorkRemovalReceipt{}, newFailure(KindInvalidOperation, "work_removal_prepare", "handoff cannot be encoded", false, "supply a JSON-encodable handoff")
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := beginOrdinaryTx(ctx, s.db)
 	if err != nil {
 		return WorkRemovalReceipt{}, wrapFailure(KindUnavailable, "work_removal_prepare", "cannot begin removal preparation", true, "retry once the database is writable", err)
 	}

@@ -127,7 +127,7 @@ func ResolveWorkflowConditionsAtBoundary(ctx context.Context, s *Store, workID s
 	if strings.TrimSpace(workID) == "" || resolver == nil || now.IsZero() {
 		return 0, newFailure(KindInvalidOperation, "resolve_workflow_conditions_boundary", "work, resolver, and observation time are required", false, "supply one explicit consequential boundary request")
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := beginOrdinaryTx(ctx, s.db)
 	if err != nil {
 		return 0, wrapFailure(KindUnavailable, "resolve_workflow_conditions_boundary", "cannot begin condition boundary", true, "retry once the database is writable", err)
 	}
@@ -248,7 +248,7 @@ func ResolveWorkflowCondition(ctx context.Context, s *Store, workID, conditionID
 	}
 	raw, _ := json.Marshal(payload)
 	event := Event{EventID: resolution.ResolvedByEvent, Kind: WorkflowConditionResolved, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: resolution.ActorRef, OccurredAt: now.UTC(), PayloadVersion: 1, Payload: raw}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := beginOrdinaryTx(ctx, s.db)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "resolve_workflow_condition", "cannot begin condition resolution", true, "retry once the database is writable", err)
 	}
@@ -288,7 +288,7 @@ func CancelWorkflowCondition(ctx context.Context, s *Store, workID, conditionID,
 		"cancellation_evidence": evidence, "cancelled_by_event": eventID,
 	})
 	event := Event{EventID: eventID, Kind: WorkflowConditionCancelled, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: actorRef, OccurredAt: now.UTC(), PayloadVersion: 1, Payload: payload}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := beginOrdinaryTx(ctx, s.db)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "cancel_workflow_condition", "cannot begin condition cancellation", true, "retry once the database is writable", err)
 	}

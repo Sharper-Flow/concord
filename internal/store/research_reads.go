@@ -200,7 +200,7 @@ func readResearchPackTx(ctx context.Context, tx *sql.Tx, packID string, limit in
 }
 
 func readResearchPack(ctx context.Context, s *Store, packID string, limit int) (ResearchPack, error) {
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	tx, err := beginReadTx(ctx, s.db)
 	if err != nil {
 		return ResearchPack{}, researchUnavailable("cannot begin research read", err)
 	}

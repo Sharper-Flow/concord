@@ -7,6 +7,23 @@ import (
 	"time"
 )
 
+// beginReadTx always opens a deferred snapshot, even when the database's DSN
+// selects immediate write transactions. It also serves independent read-only
+// readiness handles, without borrowing the live store's connection.
+func beginReadTx(ctx context.Context, db *sql.DB) (*sql.Tx, error) {
+	return db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+}
+
+// beginOrdinaryTx uses the write owner without changing NORMAL commit or raw
+// transaction lifecycle semantics. Only durable writes need a pinned connection.
+func beginOrdinaryTx(ctx context.Context, db *sql.DB) (*sql.Tx, error) {
+	tx, err := beginWriteTx(ctx, db, nil)
+	if err != nil {
+		return nil, err
+	}
+	return tx.Tx, nil
+}
+
 // Transaction is an opaque unit of work owned by Store. Callers can pass it
 // back to store-owned Tx methods, but cannot execute SQL or control its
 // lifecycle directly.
@@ -56,7 +73,7 @@ func (s *Store) transact(ctx context.Context, durable bool, fn func(*Transaction
 	if fn == nil {
 		return newFailure(KindInvalidOperation, "transaction", "transaction callback is required", false, "supply a transaction callback")
 	}
-	tx, err := beginWriteTx(ctx, s, durable)
+	tx, err := s.beginStoreWriteTx(ctx, durable)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "transaction", "cannot begin transaction", true, "retry once the database is writable", err)
 	}

@@ -1,5 +1,7 @@
 package store
 
+import "slices"
+
 // Version-1 workflow definitions, frozen for the instances that pin them
 // (issue #861). CD-0112 replaced this content in place at version 1, which
 // moved the version-1 digests and left 158 live instances failing definition
@@ -1317,4 +1319,82 @@ func genericOneOffRecoveryRoutesV14() WorkflowDefinition {
 	d.Version = 14
 	d.RecoveryRoutes = genericOneOffRecoveryRoutes()
 	return d
+}
+
+// withWorkContext publishes the CON-887 work-context action:
+// record_work_context joins every step except the delivery gates, so a
+// coordinator declares the durable working context wherever the work stands.
+// The delivery-gate reader (workflowStepIsDeliveryGate, pinned by
+// workflow_dispatch.go and its scenario corpus) holds the gate steps at a
+// closed four-action shape ending in the continuity pair, so the work-context
+// action stays off them rather than widening that closed shape here. On the
+// steps it joins it sits immediately before the trailing continuity pair.
+// The declaration's Domain validation, finding-reference resolution, and
+// fold live in work_context.go; the behavior this version gates is the
+// action's presence on the definition.
+func withWorkContext(definition WorkflowDefinition) WorkflowDefinition {
+	definition = cloneWorkflowDefinition(definition)
+	record := currentActionDefinition("record_work_context", true)
+	definition.AvailableActions = append(definition.AvailableActions, record.ID)
+	definition.ActionDefinitions = append(definition.ActionDefinitions, record)
+	for i := range definition.StepGraph.Steps {
+		actions := definition.StepGraph.Steps[i].Actions
+		if workflowStepIsDeliveryGate(&WorkflowStep{Actions: actions}) {
+			continue
+		}
+		at := len(actions)
+		if at >= 2 && actions[at-2] == "checkpoint_context" && actions[at-1] == "cross_context_boundary" {
+			at -= 2
+		}
+		// Insert into a copy: the step's slice may share a backing array
+		// with the predecessor definition, whose digest must not move.
+		definition.StepGraph.Steps[i].Actions = slices.Insert(slices.Clone(actions), at, record.ID)
+	}
+	return definition
+}
+
+// Each builder below ships the record_work_context action at its family's
+// next version. The definition content stays the predecessor's; the only
+// content change is the work-context action joining every step, so every
+// released version above keeps its digest.
+func implementationWorkContextV26() WorkflowDefinition {
+	d := implementationPremiseFloorV25()
+	d.Version = 26
+	return withWorkContext(d)
+}
+
+func breakFixWorkContextV23() WorkflowDefinition {
+	d := breakFixPremiseFloorV22()
+	d.Version = 23
+	return withWorkContext(d)
+}
+
+func researchWorkContextV16() WorkflowDefinition {
+	d := researchPremiseFloorV15()
+	d.Version = 16
+	return withWorkContext(d)
+}
+
+func architectureWorkContextV17() WorkflowDefinition {
+	d := architecturePremiseFloorV16()
+	d.Version = 17
+	return withWorkContext(d)
+}
+
+func opsRunbookWorkContextV18() WorkflowDefinition {
+	d := opsRunbookPremiseFloorV17()
+	d.Version = 18
+	return withWorkContext(d)
+}
+
+func staticAnalysisWorkContextV15() WorkflowDefinition {
+	d := staticAnalysisPremiseFloorV14()
+	d.Version = 15
+	return withWorkContext(d)
+}
+
+func genericOneOffWorkContextV16() WorkflowDefinition {
+	d := genericOneOffPremiseFloorV15()
+	d.Version = 16
+	return withWorkContext(d)
 }

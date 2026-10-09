@@ -25,7 +25,7 @@ func refineRecoverySuccessor(contractVersion int64, designRecord string) json.Ra
 // dispatch_worker action and records the lane dispatch. The attempt stays
 // live: no report is recorded. A non-nil correction makes the packet consume
 // that correction context, the way a post-failure retry does.
-func dispatchRefineAttemptOnly(t *testing.T, fixture workflowReturnRouteFixture, workID, label string, correction map[string]any) (string, int64, *WorkerJobBinding, error) {
+func dispatchRefineAttemptOnly(t *testing.T, fixture workflowReturnRouteFixture, workID, label string, correction *WorkflowCorrectionContext) (string, int64, *WorkerJobBinding, error) {
 	t.Helper()
 	ctx := context.Background()
 	lane := reviewGateLane(t, "review")
@@ -333,9 +333,9 @@ func failReviewWorkerAttempt(t *testing.T, s *Store, workID, attemptID string, l
 	}
 }
 
-// refineRetryCorrection reads the work pin's current correction context in the
-// payload shape a retry packet consumes.
-func refineRetryCorrection(t *testing.T, s *Store, workID string) map[string]any {
+// refineRetryCorrection reads the work pin's current correction context, the
+// value a retry packet consumes.
+func refineRetryCorrection(t *testing.T, s *Store, workID string) *WorkflowCorrectionContext {
 	t.Helper()
 	pin, err := ReadWorkPin(context.Background(), s, workID)
 	if err != nil {
@@ -344,11 +344,7 @@ func refineRetryCorrection(t *testing.T, s *Store, workID string) map[string]any
 	if pin.Correction == nil {
 		t.Fatalf("no correction context at %s after the recorded refine failure", workID)
 	}
-	return map[string]any{
-		"disposition": pin.Correction.Disposition, "attempt_count": pin.Correction.AttemptCount, "attempt_limit": pin.Correction.AttemptLimit, "escalated": pin.Correction.Escalated,
-		"diagnosis": pin.Correction.Diagnosis, "strategy": pin.Correction.Strategy, "failure_kind": pin.Correction.FailureKind, "failure_detail": pin.Correction.FailureDetail,
-		"predicate_ids": pin.Correction.PredicateIDs, "evidence_refs": pin.Correction.EvidenceRefs,
-	}
+	return pin.Correction
 }
 
 // seedRefineFirstPass seeds the design, the accepted execution pass, and the

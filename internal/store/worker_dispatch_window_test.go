@@ -678,7 +678,7 @@ type cd0059DispatchSeed struct {
 // refuses on identity grounds.
 func dispatchWorkerPacket(t *testing.T, s *Store, workID, stepID, attemptID string) map[string]any {
 	t.Helper()
-	laneVersion, laneDigest := mustLaneIdentity("implement")
+	laneVersion, laneDigest := implementLaneIdentity()
 	task, binding := recordedPacketInputs(t, s, workID, "implement")
 	return map[string]any{
 		"schema_version": "1.0",
@@ -1552,7 +1552,7 @@ func TestDispatchFoldDefensivelyRefusesWorkerPacketMissingIdentity(t *testing.T)
 func TestDispatchFoldDefensivelyReachesTheCanonicalJSONCall(t *testing.T) {
 	t.Parallel()
 	attemptID := "attempt-reaches-canonical"
-	laneVersion, laneDigest := mustLaneIdentity("implement")
+	laneVersion, laneDigest := implementLaneIdentity()
 	packetBytes, err := json.Marshal(map[string]any{
 		"schema_version": "1.0", "attempt_id": attemptID, "lane_id": "implement", "lane_version": laneVersion, "lane_digest": laneDigest,
 		"work_id": "work-fold-defensive", "step_id": "execution",

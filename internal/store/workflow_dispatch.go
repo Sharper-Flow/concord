@@ -821,6 +821,8 @@ func workflowSemanticActionEvents(ctx context.Context, tx *sql.Tx, definition Wo
 		return workflowContextCheckpointEvents(ctx, tx, request, stepID, actor, fields, eventID, expected)
 	case "cross_context_boundary":
 		return workflowContextBoundaryEvents(ctx, tx, request, actor, fields, eventID, expected)
+	case "record_work_context":
+		return workflowRecordWorkContextEvents(ctx, tx, request, stepID, actor, fields, eventID, expected)
 	case "record_design":
 		return workflowDesignRecordEvents(definition, request, actor, raw, eventID, expected)
 	case "record_proposal":

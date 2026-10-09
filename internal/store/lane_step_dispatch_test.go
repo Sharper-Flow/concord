@@ -34,13 +34,15 @@ func joinPacketFor(t *testing.T, s *Store, workID, stepID, attemptID, laneID str
 	}
 }
 
-func mustLaneIdentity(laneID string) (int64, string) {
+// implementLaneIdentity answers the registered implement lane's version and
+// digest for fixtures built outside a *testing.T scope.
+func implementLaneIdentity() (int64, string) {
 	for _, lane := range BuiltinLaneDefinitions() {
-		if lane.ID == laneID {
+		if lane.ID == "implement" {
 			return lane.Version, lane.Digest
 		}
 	}
-	panic("lane " + laneID + " is not registered")
+	panic("lane implement is not registered")
 }
 
 func registeredLaneIdentity(t *testing.T, laneID string) (int64, string) {
@@ -448,8 +450,8 @@ func TestRepinReachesTheCheckpointReviewDefinition(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if current.Definition.Version != 22 {
-		t.Fatalf("current break-fix version = %d, want 22", current.Definition.Version)
+	if current.Definition.Version != 23 {
+		t.Fatalf("current break-fix version = %d, want 23", current.Definition.Version)
 	}
 	if err := s.Transact(context.Background(), func(transaction *Transaction) error {
 		return RepinWorkflowTx(context.Background(), transaction, WorkflowRepinRequest{WorkID: workID, EventID: workID + "-repin", Definition: current, Actor: fixture.owner, Now: time.Unix(50, 0).UTC()})

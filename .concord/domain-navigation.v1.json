@@ -28,7 +28,7 @@
     },
     {
       "domain_id": "workflow-engine",
-      "include": [
+      "include": ["internal/store/work_context_test.go", "internal/store/work_context_packet_test.go", "internal/store/work_context.go", 
         "internal/workflowcorpus/**", "internal/payloadschema/**", "internal/store/workflow*.go",
         "internal/store/outside_repair.go", "internal/store/outside_repair_test.go",
         "internal/store/outside_repair_base_test.go", "internal/store/outside_repair_review_test.go",

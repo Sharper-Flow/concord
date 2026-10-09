@@ -17,8 +17,9 @@ const publishedBytes = (tool: string): number => Buffer.byteLength(JSON.stringif
 // The pinned total is the sum of every tool's published UTF-8 byte size on
 // reviewed surface, including the typed outside-repair operations. Update it
 // only through a reviewed size change. The figure counts schema bytes, not
-// tokens.
-const PINNED_PUBLISHED_TOTAL_BYTES = 373509
+// tokens. The CON-887 record_work_context action adds 5550 bytes to
+// concord_work_transition.
+const PINNED_PUBLISHED_TOTAL_BYTES = 379059
 
 test("publication is repeatable: two publications are byte-identical", () => {
   for (const tool of tools) {

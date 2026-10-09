@@ -23,6 +23,10 @@ rejection records its attempt, diagnosis, strategy, predicate IDs, and evidence.
 
 A failed or rejected result exposes bounded correction context through the work
 pin and lane packet. A fresh packet must consume that context before dispatch.
+The context names the source event of the record that opened the correction,
+and the failed or rejected attempt when one exists. Dispatch compares these
+identities, so an equal diagnosis and strategy from another record do not
+consume the correction.
 
 ### D3. Bound retries
 

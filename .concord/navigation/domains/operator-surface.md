@@ -7,7 +7,7 @@ File accountability does not change a document's law home or a handler's semanti
 ## Responsibility
 Owns the human-facing plane: the terminal launcher, the CLI verb surface and its operator diagnostics, installation and release packaging, and the navigation path an operator uses to reach Product state.
 
-Mapped files: 161; tests: 86; unresolved candidates: 31.
+Mapped files: 162; tests: 87; unresolved candidates: 31.
 Candidate counts overlap when a file has several candidates; no candidate is an assigned owner.
 
 ## Code and tests

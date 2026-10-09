@@ -148,7 +148,7 @@
       "cli_verbs": [],
       "default_path_rules": null,
       "domain_id": "agent-surface",
-      "mapped_count": 376,
+      "mapped_count": 380,
       "name": "Agent surface",
       "owner_id": "domain:agent-surface",
       "path_rules": {
@@ -192,7 +192,7 @@
         ]
       },
       "purpose": "Owns the typed agent plane: the read and mutation tool surface, its budget and evolution constraints, call context, lanes and worker dispatch, the adapter transport contract, and the agent result envelope.",
-      "test_count": 240,
+      "test_count": 243,
       "test_packages": [
         "github.com/sharper-flow/concord/internal/agent",
         "github.com/sharper-flow/concord/internal/store"
@@ -237,6 +237,7 @@
         "adapter/opencode/session-vacate-move.test.ts",
         "adapter/opencode/session-vacate-reoccupy.test.ts",
         "adapter/opencode/task-result.test.ts",
+        "adapter/opencode/terminal-context-findings.test.ts",
         "adapter/opencode/terminal-vacate.test.ts",
         "adapter/opencode/test_preload.test.ts",
         "adapter/opencode/test_preload.ts",
@@ -280,6 +281,7 @@
         "internal/agent/continuity_dispatch_test.go",
         "internal/agent/continuity_payload_law_context_test.go",
         "internal/agent/continuity_payload_omits_empty_peer_signals_test.go",
+        "internal/agent/continuity_payload_work_context_test.go",
         "internal/agent/cross_product_admission_test.go",
         "internal/agent/delivery_correction_test.go",
         "internal/agent/delivery_recovery_test.go",
@@ -423,6 +425,7 @@
         "internal/store/worker_authority_boundary_test.go",
         "internal/store/worker_authorized_failure_recovery_test.go",
         "internal/store/worker_base_comparison_test.go",
+        "internal/store/worker_context_findings_test.go",
         "internal/store/worker_correction_refs_test.go",
         "internal/store/worker_detail_bytes_test.go",
         "internal/store/worker_dispatch_window_test.go",
@@ -957,7 +960,7 @@
       ],
       "default_path_rules": null,
       "domain_id": "operator-surface",
-      "mapped_count": 161,
+      "mapped_count": 162,
       "name": "Operator surface",
       "owner_id": "domain:operator-surface",
       "path_rules": {
@@ -989,7 +992,7 @@
         ]
       },
       "purpose": "Owns the human-facing plane: the terminal launcher, the CLI verb surface and its operator diagnostics, installation and release packaging, and the navigation path an operator uses to reach Product state.",
-      "test_count": 86,
+      "test_count": 87,
       "test_packages": [
         "github.com/sharper-flow/concord/cmd/concord",
         "github.com/sharper-flow/concord/internal/launcher",
@@ -1048,6 +1051,7 @@
         "cmd/concord/work_resume_linear_remote_test.go",
         "cmd/concord/work_resume_test.go",
         "cmd/concord/worker_cli_required_fields_test.go",
+        "cmd/concord/worker_context_findings_cli_test.go",
         "cmd/concord/worker_evidence_test.go",
         "cmd/concord/worker_reconcile_legacy_versions_test.go",
         "cmd/concord/worker_reconcile_test.go",
@@ -1905,7 +1909,7 @@
       "cli_verbs": [],
       "default_path_rules": null,
       "domain_id": "workflow-engine",
-      "mapped_count": 190,
+      "mapped_count": 194,
       "name": "Workflow engine",
       "owner_id": "domain:workflow-engine",
       "path_rules": {
@@ -1914,6 +1918,9 @@
           "internal/store/workflow_test_support_test.go"
         ],
         "include": [
+          "internal/store/work_context_test.go",
+          "internal/store/work_context_packet_test.go",
+          "internal/store/work_context.go",
           "internal/workflowcorpus/**",
           "internal/payloadschema/**",
           "internal/store/workflow*.go",
@@ -1940,7 +1947,7 @@
         ]
       },
       "purpose": "Owns work lifecycle: workflow types and their contracts, workflow actions and transitions, completion predicates and verdicts, evidence binding, architecture overlap resolution, and terminal-state law.",
-      "test_count": 137,
+      "test_count": 140,
       "test_packages": [
         "github.com/sharper-flow/concord/internal/payloadschema",
         "github.com/sharper-flow/concord/internal/store"
@@ -1972,6 +1979,8 @@
         "internal/store/outside_repair_review_test.go",
         "internal/store/outside_repair_test.go",
         "internal/store/verdict_evidence_binding_test.go",
+        "internal/store/work_context_packet_test.go",
+        "internal/store/work_context_test.go",
         "internal/store/workflow_accept_delivery_test.go",
         "internal/store/workflow_accepted_no_ship_recovery_test.go",
         "internal/store/workflow_action_events_test.go",
@@ -1990,6 +1999,7 @@
         "internal/store/workflow_artifact_staleness_test.go",
         "internal/store/workflow_backlog_alignment_test.go",
         "internal/store/workflow_carry_forward_test.go",
+        "internal/store/workflow_checkpoint_packet_test.go",
         "internal/store/workflow_complete_closes_lifecycle_test.go",
         "internal/store/workflow_completion_fold_passthrough_test.go",
         "internal/store/workflow_composition_test.go",
@@ -3049,6 +3059,7 @@
     "adapter/opencode/session-vacate-reoccupy.test.ts": "agent-surface",
     "adapter/opencode/task-result.test.ts": "agent-surface",
     "adapter/opencode/task-result.ts": "agent-surface",
+    "adapter/opencode/terminal-context-findings.test.ts": "agent-surface",
     "adapter/opencode/terminal-vacate.test.ts": "agent-surface",
     "adapter/opencode/test_preload.test.ts": "agent-surface",
     "adapter/opencode/test_preload.ts": "agent-surface",
@@ -3159,6 +3170,7 @@
     "cmd/concord/work_resume_linear_remote_test.go": "operator-surface",
     "cmd/concord/work_resume_test.go": "operator-surface",
     "cmd/concord/worker_cli_required_fields_test.go": "operator-surface",
+    "cmd/concord/worker_context_findings_cli_test.go": "operator-surface",
     "cmd/concord/worker_evidence_reconcile.go": "operator-surface",
     "cmd/concord/worker_evidence_test.go": "operator-surface",
     "cmd/concord/worker_reconcile_legacy_versions_test.go": "operator-surface",
@@ -3252,6 +3264,7 @@
     "internal/agent/continuity_dispatch_test.go": "agent-surface",
     "internal/agent/continuity_payload_law_context_test.go": "agent-surface",
     "internal/agent/continuity_payload_omits_empty_peer_signals_test.go": "agent-surface",
+    "internal/agent/continuity_payload_work_context_test.go": "agent-surface",
     "internal/agent/cross_product_admission_test.go": "agent-surface",
     "internal/agent/delivery_correction_test.go": "agent-surface",
     "internal/agent/delivery_recovery_test.go": "agent-surface",
@@ -3677,6 +3690,9 @@
     "internal/store/version_conflict_kind_test.go": "durable-authority",
     "internal/store/version_conflict_subject_test.go": "durable-authority",
     "internal/store/work_collection_cursor.go": "agent-surface",
+    "internal/store/work_context.go": "workflow-engine",
+    "internal/store/work_context_packet_test.go": "workflow-engine",
+    "internal/store/work_context_test.go": "workflow-engine",
     "internal/store/work_external_observations.go": "work-coordination",
     "internal/store/work_kind_vocabulary_test.go": "work-coordination",
     "internal/store/work_messages.go": "work-coordination",
@@ -3689,6 +3705,8 @@
     "internal/store/worker_authority_boundary_test.go": "agent-surface",
     "internal/store/worker_authorized_failure_recovery_test.go": "agent-surface",
     "internal/store/worker_base_comparison_test.go": "agent-surface",
+    "internal/store/worker_context_findings.go": "agent-surface",
+    "internal/store/worker_context_findings_test.go": "agent-surface",
     "internal/store/worker_correction_refs_test.go": "agent-surface",
     "internal/store/worker_detail_bytes_test.go": "agent-surface",
     "internal/store/worker_dispatch_window_test.go": "agent-surface",
@@ -3735,6 +3753,7 @@
     "internal/store/workflow_artifact_staleness_test.go": "workflow-engine",
     "internal/store/workflow_backlog_alignment_test.go": "workflow-engine",
     "internal/store/workflow_carry_forward_test.go": "workflow-engine",
+    "internal/store/workflow_checkpoint_packet_test.go": "workflow-engine",
     "internal/store/workflow_complete_closes_lifecycle_test.go": "workflow-engine",
     "internal/store/workflow_completion.go": "workflow-engine",
     "internal/store/workflow_completion_fold_passthrough_test.go": "workflow-engine",
@@ -4008,7 +4027,7 @@
     "skills/README.md": "agent-surface",
     "workflows/README.md": "workflow-engine"
   },
-  "mapped_count": 1907,
+  "mapped_count": 1916,
   "schema_version": "1.0",
   "scope": "coarse file navigation, not law homes or semantic mechanism ownership",
   "test_coverage": {

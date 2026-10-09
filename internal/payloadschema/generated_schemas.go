@@ -1054,6 +1054,10 @@ const GeneratedPayloadSchemaDocument = `{
                 }
               ]
             },
+            "work_context": {
+              "$ref": "#/$defs/work_context_view",
+              "description": "CON-887: the current work-context view the tx-scoped reader assembles. Absent when the work holds no declaration and no terminal-report findings; a view past its bounds leaves this absent and the dedicated context read owns the refusal."
+            },
             "work_pin": {
               "$ref": "#/$defs/work_pin"
             },
@@ -5765,6 +5769,337 @@ const GeneratedPayloadSchemaDocument = `{
       },
       "type": "object"
     },
+    "work_context_domain_group": {
+      "additionalProperties": false,
+      "properties": {
+        "domain_cards": {
+          "description": "The reserved per-Domain card slot. The current foundation never generates cards.",
+          "items": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          },
+          "maxItems": 0,
+          "minItems": 0,
+          "type": "array"
+        },
+        "domain_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "finding_ids": {
+          "items": {
+            "pattern": "^finding:[0-9]+:[0-9]+$",
+            "type": "string"
+          },
+          "maxItems": 32,
+          "minItems": 0,
+          "type": "array"
+        },
+        "required_reading_ordinals": {
+          "items": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "maxItems": 32,
+          "minItems": 0,
+          "type": "array"
+        }
+      },
+      "required": [
+        "domain_id",
+        "required_reading_ordinals",
+        "finding_ids",
+        "domain_cards"
+      ],
+      "type": "object"
+    },
+    "work_context_finding": {
+      "additionalProperties": false,
+      "properties": {
+        "domain_id": {
+          "description": "A current Domain of the Product registry, validated against the registry and the approved affected scope at admission.",
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "evidence_refs": {
+          "items": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 8,
+          "minItems": 0,
+          "type": "array"
+        },
+        "kind": {
+          "enum": [
+            "observation",
+            "inference",
+            "hypothesis",
+            "rejected_approach",
+            "open_question",
+            "contradiction",
+            "direction"
+          ],
+          "type": "string"
+        },
+        "product_wide_rationale": {
+          "description": "Required exactly when domain_id names the registry's root Domain; a child Domain never carries one.",
+          "maxLength": 512,
+          "type": "string"
+        },
+        "statement": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "type": "string"
+        },
+        "subject_ref": {
+          "description": "The author's claim about what the finding concerns; never dispatch-owned subject identity.",
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "statement",
+        "subject_ref",
+        "evidence_refs",
+        "domain_id"
+      ],
+      "type": "object"
+    },
+    "work_context_finding_view": {
+      "additionalProperties": false,
+      "properties": {
+        "domain_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "evidence_refs": {
+          "items": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 8,
+          "minItems": 0,
+          "type": "array"
+        },
+        "finding_id": {
+          "description": "Core-derived from the source event sequence and ordinal; never authored.",
+          "pattern": "^finding:[0-9]+:[0-9]+$",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "observation",
+            "inference",
+            "hypothesis",
+            "rejected_approach",
+            "open_question",
+            "contradiction",
+            "direction"
+          ],
+          "type": "string"
+        },
+        "ordinal": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "origin": {
+          "enum": [
+            "declaration",
+            "worker_report"
+          ],
+          "type": "string"
+        },
+        "product_wide_rationale": {
+          "maxLength": 512,
+          "type": "string"
+        },
+        "source_event_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "source_event_seq": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "statement": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "type": "string"
+        },
+        "status": {
+          "const": "reported",
+          "description": "A finding is a reported claim, never acceptance."
+        },
+        "subject_ref": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "finding_id",
+        "kind",
+        "statement",
+        "subject_ref",
+        "evidence_refs",
+        "domain_id",
+        "origin",
+        "status",
+        "source_event_id",
+        "source_event_seq",
+        "ordinal"
+      ],
+      "type": "object"
+    },
+    "work_context_reading": {
+      "additionalProperties": false,
+      "properties": {
+        "domain_id": {
+          "description": "A current Domain of the Product registry, validated against the registry and the approved affected scope at admission.",
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "product_wide_rationale": {
+          "description": "Required exactly when domain_id names the registry's root Domain; a child Domain never carries one.",
+          "maxLength": 512,
+          "type": "string"
+        },
+        "reason": {
+          "maxLength": 512,
+          "minLength": 2,
+          "pattern": "\\S",
+          "type": "string"
+        },
+        "source": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/work_context_reading_source_repository_file"
+            },
+            {
+              "$ref": "#/$defs/work_context_reading_source_knowledge"
+            }
+          ]
+        }
+      },
+      "required": [
+        "domain_id",
+        "reason",
+        "source"
+      ],
+      "type": "object"
+    },
+    "work_context_reading_source_knowledge": {
+      "additionalProperties": false,
+      "properties": {
+        "content_hash": {
+          "description": "The store's law-revision content hash identity.",
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "kind": {
+          "const": "knowledge"
+        },
+        "law_id": {
+          "maxLength": 256,
+          "minLength": 2,
+          "type": "string"
+        },
+        "source_id": {
+          "maxLength": 128,
+          "minLength": 2,
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "source_id",
+        "law_id",
+        "content_hash"
+      ],
+      "type": "object"
+    },
+    "work_context_reading_source_repository_file": {
+      "additionalProperties": false,
+      "properties": {
+        "commit_oid": {
+          "pattern": "^[0-9a-f]{40,64}$",
+          "type": "string"
+        },
+        "kind": {
+          "const": "repository_file"
+        },
+        "path": {
+          "description": "A normalized relative repository-contained path. Absolute paths, traversal segments, and a leading tmp segment refuse: the context never requires a tmp source.",
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "project_id": {
+          "maxLength": 128,
+          "minLength": 2,
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "project_id",
+        "path",
+        "commit_oid"
+      ],
+      "type": "object"
+    },
+    "work_context_view": {
+      "additionalProperties": false,
+      "properties": {
+        "domain_groups": {
+          "items": {
+            "$ref": "#/$defs/work_context_domain_group"
+          },
+          "maxItems": 64,
+          "minItems": 0,
+          "type": "array"
+        },
+        "findings": {
+          "items": {
+            "$ref": "#/$defs/work_context_finding_view"
+          },
+          "maxItems": 32,
+          "minItems": 0,
+          "type": "array"
+        },
+        "required_reading": {
+          "items": {
+            "$ref": "#/$defs/work_context_reading"
+          },
+          "maxItems": 32,
+          "minItems": 0,
+          "type": "array"
+        },
+        "source_event_frontier": {
+          "description": "The work item's maximum event sequence at read time, so a packet built from this view can be compared against current state before spawn.",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "source_event_frontier",
+        "required_reading",
+        "findings",
+        "domain_groups"
+      ],
+      "type": "object"
+    },
     "work_define_capture_input": {
       "additionalProperties": false,
       "properties": {
@@ -6854,6 +7189,17 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "withheld_operator_decision": {
           "$ref": "#/$defs/operator_decision_withheld"
+        },
+        "work_context": {
+          "description": "CON-887: the current work-context view the tx-scoped reader assembles. Absent when the work holds no declaration and no terminal-report findings; a view past its bounds leaves this absent and the dispatch admission owns the refusal.",
+          "oneOf": [
+            {
+              "$ref": "#/$defs/work_context_view"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "work_id": {
           "$ref": "#/$defs/id"
@@ -8340,6 +8686,9 @@ const GeneratedPayloadSchemaDocument = `{
           "$ref": "#/$defs/work_transition_action_variant_record_verdict"
         },
         {
+          "$ref": "#/$defs/work_transition_action_variant_record_work_context"
+        },
+        {
           "$ref": "#/$defs/work_transition_action_variant_record_worker_failure"
         },
         {
@@ -8794,6 +9143,9 @@ const GeneratedPayloadSchemaDocument = `{
         },
         {
           "$ref": "#/$defs/work_transition_action_variant_record_verdict"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_record_work_context"
         },
         {
           "$ref": "#/$defs/work_transition_action_variant_record_worker_failure"
@@ -14394,6 +14746,123 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "object"
     },
+    "work_transition_action_variant_record_work_context": {
+      "additionalProperties": false,
+      "properties": {
+        "action_id": {
+          "const": "record_work_context",
+          "type": "string"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "decision_context_digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/evidence"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "fields": {
+          "additionalProperties": false,
+          "maxProperties": 32,
+          "properties": {
+            "context_findings": {
+              "items": {
+                "$ref": "#/$defs/work_context_finding"
+              },
+              "maxItems": 16,
+              "minItems": 0,
+              "type": "array"
+            },
+            "finding_refs": {
+              "items": {
+                "$ref": "#/$defs/reference"
+              },
+              "maxItems": 32,
+              "minItems": 0,
+              "type": "array",
+              "uniqueItems": true
+            },
+            "required_reading": {
+              "items": {
+                "$ref": "#/$defs/work_context_reading"
+              },
+              "maxItems": 32,
+              "minItems": 0,
+              "type": "array"
+            }
+          },
+          "type": "object"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "research_bindings": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "pack_id": {
+                "$ref": "#/$defs/id"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "revision": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "use_role": {
+                "enum": [
+                  "context",
+                  "design_input",
+                  "verification_basis",
+                  "decision_basis"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "pack_id",
+              "revision",
+              "use_role",
+              "required"
+            ],
+            "type": "object"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "type": "array"
+        },
+        "selected_choice": {
+          "enum": [
+            "confirm",
+            "revise",
+            "stop"
+          ],
+          "type": "string"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "expected_version",
+        "action_id",
+        "idempotency_key"
+      ],
+      "type": "object"
+    },
     "work_transition_action_variant_record_worker_failure": {
       "additionalProperties": false,
       "properties": {
@@ -18108,6 +18577,10 @@ const GeneratedPayloadSchemaDocument = `{
             "binding": {
               "$ref": "#/$defs/worker_packet_binding"
             },
+            "checkpoint": {
+              "$ref": "#/$defs/continuity_checkpoint",
+              "description": "CON-883: the latest context checkpoint the pinned continuity projection carried when the packet was built. The core refuses a dispatch whose packet does not carry the latest checkpoint byte-for-byte."
+            },
             "constraints": {
               "items": {
                 "maxLength": 512,
@@ -18133,6 +18606,10 @@ const GeneratedPayloadSchemaDocument = `{
               "maxLength": 4096,
               "minLength": 1,
               "type": "string"
+            },
+            "work_context": {
+              "$ref": "#/$defs/work_context_view",
+              "description": "CON-887: the current work-context view the work pin carried when the packet was built. The core refuses a dispatch whose packet does not consume the current view byte-for-byte."
             },
             "worker_job": {
               "$ref": "#/$defs/worker_packet_worker_job"
@@ -19174,6 +19651,15 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "array",
           "uniqueItems": true
         },
+        "source_event_id": {
+          "$ref": "#/$defs/id",
+          "description": "The durable failure, rejection, or correction-request event that opened this correction; its diagnosis and strategy are that event's directions."
+        },
+        "source_event_seq": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "type": "integer"
+        },
         "strategy": {
           "maxLength": 4096,
           "type": "string"
@@ -19185,7 +19671,9 @@ const GeneratedPayloadSchemaDocument = `{
         "attempt_limit",
         "escalated",
         "predicate_ids",
-        "evidence_refs"
+        "evidence_refs",
+        "source_event_id",
+        "source_event_seq"
       ],
       "type": "object"
     },

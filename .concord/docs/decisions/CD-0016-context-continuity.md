@@ -61,6 +61,25 @@ snapshot with the derived pinned projection, latest checkpoint, authenticated
 cursor history, one source watermark, monotonic boundary count, and explicit
 typed restart availability. The launcher identity handoff remains unchanged.
 
+## Work context
+
+The next version of each built-in definition adds the closed, unapproved
+`record_work_context` action to every step except the delivery gates. The
+action records `workflow.work_context_recorded` with ordered required reading,
+references to earlier findings, and new typed findings. A reading source is a
+repository file pinned by Project, path, and commit OID, or a law revision
+pinned by source, law ID, and content hash. Each reading and finding names a
+registry Domain.
+
+One transaction-scoped reader assembles the current work-context view from
+these events and from the terminal worker reports that follow them. The reader
+adds no table and no migration. The work pin and the continuity snapshot carry
+the view. The view holds at most 32 readings and 32 findings within 64 KiB. A
+view past these bounds refuses the read and leaves the events unchanged. Each
+finding keeps its source event and ordinal and stays a reported claim.
+Completion, checkpoints, and context boundaries copy no work-context content
+into another record.
+
 ## Consequences
 
 Context continuity is rebuildable from SQLite event authority and does not add a

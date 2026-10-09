@@ -187,6 +187,9 @@ DELETE FROM fold_guard;`); err != nil {
 		}
 		columns = append(columns, name)
 	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
 	rows.Close()
 	want := []string{"work_id", "remote_issue_uuid", "human_key", "url", "created_at", "updated_at"}
 	if len(columns) != len(want) {

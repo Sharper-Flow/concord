@@ -4158,21 +4158,6 @@ func (r runtime) deriveMutationProducts(ctx context.Context, scope map[string]an
 	return result, nil
 }
 
-func uniqueProducts(byProject map[string][]string, projectIDs []string) []string {
-	seen := map[string]bool{}
-	for _, projectID := range projectIDs {
-		for _, productID := range byProject[projectID] {
-			seen[productID] = true
-		}
-	}
-	products := make([]string, 0, len(seen))
-	for productID := range seen {
-		products = append(products, productID)
-	}
-	sort.Strings(products)
-	return products
-}
-
 func deriveMutationProductsTx(ctx context.Context, tx *store.Transaction, scope map[string]any) ([]string, error) {
 	products := map[string]bool{}
 	if ids, ok := scope["work_ids"].([]string); ok {

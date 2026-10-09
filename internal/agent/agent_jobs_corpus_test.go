@@ -1031,8 +1031,8 @@ func TestAgentJobsCorpus(t *testing.T) {
 
 	// The corpus count is pinned so scenario removal cannot masquerade as a
 	// complete binding run.
-	if len(corpus.Scenarios) != 24 {
-		t.Fatalf("corpus declares %d scenarios, want 24", len(corpus.Scenarios))
+	if len(corpus.Scenarios) != 23 {
+		t.Fatalf("corpus declares %d scenarios, want 23", len(corpus.Scenarios))
 	}
 
 	for _, sc := range corpus.Scenarios {

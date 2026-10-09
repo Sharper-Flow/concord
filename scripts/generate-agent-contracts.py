@@ -1176,6 +1176,9 @@ def fixtures_projection(manifest: dict, public_variants: list[dict]) -> str:
             if "sha256:" in pattern: return "sha256:"+"0"*64
             if "[0-9a-f]{40}" in pattern: return "0"*40
             if pattern.startswith("^[a-z][a-z0-9_-]"): return "fence:prod-pause"
+            # Uppercase issue-key patterns (CD-0213 D3 human_key, e.g. "EX-1"):
+            # the generic "id-1" exemplar fails ^[A-Z][A-Z0-9]*-[1-9][0-9]*$.
+            if pattern.startswith("^[A-Z]"): return "EX-1"
             if pattern.startswith("^msg:"): return "msg:" + "0"*32
             if pattern.startswith("^https://"): return "https://example.test/pull/1"
             if "date" in pattern: return "2026-08-08T00:00:00Z"

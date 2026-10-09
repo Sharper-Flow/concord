@@ -1476,7 +1476,7 @@
     {
       "input_invalid_cases": [
         {
-          "human_key": "id-1",
+          "human_key": "EX-1",
           "idempotency_key": "id-1",
           "remote_issue_uuid": "id-1",
           "unknown": true,
@@ -1484,7 +1484,7 @@
           "work_id": "id-1"
         },
         {
-          "human_key": "id-1",
+          "human_key": "EX-1",
           "idempotency_key": "id-1",
           "remote_issue_uuid": "id-1",
           "url": "https://example.test/pull/1",
@@ -1493,7 +1493,7 @@
       ],
       "input_schema": "work_define_issue_link_record_input",
       "input_valid": {
-        "human_key": "id-1",
+        "human_key": "EX-1",
         "idempotency_key": "id-1",
         "remote_issue_uuid": "id-1",
         "url": "https://example.test/pull/1",

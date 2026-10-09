@@ -186,16 +186,14 @@ test("published tool arguments expose a host-safe request shape", async () => {
   for (const value of Object.values((adapter.work_start as any).args)) expect(value).toBeObject()
   expect((adapter.work_start as any).args.product_id).toBeUndefined()
   expect((adapter.work_start as any).args.project_id).toBeObject()
-  // The definition hook publishes the closed two-branch contract itself, so
-  // each mode's required set and field surface survive publication instead of
-  // merging into one all-optional object.
+  // Conditional branches preserve both generated closed modes without a
+  // root union that Anthropic's tool-schema validator would reject.
   const workStartDefinition = { description: "", parameters: {}, jsonSchema: undefined as unknown }
   await adapter.publishWorkStartDefinition({ toolID: "concord_work_start" }, workStartDefinition)
-  expect(workStartDefinition.jsonSchema).toEqual(hostToolSchemas.concord_work_start)
-  expect((workStartDefinition.jsonSchema as any).oneOf.map((branch: any) => branch.required)).toEqual([
-    ["title", "value_statement", "kind", "task", "idempotency_key"],
-    ["work_id"],
-  ])
+  const publishedWorkStart = workStartDefinition.jsonSchema as any
+  expect(publishedWorkStart.if).toEqual({ required: ["work_id"] })
+  expect(publishedWorkStart.else).toEqual(generatedCapture)
+  expect(publishedWorkStart.then).toEqual(generatedResume)
 })
 
 test("published tool schemas type every enum node", () => {

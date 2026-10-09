@@ -15,6 +15,13 @@ from io import StringIO
 from pathlib import Path
 from unittest.mock import patch
 
+import git_environment
+
+# CON-896: this suite drives Git directly, so a hook that launched it must
+# not keep a redirecting Git namespace in place. The scrub runs before the
+# in-process checker loads.
+git_environment.scrub_inherited()
+
 
 SCRIPT = Path(__file__).with_name("check-cd-allocation.py")
 SPEC = importlib.util.spec_from_file_location("cd_allocation_checker", SCRIPT)

@@ -16,6 +16,13 @@ from io import StringIO
 from pathlib import Path
 from unittest import mock
 
+import git_environment
+
+# CON-896: this suite drives Git directly, so a hook that launched it must
+# not keep a redirecting Git namespace in place. The scrub runs before the
+# in-process validator loads.
+git_environment.scrub_inherited()
+
 
 SCRIPT = Path(__file__).with_name("check-doc-contract.py")
 SPEC = importlib.util.spec_from_file_location("doc_contract", SCRIPT)

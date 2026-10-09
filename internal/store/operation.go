@@ -205,6 +205,7 @@ var eventKindRegistry = map[string]EventKindRegistration{
 	"work.message_withdrawn":                  registerEventKind[messageWithdrawnPayload](1, 1, nil, EventAppendAuthorityGeneric, foldMessageWithdrawn, nil),
 	"work.resource_claim_released":            registerEventKind[resourceClaimReleasedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldResourceClaimReleased, nil),
 	"work.worktree_reclaimed":                 registerEventKind[worktreeReclaimedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldWorktreeReclaimed, nil),
+	"work.worktree_removal_settled":           registerEventKind[worktreeRemovalSettledPayload](1, 1, nil, EventAppendAuthorityGeneric, foldWorktreeRemovalSettled, nil),
 	"work.worktree_occupancy_released":        registerEventKind[worktreeOccupancyReleasedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldWorktreeOccupancyReleased, nil),
 	"work.session_vacated":                    registerEventKind[sessionVacatedPayload](2, 1, map[int]Upcaster{1: upcastSessionVacatedV1}, EventAppendAuthorityGeneric, foldSessionVacated, validateSessionVacatedPayload),
 	"work.session_vacate_landed":              registerEventKind[sessionVacateLandedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldSessionVacateLanded, nil),
@@ -734,6 +735,11 @@ var replayProjectionClearTables = []string{
 	// lets the replay rebuild every claim generation instead of upserting
 	// onto the live row of the newest claim.
 	"worktree_entries",
+	// Per-ref outcome rows (CD-0212 D4) fold purely from the reclamation
+	// plan and the chronological settlement events; clearing them lets the
+	// replay rebuild each generation's trajectory in log order instead of
+	// upserting onto the live phase the newest settlement reached.
+	"worktree_ref_outcomes",
 	"external_observations",
 	"worker_attempts",
 	// Worker-job revisions (CD-0205) fold purely from worker.job_recorded

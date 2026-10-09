@@ -14,7 +14,10 @@
   effective target was a stored copy of the session directory, kept because
   the session could not move. CD-0098 moved the session, and CD-0104 removed
   the copy. D2, D3 Inspect, Verify, and Destroy, and D4 stand. CD-0105 at D3
-  Destroy names the trigger this tier left unnamed. CD-0118 at D3 Destroy widens approval-free removal to unstarted work under its own gate.
+  Destroy names the trigger this tier left unnamed. CD-0118 at D3 Destroy
+  widens approval-free removal to unstarted work under its own gate. CD-0212
+  at D3 Destroy re-binds the git gates to one immutable live `HEAD`
+  observation and separates stored-ref deletion from directory removal.
 
 ## Context
 

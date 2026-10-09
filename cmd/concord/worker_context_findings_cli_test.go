@@ -23,18 +23,44 @@ import (
 func cliContextFindings() []map[string]any {
 	return []map[string]any{
 		{
-			"kind":          "observation",
-			"statement":     "the bounded read is the only admission route",
-			"subject_ref":   "internal/store/worker_lanes.go",
-			"evidence_refs": []string{"internal/store/worker_lanes_test.go"},
+			"kind":                   "observation",
+			"statement":              "the bounded read is the only admission route",
+			"subject_ref":            "internal/store/worker_lanes.go",
+			"evidence_refs":          []string{"internal/store/worker_lanes_test.go"},
+			"domain_id":              cliContextRootDomain,
+			"product_wide_rationale": "the admission route binds every Domain of the Product",
 		},
 		{
-			"kind":          "direction",
-			"statement":     "the reader joins declarations without parsing narrative",
-			"subject_ref":   "internal/store/fold.go",
-			"evidence_refs": []string{},
+			"kind":                   "direction",
+			"statement":              "the reader joins declarations without parsing narrative",
+			"subject_ref":            "internal/store/fold.go",
+			"evidence_refs":          []string{},
+			"domain_id":              cliContextRootDomain,
+			"product_wide_rationale": "the fold binds every Domain of the Product",
 		},
 	}
+}
+
+// cliContextRootDomain is the root Domain seedCLIWorkDomain installs. The
+// work carries no architecture binding, so the root Domain with a
+// product-wide rationale is the admissible finding Domain.
+const cliContextRootDomain = "cli-root"
+
+// seedCLIWorkDomain installs a current Domain registry for the work's
+// primary Product, so the live terminal fold can validate finding Domains.
+func seedCLIWorkDomain(t *testing.T, dbPath, workID string) {
+	t.Helper()
+	s, err := store.Open(context.Background(), dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var productID string
+	err = s.DatabaseForTesting().QueryRow(`SELECT pp.product_id FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=? AND wp.role='primary'`, workID).Scan(&productID)
+	s.Close()
+	if err != nil {
+		t.Fatalf("resolve the work's primary Product: %v", err)
+	}
+	seedCLIDomain(t, dbPath, productID, cliContextRootDomain)
 }
 
 // runWorkerCLI runs one worker evidence verb's request JSON and returns the
@@ -73,6 +99,7 @@ func TestWorkerCompleteCLIRetainsTypedContextFindings(t *testing.T) {
 	lane := store.BuiltinLaneDefinitions()[0]
 	readback := preferredLaneModel(lane)
 	seedWorkerEvidenceAttempt(t, key, lane, dbPath, readback)
+	seedCLIWorkDomain(t, dbPath, "work-1")
 
 	request, assertion := workerEvidenceRequest(t, agent.WorkerEvidenceVerbComplete, lane, readback, "nonce-complete-findings01")
 	request["event_id"] = "complete-findings"
@@ -119,6 +146,7 @@ func TestWorkerCompleteCLIReturnsTheAggregateBoundRefusal(t *testing.T) {
 	lane := store.BuiltinLaneDefinitions()[0]
 	readback := preferredLaneModel(lane)
 	seedWorkerEvidenceAttempt(t, key, lane, dbPath, readback)
+	seedCLIWorkDomain(t, dbPath, "work-1")
 
 	oversized := make([]map[string]any, 16)
 	for i := range oversized {
@@ -149,6 +177,7 @@ func TestWorkerFailCLIRetainsTypedContextFindingsOnWorkerErrorOnly(t *testing.T)
 	lane := store.BuiltinLaneDefinitions()[0]
 	readback := preferredLaneModel(lane)
 	seedWorkerEvidenceAttempt(t, key, lane, dbPath, readback)
+	seedCLIWorkDomain(t, dbPath, "work-1")
 
 	request, assertion := workerEvidenceRequest(t, agent.WorkerEvidenceVerbFail, lane, readback, "nonce-fail-findings001")
 	request["event_id"] = "fail-findings"
@@ -243,6 +272,7 @@ func TestWorkerEvidenceRepeatAdmissionKeepsTheOriginalFindingsBytes(t *testing.T
 	lane := store.BuiltinLaneDefinitions()[0]
 	readback := preferredLaneModel(lane)
 	seedWorkerEvidenceAttempt(t, key, lane, dbPath, readback)
+	seedCLIWorkDomain(t, dbPath, "work-1")
 
 	request, assertion := workerEvidenceRequest(t, agent.WorkerEvidenceVerbComplete, lane, readback, "nonce-complete-repeat001")
 	request["event_id"] = "complete-findings-repeat"

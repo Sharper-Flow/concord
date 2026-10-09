@@ -1141,6 +1141,9 @@ func foldWorkerCompleted(ctx context.Context, tx *sql.Tx, event Event) error {
 	if payload.ContextFindings != nil && event.replaySourcePayloadVersion != 0 && event.replaySourcePayloadVersion < workerCompletedContextFindingsVersion {
 		return newFailure(KindInvalidPayload, "fold_event", "worker.completed context_findings are reserved for payload version >= 5", false, "record the context_findings on the current completion payload")
 	}
+	if err := validateWorkerContextFindingDomainsTx(ctx, tx, event.SubjectID, payload.ContextFindings); err != nil {
+		return err
+	}
 	attempt, err := readWorkerTerminalAttempt(ctx, tx, event, payload.AttemptID, map[string]bool{"dispatched": true})
 	if err != nil {
 		return err
@@ -1236,6 +1239,9 @@ func foldWorkerFailed(ctx context.Context, tx *sql.Tx, event Event) error {
 	// fabricated worker claims that no store ever recorded.
 	if payload.ContextFindings != nil && event.replaySourcePayloadVersion != 0 && event.replaySourcePayloadVersion < workerFailedContextFindingsVersion {
 		return newFailure(KindInvalidPayload, "fold_event", "worker.failed context_findings are reserved for payload version >= 2", false, "record the context_findings on the current failure payload")
+	}
+	if err := validateWorkerContextFindingDomainsTx(ctx, tx, event.SubjectID, payload.ContextFindings); err != nil {
+		return err
 	}
 	// A dispatched attempt is closable by every failure kind. An in_flight
 	// binding — authorized by a dispatch_worker completion whose window was

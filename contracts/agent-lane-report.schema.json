@@ -152,7 +152,8 @@
         "kind",
         "statement",
         "subject_ref",
-        "evidence_refs"
+        "evidence_refs",
+        "domain_id"
       ],
       "properties": {
         "kind": {
@@ -189,6 +190,20 @@
             "maxLength": 256,
             "x-maxBytes": 256
           }
+        },
+        "domain_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "x-maxBytes": 256,
+          "description": "The registry Domain the finding concerns. The store validates it against the current Product Domain registry and the approved affected Domain scope; name the root Domain only for a claim that spans every Domain, with product_wide_rationale."
+        },
+        "product_wide_rationale": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "x-maxBytes": 512,
+          "description": "Why the claim spans every Domain. Required when domain_id names the root Domain; refused on a child Domain."
         }
       }
     },

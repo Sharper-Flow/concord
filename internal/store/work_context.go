@@ -109,9 +109,9 @@ type WorkContextDomainCard struct{}
 // by Domain, in the contract's approved affected-Domain order. Empty slots
 // are legal: a group may hold only readings or only findings.
 type WorkContextDomainGroup struct {
-	DomainID                string                 `json:"domain_id"`
-	RequiredReadingOrdinals []int                  `json:"required_reading_ordinals"`
-	FindingIDs              []string               `json:"finding_ids"`
+	DomainID                string                  `json:"domain_id"`
+	RequiredReadingOrdinals []int                   `json:"required_reading_ordinals"`
+	FindingIDs              []string                `json:"finding_ids"`
 	DomainCards             []WorkContextDomainCard `json:"domain_cards"`
 }
 
@@ -122,10 +122,10 @@ type WorkContextDomainGroup struct {
 // the work item's maximum event sequence at read time, so a packet built
 // from this view can be compared against current state before spawn.
 type WorkContextView struct {
-	SourceEventFrontier int64                     `json:"source_event_frontier"`
-	RequiredReading     []WorkContextReading      `json:"required_reading"`
-	Findings            []WorkContextFindingView  `json:"findings"`
-	DomainGroups        []WorkContextDomainGroup  `json:"domain_groups"`
+	SourceEventFrontier int64                    `json:"source_event_frontier"`
+	RequiredReading     []WorkContextReading     `json:"required_reading"`
+	Findings            []WorkContextFindingView `json:"findings"`
+	DomainGroups        []WorkContextDomainGroup `json:"domain_groups"`
 }
 
 // workflowWorkContextRecordedPayload is the durable declaration event. The

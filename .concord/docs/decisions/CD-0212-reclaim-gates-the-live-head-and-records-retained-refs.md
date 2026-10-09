@@ -180,8 +180,10 @@ open, as CD-0195 D2 requires, and revalidates native identity before every
 destructive effect: the checkout must still belong to the probed repository
 at the recorded tip, and a branch is deleted only when it is still the
 direct ref the plan pinned, still at its pinned tip, not the repository's
-default as the repository stands now, and checked out nowhere. Ownership is
-re-derived at the boundary itself, never trusted from the plan's earlier
+default as the repository stands now, and the complete pre-deletion
+observations report no holder among the listed worktrees. This observed
+absence does not atomically exclude concurrent checkouts. Ownership is
+re-derived before deletion, never trusted from the plan's earlier
 observations: a default that moved onto a planned branch after the plan
 committed retains it, an unestablishable default set fails closed exactly as
 the plan-time guard does, and a ref whose tip changed is retained with the
@@ -191,26 +193,30 @@ The pinned deletion is one pinned argv git command with `--no-deref` —
 `update-ref -d <ref> <expected-tip>` — so the old-value check and the
 mutation run inside a single git process, and the named ref itself is the
 subject. No wrapper, hook, or concurrent actor can interpose between the
-pin and the deletion the way a name-addressed `branch -D` invites, and a
-ref that became symbolic can never redirect the deletion onto its target.
+old-value check and the deletion the way a name-addressed `branch -D`
+invites. This check does not exclude concurrent checkout changes. A ref that
+became symbolic can never redirect the deletion onto its target.
 Refs resolve by their exact `refs/heads` path, so a tag that shadows a
 branch name cannot bend the pin. `update-ref` enforces no checkout guard of
-its own, so ownership of checked-out refs is preserved at the mutation
-boundary, not only at the earlier inventory: the boundary observes the
+its own. The native protocol therefore observes the
 complete porcelain worktree inventory — every entry validated whole, with
 the symbolic identity of every listed `HEAD` read live — before the
-deletion and again after it. Validation is structural: records are
+deletion and again after it. These reads are not atomic with checkout
+changes. Absence applies to the points when the listed `HEAD`s were
+observed, not to the interval between the reads or to later checkouts.
+Validation is structural: records are
 separated and terminated by truly empty boundary lines — a whitespace-only
 line is content, not a boundary — every attribute a complete record
 carries once, and a worktree path appears in exactly one record. Holders
 accumulate instead of ending the observation at the first one, so a failed
 later observation is never hidden by an earlier holder. An inventory that
 cannot run, or a successful inventory that is malformed or incomplete, is
-an unknown observation that refuses: it is never proof a branch is checked
-out nowhere. A checkout that appeared at
-the boundary is detected there — an unborn `HEAD` still names its branch —
+an unknown observation: a failed pre-deletion observation refuses deletion,
+and a failed post-deletion observation leaves recovery debt. When the
+post-deletion observation finds a listed `HEAD` naming the deleted branch,
+it records restoration debt — an unborn `HEAD` still names its branch —
 and restoration uses a create-only argv update at exactly the
-pinned tip the deletion proved, whose zero old-value refuses to overwrite
+pinned tip the plan recorded, whose zero old-value refuses to overwrite
 anything a concurrent actor rebuilt. A successful update restores the
 checkout at the pinned tip. Failed observation or restoration leaves durable,
 audit-visible recovery debt, not proof of successful restoration. A foreign
@@ -219,8 +225,9 @@ also runs against the tip the plan pins, never against the mutable branch
 name.
 
 An absent ref settles nothing by itself. A pinned deletion that ran, or may
-have run on an earlier attempt, owes recovery until a complete inventory
-verifies no worktree holds the branch: only that verified absence converges
+have run on an earlier attempt, owes recovery until complete inventory
+observations report no listed worktree holding the branch at the observed
+points. Only that observed absence converges
 the debt, while a checkout that still names the absent branch owes its
 restoration at the immutable pinned tip. A pre-deletion observation that
 cannot run or complete cannot exclude a holder, so it records the same
@@ -325,8 +332,10 @@ and the native removal stays behind the commit.
   deletion. Checkout and default protections are re-derived at every
   boundary, so a retried removal converges the pinned deletion once the
   other worktree moves off the branch or the default moves away.
-- A successful post-deletion observation detects a checkout gained at the
-  mutation boundary. When the create-only restoration succeeds, the second
+- The pre-deletion observations do not atomically exclude concurrent
+  checkouts. A post-deletion observation that finds a listed holder of the
+  deleted branch records restoration debt. When the create-only restoration
+  succeeds, the second
   worktree's `HEAD` resolves to the pinned tip. Failed observation or
   restoration leaves durable, audit-visible recovery debt. A concurrently
   rebuilt ref remains unchanged, and the recorded outcome is reported beside
@@ -340,7 +349,7 @@ and the native removal stays behind the commit.
   from the log alone reproduces the exact rows, restoration debt included.
 - A malformed or incomplete successful worktree inventory refuses the
   deletion it was asked to prove, because an unknown checkout state is
-  never proof a branch is checked out nowhere.
+  never proof of holder absence at the observed points.
 - A valid long live branch — any identity Git itself accepted, including a
   reftable identity no loose pathname could hold — reclaims without failing
   the reclamation fold, and its full identity stays recorded and visible to
@@ -393,7 +402,7 @@ and the native removal stays behind the commit.
   consumed operator approval retains the unestablished default while the
   approved directory removal proceeds and the retention stays visible.
 - `internal/store.TestReclaimProtectsCheckoutRaceAtDeletionBoundary` asserts
-  that a checkout gained at the mutation boundary is detected after the
+  that the exercised checkout race is detected after the
   pinned transaction, restored at its pinned tip, reported as a visible
   protection, and converged by a replay once the other worktree moves off.
 - `internal/store.TestReclaimRecordsLongLiveBranchRetention` asserts that a

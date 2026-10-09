@@ -25,10 +25,9 @@ type ResearchBindingDeclaration struct {
 // consumer pin inside the caller's transaction. For each declaration: the pack
 // must exist with a nonterminal owner, the revision must exist, and a required
 // binding on a revision whose freshness is not current fails closed with
-// KindResearchConsumerBlocked. Recording the binding is idempotent per
-// (pack, revision, consumer): a redeclared identical binding records nothing,
-// and the pack's expected version advances only when a row lands. Conflicting
-// redeclarations refuse; retained required pins are checked even when omitted.
+// KindResearchConsumerBlocked. Each consumer holds one pin per pack through
+// this route. An identical declaration is a no-op; a changed declaration replaces
+// the pin and advances the pack version once. Omitted required pins still gate.
 func BindResearchRelianceTx(ctx context.Context, tx *sql.Tx, consumerWorkID string, declarations []ResearchBindingDeclaration, now time.Time) error {
 	if len(declarations) > 16 {
 		return newFailure(KindInvalidPayload, "research_reliance", "at most 16 research bindings may be declared on one action", false, "declare fewer bindings")
@@ -41,9 +40,9 @@ func BindResearchRelianceTx(ctx context.Context, tx *sql.Tx, consumerWorkID stri
 		if !validResearchUseRole(declaration.UseRole) {
 			return newFailure(KindInvalidPayload, "research_reliance", "binding use_role is not recognized", false, "supply context, design_input, verification_basis, or decision_basis")
 		}
-		key := fmt.Sprintf("%s:%d", declaration.PackID, declaration.Revision)
+		key := declaration.PackID
 		if seen[key] {
-			return newFailure(KindInvalidPayload, "research_reliance", "binding declares one pack revision twice", false, "declare each pack revision once")
+			return newFailure(KindInvalidPayload, "research_reliance", "binding declares one pack twice", false, "declare one revision per pack")
 		}
 		seen[key] = true
 
@@ -74,31 +73,32 @@ func BindResearchRelianceTx(ctx context.Context, tx *sql.Tx, consumerWorkID stri
 			return newFailure(KindResearchConsumerBlocked, "research_reliance", fmt.Sprintf("required research binding on %s freshness", freshness.String), false, "rebind to a current revision or declare the binding non-required")
 		}
 
-		insert, err := tx.ExecContext(ctx, `INSERT INTO active_research_consumers(pack_id,revision,consumer_work_id,use_role,required,accepted_at) VALUES(?,?,?,?,?,?) ON CONFLICT(pack_id,revision,consumer_work_id) DO NOTHING`,
-			declaration.PackID, declaration.Revision, consumerWorkID, declaration.UseRole, boolInt(declaration.Required), now.UTC().Format(time.RFC3339Nano))
-		if err != nil {
-			return wrapFailure(KindUnavailable, "research_reliance", "cannot record research consumer binding", true, "retry once the database is writable", err)
-		}
-		inserted, err := insert.RowsAffected()
-		if err != nil {
-			return researchUnavailable("cannot inspect research consumer insertion", err)
-		}
-		if inserted == 0 {
-			var role string
-			var required bool
-			if err := tx.QueryRowContext(ctx, `SELECT use_role,required FROM active_research_consumers WHERE pack_id=? AND revision=? AND consumer_work_id=?`, declaration.PackID, declaration.Revision, consumerWorkID).Scan(&role, &required); err != nil {
-				return researchUnavailable("cannot inspect existing research consumer binding", err)
-			}
-			if role != string(declaration.UseRole) || required != declaration.Required {
-				return newFailure(KindInvalidPayload, "research_reliance", "research binding redeclaration conflicts with the retained pin", false, "declare the retained use_role and requiredness")
-			}
-		} else {
-			if _, err := tx.ExecContext(ctx, `UPDATE active_research_packs SET expected_version=expected_version+1, updated_at=? WHERE pack_id=?`, now.UTC().Format(time.RFC3339Nano), declaration.PackID); err != nil {
-				return wrapFailure(KindUnavailable, "research_reliance", "cannot advance research pack version", true, "retry once the database is writable", err)
-			}
+		if err := replaceResearchConsumerPinTx(ctx, tx, consumerWorkID, declaration, now); err != nil {
+			return err
 		}
 	}
 	return checkRequiredResearchRelianceTx(ctx, tx, consumerWorkID)
+}
+
+func replaceResearchConsumerPinTx(ctx context.Context, tx *sql.Tx, consumerWorkID string, declaration ResearchBindingDeclaration, now time.Time) error {
+	var pins, identical int
+	err := tx.QueryRowContext(ctx, `SELECT count(*),COALESCE(sum(CASE WHEN revision=? AND use_role=? AND required=? THEN 1 ELSE 0 END),0) FROM active_research_consumers WHERE pack_id=? AND consumer_work_id=?`, declaration.Revision, declaration.UseRole, boolInt(declaration.Required), declaration.PackID, consumerWorkID).Scan(&pins, &identical)
+	if err != nil {
+		return researchUnavailable("cannot inspect existing research consumer pins", err)
+	}
+	if pins == 1 && identical == 1 {
+		return nil
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM active_research_consumers WHERE pack_id=? AND consumer_work_id=?`, declaration.PackID, consumerWorkID); err != nil {
+		return researchUnavailable("cannot replace research consumer pins", err)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO active_research_consumers(pack_id,revision,consumer_work_id,use_role,required,accepted_at) VALUES(?,?,?,?,?,?)`, declaration.PackID, declaration.Revision, consumerWorkID, declaration.UseRole, boolInt(declaration.Required), now.UTC().Format(time.RFC3339Nano)); err != nil {
+		return researchUnavailable("cannot record research consumer pin", err)
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE active_research_packs SET expected_version=expected_version+1, updated_at=? WHERE pack_id=?`, now.UTC().Format(time.RFC3339Nano), declaration.PackID); err != nil {
+		return researchUnavailable("cannot advance research pack version", err)
+	}
+	return nil
 }
 
 func checkRequiredResearchRelianceTx(ctx context.Context, tx *sql.Tx, consumerWorkID string) error {
@@ -110,5 +110,5 @@ func checkRequiredResearchRelianceTx(ctx context.Context, tx *sql.Tx, consumerWo
 	if err != nil {
 		return researchUnavailable("cannot inspect retained required research pins", err)
 	}
-	return newFailure(KindResearchConsumerBlocked, "research_reliance", fmt.Sprintf("required research binding %s on %s freshness", packID, freshness), false, "restore current freshness or explicitly release the retained required pin")
+	return newFailure(KindResearchConsumerBlocked, "research_reliance", fmt.Sprintf("required research binding %s on %s freshness", packID, freshness), false, "use research_bindings to rebind to a current revision or declare the binding non-required, or restore current freshness")
 }

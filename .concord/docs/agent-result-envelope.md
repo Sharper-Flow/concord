@@ -300,7 +300,8 @@ to `invalid_input` with reason `invalid_cli_input`. It never derives this state
 from stderr text. Other exits and nonempty malformed stdout do not prove no effect.
 If a previous mutation invocation may have effects, a later exit 64 does not
 remove that uncertainty. The adapter returns `operation_conflict` with recovery
-`reconcile_operation` instead.
+`reconcile_operation`, or `retry_same_request` for `session_vacate` under
+CD-0190 D3.
 
 Adapter errors also carry closed `adapter_reason`:
 `missing_binary|spawn_failure|io_failure|malformed_core_response|timeout_no_effect|cancelled_no_effect|manifest_mismatch|grant_bootstrap_failed|unknown_effect|invalid_request_wrapper|invalid_cli_input`.

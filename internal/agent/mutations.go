@@ -3048,11 +3048,9 @@ func (r runtime) planWorktreeDestroy(ctx context.Context, base Envelope, raw []b
 		}
 		req := reclaimReq
 		req.OperatorApprovalRef = approvalRef
-		if req.Destructive {
-			// The forced facts name the approval the transaction just
-			// consumed, so the recorded event carries the live reference.
-			probe.Facts, _ = json.Marshal(map[string]any{"forced": true, "operator_override": approvalRef})
-		}
+		// The store composes the forced facts from this approval reference,
+		// together with the live-head observation and the tip-pinned removal
+		// plan its probe recorded (CD-0212 D4).
 		result, err := store.DestroyWorktreeTx(ctx, tx, req, probe)
 		if err != nil {
 			return nil, nil, nil, err
@@ -3066,7 +3064,7 @@ func (r runtime) planWorktreeDestroy(ctx context.Context, base Envelope, raw []b
 	// removal leaves the same request free to converge the committed
 	// reclaim.
 	plan.nativeFinalize = func(ctx context.Context) error {
-		return store.RunWorktreeNativeRemoval(ctx, nil, removal)
+		return r.Store.FinishWorktreeNativeRemoval(ctx, nil, removal)
 	}
 	return Envelope{}, nil, false
 }
@@ -3584,7 +3582,7 @@ func (r runtime) planWorktreeReclaim(ctx context.Context, base Envelope, raw []b
 	// removal leaves the same request free to converge the committed
 	// reclaim.
 	plan.nativeFinalize = func(ctx context.Context) error {
-		return store.RunWorktreeNativeRemoval(ctx, nil, removal)
+		return r.Store.FinishWorktreeNativeRemoval(ctx, nil, removal)
 	}
 	return Envelope{}, nil, false
 }

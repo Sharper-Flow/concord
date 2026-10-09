@@ -558,6 +558,14 @@ func dropMigration120Objects(ctx context.Context, db *sql.DB) error {
 	return nil
 }
 
+// dropMigration122Objects removes every schema object migration 122 creates.
+// The guarded worktree_ref_outcomes projection is one plain CREATE TABLE:
+// its guard triggers and index are owned by the table and drop with it.
+func dropMigration122Objects(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `DROP TABLE IF EXISTS worktree_ref_outcomes`)
+	return err
+}
+
 // synthExecPath runs statements on an external connection opened straight
 // from a path, arming the fold guard the canonical guard triggers require.
 func synthExecPath(t *testing.T, path string, queries ...string) {
@@ -604,12 +612,20 @@ func TestInitiativeProjection_MigrationBackfillPreservesDefects(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The backfill under test belongs to migration 120 alone: later steps
-	// stay applied, so the re-apply exercises exactly the one migration.
-	if _, err := raw.ExecContext(ctx, `DELETE FROM schema_migrations WHERE version=120`); err != nil {
+	// The backfill under test belongs to migration 120: the manifest tail
+	// from 120 on is removed and every step's objects drop, so the upgrade
+	// re-applies the ordered tail and the 120 backfill runs against the
+	// pre-120 shape it originally met.
+	if _, err := raw.ExecContext(ctx, `DELETE FROM schema_migrations WHERE version>=120`); err != nil {
 		t.Fatal(err)
 	}
 	if err := dropMigration120Objects(ctx, raw); err != nil {
+		t.Fatal(err)
+	}
+	if err := dropMigration121Objects(ctx, raw); err != nil {
+		t.Fatal(err)
+	}
+	if err := dropMigration122Objects(ctx, raw); err != nil {
 		t.Fatal(err)
 	}
 	// Defects a pre-120 store can carry: an initiative that lost its primary
@@ -626,8 +642,23 @@ func TestInitiativeProjection_MigrationBackfillPreservesDefects(t *testing.T) {
 	if err != nil {
 		t.Fatalf("upgrade with migration 120: %v (%+v)", err, report)
 	}
-	if len(report.Applied) == 0 || report.Applied[len(report.Applied)-1] != 120 {
-		t.Fatalf("upgrade applied=%v, want migration 120 last", report.Applied)
+	// The applied set is the ordered tail this branch's schema holds from
+	// 120 on — derived from the schema, never hand-listed — so the 120
+	// backfill stays asserted while a migration appended after the tail
+	// fails here loudly until the fixture's drops join it.
+	wantApplied := []int{}
+	for _, m := range migrations {
+		if m.Version >= 120 {
+			wantApplied = append(wantApplied, m.Version)
+		}
+	}
+	if len(report.Applied) != len(wantApplied) {
+		t.Fatalf("upgrade applied=%v, want the ordered tail %v", report.Applied, wantApplied)
+	}
+	for i := range wantApplied {
+		if report.Applied[i] != wantApplied[i] {
+			t.Fatalf("upgrade applied=%v, want the ordered tail %v", report.Applied, wantApplied)
+		}
 	}
 
 	upgraded, err := Open(ctx, path)
@@ -674,12 +705,20 @@ func TestInitiativeProjection_MigrationBackfillCleanStoreIsEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The backfill under test belongs to migration 120 alone: later steps
-	// stay applied, so the re-apply exercises exactly the one migration.
-	if _, err := raw.ExecContext(ctx, `DELETE FROM schema_migrations WHERE version=120`); err != nil {
+	// The backfill under test belongs to migration 120: the manifest tail
+	// from 120 on is removed and every step's objects drop, so the upgrade
+	// re-applies the ordered tail and the 120 backfill runs against the
+	// pre-120 shape it originally met.
+	if _, err := raw.ExecContext(ctx, `DELETE FROM schema_migrations WHERE version>=120`); err != nil {
 		t.Fatal(err)
 	}
 	if err := dropMigration120Objects(ctx, raw); err != nil {
+		t.Fatal(err)
+	}
+	if err := dropMigration121Objects(ctx, raw); err != nil {
+		t.Fatal(err)
+	}
+	if err := dropMigration122Objects(ctx, raw); err != nil {
 		t.Fatal(err)
 	}
 	_ = raw.Close()

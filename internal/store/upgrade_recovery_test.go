@@ -114,7 +114,9 @@ func TestUpgradeResumesAfterTheCollisionIsRepaired(t *testing.T) {
 	// maintenance triggers attach to pre-existing tables, so they drop by
 	// name before its tables do. Migration 121's ALTER TABLE refuses a
 	// duplicate column, so dropMigration121Objects restores the pre-step
-	// workflow_instances shape beside dropping its tables.
+	// workflow_instances shape beside dropping its tables. The guarded
+	// worktree_ref_outcomes projection is a plain CREATE TABLE, so its
+	// object drops with the rest through its own helper.
 	if _, err := db.ExecContext(context.Background(), `DROP TABLE project_handoffs; DROP TABLE durability_commits; DROP TABLE runtime_state_writers; DROP TABLE worker_job_revisions;`); err != nil {
 		t.Fatalf("cannot drop the colliding table: %v", err)
 	}
@@ -124,13 +126,31 @@ func TestUpgradeResumesAfterTheCollisionIsRepaired(t *testing.T) {
 	if err := dropMigration121Objects(context.Background(), db); err != nil {
 		t.Fatalf("cannot drop migration 121's colliding objects: %v", err)
 	}
+	if err := dropMigration122Objects(context.Background(), db); err != nil {
+		t.Fatalf("cannot drop migration 122's colliding objects: %v", err)
+	}
 	_ = db.Close()
 	report, err := Upgrade(context.Background(), path, nil)
 	if err != nil {
 		t.Fatalf("the repaired tail must apply: %v", err)
 	}
-	if len(report.Applied) != 7 || report.Applied[0] != 115 || report.Applied[1] != 116 || report.Applied[2] != 117 || report.Applied[3] != 118 || report.Applied[4] != 119 || report.Applied[5] != 120 || report.Applied[6] != 121 || report.SchemaVersion != CurrentSchemaVersion() {
-		t.Fatalf("the repaired tail must reapply exactly the removed steps: %+v", report)
+	// The reapplied tail is exactly the migration versions this branch's
+	// schema holds at and above the removed stamp — derived from the schema,
+	// never hand-listed, so a renumbered or inserted migration cannot leave
+	// the fixture pinning a stale ordering.
+	want := []int{}
+	for _, m := range migrations {
+		if m.Version >= 115 {
+			want = append(want, m.Version)
+		}
+	}
+	if len(report.Applied) != len(want) || report.SchemaVersion != CurrentSchemaVersion() {
+		t.Fatalf("the repaired tail must reapply exactly the removed steps: applied %+v want %+v, schema %d", report.Applied, want, report.SchemaVersion)
+	}
+	for i := range want {
+		if report.Applied[i] != want[i] {
+			t.Fatalf("the repaired tail must reapply in schema order: applied %+v want %+v", report.Applied, want)
+		}
 	}
 	plan, err := PlanUpgradeReadiness(context.Background(), path)
 	if err != nil {

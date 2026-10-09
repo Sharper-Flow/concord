@@ -20724,7 +20724,8 @@ const GeneratedPayloadSchemaDocument = `{
               },
               "claim_state": {
                 "enum": [
-                  "verified"
+                  "verified",
+                  "reclaimed"
                 ],
                 "type": "string"
               },
@@ -20737,13 +20738,23 @@ const GeneratedPayloadSchemaDocument = `{
                   "unstarted_present",
                   "uncommitted_content",
                   "unpushed_content",
-                  "unpublished_lesson"
+                  "unpublished_lesson",
+                  "retained_ref"
                 ],
                 "type": "string"
               },
               "commits_ahead": {
                 "minimum": 0,
                 "type": "integer"
+              },
+              "head_branch": {
+                "description": "CD-0212 D1: the live branch the row's one immutable live-HEAD observation read. Empty when the live HEAD is detached; differs from the claim when the checkout drifted. An observed live ref carries no upper bound the claim surface owns, because a reftable-backed repository admits identities no loose pathname could hold.",
+                "minLength": 1,
+                "type": "string"
+              },
+              "head_detached": {
+                "description": "CD-0212 D1: the live-HEAD observation read a detached HEAD rather than a branch checkout.",
+                "type": "boolean"
               },
               "lifecycle": {
                 "$ref": "#/$defs/lifecycle"
@@ -20763,6 +20774,17 @@ const GeneratedPayloadSchemaDocument = `{
                   "worktree_claim",
                   "worktree_inspect"
                 ],
+                "type": "string"
+              },
+              "retained_branch": {
+                "description": "CD-0212 D3: one branch ref a completed reclamation retained. The ref survived the reclaim with its branch, tip, and reason recorded in the reclamation facts; the operator decides its disposal. A retained live ref carries no upper bound the claim surface owns, so the full retained identity reports without truncation.",
+                "minLength": 1,
+                "type": "string"
+              },
+              "retained_tip": {
+                "description": "CD-0212 D3: the tip the reclamation observed when it retained the ref named by retained_branch.",
+                "maxLength": 64,
+                "minLength": 40,
                 "type": "string"
               },
               "risk": {
@@ -20876,7 +20898,8 @@ const GeneratedPayloadSchemaDocument = `{
               },
               "claim_state": {
                 "enum": [
-                  "verified"
+                  "verified",
+                  "reclaimed"
                 ],
                 "type": "string"
               },
@@ -20889,13 +20912,23 @@ const GeneratedPayloadSchemaDocument = `{
                   "unstarted_present",
                   "uncommitted_content",
                   "unpushed_content",
-                  "unpublished_lesson"
+                  "unpublished_lesson",
+                  "retained_ref"
                 ],
                 "type": "string"
               },
               "commits_ahead": {
                 "minimum": 0,
                 "type": "integer"
+              },
+              "head_branch": {
+                "description": "CD-0212 D1: the live branch the row's one immutable live-HEAD observation read. Empty when the live HEAD is detached; differs from the claim when the checkout drifted. An observed live ref carries no upper bound the claim surface owns, because a reftable-backed repository admits identities no loose pathname could hold.",
+                "minLength": 1,
+                "type": "string"
+              },
+              "head_detached": {
+                "description": "CD-0212 D1: the live-HEAD observation read a detached HEAD rather than a branch checkout.",
+                "type": "boolean"
               },
               "lifecycle": {
                 "$ref": "#/$defs/lifecycle"
@@ -20915,6 +20948,17 @@ const GeneratedPayloadSchemaDocument = `{
                   "worktree_claim",
                   "worktree_inspect"
                 ],
+                "type": "string"
+              },
+              "retained_branch": {
+                "description": "CD-0212 D3: one branch ref a completed reclamation retained. The ref survived the reclaim with its branch, tip, and reason recorded in the reclamation facts; the operator decides its disposal. A retained live ref carries no upper bound the claim surface owns, so the full retained identity reports without truncation.",
+                "minLength": 1,
+                "type": "string"
+              },
+              "retained_tip": {
+                "description": "CD-0212 D3: the tip the reclamation observed when it retained the ref named by retained_branch.",
+                "maxLength": 64,
+                "minLength": 40,
                 "type": "string"
               },
               "risk": {
@@ -20977,6 +21021,36 @@ const GeneratedPayloadSchemaDocument = `{
                 "maxLength": 64,
                 "minLength": 1,
                 "type": "string"
+              },
+              "retained_refs": {
+                "description": "CD-0212 D3: branch refs the reclamation proved it must not delete and retained instead, visible after directory removal.",
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "branch": {
+                      "description": "CD-0212 D3: a retained ref carries no upper bound the claim surface owns, so a valid long live branch retained by the reclamation reports its full identity.",
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "reason": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "tip": {
+                      "maxLength": 64,
+                      "minLength": 40,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "branch",
+                    "reason"
+                  ],
+                  "type": "object"
+                },
+                "maxItems": 16,
+                "type": "array"
               },
               "version": {
                 "$ref": "#/$defs/version"

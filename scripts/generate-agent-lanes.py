@@ -166,6 +166,8 @@ def report_projection_constraints(report_schema: dict, lane: dict) -> list[str]:
     context_statement = context_finding["properties"]["statement"]
     context_subject = context_finding["properties"]["subject_ref"]
     context_refs = context_finding["properties"]["evidence_refs"]
+    context_domain = context_finding["properties"]["domain_id"]
+    context_rationale = context_finding["properties"]["product_wide_rationale"]
     base_comparison = properties["base_comparison"]
     base_checks = base_comparison["properties"]["checks"]
     base_check = report_schema["$defs"]["base_comparison_check"]
@@ -253,6 +255,20 @@ def report_projection_constraints(report_schema: dict, lane: dict) -> list[str]:
         f"minItems={context_refs['minItems']}, "
         f"maxItems={context_refs['maxItems']}, "
         f"items={json.dumps(context_refs['items'], ensure_ascii=False)}.",
+        "context_finding.domain_id: "
+        f"type={context_domain['type']}, "
+        f"minLength={context_domain['minLength']}, "
+        f"maxLength={context_domain['maxLength']}, "
+        f"x-maxBytes={context_domain['x-maxBytes']}. "
+        "Name the registry Domain the finding concerns, from the packet's affected Domains; "
+        "the store refuses a Domain outside the current registry or the approved affected scope.",
+        "context_finding.product_wide_rationale: "
+        "optional; "
+        f"type={context_rationale['type']}, "
+        f"minLength={context_rationale['minLength']}, "
+        f"maxLength={context_rationale['maxLength']}, "
+        f"x-maxBytes={context_rationale['x-maxBytes']}. "
+        "Required when domain_id names the root Domain, and refused on a child Domain.",
         "base_comparison: "
         "optional top-level object; "
         f"type={base_comparison['type']}, "

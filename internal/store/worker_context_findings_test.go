@@ -22,6 +22,7 @@ func contextFindingFixture() WorkerContextFinding {
 		Statement:    "the bounded read is the only admission route",
 		SubjectRef:   "internal/store/worker_lanes.go",
 		EvidenceRefs: []string{"internal/store/worker_lanes_test.go"},
+		DomainID:     workContextTestChild,
 	}
 }
 
@@ -38,23 +39,23 @@ func TestValidateWorkerContextFindingsClosedShape(t *testing.T) {
 	// Every closed kind admits, and sixteen entries stay inside the count.
 	allKinds := make([]WorkerContextFinding, 0, len(kinds))
 	for _, kind := range kinds {
-		allKinds = append(allKinds, WorkerContextFinding{Kind: kind, Statement: "s", SubjectRef: "r", EvidenceRefs: []string{}})
+		allKinds = append(allKinds, WorkerContextFinding{Kind: kind, Statement: "s", SubjectRef: "r", EvidenceRefs: []string{}, DomainID: "d"})
 	}
 	if err := ValidateWorkerContextFindings(allKinds); err != nil {
 		t.Fatalf("every closed kind refused: %v", err)
 	}
 	// Byte bounds hold for multi-byte UTF-8, not code points.
-	if err := ValidateWorkerContextFindings([]WorkerContextFinding{{Kind: "observation", Statement: strings.Repeat("é", 512), SubjectRef: "r", EvidenceRefs: []string{}}}); err != nil {
+	if err := ValidateWorkerContextFindings([]WorkerContextFinding{{Kind: "observation", Statement: strings.Repeat("é", 512), SubjectRef: "r", EvidenceRefs: []string{}, DomainID: "d"}}); err != nil {
 		t.Fatalf("1024-byte multi-byte statement refused: %v", err)
 	}
-	if err := ValidateWorkerContextFindings([]WorkerContextFinding{{Kind: "observation", Statement: strings.Repeat("🎉", 256), SubjectRef: "r", EvidenceRefs: []string{}}}); err != nil {
+	if err := ValidateWorkerContextFindings([]WorkerContextFinding{{Kind: "observation", Statement: strings.Repeat("🎉", 256), SubjectRef: "r", EvidenceRefs: []string{}, DomainID: "d"}}); err != nil {
 		t.Fatalf("1024-byte astral statement refused: %v", err)
 	}
 	fullRefs := make([]string, 8)
 	for i := range fullRefs {
 		fullRefs[i] = strings.Repeat("r", 256)
 	}
-	if err := ValidateWorkerContextFindings([]WorkerContextFinding{{Kind: "direction", Statement: "s", SubjectRef: strings.Repeat("s", 128), EvidenceRefs: fullRefs}}); err != nil {
+	if err := ValidateWorkerContextFindings([]WorkerContextFinding{{Kind: "direction", Statement: "s", SubjectRef: strings.Repeat("s", 128), EvidenceRefs: fullRefs, DomainID: strings.Repeat("d", 256)}}); err != nil {
 		t.Fatalf("at-bound subject_ref and evidence refs refused: %v", err)
 	}
 
@@ -69,19 +70,21 @@ func TestValidateWorkerContextFindingsClosedShape(t *testing.T) {
 			}
 			return entries
 		}()},
-		{"kind outside the closed vocabulary", []WorkerContextFinding{{Kind: "vibes", Statement: "s", SubjectRef: "r", EvidenceRefs: []string{}}}},
-		{"empty statement", []WorkerContextFinding{{Kind: "observation", Statement: "", SubjectRef: "r", EvidenceRefs: []string{}}}},
-		{"statement past 1024 ASCII bytes", []WorkerContextFinding{{Kind: "observation", Statement: strings.Repeat("x", 1025), SubjectRef: "r", EvidenceRefs: []string{}}}},
-		{"statement past 1024 UTF-8 bytes in fewer code points", []WorkerContextFinding{{Kind: "observation", Statement: strings.Repeat("é", 513), SubjectRef: "r", EvidenceRefs: []string{}}}},
-		{"statement past bytes with astral characters", []WorkerContextFinding{{Kind: "observation", Statement: strings.Repeat("🎉", 257), SubjectRef: "r", EvidenceRefs: []string{}}}},
-		{"empty subject_ref", []WorkerContextFinding{{Kind: "observation", Statement: "s", SubjectRef: "", EvidenceRefs: []string{}}}},
+		{"kind outside the closed vocabulary", []WorkerContextFinding{{Kind: "vibes", Statement: "s", SubjectRef: "r", EvidenceRefs: []string{}, DomainID: "d"}}},
+		{"empty statement", []WorkerContextFinding{{Kind: "observation", Statement: "", SubjectRef: "r", EvidenceRefs: []string{}, DomainID: "d"}}},
+		{"statement past 1024 ASCII bytes", []WorkerContextFinding{{Kind: "observation", Statement: strings.Repeat("x", 1025), SubjectRef: "r", EvidenceRefs: []string{}, DomainID: "d"}}},
+		{"statement past 1024 UTF-8 bytes in fewer code points", []WorkerContextFinding{{Kind: "observation", Statement: strings.Repeat("é", 513), SubjectRef: "r", EvidenceRefs: []string{}, DomainID: "d"}}},
+		{"statement past bytes with astral characters", []WorkerContextFinding{{Kind: "observation", Statement: strings.Repeat("🎉", 257), SubjectRef: "r", EvidenceRefs: []string{}, DomainID: "d"}}},
+		{"empty subject_ref", []WorkerContextFinding{{Kind: "observation", Statement: "s", SubjectRef: "", EvidenceRefs: []string{}, DomainID: "d"}}},
 		{"subject_ref past 128 bytes", []WorkerContextFinding{{Kind: "observation", Statement: "s", SubjectRef: strings.Repeat("s", 129), EvidenceRefs: []string{}}}},
 		{"subject_ref past 128 UTF-8 bytes", []WorkerContextFinding{{Kind: "observation", Statement: "s", SubjectRef: strings.Repeat("é", 65), EvidenceRefs: []string{}}}},
-		{"absent evidence_refs array", []WorkerContextFinding{{Kind: "observation", Statement: "s", SubjectRef: "r", EvidenceRefs: nil}}},
-		{"nine evidence refs", []WorkerContextFinding{{Kind: "observation", Statement: "s", SubjectRef: "r", EvidenceRefs: []string{"1", "2", "3", "4", "5", "6", "7", "8", "9"}}}},
-		{"empty evidence ref", []WorkerContextFinding{{Kind: "observation", Statement: "s", SubjectRef: "r", EvidenceRefs: []string{""}}}},
-		{"evidence ref past 256 bytes", []WorkerContextFinding{{Kind: "observation", Statement: "s", SubjectRef: "r", EvidenceRefs: []string{strings.Repeat("r", 257)}}}},
-		{"evidence ref past 256 UTF-8 bytes", []WorkerContextFinding{{Kind: "observation", Statement: "s", SubjectRef: "r", EvidenceRefs: []string{strings.Repeat("é", 129)}}}},
+		{"absent evidence_refs array", []WorkerContextFinding{{Kind: "observation", Statement: "s", SubjectRef: "r", EvidenceRefs: nil, DomainID: "d"}}},
+		{"nine evidence refs", []WorkerContextFinding{{Kind: "observation", Statement: "s", SubjectRef: "r", EvidenceRefs: []string{"1", "2", "3", "4", "5", "6", "7", "8", "9"}, DomainID: "d"}}},
+		{"empty evidence ref", []WorkerContextFinding{{Kind: "observation", Statement: "s", SubjectRef: "r", EvidenceRefs: []string{""}, DomainID: "d"}}},
+		{"evidence ref past 256 bytes", []WorkerContextFinding{{Kind: "observation", Statement: "s", SubjectRef: "r", EvidenceRefs: []string{strings.Repeat("r", 257)}, DomainID: "d"}}},
+		{"empty domain_id", []WorkerContextFinding{{Kind: "observation", Statement: "s", SubjectRef: "r", EvidenceRefs: []string{}, DomainID: ""}}},
+		{"domain_id past 256 bytes", []WorkerContextFinding{{Kind: "observation", Statement: "s", SubjectRef: "r", EvidenceRefs: []string{}, DomainID: strings.Repeat("d", 257)}}},
+		{"evidence ref past 256 UTF-8 bytes", []WorkerContextFinding{{Kind: "observation", Statement: "s", SubjectRef: "r", EvidenceRefs: []string{strings.Repeat("é", 129)}, DomainID: "d"}}},
 	}
 	for _, refusal := range refusals {
 		if err := ValidateWorkerContextFindings(refusal.findings); !hasFailureKind(err, KindInvalidPayload) {
@@ -101,6 +104,7 @@ func TestValidateWorkerContextFindingsAggregateBytesRefuseNeverTruncate(t *testi
 			Statement:    "finding " + strings.Repeat(string(rune('a'+i%26)), 1) + ": " + strings.Repeat("x", 1010),
 			SubjectRef:   strings.Repeat("s", 128),
 			EvidenceRefs: []string{},
+			DomainID:     "d",
 		}
 	}
 	encoded, err := json.Marshal(atBound)
@@ -121,6 +125,7 @@ func TestValidateWorkerContextFindingsAggregateBytesRefuseNeverTruncate(t *testi
 			Statement:    "finding " + strings.Repeat(string(rune('a'+i%26)), 1) + ": " + strings.Repeat("x", 1010),
 			SubjectRef:   strings.Repeat("s", 128),
 			EvidenceRefs: []string{},
+			DomainID:     "d",
 		}
 	}
 	before, err := json.Marshal(over)
@@ -174,23 +179,25 @@ func TestWorkerTerminalEventsAdmitTypedContextFindings(t *testing.T) {
 	if got := WorkerEvidenceEventPayloadVersion(WorkerFailed); got != 2 {
 		t.Fatalf("worker.failed current payload version = %d, want 2", got)
 	}
-	s := openTemp(t)
+	fixture := seedWorkContextFixture(t, "work-findings-admit")
+	defer fixture.store.Close()
+	s := fixture.store
 	lane := BuiltinLaneDefinitions()[0]
 	model := preferredModelForLane(lane)
-	findings := []WorkerContextFinding{contextFindingFixture(), {Kind: "direction", Statement: "the reader joins declarations without parsing narrative", SubjectRef: "internal/store/fold.go", EvidenceRefs: []string{"a", "b"}}}
+	findings := []WorkerContextFinding{contextFindingFixture(), {Kind: "direction", Statement: "the reader joins declarations without parsing narrative", SubjectRef: "internal/store/fold.go", EvidenceRefs: []string{"a", "b"}, DomainID: workContextTestRoot, ProductWideRationale: workContextRootRationale}}
 
-	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("work-findings-complete", "attempt-findings-complete", lane, nil)}}); err != nil {
+	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent(fixture.workID, "attempt-findings-complete", lane, nil)}}); err != nil {
 		t.Fatal(err)
 	}
-	completion := workerCompletedContextFindingsEvent("work-findings-complete", "complete-findings", "attempt-findings-complete", model, lane, findings, WorkerEvidenceEventPayloadVersion(WorkerCompleted))
+	completion := workerCompletedContextFindingsEvent(fixture.workID, "complete-findings", "attempt-findings-complete", model, lane, findings, WorkerEvidenceEventPayloadVersion(WorkerCompleted))
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{completion}}); err != nil {
 		t.Fatalf("completion with typed findings refused: %v", err)
 	}
 
-	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("work-findings-failed", "attempt-findings-failed", lane, nil)}}); err != nil {
+	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent(fixture.workID, "attempt-findings-failed", lane, nil)}}); err != nil {
 		t.Fatal(err)
 	}
-	failure := workerFailedContextFindingsEvent("work-findings-failed", "failed-findings", "attempt-findings-failed", model, WorkerFailureWorkerError, findings, WorkerEvidenceEventPayloadVersion(WorkerFailed))
+	failure := workerFailedContextFindingsEvent(fixture.workID, "failed-findings", "attempt-findings-failed", model, WorkerFailureWorkerError, findings, WorkerEvidenceEventPayloadVersion(WorkerFailed))
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{failure}}); err != nil {
 		t.Fatalf("worker_error failure with typed findings refused: %v", err)
 	}
@@ -224,7 +231,9 @@ func TestWorkerTerminalEventsAdmitTypedContextFindings(t *testing.T) {
 // discharge one.
 func TestWorkerCompletedFindingsAreClaimsNotObligationDischarge(t *testing.T) {
 	t.Parallel()
-	s := openTemp(t)
+	fixture := seedWorkContextFixture(t, "work-findings-claims")
+	defer fixture.store.Close()
+	s := fixture.store
 	lane := BuiltinLaneDefinitions()[0]
 	model := preferredModelForLane(lane)
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("work-findings-claims", "attempt-findings-claims", lane, nil)}}); err != nil {
@@ -334,7 +343,9 @@ func TestWorkerTerminalContextFindingsUpcastAndRebuildDeterministic(t *testing.T
 		}
 	})
 	t.Run("current-version findings fold and rebuild identically", func(t *testing.T) {
-		s := openTemp(t)
+		fixture := seedWorkContextFixture(t, "work-rebuild-findings")
+		defer fixture.store.Close()
+		s := fixture.store
 		lane := BuiltinLaneDefinitions()[0]
 		model := preferredModelForLane(lane)
 		findings := []WorkerContextFinding{contextFindingFixture()}
@@ -344,10 +355,10 @@ func TestWorkerTerminalContextFindingsUpcastAndRebuildDeterministic(t *testing.T
 		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerCompletedContextFindingsEvent("work-rebuild-findings", "rebuild-complete-findings", "attempt-rebuild-findings", model, lane, findings, WorkerEvidenceEventPayloadVersion(WorkerCompleted))}}); err != nil {
 			t.Fatal(err)
 		}
-		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("work-rebuild-findings-f", "attempt-rebuild-findings-f", lane, nil)}}); err != nil {
+		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent("work-rebuild-findings", "attempt-rebuild-findings-f", lane, nil)}}); err != nil {
 			t.Fatal(err)
 		}
-		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerFailedContextFindingsEvent("work-rebuild-findings-f", "rebuild-failed-findings", "attempt-rebuild-findings-f", model, WorkerFailureWorkerError, findings, WorkerEvidenceEventPayloadVersion(WorkerFailed))}}); err != nil {
+		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerFailedContextFindingsEvent("work-rebuild-findings", "rebuild-failed-findings", "attempt-rebuild-findings-f", model, WorkerFailureWorkerError, findings, WorkerEvidenceEventPayloadVersion(WorkerFailed))}}); err != nil {
 			t.Fatal(err)
 		}
 		before := workerProjectionSnapshot(t, s)

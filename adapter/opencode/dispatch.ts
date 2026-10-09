@@ -202,6 +202,8 @@ export interface AgentLaneReportContextFinding {
   statement: string
   subject_ref: string
   evidence_refs: string[]
+  domain_id: string
+  product_wide_rationale?: string
 }
 
 export interface AgentLaneReport {

@@ -23,6 +23,7 @@ const finding = (overrides: Record<string, unknown> = {}) => ({
   statement: "the bounded read is the only admission route",
   subject_ref: "adapter/opencode/dispatch.ts",
   evidence_refs: ["contracts/agent-lane-report.schema.json"],
+  domain_id: "domain:adapter",
   ...overrides,
 })
 
@@ -60,11 +61,11 @@ test("the contract declares context_findings as an optional bounded member witho
   refuses(report({ context_findings: [finding()], unexpected: true }), "unknown sibling of context_findings")
 })
 
-test("the contract closes the context_finding entry on four required fields", () => {
+test("the contract closes the context_finding entry on five required fields and an optional rationale", () => {
   const entry = schema.$defs.context_finding
   expect(entry.type).toBe("object")
   expect(entry.additionalProperties).toBe(false)
-  expect(entry.required).toEqual(["kind", "statement", "subject_ref", "evidence_refs"])
+  expect(entry.required).toEqual(["kind", "statement", "subject_ref", "evidence_refs", "domain_id"])
   expect(entry.properties.kind.enum).toEqual([...kinds])
   const statement = entry.properties.statement
   expect(statement.minLength).toBe(1)
@@ -80,6 +81,14 @@ test("the contract closes the context_finding entry on four required fields", ()
   expect(refs.items.minLength).toBe(1)
   expect(refs.items.maxLength).toBe(256)
   expect(refs.items["x-maxBytes"]).toBe(256)
+  const domainID = entry.properties.domain_id
+  expect(domainID.minLength).toBe(1)
+  expect(domainID.maxLength).toBe(256)
+  expect(domainID["x-maxBytes"]).toBe(256)
+  const rationale = entry.properties.product_wide_rationale
+  expect(rationale.minLength).toBe(1)
+  expect(rationale.maxLength).toBe(512)
+  expect(rationale["x-maxBytes"]).toBe(512)
 })
 
 test("the contract admits absent, empty, every-kind, and at-bound findings on both identities", () => {
@@ -92,6 +101,8 @@ test("the contract admits absent, empty, every-kind, and at-bound findings on bo
   admits(report({ context_findings: [finding({ statement: "🎉".repeat(256) })] }), "1024-byte astral statement")
   admits(report({ context_findings: [finding({ subject_ref: "s".repeat(128) })] }), "128-byte subject_ref")
   admits(report({ context_findings: [finding({ evidence_refs: Array.from({ length: 8 }, () => "r".repeat(256)) })] }), "eight 256-byte refs")
+  admits(report({ context_findings: [finding({ domain_id: "d".repeat(256) })] }), "256-byte domain_id")
+  admits(report({ context_findings: [finding({ product_wide_rationale: "r".repeat(512) })] }), "512-byte product-wide rationale")
   for (const schema_version of ["1.0", "1.1"] as const) {
     admits(report({ schema_version, context_findings: [finding()] }), `identity ${schema_version}`)
   }
@@ -101,10 +112,15 @@ test("the contract refuses over-bound and drifted findings", () => {
   const refusals = [
     { name: "seventeen entries", value: Array.from({ length: 17 }, () => finding()) },
     { name: "kind outside the enum", value: [finding({ kind: "vibes" })] },
-    { name: "missing kind", value: [{ statement: "s", subject_ref: "r", evidence_refs: [] }] },
-    { name: "missing statement", value: [{ kind: "observation", subject_ref: "r", evidence_refs: [] }] },
-    { name: "missing subject_ref", value: [{ kind: "observation", statement: "s", evidence_refs: [] }] },
-    { name: "missing evidence_refs", value: [{ kind: "observation", statement: "s", subject_ref: "r" }] },
+    { name: "missing kind", value: [{ statement: "s", subject_ref: "r", evidence_refs: [], domain_id: "d" }] },
+    { name: "missing statement", value: [{ kind: "observation", subject_ref: "r", evidence_refs: [], domain_id: "d" }] },
+    { name: "missing subject_ref", value: [{ kind: "observation", statement: "s", evidence_refs: [], domain_id: "d" }] },
+    { name: "missing evidence_refs", value: [{ kind: "observation", statement: "s", subject_ref: "r", domain_id: "d" }] },
+    { name: "missing domain_id", value: [{ kind: "observation", statement: "s", subject_ref: "r", evidence_refs: [] }] },
+    { name: "empty domain_id", value: [finding({ domain_id: "" })] },
+    { name: "domain_id past 256 UTF-8 bytes within code points", value: [finding({ domain_id: "é".repeat(129) })] },
+    { name: "empty product-wide rationale", value: [finding({ product_wide_rationale: "" })] },
+    { name: "product-wide rationale past 512 bytes", value: [finding({ product_wide_rationale: "r".repeat(513) })] },
     { name: "undeclared entry field", value: [finding({ acceptance: true })] },
     { name: "empty statement", value: [finding({ statement: "" })] },
     { name: "statement past 1024 code points", value: [finding({ statement: "x".repeat(1025) })] },

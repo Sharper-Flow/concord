@@ -2764,6 +2764,7 @@ const contextFinding = (overrides: Record<string, unknown> = {}) => ({
   statement: "the failure reproduces only under WAL replay",
   subject_ref: "internal/store/txscope_test.go",
   evidence_refs: ["internal/store/txscope_test.go:40", "bin/oc-test"],
+  domain_id: "domain:store",
   ...overrides,
 })
 
@@ -2776,10 +2777,11 @@ test("the report schema admits the optional context_findings array and closes it
   const refusals = [
     { name: "seventeen entries", value: Array.from({ length: 17 }, () => contextFinding()) },
     { name: "kind outside the closed enum", value: [contextFinding({ kind: "guess" })] },
-    { name: "missing kind", value: [{ statement: "s", subject_ref: "r", evidence_refs: [] }] },
-    { name: "missing statement", value: [{ kind: "observation", subject_ref: "r", evidence_refs: [] }] },
-    { name: "missing subject_ref", value: [{ kind: "observation", statement: "s", evidence_refs: [] }] },
-    { name: "missing evidence_refs", value: [{ kind: "observation", statement: "s", subject_ref: "r" }] },
+    { name: "missing kind", value: [{ statement: "s", subject_ref: "r", evidence_refs: [], domain_id: "d" }] },
+    { name: "missing statement", value: [{ kind: "observation", subject_ref: "r", evidence_refs: [], domain_id: "d" }] },
+    { name: "missing subject_ref", value: [{ kind: "observation", statement: "s", evidence_refs: [], domain_id: "d" }] },
+    { name: "missing evidence_refs", value: [{ kind: "observation", statement: "s", subject_ref: "r", domain_id: "d" }] },
+    { name: "missing domain_id", value: [{ kind: "observation", statement: "s", subject_ref: "r", evidence_refs: [] }] },
     { name: "undeclared entry property", value: [contextFinding({ confidence: "high" })] },
     { name: "empty statement", value: [contextFinding({ statement: "" })] },
     { name: "statement past 1024 characters", value: [contextFinding({ statement: "x".repeat(1025) })] },

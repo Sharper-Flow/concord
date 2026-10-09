@@ -178,7 +178,7 @@ func seedWorkContextFixture(t *testing.T, workID string) workContextFixture {
 		Payload: mustJSONValue(map[string]any{
 			"work_id": workID, "expected_version": version, "resulting_version": version + 1, "contract_version": 1, "premise": "deliver the checked change", "outcome_kind": "check",
 			"outcome_predicates": []map[string]any{{"predicate_id": "predicate:work-context", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:work-context", "immutable_subject_ref": "commit:" + workContextTestCommit(), "expected_result": "pass"}}},
-			"required_evidence": []string{"verification"}, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{},
+			"required_evidence":  []string{"verification"}, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{},
 			"law_revisions": []WorkflowLawRevision{}, "law_boundary_version": 1, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite",
 			"architecture_binding": WorkflowArchitectureBinding{
 				DomainRegistryContentHash: "sha256:" + strings.Repeat("b", 64), HomeDomainID: workContextTestRoot, AffectedDomainIDs: []string{workContextTestRoot, workContextTestChild},
@@ -347,7 +347,7 @@ func TestRecordWorkContextActionDomainRefusals(t *testing.T) {
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
-			fixture := seedWorkContextFixture(t, "ctx-action-domain-" + strings.ReplaceAll(testCase.name, " ", "-"))
+			fixture := seedWorkContextFixture(t, "ctx-action-domain-"+strings.ReplaceAll(testCase.name, " ", "-"))
 			defer fixture.store.Close()
 			payload := map[string]any{"finding_refs": []string{}}
 			if testCase.arm == "reading" {
@@ -377,8 +377,8 @@ func TestRecordWorkContextShapeRefusals(t *testing.T) {
 	}
 	schemaRefusal := "does not satisfy its declared schema"
 	cases := []struct {
-		name   string
-		detail string
+		name    string
+		detail  string
 		payload any
 	}{
 		{"absolute repository path", "normalized relative", map[string]any{"required_reading": []map[string]any{repoReading("/etc/passwd", workContextTestCommit())}}},
@@ -406,7 +406,7 @@ func TestRecordWorkContextShapeRefusals(t *testing.T) {
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
-			fixture := seedWorkContextFixture(t, "ctx-shape-" + strings.ReplaceAll(testCase.name, " ", "-"))
+			fixture := seedWorkContextFixture(t, "ctx-shape-"+strings.ReplaceAll(testCase.name, " ", "-"))
 			defer fixture.store.Close()
 			err := fixture.recordWorkContext(t, testCase.payload)
 			if err == nil || !strings.Contains(err.Error(), testCase.detail) {
@@ -686,7 +686,7 @@ func TestReadWorkContextOverflowRefusesReadNotRetention(t *testing.T) {
 	// The anchor selects all sixteen earlier findings beside its own
 	// sixteen, and the subsequent report adds one more: 33 work-wide.
 	if err := fixture.recordWorkContext(t, map[string]any{
-		"finding_refs":     refs,
+		"finding_refs": refs,
 		"context_findings": func() []map[string]any {
 			findings := make([]map[string]any, 16)
 			for i := range findings {
@@ -948,5 +948,77 @@ func TestCompletionAndBoundaryWriteNoContextContent(t *testing.T) {
 		if count != 0 {
 			t.Fatalf("probe %q found %d rows; context content was promoted", probe, count)
 		}
+	}
+}
+
+// TestTerminalReportFindingsBindRegistryDomainsLiveNotOnReplay is the
+// CON-892 terminal-report admission: each reported finding names a Domain,
+// the live fold validates it against the current registry and approved
+// affected scope through ValidateWorkContextDomainTx, and replay folds the
+// retained report without today's registry.
+func TestTerminalReportFindingsBindRegistryDomainsLiveNotOnReplay(t *testing.T) {
+	t.Parallel()
+	fixture := seedWorkContextFixture(t, "ctx-terminal-domain")
+	defer fixture.store.Close()
+	lane := BuiltinLaneDefinitions()[0]
+	model := preferredModelForLane(lane)
+	finding := func(domain, rationale string) []WorkerContextFinding {
+		return []WorkerContextFinding{{Kind: "observation", Statement: "a reported claim", SubjectRef: "internal/store/fold.go", EvidenceRefs: []string{}, DomainID: domain, ProductWideRationale: rationale}}
+	}
+	dispatch := func(attempt string) {
+		t.Helper()
+		if err := ApplyOperation(context.Background(), fixture.store, Operation{Events: []Event{workerDispatchEvent(fixture.workID, attempt, lane, nil)}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	dispatch("attempt-domain-1")
+	refusals := []struct {
+		name     string
+		findings []WorkerContextFinding
+		want     FailureKind
+	}{
+		{"missing domain", finding("", ""), KindInvalidPayload},
+		{"unknown domain", finding("domain:absent", ""), KindUnknownScope},
+		{"root without rationale", finding(workContextTestRoot, ""), KindInvalidPayload},
+		{"child with rationale", finding(workContextTestChild, workContextRootRationale), KindInvalidPayload},
+	}
+	for index, refusal := range refusals {
+		completion := workerCompletedContextFindingsEvent(fixture.workID, fmt.Sprintf("ctx-domain-refused-%d", index), "attempt-domain-1", model, lane, refusal.findings, WorkerEvidenceEventPayloadVersion(WorkerCompleted))
+		if err := ApplyOperation(context.Background(), fixture.store, Operation{Events: []Event{completion}}); !hasFailureKind(err, refusal.want) {
+			t.Fatalf("completion %s error = %v, want %s", refusal.name, err, refusal.want)
+		}
+		failure := workerFailedContextFindingsEvent(fixture.workID, fmt.Sprintf("ctx-domain-refused-f-%d", index), "attempt-domain-1", model, WorkerFailureWorkerError, refusal.findings, WorkerEvidenceEventPayloadVersion(WorkerFailed))
+		if err := ApplyOperation(context.Background(), fixture.store, Operation{Events: []Event{failure}}); !hasFailureKind(err, refusal.want) {
+			t.Fatalf("failure %s error = %v, want %s", refusal.name, err, refusal.want)
+		}
+	}
+	if err := ApplyOperation(context.Background(), fixture.store, Operation{Events: []Event{workerCompletedContextFindingsEvent(fixture.workID, "ctx-domain-ok", "attempt-domain-1", model, lane, finding(workContextTestChild, ""), WorkerEvidenceEventPayloadVersion(WorkerCompleted))}}); err != nil {
+		t.Fatalf("child-domain completion refused: %v", err)
+	}
+	dispatch("attempt-domain-2")
+	if err := ApplyOperation(context.Background(), fixture.store, Operation{Events: []Event{workerFailedContextFindingsEvent(fixture.workID, "ctx-domain-ok-f", "attempt-domain-2", model, WorkerFailureWorkerError, finding(workContextTestRoot, workContextRootRationale), WorkerEvidenceEventPayloadVersion(WorkerFailed))}}); err != nil {
+		t.Fatalf("root-domain failure with rationale refused: %v", err)
+	}
+	tx, err := fixture.store.DatabaseForTesting().BeginTx(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := enterFold(context.Background(), tx); err != nil {
+		tx.Rollback()
+		t.Fatal(err)
+	}
+	if _, err := tx.ExecContext(context.Background(), `DELETE FROM domain_registries; DELETE FROM domains;`); err != nil {
+		tx.Rollback()
+		t.Fatal(err)
+	}
+	if err := leaveFold(context.Background(), tx); err != nil {
+		tx.Rollback()
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	if err := RebuildFromLog(context.Background(), fixture.store); err != nil {
+		t.Fatalf("replay of retained terminal reports refused without the registry: %v", err)
 	}
 }

@@ -1,6 +1,10 @@
 package store
 
-import "encoding/json"
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+)
 
 // CON-887 typed terminal-report retention. A worker may report typed context
 // findings on a terminal report; Concord retains them as worker-claimed
@@ -44,25 +48,23 @@ var workerContextFindingKindVocabulary = map[string]bool{
 // closed report shape: EvidenceRefs is present as an array that may be
 // empty, which the struct keeps distinct from an absent (nil) field.
 //
-// The agreed CON-887 wire adds DomainID (required on action declarations
-// and on reports once the terminal-report fold enforces it) and the
-// optional ProductWideRationale, which is legal only on the registry's root
-// Domain. Both are validated against the current Domain registry by the
-// action's admission and the terminal fold's shared
-// ValidateWorkContextDomainTx; the closed entry shape here only bounds
-// them, so a legacy report without them stays admissible at this boundary.
+// DomainID is required on every finding (CON-892) and ProductWideRationale
+// is legal only on the registry's root Domain. The closed entry shape here
+// bounds both; registry and affected-scope validation is tx-scoped in
+// ValidateWorkContextDomainTx, which the action constructor and the live
+// terminal folds share.
 type WorkerContextFinding struct {
 	Kind                 string   `json:"kind"`
 	Statement            string   `json:"statement"`
 	SubjectRef           string   `json:"subject_ref"`
 	EvidenceRefs         []string `json:"evidence_refs"`
-	DomainID             string   `json:"domain_id,omitempty"`
+	DomainID             string   `json:"domain_id"`
 	ProductWideRationale string   `json:"product_wide_rationale,omitempty"`
 }
 
 // validateWorkerContextFindingEntry enforces one finding's closed entry
 // shape, shared by the report aggregate bound and the action declaration.
-// The optional Domain fields carry only byte bounds here; registry and
+// The Domain fields carry only byte bounds here; registry and
 // affected-scope validation is tx-scoped and lives in
 // ValidateWorkContextDomainTx.
 func validateWorkerContextFindingEntry(finding WorkerContextFinding) error {
@@ -88,8 +90,8 @@ func validateWorkerContextFindingEntry(finding WorkerContextFinding) error {
 			return invalidWorkerPayload("worker context_finding evidence ref must be between 1 and 256 UTF-8 bytes")
 		}
 	}
-	if len(finding.DomainID) > 256 {
-		return invalidWorkerPayload("worker context_finding domain_id must be at most 256 UTF-8 bytes")
+	if len(finding.DomainID) < 1 || len(finding.DomainID) > 256 {
+		return invalidWorkerPayload("worker context_finding domain_id must be between 1 and 256 UTF-8 bytes")
 	}
 	if len(finding.ProductWideRationale) > 512 {
 		return invalidWorkerPayload("worker context_finding product_wide_rationale must be at most 512 UTF-8 bytes")
@@ -121,6 +123,22 @@ func ValidateWorkerContextFindings(findings []WorkerContextFinding) error {
 	}
 	if len(encoded) > WorkerContextFindingsMaxArrayBytes {
 		return invalidWorkerPayload("worker context_findings serialize past the 16384-byte aggregate bound and are refused, never truncated")
+	}
+	return nil
+}
+
+// validateWorkerContextFindingDomainsTx validates every reported finding's
+// Domain against the current registry and the approved affected scope on the
+// live terminal fold. Replay folds the retained report without consulting
+// today's registry: the live fold already admitted it.
+func validateWorkerContextFindingDomainsTx(ctx context.Context, tx *sql.Tx, workID string, findings []WorkerContextFinding) error {
+	if isWorkflowReplay(ctx) {
+		return nil
+	}
+	for _, finding := range findings {
+		if err := ValidateWorkContextDomainTx(ctx, tx, workID, finding.DomainID, finding.ProductWideRationale); err != nil {
+			return err
+		}
 	}
 	return nil
 }

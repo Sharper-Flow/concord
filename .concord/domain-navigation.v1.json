@@ -29,6 +29,8 @@
     {
       "domain_id": "workflow-engine",
       "include": [
+        "internal/store/work_context.go", "internal/store/work_context_test.go",
+        "internal/store/work_context_packet_test.go", "internal/store/lane_step_dispatch_test.go",
         "internal/workflowcorpus/**", "internal/payloadschema/**", "internal/store/workflow*.go",
         "internal/store/fence*.go", "internal/store/workpin*.go", "internal/store/await_health*.go",
         "internal/store/checkpoint*_test.go", "contracts/workflow-*", "contracts/lane-step-dispatch*",
@@ -137,7 +139,6 @@
     {"path": "internal/store/governing_requirements.go", "candidate_domain_ids": ["work-coordination", "repository-verification"], "reason": "Capture obligations intersect declared repository checks and work scope."},
     {"path": "internal/store/governing_requirements_test.go", "candidate_domain_ids": ["work-coordination", "repository-verification"], "reason": "Tests capture obligations at the work-scope/check boundary."},
     {"path": "internal/store/landing.go", "candidate_domain_ids": ["work-coordination", "agent-surface"], "reason": "Landing binds work, session, directory, and process identity together."},
-    {"path": "internal/store/lane_step_dispatch_test.go", "candidate_domain_ids": ["agent-surface", "workflow-engine"], "reason": "Tests the generated lane-capability/workflow-step join."},
     {"path": "internal/store/linear_adopt_test.go", "candidate_domain_ids": ["work-coordination", "operator-surface"], "reason": "External planning provenance and operator integration have no settled file owner."},
     {"path": "internal/store/linear_audit_comment_test.go", "candidate_domain_ids": ["work-coordination", "operator-surface"], "reason": "External planning provenance and operator integration have no settled file owner."},
     {"path": "internal/store/linear_backfill_recovery_test.go", "candidate_domain_ids": ["work-coordination", "operator-surface"], "reason": "External planning provenance and operator integration have no settled file owner."},

@@ -790,7 +790,7 @@ func validateError(err TypedError) error {
 		}
 	}
 	if err.AdapterReason != "" {
-		adapterReasons := map[string]bool{"missing_binary": true, "spawn_failure": true, "io_failure": true, "malformed_core_response": true, "timeout_no_effect": true, "cancelled_no_effect": true, "manifest_mismatch": true, "grant_bootstrap_failed": true, "unknown_effect": true, "invalid_request_wrapper": true}
+		adapterReasons := map[string]bool{"missing_binary": true, "spawn_failure": true, "io_failure": true, "malformed_core_response": true, "timeout_no_effect": true, "cancelled_no_effect": true, "manifest_mismatch": true, "grant_bootstrap_failed": true, "unknown_effect": true, "invalid_cli_input": true, "invalid_request_wrapper": true}
 		if !adapterReasons[err.AdapterReason] {
 			return fmt.Errorf("unknown adapter reason %q", err.AdapterReason)
 		}

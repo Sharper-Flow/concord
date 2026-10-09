@@ -164,7 +164,7 @@ func formatRequiredFields(fields []commandField) string {
 // bootstrap test. Agent invoke fields remain owned by their generated
 // transport contracts.
 var commandSpecs = []commandSpec{
-	{Canonical: "invoke", RequiredFields: requiredFields(nestedField("call_envelope", "schema_version", "request_id", "client_ref", "principal_ref", "session_ref", "agent_ref", "directory", "worktree", "ambient_project_id", "scope_version", "manifest_digest"), field("tool"), field("operation"), field("input")), Optional: "call_envelope.selected_product_id, call_envelope.host_assertion_digest, call_envelope.host_approval_assertion", Enums: "tool.operation: concord_product_view.resolve | concord_product_view.snapshot | concord_product_view.portfolio | concord_work_browse.list | concord_work_browse.blocked | concord_work_browse.ready | concord_work_browse.scope | concord_work_trace.history | concord_work_trace.continuity | concord_work_trace.relations | concord_knowledge.search | concord_knowledge.resolve_note | concord_knowledge.unprocessed | concord_work_define.capture | concord_work_define.revise_intent | concord_work_transition.lifecycle | concord_work_transition.workflow_action | concord_work_transition.correct_delivery | concord_work_transition.session_vacate | concord_work_transition.project_handoff_record | concord_work_transition.project_handoff_consume | concord_work_trace.project_retirement | concord_work_relate.set_memberships | concord_work_relate.link | concord_work_relate.unlink | concord_work_relate.supersede | concord_work_compact.publish | concord_work_compact.reconcile"},
+	{Canonical: "invoke", RequiredFields: requiredFields(nestedField("call_envelope", "schema_version", "request_id", "client_ref", "principal_ref", "session_ref", "agent_ref", "directory", "worktree", "ambient_project_id", "scope_version", "manifest_digest"), field("tool"), field("operation"), field("input")), Optional: "call_envelope.selected_product_id, call_envelope.host_assertion_digest, call_envelope.host_approval_assertion; pre-dispatch decode refusals exit 64", Enums: "tool.operation: concord_product_view.resolve | concord_product_view.snapshot | concord_product_view.portfolio | concord_work_browse.list | concord_work_browse.blocked | concord_work_browse.ready | concord_work_browse.scope | concord_work_trace.history | concord_work_trace.continuity | concord_work_trace.relations | concord_knowledge.search | concord_knowledge.resolve_note | concord_knowledge.unprocessed | concord_work_define.capture | concord_work_define.revise_intent | concord_work_transition.lifecycle | concord_work_transition.workflow_action | concord_work_transition.correct_delivery | concord_work_transition.session_vacate | concord_work_transition.project_handoff_record | concord_work_transition.project_handoff_consume | concord_work_trace.project_retirement | concord_work_relate.set_memberships | concord_work_relate.link | concord_work_relate.unlink | concord_work_relate.supersede | concord_work_compact.publish | concord_work_compact.reconcile"},
 	{Canonical: "worker-dispatch", RequiredFields: requiredFields(field("event_id"), field("work_id"), field("attempt_id"), field("lane_id"), field("lane_version"), field("lane_digest"), field("packet_schema_version"), field("report_schema_version"), field("packet_digest")), Optional: "readback_model (host-reported executing model); terminal ('failed') with terminal_failure_kind and terminal_detail for an attempt born failed, such as a lost or ambiguous readback; host_provenance.digest (sha256), host_provenance.sources[] (kind: agent_definition | agents_md | instruction_file | unenumerated; path; sha256) — required for v3 evidence (CD-0034); worker_job (job_id, revision, digest) — required on a job-bound attempt (CD-0205)", Enums: "none"},
 	{Canonical: "worker-complete", RequiredFields: requiredFields(field("event_id"), field("work_id"), field("attempt_id"), field("readback_model"), field("report_schema_version"), field("evidence_origin")), Optional: "worker_directory, base_comparison, review, worker_job — required on a job-bound attempt, evidence[] — required when evidence_origin is reported, context_findings[] (0-16 typed claims, 16 KiB)", Enums: "evidence_origin: reported | legacy_unavailable; evidence[].obligation: bounded_findings | commands | contract_findings | exit_codes | failure_classification | files_touched | severity | source_citations | uncertainties | unresolved_issues | verification_commands | visual_artifacts; reported evidence must discharge every declared obligation; base_comparison.checks[]: pass | fail | not_run; review: ship | no_ship, findings severity P0-P3, confidence low | medium | high; ship refuses P0, no_ship refuses zero findings; a lane requiring the typed review block refuses a completion without it and a free-text severity entry beside it; the block discharges severity; context_findings[].kind: observation | inference | hypothesis | rejected_approach | open_question | contradiction | direction"},
 	{Canonical: "worker-fail", RequiredFields: requiredFields(field("event_id"), field("work_id"), field("attempt_id"), field("readback_model"), field("failure_kind"), field("detail")), Optional: "context_findings[] (as worker-complete; worker_error only)", Enums: "failure_kind: fallback_blocked | worker_error | invalid_report | abandoned"},
@@ -195,13 +195,13 @@ var commandSpecs = []commandSpec{
 	{Canonical: "worktree-locate", RequiredFields: requiredFields(field("project_id"), field("work_id")), Optional: "ref (a rev-syntax ref; defaults to HEAD, the default branch under the trunk-stays-on-default rule)", Enums: "none"},
 	{Canonical: "claim-landing", RequiredFields: requiredFields(field("work_id"), field("session_ref"), field("landed_directory")), Optional: "none", Enums: "none"},
 	{Canonical: "vacate-landing", RequiredFields: requiredFields(field("work_id"), field("session_ref"), field("landed_directory")), Optional: "none", Enums: "none"},
-	{Canonical: "work-bootstrap", RequiredFields: requiredFields(field("product_id"), field("project_id"), field("title"), field("value_statement"), field("kind"), field("task"), field("idempotency_key")), Optional: "priority, urgency, tags, workflow_type_ref, external_ref, governing_requirements, ref (default branch resolved after identity), defect_intake (required for bug), host_pid (required with session_ref); deterministic refusals exit 2", Enums: "kind: task | bug | decision | research | other; urgency: standard | expedite"},
-	{Canonical: "work-resume", RequiredFields: requiredFields(field("product_id"), field("project_id"), field("work_id")), Optional: "deterministic refusals exit 2", Enums: "none"},
+	{Canonical: "work-bootstrap", RequiredFields: requiredFields(field("product_id"), field("project_id"), field("title"), field("value_statement"), field("kind"), field("task"), field("idempotency_key")), Optional: "priority, urgency, tags, workflow_type_ref, external_ref, governing_requirements, ref (default branch resolved after identity), defect_intake (required for bug), host_pid (required with session_ref); handler refusals exit 2; required-field refusals exit 64", Enums: "kind: task | bug | decision | research | other; urgency: standard | expedite"},
+	{Canonical: "work-resume", RequiredFields: requiredFields(field("product_id"), field("project_id"), field("work_id")), Optional: "handler refusals exit 2; required-field refusals exit 64", Enums: "none"},
 	{Canonical: "receipt", RequiredFields: requiredFields(field("work_id")), Optional: "none", Enums: "prints the product-owned closure receipt markdown (CD-0169) for a completed work item; empty output when the item is not completed"},
 	{Canonical: "work-shelve", RequiredFields: requiredFields(field("operation_id"), field("idempotency_key"), field("work_id"), field("expected_version"), field("handoff")), Optional: "product_id, linear, actor, safety evidence", Enums: "reason is fixed to shelved; no sixth lifecycle state"},
 	{Canonical: "work-cancel", RequiredFields: requiredFields(field("operation_id"), field("idempotency_key"), field("work_id"), field("expected_version"), field("handoff")), Optional: "product_id, linear, actor, safety evidence", Enums: "reason is fixed to cancelled; removal is not archival"},
 	{Canonical: "ci-wait", RequiredFields: requiredFields(field("selector"), field("repo")), Optional: "mode (pr checks|merge), time_seconds_max, state_file", Enums: "selector.kind: pr|sha|run; mode: checks|merge"},
-	{Canonical: "session-prepare", RequiredFields: requiredFields(field("product_id"), field("work_id"), field("agent")), Optional: "task (max 8192 bytes; none on resume); agent is the active agent; refusals exit 2", Enums: "none"},
+	{Canonical: "session-prepare", RequiredFields: requiredFields(field("product_id"), field("work_id"), field("agent")), Optional: "task (max 8192 bytes; none on resume); agent is the active agent; handler refusals exit 2; required-field refusals exit 64", Enums: "none"},
 	{Canonical: "outside-repair", RequiredFields: requiredFields(field("work_id"), field("agent")), Optional: "none; requires an active outside-repair hold and a controlling TTY; JSON stdout names the exact directory and argv; host I/O uses /dev/tty", Enums: "none"},
 	{Canonical: "project-resolve", TwoWord: "project resolve", RequiredFields: requiredFields(field("directory")), Optional: "worktree (defaults to directory)", Enums: "none"},
 	{Canonical: "restore", RequiredFields: requiredFields(field("source"), field("destination")), Optional: "none", Enums: "source: existing verified backup snapshot path; destination: absolute clean path that does not yet exist and is not the live database"},
@@ -257,6 +257,7 @@ func writeUsage(out io.Writer) {
 	_, _ = fmt.Fprintln(out, "  concord recover-fold-guard < JSON stdin   # offline: clear a stranded fold guard and rebuild projections from the log")
 	_, _ = fmt.Fprintln(out, "  concord ci-wait < JSON stdin         # one bounded slice of a GitHub CI wait (CD-0160)")
 	_, _ = fmt.Fprintln(out, "")
+	_, _ = fmt.Fprintln(out, "Required-field refusals exit 64 before dispatch.")
 	_, _ = fmt.Fprintln(out, "Commands read one strict JSON object from stdin:")
 	for _, spec := range commandSpecs {
 		writeCommandSection(out, spec)
@@ -676,6 +677,10 @@ func launchForwardedSession(product, work, prompt, project string, in io.Reader,
 
 const dbOverrideEnv = "CONCORD_DB_PATH"
 
+// inputRefusalExit is the CLI transport signal for validation that precedes
+// dispatch. Store, handler, and output failures must not use this exit code.
+const inputRefusalExit = 64
+
 // workerPacketDigestPattern bounds the dispatch evidence's packet_digest to
 // the sha256:hex shape the core's canonicalJSON pipeline produces. The CLI
 // enforces it at the worker-dispatch boundary; the store gate enforces the
@@ -700,7 +705,7 @@ func runStoreFreeJSONCommand(name string, args []string, in io.Reader, out, errO
 	}
 	if err := validateRequiredCommandFields(name, raw); err != nil {
 		writeOperatorDiagnostic(errOut, name, err.Error())
-		return 1
+		return inputRefusalExit
 	}
 	return handler(raw, out, errOut)
 }
@@ -719,7 +724,7 @@ func runJSONCommand(command string, args []string, in io.Reader, out, errOut io.
 	}
 	if err := validateRequiredCommandFields(command, raw); err != nil {
 		writeOperatorDiagnostic(errOut, command, err.Error())
-		return 1
+		return inputRefusalExit
 	}
 	// Predecessor inventory reads only the operator-supplied snapshot file and
 	// writes nothing to the Concord store, so it routes around the database
@@ -1219,7 +1224,7 @@ func runInvoke(raw []byte, s *store.Store, service *agent.Service, out, errOut i
 	response, err := agent.Invoke(context.Background(), s, service, raw)
 	if err != nil {
 		writeDiagnostic(errOut, err.Error())
-		return 1
+		return inputRefusalExit
 	}
 	return writeJSON(out, response, errOut)
 }

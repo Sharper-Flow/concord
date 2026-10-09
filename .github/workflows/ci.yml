@@ -239,7 +239,7 @@ jobs:
       - name: Validate pre-push preflight parity
         run: python3 scripts/check-pre-push.py
       - name: Test release and installer tooling
-        run: python3 scripts/test-release.py && python3 scripts/test-release-evidence.py && python3 scripts/test-installer.py && python3 scripts/test-primary-prompts.py && python3 scripts/test-commit-title.py && python3 scripts/test-predecessor-coverage.py && python3 scripts/test-floor-readiness.py && python3 scripts/test-maturity-readiness.py && python3 scripts/test-knowledge-index.py && python3 scripts/test-knowledge-vocabulary.py && python3 scripts/test-knowledge-closure.py && python3 scripts/test-knowledge-placement.py && python3 scripts/test-relation-vocabulary.py && python3 scripts/test-vocabulary-authority.py && python3 scripts/test-work-kinds.py && python3 scripts/test-native-run-statuses.py && python3 scripts/test-rigor-class.py && python3 scripts/test-approval-consequence.py && python3 scripts/test-archived-work-kind.py && python3 scripts/test-doc-contract.py && python3 scripts/test-agents-md.py && python3 scripts/test-agent-contracts.py && python3 scripts/test-check-json.py && python3 scripts/test-generate-law-coverage.py && python3 scripts/test-generate-knowledge-index.py && python3 scripts/test-check-domain-registry.py && python3 scripts/test-generate-agent-lanes.py && python3 scripts/test-shard-format.py && python3 scripts/test-law-coverage.py && python3 scripts/test-test-file-naming.py && python3 scripts/test-cd-allocation.py && python3 scripts/test-renumber-cd.py && python3 scripts/test-script-tests.py && python3 scripts/test-project-tooling.py && python3 scripts/test-durable-tier.py && python3 scripts/test-lane-eval-baseline.py && python3 scripts/test-typed-knowledge.py && python3 scripts/test-check-worker-scope-contract.py && python3 scripts/test-check-pr-linear-link.py && python3 scripts/test-agent-reliability-telemetry.py && python3 scripts/test-pre-push.py && python3 scripts/test-run-script-tests.py
+        run: python3 scripts/test-release.py && python3 scripts/test-release-evidence.py && python3 scripts/test-installer.py && python3 scripts/test-primary-prompts.py && python3 scripts/test-commit-title.py && python3 scripts/test-predecessor-coverage.py && python3 scripts/test-floor-readiness.py && python3 scripts/test-maturity-readiness.py && python3 scripts/test-knowledge-index.py && python3 scripts/test-knowledge-vocabulary.py && python3 scripts/test-knowledge-closure.py && python3 scripts/test-knowledge-placement.py && python3 scripts/test-relation-vocabulary.py && python3 scripts/test-vocabulary-authority.py && python3 scripts/test-work-kinds.py && python3 scripts/test-native-run-statuses.py && python3 scripts/test-rigor-class.py && python3 scripts/test-approval-consequence.py && python3 scripts/test-archived-work-kind.py && python3 scripts/test-doc-contract.py && python3 scripts/test-agents-md.py && python3 scripts/test-agent-contracts.py && python3 scripts/test-check-json.py && python3 scripts/test-generate-law-coverage.py && python3 scripts/test-generate-knowledge-index.py && python3 scripts/test-check-domain-registry.py && python3 scripts/test-generate-agent-lanes.py && python3 scripts/test-shard-format.py && python3 scripts/test-law-coverage.py && python3 scripts/test-test-file-naming.py && python3 scripts/test-cd-allocation.py && python3 scripts/test-renumber-cd.py && python3 scripts/test-script-tests.py && python3 scripts/test-project-tooling.py && python3 scripts/test-durable-tier.py && python3 scripts/test-lane-eval-baseline.py && python3 scripts/test-typed-knowledge.py && python3 scripts/test-check-worker-scope-contract.py && python3 scripts/test-check-pr-linear-link.py && python3 scripts/test-agent-reliability-telemetry.py && python3 scripts/test-pre-push.py && python3 scripts/test-run-script-tests.py && python3 scripts/test-go-test-shard.py
 
   # Go static analysis: build hygiene, lint, and the callgraph/complexity
   # planes. Cached module and build caches keep the pinned analysis tools
@@ -291,9 +291,35 @@ jobs:
       - name: Test reachability and complexity checkers
         run: python3 scripts/test-reachability.py && python3 scripts/test-complexity.py && python3 scripts/test-evidence-anchors.py && python3 scripts/test-generate-dependency-inventory.py
 
-  # Full suite without the race detector.
+  # Full suite without the race detector, split across runners (CON-906).
+  # internal/store alone took 798 s and cmd/concord 439 s of one 14-minute
+  # job, so each runs as shards that scripts/go-test-shard.py deals from
+  # `go test -list`. verify-tests-rest runs every other package, and
+  # verify-tests keeps the required check name by requiring all six.
   verify-tests:
     name: verify-tests
+    needs: [verify-tests-rest, verify-tests-store-1, verify-tests-store-2, verify-tests-store-3, verify-tests-cli-1, verify-tests-cli-2]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every test shard to pass
+        env:
+          REST_RESULT: ${{ needs.verify-tests-rest.result }}
+          STORE_1_RESULT: ${{ needs.verify-tests-store-1.result }}
+          STORE_2_RESULT: ${{ needs.verify-tests-store-2.result }}
+          STORE_3_RESULT: ${{ needs.verify-tests-store-3.result }}
+          CLI_1_RESULT: ${{ needs.verify-tests-cli-1.result }}
+          CLI_2_RESULT: ${{ needs.verify-tests-cli-2.result }}
+        run: |
+          test "$REST_RESULT" = success
+          test "$STORE_1_RESULT" = success
+          test "$STORE_2_RESULT" = success
+          test "$STORE_3_RESULT" = success
+          test "$CLI_1_RESULT" = success
+          test "$CLI_2_RESULT" = success
+
+  verify-tests-rest:
+    name: verify-tests-rest
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
@@ -310,12 +336,17 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
         with:
           bun-version: 1.4.0
+      - name: Download Go modules
+        # A shard compiles one package, so it does not fetch the modules the
+        # others import. txBeginExports runs `go list -deps -export -json ./...`
+        # and parses its combined output, which a "go: downloading" line breaks.
+        run: go mod download
       - name: Fetch the released sources the release-pair tests build
         # TestDistinctReleasedCoresCoexistOnOneStore builds both cores
         # from these tags; the default checkout is shallow
         # and carries no tags.
         run: git fetch --no-tags --depth=1 origin +refs/tags/v11.61.0:refs/tags/v11.61.0 +refs/tags/v11.63.30:refs/tags/v11.63.30
-      - name: Test all packages
+      - name: Test every package without its own shard job
         env:
           CONCORD_SELECTED_PRODUCT_ID: poison-product
           CONCORD_SELECTED_WORK_ID: poison-work
@@ -334,7 +365,262 @@ jobs:
           CONCORD_BIN: /nonexistent/poison-concord
           CONCORD_FUTURE_INPUT: poison-future
           CONCORD_TEST_SUBPROCESS: poison-no-bypass
-        run: go test -timeout=15m ./...
+        run: go test -timeout=15m $(go list ./... | grep -v -x -F -e github.com/sharper-flow/concord/internal/store -e github.com/sharper-flow/concord/cmd/concord)
+
+  verify-tests-store-1:
+    name: verify-tests-store-1
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: 1.4.0
+      - name: Download Go modules
+        # A shard compiles one package, so it does not fetch the modules the
+        # others import. txBeginExports runs `go list -deps -export -json ./...`
+        # and parses its combined output, which a "go: downloading" line breaks.
+        run: go mod download
+      - name: Fetch the released sources the release-pair tests build
+        # TestDistinctReleasedCoresCoexistOnOneStore builds both cores
+        # from these tags; the default checkout is shallow
+        # and carries no tags.
+        run: git fetch --no-tags --depth=1 origin +refs/tags/v11.61.0:refs/tags/v11.61.0 +refs/tags/v11.63.30:refs/tags/v11.63.30
+      - name: Test shard 1 of 3 of ./internal/store
+        env:
+          CONCORD_SELECTED_PRODUCT_ID: poison-product
+          CONCORD_SELECTED_WORK_ID: poison-work
+          CONCORD_PRODUCT_ID: poison-product
+          CONCORD_DB_PATH: /nonexistent/poison.db
+          CONCORD_SELECTED_PROMPT: poison-prompt
+          CONCORD_SELECTED_PROJECT_PATH: /nonexistent/poison-project
+          CONCORD_SELECTED_PROJECT_ID: poison-project
+          CONCORD_SELECTED_AGENT: poison-agent
+          CONCORD_LAST_WORK_ID: poison-work
+          CONCORD_HOST_INSTRUCTIONS: /nonexistent/poison-instructions
+          CONCORD_LINEAR_API_KEY: poison-key
+          CONCORD_LINEAR_ENDPOINT: https://poison.invalid
+          CONCORD_LAUNCHER_PINS: /nonexistent/poison-pins
+          CONCORD_LAUNCHER_SCAN_ROOTS: /nonexistent/poison-roots
+          CONCORD_CLIENT_REF: poison-client
+          CONCORD_SOURCE: /nonexistent/poison-source
+          CONCORD_BIN: /nonexistent/poison-concord
+          CONCORD_FUTURE_INPUT: poison-future
+          CONCORD_TEST_SUBPROCESS: poison-no-bypass
+        run: go test -timeout=15m -run "$(python3 scripts/go-test-shard.py ./internal/store 1 3)" ./internal/store
+
+  verify-tests-store-2:
+    name: verify-tests-store-2
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: 1.4.0
+      - name: Download Go modules
+        # A shard compiles one package, so it does not fetch the modules the
+        # others import. txBeginExports runs `go list -deps -export -json ./...`
+        # and parses its combined output, which a "go: downloading" line breaks.
+        run: go mod download
+      - name: Fetch the released sources the release-pair tests build
+        # TestDistinctReleasedCoresCoexistOnOneStore builds both cores
+        # from these tags; the default checkout is shallow
+        # and carries no tags.
+        run: git fetch --no-tags --depth=1 origin +refs/tags/v11.61.0:refs/tags/v11.61.0 +refs/tags/v11.63.30:refs/tags/v11.63.30
+      - name: Test shard 2 of 3 of ./internal/store
+        env:
+          CONCORD_SELECTED_PRODUCT_ID: poison-product
+          CONCORD_SELECTED_WORK_ID: poison-work
+          CONCORD_PRODUCT_ID: poison-product
+          CONCORD_DB_PATH: /nonexistent/poison.db
+          CONCORD_SELECTED_PROMPT: poison-prompt
+          CONCORD_SELECTED_PROJECT_PATH: /nonexistent/poison-project
+          CONCORD_SELECTED_PROJECT_ID: poison-project
+          CONCORD_SELECTED_AGENT: poison-agent
+          CONCORD_LAST_WORK_ID: poison-work
+          CONCORD_HOST_INSTRUCTIONS: /nonexistent/poison-instructions
+          CONCORD_LINEAR_API_KEY: poison-key
+          CONCORD_LINEAR_ENDPOINT: https://poison.invalid
+          CONCORD_LAUNCHER_PINS: /nonexistent/poison-pins
+          CONCORD_LAUNCHER_SCAN_ROOTS: /nonexistent/poison-roots
+          CONCORD_CLIENT_REF: poison-client
+          CONCORD_SOURCE: /nonexistent/poison-source
+          CONCORD_BIN: /nonexistent/poison-concord
+          CONCORD_FUTURE_INPUT: poison-future
+          CONCORD_TEST_SUBPROCESS: poison-no-bypass
+        run: go test -timeout=15m -run "$(python3 scripts/go-test-shard.py ./internal/store 2 3)" ./internal/store
+
+  verify-tests-store-3:
+    name: verify-tests-store-3
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: 1.4.0
+      - name: Download Go modules
+        # A shard compiles one package, so it does not fetch the modules the
+        # others import. txBeginExports runs `go list -deps -export -json ./...`
+        # and parses its combined output, which a "go: downloading" line breaks.
+        run: go mod download
+      - name: Fetch the released sources the release-pair tests build
+        # TestDistinctReleasedCoresCoexistOnOneStore builds both cores
+        # from these tags; the default checkout is shallow
+        # and carries no tags.
+        run: git fetch --no-tags --depth=1 origin +refs/tags/v11.61.0:refs/tags/v11.61.0 +refs/tags/v11.63.30:refs/tags/v11.63.30
+      - name: Test shard 3 of 3 of ./internal/store
+        env:
+          CONCORD_SELECTED_PRODUCT_ID: poison-product
+          CONCORD_SELECTED_WORK_ID: poison-work
+          CONCORD_PRODUCT_ID: poison-product
+          CONCORD_DB_PATH: /nonexistent/poison.db
+          CONCORD_SELECTED_PROMPT: poison-prompt
+          CONCORD_SELECTED_PROJECT_PATH: /nonexistent/poison-project
+          CONCORD_SELECTED_PROJECT_ID: poison-project
+          CONCORD_SELECTED_AGENT: poison-agent
+          CONCORD_LAST_WORK_ID: poison-work
+          CONCORD_HOST_INSTRUCTIONS: /nonexistent/poison-instructions
+          CONCORD_LINEAR_API_KEY: poison-key
+          CONCORD_LINEAR_ENDPOINT: https://poison.invalid
+          CONCORD_LAUNCHER_PINS: /nonexistent/poison-pins
+          CONCORD_LAUNCHER_SCAN_ROOTS: /nonexistent/poison-roots
+          CONCORD_CLIENT_REF: poison-client
+          CONCORD_SOURCE: /nonexistent/poison-source
+          CONCORD_BIN: /nonexistent/poison-concord
+          CONCORD_FUTURE_INPUT: poison-future
+          CONCORD_TEST_SUBPROCESS: poison-no-bypass
+        run: go test -timeout=15m -run "$(python3 scripts/go-test-shard.py ./internal/store 3 3)" ./internal/store
+
+  verify-tests-cli-1:
+    name: verify-tests-cli-1
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: 1.4.0
+      - name: Download Go modules
+        # A shard compiles one package, so it does not fetch the modules the
+        # others import. txBeginExports runs `go list -deps -export -json ./...`
+        # and parses its combined output, which a "go: downloading" line breaks.
+        run: go mod download
+      - name: Fetch the released sources the release-pair tests build
+        # TestDistinctReleasedCoresCoexistOnOneStore builds both cores
+        # from these tags; the default checkout is shallow
+        # and carries no tags.
+        run: git fetch --no-tags --depth=1 origin +refs/tags/v11.61.0:refs/tags/v11.61.0 +refs/tags/v11.63.30:refs/tags/v11.63.30
+      - name: Test shard 1 of 2 of ./cmd/concord
+        env:
+          CONCORD_SELECTED_PRODUCT_ID: poison-product
+          CONCORD_SELECTED_WORK_ID: poison-work
+          CONCORD_PRODUCT_ID: poison-product
+          CONCORD_DB_PATH: /nonexistent/poison.db
+          CONCORD_SELECTED_PROMPT: poison-prompt
+          CONCORD_SELECTED_PROJECT_PATH: /nonexistent/poison-project
+          CONCORD_SELECTED_PROJECT_ID: poison-project
+          CONCORD_SELECTED_AGENT: poison-agent
+          CONCORD_LAST_WORK_ID: poison-work
+          CONCORD_HOST_INSTRUCTIONS: /nonexistent/poison-instructions
+          CONCORD_LINEAR_API_KEY: poison-key
+          CONCORD_LINEAR_ENDPOINT: https://poison.invalid
+          CONCORD_LAUNCHER_PINS: /nonexistent/poison-pins
+          CONCORD_LAUNCHER_SCAN_ROOTS: /nonexistent/poison-roots
+          CONCORD_CLIENT_REF: poison-client
+          CONCORD_SOURCE: /nonexistent/poison-source
+          CONCORD_BIN: /nonexistent/poison-concord
+          CONCORD_FUTURE_INPUT: poison-future
+          CONCORD_TEST_SUBPROCESS: poison-no-bypass
+        run: go test -timeout=15m -run "$(python3 scripts/go-test-shard.py ./cmd/concord 1 2)" ./cmd/concord
+
+  verify-tests-cli-2:
+    name: verify-tests-cli-2
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: 1.4.0
+      - name: Download Go modules
+        # A shard compiles one package, so it does not fetch the modules the
+        # others import. txBeginExports runs `go list -deps -export -json ./...`
+        # and parses its combined output, which a "go: downloading" line breaks.
+        run: go mod download
+      - name: Fetch the released sources the release-pair tests build
+        # TestDistinctReleasedCoresCoexistOnOneStore builds both cores
+        # from these tags; the default checkout is shallow
+        # and carries no tags.
+        run: git fetch --no-tags --depth=1 origin +refs/tags/v11.61.0:refs/tags/v11.61.0 +refs/tags/v11.63.30:refs/tags/v11.63.30
+      - name: Test shard 2 of 2 of ./cmd/concord
+        env:
+          CONCORD_SELECTED_PRODUCT_ID: poison-product
+          CONCORD_SELECTED_WORK_ID: poison-work
+          CONCORD_PRODUCT_ID: poison-product
+          CONCORD_DB_PATH: /nonexistent/poison.db
+          CONCORD_SELECTED_PROMPT: poison-prompt
+          CONCORD_SELECTED_PROJECT_PATH: /nonexistent/poison-project
+          CONCORD_SELECTED_PROJECT_ID: poison-project
+          CONCORD_SELECTED_AGENT: poison-agent
+          CONCORD_LAST_WORK_ID: poison-work
+          CONCORD_HOST_INSTRUCTIONS: /nonexistent/poison-instructions
+          CONCORD_LINEAR_API_KEY: poison-key
+          CONCORD_LINEAR_ENDPOINT: https://poison.invalid
+          CONCORD_LAUNCHER_PINS: /nonexistent/poison-pins
+          CONCORD_LAUNCHER_SCAN_ROOTS: /nonexistent/poison-roots
+          CONCORD_CLIENT_REF: poison-client
+          CONCORD_SOURCE: /nonexistent/poison-source
+          CONCORD_BIN: /nonexistent/poison-concord
+          CONCORD_FUTURE_INPUT: poison-future
+          CONCORD_TEST_SUBPROCESS: poison-no-bypass
+        run: go test -timeout=15m -run "$(python3 scripts/go-test-shard.py ./cmd/concord 2 2)" ./cmd/concord
 
   # Race detector on store tests that coordinate concurrent Go callers.
   # SQLite lock-wait tests coordinate through database locks and channels rather

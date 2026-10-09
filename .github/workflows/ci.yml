@@ -338,6 +338,11 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
         with:
           bun-version: 1.4.0
+      - name: Download Go modules
+        # A shard compiles one package, so it does not fetch the modules the
+        # others import. txBeginExports runs `go list -deps -export -json ./...`
+        # and parses its combined output, which a "go: downloading" line breaks.
+        run: go mod download
       - name: Fetch the released sources the release-pair tests build
         # TestDistinctReleasedCoresCoexistOnOneStore builds both cores
         # from these tags; the default checkout is shallow
@@ -384,6 +389,11 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
         with:
           bun-version: 1.4.0
+      - name: Download Go modules
+        # A shard compiles one package, so it does not fetch the modules the
+        # others import. txBeginExports runs `go list -deps -export -json ./...`
+        # and parses its combined output, which a "go: downloading" line breaks.
+        run: go mod download
       - name: Fetch the released sources the release-pair tests build
         # TestDistinctReleasedCoresCoexistOnOneStore builds both cores
         # from these tags; the default checkout is shallow
@@ -430,6 +440,11 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
         with:
           bun-version: 1.4.0
+      - name: Download Go modules
+        # A shard compiles one package, so it does not fetch the modules the
+        # others import. txBeginExports runs `go list -deps -export -json ./...`
+        # and parses its combined output, which a "go: downloading" line breaks.
+        run: go mod download
       - name: Fetch the released sources the release-pair tests build
         # TestDistinctReleasedCoresCoexistOnOneStore builds both cores
         # from these tags; the default checkout is shallow
@@ -476,6 +491,11 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
         with:
           bun-version: 1.4.0
+      - name: Download Go modules
+        # A shard compiles one package, so it does not fetch the modules the
+        # others import. txBeginExports runs `go list -deps -export -json ./...`
+        # and parses its combined output, which a "go: downloading" line breaks.
+        run: go mod download
       - name: Fetch the released sources the release-pair tests build
         # TestDistinctReleasedCoresCoexistOnOneStore builds both cores
         # from these tags; the default checkout is shallow
@@ -522,6 +542,11 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
         with:
           bun-version: 1.4.0
+      - name: Download Go modules
+        # A shard compiles one package, so it does not fetch the modules the
+        # others import. txBeginExports runs `go list -deps -export -json ./...`
+        # and parses its combined output, which a "go: downloading" line breaks.
+        run: go mod download
       - name: Fetch the released sources the release-pair tests build
         # TestDistinctReleasedCoresCoexistOnOneStore builds both cores
         # from these tags; the default checkout is shallow
@@ -568,6 +593,11 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
         with:
           bun-version: 1.4.0
+      - name: Download Go modules
+        # A shard compiles one package, so it does not fetch the modules the
+        # others import. txBeginExports runs `go list -deps -export -json ./...`
+        # and parses its combined output, which a "go: downloading" line breaks.
+        run: go mod download
       - name: Fetch the released sources the release-pair tests build
         # TestDistinctReleasedCoresCoexistOnOneStore builds both cores
         # from these tags; the default checkout is shallow

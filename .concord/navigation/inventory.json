@@ -125,6 +125,16 @@
         },
         {
           "automation_path": ".github/workflows/ci.yml",
+          "config_path": "lefthook.yml",
+          "cost_hint": "Cheaper than the smoke tier; gates whose globs match no pushed file are skipped.",
+          "id": "lefthook-preflight",
+          "invocation": "bin/oc-test preflight",
+          "notes": "Advisory preflight, not a full verify and not an exhaustive test mapping; CI stays the verification owner. Parity is enforced by scripts/check-pre-push.py and the pinned upstream release is v2.1.14.",
+          "purpose": "Advisory, file-selected Lefthook pre-push preflight gates.",
+          "tier": "standard"
+        },
+        {
+          "automation_path": ".github/workflows/ci.yml",
           "cost_hint": "Expected to complete in seconds.",
           "id": "repo-validators",
           "invocation": "python3 scripts/check-json.py",
@@ -514,6 +524,16 @@
         },
         {
           "automation_path": ".github/workflows/ci.yml",
+          "config_path": "lefthook.yml",
+          "cost_hint": "Cheaper than the smoke tier; gates whose globs match no pushed file are skipped.",
+          "id": "lefthook-preflight",
+          "invocation": "bin/oc-test preflight",
+          "notes": "Advisory preflight, not a full verify and not an exhaustive test mapping; CI stays the verification owner. Parity is enforced by scripts/check-pre-push.py and the pinned upstream release is v2.1.14.",
+          "purpose": "Advisory, file-selected Lefthook pre-push preflight gates.",
+          "tier": "standard"
+        },
+        {
+          "automation_path": ".github/workflows/ci.yml",
           "cost_hint": "Expected to complete in seconds.",
           "id": "repo-validators",
           "invocation": "python3 scripts/check-json.py",
@@ -676,6 +696,16 @@
           "invocation": "go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...",
           "notes": "The version pin is load-bearing; CI rejects an unpinned run.",
           "purpose": "Go vulnerability scan against the pinned govulncheck version.",
+          "tier": "standard"
+        },
+        {
+          "automation_path": ".github/workflows/ci.yml",
+          "config_path": "lefthook.yml",
+          "cost_hint": "Cheaper than the smoke tier; gates whose globs match no pushed file are skipped.",
+          "id": "lefthook-preflight",
+          "invocation": "bin/oc-test preflight",
+          "notes": "Advisory preflight, not a full verify and not an exhaustive test mapping; CI stays the verification owner. Parity is enforced by scripts/check-pre-push.py and the pinned upstream release is v2.1.14.",
+          "purpose": "Advisory, file-selected Lefthook pre-push preflight gates.",
           "tier": "standard"
         },
         {
@@ -1124,6 +1154,16 @@
         },
         {
           "automation_path": ".github/workflows/ci.yml",
+          "config_path": "lefthook.yml",
+          "cost_hint": "Cheaper than the smoke tier; gates whose globs match no pushed file are skipped.",
+          "id": "lefthook-preflight",
+          "invocation": "bin/oc-test preflight",
+          "notes": "Advisory preflight, not a full verify and not an exhaustive test mapping; CI stays the verification owner. Parity is enforced by scripts/check-pre-push.py and the pinned upstream release is v2.1.14.",
+          "purpose": "Advisory, file-selected Lefthook pre-push preflight gates.",
+          "tier": "standard"
+        },
+        {
+          "automation_path": ".github/workflows/ci.yml",
           "cost_hint": "Expected to complete in seconds.",
           "id": "repo-validators",
           "invocation": "python3 scripts/check-json.py",
@@ -1283,6 +1323,16 @@
         },
         {
           "automation_path": ".github/workflows/ci.yml",
+          "config_path": "lefthook.yml",
+          "cost_hint": "Cheaper than the smoke tier; gates whose globs match no pushed file are skipped.",
+          "id": "lefthook-preflight",
+          "invocation": "bin/oc-test preflight",
+          "notes": "Advisory preflight, not a full verify and not an exhaustive test mapping; CI stays the verification owner. Parity is enforced by scripts/check-pre-push.py and the pinned upstream release is v2.1.14.",
+          "purpose": "Advisory, file-selected Lefthook pre-push preflight gates.",
+          "tier": "standard"
+        },
+        {
+          "automation_path": ".github/workflows/ci.yml",
           "cost_hint": "Expected to complete in seconds.",
           "id": "repo-validators",
           "invocation": "python3 scripts/check-json.py",
@@ -1362,6 +1412,16 @@
         },
         {
           "automation_path": ".github/workflows/ci.yml",
+          "config_path": "lefthook.yml",
+          "cost_hint": "Cheaper than the smoke tier; gates whose globs match no pushed file are skipped.",
+          "id": "lefthook-preflight",
+          "invocation": "bin/oc-test preflight",
+          "notes": "Advisory preflight, not a full verify and not an exhaustive test mapping; CI stays the verification owner. Parity is enforced by scripts/check-pre-push.py and the pinned upstream release is v2.1.14.",
+          "purpose": "Advisory, file-selected Lefthook pre-push preflight gates.",
+          "tier": "standard"
+        },
+        {
+          "automation_path": ".github/workflows/ci.yml",
           "cost_hint": "Expected to complete in seconds.",
           "id": "repo-validators",
           "invocation": "python3 scripts/check-json.py",
@@ -1372,7 +1432,7 @@
       ],
       "cli_verbs": [],
       "domain_id": "repository-verification",
-      "mapped_count": 176,
+      "mapped_count": 181,
       "name": "Repository verification",
       "owner_id": "domain:repository-verification",
       "path_rules": {
@@ -1382,6 +1442,7 @@
           ".github/workflows/release.yml"
         ],
         "include": [
+          "lefthook.yml",
           "scripts/**",
           "bin/**",
           "internal/testenv/**",
@@ -1413,7 +1474,7 @@
         ]
       },
       "purpose": "Owns the authority a repository check may hold: what a validator may assert, what it may block, how required checks bind to declared coverage, and the boundary between a check's finding and accepted Product law.",
-      "test_count": 77,
+      "test_count": 79,
       "test_packages": [
         "github.com/sharper-flow/concord/internal/gittest",
         "github.com/sharper-flow/concord/internal/pm1fixture",
@@ -1484,6 +1545,7 @@
         "scripts/test-migration-compatibility.py",
         "scripts/test-native-run-statuses.py",
         "scripts/test-oc-test.py",
+        "scripts/test-pre-push.py",
         "scripts/test-predecessor-coverage.py",
         "scripts/test-predecessor-harvest.py",
         "scripts/test-predecessor-independence.py",
@@ -1494,6 +1556,7 @@
         "scripts/test-release.py",
         "scripts/test-renumber-cd.py",
         "scripts/test-rigor-class.py",
+        "scripts/test-run-script-tests.py",
         "scripts/test-script-tests.py",
         "scripts/test-shard-format.py",
         "scripts/test-test-file-naming.py",
@@ -1557,6 +1620,16 @@
           "invocation": "go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...",
           "notes": "The version pin is load-bearing; CI rejects an unpinned run.",
           "purpose": "Go vulnerability scan against the pinned govulncheck version.",
+          "tier": "standard"
+        },
+        {
+          "automation_path": ".github/workflows/ci.yml",
+          "config_path": "lefthook.yml",
+          "cost_hint": "Cheaper than the smoke tier; gates whose globs match no pushed file are skipped.",
+          "id": "lefthook-preflight",
+          "invocation": "bin/oc-test preflight",
+          "notes": "Advisory preflight, not a full verify and not an exhaustive test mapping; CI stays the verification owner. Parity is enforced by scripts/check-pre-push.py and the pinned upstream release is v2.1.14.",
+          "purpose": "Advisory, file-selected Lefthook pre-push preflight gates.",
           "tier": "standard"
         },
         {
@@ -1766,6 +1839,16 @@
           "invocation": "go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...",
           "notes": "The version pin is load-bearing; CI rejects an unpinned run.",
           "purpose": "Go vulnerability scan against the pinned govulncheck version.",
+          "tier": "standard"
+        },
+        {
+          "automation_path": ".github/workflows/ci.yml",
+          "config_path": "lefthook.yml",
+          "cost_hint": "Cheaper than the smoke tier; gates whose globs match no pushed file are skipped.",
+          "id": "lefthook-preflight",
+          "invocation": "bin/oc-test preflight",
+          "notes": "Advisory preflight, not a full verify and not an exhaustive test mapping; CI stays the verification owner. Parity is enforced by scripts/check-pre-push.py and the pinned upstream release is v2.1.14.",
+          "purpose": "Advisory, file-selected Lefthook pre-push preflight gates.",
           "tier": "standard"
         },
         {
@@ -3717,6 +3800,7 @@
     "internal/testenv/testenv_test.go": "repository-verification",
     "internal/version/version.go": "operator-surface",
     "internal/workflowcorpus/coverage.go": "workflow-engine",
+    "lefthook.yml": "repository-verification",
     "scripts/README.md": "repository-verification",
     "scripts/agent-reliability-telemetry.py": "repository-verification",
     "scripts/check-agent-contracts.py": "repository-verification",
@@ -3743,6 +3827,7 @@
     "scripts/check-migration-compatibility.py": "repository-verification",
     "scripts/check-native-run-statuses.py": "repository-verification",
     "scripts/check-pr-linear-link.py": "repository-verification",
+    "scripts/check-pre-push.py": "repository-verification",
     "scripts/check-predecessor-coverage.py": "repository-verification",
     "scripts/check-predecessor-independence.py": "repository-verification",
     "scripts/check-primary-prompts.py": "repository-verification",
@@ -3783,6 +3868,7 @@
     "scripts/probe-adapter-host-result.py": "repository-verification",
     "scripts/release.py": "repository-verification",
     "scripts/renumber-cd.py": "repository-verification",
+    "scripts/run-script-tests.py": "repository-verification",
     "scripts/shard_format.py": "repository-verification",
     "scripts/test-agent-contracts.py": "repository-verification",
     "scripts/test-agent-reliability-telemetry.py": "repository-verification",
@@ -3818,6 +3904,7 @@
     "scripts/test-migration-compatibility.py": "repository-verification",
     "scripts/test-native-run-statuses.py": "repository-verification",
     "scripts/test-oc-test.py": "repository-verification",
+    "scripts/test-pre-push.py": "repository-verification",
     "scripts/test-predecessor-coverage.py": "repository-verification",
     "scripts/test-predecessor-harvest.py": "repository-verification",
     "scripts/test-predecessor-independence.py": "repository-verification",
@@ -3828,6 +3915,7 @@
     "scripts/test-release.py": "repository-verification",
     "scripts/test-renumber-cd.py": "repository-verification",
     "scripts/test-rigor-class.py": "repository-verification",
+    "scripts/test-run-script-tests.py": "repository-verification",
     "scripts/test-script-tests.py": "repository-verification",
     "scripts/test-shard-format.py": "repository-verification",
     "scripts/test-test-file-naming.py": "repository-verification",
@@ -3841,14 +3929,14 @@
     "skills/README.md": "agent-surface",
     "workflows/README.md": "workflow-engine"
   },
-  "mapped_count": 1872,
-  "path_set_fingerprint": "sha256:08ed90d8c2b6f79a85f634ec7977c3c9a4c0e1a558888f5e2965a38f00ae2648",
+  "mapped_count": 1877,
+  "path_set_fingerprint": "sha256:81238637396ce784648f6b50d6e65ea120ee39edf4430a5617a6fe7e5cd667da",
   "schema_version": "1.0",
   "scope": "coarse file navigation, not law homes or semantic mechanism ownership",
   "source_fingerprints": {
     ".concord/docs/knowledge/domain-registry.json": "sha256:02d9eb99b0f57aca2bfc2905d1f3994a7c926e9b2252cecbe324852cbe47d7de",
-    ".concord/domain-navigation.v1.json": "sha256:2e051b7201e6033f3341e083e30dd684887c2ade52ff2a1dc9fe39ec0c07b075",
-    ".concord/tooling.v1.json": "sha256:b6f0c6d9b77a53235ecdae1cc2344edf13382a6e51d7f8e02fe7efed55dc1850",
+    ".concord/domain-navigation.v1.json": "sha256:ff2ebd25a4e4bdc6412f03ae22aaf399d8651998960d6aee311552fb4384f8ca",
+    ".concord/tooling.v1.json": "sha256:19b72675d2a7bf5600d5ee1a67ac134149b2375d4e91b21d785f4917d84e65d3",
     "cmd/concord/main.go": "sha256:bfce2d2797ce34ab697e53435b9a702e493ce7de5760d192653d65779d40ffa8",
     "contracts/agent-tool-surface.v1.json": "sha256:d0dc2698a3dfe256aab790cc5e03c15303634fe516592ecd604c2c7c117989e3",
     "go.mod": "sha256:7c76ec3b5b4906d067a2d4245e3cc1b3e45b8668497298a210a6c33b87be72f3",

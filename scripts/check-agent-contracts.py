@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Run deterministic public contract checks and optional Bun validation, including the adapter typecheck."""
 from __future__ import annotations
-import copy, hashlib, importlib.util, json, os
+import argparse, copy, hashlib, importlib.util, json, os
 import shutil, subprocess, sys, tempfile
 from pathlib import Path
 import re
@@ -851,14 +851,29 @@ def envelope_operation_coverage_findings(envelope: object, manifest: object) -> 
         findings.append(f"{label}: $defs/toolOperation disagrees with the manifest: {sorted(mismatched)}")
     return findings
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    # External owners run suite subprocesses independently and gate their
+    # results. Standalone calls retain both suites and every validation.
+    parser = argparse.ArgumentParser(description="Run the deterministic public contract checks and the Bun-validated adapter surface.")
+    parser.add_argument(
+        "--adapter-tests-external",
+        action="store_true",
+        help="omit only `bun test adapter/opencode`; the caller must separately run and require that suite",
+    )
+    parser.add_argument(
+        "--contract-tests-external",
+        action="store_true",
+        help="omit only scripts/test-agent-contracts.py; the caller must separately run and require that suite",
+    )
+    options = parser.parse_args(argv)
     workflow_findings = check_workflow_contracts()
     if workflow_findings:
         for finding in workflow_findings:
             print(finding, file=sys.stderr)
         return 1
-    tamper = subprocess.run([sys.executable, str(ROOT / "scripts/test-agent-contracts.py")], cwd=ROOT)
-    if tamper.returncode: return tamper.returncode
+    if not options.contract_tests_external:
+        tamper = subprocess.run([sys.executable, str(ROOT / "scripts/test-agent-contracts.py")], cwd=ROOT)
+        if tamper.returncode: return tamper.returncode
     generated = subprocess.run([sys.executable, str(ROOT / "scripts/generate-agent-contracts.py"), "--check"], cwd=ROOT)
     if generated.returncode: return generated.returncode
     lane_findings: list[str] = []
@@ -924,13 +939,14 @@ for (const fixture of corpus.fixtures) {{ if (!validateGeneratedPayload(fixture.
             present_suites = {path.name for path in (ROOT / "adapter/opencode").glob("*.test.ts")}
             if not expected_suites.issubset(present_suites):
                 print(f"adapter test suite missing: {sorted(expected_suites - present_suites)}", file=sys.stderr); return 1
-            adapter_tests = subprocess.run([bun, "test", "adapter/opencode"], cwd=ROOT)
-            if adapter_tests.returncode: return adapter_tests.returncode
-            # Typecheck the adapter against the host's published declarations,
-            # installed at the exact versions .concord/docs/adapter-host-pin.v1.json
-            # pins, so a declaration upstream removes or narrows fails the
-            # adapter compile. Run after the test suite so
-            # behavioural failures surface first.
+            # The presence check above stays even when the suite runs as its
+            # own CI step: a job that runs the suite externally still has to
+            # carry it, and the option below skips only the subprocess.
+            if not options.adapter_tests_external:
+                adapter_tests = subprocess.run([bun, "test", "adapter/opencode"], cwd=ROOT)
+                if adapter_tests.returncode: return adapter_tests.returncode
+            # Typecheck against the published declarations at the exact
+            # versions .concord/docs/adapter-host-pin.v1.json pins.
             summary = "Bun syntax/build/typecheck"
             pin_findings: list[str] = []
             pin = load_host_pin(pin_findings)
@@ -965,6 +981,10 @@ for (const fixture of corpus.fixtures) {{ if (!validateGeneratedPayload(fixture.
             exports = re.findall(r"export const ([A-Za-z_][A-Za-z0-9_]*) = tool\(", source)
             if exports != ["product_view", "work_browse", "work_trace", "knowledge", "work_define", "domain", "work_initiative", "work_transition", "work_relate", "work_compact", "work_start"]:
                 print(f"adapter export drift: {exports}", file=sys.stderr); return 1
+        if options.adapter_tests_external:
+            summary += "; adapter suite external"
+        if options.contract_tests_external:
+            summary += "; contract selftest external"
         print(f"agent contract check passed ({summary})")
     else:
         for path in (ROOT / "adapter/opencode/generated-contracts.ts", ROOT / "adapter/opencode/generated-contract-tests.ts"):

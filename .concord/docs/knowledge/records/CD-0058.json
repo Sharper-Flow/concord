@@ -22,9 +22,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:6a085aa10717c4ff116fcfc28f2b724deebf65186a84ef29d246a36c1898aeea",
+  "sha256": "sha256:65dcd905e081f5076b2635de0090eb6d99903ee49b181578cb1c4870c6b21594",
   "status": "accepted",
-  "summary": "Concord performs no model resolution: the adapter omits --model from lane dispatch and OpenCode resolves the executing model from host configuration; readback_model is the sole model evidence feeding CD-0017 D6 distinctness; the routing-policy record, the CONCORD_ROUTING_POLICY host state, the load-time validation, and the five declared-side worker-attempt columns (routing_policy_version, routing_policy_digest, resolved_model, resolution_role, fallback_reason) are retired under a schema migration; CD-0017 D2's dispatch flag is dropped and D8/D9 retire.",
+  "summary": "Concord performs no model resolution: lane dispatch omits --model and the host selects the executing model. Actual readback_model is the sole model evidence for workflow-declared distinctness; missing or ambiguous readback records a failed attempt. Concord has no routing-policy record, load path, declared legal model set, or substitution guarantee. Migration 44 removes the five declared-side attempt columns and preserves existing rows; capability classes remain documentary labels.",
   "tags": [
     "routing",
     "lanes",

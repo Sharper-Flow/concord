@@ -37,15 +37,10 @@ content hash. CD-0041 binds it to a home Domain. The checks rerun in a
 transaction at every consequential action. Admitting a build transcript as law
 therefore costs more under Concord than under the predecessor.
 
-The record schema has room for the fix and no record to migrate.
-`.concord/schemas/knowledge-record.v1.schema.json` requires a `provenance`
-object with `canonical_path`, `source_revision`, `source_digest`, `authored_at`,
-`author`, and `location_authority`. The `author` field is free short text. The
-`location_authority` field selects `canonical` or `operator_override`, which the
-typed knowledge draft calls a placement exception and not a second authority.
-The `status.state` field selects `current`, `historical`, or `superseded`, which
-is lifecycle. No field records standing. A glob of `.concord/knowledge` returns
-zero typed records, so a schema change costs no migration today.
+The manifest record is the place to fix it. Each record under
+`.concord/docs/knowledge/records/` already carries identity, kind, status, path,
+and a SHA-256 content proof. No field records standing, so a new field costs no
+migration of existing law text.
 
 ## Decision
 

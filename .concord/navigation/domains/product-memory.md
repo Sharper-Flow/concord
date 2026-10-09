@@ -7,7 +7,7 @@ File accountability does not change a document's law home or a handler's semanti
 ## Responsibility
 Owns Product knowledge: the knowledge index and its records, the Domain registry as law, law-coverage and conformance records, lessons and research, and compaction and retention policy.
 
-Mapped files: 868; tests: 41; unresolved candidates: 13.
+Mapped files: 871; tests: 43; unresolved candidates: 0.
 Candidate counts overlap when a file has several candidates; no candidate is an assigned owner.
 
 ## Code and tests
@@ -17,12 +17,18 @@ Full paths, unresolved reasons, and shared-test coverage: `.concord/navigation/i
 - Include: `internal/store/domain_attachments*.go`, `internal/store/domain_observations*.go`, `internal/store/cd_reservations.go`, `internal/store/home_pair_binding*.go`, `internal/store/federated_law_boundary_test.go`
 - Include: `internal/store/boundary_test.go`, `internal/store/unprocessed_knowledge*.go`, `internal/store/nil_store_knowledge*_test.go`, `internal/store/nil_store_domain_test.go`, `internal/store/domain_projection_test.go`
 - Include: `internal/store/federated_correction_test.go`, `contracts/concord-knowledge-index.v1.schema.json`, `contracts/law-coverage.schema.json`, `.concord/scenarios/knowledge-*.json`, `.concord/scenarios/product-memory-query.v1.json`
+- Include: `internal/store/domain_reads*.go`
 - Exclude: `internal/store/research_rebuild.go`
 - Go test package: `github.com/sharper-flow/concord/internal/store`
 
+## Mechanisms
+Advisory semantic ownership; the complete enriched references live in the inventory.
+- `mechanism:domain-registry`: The Domain registry as law: current Domains and their purposes, attachment and observation proje… (laws 2, controls 2, checks 1, contracts 2)
+- `mechanism:knowledge-index`: Product knowledge: the composed manifest and record kinds, law homes and freshness, unprocessed… (laws 2, controls 2, checks 1, contracts 1)
+
 ## Entry surfaces
 These are catalog surface entries, not invariant/control or handler joins.
-No surface catalog is owned by this Domain; semantic entry-point joins remain slice B.
+No surface catalog is owned by this Domain; semantic entry-point joins live in the inventory.
 
 ## Verification references
 Declared repository commands are shared checks, not Domain-specific acceptance or automatic execution.
@@ -35,7 +41,18 @@ Run the narrow selected command with `bin/oc-test targeted -- <command> [args...
 - `lefthook-preflight` (standard): `bin/oc-test preflight`
 - `repo-validators` (fast): `python3 scripts/check-json.py`
 
-## Not covered by slice A
-Invariant/control joins, allowed-dependency interpretation, observed import/call edges,
-non-law navigation homes, CON-887 packet reading, and CON-890 owner oracles remain later work.
-Required-reading entries will be pinned references, not inlined card content.
+## Allowed and observed references
+Bindings and interpretations are advisory joins; navigation does not prove dispatch admission at the current workflow step.
+- CLI entries bound: 7 (`cd-reservations`, `domain-project-attachments-replace`, `domain-resource-attachments-replace`, …)
+- agent operations bound: 17 (`concord_domain.active_work`, `concord_domain.attachments`, `concord_domain.detail`, …)
+- workflow actions bound: 0
+- Interpretation `depends_on` -> `durable-authority` (advisory, not an import allowlist).
+- Interpretation `depends_on` from `repository-verification` (advisory, not an import allowlist).
+- Interpretation `depends_on` from `workflow-engine` (advisory, not an import allowlist).
+- Observed package imports: 32 distinct paths; package-level only; intra-package edges unmeasured; no symbol graph or execution permission.
+- Observed package edge via `github.com/sharper-flow/concord/internal/version` -> `operator-surface` (advisory).
+
+## Not covered here
+Symbol-level call edges, dispatch-admission proof at the current workflow step, CON-887 packet reading,
+and CON-890 owner oracles remain later work. Required-reading entries will be pinned references,
+not inlined card content.

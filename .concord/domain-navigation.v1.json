@@ -1,5 +1,5 @@
 {
-  "schema_version": "1.0",
+  "schema_version": "1.1",
   "rules": [
     {
       "domain_id": "product-root:concord",
@@ -22,6 +22,8 @@
         "internal/store/clock_test.go", "internal/store/nil_store_test.go", "internal/store/read_neighbor_test.go",
         "internal/store/rebuild_clear_list_test.go", "internal/store/rebuild_msg_test.go", "internal/store/operation_test.go",
         "internal/store/schema_test.go", "internal/store/store_test.go",
+        "internal/store/worktree_claim_incarnation_migration_test.go",
+        "internal/store/worktree_occupancy_migration105_test.go",
         "contracts/durable-tier-budget.schema.json", "contracts/storage-vocabulary-authority*"
       ],
       "exclude": []
@@ -51,8 +53,24 @@
         "internal/store/query_corpus*_test.go", "internal/store/query_recorded_intent_test.go", "internal/store/nil_store_queries_test.go", "internal/store/first_call_contract_admission_test.go", "internal/store/lane_step_dispatch_test.go", "internal/store/record_verdict_publication_parity_test.go", "internal/store/outside_repair_schema_parity_test.go",
         "internal/store/nil_store_agent*_test.go", "internal/store/pm8_pm9_absence_test.go",
         "contracts/agent-*", "contracts/host-tool-*", "contracts/native-run-*", "contracts/worker-*",
-        "contracts/adapter-*", ".concord/scenarios/agent-jobs.v1.json", ".concord/scenarios/adapter-continuity.v1.json",
-        "skills/**", "bunfig.toml", "internal/store/typed_error_kinds_test.go"
+        "contracts/adapter-*", "contracts/branch-freshness.*", ".concord/scenarios/agent-jobs.v1.json",
+        ".concord/scenarios/adapter-continuity.v1.json",
+        "skills/**", "bunfig.toml", "internal/store/typed_error_kinds_test.go",
+        "internal/store/worktrees.go",
+        "internal/store/worktrees_test.go", "internal/store/worktrees_audit_reclaim_test.go",
+        "internal/store/worktrees_claim_landing_test.go", "internal/store/worktrees_claim_landing_record_test.go",
+        "internal/store/worktrees_destroy_test.go", "internal/store/worktrees_occupancy_test.go",
+        "internal/store/worktrees_reclaim_convergence_test.go", "internal/store/worktrees_reclaim_identity_test.go",
+        "internal/store/worktrees_reclaim_replay_test.go", "internal/store/worktrees_tiers_test.go",
+        "internal/store/worktrees_unpublished_lesson_test.go",
+        "internal/store/worktree_verify_evidence_test.go", "internal/store/worktree_verify_finalization_test.go",
+        "internal/store/worktree_verify_lease_recovery_test.go", "internal/store/worktree_occupancy_release_test.go",
+        "internal/store/worktree_route_test.go",
+        "internal/store/landing.go", "internal/store/session_vacate*.go", "internal/store/freshness*.go",
+        "internal/store/branch_freshness_contract_test.go", "internal/store/generated_branch_freshness.go",
+        "internal/store/bootstrap*.go", "internal/store/git_runner*.go", "internal/store/project_handoffs*.go",
+        "internal/store/generated_lane_step_dispatch.go",
+        "internal/store/query.go", "internal/store/query_pages.go", "internal/store/query_test.go"
       ],
       "exclude": []
     },
@@ -67,7 +85,8 @@
         "internal/store/unprocessed_knowledge*.go", "internal/store/nil_store_knowledge*_test.go", "internal/store/nil_store_domain_test.go",
         "internal/store/domain_projection_test.go", "internal/store/federated_correction_test.go",
         "contracts/concord-knowledge-index.v1.schema.json", "contracts/law-coverage.schema.json",
-        ".concord/scenarios/knowledge-*.json", ".concord/scenarios/product-memory-query.v1.json"
+        ".concord/scenarios/knowledge-*.json", ".concord/scenarios/product-memory-query.v1.json",
+        "internal/store/domain_reads*.go"
       ],
       "exclude": ["internal/store/research_rebuild.go"]
     },
@@ -82,6 +101,11 @@
         "internal/store/urgency_and_relation_order_test.go", "internal/store/work_kind_vocabulary_test.go",
         "internal/store/relation_vocabulary_test.go", "internal/store/external_ref_collision_test.go",
         "internal/store/lifecycle_relations_test.go", "internal/store/work_observations_test.go",
+        "internal/store/linear*",
+        "internal/store/scope*.go", "internal/store/ambiguous_scope_candidates_test.go",
+        "internal/store/nil_store_scope_test.go", "internal/store/nil_store_work_item_test.go",
+        "internal/store/membership*.go", "internal/store/governing_requirements*.go",
+        "internal/store/work_intent_task_test.go",
         "contracts/work-kinds*", "contracts/relation-vocabulary*"
       ],
       "exclude": []
@@ -95,6 +119,9 @@
         "internal/store/project_locator*.go", "internal/store/project_stage_test.go", "internal/store/display_name_bound_test.go",
         "internal/store/nil_store_launcher_test.go",
         "contracts/predecessor-snapshot.schema.json", ".concord/scenarios/launcher-portfolio.v1.json",
+        "internal/store/work_closure*.go", "internal/store/session_identity.go",
+        "internal/store/blocked_sessions*.go", "internal/store/predecessor_import*.go",
+        "internal/store/predecessor_conflict_read_test.go",
         "README.md", "CONTRIBUTING.md", ".github/ISSUE_TEMPLATE/**", ".github/workflows/release.yml"
       ],
       "exclude": []
@@ -127,99 +154,584 @@
       "exclude": []
     }
   ],
-  "unresolved": [
-    {"path": "contracts/branch-freshness.digest", "candidate_domain_ids": ["work-coordination", "agent-surface"], "reason": "Freshness admission spans worktree ownership and the caller boundary."},
-    {"path": "contracts/branch-freshness.fixtures.json", "candidate_domain_ids": ["work-coordination", "agent-surface"], "reason": "Freshness admission spans worktree ownership and the caller boundary."},
-    {"path": "contracts/branch-freshness.schema.json", "candidate_domain_ids": ["work-coordination", "agent-surface"], "reason": "Freshness admission spans worktree ownership and the caller boundary."},
-    {"path": "contracts/branch-freshness.v1.json", "candidate_domain_ids": ["work-coordination", "agent-surface"], "reason": "Freshness admission spans worktree ownership and the caller boundary."},
-    {"path": "internal/store/ambiguous_scope_candidates_test.go", "candidate_domain_ids": ["work-coordination", "product-memory"], "reason": "Scope resolution combines relation endpoints and knowledge/compaction homes."},
-    {"path": "internal/store/blocked_sessions.go", "candidate_domain_ids": ["operator-surface", "agent-surface"], "reason": "Operator attention projection depends on agent approval challenges."},
-    {"path": "internal/store/blocked_sessions_test.go", "candidate_domain_ids": ["operator-surface", "agent-surface"], "reason": "Tests the mixed operator-attention and approval-challenge projection."},
-    {"path": "internal/store/bootstrap.go", "candidate_domain_ids": ["agent-surface", "operator-surface", "work-coordination"], "reason": "Bootstrap combines work-start admission, launcher sessions, and worktree claims."},
-    {"path": "internal/store/bootstrap_contention_test.go", "candidate_domain_ids": ["agent-surface", "work-coordination"], "reason": "Tests concurrent bootstrap through work-start and worktree ownership."},
-    {"path": "internal/store/bootstrap_test.go", "candidate_domain_ids": ["agent-surface", "operator-surface", "work-coordination"], "reason": "Tests bootstrap admission, launcher sessions, and worktree claims together."},
-    {"path": "internal/store/branch_freshness_contract_test.go", "candidate_domain_ids": ["work-coordination", "agent-surface"], "reason": "Tests freshness admission across the worktree and caller boundary."},
-    {"path": "internal/store/domain_reads.go", "candidate_domain_ids": ["product-memory", "workflow-engine"], "reason": "Combines registry reads with active work and architecture overlap queries."},
-    {"path": "internal/store/domain_reads_metadata_test.go", "candidate_domain_ids": ["product-memory", "workflow-engine"], "reason": "Tests metadata for the mixed registry/work/overlap read surface."},
-    {"path": "internal/store/domain_reads_test.go", "candidate_domain_ids": ["product-memory", "workflow-engine"], "reason": "Tests the mixed registry/work/overlap read surface."},
-    {"path": "internal/store/freshness.go", "candidate_domain_ids": ["work-coordination", "agent-surface"], "reason": "Branch sampling and fetch preflight serve worktree claim admission."},
-    {"path": "internal/store/freshness_origin_transport_test.go", "candidate_domain_ids": ["work-coordination", "agent-surface"], "reason": "Tests origin transport used by worktree admission freshness."},
-    {"path": "internal/store/freshness_test.go", "candidate_domain_ids": ["work-coordination", "agent-surface"], "reason": "Tests sampling and fetch preflight through worktree admission."},
-    {"path": "internal/store/generated_branch_freshness.go", "candidate_domain_ids": ["work-coordination", "agent-surface"], "reason": "Generated freshness validators share the unresolved admission owner."},
-    {"path": "internal/store/generated_lane_step_dispatch.go", "candidate_domain_ids": ["agent-surface", "workflow-engine"], "reason": "Generated join binds lane capabilities to workflow step kinds."},
-    {"path": "internal/store/git_runner.go", "candidate_domain_ids": ["operator-surface", "product-memory", "work-coordination"], "reason": "Shared Git process plumbing serves locators, knowledge reads, and freshness."},
-    {"path": "internal/store/git_runner_test.go", "candidate_domain_ids": ["operator-surface", "product-memory", "work-coordination"], "reason": "Tests Git plumbing shared by locators, knowledge reads, and freshness."},
-    {"path": "internal/store/governing_requirements.go", "candidate_domain_ids": ["work-coordination", "repository-verification"], "reason": "Capture obligations intersect declared repository checks and work scope."},
-    {"path": "internal/store/governing_requirements_test.go", "candidate_domain_ids": ["work-coordination", "repository-verification"], "reason": "Tests capture obligations at the work-scope/check boundary."},
-    {"path": "internal/store/landing.go", "candidate_domain_ids": ["work-coordination", "agent-surface"], "reason": "Landing binds work, session, directory, and process identity together."},
-    {"path": "internal/store/linear_adopt_test.go", "candidate_domain_ids": ["work-coordination", "operator-surface"], "reason": "External planning provenance and operator integration have no settled file owner."},
-    {"path": "internal/store/linear_audit_comment_test.go", "candidate_domain_ids": ["work-coordination", "operator-surface"], "reason": "External planning provenance and operator integration have no settled file owner."},
-    {"path": "internal/store/linear_backfill_recovery_test.go", "candidate_domain_ids": ["work-coordination", "operator-surface"], "reason": "External planning provenance and operator integration have no settled file owner."},
-    {"path": "internal/store/linear_capture_backfill_test.go", "candidate_domain_ids": ["work-coordination", "operator-surface"], "reason": "External planning provenance and operator integration have no settled file owner."},
-    {"path": "internal/store/linear_connection_migration_test.go", "candidate_domain_ids": ["work-coordination", "durable-authority"], "reason": "Tests planning identity and connection schema migration together."},
-    {"path": "internal/store/linear_connection_shared_resource_test.go", "candidate_domain_ids": ["work-coordination", "operator-surface"], "reason": "External planning provenance and operator integration have no settled file owner."},
-    {"path": "internal/store/linear_cross_product_test.go", "candidate_domain_ids": ["work-coordination", "operator-surface"], "reason": "External planning provenance and operator integration have no settled file owner."},
-    {"path": "internal/store/linear_degraded_link_test.go", "candidate_domain_ids": ["work-coordination", "operator-surface"], "reason": "External planning provenance and operator integration have no settled file owner."},
-    {"path": "internal/store/linear_disposition_test.go", "candidate_domain_ids": ["work-coordination", "operator-surface"], "reason": "External planning provenance and operator integration have no settled file owner."},
-    {"path": "internal/store/linear_health_label_gaps_test.go", "candidate_domain_ids": ["work-coordination", "operator-surface"], "reason": "External planning provenance and operator integration have no settled file owner."},
-    {"path": "internal/store/linear_identity_sqlite.go", "candidate_domain_ids": ["work-coordination", "durable-authority"], "reason": "Work external-reference identity is implemented as SQLite schema machinery."},
-    {"path": "internal/store/linear_import_test.go", "candidate_domain_ids": ["work-coordination", "operator-surface"], "reason": "External planning provenance and operator integration have no settled file owner."},
-    {"path": "internal/store/linear_initiative_ownership_order_test.go", "candidate_domain_ids": ["work-coordination", "operator-surface"], "reason": "External planning provenance and operator integration have no settled file owner."},
-    {"path": "internal/store/linear_initiative_project_test.go", "candidate_domain_ids": ["work-coordination", "operator-surface"], "reason": "External planning provenance and operator integration have no settled file owner."},
-    {"path": "internal/store/linear_integration.go", "candidate_domain_ids": ["work-coordination", "operator-surface"], "reason": "External planning provenance and operator integration have no settled file owner."},
-    {"path": "internal/store/linear_integration_test.go", "candidate_domain_ids": ["work-coordination", "operator-surface"], "reason": "External planning provenance and operator integration have no settled file owner."},
-    {"path": "internal/store/linear_label_key_refusal_test.go", "candidate_domain_ids": ["work-coordination", "operator-surface"], "reason": "External planning provenance and operator integration have no settled file owner."},
-    {"path": "internal/store/linear_link_refresh_test.go", "candidate_domain_ids": ["work-coordination", "operator-surface"], "reason": "External planning provenance and operator integration have no settled file owner."},
-    {"path": "internal/store/linear_owner_scope_test.go", "candidate_domain_ids": ["work-coordination", "operator-surface"], "reason": "External planning provenance and operator integration have no settled file owner."},
-    {"path": "internal/store/linear_phase1_test.go", "candidate_domain_ids": ["work-coordination", "operator-surface"], "reason": "External planning provenance and operator integration have no settled file owner."},
-    {"path": "internal/store/linear_priority_test.go", "candidate_domain_ids": ["work-coordination", "operator-surface"], "reason": "External planning provenance and operator integration have no settled file owner."},
-    {"path": "internal/store/linear_project_links_migration_test.go", "candidate_domain_ids": ["work-coordination", "durable-authority"], "reason": "Tests planning links and projection schema migration together."},
-    {"path": "internal/store/membership.go", "candidate_domain_ids": ["work-coordination", "operator-surface"], "reason": "Work/project placement and Product creation folds share one file."},
-    {"path": "internal/store/membership_test.go", "candidate_domain_ids": ["work-coordination", "operator-surface"], "reason": "Tests work/project placement and Product creation folds together."},
-    {"path": "internal/store/nil_store_scope_test.go", "candidate_domain_ids": ["work-coordination", "product-memory"], "reason": "Tests scope guards spanning work endpoints and knowledge homes."},
-    {"path": "internal/store/nil_store_work_item_test.go", "candidate_domain_ids": ["work-coordination", "workflow-engine", "agent-surface"], "reason": "One guard suite spans work summaries, workflow awaits/contracts, and worker attempts."},
-    {"path": "internal/store/predecessor_conflict_read_test.go", "candidate_domain_ids": ["work-coordination", "operator-surface"], "reason": "Predecessor provenance reads support operator import and work placement."},
-    {"path": "internal/store/predecessor_import.go", "candidate_domain_ids": ["work-coordination", "operator-surface"], "reason": "Predecessor event/membership reads support operator import and work placement."},
-    {"path": "internal/store/predecessor_import_test.go", "candidate_domain_ids": ["work-coordination", "operator-surface"], "reason": "Tests predecessor event/membership reads through the import boundary."},
-    {"path": "internal/store/project_handoffs_test.go", "candidate_domain_ids": ["work-coordination", "agent-surface", "workflow-engine"], "reason": "Tests session/project artifacts and workflow-contract preflight together."},
-    {"path": "internal/store/query.go", "candidate_domain_ids": ["agent-surface", "work-coordination", "workflow-engine"], "reason": "Public read envelopes and several semantic work/workflow projections share a file."},
-    {"path": "internal/store/query_pages.go", "candidate_domain_ids": ["agent-surface", "work-coordination"], "reason": "Pagination transport and semantic work projections share a file."},
-    {"path": "internal/store/query_test.go", "candidate_domain_ids": ["agent-surface", "work-coordination", "workflow-engine"], "reason": "Tests the combined public-envelope/work/workflow read owner."},
-    {"path": "internal/store/scope.go", "candidate_domain_ids": ["work-coordination", "product-memory"], "reason": "Scope resolution combines relation endpoints and knowledge/compaction homes."},
-    {"path": "internal/store/scope_test.go", "candidate_domain_ids": ["work-coordination", "product-memory"], "reason": "Tests scope resolution across relation endpoints and knowledge homes."},
-    {"path": "internal/store/scope_work_task_test.go", "candidate_domain_ids": ["work-coordination", "product-memory"], "reason": "Tests work text through the shared work/knowledge scope owner."},
-    {"path": "internal/store/scope_work_value_statement_test.go", "candidate_domain_ids": ["work-coordination", "product-memory"], "reason": "Tests work value statements through the shared work/knowledge scope owner."},
-    {"path": "internal/store/session_identity.go", "candidate_domain_ids": ["operator-surface", "agent-surface"], "reason": "Launcher-created session identity also establishes agent call context."},
-    {"path": "internal/store/session_vacate.go", "candidate_domain_ids": ["agent-surface", "work-coordination"], "reason": "Session departure and worktree occupancy release share one boundary."},
-    {"path": "internal/store/session_vacate_landing_test.go", "candidate_domain_ids": ["agent-surface", "work-coordination"], "reason": "Tests session departure with worktree occupancy landing."},
-    {"path": "internal/store/session_vacate_test.go", "candidate_domain_ids": ["agent-surface", "work-coordination"], "reason": "Tests session departure with worktree occupancy release."},
-    {"path": "internal/store/work_closure.go", "candidate_domain_ids": ["workflow-engine", "work-coordination"], "reason": "Work-level closure receipts restate terminal workflow and delivery facts."},
-    {"path": "internal/store/work_closure_test.go", "candidate_domain_ids": ["workflow-engine", "work-coordination"], "reason": "Tests work receipts coupled to terminal workflow/delivery facts."},
-    {"path": "internal/store/work_intent_task_test.go", "candidate_domain_ids": ["work-coordination", "product-memory"], "reason": "Tests work intent through the shared work/knowledge scope owner."},
-    {"path": "internal/store/worktree_claim_incarnation_migration_test.go", "candidate_domain_ids": ["work-coordination", "durable-authority"], "reason": "Tests claim-incarnation migration through mixed worktree occupancy machinery."},
-    {"path": "internal/store/worktree_occupancy_migration105_test.go", "candidate_domain_ids": ["work-coordination", "durable-authority"], "reason": "Tests occupancy migration through mixed worktree lifecycle machinery."},
-    {"path": "internal/store/worktree_occupancy_release_test.go", "candidate_domain_ids": ["work-coordination", "agent-surface"], "reason": "Tests worktree occupancy release coupled to session lifetime."},
-    {"path": "internal/store/worktree_route_test.go", "candidate_domain_ids": ["work-coordination", "agent-surface"], "reason": "Tests worktree routing through the caller/session boundary."},
-    {"path": "internal/store/worktree_verify_evidence_test.go", "candidate_domain_ids": ["work-coordination", "repository-verification"], "reason": "Verification evidence runs through the mixed worktree lease owner."},
-    {"path": "internal/store/worktree_verify_finalization_test.go", "candidate_domain_ids": ["work-coordination", "repository-verification"], "reason": "Verification finalization runs through the mixed worktree lease owner."},
-    {"path": "internal/store/worktree_verify_lease_recovery_test.go", "candidate_domain_ids": ["work-coordination", "repository-verification"], "reason": "Verification lease recovery runs through the mixed worktree lease owner."},
-    {"path": "internal/store/worktrees.go", "candidate_domain_ids": ["work-coordination", "agent-surface", "repository-verification"], "reason": "Claims, occupancy, session landing, reclamation, and exclusive verification share a file."},
-    {"path": "internal/store/worktrees_audit_reclaim_test.go", "candidate_domain_ids": ["work-coordination", "agent-surface"], "reason": "Tests audit/reclaim through the mixed worktree/session lifecycle owner."},
-    {"path": "internal/store/worktrees_claim_landing_record_test.go", "candidate_domain_ids": ["work-coordination", "agent-surface"], "reason": "Tests claim/landing records through the mixed worktree/session owner."},
-    {"path": "internal/store/worktrees_claim_landing_test.go", "candidate_domain_ids": ["work-coordination", "agent-surface"], "reason": "Tests claim landing through the mixed worktree/session owner."},
-    {"path": "internal/store/worktrees_destroy_test.go", "candidate_domain_ids": ["work-coordination", "agent-surface"], "reason": "Tests destruction through the mixed worktree/session lifecycle owner."},
-    {"path": "internal/store/worktrees_occupancy_test.go", "candidate_domain_ids": ["work-coordination", "agent-surface"], "reason": "Tests occupancy through the mixed worktree/session lifecycle owner."},
-    {"path": "internal/store/worktrees_reclaim_convergence_test.go", "candidate_domain_ids": ["work-coordination", "agent-surface"], "reason": "Tests convergence through the mixed worktree/session reclaim owner."},
-    {"path": "internal/store/worktrees_reclaim_identity_test.go", "candidate_domain_ids": ["work-coordination", "agent-surface"], "reason": "Tests identity through the mixed worktree/session reclaim owner."},
-    {"path": "internal/store/worktrees_reclaim_replay_test.go", "candidate_domain_ids": ["work-coordination", "agent-surface"], "reason": "Tests replay through the mixed worktree/session reclaim owner."},
-    {"path": "internal/store/worktrees_test.go", "candidate_domain_ids": ["work-coordination", "agent-surface", "repository-verification"], "reason": "Tests claims, occupancy, session lifecycle, and verification through one owner."},
-    {"path": "internal/store/worktrees_tiers_test.go", "candidate_domain_ids": ["work-coordination", "agent-surface"], "reason": "Tests reclamation tiers through the mixed worktree/session owner."},
-    {"path": "internal/store/worktrees_unpublished_lesson_test.go", "candidate_domain_ids": ["work-coordination", "product-memory"], "reason": "Tests reclamation preservation coupled to unpublished knowledge."}
+  "unresolved": [],
+  "mechanisms": [
+    {
+      "owner_id": "mechanism:root-governance",
+      "domain_id": "product-root:concord",
+      "responsibility": "Product-wide governance artifacts: the pinned Go module and dependency surface, contribution and security conduct, and the constitutional root every child Domain parents to.",
+      "source_paths": ["CODE_OF_CONDUCT.md", "LICENSE", "SECURITY.md", "go.mod", "go.sum"],
+      "contract_refs": ["go.mod", "go.sum"],
+      "law_refs": [
+        {"law_id": "CD-0060", "clause_id": "D2. The root Domain keeps only Product-wide constitutional law"},
+        {"law_id": "CD-0041", "clause_id": "D2. Domain is the canonical Product-internal architectural identity"}
+      ],
+      "control_law_ids": ["CD-0041", "CD-0060"],
+      "check_ids": ["govulncheck", "go-vet"]
+    },
+    {
+      "owner_id": "mechanism:durable-store",
+      "domain_id": "durable-authority",
+      "responsibility": "The durable state envelope: one pooled SQLite connection, the append-only event log, typed projections and migrations, fold guards, transactions, backup and restore, and recovery that make an acknowledged write durable.",
+      "source_paths": ["internal/store/events.go", "internal/store/fold.go", "internal/store/operation.go", "internal/store/queryer.go", "internal/store/recovery.go", "internal/store/reconstruction.go", "internal/store/schema.go", "internal/store/store.go", "internal/store/transaction.go"],
+      "contract_refs": ["contracts/durable-tier-budget.schema.json", "contracts/storage-vocabulary-authority.v1.json"],
+      "law_refs": [
+        {"law_id": "CD-0002", "clause_id": "1. The structural invariants (this is the decision's real content)"},
+        {"law_id": "PM3", "clause_id": "3.1 One generic log remains authoritative"}
+      ],
+      "control_law_ids": ["CD-0002", "PM3"],
+      "check_ids": ["bin-oc-test", "go-test-race"]
+    },
+    {
+      "owner_id": "mechanism:workflow-definitions",
+      "domain_id": "workflow-engine",
+      "responsibility": "Code-defined workflow types and their contracts: step kinds, premise and outcome predicates, payload schemas, and the definition registry with digest and drift checks.",
+      "source_paths": ["internal/payloadschema/generated_schemas.go", "internal/payloadschema/validation.go", "internal/store/workflow_registry.go", "internal/store/workflow_registry_chains.go", "internal/store/workflow_registry_versions.go", "internal/workflowcorpus/coverage.go"],
+      "contract_refs": ["contracts/workflow-definition.schema.json", "contracts/workflow-outcome.schema.json"],
+      "law_refs": [
+        {"law_id": "CD-0013", "clause_id": "D1. Workflow definitions are code-defined, not stored authority"},
+        {"law_id": "workflow-engine-contract", "clause_id": "2. Definition registry"}
+      ],
+      "control_law_ids": ["CD-0013", "workflow-engine-contract"],
+      "check_ids": ["go-test-race"]
+    },
+    {
+      "owner_id": "mechanism:workflow-actions",
+      "domain_id": "workflow-engine",
+      "responsibility": "Store-side workflow action admission: transitions, fences, workpins, awaits and await health, checkpoints, evidence binding, verdicts and their correction, architecture overlap resolution, and terminal-state law on the work-item subject.",
+      "source_paths": ["internal/store/await_health.go", "internal/store/fence.go", "internal/store/outside_repair.go", "internal/store/workflow.go", "internal/store/workflow_admission.go", "internal/store/workflow_completion.go", "internal/store/workflow_domain_overlap.go", "internal/store/workflow_step.go", "internal/store/workflow_verdict.go", "internal/store/workpin.go"],
+      "contract_refs": ["contracts/workflow-engine-scenarios.schema.json", "contracts/workflow-engine.fixtures.json"],
+      "law_refs": [
+        {"law_id": "CD-0013", "clause_id": "D2. Workflow state lives on the work-item subject"},
+        {"law_id": "CD-0013", "clause_id": "D12. Staleness is structurally evaluated at consequential boundaries"},
+        {"law_id": "CD-0210", "clause_id": "D1. An operator-approved disposition holds live work for outside repair"},
+        {"law_id": "CD-0210", "clause_id": "D2. One reconcile action closes or resumes the held work"}
+      ],
+      "control_law_ids": ["CD-0013", "CD-0023", "CD-0210"],
+      "check_ids": ["go-test-race"]
+    },
+    {
+      "owner_id": "mechanism:agent-tools",
+      "domain_id": "agent-surface",
+      "responsibility": "The typed agent tool plane: read and mutation tool admission over the store, typed result envelopes, per-operation budgets, call-context resolution, and the closed operation vocabulary with additive evolution.",
+      "source_paths": ["internal/agent/authority.go", "internal/agent/envelope.go", "internal/agent/generated_contracts.go", "internal/agent/mutations.go", "internal/agent/payload_validation.go", "internal/store/agent_authority.go", "internal/store/agent_mutation_boundary.go", "internal/store/agent_reads.go", "internal/store/query.go", "internal/store/query_pages.go"],
+      "contract_refs": ["contracts/agent-tool-envelope.schema.json", "contracts/agent-tool-surface.schema.json", "contracts/agent-tool-surface.v1.json"],
+      "law_refs": [
+        {"law_id": "TS3", "clause_id": "1. Decision"},
+        {"law_id": "TS4", "clause_id": "1. Decision"},
+        {"law_id": "CD-0038", "clause_id": "D2. Every operation declares a ceiling"}
+      ],
+      "control_law_ids": ["CD-0038", "TS3", "TS4"],
+      "check_ids": ["go-test-race", "repo-validators"]
+    },
+    {
+      "owner_id": "mechanism:adapter-transport",
+      "domain_id": "agent-surface",
+      "responsibility": "The OpenCode adapter and its transport: client registration, key storage and policy, the per-turn continuity hook, and the store-free ci-wait verb the wait utility delegates to.",
+      "source_paths": ["adapter/opencode/ci-watch.ts", "adapter/opencode/concord-plugin.ts", "adapter/opencode/concord.ts", "adapter/opencode/continuity-hook.ts", "adapter/opencode/credentials.ts", "cmd/concord/ci_wait.go"],
+      "contract_refs": ["contracts/adapter-continuity-scenarios.schema.json", "contracts/adapter-host-pin.schema.json"],
+      "law_refs": [
+        {"law_id": "TS6", "clause_id": "2.1 Client registration and key storage"},
+        {"law_id": "CD-0160", "clause_id": "D1. The wait is a CLI verb, not a prompt"}
+      ],
+      "control_law_ids": ["CD-0160", "TS6"],
+      "check_ids": ["repo-validators"]
+    },
+    {
+      "owner_id": "mechanism:worker-lanes",
+      "domain_id": "agent-surface",
+      "responsibility": "Worker lanes and native runs: lane scope and generated lane agents, the dispatch packet as the worker's complete Concord context, worker attempt lifecycle, evidence reconcile, and the lane-step dispatch join.",
+      "source_paths": ["internal/store/agent_lanes.go", "internal/store/generated_agent_lanes.go", "internal/store/generated_lane_step_dispatch.go", "internal/store/native_runs.go", "internal/store/worker_jobs.go", "internal/store/worker_lanes.go", "internal/store/worker_packet_binding.go", "internal/store/worker_recovery.go", "internal/store/worker_worktree.go"],
+      "contract_refs": ["contracts/agent-lane-packet.schema.json", "contracts/agent-lane-report.schema.json", "contracts/agent-lanes.v1.json", "contracts/lane-step-dispatch.v1.json", "contracts/native-run-statuses.v1.json", "contracts/worker-scope.v1.json"],
+      "law_refs": [
+        {"law_id": "CD-0196", "clause_id": "Decision"},
+        {"law_id": "CD-0102", "clause_id": "D1. Typed dispatch opens one authorization window"}
+      ],
+      "control_law_ids": ["CD-0102", "CD-0196"],
+      "check_ids": ["go-test-race"]
+    },
+    {
+      "owner_id": "mechanism:worktree-tenancy",
+      "domain_id": "agent-surface",
+      "responsibility": "Agent worktree tenancy: canonical worktree claims and occupancy, session landing and vacate, branch-freshness admission, exclusive verify leases, reclamation tiers, and cross-project handoffs.",
+      "source_paths": ["internal/store/freshness.go", "internal/store/generated_branch_freshness.go", "internal/store/landing.go", "internal/store/project_handoffs.go", "internal/store/session_vacate.go", "internal/store/worktrees.go"],
+      "contract_refs": ["contracts/branch-freshness.schema.json", "contracts/branch-freshness.v1.json"],
+      "law_refs": [
+        {"law_id": "CD-0096", "clause_id": "D5. Continuity re-pins the target and the lease"},
+        {"law_id": "CD-0088", "clause_id": "D4. Launch authority binds to the prepared worktree and agent"}
+      ],
+      "control_law_ids": ["CD-0088", "CD-0096"],
+      "check_ids": ["go-test-race"]
+    },
+    {
+      "owner_id": "mechanism:work-start",
+      "domain_id": "agent-surface",
+      "responsibility": "Host-owned work bootstrap: work-start admission that captures or resumes an item and claims its canonical worktree, cross-project adoption, and recovery identity recorded before any Git change.",
+      "source_paths": ["cmd/concord/landing_verb.go", "cmd/concord/work_bootstrap.go", "cmd/concord/work_resume.go", "cmd/concord/worktree_locate.go", "internal/store/bootstrap.go"],
+      "contract_refs": ["contracts/branch-freshness.v1.json"],
+      "law_refs": [
+        {"law_id": "CD-0088", "clause_id": "D1. Bootstrap is one host-owned operation"},
+        {"law_id": "CD-0088", "clause_id": "D2. The store owns recovery identity before Git changes"}
+      ],
+      "control_law_ids": ["CD-0088"],
+      "check_ids": ["go-test-race"]
+    },
+    {
+      "owner_id": "mechanism:knowledge-index",
+      "domain_id": "product-memory",
+      "responsibility": "Product knowledge: the composed manifest and record kinds, law homes and freshness, unprocessed enumeration, research packs and findings, lessons, knowledge homes and sources, and the knowledge-query boundary.",
+      "source_paths": ["internal/store/git_knowledge.go", "internal/store/knowledge_index_projection.go", "internal/store/knowledge_manifest.go", "internal/store/knowledge_override_anchor.go", "internal/store/knowledge_query.go", "internal/store/knowledge_shards.go", "internal/store/lesson_publish.go", "internal/store/product_knowledge_home.go", "internal/store/product_knowledge_source.go", "internal/store/research_mutations.go", "internal/store/research_operations.go", "internal/store/research_reads.go", "internal/store/research_types.go", "internal/store/unprocessed_knowledge.go"],
+      "contract_refs": ["contracts/concord-knowledge-index.v1.schema.json"],
+      "law_refs": [
+        {"law_id": "CD-0020", "clause_id": "D1. Retain the current manifest-primary hybrid"},
+        {"law_id": "CD-0020", "clause_id": "D2. Retain PM1.Q9 and Q10 as the knowledge-query boundary"}
+      ],
+      "control_law_ids": ["CD-0020", "concord-knowledge-index"],
+      "check_ids": ["repo-validators"]
+    },
+    {
+      "owner_id": "mechanism:domain-registry",
+      "domain_id": "product-memory",
+      "responsibility": "The Domain registry as law: current Domains and their purposes, attachment and observation projections, registry-backed reads, the navigation companion, and CD number reservations.",
+      "source_paths": [".concord/domain-navigation.v1.json", ".concord/docs/knowledge/domain-registry.json", "internal/store/cd_reservations.go", "internal/store/domain_attachments.go", "internal/store/domain_observations.go", "internal/store/domain_reads.go"],
+      "contract_refs": [".concord/domain-navigation.v1.json", ".concord/docs/knowledge/domain-registry.json"],
+      "law_refs": [
+        {"law_id": "CD-0060", "clause_id": "D4. A declared Domain owns law at enactment"},
+        {"law_id": "CD-0158", "clause_id": "D5. Every Product repository carries the validator"}
+      ],
+      "control_law_ids": ["CD-0060", "CD-0158"],
+      "check_ids": ["repo-validators"]
+    },
+    {
+      "owner_id": "mechanism:work-items",
+      "domain_id": "work-coordination",
+      "responsibility": "The work item as an entity: capture and intent revision, lifecycle and closure removal, urgency, the typed relation vocabulary, memberships and scope resolution, peer messages, observations, initiatives, and governing-requirement obligations.",
+      "source_paths": ["internal/store/defect_intake.go", "internal/store/generated_relation_vocabulary.go", "internal/store/generated_work_kinds.go", "internal/store/governing_requirements.go", "internal/store/initiative.go", "internal/store/lifecycle.go", "internal/store/membership.go", "internal/store/scope.go", "internal/store/work_messages.go", "internal/store/work_observations.go", "internal/store/work_removal.go"],
+      "contract_refs": ["contracts/relation-vocabulary.v1.json", "contracts/work-kinds.v1.json"],
+      "law_refs": [
+        {"law_id": "PM4", "clause_id": "2.2 Allowed transitions"},
+        {"law_id": "PM5", "clause_id": "2.2 Work↔Project membership"}
+      ],
+      "control_law_ids": ["PM4", "PM5"],
+      "check_ids": ["go-test-race"]
+    },
+    {
+      "owner_id": "mechanism:external-planning",
+      "domain_id": "work-coordination",
+      "responsibility": "External planning integration: Linear connections and status maps, Product planning-mode selection, issue enqueue and outbox drain, initiative import, and work external-ref identity as one SQLite scalar rule.",
+      "source_paths": ["internal/linearclient/client.go", "internal/store/linear_identity_sqlite.go", "internal/store/linear_integration.go"],
+      "contract_refs": ["cmd/concord/main.go"],
+      "law_refs": [
+        {"law_id": "CD-0121", "clause_id": "D1. The Product owns the planning choice"}
+      ],
+      "control_law_ids": ["CD-0121"],
+      "check_ids": ["go-test-race"]
+    },
+    {
+      "owner_id": "mechanism:managed-resources",
+      "domain_id": "work-coordination",
+      "responsibility": "Durable inter-agent resource claims and the managed-resource inventory: stable locators, Product and work links, stage rules, and claim and release admission.",
+      "source_paths": ["internal/store/managed_resources.go", "internal/store/managed_resources_read.go", "internal/store/resource_claims.go"],
+      "contract_refs": [".concord/docs/managed-resource-inventory.md"],
+      "law_refs": [
+        {"law_id": "C15", "clause_id": "1. Decision"}
+      ],
+      "control_law_ids": ["C15"],
+      "check_ids": ["go-test-race"]
+    },
+    {
+      "owner_id": "mechanism:launcher-terminal",
+      "domain_id": "operator-surface",
+      "responsibility": "The human-facing terminal: the Bubble Tea launcher and zl forwarding, session boot that derives continuity before the first prompt, and the orchestrator identity assertion a launcher-started session records.",
+      "source_paths": ["cmd/concord/outside_repair_launch.go", "cmd/concord/session.go", "internal/launcher/model.go", "internal/launcher/projection.go", "internal/launcher/surface.go", "internal/sessionboot/sessionboot.go", "internal/store/session_identity.go"],
+      "contract_refs": [".concord/docs/terminal-launcher-contract.md"],
+      "law_refs": [
+        {"law_id": "terminal-launcher-contract", "clause_id": "2. The launcher's job"},
+        {"law_id": "CD-0061", "clause_id": "D4. A session assertion is recorded as a domain event"},
+        {"law_id": "CD-0210", "clause_id": "D3. The operator opens an unpinned repair session in an ad-hoc worktree"}
+      ],
+      "control_law_ids": ["CD-0061", "CD-0210", "terminal-launcher-contract"],
+      "check_ids": ["go-test-race"]
+    },
+    {
+      "owner_id": "mechanism:portfolio-view",
+      "domain_id": "operator-surface",
+      "responsibility": "The operator's Product and project plane: product rows and stage, portfolio snapshot and resolve, the blocked-session attention projection, project locators and canonical paths, and the closure receipt read.",
+      "source_paths": ["cmd/concord/project_resolve.go", "internal/portfolio/read.go", "internal/store/blocked_sessions.go", "internal/store/operator.go", "internal/store/product_row.go", "internal/store/product_stage.go", "internal/store/project_locator.go", "internal/store/work_closure.go"],
+      "contract_refs": [".concord/docs/product-coordination-view.md", ".concord/docs/product-row-contract.md"],
+      "law_refs": [
+        {"law_id": "C14", "clause_id": "1. Decision"},
+        {"law_id": "C17", "clause_id": "2. Accepted shape"}
+      ],
+      "control_law_ids": ["C14", "C17"],
+      "check_ids": ["go-test-race"]
+    },
+    {
+      "owner_id": "mechanism:release-installer",
+      "domain_id": "operator-surface",
+      "responsibility": "Release and installation currency: host leases pinning live sessions to releases, the explicit upgrade fence for breaking migrations, repair routing during an outage, and the automated release workflow.",
+      "source_paths": [".github/workflows/release.yml", "cmd/concord/release.go", "cmd/concord/repair.go", "internal/hostlease/hostlease.go", "internal/receipt/receipt.go", "internal/version/version.go"],
+      "contract_refs": [".github/workflows/release.yml"],
+      "law_refs": [
+        {"law_id": "CD-0111", "clause_id": "D2. The installer retains a release a live session references"},
+        {"law_id": "CD-0111", "clause_id": "D3. A breaking migration applies only through an explicit upgrade"}
+      ],
+      "control_law_ids": ["CD-0111"],
+      "check_ids": ["go-test-race"]
+    },
+    {
+      "owner_id": "mechanism:predecessor-import",
+      "domain_id": "operator-surface",
+      "responsibility": "Predecessor migration: snapshot inventory and import into Product state, idempotent replay with typed conflicts, and provenance reads against event history.",
+      "source_paths": ["cmd/concord/predecessor_import.go", "internal/predecessor/inventory.go", "internal/predecessor/snapshot.go", "internal/predecessor/surfaces.go", "internal/store/predecessor_import.go"],
+      "contract_refs": ["contracts/predecessor-snapshot.schema.json"],
+      "law_refs": [
+        {"law_id": "CD-0097", "clause_id": "D4. Replay is idempotent, and conflicts refuse typed"}
+      ],
+      "control_law_ids": ["CD-0097"],
+      "check_ids": ["go-test-race"]
+    },
+    {
+      "owner_id": "mechanism:repo-validators",
+      "domain_id": "repository-verification",
+      "responsibility": "Repository contract drift checks and declared coverage: the validator suite and its JSON chaining, the tooling manifest, pre-push preflight parity, and reachability exceptions a check may hold.",
+      "source_paths": [".concord/tooling.v1.json", "contracts/README.md", "scripts/check-domain-registry.py", "scripts/check-json.py", "scripts/knowledge_index.py"],
+      "contract_refs": ["contracts/README.md", "contracts/project-tooling.v1.schema.json", "contracts/reachability-exceptions.schema.json"],
+      "law_refs": [
+        {"law_id": "CD-0047", "clause_id": "D1. An undeclared gap is a failure; a declared gap is not"},
+        {"law_id": "development-authority", "clause_id": "Contract"}
+      ],
+      "control_law_ids": ["CD-0047", "development-authority"],
+      "check_ids": ["lefthook-preflight", "repo-validators"]
+    },
+    {
+      "owner_id": "mechanism:test-infrastructure",
+      "domain_id": "repository-verification",
+      "responsibility": "Shared test infrastructure: the SQLite test environment and ten-process conformance harness, Git fixtures, and store test support shared by every Domain's suites.",
+      "source_paths": ["internal/gittest/gittest.go", "internal/store/storetest/storetest.go", "internal/testenv/testenv.go"],
+      "contract_refs": [".concord/scenarios/README.md"],
+      "law_refs": [
+        {"law_id": "development-authority", "clause_id": "Verification"}
+      ],
+      "control_law_ids": ["development-authority"],
+      "check_ids": ["bin-oc-test", "go-test-race"]
+    }
+  ],
+  "catalog_bindings": [
+    {"catalog": "cli", "entry_id": "backup", "owner_id": "mechanism:durable-store"},
+    {"catalog": "cli", "entry_id": "restore", "owner_id": "mechanism:durable-store"},
+    {"catalog": "cli", "entry_id": "recover-fold-guard", "owner_id": "mechanism:durable-store"},
+    {"catalog": "cli", "entry_id": "invoke", "owner_id": "mechanism:agent-tools"},
+    {"catalog": "cli", "entry_id": "worker-dispatch", "owner_id": "mechanism:worker-lanes"},
+    {"catalog": "cli", "entry_id": "worker-complete", "owner_id": "mechanism:worker-lanes"},
+    {"catalog": "cli", "entry_id": "worker-fail", "owner_id": "mechanism:worker-lanes"},
+    {"catalog": "cli", "entry_id": "worker-abandon", "owner_id": "mechanism:worker-lanes"},
+    {"catalog": "cli", "entry_id": "claim-landing", "owner_id": "mechanism:worktree-tenancy"},
+    {"catalog": "cli", "entry_id": "vacate-landing", "owner_id": "mechanism:worktree-tenancy"},
+    {"catalog": "cli", "entry_id": "worktree-locate", "owner_id": "mechanism:worktree-tenancy"},
+    {"catalog": "cli", "entry_id": "work-bootstrap", "owner_id": "mechanism:work-start"},
+    {"catalog": "cli", "entry_id": "work-resume", "owner_id": "mechanism:work-start"},
+    {"catalog": "cli", "entry_id": "continuity-block", "owner_id": "mechanism:adapter-transport"},
+    {"catalog": "cli", "entry_id": "ci-wait", "owner_id": "mechanism:adapter-transport"},
+    {"catalog": "cli", "entry_id": "client-register", "owner_id": "mechanism:adapter-transport"},
+    {"catalog": "cli", "entry_id": "client-policy-update", "owner_id": "mechanism:adapter-transport"},
+    {"catalog": "cli", "entry_id": "client-policy-expand", "owner_id": "mechanism:adapter-transport"},
+    {"catalog": "cli", "entry_id": "client-key-rotate", "owner_id": "mechanism:adapter-transport"},
+    {"catalog": "cli", "entry_id": "client-revoke", "owner_id": "mechanism:adapter-transport"},
+    {"catalog": "cli", "entry_id": "product-knowledge-home-designate", "owner_id": "mechanism:knowledge-index"},
+    {"catalog": "cli", "entry_id": "product-knowledge-home-clear", "owner_id": "mechanism:knowledge-index"},
+    {"catalog": "cli", "entry_id": "product-knowledge-source-register", "owner_id": "mechanism:knowledge-index"},
+    {"catalog": "cli", "entry_id": "product-knowledge-source-remove", "owner_id": "mechanism:knowledge-index"},
+    {"catalog": "cli", "entry_id": "cd-reservations", "owner_id": "mechanism:domain-registry"},
+    {"catalog": "cli", "entry_id": "domain-project-attachments-replace", "owner_id": "mechanism:domain-registry"},
+    {"catalog": "cli", "entry_id": "domain-resource-attachments-replace", "owner_id": "mechanism:domain-registry"},
+    {"catalog": "cli", "entry_id": "work-shelve", "owner_id": "mechanism:work-items"},
+    {"catalog": "cli", "entry_id": "work-cancel", "owner_id": "mechanism:work-items"},
+    {"catalog": "cli", "entry_id": "product-project-add", "owner_id": "mechanism:work-items"},
+    {"catalog": "cli", "entry_id": "linear-health", "owner_id": "mechanism:external-planning"},
+    {"catalog": "cli", "entry_id": "linear-divergence", "owner_id": "mechanism:external-planning"},
+    {"catalog": "cli", "entry_id": "linear-unlinked-remote-in-progress", "owner_id": "mechanism:external-planning"},
+    {"catalog": "cli", "entry_id": "linear-issue-enqueue", "owner_id": "mechanism:external-planning"},
+    {"catalog": "cli", "entry_id": "linear-outbox-drain", "owner_id": "mechanism:external-planning"},
+    {"catalog": "cli", "entry_id": "linear-outbox-disposition", "owner_id": "mechanism:external-planning"},
+    {"catalog": "cli", "entry_id": "linear-backfill", "owner_id": "mechanism:external-planning"},
+    {"catalog": "cli", "entry_id": "linear-connection-update", "owner_id": "mechanism:external-planning"},
+    {"catalog": "cli", "entry_id": "linear-initiative-import", "owner_id": "mechanism:external-planning"},
+    {"catalog": "cli", "entry_id": "product-mode-set", "owner_id": "mechanism:external-planning"},
+    {"catalog": "cli", "entry_id": "resource-create", "owner_id": "mechanism:managed-resources"},
+    {"catalog": "cli", "entry_id": "resource-share", "owner_id": "mechanism:managed-resources"},
+    {"catalog": "cli", "entry_id": "launcher", "owner_id": "mechanism:launcher-terminal"},
+    {"catalog": "cli", "entry_id": "zl", "owner_id": "mechanism:launcher-terminal"},
+    {"catalog": "cli", "entry_id": "session", "owner_id": "mechanism:launcher-terminal"},
+    {"catalog": "cli", "entry_id": "session-prepare", "owner_id": "mechanism:launcher-terminal"},
+    {"catalog": "cli", "entry_id": "outside-repair", "owner_id": "mechanism:launcher-terminal"},
+    {"catalog": "cli", "entry_id": "product-create", "owner_id": "mechanism:portfolio-view"},
+    {"catalog": "cli", "entry_id": "product-stage-update", "owner_id": "mechanism:portfolio-view"},
+    {"catalog": "cli", "entry_id": "project-create", "owner_id": "mechanism:portfolio-view"},
+    {"catalog": "cli", "entry_id": "project-locator-add", "owner_id": "mechanism:portfolio-view"},
+    {"catalog": "cli", "entry_id": "project-locator-update", "owner_id": "mechanism:portfolio-view"},
+    {"catalog": "cli", "entry_id": "project-locator-remove", "owner_id": "mechanism:portfolio-view"},
+    {"catalog": "cli", "entry_id": "project-canonical-path", "owner_id": "mechanism:portfolio-view"},
+    {"catalog": "cli", "entry_id": "project-resolve", "owner_id": "mechanism:portfolio-view"},
+    {"catalog": "cli", "entry_id": "receipt", "owner_id": "mechanism:portfolio-view"},
+    {"catalog": "cli", "entry_id": "host-lease", "owner_id": "mechanism:release-installer"},
+    {"catalog": "cli", "entry_id": "host-leases", "owner_id": "mechanism:release-installer"},
+    {"catalog": "cli", "entry_id": "upgrade", "owner_id": "mechanism:release-installer"},
+    {"catalog": "cli", "entry_id": "repair", "owner_id": "mechanism:release-installer"},
+    {"catalog": "cli", "entry_id": "predecessor-inventory", "owner_id": "mechanism:predecessor-import"},
+    {"catalog": "cli", "entry_id": "predecessor-import", "owner_id": "mechanism:predecessor-import"},
+    {"catalog": "agent", "entry_id": "concord_knowledge.resolve_note", "owner_id": "mechanism:knowledge-index"},
+    {"catalog": "agent", "entry_id": "concord_knowledge.search", "owner_id": "mechanism:knowledge-index"},
+    {"catalog": "agent", "entry_id": "concord_knowledge.unprocessed", "owner_id": "mechanism:knowledge-index"},
+    {"catalog": "agent", "entry_id": "concord_work_define.research_pack_create", "owner_id": "mechanism:knowledge-index"},
+    {"catalog": "agent", "entry_id": "concord_work_define.research_revision_append", "owner_id": "mechanism:knowledge-index"},
+    {"catalog": "agent", "entry_id": "concord_work_define.research_finding_record", "owner_id": "mechanism:knowledge-index"},
+    {"catalog": "agent", "entry_id": "concord_work_define.research_source_record", "owner_id": "mechanism:knowledge-index"},
+    {"catalog": "agent", "entry_id": "concord_work_define.research_freshness_set", "owner_id": "mechanism:knowledge-index"},
+    {"catalog": "agent", "entry_id": "concord_work_compact.lesson_publish", "owner_id": "mechanism:knowledge-index"},
+    {"catalog": "agent", "entry_id": "concord_domain.active_work", "owner_id": "mechanism:domain-registry"},
+    {"catalog": "agent", "entry_id": "concord_domain.attachments", "owner_id": "mechanism:domain-registry"},
+    {"catalog": "agent", "entry_id": "concord_domain.detail", "owner_id": "mechanism:domain-registry"},
+    {"catalog": "agent", "entry_id": "concord_domain.list", "owner_id": "mechanism:domain-registry"},
+    {"catalog": "agent", "entry_id": "concord_domain.observation_dismiss", "owner_id": "mechanism:domain-registry"},
+    {"catalog": "agent", "entry_id": "concord_domain.observation_record", "owner_id": "mechanism:domain-registry"},
+    {"catalog": "agent", "entry_id": "concord_domain.overlaps", "owner_id": "mechanism:domain-registry"},
+    {"catalog": "agent", "entry_id": "concord_product_view.blocked_sessions", "owner_id": "mechanism:portfolio-view"},
+    {"catalog": "agent", "entry_id": "concord_product_view.portfolio", "owner_id": "mechanism:portfolio-view"},
+    {"catalog": "agent", "entry_id": "concord_product_view.resolve", "owner_id": "mechanism:portfolio-view"},
+    {"catalog": "agent", "entry_id": "concord_product_view.resources", "owner_id": "mechanism:portfolio-view"},
+    {"catalog": "agent", "entry_id": "concord_product_view.snapshot", "owner_id": "mechanism:portfolio-view"},
+    {"catalog": "agent", "entry_id": "concord_work_define.capture", "owner_id": "mechanism:work-items"},
+    {"catalog": "agent", "entry_id": "concord_work_define.revise_intent", "owner_id": "mechanism:work-items"},
+    {"catalog": "agent", "entry_id": "concord_work_define.observation_record", "owner_id": "mechanism:work-items"},
+    {"catalog": "agent", "entry_id": "concord_work_define.issue_adopt", "owner_id": "mechanism:work-items"},
+    {"catalog": "agent", "entry_id": "concord_work_initiative.add_entry", "owner_id": "mechanism:work-items"},
+    {"catalog": "agent", "entry_id": "concord_work_initiative.change_requiredness", "owner_id": "mechanism:work-items"},
+    {"catalog": "agent", "entry_id": "concord_work_initiative.create", "owner_id": "mechanism:work-items"},
+    {"catalog": "agent", "entry_id": "concord_work_initiative.entries", "owner_id": "mechanism:work-items"},
+    {"catalog": "agent", "entry_id": "concord_work_initiative.remove_entry", "owner_id": "mechanism:work-items"},
+    {"catalog": "agent", "entry_id": "concord_work_initiative.reorder_entry", "owner_id": "mechanism:work-items"},
+    {"catalog": "agent", "entry_id": "concord_work_initiative.revise_narrative", "owner_id": "mechanism:work-items"},
+    {"catalog": "agent", "entry_id": "concord_work_relate.link", "owner_id": "mechanism:work-items"},
+    {"catalog": "agent", "entry_id": "concord_work_relate.unlink", "owner_id": "mechanism:work-items"},
+    {"catalog": "agent", "entry_id": "concord_work_relate.supersede", "owner_id": "mechanism:work-items"},
+    {"catalog": "agent", "entry_id": "concord_work_relate.restore_superseded", "owner_id": "mechanism:work-items"},
+    {"catalog": "agent", "entry_id": "concord_work_relate.set_memberships", "owner_id": "mechanism:work-items"},
+    {"catalog": "agent", "entry_id": "concord_work_relate.message_send", "owner_id": "mechanism:work-items"},
+    {"catalog": "agent", "entry_id": "concord_work_relate.message_withdraw", "owner_id": "mechanism:work-items"},
+    {"catalog": "agent", "entry_id": "concord_work_relate.product_project_add", "owner_id": "mechanism:work-items"},
+    {"catalog": "agent", "entry_id": "concord_work_browse.list", "owner_id": "mechanism:work-items"},
+    {"catalog": "agent", "entry_id": "concord_work_browse.blocked", "owner_id": "mechanism:work-items"},
+    {"catalog": "agent", "entry_id": "concord_work_browse.ready", "owner_id": "mechanism:work-items"},
+    {"catalog": "agent", "entry_id": "concord_work_browse.scope", "owner_id": "mechanism:work-items"},
+    {"catalog": "agent", "entry_id": "concord_work_browse.messages", "owner_id": "mechanism:work-items"},
+    {"catalog": "agent", "entry_id": "concord_work_trace.history", "owner_id": "mechanism:work-items"},
+    {"catalog": "agent", "entry_id": "concord_work_trace.observations", "owner_id": "mechanism:work-items"},
+    {"catalog": "agent", "entry_id": "concord_work_trace.external_observations", "owner_id": "mechanism:work-items"},
+    {"catalog": "agent", "entry_id": "concord_work_trace.relations", "owner_id": "mechanism:work-items"},
+    {"catalog": "agent", "entry_id": "concord_work_trace.continuity", "owner_id": "mechanism:work-items"},
+    {"catalog": "agent", "entry_id": "concord_work_trace.project_retirement", "owner_id": "mechanism:work-items"},
+    {"catalog": "agent", "entry_id": "concord_work_trace.research", "owner_id": "mechanism:knowledge-index"},
+    {"catalog": "agent", "entry_id": "concord_work_compact.publish", "owner_id": "mechanism:work-items"},
+    {"catalog": "agent", "entry_id": "concord_work_compact.reconcile", "owner_id": "mechanism:work-items"},
+    {"catalog": "agent", "entry_id": "concord_work_transition.lifecycle", "owner_id": "mechanism:work-items"},
+    {"catalog": "agent", "entry_id": "concord_work_transition.remove", "owner_id": "mechanism:work-items"},
+    {"catalog": "agent", "entry_id": "concord_work_relate.resource_claim", "owner_id": "mechanism:managed-resources"},
+    {"catalog": "agent", "entry_id": "concord_work_relate.resource_release", "owner_id": "mechanism:managed-resources"},
+    {"catalog": "agent", "entry_id": "concord_work_browse.resource_claims", "owner_id": "mechanism:managed-resources"},
+    {"catalog": "agent", "entry_id": "concord_work_transition.workflow_action", "owner_id": "mechanism:workflow-actions"},
+    {"catalog": "agent", "entry_id": "concord_work_transition.correct_delivery", "owner_id": "mechanism:workflow-actions"},
+    {"catalog": "agent", "entry_id": "concord_work_transition.outside_repair", "owner_id": "mechanism:workflow-actions"},
+    {"catalog": "agent", "entry_id": "concord_work_transition.outside_repair_reconcile", "owner_id": "mechanism:workflow-actions"},
+    {"catalog": "agent", "entry_id": "concord_work_relate.resolve_overlap", "owner_id": "mechanism:workflow-actions"},
+    {"catalog": "agent", "entry_id": "concord_work_transition.worker_abandon", "owner_id": "mechanism:worker-lanes"},
+    {"catalog": "agent", "entry_id": "concord_work_transition.worker_reconcile", "owner_id": "mechanism:worker-lanes"},
+    {"catalog": "agent", "entry_id": "concord_work_transition.worktree_claim", "owner_id": "mechanism:worktree-tenancy"},
+    {"catalog": "agent", "entry_id": "concord_work_transition.worktree_destroy", "owner_id": "mechanism:worktree-tenancy"},
+    {"catalog": "agent", "entry_id": "concord_work_transition.worktree_reclaim", "owner_id": "mechanism:worktree-tenancy"},
+    {"catalog": "agent", "entry_id": "concord_work_transition.worktree_verify", "owner_id": "mechanism:worktree-tenancy"},
+    {"catalog": "agent", "entry_id": "concord_work_transition.worktree_audit_reclaim", "owner_id": "mechanism:worktree-tenancy"},
+    {"catalog": "agent", "entry_id": "concord_work_transition.session_vacate", "owner_id": "mechanism:worktree-tenancy"},
+    {"catalog": "agent", "entry_id": "concord_work_transition.project_handoff_record", "owner_id": "mechanism:worktree-tenancy"},
+    {"catalog": "agent", "entry_id": "concord_work_transition.project_handoff_consume", "owner_id": "mechanism:worktree-tenancy"},
+    {"catalog": "agent", "entry_id": "concord_work_browse.worktree_audit", "owner_id": "mechanism:worktree-tenancy"},
+    {"catalog": "agent", "entry_id": "concord_work_browse.worktree_inspect", "owner_id": "mechanism:worktree-tenancy"},
+    {"catalog": "agent", "entry_id": "concord_work_relate.client_policy_grant_request", "owner_id": "mechanism:agent-tools"},
+    {"catalog": "workflow", "entry_id": "dispatch_worker", "owner_id": "mechanism:worker-lanes"},
+    {"catalog": "workflow", "entry_id": "accept_decision", "owner_id": "mechanism:workflow-actions"},
+    {"catalog": "workflow", "entry_id": "accept_worker_evidence", "owner_id": "mechanism:workflow-actions"},
+    {"catalog": "workflow", "entry_id": "accept_worker_result", "owner_id": "mechanism:workflow-actions"},
+    {"catalog": "workflow", "entry_id": "add_condition", "owner_id": "mechanism:workflow-actions"},
+    {"catalog": "workflow", "entry_id": "approve_contract", "owner_id": "mechanism:workflow-actions"},
+    {"catalog": "workflow", "entry_id": "approve_operation", "owner_id": "mechanism:workflow-actions"},
+    {"catalog": "workflow", "entry_id": "bind_evidence", "owner_id": "mechanism:workflow-actions"},
+    {"catalog": "workflow", "entry_id": "cancel_condition", "owner_id": "mechanism:workflow-actions"},
+    {"catalog": "workflow", "entry_id": "checkpoint_action", "owner_id": "mechanism:workflow-actions"},
+    {"catalog": "workflow", "entry_id": "checkpoint_analysis", "owner_id": "mechanism:workflow-actions"},
+    {"catalog": "workflow", "entry_id": "checkpoint_context", "owner_id": "mechanism:workflow-actions"},
+    {"catalog": "workflow", "entry_id": "checkpoint_execution", "owner_id": "mechanism:workflow-actions"},
+    {"catalog": "workflow", "entry_id": "checkpoint_poc", "owner_id": "mechanism:workflow-actions"},
+    {"catalog": "workflow", "entry_id": "checkpoint_refine", "owner_id": "mechanism:workflow-actions"},
+    {"catalog": "workflow", "entry_id": "checkpoint_repair", "owner_id": "mechanism:workflow-actions"},
+    {"catalog": "workflow", "entry_id": "checkpoint_run", "owner_id": "mechanism:workflow-actions"},
+    {"catalog": "workflow", "entry_id": "cleanup_run", "owner_id": "mechanism:workflow-actions"},
+    {"catalog": "workflow", "entry_id": "complete", "owner_id": "mechanism:workflow-actions"},
+    {"catalog": "workflow", "entry_id": "confirm_premise", "owner_id": "mechanism:workflow-actions"},
+    {"catalog": "workflow", "entry_id": "cross_context_boundary", "owner_id": "mechanism:workflow-actions"},
+    {"catalog": "workflow", "entry_id": "declare_impact", "owner_id": "mechanism:workflow-actions"},
+    {"catalog": "workflow", "entry_id": "declare_scope", "owner_id": "mechanism:workflow-actions"},
+    {"catalog": "workflow", "entry_id": "discard_poc", "owner_id": "mechanism:workflow-actions"},
+    {"catalog": "workflow", "entry_id": "frame_question", "owner_id": "mechanism:workflow-actions"},
+    {"catalog": "workflow", "entry_id": "frame_research", "owner_id": "mechanism:workflow-actions"},
+    {"catalog": "workflow", "entry_id": "link_successor", "owner_id": "mechanism:workflow-actions"},
+    {"catalog": "workflow", "entry_id": "record_alignment", "owner_id": "mechanism:workflow-actions"},
+    {"catalog": "workflow", "entry_id": "record_conclusion", "owner_id": "mechanism:workflow-actions"},
+    {"catalog": "workflow", "entry_id": "record_decision", "owner_id": "mechanism:workflow-actions"},
+    {"catalog": "workflow", "entry_id": "record_delivery", "owner_id": "mechanism:workflow-actions"},
+    {"catalog": "workflow", "entry_id": "record_design", "owner_id": "mechanism:workflow-actions"},
+    {"catalog": "workflow", "entry_id": "record_discovery", "owner_id": "mechanism:workflow-actions"},
+    {"catalog": "workflow", "entry_id": "record_finding", "owner_id": "mechanism:workflow-actions"},
+    {"catalog": "workflow", "entry_id": "record_health", "owner_id": "mechanism:workflow-actions"},
+    {"catalog": "workflow", "entry_id": "record_option", "owner_id": "mechanism:workflow-actions"},
+    {"catalog": "workflow", "entry_id": "record_proposal", "owner_id": "mechanism:workflow-actions"},
+    {"catalog": "workflow", "entry_id": "record_report", "owner_id": "mechanism:workflow-actions"},
+    {"catalog": "workflow", "entry_id": "record_reproduction", "owner_id": "mechanism:workflow-actions"},
+    {"catalog": "workflow", "entry_id": "record_research", "owner_id": "mechanism:workflow-actions"},
+    {"catalog": "workflow", "entry_id": "record_root_cause", "owner_id": "mechanism:workflow-actions"},
+    {"catalog": "workflow", "entry_id": "record_verdict", "owner_id": "mechanism:workflow-actions"},
+    {"catalog": "workflow", "entry_id": "record_worker_failure", "owner_id": "mechanism:workflow-actions"},
+    {"catalog": "workflow", "entry_id": "record_worker_job", "owner_id": "mechanism:workflow-actions"},
+    {"catalog": "workflow", "entry_id": "reject_worker_result", "owner_id": "mechanism:workflow-actions"},
+    {"catalog": "workflow", "entry_id": "request_correction", "owner_id": "mechanism:workflow-actions"},
+    {"catalog": "workflow", "entry_id": "resolve_condition", "owner_id": "mechanism:workflow-actions"},
+    {"catalog": "workflow", "entry_id": "revise_candidates", "owner_id": "mechanism:workflow-actions"},
+    {"catalog": "workflow", "entry_id": "rollback_run", "owner_id": "mechanism:workflow-actions"},
+    {"catalog": "workflow", "entry_id": "run_analysis", "owner_id": "mechanism:workflow-actions"},
+    {"catalog": "workflow", "entry_id": "start_action", "owner_id": "mechanism:workflow-actions"},
+    {"catalog": "workflow", "entry_id": "start_execution", "owner_id": "mechanism:workflow-actions"},
+    {"catalog": "workflow", "entry_id": "start_poc", "owner_id": "mechanism:workflow-actions"},
+    {"catalog": "workflow", "entry_id": "start_refine", "owner_id": "mechanism:workflow-actions"},
+    {"catalog": "workflow", "entry_id": "start_repair", "owner_id": "mechanism:workflow-actions"},
+    {"catalog": "workflow", "entry_id": "start_run", "owner_id": "mechanism:workflow-actions"},
+    {"catalog": "workflow", "entry_id": "supersede_contract", "owner_id": "mechanism:workflow-actions"}
+  ],
+  "dependency_interpretations": [
+    {
+      "source_domain_id": "workflow-engine",
+      "kind": "depends_on",
+      "target_domain_id": "durable-authority",
+      "law_refs": [
+        {"law_id": "CD-0002", "clause_id": "1. The structural invariants (this is the decision's real content)"},
+        {"law_id": "PM3", "clause_id": "3.1 One generic log remains authoritative"}
+      ],
+      "contract_refs": ["contracts/storage-vocabulary-authority.v1.json"]
+    },
+    {
+      "source_domain_id": "workflow-engine",
+      "kind": "depends_on",
+      "target_domain_id": "product-memory",
+      "law_refs": [
+        {"law_id": "CD-0036", "clause_id": "D3. Strict quiescence"}
+      ],
+      "contract_refs": ["contracts/concord-knowledge-index.v1.schema.json"]
+    },
+    {
+      "source_domain_id": "agent-surface",
+      "kind": "depends_on",
+      "target_domain_id": "durable-authority",
+      "law_refs": [
+        {"law_id": "CD-0002", "clause_id": "5. Core language and internal boundary (agent adapter resolved by CD-0005)"}
+      ],
+      "contract_refs": ["contracts/durable-tier-budget.schema.json"]
+    },
+    {
+      "source_domain_id": "agent-surface",
+      "kind": "depends_on",
+      "target_domain_id": "workflow-engine",
+      "law_refs": [
+        {"law_id": "CD-0013", "clause_id": "D11. Public surface for workflow actions stays reserved"},
+        {"law_id": "CD-0023", "clause_id": "Decision"}
+      ],
+      "contract_refs": ["contracts/workflow-outcome.schema.json"]
+    },
+    {
+      "source_domain_id": "product-memory",
+      "kind": "depends_on",
+      "target_domain_id": "durable-authority",
+      "law_refs": [
+        {"law_id": "CD-0015", "clause_id": "Decision"},
+        {"law_id": "CD-0002", "clause_id": "2d. Structured artifact placement"}
+      ],
+      "contract_refs": ["contracts/concord-knowledge-index.v1.schema.json"]
+    },
+    {
+      "source_domain_id": "work-coordination",
+      "kind": "depends_on",
+      "target_domain_id": "durable-authority",
+      "law_refs": [
+        {"law_id": "CD-0002", "clause_id": "1. The structural invariants (this is the decision's real content)"}
+      ],
+      "contract_refs": ["contracts/relation-vocabulary.v1.json"]
+    },
+    {
+      "source_domain_id": "operator-surface",
+      "kind": "depends_on",
+      "target_domain_id": "durable-authority",
+      "law_refs": [
+        {"law_id": "CD-0002", "clause_id": "2b. Concurrency model, and the daemon as an upgrade path"}
+      ],
+      "contract_refs": ["contracts/storage-vocabulary-authority.v1.json"]
+    },
+    {
+      "source_domain_id": "repository-verification",
+      "kind": "depends_on",
+      "target_domain_id": "product-memory",
+      "law_refs": [
+        {"law_id": "CD-0047", "clause_id": "D3. Law evidence is a typed anchor, never a path"}
+      ],
+      "contract_refs": ["contracts/law-coverage.schema.json"]
+    }
   ],
   "test_coverage": [
     {
       "path": "internal/store/conformance_test.go",
       "covers_owner_ids": ["domain:durable-authority", "domain:workflow-engine", "domain:agent-surface", "domain:work-coordination"]
+    },
+    {
+      "path": "internal/store/bootstrap_test.go",
+      "covers_owner_ids": ["domain:operator-surface"]
+    },
+    {
+      "path": "internal/store/domain_reads_test.go",
+      "covers_owner_ids": ["domain:workflow-engine"]
+    },
+    {
+      "path": "internal/store/nil_store_work_item_test.go",
+      "covers_owner_ids": ["domain:workflow-engine", "domain:agent-surface"]
+    },
+    {
+      "path": "internal/store/project_handoffs_test.go",
+      "covers_owner_ids": ["domain:workflow-engine"]
+    },
+    {
+      "path": "internal/store/query_test.go",
+      "covers_owner_ids": ["domain:work-coordination"]
+    },
+    {
+      "path": "internal/store/scope_test.go",
+      "covers_owner_ids": ["domain:product-memory"]
+    },
+    {
+      "path": "internal/store/worktree_claim_incarnation_migration_test.go",
+      "covers_owner_ids": ["domain:agent-surface"]
+    },
+    {
+      "path": "internal/store/worktree_occupancy_migration105_test.go",
+      "covers_owner_ids": ["domain:agent-surface"]
+    },
+    {
+      "path": "internal/store/worktrees_unpublished_lesson_test.go",
+      "covers_owner_ids": ["domain:product-memory"]
     }
   ]
 }

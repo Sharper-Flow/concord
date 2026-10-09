@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/sharper-flow/concord/internal/testenv"
@@ -68,6 +69,127 @@ func TestEarlyDispatchSurfaceOfConcordMain(t *testing.T) {
 		if got[i] != want[i] {
 			t.Fatalf("early dispatch surface = %+v, want %+v", got, want)
 		}
+	}
+}
+
+func TestExtractImports(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		sources map[string]string
+		files   []string
+		want    map[string]fileImports
+		wantErr bool
+	}{
+		{
+			name:  "plain imports",
+			files: []string{"a.go"},
+			sources: map[string]string{
+				"a.go": "package fixture\n\nimport (\n\t\"fmt\"\n\t\"example.invalid/lib\"\n)\n",
+			},
+			want: map[string]fileImports{"a.go": {Package: "fixture", Imports: []string{"example.invalid/lib", "fmt"}}},
+		},
+		{
+			name:  "named blank and dotted imports stay package-level",
+			files: []string{"a.go"},
+			sources: map[string]string{
+				"a.go": "package fixture\n\nimport (\n\t_ \"example.invalid/side\"\n\t. \"example.invalid/dot\"\n\talias \"example.invalid/alias\"\n)\n",
+			},
+			want: map[string]fileImports{"a.go": {Package: "fixture", Imports: []string{"example.invalid/alias", "example.invalid/dot", "example.invalid/side"}}},
+		},
+		{
+			name:    "no imports",
+			files:   []string{"a.go"},
+			sources: map[string]string{"a.go": "package fixture\n"},
+			want:    map[string]fileImports{"a.go": {Package: "fixture", Imports: []string{}}},
+		},
+		{
+			name:    "unparsable file refuses",
+			files:   []string{"a.go"},
+			sources: map[string]string{"a.go": "not go source"},
+			wantErr: true,
+		},
+		{
+			name:  "unselected Go file cannot break observation",
+			files: []string{"a.go"},
+			sources: map[string]string{
+				"a.go":       "package fixture\n",
+				"ignored.go": "not go source",
+			},
+			want: map[string]fileImports{"a.go": {Package: "fixture", Imports: []string{}}},
+		},
+		{
+			name:    "missing root refuses",
+			sources: nil,
+			wantErr: true,
+		},
+		{
+			name:    "missing selected file refuses",
+			files:   []string{"missing.go"},
+			wantErr: true,
+		},
+		{
+			name:    "escaping selected file refuses",
+			files:   []string{"../outside.go"},
+			wantErr: true,
+		},
+		{
+			name: "empty selected universe",
+			want: map[string]fileImports{},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			for name, source := range tc.sources {
+				if err := os.WriteFile(filepath.Join(root, name), []byte(source), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if tc.name == "missing root refuses" {
+				root = filepath.Join(root, "absent")
+			}
+			got, err := extractImports(root, tc.files)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("unsupported source accepted: %+v", got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("extractImports = %v", err)
+			}
+			if len(got) != len(tc.want) {
+				t.Fatalf("extractImports = %+v, want %+v", got, tc.want)
+			}
+			for path, want := range tc.want {
+				got := got[path]
+				if got.Package != want.Package || !slices.Equal(got.Imports, want.Imports) {
+					t.Fatalf("extractImports[%s] = %+v, want %+v", path, got, want)
+				}
+			}
+		})
+	}
+}
+
+func TestImportsCoverConcordMain(t *testing.T) {
+	got, err := extractImports(filepath.Join("..", ".."), []string{"cmd/concord/main.go"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	main, ok := got["cmd/concord/main.go"]
+	if !ok {
+		t.Fatalf("cmd/concord/main.go missing from observed imports: %d files", len(got))
+	}
+	if main.Package != "main" {
+		t.Fatalf("cmd/concord/main.go package = %q", main.Package)
+	}
+	found := false
+	for _, path := range main.Imports {
+		if path == "github.com/sharper-flow/concord/internal/store" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("cmd/concord/main.go does not observe internal/store: %+v", main.Imports)
 	}
 }
 

@@ -3,11 +3,13 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
 	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 )
@@ -101,7 +103,7 @@ func conjuncts(expression ast.Expr) []ast.Expr {
 	return append(conjuncts(binary.X), conjuncts(binary.Y)...)
 }
 
-// isLenArgsZero reports whether the expression is the call len(args).
+// isLenArgs reports whether the expression is the call len(args).
 func isLenArgs(expression ast.Expr) bool {
 	call, ok := expression.(*ast.CallExpr)
 	if !ok || call.Fun == nil || len(call.Args) != 1 {
@@ -212,9 +214,60 @@ func extractEarlyDispatch(path string) ([]string, error) {
 	return result, nil
 }
 
+type fileImports struct {
+	Package string   `json:"package"`
+	Imports []string `json:"imports"`
+}
+
+// extractImports parses the selected repository files with ImportsOnly and
+// maps each repository-relative path to its package and import paths. It is a
+// package-level observation only: same-package uses need no import, so
+// intra-package edges are unmeasurable here, no symbol graph is built, and the
+// result grants no execution permission. The result is deterministic.
+func extractImports(root string, paths []string) (result map[string]fileImports, err error) {
+	repository, err := os.OpenRoot(root)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { err = errors.Join(err, repository.Close()) }()
+	result = make(map[string]fileImports)
+	for _, path := range paths {
+		source, err := repository.ReadFile(path)
+		if err != nil {
+			return nil, err
+		}
+		file, err := parser.ParseFile(token.NewFileSet(), path, source, parser.ImportsOnly)
+		if err != nil {
+			return nil, err
+		}
+		imports := make([]string, 0, len(file.Imports))
+		for _, imported := range file.Imports {
+			text, err := strconv.Unquote(imported.Path.Value)
+			if err != nil {
+				return nil, err
+			}
+			imports = append(imports, text)
+		}
+		sort.Strings(imports)
+		result[filepath.ToSlash(path)] = fileImports{Package: file.Name.Name, Imports: imports}
+	}
+	return result, nil
+}
+
 func main() {
+	if len(os.Args) >= 3 && os.Args[1] == "--imports" {
+		imports, err := extractImports(os.Args[2], os.Args[3:])
+		if err == nil {
+			err = json.NewEncoder(os.Stdout).Encode(imports)
+		}
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
 	if len(os.Args) != 2 {
-		fmt.Fprintln(os.Stderr, "usage: domain-navigation-cli <Go source>")
+		fmt.Fprintln(os.Stderr, "usage: domain-navigation-cli <Go source> | domain-navigation-cli --imports <root> [repository-relative Go files...]")
 		os.Exit(2)
 	}
 	verbs, err := extract(os.Args[1])

@@ -7,7 +7,7 @@ File accountability does not change a document's law home or a handler's semanti
 ## Responsibility
 Owns the human-facing plane: the terminal launcher, the CLI verb surface and its operator diagnostics, installation and release packaging, and the navigation path an operator uses to reach Product state.
 
-Mapped files: 161; tests: 86; unresolved candidates: 31.
+Mapped files: 169; tests: 90; unresolved candidates: 0.
 Candidate counts overlap when a file has several candidates; no candidate is an assigned owner.
 
 ## Code and tests
@@ -15,7 +15,8 @@ Full paths, unresolved reasons, and shared-test coverage: `.concord/navigation/i
 - Include: `cmd/**`, `brand/**`, `internal/launcher/**`, `internal/portfolio/**`, `internal/predecessor/**`
 - Include: `internal/receipt/**`, `internal/sessionboot/**`, `internal/version/**`, `internal/store/operator.go`, `internal/store/product_stage*.go`
 - Include: `internal/store/product_row*.go`, `internal/store/launcher*.go`, `internal/store/project_locator*.go`, `internal/store/project_stage_test.go`, `internal/store/display_name_bound_test.go`
-- Include: `internal/store/nil_store_launcher_test.go`, `contracts/predecessor-snapshot.schema.json`, `.concord/scenarios/launcher-portfolio.v1.json`, `README.md`, `CONTRIBUTING.md`
+- Include: `internal/store/nil_store_launcher_test.go`, `contracts/predecessor-snapshot.schema.json`, `.concord/scenarios/launcher-portfolio.v1.json`, `internal/store/work_closure*.go`, `internal/store/session_identity.go`
+- Include: `internal/store/blocked_sessions*.go`, `internal/store/predecessor_import*.go`, `internal/store/predecessor_conflict_read_test.go`, `README.md`, `CONTRIBUTING.md`
 - Include: `.github/ISSUE_TEMPLATE/**`, `.github/workflows/release.yml`
 - Go test package: `github.com/sharper-flow/concord/cmd/concord`
 - Go test package: `github.com/sharper-flow/concord/internal/launcher`
@@ -25,6 +26,13 @@ Full paths, unresolved reasons, and shared-test coverage: `.concord/navigation/i
 - Go test package: `github.com/sharper-flow/concord/internal/receipt`
 - Go test package: `github.com/sharper-flow/concord/internal/sessionboot`
 - Go test package: `github.com/sharper-flow/concord/internal/store`
+
+## Mechanisms
+Advisory semantic ownership; the complete enriched references live in the inventory.
+- `mechanism:launcher-terminal`: The human-facing terminal: the Bubble Tea launcher and zl forwarding, session boot that derives… (laws 3, controls 3, checks 1, contracts 1)
+- `mechanism:portfolio-view`: The operator's Product and project plane: product rows and stage, portfolio snapshot and resolve… (laws 2, controls 2, checks 1, contracts 2)
+- `mechanism:predecessor-import`: Predecessor migration: snapshot inventory and import into Product state, idempotent replay with… (laws 1, controls 1, checks 1, contracts 1)
+- `mechanism:release-installer`: Release and installation currency: host leases pinning live sessions to releases, the explicit u… (laws 2, controls 1, checks 1, contracts 1)
 
 ## Entry surfaces
 These are catalog surface entries, not invariant/control or handler joins.
@@ -40,6 +48,7 @@ These are catalog surface entries, not invariant/control or handler joins.
 - CLI: `work-cancel`, `ci-wait`, `session-prepare`, `outside-repair`, `project-resolve (project resolve)`
 - CLI: `restore`, `predecessor-inventory (predecessor inventory)`, `predecessor-import (predecessor import)`, `host-lease`, `host-leases`
 - CLI: `upgrade`
+- CLI early dispatch (accepted before commandSpecs routing): `ci-wait`, `continuity-block`, `host-lease`, `host-leases`, `launcher`, `recover-fold-guard`, `repair`, `session`, `upgrade`, `zl`
 
 ## Verification references
 Declared repository commands are shared checks, not Domain-specific acceptance or automatic execution.
@@ -52,7 +61,18 @@ Run the narrow selected command with `bin/oc-test targeted -- <command> [args...
 - `lefthook-preflight` (standard): `bin/oc-test preflight`
 - `repo-validators` (fast): `python3 scripts/check-json.py`
 
-## Not covered by slice A
-Invariant/control joins, allowed-dependency interpretation, observed import/call edges,
-non-law navigation homes, CON-887 packet reading, and CON-890 owner oracles remain later work.
-Required-reading entries will be pinned references, not inlined card content.
+## Allowed and observed references
+Bindings and interpretations are advisory joins; navigation does not prove dispatch admission at the current workflow step.
+- CLI entries bound: 20 (`host-lease`, `host-leases`, `launcher`, …)
+- agent operations bound: 5 (`concord_product_view.blocked_sessions`, `concord_product_view.portfolio`, `concord_product_view.resolve`, …)
+- workflow actions bound: 0
+- Interpretation `depends_on` -> `durable-authority` (advisory, not an import allowlist).
+- Observed package imports: 60 distinct paths; package-level only; intra-package edges unmeasured; no symbol graph or execution permission.
+- Observed package edge via `github.com/sharper-flow/concord/internal/agent` -> `agent-surface` (advisory).
+- Observed package edge via `github.com/sharper-flow/concord/internal/gittest` -> `repository-verification` (advisory).
+- Observed package edge via `github.com/sharper-flow/concord/internal/hostlease` -> `durable-authority` (advisory).
+
+## Not covered here
+Symbol-level call edges, dispatch-admission proof at the current workflow step, CON-887 packet reading,
+and CON-890 owner oracles remain later work. Required-reading entries will be pinned references,
+not inlined card content.

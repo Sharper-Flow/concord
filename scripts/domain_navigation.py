@@ -6,6 +6,7 @@ Includes form a union per Domain, then excludes subtract. Explicit rules precede
 directory defaults; Domains within a tier have no precedence. Named legacy gaps
 remain unresolved. The universe is tracked and non-ignored untracked regular
 files, plus declared outputs. A missing companion is an opt-out.
+Observed Go imports are package-level only; no symbol graph is built or persisted.
 
 A schema_version 1.1 companion keeps the 1.0 rules and adds closed semantic
 machinery: mechanisms with law/control/check references resolved through the
@@ -50,7 +51,12 @@ SCENARIO = re.compile(r"^ {0,3}Scenario:[ \t]+(?P<text>\S.*)$")
 ADVISORY_NOTES = (
     "Catalog bindings are advisory joins over authored mechanisms; navigation does not prove dispatch admission at the current workflow step.",
     "Dependency interpretations are advisory; they are not an import allowlist or an execution gate.",
-    "Observed package imports are not derived in this slice; allowed references come from authored catalog bindings and registry interpretations.",
+    "Observed package imports are package-level only and grant no execution permission; complete lists live in the inventory.",
+)
+OBSERVED_IMPORT_SEMANTICS = (
+    "Package-level observation only: an import names a package, not a symbol; intra-package edges are unmeasurable and unmeasured.",
+    "No symbol graph is built or persisted.",
+    "Observed imports grant no execution permission and are not an import allowlist; dependency interpretations stay advisory.",
 )
 
 
@@ -464,6 +470,11 @@ def read_semantics(root: Path, registry: dict, navigation: dict, *, domains: set
 
 
 def validate_companion(root: Path, registry: dict, *, base_ref: str = "HEAD") -> tuple[list[str], list[str]]:
+    """Blocking partition and complete-navigation semantic findings.
+
+    Changed legacy unresolved paths remain advisory, including in strict mode.
+    Complete navigation also joins the source catalogs before validation passes.
+    """
     try:
         if not (root / COMPANION).exists():
             if (root / ".git").exists():
@@ -472,6 +483,8 @@ def validate_companion(root: Path, registry: dict, *, base_ref: str = "HEAD") ->
                     return ["domain navigation: an adopted companion cannot be removed"], []
             return [], []
         state = partition(root, registry, base_ref=base_ref)
+        if "semantics" in state:
+            join_catalogs(state["semantics"], catalogs(root, workflow=True))
     except (NavigationError, OSError, ValueError, KeyError, TypeError) as exc:
         return [f"domain navigation: {exc}"], []
     return [], state["advisories"]
@@ -533,6 +546,45 @@ def join_catalogs(semantics: dict, derived: dict) -> dict:
     return {catalog: len(derived["entries"][catalog]) for catalog in CATALOGS}
 
 
+def import_observations(root: Path, owners: dict, module: str) -> dict:
+    """Package-level observed Go imports per Domain, from the AST helper.
+
+    An import names a package, not a symbol: intra-package edges are
+    unmeasurable, no symbol graph is built, and nothing here grants execution
+    permission or acts as an import allowlist.
+    """
+    paths = sorted(path for path in owners if path.endswith(".go"))
+    observed = subprocess.run(["go", "run", "./scripts/domain-navigation-cli", "--imports", ".", *paths],
+                              cwd=root, capture_output=True, text=True)
+    if observed.returncode:
+        raise NavigationError(f"observed import extraction failed: {observed.stderr.strip()}")
+    data = json.loads(observed.stdout)
+    if not isinstance(data, dict):
+        raise NavigationError("observed import extraction must return an object")
+
+    def package_path(path: str) -> str:
+        parent = str(Path(path).parent)
+        return module if parent == "." else module + "/" + parent
+
+    imports_by_domain: dict[str, set[str]] = {}
+    package_owners: dict[str, set[str]] = {}
+    for path, home in owners.items():
+        record = data.get(path)
+        if record is None or not path.endswith(".go"):
+            continue
+        imports_by_domain.setdefault(home, set()).update(record.get("imports") or [])
+        package_owners.setdefault(package_path(path), set()).add(home)
+    result = {}
+    for domain, imports in imports_by_domain.items():
+        edges = []
+        for path in sorted(imports):
+            targets = sorted(package_owners.get(path, ()))
+            if targets and targets != [domain]:
+                edges.append({"import_path": path, "target_domain_ids": targets})
+        result[domain] = {"observed_imports": sorted(imports), "observed_package_edges": edges}
+    return result
+
+
 def inventory(root: Path, registry: dict, *, base_ref: str = "HEAD") -> dict:
     state = partition(root, registry, base_ref=base_ref)
     version = state["navigation"]["schema_version"]
@@ -546,6 +598,7 @@ def inventory(root: Path, registry: dict, *, base_ref: str = "HEAD") -> dict:
     sizes = join_catalogs(semantics, derived) if semantics is not None else None
     tools = read_json(root, TOOLING)["tools"]
     owners = state["owners"]
+    observed = import_observations(root, owners, module)
     domains = []
     for domain in sorted(registry["domains"], key=lambda d: d["domain_id"]):
         if domain["status"] != "current":
@@ -565,7 +618,8 @@ def inventory(root: Path, registry: dict, *, base_ref: str = "HEAD") -> dict:
                   "cli_verbs": commands if owners.get("cmd/concord/main.go") == domain_id else [],
                   "cli_early_dispatch": early if owners.get("cmd/concord/main.go") == domain_id else [],
                   "agent_operations": operations if owners.get(AGENT_SURFACE) == domain_id else [],
-                  "checks": tools}
+                  "checks": tools,
+                  **observed.get(domain_id, {"observed_imports": [], "observed_package_edges": []})}
         if semantics is not None:
             mechanisms = [m for m in semantics["mechanisms"] if m["domain_id"] == domain_id]
             owned = {m["owner_id"] for m in mechanisms}
@@ -589,7 +643,8 @@ def inventory(root: Path, registry: dict, *, base_ref: str = "HEAD") -> dict:
     result = {"_generated": GENERATED, "schema_version": version, "scope": scope,
               "mapped_count": len(owners), "unresolved_count": len(state["unresolved"]), "domains": domains,
               "files": owners, "unresolved": sorted(state["unresolved"].values(), key=lambda i: i["path"]),
-              "test_coverage": state["coverage"]}
+              "test_coverage": state["coverage"],
+              "observed_import_semantics": list(OBSERVED_IMPORT_SEMANTICS)}
     if semantics is not None:
         result.update({"mechanisms": semantics["mechanisms"],
                        "catalog_bindings": semantics["catalog_bindings"], "catalog_sizes": sizes,
@@ -659,15 +714,24 @@ def card(domain: dict) -> str:
             lines.append(f"- {label}: {len(entries)}" + (f" ({summary}, …)" if len(entries) > 3 else f" ({summary})" if summary else ""))
         for item in interpretations_from[:6]:
             lines.append(f"- Interpretation `{item['kind']}` -> `{item['target_domain_id']}` (advisory, not an import allowlist).")
+        if len(interpretations_from) > 6:
+            lines.append(f"- {len(interpretations_from) - 6} more from interpretations: `.concord/navigation/inventory.json`")
         for item in interpretations_to[:6]:
             lines.append(f"- Interpretation `{item['kind']}` from `{item['source_domain_id']}` (advisory, not an import allowlist).")
-        lines.append("- Observed package imports: not derived in this slice; complete references live in the inventory.")
+        if len(interpretations_to) > 6:
+            lines.append(f"- {len(interpretations_to) - 6} more to interpretations: `.concord/navigation/inventory.json`")
+        imports = domain.get("observed_imports") or []
+        lines.append(f"- Observed package imports: {len(imports)} distinct paths; package-level only; "
+                     "intra-package edges unmeasured; no symbol graph or execution permission.")
+        for edge in (domain.get("observed_package_edges") or [])[:3]:
+            targets = ", ".join(f"`{target}`" for target in edge["target_domain_ids"])
+            lines.append(f"- Observed package edge via `{edge['import_path']}` -> {targets} (advisory).")
         lines.extend(["", "## Not covered here",
-                      "Observed import/call edges, dispatch-admission proof at the current workflow step, CON-887 packet reading,",
+                      "Symbol-level call edges, dispatch-admission proof at the current workflow step, CON-887 packet reading,",
                       "and CON-890 owner oracles remain later work. Required-reading entries will be pinned references,",
                       "not inlined card content."])
     else:
-        lines.extend(["", "## Not covered by slice A", "Invariant/control joins, allowed-dependency interpretation, observed import/call edges,",
+        lines.extend(["", "## Not covered by slice A", "Invariant/control joins, allowed-dependency interpretation, symbol-level call edges,",
                       "non-law navigation homes, CON-887 packet reading, and CON-890 owner oracles remain later work.",
                       "Required-reading entries will be pinned references, not inlined card content."])
     text = "\n".join(lines) + "\n"

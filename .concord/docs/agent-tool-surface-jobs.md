@@ -210,7 +210,8 @@ with an owner and a consumer, dispatches `resources` from the owner's ambient
 scope, and asserts the resource set, the owner, the consumers, the
 documentation locator, authoritative authority, and two probed absences: no
 vendor content in the response and no event appended to the log. AJ9 is the
-ninth job. The corpus grows to 24 scenarios.
+ninth job. The corpus holds 23 scenarios after the CD-0213 planning
+retirement.
 
 **2026-08-16, issue #156 — `AJ1-ambient-ready-work` gains an authority assertion.**
 Building the corpus runner surfaced that this scenario asserted only `result` and

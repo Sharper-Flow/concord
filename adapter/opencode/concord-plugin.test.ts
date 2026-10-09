@@ -34,15 +34,15 @@ test("work start publishes the closed capture and resume contract through the ho
   if (typeof hook !== "function") throw new Error("plugin registers no tool.definition hook")
   await hook({ toolID: "concord_work_start" }, output)
   const published = JSON.parse(JSON.stringify(output.jsonSchema))
-  // The hook publishes the closed two-branch contract from the generated
-  // host manifest: each mode's required set and field surface survive
-  // publication instead of merging into one all-optional object.
-  expect(published).toEqual(JSON.parse(JSON.stringify(hostToolSchemas.concord_work_start)))
-  expect(published.oneOf).toHaveLength(2)
-  expect(published.oneOf[0].required).toEqual(["title", "value_statement", "kind", "task", "idempotency_key"])
-  expect(published.oneOf[1].required).toEqual(["work_id"])
-  expect(published.oneOf[0].properties.work_id).toBeUndefined()
-  expect(published.oneOf[1].properties.title).toBeUndefined()
+  // The generated closed modes survive in conditional branches; the root
+  // remains an object accepted by Anthropic's tool-schema validator.
+  expect(published.type).toBe("object")
+  expect(published.oneOf).toBeUndefined()
+  expect(published.if).toEqual({ required: ["work_id"] })
+  expect(published.else).toEqual(hostToolSchemas.concord_work_start.oneOf[0])
+  expect(published.then).toEqual(hostToolSchemas.concord_work_start.oneOf[1])
+  expect(published.else.properties.work_id).toBeUndefined()
+  expect(published.then.properties.title).toBeUndefined()
   expect(output.parameters).toBe(parameters)
   expect(output.description).toBe(plugin.tool.concord_work_start.description)
 })
@@ -182,7 +182,7 @@ test("published work start schemas cannot mutate runtime validation", async () =
   }
   await plugin["tool.definition"]({ toolID: "concord_work_start" }, output)
   const argsTitle = plugin.tool.concord_work_start.args.title
-  const publishedTitle = output.jsonSchema.oneOf[0].properties.title
+  const publishedTitle = output.jsonSchema.else.properties.title
   const expectedTitle = hostToolSchemas.concord_work_start.oneOf[0].properties.title
   const maximum = expectedTitle.maxLength
   try {

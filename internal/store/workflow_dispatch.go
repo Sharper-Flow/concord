@@ -233,7 +233,7 @@ func ApplyWorkflowActionTx(ctx context.Context, transaction *Transaction, regist
 	if scope == nil {
 		scope = newFoldScope(tx)
 	}
-	return applyWorkflowActionRawTx(ctx, tx, scope, registry, request)
+	return applyWorkflowActionRawTx(workContextNavigationTransactionContext(ctx, transaction), tx, scope, registry, request)
 }
 
 func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *foldScope, registry DefinitionRegistry, request WorkflowActionExecutionRequest) (WorkflowActionExecutionResult, error) {

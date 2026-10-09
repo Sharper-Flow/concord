@@ -118,6 +118,10 @@ func WorkflowActionPreflightWithRegistry(ctx context.Context, s *Store, registry
 	if _, _, err := WorkflowActionDefinitionFor(ctx, s, registry, request.WorkID, request.ActionID); err != nil {
 		return err
 	}
+	ctx, err := prepareWorkNavigation(ctx, s, request.WorkID)
+	if err != nil {
+		return err
+	}
 	readTx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return wrapFailure(KindUnavailable, "workflow_action_preflight", "cannot begin workflow admission read snapshot", true, "retry once the database is readable", err)
@@ -155,11 +159,22 @@ func authorizeWorkflowActionAtBoundaryCore(ctx context.Context, s *Store, regist
 	if registry == nil {
 		registry = BuiltinWorkflowRegistry()
 	}
+	var declaration workflowWorkContextRecordedPayload
+	_ = json.Unmarshal(request.Payload, &declaration)
+	navigation := WorkContextNavigationRequest{WorkIDs: []string{request.WorkID}}
+	for _, reading := range declaration.RequiredReading {
+		navigation.Sources = append(navigation.Sources, reading.Source)
+	}
+	ctx, err := s.EstablishWorkContextNavigationProof(ctx, navigation)
+	if err != nil {
+		return err
+	}
 	tx, err := s.beginDurableTx(ctx)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "workflow_action_boundary", "cannot begin owning action", true, "retry once the database is writable", err)
 	}
 	transaction := &Transaction{tx: tx.Tx}
+	transaction.navigation, _ = ctx.Value(workContextNavigationProofKey{}).(*workContextNavigationProof)
 	defer tx.finish(&retErr)
 	defer func() { transaction.tx = nil }()
 	scope, err := beginFold(ctx, tx.Tx)

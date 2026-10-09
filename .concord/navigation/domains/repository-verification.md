@@ -7,7 +7,7 @@ File accountability does not change a document's law home or a handler's semanti
 ## Responsibility
 Owns the authority a repository check may hold: what a validator may assert, what it may block, how required checks bind to declared coverage, and the boundary between a check's finding and accepted Product law.
 
-Mapped files: 184; tests: 80; unresolved candidates: 5.
+Mapped files: 190; tests: 86; unresolved candidates: 0.
 Candidate counts overlap when a file has several candidates; no candidate is an assigned owner.
 
 ## Code and tests
@@ -31,9 +31,14 @@ Explicit rules win over directory defaults; named legacy gaps remain unresolved.
 - Go test package: `github.com/sharper-flow/concord/internal/testenv`
 - Go test package: `github.com/sharper-flow/concord/scripts/domain-navigation-cli`
 
+## Mechanisms
+Advisory semantic ownership; the complete enriched references live in the inventory.
+- `mechanism:repo-validators`: Repository contract drift checks and declared coverage: the validator suite and its JSON chainin… (laws 2, controls 2, checks 2, contracts 3)
+- `mechanism:test-infrastructure`: Shared test infrastructure: the SQLite test environment and ten-process conformance harness, Git… (laws 1, controls 1, checks 2, contracts 1)
+
 ## Entry surfaces
 These are catalog surface entries, not invariant/control or handler joins.
-No surface catalog is owned by this Domain; semantic entry-point joins remain slice B.
+No surface catalog is owned by this Domain; semantic entry-point joins live in the inventory.
 
 ## Verification references
 Declared repository commands are shared checks, not Domain-specific acceptance or automatic execution.
@@ -46,7 +51,17 @@ Run the narrow selected command with `bin/oc-test targeted -- <command> [args...
 - `lefthook-preflight` (standard): `bin/oc-test preflight`
 - `repo-validators` (fast): `python3 scripts/check-json.py`
 
-## Not covered by slice A
-Invariant/control joins, allowed-dependency interpretation, observed import/call edges,
-non-law navigation homes, CON-887 packet reading, and CON-890 owner oracles remain later work.
-Required-reading entries will be pinned references, not inlined card content.
+## Allowed and observed references
+Bindings and interpretations are advisory joins; navigation does not prove dispatch admission at the current workflow step.
+- CLI entries bound: 0
+- agent operations bound: 0
+- workflow actions bound: 0
+- Interpretation `depends_on` -> `product-memory` (advisory, not an import allowlist).
+- Observed package imports: 35 distinct paths; package-level only; intra-package edges unmeasured; no symbol graph or execution permission.
+- Observed package edge via `github.com/sharper-flow/concord/internal/linearclient` -> `work-coordination` (advisory).
+- Observed package edge via `github.com/sharper-flow/concord/internal/store` -> `agent-surface`, `durable-authority`, `operator-surface`, `product-memory`, `repository-verification`, `work-coordination`, `workflow-engine` (advisory).
+
+## Not covered here
+Symbol-level call edges, dispatch-admission proof at the current workflow step, CON-887 packet reading,
+and CON-890 owner oracles remain later work. Required-reading entries will be pinned references,
+not inlined card content.

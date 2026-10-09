@@ -39,6 +39,10 @@ func ReadWorkClosure(ctx context.Context, s *Store, workID string) (WorkClosure,
 	if s == nil || s.db == nil {
 		return closure, newFailure(KindUnavailable, "work_closure", "store is not open", false, "open the authority database")
 	}
+	ctx, err := prepareWorkNavigation(ctx, s, workID)
+	if err != nil {
+		return closure, err
+	}
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return closure, wrapFailure(KindUnavailable, "work_closure", "cannot open a consistent work closure snapshot", true, "retry once the database is readable", err)

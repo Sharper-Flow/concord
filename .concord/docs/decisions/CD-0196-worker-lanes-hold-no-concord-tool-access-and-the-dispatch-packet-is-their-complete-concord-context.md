@@ -65,6 +65,20 @@ each repository source at its pinned commit through Git, not from the changed
 checkout. When `inputs.checkpoint` is present, its diagnosis and strategy are
 coordinator directions for the attempt.
 
+When a context subject's repository adopts complete Domain navigation, the
+shared reader supplies its affected-Domain card references and its root card
+once. Continuity and dispatch use the same derived reading set.
+Each card reference names its Project, repository-relative path, and applicable
+commit OID, with the validated Domain ID. The inventory resolves the card path.
+Registered repositories use their own cards and the shared registry's identities.
+
+Existing source identity supplies deduplication and revision proof.
+Card content stays outside the packet. Required cards count against the existing
+reading-entry bound, not a second budget. Missing objects, stale bindings, or
+overflow refuse before dispatch. The reader never substitutes changed checkout
+bytes or silently drops a required source. Older unadopted reading sets remain
+readable under their recorded format. Worker tool access remains unchanged.
+
 ## Alternatives considered
 
 - Frontmatter denial alone. A denied utility lane still made Concord calls
@@ -108,3 +122,8 @@ coordinator directions for the attempt.
   tool rules and shows every `concord_*` tool denied, and
   `bun test adapter/opencode/packet.test.ts` pins the registry line the
   packet renders.
+- `go test ./internal/store -run WorkContextNavigation` checks pinned card
+  references through the shared reader, existing-source deduplication,
+  registered sources, typed refusals, and the existing reading bound.
+- `bun test adapter/opencode/packet.test.ts` checks that packets preserve pinned
+  card references without card content.

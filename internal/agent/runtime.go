@@ -436,6 +436,46 @@ func DispatchWithRegistry(ctx context.Context, s *store.Store, authority *Servic
 	return r.read(ctx, base, request.Input, op.QueryID)
 }
 
+func prepareMutationNavigation(ctx context.Context, s *store.Store, raw json.RawMessage) (context.Context, error) {
+	identity, err := extractMutationWorkIdentity(raw)
+	if err != nil {
+		return ctx, err
+	}
+	if identity.RelationID != "" {
+		endpoints, err := s.RelationEndpoints(ctx, identity.RelationID)
+		if err != nil {
+			return ctx, err
+		}
+		identity.WorkIDs = append(identity.WorkIDs, endpoints...)
+	}
+	var fields struct {
+		ProjectIDs  []string `json:"project_ids"`
+		ProjectID   string   `json:"project_id"`
+		Memberships []struct {
+			ProjectID string `json:"project_id"`
+		} `json:"memberships"`
+		Fields struct {
+			RequiredReading []struct {
+				Source store.WorkContextReadingSource `json:"source"`
+			} `json:"required_reading"`
+		} `json:"fields"`
+	}
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return ctx, err
+	}
+	request := store.WorkContextNavigationRequest{WorkIDs: identity.WorkIDs, ProjectIDs: fields.ProjectIDs}
+	if fields.ProjectID != "" {
+		request.ProjectIDs = append(request.ProjectIDs, fields.ProjectID)
+	}
+	for _, membership := range fields.Memberships {
+		request.ProjectIDs = append(request.ProjectIDs, membership.ProjectID)
+	}
+	for _, reading := range fields.Fields.RequiredReading {
+		request.Sources = append(request.Sources, reading.Source)
+	}
+	return s.EstablishWorkContextNavigationProof(ctx, request)
+}
+
 // budgetFailure carries the distinction applyBudget must report: a
 // budget_refused finding needs the typed ceiling and adjust_budget recovery,
 // while a malformed or self-contradictory budget is invalid_input. Both are

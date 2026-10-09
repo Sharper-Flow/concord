@@ -86,13 +86,19 @@ before.
 ### D5. Architecture relations name the law that governs them
 
 Every relation carries `governing_law_ids`, as the schema requires for
-`depends_on` and `shares_contract_with`. Six relations are declared. Five child
-Domains depend on `durable-authority` under CD-0002; `repository-verification`
-depends on `product-memory` under CD-0047.
+`depends_on` and `shares_contract_with`. The participation rule remains
+CD-0158 D2, not an outbound-edge count.
 
-An empty `architecture_relations` array is not a neutral default. It asserts
-that no accepted law governs any interaction with a sibling. For Domains inside
-one binary sharing one event log, that assertion is false.
+Repository navigation may record an authored dependency interpretation that
+names the relation endpoints and the exact governing clauses. A `depends_on`
+relation does not authorize every code edge between those Domains.
+A `shares_contract_with` relation identifies a shared contract, not arbitrary
+imports. Hierarchy and replacement relations are not import permission.
+
+Observed code edges remain separate from these interpretations. An unmeasured
+intra-package relationship remains unmeasured, not absent or permitted.
+Neither an observed edge nor a navigation binding creates a registry relation.
+This record adds no import gate or workflow execution gate.
 
 ### D6. Domain identity is not inferred from a record's name
 

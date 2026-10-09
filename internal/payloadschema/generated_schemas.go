@@ -5773,13 +5773,11 @@ const GeneratedPayloadSchemaDocument = `{
       "additionalProperties": false,
       "properties": {
         "domain_cards": {
-          "description": "The reserved per-Domain card slot. The current foundation never generates cards.",
+          "description": "Pinned repository_file references derived by the shared reader. The group supplies the validated Domain identity. Cards also occupy the existing required_reading bound; content is never inlined.",
           "items": {
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object"
+            "$ref": "#/$defs/work_context_reading_source_repository_file"
           },
-          "maxItems": 0,
+          "maxItems": 32,
           "minItems": 0,
           "type": "array"
         },

@@ -88,15 +88,15 @@ class NavigationTests(unittest.TestCase):
         self.save()
         self.assertTrue(self.findings())
 
-    def test_new_unmapped_path_refuses(self):
+    def test_new_unmapped_path_refuses_with_remediation(self):
         self.write("new.go", "package fixture\n")
-        self.assertTrue(self.findings())
+        self.assertIn("navmap-style remediation", " ".join(self.findings()))
 
     def test_new_unresolved_path_refuses(self):
         self.write("new.go", "package fixture\n")
         self.navigation["unresolved"].append({"path": "new.go", "candidate_domain_ids": ["core"], "reason": "New uncertainty."})
         self.save()
-        self.assertTrue(self.findings())
+        self.assertIn("may only shrink", " ".join(self.findings()))
 
     def test_changed_legacy_unresolved_path_is_advisory(self):
         self.navigation["rules"][1]["exclude"].append("src/a.go")
@@ -108,6 +108,7 @@ class NavigationTests(unittest.TestCase):
         self.assertEqual(self.findings(), [])
         state = nav.partition(self.root, self.registry)
         self.assertIn("changed legacy unresolved path: src/a.go", " ".join(state["advisories"]))
+        self.assertNotIn("src/a.go", state["owners"])
 
     def test_legacy_unresolved_list_cannot_grow(self):
         self.navigation["rules"][1]["exclude"].append("src/a.go")
@@ -249,6 +250,114 @@ class NavigationTests(unittest.TestCase):
         self.save()
         self.assertTrue(self.findings())
 
+    def test_defaults_map_new_files_without_companion_edits(self):
+        self.write("vendor/keep.txt", "vendor exists\n")
+        self.navigation["default_rules"] = [
+            {"domain_id": "core", "include": ["vendor/**"], "exclude": []},
+        ]
+        self.save()
+        self.assertEqual(self.findings(), [])
+        self.write("vendor/new.go", "package fixture\n")
+        state = nav.partition(self.root, self.registry)
+        self.assertEqual(state["owners"]["vendor/new.go"], "core")
+        self.assertEqual(state["default_rules"]["core"]["include"], ["vendor/**"])
+
+    def test_explicit_rules_win_over_defaults_and_named_gaps(self):
+        self.write("vendor/root.txt", "explicit\n")
+        self.write("vendor/shared.txt", "named gap\n")
+        self.navigation["rules"][0]["include"].append("vendor/root.txt")
+        self.navigation["rules"][1]["exclude"].append("vendor/shared.txt")
+        self.navigation["unresolved"].append({"path": "vendor/shared.txt", "candidate_domain_ids": ["core"], "reason": "Legacy gap."})
+        self.navigation["default_rules"] = [
+            {"domain_id": "core", "include": ["vendor/**"], "exclude": []},
+        ]
+        self.save()
+        self.git("add", ".")
+        self.git("commit", "-q", "-m", "explicit and named gap before defaults")
+        self.write("vendor/new.txt", "default tier\n")
+        state = nav.partition(self.root, self.registry)
+        self.assertEqual(state["owners"]["vendor/root.txt"], "product-root:fixture")
+        self.assertEqual(state["owners"]["vendor/new.txt"], "core")
+        self.assertNotIn("vendor/shared.txt", state["owners"])
+
+    def test_overlapping_defaults_refuse(self):
+        self.write("vendor/keep.txt", "vendor exists\n")
+        self.navigation["default_rules"] = [
+            {"domain_id": "core", "include": ["vendor/**"], "exclude": []},
+            {"domain_id": "product-root:fixture", "include": ["vendor/*.txt"], "exclude": []},
+        ]
+        self.save()
+        self.assertTrue(self.findings())
+
+    def test_default_without_fixed_directory_root_refuses(self):
+        for pattern in ("**/vendor/**", "src", "missing/**"):
+            with self.subTest(pattern=pattern):
+                self.navigation["default_rules"] = [
+                    {"domain_id": "core", "include": [pattern], "exclude": []},
+                ]
+                self.save()
+                self.assertTrue(self.findings())
+        self.navigation["default_rules"] = []
+        self.save()
+        self.assertEqual(self.findings(), [])
+
+    def test_default_may_match_nothing_today(self):
+        self.navigation["default_rules"] = [
+            {"domain_id": "core", "include": ["src/**/*_test.go"], "exclude": []},
+        ]
+        self.save()
+        self.assertEqual(self.findings(), [])
+
+    def test_root_default_cannot_be_a_catch_all(self):
+        self.write("vendor/keep.txt", "vendor exists\n")
+        self.navigation["default_rules"] = [
+            {"domain_id": "product-root:fixture", "include": ["**"], "exclude": []},
+        ]
+        self.save()
+        self.assertTrue(self.findings())
+
+    def test_unknown_domain_in_defaults_refuses(self):
+        self.write("vendor/keep.txt", "vendor exists\n")
+        self.navigation["default_rules"] = [
+            {"domain_id": "unknown", "include": ["vendor/**"], "exclude": []},
+        ]
+        self.save()
+        self.assertTrue(self.findings())
+
+    def test_inventory_has_no_global_fingerprints(self):
+        self.prepare_catalogs()
+        data = nav.inventory(self.root, self.registry)
+        self.assertNotIn("source_fingerprints", data)
+        self.assertNotIn("path_set_fingerprint", data)
+        generated = nav.artifacts(self.root)
+        for path, content in generated.items():
+            if path.endswith(".md"):
+                self.assertNotIn(b"fingerprint", content)
+
+    def test_source_change_without_output_change_keeps_check_green(self):
+        self.prepare_catalogs()
+        self.assertEqual(self.invoke("generate-domain-navigation.py")[0], 0)
+        # A generator-source edit that does not change derived output must not
+        # fail --check: committed output is re-derived and compared, not fingerprinted.
+        self.write("scripts/domain_navigation.py", (self.root / "scripts/domain_navigation.py").read_text() + "# drift\n")
+        self.assertEqual(self.invoke("generate-domain-navigation.py", "--check")[0], 0)
+
+    def test_unrelated_mapping_change_leaves_other_cards_identical(self):
+        self.prepare_catalogs()
+        self.assertEqual(self.invoke("generate-domain-navigation.py")[0], 0)
+        before = (self.root / nav.card_path("product-root:fixture")).read_bytes()
+        inventory_before = json.loads((self.root / f"{nav.OUTPUT}/inventory.json").read_text())
+        self.navigation["rules"][1]["include"].append("newdir/**")
+        self.write("newdir/extra.go", "package fixture\n")
+        self.save()
+        self.assertEqual(self.invoke("generate-domain-navigation.py")[0], 0)
+        self.assertEqual((self.root / nav.card_path("product-root:fixture")).read_bytes(), before)
+        inventory_after = json.loads((self.root / f"{nav.OUTPUT}/inventory.json").read_text())
+        self.assertEqual(inventory_after["files"]["newdir/extra.go"], "core")
+        core_before = next(d for d in inventory_before["domains"] if d["domain_id"] == "core")
+        core_after = next(d for d in inventory_after["domains"] if d["domain_id"] == "core")
+        self.assertEqual(core_after["mapped_count"], core_before["mapped_count"] + 1)
+
     def test_duplicate_json_keys_refuse(self):
         self.write(nav.COMPANION, '{"schema_version":"1.0","schema_version":"1.0"}')
         self.assertIn("duplicate JSON key", " ".join(self.findings()))
@@ -281,7 +390,12 @@ class NavigationTests(unittest.TestCase):
 
         def run(argv, **kwargs):
             if argv[0] == "go":
-                return subprocess.CompletedProcess(argv, 0, '[{"canonical":"inspect","two_word":""}]', "")
+                if "--imports" in argv:
+                    return subprocess.CompletedProcess(argv, 0, json.dumps({
+                        "src/a.go": {"package": "fixture", "imports": []},
+                        "cmd/concord/main.go": {"package": "fixture", "imports": []},
+                    }), "")
+                return subprocess.CompletedProcess(argv, 0, '{"verbs":[{"canonical":"inspect","two_word":""}],"early_dispatch":["launcher"]}', "")
             return original(argv, **kwargs)
 
         patched = patch.object(nav.subprocess, "run", side_effect=run)
@@ -312,6 +426,10 @@ class NavigationTests(unittest.TestCase):
         core = next(d for d in data["domains"] if d["domain_id"] == "core")
         self.assertEqual(core["agent_operations"], ["fixture.inspect"])
         self.assertEqual(core["cli_verbs"], [{"canonical": "inspect", "two_word": ""}])
+        self.assertEqual(core["cli_early_dispatch"], ["launcher"])
+        self.assertNotIn("mechanisms", data)
+        self.assertNotIn("advisory_notes", data)
+        self.assertEqual(data["schema_version"], "1.0")
 
     def test_mapping_change_leaves_other_domain_card_unchanged(self):
         self.prepare_catalogs()
@@ -429,6 +547,398 @@ class NavigationTests(unittest.TestCase):
         for flags in (("--path", "../outside.go"), ("--path", "missing.go"), ("--domain", "unknown")):
             with self.subTest(flags=flags):
                 self.assertEqual(self.invoke("domain-navigation.py", *flags)[0], 1)
+
+
+class NavigationSemanticsTests(unittest.TestCase):
+    """schema_version 1.1 adds closed semantic machinery over the 1.0 partition."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.registry = {
+            "schema_version": "1.0", "product_key": "fixture", "root_domain_id": "product-root:fixture",
+            "domains": [
+                {"domain_id": "product-root:fixture", "name": "Fixture", "purpose": "Product-wide constraints.", "status": "current", "architecture_relations": []},
+                {"domain_id": "core", "name": "Core", "purpose": "Fixture implementation.", "status": "current", "parent_domain_id": "product-root:fixture",
+                 "architecture_relations": [{"kind": "depends_on", "target_domain_id": "product-root:fixture", "governing_law_ids": ["root-law"]}]},
+            ],
+        }
+        self.manifest = {"domain_registry": self.registry, "records": [
+            {"id": "root-law", "status": "accepted", "home_domain_id": "product-root:fixture", "kind": "decision",
+             "path": ".concord/docs/decisions/root-law.md"},
+            {"id": "core-law", "status": "accepted", "home_domain_id": "core", "kind": "spec",
+             "path": ".concord/docs/specs/core-law.md"},
+            {"id": "core-note", "status": "published", "home_domain_id": "core", "kind": "lesson",
+             "path": ".concord/docs/lessons/core-note.md"},
+        ]}
+        self.mechanism = {
+            "owner_id": "mechanism:fixture-engine", "domain_id": "core",
+            "responsibility": "Owns fixture navigation semantics.",
+            "source_paths": ["src/a.go"], "contract_refs": ["src/contract.go"],
+            "law_refs": [{"law_id": "core-law", "clause_id": "Decision"}],
+            "control_law_ids": ["core-law"], "check_ids": ["fixture-check"],
+        }
+        self.navigation = {
+            "schema_version": "1.1",
+            "rules": [
+                {"domain_id": "product-root:fixture", "include": ["ROOT.md", "lib/**"], "exclude": []},
+                {"domain_id": "core", "include": ["src/**", ".concord/**", "contracts/**", "cmd/**", "go.mod", "scripts/**"], "exclude": []},
+            ],
+            "unresolved": [], "test_coverage": [],
+            "mechanisms": [self.mechanism],
+            "catalog_bindings": [
+                {"catalog": "cli", "entry_id": "inspect", "owner_id": "mechanism:fixture-engine"},
+                {"catalog": "cli", "entry_id": "launcher", "owner_id": "mechanism:fixture-engine"},
+                {"catalog": "agent", "entry_id": "fixture.inspect", "owner_id": "mechanism:fixture-engine"},
+                {"catalog": "workflow", "entry_id": "fixture.action", "owner_id": "mechanism:fixture-engine"},
+            ],
+            "dependency_interpretations": [{
+                "source_domain_id": "core", "kind": "depends_on", "target_domain_id": "product-root:fixture",
+                "law_refs": [{"law_id": "root-law", "clause_id": "D1. Root holds"}], "contract_refs": [],
+            }],
+        }
+        self.write("ROOT.md", "Fixture\n")
+        self.write("lib/x.go", "package libx\n")
+        self.write("src/a.go", "package fixture\n\nimport \"example.invalid/fixture/lib\"\n")
+        self.write("src/contract.go", "package fixture\n")
+        self.write(".concord/docs/decisions/root-law.md",
+                   "# Root law\n\n## Decision\n\nText.\n\n### D1. Root holds\n\nText.\n\n## Acceptance Criteria\n\n```gherkin\nScenario: root begins an item\n  Given a current release\n  When the agent begins work\n  Then the item opens\n```\n")
+        self.write(".concord/docs/specs/core-law.md", "# Core law\n\n## Decision\n\nText.\n\n## Acceptance Criteria\n\n```gherkin\nScenario: core holds a boundary\n  Given a fixture\n  When the boundary is read\n  Then the clause resolves\n```\n")
+        self.write(".concord/docs/lessons/core-note.md", "# Core note\n\nA lesson is not law.\n")
+        self.write(".concord/docs/knowledge/coverage/root-law.json",
+                   json.dumps({"id": "root-law", "state": "outstanding", "issue": "CON-1"}))
+        self.write(".concord/docs/knowledge/coverage/core-law.json",
+                   json.dumps({"id": "core-law", "state": "satisfied",
+                               "evidence": [{"kind": "validator", "value": "scripts/check-fixture.py"}]}))
+        self.save()
+        self.write(nav.REGISTRY, json.dumps(self.registry))
+        self.write(".concord/tooling.v1.json", json.dumps({"tools": [{"id": "fixture-check", "tier": "fast", "invocation": "python3 check.py"}]}))
+        self.write("contracts/agent-tool-surface.v1.json", json.dumps({"tools": [{"id": "fixture", "operations": ["fixture.inspect"]}]}))
+        self.write("cmd/concord/main.go", 'package fixture; var commandSpecs = []commandSpec{{Canonical: "inspect"}}')
+        self.write("go.mod", "module example.invalid/fixture\n")
+        for path in ("scripts/domain_navigation.py", "scripts/domain-navigation-cli/main.go",
+                     "scripts/knowledge_index.py", "scripts/workflow-action-contracts/main.go"):
+            self.write(path, "Fixture generator source\n")
+        self.git("init", "-q", "-b", "main")
+        self.git("add", ".")
+        self.git("commit", "-q", "-m", "fixture")
+        original = subprocess.run
+
+        def run(argv, **kwargs):
+            if argv[0] == "go":
+                if "--imports" in argv:
+                    return subprocess.CompletedProcess(argv, 0, json.dumps({
+                        "src/a.go": {"package": "fixture", "imports": ["example.invalid/fixture/lib"]},
+                        "src/contract.go": {"package": "fixture", "imports": []},
+                        "lib/x.go": {"package": "libx", "imports": []},
+                        "cmd/concord/main.go": {"package": "fixture", "imports": []},
+                    }), "")
+                if any("workflow-action-contracts" in part for part in argv):
+                    return subprocess.CompletedProcess(argv, 0, '{"schema_version":"1.0","actions":[{"id":"fixture.action"}],"workflows":[]}', "")
+                return subprocess.CompletedProcess(argv, 0, '{"verbs":[{"canonical":"inspect","two_word":""}],"early_dispatch":["launcher"]}', "")
+            return original(argv, **kwargs)
+
+        patched = patch.object(nav.subprocess, "run", side_effect=run)
+        patched.start()
+        self.addCleanup(patched.stop)
+
+    def git(self, *args):
+        env = dict(os.environ, GIT_AUTHOR_NAME="Fixture", GIT_AUTHOR_EMAIL="fixture@example.invalid",
+                   GIT_COMMITTER_NAME="Fixture", GIT_COMMITTER_EMAIL="fixture@example.invalid")
+        return subprocess.run(["git", "-C", str(self.root), *args], env=env, check=True, capture_output=True, text=True).stdout
+
+    def write(self, path, text):
+        target = self.root / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text)
+
+    def save(self):
+        if ".concord/domain-navigation.v1.json" not in self.navigation["rules"][1]["include"]:
+            self.navigation["rules"][1]["include"].append(".concord/domain-navigation.v1.json")
+        self.write(".concord/domain-navigation.v1.json", json.dumps(self.navigation))
+
+    def findings(self):
+        with patch.object(checker.knowledge_index, "compose_manifest", return_value=self.manifest):
+            return checker.validate(self.root)[0]
+
+    def state(self):
+        with patch.object(nav.knowledge_index, "compose_manifest", return_value=self.manifest):
+            return nav.partition(self.root, self.registry)
+
+    def inventory(self):
+        with patch.object(nav.knowledge_index, "compose_manifest", return_value=self.manifest):
+            return nav.inventory(self.root, self.registry)
+
+    def artifacts(self):
+        with patch.object(nav.knowledge_index, "compose_manifest", return_value=self.manifest):
+            return nav.artifacts(self.root)
+
+    def test_v11_companion_validates(self):
+        self.assertEqual(self.findings(), [])
+
+    def test_v11_unknown_version_refuses(self):
+        self.navigation["schema_version"] = "2.0"
+        self.save()
+        self.assertTrue(self.findings())
+
+    def test_v11_missing_semantic_field_refuses(self):
+        del self.navigation["mechanisms"]
+        self.save()
+        self.assertTrue(self.findings())
+
+    def test_v11_extra_field_refuses(self):
+        self.navigation["mechanisms"][0]["weight"] = 1
+        self.save()
+        self.assertTrue(self.findings())
+
+    def test_v11_unresolved_must_be_empty(self):
+        self.navigation["unresolved"].append({"path": "src/a.go", "candidate_domain_ids": ["core"], "reason": "Not allowed at 1.1."})
+        self.save()
+        self.assertTrue(self.findings())
+
+    def test_v11_unknown_law_ref_refuses(self):
+        self.mechanism["law_refs"] = [{"law_id": "missing-law", "clause_id": "Decision"}]
+        self.save()
+        self.assertTrue(self.findings())
+
+    def test_v11_non_law_record_refuses(self):
+        self.mechanism["law_refs"] = [{"law_id": "core-note", "clause_id": "Decision"}]
+        self.save()
+        self.assertTrue(self.findings())
+
+    def test_v11_absent_clause_refuses(self):
+        self.mechanism["law_refs"] = [{"law_id": "core-law", "clause_id": "No Such Heading"}]
+        self.save()
+        self.assertTrue(self.findings())
+
+    def test_v11_scenario_clause_resolves(self):
+        self.mechanism["law_refs"] = [{"law_id": "core-law", "clause_id": "core holds a boundary"}]
+        self.save()
+        self.assertEqual(self.findings(), [])
+
+    def test_v11_scenario_outside_a_fence_is_not_a_criterion(self):
+        self.write(".concord/docs/specs/core-law.md", "# Core law\n\nScenario: unwritten outside a fence\n")
+        self.mechanism["law_refs"] = [{"law_id": "core-law", "clause_id": "unwritten outside a fence"}]
+        self.save()
+        self.assertTrue(self.findings())
+
+    def test_v11_heading_inside_a_fence_is_not_an_anchor(self):
+        self.write(".concord/docs/specs/core-law.md", "# Core law\n\n```\n## Fenced Heading\n```\n")
+        self.mechanism["law_refs"] = [{"law_id": "core-law", "clause_id": "Fenced Heading"}]
+        self.save()
+        self.assertTrue(self.findings())
+
+    def test_v11_shared_contract_interpretation_requires_contract_refs(self):
+        self.registry["domains"][1]["architecture_relations"].append(
+            {"kind": "shares_contract_with", "target_domain_id": "product-root:fixture", "governing_law_ids": ["root-law"]})
+        self.write(nav.REGISTRY, json.dumps(self.registry))
+        self.navigation["dependency_interpretations"].append({
+            "source_domain_id": "core", "kind": "shares_contract_with", "target_domain_id": "product-root:fixture",
+            "law_refs": [{"law_id": "root-law", "clause_id": "D1. Root holds"}], "contract_refs": [],
+        })
+        self.save()
+        self.assertTrue(self.findings())
+        self.navigation["dependency_interpretations"][1]["contract_refs"] = ["src/contract.go"]
+        self.save()
+        self.assertEqual(self.findings(), [])
+
+    def test_v11_unknown_control_law_refuses(self):
+        self.mechanism["control_law_ids"] = ["missing-law"]
+        self.save()
+        self.assertTrue(self.findings())
+
+    def test_v11_unknown_check_refuses(self):
+        self.mechanism["check_ids"] = ["missing-check"]
+        self.save()
+        self.assertTrue(self.findings())
+
+    def test_v11_wildcard_source_path_refuses(self):
+        self.mechanism["source_paths"] = ["src/**"]
+        self.save()
+        self.assertTrue(self.findings())
+
+    def test_v11_missing_source_path_refuses(self):
+        self.mechanism["contract_refs"] = ["src/missing.go"]
+        self.save()
+        self.assertTrue(self.findings())
+
+    def test_v11_oversized_responsibility_refuses(self):
+        self.mechanism["responsibility"] = "x" * 513
+        self.save()
+        self.assertTrue(self.findings())
+
+    def test_v11_malformed_owner_id_refuses(self):
+        self.mechanism["owner_id"] = "fixture-engine"
+        self.save()
+        self.assertTrue(self.findings())
+
+    def test_v11_duplicate_owner_id_refuses(self):
+        self.navigation["mechanisms"].append(dict(self.mechanism))
+        self.save()
+        self.assertTrue(self.findings())
+
+    def test_v11_unknown_domain_refuses(self):
+        self.mechanism["domain_id"] = "unknown"
+        self.save()
+        self.assertTrue(self.findings())
+
+    def test_v11_binding_unknown_mechanism_refuses(self):
+        self.navigation["catalog_bindings"][0]["owner_id"] = "mechanism:missing"
+        self.save()
+        self.assertTrue(self.findings())
+
+    def test_v11_binding_bad_catalog_refuses(self):
+        self.navigation["catalog_bindings"][0]["catalog"] = "tui"
+        self.save()
+        self.assertTrue(self.findings())
+
+    def test_v11_binding_duplicate_entry_refuses(self):
+        self.navigation["catalog_bindings"].append(dict(self.navigation["catalog_bindings"][0]))
+        self.save()
+        self.assertTrue(self.findings())
+
+    def test_v11_binding_unknown_entry_refuses(self):
+        self.navigation["catalog_bindings"][0]["entry_id"] = "nope"
+        self.save()
+        self.assertTrue(any("unknown catalog entry" in finding for finding in self.findings()))
+        with self.assertRaisesRegex(nav.NavigationError, "unknown catalog entry"):
+            self.inventory()
+
+    def test_v11_binding_uncovered_entries_refuse(self):
+        self.navigation["catalog_bindings"] = [b for b in self.navigation["catalog_bindings"] if b["entry_id"] != "launcher"]
+        self.save()
+        self.assertTrue(any("uncovered catalog entries" in finding for finding in self.findings()))
+        with self.assertRaisesRegex(nav.NavigationError, "uncovered catalog entries"):
+            self.inventory()
+
+    def test_v11_interpretation_tuple_must_exist(self):
+        self.navigation["dependency_interpretations"][0]["kind"] = "shares_contract_with"
+        self.save()
+        self.assertTrue(self.findings())
+
+    def test_v11_interpretation_governing_set_must_match(self):
+        self.navigation["dependency_interpretations"][0]["law_refs"] = [
+            {"law_id": "root-law", "clause_id": "D1. Root holds"}, {"law_id": "core-law", "clause_id": "Decision"}]
+        self.save()
+        self.assertTrue(self.findings())
+
+    def test_v11_interpretation_absent_clause_refuses(self):
+        self.navigation["dependency_interpretations"][0]["law_refs"] = [{"law_id": "root-law", "clause_id": "Missing"}]
+        self.save()
+        self.assertTrue(self.findings())
+
+    def test_v11_inventory_emits_resolved_semantics(self):
+        data = self.inventory()
+        self.assertEqual(data["schema_version"], "1.1")
+        mechanism = data["mechanisms"][0]
+        self.assertEqual(mechanism["owner_id"], "mechanism:fixture-engine")
+        law = mechanism["law_refs"][0]
+        self.assertEqual(law["locator"], ".concord/docs/specs/core-law.md")
+        self.assertEqual(law["content_hash"], nav.sha((self.root / ".concord/docs/specs/core-law.md").read_bytes()))
+        self.assertNotIn("text", law)
+        control = mechanism["controls"][0]
+        self.assertEqual(control["state"], "satisfied")
+        self.assertEqual(control["evidence"], [{"kind": "validator", "value": "scripts/check-fixture.py"}])
+        self.assertEqual(data["catalog_sizes"], {"agent": 1, "cli": 2, "workflow": 1})
+        core = next(d for d in data["domains"] if d["domain_id"] == "core")
+        self.assertEqual(core["mechanism_owner_ids"], ["mechanism:fixture-engine"])
+        self.assertEqual(sorted(core["bound_entries"]["cli"]), ["inspect", "launcher"])
+        interpretation = data["dependency_interpretations"][0]
+        self.assertEqual(interpretation["law_refs"][0]["locator"], ".concord/docs/decisions/root-law.md")
+        self.assertTrue(any("dispatch admission" in note for note in data["advisory_notes"]))
+        self.assertNotIn("source_fingerprints", data)
+        self.assertNotIn("path_set_fingerprint", data)
+
+    def test_v11_outstanding_control_retains_issue(self):
+        self.mechanism["control_law_ids"] = ["root-law"]
+        self.save()
+        control = self.inventory()["mechanisms"][0]["controls"][0]
+        self.assertEqual(control["state"], "outstanding")
+        self.assertEqual(control["issue"], "CON-1")
+        self.assertNotIn("evidence", control)
+
+    def test_v11_cards_stay_bounded_and_link_inventory(self):
+        generated = self.artifacts()
+        for path, content in generated.items():
+            if path.endswith(".md"):
+                self.assertLessEqual(len(content), 8192)
+                self.assertLessEqual(len(content.splitlines()), 120)
+                self.assertIn(b"inventory.json", content)
+        core_card = generated[nav.card_path("core")].decode()
+        self.assertIn("`mechanism:fixture-engine`", core_card)
+        self.assertIn("dispatch admission", core_card)
+        root_card = generated[nav.card_path("product-root:fixture")].decode()
+        self.assertIn("depends_on", root_card)
+
+    def test_v11_semantic_state_is_deterministic(self):
+        self.assertEqual(self.state()["semantics"]["mechanisms"], self.inventory()["mechanisms"])
+
+    def test_v11_defaults_are_supported(self):
+        self.write("vendor/keep.txt", "vendor exists\n")
+        self.navigation["default_rules"] = [
+            {"domain_id": "core", "include": ["vendor/**"], "exclude": []},
+        ]
+        self.save()
+        self.assertEqual(self.findings(), [])
+        self.write("vendor/new.go", "package fixture\n")
+        self.assertEqual(self.state()["owners"]["vendor/new.go"], "core")
+        self.assertEqual(self.inventory()["schema_version"], "1.1")
+
+    def test_observed_package_imports_are_labeled_package_level(self):
+        data = self.inventory()
+        core = next(d for d in data["domains"] if d["domain_id"] == "core")
+        self.assertIn("example.invalid/fixture/lib", core["observed_imports"])
+        edges = {edge["import_path"]: edge["target_domain_ids"] for edge in core["observed_package_edges"]}
+        self.assertEqual(edges["example.invalid/fixture/lib"], ["product-root:fixture"])
+        root = next(d for d in data["domains"] if d["domain_id"] == "product-root:fixture")
+        self.assertEqual(root["observed_package_edges"], [])
+        semantics = data["observed_import_semantics"]
+        self.assertTrue(any("Package-level" in note and "intra-package" in note for note in semantics))
+        self.assertTrue(any("symbol graph" in note for note in semantics))
+        self.assertTrue(any("execution permission" in note for note in semantics))
+
+    def test_observed_imports_surface_on_cards(self):
+        core_card = self.artifacts()[nav.card_path("core")].decode()
+        self.assertIn("package-level", core_card)
+        self.assertIn("Observed package imports: 1", core_card)
+
+    def test_import_extraction_receives_only_owned_go_paths(self):
+        with patch.object(nav.subprocess, "run", wraps=nav.subprocess.run) as run:
+            nav.import_observations(self.root, {"src/a.go": "core", "ROOT.md": "product-root:fixture"},
+                                    "example.invalid/fixture")
+        self.assertEqual(run.call_args.args[0][5:], ["src/a.go"])
+
+    def test_v11_many_mechanisms_card_stays_bounded(self):
+        for index in range(11):
+            self.navigation["mechanisms"].append(dict(self.mechanism, owner_id=f"mechanism:fixture-{index}"))
+        self.save()
+        generated = self.artifacts()
+        core_card = generated[nav.card_path("core")].decode()
+        self.assertIn("2 more mechanisms", core_card)
+        self.assertLessEqual(len(core_card.encode()), 8192)
+        self.assertLessEqual(len(core_card.splitlines()), 120)
+
+    def test_v11_card_names_omitted_interpretations(self):
+        core = next(domain for domain in self.inventory()["domains"] if domain["domain_id"] == "core")
+        for direction in ("from", "to"):
+            with self.subTest(direction=direction):
+                domain = dict(core)
+                domain[f"dependency_interpretations_{direction}"] = [
+                    {"kind": "depends_on", "target_domain_id": f"target-{index}",
+                     "source_domain_id": f"source-{index}"} for index in range(8)
+                ]
+                text = nav.card(domain)
+                self.assertIn(f"2 more {direction} interpretations: `.concord/navigation/inventory.json`", text)
+
+    def test_v11_duplicate_law_ref_refuses(self):
+        self.mechanism["law_refs"].append(dict(self.mechanism["law_refs"][0]))
+        self.save()
+        self.assertTrue(any("duplicate law ref" in finding for finding in self.findings()))
+
+    def test_v11_ambiguous_law_source_refuses(self):
+        self.manifest["records"].append(dict(self.manifest["records"][1], path="src/contract.go"))
+        self.assertTrue(any("knowledge record id must be distinct" in finding for finding in self.findings()))
 
 
 class SegmentPatternTests(unittest.TestCase):

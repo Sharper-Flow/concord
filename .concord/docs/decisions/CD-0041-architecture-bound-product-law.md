@@ -143,12 +143,33 @@ runs through the Domain hierarchy.
 
 Initiatives are optional overlays on that path, never its replacement.
 
+A repository that adopts complete Domain navigation declares one accountable
+Domain for each file in its navigation universe. A mixed file may expose
+mechanisms owned by other Domains without gaining a second file owner.
+Each mechanism binding names one current Domain and stable source-catalog
+entries. A transport entry and the mechanism it reaches remain distinct.
+Shared tests keep one file owner and explicit covered-owner references.
+
+Generated navigation joins these authored bindings with responsibilities,
+contracts, law-clause and control references, code anchors, tests, and declared
+checks. Source catalogs supply the entry inventory before the bindings join.
+Paths, titles, and prefixes never infer Domain identity or semantic ownership.
+A card's derived filename is a navigation location, not a Domain identity.
+
 ### D3. Every accepted law record has one architectural home
 
 Every current specification and decision in Product law declares exactly one
 `home_domain_id`. A Product-root Domain owns Product-wide constitutional law.
 Law may additionally declare bounded `applies_to_domain_ids`; applicability does
 not create another owner.
+
+A navigation link to law creates no additional law home or applicability.
+Each link names an exact law revision and clause, with source qualification
+where required. A control reference locates a check. It does not prove that
+the check exercises the obligation or that the delivered behavior conforms.
+Generated cards remain navigation artifacts, not accepted law records.
+Coverage states and proof anchors retain CD-0047's closed vocabulary and
+requirements. Navigation never upgrades an outstanding or unmeasured claim.
 
 The Git knowledge manifest remains the sole writer. Its next compatible schema
 adds the Domain registry, law-home fields, and exact law identity

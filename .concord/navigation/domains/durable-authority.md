@@ -7,7 +7,7 @@ File accountability does not change a document's law home or a handler's semanti
 ## Responsibility
 Owns the durable state envelope: the SQLite authority, the append-only event log, typed projections, migrations, fold guards, and the transactional guarantees that make an acknowledged write durable.
 
-Mapped files: 65; tests: 42; unresolved candidates: 5.
+Mapped files: 67; tests: 44; unresolved candidates: 0.
 Candidate counts overlap when a file has several candidates; no candidate is an assigned owner.
 
 ## Code and tests
@@ -19,16 +19,21 @@ Full paths, unresolved reasons, and shared-test coverage: `.concord/navigation/i
 - Include: `internal/store/upgrade*_test.go`, `internal/store/fold_guard*_test.go`, `internal/store/tx*_test.go`, `internal/store/open_concurrency_test.go`, `internal/store/unstamped_open_test.go`
 - Include: `internal/store/constraint_classification_test.go`, `internal/store/contention_budget*_test.go`, `internal/store/events*_test.go`, `internal/store/errors_effect_test.go`, `internal/store/version_conflict*_test.go`
 - Include: `internal/store/clock_test.go`, `internal/store/nil_store_test.go`, `internal/store/read_neighbor_test.go`, `internal/store/rebuild_clear_list_test.go`, `internal/store/rebuild_msg_test.go`
-- Include: `internal/store/operation_test.go`, `internal/store/schema_test.go`, `internal/store/store_test.go`, `contracts/durable-tier-budget.schema.json`, `contracts/storage-vocabulary-authority*`
+- Include: `internal/store/operation_test.go`, `internal/store/schema_test.go`, `internal/store/store_test.go`, `internal/store/worktree_claim_incarnation_migration_test.go`, `internal/store/worktree_occupancy_migration105_test.go`
+- Include: `contracts/durable-tier-budget.schema.json`, `contracts/storage-vocabulary-authority*`
 Explicit rules win over directory defaults; named legacy gaps remain unresolved.
 - Default include: `internal/store/**`
 - Default exclude: `internal/store/**/*_test.go`
 - Go test package: `github.com/sharper-flow/concord/internal/hostlease`
 - Go test package: `github.com/sharper-flow/concord/internal/store`
 
+## Mechanisms
+Advisory semantic ownership; the complete enriched references live in the inventory.
+- `mechanism:durable-store`: The durable state envelope: one pooled SQLite connection, the append-only event log, typed proje… (laws 2, controls 2, checks 2, contracts 2)
+
 ## Entry surfaces
 These are catalog surface entries, not invariant/control or handler joins.
-No surface catalog is owned by this Domain; semantic entry-point joins remain slice B.
+No surface catalog is owned by this Domain; semantic entry-point joins live in the inventory.
 
 ## Verification references
 Declared repository commands are shared checks, not Domain-specific acceptance or automatic execution.
@@ -41,7 +46,22 @@ Run the narrow selected command with `bin/oc-test targeted -- <command> [args...
 - `lefthook-preflight` (standard): `bin/oc-test preflight`
 - `repo-validators` (fast): `python3 scripts/check-json.py`
 
-## Not covered by slice A
-Invariant/control joins, allowed-dependency interpretation, observed import/call edges,
-non-law navigation homes, CON-887 packet reading, and CON-890 owner oracles remain later work.
-Required-reading entries will be pinned references, not inlined card content.
+## Allowed and observed references
+Bindings and interpretations are advisory joins; navigation does not prove dispatch admission at the current workflow step.
+- CLI entries bound: 3 (`backup`, `recover-fold-guard`, `restore`)
+- agent operations bound: 0
+- workflow actions bound: 0
+- Interpretation `depends_on` from `agent-surface` (advisory, not an import allowlist).
+- Interpretation `depends_on` from `operator-surface` (advisory, not an import allowlist).
+- Interpretation `depends_on` from `product-memory` (advisory, not an import allowlist).
+- Interpretation `depends_on` from `work-coordination` (advisory, not an import allowlist).
+- Interpretation `depends_on` from `workflow-engine` (advisory, not an import allowlist).
+- Observed package imports: 37 distinct paths; package-level only; intra-package edges unmeasured; no symbol graph or execution permission.
+- Observed package edge via `github.com/sharper-flow/concord/internal/store` -> `agent-surface`, `durable-authority`, `operator-surface`, `product-memory`, `repository-verification`, `work-coordination`, `workflow-engine` (advisory).
+- Observed package edge via `github.com/sharper-flow/concord/internal/store/storetest/neighbor` -> `repository-verification` (advisory).
+- Observed package edge via `github.com/sharper-flow/concord/internal/testenv` -> `repository-verification` (advisory).
+
+## Not covered here
+Symbol-level call edges, dispatch-admission proof at the current workflow step, CON-887 packet reading,
+and CON-890 owner oracles remain later work. Required-reading entries will be pinned references,
+not inlined card content.

@@ -231,7 +231,17 @@ export interface AgentLanePacketWorkContext {
   source_event_frontier: number
   required_reading: AgentLanePacketWorkContextReading[]
   findings: AgentLanePacketWorkContextFindingView[]
-  domain_groups: { domain_id: string; required_reading_ordinals: number[]; finding_ids: string[]; domain_cards: [] }[]
+  domain_groups: {
+    domain_id: string
+    required_reading_ordinals: number[]
+    finding_ids: string[]
+    domain_cards: (AgentLanePacketWorkContextReadingSource & {
+      kind: "repository_file"
+      project_id: string
+      path: string
+      commit_oid: string
+    })[]
+  }[]
 }
 
 // AgentLanePacketCheckpoint mirrors inputs.checkpoint of

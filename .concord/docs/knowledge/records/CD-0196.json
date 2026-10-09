@@ -23,7 +23,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:1e9ad592eb7f0abf4731a61027588727629dcd8ba92530f44fd0c353c15fe250",
+  "sha256": "sha256:027e479b344e6dba1661afc5054a742ed79dcebeac0f3032e0c77a604bc39fd4",
   "status": "accepted",
   "summary": "A dispatched worker lane holds no Concord read or write tool access, and the dispatch packet is its complete Concord context. Lane and utility definitions deny every concord_* tool from the derived surface list, the adapter refuses a managed-parent call with a structured no-effect envelope before the core runs, the lane text states the packet is complete, and the law context carries the Domain registry path so a lane reads Domain structure from the repository file. Extends CD-0017 D4.",
   "tags": [

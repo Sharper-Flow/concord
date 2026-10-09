@@ -594,6 +594,12 @@ def workflow_payload_alternative_branch(payload: dict, defs: dict, field_teachin
 def project_workflow_action_schema(document: dict, actions: list[dict], workflows: list[dict], teaching: dict) -> tuple[dict, list[dict]]:
     projected = copy.deepcopy(document)
     defs = projected["$defs"]
+    # Continuity and work pins expose the same card references as dispatch.
+    # The authored packet schema owns the source shape, not a second union.
+    packet_defs = json.loads((ROOT / "contracts/agent-lane-packet.schema.json").read_text())["$defs"]
+    card_refs = copy.deepcopy(packet_defs["lane_work_context_domain_group"]["properties"]["domain_cards"])
+    card_refs["items"]["$ref"] = "#/$defs/work_context_reading_source_repository_file"
+    defs["work_context_domain_group"]["properties"]["domain_cards"] = card_refs
     # The action-discriminated variants replaced the shared conditional input.
     # Projection starts from the previous document, so drop the retired
     # definition explicitly; a stale copy would keep satisfying checks that

@@ -7,7 +7,7 @@ File accountability does not change a document's law home or a handler's semanti
 ## Responsibility
 Owns the typed agent plane: the read and mutation tool surface, its budget and evolution constraints, call context, lanes and worker dispatch, the adapter transport contract, and the agent result envelope.
 
-Mapped files: 385; tests: 246; unresolved candidates: 35.
+Mapped files: 425; tests: 272; unresolved candidates: 0.
 Candidate counts overlap when a file has several candidates; no candidate is an assigned owner.
 
 ## Code and tests
@@ -17,10 +17,24 @@ Full paths, unresolved reasons, and shared-test coverage: `.concord/navigation/i
 - Include: `internal/store/native_runs.go`, `internal/store/native_run*_test.go`, `internal/store/generated_native_run_statuses.go`, `internal/store/cursor.go`, `internal/store/work_collection_cursor.go`
 - Include: `internal/store/query_corpus*_test.go`, `internal/store/query_recorded_intent_test.go`, `internal/store/nil_store_queries_test.go`, `internal/store/first_call_contract_admission_test.go`, `internal/store/lane_step_dispatch_test.go`
 - Include: `internal/store/record_verdict_publication_parity_test.go`, `internal/store/outside_repair_schema_parity_test.go`, `internal/store/nil_store_agent*_test.go`, `internal/store/pm8_pm9_absence_test.go`, `contracts/agent-*`
-- Include: `contracts/host-tool-*`, `contracts/native-run-*`, `contracts/worker-*`, `contracts/adapter-*`, `.concord/scenarios/agent-jobs.v1.json`
-- Include: `.concord/scenarios/adapter-continuity.v1.json`, `skills/**`, `bunfig.toml`, `internal/store/typed_error_kinds_test.go`
+- Include: `contracts/host-tool-*`, `contracts/native-run-*`, `contracts/worker-*`, `contracts/adapter-*`, `contracts/branch-freshness.*`
+- Include: `.concord/scenarios/agent-jobs.v1.json`, `.concord/scenarios/adapter-continuity.v1.json`, `skills/**`, `bunfig.toml`, `internal/store/typed_error_kinds_test.go`
+- Include: `internal/store/worktrees.go`, `internal/store/worktrees_test.go`, `internal/store/worktrees_audit_reclaim_test.go`, `internal/store/worktrees_claim_landing_test.go`, `internal/store/worktrees_claim_landing_record_test.go`
+- Include: `internal/store/worktrees_destroy_test.go`, `internal/store/worktrees_occupancy_test.go`, `internal/store/worktrees_reclaim_convergence_test.go`, `internal/store/worktrees_reclaim_identity_test.go`, `internal/store/worktrees_reclaim_replay_test.go`
+- Include: `internal/store/worktrees_tiers_test.go`, `internal/store/worktrees_unpublished_lesson_test.go`, `internal/store/worktree_verify_evidence_test.go`, `internal/store/worktree_verify_finalization_test.go`, `internal/store/worktree_verify_lease_recovery_test.go`
+- Include: `internal/store/worktree_occupancy_release_test.go`, `internal/store/worktree_route_test.go`, `internal/store/landing.go`, `internal/store/session_vacate*.go`, `internal/store/freshness*.go`
+- Include: `internal/store/branch_freshness_contract_test.go`, `internal/store/generated_branch_freshness.go`, `internal/store/bootstrap*.go`, `internal/store/git_runner*.go`, `internal/store/project_handoffs*.go`
+- Include: `internal/store/generated_lane_step_dispatch.go`, `internal/store/query.go`, `internal/store/query_pages.go`, `internal/store/query_test.go`
 - Go test package: `github.com/sharper-flow/concord/internal/agent`
 - Go test package: `github.com/sharper-flow/concord/internal/store`
+
+## Mechanisms
+Advisory semantic ownership; the complete enriched references live in the inventory.
+- `mechanism:adapter-transport`: The OpenCode adapter and its transport: client registration, key storage and policy, the per-tur… (laws 2, controls 2, checks 1, contracts 2)
+- `mechanism:agent-tools`: The typed agent tool plane: read and mutation tool admission over the store, typed result envelo… (laws 3, controls 3, checks 2, contracts 3)
+- `mechanism:work-start`: Host-owned work bootstrap: work-start admission that captures or resumes an item and claims its… (laws 2, controls 1, checks 1, contracts 1)
+- `mechanism:worker-lanes`: Worker lanes and native runs: lane scope and generated lane agents, the dispatch packet as the w… (laws 2, controls 2, checks 1, contracts 6)
+- `mechanism:worktree-tenancy`: Agent worktree tenancy: canonical worktree claims and occupancy, session landing and vacate, bra… (laws 2, controls 2, checks 1, contracts 2)
 
 ## Entry surfaces
 These are catalog surface entries, not invariant/control or handler joins.
@@ -46,7 +60,19 @@ Run the narrow selected command with `bin/oc-test targeted -- <command> [args...
 - `lefthook-preflight` (standard): `bin/oc-test preflight`
 - `repo-validators` (fast): `python3 scripts/check-json.py`
 
-## Not covered by slice A
-Invariant/control joins, allowed-dependency interpretation, observed import/call edges,
-non-law navigation homes, CON-887 packet reading, and CON-890 owner oracles remain later work.
-Required-reading entries will be pinned references, not inlined card content.
+## Allowed and observed references
+Bindings and interpretations are advisory joins; navigation does not prove dispatch admission at the current workflow step.
+- CLI entries bound: 17 (`ci-wait`, `claim-landing`, `client-key-rotate`, …)
+- agent operations bound: 13 (`concord_work_browse.worktree_audit`, `concord_work_browse.worktree_inspect`, `concord_work_relate.client_policy_grant_request`, …)
+- workflow actions bound: 1 (`dispatch_worker`)
+- Interpretation `depends_on` -> `durable-authority` (advisory, not an import allowlist).
+- Interpretation `depends_on` -> `workflow-engine` (advisory, not an import allowlist).
+- Observed package imports: 47 distinct paths; package-level only; intra-package edges unmeasured; no symbol graph or execution permission.
+- Observed package edge via `github.com/sharper-flow/concord/internal/gittest` -> `repository-verification` (advisory).
+- Observed package edge via `github.com/sharper-flow/concord/internal/hostlease` -> `durable-authority` (advisory).
+- Observed package edge via `github.com/sharper-flow/concord/internal/launcher` -> `operator-surface` (advisory).
+
+## Not covered here
+Symbol-level call edges, dispatch-admission proof at the current workflow step, CON-887 packet reading,
+and CON-890 owner oracles remain later work. Required-reading entries will be pinned references,
+not inlined card content.

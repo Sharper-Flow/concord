@@ -43,5 +43,5 @@ Invariant/control joins, allowed-dependency interpretation, observed import/call
 non-law navigation homes, CON-887 packet reading, and CON-890 owner oracles remain later work.
 Required-reading entries will be pinned references, not inlined card content.
 
-Navigation source fingerprint: `sha256:ff2ebd25a4e4bdc6412f03ae22aaf399d8651998960d6aee311552fb4384f8ca`.
+Navigation source fingerprint: `sha256:3e6935764e333c9f41167f06bff410fb9446cc90e281427c907ffd30374ae80c`.
 Other fingerprints and the exact file universe are in the generated inventory.

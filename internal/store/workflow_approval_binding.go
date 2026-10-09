@@ -45,6 +45,53 @@ var (
 	}
 )
 
+// workflowApprovalOperator pairs the core approval's actor tuple and its ref.
+type workflowApprovalOperator struct {
+	WorkflowActor
+	ref string
+}
+
+// workflowOperatorFromConsumedApprovalTx is the live admission half shared by
+// operator-only event routes. Replay uses the payload binding and actor instead.
+func workflowOperatorFromConsumedApprovalTx(ctx context.Context, tx *sql.Tx, binding workflowApprovalBinding, operation string) (workflowApprovalOperator, error) {
+	if binding.ApprovalRef == "" {
+		return workflowApprovalOperator{}, newFailure(KindInvalidPayload, operation, "operation requires an operator approval reference", false, "request the core operator approval for this operation")
+	}
+	var principalRef, clientRef, sessionRef, approvalDigest, approvalScopeJSON, approvalVersionsJSON, approvalConsequence string
+	var usedCount, maxUses int
+	if err := tx.QueryRowContext(ctx, `SELECT human_principal_ref,client_ref,session_ref,operation_digest,scope_json,version_json,consequence,used_count,max_uses FROM agent_approvals WHERE approval_ref=? AND revoked_at IS NULL`, binding.ApprovalRef).Scan(&principalRef, &clientRef, &sessionRef, &approvalDigest, &approvalScopeJSON, &approvalVersionsJSON, &approvalConsequence, &usedCount, &maxUses); err != nil {
+		if err == sql.ErrNoRows {
+			return workflowApprovalOperator{}, newFailure(KindApprovalRequired, operation, "operation requires a consumed operator approval", false, "request the core operator approval for this operation")
+		}
+		return workflowApprovalOperator{}, wrapFailure(KindUnavailable, operation, "cannot read the operator approval", true, "retry once the approval projection is readable", err)
+	}
+	if usedCount != 1 || maxUses != 1 {
+		return workflowApprovalOperator{}, newFailure(KindApprovalRequired, operation, "operation requires a consumed one-use operator approval", false, "request the core operator approval for this operation")
+	}
+	mismatches := make([]string, 0, 4)
+	if !validDigest(binding.OperationDigest) || binding.OperationDigest != approvalDigest {
+		mismatches = append(mismatches, "digest")
+	}
+	if binding.ScopeJSON == "" || binding.ScopeJSON != approvalScopeJSON {
+		mismatches = append(mismatches, "scope")
+	}
+	if binding.VersionsJSON == "" || binding.VersionsJSON != approvalVersionsJSON {
+		mismatches = append(mismatches, "versions")
+	}
+	if binding.Consequence == "" || binding.Consequence != approvalConsequence {
+		mismatches = append(mismatches, "consequence")
+	}
+	if len(mismatches) != 0 {
+		return workflowApprovalOperator{}, newFailure(KindUnauthorized, operation, "operator approval is not bound to the exact operation, scope, versions, or consequence: "+strings.Join(mismatches, ","), false, "request approval for the exact operation")
+	}
+	tuple := WorkflowActor{PrincipalRef: principalRef, ClientRef: clientRef, AgentRef: "approval:" + binding.ApprovalRef, SessionRef: sessionRef, ActorClass: ActorOperator}
+	ref, err := WorkflowActorRef(tuple)
+	if err != nil {
+		return workflowApprovalOperator{}, newFailure(KindInvalidPayload, operation, "operator approval does not carry a bounded actor tuple", false, "request approval for this operation")
+	}
+	return workflowApprovalOperator{WorkflowActor: tuple, ref: ref}, nil
+}
+
 // authorizeWorkflowOperatorApprovalTx admits a fold event only through a
 // complete, self-consistent approval binding recorded in the event payload and
 // the recorded operator workflow actor that names that binding's approval.

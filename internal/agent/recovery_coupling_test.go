@@ -15,6 +15,9 @@ func companionFields(err *TypedError) {
 		err.Candidates = []string{"prod-alpha", "prod-beta"}
 	case "cross_repository_claim":
 		err.RecoveryAction.RequiredRefs = []string{"concord_work_start"}
+	case "outside_repair_active":
+		// CD-0210: completed and resume use the store's single reconcile route.
+		err.RecoveryAction.RequiredRefs = []string{"outside_repair_reconcile"}
 	case "version_conflict":
 		err.CurrentVersions = []ChangedRef{{EntityKind: "work_item", ID: "work-1", Version: "2"}}
 	case "budget_refused":

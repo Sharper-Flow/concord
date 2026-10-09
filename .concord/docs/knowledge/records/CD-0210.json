@@ -1,0 +1,62 @@
+{
+  "authority": {
+    "contract_version": 1,
+    "legislated_by": "work-08569117ae9c39355b793793",
+    "tier": "legislated"
+  },
+  "date": "2026-10-07T00:00:00Z",
+  "doc_contract_profile": "current",
+  "evidence": [
+    "internal/store/outside_repair.go",
+    "internal/store/outside_repair_base_test.go",
+    "internal/store/outside_repair_test.go",
+    "internal/store/workflow_admission.go",
+    "internal/store/workflow_completion.go",
+    "internal/store/workflow_continuity.go",
+    "internal/store/workpin.go",
+    "internal/store/schema.go",
+    "internal/agent/outside_repair.go",
+    "internal/agent/outside_repair_test.go",
+    "internal/agent/authority.go",
+    "internal/agent/envelope.go",
+    "internal/agent/mutations.go",
+    "internal/agent/recovery_coupling_test.go",
+    "cmd/concord/outside_repair_launch.go",
+    "cmd/concord/outside_repair_launch_test.go",
+    "cmd/concord/release_pairs_cli_test.go",
+    "adapter/opencode/continuity-hook.ts",
+    "adapter/opencode/continuity_hook.test.ts"
+  ],
+  "home_domain_id": "workflow-engine",
+  "id": "CD-0210",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0183"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0122"
+    }
+  ],
+  "path": ".concord/docs/decisions/CD-0210-outside-repair-route-narrows-CD-0183-D-4.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:10e28d86aef06ea94555aa7a434933b43a7313509bd41f0657e4d38574b6d9e3",
+  "status": "accepted",
+  "summary": "An operator-approved typed disposition holds live work for outside defect repair and suppresses managed actions and prompts. One declared reconciliation either closes from independently fetched merged pull requests, the complete successful required-check set on immutable heads, and a published release containing every merge, or resumes the unchanged workflow. Closure records a distinct outside_repair terminal instance, not fabricated managed completion. Operator session entry creates a fresh ad-hoc branch and worktree without a managed pin. Host permissions and repair-agent configuration remain host-owned. Only this explicit reconciliation amends CD-0183 D4, building on CD-0122 D2.",
+  "tags": [
+    "workflow",
+    "repair",
+    "evidence",
+    "authority",
+    "host-boundary"
+  ],
+  "title": "Outside defect repair has an explicit disposition and reconciliation"
+}

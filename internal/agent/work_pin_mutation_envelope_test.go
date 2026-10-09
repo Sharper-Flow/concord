@@ -68,13 +68,13 @@ func TestMutationEnvelopePublishesPinnedObligationsAndDefinitionIdentity(t *test
 		wantIDs = append(wantIDs, id)
 	}
 	sort.Strings(wantIDs)
-	if !reflect.DeepEqual(pin.Obligations, wantIDs) {
+	if pin.Obligations == nil || !reflect.DeepEqual(*pin.Obligations, wantIDs) {
 		t.Fatalf("mutation envelope obligations=%v, want the sorted declarations %v", pin.Obligations, wantIDs)
 	}
-	if pin.WorkflowDefinitionVersion != registered.Definition.Version {
-		t.Fatalf("mutation envelope definition version=%d, want the pinned %d", pin.WorkflowDefinitionVersion, registered.Definition.Version)
+	if pin.WorkflowDefinitionVersion == nil || *pin.WorkflowDefinitionVersion != registered.Definition.Version {
+		t.Fatalf("mutation envelope definition version=%v, want the pinned %d", pin.WorkflowDefinitionVersion, registered.Definition.Version)
 	}
-	if err := store.BuiltinWorkflowRegistry().Verify("workflow.break_fix", pin.WorkflowDefinitionVersion, pin.WorkflowDefinitionDigest); err != nil {
+	if err := store.BuiltinWorkflowRegistry().Verify("workflow.break_fix", *pin.WorkflowDefinitionVersion, *pin.WorkflowDefinitionDigest); err != nil {
 		t.Fatalf("mutation envelope definition identity does not verify: %v", err)
 	}
 	// The published result schema declares obligations a required property of

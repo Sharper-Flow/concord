@@ -121,9 +121,9 @@ readable under their recorded format. Worker tool access remains unchanged.
 - The live probe `opencode debug agent concord-implement` resolves the lane's
   tool rules and shows every `concord_*` tool denied, and
   `bun test adapter/opencode/packet.test.ts` pins the registry line the
-   packet renders.
-- `go test ./internal/store -run WorkContextNavigation` checks pinned card references through the shared
-  reader, existing-source deduplication, registered sources, typed refusals,
-  and the existing reading bound.
+  packet renders.
+- `go test ./internal/store -run WorkContextNavigation` checks pinned card
+  references through the shared reader, existing-source deduplication,
+  registered sources, typed refusals, and the existing reading bound.
 - `bun test adapter/opencode/packet.test.ts` checks that packets preserve pinned
   card references without card content.

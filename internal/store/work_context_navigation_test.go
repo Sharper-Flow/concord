@@ -12,6 +12,53 @@ import (
 	"github.com/sharper-flow/concord/internal/payloadschema"
 )
 
+func TestWorkContextNavigationPresenceConfinesProbes(t *testing.T) {
+	t.Parallel()
+	t.Run("absence", func(t *testing.T) {
+		repo := t.TempDir()
+		for _, path := range []string{repo, filepath.Join(repo, "missing")} {
+			if workContextNavigationPresentOnDisk(path) || !workContextNavigationNonGit(path) {
+				t.Fatal("absent entries must preserve the non-Git legacy reading")
+			}
+		}
+	})
+	t.Run("non-directory root", func(t *testing.T) {
+		repo := filepath.Join(t.TempDir(), "file")
+		if err := os.WriteFile(repo, nil, 0600); err != nil {
+			t.Fatal(err)
+		}
+		if !workContextNavigationPresentOnDisk(repo) || workContextNavigationNonGit(repo) {
+			t.Fatal("inspection errors must not count as clean absence")
+		}
+	})
+	t.Run("escaping intermediate symlink", func(t *testing.T) {
+		repo := t.TempDir()
+		outside := t.TempDir()
+		if err := os.Symlink(outside, filepath.Join(repo, ".concord")); err != nil {
+			t.Fatal(err)
+		}
+		if !workContextNavigationPresentOnDisk(repo) || workContextNavigationNonGit(repo) {
+			t.Fatal("an escaping lookup must refuse rather than inspect absence outside the repository")
+		}
+	})
+	t.Run("present companion", func(t *testing.T) {
+		repo := t.TempDir()
+		writeKnowledgeFile(t, repo, workContextNavigationCompanion, "{}")
+		if !workContextNavigationPresentOnDisk(repo) || workContextNavigationNonGit(repo) {
+			t.Fatal("a present companion must retain the refusal discriminator")
+		}
+	})
+	t.Run("Git marker", func(t *testing.T) {
+		repo := t.TempDir()
+		if err := os.WriteFile(filepath.Join(repo, ".git"), nil, 0600); err != nil {
+			t.Fatal(err)
+		}
+		if workContextNavigationPresentOnDisk(repo) || workContextNavigationNonGit(repo) {
+			t.Fatal("a Git marker must not count as navigation or a non-Git fixture")
+		}
+	})
+}
+
 // Navigation fixtures use real immutable trees, not the synthetic OIDs of
 // the unadopted shared-context fixtures.
 func workContextNavigationRepo(t *testing.T, mutate func(map[string]any)) (string, string) {

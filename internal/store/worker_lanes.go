@@ -1264,8 +1264,8 @@ func foldWorkerFailed(ctx context.Context, tx *sql.Tx, event Event) error {
 	if err != nil {
 		return err
 	}
-	if payload.FailureKind == WorkerFailureAbandoned {
-		if err := validateNoLiveWorkerSession(ctx, tx, event.SubjectID); err != nil {
+	if payload.FailureKind == WorkerFailureAbandoned && !isWorkflowReplay(ctx) {
+		if err := validateNoLiveWorkerSession(ctx, tx, event.SubjectID, payload.AttemptID); err != nil {
 			return err
 		}
 	}
@@ -1288,10 +1288,12 @@ func foldWorkerFailed(ctx context.Context, tx *sql.Tx, event Event) error {
 	return nil
 }
 
-// validateNoLiveWorkerSession is the host-observation gate for an abandoned
-// attempt (CD-0178 D3). The durable projection owns occupancy: a worktree's
-// recorded rows carry the host process identity, and the kernel proves
-// whether a process is still alive. A live row blocks abandonment; a dead
+// validateNoLiveWorkerSession is the live-admission host-observation gate for
+// an abandoned attempt (CD-0178 D3). Replay trusts the recorded worker.failed
+// event instead of consulting today's filesystem, occupancy, or host liveness.
+// Its dispatch window owns the Project, and the durable projection owns
+// occupancy. Recorded rows carry the host process identity, and the kernel
+// proves whether a process is still alive. A live row blocks abandonment; a dead
 // row or no row at all admits the close. The store never reaches for the
 // host session list, so a session running in another repository cannot
 // strand this attempt through observation alone.
@@ -1302,12 +1304,16 @@ func foldWorkerFailed(ctx context.Context, tx *sql.Tx, event Event) error {
 // recorded_at, which proves the recording process ended. A missing or
 // unreadable lease set releases nothing, and so does any live lease that
 // started at or before the row.
-func validateNoLiveWorkerSession(ctx context.Context, q queryer, workID string) error {
-	rows, err := q.QueryContext(ctx, `
+func validateNoLiveWorkerSession(ctx context.Context, tx *sql.Tx, workID, attemptID string) error {
+	projectID, err := workerAttemptProjectTx(ctx, tx, workID, attemptID)
+	if err != nil {
+		return err
+	}
+	rows, err := tx.QueryContext(ctx, `
 		SELECT e.set_id, e.project_id, e.claim_op_id, o.session_ref, o.has_process_identity, o.host_pid, o.host_pid_start, o.recorded_at
 		  FROM worktree_entries e
 		  JOIN worktree_occupancy o ON o.worktree_id = e.set_id || ':' || e.project_id || ':' || e.claim_op_id
-		 WHERE e.set_id=? AND e.state='active'`, WorktreeSetID(workID))
+		 WHERE e.set_id=? AND e.state='active' AND (?='' OR e.project_id=?)`, WorktreeSetID(workID), projectID, projectID)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "worker_fail", "cannot read worktree occupancy", true, "retry once the database is readable", err)
 	}

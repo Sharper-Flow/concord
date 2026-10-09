@@ -5,16 +5,14 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
-	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
 
 func TestBuiltinRegistriesAreLazy(t *testing.T) {
 	fset := token.NewFileSet()
-	packages, err := parser.ParseDir(fset, ".", func(info os.FileInfo) bool {
-		return !strings.HasSuffix(info.Name(), "_test.go")
-	}, 0)
+	names, err := filepath.Glob("*.go")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -31,7 +29,14 @@ func TestBuiltinRegistriesAreLazy(t *testing.T) {
 			return true
 		})
 	}
-	for _, file := range packages["store"].Files {
+	for _, name := range names {
+		if strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		file, err := parser.ParseFile(fset, name, nil, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
 		for _, declaration := range file.Decls {
 			switch declaration := declaration.(type) {
 			case *ast.GenDecl:

@@ -1,0 +1,5 @@
+{
+  "id": "CD-0215",
+  "reason": "CON-816 A1 law-only cutover. Candidate retirement surface anchors are named in the decision; no execution, full read/reliance coverage, surface compatibility assessment or live law-consumer recovery is claimed. Parent implementation supplies integrated evidence.",
+  "state": "unmeasured"
+}

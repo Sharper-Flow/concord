@@ -1,14 +1,5 @@
 {
-  "evidence": [
-    {
-      "kind": "validator",
-      "value": "scripts/check-law-coverage.py"
-    },
-    {
-      "kind": "validator",
-      "value": "scripts/test-law-coverage.py"
-    }
-  ],
   "id": "CD-0066",
-  "state": "satisfied"
+  "reason": "Historical law superseded by CD-0216. The successor preserves projection-pruning deferral and authority guarantees while replacing research archive cleanup; old satisfaction is not transferred.",
+  "state": "out_of_scope"
 }

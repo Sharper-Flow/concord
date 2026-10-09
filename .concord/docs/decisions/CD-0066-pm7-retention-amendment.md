@@ -1,6 +1,7 @@
 # CD-0066: PM7 retention amendment — pruning deferred, authority guarantees kept
 
-- **Status:** Accepted
+- **Status:** Superseded
+- **Successor:** [CD-0216](CD-0216-publication-and-retention-boundaries.md)
 - **Date:** 2026-08-24
 - **Scope:** PM7 (`.concord/docs/compaction-retention-policy.md`) pruning mechanism
   disposition; retention guarantees Concord states today; backup retention

@@ -1,6 +1,7 @@
 # CD-0025: Research surface and engine-bound reliance
 
-- **Status:** Accepted
+- **Status:** Superseded
+- **Successor:** [CD-0215](CD-0215-research-surface-and-explicit-retirement.md)
 - **Date:** 2026-08-14
 - **Scope:** Agent tool surface; active research packs; workflow action boundary
 - **Related:** CD-0009 (active research context), CD-0002/PM3 boundary exception

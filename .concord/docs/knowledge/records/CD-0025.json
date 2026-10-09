@@ -25,8 +25,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:952a7153df0e335a30312a994ffae31d14d21dbdd02224a434b81542f537cbc1",
-  "status": "accepted",
+  "sha256": "sha256:f642c994d822b84a9a05ba6cb5a6810af3d7fe17b3ef129ee23649e9af834d5a",
+  "status": "superseded",
+  "successor": "CD-0215",
   "summary": "Research authoring reaches the agent tool surface under a research capability; workflow actions declare bindings the engine proves fail-closed against stale required revisions.",
   "tags": [
     "research",

@@ -1,0 +1,40 @@
+{
+  "applies_to_domain_ids": [
+    "durable-authority"
+  ],
+  "authority": {
+    "tier": "derived"
+  },
+  "date": "2026-10-09T00:00:00Z",
+  "doc_contract_profile": "current",
+  "evidence": [
+    ".concord/docs/compaction-retention-policy-successor.md",
+    ".concord/docs/knowledge/coverage/CD-0216.json"
+  ],
+  "home_domain_id": "product-memory",
+  "id": "CD-0216",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "supersedes",
+      "target_id": "CD-0066"
+    }
+  ],
+  "path": ".concord/docs/decisions/CD-0216-publication-and-retention-boundaries.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:4873323e6f503db8ab7c2952935cf9c7a24dbdf79f455e8910e05aab89a8f1e5",
+  "status": "accepted",
+  "summary": "Preserves deferred terminal projection pruning, exact event history, Git note authority, immutable pruned IDs, frozen historical scope, deduplicated query populations, revisit triggers, PM10 backup separation and CD-0142 removal. Research publication and explicit non-calendar retirement have separate authority. Historical archive cleanup anchors do not establish replacement coverage or live consumer cutover.",
+  "tags": [
+    "retention",
+    "compaction",
+    "coverage"
+  ],
+  "title": "Publication and research retention have separate boundaries"
+}

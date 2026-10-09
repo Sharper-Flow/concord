@@ -1,10 +1,5 @@
 {
-  "evidence": [
-    {
-      "kind": "go_test",
-      "value": "internal/agent.TestResearchAuthorBindProveAndRead"
-    }
-  ],
   "id": "CD-0025",
-  "state": "satisfied"
+  "reason": "Historical law superseded by CD-0215. Current surface, terminal-owner reliance and explicit retirement coverage belong to the successor, not the old archive-driven boundary.",
+  "state": "out_of_scope"
 }

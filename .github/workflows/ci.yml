@@ -18,8 +18,8 @@ permissions:
 
 concurrency:
   # A pull_request run groups by ref, so a new push to the branch supersedes the
-  # previous run and releases its six job slots against the 20-job account
-  # ceiling. Every other event gets a group unique to the run. GitHub cancels an
+  # previous run and releases its runner slots. Every other event gets a
+  # group unique to the run. GitHub cancels an
   # existing *pending* run when a newer run joins the same group, and that
   # happens with `cancel-in-progress: false`, so a shared group would let one
   # main push cancel another's queued run. A cancelled merge_group run breaks
@@ -59,35 +59,44 @@ jobs:
           if-no-files-found: error
           retention-days: 90
 
-  # Validators and the Python script battery. No Go compilation here: the
-  # Go-dependent analysis checks live in verify-go.
+  # Keep the required check name while independent owners run in parallel.
+  # always() makes a failed, cancelled, or skipped owner fail this gate rather
+  # than leave the required check skipped.
   verify:
     name: verify
-    needs: verify-history
+    needs: [verify-history, verify-contracts, verify-adapter, verify-tooling]
     if: always()
     runs-on: ubuntu-latest
     steps:
-      - name: Require historical regression evidence
+      - name: Require every verification owner to pass
         env:
           HISTORY_RESULT: ${{ needs.verify-history.result }}
-        run: test "$HISTORY_RESULT" = success
+          CONTRACTS_RESULT: ${{ needs.verify-contracts.result }}
+          ADAPTER_RESULT: ${{ needs.verify-adapter.result }}
+          TOOLING_RESULT: ${{ needs.verify-tooling.result }}
+        run: |
+          test "$HISTORY_RESULT" = success
+          test "$CONTRACTS_RESULT" = success
+          test "$ADAPTER_RESULT" = success
+          test "$TOOLING_RESULT" = success
+
+  verify-adapter:
+    name: verify-adapter
+    runs-on: ubuntu-latest
+    steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
       - name: Set up Bun
-        id: setup-bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
         with:
           bun-version: 1.4.0
-      - name: Restore Bun package cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
-        with:
-          path: ~/.bun/install/cache
-          key: bun-packages-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup-bun.outputs.bun-version }}-${{ hashFiles('.concord/docs/adapter-host-pin.v1.json') }}
-          restore-keys: bun-packages-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup-bun.outputs.bun-version }}-
-      - name: Validate public content
-        run: python3 scripts/check-public-content.py
       - name: Test the adapter suite
         env:
           CONCORD_SELECTED_PRODUCT_ID: poison-product
@@ -110,6 +119,30 @@ jobs:
           CONCORD_FUTURE_INPUT: poison-future
           CONCORD_TEST_SUBPROCESS: poison-no-bypass
         run: bun test adapter/opencode/
+
+  # JSON owns the nested validators, builds, fixtures, and host typecheck.
+  # Suite execution belongs to verify-adapter and verify-tooling instead.
+  verify-contracts:
+    name: verify-contracts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Set up Bun
+        id: setup-bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: 1.4.0
+      - name: Restore Bun package cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: ~/.bun/install/cache
+          key: bun-packages-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup-bun.outputs.bun-version }}-${{ hashFiles('.concord/docs/adapter-host-pin.v1.json') }}
+          restore-keys: bun-packages-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup-bun.outputs.bun-version }}-
+      - name: Validate public content
+        run: python3 scripts/check-public-content.py
       - name: Coordinator observation evaluator tests (no model calls)
         run: python3 -m unittest discover -s adapter/opencode/evals/coordinator -p 'test_*.py'
       - name: Validate documentation links
@@ -137,17 +170,12 @@ jobs:
           git fetch origin main --quiet
           git fetch origin '+refs/heads/*:refs/remotes/origin/*' --quiet
           python3 scripts/check-cd-allocation.py --no-fetch
-      # The complete contract check runs only here: check-json.py nests
-      # scripts/check-agent-contracts.py, whose subprocess inherits this
-      # step's environment, so CONCORD_REQUIRE_BUN=1 keeps a missing Bun or
-      # an unreachable package registry failing this required step instead of
-      # degrading to the contributor-laptop fallbacks.
+      # Strict Bun and registry failures remain required. Only suite
+      # subprocesses move to other owners, whose results verify also requires.
       - name: Validate JSON
         env:
           CONCORD_REQUIRE_BUN: "1"
-        run: python3 scripts/check-json.py
-      - name: Validate project tooling manifest
-        run: python3 scripts/check-project-tooling.py
+        run: python3 scripts/check-json.py --adapter-tests-external --contract-tests-external
       - name: Validate durable tier
         run: python3 scripts/check-durable-tier.py
       - name: Validate migration compatibility declarations
@@ -174,8 +202,31 @@ jobs:
         run: python3 scripts/check-approval-consequence.py
       - name: Test verification phase reporting
         run: python3 scripts/test-oc-test.py
+
+  verify-tooling:
+    name: verify-tooling
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: 1.4.0
+      # CON-893: the pre-push preflight must stay identical to CI-owned
+      # commands. This validator fails when a lefthook.yml gate, environment,
+      # pin, selector battery, or glob routing drifts from this workflow.
+      - name: Validate pre-push preflight parity
+        run: python3 scripts/check-pre-push.py
       - name: Test release and installer tooling
-        run: python3 scripts/test-release.py && python3 scripts/test-installer.py && python3 scripts/test-primary-prompts.py && python3 scripts/test-commit-title.py && python3 scripts/test-predecessor-coverage.py && python3 scripts/test-floor-readiness.py && python3 scripts/test-maturity-readiness.py && python3 scripts/test-knowledge-index.py && python3 scripts/test-knowledge-vocabulary.py && python3 scripts/test-knowledge-closure.py && python3 scripts/test-knowledge-placement.py && python3 scripts/test-relation-vocabulary.py && python3 scripts/test-vocabulary-authority.py && python3 scripts/test-work-kinds.py && python3 scripts/test-native-run-statuses.py && python3 scripts/test-rigor-class.py && python3 scripts/test-approval-consequence.py && python3 scripts/test-archived-work-kind.py && python3 scripts/test-doc-contract.py && python3 scripts/test-agents-md.py && python3 scripts/test-agent-contracts.py && python3 scripts/test-check-json.py && python3 scripts/test-generate-law-coverage.py && python3 scripts/test-generate-knowledge-index.py && python3 scripts/test-check-domain-registry.py && python3 scripts/test-generate-agent-lanes.py && python3 scripts/test-shard-format.py && python3 scripts/test-law-coverage.py && python3 scripts/test-test-file-naming.py && python3 scripts/test-cd-allocation.py && python3 scripts/test-renumber-cd.py && python3 scripts/test-script-tests.py && python3 scripts/test-project-tooling.py && python3 scripts/test-durable-tier.py && python3 scripts/test-lane-eval-baseline.py && python3 scripts/test-typed-knowledge.py && python3 scripts/test-check-worker-scope-contract.py && python3 scripts/test-check-pr-linear-link.py && python3 scripts/test-agent-reliability-telemetry.py
+        run: python3 scripts/test-release.py && python3 scripts/test-installer.py && python3 scripts/test-primary-prompts.py && python3 scripts/test-commit-title.py && python3 scripts/test-predecessor-coverage.py && python3 scripts/test-floor-readiness.py && python3 scripts/test-maturity-readiness.py && python3 scripts/test-knowledge-index.py && python3 scripts/test-knowledge-vocabulary.py && python3 scripts/test-knowledge-closure.py && python3 scripts/test-knowledge-placement.py && python3 scripts/test-relation-vocabulary.py && python3 scripts/test-vocabulary-authority.py && python3 scripts/test-work-kinds.py && python3 scripts/test-native-run-statuses.py && python3 scripts/test-rigor-class.py && python3 scripts/test-approval-consequence.py && python3 scripts/test-archived-work-kind.py && python3 scripts/test-doc-contract.py && python3 scripts/test-agents-md.py && python3 scripts/test-agent-contracts.py && python3 scripts/test-check-json.py && python3 scripts/test-generate-law-coverage.py && python3 scripts/test-generate-knowledge-index.py && python3 scripts/test-check-domain-registry.py && python3 scripts/test-generate-agent-lanes.py && python3 scripts/test-shard-format.py && python3 scripts/test-law-coverage.py && python3 scripts/test-test-file-naming.py && python3 scripts/test-cd-allocation.py && python3 scripts/test-renumber-cd.py && python3 scripts/test-script-tests.py && python3 scripts/test-project-tooling.py && python3 scripts/test-durable-tier.py && python3 scripts/test-lane-eval-baseline.py && python3 scripts/test-typed-knowledge.py && python3 scripts/test-check-worker-scope-contract.py && python3 scripts/test-check-pr-linear-link.py && python3 scripts/test-agent-reliability-telemetry.py && python3 scripts/test-pre-push.py && python3 scripts/test-run-script-tests.py
 
   # Go static analysis: build hygiene, lint, and the callgraph/complexity
   # planes. Cached module and build caches keep the pinned analysis tools
@@ -207,6 +258,15 @@ jobs:
         run: git diff --exit-code
       - name: Vet
         run: go vet ./...
+      # The next two steps keep exact parity with the pre-push preflight
+      # gates (CON-893): each lefthook.yml command must stay identical to a
+      # CI-owned command, and scripts/check-pre-push.py fails when either
+      # side drifts. They also stand alone as the fast build and
+      # compile-only checks of every test binary.
+      - name: Build
+        run: go build ./...
+      - name: Compile all tests
+        run: go test -run '^$' -timeout=15m ./...
       - name: Lint Go
         run: go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.1 run --output.text.colors=false ./...
       - name: Validate product reachability

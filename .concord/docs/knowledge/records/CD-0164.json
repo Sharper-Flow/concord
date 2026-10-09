@@ -23,9 +23,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:3e22b8dcd01ef30964ecd63e0a8fe906a46117094a4007489d9df4f1ea664a9e",
+  "sha256": "sha256:31081f6475cf406ed8c2262845a6fd69ec2b2baaf4a4bbbe5083b236231ecf57",
   "status": "accepted",
-  "summary": "One correction sequence counts every dispatched worker attempt on the work item since the last accepted worker result, whatever failure kind the attempt returned, and no kind is exempt. An accepted result resets the count, the count survives operator-approved contract supersession, and the successor inherits the bound. The failure and rejection comparator escalates when that dispatch count reaches the limit, while the verification comparator escalates when correction requests since the last healthy verdict pass it, because each path counts the population it can observe. Refines CD-0137 D3 by naming the population its three-attempt bound counts.",
+  "summary": "Correction counts use distinct dispatched attempts since the last productive acceptance, regardless of failure kind. The work-wide nonprogress budget also counts completed no_ship attempts and survives step, disposition, correction-request, and contract changes. Only productive acceptance resets the window. Failure and rejection use the dispatch-count comparator; verification uses correction requests since the last healthy verdict.",
   "tags": [
     "correction",
     "dispatch",

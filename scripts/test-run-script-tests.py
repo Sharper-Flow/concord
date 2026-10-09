@@ -394,6 +394,7 @@ jobs:
 SCRATCH_COMMIT_SUITE = r'''#!/usr/bin/env python3
 """Build and commit a scratch Git repository of this suite's own."""
 import shutil
+import os
 import subprocess
 import sys
 import tempfile
@@ -415,6 +416,7 @@ def main() -> int:
             ("tag", "suite-scratch-tag"),
             ("rev-parse", "HEAD"),
         )
+        head = ""
         for args in commands:
             done = subprocess.run(
                 ["git", "-C", str(repo), *args], capture_output=True, text=True
@@ -422,6 +424,12 @@ def main() -> int:
             if done.returncode:
                 print(f"scratch suite: git {args[0]} failed: {done.stderr.strip()}", file=sys.stderr)
                 return 9
+            if args[0] == "rev-parse":
+                head = done.stdout.strip()
+        if not head:
+            print("scratch suite: Git returned an empty HEAD", file=sys.stderr)
+            return 9
+        Path(os.environ["SUITE_COMPLETION_MARKER"]).write_text(f"HEAD {head}\n", encoding="utf-8")
         return 0
     finally:
         shutil.rmtree(scratch, ignore_errors=True)
@@ -660,43 +668,85 @@ class HookEnvironmentLeakTest(unittest.TestCase):
             f"into the outer scratch repository ({len(changed)} paths changed: {shown})"
         )
 
+    def _invoke_runner(self, fixture: SelectorRoot, env: dict[str, str], runner: Path = SCRIPT):
+        return subprocess.run(
+            [sys.executable, str(runner), "--root", str(fixture.root), "lefthook.yml"],
+            env=env,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+
+    def _assert_hook_case_result(
+        self,
+        name: str,
+        result: subprocess.CompletedProcess[str],
+        before: dict[str, bytes],
+        after: dict[str, bytes],
+        completion_marker: Path,
+    ) -> None:
+        # Compare snapshots before returncode so a failed child still reports writes.
+        self.assertEqual(before, after, self._leak_report(name, before, after))
+        self.assertIn(
+            "script-suite python3 scripts/test-scratch-commit.py", result.stdout, result.stderr
+        )
+        self.assertEqual(
+            result.returncode,
+            0,
+            f"the suite broke under the inherited {name} environment:\n{result.stderr}",
+        )
+        self.assertTrue(completion_marker.is_file(), "the selected suite did not write its completion marker")
+        self.assertRegex(
+            completion_marker.read_text(encoding="utf-8"),
+            r"^HEAD (?:[0-9a-f]{40}|[0-9a-f]{64})\n$",
+            "the marker must contain the scratch repository HEAD after all Git commands succeed",
+        )
+
+    def _exercise_hook_case(
+        self,
+        name: str,
+        runner: Path = SCRIPT,
+        suite_text: str = SCRATCH_COMMIT_SUITE,
+    ) -> None:
+        with tempfile.TemporaryDirectory(prefix="con-896-outer-") as outer_dir:
+            outer = self._outer_scratch_repository(Path(outer_dir))
+            self._prepare_hook_environment_fixture(name, outer)
+            before = self._snapshot(outer)
+            with SelectorRoot(battery_text=SCRATCH_COMMIT_CI_FIXTURE) as fixture:
+                fixture.script("test-scratch-commit.py", suite_text)
+                completion_marker = fixture.root / "suite-completed.txt"
+                env = self._clean_hook_env()
+                env.update(self._hook_environment(name, outer))
+                env["SUITE_COMPLETION_MARKER"] = str(completion_marker)
+                result = self._invoke_runner(fixture, env, runner)
+                after = self._snapshot(outer)
+                self._assert_hook_case_result(name, result, before, after, completion_marker)
+
     def test_runner_children_do_not_inherit_a_hook_git_environment(self) -> None:
         for name in self.HOOK_ENVIRONMENT_CASES:
             with self.subTest(hook_environment=name):
-                with tempfile.TemporaryDirectory(prefix="con-896-outer-") as outer_dir:
-                    outer = self._outer_scratch_repository(Path(outer_dir))
-                    self._prepare_hook_environment_fixture(name, outer)
-                    before = self._snapshot(outer)
-                    with SelectorRoot(battery_text=SCRATCH_COMMIT_CI_FIXTURE) as fixture:
-                        fixture.script("test-scratch-commit.py", SCRATCH_COMMIT_SUITE)
-                        env = self._clean_hook_env()
-                        env.update(self._hook_environment(name, outer))
-                        result = subprocess.run(
-                            # The real selector runner, invoked the way a hook
-                            # invokes it: a mapping-file change routes to the
-                            # battery, which the fake CI selects one suite from.
-                            [sys.executable, str(SCRIPT), "--root", str(fixture.root), "lefthook.yml"],
-                            env=env,
-                            text=True,
-                            capture_output=True,
-                            check=False,
-                        )
-                    after = self._snapshot(outer)
-                # The real runner must have executed the synthetic suite: a
-                # plan that never ran would prove nothing about the children.
-                self.assertIn(
-                    "script-suite python3 scripts/test-scratch-commit.py", result.stdout, result.stderr
-                )
-                # The snapshot comparison runs before the exit-code check so a
-                # broken subprocess still reports the writes it managed.
-                self.assertEqual(before, after, self._leak_report(name, before, after))
-                self.assertEqual(
-                    result.returncode,
-                    0,
-                    f"the suite broke under the inherited {name} environment:\n{result.stderr}",
-                )
+                # The real selector runner is invoked as a hook would invoke
+                # it; the fixture CI battery selects one synthetic suite.
+                self._exercise_hook_case(name)
 
-    def test_runner_refuses_to_spawn_suites_when_namespace_discovery_fails(self) -> None:
+    def test_negative_control_rejects_runner_that_only_prints_a_plan(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="con-896-skipped-runner-") as directory:
+            fake_runner = Path(directory) / "skipped_runner.py"
+            fake_runner.write_text(
+                "print('script-suite python3 scripts/test-scratch-commit.py')\n",
+                encoding="utf-8",
+            )
+            # Exercise the exact assertion path used by all six real cases.
+            # This runner prints the plan and exits 0 without spawning the
+            # synthetic child; the missing completion marker must reject it.
+            with self.assertRaises(AssertionError):
+                self._exercise_hook_case("GIT_DIR", runner=fake_runner)
+
+    def _assert_namespace_discovery_refusal(
+        self,
+        runner: Path = SCRIPT,
+        suite_text: str = SCRATCH_COMMIT_SUITE,
+    ) -> None:
         # Fail closed: when Git's own namespace cannot be discovered, the
         # runner must refuse to spawn any suite rather than risk poisoned
         # children, however healthy the selection itself looks.
@@ -710,23 +760,59 @@ class HookEnvironmentLeakTest(unittest.TestCase):
             python3.write_text(FAKE_PYTHON3)
             python3.chmod(0o700)
             record = Path(stub_dir) / "suites.jsonl"
+            recorded_suites = None
             with SelectorRoot(battery_text=SCRATCH_COMMIT_CI_FIXTURE) as fixture:
-                fixture.script("test-scratch-commit.py", SCRATCH_COMMIT_SUITE)
+                fixture.script("test-scratch-commit.py", suite_text)
                 env = dict(
                     os.environ,
                     PATH=str(bin_dir) + os.pathsep + str(stub_dir) + os.pathsep + "/usr/bin:/bin",
                     SUITE_RECORD=str(record),
                 )
-                result = subprocess.run(
-                    [sys.executable, str(SCRIPT), "--root", str(fixture.root), "lefthook.yml"],
-                    env=env,
-                    text=True,
-                    capture_output=True,
-                    check=False,
-                )
+                result = self._invoke_runner(fixture, env, runner)
+                if record.is_file():
+                    recorded_suites = record.read_text(encoding="utf-8")
         self.assertEqual(result.returncode, 2, result.stderr)
-        self.assertFalse(record.exists(), "a refused runner must not have spawned any suite")
+        self.assertIsNone(
+            recorded_suites,
+            f"a refused runner spawned a suite before refusing: {recorded_suites!r}",
+        )
         self.assertIn("refusing to spawn suites", result.stderr)
+
+    def test_runner_refuses_to_spawn_suites_when_namespace_discovery_fails(self) -> None:
+        self._assert_namespace_discovery_refusal()
+
+    def test_negative_control_rejects_refusal_after_a_child_wrote_its_marker(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="con-896-erroneous-runner-") as directory:
+            root = Path(directory)
+            fake_runner = root / "erroneous_runner.py"
+            spawn_proof = root / "child-spawn-proof.txt"
+            child_text = (
+                "import os\n"
+                "from pathlib import Path\n"
+                "Path(os.environ['SUITE_RECORD']).write_text('child completed\\n', encoding='utf-8')\n"
+            )
+            fake_runner.write_text(
+                "import os, subprocess, sys\n"
+                "from pathlib import Path\n"
+                "root = Path(sys.argv[sys.argv.index('--root') + 1])\n"
+                "subprocess.run([sys.executable, str(root / 'scripts/test-scratch-commit.py')], check=True, env=os.environ.copy())\n"
+                "record = Path(os.environ['SUITE_RECORD'])\n"
+                "Path(" + repr(str(spawn_proof)) + ").write_text(record.read_text(encoding='utf-8'), encoding='utf-8')\n"
+                "print('run-script-tests: refusing to spawn suites with an undiscovered Git environment', file=sys.stderr)\n"
+                "raise SystemExit(2)\n",
+                encoding="utf-8",
+            )
+            try:
+                # The fake runner really spawns the fixture child and copies
+                # its marker outside the helper's cleaned tempdir. The shared
+                # P2 assertions must reject its false refusal.
+                with self.assertRaises(AssertionError):
+                    self._assert_namespace_discovery_refusal(
+                        runner=fake_runner,
+                        suite_text=child_text,
+                    )
+            finally:
+                self.assertEqual(spawn_proof.read_text(encoding="utf-8"), "child completed\n")
 
 
 class RepositoryBatteryTest(unittest.TestCase):

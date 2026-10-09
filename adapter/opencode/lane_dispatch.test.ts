@@ -82,9 +82,10 @@ const continuityEnvelope = (overrides: Partial<{ pinned: Record<string, unknown>
       spec_mandate: [], pending_operator_decision: null, latest_checkpoint: null, unresolved_failure: null,
       ...(overrides.pinned ?? {}),
     },
-    latest_checkpoint: null, boundaries: { count: 0, items: [], next_cursor: null, watermark: "seq:1" },
+    boundaries: { count: 0, items: [], next_cursor: null, watermark: "seq:1" },
     typed_availability: { restart: "unavailable", reason: "typed restart is deliberately excluded (CD-0027); pinned continuity is re-derived per call" },
-    pending_messages: 0, observations: [],
+    pending_messages: 0, observations: [], observations_total: 0,
+    observations_read: { tool: "concord_work_trace", operation: "observations", input: { work_id: WORK_ID } },
   },
 })
 

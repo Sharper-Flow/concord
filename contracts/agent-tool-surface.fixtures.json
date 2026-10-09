@@ -420,12 +420,14 @@
       "result_invalid_cases": [
         {
           "observations": [],
+          "total": 0,
           "unknown": true
         }
       ],
       "result_schema": "work_observation_page",
       "result_valid": {
-        "observations": []
+        "observations": [],
+        "total": 0
       }
     },
     {
@@ -505,25 +507,15 @@
             "next_cursor": "id-1",
             "watermark": "id-1"
           },
-          "latest_checkpoint": {
-            "active_unit": "id-1",
-            "attempt_epoch": 1,
-            "checkpoint_id": "id-1",
-            "diagnosis": "id-1",
-            "evidence_refs": [
-              "id-1"
-            ],
-            "hypothesis": "id-1",
-            "pending_decisions": [],
-            "pending_questions": [],
-            "sequence": 1,
-            "step_id": "id-1",
-            "strategy": "id-1",
-            "touched_refs": [
-              "id-1"
-            ],
-            "work_version": 1
+          "observations": [],
+          "observations_read": {
+            "input": {
+              "work_id": "id-1"
+            },
+            "operation": "observations",
+            "tool": "concord_work_trace"
           },
+          "observations_total": 0,
           "pending_messages": 0,
           "pinned": {
             "contract": {
@@ -614,25 +606,15 @@
             "next_cursor": "id-1",
             "watermark": "id-1"
           },
-          "latest_checkpoint": {
-            "active_unit": "id-1",
-            "attempt_epoch": 1,
-            "checkpoint_id": "id-1",
-            "diagnosis": "id-1",
-            "evidence_refs": [
-              "id-1"
-            ],
-            "hypothesis": "id-1",
-            "pending_decisions": [],
-            "pending_questions": [],
-            "sequence": 1,
-            "step_id": "id-1",
-            "strategy": "id-1",
-            "touched_refs": [
-              "id-1"
-            ],
-            "work_version": 1
+          "observations": [],
+          "observations_read": {
+            "input": {
+              "work_id": "id-1"
+            },
+            "operation": "observations",
+            "tool": "concord_work_trace"
           },
+          "observations_total": 0,
           "pending_messages": 0,
           "pinned": {
             "contract": {
@@ -723,25 +705,15 @@
             "next_cursor": "id-1",
             "watermark": "id-1"
           },
-          "latest_checkpoint": {
-            "active_unit": "id-1",
-            "attempt_epoch": 1,
-            "checkpoint_id": "id-1",
-            "diagnosis": "id-1",
-            "evidence_refs": [
-              "id-1"
-            ],
-            "hypothesis": "id-1",
-            "pending_decisions": [],
-            "pending_questions": [],
-            "sequence": 1,
-            "step_id": "id-1",
-            "strategy": "id-1",
-            "touched_refs": [
-              "id-1"
-            ],
-            "work_version": 1
+          "observations": [],
+          "observations_read": {
+            "input": {
+              "work_id": "id-1"
+            },
+            "operation": "observations",
+            "tool": "concord_work_trace"
           },
+          "observations_total": 0,
           "pending_messages": 0,
           "pinned": {
             "contract": {
@@ -833,25 +805,15 @@
           "next_cursor": "id-1",
           "watermark": "id-1"
         },
-        "latest_checkpoint": {
-          "active_unit": "id-1",
-          "attempt_epoch": 1,
-          "checkpoint_id": "id-1",
-          "diagnosis": "id-1",
-          "evidence_refs": [
-            "id-1"
-          ],
-          "hypothesis": "id-1",
-          "pending_decisions": [],
-          "pending_questions": [],
-          "sequence": 1,
-          "step_id": "id-1",
-          "strategy": "id-1",
-          "touched_refs": [
-            "id-1"
-          ],
-          "work_version": 1
+        "observations": [],
+        "observations_read": {
+          "input": {
+            "work_id": "id-1"
+          },
+          "operation": "observations",
+          "tool": "concord_work_trace"
         },
+        "observations_total": 0,
         "pending_messages": 0,
         "pinned": {
           "contract": {
@@ -3807,5 +3769,5 @@
       }
     }
   ],
-  "manifest_digest": "sha256:6d9ce9b4413b63d1e57779c4e0af4d3b65b1973219e1a06622094f07403f1573"
+  "manifest_digest": "sha256:7162f0e358b2030a0dc7b9f12de79ee8ab1ef04b7e253ea7537dfb71c0b21a74"
 }

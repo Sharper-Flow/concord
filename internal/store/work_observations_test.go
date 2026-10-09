@@ -54,7 +54,8 @@ func TestObservationRecordsSurviveRebuildAndStayVisible(t *testing.T) {
 	if err := RebuildFromLog(context.Background(), s); err != nil {
 		t.Fatal(err)
 	}
-	observations, err := s.ObservationsForWork(context.Background(), "work-99", 10)
+	page, err := s.ReadWorkObservations(context.Background(), WorkObservationsRequest{WorkID: "work-99", Limit: 10})
+	observations := page.Observations
 	if err != nil || len(observations) != 1 {
 		t.Fatalf("observations=%+v err=%v", observations, err)
 	}

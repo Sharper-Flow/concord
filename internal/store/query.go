@@ -198,22 +198,19 @@ type WorkItem struct {
 
 type Q4Result struct {
 	ResultMeta
-	Items      []WorkItem `json:"items"`
-	NextCursor *string    `json:"next_cursor"`
+	Items []WorkItem `json:"items"`
 }
 
 type Q5Result struct {
 	ResultMeta
-	Items      []WorkItem `json:"items"`
-	NextCursor *string    `json:"next_cursor"`
+	Items []WorkItem `json:"items"`
 }
 
 type Q6Result struct {
 	ResultMeta
-	Work       *WorkItem            `json:"work,omitempty"`
-	Items      []WorkItem           `json:"items,omitempty"`
-	Result     *Q6WorkResultPayload `json:"result,omitempty"`
-	NextCursor *string              `json:"next_cursor"`
+	Work   *WorkItem            `json:"work,omitempty"`
+	Items  []WorkItem           `json:"items,omitempty"`
+	Result *Q6WorkResultPayload `json:"result,omitempty"`
 }
 
 type q6Cursor struct {
@@ -712,12 +709,7 @@ func (s *Store) QueryQ3(ctx context.Context, req Q3Request) (Q3Result, error) {
 		return out, newFailure(KindInvalidFilter, "PM1.Q3", "priority_min exceeds priority_max", false, "supply an ordered priority range")
 	}
 	terminalOnly := terminalOnlyQ3(states)
-	order := "urgency:asc,priority:asc,relevant_time:desc,id:asc"
-	orderSQL := "urgency ASC, priority ASC, relevant_time DESC, id ASC"
-	if terminalOnly {
-		order = "urgency:asc,terminal_time:desc,priority:asc,id:asc"
-		orderSQL = "urgency ASC, relevant_time DESC, priority ASC, id ASC"
-	}
+	order, orderSQL := q3Order(states)
 	tx, err := beginRead(ctx, s, "PM1.Q3")
 	if err != nil {
 		return out, err
@@ -810,20 +802,6 @@ func (s *Store) QueryQ3(ctx context.Context, req Q3Request) (Q3Result, error) {
 			items[i].WorkPin = &pin
 		}
 	}
-	var nextCursor *string
-	if len(items) > limit {
-		last := items[limit-1]
-		ts := last.CreatedAt
-		if terminalOnly {
-			ts = last.TerminalAt
-		}
-		encoded, e := encodeQ3Cursor(q3Cursor{Version: 1, QueryID: "PM1.Q3", Product: req.Product, Project: req.Project, States: states, Order: order, Urgency: last.Urgency, Priority: last.Priority, Timestamp: ts, ID: last.ID})
-		if e != nil {
-			return out, e
-		}
-		nextCursor = &encoded
-		items = items[:limit]
-	}
 	out.Items = items
 	if out.Items == nil {
 		out.Items = []WorkItem{}
@@ -832,8 +810,7 @@ func (s *Store) QueryQ3(ctx context.Context, req Q3Request) (Q3Result, error) {
 	if err != nil {
 		return out, err
 	}
-	out.NextCursor = nextCursor
-	return out, nil
+	return out.LimitPage(req, limit)
 }
 
 // attachRecordedIntent copies the recorded mutable-intent detail onto each
@@ -1095,10 +1072,11 @@ func (s *Store) QueryQ4(ctx context.Context, req Q4Request) (Q4Result, error) {
 		return out, err
 	}
 	rows.Close()
+	var nextCursor *string
 	if len(selected) > limit {
 		selected = selected[:limit]
 		next := strconv.Itoa(req.Offset + limit)
-		out.NextCursor = &next
+		nextCursor = &next
 	}
 	edgeCapped, nodeCapped := false, false
 	if len(selected) == 0 {
@@ -1118,6 +1096,7 @@ func (s *Store) QueryQ4(ctx context.Context, req Q4Request) (Q4Result, error) {
 	if err != nil {
 		return out, err
 	}
+	out.NextCursor = nextCursor
 	if edgeCapped {
 		out.Warnings = append(out.Warnings, "Q4 edge cap reached")
 		out.Omissions = append(out.Omissions, "unresolved blocker edges omitted by edge_limit")
@@ -1278,13 +1257,11 @@ func (s *Store) QueryQ5(ctx context.Context, req Q5Request) (Q5Result, error) {
 	if out.Items == nil {
 		out.Items = []WorkItem{}
 	}
-	if len(out.Items) > limit {
-		out.Items = out.Items[:limit]
-		next := strconv.Itoa(req.Offset + limit)
-		out.NextCursor = &next
-	}
 	out.ResultMeta, err = queryMeta(ctx, tx, "PM1.Q5", ResolvedScope{ProductID: req.Product}, []string{"urgency", "priority", "created_at", "id"})
-	return out, err
+	if err != nil {
+		return out, err
+	}
+	return out.LimitPage(req, limit)
 }
 
 func readOneWork(ctx context.Context, tx *sql.Tx, id string) (WorkItem, error) {
@@ -1429,17 +1406,11 @@ func (s *Store) QueryQ6(ctx context.Context, req Q6Request) (Q6Result, error) {
 	if err != nil {
 		return out, err
 	}
-	if len(out.Items) > limit {
-		out.Items = out.Items[:limit]
-		encoded, encodeErr := json.Marshal(q6Cursor{Version: 1, Product: req.Product, Project: req.Project, Order: "urgency:asc,priority:asc,updated_at:desc,id:asc", Offset: req.Offset + limit})
-		if encodeErr != nil {
-			return out, wrapFailure(KindInvariantViolation, "PM1.Q6", "cannot encode scope cursor", false, "restart the scope query", encodeErr)
-		}
-		next := base64.RawURLEncoding.EncodeToString(encoded)
-		out.NextCursor = &next
-	}
 	out.ResultMeta, err = queryMeta(ctx, tx, "PM1.Q6", ResolvedScope{ProductID: req.Product, ProjectID: req.Project}, []string{"urgency", "priority", "updated_at", "id"})
-	return out, err
+	if err != nil {
+		return out, err
+	}
+	return out.LimitPage(req, limit)
 }
 
 func (s *Store) QueryQ7(ctx context.Context, req Q7Request) (Q7Result, error) {

@@ -6,11 +6,15 @@
     },
     {
       "kind": "go_test",
-      "value": "internal/agent.TestEscalatedCorrectionRetryMintsBindableChallengeAndAdmitsOneAttempt"
+      "value": "internal/agent.TestEscalatedFailedCorrectionWallAdmitsOnlyBehindApproachConvergence"
     },
     {
       "kind": "go_test",
-      "value": "internal/agent.TestEscalatedCorrectionRetryRefusesStaleAndReusedApproval"
+      "value": "internal/agent.TestGenericOneOffFindingsConvergenceAdmitsOneEscalatedRetry"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestGenericOneOffNonProgressBudgetSpansStepsAndNoShipAcceptances"
     },
     {
       "kind": "go_test",

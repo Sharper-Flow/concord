@@ -1114,6 +1114,41 @@ func cursorValue(page pageInput) string {
 }
 
 func (r runtime) read(ctx context.Context, base Envelope, input []byte, queryID string) (Envelope, error) {
+	response, err := r.readResult(ctx, base, input, queryID)
+	if err != nil {
+		return response, err
+	}
+	size, err := readEnvelopeSize(response)
+	if err != nil {
+		return response, err
+	}
+	if size > MaxResultEnvelopeBytes {
+		return readSizeRefusal(response, size), nil
+	}
+	return response, nil
+}
+
+// readEnvelopeSize measures the final wire object, including authenticated
+// cursors and notices. MarshalJSON retains the hard bound as a consumer backstop.
+func readEnvelopeSize(response Envelope) (int, error) {
+	if err := response.Validate(); err != nil {
+		return 0, err
+	}
+	type wire Envelope
+	raw, err := json.Marshal(wire(response))
+	return len(raw), err
+}
+
+func readSizeRefusal(response Envelope, size int) Envelope {
+	// No rejected payload or evidence belongs in a refusal. The store remains
+	// unchanged, and the byte counts name a producer bound, not a transport fault.
+	base := NewBase(response.RequestID, response.Tool, response.Operation)
+	out := coreError(base, "limit_exceeded", fmt.Sprintf("read result including fixed projection and continuation requires %d serialized bytes; envelope maximum is %d bytes; reduce the page limit where supported, but a fixed projection or single item may not fit even at limit=1", size, MaxResultEnvelopeBytes), "reduce_limit", false)
+	out.Error.Details = map[string]any{"serialized_bytes": size, "maximum_bytes": MaxResultEnvelopeBytes, "reason": "result_envelope_bytes"}
+	return out
+}
+
+func (r runtime) readResult(ctx context.Context, base Envelope, input []byte, queryID string) (Envelope, error) {
 	switch r.Tool + "." + r.Operation {
 	case "concord_product_view.resolve":
 		return r.readProductResolve(ctx, base, input)
@@ -1680,11 +1715,14 @@ func ContinuityPayload(snapshot store.ContinuitySnapshot) map[string]any {
 	payload := map[string]any{
 		"work_id":            snapshot.WorkID,
 		"pinned":             pinned,
-		"latest_checkpoint":  snapshot.LatestCheckpoint,
 		"boundaries":         map[string]any{"count": snapshot.BoundaryCount, "items": snapshot.Boundaries, "next_cursor": snapshot.NextCursor, "watermark": snapshot.Watermark},
 		"typed_availability": map[string]any{"restart": "unavailable", "reason": snapshot.RestartUnavailableReason},
 		"pending_messages":   snapshot.PendingMessages,
 		"observations":       observations,
+		"observations_total": snapshot.ObservationsTotal,
+		// The window holds only the newest observations; this read pages the
+		// whole population, newest first, in full detail.
+		"observations_read": map[string]any{"tool": "concord_work_trace", "operation": "observations", "input": map[string]any{"work_id": snapshot.WorkID}},
 	}
 	// An instance-less work item states its workflow absence as typed
 	// information: the step is null because no instance pins one, and the
@@ -1695,6 +1733,53 @@ func ContinuityPayload(snapshot store.ContinuitySnapshot) map[string]any {
 		pinned["workflow_instance"] = store.WorkflowInstanceAbsent
 	}
 	return payload
+}
+
+// FitContinuity renders the largest complete prefix of one captured
+// continuity snapshot whose serialized form fits maximum bytes. It first
+// shrinks the newest-observation window, which the paged observations read
+// backs, and then the boundary page, which its cursor resumes. render returns
+// the caller's final wire object and its size, so session boot and the
+// continuity read measure what they emit. When even one boundary and no
+// observations exceed maximum, the smallest rendering returns with its size
+// and the caller refuses.
+func FitContinuity[T any](snapshot store.ContinuitySnapshot, req store.ContinuityRequest, maximum int, render func(store.ContinuitySnapshot) (T, int, error)) (T, int, error) {
+	window := func(observations, boundaries int) (T, int, error) {
+		fitted, err := snapshot.LimitWindow(req, observations, boundaries)
+		if err != nil {
+			var zero T
+			return zero, 0, err
+		}
+		return render(fitted)
+	}
+	// largest returns the greatest n in [low, high] whose rendering fits,
+	// or ok=false when low itself does not fit.
+	largest := func(low, high int, at func(int) (T, int, error)) (T, int, bool, error) {
+		best, size, err := at(low)
+		if err != nil || size > maximum {
+			return best, size, false, err
+		}
+		for low < high {
+			mid := low + (high-low+1)/2
+			out, outSize, err := at(mid)
+			if err != nil {
+				return out, outSize, false, err
+			}
+			if outSize <= maximum {
+				best, size, low = out, outSize, mid
+			} else {
+				high = mid - 1
+			}
+		}
+		return best, size, true, nil
+	}
+	boundaries := max(len(snapshot.Boundaries), 1)
+	out, size, ok, err := largest(0, len(snapshot.Observations), func(n int) (T, int, error) { return window(n, boundaries) })
+	if err != nil || ok {
+		return out, size, err
+	}
+	out, size, _, err = largest(1, boundaries, func(n int) (T, int, error) { return window(0, n) })
+	return out, size, err
 }
 
 // proposalContextProjection carries the proposal record fields the

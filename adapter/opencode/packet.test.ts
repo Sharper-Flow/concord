@@ -112,11 +112,12 @@ const continuityEnvelope = (contract: unknown = pinnedContract(), designRecord: 
       ...(proposalRecord === null ? {} : { proposal_record: proposalRecord }),
       unresolved_failure: null,
     },
-    latest_checkpoint: null,
     boundaries: { count: 0, items: [], next_cursor: null, watermark: "seq:1" },
     typed_availability: { restart: "unavailable", reason: RESTART_UNAVAILABLE_REASON },
     pending_messages: 0,
     observations: [],
+    observations_total: 0,
+    observations_read: { tool: "concord_work_trace", operation: "observations", input: { work_id: WORK_ID } },
   },
 })
 

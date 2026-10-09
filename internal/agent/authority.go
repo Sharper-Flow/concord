@@ -721,6 +721,48 @@ type HostApprovalAssertion struct {
 	IssuedAt      string   `json:"issued_at"`
 }
 
+// normalizeScopeList copies unique scope identities in first-occurrence order.
+// Preserving order and nilness keeps unique lists' raw approval JSON unchanged.
+func normalizeScopeList(values []string) []string {
+	if values == nil {
+		return nil
+	}
+	out := make([]string, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		if _, duplicate := seen[value]; duplicate {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	return out
+}
+
+// scopeListValues decodes one scope-map list value into its normalized
+// string values: a []string a plan builder set, or a []any decoded from
+// stored challenge, approval, or idempotency-snapshot JSON. Values that are
+// not string lists name no scope identities and contribute nothing.
+func scopeListValues(value any) []string {
+	switch list := value.(type) {
+	case []string:
+		return normalizeScopeList(list)
+	case []any:
+		if list == nil {
+			return nil
+		}
+		values := make([]string, 0, len(list))
+		for _, item := range list {
+			if text, ok := item.(string); ok {
+				values = append(values, text)
+			}
+		}
+		return normalizeScopeList(values)
+	default:
+		return nil
+	}
+}
+
 func approvalScopeBindings(scope map[string]any) []string {
 	keys := make([]string, 0, len(scope))
 	for key := range scope {
@@ -734,16 +776,11 @@ func approvalScopeBindings(scope map[string]any) []string {
 			if value != "" {
 				bindings = append(bindings, key+":"+value)
 			}
-		case []string:
-			for _, item := range value {
+		default:
+			// The summary and host assertion share one unique binding per identity.
+			for _, item := range scopeListValues(value) {
 				if item != "" {
 					bindings = append(bindings, key+":"+item)
-				}
-			}
-		case []any:
-			for _, item := range value {
-				if text, ok := item.(string); ok && text != "" {
-					bindings = append(bindings, key+":"+text)
 				}
 			}
 		}

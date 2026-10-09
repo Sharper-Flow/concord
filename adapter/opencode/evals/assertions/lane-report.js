@@ -127,14 +127,20 @@ function validateSchema(schema, value, root, path = "", failures = []) {
       if (!validateSchema(branch, value, root, path, failures)) return false;
     }
   }
+  // Legacy reports forbid worker_job through `not`, as in dispatch.ts.
+  if (schema.not !== undefined && validateSchema(schema.not, value, root, path)) {
+    return fail("matches a forbidden schema");
+  }
   return true;
 }
 
 // Dispatch-owned fields the adapter strips from a worker-authored report
 // instead of trusting (dispatch.ts DISPATCH_OWNED_REPORT_FIELDS, CD-0056 D7).
 // The canonical report receives identity from the packet alone, so an echoed
-// field is discarded here exactly as admission discards it.
-const DISPATCH_OWNED_REPORT_FIELDS = ["attempt_id", "lane_id", "lane_version", "lane_digest", "work_id", "step_id"];
+// field is discarded here exactly as admission discards it. schema_version
+// is overlaid from the packet below; synthetic contexts without a packet
+// version keep the worker's schema version for standalone report validation.
+const DISPATCH_OWNED_REPORT_FIELDS = ["worker_job", "attempt_id", "lane_id", "lane_version", "lane_digest", "work_id", "step_id"];
 // The bounds mirror the adapter's report normalization (dispatch.ts
 // normalizeWorkerReport): each is read from the closed schema so this
 // projection cannot drift from the bound it satisfies. The store counts UTF-8
@@ -388,17 +394,20 @@ const SEEDED_DEFECT_MARKERS = new Map([
   ],
 ]);
 
+// packetWorkerJobBinding mirrors packetWorkerJobBinding (dispatch.ts): the
+// packet's inputs.worker_job projects onto the canonical report's binding as
+// job_id, revision, and digest alone (CD-0205). A packet without one projects
+// nothing, so absence stays absence.
+function packetWorkerJobBinding(packet) {
+  const job = packet?.inputs?.worker_job;
+  return job ? { worker_job: { job_id: job.job_id, revision: job.revision, digest: job.digest } } : {};
+}
+
 export default function (output, context) {
   const reports = candidates(output);
   if (reports.length === 0) {
     return { pass: false, score: 0, reason: "no agent-lane-report.v1 document found in worker output" };
   }
-
-  // Admission strips the dispatch window's identity before it validates:
-  // whatever the worker echoed is discarded, not trusted (CD-0056 D7).
-  const stripped = { ...reports[reports.length - 1] };
-  for (const field of DISPATCH_OWNED_REPORT_FIELDS) delete stripped[field];
-  const report = normalizeWorkerReport(stripped);
 
   // promptfoo hands the rendered prompt back as the raw packet document; the
   // lane identity and the seeded-defect markers below key on it.
@@ -408,6 +417,20 @@ export default function (output, context) {
   } catch {
     packet = null;
   }
+
+  // Compose dispatch-owned report identity before closed-schema validation.
+  // Standalone synthetic contexts retain their report schema identity; a
+  // malformed packet version never falls back to a worker-authored value.
+  const stripped = { ...reports[reports.length - 1] };
+  for (const field of DISPATCH_OWNED_REPORT_FIELDS) delete stripped[field];
+  const packetIdentity = isRecord(packet) && Object.hasOwn(packet, "schema_version")
+    ? { schema_version: packet.schema_version }
+    : {};
+  const report = normalizeWorkerReport({
+    ...stripped,
+    ...packetIdentity,
+    ...packetWorkerJobBinding(packet),
+  });
 
   const packetNamesIdentity = isRecord(packet)
     && typeof packet.lane_id === "string"

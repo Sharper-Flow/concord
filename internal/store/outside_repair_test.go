@@ -515,3 +515,67 @@ DELETE FROM fold_guard;`); err != nil {
 		t.Fatal("migration lost fold guard")
 	}
 }
+
+// dropMigration121Objects removes every schema object migration 121 creates,
+// so a store whose manifest tail was removed can re-apply the step cleanly.
+// The workflow_instances rebuild is inverted with the pre-step table shape,
+// data included: the re-apply must find the table as migration 121 left it.
+func dropMigration121Objects(ctx context.Context, db *sql.DB) error {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if err := enterFold(ctx, tx); err != nil {
+		return err
+	}
+	for _, stmt := range []string{
+		`DROP TABLE IF EXISTS outside_repair_reconciliations`,
+		`DROP TABLE IF EXISTS outside_repair_dispositions`,
+		`CREATE TABLE workflow_instances_v121_backup AS
+SELECT work_id, definition_ref, definition_version, definition_digest, current_step, instance_state,
+       execution_actor_ref, execution_model, started_at, completed_at, last_checkpoint_at, execution_started_at
+  FROM workflow_instances`,
+		`DROP TRIGGER IF EXISTS workflow_instances_guard_insert`,
+		`DROP TRIGGER IF EXISTS workflow_instances_guard_update`,
+		`DROP TRIGGER IF EXISTS workflow_instances_guard_delete`,
+		`DROP TABLE workflow_instances`,
+		`CREATE TABLE workflow_instances (
+    work_id TEXT PRIMARY KEY REFERENCES work_items(id) ON DELETE RESTRICT,
+    definition_ref TEXT NOT NULL,
+    definition_version INTEGER NOT NULL,
+    definition_digest TEXT NOT NULL,
+    current_step TEXT NOT NULL,
+    instance_state TEXT NOT NULL CHECK(instance_state IN ('planned','ready','running','blocked','awaiting_condition','verifying','completed','cancelled','superseded')),
+    execution_actor_ref TEXT REFERENCES workflow_actors(actor_ref) ON DELETE RESTRICT,
+    execution_model TEXT NOT NULL DEFAULT '' CHECK(length(execution_model) <= 128),
+    started_at TEXT,
+    completed_at TEXT,
+    last_checkpoint_at TEXT,
+    execution_started_at TEXT,
+    CHECK(definition_version > 0 AND definition_version <= 2147483647),
+    CHECK(length(definition_ref) BETWEEN 2 AND 128),
+    CHECK(length(definition_digest) = 71 AND substr(definition_digest,1,7) = 'sha256:'),
+    CHECK(length(current_step) BETWEEN 2 AND 128)
+)`,
+		`INSERT INTO workflow_instances
+    (work_id, definition_ref, definition_version, definition_digest, current_step, instance_state,
+     execution_actor_ref, execution_model, started_at, completed_at, last_checkpoint_at, execution_started_at)
+SELECT work_id, definition_ref, definition_version, definition_digest, current_step, instance_state,
+       execution_actor_ref, execution_model, started_at, completed_at, last_checkpoint_at, execution_started_at
+  FROM workflow_instances_v121_backup`,
+		`DROP TABLE workflow_instances_v121_backup`,
+		`CREATE INDEX workflow_instances_state ON workflow_instances(instance_state, work_id)`,
+		`CREATE TRIGGER workflow_instances_guard_insert BEFORE INSERT ON workflow_instances FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_instances is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END`,
+		`CREATE TRIGGER workflow_instances_guard_update BEFORE UPDATE ON workflow_instances FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_instances is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END`,
+		`CREATE TRIGGER workflow_instances_guard_delete BEFORE DELETE ON workflow_instances FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_instances is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END`,
+	} {
+		if _, err := tx.ExecContext(ctx, stmt); err != nil {
+			return err
+		}
+	}
+	if err := leaveFold(ctx, tx); err != nil {
+		return err
+	}
+	return tx.Commit()
+}

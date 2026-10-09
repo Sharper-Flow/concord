@@ -282,7 +282,7 @@ func workPinStepIntentsTx(ctx context.Context, tx *sql.Tx, workID string, pin *W
 	kept := pin.NextValidIntents[:0:0]
 	for _, intent := range pin.NextValidIntents {
 		decision := workflowAdmit(definition, state, intent.ActionID)
-		if !decision.Admitted && !decision.ApprovalRequired {
+		if !decision.Admitted && !decision.ApprovalRequired && !decision.ConvergenceRequired {
 			continue
 		}
 		kept = append(kept, intent)
@@ -456,8 +456,8 @@ func workPinCorrectionRequestIntentsTx(ctx context.Context, tx *sql.Tx, workID s
 		return correctionErr
 	}
 	pin.Correction = correction
-	if state.CorrectionEscalated {
-		pin.NextValidIntents = workPinEscalatedRetryIntents(pin.NextValidIntents)
+	if state.retryEscalated() {
+		pin.NextValidIntents = workPinEscalatedRetryIntents(pin.NextValidIntents, state.RetryConvergence.valid())
 	}
 	return nil
 }
@@ -640,15 +640,16 @@ func workPinWithoutAction(intents []WorkPinIntent, actionID string) []WorkPinInt
 }
 
 // workPinEscalatedRetryIntents keeps the dispatch_worker route visible when a
-// correction reached the three-attempt limit (CD-0173). The fold still
-// refuses the retry until the operator approval CD-0148 binds is consumed,
-// so the pin advertises the action under the escalated reason instead of
-// hiding a route that exists behind the approval wall.
-func workPinEscalatedRetryIntents(intents []WorkPinIntent) []WorkPinIntent {
+// correction reached the three-attempt limit (CD-0173). The reason names
+// whether the store has derived the convergence basis the dispatch needs.
+func workPinEscalatedRetryIntents(intents []WorkPinIntent, converging bool) []WorkPinIntent {
 	out := make([]WorkPinIntent, 0, len(intents))
 	for _, intent := range intents {
 		if intent.ActionID == "dispatch_worker" {
-			intent.ReasonCode = "escalated_retry_requires_approval"
+			intent.ReasonCode = "escalated_retry_requires_convergence"
+			if converging {
+				intent.ReasonCode = "escalated_retry_convergence_recorded"
+			}
 		}
 		out = append(out, intent)
 	}

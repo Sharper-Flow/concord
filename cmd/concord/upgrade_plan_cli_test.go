@@ -271,6 +271,28 @@ CREATE TRIGGER workflow_instances_guard_delete BEFORE DELETE ON workflow_instanc
 			`DROP TABLE worker_job_revisions`,
 			`DROP TABLE durability_commits`,
 			`DROP TABLE runtime_state_writers`,
+			// Migration 120 attaches its maintenance triggers to
+			// pre-existing tables, so they drop by name before its tables.
+			`DROP TRIGGER IF EXISTS initiative_projection_work_items_insert`,
+			`DROP TRIGGER IF EXISTS initiative_projection_work_items_delete`,
+			`DROP TRIGGER IF EXISTS initiative_projection_work_items_update`,
+			`DROP TRIGGER IF EXISTS initiative_projection_work_projects_insert`,
+			`DROP TRIGGER IF EXISTS initiative_projection_work_projects_delete`,
+			`DROP TRIGGER IF EXISTS initiative_projection_work_projects_update`,
+			`DROP TRIGGER IF EXISTS initiative_projection_product_projects_insert`,
+			`DROP TRIGGER IF EXISTS initiative_projection_product_projects_delete`,
+			`DROP TRIGGER IF EXISTS initiative_projection_product_projects_update`,
+			`DROP TRIGGER IF EXISTS initiative_projection_relations_insert`,
+			`DROP TRIGGER IF EXISTS initiative_projection_relations_delete`,
+			`DROP TRIGGER IF EXISTS initiative_projection_relations_update`,
+			`DROP TRIGGER IF EXISTS initiative_projection_initiative_entries_insert`,
+			`DROP TRIGGER IF EXISTS initiative_projection_initiative_entries_delete`,
+			`DROP TRIGGER IF EXISTS initiative_projection_initiative_entries_update`,
+			`DROP VIEW IF EXISTS initiative_entry_violation_rows`,
+			`DROP VIEW IF EXISTS initiative_scope_violation_rows`,
+			`DROP VIEW IF EXISTS initiative_work_scope`,
+			`DROP TABLE IF EXISTS initiative_entry_violations`,
+			`DROP TABLE IF EXISTS initiative_scope_violations`,
 		} {
 			if _, err := db.Exec(statement); err != nil {
 				t.Fatalf("cannot unpoison %q: %v", statement, err)

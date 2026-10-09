@@ -1,0 +1,212 @@
+{
+  "schema_version": "1.0",
+  "rules": [
+    {
+      "domain_id": "product-root:concord",
+      "include": ["LICENSE", "CODE_OF_CONDUCT.md", "SECURITY.md", "go.mod", "go.sum"],
+      "exclude": []
+    },
+    {
+      "domain_id": "durable-authority",
+      "include": [
+        "internal/hostlease/**", "internal/store/store.go", "internal/store/schema.go", "internal/store/events.go",
+        "internal/store/operation.go", "internal/store/transaction.go", "internal/store/durable*.go",
+        "internal/store/generated_durable_tier_budget.go", "internal/store/fold.go", "internal/store/recovery.go",
+        "internal/store/errors.go", "internal/store/queryer.go", "internal/store/reconstruction.go",
+        "internal/store/binary_compatibility*.go", "internal/store/readiness*.go", "internal/store/backup*.go",
+        "internal/store/operational_rebuild.go", "internal/store/research_rebuild.go", "internal/store/routing_policy_sqlite.go",
+        "internal/store/schema_*_test.go", "internal/store/upgrade*_test.go", "internal/store/fold_guard*_test.go",
+        "internal/store/tx*_test.go", "internal/store/open_concurrency_test.go", "internal/store/unstamped_open_test.go",
+        "internal/store/constraint_classification_test.go", "internal/store/contention_budget*_test.go",
+        "internal/store/events*_test.go", "internal/store/errors_effect_test.go", "internal/store/version_conflict*_test.go",
+        "internal/store/clock_test.go", "internal/store/nil_store_test.go", "internal/store/read_neighbor_test.go",
+        "internal/store/rebuild_clear_list_test.go", "internal/store/rebuild_msg_test.go", "internal/store/operation_test.go",
+        "internal/store/schema_test.go", "internal/store/store_test.go",
+        "contracts/durable-tier-budget.schema.json", "contracts/storage-vocabulary-authority*"
+      ],
+      "exclude": []
+    },
+    {
+      "domain_id": "workflow-engine",
+      "include": [
+        "internal/workflowcorpus/**", "internal/payloadschema/**", "internal/store/workflow*.go",
+        "internal/store/outside_repair*.go",
+        "internal/store/fence*.go", "internal/store/workpin*.go", "internal/store/await_health*.go",
+        "internal/store/checkpoint*_test.go", "contracts/workflow-*", "contracts/lane-step-dispatch*",
+        ".concord/scenarios/workflow-engine.v1.json", "workflows/**", "internal/store/compaction_claim_preflight_test.go",
+        "internal/store/confirm_premise_truth_test.go", "internal/store/continuity_repins*_test.go",
+        "internal/store/evidence_bind*_test.go", "internal/store/inflight_evolution_test.go", "internal/store/laneless_research_test.go",
+        "internal/store/operator_verdict_test.go", "internal/store/verdict_evidence_binding_test.go"
+      ],
+      "exclude": ["internal/store/workflow_test_support_test.go"]
+    },
+    {
+      "domain_id": "agent-surface",
+      "include": [
+        "internal/agent/**", "adapter/**", ".opencode/**", "examples/opencode/**", ".concord/instructions/**",
+        "internal/store/agent*.go", "internal/store/worker*.go", "internal/store/project_handoffs.go", "internal/store/generated_agent_lanes.go",
+        "internal/store/generated_typed_error_kinds.go", "internal/store/native_runs.go", "internal/store/native_run*_test.go",
+        "internal/store/generated_native_run_statuses.go", "internal/store/cursor.go", "internal/store/work_collection_cursor.go",
+        "internal/store/query_corpus*_test.go", "internal/store/query_recorded_intent_test.go", "internal/store/nil_store_queries_test.go",
+        "internal/store/nil_store_agent*_test.go", "internal/store/pm8_pm9_absence_test.go",
+        "contracts/agent-*", "contracts/host-tool-*", "contracts/native-run-*", "contracts/worker-*",
+        "contracts/adapter-*", ".concord/scenarios/agent-jobs.v1.json", ".concord/scenarios/adapter-continuity.v1.json",
+        "skills/**", "bunfig.toml", "internal/store/typed_error_kinds_test.go"
+      ],
+      "exclude": []
+    },
+    {
+      "domain_id": "product-memory",
+      "include": [
+        ".concord/docs/**", ".concord/schemas/**", ".concord/domain-navigation.v1.json", ".concord/navigation/**",
+        "internal/store/knowledge*.go", "internal/store/research*.go", "internal/store/product_knowledge*.go",
+        "internal/store/law_*.go", "internal/store/lesson_publish*.go", "internal/store/git_knowledge*.go",
+        "internal/store/domain_attachments*.go", "internal/store/domain_observations*.go", "internal/store/cd_reservations.go",
+        "internal/store/home_pair_binding*.go", "internal/store/federated_law_boundary_test.go", "internal/store/boundary_test.go",
+        "internal/store/unprocessed_knowledge*.go", "internal/store/nil_store_knowledge*_test.go", "internal/store/nil_store_domain_test.go",
+        "internal/store/domain_projection_test.go", "internal/store/federated_correction_test.go",
+        "contracts/concord-knowledge-index.v1.schema.json", "contracts/law-coverage.schema.json",
+        ".concord/scenarios/knowledge-*.json", ".concord/scenarios/product-memory-query.v1.json"
+      ],
+      "exclude": ["internal/store/research_rebuild.go"]
+    },
+    {
+      "domain_id": "work-coordination",
+      "include": [
+        "internal/linearclient/**", "internal/store/lifecycle.go", "internal/store/generated_work_kinds.go",
+        "internal/store/generated_relation_vocabulary.go", "internal/store/work_messages.go", "internal/store/work_observations.go",
+        "internal/store/work_external_observations.go", "internal/store/external_observation*.go", "internal/store/resource_claims.go",
+        "internal/store/managed_resources*.go", "internal/store/work_removal*.go", "internal/store/defect_intake*.go",
+        "internal/store/initiative*.go", "internal/store/observation_optional_lists_test.go", "internal/store/work_observation_pages_test.go",
+        "internal/store/urgency_and_relation_order_test.go", "internal/store/work_kind_vocabulary_test.go",
+        "internal/store/relation_vocabulary_test.go", "internal/store/external_ref_collision_test.go",
+        "internal/store/lifecycle_relations_test.go", "internal/store/work_observations_test.go",
+        "contracts/work-kinds*", "contracts/relation-vocabulary*"
+      ],
+      "exclude": []
+    },
+    {
+      "domain_id": "operator-surface",
+      "include": [
+        "cmd/**", "brand/**", "internal/launcher/**", "internal/portfolio/**", "internal/predecessor/**",
+        "internal/receipt/**", "internal/sessionboot/**", "internal/version/**", "internal/store/operator.go",
+        "internal/store/product_stage*.go", "internal/store/product_row*.go", "internal/store/launcher*.go",
+        "internal/store/project_locator*.go", "internal/store/project_stage_test.go", "internal/store/display_name_bound_test.go",
+        "internal/store/nil_store_launcher_test.go",
+        "contracts/predecessor-snapshot.schema.json", ".concord/scenarios/launcher-portfolio.v1.json",
+        "README.md", "CONTRIBUTING.md", ".github/ISSUE_TEMPLATE/**", ".github/workflows/release.yml"
+      ],
+      "exclude": []
+    },
+    {
+      "domain_id": "repository-verification",
+      "include": [
+        "scripts/**", "bin/**", "internal/testenv/**", "internal/gittest/**", "internal/pm1fixture/**",
+        "internal/store/storetest/**", "internal/store/project_tooling.go", "internal/store/conformance*_test.go",
+        "internal/store/test_fixture_test.go", "internal/store/scrub_env_test.go", "internal/store/workflow_test_support_test.go",
+        "internal/store/race*_test.go", "internal/store/worktrees_tx_subprocess_test.go", "internal/store/neighbor_test.go",
+        "contracts/complexity-budget.schema.json", "contracts/floor-readiness.schema.json", "contracts/maturity-readiness.schema.json",
+        "contracts/project-tooling.v1.schema.json", "contracts/reachability-exceptions.schema.json", "contracts/README.md",
+        ".concord/tooling.v1.json", ".concord/scenarios/README.md", "AGENTS.md", ".github/**",
+        ".gitattributes", ".gitignore", ".editorconfig", ".golangci.yml"
+      ],
+      "exclude": [".github/ISSUE_TEMPLATE/**", ".github/workflows/release.yml"]
+    }
+  ],
+  "unresolved": [
+    {"path": "contracts/branch-freshness.digest", "candidate_domain_ids": ["work-coordination", "agent-surface"], "reason": "Freshness admission spans worktree ownership and the caller boundary."},
+    {"path": "contracts/branch-freshness.fixtures.json", "candidate_domain_ids": ["work-coordination", "agent-surface"], "reason": "Freshness admission spans worktree ownership and the caller boundary."},
+    {"path": "contracts/branch-freshness.schema.json", "candidate_domain_ids": ["work-coordination", "agent-surface"], "reason": "Freshness admission spans worktree ownership and the caller boundary."},
+    {"path": "contracts/branch-freshness.v1.json", "candidate_domain_ids": ["work-coordination", "agent-surface"], "reason": "Freshness admission spans worktree ownership and the caller boundary."},
+    {"path": "internal/store/ambiguous_scope_candidates_test.go", "candidate_domain_ids": ["work-coordination", "product-memory"], "reason": "Scope resolution combines relation endpoints and knowledge/compaction homes."},
+    {"path": "internal/store/blocked_sessions.go", "candidate_domain_ids": ["operator-surface", "agent-surface"], "reason": "Operator attention projection depends on agent approval challenges."},
+    {"path": "internal/store/blocked_sessions_test.go", "candidate_domain_ids": ["operator-surface", "agent-surface"], "reason": "Tests the mixed operator-attention and approval-challenge projection."},
+    {"path": "internal/store/bootstrap.go", "candidate_domain_ids": ["agent-surface", "operator-surface", "work-coordination"], "reason": "Bootstrap combines work-start admission, launcher sessions, and worktree claims."},
+    {"path": "internal/store/bootstrap_contention_test.go", "candidate_domain_ids": ["agent-surface", "work-coordination"], "reason": "Tests concurrent bootstrap through work-start and worktree ownership."},
+    {"path": "internal/store/bootstrap_test.go", "candidate_domain_ids": ["agent-surface", "operator-surface", "work-coordination"], "reason": "Tests bootstrap admission, launcher sessions, and worktree claims together."},
+    {"path": "internal/store/branch_freshness_contract_test.go", "candidate_domain_ids": ["work-coordination", "agent-surface"], "reason": "Tests freshness admission across the worktree and caller boundary."},
+    {"path": "internal/store/domain_reads.go", "candidate_domain_ids": ["product-memory", "workflow-engine"], "reason": "Combines registry reads with active work and architecture overlap queries."},
+    {"path": "internal/store/domain_reads_metadata_test.go", "candidate_domain_ids": ["product-memory", "workflow-engine"], "reason": "Tests metadata for the mixed registry/work/overlap read surface."},
+    {"path": "internal/store/domain_reads_test.go", "candidate_domain_ids": ["product-memory", "workflow-engine"], "reason": "Tests the mixed registry/work/overlap read surface."},
+    {"path": "internal/store/freshness.go", "candidate_domain_ids": ["work-coordination", "agent-surface"], "reason": "Branch sampling and fetch preflight serve worktree claim admission."},
+    {"path": "internal/store/freshness_origin_transport_test.go", "candidate_domain_ids": ["work-coordination", "agent-surface"], "reason": "Tests origin transport used by worktree admission freshness."},
+    {"path": "internal/store/freshness_test.go", "candidate_domain_ids": ["work-coordination", "agent-surface"], "reason": "Tests sampling and fetch preflight through worktree admission."},
+    {"path": "internal/store/generated_branch_freshness.go", "candidate_domain_ids": ["work-coordination", "agent-surface"], "reason": "Generated freshness validators share the unresolved admission owner."},
+    {"path": "internal/store/generated_lane_step_dispatch.go", "candidate_domain_ids": ["agent-surface", "workflow-engine"], "reason": "Generated join binds lane capabilities to workflow step kinds."},
+    {"path": "internal/store/git_runner.go", "candidate_domain_ids": ["operator-surface", "product-memory", "work-coordination"], "reason": "Shared Git process plumbing serves locators, knowledge reads, and freshness."},
+    {"path": "internal/store/git_runner_test.go", "candidate_domain_ids": ["operator-surface", "product-memory", "work-coordination"], "reason": "Tests Git plumbing shared by locators, knowledge reads, and freshness."},
+    {"path": "internal/store/governing_requirements.go", "candidate_domain_ids": ["work-coordination", "repository-verification"], "reason": "Capture obligations intersect declared repository checks and work scope."},
+    {"path": "internal/store/governing_requirements_test.go", "candidate_domain_ids": ["work-coordination", "repository-verification"], "reason": "Tests capture obligations at the work-scope/check boundary."},
+    {"path": "internal/store/landing.go", "candidate_domain_ids": ["work-coordination", "agent-surface"], "reason": "Landing binds work, session, directory, and process identity together."},
+    {"path": "internal/store/lane_step_dispatch_test.go", "candidate_domain_ids": ["agent-surface", "workflow-engine"], "reason": "Tests the generated lane-capability/workflow-step join."},
+    {"path": "internal/store/linear_adopt_test.go", "candidate_domain_ids": ["work-coordination", "operator-surface"], "reason": "External planning provenance and operator integration have no settled file owner."},
+    {"path": "internal/store/linear_audit_comment_test.go", "candidate_domain_ids": ["work-coordination", "operator-surface"], "reason": "External planning provenance and operator integration have no settled file owner."},
+    {"path": "internal/store/linear_backfill_recovery_test.go", "candidate_domain_ids": ["work-coordination", "operator-surface"], "reason": "External planning provenance and operator integration have no settled file owner."},
+    {"path": "internal/store/linear_capture_backfill_test.go", "candidate_domain_ids": ["work-coordination", "operator-surface"], "reason": "External planning provenance and operator integration have no settled file owner."},
+    {"path": "internal/store/linear_connection_migration_test.go", "candidate_domain_ids": ["work-coordination", "durable-authority"], "reason": "Tests planning identity and connection schema migration together."},
+    {"path": "internal/store/linear_connection_shared_resource_test.go", "candidate_domain_ids": ["work-coordination", "operator-surface"], "reason": "External planning provenance and operator integration have no settled file owner."},
+    {"path": "internal/store/linear_cross_product_test.go", "candidate_domain_ids": ["work-coordination", "operator-surface"], "reason": "External planning provenance and operator integration have no settled file owner."},
+    {"path": "internal/store/linear_degraded_link_test.go", "candidate_domain_ids": ["work-coordination", "operator-surface"], "reason": "External planning provenance and operator integration have no settled file owner."},
+    {"path": "internal/store/linear_disposition_test.go", "candidate_domain_ids": ["work-coordination", "operator-surface"], "reason": "External planning provenance and operator integration have no settled file owner."},
+    {"path": "internal/store/linear_health_label_gaps_test.go", "candidate_domain_ids": ["work-coordination", "operator-surface"], "reason": "External planning provenance and operator integration have no settled file owner."},
+    {"path": "internal/store/linear_identity_sqlite.go", "candidate_domain_ids": ["work-coordination", "durable-authority"], "reason": "Work external-reference identity is implemented as SQLite schema machinery."},
+    {"path": "internal/store/linear_import_test.go", "candidate_domain_ids": ["work-coordination", "operator-surface"], "reason": "External planning provenance and operator integration have no settled file owner."},
+    {"path": "internal/store/linear_initiative_ownership_order_test.go", "candidate_domain_ids": ["work-coordination", "operator-surface"], "reason": "External planning provenance and operator integration have no settled file owner."},
+    {"path": "internal/store/linear_initiative_project_test.go", "candidate_domain_ids": ["work-coordination", "operator-surface"], "reason": "External planning provenance and operator integration have no settled file owner."},
+    {"path": "internal/store/linear_integration.go", "candidate_domain_ids": ["work-coordination", "operator-surface"], "reason": "External planning provenance and operator integration have no settled file owner."},
+    {"path": "internal/store/linear_integration_test.go", "candidate_domain_ids": ["work-coordination", "operator-surface"], "reason": "External planning provenance and operator integration have no settled file owner."},
+    {"path": "internal/store/linear_label_key_refusal_test.go", "candidate_domain_ids": ["work-coordination", "operator-surface"], "reason": "External planning provenance and operator integration have no settled file owner."},
+    {"path": "internal/store/linear_link_refresh_test.go", "candidate_domain_ids": ["work-coordination", "operator-surface"], "reason": "External planning provenance and operator integration have no settled file owner."},
+    {"path": "internal/store/linear_owner_scope_test.go", "candidate_domain_ids": ["work-coordination", "operator-surface"], "reason": "External planning provenance and operator integration have no settled file owner."},
+    {"path": "internal/store/linear_phase1_test.go", "candidate_domain_ids": ["work-coordination", "operator-surface"], "reason": "External planning provenance and operator integration have no settled file owner."},
+    {"path": "internal/store/linear_priority_test.go", "candidate_domain_ids": ["work-coordination", "operator-surface"], "reason": "External planning provenance and operator integration have no settled file owner."},
+    {"path": "internal/store/linear_project_links_migration_test.go", "candidate_domain_ids": ["work-coordination", "durable-authority"], "reason": "Tests planning links and projection schema migration together."},
+    {"path": "internal/store/membership.go", "candidate_domain_ids": ["work-coordination", "operator-surface"], "reason": "Work/project placement and Product creation folds share one file."},
+    {"path": "internal/store/membership_test.go", "candidate_domain_ids": ["work-coordination", "operator-surface"], "reason": "Tests work/project placement and Product creation folds together."},
+    {"path": "internal/store/nil_store_scope_test.go", "candidate_domain_ids": ["work-coordination", "product-memory"], "reason": "Tests scope guards spanning work endpoints and knowledge homes."},
+    {"path": "internal/store/nil_store_work_item_test.go", "candidate_domain_ids": ["work-coordination", "workflow-engine", "agent-surface"], "reason": "One guard suite spans work summaries, workflow awaits/contracts, and worker attempts."},
+    {"path": "internal/store/predecessor_conflict_read_test.go", "candidate_domain_ids": ["work-coordination", "operator-surface"], "reason": "Predecessor provenance reads support operator import and work placement."},
+    {"path": "internal/store/predecessor_import.go", "candidate_domain_ids": ["work-coordination", "operator-surface"], "reason": "Predecessor event/membership reads support operator import and work placement."},
+    {"path": "internal/store/predecessor_import_test.go", "candidate_domain_ids": ["work-coordination", "operator-surface"], "reason": "Tests predecessor event/membership reads through the import boundary."},
+    {"path": "internal/store/project_handoffs_test.go", "candidate_domain_ids": ["work-coordination", "agent-surface", "workflow-engine"], "reason": "Tests session/project artifacts and workflow-contract preflight together."},
+    {"path": "internal/store/query.go", "candidate_domain_ids": ["agent-surface", "work-coordination", "workflow-engine"], "reason": "Public read envelopes and several semantic work/workflow projections share a file."},
+    {"path": "internal/store/query_pages.go", "candidate_domain_ids": ["agent-surface", "work-coordination"], "reason": "Pagination transport and semantic work projections share a file."},
+    {"path": "internal/store/query_test.go", "candidate_domain_ids": ["agent-surface", "work-coordination", "workflow-engine"], "reason": "Tests the combined public-envelope/work/workflow read owner."},
+    {"path": "internal/store/scope.go", "candidate_domain_ids": ["work-coordination", "product-memory"], "reason": "Scope resolution combines relation endpoints and knowledge/compaction homes."},
+    {"path": "internal/store/scope_test.go", "candidate_domain_ids": ["work-coordination", "product-memory"], "reason": "Tests scope resolution across relation endpoints and knowledge homes."},
+    {"path": "internal/store/scope_work_task_test.go", "candidate_domain_ids": ["work-coordination", "product-memory"], "reason": "Tests work text through the shared work/knowledge scope owner."},
+    {"path": "internal/store/scope_work_value_statement_test.go", "candidate_domain_ids": ["work-coordination", "product-memory"], "reason": "Tests work value statements through the shared work/knowledge scope owner."},
+    {"path": "internal/store/session_identity.go", "candidate_domain_ids": ["operator-surface", "agent-surface"], "reason": "Launcher-created session identity also establishes agent call context."},
+    {"path": "internal/store/session_vacate.go", "candidate_domain_ids": ["agent-surface", "work-coordination"], "reason": "Session departure and worktree occupancy release share one boundary."},
+    {"path": "internal/store/session_vacate_landing_test.go", "candidate_domain_ids": ["agent-surface", "work-coordination"], "reason": "Tests session departure with worktree occupancy landing."},
+    {"path": "internal/store/session_vacate_test.go", "candidate_domain_ids": ["agent-surface", "work-coordination"], "reason": "Tests session departure with worktree occupancy release."},
+    {"path": "internal/store/work_closure.go", "candidate_domain_ids": ["workflow-engine", "work-coordination"], "reason": "Work-level closure receipts restate terminal workflow and delivery facts."},
+    {"path": "internal/store/work_closure_test.go", "candidate_domain_ids": ["workflow-engine", "work-coordination"], "reason": "Tests work receipts coupled to terminal workflow/delivery facts."},
+    {"path": "internal/store/work_intent_task_test.go", "candidate_domain_ids": ["work-coordination", "product-memory"], "reason": "Tests work intent through the shared work/knowledge scope owner."},
+    {"path": "internal/store/worktree_claim_incarnation_migration_test.go", "candidate_domain_ids": ["work-coordination", "durable-authority"], "reason": "Tests claim-incarnation migration through mixed worktree occupancy machinery."},
+    {"path": "internal/store/worktree_occupancy_migration105_test.go", "candidate_domain_ids": ["work-coordination", "durable-authority"], "reason": "Tests occupancy migration through mixed worktree lifecycle machinery."},
+    {"path": "internal/store/worktree_occupancy_release_test.go", "candidate_domain_ids": ["work-coordination", "agent-surface"], "reason": "Tests worktree occupancy release coupled to session lifetime."},
+    {"path": "internal/store/worktree_route_test.go", "candidate_domain_ids": ["work-coordination", "agent-surface"], "reason": "Tests worktree routing through the caller/session boundary."},
+    {"path": "internal/store/worktree_verify_evidence_test.go", "candidate_domain_ids": ["work-coordination", "repository-verification"], "reason": "Verification evidence runs through the mixed worktree lease owner."},
+    {"path": "internal/store/worktree_verify_finalization_test.go", "candidate_domain_ids": ["work-coordination", "repository-verification"], "reason": "Verification finalization runs through the mixed worktree lease owner."},
+    {"path": "internal/store/worktree_verify_lease_recovery_test.go", "candidate_domain_ids": ["work-coordination", "repository-verification"], "reason": "Verification lease recovery runs through the mixed worktree lease owner."},
+    {"path": "internal/store/worktrees.go", "candidate_domain_ids": ["work-coordination", "agent-surface", "repository-verification"], "reason": "Claims, occupancy, session landing, reclamation, and exclusive verification share a file."},
+    {"path": "internal/store/worktrees_audit_reclaim_test.go", "candidate_domain_ids": ["work-coordination", "agent-surface"], "reason": "Tests audit/reclaim through the mixed worktree/session lifecycle owner."},
+    {"path": "internal/store/worktrees_claim_landing_record_test.go", "candidate_domain_ids": ["work-coordination", "agent-surface"], "reason": "Tests claim/landing records through the mixed worktree/session owner."},
+    {"path": "internal/store/worktrees_claim_landing_test.go", "candidate_domain_ids": ["work-coordination", "agent-surface"], "reason": "Tests claim landing through the mixed worktree/session owner."},
+    {"path": "internal/store/worktrees_destroy_test.go", "candidate_domain_ids": ["work-coordination", "agent-surface"], "reason": "Tests destruction through the mixed worktree/session lifecycle owner."},
+    {"path": "internal/store/worktrees_occupancy_test.go", "candidate_domain_ids": ["work-coordination", "agent-surface"], "reason": "Tests occupancy through the mixed worktree/session lifecycle owner."},
+    {"path": "internal/store/worktrees_reclaim_convergence_test.go", "candidate_domain_ids": ["work-coordination", "agent-surface"], "reason": "Tests convergence through the mixed worktree/session reclaim owner."},
+    {"path": "internal/store/worktrees_reclaim_identity_test.go", "candidate_domain_ids": ["work-coordination", "agent-surface"], "reason": "Tests identity through the mixed worktree/session reclaim owner."},
+    {"path": "internal/store/worktrees_reclaim_replay_test.go", "candidate_domain_ids": ["work-coordination", "agent-surface"], "reason": "Tests replay through the mixed worktree/session reclaim owner."},
+    {"path": "internal/store/worktrees_test.go", "candidate_domain_ids": ["work-coordination", "agent-surface", "repository-verification"], "reason": "Tests claims, occupancy, session lifecycle, and verification through one owner."},
+    {"path": "internal/store/worktrees_tiers_test.go", "candidate_domain_ids": ["work-coordination", "agent-surface"], "reason": "Tests reclamation tiers through the mixed worktree/session owner."},
+    {"path": "internal/store/worktrees_unpublished_lesson_test.go", "candidate_domain_ids": ["work-coordination", "product-memory"], "reason": "Tests reclamation preservation coupled to unpublished knowledge."}
+  ],
+  "test_coverage": [
+    {
+      "path": "internal/store/conformance_test.go",
+      "covers_owner_ids": ["domain:durable-authority", "domain:workflow-engine", "domain:agent-surface", "domain:work-coordination"]
+    }
+  ]
+}

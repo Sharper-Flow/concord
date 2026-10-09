@@ -40,7 +40,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:5ff9de586ea96e3eacffa635b94e7def0c05c63405896fb4b37db1dbaf72a6d7",
+  "sha256": "sha256:ce2563456150bd235700cf1b22f320590be370325c9856c810059f61de13ea5e",
   "status": "accepted",
   "summary": "Defines the machine-readable workflow engine implementation contract.",
   "tags": [

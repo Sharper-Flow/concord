@@ -101,27 +101,37 @@ func foldWorkObservationRecorded(ctx context.Context, tx *sql.Tx, event Event) e
 	return nil
 }
 
-// ObservationsForWork lists a work item's observations, newest first,
-// bounded. Read-time visibility (CD-0030 D2): no gate consumes this.
-func (s *Store) ObservationsForWork(ctx context.Context, workID string, limit int) ([]WorkObservation, error) {
-	if s == nil || s.db == nil {
-		return nil, newFailure(KindUnavailable, "work_observations", "store is not open", false, "open the authority database")
-	}
-	return observationsForWork(ctx, s.db, workID, limit)
-}
-
-func observationsForWork(ctx context.Context, q queryer, workID string, limit int) ([]WorkObservation, error) {
+// observationReadLimit is the one admitted page bound for observation reads:
+// an unset or sub-one limit reads the default page and a limit above the cap
+// clamps to it. The paged read and page re-limiting share it.
+func observationReadLimit(limit int) int {
 	if limit < 1 {
-		limit = 10
+		return 10
 	}
 	if limit > 64 {
-		limit = 64
+		return 64
 	}
-	rows, err := q.QueryContext(ctx, `SELECT observation_id,work_id,statement,refs,tags,recorded_at FROM work_observations WHERE work_id=? ORDER BY recorded_at DESC, observation_id LIMIT ?`, workID, limit)
-	if err != nil {
-		return nil, wrapFailure(KindUnavailable, "work_observations", "cannot read observations", true, "retry once the database is readable", err)
+	return limit
+}
+
+// decodeObservationColumns decodes the stored refs and tags JSON columns. The
+// fold writes only string arrays, so a value that does not decode into one is
+// a projection defect: it refuses as a typed invariant violation instead of
+// silently reading as an absent list.
+func decodeObservationColumns(refs, tags string) ([]string, []string, error) {
+	var outRefs, outTags []string
+	if err := json.Unmarshal([]byte(refs), &outRefs); err != nil {
+		return nil, nil, wrapFailure(KindInvariantViolation, "work_observations", "stored observation refs are not readable", false, "repair the live projection from its event log", err)
 	}
-	defer rows.Close()
+	if err := json.Unmarshal([]byte(tags), &outTags); err != nil {
+		return nil, nil, wrapFailure(KindInvariantViolation, "work_observations", "stored observation tags are not readable", false, "repair the live projection from its event log", err)
+	}
+	return outRefs, outTags, nil
+}
+
+// scanObservationRows decodes observation rows through the strict column
+// decoder, so a corrupted projection refuses instead of reading as empty.
+func scanObservationRows(rows *sql.Rows) ([]WorkObservation, error) {
 	out := []WorkObservation{}
 	for rows.Next() {
 		var o WorkObservation
@@ -129,9 +139,133 @@ func observationsForWork(ctx context.Context, q queryer, workID string, limit in
 		if err := rows.Scan(&o.ObservationID, &o.WorkID, &o.Statement, &refs, &tags, &o.RecordedAt); err != nil {
 			return nil, wrapFailure(KindUnavailable, "work_observations", "cannot decode observation", true, "retry once the database is readable", err)
 		}
-		_ = json.Unmarshal([]byte(refs), &o.Refs)
-		_ = json.Unmarshal([]byte(tags), &o.Tags)
+		decodedRefs, decodedTags, err := decodeObservationColumns(refs, tags)
+		if err != nil {
+			return nil, err
+		}
+		o.Refs, o.Tags = decodedRefs, decodedTags
 		out = append(out, o)
 	}
 	return out, rows.Err()
+}
+
+// workObservationsCollection is the collection identity that binds
+// observation continuation cursors (work_collection_cursor.go) to this
+// listing.
+const workObservationsCollection = "observations"
+
+// WorkObservationsRequest names one bounded observations page of one work
+// item.
+type WorkObservationsRequest struct {
+	WorkID string
+	Limit  int
+	Cursor string
+}
+
+// WorkObservationPage is one complete observations page: the whole-work
+// population total beside the bounded page, under the common result
+// envelope.
+type WorkObservationPage struct {
+	ResultMeta
+	Observations []WorkObservation `json:"observations"`
+	Total        int64             `json:"total"`
+}
+
+// ReadWorkObservations reads one observations page and its whole-work total
+// inside a single read transaction, ordered recorded_at descending and
+// observation_id ascending with an authenticated-work continuation cursor.
+func (s *Store) ReadWorkObservations(ctx context.Context, req WorkObservationsRequest) (WorkObservationPage, error) {
+	if s == nil || s.db == nil {
+		return WorkObservationPage{}, newFailure(KindUnavailable, "work_observations", "store is not open", false, "open the authority database")
+	}
+	tx, err := beginRead(ctx, s, "CD-0030.R1")
+	if err != nil {
+		return WorkObservationPage{}, err
+	}
+	defer tx.Rollback()
+	page, err := observationsPageForWork(ctx, tx, req)
+	if err != nil {
+		return WorkObservationPage{}, err
+	}
+	// The envelope assignment replaces the whole embedded ResultMeta, so the
+	// helper's continuation cursor is carried across it explicitly: a fresh
+	// ResultMeta carries none.
+	next := page.NextCursor
+	page.ResultMeta, err = queryMeta(ctx, tx, "CD-0030.R1", ResolvedScope{WorkID: req.WorkID}, []string{"recorded_at", "observation_id"})
+	if err != nil {
+		return WorkObservationPage{}, err
+	}
+	page.NextCursor = next
+	return page, nil
+}
+
+// observationsPageForWork reads the page data through the caller's read
+// handle: the whole-work population count beside one keyset page fetched as
+// limit+1 rows so the page knows whether more remain. The caller supplies
+// the result envelope metadata, so this core composes inside any
+// transaction.
+func observationsPageForWork(ctx context.Context, q queryer, req WorkObservationsRequest) (WorkObservationPage, error) {
+	limit := observationReadLimit(req.Limit)
+	cursor, err := decodeWorkCollectionCursor(req.Cursor, req.WorkID, workObservationsCollection)
+	if err != nil {
+		return WorkObservationPage{}, err
+	}
+	var page WorkObservationPage
+	if err := q.QueryRowContext(ctx, `SELECT COUNT(*) FROM work_observations WHERE work_id=?`, req.WorkID).Scan(&page.Total); err != nil {
+		return WorkObservationPage{}, wrapFailure(KindUnavailable, "work_observations", "cannot count observations", true, "retry once the database is readable", err)
+	}
+	query := `SELECT observation_id,work_id,statement,refs,tags,recorded_at FROM work_observations WHERE work_id=?`
+	args := []any{req.WorkID}
+	if req.Cursor != "" {
+		// The keyset predicate mirrors the page ordering exactly: strictly
+		// older rows first, then same-timestamp rows beyond the last emitted
+		// identity, so continuation emits every row once and in order.
+		query += ` AND (recorded_at < ? OR (recorded_at = ? AND observation_id > ?))`
+		args = append(args, cursor.RecordedAt, cursor.RecordedAt, cursor.ID)
+	}
+	query += ` ORDER BY recorded_at DESC, observation_id ASC LIMIT ?`
+	args = append(args, limit+1)
+	rows, err := q.QueryContext(ctx, query, args...)
+	if err != nil {
+		return WorkObservationPage{}, wrapFailure(KindUnavailable, "work_observations", "cannot read observations", true, "retry once the database is readable", err)
+	}
+	defer rows.Close()
+	observations, err := scanObservationRows(rows)
+	if err != nil {
+		return WorkObservationPage{}, err
+	}
+	// Rows drop only behind a continuation cursor: the limit+1 probe row
+	// proves more remain, and the cursor carries the last retained key.
+	if len(observations) > limit {
+		last := observations[limit-1]
+		next, err := encodeWorkCollectionCursor(req.WorkID, workObservationsCollection, last.RecordedAt, last.ObservationID)
+		if err != nil {
+			return WorkObservationPage{}, err
+		}
+		page.NextCursor = &next
+		observations = observations[:limit]
+	}
+	page.Observations = observations
+	return page, nil
+}
+
+// LimitPage keeps a complete prefix of an intact captured page for a caller
+// that must fit a byte budget. The retained prefix keeps the captured total
+// and source metadata, and the continuation cursor is derived from the last
+// retained observation, so no dropped row is dropped without a cursor. A
+// prefix that already fits returns the page unchanged, source cursor
+// included.
+func (page WorkObservationPage) LimitPage(req WorkObservationsRequest, limit int) (WorkObservationPage, error) {
+	limit = observationReadLimit(limit)
+	if len(page.Observations) <= limit {
+		return page, nil
+	}
+	last := page.Observations[limit-1]
+	next, err := encodeWorkCollectionCursor(req.WorkID, workObservationsCollection, last.RecordedAt, last.ObservationID)
+	if err != nil {
+		return page, err
+	}
+	page.Observations = page.Observations[:limit]
+	page.NextCursor = &next
+	return page, nil
 }

@@ -838,16 +838,6 @@ const GeneratedPayloadSchemaDocument = `{
           ],
           "type": "object"
         },
-        "latest_checkpoint": {
-          "oneOf": [
-            {
-              "$ref": "#/$defs/continuity_checkpoint"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
         "observations": {
           "items": {
             "additionalProperties": false,
@@ -897,6 +887,40 @@ const GeneratedPayloadSchemaDocument = `{
           },
           "maxItems": 16,
           "type": "array"
+        },
+        "observations_read": {
+          "additionalProperties": false,
+          "description": "The paged read of the whole observation population, newest first. The observations field holds only the newest window that fits the envelope.",
+          "properties": {
+            "input": {
+              "additionalProperties": false,
+              "properties": {
+                "work_id": {
+                  "$ref": "#/$defs/id"
+                }
+              },
+              "required": [
+                "work_id"
+              ],
+              "type": "object"
+            },
+            "operation": {
+              "const": "observations"
+            },
+            "tool": {
+              "const": "concord_work_trace"
+            }
+          },
+          "required": [
+            "tool",
+            "operation",
+            "input"
+          ],
+          "type": "object"
+        },
+        "observations_total": {
+          "minimum": 0,
+          "type": "integer"
         },
         "pending_messages": {
           "minimum": 0,
@@ -1083,10 +1107,12 @@ const GeneratedPayloadSchemaDocument = `{
       "required": [
         "work_id",
         "pinned",
-        "latest_checkpoint",
         "boundaries",
         "typed_availability",
-        "pending_messages"
+        "pending_messages",
+        "observations",
+        "observations_total",
+        "observations_read"
       ],
       "type": "object"
     },
@@ -6555,10 +6581,15 @@ const GeneratedPayloadSchemaDocument = `{
           },
           "maxItems": 64,
           "type": "array"
+        },
+        "total": {
+          "minimum": 0,
+          "type": "integer"
         }
       },
       "required": [
-        "observations"
+        "observations",
+        "total"
       ],
       "type": "object"
     },
@@ -11238,6 +11269,15 @@ const GeneratedPayloadSchemaDocument = `{
                   "evidence_refs": {
                     "items": {
                       "$ref": "#/$defs/reference"
+                    },
+                    "maxItems": 32,
+                    "minItems": 1,
+                    "type": "array",
+                    "uniqueItems": true
+                  },
+                  "open_finding_ids": {
+                    "items": {
+                      "$ref": "#/$defs/id"
                     },
                     "maxItems": 32,
                     "minItems": 1,

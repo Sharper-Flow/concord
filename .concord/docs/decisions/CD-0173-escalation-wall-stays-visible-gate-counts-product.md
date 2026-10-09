@@ -18,13 +18,15 @@ has no other work item to name, so its premise gate can never open.
 
 ## Decision
 
-### D1. The escalated pin advertises the approval-gated retry
+### D1. The escalated pin advertises the convergence-gated retry
 
 When the correction is escalated, the pin keeps the `dispatch_worker` intent
-and marks it with the reason `escalated_retry_requires_approval` instead of
-removing the intent. The fold still refuses the dispatch until the operator
-approval of CD-0148 is consumed. The pin states a route that reaches the wall,
-so an agent finds the approval boundary instead of a silent dead end.
+and marks it with the reason `escalated_retry_requires_convergence` instead
+of removing the intent. When the store derives a convergence basis, the
+reason becomes `escalated_retry_convergence_recorded`. The fold refuses the
+dispatch without a basis, and CD-0148 names the closed basis families. The
+pin states a route that reaches the wall, so an agent finds the convergence
+boundary instead of a silent dead end.
 
 ### D2. The comparison-work condition is counted by the core
 
@@ -39,10 +41,12 @@ carries only the current Domain ref.
 ## Verification
 
 - The store test `TestWorkPinEscalatedCorrectionAdvertisesApprovalGatedRetry`
-  proves the escalated pin carries `dispatch_worker` with the escalated
-  reason.
-- The store tests around the correction bound prove the fourth dispatch still
-  refuses with `approval_required` and admits one attempt behind the approval.
+  proves the escalated pin carries `dispatch_worker` with
+  `escalated_retry_requires_convergence` without a basis and
+  `escalated_retry_convergence_recorded` with one.
+- The store tests around the correction bound prove the fourth dispatch
+  refuses with `missing_evidence` and no minted challenge, and admits one
+  attempt behind a derived convergence basis.
 - The store tests `TestInvestigationArtifactAdmitsSingleItemProductByDomainRef`
   and `TestInvestigationArtifactSingleItemProductStillRequiresDomainRef` prove
   both halves of D2.

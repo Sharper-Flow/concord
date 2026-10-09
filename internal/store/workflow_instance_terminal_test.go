@@ -145,6 +145,55 @@ func TestTerminalLifecycleLeavesACompletedInstanceAlone(t *testing.T) {
 func TestMigrationClosesInstancesOfTerminalWorkItems(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
+	// The event log must replay under the current registry, so it is
+	// authored by the current write path on a full-schema sibling store and
+	// copied verbatim. The fixture itself stops before 75: the write path
+	// now ends in the initiative invariant validator, whose projection
+	// tables belong to migration 120, so a v74 fixture cannot run it.
+	sibling := openTemp(t)
+	defer sibling.Close()
+	definition, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	orphans := map[string]string{"orphan-cancelled": "cancelled", "orphan-completed": "completed", "orphan-superseded": "superseded"}
+	terminal := map[string]string{}
+	for workID, lifecycle := range orphans {
+		_, version := startWorkflowPinnedTo(t, sibling, workID, definition)
+		switch lifecycle {
+		case "superseded":
+			seedWork(t, sibling, workID+"-successor")
+			if err := applyWorkEvent(t, sibling, workSupersededEvent(workID+"-supersede", workID+"-successor", workID, version, version+1), workVersion(workID, version)); err != nil {
+				t.Fatal(err)
+			}
+		case "completed":
+			// The historical orphan migration 75 repairs predates the
+			// CD-0183 gate, so the recorded transition folds under the
+			// replay context a rebuild gives it, exactly as the log that
+			// survives from an earlier release does.
+			event := workTransitionEvent(workID+"-end", workID, "in_progress", "completed", version, version+1)
+			if err := ApplyOperation(workflowReplayContext(context.Background()), sibling, Operation{Events: []Event{event}, ExpectedVersions: workVersion(workID, version)}); err != nil {
+				t.Fatal(err)
+			}
+			assertFoldGuardEmpty(t, sibling)
+		default:
+			// The action start above moves the item to in_progress (CD-0183
+			// D1), so the terminal transition starts from there.
+			if err := applyWorkEvent(t, sibling, workTransitionEvent(workID+"-end", workID, "in_progress", lifecycle, version, version+1), workVersion(workID, version)); err != nil {
+				t.Fatal(err)
+			}
+		}
+		var lifecycleAt, terminalAt string
+		if err := sibling.DatabaseForTesting().QueryRow(`SELECT lifecycle,coalesce(terminal_time,'') FROM work_items WHERE id=?`, workID).Scan(&lifecycleAt, &terminalAt); err != nil {
+			t.Fatal(err)
+		}
+		if lifecycleAt != lifecycle || terminalAt == "" {
+			t.Fatalf("sibling %s lifecycle=%q terminal_time=%q", workID, lifecycleAt, terminalAt)
+		}
+		terminal[workID] = terminalAt
+	}
+
 	path := filepath.Join(t.TempDir(), "concord-orphans.db")
 	db, err := sql.Open(driverName, dataSourceName(path))
 	if err != nil {
@@ -168,63 +217,53 @@ func TestMigrationClosesInstancesOfTerminalWorkItems(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	s := &Store{db: db, path: path}
 	if err := ensureInstallationKey(ctx, db); err != nil {
 		t.Fatal(err)
 	}
-	definition, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
+
+	// Reproduce the state an earlier binary left: the item is terminal, the
+	// instance is still live, and the log holds the history a rebuild
+	// replays. Guarded direct SQL writes the projection rows; the log is
+	// the sibling's, copied in order.
+	if _, err := db.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+		t.Fatal(err)
+	}
+	for workID, lifecycle := range orphans {
+		if _, err := db.ExecContext(ctx, `INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at,terminal_time) VALUES(?,?,?,?,?,?,?,?,?)`,
+			workID, "task", "Orphan "+workID, lifecycle, 1, 2, terminal[workID], terminal[workID], terminal[workID]); err != nil {
+			t.Fatalf("seed %s: %v", workID, err)
+		}
+		if _, err := db.ExecContext(ctx, `INSERT INTO workflow_instances(work_id,definition_ref,definition_version,definition_digest,current_step,instance_state,execution_model) VALUES(?,?,?,?,?,'running','single_actor')`,
+			workID, definition.Definition.Ref, definition.Definition.Version, definition.Digest, "proposal"); err != nil {
+			t.Fatalf("seed instance %s: %v", workID, err)
+		}
+	}
+	siblingRows, err := sibling.DatabaseForTesting().Query(`SELECT event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload FROM domain_events ORDER BY seq`)
 	if err != nil {
+		t.Fatal(err)
+	}
+	var events [][]any
+	for siblingRows.Next() {
+		var eventID, kind, subjectType, subjectID, actor, occurredAt, payload string
+		var payloadVersion int
+		if err := siblingRows.Scan(&eventID, &kind, &subjectType, &subjectID, &actor, &occurredAt, &payloadVersion, &payload); err != nil {
+			siblingRows.Close()
+			t.Fatal(err)
+		}
+		events = append(events, []any{eventID, kind, subjectType, subjectID, actor, occurredAt, payloadVersion, payload})
+	}
+	if err := errors.Join(siblingRows.Err(), siblingRows.Close()); err != nil {
+		t.Fatal(err)
+	}
+	for _, event := range events {
+		if _, err := db.ExecContext(ctx, `INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?)`, event...); err != nil {
+			t.Fatalf("copy event %v: %v", event[0], err)
+		}
+	}
+	if _, err := db.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
 		t.Fatal(err)
 	}
 
-	orphans := map[string]string{"orphan-cancelled": "cancelled", "orphan-completed": "completed", "orphan-superseded": "superseded"}
-	for workID, lifecycle := range orphans {
-		_, version := startWorkflowPinnedToContext(t, workflowReplayContext(ctx), s, workID, definition)
-		switch lifecycle {
-		case "superseded":
-			seedWork(t, s, workID+"-successor")
-			// This pre-migration history predates outside-repair admission.
-			// Rebuild folds it as recorded, just like the other orphan cases.
-			if err := ApplyOperation(workflowReplayContext(ctx), s, Operation{Events: []Event{workSupersededEvent(workID+"-supersede", workID+"-successor", workID, version, version+1)}, ExpectedVersions: workVersion(workID, version)}); err != nil {
-				t.Fatal(err)
-			}
-		case "completed":
-			// The historical orphan migration 75 repairs predates the
-			// CD-0183 gate, so the recorded transition folds under the
-			// replay context a rebuild gives it, exactly as the log that
-			// survives from an earlier release does.
-			event := workTransitionEvent(workID+"-end", workID, "in_progress", "completed", version, version+1)
-			err := ApplyOperation(workflowReplayContext(context.Background()), s, Operation{Events: []Event{event}, ExpectedVersions: workVersion(workID, version)})
-			assertFoldGuardEmpty(t, s)
-			if err != nil {
-				t.Fatal(err)
-			}
-		default:
-			// The action start above moves the item to in_progress (CD-0183
-			// D1), so the terminal transition starts from there.
-			if err := ApplyOperation(workflowReplayContext(ctx), s, Operation{Events: []Event{workTransitionEvent(workID+"-end", workID, "in_progress", lifecycle, version, version+1)}, ExpectedVersions: workVersion(workID, version)}); err != nil {
-				t.Fatal(err)
-			}
-		}
-	}
-	// Reproduce the state an earlier binary left: the item is terminal and
-	// the instance is still live.
-	tx, err := db.BeginTx(ctx, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := enterFold(ctx, tx); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := tx.ExecContext(ctx, `UPDATE workflow_instances SET instance_state='running', completed_at=NULL`); err != nil {
-		t.Fatal(err)
-	}
-	if err := leaveFold(ctx, tx); err != nil {
-		t.Fatal(err)
-	}
-	if err := tx.Commit(); err != nil {
-		t.Fatal(err)
-	}
 	var live int
 	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM workflow_instances WHERE instance_state='running'`).Scan(&live); err != nil {
 		t.Fatal(err)
@@ -233,6 +272,7 @@ func TestMigrationClosesInstancesOfTerminalWorkItems(t *testing.T) {
 		t.Fatalf("seeded %d live instances, want %d", live, len(orphans))
 	}
 
+	s := &Store{db: db, path: path}
 	if err := Migrate(ctx, db); err != nil {
 		t.Fatalf("migration over orphaned instances: %v", err)
 	}

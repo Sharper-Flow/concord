@@ -395,11 +395,21 @@ function watchResult(watch: ActiveWatch, status: "started" | "already_watching")
   }
 }
 
-export const concord_ci_watch = {
-  description: CI_WATCH_DESCRIPTION,
-  args: ciWatchArgsSchema,
-  execute: (args: unknown, context: { sessionID: string; abort?: AbortSignal }): Promise<{ title: string; output: string }> =>
-    executeConcordCiWatch(args, context),
+// The host autoloads every tool-shaped named export of a module under the
+// custom tools directory as `<file>_<export>`, beside the plugin
+// registration. Only the plugin registration may name this tool (CD-0199
+// D1), so the definition leaves this module through a factory: a function
+// export is not a tool shape.
+export function ciWatchTool(): {
+  description: string
+  args: typeof ciWatchArgsSchema
+  execute: (args: unknown, context: { sessionID: string; abort?: AbortSignal }) => Promise<{ title: string; output: string }>
+} {
+  return {
+    description: CI_WATCH_DESCRIPTION,
+    args: ciWatchArgsSchema,
+    execute: (args, context) => executeConcordCiWatch(args, context),
+  }
 }
 
 // The host's per-field conversion marks every args entry required, but mode

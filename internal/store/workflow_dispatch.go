@@ -38,23 +38,20 @@ type WorkflowActionExecutionRequest struct {
 	// It is never decoded from workflow action payload.
 	OperatorActor       *WorkflowActor
 	OperatorApprovalRef string
-	// EscalatedRetryApproved is set only by the approval-gated mutation
-	// boundary, in the same transaction where it consumed the operator
-	// approval bound to this escalated correction. A boundary callback error
-	// rolls the transaction back, so the dispatch fold sees the flag only
-	// behind a consumed approval. It is never decoded from request input, and
-	// every other caller of the fold keeps the escalated wall closed.
-	EscalatedRetryApproved bool
-	AcceptedInputsDigest   string
-	IdempotencyIdentity    string
-	OperationID            string
-	PrincipalRef           string
-	Tool                   string
-	IdempotencyKey         string
-	RequestID              string
-	AcceptedScope          string
-	LawModifies            []string
-	ContractDigest         string
+	// FailedRetryApproved is set by the boundary after consuming the exact
+	// approval for a failed retry below the limit. It cannot open the
+	// convergence wall and is never decoded from request input.
+	FailedRetryApproved  bool
+	AcceptedInputsDigest string
+	IdempotencyIdentity  string
+	OperationID          string
+	PrincipalRef         string
+	Tool                 string
+	IdempotencyKey       string
+	RequestID            string
+	AcceptedScope        string
+	LawModifies          []string
+	ContractDigest       string
 	// Approval binding is copied from the authenticated mutation boundary into
 	// a recovery event. Admission verified and consumed the approval row
 	// against these exact values; the fold re-checks the recorded binding for
@@ -269,7 +266,7 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *foldScope,
 	guards := &workflowActionGuardContext{ctx: ctx, tx: tx, request: request, entry: entry, currentStep: currentStep, instanceState: state}
 	// One admission derivation for the fold: the tx-scoped loader folds the
 	// instance history into the abstract admission state once, the request's
-	// consumed operator approval fills the wall approval, and the pure
+	// consumed operator approval fills ordinary failed-retry approval, and the pure
 	// workflowAdmit decides. Every refusal applies here except the review
 	// gate's own fresh-review refusal, whose ready-review carve-out is
 	// payload-bound, the operator-approval walls, and the closed-question
@@ -282,7 +279,7 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *foldScope,
 	if admissionErr != nil {
 		return result, admissionErr
 	}
-	admission.EscalatedRetryApproved = request.EscalatedRetryApproved
+	admission.FailedRetryApproved = request.FailedRetryApproved
 	decision := workflowAdmit(entry.Definition, admission, request.ActionID)
 	if !decision.Admitted && !decision.OffStep && !decision.AdvanceHeld && !decision.OperatorQuestionClosed && !workflowAdmissionDefersToReviewGate(decision, request.ActionID) {
 		return result, workflowExecutionAdmissionFailure(decision, request.ProjectTooling)

@@ -156,3 +156,50 @@ func TestValidateRejectsUnknownSessionIdentityRemovedSurfaceMetadataAndContractD
 		})
 	}
 }
+
+// TestBuildFitsObservationWindowToPacketBound holds session boot to the same
+// window rule as the continuity read: a full newest-observation window that
+// would overflow the packet shrinks to the newest prefix that fits, and the
+// total and paged-read pointer still name the whole population.
+func TestBuildFitsObservationWindowToPacketBound(t *testing.T) {
+	snapshot := testSnapshot()
+	for i := range store.ContinuityObservationWindow {
+		snapshot.Observations = append(snapshot.Observations, store.WorkObservation{
+			ObservationID: "obs:" + strings.Repeat("0", 14) + string(rune('a'+i/10)) + string(rune('0'+i%10)),
+			WorkID:        "work-1", Statement: strings.Repeat("&", 512),
+			Refs: []string{strings.Repeat("&", 256), strings.Repeat("<", 256)}, Tags: []string{strings.Repeat("t", 32), strings.Repeat("g", 16)},
+			RecordedAt: "2026-10-08T00:00:00Z",
+		})
+	}
+	snapshot.ObservationsTotal = 40
+	full, _ := json.Marshal(agent.ContinuityPayload(snapshot))
+	// The packet bound is the session envelope bound, not the read bound.
+	if len(full) <= agent.MaxEnvelopeBytes {
+		t.Fatalf("fixture does not overflow the packet: %d bytes", len(full))
+	}
+	raw, err := Build("product-1", snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var packet struct {
+		Continuity struct {
+			Observations []store.WorkObservation `json:"observations"`
+			Total        int64                   `json:"observations_total"`
+			Read         struct {
+				Tool      string            `json:"tool"`
+				Operation string            `json:"operation"`
+				Input     map[string]string `json:"input"`
+			} `json:"observations_read"`
+		} `json:"continuity"`
+	}
+	if err := json.Unmarshal(raw, &packet); err != nil {
+		t.Fatal(err)
+	}
+	window := packet.Continuity.Observations
+	if len(window) == 0 || len(window) >= store.ContinuityObservationWindow || window[0].ObservationID != snapshot.Observations[0].ObservationID {
+		t.Fatalf("window kept %d observations, want a non-empty newest prefix", len(window))
+	}
+	if packet.Continuity.Total != 40 || packet.Continuity.Read.Operation != "observations" || packet.Continuity.Read.Input["work_id"] != "work-1" {
+		t.Fatalf("window lost its total or read pointer: %+v", packet.Continuity)
+	}
+}

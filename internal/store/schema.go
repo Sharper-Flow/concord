@@ -5747,6 +5747,227 @@ CREATE TRIGGER worker_attempts_guard_delete BEFORE DELETE ON worker_attempts FOR
 `,
 	},
 	{
+		Version: 120,
+		Name:    "initiative_violation_projections",
+		// The compatibility classifier treats triggers on pre-existing
+		// tables as breaking. This step therefore requires explicit upgrade.
+		Breaking: true,
+		SQL: `
+-- CON-879: the Initiative invariant validator runs inside every mutation's
+-- exclusive SQLite writer window, so its cost must not scale with the total
+-- fixture. Two durable violation projections answer it with two indexed
+-- reads, and AFTER triggers on the five dependency tables (work_items,
+-- work_projects, product_projects, initiative_entries, relations) keep them
+-- current inside whichever transaction changes the dependencies. The two
+-- shared views own the invariant: the scope view derives one work's Product
+-- scope through its primary membership with correlated point subqueries, and
+-- the entry view maps one entry to its violation code with the typed-refusal
+-- precedence of the scan it replaces (missing child, nested Initiative,
+-- child Product scope, Product mismatch, entry/relation divergence), NULL
+-- when the entry violates nothing. Triggers recompute only affected keys —
+-- SQLite flattens the views and pushes the key predicates onto the
+-- initiative_entries and work_items indexes — and the scope table gates the
+-- entry table exactly as the two ordered scans did: a scope refusal is
+-- always reported first.
+
+CREATE TABLE initiative_scope_violations (
+    work_id TEXT PRIMARY KEY
+);
+CREATE TABLE initiative_entry_violations (
+    initiative_work_id TEXT NOT NULL,
+    child_work_id      TEXT NOT NULL,
+    position           INTEGER NOT NULL,
+    violation          TEXT NOT NULL CHECK(violation IN ('missing_child','nested','child_scope','mismatch','diverged')),
+    PRIMARY KEY(initiative_work_id, child_work_id)
+);
+CREATE INDEX initiative_entry_violations_order ON initiative_entry_violations(initiative_work_id, position, child_work_id);
+CREATE INDEX initiative_entry_violations_child ON initiative_entry_violations(child_work_id);
+
+CREATE VIEW initiative_work_scope AS
+SELECT w.id AS work_id, w.kind AS kind,
+    (SELECT count(DISTINCT pp.product_id) FROM work_projects wp
+        JOIN product_projects pp ON pp.project_id=wp.project_id
+        WHERE wp.work_id=w.id AND wp.role='primary') AS products,
+    (SELECT min(pp.product_id) FROM work_projects wp
+        JOIN product_projects pp ON pp.project_id=wp.project_id
+        WHERE wp.work_id=w.id AND wp.role='primary') AS product
+FROM work_items w;
+
+CREATE VIEW initiative_scope_violation_rows AS
+SELECT work_id FROM initiative_work_scope WHERE kind='initiative' AND products<>1;
+
+CREATE VIEW initiative_entry_violation_rows AS
+SELECT e.initiative_work_id, e.child_work_id, e.position,
+    CASE
+        WHEN c.id IS NULL THEN 'missing_child'
+        WHEN c.kind='initiative' THEN 'nested'
+        WHEN cs.products<>1 THEN 'child_scope'
+        WHEN cs.product<>ins.product THEN 'mismatch'
+        WHEN NOT EXISTS (SELECT 1 FROM relations r WHERE r.work_id_from=e.initiative_work_id
+            AND r.work_id_to=e.child_work_id AND r.kind='includes') THEN 'diverged'
+        ELSE NULL
+    END AS violation
+FROM initiative_entries e
+JOIN work_items p ON p.id=e.initiative_work_id AND p.kind='initiative'
+LEFT JOIN work_items c ON c.id=e.child_work_id
+LEFT JOIN initiative_work_scope cs ON cs.work_id=e.child_work_id
+LEFT JOIN initiative_work_scope ins ON ins.work_id=e.initiative_work_id;
+
+CREATE TRIGGER initiative_projection_work_items_insert AFTER INSERT ON work_items FOR EACH ROW BEGIN
+    DELETE FROM initiative_scope_violations WHERE work_id = NEW.id;
+    INSERT INTO initiative_scope_violations(work_id)
+    SELECT work_id FROM initiative_scope_violation_rows WHERE work_id = NEW.id;
+    DELETE FROM initiative_entry_violations WHERE initiative_work_id = NEW.id;
+    DELETE FROM initiative_entry_violations WHERE child_work_id = NEW.id;
+    INSERT INTO initiative_entry_violations(initiative_work_id,child_work_id,position,violation)
+    SELECT initiative_work_id,child_work_id,position,violation FROM initiative_entry_violation_rows WHERE violation IS NOT NULL AND initiative_work_id = NEW.id;
+    INSERT INTO initiative_entry_violations(initiative_work_id,child_work_id,position,violation)
+    SELECT initiative_work_id,child_work_id,position,violation FROM initiative_entry_violation_rows WHERE violation IS NOT NULL AND child_work_id = NEW.id AND initiative_work_id <> NEW.id;
+END;
+
+CREATE TRIGGER initiative_projection_work_items_delete AFTER DELETE ON work_items FOR EACH ROW BEGIN
+    DELETE FROM initiative_scope_violations WHERE work_id = OLD.id;
+    INSERT INTO initiative_scope_violations(work_id)
+    SELECT work_id FROM initiative_scope_violation_rows WHERE work_id = OLD.id;
+    DELETE FROM initiative_entry_violations WHERE initiative_work_id = OLD.id;
+    DELETE FROM initiative_entry_violations WHERE child_work_id = OLD.id;
+    INSERT INTO initiative_entry_violations(initiative_work_id,child_work_id,position,violation)
+    SELECT initiative_work_id,child_work_id,position,violation FROM initiative_entry_violation_rows WHERE violation IS NOT NULL AND initiative_work_id = OLD.id;
+    INSERT INTO initiative_entry_violations(initiative_work_id,child_work_id,position,violation)
+    SELECT initiative_work_id,child_work_id,position,violation FROM initiative_entry_violation_rows WHERE violation IS NOT NULL AND child_work_id = OLD.id AND initiative_work_id <> OLD.id;
+END;
+
+CREATE TRIGGER initiative_projection_work_items_update AFTER UPDATE OF id, kind ON work_items FOR EACH ROW BEGIN
+    DELETE FROM initiative_scope_violations WHERE work_id IN (OLD.id,NEW.id);
+    INSERT INTO initiative_scope_violations(work_id)
+    SELECT work_id FROM initiative_scope_violation_rows WHERE work_id IN (OLD.id,NEW.id);
+    DELETE FROM initiative_entry_violations WHERE initiative_work_id IN (OLD.id,NEW.id);
+    DELETE FROM initiative_entry_violations WHERE child_work_id IN (OLD.id,NEW.id);
+    INSERT INTO initiative_entry_violations(initiative_work_id,child_work_id,position,violation)
+    SELECT initiative_work_id,child_work_id,position,violation FROM initiative_entry_violation_rows WHERE violation IS NOT NULL AND initiative_work_id IN (OLD.id,NEW.id);
+    INSERT INTO initiative_entry_violations(initiative_work_id,child_work_id,position,violation)
+    SELECT initiative_work_id,child_work_id,position,violation FROM initiative_entry_violation_rows WHERE violation IS NOT NULL AND child_work_id IN (OLD.id,NEW.id) AND initiative_work_id NOT IN (OLD.id,NEW.id);
+END;
+
+CREATE TRIGGER initiative_projection_work_projects_insert AFTER INSERT ON work_projects FOR EACH ROW BEGIN
+    DELETE FROM initiative_scope_violations WHERE work_id = NEW.work_id;
+    INSERT INTO initiative_scope_violations(work_id)
+    SELECT work_id FROM initiative_scope_violation_rows WHERE work_id = NEW.work_id;
+    DELETE FROM initiative_entry_violations WHERE initiative_work_id = NEW.work_id;
+    DELETE FROM initiative_entry_violations WHERE child_work_id = NEW.work_id;
+    INSERT INTO initiative_entry_violations(initiative_work_id,child_work_id,position,violation)
+    SELECT initiative_work_id,child_work_id,position,violation FROM initiative_entry_violation_rows WHERE violation IS NOT NULL AND initiative_work_id = NEW.work_id;
+    INSERT INTO initiative_entry_violations(initiative_work_id,child_work_id,position,violation)
+    SELECT initiative_work_id,child_work_id,position,violation FROM initiative_entry_violation_rows WHERE violation IS NOT NULL AND child_work_id = NEW.work_id AND initiative_work_id <> NEW.work_id;
+END;
+
+CREATE TRIGGER initiative_projection_work_projects_delete AFTER DELETE ON work_projects FOR EACH ROW BEGIN
+    DELETE FROM initiative_scope_violations WHERE work_id = OLD.work_id;
+    INSERT INTO initiative_scope_violations(work_id)
+    SELECT work_id FROM initiative_scope_violation_rows WHERE work_id = OLD.work_id;
+    DELETE FROM initiative_entry_violations WHERE initiative_work_id = OLD.work_id;
+    DELETE FROM initiative_entry_violations WHERE child_work_id = OLD.work_id;
+    INSERT INTO initiative_entry_violations(initiative_work_id,child_work_id,position,violation)
+    SELECT initiative_work_id,child_work_id,position,violation FROM initiative_entry_violation_rows WHERE violation IS NOT NULL AND initiative_work_id = OLD.work_id;
+    INSERT INTO initiative_entry_violations(initiative_work_id,child_work_id,position,violation)
+    SELECT initiative_work_id,child_work_id,position,violation FROM initiative_entry_violation_rows WHERE violation IS NOT NULL AND child_work_id = OLD.work_id AND initiative_work_id <> OLD.work_id;
+END;
+
+CREATE TRIGGER initiative_projection_work_projects_update AFTER UPDATE OF work_id, project_id, role ON work_projects FOR EACH ROW BEGIN
+    DELETE FROM initiative_scope_violations WHERE work_id IN (OLD.work_id,NEW.work_id);
+    INSERT INTO initiative_scope_violations(work_id)
+    SELECT work_id FROM initiative_scope_violation_rows WHERE work_id IN (OLD.work_id,NEW.work_id);
+    DELETE FROM initiative_entry_violations WHERE initiative_work_id IN (OLD.work_id,NEW.work_id);
+    DELETE FROM initiative_entry_violations WHERE child_work_id IN (OLD.work_id,NEW.work_id);
+    INSERT INTO initiative_entry_violations(initiative_work_id,child_work_id,position,violation)
+    SELECT initiative_work_id,child_work_id,position,violation FROM initiative_entry_violation_rows WHERE violation IS NOT NULL AND initiative_work_id IN (OLD.work_id,NEW.work_id);
+    INSERT INTO initiative_entry_violations(initiative_work_id,child_work_id,position,violation)
+    SELECT initiative_work_id,child_work_id,position,violation FROM initiative_entry_violation_rows WHERE violation IS NOT NULL AND child_work_id IN (OLD.work_id,NEW.work_id) AND initiative_work_id NOT IN (OLD.work_id,NEW.work_id);
+END;
+
+CREATE TRIGGER initiative_projection_product_projects_insert AFTER INSERT ON product_projects FOR EACH ROW BEGIN
+    DELETE FROM initiative_scope_violations WHERE work_id IN (SELECT DISTINCT wp.work_id FROM work_projects wp WHERE wp.role='primary' AND wp.project_id=NEW.project_id);
+    INSERT INTO initiative_scope_violations(work_id)
+    SELECT work_id FROM initiative_scope_violation_rows WHERE work_id IN (SELECT DISTINCT wp.work_id FROM work_projects wp WHERE wp.role='primary' AND wp.project_id=NEW.project_id);
+    DELETE FROM initiative_entry_violations WHERE initiative_work_id IN (SELECT DISTINCT wp.work_id FROM work_projects wp WHERE wp.role='primary' AND wp.project_id=NEW.project_id);
+    DELETE FROM initiative_entry_violations WHERE child_work_id IN (SELECT DISTINCT wp.work_id FROM work_projects wp WHERE wp.role='primary' AND wp.project_id=NEW.project_id);
+    INSERT INTO initiative_entry_violations(initiative_work_id,child_work_id,position,violation)
+    SELECT initiative_work_id,child_work_id,position,violation FROM initiative_entry_violation_rows WHERE violation IS NOT NULL AND initiative_work_id IN (SELECT DISTINCT wp.work_id FROM work_projects wp WHERE wp.role='primary' AND wp.project_id=NEW.project_id);
+    INSERT INTO initiative_entry_violations(initiative_work_id,child_work_id,position,violation)
+    SELECT initiative_work_id,child_work_id,position,violation FROM initiative_entry_violation_rows WHERE violation IS NOT NULL AND child_work_id IN (SELECT DISTINCT wp.work_id FROM work_projects wp WHERE wp.role='primary' AND wp.project_id=NEW.project_id) AND initiative_work_id NOT IN (SELECT DISTINCT wp.work_id FROM work_projects wp WHERE wp.role='primary' AND wp.project_id=NEW.project_id);
+END;
+
+CREATE TRIGGER initiative_projection_product_projects_delete AFTER DELETE ON product_projects FOR EACH ROW BEGIN
+    DELETE FROM initiative_scope_violations WHERE work_id IN (SELECT DISTINCT wp.work_id FROM work_projects wp WHERE wp.role='primary' AND wp.project_id=OLD.project_id);
+    INSERT INTO initiative_scope_violations(work_id)
+    SELECT work_id FROM initiative_scope_violation_rows WHERE work_id IN (SELECT DISTINCT wp.work_id FROM work_projects wp WHERE wp.role='primary' AND wp.project_id=OLD.project_id);
+    DELETE FROM initiative_entry_violations WHERE initiative_work_id IN (SELECT DISTINCT wp.work_id FROM work_projects wp WHERE wp.role='primary' AND wp.project_id=OLD.project_id);
+    DELETE FROM initiative_entry_violations WHERE child_work_id IN (SELECT DISTINCT wp.work_id FROM work_projects wp WHERE wp.role='primary' AND wp.project_id=OLD.project_id);
+    INSERT INTO initiative_entry_violations(initiative_work_id,child_work_id,position,violation)
+    SELECT initiative_work_id,child_work_id,position,violation FROM initiative_entry_violation_rows WHERE violation IS NOT NULL AND initiative_work_id IN (SELECT DISTINCT wp.work_id FROM work_projects wp WHERE wp.role='primary' AND wp.project_id=OLD.project_id);
+    INSERT INTO initiative_entry_violations(initiative_work_id,child_work_id,position,violation)
+    SELECT initiative_work_id,child_work_id,position,violation FROM initiative_entry_violation_rows WHERE violation IS NOT NULL AND child_work_id IN (SELECT DISTINCT wp.work_id FROM work_projects wp WHERE wp.role='primary' AND wp.project_id=OLD.project_id) AND initiative_work_id NOT IN (SELECT DISTINCT wp.work_id FROM work_projects wp WHERE wp.role='primary' AND wp.project_id=OLD.project_id);
+END;
+
+CREATE TRIGGER initiative_projection_product_projects_update AFTER UPDATE OF project_id, product_id ON product_projects FOR EACH ROW BEGIN
+    DELETE FROM initiative_scope_violations WHERE work_id IN (SELECT DISTINCT wp.work_id FROM work_projects wp WHERE wp.role='primary' AND wp.project_id IN (OLD.project_id,NEW.project_id));
+    INSERT INTO initiative_scope_violations(work_id)
+    SELECT work_id FROM initiative_scope_violation_rows WHERE work_id IN (SELECT DISTINCT wp.work_id FROM work_projects wp WHERE wp.role='primary' AND wp.project_id IN (OLD.project_id,NEW.project_id));
+    DELETE FROM initiative_entry_violations WHERE initiative_work_id IN (SELECT DISTINCT wp.work_id FROM work_projects wp WHERE wp.role='primary' AND wp.project_id IN (OLD.project_id,NEW.project_id));
+    DELETE FROM initiative_entry_violations WHERE child_work_id IN (SELECT DISTINCT wp.work_id FROM work_projects wp WHERE wp.role='primary' AND wp.project_id IN (OLD.project_id,NEW.project_id));
+    INSERT INTO initiative_entry_violations(initiative_work_id,child_work_id,position,violation)
+    SELECT initiative_work_id,child_work_id,position,violation FROM initiative_entry_violation_rows WHERE violation IS NOT NULL AND initiative_work_id IN (SELECT DISTINCT wp.work_id FROM work_projects wp WHERE wp.role='primary' AND wp.project_id IN (OLD.project_id,NEW.project_id));
+    INSERT INTO initiative_entry_violations(initiative_work_id,child_work_id,position,violation)
+    SELECT initiative_work_id,child_work_id,position,violation FROM initiative_entry_violation_rows WHERE violation IS NOT NULL AND child_work_id IN (SELECT DISTINCT wp.work_id FROM work_projects wp WHERE wp.role='primary' AND wp.project_id IN (OLD.project_id,NEW.project_id)) AND initiative_work_id NOT IN (SELECT DISTINCT wp.work_id FROM work_projects wp WHERE wp.role='primary' AND wp.project_id IN (OLD.project_id,NEW.project_id));
+END;
+
+CREATE TRIGGER initiative_projection_relations_insert AFTER INSERT ON relations FOR EACH ROW WHEN NEW.kind='includes' BEGIN
+    DELETE FROM initiative_entry_violations WHERE initiative_work_id=NEW.work_id_from AND child_work_id=NEW.work_id_to;
+    INSERT INTO initiative_entry_violations(initiative_work_id,child_work_id,position,violation)
+    SELECT initiative_work_id,child_work_id,position,violation FROM initiative_entry_violation_rows WHERE violation IS NOT NULL AND initiative_work_id=NEW.work_id_from AND child_work_id=NEW.work_id_to;
+END;
+
+CREATE TRIGGER initiative_projection_relations_delete AFTER DELETE ON relations FOR EACH ROW WHEN OLD.kind='includes' BEGIN
+    DELETE FROM initiative_entry_violations WHERE initiative_work_id=OLD.work_id_from AND child_work_id=OLD.work_id_to;
+    INSERT INTO initiative_entry_violations(initiative_work_id,child_work_id,position,violation)
+    SELECT initiative_work_id,child_work_id,position,violation FROM initiative_entry_violation_rows WHERE violation IS NOT NULL AND initiative_work_id=OLD.work_id_from AND child_work_id=OLD.work_id_to;
+END;
+
+CREATE TRIGGER initiative_projection_relations_update AFTER UPDATE OF work_id_from, work_id_to, kind ON relations FOR EACH ROW WHEN OLD.kind='includes' OR NEW.kind='includes' BEGIN
+    DELETE FROM initiative_entry_violations WHERE (OLD.kind='includes' AND initiative_work_id=OLD.work_id_from AND child_work_id=OLD.work_id_to) OR (NEW.kind='includes' AND initiative_work_id=NEW.work_id_from AND child_work_id=NEW.work_id_to);
+    INSERT INTO initiative_entry_violations(initiative_work_id,child_work_id,position,violation)
+    SELECT initiative_work_id,child_work_id,position,violation FROM initiative_entry_violation_rows WHERE violation IS NOT NULL AND OLD.kind='includes' AND initiative_work_id=OLD.work_id_from AND child_work_id=OLD.work_id_to;
+    INSERT INTO initiative_entry_violations(initiative_work_id,child_work_id,position,violation)
+    SELECT initiative_work_id,child_work_id,position,violation FROM initiative_entry_violation_rows WHERE violation IS NOT NULL AND NEW.kind='includes' AND initiative_work_id=NEW.work_id_from AND child_work_id=NEW.work_id_to AND (OLD.kind<>'includes' OR OLD.work_id_from<>NEW.work_id_from OR OLD.work_id_to<>NEW.work_id_to);
+END;
+
+CREATE TRIGGER initiative_projection_initiative_entries_insert AFTER INSERT ON initiative_entries FOR EACH ROW BEGIN
+    DELETE FROM initiative_entry_violations WHERE initiative_work_id=NEW.initiative_work_id AND child_work_id=NEW.child_work_id;
+    INSERT INTO initiative_entry_violations(initiative_work_id,child_work_id,position,violation)
+    SELECT initiative_work_id,child_work_id,position,violation FROM initiative_entry_violation_rows WHERE violation IS NOT NULL AND initiative_work_id=NEW.initiative_work_id AND child_work_id=NEW.child_work_id;
+END;
+
+CREATE TRIGGER initiative_projection_initiative_entries_delete AFTER DELETE ON initiative_entries FOR EACH ROW BEGIN
+    DELETE FROM initiative_entry_violations WHERE initiative_work_id=OLD.initiative_work_id AND child_work_id=OLD.child_work_id;
+END;
+
+CREATE TRIGGER initiative_projection_initiative_entries_update AFTER UPDATE OF initiative_work_id, child_work_id, position ON initiative_entries FOR EACH ROW BEGIN
+    DELETE FROM initiative_entry_violations WHERE (initiative_work_id=OLD.initiative_work_id AND child_work_id=OLD.child_work_id) OR (initiative_work_id=NEW.initiative_work_id AND child_work_id=NEW.child_work_id);
+    INSERT INTO initiative_entry_violations(initiative_work_id,child_work_id,position,violation)
+    SELECT initiative_work_id,child_work_id,position,violation FROM initiative_entry_violation_rows WHERE violation IS NOT NULL AND initiative_work_id=NEW.initiative_work_id AND child_work_id=NEW.child_work_id;
+END;
+
+-- One-time backfill from the existing canonical projection through the same
+-- views the triggers use, so a store that carried defects before this step
+-- keeps refusing them: the projection preserves defects, and repairs flow
+-- through the same dependency changes that maintain it.
+INSERT INTO initiative_scope_violations(work_id)
+    SELECT work_id FROM initiative_scope_violation_rows;
+INSERT INTO initiative_entry_violations(initiative_work_id,child_work_id,position,violation)
+    SELECT initiative_work_id,child_work_id,position,violation FROM initiative_entry_violation_rows WHERE violation IS NOT NULL AND 1=1;
+		`,
+	},
+	{
 		// Outside-repair dispositions suspend managed workflow actions
 		// on a live work item, preserve the historical workflow records, and
 		// close the work through an explicit reconciliation event. The
@@ -5756,13 +5977,13 @@ CREATE TRIGGER worker_attempts_guard_delete BEFORE DELETE ON worker_attempts FOR
 		// released merge and release tag the boundary code authenticated. The
 		// workflow instance gains a closed-outside-repair terminal state without
 		// folding through the ordinary completed gate.
-		Version:        120,
+		Version:        121,
 		Name:           "outside_repair_disposition_tables",
 		Breaking:       true,
 		FoldMaintained: "advance",
 		SQL: `
 ALTER TABLE workflow_instances ADD COLUMN outside_repair_state TEXT;
-CREATE TABLE workflow_instances_v120 (
+CREATE TABLE workflow_instances_v121 (
     work_id TEXT PRIMARY KEY REFERENCES work_items(id) ON DELETE RESTRICT,
     definition_ref TEXT NOT NULL,
     definition_version INTEGER NOT NULL,
@@ -5782,7 +6003,7 @@ CREATE TABLE workflow_instances_v120 (
     CHECK(length(current_step) BETWEEN 2 AND 128),
     CHECK(outside_repair_state IS NULL OR outside_repair_state IN ('active','completed','resumed'))
 );
-INSERT INTO workflow_instances_v120
+INSERT INTO workflow_instances_v121
     (work_id, definition_ref, definition_version, definition_digest, current_step, instance_state,
      execution_actor_ref, execution_model, started_at, completed_at, last_checkpoint_at, execution_started_at, outside_repair_state)
 SELECT work_id, definition_ref, definition_version, definition_digest, current_step, instance_state,
@@ -5792,7 +6013,7 @@ DROP TRIGGER IF EXISTS workflow_instances_guard_insert;
 DROP TRIGGER IF EXISTS workflow_instances_guard_update;
 DROP TRIGGER IF EXISTS workflow_instances_guard_delete;
 DROP TABLE workflow_instances;
-ALTER TABLE workflow_instances_v120 RENAME TO workflow_instances;
+ALTER TABLE workflow_instances_v121 RENAME TO workflow_instances;
 CREATE INDEX workflow_instances_state ON workflow_instances(instance_state, work_id);
 CREATE TRIGGER workflow_instances_guard_insert BEFORE INSERT ON workflow_instances FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_instances is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
 CREATE TRIGGER workflow_instances_guard_update BEFORE UPDATE ON workflow_instances FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_instances is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;

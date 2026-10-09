@@ -478,6 +478,25 @@ test("a failed entries read never reports a possible effect", async () => {
   expect(result.error.recovery_action.kind).toBe("retry_same_request")
 })
 
+test("typed CLI input refusals report invalid_input and no effect", async () => {
+  for (const [tool, operation] of [[adapter.work_define, "capture"], [adapter.work_initiative, "entries"]] as const) {
+    adapter.configureConcordAdapter({ runner: runnerWithContext({ exitCode: 64, stdout: "", stderr: "concord invoke: missing required field input" }) })
+    const result: any = await rawHostResult(tool.execute(hostCall(operation, {}), contextFor()))
+    assertAdapterEnvelope(result)
+    expect(result.error).toMatchObject({ kind: "invalid_input", effect_state: "none", retry_safe: false, recovery_action: { kind: "restart_query" } })
+    expect(result.error.message).toContain("missing required field input")
+  }
+})
+
+test("validation text without the typed CLI signal cannot erase a possible effect", async () => {
+  for (const response of [{ exitCode: 1, stdout: "", stderr: "missing required field input" }, { exitCode: 64, stdout: "not-json", stderr: "missing required field input" }]) {
+    adapter.configureConcordAdapter({ runner: runnerWithContext(response) })
+    const result: any = await rawHostResult(adapter.work_define.execute(hostCall("capture", {}), contextFor()))
+    expect(result.error.effect_state).toBe("possible")
+    expect(result.error.kind).not.toBe("invalid_input")
+  }
+})
+
 test("unknown-effect mutation errors do not expose failed response data", async () => {
   const committed = coreEnvelope("concord_work_transition", "lifecycle", "ok", {
     result: { changed_refs: [], next_valid_intents: [] },

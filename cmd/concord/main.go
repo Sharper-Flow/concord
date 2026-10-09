@@ -716,6 +716,10 @@ func launchForwardedSession(product, work, prompt, project string, in io.Reader,
 
 const dbOverrideEnv = "CONCORD_DB_PATH"
 
+// inputRefusalExit is the CLI transport signal for validation that precedes
+// dispatch. Store, handler, and output failures must not use this exit code.
+const inputRefusalExit = 64
+
 // workerPacketDigestPattern bounds the dispatch evidence's packet_digest to
 // the sha256:hex shape the core's canonicalJSON pipeline produces. The CLI
 // enforces it at the worker-dispatch boundary; the store gate enforces the
@@ -740,7 +744,7 @@ func runStoreFreeJSONCommand(name string, args []string, in io.Reader, out, errO
 	}
 	if err := validateRequiredCommandFields(name, raw); err != nil {
 		writeOperatorDiagnostic(errOut, name, err.Error())
-		return 1
+		return inputRefusalExit
 	}
 	return handler(raw, out, errOut)
 }
@@ -759,7 +763,7 @@ func runJSONCommand(command string, args []string, in io.Reader, out, errOut io.
 	}
 	if err := validateRequiredCommandFields(command, raw); err != nil {
 		writeOperatorDiagnostic(errOut, command, err.Error())
-		return 1
+		return inputRefusalExit
 	}
 	// Predecessor inventory reads only the operator-supplied snapshot file and
 	// writes nothing to the Concord store, so it routes around the database
@@ -1259,7 +1263,7 @@ func runInvoke(raw []byte, s *store.Store, service *agent.Service, out, errOut i
 	response, err := agent.Invoke(context.Background(), s, service, raw)
 	if err != nil {
 		writeDiagnostic(errOut, err.Error())
-		return 1
+		return inputRefusalExit
 	}
 	return writeJSON(out, response, errOut)
 }

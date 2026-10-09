@@ -33,6 +33,9 @@ type ToolResult = string | { output: string; title?: string; metadata?: Record<s
 function tool<T>(definition: T): T { return definition }
 
 const MAX_STDERR = 8192
+// cmd/concord's inputRefusalExit names a refusal before dispatch, not a
+// generic process failure. A previous mutation call can still have an effect.
+const CLI_INPUT_REFUSAL_EXIT = 64
 const MAX_WORK_START_OUTPUT_BYTES = 16_384
 const MAX_SALVAGE_BYTES = 16_384
 
@@ -526,6 +529,7 @@ async function invokeConcordOperationRaw(toolName: string, args: HostToolArgs, c
   let result: any
   try { result = await run(args.input) } catch (error) { return invokeRunnerFailureEnvelope(toolName, operation, requestID, error, context.abort, false) }
   if (result.exitCode !== 0 && !result.stdout.trim()) {
+    if (result.exitCode === CLI_INPUT_REFUSAL_EXIT) return cliInputRefusal(toolName, operation, requestID, result.stderr)
     const [kind, reason, effect, recovery] = unknownOutcomeClassification(toolName, operation, true)
     return adapterError(toolName, operation, requestID, kind, reason, outcomeMessage(result.stderr.slice(0, MAX_STDERR)), effect, recovery)
   }
@@ -564,6 +568,7 @@ async function invokeConcordOperationRaw(toolName: string, args: HostToolArgs, c
       let retryResult: any
       try { retryResult = await run(args.input) } catch (error) { return invokeRunnerFailureEnvelope(toolName, operation, requestID, error, context.abort, true) }
       if (retryResult.exitCode !== 0 && !retryResult.stdout.trim()) {
+        if (retryResult.exitCode === CLI_INPUT_REFUSAL_EXIT && !operationIsMutation(toolName, operation)) return cliInputRefusal(toolName, operation, requestID, retryResult.stderr)
         const [kind, reason, effect, recovery] = unknownOutcomeClassification(toolName, operation, true)
         return adapterError(toolName, operation, requestID, kind, reason, outcomeMessage(retryResult.stderr.slice(0, MAX_STDERR)), effect, recovery)
       }
@@ -663,6 +668,12 @@ async function invokeConcordOperationRaw(toolName: string, args: HostToolArgs, c
     }
   }
   return response as CoreConcordEnvelope;
+}
+
+function cliInputRefusal(toolName: string, operation: string, requestID: string, stderr: string): CoreConcordEnvelope {
+  const envelope = adapterError(toolName, operation, requestID, "invalid_input", "invalid_cli_input", stderr.slice(0, 1000), "none", "restart_query")
+  envelope.error.retry_safe = false
+  return envelope
 }
 
 function requestWorkID(args: HostToolArgs): string | undefined {

@@ -55,6 +55,29 @@ describe("the manifest pin", () => {
 })
 
 describe("version-skew self-heal", () => {
+  test("a typed retry refusal preserves the first mutation's possible effect", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "manifest-pin-"))
+    writeFileSync(join(dir, "generated-contracts.ts"), `export const manifestDigest = "${foreignDigest}" as const\n`)
+    for (const mutation of [false, true]) {
+      resetManifestPinForTesting()
+      setManifestSourceForTesting(join(dir, "generated-contracts.ts"))
+      let invokes = 0
+      const toolName = mutation ? "concord_work_define" : "concord_product_view"
+      const operation = mutation ? "capture" : "resolve"
+      adapter.configureConcordAdapter({ runner: { async run(argv: string[]) {
+        if (argv[1] === "project-resolve") return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
+        invokes++
+        if (invokes === 1) return { exitCode: 0, stdout: JSON.stringify({ ...coreEnvelope(toolName, operation, "ok", mutation ? { changed_refs: [] } : { result: { product_id: "product-1", projects: [], stage: "prototype" } }), manifest_digest: foreignDigest }), stderr: "" }
+        return { exitCode: 64, stdout: "", stderr: "missing required field input" }
+      } } })
+      const raw = await (mutation ? adapter.work_define : adapter.product_view).execute(hostCall(operation, {}), contextFor())
+      const result: any = JSON.parse(typeof raw === "string" ? raw : raw.output)
+      expect(invokes).toBe(2)
+      expect(result.error.kind).toBe(mutation ? "operation_conflict" : "invalid_input")
+      expect(result.error.effect_state).toBe(mutation ? "possible" : "none")
+    }
+  })
+
   test("a stale pin whose disk files match the core adopts and retries once", async () => {
     const dir = mkdtempSync(join(tmpdir(), "manifest-pin-"))
     writeFileSync(join(dir, "generated-contracts.ts"), `export const manifestDigest = "${foreignDigest}" as const\n`)

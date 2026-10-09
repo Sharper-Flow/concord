@@ -132,13 +132,9 @@ func hostProbeArgv(command []string) []string {
 // configured command, and each probe through a wrapper runs that wrapper's
 // own start and exit behavior (CD-0189).
 func resolveHostCommand(ctx context.Context, dir string, probe hostConfigProbeFunc) (hostCommandResolution, error) {
-	document, err := probe(ctx, hostProbeArgv(defaultHostCommand), dir)
+	document, err := probeBareHost(ctx, dir, probe)
 	if err != nil {
-		var interrupted *hostProbeInterruptedError
-		if errors.As(err, &interrupted) {
-			return hostCommandResolution{}, interrupted
-		}
-		return hostCommandResolution{}, fmt.Errorf("host registry probe failed: %w", err)
+		return hostCommandResolution{}, err
 	}
 	command, present, err := hostCommandFromDocument(document)
 	if err != nil {
@@ -276,6 +272,35 @@ func decodeHostCommand(value json.RawMessage) ([]string, bool, error) {
 		}
 	}
 	return argv, true, nil
+}
+
+// probeBareHost runs the bare probe in dir. An interrupted probe keeps its
+// type so callers can report it as transient.
+func probeBareHost(ctx context.Context, dir string, probe hostConfigProbeFunc) ([]byte, error) {
+	document, err := probe(ctx, hostProbeArgv(defaultHostCommand), dir)
+	if err != nil {
+		var interrupted *hostProbeInterruptedError
+		if errors.As(err, &interrupted) {
+			return nil, interrupted
+		}
+		return nil, fmt.Errorf("host registry probe failed: %w", err)
+	}
+	return document, nil
+}
+
+// hostSessionPrepareRegistry is the production wiring for session-prepare's
+// registry. session-prepare launches nothing: the session it prepares keeps
+// running in the host process that called it, and the call inherits that
+// process's environment. One bare probe in dir under that environment
+// resolves the registry the calling host resolves there. A probe through a
+// configured host_command would instead resolve the registry of a fresh
+// wrapper launch that never happens, at the wrapper's start cost (CD-0189 D4).
+func hostSessionPrepareRegistry(ctx context.Context, dir string) (hostCommandResolution, error) {
+	document, err := probeBareHost(ctx, dir, probeHostConfig)
+	if err != nil {
+		return hostCommandResolution{}, err
+	}
+	return hostCommandResolution{Command: append([]string(nil), defaultHostCommand...), Registry: document}, nil
 }
 
 // hostSessionHostCommand is the production wiring for the session's host

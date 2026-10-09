@@ -3,7 +3,8 @@
 - **Status:** Accepted
 - **Date:** 2026-09-28
 - **Scope:** Which program `concord session` starts and probes; the
-  `host_command` option and every Go-core host invocation it governs
+  `host_command` option for Go-core launches and their registry probes;
+  session-prepare's probe of the calling host
 - **Amends:** CD-0093 (D4 and D5), CD-0176 (the D3 restatement)
 - **Related:** CD-0182, CD-0049, CD-0078, CD-0088, CD-0093
 - **Approval:** The operator approved reopening CD-0093 D4 on 2026-09-28
@@ -65,7 +66,7 @@ present but malformed value, or a mismatched second document, refuses the
 launch or probe with a diagnostic naming `host_command`. Nothing starts
 through a fallback command. CD-0049 D4 admits no degraded start.
 
-### D4. Every Go-core host invocation uses it
+### D4. Every Go-core launch and its registry probe use it
 
 The Product/work launch, the Project-path launch, and the `concord session`
 registry probe run the resolved command. One resolution per start keeps the

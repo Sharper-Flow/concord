@@ -1431,7 +1431,7 @@
       ],
       "cli_verbs": [],
       "domain_id": "repository-verification",
-      "mapped_count": 181,
+      "mapped_count": 182,
       "name": "Repository verification",
       "owner_id": "domain:repository-verification",
       "path_rules": {
@@ -3858,6 +3858,7 @@
     "scripts/generate-native-run-statuses.py": "repository-verification",
     "scripts/generate-relation-vocabulary.py": "repository-verification",
     "scripts/generate-work-kinds.py": "repository-verification",
+    "scripts/git_environment.py": "repository-verification",
     "scripts/go-test-assertions/main.go": "repository-verification",
     "scripts/install.py": "repository-verification",
     "scripts/knowledge_index.py": "repository-verification",
@@ -3927,8 +3928,8 @@
     "skills/README.md": "agent-surface",
     "workflows/README.md": "workflow-engine"
   },
-  "mapped_count": 1876,
-  "path_set_fingerprint": "sha256:857c2644f68a4d217e4229c63f9c7293b19678c2617cbd165231aaccd9c8046e",
+  "mapped_count": 1877,
+  "path_set_fingerprint": "sha256:01e35e1040446dec86dd42da959851ebfcd5b92a46a9184f2c1c13223f137994",
   "schema_version": "1.0",
   "scope": "coarse file navigation, not law homes or semantic mechanism ownership",
   "source_fingerprints": {

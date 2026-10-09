@@ -4,9 +4,18 @@
 from __future__ import annotations
 
 import importlib.util
+import os
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
+
+import git_environment
+
+# CON-896: this suite's checker resolves repository files through Git, so a
+# hook that launched it must not redirect those reads into another
+# repository. The scrub runs before the in-process checker loads.
+git_environment.scrub_inherited()
 
 spec = importlib.util.spec_from_file_location(
     "check_agents_md", Path(__file__).with_name("check-agents-md.py")
@@ -165,6 +174,36 @@ def test_real_ci_workflow_yields_commands() -> None:
     banned = guard.ci_command_lines(guard.CI_WORKFLOW)
     assert banned, "the repository workflow must yield at least one command"
     assert all(" " in command for command in banned)
+
+
+def test_hook_inherited_git_dir_cannot_redirect_repository_reads() -> None:
+    """CON-896 regression: the transitive checker under a hook's GIT_DIR.
+
+    check_agents_md resolves repository files with `git ls-files`. This test
+    runs the whole suite as a child process with GIT_DIR pointing at a
+    directory that is not a repository: without startup sanitization the
+    redirect breaks the checker outright, and against a plausible outer
+    repository it silently reads the wrong file list instead.
+    """
+    if os.environ.get("CON896_TRANSITIVE_CHILD") == "1":
+        return  # recursion guard: this is the child run this test spawns
+    with tempfile.TemporaryDirectory(prefix="con-896-not-a-repo-") as scratch:
+        not_a_repository = Path(scratch) / "not-a-repository"
+        not_a_repository.mkdir()
+        before = sorted(str(path.relative_to(scratch)) for path in Path(scratch).rglob("*"))
+        env = git_environment.sanitized_environment()
+        env["GIT_DIR"] = str(not_a_repository)
+        env["CON896_TRANSITIVE_CHILD"] = "1"
+        child = subprocess.run(
+            [sys.executable, str(Path(__file__))],
+            env=env,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        after = sorted(str(path.relative_to(scratch)) for path in Path(scratch).rglob("*"))
+    assert before == after, "the redirected checker must not write into the scratch directory"
+    assert child.returncode == 0, f"the checker broke under an inherited GIT_DIR:\n{child.stderr}"
 
 
 if __name__ == "__main__":

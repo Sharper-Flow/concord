@@ -17,6 +17,14 @@ from unittest.mock import patch
 
 SCRIPTS = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPTS))
+
+import git_environment
+
+# CON-896: this suite builds temporary Git repositories, so a hook that
+# launched it must not keep a redirecting Git namespace in place. The scrub
+# runs before the in-process navigation helpers load.
+git_environment.scrub_inherited()
+
 SPEC = importlib.util.spec_from_file_location("navigation_registry_checker", SCRIPTS / "check-domain-registry.py")
 checker = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(checker)

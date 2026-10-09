@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Tests for the changed-file script suite selector (CON-893 preflight)."""
+"""Tests for the changed-file script suite selector (CON-893 preflight).
+
+The selector spawns suites with the hook-inherited Git environment cleared
+(CON-896); scripts/git_environment.py owns that namespace and is tested
+here alongside the selector boundary that uses it.
+"""
 
 from __future__ import annotations
 
@@ -13,9 +18,16 @@ import sys
 import tempfile
 import unittest
 
+import git_environment
+
+# CON-896: this suite builds Git repositories itself, so a hook that
+# launched it must not keep a redirecting Git namespace in place.
+git_environment.scrub_inherited()
+
 
 REPO = Path(__file__).resolve().parents[1]
 SCRIPT = REPO / "scripts/run-script-tests.py"
+HELPER = REPO / "scripts/git_environment.py"
 
 # A minimal CI workflow that carries the same shape as the real one: a
 # verify-tooling job with the chained tooling battery step, and another job
@@ -78,6 +90,9 @@ class SelectorRoot:
         ci = battery_text if battery_text is not None else CI_FIXTURE
         (self.root / ".github/workflows/ci.yml").write_text(ci, encoding="utf-8")
         shutil.copyfile(SCRIPT, self.root / "scripts/run-script-tests.py")
+        # The copied runner imports its sibling helper; a fixture root that
+        # carries one must carry both, or the copy cannot run standalone.
+        shutil.copyfile(HELPER, self.root / "scripts/git_environment.py")
 
     def script(self, name: str, text: str = "#!/usr/bin/env python3\n") -> Path:
         path = self.root / "scripts" / name
@@ -332,6 +347,386 @@ class RunnerExecutionTest(unittest.TestCase):
             self.assertEqual(result.returncode, 2, result.stderr)
             self.assertEqual(result.calls, [])
             self.assertIn("tooling battery", result.stderr.lower())
+
+
+# Fixture scenario data for the poisoned-environment cases below: which
+# variables a simulated hook sets, and where each points inside the scratch
+# outer repository. The sanitization authority is never this list; it is
+# scripts/git_environment.py, which discovers the namespace from Git itself.
+LOCAL_GIT_ENVIRONMENT_VARS = (
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_CONFIG",
+    "GIT_CONFIG_PARAMETERS",
+    "GIT_CONFIG_COUNT",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_DIR",
+    "GIT_WORK_TREE",
+    "GIT_IMPLICIT_WORK_TREE",
+    "GIT_GRAFT_FILE",
+    "GIT_INDEX_FILE",
+    "GIT_NO_REPLACE_OBJECTS",
+    "GIT_REPLACE_REF_BASE",
+    "GIT_PREFIX",
+    "GIT_SHALLOW_FILE",
+    "GIT_COMMON_DIR",
+    "GIT_QUARANTINE_PATH",
+)
+
+# The fixture CI battery selects exactly one synthetic suite.
+SCRATCH_COMMIT_CI_FIXTURE = """name: CI
+on:
+  pull_request:
+jobs:
+  verify-tooling:
+    name: verify-tooling
+    runs-on: ubuntu-latest
+    steps:
+      - name: Test release and installer tooling
+        run: python3 scripts/test-scratch-commit.py
+"""
+
+# The synthetic suite a hook environment must not reach. It models this
+# repository's real tooling suites (scripts/test-release.py works the same
+# way): it initializes, configures, and commits its own scratch Git
+# repository under a fresh temporary directory, far outside any outer
+# repository. It is self-contained on purpose: the testcase must observe the
+# real runner-child behavior, never fail on a missing helper import.
+SCRATCH_COMMIT_SUITE = r'''#!/usr/bin/env python3
+"""Build and commit a scratch Git repository of this suite's own."""
+import shutil
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+
+def main() -> int:
+    scratch = Path(tempfile.mkdtemp(prefix="con-896-suite-"))
+    try:
+        repo = scratch / "project"
+        repo.mkdir()
+        (repo / "tool.txt").write_text("suite scratch content\n", encoding="utf-8")
+        commands = (
+            ("init", "--quiet"),
+            ("config", "user.name", "Suite Operator"),
+            ("config", "user.email", "suite-operator@example.invalid"),
+            ("add", "tool.txt"),
+            ("commit", "--quiet", "--message", "suite scratch commit"),
+            ("tag", "suite-scratch-tag"),
+            ("rev-parse", "HEAD"),
+        )
+        for args in commands:
+            done = subprocess.run(
+                ["git", "-C", str(repo), *args], capture_output=True, text=True
+            )
+            if done.returncode:
+                print(f"scratch suite: git {args[0]} failed: {done.stderr.strip()}", file=sys.stderr)
+                return 9
+        return 0
+    finally:
+        shutil.rmtree(scratch, ignore_errors=True)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+'''
+
+
+class GitEnvironmentTest(unittest.TestCase):
+    """The shared sanitization helper (scripts/git_environment.py, CON-896)."""
+
+    def _discovery_cross_check(self) -> set[str]:
+        """An independent execution of Git's own namespace query."""
+        env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+        raw = subprocess.run(
+            ["git", "rev-parse", "--local-env-vars"],
+            env=env,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        return set(raw.stdout.split())
+
+    def test_namespace_is_discovered_from_the_installed_git(self) -> None:
+        discovered = git_environment.local_environment_vars()
+        expected = self._discovery_cross_check() | {git_environment.QUARANTINE_VAR}
+        self.assertEqual(set(discovered), expected)
+        for known in ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR", "GIT_QUARANTINE_PATH"):
+            self.assertIn(known, discovered)
+
+    def test_sanitized_environment_keeps_unrelated_and_transport_keys(self) -> None:
+        poisoned = {
+            "PATH": os.environ.get("PATH", ""),
+            "HOME": "/scratch-home",
+            "LANG": "C",
+            "GIT_SSH_COMMAND": "ssh -oProxyCommand=none",
+            "GIT_TERMINAL_PROMPT": "0",
+            "GIT_DIR": "/scratch/outer/.git",
+            "GIT_WORK_TREE": "/scratch/outer",
+            "GIT_INDEX_FILE": "/scratch/outer/.git/index",
+            "GIT_QUARANTINE_PATH": "/scratch/outer/.git/objects/quarantine",
+            "GIT_CONFIG_PARAMETERS": "'user.name=Hook'",
+            "GIT_CONFIG_COUNT": "1",
+            "GIT_CONFIG_KEY_0": "user.name",
+            "GIT_CONFIG_VALUE_0": "Hook",
+        }
+        cleaned = git_environment.sanitized_environment(poisoned)
+        for kept in ("PATH", "HOME", "LANG", "GIT_SSH_COMMAND", "GIT_TERMINAL_PROMPT"):
+            self.assertEqual(cleaned.get(kept), poisoned[kept], f"{kept} is not repository-local and must survive")
+        for removed in (
+            "GIT_DIR",
+            "GIT_WORK_TREE",
+            "GIT_INDEX_FILE",
+            "GIT_QUARANTINE_PATH",
+            "GIT_CONFIG_PARAMETERS",
+            "GIT_CONFIG_COUNT",
+            "GIT_CONFIG_KEY_0",
+            "GIT_CONFIG_VALUE_0",
+        ):
+            self.assertNotIn(removed, cleaned)
+
+    def test_discovery_survives_a_poisoned_inherited_config(self) -> None:
+        base = {"PATH": os.environ.get("PATH", "")}
+        poisoned = dict(
+            base,
+            GIT_DIR="/scratch/not/a/repository",
+            GIT_CONFIG_COUNT="not-a-number",
+            GIT_CONFIG_PARAMETERS="malformed payload with no structure",
+            GIT_CONFIG_KEY_9="user.name",
+            GIT_CONFIG_VALUE_9="injected",
+        )
+        self.assertEqual(
+            set(git_environment.local_environment_vars(poisoned)),
+            set(git_environment.local_environment_vars(base)),
+        )
+
+    def test_fail_closed_when_git_cannot_be_found(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="con-896-empty-path-") as empty:
+            with self.assertRaises(git_environment.GitEnvironmentError):
+                git_environment.local_environment_vars({"PATH": empty})
+
+    def test_fail_closed_on_an_empty_or_malformed_namespace(self) -> None:
+        for name, body in (
+            ("empty", "#!/bin/sh\nexit 0\n"),
+            ("malformed", "#!/bin/sh\nprintf 'GIT_DIR\\nNOT_A_GIT_VARIABLE\\n'\n"),
+        ):
+            with self.subTest(stub=name):
+                with tempfile.TemporaryDirectory(prefix=f"con-896-stub-{name}-") as stub_dir:
+                    stub = Path(stub_dir) / "git"
+                    stub.write_text(body, encoding="utf-8")
+                    stub.chmod(0o700)
+                    with self.assertRaises(git_environment.GitEnvironmentError):
+                        git_environment.local_environment_vars({"PATH": stub_dir})
+
+
+class HookEnvironmentLeakTest(unittest.TestCase):
+    """CON-896: suite children must not inherit a hook's Git environment.
+
+    A hook invokes the real selector runner with Git's local environment
+    variables set for the outer repository. The runner executes selected
+    suites as children, so an inherited variable redirects every git call a
+    suite makes into the outer repository, or refuses it outright. The real
+    runner runs here under hook-like inherited variables that point only at a
+    scratch outer repository; the suite must still succeed and the outer
+    repository must come back byte-for-byte unchanged.
+    """
+
+    HOOK_ENVIRONMENT_CASES = (
+        "GIT_DIR",
+        "GIT_WORK_TREE",
+        "GIT_INDEX_FILE",
+        "GIT_COMMON_DIR",
+        "GIT_QUARANTINE_PATH",
+        "local-env-vars",
+    )
+
+    def _clean_hook_env(self) -> dict[str, str]:
+        # The production helper is the single sanitization authority; the
+        # fixture builds its poisoned cases on top of a sanitized base.
+        return dict(git_environment.sanitized_environment())
+
+    def _outer_scratch_repository(self, parent: Path) -> Path:
+        parent.mkdir(parents=True, exist_ok=True)
+        outer = parent / "outer-repository"
+        outer.mkdir()
+
+        def git(*args: str) -> None:
+            subprocess.run(
+                ["git", "-C", str(outer), *args],
+                check=True,
+                capture_output=True,
+                text=True,
+                env=self._clean_hook_env(),
+            )
+
+        git("init", "--quiet")
+        git("config", "user.name", "Outer Keeper")
+        git("config", "user.email", "outer-keeper@example.invalid")
+        (outer / "outer-file.txt").write_text("outer worktree content\n", encoding="utf-8")
+        git("add", "outer-file.txt")
+        git("commit", "--quiet", "--message", "outer baseline")
+        git("tag", "outer-tag")
+        return outer
+
+    def _snapshot(self, root: Path) -> dict[str, bytes]:
+        """Byte inventory: config, HEAD, refs, tags, index, objects, worktree."""
+        inventory: dict[str, bytes] = {}
+        for path in sorted(root.rglob("*")):
+            rel = str(path.relative_to(root))
+            if path.is_symlink():
+                inventory[rel] = os.readlink(path).encode()
+            elif path.is_dir():
+                inventory[rel + os.sep] = b""
+            else:
+                inventory[rel] = path.read_bytes()
+        return inventory
+
+    def _hook_environment(self, name: str, outer: Path) -> dict[str, str]:
+        """One hook-like inheritance case; every path stays inside `outer`."""
+        git_dir = outer / ".git"
+        objects = git_dir / "objects"
+        if name == "GIT_DIR":
+            return {"GIT_DIR": str(git_dir)}
+        if name == "GIT_WORK_TREE":
+            return {"GIT_WORK_TREE": str(outer)}
+        if name == "GIT_INDEX_FILE":
+            return {"GIT_INDEX_FILE": str(git_dir / "index")}
+        if name == "GIT_COMMON_DIR":
+            return {"GIT_COMMON_DIR": str(git_dir)}
+        if name == "GIT_QUARANTINE_PATH":
+            # A pre-receive hook inherits the quarantine alongside GIT_DIR.
+            return {
+                "GIT_DIR": str(git_dir),
+                "GIT_QUARANTINE_PATH": str(objects / "quarantine-incoming"),
+            }
+        if name == "local-env-vars":
+            return {
+                "GIT_DIR": str(git_dir),
+                "GIT_WORK_TREE": str(outer),
+                "GIT_INDEX_FILE": str(git_dir / "index"),
+                "GIT_COMMON_DIR": str(git_dir),
+                "GIT_OBJECT_DIRECTORY": str(objects / "alt-object-store"),
+                "GIT_ALTERNATE_OBJECT_DIRECTORIES": str(objects / "alternates-scratch"),
+                "GIT_QUARANTINE_PATH": str(objects / "quarantine-incoming"),
+                "GIT_CONFIG": str(outer / "scratch-git-config"),
+                "GIT_CONFIG_COUNT": "2",
+                "GIT_CONFIG_KEY_0": "user.name",
+                "GIT_CONFIG_VALUE_0": "Hook Injected",
+                "GIT_CONFIG_KEY_1": "user.email",
+                "GIT_CONFIG_VALUE_1": "hook@example.invalid",
+                "GIT_CONFIG_PARAMETERS": "'user.name=HookParameters'",
+                "GIT_GRAFT_FILE": str(outer / "scratch-graft"),
+                "GIT_SHALLOW_FILE": str(outer / "scratch-shallow"),
+                "GIT_NO_REPLACE_OBJECTS": "1",
+                "GIT_REPLACE_REF_BASE": "refs/replace/",
+                "GIT_PREFIX": "",
+                "GIT_IMPLICIT_WORK_TREE": str(outer),
+            }
+        raise AssertionError(f"unknown hook environment case: {name}")
+
+    def _prepare_hook_environment_fixture(self, name: str, outer: Path) -> None:
+        """Create, before the before-snapshot, every path a case points at.
+
+        A redirected child would create or write these inside the outer
+        repository; preparing them first means the comparison after the run
+        proves the fix leaves them exactly as prepared, instead of trading on
+        paths that never existed when the snapshot was taken.
+        """
+        objects = outer / ".git" / "objects"
+        directories = []
+        files = []
+        if name == "GIT_QUARANTINE_PATH":
+            directories = [objects / "quarantine-incoming"]
+        elif name == "local-env-vars":
+            directories = [
+                objects / "quarantine-incoming",
+                objects / "alt-object-store",
+                objects / "alternates-scratch",
+            ]
+            files = [outer / "scratch-git-config", outer / "scratch-graft", outer / "scratch-shallow"]
+        for directory in directories:
+            directory.mkdir(parents=True, exist_ok=True)
+        for file in files:
+            file.write_bytes(b"")
+
+    def _leak_report(self, name: str, before: dict[str, bytes], after: dict[str, bytes]) -> str:
+        changed = sorted(
+            {key for key in before.keys() & after.keys() if before[key] != after[key]}
+            | (before.keys() ^ after.keys())
+        )
+        shown = ", ".join(changed[:10]) if changed else "none"
+        return (
+            f"the inherited {name} environment redirected suite Git operations "
+            f"into the outer scratch repository ({len(changed)} paths changed: {shown})"
+        )
+
+    def test_runner_children_do_not_inherit_a_hook_git_environment(self) -> None:
+        for name in self.HOOK_ENVIRONMENT_CASES:
+            with self.subTest(hook_environment=name):
+                with tempfile.TemporaryDirectory(prefix="con-896-outer-") as outer_dir:
+                    outer = self._outer_scratch_repository(Path(outer_dir))
+                    self._prepare_hook_environment_fixture(name, outer)
+                    before = self._snapshot(outer)
+                    with SelectorRoot(battery_text=SCRATCH_COMMIT_CI_FIXTURE) as fixture:
+                        fixture.script("test-scratch-commit.py", SCRATCH_COMMIT_SUITE)
+                        env = self._clean_hook_env()
+                        env.update(self._hook_environment(name, outer))
+                        result = subprocess.run(
+                            # The real selector runner, invoked the way a hook
+                            # invokes it: a mapping-file change routes to the
+                            # battery, which the fake CI selects one suite from.
+                            [sys.executable, str(SCRIPT), "--root", str(fixture.root), "lefthook.yml"],
+                            env=env,
+                            text=True,
+                            capture_output=True,
+                            check=False,
+                        )
+                    after = self._snapshot(outer)
+                # The real runner must have executed the synthetic suite: a
+                # plan that never ran would prove nothing about the children.
+                self.assertIn(
+                    "script-suite python3 scripts/test-scratch-commit.py", result.stdout, result.stderr
+                )
+                # The snapshot comparison runs before the exit-code check so a
+                # broken subprocess still reports the writes it managed.
+                self.assertEqual(before, after, self._leak_report(name, before, after))
+                self.assertEqual(
+                    result.returncode,
+                    0,
+                    f"the suite broke under the inherited {name} environment:\n{result.stderr}",
+                )
+
+    def test_runner_refuses_to_spawn_suites_when_namespace_discovery_fails(self) -> None:
+        # Fail closed: when Git's own namespace cannot be discovered, the
+        # runner must refuse to spawn any suite rather than risk poisoned
+        # children, however healthy the selection itself looks.
+        with tempfile.TemporaryDirectory(prefix="con-896-stub-git-") as stub_dir:
+            stub = Path(stub_dir) / "git"
+            stub.write_text("#!/bin/sh\necho 'stub git refuses discovery' >&2\nexit 1\n", encoding="utf-8")
+            stub.chmod(0o700)
+            bin_dir = Path(stub_dir) / "fake-bin"
+            bin_dir.mkdir()
+            python3 = bin_dir / "python3"
+            python3.write_text(FAKE_PYTHON3)
+            python3.chmod(0o700)
+            record = Path(stub_dir) / "suites.jsonl"
+            with SelectorRoot(battery_text=SCRATCH_COMMIT_CI_FIXTURE) as fixture:
+                fixture.script("test-scratch-commit.py", SCRATCH_COMMIT_SUITE)
+                env = dict(
+                    os.environ,
+                    PATH=str(bin_dir) + os.pathsep + str(stub_dir) + os.pathsep + "/usr/bin:/bin",
+                    SUITE_RECORD=str(record),
+                )
+                result = subprocess.run(
+                    [sys.executable, str(SCRIPT), "--root", str(fixture.root), "lefthook.yml"],
+                    env=env,
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                )
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertFalse(record.exists(), "a refused runner must not have spawned any suite")
+        self.assertIn("refusing to spawn suites", result.stderr)
 
 
 class RepositoryBatteryTest(unittest.TestCase):

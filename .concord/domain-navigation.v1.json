@@ -102,6 +102,7 @@
     {
       "domain_id": "repository-verification",
       "include": [
+        "lefthook.yml",
         "scripts/**", "bin/**", "internal/testenv/**", "internal/gittest/**", "internal/pm1fixture/**",
         "internal/store/storetest/**", "internal/store/project_tooling.go", "internal/store/conformance*_test.go",
         "internal/store/test_fixture_test.go", "internal/store/scrub_env_test.go", "internal/store/workflow_test_support_test.go",

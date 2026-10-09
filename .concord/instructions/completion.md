@@ -1,13 +1,21 @@
 # Completion
 
-Done means the requested end state exists and has been verified. Nothing else
-counts. A failing test, a red check, an unexplained error, or an unreviewed
-assumption means the work is not finished, however much of it is written.
+Done means the requested end state exists and has been verified. Missing
+acceptance evidence, a failed required check, or an unexplained change-related
+failure means the work is not finished. An unreviewed assumption is not evidence.
 
-Verify with the narrowest check that could fail for the change, then widen
-before handing back. A test that passes without exercising the change proves
-nothing; confirm a new test fails without the fix before trusting that it
-passes with it.
+Verify the requested end state and the material risks introduced or affected by
+the change. Use the narrowest checks that can establish those facts. Widen for a
+required check or a distinct unresolved risk, not because more cases can be listed.
+
+Reuse applicable evidence. Do not duplicate verification of an unchanged, trusted
+component unless the change affects its use or reveals a specific evidence gap.
+Stop when required acceptance and checks pass and material change-related risks
+have adequate evidence. Reporting a gap does not satisfy required acceptance.
+
+A regression test must exercise the change. Confirm it fails without the fix
+before trusting that it passes with the fix. For a change without executable
+behavior, use the relevant validation and review; do not invent a test matrix.
 
 Inspect failures rather than routing around them. Establish the cause before
 compensating for it. A retry, a fallback, a suppressed error, or a second

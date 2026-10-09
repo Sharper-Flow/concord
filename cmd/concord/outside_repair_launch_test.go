@@ -934,9 +934,12 @@ func TestOutsideRepairActualChildInFreshBranch(t *testing.T) {
 	if err := json.Unmarshal([]byte(stdout), &launch); err != nil {
 		t.Fatal(err)
 	}
-	data, err := os.ReadFile(childRecord)
+	data, err := os.ReadFile(filepath.Join(launch.Path, "outside-repair-child.json"))
 	if err != nil {
 		t.Fatal(err)
+	}
+	if _, err := os.Stat(childRecord); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("host fixture wrote an environment-selected path: %v", err)
 	}
 	var child outsideRepairChildRecord
 	if err := json.Unmarshal(data, &child); err != nil {

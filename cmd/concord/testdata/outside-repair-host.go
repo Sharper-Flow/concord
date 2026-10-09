@@ -51,7 +51,15 @@ func record() error {
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(os.Getenv("OUTSIDE_REPAIR_CHILD_RECORD"), data, 0o600); err != nil {
+	file, err := os.OpenFile("outside-repair-child.json", os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return err
+	}
+	if _, err := file.Write(data); err != nil {
+		_ = file.Close()
+		return err
+	}
+	if err := file.Close(); err != nil {
 		return err
 	}
 	_, err = fmt.Fprintln(os.Stdout, "child-tty-output")

@@ -53,17 +53,22 @@ func TestGeneratedReferenceDefMatchesStore(t *testing.T) {
 	if got := reference["pattern"]; got != "^\\S+$" {
 		t.Fatalf("$defs/reference pattern = %v, want the no-whitespace rule the store validates", got)
 	}
-	if got := reference["minLength"]; got != float64(2) {
-		t.Fatalf("$defs/reference minLength = %v, want 2", got)
-	}
-	if got := reference["maxLength"]; got != float64(128) {
-		t.Fatalf("$defs/reference maxLength = %v, want 128", got)
+	// ValidReference counts UTF-8 bytes. The byte bounds travel as
+	// x-minBytes/x-maxBytes; the code-point bounds derive from them
+	// (minLength = ceil(2/4)) so they never refuse a store-admitted value.
+	for keyword, want := range map[string]float64{"x-minBytes": 2, "x-maxBytes": 128, "minLength": 1, "maxLength": 128} {
+		if got := reference[keyword]; got != want {
+			t.Fatalf("$defs/reference %s = %v, want %v", keyword, got, want)
+		}
 	}
 	probes := map[string]bool{
 		"internal/store/workflow.go": true,
 		"commit:aa11bb22":            true,
+		"é":                          true,
+		strings.Repeat("é", 64):      true,
 		"a":                          false,
 		strings.Repeat("x", 129):     false,
+		strings.Repeat("é", 65):      false,
 		"has space":                  false,
 	}
 	for value, want := range probes {

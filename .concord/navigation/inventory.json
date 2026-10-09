@@ -135,7 +135,7 @@
       ],
       "cli_verbs": [],
       "domain_id": "agent-surface",
-      "mapped_count": 365,
+      "mapped_count": 371,
       "name": "Agent surface",
       "owner_id": "domain:agent-surface",
       "path_rules": {
@@ -159,6 +159,10 @@
           "internal/store/query_corpus*_test.go",
           "internal/store/query_recorded_intent_test.go",
           "internal/store/nil_store_queries_test.go",
+          "internal/store/first_call_contract_admission_test.go",
+          "internal/store/lane_step_dispatch_test.go",
+          "internal/store/record_verdict_publication_parity_test.go",
+          "internal/store/outside_repair_schema_parity_test.go",
           "internal/store/nil_store_agent*_test.go",
           "internal/store/pm8_pm9_absence_test.go",
           "contracts/agent-*",
@@ -174,7 +178,7 @@
         ]
       },
       "purpose": "Owns the typed agent plane: the read and mutation tool surface, its budget and evolution constraints, call context, lanes and worker dispatch, the adapter transport contract, and the agent result envelope.",
-      "test_count": 231,
+      "test_count": 237,
       "test_packages": [
         "github.com/sharper-flow/concord/internal/agent",
         "github.com/sharper-flow/concord/internal/store"
@@ -212,6 +216,7 @@
         "adapter/opencode/payload_consistency.test.ts",
         "adapter/opencode/project_handoff.test.ts",
         "adapter/opencode/project_handoff_end_to_end.test.ts",
+        "adapter/opencode/publication-snapshot.test.ts",
         "adapter/opencode/published_schema_conformance.test.ts",
         "adapter/opencode/session-scope.test.ts",
         "adapter/opencode/session-vacate-move.test.ts",
@@ -343,6 +348,7 @@
         "internal/agent/version_pin_regression_test.go",
         "internal/agent/work_messages_dispatch_test.go",
         "internal/agent/work_pin_evidence_bound_test.go",
+        "internal/agent/work_pin_mutation_envelope_test.go",
         "internal/agent/work_removal_linear_test.go",
         "internal/agent/work_summary_bounds_test.go",
         "internal/agent/worker_evidence_test.go",
@@ -383,15 +389,19 @@
         "internal/store/agent_authority_test.go",
         "internal/store/agent_mutation_boundary_test.go",
         "internal/store/agent_reads_test.go",
+        "internal/store/first_call_contract_admission_test.go",
+        "internal/store/lane_step_dispatch_test.go",
         "internal/store/native_run_status_vocabulary_test.go",
         "internal/store/native_run_verification_test.go",
         "internal/store/nil_store_agent_authority_test.go",
         "internal/store/nil_store_agent_mutation_test.go",
         "internal/store/nil_store_queries_test.go",
+        "internal/store/outside_repair_schema_parity_test.go",
         "internal/store/pm8_pm9_absence_test.go",
         "internal/store/query_corpus_cross_test.go",
         "internal/store/query_corpus_test.go",
         "internal/store/query_recorded_intent_test.go",
+        "internal/store/record_verdict_publication_parity_test.go",
         "internal/store/typed_error_kinds_test.go",
         "internal/store/worker_authority_boundary_test.go",
         "internal/store/worker_authorized_failure_recovery_test.go",
@@ -412,7 +422,7 @@
         "internal/store/worker_spawn_directory_test.go",
         "internal/store/worker_worktree_test.go"
       ],
-      "unresolved_candidate_count": 40,
+      "unresolved_candidate_count": 39,
       "unresolved_candidates": [
         "contracts/branch-freshness.digest",
         "contracts/branch-freshness.fixtures.json",
@@ -430,7 +440,6 @@
         "internal/store/generated_branch_freshness.go",
         "internal/store/generated_lane_step_dispatch.go",
         "internal/store/landing.go",
-        "internal/store/lane_step_dispatch_test.go",
         "internal/store/nil_store_work_item_test.go",
         "internal/store/project_handoffs.go",
         "internal/store/project_handoffs_test.go",
@@ -1770,7 +1779,7 @@
       ],
       "cli_verbs": [],
       "domain_id": "workflow-engine",
-      "mapped_count": 181,
+      "mapped_count": 185,
       "name": "Workflow engine",
       "owner_id": "domain:workflow-engine",
       "path_rules": {
@@ -1801,7 +1810,7 @@
         ]
       },
       "purpose": "Owns work lifecycle: workflow types and their contracts, workflow actions and transitions, completion predicates and verdicts, evidence binding, architecture overlap resolution, and terminal-state law.",
-      "test_count": 129,
+      "test_count": 133,
       "test_packages": [
         "github.com/sharper-flow/concord/internal/payloadschema",
         "github.com/sharper-flow/concord/internal/store"
@@ -1813,6 +1822,7 @@
         "internal/payloadschema/refusal_names_the_field_test.go",
         "internal/payloadschema/scrub_env_test.go",
         "internal/payloadschema/validation_test.go",
+        "internal/payloadschema/workflow_action_corpus_test.go",
         "internal/store/await_health_test.go",
         "internal/store/checkpoint_failed_review_correction_test.go",
         "internal/store/checkpoint_failed_review_test.go",
@@ -1861,6 +1871,7 @@
         "internal/store/workflow_correction_test.go",
         "internal/store/workflow_d7_boundary_refusal_test.go",
         "internal/store/workflow_d7_compaction_merge_boundary_test.go",
+        "internal/store/workflow_definition_digest_matrix_test.go",
         "internal/store/workflow_definition_version_pins_test.go",
         "internal/store/workflow_delivery_admission_test.go",
         "internal/store/workflow_delivery_correction_test.go",
@@ -1899,6 +1910,7 @@
         "internal/store/workflow_payload_consistency_test.go",
         "internal/store/workflow_payload_contract_test.go",
         "internal/store/workflow_payload_coverage_test.go",
+        "internal/store/workflow_payload_cross_field_rules_test.go",
         "internal/store/workflow_phase_b_test.go",
         "internal/store/workflow_predicate_refusal_test.go",
         "internal/store/workflow_predispatch_correction_test.go",
@@ -1934,16 +1946,16 @@
         "internal/store/workpin_codriver_test.go",
         "internal/store/workpin_driving_plan_test.go",
         "internal/store/workpin_evidence_recovery_test.go",
+        "internal/store/workpin_obligations_test.go",
         "internal/store/workpin_terminal_intents_test.go",
         "internal/store/workpin_test.go"
       ],
-      "unresolved_candidate_count": 12,
+      "unresolved_candidate_count": 11,
       "unresolved_candidates": [
         "internal/store/domain_reads.go",
         "internal/store/domain_reads_metadata_test.go",
         "internal/store/domain_reads_test.go",
         "internal/store/generated_lane_step_dispatch.go",
-        "internal/store/lane_step_dispatch_test.go",
         "internal/store/nil_store_work_item_test.go",
         "internal/store/project_handoffs.go",
         "internal/store/project_handoffs_test.go",
@@ -2889,6 +2901,7 @@
     "adapter/opencode/project_handoff.test.ts": "agent-surface",
     "adapter/opencode/project_handoff_end_to_end.case.ts": "agent-surface",
     "adapter/opencode/project_handoff_end_to_end.test.ts": "agent-surface",
+    "adapter/opencode/publication-snapshot.test.ts": "agent-surface",
     "adapter/opencode/published_schema_conformance.test.ts": "agent-surface",
     "adapter/opencode/session-scope.test.ts": "agent-surface",
     "adapter/opencode/session-vacate-move.test.ts": "agent-surface",
@@ -3186,6 +3199,7 @@
     "internal/agent/version_pin_regression_test.go": "agent-surface",
     "internal/agent/work_messages_dispatch_test.go": "agent-surface",
     "internal/agent/work_pin_evidence_bound_test.go": "agent-surface",
+    "internal/agent/work_pin_mutation_envelope_test.go": "agent-surface",
     "internal/agent/work_removal_linear_test.go": "agent-surface",
     "internal/agent/work_summary_bounds_test.go": "agent-surface",
     "internal/agent/worker_evidence.go": "agent-surface",
@@ -3267,6 +3281,7 @@
     "internal/payloadschema/scrub_env_test.go": "workflow-engine",
     "internal/payloadschema/validation.go": "workflow-engine",
     "internal/payloadschema/validation_test.go": "workflow-engine",
+    "internal/payloadschema/workflow_action_corpus_test.go": "workflow-engine",
     "internal/pm1fixture/domain_evidence.go": "repository-verification",
     "internal/pm1fixture/domain_payload_evidence.go": "repository-verification",
     "internal/pm1fixture/knowledge_shards.go": "repository-verification",
@@ -3350,6 +3365,7 @@
     "internal/store/federated_law_boundary_test.go": "product-memory",
     "internal/store/fence.go": "workflow-engine",
     "internal/store/fence_test.go": "workflow-engine",
+    "internal/store/first_call_contract_admission_test.go": "agent-surface",
     "internal/store/fold.go": "durable-authority",
     "internal/store/fold_guard_repair_test.go": "durable-authority",
     "internal/store/fold_guard_seeded_recovery_test.go": "durable-authority",
@@ -3402,6 +3418,7 @@
     "internal/store/knowledge_shards_test.go": "product-memory",
     "internal/store/knowledge_taxonomy_test.go": "product-memory",
     "internal/store/knowledge_vocabulary_test.go": "product-memory",
+    "internal/store/lane_step_dispatch_test.go": "agent-surface",
     "internal/store/laneless_research_test.go": "workflow-engine",
     "internal/store/launcher_domains_test.go": "operator-surface",
     "internal/store/launcher_forward_test.go": "operator-surface",
@@ -3436,6 +3453,7 @@
     "internal/store/operational_rebuild.go": "durable-authority",
     "internal/store/operator.go": "operator-surface",
     "internal/store/operator_verdict_test.go": "workflow-engine",
+    "internal/store/outside_repair_schema_parity_test.go": "agent-surface",
     "internal/store/pm8_pm9_absence_test.go": "agent-surface",
     "internal/store/product_knowledge_home.go": "product-memory",
     "internal/store/product_knowledge_home_test.go": "product-memory",
@@ -3463,6 +3481,7 @@
     "internal/store/rebuild_clear_list_test.go": "durable-authority",
     "internal/store/rebuild_msg_test.go": "durable-authority",
     "internal/store/reconstruction.go": "durable-authority",
+    "internal/store/record_verdict_publication_parity_test.go": "agent-surface",
     "internal/store/recovery.go": "durable-authority",
     "internal/store/relation_vocabulary_test.go": "work-coordination",
     "internal/store/research_mutations.go": "product-memory",
@@ -3585,6 +3604,7 @@
     "internal/store/workflow_correction_test.go": "workflow-engine",
     "internal/store/workflow_d7_boundary_refusal_test.go": "workflow-engine",
     "internal/store/workflow_d7_compaction_merge_boundary_test.go": "workflow-engine",
+    "internal/store/workflow_definition_digest_matrix_test.go": "workflow-engine",
     "internal/store/workflow_definition_version_pins_test.go": "workflow-engine",
     "internal/store/workflow_delivery_admission_test.go": "workflow-engine",
     "internal/store/workflow_delivery_correction.go": "workflow-engine",
@@ -3633,6 +3653,7 @@
     "internal/store/workflow_payload_consistency_test.go": "workflow-engine",
     "internal/store/workflow_payload_contract_test.go": "workflow-engine",
     "internal/store/workflow_payload_coverage_test.go": "workflow-engine",
+    "internal/store/workflow_payload_cross_field_rules_test.go": "workflow-engine",
     "internal/store/workflow_phase_b_test.go": "workflow-engine",
     "internal/store/workflow_predicate_refusal_test.go": "workflow-engine",
     "internal/store/workflow_predispatch_correction_test.go": "workflow-engine",
@@ -3683,6 +3704,7 @@
     "internal/store/workpin_codriver_test.go": "workflow-engine",
     "internal/store/workpin_driving_plan_test.go": "workflow-engine",
     "internal/store/workpin_evidence_recovery_test.go": "workflow-engine",
+    "internal/store/workpin_obligations_test.go": "workflow-engine",
     "internal/store/workpin_terminal_intents_test.go": "workflow-engine",
     "internal/store/workpin_test.go": "workflow-engine",
     "internal/store/worktrees_tx_subprocess_test.go": "repository-verification",
@@ -3817,16 +3839,16 @@
     "skills/README.md": "agent-surface",
     "workflows/README.md": "workflow-engine"
   },
-  "mapped_count": 1861,
-  "path_set_fingerprint": "sha256:18b41eab3c67a43fb3d0715a2fef8c2197f1b57282d3f5029abb7677fa932329",
+  "mapped_count": 1871,
+  "path_set_fingerprint": "sha256:ca8686a5fac382afbcc84d5ef5a9fc3331eed9525b59f93ce2340eb63efb8d4a",
   "schema_version": "1.0",
   "scope": "coarse file navigation, not law homes or semantic mechanism ownership",
   "source_fingerprints": {
     ".concord/docs/knowledge/domain-registry.json": "sha256:02d9eb99b0f57aca2bfc2905d1f3994a7c926e9b2252cecbe324852cbe47d7de",
-    ".concord/domain-navigation.v1.json": "sha256:2bb06aaabbb1741089cc4fb37ee2699f54556ba77ec2bc434b26ebf7b2455e09",
+    ".concord/domain-navigation.v1.json": "sha256:2e051b7201e6033f3341e083e30dd684887c2ade52ff2a1dc9fe39ec0c07b075",
     ".concord/tooling.v1.json": "sha256:b6f0c6d9b77a53235ecdae1cc2344edf13382a6e51d7f8e02fe7efed55dc1850",
     "cmd/concord/main.go": "sha256:a4b1cf90851373dc522ea75eea1d533dd25067ee748dd3f5ccaf8b199c7a50e5",
-    "contracts/agent-tool-surface.v1.json": "sha256:ef7c1eda2201a6426bc73b29233d5bf2331e532540367c2823026b3d0fe5fa3b",
+    "contracts/agent-tool-surface.v1.json": "sha256:d0dc2698a3dfe256aab790cc5e03c15303634fe516592ecd604c2c7c117989e3",
     "go.mod": "sha256:7c76ec3b5b4906d067a2d4245e3cc1b3e45b8668497298a210a6c33b87be72f3",
     "scripts/domain-navigation-cli/main.go": "sha256:d440f0ed930a34741a5c1e230e3f554fa9a17717d76c2dcb4ea607007239d75a",
     "scripts/domain_navigation.py": "sha256:2c7d9cdb8b2b0b26c1ed2fe32104d9cc16492c9bdcc93fc959b8afac2f20d89c"
@@ -4035,14 +4057,6 @@
       ],
       "path": "internal/store/landing.go",
       "reason": "Landing binds work, session, directory, and process identity together."
-    },
-    {
-      "candidate_domain_ids": [
-        "agent-surface",
-        "workflow-engine"
-      ],
-      "path": "internal/store/lane_step_dispatch_test.go",
-      "reason": "Tests the generated lane-capability/workflow-step join."
     },
     {
       "candidate_domain_ids": [
@@ -4564,5 +4578,5 @@
       "reason": "Tests reclamation preservation coupled to unpublished knowledge."
     }
   ],
-  "unresolved_count": 89
+  "unresolved_count": 88
 }

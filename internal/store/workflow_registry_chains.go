@@ -90,6 +90,7 @@ func implementationVersionChain() []WorkflowDefinition {
 		implementationProposalOutOfScopeV22(),
 		implementationRecoveryRoutesV23(),
 		implementationWorkerJobsV24(),
+		implementationPremiseFloorV25(),
 	}
 }
 
@@ -118,6 +119,7 @@ func breakFixVersionChain() []WorkflowDefinition {
 		breakFixAcceptDeliveryV19(),
 		breakFixRecoveryRoutesV20(),
 		breakFixWorkerJobsV21(),
+		breakFixPremiseFloorV22(),
 	}
 }
 
@@ -139,6 +141,7 @@ func researchVersionChain() []WorkflowDefinition {
 		researchVerdictBatchV12(),
 		researchAcceptDeliveryV13(),
 		researchRecoveryRoutesV14(),
+		researchPremiseFloorV15(),
 	}
 }
 
@@ -161,6 +164,7 @@ func architectureSpikeVersionChain() []WorkflowDefinition {
 		architectureVerdictBatchV13(),
 		architectureAcceptDeliveryV14(),
 		architectureRecoveryRoutesV15(),
+		architecturePremiseFloorV16(),
 	}
 }
 
@@ -184,6 +188,7 @@ func opsRunbookVersionChain() []WorkflowDefinition {
 		opsRunbookVerdictBatchV14(),
 		opsRunbookAcceptDeliveryV15(),
 		opsRunbookRecoveryRoutesV16(),
+		opsRunbookPremiseFloorV17(),
 	}
 }
 
@@ -204,6 +209,7 @@ func staticAnalysisVersionChain() []WorkflowDefinition {
 		staticAnalysisVerdictBatchV11(),
 		staticAnalysisAcceptDeliveryV12(),
 		staticAnalysisRecoveryRoutesV13(),
+		staticAnalysisPremiseFloorV14(),
 	}
 }
 
@@ -225,5 +231,6 @@ func genericOneOffVersionChain() []WorkflowDefinition {
 		genericOneOffVerdictBatchV12(),
 		genericOneOffAcceptDeliveryV13(),
 		genericOneOffRecoveryRoutesV14(),
+		genericOneOffPremiseFloorV15(),
 	}
 }

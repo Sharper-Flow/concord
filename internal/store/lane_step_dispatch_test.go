@@ -34,7 +34,7 @@ func joinPacketFor(t *testing.T, s *Store, workID, stepID, attemptID, laneID str
 		"lane_digest":    laneDigest,
 		"work_id":        workID,
 		"step_id":        stepID,
-		"inputs": inputs,
+		"inputs":         inputs,
 	}
 	return packet
 }

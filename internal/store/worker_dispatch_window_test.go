@@ -696,7 +696,7 @@ func dispatchWorkerPacket(t *testing.T, s *Store, workID, stepID, attemptID stri
 		"lane_digest":    laneDigest,
 		"work_id":        workID,
 		"step_id":        stepID,
-		"inputs": inputs,
+		"inputs":         inputs,
 	}
 	return packet
 }

@@ -3,6 +3,8 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"net/url"
 	"reflect"
 	"strings"
 	"testing"
@@ -202,29 +204,24 @@ func requireDeliveryCorrectionRefusal(t *testing.T, err error, wantKind FailureK
 	}
 }
 
-// TestMergeEvidenceSchemaAlignsWithFoldRule proves the generated contract's
-// $defs/merge_evidence and both correct_delivery delivery_artifact sites
-// carry the fold's rule: every value the schema admits the fold admits, and
-// every value it refuses the fold refuses. A divergence admits at the
-// request what the fold refuses, or the reverse.
+// TestMergeEvidenceSchemaAlignsWithFoldRule proves payload schema, Go
+// admission, and the Bun validator agree. Replay keeps legacy rules so stricter
+// admission does not make stored events unreadable.
 // proves check:merge-evidence-schema-alignment.
 func TestMergeEvidenceSchemaAlignsWithFoldRule(t *testing.T) {
 	t.Parallel()
 	document := payloadschema.Document()
 	defs, _ := document["$defs"].(map[string]any)
 	mergeEvidence, _ := defs["merge_evidence"].(map[string]any)
+	reference, _ := defs["reference"].(map[string]any)
 	if mergeEvidence == nil {
 		t.Fatal("generated payload schema declares no $defs/merge_evidence")
 	}
+	if reference == nil {
+		t.Fatal("generated payload schema declares no $defs/reference")
+	}
 	if mergeEvidence["$ref"] != "#/$defs/reference" {
-		t.Fatalf("merge_evidence ref = %v, want the 2..128 ValidReference bound", mergeEvidence["$ref"])
-	}
-	if mergeEvidence["pattern"] != "^https://" {
-		t.Fatalf("merge_evidence pattern = %v, want the https scheme rule", mergeEvidence["pattern"])
-	}
-	not, _ := mergeEvidence["not"].(map[string]any)
-	if userinfo, _ := not["pattern"].(string); userinfo == "" {
-		t.Fatal("merge_evidence declares no not-pattern refusing userinfo")
+		t.Fatalf("merge_evidence ref = %v, want the shared reference constraints", mergeEvidence["$ref"])
 	}
 	for _, site := range []struct{ def, field string }{
 		{"work_transition_correct_delivery_input", "delivery_artifact"},
@@ -237,27 +234,86 @@ func TestMergeEvidenceSchemaAlignsWithFoldRule(t *testing.T) {
 			t.Fatalf("%s.%s = %v, want the shared $defs/merge_evidence", site.def, site.field, property["$ref"])
 		}
 	}
-	candidates := []string{
-		deliveryCorrectionMergeRef,
-		"https://" + strings.Repeat("a", 120),
-		"https://github.com/x@y",
-		"https://github.com/x/pull@" + deliveryCorrectionApprovalHold,
-		"https://" + strings.Repeat("a", 121),
-		"https://user:pass@github.com/x",
-		"https://@github.com/x",
-		"https://ho st/x",
-		"http://github.com/x",
-		deliveryCorrectionWrongPath,
+	type admissionCase struct {
+		name       string
+		definition string
+		value      string
+		want       bool
 	}
-	// foldAdmitsMergeEvidence is the rule the fold applies to the recorded
-	// merge evidence: the 2..128 whitespace-free reference bound composed
-	// with the external https rule.
-	foldAdmitsMergeEvidence := func(value string) bool { return ValidReference(value) && validMergeEvidenceReference(value) }
-	for _, value := range candidates {
-		schemaErr := payloadschema.ValidateValue(value, mergeEvidence, document, "$")
-		if (schemaErr == nil) != foldAdmitsMergeEvidence(value) {
-			t.Fatalf("merge evidence %q: schema verdict (%v) diverges from fold verdict %v", value, schemaErr, foldAdmitsMergeEvidence(value))
-		}
+	cases := []admissionCase{
+		{name: "reference lower bound", definition: "reference", value: "a", want: false},
+		{name: "reference valid length", definition: "reference", value: "ab", want: true},
+		{name: "reference form feed", definition: "reference", value: "a\fb", want: false},
+		{name: "reference non-breaking space", definition: "reference", value: "a\u00a0b", want: false},
+		{name: "reference byte order mark", definition: "reference", value: "a\ufeffb", want: true},
+		{name: "reference maximum bytes", definition: "reference", value: strings.Repeat("a", 128), want: true},
+		{name: "reference over maximum bytes", definition: "reference", value: strings.Repeat("a", 129), want: false},
+		{name: "normal merge URL", definition: "merge_evidence", value: deliveryCorrectionMergeRef, want: true},
+		{name: "URL reference form feed", definition: "merge_evidence", value: "https://example.test/a\fb", want: false},
+		{name: "URL reference non-breaking space", definition: "merge_evidence", value: "https://example.test/a\u00a0b", want: false},
+		{name: "URL reference byte order mark", definition: "merge_evidence", value: "https://example.test/a\ufeffb", want: true},
+		{name: "empty authority", definition: "merge_evidence", value: "https://", want: false},
+		{name: "empty authority before path", definition: "merge_evidence", value: "https:///path", want: false},
+		{name: "non-numeric port", definition: "merge_evidence", value: "https://example.test:bad", want: false},
+		{name: "at sign in query", definition: "merge_evidence", value: "https://example.test?user@example.test", want: true},
+		{name: "maximum merge URL reference bytes", definition: "merge_evidence", value: "https://" + strings.Repeat("a", 120), want: true},
+		{name: "over maximum merge URL reference bytes", definition: "merge_evidence", value: "https://" + strings.Repeat("a", 121), want: false},
+		{name: "userinfo", definition: "merge_evidence", value: "https://user:pass@example.test/path", want: false},
+		{name: "ASCII control", definition: "merge_evidence", value: "https://example.test/a\x01b", want: false},
+		{name: "non-https scheme", definition: "merge_evidence", value: "http://example.test/path", want: false},
+		{name: "repository path", definition: "merge_evidence", value: deliveryCorrectionWrongPath, want: false},
+		{name: "bracketed IPv6 host", definition: "merge_evidence", value: "https://[2001:db8::1]/merge", want: true},
+		{name: "bracketed IPv6 with port", definition: "merge_evidence", value: "https://[2001:db8::1]:443/merge", want: true},
+		{name: "numeric port", definition: "merge_evidence", value: "https://example.test:443/merge", want: true},
+		{name: "malformed bracketed host", definition: "merge_evidence", value: "https://[broken/merge", want: false},
+		{name: "at sign in path", definition: "merge_evidence", value: "https://example.test/a@b", want: true},
+		{name: "at sign in fragment", definition: "merge_evidence", value: "https://example.test/merge#user@example.test", want: true},
+		{name: "DEL control", definition: "merge_evidence", value: "https://example.test/a\x7fb", want: false},
+		{name: "missing host", definition: "merge_evidence", value: "https:///merge", want: false},
+		{name: "empty port", definition: "merge_evidence", value: "https://example.test:/merge", want: false},
+		{name: "malformed percent escape", definition: "merge_evidence", value: "https://example.test/%zz", want: true},
+	}
+	for _, whitespace := range []rune{
+		'\u0009', '\u000a', '\u000b', '\u000c', '\u000d', '\u0020', '\u0085', '\u00a0', '\u1680',
+		'\u2000', '\u2001', '\u2002', '\u2003', '\u2004', '\u2005', '\u2006', '\u2007', '\u2008', '\u2009', '\u200a',
+		'\u2028', '\u2029', '\u202f', '\u205f', '\u3000',
+	} {
+		cases = append(cases, admissionCase{
+			name: fmt.Sprintf("reference whitespace U+%04X", whitespace), definition: "reference",
+			value: "a" + string(whitespace) + "b", want: false,
+		})
+	}
+	probes := make([]map[string]any, 0, len(cases))
+	for _, tc := range cases {
+		probes = append(probes, map[string]any{
+			"id": tc.name, "mode": "definition", "definition": tc.definition, "value": tc.value,
+		})
+	}
+	bunVerdicts := outsideRepairPublishedVerdicts(t, probes)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			definition := reference
+			goAdmission := ValidReference(tc.value)
+			if tc.definition == "merge_evidence" {
+				definition = mergeEvidence
+				goAdmission = validateMergeEvidenceAdmission(tc.value, "$") == nil
+			}
+			schemaErr := payloadschema.ValidateValue(tc.value, definition, document, "$")
+			bunAdmission, ok := bunVerdicts[tc.name]
+			if !ok {
+				t.Fatalf("Bun validator returned no verdict")
+			}
+			want := tc.want
+			if (schemaErr == nil) != want {
+				t.Errorf("payload schema admitted=%v, want %v: %v", schemaErr == nil, want, schemaErr)
+			}
+			if goAdmission != want {
+				t.Errorf("Go admission=%v, want %v", goAdmission, want)
+			}
+			if bunAdmission.Admit != want {
+				t.Errorf("Bun admission=%v failures=%v, want %v", bunAdmission.Admit, bunAdmission.Failures, want)
+			}
+		})
 	}
 }
 
@@ -271,7 +327,12 @@ func TestTerminalDeliveryCorrectionAdmission(t *testing.T) {
 	const workID = "delivery-correction-admission"
 	s, targetEventID, version, targetPayloadVersion, targetSeq := completedDeliveryFixture(t, workID)
 
-	if err := runDeliveryCorrection(t, s, deliveryCorrectionRequest(workID, version, targetEventID, targetSeq, targetPayloadVersion)); err != nil {
+	request := deliveryCorrectionRequest(workID, version, targetEventID, targetSeq, targetPayloadVersion)
+	request.DeliveryArtifact = "https://example.test/%zz"
+	if _, err := url.Parse(request.DeliveryArtifact); err == nil {
+		t.Fatal("legacy URL parser accepted the malformed percent escape witness")
+	}
+	if err := runDeliveryCorrection(t, s, request); err != nil {
 		t.Fatalf("approved delivery correction refused: %v", err)
 	}
 	var instanceState, currentStep, lifecycle string
@@ -289,6 +350,16 @@ func TestTerminalDeliveryCorrectionAdmission(t *testing.T) {
 	}
 	if got := deliveryWorkVersion(t, s, workID); got != version+2 {
 		t.Fatalf("correction version=%d, want the operator actor and the correction event (%d)", got, version+2)
+	}
+	if err := RebuildFromLog(context.Background(), s); err != nil {
+		t.Fatalf("replay refused a URL admitted by the new syntax: %v", err)
+	}
+	assertion, err := ReadWorkflowProjection(context.Background(), s, WorkflowReadRequest{WorkID: workID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if assertion.DeliveryAssertion == nil || assertion.DeliveryAssertion.Correction == nil || assertion.DeliveryAssertion.Correction.Artifact != request.DeliveryArtifact {
+		t.Fatalf("replayed merge artifact = %+v, want %q", assertion.DeliveryAssertion, request.DeliveryArtifact)
 	}
 
 	// A second correction of the same assertion is refused: the approval is
@@ -337,11 +408,11 @@ func TestTerminalDeliveryCorrectionAdmissionRefusals(t *testing.T) {
 		{name: "restated artifact", mutate: func(r WorkflowDeliveryCorrectionRequest) WorkflowDeliveryCorrectionRequest {
 			r.DeliveryArtifact = deliveryCorrectionWrongPath
 			return r
-		}, wantKind: KindInvalidOperation, wantPiece: "restates the asserted artifact"},
+		}, wantKind: KindInvalidPayload, wantPiece: "delivery_artifact"},
 		{name: "repository path merge evidence", mutate: func(r WorkflowDeliveryCorrectionRequest) WorkflowDeliveryCorrectionRequest {
 			r.DeliveryArtifact = "file:internal/store/other.go"
 			return r
-		}, wantKind: KindInvalidPayload, wantPiece: "merge evidence is not an external merge reference"},
+		}, wantKind: KindInvalidPayload, wantPiece: "delivery_artifact"},
 		{name: "missing approval", mutate: func(r WorkflowDeliveryCorrectionRequest) WorkflowDeliveryCorrectionRequest {
 			r.ApprovalRef = ""
 			return r
@@ -369,6 +440,34 @@ func TestTerminalDeliveryCorrectionAdmissionRefusals(t *testing.T) {
 		request := item.mutate(valid)
 		requireDeliveryCorrectionRefusal(t, runDeliveryCorrection(t, s, request), item.wantKind, item.wantPiece)
 	}
+	countEvents := func() int {
+		t.Helper()
+		var count int
+		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_type=? AND subject_id=?`, string(SubjectWorkItem), workID).Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		return count
+	}
+	invalidArtifacts := []string{
+		"https://example.test/a\fb",
+		"https://example.test/a\u00a0b",
+		"https://",
+		"https:///path",
+		"https://example.test:bad",
+		"https://example.test:/path",
+		"https://example.test/a\x7fb",
+	}
+	for i, artifact := range invalidArtifacts {
+		before := countEvents()
+		request := valid
+		request.DeliveryArtifact = artifact
+		request.EventID = fmt.Sprintf("correction-%s-invalid-%d", workID, i)
+		err := runDeliveryCorrection(t, s, request)
+		requireDeliveryCorrectionRefusal(t, err, KindInvalidPayload, "delivery_artifact")
+		if after := countEvents(); after != before {
+			t.Fatalf("invalid artifact %q appended events: before=%d after=%d", artifact, before, after)
+		}
+	}
 
 	// A live instance corrects delivery through record_delivery, not a
 	// correction event.
@@ -380,6 +479,32 @@ func TestTerminalDeliveryCorrectionAdmissionRefusals(t *testing.T) {
 		t.Fatal(err)
 	}
 	requireDeliveryCorrectionRefusal(t, runDeliveryCorrection(t, s, live), KindInvalidOperation, "only to a completed workflow instance")
+}
+
+func TestTerminalDeliveryCorrectionRefusalNamesReferenceByteBound(t *testing.T) {
+	t.Parallel()
+	const workID = "delivery-correction-reference-byte-bound"
+	s, targetEventID, version, targetPayloadVersion, targetSeq := completedDeliveryFixture(t, workID)
+	request := deliveryCorrectionRequest(workID, version, targetEventID, targetSeq, targetPayloadVersion)
+	request.DeliveryArtifact = "https://" + strings.Repeat("é", 61)
+	before := countWorkflowSubjectEvents(t, s, workID)
+	err := runDeliveryCorrection(t, s, request)
+	failure := &Failure{}
+	if !failureAs(err, &failure) || failure.Kind != KindInvalidPayload || !strings.Contains(failure.Detail, "x-maxBytes at $.delivery_artifact") {
+		t.Fatalf("oversized delivery_artifact error=%v, want the field-named 128-byte schema failure", err)
+	}
+	if after := countWorkflowSubjectEvents(t, s, workID); after != before {
+		t.Fatalf("oversized delivery_artifact appended events: before=%d after=%d", before, after)
+	}
+}
+
+func countWorkflowSubjectEvents(t *testing.T, s *Store, workID string) int {
+	t.Helper()
+	var count int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_type=? AND subject_id=?`, string(SubjectWorkItem), workID).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	return count
 }
 
 // TestTerminalDeliveryCorrectionTargetsCurrentAssertionOnly refuses a
@@ -472,6 +597,53 @@ func TestTerminalDeliveryCorrectionReadReplay(t *testing.T) {
 	}
 	if !reflect.DeepEqual(replayed.DeliveryAssertion, after.DeliveryAssertion) {
 		t.Fatalf("replayed assertion read %+v diverges from %+v", replayed.DeliveryAssertion, after.DeliveryAssertion)
+	}
+	// A stored value admitted by the previous reference rule must remain
+	// readable even when new admission rejects its Unicode whitespace.
+	const legacyArtifact = "https://example.test/a\u00a0b"
+	var correctionEventID, correctionPayload string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT event_id,payload FROM domain_events WHERE kind=? AND subject_id=?`, WorkflowDeliveryCorrected, workID).Scan(&correctionEventID, &correctionPayload); err != nil {
+		t.Fatal(err)
+	}
+	var legacyEvent map[string]any
+	if err := json.Unmarshal([]byte(correctionPayload), &legacyEvent); err != nil {
+		t.Fatal(err)
+	}
+	legacyEvent["delivery_artifact"] = legacyArtifact
+	encodedLegacyEvent, err := json.Marshal(legacyEvent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyTx, err := s.DatabaseForTesting().Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer legacyTx.Rollback()
+	var appendOnlyTrigger string
+	if err := legacyTx.QueryRow(`SELECT sql FROM sqlite_master WHERE type='trigger' AND name='domain_events_no_update'`).Scan(&appendOnlyTrigger); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := legacyTx.Exec(`DROP TRIGGER domain_events_no_update`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := legacyTx.Exec(`UPDATE domain_events SET payload=? WHERE event_id=?`, string(encodedLegacyEvent), correctionEventID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := legacyTx.Exec(appendOnlyTrigger); err != nil {
+		t.Fatal(err)
+	}
+	if err := legacyTx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	if err := RebuildFromLog(context.Background(), s); err != nil {
+		t.Fatalf("replay refused a legacy NBSP reference: %v", err)
+	}
+	legacyRead, err := ReadWorkflowProjection(context.Background(), s, WorkflowReadRequest{WorkID: workID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if legacyRead.DeliveryAssertion == nil || legacyRead.DeliveryAssertion.Correction == nil || legacyRead.DeliveryAssertion.Correction.Artifact != legacyArtifact {
+		t.Fatalf("replayed legacy artifact = %+v, want %q", legacyRead.DeliveryAssertion, legacyArtifact)
 	}
 	var instanceState string
 	if err := s.DatabaseForTesting().QueryRow(`SELECT instance_state FROM workflow_instances WHERE work_id=?`, workID).Scan(&instanceState); err != nil {

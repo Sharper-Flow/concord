@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
-	"path/filepath"
 	"sort"
 )
 
@@ -163,8 +162,20 @@ func navigationProductSources(ctx context.Context, q queryer, productID string) 
 // pin. It never supplies content or turns an absent pinned companion into an
 // adoption. Non-Git legacy fixtures keep their historical reading sets.
 func workContextNavigationPresentOnDisk(repo string) bool {
-	for _, path := range []string{workContextNavigationCompanion, workContextNavigationInventory} {
-		if _, err := os.Lstat(filepath.Join(repo, path)); !os.IsNotExist(err) {
+	return workContextRepoEntryPresent(repo, workContextNavigationCompanion, workContextNavigationInventory)
+}
+
+// workContextRepoEntryPresent reports whether any fixed relative name exists
+// under repo. os.Root confines each lookup to repo. An inspection error other
+// than absence counts as present, so it never reads as a clean absence.
+func workContextRepoEntryPresent(repo string, names ...string) bool {
+	root, err := os.OpenRoot(repo)
+	if err != nil {
+		return !os.IsNotExist(err)
+	}
+	defer func() { _ = root.Close() }()
+	for _, name := range names {
+		if _, err := root.Lstat(name); !os.IsNotExist(err) {
 			return true
 		}
 	}

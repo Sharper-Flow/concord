@@ -319,10 +319,7 @@ func beginRead(ctx context.Context, s *Store, op string) (*sql.Tx, error) {
 	if s == nil || s.db == nil {
 		return nil, newFailure(KindUnavailable, op, "store is not open", true, "open a live store")
 	}
-	// ReadOnly issues a deferred BEGIN. The data source name's
-	// _txlock=immediate is for mutations; under it a snapshot would take the
-	// write lock and queue behind every writer in every process.
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	tx, err := beginReadTx(ctx, s.db)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, op, "cannot begin live read snapshot", true, "retry once the database is readable", err)
 	}

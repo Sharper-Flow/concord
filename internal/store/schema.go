@@ -6415,7 +6415,7 @@ func upgradeRequired(m migration) *Failure {
 }
 
 func migrateOnce(ctx context.Context, db *sql.DB, scope migrationScope, clock ...func() time.Time) error {
-	tx, err := db.BeginTx(ctx, nil)
+	tx, err := beginOrdinaryTx(ctx, db)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "migrate", "cannot begin schema migration", true,
 			"retry once the database is writable", err)

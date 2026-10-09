@@ -1344,7 +1344,7 @@
       ],
       "dependency_interpretations_to": [],
       "domain_id": "agent-surface",
-      "mapped_count": 419,
+      "mapped_count": 420,
       "mechanism_owner_ids": [
         "mechanism:adapter-transport",
         "mechanism:agent-tools",
@@ -2199,7 +2199,7 @@
         ]
       },
       "purpose": "Owns the typed agent plane: the read and mutation tool surface, its budget and evolution constraints, call context, lanes and worker dispatch, the adapter transport contract, and the agent result envelope.",
-      "test_count": 268,
+      "test_count": 269,
       "test_packages": [
         "github.com/sharper-flow/concord/internal/agent",
         "github.com/sharper-flow/concord/internal/store"
@@ -2250,6 +2250,7 @@
         "adapter/opencode/test_preload.ts",
         "adapter/opencode/testenv.test.ts",
         "adapter/opencode/turn-move-boundary.test.ts",
+        "adapter/opencode/work-start-publication.test.ts",
         "adapter/opencode/worker_evidence.test.ts",
         "adapter/opencode/worker_recovery.test.ts",
         "adapter/opencode/workflow-status-receipt-runtime-shape.test.ts",
@@ -4625,7 +4626,7 @@
       ],
       "dependency_interpretations_to": [],
       "domain_id": "repository-verification",
-      "mapped_count": 181,
+      "mapped_count": 182,
       "mechanism_owner_ids": [
         "mechanism:repo-validators",
         "mechanism:test-infrastructure"
@@ -7021,6 +7022,7 @@
     "adapter/opencode/testenv.test.ts": "agent-surface",
     "adapter/opencode/turn-move-boundary.test.ts": "agent-surface",
     "adapter/opencode/turn-move-boundary.ts": "agent-surface",
+    "adapter/opencode/work-start-publication.test.ts": "agent-surface",
     "adapter/opencode/worker-cli-required-fields.json": "agent-surface",
     "adapter/opencode/worker-evidence-vector.json": "agent-surface",
     "adapter/opencode/worker_evidence.test.ts": "agent-surface",
@@ -7989,6 +7991,7 @@
     "scripts/generate-native-run-statuses.py": "repository-verification",
     "scripts/generate-relation-vocabulary.py": "repository-verification",
     "scripts/generate-work-kinds.py": "repository-verification",
+    "scripts/git_environment.py": "repository-verification",
     "scripts/go-test-assertions/main.go": "repository-verification",
     "scripts/install.py": "repository-verification",
     "scripts/knowledge_index.py": "repository-verification",
@@ -8058,7 +8061,7 @@
     "skills/README.md": "agent-surface",
     "workflows/README.md": "workflow-engine"
   },
-  "mapped_count": 1989,
+  "mapped_count": 1991,
   "mechanisms": [
     {
       "check_ids": [

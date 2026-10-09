@@ -30,6 +30,13 @@ try:
 except ImportError:  # pragma: no cover - runner images carry PyYAML
     yaml = None
 
+import git_environment
+
+# CON-896: this suite builds temporary Git repositories for the real pinned
+# Lefthook runs, so a hook that launched it must not keep a redirecting Git
+# namespace in place. The scrub runs before the in-process checker loads.
+git_environment.scrub_inherited()
+
 
 REPO = Path(__file__).resolve().parents[1]
 CHECKER = REPO / "scripts/check-pre-push.py"

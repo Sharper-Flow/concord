@@ -2,8 +2,50 @@ package store
 
 import (
 	"encoding/json"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"os"
+	"strings"
 	"testing"
 )
+
+func TestBuiltinRegistriesAreLazy(t *testing.T) {
+	fset := token.NewFileSet()
+	packages, err := parser.ParseDir(fset, ".", func(info os.FileInfo) bool {
+		return !strings.HasSuffix(info.Name(), "_test.go")
+	}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	check := func(node ast.Node) {
+		ast.Inspect(node, func(node ast.Node) bool {
+			call, ok := node.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			name, ok := call.Fun.(*ast.Ident)
+			if ok && (name.Name == "NewBuiltinWorkflowRegistry" || name.Name == "BuiltinWorkflowRegistry" || name.Name == "NewBuiltinLaneRegistry" || name.Name == "builtinLaneRegistry") {
+				t.Errorf("%s: %s builds a registry during package initialization", fset.Position(call.Pos()), name.Name)
+			}
+			return true
+		})
+	}
+	for _, file := range packages["store"].Files {
+		for _, declaration := range file.Decls {
+			switch declaration := declaration.(type) {
+			case *ast.GenDecl:
+				if declaration.Tok == token.VAR {
+					check(declaration)
+				}
+			case *ast.FuncDecl:
+				if declaration.Name.Name == "init" {
+					check(declaration.Body)
+				}
+			}
+		}
+	}
+}
 
 func workflowProductTruth(value bool) *bool { return &value }
 

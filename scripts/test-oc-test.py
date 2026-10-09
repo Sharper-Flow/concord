@@ -100,12 +100,12 @@ class PhaseReportingTest(unittest.TestCase):
 
 
 class TierRoutingTest(unittest.TestCase):
-    def run_wrapper(self, *args, failure="", with_gate=True):
+    def run_wrapper(self, *args, failure="", with_gate=True, commands=("go", "bun", "python3", "probe", "lefthook")):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / "bin").mkdir()
             shutil.copyfile(Path(__file__).resolve().parents[1] / "bin/oc-test", root / "bin/oc-test")
-            for name in ("go", "bun", "python3", "probe"):
+            for name in commands:
                 command = root / "bin" / name
                 command.write_text(FAKE_COMMAND)
                 command.chmod(0o700)
@@ -138,7 +138,7 @@ class TierRoutingTest(unittest.TestCase):
         self.assertEqual([(call["command"], call["args"]) for call in result.calls], [
             ("go", ["test", "-timeout=15m", "./..."]),
             ("bun", ["test", "adapter/opencode/"]),
-            ("python3", ["scripts/check-json.py"]),
+            ("python3", ["scripts/check-json.py", "--adapter-tests-external"]),
         ])
         self.assertTrue(all(call["cwd"] == result.repo_root for call in result.calls))
         self.assertIn("START smoke", result.stdout)
@@ -200,7 +200,8 @@ class TierRoutingTest(unittest.TestCase):
 
     def test_invalid_arguments_do_not_start_commands_or_request_admission(self):
         for args in ((), ("unknown",), ("full",), ("smoke", "extra"),
-                     ("conformance", "extra"), ("targeted",), ("targeted", "--")):
+                     ("conformance", "extra"), ("targeted",), ("targeted", "--"),
+                     ("preflight", "extra"), ("preflight", "--")):
             with self.subTest(args=args):
                 result = self.run_wrapper(*args)
                 self.assertEqual(result.returncode, 64, result.stderr)
@@ -210,7 +211,7 @@ class TierRoutingTest(unittest.TestCase):
     def test_usage_describes_supported_tiers(self):
         result = self.run_wrapper()
         self.assertEqual(result.returncode, 64)
-        for tier in ("smoke", "targeted", "conformance"):
+        for tier in ("smoke", "targeted", "conformance", "preflight"):
             self.assertIn(tier, result.stderr)
 
     def test_conformance_keeps_exact_command_environment_and_admission(self):
@@ -223,6 +224,35 @@ class TierRoutingTest(unittest.TestCase):
             "test", "-count=1", "-run", "^TestTenProcessConformance$", "./internal/store", "-v",
         ])
         self.assertEqual(result.calls[0]["conformance_long"], "1")
+
+    def test_preflight_uses_the_installed_lefthook_binary(self):
+        result = self.run_wrapper("preflight")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.gate_class, "targeted")
+        self.assertEqual(len(result.calls), 1)
+        self.assertEqual(result.calls[0]["command"], "lefthook")
+        self.assertEqual(result.calls[0]["args"], ["run", "pre-push"])
+        self.assertEqual(result.calls[0]["cwd"], result.repo_root)
+        self.assertEqual(result.calls[0]["selected_product"], "poison-product")
+        self.assertIn("START preflight", result.stdout)
+        self.assertIn("PASS preflight", result.stdout)
+        self.assertNotIn("WAIT admission", result.stdout)
+
+    def test_preflight_without_lefthook_runs_the_pinned_module(self):
+        result = self.run_wrapper("preflight", commands=("go", "bun", "python3", "probe"))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.gate_class, "targeted")
+        self.assertEqual(len(result.calls), 1)
+        self.assertEqual(result.calls[0]["command"], "go")
+        self.assertEqual(result.calls[0]["args"], [
+            "run", "github.com/evilmartians/lefthook/v2@v2.1.14", "run", "pre-push",
+        ])
+
+    def test_preflight_failure_propagates(self):
+        result = self.run_wrapper("preflight", failure="lefthook")
+        self.assertEqual(result.returncode, 7, result.stderr)
+        self.assertIn("FAIL preflight (exit 7)", result.stderr)
+        self.assertNotIn("PASS preflight", result.stdout)
 
 
 if __name__ == "__main__":

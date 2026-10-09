@@ -33,6 +33,7 @@ Run the narrow selected command with `bin/oc-test targeted -- <command> [args...
 - `go-vet` (fast): `go vet ./...`
 - `gofmt` (fast): `gofmt -l .`
 - `govulncheck` (standard): `go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...`
+- `lefthook-preflight` (standard): `bin/oc-test preflight`
 - `repo-validators` (fast): `python3 scripts/check-json.py`
 
 ## Not covered by slice A
@@ -40,5 +41,5 @@ Invariant/control joins, allowed-dependency interpretation, observed import/call
 non-law navigation homes, CON-887 packet reading, and CON-890 owner oracles remain later work.
 Required-reading entries will be pinned references, not inlined card content.
 
-Navigation source fingerprint: `sha256:232e392ca8b8ffbb79d27b051f0e69c9125000e7c1fecca79cb1b1bf0b91103a`.
+Navigation source fingerprint: `sha256:9ff00dd78ed975640bfb9731e4ce4dfac64a27868573825bae9840f9f4a69fa6`.
 Other fingerprints and the exact file universe are in the generated inventory.

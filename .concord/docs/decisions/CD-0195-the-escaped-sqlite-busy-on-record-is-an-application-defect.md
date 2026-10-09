@@ -100,9 +100,6 @@ stated order, and no engine replacement occurs without a failing comparison.
 - **Reopen the storage authority now.** Rejected: both classes are defects in
   Concord application code with named repairs, and CD-0011 requires a failing
   comparison before any replacement.
-- **Amend CD-0011 in place.** Rejected: CD-0011 keeps its recorded content
-  under the legacy profile (CD-0175), and a new record refines one condition
-  without rewriting the rest.
 - **Name writer queue depth the cause.** Rejected: the wall-time gap between
   refused and successful calls tracks the in-transaction git work, and the
   source diagnosis names the holder.

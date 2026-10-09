@@ -28,9 +28,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:fc2b6394a4d9fdbaeba884ac5cf68d13b941310c42c3f049ec6af39fce13aa74",
+  "sha256": "sha256:bba10be5a1fe14b2c7fc7c090af016c892baddd0f6c3c6523f60afaf2d7139e1",
   "status": "accepted",
-  "summary": "The operator names the host launch command as a host_command argv array in the options of the Concord plugin tuple in host OpenCode config, read from the opencode debug config document. Absent means the bare opencode executable and unchanged behavior. Present, every Go-core host invocation uses it: the Product and work launch, the Project-path launch, and the registry probe shared by concord session and session-prepare. A second probe through the configured command must carry an identical host_command, and the agent registry check reads that document, so the verified registry is the executing registry. A malformed value or a mismatched second document refuses with a diagnostic naming host_command and starts no host.",
+  "summary": "The operator names the host launch command as a host_command argv array in the options of the Concord plugin tuple in host OpenCode config, read from the opencode debug config document. Absent means the bare opencode executable and unchanged behavior. Present, Go-core launches and their registry probes use it: the Product and work launch, the Project-path launch, and the concord session registry probe. A second probe through the configured command must carry an identical host_command, and the agent registry check reads that document, so the verified registry is the executing registry. A malformed value or a mismatched second document refuses with a diagnostic naming host_command and starts no host. session-prepare launches nothing and does not resolve host_command. It runs one bare probe in the claimed worktree under the calling host's inherited environment, so its registration check reads the registry that the calling session runs with.",
   "tags": [
     "launcher",
     "session-boot",

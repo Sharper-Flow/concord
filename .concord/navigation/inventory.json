@@ -146,6 +146,7 @@
         }
       ],
       "cli_verbs": [],
+      "default_path_rules": null,
       "domain_id": "agent-surface",
       "mapped_count": 375,
       "name": "Agent surface",
@@ -546,6 +547,15 @@
         }
       ],
       "cli_verbs": [],
+      "default_path_rules": {
+        "domain_id": "durable-authority",
+        "exclude": [
+          "internal/store/**/*_test.go"
+        ],
+        "include": [
+          "internal/store/**"
+        ]
+      },
       "domain_id": "durable-authority",
       "mapped_count": 65,
       "name": "Durable authority",
@@ -947,6 +957,7 @@
           "two_word": ""
         }
       ],
+      "default_path_rules": null,
       "domain_id": "operator-surface",
       "mapped_count": 161,
       "name": "Operator surface",
@@ -1181,6 +1192,7 @@
         }
       ],
       "cli_verbs": [],
+      "default_path_rules": null,
       "domain_id": "product-memory",
       "mapped_count": 868,
       "name": "Product memory and law",
@@ -1350,6 +1362,7 @@
         }
       ],
       "cli_verbs": [],
+      "default_path_rules": null,
       "domain_id": "product-root:concord",
       "mapped_count": 5,
       "name": "Concord",
@@ -1439,6 +1452,15 @@
         }
       ],
       "cli_verbs": [],
+      "default_path_rules": {
+        "domain_id": "repository-verification",
+        "exclude": [],
+        "include": [
+          "internal/store/**/*_test.go",
+          "contracts/**",
+          ".concord/scenarios/**"
+        ]
+      },
       "domain_id": "repository-verification",
       "mapped_count": 181,
       "name": "Repository verification",
@@ -1651,6 +1673,7 @@
         }
       ],
       "cli_verbs": [],
+      "default_path_rules": null,
       "domain_id": "work-coordination",
       "mapped_count": 46,
       "name": "Work coordination",
@@ -1869,6 +1892,7 @@
         }
       ],
       "cli_verbs": [],
+      "default_path_rules": null,
       "domain_id": "workflow-engine",
       "mapped_count": 190,
       "name": "Workflow engine",
@@ -3958,19 +3982,8 @@
     "workflows/README.md": "workflow-engine"
   },
   "mapped_count": 1891,
-  "path_set_fingerprint": "sha256:072b6c3157af083b6c4805f1548989bd01c08956832b12c625dc967bbc579517",
   "schema_version": "1.0",
   "scope": "coarse file navigation, not law homes or semantic mechanism ownership",
-  "source_fingerprints": {
-    ".concord/docs/knowledge/domain-registry.json": "sha256:02d9eb99b0f57aca2bfc2905d1f3994a7c926e9b2252cecbe324852cbe47d7de",
-    ".concord/domain-navigation.v1.json": "sha256:3e6935764e333c9f41167f06bff410fb9446cc90e281427c907ffd30374ae80c",
-    ".concord/tooling.v1.json": "sha256:19b72675d2a7bf5600d5ee1a67ac134149b2375d4e91b21d785f4917d84e65d3",
-    "cmd/concord/main.go": "sha256:33677dc4d30605636e9d54f3361227f94cdecb815ad2c42cedeb69e8454cb9fa",
-    "contracts/agent-tool-surface.v1.json": "sha256:70d219fd3978fa97a90a7bfa657fdc2a2d8ff0638248dd386e52beb9dc774867",
-    "go.mod": "sha256:7c76ec3b5b4906d067a2d4245e3cc1b3e45b8668497298a210a6c33b87be72f3",
-    "scripts/domain-navigation-cli/main.go": "sha256:d440f0ed930a34741a5c1e230e3f554fa9a17717d76c2dcb4ea607007239d75a",
-    "scripts/domain_navigation.py": "sha256:2c7d9cdb8b2b0b26c1ed2fe32104d9cc16492c9bdcc93fc959b8afac2f20d89c"
-  },
   "test_coverage": {
     "internal/store/conformance_test.go": [
       "domain:durable-authority",

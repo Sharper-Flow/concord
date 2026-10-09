@@ -55,7 +55,7 @@ Every outcome carries:
 | `adapter_contract_version` | Required only for `origin=adapter`: adapter envelope schema used to encode a pre-core transport/bootstrap failure; it never claims a core surface identity. |
 | `request_id` | This transport attempt; audit only, never idempotency. |
 | `origin` | `core` for a schema-valid core response. `adapter` only when no core envelope exists, for a fail-closed transport error or a pre-dispatch input refusal that ran nothing. |
-| `tool`, `operation` | One accepted TS3/TS4 pair. |
+| `tool`, `operation` | One accepted TS3/TS4 pair. A pre-dispatch wrapper refusal uses an empty `operation` if no accepted pair can be resolved. |
 | `outcome` | `ok|pending|partial|error`. |
 | `resolved_scope` | Product/Project/work IDs actually used, or `null` when resolution failed. |
 | `authority` | `authoritative|degraded|unreachable`. Degraded may accompany bounded useful data; unreachable cannot masquerade as data. |
@@ -289,6 +289,10 @@ TS7 `error` envelope with `origin=adapter`, `authority=unreachable`, and one of:
 - `invalid_input` — the adapter refused the call before any core call because its host request wrapper is missing or malformed.
   The effect is `none`, `retry_safe` is false, and recovery is `restart_query`; or
 - `cancelled` — cancellation completed before any authoritative effect.
+
+If the wrapper refusal cannot resolve an accepted tool/operation pair, `operation` is
+the empty string and `query_id` is absent. Only this no-effect wrapper refusal may
+carry an empty operation. It never fabricates an accepted operation.
 
 Adapter errors also carry closed `adapter_reason`:
 `missing_binary|spawn_failure|io_failure|malformed_core_response|timeout_no_effect|cancelled_no_effect|manifest_mismatch|grant_bootstrap_failed|unknown_effect|invalid_request_wrapper`.

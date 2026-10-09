@@ -7,7 +7,7 @@ File accountability does not change a document's law home or a handler's semanti
 ## Responsibility
 Owns Product knowledge: the knowledge index and its records, the Domain registry as law, law-coverage and conformance records, lessons and research, and compaction and retention policy.
 
-Mapped files: 874; tests: 43; unresolved candidates: 0.
+Mapped files: 875; tests: 44; unresolved candidates: 0.
 Candidate counts overlap when a file has several candidates; no candidate is an assigned owner.
 
 ## Code and tests

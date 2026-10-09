@@ -30,7 +30,24 @@ type ToolContext = {
   ask: (request: { permission: string; patterns: string[]; always: string[]; metadata: { [key: string]: any } }) => Promise<void>
 }
 type ToolResult = string | { output: string; title?: string; metadata?: Record<string, unknown>; attachments?: unknown[] }
-function tool<T>(definition: T): T { return definition }
+const requestToolNames = new WeakMap<object, string>()
+function tool<T extends { args: object; execute: (args: any, context: ToolContext) => Promise<ToolResult> }>(definition: T): T {
+  const toolName = requestToolNames.get(definition.args)
+  if (!toolName) return definition
+  const execute = definition.execute
+  return { ...definition, execute: async (args: any, context: ToolContext): Promise<ToolResult> => {
+    const request: unknown = args?.request
+    if (request === null || typeof request !== "object" || Array.isArray(request)) {
+      const operation = typeof args?.operation === "string" && contractOperations.some((candidate) => candidate.tool === toolName && candidate.id === `${toolName}.${args.operation}`) ? args.operation : ""
+      const requestID = `${context.sessionID}-${context.messageID}`
+      const envelope = adapterError(toolName, operation, requestID, "invalid_input", "invalid_request_wrapper", "Missing or invalid request wrapper: submit {request: {operation, input}}.", "none", "restart_query")
+      envelope.error.retry_safe = false
+      const { envelope: settled, extraWarnings } = withReleaseStaleness(envelope, releaseStaleness())
+      return appendWarnings(encodeHostResult(toolName, operation, requestID, settled), extraWarnings)
+    }
+    return execute(args, context)
+  } }
+}
 
 const MAX_STDERR = 8192
 // cmd/concord's inputRefusalExit names a refusal before dispatch, not a
@@ -269,7 +286,9 @@ export function publishedRequestSchema(toolName: string): JSONSchema {
 }
 
 function argsSchema(toolName: string): any {
-  return { request: publishedRequestSchema(toolName) }
+  const args = { request: publishedRequestSchema(toolName) }
+  requestToolNames.set(args, toolName)
+  return args
 }
 
 // The registration map exposes every declared field. The definition hook

@@ -379,7 +379,8 @@ func (e Envelope) Validate() error {
 	return ValidateGeneratedEnvelope(encoded)
 }
 func (e Envelope) validateInvariants() error {
-	if e.SchemaVersion != "1.0" || e.ManifestDigest != ManifestDigest || e.RequestID == "" || len(e.RequestID) > 128 || e.Tool == "" || e.Operation == "" {
+	unresolvedWrapper := e.Operation == "" && e.Origin == OriginAdapter && e.Error != nil && e.Error.AdapterReason == "invalid_request_wrapper"
+	if e.SchemaVersion != "1.0" || e.ManifestDigest != ManifestDigest || e.RequestID == "" || len(e.RequestID) > 128 || e.Tool == "" || e.Operation == "" && !unresolvedWrapper {
 		return errors.New("invalid envelope identity")
 	}
 	if e.Origin != OriginCore && e.Origin != OriginAdapter {
@@ -388,8 +389,10 @@ func (e Envelope) validateInvariants() error {
 	if e.Outcome != OutcomeOK && e.Outcome != OutcomePending && e.Outcome != OutcomePartial && e.Outcome != OutcomeError {
 		return errors.New("unknown envelope outcome")
 	}
-	if err := validateOperation(e.Tool, e.Operation, e.QueryID); err != nil {
-		return err
+	if !unresolvedWrapper {
+		if err := validateOperation(e.Tool, e.Operation, e.QueryID); err != nil {
+			return err
+		}
 	}
 	if len(e.SourceVersionWatermark) > 32 || len(e.OrderingKeys) > 16 || len(e.Omissions) > MaxNotices || len(e.Warnings) > MaxNotices || len(e.EvidenceRefs) > 32 {
 		return errors.New("envelope bound exceeded")
@@ -441,6 +444,9 @@ func (e Envelope) validateInvariants() error {
 	return nil
 }
 func (e Envelope) validateOK() error {
+	if !isMutation(e.Tool, e.Operation) && (e.ChangedRefs != nil || e.NextValidIntents != nil) {
+		return errors.New("read ok envelope must not contain mutation metadata")
+	}
 	hasItems, hasResult := e.Items != nil, e.Result != nil
 	if hasItems == hasResult {
 		return errors.New("ok envelope requires exactly one payload")
@@ -784,7 +790,7 @@ func validateError(err TypedError) error {
 		}
 	}
 	if err.AdapterReason != "" {
-		adapterReasons := map[string]bool{"missing_binary": true, "spawn_failure": true, "io_failure": true, "malformed_core_response": true, "timeout_no_effect": true, "cancelled_no_effect": true, "manifest_mismatch": true, "grant_bootstrap_failed": true, "unknown_effect": true, "invalid_cli_input": true}
+		adapterReasons := map[string]bool{"missing_binary": true, "spawn_failure": true, "io_failure": true, "malformed_core_response": true, "timeout_no_effect": true, "cancelled_no_effect": true, "manifest_mismatch": true, "grant_bootstrap_failed": true, "unknown_effect": true, "invalid_cli_input": true, "invalid_request_wrapper": true}
 		if !adapterReasons[err.AdapterReason] {
 			return fmt.Errorf("unknown adapter reason %q", err.AdapterReason)
 		}

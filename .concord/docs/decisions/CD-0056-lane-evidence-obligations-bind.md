@@ -101,8 +101,14 @@ refuses an array past its bound as a whole and never truncates a finding.
 Oracle receipts remain reported evidence. The terminal boundary joins the
 dispatch's job, candidate subject, controls, cases, recipe, and retained
 execution authority. Native-run and worktree-verification producers retain
-their existing authority. Their bounded output can be truncated; a receipt
-must not claim full output when the producer retained only bounded output.
+their existing authority. Native oracle preparation supplies readiness only;
+a reported pass requires qualified execution, not compilation or zero tests.
+A full-output reference requires complete stdout and stderr retained by the
+native producer, with byte lengths and SHA-256 digests for the same streams.
+The existing inspect read route resolves these references within work/Project
+scope. A preview may be truncated while retained streams remain complete.
+Legacy bounded output, incomplete capture, and abandoned uncommitted output
+cannot acquire a full-output reference or qualified native-oracle pass.
 Neither a signed report nor an execution locator proves semantic acceptance.
 
 ### D4. An undischarged obligation is not a completion

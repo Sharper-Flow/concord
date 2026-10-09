@@ -65,10 +65,16 @@ is not satisfied, has readiness evidence, has no unresolved references, and
 each prerequisite revision is satisfied.
 
 Oracle readiness references support harness availability and a nonempty
-selector. Dispatch preparation resolves the pinned recipe commit and path
-before authorization. A readiness refusal creates no attempt and spends no
-dispatch budget. A missing harness requires preparation through existing job
-prerequisites, not an exception or an invented receipt.
+selector. Native preparation resolves the exact pinned recipe, cwd, declared
+case witnesses, and build environment, then compiles without test execution.
+Its qualified lease record is readiness only, never verification authority.
+Preparation precedes the ready job record; the native owner derives a digest
+over the exact owner, case, and control bundle except its readiness references.
+The recorded job must match that bundle and parent authority exactly.
+Dispatch requires preparation for the same candidate and build environment.
+A readiness refusal creates no attempt and spends no dispatch budget.
+Unsupported recipes or unavailable inputs require explicit preparation recovery,
+not an invented reference, automatic execution, or a readiness exception.
 
 ### D2. A job-capable dispatch binds one ready revision end to end
 
@@ -85,6 +91,29 @@ stays the complete parent premise.
 The `dispatch_worker` completion records the binding. The dispatch evidence
 must carry exactly that binding. The report must claim exactly that revision.
 A satisfied revision refuses a new dispatch, on resume and on the first ask.
+
+Native oracle execution joins that completion to its exact `worker_attempts`
+row, preceding action start and epoch, canonical packet digest, and recorded
+job revision under its digest. The selected control must belong to that job.
+Only `in_flight` and `dispatched` attempts admit a new oracle execution.
+Missing, `completed`, or `failed` attempts refuse before test-program launch.
+The completion records `worker_subject_commit` from the same tx-scoped
+`subject_commit` view admitted with the packet (CD-0067 D2).
+The integrated current view has one subject field, `subject_commit`, not a
+second `candidate_subject` field or independently derived candidate owner.
+Execution requires current clean `HEAD`, current core `subject_commit`, and
+the recorded dispatch commit to be nonempty and equal.
+A missing or mismatched value refuses with zero test-program launches.
+A path identity, caller assertion, or current context cannot replace the
+recorded commit. Historical completions without the field refuse execution;
+no upcast, packet-body copy, or candidate inference fills the absence.
+The producer rechecks applicability at lease acquisition, before test launch,
+and at release; changed authorization cannot produce qualified pass evidence.
+A finalized native replay returns retained evidence without another launch.
+Managed lanes gain no Concord tools; the authenticated native host owns this
+execution through the existing verify operation and its capability grant.
+This observation grants neither semantic acceptance nor independent authority.
+No new dispatch window, authorization row, or retry budget is implied.
 
 An earlier definition version refuses `inputs.worker_job`. A step without
 `record_worker_job` also refuses it. The lane-step join keeps its existing
@@ -237,6 +266,30 @@ Scenario: Local acceptance holds the step without delivery
   Then the revision is satisfied
   And the step does not change
   And no delivery is asserted
+
+Scenario: Forged oracle execution cannot launch a test program
+  Given two persisted job authorizations with distinct attempts and packet digests
+  When execution supplies an invented attempt or another job's packet digest
+  Then execution refuses and the test-program launch count is zero
+  And no init or test marker exists
+
+Scenario: Missing candidate authorization refuses oracle execution
+  Given a live job authorization without a provable dispatch-time candidate binding
+  When the host requests oracle execution
+  Then execution refuses and the test-program launch count is zero
+  And no candidate identity is fabricated
+
+Scenario: A dispatch for an older candidate cannot execute the current `HEAD`
+  Given attempt A bound to a recorded commit different from current clean `HEAD`
+  When the host requests execution with attempt A's valid job and packet digest
+  Then execution refuses and the test-program launch count is zero
+  And no init or test marker exists
+
+Scenario: Current core candidate must agree with the dispatch and `HEAD`
+  Given current clean `HEAD` equals the recorded dispatch commit
+  And the current core subject_commit names a different commit
+  When the host requests native oracle execution
+  Then execution refuses and the test-program launch count is zero
 
 Scenario: An unrelated accepted job keeps the failed job's window
   Given a job-bound attempt that failed or whose result was rejected

@@ -305,10 +305,66 @@ as its producer. The acceptance checkpoint's verification requirement then
 resolves against the core run that produced it. A failed or mutated run records
 no authority. The gate keeps refusing unbound verification.
 
-An oracle receipt joins the same retained execution evidence; it creates no
-producer authority. The candidate subject and pinned recipe remain separate
-identities. Native-run or worktree-verification output retains its producer's
-existing bounds, and truncated output is not a full output log.
+Native oracle preparation retains a qualified readiness lease but creates no
+green durable operation and discharges no candidate verification predicate.
+Execution publishes verification authority only for a qualified pass.
+Its bounded `result_json` is byte-identical to the green operation's
+`result_payload`; neither JSON record contains raw stream bodies.
+
+An oracle receipt joins retained execution evidence and creates no producer
+authority. The candidate and pinned recipe remain separate identities.
+The initial native recipe supports pure-Go top-level tests only.
+Preparation derives a nonempty, build-selected witness set and compiles the
+pinned harness without running its binary, initialization, or `TestMain`.
+Execution stages the candidate with the exact pinned test and fixture bytes.
+It preserves production Go/module inputs and uses the declared contained cwd.
+Undeclared non-Go inputs and unresolved embed targets refuse preparation or
+execution; only declared pinned fixtures and explicit compiler inputs enter.
+The producer pins the installed toolchain and native target, with
+`GOTOOLCHAIN=local`, `GOPROXY=off`, `GOFLAGS=-mod=readonly`, `CGO_ENABLED=0`, and
+`GOWORK=off`. Each lease uses a private disposable `GOCACHE`.
+Unsupported recipes and missing dependencies remain unavailable; no install,
+download, shell fallback, or aggregate scratch-quota guarantee is implied.
+A pass requires actual run and terminal pass events for every selected case
+witness, not exit zero alone, a skipped test, or package-level success.
+Independent review still judges the semantic adequacy of those witnesses.
+
+Before test-program launch, the native owner proves the persisted dispatch's
+work, attempt, epoch, packet digest, exact job revision, control, and candidate.
+It joins the completion event, attempt projection, preceding start, and job
+event through the existing authority; `in_flight` or `dispatched` is required.
+The completion builder records `worker_subject_commit` beside the packet
+digest from the same tx-scoped core `subject_commit` view admitted at dispatch.
+The fold and window reader retain that event value without current derivation.
+The integrated work-context view exposes only `subject_commit`; no parallel
+`candidate_subject` property or independent subject reader survives.
+Current clean `HEAD`, current core subject, and recorded dispatch subject must
+be nonempty and equal. Historical or candidate-less completions refuse native
+oracle execution without an upcast, packet-body retention, or inferred value.
+A forged attempt, another job's digest, terminal state, or mismatched candidate
+binding refuses with zero test-program launches. Acquisition and release also
+recheck applicability. Caller assertions and today's context supply no missing
+historical authorization, and preparation requires no worker authorization.
+
+The existing lease retains a canonical producer plan and SHA-256 digest in
+separate columns; `command_json` remains a bare argument array.
+Resume compares plan bytes and digest as well as work, Project, and request
+identity. Completed replay returns retained metadata without another effect.
+The lease stores one stdout `BLOB` and one stderr `BLOB`, at most 2 MiB each.
+The producer finalizes lengths, hashes, completeness, and bounded JSON before
+the SQL-only release transaction stores streams and metadata atomically.
+No raw stream body enters durable operations or mutation idempotency records.
+Overflow, capture loss, mutation, or conversion failure cannot qualify a pass.
+A finalized incomplete diagnostic prefix remains explicitly incomplete.
+Abandonment before committed release promises no retained output or reference.
+An additive migration preserves legacy NULLs without fabricated empty streams.
+
+`worktree_inspect` mode `oracle_output` reads a retained same-work/Project run
+without requiring an active tree and returns at most 16 KiB of raw page bytes.
+The reader verifies retained length and SHA-256 before returning bounded base64
+data within the unchanged response envelope. The read creates no mutation,
+lease, native effect, or idempotency page record. Work removal deletes the
+lease and its streams; worktree reclamation alone does not erase access.
 
 ### 5.2 Fold rules and rebuild
 

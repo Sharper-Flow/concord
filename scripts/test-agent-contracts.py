@@ -535,13 +535,8 @@ class DeliveryDecidableTeachingTests(unittest.TestCase):
     """
 
     def _add_condition_branches(self, defs):
-        for condition in defs["work_transition_action_shared_input"]["allOf"]:
-            trigger = condition.get("if", {}).get("properties", {}).get("action_id", {}).get("const")
-            if trigger != "add_condition":
-                continue
-            then = condition["then"]
-            return then.get("anyOf") or [then]
-        return None
+        branches = [defs[name] for name in generator.ADD_CONDITION_VARIANTS if name in defs]
+        return branches or None
 
     def test_shipped_predicate_array_teaches_the_rule(self):
         items = payload_schema["$defs"]["workflow_action_outcome_predicates"]
@@ -569,11 +564,8 @@ class DeliveryDecidableTeachingTests(unittest.TestCase):
 
     def test_generator_refuses_a_projection_without_the_add_condition_condition(self):
         defs = copy.deepcopy(payload_schema["$defs"])
-        conditions = defs["work_transition_action_shared_input"]["allOf"]
-        defs["work_transition_action_shared_input"]["allOf"] = [
-            condition for condition in conditions
-            if condition.get("if", {}).get("properties", {}).get("action_id", {}).get("const") != "add_condition"
-        ]
+        for name in generator.ADD_CONDITION_VARIANTS:
+            defs.pop(name, None)
         with self.assertRaises(ValueError):
             generator.require_delivery_rule_teaching(defs)
 
@@ -1134,6 +1126,396 @@ class ExternalSuiteRoutingOptionsTests(unittest.TestCase):
         )
         self.assertEqual(code, 1)
         self.assertIn(error, err)
+
+
+class WorkflowActionVariantCorpusTests(unittest.TestCase):
+    """Registry-derived deterministic corpus over every published workflow
+    action variant (CON-412).
+
+    The corpus derives its cases from the live registry projection (the same
+    `go run ./scripts/workflow-action-contracts` output the generator reads),
+    not from the frozen JSON, so an action the registry adds without a
+    generated closed variant fails here. For each action it proves:
+
+    - a valid sample built from the variant's own required/properties admits
+      against the variant schema (published shape), the core input union, and
+      the public variant when one exists;
+    - missing-required, unknown-field, cross-variant-field, bad-enum,
+      bad-type, and bad-range mutants are refused by the variant schema AND
+      by the core input union AND by the public variant, so the published
+      closed branch and the core cannot admit differently;
+    - the legal input combinations the store's guards enforce (the registry
+      projection's combinations, authored beside the guards) are exact: each
+      discriminator value's required fields are required and its forbidden
+      fields are refused, in every published and core shape.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.actions, cls.workflows, cls.teaching = generator.load_workflow_action_contracts()
+        cls.defs = payload_schema["$defs"]
+
+    def _variants(self):
+        for action in self.actions:
+            name = f"work_transition_action_variant_{action['id']}"
+            self.assertIn(name, self.defs, f"registry action {action['id']} has no closed variant")
+            yield action, self.defs[name]
+
+    def _schema_names(self, action, shape="core"):
+        if shape == "core":
+            names = [f"work_transition_action_variant_{action['id']}", "work_transition_action_input"]
+        else:
+            names = [f"work_transition_action_public_variant_{action['id']}", "work_transition_action_public_input"]
+        return names
+
+    def _shapes(self, action):
+        # The core payload answers to the core union; a divergent public
+        # payload (dispatch_worker, whose core attempt identity the adapter
+        # authors) answers to the public union the agent boundary validates.
+        shapes = [("core", f"work_transition_action_variant_{action['id']}", self._schema_names(action, "core"))]
+        public = f"work_transition_action_public_variant_{action['id']}"
+        if public in self.defs:
+            shapes.append(("public", public, self._schema_names(action, "public")))
+        return shapes
+
+    def _legacy_layout(self, action, value):
+        # The core input keeps admitting recorded historical payload layouts
+        # (CON-412: historic execution preserved, never advertised). A mutant
+        # whose fields object is absent or empty is exactly that layout for
+        # an action that records legacy payloads, and only that.
+        if not action.get("legacy_payloads"):
+            return False
+        fields = value.get("fields", {})
+        return fields == {} or fields is None
+
+    def _assert_verdict(self, value, schema_name, should_admit, label):
+        try:
+            generator.schema_validate(value, self.defs[schema_name], payload_schema, schema_name)
+        except ValueError as err:
+            if should_admit:
+                self.fail(f"{label}: {schema_name} refused a payload its contract admits ({err})")
+            return
+        if not should_admit:
+            self.fail(f"{label}: {schema_name} admitted a payload its contract refuses")
+
+    # Node-derived mutant walks. Each returns (label, value, path) mutants
+    # for one schema node against the sample value that reaches it.
+    def _enum_mutants(self, schema, value, path=()):
+        if isinstance(schema, dict) and "$ref" in schema:
+            schema = self.defs.get(schema["$ref"].removeprefix("#/$defs/"), schema)
+        if not isinstance(schema, dict):
+            return
+        if "enum" in schema and path and isinstance(value, (str, int)) and not isinstance(value, bool):
+            yield "; ".join(path) + " bad enum", "__corpus_not_an_enum_value__", path
+        kind = schema.get("type")
+        kind = next((candidate for candidate in (kind if isinstance(kind, list) else [kind]) if candidate != "null"), None) if kind else None
+        if isinstance(value, dict):
+            for name, child in (schema.get("properties") or {}).items():
+                if name not in value:
+                    continue
+                yield from self._enum_mutants(child, value[name], path + (name,))
+        elif isinstance(value, list) and value:
+            yield from self._enum_mutants(schema.get("items", {}), value[0], path + ("0",))
+
+    def _type_mutants(self, schema, value, path=()):
+        if isinstance(schema, dict) and "$ref" in schema:
+            schema = self.defs.get(schema["$ref"].removeprefix("#/$defs/"), schema)
+        if not isinstance(schema, dict):
+            return
+        kind = schema.get("type")
+        if kind and path:
+            primary = next((candidate for candidate in (kind if isinstance(kind, list) else [kind]) if candidate != "null"), None)
+            if primary == "string":
+                yield "; ".join(path) + " bad type", 17, path
+            elif primary is not None:
+                yield "; ".join(path) + " bad type", "corpus-wrong-type", path
+        if isinstance(value, dict):
+            for name, child in (schema.get("properties") or {}).items():
+                if name not in value:
+                    continue
+                yield from self._type_mutants(child, value[name], path + (name,))
+        elif isinstance(value, list) and value:
+            yield from self._type_mutants(schema.get("items", {}), value[0], path + ("0",))
+
+    def _range_mutants(self, schema, value, path=()):
+        if isinstance(schema, dict) and "$ref" in schema:
+            schema = self.defs.get(schema["$ref"].removeprefix("#/$defs/"), schema)
+        if not isinstance(schema, dict):
+            return
+        if isinstance(value, str):
+            if schema.get("minLength", 0) > 0 and len(value) >= schema["minLength"]:
+                yield "; ".join(path) + " under minLength", "v" * (schema["minLength"] - 1), path
+            if "maxLength" in schema and len(value) <= schema["maxLength"]:
+                yield "; ".join(path) + " over maxLength", "v" * (schema["maxLength"] + 1), path
+            return
+        if isinstance(value, list):
+            items = schema.get("items", {})
+            if schema.get("minItems", 0) > 0 and len(value) >= schema["minItems"]:
+                under = [self._sample(items)] * (schema["minItems"] - 1)
+                yield "; ".join(path) + " under minItems", under, path
+            if "maxItems" in schema and len(value) <= schema["maxItems"]:
+                over = [self._sample(items)] * (schema["maxItems"] + 1)
+                yield "; ".join(path) + " over maxItems", over, path
+            if value:
+                yield from self._range_mutants(items, value[0], path + ("0",))
+            return
+        if isinstance(value, dict):
+            for name, child in (schema.get("properties") or {}).items():
+                if name not in value:
+                    continue
+                yield from self._range_mutants(child, value[name], path + (name,))
+            return
+        if isinstance(value, int) and not isinstance(value, bool):
+            if "minimum" in schema and value >= schema["minimum"]:
+                yield "; ".join(path) + " under minimum", schema["minimum"] - 1, path
+            if "maximum" in schema and value <= schema["maximum"]:
+                yield "; ".join(path) + " over maximum", schema["maximum"] + 1, path
+
+    def test_valid_samples_admit_and_mutants_refuse(self):
+        own_fields = {action["id"]: {field["name"] for field in action["payload"]["fields"]} for action in self.actions}
+        for action, variant in self._variants():
+            for kind, shape_name, names in self._shapes(action):
+                valid = self._sample(self.defs[shape_name])
+                for name in names:
+                    self._assert_verdict(valid, name, True, f"{action['id']} {kind} valid sample")
+                required = [key for key in self.defs[shape_name].get("required", []) if key != "action_id"]
+                if required:
+                    mutant = copy.deepcopy(valid); del mutant[required[0]]
+                    for name in names:
+                        if name.endswith("_input") and self._legacy_layout(action, mutant):
+                            self._assert_verdict(mutant, name, True, f"{action['id']} {kind} recorded legacy layout")
+                            continue
+                        self._assert_verdict(mutant, name, False, f"{action['id']} {kind} missing required {required[0]}")
+                mutant = copy.deepcopy(valid); mutant["unknown_field"] = True
+                for name in names:
+                    self._assert_verdict(mutant, name, False, f"{action['id']} {kind} unknown field")
+                fields = valid.get("fields")
+                if isinstance(fields, dict) and fields:
+                    mutant = copy.deepcopy(valid); del mutant["fields"][next(iter(fields))]
+                    cross = next((name for other in self.actions if other["id"] != action["id"]
+                                  for name in {field["name"] for field in other["payload"]["fields"]}
+                                  if name not in own_fields[action["id"]]), None)
+                    if cross is not None:
+                        mutant["fields"][cross] = "cross-variant"
+                    for name in names:
+                        if name.endswith("_input") and self._legacy_layout(action, mutant):
+                            self._assert_verdict(mutant, name, True, f"{action['id']} {kind} recorded legacy layout")
+                            continue
+                        self._assert_verdict(mutant, name, False, f"{action['id']} {kind} cross-variant or unknown fields field")
+                # Node-derived enum, type, and range mutants: every one must
+                # be refused by the published shape and the core union alike.
+                for walker in (self._enum_mutants, self._type_mutants, self._range_mutants):
+                    for label, replacement, path in walker(self.defs[shape_name], valid):
+                        path = tuple(int(step) if isinstance(step, str) and step.isdigit() else step for step in path)
+                        mutant = copy.deepcopy(valid)
+                        node = mutant
+                        for step in path[:-1]:
+                            node = node[int(step)] if isinstance(node, list) else node[step]
+                        if path:
+                            final = path[-1]
+                            if isinstance(node, list): node[int(final)] = replacement
+                            else: node[final] = replacement
+                        for name in names:
+                            if name.endswith("_input") and self._legacy_layout(action, mutant):
+                                self._assert_verdict(mutant, name, True, f"{action['id']} {kind} recorded legacy layout")
+                                continue
+                            self._assert_verdict(mutant, name, False, f"{action['id']} {kind} {label}")
+
+    def test_cross_field_rule_mutants_refuse_everywhere(self):
+        # The registry payload declarations state the cross-field rules core
+        # admission enforces: legal input combinations (one branch per enum
+        # value) and alternative field groups (exactly one supplied). The
+        # published variant must refuse every rule's own invalid mutant
+        # exactly — a forbidden field under one discriminator value, a
+        # missing required field under another, a withheld alternative group,
+        # and two groups supplied together — and admit each rule's legal
+        # payload.
+        for action, variant in self._variants():
+            cross = action.get("cross_field") or {}
+            combinations = cross.get("combinations", [])
+            alternatives = cross.get("alternatives", [])
+            if not combinations and not alternatives:
+                continue
+            fields_schema = variant["properties"]["fields"]
+            self.assertIn("oneOf", fields_schema, f"{action['id']} declares cross-field rules but its variant publishes none")
+
+            def branch_property(name):
+                # A combination field lives in the branch that declares it;
+                # a forbidden-under-this-value field lives in a sibling branch.
+                for branch in fields_schema["oneOf"]:
+                    property = branch.get("properties", {}).get(name)
+                    if property is not None:
+                        return property
+                return {"type": "string"}
+
+            def envelope_with(fields):
+                base = {key: self._sample(variant["properties"][key]) for key in variant.get("required", []) if key != "fields"}
+                base["fields"] = fields
+                return base
+
+            by_value = {combination["value"]: combination for combination in combinations}
+            # A kind-match declaration expands one alternative group into
+            # per-kind branches (outcome_kind consts on supersede_contract):
+            # each is registry-declared through the match, not through a
+            # combination, so it carries no requires/forbids to expand.
+            kind_match_fields = {match["field"] for match in cross.get("kind_matches", [])}
+            for branch in fields_schema["oneOf"]:
+                discriminator = next((name for name, property in branch.get("properties", {}).items() if "const" in property), None)
+                if discriminator is None:
+                    continue
+                value = branch["properties"][discriminator]["const"]
+                if discriminator in kind_match_fields:
+                    continue
+                combination = by_value.get(value)
+                self.assertIsNotNone(combination, f"{action['id']} publishes a branch for {discriminator}={value} the registry does not declare")
+                base = envelope_with(self._sample(branch, fallback_properties=branch.get("properties")))
+                base["fields"][discriminator] = value
+                for _kind, _shape_name, names in self._shapes(action):
+                    for forbidden in combination.get("forbids", []):
+                        if forbidden == discriminator:
+                            continue
+                        mutant = copy.deepcopy(base)
+                        mutant["fields"][forbidden] = self._sample(branch_property(forbidden))
+                        for name in names:
+                            self._assert_verdict(mutant, name, False, f"{action['id']} {discriminator}={value} carries forbidden {forbidden}")
+                        # Stripping the forbidden field leaves a legal payload.
+                        legal = copy.deepcopy(mutant); legal["fields"].pop(forbidden)
+                        for name in names:
+                            self._assert_verdict(legal, name, True, f"{action['id']} {discriminator}={value} without {forbidden}")
+                    for required_under_value in combination.get("requires", []):
+                        if required_under_value == discriminator:
+                            continue
+                        mutant = copy.deepcopy(base)
+                        mutant["fields"].pop(required_under_value, None)
+                        for name in names:
+                            self._assert_verdict(mutant, name, False, f"{action['id']} {discriminator}={value} drops required {required_under_value}")
+                        legal = copy.deepcopy(mutant)
+                        legal["fields"][required_under_value] = self._sample(branch_property(required_under_value))
+                        for name in names:
+                            self._assert_verdict(legal, name, True, f"{action['id']} {discriminator}={value} with {required_under_value}")
+
+            # Alternative groups: each declared group names the fields its
+            # closed branch requires; a branch answers to the group whose
+            # names it carries. A kind-matched group expands into one closed
+            # branch per declared kind, so only the plain groups map 1:1 to
+            # const-free branches (CON-412).
+            group_branches = [branch for branch in fields_schema["oneOf"] if not any("const" in property for property in branch.get("properties", {}).values())]
+
+            def branch_for(group):
+                for branch in fields_schema["oneOf"]:
+                    required = set(branch.get("required", []))
+                    if all(name in required for name in group["fields"]):
+                        return branch
+                self.fail(f"{action['id']} declares alternative group {group['fields']} with no published branch")
+
+            if alternatives:
+                plain_groups = [group for group in alternatives if not (kind_match_fields & set(group["fields"]))]
+                kind_groups = [group for group in alternatives if kind_match_fields & set(group["fields"])]
+                self.assertEqual(len(group_branches), len(plain_groups), f"{action['id']} alternative branches and declaration groups disagree")
+                for group in kind_groups:
+                    match = next(match for match in cross.get("kind_matches", []) if match["field"] in group["fields"])
+                    branches = [branch for branch in fields_schema["oneOf"] if match["field"] in branch.get("properties", {}) and "const" in branch["properties"][match["field"]]]
+                    self.assertGreater(len(branches), 0, f"{action['id']} kind-matched group {group['fields']} publishes no per-kind branch")
+                    for branch in branches:
+                        self.assertEqual(
+                            branch["properties"][match["field"]]["const"],
+                            branch["properties"][match["object"]]["properties"][match["discriminator"]]["const"],
+                            f"{action['id']} per-kind branch does not bind {match['field']} to {match['object']}.{match['discriminator']}",
+                        )
+                for group in alternatives:
+                    branch = branch_for(group)
+                    for _kind, _shape_name, names in self._shapes(action):
+                        legal = envelope_with(self._sample(branch, fallback_properties=branch.get("properties")))
+                        for name in names:
+                            self._assert_verdict(copy.deepcopy(legal), name, True, f"{action['id']} alternative group {group['fields']} supplied")
+                        withheld = {key: value for key, value in legal["fields"].items()}
+                        for name in group["fields"]:
+                            withheld.pop(name, None)
+                        for name in names:
+                            self._assert_verdict(envelope_with(withheld), name, False, f"{action['id']} alternative group {group['fields']} withheld")
+                    # A field the group forbids beside it is omitted from the
+                    # branch entirely and refused when carried — one negative
+                    # mutant for each newly owned cross-field rule.
+                    for forbidden in group.get("forbids", []):
+                        self.assertNotIn(forbidden, branch.get("properties", {}), f"{action['id']} branch for {group['fields']} publishes forbidden {forbidden}")
+                        mutant = envelope_with(self._sample(branch, fallback_properties=branch.get("properties")))
+                        mutant["fields"][forbidden] = self._sample(branch_property(forbidden))
+                        for _kind, _shape_name, names in self._shapes(action):
+                            for name in names:
+                                self._assert_verdict(copy.deepcopy(mutant), name, False, f"{action['id']} group {group['fields']} carries forbidden {forbidden}")
+                    if len(alternatives) > 1:
+                        for other_group in alternatives:
+                            if other_group is group:
+                                continue
+                            other = branch_for(other_group)
+                            for exclusive in other_group["fields"]:
+                                if exclusive in branch.get("properties", {}):
+                                    continue
+                                mutant = envelope_with(self._sample(branch, fallback_properties=branch.get("properties")))
+                                mutant["fields"][exclusive] = self._sample(other["properties"][exclusive])
+                                for _kind, _shape_name, names in self._shapes(action):
+                                    for name in names:
+                                        self._assert_verdict(copy.deepcopy(mutant), name, False, f"{action['id']} alternative groups carry {exclusive} together")
+
+    def test_guard_owned_teaching_is_published(self):
+        # CON-412: the items close per kind; every branch teaches the ordinal
+        # position rule and the outcome_kind/outcome_payload.kind equality
+        # rule from the guard-owned projection.
+        items = self.defs["workflow_action_outcome_predicates"]["items"]["oneOf"]
+        self.assertEqual(len(items), 4)
+        for branch in items:
+            self.assertEqual(branch["properties"]["ordinal"]["description"], self.teaching["predicate_ordinal_rule"])
+            self.assertEqual(branch["properties"]["outcome_kind"]["description"], self.teaching["outcome_kind_equality_rule"])
+            self.assertEqual(branch["properties"]["outcome_kind"]["const"], branch["properties"]["outcome_payload"]["properties"]["kind"]["const"])
+        approve = self.defs["work_transition_action_variant_approve_contract"]["properties"]["fields"]["properties"]
+        if "required_evidence" in approve:
+            self.assertEqual(approve["required_evidence"].get("description"), self.teaching["obligation_membership_rule"])
+
+    def test_every_registry_action_has_one_closed_variant(self):
+        names = {f"work_transition_action_variant_{action['id']}" for action in self.actions}
+        published = {name for name in self.defs if name.startswith("work_transition_action_variant_") or name.startswith("work_transition_action_public_variant_")}
+        self.assertEqual(published - {f"work_transition_action_public_variant_{a['id']}" for a in self.actions if a["payload"] != a["public_payload"]}, names)
+
+    def _sample(self, schema, path="$", fallback_properties=None):
+        schema = self.defs[schema["$ref"].removeprefix("#/$defs/")] if "$ref" in schema else schema
+        if "const" in schema: return schema["const"]
+        if "enum" in schema: return schema["enum"][0]
+        if "oneOf" in schema:
+            base = {key: self._sample(self._property(schema, fallback_properties, key), f"{path}.{key}") for key in schema.get("required", [])}
+            branch_value = self._sample(schema["oneOf"][0], f"{path}.oneOf[0]", schema.get("properties"))
+            if isinstance(branch_value, dict):
+                for key, value in branch_value.items():
+                    base.setdefault(key, value)
+            return base
+        if "allOf" in schema:
+            base = self._sample({k: v for k, v in schema.items() if k != "allOf"}, path, fallback_properties)
+            for member in schema["allOf"]:
+                merged = self._sample(member, path, fallback_properties)
+                if isinstance(base, dict) and isinstance(merged, dict): base.update(merged)
+            return base
+        kind = schema.get("type")
+        if isinstance(kind, list): kind = next((candidate for candidate in kind if candidate != "null"), kind[0])
+        if kind is None and ("properties" in schema or "required" in schema): kind = "object"
+        if kind == "object":
+            result = {}
+            for key in schema.get("required", []):
+                result[key] = self._sample(self._property(schema, fallback_properties, key), f"{path}.{key}")
+            return result
+        if kind == "array": return [] if not schema.get("minItems") else [self._sample(schema.get("items", {"type": "string"}), path)]
+        if kind == "integer": return schema.get("minimum", 0)
+        if kind == "boolean": return True
+        if schema.get("format") == "date-time": return "2026-08-08T00:00:00Z"
+        pattern = schema.get("pattern", "")
+        if "sha256:" in pattern: return "sha256:" + "0" * 64
+        if "[0-9a-f]{40}" in pattern: return "0" * 40
+        if pattern.startswith("^msg:"): return "msg:" + "0" * 32
+        if pattern.startswith("^https://"): return "https://example.test/pull/1"
+        if schema.get("minLength"): return "v" * schema["minLength"]
+        return "id-1"
+
+    def _property(self, schema, fallback_properties, key):
+        properties = schema.get("properties") or fallback_properties or {}
+        return properties.get(key, {"type": "string"})
 
 
 if __name__ == "__main__": unittest.main()

@@ -66,7 +66,7 @@ class NativeRunStatusesFixture(unittest.TestCase):
                 enum.remove("degraded")
                 return True
             return any(remove_degraded(child) for child in node.values())
-        self.assertTrue(remove_degraded(surface["$defs"]["work_transition_action_shared_input"]))
+        self.assertTrue(remove_degraded(surface["$defs"]["work_transition_action_variant_record_health"]))
         self.write_json("contracts/agent-tool-surface-payloads.schema.json", surface)
         self.assertTrue(any(item.startswith("status-union-closure:") for item in self.findings()))
 

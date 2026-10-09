@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto"
 import fs from "node:fs"
 import { clientRef, type CredentialStore } from "./credentials"
-import { contractOperations, hostToolDescriptions, hostToolSchemas, maxEnvelopeBytes, payloadSchemas } from "./generated-contracts"
+import { contractOperations, hostToolDescriptions, hostToolSchemas, maxEnvelopeBytes, payloadSchemas, workflowActionPublicVariants } from "./generated-contracts"
 import { activeManifestDigest, adoptManifestDigest, resolveDiskManifestDigest } from "./manifest-pin"
 import { validateGeneratedEnvelope, validateGeneratedPayload, envelopeFailurePath, payloadFailurePath } from "./generated-contract-tests"
 import { dispatchLaneWorker, type LaneDispatchInput } from "./lane_dispatch"
@@ -165,64 +165,16 @@ function schemaName(ref: string): string {
   return name
 }
 
-const hostSchemaStructuralKeys = new Set(["$defs", "$ref", "additionalProperties", "allOf", "anyOf", "definitions", "else", "if", "not", "oneOf", "properties", "required", "then"])
-
-// combinationKeys are the applicators the host cannot render. `not` and `if`
-// constrain or match; they contribute nothing a calling agent can act on and
-// are dropped. `then` contributes the conditional branch's admitted fields.
-const combinationKeys = new Set(["allOf", "anyOf", "if", "not", "oneOf", "then", "else"])
-
-function sameSchema(left: unknown, right: unknown): boolean {
-  return JSON.stringify(left) === JSON.stringify(right)
-}
-
-function mergeHostSchemas(schemas: JSONSchema[]): JSONSchema {
-  if (schemas.length === 0) return {}
-  if (schemas.every((schema) => sameSchema(schema, schemas[0]))) return schemas[0]
-
-  const objectLike = schemas.some((schema) => schema.type === "object" || schema.properties !== undefined)
-  if (objectLike) {
-    const properties: Record<string, unknown> = {}
-    for (const schema of schemas) {
-      for (const [name, property] of Object.entries((schema.properties ?? {}) as Record<string, unknown>)) {
-        const previous = properties[name]
-        properties[name] = previous === undefined
-          ? property
-          : mergeHostSchemas([previous as JSONSchema, property as JSONSchema])
-      }
-    }
-    return { type: "object", properties, required: [], additionalProperties: true }
-  }
-
-  const result: JSONSchema = {}
-  for (const [key, value] of Object.entries(schemas[0])) {
-    if (hostSchemaStructuralKeys.has(key)) continue
-    if (schemas.every((schema) => sameSchema(schema[key], value))) result[key] = value
-  }
-  const inferredTypes = schemas.map((schema) => {
-    if (typeof schema.type === "string") return schema.type
-    if (schema.type !== undefined) return JSON.stringify(schema.type)
-    if (schema.const !== undefined) return typeof schema.const
-    if (Array.isArray(schema.enum) && schema.enum.length > 0) return typeof schema.enum[0]
-    return ""
-  }).filter(Boolean)
-  if (inferredTypes.length > 0 && inferredTypes.every((type) => type === inferredTypes[0])) result.type = inferredTypes[0]
-  return result
-}
-
-// flattenHostSchema projects one authored payload schema into the host-safe
-// view. The host renders neither combinators nor Boolean constraints, so an
-// unbounded combination node (allOf/anyOf/oneOf/if-then) publishes as the
-// union of what the core admits: every branch's properties join the base,
-// and an allOf member's required — the only unconditional branch required —
-// joins the base required too. Conditional branch required stays out, so the
-// projection never demands a field the core only requires under a condition
-// the published view cannot name. Bounded nodes — array items and the
-// variant oneOf they carry — keep their authored closed structure instead.
-// Per operation the result states the same required set and the same
-// admitted fields ValidateOperationPayload enforces; the store remains the
-// closed admission boundary.
-function flattenHostSchema(value: unknown, resolving = new Set<string>(), bounded = false): JSONSchema {
+// publishClosedSchema projects one authored closed schema into the published
+// view by inlining every $ref against the generated payload definitions and
+// otherwise preserving the authored structure exactly: required sets, const
+// and enum discriminators, bounds, and legal input combinations (oneOf/anyOf/
+// allOf/if/then/not) all survive. The previous flattenHostSchema merged
+// combinator branches into one union object, which dropped each workflow
+// action's conditional requireds and cross-field exclusions; publication now
+// emits one closed branch per operation and per action variant, so no merge
+// step exists to lose them (CON-412).
+function publishClosedSchema(value: unknown, resolving = new Set<string>()): JSONSchema {
   if (Array.isArray(value) || typeof value !== "object" || value === null) return {}
   const schema = value as JSONSchema
   if (typeof schema.$ref === "string") {
@@ -230,96 +182,77 @@ function flattenHostSchema(value: unknown, resolving = new Set<string>(), bounde
     if (resolving.has(name)) return {}
     const next = new Set(resolving)
     next.add(name)
-    const resolved = flattenHostSchema((payloadSchemas as Record<string, unknown>)[name], next, bounded)
-    // Sibling keywords alongside a $ref apply in the authored contract and
-    // carry the description annotations the host renders, so they overlay the
-    // resolved target instead of being dropped with the reference.
-    const siblings = Object.fromEntries(Object.entries(schema).filter(([key]) => key !== "$ref" && !hostSchemaStructuralKeys.has(key)))
-    return Object.keys(siblings).length > 0 ? { ...resolved, ...siblings } : resolved
-  }
-
-  if (bounded && Array.isArray(schema.oneOf)) {
-    const result: JSONSchema = {}
-    for (const [key, child] of Object.entries(schema)) {
-      if (hostSchemaStructuralKeys.has(key) || key === "oneOf") continue
-      result[key] = child
-    }
-    result.oneOf = schema.oneOf.map((branch) => flattenHostSchema(branch, resolving, true))
-    return result
-  }
-
-  const members: { schema: unknown; unconditional: boolean }[] = []
-  for (const key of ["oneOf", "anyOf"] as const) {
-    if (Array.isArray(schema[key])) members.push(...(schema[key] as unknown[]).map((branch) => ({ schema: branch, unconditional: false })))
-  }
-  if (Array.isArray(schema.allOf)) members.push(...(schema.allOf as unknown[]).map((branch) => ({ schema: branch, unconditional: true })))
-  if (schema.then !== undefined && schema.then !== null && typeof schema.then === "object") members.push({ schema: schema.then, unconditional: false })
-
-  if (members.length > 0) {
-    const own = Object.fromEntries(Object.entries(schema).filter(([key]) => !combinationKeys.has(key) && key !== "$defs" && key !== "$ref" && key !== "definitions" && key !== "not"))
-    const base = flattenHostSchema(own, resolving, bounded)
-    const properties: Record<string, unknown> = { ...((base.properties ?? {}) as Record<string, unknown>) }
-    const required = new Set<string>(Array.isArray(base.required) ? base.required as string[] : [])
-    for (const member of members) {
-      const flat = flattenHostSchema(member.schema, resolving, bounded)
-      for (const [name, property] of Object.entries((flat.properties ?? {}) as Record<string, unknown>)) {
-        const previous = properties[name]
-        properties[name] = previous === undefined ? property : mergeHostSchemas([previous as JSONSchema, property as JSONSchema])
-      }
-      if (member.unconditional && Array.isArray(flat.required)) {
-        for (const name of flat.required as string[]) required.add(name)
+    const resolved = publishClosedSchema((payloadSchemas as Record<string, unknown>)[name], next)
+    // Sibling keywords alongside a $ref apply in the authored contract, so
+    // publication merges them into the resolved target instead of dropping
+    // any: required sets union, properties overlay, annotations win. A
+    // dropped structural sibling would silently loosen the published bound
+    // (CON-412).
+    const siblings = Object.fromEntries(Object.entries(schema).filter(([key]) => key !== "$ref"))
+    if (Object.keys(siblings).length === 0) return resolved
+    const merged: Record<string, unknown> = { ...resolved }
+    for (const [key, value] of Object.entries(siblings)) {
+      if (key === "required" && Array.isArray(value) && Array.isArray(resolved.required)) {
+        merged.required = [...new Set([...(resolved.required as unknown[]), ...value])]
+      } else if (key === "properties" && typeof value === "object" && value !== null && !Array.isArray(value) && typeof resolved.properties === "object" && resolved.properties !== null) {
+        merged.properties = { ...(resolved.properties as Record<string, unknown>), ...(value as Record<string, unknown>) }
+      } else {
+        merged[key] = value
       }
     }
-    const result: JSONSchema = { ...base, properties }
-    if (schema.properties !== undefined || schema.type === "object" || Object.keys(properties).length > 0) {
-      result.type = "object"
-      result.required = [...required]
-      result.additionalProperties = schema.additionalProperties === false && base.additionalProperties !== true ? false : true
-    }
-    return result
+    return merged as JSONSchema
   }
-
-  const result: JSONSchema = {}
+  const result: Record<string, unknown> = {}
   for (const [key, child] of Object.entries(schema)) {
-    if (hostSchemaStructuralKeys.has(key)) continue
-    if (key === "items") {
-      result[key] = Array.isArray(child) ? child.map((item) => flattenHostSchema(item, resolving, true)) : flattenHostSchema(child, resolving, true)
+    if (key === "$defs" || key === "definitions") continue
+    if (key === "properties" && typeof child === "object" && child !== null && !Array.isArray(child)) {
+      result[key] = Object.fromEntries(Object.entries(child as Record<string, unknown>).map(([name, property]) => [name, publishClosedSchema(property, resolving)]))
+    } else if (key === "items") {
+      result[key] = Array.isArray(child) ? child.map((item) => publishClosedSchema(item, resolving)) : publishClosedSchema(child, resolving)
+    } else if (["allOf", "anyOf", "oneOf"].includes(key) && Array.isArray(child)) {
+      result[key] = child.map((member) => publishClosedSchema(member, resolving))
+    } else if (["if", "then", "else", "not", "additionalProperties", "patternProperties", "propertyNames", "contains"].includes(key) && typeof child === "object" && child !== null) {
+      result[key] = publishClosedSchema(child, resolving)
     } else {
       result[key] = child
     }
   }
-  if (schema.properties !== undefined || schema.type === "object") {
-    result.type = "object"
-    result.properties = Object.fromEntries(Object.entries((schema.properties ?? {}) as Record<string, unknown>).map(([name, property]) => [name, flattenHostSchema(property, resolving, bounded)]))
-    const authoredRequired = Array.isArray(schema.required) ? schema.required as string[] : []
-    const authoredProperties = (schema.properties ?? {}) as Record<string, unknown>
-    result.required = authoredRequired.filter((name) => Object.hasOwn(authoredProperties, name))
-    result.additionalProperties = schema.additionalProperties === false ? false : true
-  }
-  return result
+  return result as JSONSchema
 }
 
 export function publishedRequestSchema(toolName: string): JSONSchema {
   const operations = contractOperations.filter((operation: any) => operation.tool === toolName)
   if (operations.length === 0) throw new Error(`tool ${toolName} has no generated operations`)
-  const publicInputSchema = (operation: any): string => operation.id === "concord_work_transition.workflow_action"
-    ? "work_transition_action_public_input"
-    : schemaName(operation.input_schema)
-  // The host receives one closed branch per operation: the branch names the
-  // operation with a const and states the required set and the admitted
-  // fields exactly as the core's admission enforces them. One branch per
-  // operation — never a merged union — so a caller reads what the chosen
-  // operation requires and refuses instead of what a sibling owns, and the
-  // operation const keeps every branch mutually exclusive.
-  const branches = operations.map((operation: any) => ({
+  // The host receives one closed branch per operation — and for
+  // workflow_action, one closed branch per action variant from the generated
+  // registry projection. Each branch names its discriminator with a const and
+  // states the required set and the admitted fields exactly as the core's
+  // admission enforces them. Never a merged union: a caller reads what the
+  // chosen operation or action requires and refuses instead of what a sibling
+  // owns, and the discriminators keep every branch mutually exclusive.
+  const branchFor = (operationName: string, inputSchemaName: string): JSONSchema => ({
     type: "object",
     additionalProperties: false,
     required: ["operation", "input"],
     properties: {
-      operation: { type: "string", const: operation.id.slice(operation.id.indexOf(".") + 1) },
-      input: flattenHostSchema((payloadSchemas as Record<string, unknown>)[publicInputSchema(operation)]),
+      operation: { type: "string", const: operationName },
+      input: publishClosedSchema((payloadSchemas as Record<string, unknown>)[inputSchemaName]),
     },
-  }))
+  })
+  const branches: JSONSchema[] = []
+  for (const operation of operations as any[]) {
+    const operationName = operation.id.slice(operation.id.indexOf(".") + 1)
+    if (operation.id === "concord_work_transition.workflow_action") {
+      for (const variant of workflowActionPublicVariants) {
+        branches.push({
+          ...branchFor(operationName, variant.schema),
+          description: `workflow_action action ${variant.action_id}: closed action-discriminated variant`,
+        })
+      }
+    } else {
+      branches.push(branchFor(operationName, schemaName(operation.input_schema)))
+    }
+  }
   return {
     type: "object",
     additionalProperties: false,
@@ -336,8 +269,13 @@ function argsSchema(toolName: string): any {
   return { request: publishedRequestSchema(toolName) }
 }
 
-// The host definition hook publishes the flattened view with optional fields.
-// The generated manifest and validateWorkStartArgs enforce the closed modes.
+// The host tool registry consumes `args` as a per-parameter map, which cannot
+// state cross-parameter modes, so the registration view stays the generated
+// per-field union of both branches' properties. The definition hook's
+// jsonSchema channel carries full JSON Schema, so publication there is the
+// closed two-branch capture/resume contract itself — requireds and exclusions
+// preserved, not merged into one all-optional object (CON-412). The runtime
+// decoder (validateWorkStartArgs) keeps enforcing the same closed branches.
 function workStartArgsSchema() {
   const properties = Object.assign({}, ...hostToolSchemas.concord_work_start.oneOf.map((branch) => branch.properties))
   // Host hooks can mutate published schemas, but never the runtime contract.
@@ -351,7 +289,7 @@ export async function publishWorkStartDefinition(
   if (input.toolID !== "concord_work_start") return
   // The host registry consumes jsonSchema independently of its runtime decoder.
   // Keep parameters unchanged so publication does not alter execution admission.
-  output.jsonSchema = { type: "object", properties: workStartArgsSchema(), required: [], additionalProperties: false }
+  output.jsonSchema = JSON.parse(JSON.stringify(hostToolSchemas.concord_work_start))
 }
 
 function baseEnvelope(toolName: string, operation: string, requestID: string) {

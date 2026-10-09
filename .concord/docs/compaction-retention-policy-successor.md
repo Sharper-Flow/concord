@@ -5,9 +5,9 @@
 - **Date:** 2026-10-09
 - **Approval:** `CON-816` A1 under operator delegation on 2026-10-09, without calendar expiration.
 - **Supersedes:** [PM7](compaction-retention-policy.md)
-- **Related:** [CD-0214](decisions/CD-0214-retained-research-context.md),
-  [CD-0215](decisions/CD-0215-research-surface-and-explicit-retirement.md),
-  [CD-0216](decisions/CD-0216-publication-and-retention-boundaries.md),
+- **Related:** [CD-0215](decisions/CD-0215-retained-research-context.md),
+  [CD-0216](decisions/CD-0216-research-surface-and-explicit-retirement.md),
+  [CD-0217](decisions/CD-0217-publication-and-retention-boundaries.md),
   [CD-0142](decisions/CD-0142-operator-directed-execution-removal.md), PM1, PM3–PM6, and PM8–PM10
 
 ## Context
@@ -26,7 +26,7 @@ The canonical Git note owns distilled knowledge.
 PM6 verifies canonical note identity and records compaction linkage before any future terminal-projection removal can become eligible.
 Publication does not itself remove live work projections or research.
 
-CD-0216 defers terminal-projection pruning, its eligibility predicate, pressure threshold, maintenance cursor, and execution mechanism.
+CD-0217 defers terminal-projection pruning, its eligibility predicate, pressure threshold, maintenance cursor, and execution mechanism.
 Terminal work stays in live typed projections indefinitely.
 `work_projection_pruned` and `archived_work_linked` remain reserved; this record does not introduce those events or their projections.
 Reintroduction requires an accepted decision that supersedes the deferral and preserves the authority guarantees here.
@@ -105,11 +105,11 @@ A projection-pruned ID cannot reopen; renewed need uses a new canonical work ide
 The old note, terminal state, and event history remain unchanged.
 Cross-tier follow-up must not invent mutable lifecycle, hierarchy, supersession, or blocker authority on historical edges.
 It must not pretend that a removed projection is a live foreign-key endpoint.
-The cross-tier event and projection remain deferred under CD-0216.
+The cross-tier event and projection remain deferred under CD-0217.
 
 ### 6. Protected research retirement
 
-CD-0214 research packs remain direct-table context, not retained Product-memory events or historical work projections.
+CD-0215 research packs remain direct-table context, not retained Product-memory events or historical work projections.
 Nonterminal owners may author content; terminal owners retain read-only content available for authorized exact-revision reuse.
 Freshness and scope still govern reliance.
 Consumer pins protect content while their consuming work is nonterminal, whether required or optional.

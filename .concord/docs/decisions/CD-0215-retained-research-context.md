@@ -1,4 +1,4 @@
-# CD-0214: Retained research context with explicit retirement
+# CD-0215: Retained research context with explicit retirement
 
 - **Status:** Accepted
 - **Date:** 2026-10-09
@@ -8,8 +8,8 @@
 - **Preserves:** [CD-0041](CD-0041-architecture-bound-product-law.md) Initiative
   context, [CD-0022](CD-0022-active-research-finding-scope.md) applicability,
   PM3 event authority, PM10 recovery, and separate durable promotion.
-- **Related:** [CD-0215](CD-0215-research-surface-and-explicit-retirement.md),
-  [CD-0216](CD-0216-publication-and-retention-boundaries.md),
+- **Related:** [CD-0216](CD-0216-research-surface-and-explicit-retirement.md),
+  [CD-0217](CD-0217-publication-and-retention-boundaries.md),
   [compaction-retention-policy](../compaction-retention-policy-successor.md)
 
 ## Context
@@ -209,7 +209,7 @@ Migration must preserve bodies, provenance, revisions, pins, freshness, versions
 Mixed binaries must refuse incompatible storage or operation semantics before effects.
 
 CD-0036 governs the breaking replacement and its consumer recovery.
-Deployment must enumerate active consumers of CD-0009 and recover each contract to CD-0214, or cancel or supersede the work.
+Deployment must enumerate active consumers of CD-0009 and recover each contract to CD-0215, or cancel or supersede the work.
 This offline law edit neither enumerates live consumers nor proves re-contracting or activation.
 No Concord workflow contract was created here; the manifest does not invent legislative workflow provenance.
 

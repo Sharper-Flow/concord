@@ -12,7 +12,7 @@
     },
     {
       "criterion": 2,
-      "exemption": "The historical-tier join remains deferred under CD-0216. Existing watermark evidence is TestRebuildKnowledgeIndexAndQ9Q10UseCurrentGitHead in internal/store/knowledge_index_test.go; no executed prune mechanism is asserted."
+      "exemption": "The historical-tier join remains deferred under CD-0217. Existing watermark evidence is TestRebuildKnowledgeIndexAndQ9Q10UseCurrentGitHead in internal/store/knowledge_index_test.go; no executed prune mechanism is asserted."
     },
     {
       "criterion": 3,
@@ -61,7 +61,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:e7e9f697856c45c46caa5022f01cb8b6d148f14996a8347f417ecabbe49cc843",
+  "sha256": "sha256:0ee74a2c78ace594f7afd804fe1971f68e3306f49573bf0141d47099aaf2d482",
   "status": "accepted",
   "summary": "Complete PM7 successor preserving deferred terminal work pruning, Git and event authority, canonical locator proof, historical front matter and frozen Domain scope, live/historical query composition, immutable pruned identities and PM10 separation. Replaces archive-driven research cleanup with reusable read-only terminal packs and explicit bounded idempotent retirement of terminal-owner packs with zero active required or optional pins, without calendar expiration. Live cutover and integrated conformance remain deployment obligations.",
   "tags": [

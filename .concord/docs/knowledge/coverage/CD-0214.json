@@ -1,5 +1,0 @@
-{
-  "id": "CD-0214",
-  "reason": "CON-816 A1 law-only cutover. Candidate anchors appear in the decision, but integrated publication, every terminal route, retained-owner reuse, removal, rebuild, upgrade, restore and race evidence has not been assessed here. No tests or live consumer cutover ran.",
-  "state": "unmeasured"
-}

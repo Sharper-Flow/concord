@@ -1,6 +1,7 @@
 {
   "applies_to_domain_ids": [
-    "durable-authority"
+    "product-memory",
+    "workflow-engine"
   ],
   "authority": {
     "tier": "derived"
@@ -8,19 +9,19 @@
   "date": "2026-10-09T00:00:00Z",
   "doc_contract_profile": "current",
   "evidence": [
-    ".concord/docs/compaction-retention-policy-successor.md",
+    "internal/agent/research_surface_test.go",
     ".concord/docs/knowledge/coverage/CD-0216.json"
   ],
-  "home_domain_id": "product-memory",
+  "home_domain_id": "agent-surface",
   "id": "CD-0216",
   "kind": "decision",
   "law_relations": [
     {
       "kind": "supersedes",
-      "target_id": "CD-0066"
+      "target_id": "CD-0025"
     }
   ],
-  "path": ".concord/docs/decisions/CD-0216-publication-and-retention-boundaries.md",
+  "path": ".concord/docs/decisions/CD-0216-research-surface-and-explicit-retirement.md",
   "scopes": {
     "domain_ids": [],
     "mode": "home",
@@ -28,13 +29,13 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:4873323e6f503db8ab7c2952935cf9c7a24dbdf79f455e8910e05aab89a8f1e5",
+  "sha256": "sha256:6a2afb71324324c276840bbcd3d1111053d4ca367c30f68181b1bd98a7b4cd9d",
   "status": "accepted",
-  "summary": "Preserves deferred terminal projection pruning, exact event history, Git note authority, immutable pruned IDs, frozen historical scope, deduplicated query populations, revisit triggers, PM10 backup separation and CD-0142 removal. Research publication and explicit non-calendar retirement have separate authority. Historical archive cleanup anchors do not establish replacement coverage or live consumer cutover.",
+  "summary": "Retains authoring, one research read route, the research capability, and transactional engine-bound reliance. Adds explicit authorized research_retire with dry run, 1-100 versioned candidates, atomic effects and idempotency. Terminal-owner revisions remain reusable, every active pin protects content, and neither publication nor reads retire packs. No Concord legislative contract or live consumer recovery is asserted.",
   "tags": [
-    "retention",
-    "compaction",
-    "coverage"
+    "research",
+    "agent-surface",
+    "retention"
   ],
-  "title": "Publication and research retention have separate boundaries"
+  "title": "Research surface and explicit retirement"
 }

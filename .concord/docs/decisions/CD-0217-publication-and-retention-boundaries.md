@@ -1,12 +1,12 @@
-# CD-0216: Publication and research retention have separate boundaries
+# CD-0217: Publication and research retention have separate boundaries
 
 - **Status:** Accepted
 - **Date:** 2026-10-09
 - **Approval:** `CON-816` A1 under operator delegation on 2026-10-09, without calendar expiration.
 - **Supersedes:** [CD-0066](CD-0066-pm7-retention-amendment.md)
 - **Related:** [compaction-retention-policy](../compaction-retention-policy-successor.md),
-  [CD-0214](CD-0214-retained-research-context.md),
-  [CD-0215](CD-0215-research-surface-and-explicit-retirement.md),
+  [CD-0215](CD-0215-retained-research-context.md),
+  [CD-0216](CD-0216-research-surface-and-explicit-retirement.md),
   [CD-0142](CD-0142-operator-directed-execution-removal.md), PM8, PM9, and PM10
 
 ## Context

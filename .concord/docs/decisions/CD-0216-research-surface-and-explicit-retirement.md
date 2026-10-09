@@ -1,10 +1,10 @@
-# CD-0215: Research surface and explicit retirement
+# CD-0216: Research surface and explicit retirement
 
 - **Status:** Accepted
 - **Date:** 2026-10-09
 - **Approval:** `CON-816` A1 under operator delegation on 2026-10-09, without calendar expiration.
 - **Supersedes:** [CD-0025](CD-0025-research-surface.md)
-- **Related:** [CD-0214](CD-0214-retained-research-context.md),
+- **Related:** [CD-0215](CD-0215-retained-research-context.md),
   [CD-0036](CD-0036-breaking-law-cutovers.md), PM1 Q11, and PM3
 
 ## Context
@@ -71,7 +71,7 @@ Trusted-client policy and grant capability allowlists continue to admit `researc
 All terminal routes release consumer pins; terminalization does not delete owned packs.
 The parent integrates schemas, surface versioning, implementation, and migration without a parallel legacy cleanup route.
 
-Before deployment, CD-0036 requires active CD-0025 consumers to recover onto CD-0215, or cancel or supersede their work.
+Before deployment, CD-0036 requires active CD-0025 consumers to recover onto CD-0216, or cancel or supersede their work.
 This offline edit provides no live consumer enumeration, re-contracting receipt, or release activation evidence.
 The manifest records no fabricated Concord workflow contract.
 

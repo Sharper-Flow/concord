@@ -1,0 +1,5 @@
+{
+  "id": "CD-0217",
+  "reason": "CON-816 A1 preserves work-retention guarantees but replaces archive cleanup. Historical cleanup anchors cannot prove publication without deletion, explicit retirement or all terminal/recovery paths. Full successor coverage and live cutover remain unassessed deployment obligations.",
+  "state": "unmeasured"
+}

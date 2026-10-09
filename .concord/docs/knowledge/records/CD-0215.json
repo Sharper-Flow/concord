@@ -1,7 +1,7 @@
 {
   "applies_to_domain_ids": [
-    "product-memory",
-    "workflow-engine"
+    "durable-authority",
+    "work-coordination"
   ],
   "authority": {
     "tier": "derived"
@@ -9,19 +9,20 @@
   "date": "2026-10-09T00:00:00Z",
   "doc_contract_profile": "current",
   "evidence": [
+    "internal/store/research_retirement_test.go",
     "internal/agent/research_surface_test.go",
     ".concord/docs/knowledge/coverage/CD-0215.json"
   ],
-  "home_domain_id": "agent-surface",
+  "home_domain_id": "product-memory",
   "id": "CD-0215",
   "kind": "decision",
   "law_relations": [
     {
       "kind": "supersedes",
-      "target_id": "CD-0025"
+      "target_id": "CD-0009"
     }
   ],
-  "path": ".concord/docs/decisions/CD-0215-research-surface-and-explicit-retirement.md",
+  "path": ".concord/docs/decisions/CD-0215-retained-research-context.md",
   "scopes": {
     "domain_ids": [],
     "mode": "home",
@@ -29,13 +30,13 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:04948ddc86abd29b1e6689c1b11e5ef8759811d2901dc8b0ecb0fe72f1975309",
+  "sha256": "sha256:3930feb68b613a64faf88a6e071d9c9c4f4d21921ea7634ed53382dc995c0aba",
   "status": "accepted",
-  "summary": "Retains authoring, one research read route, the research capability, and transactional engine-bound reliance. Adds explicit authorized research_retire with dry run, 1-100 versioned candidates, atomic effects and idempotency. Terminal-owner revisions remain reusable, every active pin protects content, and neither publication nor reads retire packs. No Concord legislative contract or live consumer recovery is asserted.",
+  "summary": "Replaces research context law with read-only reusable terminal-owner content, independent publication, protection by every active required or optional pin, and explicit bounded idempotent retirement without calendar expiration. Preserves direct-table authority, revisions, provenance, freshness, durable promotion, and CD-0041 Initiative obligations. Offline acceptance supplies no live consumer cutover or legislative workflow provenance.",
   "tags": [
     "research",
-    "agent-surface",
-    "retention"
+    "retention",
+    "cutover"
   ],
-  "title": "Research surface and explicit retirement"
+  "title": "Retained research context with explicit retirement"
 }

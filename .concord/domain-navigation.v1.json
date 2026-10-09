@@ -297,9 +297,9 @@
       "contract_refs": [".concord/domain-navigation.v1.json", ".concord/docs/knowledge/domain-registry.json"],
       "law_refs": [
         {"law_id": "CD-0060", "clause_id": "D4. A declared Domain owns law at enactment"},
-        {"law_id": "CD-0158", "clause_id": "D5. Every Product repository carries the validator"}
+        {"law_id": "CD-0214", "clause_id": "D5. Every Product repository carries the validator"}
       ],
-      "control_law_ids": ["CD-0060", "CD-0158"],
+      "control_law_ids": ["CD-0060", "CD-0214"],
       "check_ids": ["repo-validators"]
     },
     {

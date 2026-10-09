@@ -1,6 +1,6 @@
 # CD-0158: The Domain graph earns its place through an authoring obligation
 
-- **Status:** Accepted
+- **Status:** Superseded by [CD-0214](CD-0214-repository-navigation-consumes-the-domain-graph-without-launcher-copies.md)
 - **Date:** 2026-09-20
 - **Scope:** `architecture_relations` on the Domain registry; `applies_to_domain_ids`
   on a law record; the participation rule; `scripts/check-domain-registry.py`;

@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-const ManifestDigest = "sha256:0c81a34bbf78cac6cbc1d0e566464cb9aa95d7b0f4d2abb8a893243d92dc0aaf"
+const ManifestDigest = "sha256:eaf2e8099ef1656b9f37548f5981c47fa0790110e2f0a928da660d2cf8696e6e"
 
 type OperationKind string
 
@@ -243,6 +243,13 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"work_compact_lesson_publish_input":              {Required: []string{"work_id", "lesson_id", "title", "summary", "content", "idempotency_key"}, Properties: []string{"work_id", "lesson_id", "title", "summary", "content", "tags", "scopes", "evidence", "idempotency_key", "approval", "requested_budget_seconds", "publication_work_id", "coverage"}},
 	"work_compact_publish_input":                     {Required: []string{"work_id", "expected_version", "content", "content_digest", "home_project_id", "home_locator_id", "idempotency_key"}, Properties: []string{"work_id", "expected_version", "content", "content_digest", "home_project_id", "home_locator_id", "idempotency_key", "approval", "evidence", "requested_budget_seconds"}},
 	"work_compact_reconcile_input":                   {Required: []string{}, Properties: []string{"operation_id", "expected_operation_version", "work_id", "expected_work_version", "expected_proof_digest", "idempotency_key", "approval", "evidence", "requested_budget_seconds"}},
+	"work_context_domain_group":                      {Required: []string{"domain_id", "required_reading_ordinals", "finding_ids", "domain_cards"}, Properties: []string{"domain_id", "required_reading_ordinals", "finding_ids", "domain_cards"}},
+	"work_context_finding":                           {Required: []string{"kind", "statement", "subject_ref", "evidence_refs", "domain_id"}, Properties: []string{"kind", "statement", "subject_ref", "evidence_refs", "domain_id", "product_wide_rationale"}},
+	"work_context_finding_view":                      {Required: []string{"finding_id", "kind", "statement", "subject_ref", "evidence_refs", "domain_id", "origin", "status", "source_event_id", "source_event_seq", "ordinal"}, Properties: []string{"finding_id", "kind", "statement", "subject_ref", "evidence_refs", "domain_id", "product_wide_rationale", "origin", "status", "source_event_id", "source_event_seq", "ordinal"}},
+	"work_context_reading":                           {Required: []string{"domain_id", "reason", "source"}, Properties: []string{"domain_id", "reason", "product_wide_rationale", "source"}},
+	"work_context_reading_source_knowledge":          {Required: []string{"kind", "source_id", "law_id", "content_hash"}, Properties: []string{"kind", "source_id", "law_id", "content_hash"}},
+	"work_context_reading_source_repository_file":    {Required: []string{"kind", "project_id", "path", "commit_oid"}, Properties: []string{"kind", "project_id", "path", "commit_oid"}},
+	"work_context_view":                              {Required: []string{"source_event_frontier", "required_reading", "findings", "domain_groups"}, Properties: []string{"source_event_frontier", "required_reading", "findings", "domain_groups"}},
 	"work_define_capture_input":                      {Required: []string{"title", "value_statement", "kind", "project_ids", "idempotency_key"}, Properties: []string{"title", "value_statement", "task", "kind", "project_ids", "priority", "urgency", "tags", "workflow_type_ref", "external_ref", "raised_from_work_id", "idempotency_key", "governing_requirements", "approval", "requested_budget_seconds", "defect_intake"}},
 	"work_define_issue_adopt_input":                  {Required: []string{"work_id", "remote_issue_uuid", "idempotency_key"}, Properties: []string{"work_id", "remote_issue_uuid", "idempotency_key", "approval", "requested_budget_seconds"}},
 	"work_define_observation_record_input":           {Required: []string{"work_id", "idempotency_key"}, Properties: []string{"work_id", "observation_id", "external", "statement", "refs", "tags", "idempotency_key", "approval", "requested_budget_seconds"}},

@@ -38,6 +38,16 @@
         "$ref": "#/$defs/evidence_entry"
       }
     },
+    "context_findings": {
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 16,
+      "x-maxArrayBytes": 16384,
+      "description": "Optional worker-claimed context findings (CON-887): typed terminal-report content a worker may report on any status. The findings record no acceptance and no verdict, and subject_ref is the worker's claim about what a finding concerns, never dispatch subject authority. x-maxArrayBytes bounds the compact JSON serialization of the whole array in UTF-8 bytes; the adapter enforces that aggregate and refuses the report rather than truncating a typed finding.",
+      "items": {
+        "$ref": "#/$defs/context_finding"
+      }
+    },
     "base_comparison": {
       "type": "object",
       "additionalProperties": false,
@@ -134,6 +144,53 @@
         "verification_commands",
         "visual_artifacts"
       ]
+    },
+    "context_finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "statement",
+        "subject_ref",
+        "evidence_refs"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "observation",
+            "inference",
+            "hypothesis",
+            "rejected_approach",
+            "open_question",
+            "contradiction",
+            "direction"
+          ]
+        },
+        "statement": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024,
+          "x-maxBytes": 1024
+        },
+        "subject_ref": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "x-maxBytes": 128,
+          "description": "What the finding concerns, as the worker's claim: a path, a symbol, a command, or another bounded reference. It names no dispatch-owned subject authority."
+        },
+        "evidence_refs": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 8,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "x-maxBytes": 256
+          }
+        }
+      }
     },
     "base_comparison_check": {
       "type": "object",

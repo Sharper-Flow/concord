@@ -65,6 +65,10 @@ import (
 // optional recovery_routes table. The omitempty field keeps every released
 // manifest above byte-identical; the released versions resolve the same
 // routes through workflowReleasedRecoveryRoutes until instances pin these.
+// CON-887 ships the work-context action: implementation 25, break_fix 22,
+// research 15, architecture_spike 16, ops_runbook 17, static_analysis 14,
+// and generic_one_off 15 add record_work_context to every step except the
+// closed delivery gates, whose four-action shape the gate reader pins.
 // The complete-step correction trigger ships in the same tables (CD-0172
 // D3): implementation and break_fix carry a disproved_premise_at_complete
 // route from the complete action step their graphs pin, and CD-0186 keeps
@@ -191,6 +195,13 @@ var workflowDefinitionVersionPins = map[[2]string]string{
 	{"workflow.ops_runbook", "16"}:        "sha256:561dfbf45762ae9ec6deca2bf599a2cd79b3befa0e521f33fb59565b827054d1",
 	{"workflow.static_analysis", "13"}:    "sha256:ee5b49431e30dca99e60c651aa7de54f4f99fae71aa927baf034bf90fecce8ae",
 	{"workflow.generic_one_off", "14"}:    "sha256:727d5743776421aa55fc0a196412bdd57005cec6e3a1125d523d0cc27d9e79b2",
+	{"workflow.implementation", "25"}:     "sha256:20fcde59a232094e7814cc341bf9fabafedde19f7a7b10e0ab458aa21f9087b4",
+	{"workflow.break_fix", "22"}:          "sha256:ea453dd201191abf9416ec7de58377da178206e014ffb323acc10677879e423a",
+	{"workflow.research", "15"}:           "sha256:39459c5619cfa1eaaa0e562d4371f21a4f9b1c4dec60aafe889e9e281c3e936f",
+	{"workflow.architecture_spike", "16"}: "sha256:729a3d0a8d08c8a16e44ce81f3638046775f70cce5bbe7a03668b97e7aaddce1",
+	{"workflow.ops_runbook", "17"}:        "sha256:f5ba15ab3ade8917adc01ade6e8ba9c3b71ce97877579eb75e75a29bf63f5d66",
+	{"workflow.static_analysis", "14"}:    "sha256:baa3b734b8574bd730366238a858cf87973596bc43ece75f35afa5f13f5cd738",
+	{"workflow.generic_one_off", "15"}:    "sha256:038d5b757f2ec92ae3cb2ef71de6a0d1e0fc984b6bf985b3b3185e6aa878c064",
 }
 
 func TestWorkflowDefinitionVersionPinsHold(t *testing.T) {
@@ -356,13 +367,13 @@ func TestBuiltinDefinitionVersionContinuityRejectsGap(t *testing.T) {
 func TestBuiltinDefinitionForRefResolvesTheLatestVersion(t *testing.T) {
 	t.Parallel()
 	cases := map[string]int64{
-		"workflow.break_fix":          21,
-		"workflow.implementation":     24,
-		"workflow.generic_one_off":    14,
-		"workflow.research":           14,
-		"workflow.architecture_spike": 15,
-		"workflow.ops_runbook":        16,
-		"workflow.static_analysis":    13,
+		"workflow.break_fix":          22,
+		"workflow.implementation":     25,
+		"workflow.generic_one_off":    15,
+		"workflow.research":           15,
+		"workflow.architecture_spike": 16,
+		"workflow.ops_runbook":        17,
+		"workflow.static_analysis":    14,
 	}
 	for ref, version := range cases {
 		registered, err := BuiltinWorkflowDefinitionForRef(ref)

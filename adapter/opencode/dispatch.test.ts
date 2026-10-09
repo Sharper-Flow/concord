@@ -2753,6 +2753,129 @@ test("an over-long base_comparison command is refused, not normalized", async ()
   expect(payloads[1].detail).toContain("base_comparison.checks[0].command: carries 514 UTF-8 bytes against a limit of 512")
 })
 
+// CON-887: the optional typed context_findings array a worker may report. The
+// findings are worker-claimed content only — they record no acceptance and no
+// verdict — so admission preserves them verbatim and every bound refuses the
+// report rather than truncating a typed finding.
+const contextFindingKinds = ["observation", "inference", "hypothesis", "rejected_approach", "open_question", "contradiction", "direction"] as const
+
+const contextFinding = (overrides: Record<string, unknown> = {}) => ({
+  kind: "observation",
+  statement: "the failure reproduces only under WAL replay",
+  subject_ref: "internal/store/txscope_test.go",
+  evidence_refs: ["internal/store/txscope_test.go:40", "bin/oc-test"],
+  ...overrides,
+})
+
+test("the report schema admits the optional context_findings array and closes its entries", () => {
+  expect(validateAgentLaneReport(report({ context_findings: [contextFinding()] }))).toBe(true)
+  expect(validateAgentLaneReport(report())).toBe(true)
+  expect(validateAgentLaneReport(report({ context_findings: [] }))).toBe(true)
+  expect(validateAgentLaneReport(report({ context_findings: contextFindingKinds.map((kind) => contextFinding({ kind })) }))).toBe(true)
+  expect(validateAgentLaneReport(report({ context_findings: Array.from({ length: 16 }, () => contextFinding()) }))).toBe(true)
+  const refusals = [
+    { name: "seventeen entries", value: Array.from({ length: 17 }, () => contextFinding()) },
+    { name: "kind outside the closed enum", value: [contextFinding({ kind: "guess" })] },
+    { name: "missing kind", value: [{ statement: "s", subject_ref: "r", evidence_refs: [] }] },
+    { name: "missing statement", value: [{ kind: "observation", subject_ref: "r", evidence_refs: [] }] },
+    { name: "missing subject_ref", value: [{ kind: "observation", statement: "s", evidence_refs: [] }] },
+    { name: "missing evidence_refs", value: [{ kind: "observation", statement: "s", subject_ref: "r" }] },
+    { name: "undeclared entry property", value: [contextFinding({ confidence: "high" })] },
+    { name: "empty statement", value: [contextFinding({ statement: "" })] },
+    { name: "statement past 1024 characters", value: [contextFinding({ statement: "x".repeat(1025) })] },
+    { name: "statement within code points but past 1024 bytes", value: [contextFinding({ statement: "é".repeat(513) })] },
+    { name: "subject_ref past 128 characters", value: [contextFinding({ subject_ref: "s".repeat(129) })] },
+    { name: "subject_ref within code points but past 128 bytes", value: [contextFinding({ subject_ref: "é".repeat(65) })] },
+    { name: "nine evidence refs", value: [contextFinding({ evidence_refs: Array.from({ length: 9 }, (_, index) => `ref:${index}`) })] },
+    { name: "empty evidence ref", value: [contextFinding({ evidence_refs: [""] })] },
+    { name: "evidence ref past 256 characters", value: [contextFinding({ evidence_refs: ["r".repeat(257)] })] },
+    { name: "evidence ref within code points but past 256 bytes", value: [contextFinding({ evidence_refs: ["é".repeat(129)] })] },
+  ]
+  for (const refusal of refusals) {
+    expect(validateAgentLaneReport(report({ context_findings: refusal.value })), refusal.name).toBe(false)
+  }
+})
+
+test("context_findings stay optional content on both report schema identities", () => {
+  for (const schema_version of ["1.0", "1.1"] as const) {
+    expect(validateAgentLaneReport(report({ schema_version, context_findings: [contextFinding()] }))).toBe(true)
+  }
+})
+
+test("admission preserves reported context_findings through both report routes", () => {
+  const findings = [
+    contextFinding(),
+    contextFinding({ kind: "open_question", statement: "which tier owns the readback bound", subject_ref: "adapter/opencode/dispatch.ts", evidence_refs: [] }),
+  ]
+  const fromText = resolveWorkerReportFromText(JSON.stringify(report({ context_findings: findings })), packet())
+  expect("report" in fromText && fromText.report.context_findings).toEqual(findings)
+  const fromStream = resolveWorkerReport(runOutput("", report({ context_findings: findings })), packet())
+  expect("report" in fromStream && fromStream.report.context_findings).toEqual(findings)
+})
+
+test("an aggregate-oversized context_findings array is refused whole, never truncated", async () => {
+  const entries = Array.from({ length: 16 }, (_, index) => contextFinding({ statement: `finding ${index}: `.padEnd(14, " ") + "x".repeat(1010) }))
+  // Every entry is schema-valid alone; the compact array passes 16384 bytes.
+  expect(Buffer.byteLength(JSON.stringify(entries), "utf8")).toBeGreaterThan(16384)
+  const frozen = structuredClone(entries)
+  const { result, verbs, payloads } = await terminalEvidence(report({ context_findings: entries }))
+  expect(verbs).toEqual(["worker-dispatch", "worker-fail"])
+  expect(payloads[1].failure_kind).toBe("invalid_report")
+  expect(payloads[1].detail).toContain("context_findings")
+  expect(payloads[1].detail).toContain("16384")
+  expect(payloads[1]).not.toHaveProperty("context_findings")
+  expect(result.error?.kind).toBe("invalid_report")
+  // The refusal never edits the worker's typed findings into a smaller shape.
+  expect(entries).toEqual(frozen)
+})
+
+test("reported context_findings ride worker-complete unchanged", async () => {
+  const findings = [contextFinding(), contextFinding({ kind: "direction" })]
+  const { result, verbs, payloads } = await terminalEvidence(report({ context_findings: findings }))
+  expect(result.outcome).toBe("ok")
+  expect(verbs).toEqual(["worker-dispatch", "worker-complete"])
+  expect(payloads[1].context_findings).toEqual(findings)
+})
+
+test("a valid failed report keeps its context_findings on the worker-fail record", async () => {
+  const findings = [contextFinding({ kind: "contradiction", statement: "the packet names a revision the registry no longer carries" })]
+  const evidence = [{ obligation: "uncertainties", detail: "the cited source was unreachable" }]
+  const { result, verbs, payloads } = await terminalEvidence(report({ status: "failed", evidence, context_findings: findings }))
+  expect(verbs).toEqual(["worker-dispatch", "worker-fail"])
+  expect(payloads[1].failure_kind).toBe("worker_error")
+  expect(payloads[1].context_findings).toEqual(findings)
+  expect(result.error?.kind).toBe("error")
+})
+
+test("absent and empty context_findings keep the legacy terminal behavior", async () => {
+  const absent = await terminalEvidence(report())
+  expect(absent.result.outcome).toBe("ok")
+  expect(absent.payloads[1]).not.toHaveProperty("context_findings")
+  const empty = await terminalEvidence(report({ context_findings: [] }))
+  expect(empty.result.outcome).toBe("ok")
+  expect(empty.verbs).toEqual(["worker-dispatch", "worker-complete"])
+  expect(empty.payloads[1].context_findings).toEqual([])
+})
+
+test("invalid-report and readback diagnostics never supply context_findings", async () => {
+  const drifted = await terminalEvidence(report({ context_findings: [contextFinding({ kind: "guess" })] }))
+  expect(drifted.verbs).toEqual(["worker-dispatch", "worker-fail"])
+  expect(drifted.payloads[1].failure_kind).toBe("invalid_report")
+  expect(drifted.payloads[1]).not.toHaveProperty("context_findings")
+  const missing = await terminalEvidence(null)
+  expect(missing.payloads[1].failure_kind).toBe("invalid_report")
+  expect(missing.payloads[1]).not.toHaveProperty("context_findings")
+  const calls: { argv: string[]; input: string }[] = []
+  const refused = await complete(workerBody(), {
+    sessionReader: packetRefusalReader("Fix the bug in the adapter, then summarize what you changed."),
+    evidenceRunner: { async run(argv, input) { calls.push({ argv, input }); return { exitCode: 0, stdout: "", stderr: "" } } },
+  })
+  expect(refused.error?.kind).toBe("readback_refusal")
+  const bornFailed = JSON.parse(calls[0].input)
+  expect(bornFailed.terminal_failure_kind).toBe("model_readback_missing")
+  expect(bornFailed).not.toHaveProperty("context_findings")
+})
+
 // CD-0197: the review lane's completed report carries the typed review
 // block — an explicit ship or no_ship verdict and per-finding severity and
 // confidence — and the adapter refuses a review completion without it.

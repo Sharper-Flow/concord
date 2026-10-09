@@ -160,6 +160,12 @@ def current_schema_version(schema: dict) -> str:
 def report_projection_constraints(report_schema: dict, lane: dict) -> list[str]:
     properties = report_schema["properties"]
     evidence_entry = report_schema["$defs"]["evidence_entry"]
+    context_findings = properties["context_findings"]
+    context_finding = report_schema["$defs"]["context_finding"]
+    context_kind = context_finding["properties"]["kind"]
+    context_statement = context_finding["properties"]["statement"]
+    context_subject = context_finding["properties"]["subject_ref"]
+    context_refs = context_finding["properties"]["evidence_refs"]
     base_comparison = properties["base_comparison"]
     base_checks = base_comparison["properties"]["checks"]
     base_check = report_schema["$defs"]["base_comparison_check"]
@@ -212,6 +218,41 @@ def report_projection_constraints(report_schema: dict, lane: dict) -> list[str]:
         "by the completion verdicts, never by this report.",
         "evidence_entry.obligation: "
         f"enum={json.dumps(lane['evidence_obligations'], ensure_ascii=False)}.",
+        "context_findings: "
+        "optional top-level array; "
+        f"type={context_findings['type']}, "
+        f"minItems={context_findings['minItems']}, "
+        f"maxItems={context_findings['maxItems']}, "
+        f"x-maxArrayBytes={context_findings['x-maxArrayBytes']}. "
+        "Record a durable conclusion, a rejected route, or an open question the evidence entries "
+        "cannot carry as one typed entry here instead of leaving it in local artifacts. "
+        "An array past the byte bound is refused whole: drop or split entries yourself, and never "
+        "truncate a finding to fit.",
+        "context_finding shape: "
+        f"type={context_finding['type']}, "
+        f"additionalProperties={json.dumps(context_finding['additionalProperties'])}, "
+        f"required={json.dumps(context_finding['required'], ensure_ascii=False)}. "
+        "Findings are report content only: they record no acceptance, no verdict, and no workflow "
+        "transition, and they ride a `failed` report unchanged.",
+        "context_finding.kind: "
+        f"enum={json.dumps(context_kind['enum'], ensure_ascii=False)}.",
+        "context_finding.statement: "
+        f"type={context_statement['type']}, "
+        f"minLength={context_statement['minLength']}, "
+        f"maxLength={context_statement['maxLength']}, "
+        f"x-maxBytes={context_statement['x-maxBytes']}.",
+        "context_finding.subject_ref: "
+        f"type={context_subject['type']}, "
+        f"minLength={context_subject['minLength']}, "
+        f"maxLength={context_subject['maxLength']}, "
+        f"x-maxBytes={context_subject['x-maxBytes']}. "
+        "Name the path, symbol, command, or other reference the finding concerns, as your claim; "
+        "it carries no dispatch subject authority.",
+        "context_finding.evidence_refs: "
+        f"type={context_refs['type']}, "
+        f"minItems={context_refs['minItems']}, "
+        f"maxItems={context_refs['maxItems']}, "
+        f"items={json.dumps(context_refs['items'], ensure_ascii=False)}.",
         "base_comparison: "
         "optional top-level object; "
         f"type={base_comparison['type']}, "

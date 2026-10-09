@@ -584,11 +584,23 @@ func TestReadWorkContextViewAssemblesAnchorRefsAndReports(t *testing.T) {
 		t.Fatal("a report finding superseded by a later declaration rode the current view")
 	}
 	var frontier int64
-	if err := fixture.store.DatabaseForTesting().QueryRow(`SELECT COALESCE(MAX(seq),0) FROM domain_events WHERE subject_type='work_item' AND subject_id=?`, fixture.workID).Scan(&frontier); err != nil {
+	if err := fixture.store.DatabaseForTesting().QueryRow(`SELECT COALESCE(MAX(seq),0) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind IN (?,?,?)`, fixture.workID, WorkflowWorkContextRecorded, WorkerCompleted, WorkerFailed).Scan(&frontier); err != nil {
 		t.Fatal(err)
 	}
 	if view.SourceEventFrontier != frontier {
-		t.Fatalf("frontier = %d, want %d", view.SourceEventFrontier, frontier)
+		t.Fatalf("frontier = %d, want the context-source frontier %d", view.SourceEventFrontier, frontier)
+	}
+	// A work event that is no context source leaves the frontier unchanged,
+	// so a packet built before it still matches the current view.
+	if err := ApplyOperation(context.Background(), fixture.store, Operation{Events: []Event{workerDispatchEvent(fixture.workID, "attempt-ctx-unrelated", lane, nil)}}); err != nil {
+		t.Fatal(err)
+	}
+	reread, err := readWorkContextView(context.Background(), fixture.store.DatabaseForTesting(), fixture.workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reread.SourceEventFrontier != frontier {
+		t.Fatalf("frontier after an unrelated work event = %d, want %d", reread.SourceEventFrontier, frontier)
 	}
 	// The affected order is the contract's canonical affected list.
 	if len(view.DomainGroups) != 2 || view.DomainGroups[0].DomainID != workContextTestChild || view.DomainGroups[1].DomainID != workContextTestRoot {

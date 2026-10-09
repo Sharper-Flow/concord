@@ -119,8 +119,10 @@ type WorkContextDomainGroup struct {
 // assembles: the latest declaration anchor's required reading, the active
 // findings (anchor findings, selected earlier findings, and subsequent
 // terminal-report findings), and the Domain grouping. SourceEventFrontier is
-// the work item's maximum event sequence at read time, so a packet built
-// from this view can be compared against current state before spawn.
+// the highest sequence among the work item's context-source events
+// (declarations and terminal worker reports) at read time, so a packet built
+// from this view goes stale exactly when a context source changes, and
+// unrelated work events do not invalidate it.
 type WorkContextView struct {
 	SourceEventFrontier int64                    `json:"source_event_frontier"`
 	RequiredReading     []WorkContextReading     `json:"required_reading"`
@@ -600,8 +602,8 @@ func workContextOriginForKind(kind string) string {
 // as the typed absent view (nil).
 func readWorkContextView(ctx context.Context, q queryer, workID string) (*WorkContextView, error) {
 	view := WorkContextView{RequiredReading: []WorkContextReading{}, Findings: []WorkContextFindingView{}, DomainGroups: []WorkContextDomainGroup{}}
-	if err := q.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0) FROM domain_events WHERE subject_type='work_item' AND subject_id=?`, workID).Scan(&view.SourceEventFrontier); err != nil {
-		return nil, wrapFailure(KindUnavailable, "work_context_read", "cannot read the work event frontier", true, "retry once the event log is readable", err)
+	if err := q.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind IN (?,?,?)`, workID, WorkflowWorkContextRecorded, WorkerCompleted, WorkerFailed).Scan(&view.SourceEventFrontier); err != nil {
+		return nil, wrapFailure(KindUnavailable, "work_context_read", "cannot read the work context source frontier", true, "retry once the event log is readable", err)
 	}
 	var anchorSeq int64 = 0
 	var anchor Event
@@ -710,7 +712,9 @@ func readWorkContextView(ctx context.Context, q queryer, workID string) (*WorkCo
 
 // assembleWorkContextDomainGroups partitions the view's readings and
 // findings by Domain, in the approved contract's affected-Domain order.
-// Domains the affected order does not name sort after it by identity.
+// Domains the affected order does not name sort after it by identity. The
+// store keeps the affected list in its canonical sorted form, so that sorted
+// list is the contract's affected order.
 func assembleWorkContextDomainGroups(ctx context.Context, q queryer, workID string, view *WorkContextView) error {
 	orderedDomains := make([]string, 0, 8)
 	contractVersion, contractErr := activeWorkflowContractVersion(ctx, q, workID, "work_context_read")

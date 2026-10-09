@@ -710,14 +710,6 @@ func (s *Store) QueryQ3(ctx context.Context, req Q3Request) (Q3Result, error) {
 	}
 	terminalOnly := terminalOnlyQ3(states)
 	order, orderSQL := q3Order(states)
-	tx, err := beginRead(ctx, s, "PM1.Q3")
-	if err != nil {
-		return out, err
-	}
-	defer tx.Rollback()
-	if _, err := readProduct(ctx, tx, req.Product); err != nil {
-		return out, err
-	}
 	projectIDs := req.ProjectIDs
 	if len(projectIDs) == 0 && req.Project != "" {
 		projectIDs = []string{req.Project}
@@ -778,6 +770,28 @@ func (s *Store) QueryQ3(ctx context.Context, req Q3Request) (Q3Result, error) {
 	args = append(args, stateArgs...)
 	args = append(args, cursorArgs...)
 	args = append(args, limit+1)
+	if req.Detail == "full" {
+		selected, err := scanWorkItems(ctx, s.db, query, args...)
+		if err != nil {
+			return out, err
+		}
+		request := WorkContextNavigationRequest{}
+		for _, item := range selected {
+			request.WorkIDs = append(request.WorkIDs, item.ID)
+		}
+		ctx, err = s.EstablishWorkContextNavigationProof(ctx, request)
+		if err != nil {
+			return out, err
+		}
+	}
+	tx, err := beginRead(ctx, s, "PM1.Q3")
+	if err != nil {
+		return out, err
+	}
+	defer tx.Rollback()
+	if _, err := readProduct(ctx, tx, req.Product); err != nil {
+		return out, err
+	}
 	items, err := scanWorkItems(ctx, tx, query, args...)
 	if err != nil {
 		return out, err
@@ -890,7 +904,7 @@ func terminalOnlyQ3(states []string) bool {
 	return true
 }
 
-func scanWorkItems(ctx context.Context, tx *sql.Tx, query string, args ...any) ([]WorkItem, error) {
+func scanWorkItems(ctx context.Context, tx queryer, query string, args ...any) ([]WorkItem, error) {
 	rows, err := tx.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "query", "cannot read work items", true, "retry once the database is readable", err)
@@ -960,7 +974,7 @@ func attachDerivedFlags(ctx context.Context, tx *sql.Tx, items []WorkItem) ([]Wo
 	return items, nil
 }
 
-func attachWorkMemberships(ctx context.Context, tx *sql.Tx, items []WorkItem, ids []string) ([]WorkItem, error) {
+func attachWorkMemberships(ctx context.Context, tx queryer, items []WorkItem, ids []string) ([]WorkItem, error) {
 	if len(ids) == 0 {
 		return items, nil
 	}

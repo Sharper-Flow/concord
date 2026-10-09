@@ -67,6 +67,15 @@ func workContextNavigationDeclare(t *testing.T, f workContextFixture, readings [
 	}
 }
 
+func workContextNavigationPreparedContext(t *testing.T, f workContextFixture) context.Context {
+	t.Helper()
+	ctx, err := prepareWorkNavigation(context.Background(), f.store, f.workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ctx
+}
+
 func TestWorkContextNavigationPinnedCardsAndDedup(t *testing.T) {
 	f := seedWorkContextFixture(t, "navigation-pinned")
 	repo, oid := workContextNavigationRepo(t, nil)
@@ -78,7 +87,7 @@ func TestWorkContextNavigationPinnedCardsAndDedup(t *testing.T) {
 	writeKnowledgeFile(t, repo, ".concord/navigation/inventory.json", `{"schema_version":"99"}`)
 	writeKnowledgeFile(t, repo, ".concord/navigation/domains/root.md", "changed checkout\n")
 	commitKnowledgeRepo(t, repo, "later navigation")
-	ctx := context.Background()
+	ctx := workContextNavigationPreparedContext(t, f)
 	tx, err := f.store.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -127,7 +136,7 @@ func TestWorkContextNavigationOverflowRefusesDispatch(t *testing.T) {
 		readings = append(readings, reading)
 	}
 	workContextNavigationDeclare(t, f, readings)
-	err := validateWorkerPacketWorkContext(context.Background(), f.store.DatabaseForTesting(), f.workID, mustJSONValue(map[string]any{"inputs": map[string]any{}}))
+	err := validateWorkerPacketWorkContext(workContextNavigationPreparedContext(t, f), f.store.DatabaseForTesting(), f.workID, mustJSONValue(map[string]any{"inputs": map[string]any{}}))
 	if !hasFailureKind(err, KindLimitExceeded) {
 		t.Fatalf("overflow dispatch = %v, want limit_exceeded", err)
 	}
@@ -197,7 +206,7 @@ func TestWorkContextNavigationRefusals(t *testing.T) {
 				}
 			}
 			workContextNavigationHome(t, f, repo, oid)
-			err := validateWorkerPacketWorkContext(context.Background(), f.store.DatabaseForTesting(), f.workID, mustJSONValue(map[string]any{"inputs": map[string]any{}}))
+			err := validateWorkerPacketWorkContext(workContextNavigationPreparedContext(t, f), f.store.DatabaseForTesting(), f.workID, mustJSONValue(map[string]any{"inputs": map[string]any{}}))
 			if !hasFailureKind(err, test.kind) {
 				t.Fatalf("dispatch = %v, want %s", err, test.kind)
 			}
@@ -220,7 +229,7 @@ func TestWorkContextNavigationAdoptionAndNilBoundary(t *testing.T) {
 				oid = commitKnowledgeRepo(t, repo, "historical adoption")
 			}
 			workContextNavigationHome(t, f, repo, oid)
-			view, err := readWorkContextView(context.Background(), f.store.DatabaseForTesting(), f.workID)
+			view, err := readWorkContextView(workContextNavigationPreparedContext(t, f), f.store.DatabaseForTesting(), f.workID)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -232,7 +241,7 @@ func TestWorkContextNavigationAdoptionAndNilBoundary(t *testing.T) {
 				t.Fatalf("unadopted context = %+v, want nil", view)
 			}
 			workContextNavigationDeclare(t, f, []map[string]any{})
-			view, err = readWorkContextView(context.Background(), f.store.DatabaseForTesting(), f.workID)
+			view, err = readWorkContextView(workContextNavigationPreparedContext(t, f), f.store.DatabaseForTesting(), f.workID)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -261,7 +270,7 @@ func TestWorkContextNavigationRootOutsideAffectedAndBound(t *testing.T) {
 		readings = append(readings, reading)
 	}
 	workContextNavigationDeclare(t, f, readings)
-	view, err := readWorkContextView(context.Background(), f.store.DatabaseForTesting(), f.workID)
+	view, err := readWorkContextView(workContextNavigationPreparedContext(t, f), f.store.DatabaseForTesting(), f.workID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -305,7 +314,7 @@ func TestWorkContextNavigationRegisteredSourceUsesOwnScannedTree(t *testing.T) {
 				t.Fatal("registered source unexpectedly carries a copied registry")
 			}
 			workContextNavigationDeclare(t, f, []map[string]any{})
-			view, err := readWorkContextView(context.Background(), db, f.workID)
+			view, err := readWorkContextView(workContextNavigationPreparedContext(t, f), db, f.workID)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -335,7 +344,7 @@ func TestWorkContextNavigationDistinctReadingRevision(t *testing.T) {
 	reading := workContextRepoReading(workContextTestChild, "")
 	reading["source"] = map[string]any{"kind": "repository_file", "project_id": "project", "path": ".concord/navigation/domains/child-alpha.md", "commit_oid": readingOID}
 	workContextNavigationDeclare(t, f, []map[string]any{reading})
-	view, err := readWorkContextView(context.Background(), f.store.DatabaseForTesting(), f.workID)
+	view, err := readWorkContextView(workContextNavigationPreparedContext(t, f), f.store.DatabaseForTesting(), f.workID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -357,7 +366,7 @@ func TestWorkContextNavigationInventoryResolvesCardPath(t *testing.T) {
 	oid := commitKnowledgeRepo(t, repo, "inventory-resolved card path")
 	workContextNavigationHome(t, f, repo, oid)
 	workContextNavigationDeclare(t, f, []map[string]any{})
-	view, err := readWorkContextView(context.Background(), f.store.DatabaseForTesting(), f.workID)
+	view, err := readWorkContextView(workContextNavigationPreparedContext(t, f), f.store.DatabaseForTesting(), f.workID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -384,7 +393,7 @@ func TestWorkContextNavigationSharedConsumersAndWorktreeBase(t *testing.T) {
 	if _, err := db.Exec(`DELETE FROM fold_guard`); err != nil {
 		t.Fatal(err)
 	}
-	ctx := context.Background()
+	ctx := workContextNavigationPreparedContext(t, f)
 	view, err := readWorkContextView(ctx, db, f.workID)
 	if err != nil {
 		t.Fatal(err)
@@ -460,10 +469,236 @@ func TestWorkContextNavigationMissingRegistryAndStaleContract(t *testing.T) {
 			if err := tx.Commit(); err != nil {
 				t.Fatal(err)
 			}
-			_, err = readWorkContextView(context.Background(), db, f.workID)
+			_, err = readWorkContextView(workContextNavigationPreparedContext(t, f), db, f.workID)
 			if !hasFailureKind(err, want) {
 				t.Fatalf("registry binding read = %v, want %s", err, want)
 			}
 		})
+	}
+}
+
+func TestWorkContextNavigationTransactionUsesPreparedFacts(t *testing.T) {
+	f := seedWorkContextFixture(t, "navigation-prepared-tx")
+	repo, oid := workContextNavigationRepo(t, nil)
+	workContextNavigationHome(t, f, repo, oid)
+	ctx := context.Background()
+	tx, err := f.store.DatabaseForTesting().BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = readWorkContextView(ctx, tx, f.workID)
+	if rollbackErr := tx.Rollback(); rollbackErr != nil {
+		t.Fatal(rollbackErr)
+	}
+	if !hasFailureKind(err, KindStaleRequiresReview) {
+		t.Fatalf("unprepared transaction = %v, want an explicit proof refusal", err)
+	}
+	ctx = workContextNavigationPreparedContext(t, f)
+	// The immutable facts have been read. Removing object access now makes a
+	// subprocess re-read fail; the snapshot must consume only the prepared facts.
+	objects := filepath.Join(repo, ".git", "objects")
+	if err := os.Rename(objects, objects+"-held"); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.Rename(objects+"-held", objects); err != nil {
+			t.Error(err)
+		}
+	})
+	tx, err = f.store.DatabaseForTesting().BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	view, err := readWorkContextView(ctx, tx, f.workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view == nil || len(view.RequiredReading) != 2 || view.RequiredReading[0].Source.CommitOID != oid {
+		t.Fatalf("prepared navigation = %+v", view)
+	}
+}
+
+func TestWorkContextNavigationPreparedSourceChangesRefuse(t *testing.T) {
+	for _, changeLocator := range []bool{false, true} {
+		t.Run(fmt.Sprintf("locator-%t", changeLocator), func(t *testing.T) {
+			f := seedWorkContextFixture(t, fmt.Sprintf("navigation-prepared-change-%t", changeLocator))
+			repo, oid := workContextNavigationRepo(t, nil)
+			workContextNavigationHome(t, f, repo, oid)
+			ctx := workContextNavigationPreparedContext(t, f)
+			if changeLocator {
+				otherRepo, _ := workContextNavigationRepo(t, nil)
+				workContextNavigationHome(t, f, otherRepo, oid)
+			} else {
+				writeKnowledgeFile(t, repo, "README.md", "new source revision\n")
+				workContextNavigationHome(t, f, repo, commitKnowledgeRepo(t, repo, "new source revision"))
+			}
+			tx, err := f.store.DatabaseForTesting().BeginTx(ctx, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer tx.Rollback()
+			_, err = readWorkContextView(ctx, tx, f.workID)
+			if !hasFailureKind(err, KindStaleRequiresReview) {
+				t.Fatalf("changed source = %v, want stale proof refusal", err)
+			}
+		})
+	}
+}
+
+func TestWorkContextNavigationFullListPreparesBeforeSnapshot(t *testing.T) {
+	f := seedWorkContextFixture(t, "navigation-full-list")
+	repo, oid := workContextNavigationRepo(t, nil)
+	workContextNavigationHome(t, f, repo, oid)
+	result, err := f.store.QueryQ3(context.Background(), Q3Request{Product: "product", WorkIDs: []string{f.workID}, Detail: "full"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Items) != 1 || result.Items[0].WorkPin == nil || result.Items[0].WorkPin.WorkContext == nil || len(result.Items[0].WorkPin.WorkContext.RequiredReading) != 2 {
+		t.Fatalf("full list navigation = %+v", result.Items)
+	}
+}
+
+func TestWorkContextNavigationLegacyProofDoesNotHideNewAdoption(t *testing.T) {
+	f := seedWorkContextFixture(t, "navigation-legacy-proof")
+	repo, _ := workContextNavigationRepo(t, nil)
+	runKnowledgeGit(t, repo, "rm", "--", workContextNavigationCompanion, workContextNavigationInventory)
+	commitKnowledgeRepo(t, repo, "unadopted source")
+	workContextNavigationHome(t, f, repo, strings.Repeat("1", 40))
+	ctx := workContextNavigationPreparedContext(t, f)
+	writeKnowledgeFile(t, repo, workContextNavigationCompanion, `{"schema_version":"1.1","unresolved":[]}`)
+	commitKnowledgeRepo(t, repo, "adopt navigation")
+	tx, err := f.store.DatabaseForTesting().BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	_, err = readWorkContextView(ctx, tx, f.workID)
+	if !hasFailureKind(err, KindStaleRequiresReview) {
+		t.Fatalf("new adoption after legacy proof = %v, want stale proof refusal", err)
+	}
+}
+
+func TestWorkContextNavigationUnverifiableLegacyHeadRefuses(t *testing.T) {
+	f := seedWorkContextFixture(t, "navigation-legacy-alias")
+	repo, _ := workContextNavigationRepo(t, nil)
+	runKnowledgeGit(t, repo, "rm", "--", workContextNavigationCompanion, workContextNavigationInventory)
+	commitKnowledgeRepo(t, repo, "unadopted source")
+	branch := strings.TrimSpace(runKnowledgeGit(t, repo, "symbolic-ref", "HEAD"))
+	runKnowledgeGit(t, repo, "symbolic-ref", "refs/heads/alias", branch)
+	runKnowledgeGit(t, repo, "symbolic-ref", "HEAD", "refs/heads/alias")
+	workContextNavigationHome(t, f, repo, strings.Repeat("1", 40))
+	ctx := workContextNavigationPreparedContext(t, f)
+	_, err := readWorkContextView(ctx, f.store.DatabaseForTesting(), f.workID)
+	if !hasFailureKind(err, KindStaleRequiresReview) {
+		t.Fatalf("unverifiable HEAD = %v, want explicit freshness refusal", err)
+	}
+}
+
+func TestWorkContextNavigationProspectiveReadingUsesClaimedLocator(t *testing.T) {
+	f := seedWorkContextFixture(t, "navigation-pending-reading")
+	canonical, _ := workContextNavigationRepo(t, nil)
+	claimed, base := workContextNavigationRepo(t, nil)
+	writeKnowledgeFile(t, claimed, "README.md", "pending declared revision\n")
+	readingOID := commitKnowledgeRepo(t, claimed, "pending reading revision")
+	authorizeSourceLocator(t, f.store, KnowledgeHome{HomeProjectID: "source-project", HomeLocatorID: "source-locator", RepoPath: canonical, HeadRef: "HEAD"})
+	db := f.store.DatabaseForTesting()
+	if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO product_projects(product_id,project_id,role) VALUES('product','source-project','secondary')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at,git_facts) VALUES(?,'source-project','pending-claim','pending-branch',?,?,'pending-repository','active','now','{}')`, WorktreeSetID(f.workID), base, claimed); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`DELETE FROM fold_guard`); err != nil {
+		t.Fatal(err)
+	}
+	source := WorkContextReadingSource{Kind: WorkContextSourceRepositoryFile, ProjectID: "source-project", Path: "README.md", CommitOID: readingOID}
+	ctx, err := f.store.EstablishWorkContextNavigationProof(context.Background(), WorkContextNavigationRequest{WorkIDs: []string{f.workID}, Sources: []WorkContextReadingSource{source}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	view := WorkContextView{RequiredReading: []WorkContextReading{{DomainID: workContextTestChild, Reason: "Read the declared source.", Source: source}}}
+	_, err = assembleWorkContextNavigation(ctx, db, f.workID, []string{workContextTestChild}, &view)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(view.RequiredReading) != 5 {
+		t.Fatalf("prospective reading lost claimed revisions: %+v", view.RequiredReading)
+	}
+}
+
+func TestWorkContextNavigationPreparationPreservesReplayWindow(t *testing.T) {
+	f := seedWorkContextFixture(t, "navigation-replay-order")
+	db := f.store.DatabaseForTesting()
+	if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE project_locators SET kind='git_remote' WHERE locator_id=(SELECT home_locator_id FROM domain_registries WHERE product_id='product'); DELETE FROM fold_guard`); err != nil {
+		t.Fatal(err)
+	}
+	called := false
+	err := AuthorizeWorkflowActionAtBoundaryWithPreflightTx(context.Background(), f.store, nil, WorkflowActionPreflightRequest{WorkID: f.workID}, nil, f.store.Clock(), func(*Transaction) (bool, error) {
+		called = true
+		return true, nil
+	}, nil, func(*Transaction) error { return nil })
+	if err != nil || !called {
+		t.Fatalf("source preparation changed replay order: called=%t err=%v", called, err)
+	}
+}
+
+func TestWorkContextNavigationPreparedLocatorCannotBecomeNonGit(t *testing.T) {
+	f := seedWorkContextFixture(t, "navigation-nongit-locator")
+	repo, oid := workContextNavigationRepo(t, nil)
+	workContextNavigationHome(t, f, repo, oid)
+	ctx := workContextNavigationPreparedContext(t, f)
+	empty := t.TempDir()
+	db := f.store.DatabaseForTesting()
+	if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE project_locators SET normalized_value=? WHERE locator_id=(SELECT home_locator_id FROM domain_registries WHERE product_id='product')`, empty); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`DELETE FROM fold_guard`); err != nil {
+		t.Fatal(err)
+	}
+	_, err := readWorkContextView(ctx, db, f.workID)
+	if !hasFailureKind(err, KindStaleRequiresReview) {
+		t.Fatalf("changed non-Git locator = %v, want freshness refusal", err)
+	}
+}
+
+func TestWorkContextNavigationLegacyProofNeedsHeadObjects(t *testing.T) {
+	f := seedWorkContextFixture(t, "navigation-legacy-objects")
+	repo, _ := workContextNavigationRepo(t, nil)
+	runKnowledgeGit(t, repo, "rm", "--", workContextNavigationCompanion, workContextNavigationInventory)
+	commitKnowledgeRepo(t, repo, "unadopted source")
+	workContextNavigationHome(t, f, repo, strings.Repeat("1", 40))
+	objects := filepath.Join(repo, ".git", "objects")
+	if err := os.Rename(objects, objects+"-unavailable"); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Rename(objects+"-unavailable", objects)
+	ctx := workContextNavigationPreparedContext(t, f)
+	_, err := readWorkContextView(ctx, f.store.DatabaseForTesting(), f.workID)
+	if err == nil {
+		t.Fatal("unreachable HEAD objects accepted as a verified negative proof")
+	}
+}
+
+func TestWorkContextNavigationClaimPreparesDeclaredRevisions(t *testing.T) {
+	f := seedWorkContextFixture(t, "navigation-claim-readings")
+	repo, readingOID := workContextNavigationRepo(t, nil)
+	writeKnowledgeFile(t, repo, "README.md", "claim base\n")
+	base := commitKnowledgeRepo(t, repo, "claim base")
+	workContextNavigationHome(t, f, repo, base)
+	reading := workContextRepoReading(workContextTestChild, "")
+	reading["source"] = map[string]any{"kind": "repository_file", "project_id": "project", "path": "README.md", "commit_oid": readingOID}
+	workContextNavigationDeclare(t, f, []map[string]any{reading})
+	claimed := filepath.Join(t.TempDir(), "claimed")
+	runKnowledgeGit(t, repo, "worktree", "add", "--detach", claimed, base)
+	proof := prepareClaimNavigation(context.Background(), f.store, WorktreeClaimRequest{WorkID: f.workID, ProjectID: "project", BaseSHA: base}, claimed)
+	for _, oid := range []string{base, readingOID} {
+		material, exists := proof.sources[workContextNavigationSource{"project", claimed, oid}]
+		if !exists || material.err != nil || len(material.cards) != 3 {
+			t.Fatalf("claim revision %s: exists=%t material=%+v", oid, exists, material)
+		}
 	}
 }

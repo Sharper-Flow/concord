@@ -5564,7 +5564,7 @@
         }
       ],
       "domain_id": "workflow-engine",
-      "mapped_count": 196,
+      "mapped_count": 197,
       "mechanism_owner_ids": [
         "mechanism:workflow-actions",
         "mechanism:workflow-definitions"
@@ -7726,6 +7726,7 @@
     "internal/store/work_collection_cursor.go": "agent-surface",
     "internal/store/work_context.go": "workflow-engine",
     "internal/store/work_context_navigation.go": "workflow-engine",
+    "internal/store/work_context_navigation_proof.go": "workflow-engine",
     "internal/store/work_context_navigation_test.go": "workflow-engine",
     "internal/store/work_context_packet_test.go": "workflow-engine",
     "internal/store/work_context_test.go": "workflow-engine",
@@ -8080,7 +8081,7 @@
     "skills/README.md": "agent-surface",
     "workflows/README.md": "workflow-engine"
   },
-  "mapped_count": 2002,
+  "mapped_count": 2003,
   "mechanisms": [
     {
       "check_ids": [

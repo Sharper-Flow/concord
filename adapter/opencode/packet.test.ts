@@ -364,8 +364,8 @@ test("a work context projects verbatim into the packet", async () => {
 })
 
 test("pinned Domain cards project unchanged without content", async () => {
-  const source = { kind: "repository_file", project_id: "project", path: ".concord/navigation/domains/child-alpha.md", commit_oid: "a1".repeat(20) }
-  const work_context = {
+  const source = { kind: "repository_file", project_id: "project", path: ".concord/navigation/domains/child-alpha.md", commit_oid: "a1".repeat(20) } as const
+  const work_context: AgentLanePacketWorkContext = {
     ...WORK_CONTEXT,
     required_reading: [...WORK_CONTEXT.required_reading, { domain_id: "child-alpha", reason: "Read the pinned Domain card.", source }],
     domain_groups: WORK_CONTEXT.domain_groups.map(group => group.domain_id === "child-alpha"

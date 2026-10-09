@@ -1,7 +1,6 @@
 package store
 
 import (
-	"encoding/json"
 	"fmt"
 	"testing"
 )
@@ -178,7 +177,9 @@ var workflowDefinitionVersionPins = map[[2]string]string{
 	{"workflow.implementation", "22"}:     "sha256:1bef12c2d072dae7bfcc65a2b097248678770481cc849bf79107cc9833b3b7f4",
 	{"workflow.break_fix", "19"}:          "sha256:df5d441762daf131a1ae62c1abc9897f0269ebd3890322fff6c9a480ca769cc7",
 	{"workflow.implementation", "24"}:     "sha256:2f5b7148662ffb007d1e489b74bda8ef51dfce45225c59b386292ba233312257",
+	{"workflow.implementation", "25"}:     "sha256:82ee5b214f1ed53be13b20f29bb0ae5d8c7810ca8576599dc805d4abfd8cb261",
 	{"workflow.break_fix", "21"}:          "sha256:9cae99acc96a249252a7c094e8b6958c470ca089dd8bc9e0fddd8a7430f39b85",
+	{"workflow.break_fix", "22"}:          "sha256:edc03d0011ca9e967be5eb73e3336adcf5bfdd5d8125b319ee3e361e7ceb0b7c",
 	{"workflow.research", "13"}:           "sha256:ec79e80293f12dd40fc11eac4f0413a4acd45cf76c0289436e7477b882cc3d9f",
 	{"workflow.architecture_spike", "14"}: "sha256:4cafbb1659213f0d80faf45483be186d29fcc9577090d0382989a42aa437726b",
 	{"workflow.ops_runbook", "15"}:        "sha256:547286502ff9c69fad47f5c880508a25803592f9a3befaa7700ca1541843255d",
@@ -187,10 +188,15 @@ var workflowDefinitionVersionPins = map[[2]string]string{
 	{"workflow.implementation", "23"}:     "sha256:01e95e83fbe78a4d5fc1d7a4f0c173c30b8225a62393b8a8270bfef9f6b0361b",
 	{"workflow.break_fix", "20"}:          "sha256:ceaca11a0c5df7b3feaec11eed79616a06f5c1723d234fb8cd3cbe17bd787e1e",
 	{"workflow.research", "14"}:           "sha256:4fbb43fd5ecdff2d8625584dc8e99689982a842396b3ed86bb67c2c9ab6ccb0b",
+	{"workflow.research", "15"}:           "sha256:c9b0c5a8219c846322f0cc36a38de46f47765591ca4b1a29abcf72e36abe897f",
 	{"workflow.architecture_spike", "15"}: "sha256:b8b3397d7918be844bd847e429ec5a224cf1bfe3683ef4f839077c06453bc38d",
+	{"workflow.architecture_spike", "16"}: "sha256:db298cde3c4818f873cb41e27935d3ee404273832e788212aedf3592bb1f0ba7",
 	{"workflow.ops_runbook", "16"}:        "sha256:561dfbf45762ae9ec6deca2bf599a2cd79b3befa0e521f33fb59565b827054d1",
+	{"workflow.ops_runbook", "17"}:        "sha256:6115e9c12d7ee98c1ab1f6d311eafe2eb7b8f9f1f1d577a61b7571471d6f08a0",
 	{"workflow.static_analysis", "13"}:    "sha256:ee5b49431e30dca99e60c651aa7de54f4f99fae71aa927baf034bf90fecce8ae",
+	{"workflow.static_analysis", "14"}:    "sha256:9dcc6f432eb1da4963b86e8494a20aeabc49c0b5ac459838a80704e145284299",
 	{"workflow.generic_one_off", "14"}:    "sha256:727d5743776421aa55fc0a196412bdd57005cec6e3a1125d523d0cc27d9e79b2",
+	{"workflow.generic_one_off", "15"}:    "sha256:263e045c468d31248a33e3f563c7703707a0428e7160cf2e28cbacdd9b8f0abe",
 }
 
 func TestWorkflowDefinitionVersionPinsHold(t *testing.T) {
@@ -310,32 +316,26 @@ func TestWorkflowVerdictSingleFormAcrossPinnedAndBatchVersions(t *testing.T) {
 	if err := validateWorkflowActionPayload(current, "record_verdict", batchedForm); err != nil {
 		t.Fatalf("batched verdict against the batched version refused: %v", err)
 	}
-	// The store refuses the cross-field shapes the declaration cannot state:
-	// a call with both forms, neither, or an entry-level field beside the
-	// batch refuses through the shared normalizer.
-	if _, err := normalizeWorkflowVerdictEntries(mustDecodeWorkflowFields(singleForm, batchedForm)); err == nil {
-		t.Fatal("normalize admitted predicate_id beside verdicts")
+	// The store refuses the cross-field shapes the flat field list cannot
+	// state: a call with both forms, neither, or an entry-level field
+	// beside the batch refuses through the engine cross-field declaration
+	// the preflight enforces and publication branches from (CON-412);
+	// normalizeWorkflowVerdictEntries only decodes the wire shapes.
+	both := []byte(`{"contract_version":1,"predicate_id":"predicate:one","verdicts":[{"predicate_id":"predicate:one"}]}`)
+	if err := validateWorkflowActionPayload(current, "record_verdict", both); err == nil {
+		t.Fatal("validation admitted predicate_id beside verdicts")
 	}
-	neither := []byte(`{"verdict_kind":"ok"}`)
-	if _, err := normalizeWorkflowVerdictEntries(mustDecodeWorkflowFields(neither, neither)); err == nil {
-		t.Fatal("normalize admitted a call with neither form")
+	neither := []byte(`{"contract_version":1,"verdict_kind":"ok"}`)
+	if err := validateWorkflowActionPayload(current, "record_verdict", neither); err == nil {
+		t.Fatal("validation admitted a call with neither form")
 	}
-	bothAndEntry := []byte(`{"verdicts":[{"predicate_id":"predicate:one"}],"evaluation_evidence":["evidence:one"]}`)
-	if _, err := normalizeWorkflowVerdictEntries(mustDecodeWorkflowFields(bothAndEntry, bothAndEntry)); err == nil {
-		t.Fatal("normalize admitted an entry-level field beside the batch")
+	bothAndEntry := []byte(`{"contract_version":1,"verdicts":[{"predicate_id":"predicate:one"}],"evaluation_evidence":["evidence:one"]}`)
+	if err := validateWorkflowActionPayload(current, "record_verdict", bothAndEntry); err == nil {
+		t.Fatal("validation admitted an entry-level field beside the batch")
 	}
-}
-
-// mustDecodeWorkflowFields decodes payload bytes into the field map shape the
-// verdict normalizer reads, failing the test on malformed test input.
-func mustDecodeWorkflowFields(payloads ...json.RawMessage) map[string]json.RawMessage {
-	fields := map[string]json.RawMessage{}
-	for _, payload := range payloads {
-		if err := json.Unmarshal(payload, &fields); err != nil {
-			panic(err)
-		}
+	if err := validateWorkflowActionPayload(pinned.Definition, "record_verdict", singleForm); err != nil {
+		t.Fatalf("single-form verdict against the pinned version refused: %v", err)
 	}
-	return fields
 }
 
 func TestBuiltinDefinitionVersionContinuityRejectsGap(t *testing.T) {
@@ -356,13 +356,13 @@ func TestBuiltinDefinitionVersionContinuityRejectsGap(t *testing.T) {
 func TestBuiltinDefinitionForRefResolvesTheLatestVersion(t *testing.T) {
 	t.Parallel()
 	cases := map[string]int64{
-		"workflow.break_fix":          21,
-		"workflow.implementation":     24,
-		"workflow.generic_one_off":    14,
-		"workflow.research":           14,
-		"workflow.architecture_spike": 15,
-		"workflow.ops_runbook":        16,
-		"workflow.static_analysis":    13,
+		"workflow.break_fix":          22,
+		"workflow.implementation":     25,
+		"workflow.generic_one_off":    15,
+		"workflow.research":           15,
+		"workflow.architecture_spike": 16,
+		"workflow.ops_runbook":        17,
+		"workflow.static_analysis":    14,
 	}
 	for ref, version := range cases {
 		registered, err := BuiltinWorkflowDefinitionForRef(ref)

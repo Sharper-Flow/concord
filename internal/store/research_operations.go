@@ -184,7 +184,7 @@ func lockResearchPack(ctx context.Context, tx *sql.Tx, id string, expected int64
 }
 
 // ensureResearchPackAuthorable refuses content writes on a retained pack. A
-// terminal owner ends authoring (CD-0215): the pack stays readable, pinnable,
+// terminal owner ends authoring (CD-0216): the pack stays readable, pinnable,
 // freshness-reviewable, and releasable, but it cannot gain or lose content —
 // only an explicit research_retire batch deletes it. Pin and freshness writes
 // call lockResearchPack without this guard.

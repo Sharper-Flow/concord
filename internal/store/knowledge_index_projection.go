@@ -139,7 +139,7 @@ func PublishCompactionLink(ctx context.Context, s *Store, req CompactionLinkRequ
 	err = s.db.QueryRowContext(ctx, `SELECT home_project_id,home_locator_id,note_path,commit_oid,content_hash FROM archived_work WHERE id = ?`, req.WorkID).Scan(&existing.homeProject, &existing.homeLocator, &existing.notePath, &existing.commitOID, &existing.contentHash)
 	if err == nil {
 		if existing.homeProject == req.Home.HomeProjectID && existing.homeLocator == req.Home.HomeLocatorID && existing.notePath == note.NotePath && existing.commitOID == note.CommitOID && existing.contentHash == note.ContentHash {
-			// Publication is proof-backed archive, not destruction (CD-0216):
+			// Publication is proof-backed archive, not destruction (CD-0217):
 			// an identical relink is idempotent and research is never a side
 			// effect. Only an explicit research_retire batch deletes packs.
 			return nil

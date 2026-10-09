@@ -1442,7 +1442,7 @@ func TestResearchSourceProvenanceSurvivesReopenAndConsumption(t *testing.T) {
 
 // A workflow action that declares research reliance is refused at the
 // declaration boundary when the pack is missing or a required binding pins a
-// stale revision. A retained terminal-owner pack stays pinnable (CD-0215). A
+// stale revision. A retained terminal-owner pack stays pinnable (CD-0216). A
 // refusal records no consumer pin. A current required binding and a
 // non-required stale binding each record exactly one pin.
 func TestResearchRelianceRefusesUnprovableBindingsAndPinsProvableOnes(t *testing.T) {

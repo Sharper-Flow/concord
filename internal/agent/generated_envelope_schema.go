@@ -65,7 +65,68 @@ const GeneratedEnvelopeSchemaDocument = `{
     "base": {
       "allOf": [
         {
-          "$ref": "#/$defs/toolOperation"
+          "anyOf": [
+            {
+              "$ref": "#/$defs/toolOperation"
+            },
+            {
+              "not": {
+                "required": [
+                  "query_id"
+                ]
+              },
+              "properties": {
+                "error": {
+                  "properties": {
+                    "adapter_reason": {
+                      "const": "invalid_request_wrapper"
+                    },
+                    "effect_state": {
+                      "const": "none"
+                    },
+                    "kind": {
+                      "const": "invalid_input"
+                    },
+                    "recovery_action": {
+                      "properties": {
+                        "kind": {
+                          "const": "restart_query"
+                        }
+                      },
+                      "required": [
+                        "kind"
+                      ]
+                    },
+                    "retry_safe": {
+                      "const": false
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "adapter_reason",
+                    "effect_state",
+                    "retry_safe",
+                    "recovery_action"
+                  ]
+                },
+                "operation": {
+                  "const": ""
+                },
+                "origin": {
+                  "const": "adapter"
+                },
+                "outcome": {
+                  "const": "error"
+                }
+              },
+              "required": [
+                "origin",
+                "outcome",
+                "operation",
+                "error"
+              ]
+            }
+          ]
         },
         {
           "if": {
@@ -205,6 +266,7 @@ const GeneratedEnvelopeSchemaDocument = `{
         },
         "operation": {
           "enum": [
+            "",
             "active_work",
             "add_entry",
             "attachments",

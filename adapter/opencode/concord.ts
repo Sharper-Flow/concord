@@ -38,11 +38,12 @@ function tool<T extends { args: object; execute: (args: any, context: ToolContex
   return { ...definition, execute: async (args: any, context: ToolContext): Promise<ToolResult> => {
     const request: unknown = args?.request
     if (request === null || typeof request !== "object" || Array.isArray(request)) {
-      const operation = typeof args?.operation === "string" ? args.operation : ""
+      const operation = typeof args?.operation === "string" && contractOperations.some((candidate) => candidate.tool === toolName && candidate.id === `${toolName}.${args.operation}`) ? args.operation : ""
       const requestID = `${context.sessionID}-${context.messageID}`
       const envelope = adapterError(toolName, operation, requestID, "invalid_input", "invalid_request_wrapper", "Missing or invalid request wrapper: submit {request: {operation, input}}.", "none", "restart_query")
       envelope.error.retry_safe = false
-      return encodeHostResult(toolName, operation, requestID, envelope)
+      const { envelope: settled, extraWarnings } = withReleaseStaleness(envelope, releaseStaleness())
+      return appendWarnings(encodeHostResult(toolName, operation, requestID, settled), extraWarnings)
     }
     return execute(args, context)
   } }

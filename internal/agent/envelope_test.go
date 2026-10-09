@@ -133,6 +133,41 @@ func TestAdapterWrapperRefusalMarshals(t *testing.T) {
 	}
 }
 
+func TestAdapterWrapperRefusalUnresolvedOperation(t *testing.T) {
+	e := NewCoreError(NewBase("wrapper-unresolved", "concord_work_browse", ""), TypedError{Kind: "invalid_input", RecoveryAction: RecoveryAction{Kind: "restart_query"}, EffectState: EffectNone, AdapterReason: "invalid_request_wrapper"})
+	e.Origin, e.Authority = OriginAdapter, AuthorityUnreachable
+	encoded, err := e.Encode()
+	if err != nil {
+		t.Fatalf("unresolved wrapper refusal cannot marshal: %v", err)
+	}
+	var decoded Envelope
+	if err := json.Unmarshal(encoded, &decoded); err != nil {
+		t.Fatalf("unresolved wrapper refusal cannot decode: %v", err)
+	}
+	if decoded.Operation != "" || decoded.QueryID != "" {
+		t.Fatal("unresolved wrapper refusal fabricated an operation or query")
+	}
+	for name, mutate := range map[string]func(*Envelope){
+		"core origin":       func(e *Envelope) { e.Origin = OriginCore },
+		"unknown operation": func(e *Envelope) { e.Operation = "unknown" },
+		"query identity":    func(e *Envelope) { e.QueryID = "PM1.Q1" },
+		"transport kind":    func(e *Envelope) { e.Error.Kind = "transport_failure" },
+		"other reason":      func(e *Envelope) { e.Error.AdapterReason = "missing_binary" },
+		"possible effect":   func(e *Envelope) { e.Error.EffectState = EffectPossible },
+		"retry safe":        func(e *Envelope) { e.Error.RetrySafe = true },
+		"same request":      func(e *Envelope) { e.Error.RecoveryAction.Kind = "retry_same_request" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			invalid, invalidError := e, *e.Error
+			invalid.Error = &invalidError
+			mutate(&invalid)
+			if err := invalid.Validate(); err == nil {
+				t.Fatal("invalid unresolved refusal accepted")
+			}
+		})
+	}
+}
+
 func TestEnvelopeRejectsUnknownVariantsAndFields(t *testing.T) {
 	t.Parallel()
 	base := NewBase("req", "concord_product_view", "resolve")

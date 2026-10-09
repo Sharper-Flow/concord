@@ -775,6 +775,7 @@
         },
         "operation": {
           "enum": [
+            "",
             "active_work",
             "add_entry",
             "attachments",
@@ -1023,7 +1024,33 @@
       },
       "allOf": [
         {
-          "$ref": "#/$defs/toolOperation"
+          "anyOf": [
+            {
+              "$ref": "#/$defs/toolOperation"
+            },
+            {
+              "required": ["origin", "outcome", "operation", "error"],
+              "not": { "required": ["query_id"] },
+              "properties": {
+                "origin": { "const": "adapter" },
+                "outcome": { "const": "error" },
+                "operation": { "const": "" },
+                "error": {
+                  "required": ["kind", "adapter_reason", "effect_state", "retry_safe", "recovery_action"],
+                  "properties": {
+                    "kind": { "const": "invalid_input" },
+                    "adapter_reason": { "const": "invalid_request_wrapper" },
+                    "effect_state": { "const": "none" },
+                    "retry_safe": { "const": false },
+                    "recovery_action": {
+                      "required": ["kind"],
+                      "properties": { "kind": { "const": "restart_query" } }
+                    }
+                  }
+                }
+              }
+            }
+          ]
         },
         {
           "if": {

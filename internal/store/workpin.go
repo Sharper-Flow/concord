@@ -29,7 +29,20 @@ type WorkPin struct {
 	// It stays nil when a question is open and when the step has none.
 	WithheldOperatorDecision *WorkflowOperatorQuestionWithheld `json:"withheld_operator_decision,omitempty"`
 	Watermark                string                            `json:"watermark"`
-	NextValidIntents         []WorkPinIntent                   `json:"next_valid_intents"`
+	// WorkflowDefinitionVersion and WorkflowDefinitionDigest carry the
+	// identity of the pinned definition the registry verified for this pin.
+	// They come from the same instance-row read and the same
+	// verifyReadWorkflowDefinition call the pin's intents derive from, so a
+	// caller can cite the exact definition the admission collector used.
+	WorkflowDefinitionVersion int64  `json:"workflow_definition_version"`
+	WorkflowDefinitionDigest  string `json:"workflow_definition_digest"`
+	// Obligations lists the sorted exact evidence obligation IDs the pinned
+	// definition declares, collected from the same root, step, and rigor
+	// declarations the architecture-binding admission collector reads
+	// (workflowDefinitionObligations). The pin teaches what the enforcing
+	// collector admits instead of a hand-copied list.
+	Obligations      []string        `json:"obligations"`
+	NextValidIntents []WorkPinIntent `json:"next_valid_intents"`
 	// DrivingSessions lists the distinct agent sessions that have driven this
 	// workflow, with each session's most recent action and action time. It is
 	// derived from workflow actors and actions, not session identity evidence.
@@ -250,10 +263,16 @@ func workPinReadInstanceTx(ctx context.Context, tx *sql.Tx, workID string, pin *
 		return RegisteredDefinition{}, WorkflowReadDefinition{}, "", wrapFailure(KindUnavailable, "work_pin", "cannot read workflow instance", true, "retry once the database is readable", err)
 	}
 	pin.WorkflowType = definition.Ref
+	pin.WorkflowDefinitionVersion = definition.Version
+	pin.WorkflowDefinitionDigest = definition.Digest
 	registered, err := verifyReadWorkflowDefinition(definition)
 	if err != nil {
 		return RegisteredDefinition{}, WorkflowReadDefinition{}, "", err
 	}
+	// The obligation list uses the verified registered definition — the same
+	// verification and the same collector the architecture-binding admission
+	// reads — so the pin and admission cannot disagree on declared membership.
+	pin.Obligations = workflowDefinitionObligationIDs(registered.Definition)
 	return registered, definition, instanceState, nil
 }
 

@@ -3,7 +3,7 @@ import { chmod, mkdir, mkdtemp, rm, symlink } from "node:fs/promises"
 import { fileURLToPath } from "node:url"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
-import { contractOperations, hostToolSchemas, manifestDigest, payloadSchemas } from "./generated-contracts"
+import { contractOperations, hostToolSchemas, manifestDigest, payloadSchemas, workflowActionPublicVariants } from "./generated-contracts"
 import { configureCoreBinary } from "./dispatch"
 import { dispatchWindows, staleReleaseDispatchRefusal, TASK_TOOL_ID } from "./dispatch-window"
 import { claimHostLease, configureHostLease, hostLeaseFault, releaseDisplayName, releaseStaleness, resolveInstalledReleaseRoot } from "./host-lease"
@@ -83,7 +83,7 @@ test("exports exactly the generated tool names", () => {
   expect(new Set(contractOperations.map((operation: any) => operation.tool))).toEqual(new Set(names.map((name) => `concord_${name}`)))
 })
 
-test("published tool arguments expose a host-safe request shape", () => {
+test("published tool arguments expose a host-safe request shape", async () => {
   const tools = {
     concord_product_view: adapter.product_view,
     concord_work_browse: adapter.work_browse,
@@ -106,30 +106,47 @@ test("published tool arguments expose a host-safe request shape", () => {
     // core enforces. No branch carries a sibling operation's fields.
     expect(published.properties.input.type, toolName).toBe("object")
     const branches = published.oneOf
-    expect(branches, toolName).toHaveLength(expected.length)
-    for (const [index, branch] of branches.entries()) {
+    // One closed branch per operation — and for workflow_action, one closed
+    // branch per registry action variant. The published discriminator list is
+    // registry-derived: every operation keeps a branch, workflow_action keeps
+    // one per action, and no other operation gains a branch.
+    const variantActionIds = workflowActionPublicVariants.map((variant) => variant.action_id)
+    const expectedBranchDiscriminators = expected.flatMap((operation: string) =>
+      operation === "workflow_action" && toolName === "concord_work_transition"
+        ? variantActionIds.map((actionId: string) => `${operation}:${actionId}`)
+        : [operation],
+    )
+    expect(
+      branches.map((branch: any) =>
+        branch.properties.operation.const === "workflow_action" && branch.properties.input.properties.action_id?.const
+          ? `workflow_action:${branch.properties.input.properties.action_id.const}`
+          : branch.properties.operation.const,
+      ),
+      toolName,
+    ).toEqual(expectedBranchDiscriminators)
+    for (const branch of branches) {
       expect(branch.type, toolName).toBe("object")
       expect(branch.additionalProperties, toolName).toBe(false)
-      expect(branch.properties.operation.const, toolName).toBe(expected[index])
       expect(branch.properties.input.type, toolName).toBe("object")
       expect(branch.properties.input.additionalProperties, toolName).toBe(false)
-      expect(Array.isArray(branch.properties.input.required), toolName).toBe(true)
+      // required is the authored set exactly: an operation that requires
+      // nothing publishes no required array — publication no longer merges
+      // sibling requireds into a fabricated one.
+      expect(branch.properties.input.required === undefined || Array.isArray(branch.properties.input.required), toolName).toBe(true)
       expect(Object.keys(branch.properties.input.properties).length, toolName).toBeGreaterThan(0)
     }
     expect(JSON.stringify(published), toolName).not.toContain("~standard")
     expect(JSON.stringify(published), toolName).not.toContain('"def"')
     expect(JSON.stringify(published), toolName).not.toContain("#/properties/request/definitions/")
     for (const branch of branches) {
-      // The request-level discriminator union is the one oneOf every tool
-      // carries. Inside an input, only the workflow_action branch's bounded
-      // outcome_payload variant union survives; every other branch stays
-      // union-free below the branch level.
+      // Publication emits closed authored shapes, never the shared
+      // allOf/if-then conditional form: the core keeps consuming that form,
+      // and a published input carrying allOf or if is the merge fault back
+      // again. Authored bounded unions (outcome_payload variants, the
+      // resolve product/project selector oneOf) survive as-is.
       const inputJson = JSON.stringify(branch.properties.input)
-      if (branch.properties.operation.const === "workflow_action") {
-        expect(inputJson, toolName).toContain('"oneOf"')
-      } else {
-        expect(inputJson, toolName).not.toContain('"oneOf"')
-      }
+      expect(inputJson, toolName).not.toContain('"allOf"')
+      expect(inputJson, toolName).not.toContain('"if"')
     }
   }
   const published = adapter.publishedRequestSchema("concord_work_define") as any
@@ -137,9 +154,14 @@ test("published tool arguments expose a host-safe request shape", () => {
   expect(captureInput.required).toEqual(["title", "value_statement", "kind", "project_ids", "idempotency_key"])
   expect(captureInput.properties.urgency.enum).toEqual(["standard", "expedite"])
   const transition = adapter.publishedRequestSchema("concord_work_transition") as any
-  const actionBranch = transition.oneOf.find((branch: any) => branch.properties.operation.const === "workflow_action").properties.input
-  const payloadVariants = actionBranch.properties.fields.properties.outcome_predicates.items.properties.outcome_payload.oneOf
-  expect(payloadVariants.map((branch: any) => branch.properties.kind.const)).toEqual(["exists", "absent", "outcome", "check"])
+  // Select the approve_contract variant by its action_id const: it is the
+  // variant whose fields carry the outcome_predicates admission rules.
+  const actionBranch = transition.oneOf.find((branch: any) => branch.properties.operation.const === "workflow_action" && branch.properties.input.properties.action_id.const === "approve_contract").properties.input
+  // CON-412: the items close per kind; each branch binds outcome_kind to
+  // outcome_payload.kind and carries that branch's payload inline.
+  const itemVariants = actionBranch.properties.fields.properties.outcome_predicates.items.oneOf
+  expect(itemVariants.map((branch: any) => branch.properties.outcome_kind.const)).toEqual(["exists", "absent", "outcome", "check"])
+  expect(itemVariants.map((branch: any) => branch.properties.outcome_payload.properties.kind.const)).toEqual(["exists", "absent", "outcome", "check"])
   // The branch names the conditional action fields, so a calling agent can
   // read them before calling.
   for (const field of ["action_id", "selected_choice", "decision_context_digest"]) {
@@ -154,13 +176,26 @@ test("published tool arguments expose a host-safe request shape", () => {
   expect(premise.description).toContain("UTF-8 bytes")
   expect(premise.description).toContain("model-token limit")
   expect(premise.description).toContain("Do not truncate an approved objective")
-  // Every generated field reaches the host. The definition hook makes the
-  // published fields optional; the adapter enforces the closed modes.
-  // project_id is the CD-0182 resume selector: resume-only, never capture.
-  expect(Object.keys((adapter.work_start as any).args).sort()).toEqual(["title", "value_statement", "kind", "task", "idempotency_key", "priority", "urgency", "tags", "workflow_type_ref", "external_ref", "raised_from_work_id", "governing_requirements", "ref", "defect_intake", "work_id", "project_id"].sort())
+  // Every generated field reaches the host through the registration map,
+  // which derives its field set from the generated capture/resume branches —
+  // no handwritten parity list. project_id is the CD-0182 resume selector:
+  // resume-only, never capture.
+  const [generatedCapture, generatedResume] = hostToolSchemas.concord_work_start.oneOf
+  const expectedWorkStartFields = Object.keys({ ...generatedCapture.properties, ...generatedResume.properties })
+  expect(Object.keys((adapter.work_start as any).args).sort(), "work_start registration fields").toEqual(expectedWorkStartFields.sort())
   for (const value of Object.values((adapter.work_start as any).args)) expect(value).toBeObject()
   expect((adapter.work_start as any).args.product_id).toBeUndefined()
   expect((adapter.work_start as any).args.project_id).toBeObject()
+  // The definition hook publishes the closed two-branch contract itself, so
+  // each mode's required set and field surface survive publication instead of
+  // merging into one all-optional object.
+  const workStartDefinition = { description: "", parameters: {}, jsonSchema: undefined as unknown }
+  await adapter.publishWorkStartDefinition({ toolID: "concord_work_start" }, workStartDefinition)
+  expect(workStartDefinition.jsonSchema).toEqual(hostToolSchemas.concord_work_start)
+  expect((workStartDefinition.jsonSchema as any).oneOf.map((branch: any) => branch.required)).toEqual([
+    ["title", "value_statement", "kind", "task", "idempotency_key"],
+    ["work_id"],
+  ])
 })
 
 test("published tool schemas type every enum node", () => {
@@ -1003,9 +1038,12 @@ test("host publication round-trips check predicate payloads unchanged", async ()
     },
   }
   const published: any = adapter.publishedRequestSchema("concord_work_transition")
-  const actionBranch: any = published.oneOf.find((branch: any) => branch.properties.operation.const === "workflow_action").properties.input
-  const payloadVariants = actionBranch.properties.fields.properties.outcome_predicates.items.properties.outcome_payload.oneOf
-  expect(payloadVariants.map((branch: any) => branch.properties.kind.const)).toEqual(["exists", "absent", "outcome", "check"])
+  const actionBranch: any = published.oneOf.find((branch: any) => branch.properties.operation.const === "workflow_action" && branch.properties.input.properties.action_id.const === "approve_contract").properties.input
+  // CON-412: the items close per kind; each branch binds outcome_kind to
+  // outcome_payload.kind and carries that branch's payload inline.
+  const itemVariants = actionBranch.properties.fields.properties.outcome_predicates.items.oneOf
+  expect(itemVariants.map((branch: any) => branch.properties.outcome_kind.const)).toEqual(["exists", "absent", "outcome", "check"])
+  expect(itemVariants.map((branch: any) => branch.properties.outcome_payload.properties.kind.const)).toEqual(["exists", "absent", "outcome", "check"])
   let sentInput: unknown
   const success = coreEnvelope("concord_work_transition", "workflow_action", "ok", { result: { changed_refs: [], next_valid_intents: [] }, changed_refs: [], next_valid_intents: [] })
   adapter.configureConcordAdapter({ runner: runnerWithContext((_argv: string[], raw: string) => {

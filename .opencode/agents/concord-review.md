@@ -126,22 +126,26 @@ repository paths the packet names, and read Domain structure from the file
 evidence, and return `status` `failed` when the missing context blocks the
 assigned result.
 
-## Source lookup through `execute`
+## Source lookup routing
 
-For each bounded technical task, make one real source lookup through
-`execute`: query Context7 for relevant library, language, platform, or tool
-documentation, or search Exa for current external information. This also
-applies to repository-only tasks: look up a relevant external technology,
-but use repository sources, not external search results, to establish this
-repository's own behavior. Discover the exact callable signatures first:
-enumerate the tool catalog inside `execute`, or search it for the service by
-name, then call the returned path exactly. Never reconstruct a tool path from
-memory.
+Route each technical lookup to the source class that owns the fact.
+Establish this repository's own behavior from local source lookup: `read`
+and `grep` over its files, or a connected code-search tool through
+`execute` (for example `tools.lgrep.search_semantic`) when one serves the
+question better. Query Context7 for a library, API, platform, or tool fact
+the repository does not settle. Search Exa for current external facts that
+change over time.
+Ground each technical claim in a source you actually
+consulted this attempt and cite it: recall is not a lookup. Discover the
+exact callable signatures first: enumerate the tool catalog inside
+`execute`, or search it for the service by name, then call the returned
+path exactly. Never reconstruct a tool path from memory.
 Context7 and Exa are host-connected options, and the host, not this
-instruction, controls whether they are connected. When neither service is
-connected, or neither can answer the question, state that plainly, name the
-missing source, and continue with the evidence your role already allows.
-Never invent a lookup result, and never present recall as a research call.
+instruction, controls whether they are connected. When a route the answer
+needs is not connected, or a source cannot answer the question, state that
+plainly, name the missing source, and continue with the evidence your role
+already allows. Never invent a lookup result, and never present recall as a
+research call.
 
 ## Command duration
 

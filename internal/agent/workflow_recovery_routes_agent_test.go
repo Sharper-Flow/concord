@@ -256,27 +256,6 @@ func workflowRecoveryRouteTuples() []workflowRecoveryRouteTuple {
 			RecordWorkerJob:  true,
 			WorkflowID:       "implementation-v24-release",
 		},
-		// The CON-887 work-context versions republish the same recovery
-		// tables the worker-job versions pinned, so the public journey
-		// enumerates them at their own versions.
-		{
-			Ref: "workflow.implementation", Version: 25,
-			Step: "acceptance", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execution",
-			ProducerStep: "execution", DeliveryStep: "execution", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "start_execution",
-			VerdictStep: "acceptance", BindStep: "execution", BindKind: store.EvidenceArtifact,
-			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
-			RecordWorkerJob:  true,
-			WorkflowID:       "implementation-v25-acceptance",
-		},
-		{
-			Ref: "workflow.implementation", Version: 25,
-			Step: "release", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execution",
-			ProducerStep: "execution", DeliveryStep: "execution", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "start_execution",
-			VerdictStep: "release", BindStep: "execution", BindKind: store.EvidenceArtifact,
-			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
-			RecordWorkerJob:  true,
-			WorkflowID:       "implementation-v25-release",
-		},
 		{
 			Ref: "workflow.break_fix", Version: 21,
 			Step: "verify", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "repair",
@@ -294,6 +273,28 @@ func workflowRecoveryRouteTuples() []workflowRecoveryRouteTuple {
 			RequiredEvidence: []store.EvidenceKind{store.EvidenceVerification},
 			RecordWorkerJob:  true,
 			WorkflowID:       "break_fix-v21-complete",
+		},
+		// The premise-floor promotions (CON-412) each restate their
+		// family's route table at a new version. A matching route row
+		// does not prove version-dependent admission, so every promoted
+		// version drives its own public-tool journey.
+		{
+			Ref: "workflow.implementation", Version: 25,
+			Step: "acceptance", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execution",
+			ProducerStep: "execution", DeliveryStep: "execution", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "start_execution",
+			VerdictStep: "acceptance", BindStep: "execution", BindKind: store.EvidenceArtifact,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
+			RecordWorkerJob:  true,
+			WorkflowID:       "implementation-v25-acceptance",
+		},
+		{
+			Ref: "workflow.implementation", Version: 25,
+			Step: "release", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execution",
+			ProducerStep: "execution", DeliveryStep: "execution", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "start_execution",
+			VerdictStep: "release", BindStep: "execution", BindKind: store.EvidenceArtifact,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
+			RecordWorkerJob:  true,
+			WorkflowID:       "implementation-v25-release",
 		},
 		{
 			Ref: "workflow.break_fix", Version: 22,
@@ -409,6 +410,141 @@ func workflowRecoveryRouteTuples() []workflowRecoveryRouteTuple {
 			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
 			WorkflowID:       "generic_one_off-v15-complete",
 		},
+		// The CON-887 work-context versions republish the same recovery
+		// tables the worker-job versions pinned, so the public journey
+		// enumerates them at their own versions.
+		{
+			Ref: "workflow.implementation", Version: 26,
+			Step: "acceptance", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execution",
+			ProducerStep: "execution", DeliveryStep: "execution", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "start_execution",
+			VerdictStep: "acceptance", BindStep: "execution", BindKind: store.EvidenceArtifact,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
+			RecordWorkerJob:  true,
+			WorkflowID:       "implementation-v26-acceptance",
+		},
+		{
+			Ref: "workflow.implementation", Version: 26,
+			Step: "release", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execution",
+			ProducerStep: "execution", DeliveryStep: "execution", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "start_execution",
+			VerdictStep: "release", BindStep: "execution", BindKind: store.EvidenceArtifact,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
+			RecordWorkerJob:  true,
+			WorkflowID:       "implementation-v26-release",
+		},
+		{
+			Ref: "workflow.break_fix", Version: 23,
+			Step: "verify", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "repair",
+			ProducerStep: "repair", DeliveryStep: "repair", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "start_repair",
+			VerdictStep: "verify", BindStep: "repair", BindKind: store.EvidenceVerification,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceVerification},
+			RecordWorkerJob:  true,
+			WorkflowID:       "break_fix-v23-verify",
+		},
+		{
+			Ref: "workflow.break_fix", Version: 23,
+			Step: "complete", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "repair",
+			ProducerStep: "repair", DeliveryStep: "repair", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "start_repair",
+			VerdictStep: "complete", BindStep: "repair", BindKind: store.EvidenceVerification,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceVerification},
+			RecordWorkerJob:  true,
+			WorkflowID:       "break_fix-v23-complete",
+		},
+		{
+			Ref: "workflow.research", Version: 16,
+			Step: "conclude", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "investigate",
+			ProducerStep: "investigate", DeliveryStep: "investigate", ProducerAction: "dispatch_worker", DeliveryLane: "research", DeliveryAction: "",
+			VerdictStep: "conclude", BindStep: "investigate", BindKind: store.EvidenceArtifact,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
+			WorkflowID:       "research-v16-conclude",
+		},
+		{
+			Ref: "workflow.research", Version: 16,
+			Step: "complete", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "investigate",
+			ProducerStep: "investigate", DeliveryStep: "investigate", ProducerAction: "dispatch_worker", DeliveryLane: "research", DeliveryAction: "",
+			VerdictStep: "complete", BindStep: "investigate", BindKind: store.EvidenceArtifact,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
+			WorkflowID:       "research-v16-complete",
+		},
+		{
+			Ref: "workflow.architecture_spike", Version: 17,
+			Step: "review", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "decision_record",
+			ProducerStep: "decision_record", DeliveryStep: "poc_optional", ProducerAction: "record_decision", DeliveryLane: "implement", DeliveryAction: "start_poc",
+			VerdictStep: "review", BindStep: "research", BindKind: store.EvidenceReview,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceReview, store.EvidenceApproval, store.EvidenceArtifact},
+			WorkflowID:       "architecture_spike-v17-review",
+		},
+		{
+			Ref: "workflow.architecture_spike", Version: 17,
+			Step: "acceptance", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "decision_record",
+			ProducerStep: "decision_record", DeliveryStep: "poc_optional", ProducerAction: "record_decision", DeliveryLane: "implement", DeliveryAction: "start_poc",
+			VerdictStep: "acceptance", BindStep: "research", BindKind: store.EvidenceReview,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceReview, store.EvidenceApproval, store.EvidenceArtifact},
+			WorkflowID:       "architecture_spike-v17-acceptance",
+		},
+		{
+			Ref: "workflow.architecture_spike", Version: 17,
+			Step: "complete", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "decision_record",
+			ProducerStep: "decision_record", DeliveryStep: "poc_optional", ProducerAction: "record_decision", DeliveryLane: "implement", DeliveryAction: "start_poc",
+			VerdictStep: "complete", BindStep: "research", BindKind: store.EvidenceReview,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceReview, store.EvidenceApproval, store.EvidenceArtifact},
+			WorkflowID:       "architecture_spike-v17-complete",
+		},
+		{
+			Ref: "workflow.ops_runbook", Version: 18,
+			Step: "health", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execute",
+			ProducerStep: "execute", DeliveryStep: "execute", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "start_run",
+			VerdictStep: "health", BindStep: "execute", BindKind: store.EvidenceApproval,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceApproval},
+			WorkflowID:       "ops_runbook-v18-health",
+		},
+		{
+			Ref: "workflow.ops_runbook", Version: 18,
+			Step: "cleanup", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execute",
+			ProducerStep: "execute", DeliveryStep: "execute", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "start_run",
+			VerdictStep: "cleanup", BindStep: "execute", BindKind: store.EvidenceApproval,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceApproval},
+			WorkflowID:       "ops_runbook-v18-cleanup",
+		},
+		{
+			Ref: "workflow.ops_runbook", Version: 18,
+			Step: "complete", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execute",
+			ProducerStep: "execute", DeliveryStep: "execute", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "start_run",
+			VerdictStep: "complete", BindStep: "execute", BindKind: store.EvidenceApproval,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceApproval},
+			WorkflowID:       "ops_runbook-v18-complete",
+		},
+		{
+			Ref: "workflow.static_analysis", Version: 15,
+			Step: "review", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "analyze",
+			ProducerStep: "analyze", DeliveryStep: "analyze", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "run_analysis",
+			VerdictStep: "review", BindStep: "report", BindKind: store.EvidenceArtifact,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact, store.EvidenceReview},
+			WorkflowID:       "static_analysis-v15-review",
+		},
+		{
+			Ref: "workflow.static_analysis", Version: 15,
+			Step: "complete", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "analyze",
+			ProducerStep: "analyze", DeliveryStep: "analyze", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "run_analysis",
+			VerdictStep: "complete", BindStep: "report", BindKind: store.EvidenceArtifact,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact, store.EvidenceReview},
+			WorkflowID:       "static_analysis-v15-complete",
+		},
+		{
+			Ref: "workflow.generic_one_off", Version: 16,
+			Step: "verify", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execute",
+			ProducerStep: "execute", DeliveryStep: "execute", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "start_action",
+			VerdictStep: "verify", BindStep: "execute", BindKind: store.EvidenceArtifact,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
+			WorkflowID:       "generic_one_off-v16-verify",
+		},
+		{
+			Ref: "workflow.generic_one_off", Version: 16,
+			Step: "complete", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execute",
+			ProducerStep: "execute", DeliveryStep: "execute", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "start_action",
+			VerdictStep: "complete", BindStep: "execute", BindKind: store.EvidenceArtifact,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
+			WorkflowID:       "generic_one_off-v16-complete",
+		},
 	}
 }
 
@@ -420,8 +556,8 @@ func workflowRecoveryRouteTuples() []workflowRecoveryRouteTuple {
 // (ref, version) fails the test before the journey runs.
 func TestWorkflowRecoveryRoutesDeclareEveryEvaluatorStep(t *testing.T) {
 	tuples := workflowRecoveryRouteTuples()
-	if len(tuples) != 38 {
-		t.Fatalf("recovery-route journey table carries %d tuples, want 38 (16 authored unhealthy routes + 2 frozen v13 routes + 4 CD-0205 worker-job authors + 16 CON-887 work-context versions)", len(tuples))
+	if len(tuples) != 54 {
+		t.Fatalf("recovery-route journey table carries %d tuples, want 54 (16 authored unhealthy routes + 2 frozen v13 routes + 4 CD-0205 worker-job authors + 16 premise-floor promoted versions + 16 CON-887 work-context versions)", len(tuples))
 	}
 	seen := map[string]bool{}
 	for _, tuple := range tuples {
@@ -1336,10 +1472,11 @@ type workflowRecoveryRouteSupersedeTuple struct {
 // workflowRecoveryRouteSupersedeTuples is the one declared supersede
 // route table the public journey enumerates: the 2 complete-step
 // supersede routes every new builtin version declares (CD-0172 D3,
-// CD-0186), plus the 2 v24/v21 worker-job authors that publish the
-// same route through the same engine recovery table. The v24/v21
-// tuples' public-tool journeys follow the same local-accept +
-// record_delivery integration the unhealthy v24/v21 routes do.
+// CD-0186), plus the 2 v24/v21 worker-job authors and the 2 v25/v22
+// premise-floor promotions that publish the same route through the
+// same engine recovery table. The worker-job tuples' public-tool
+// journeys follow the same local-accept + record_delivery integration
+// the unhealthy worker-job routes do.
 func workflowRecoveryRouteSupersedeTuples() []workflowRecoveryRouteSupersedeTuple {
 	return []workflowRecoveryRouteSupersedeTuple{
 		{
@@ -1362,9 +1499,6 @@ func workflowRecoveryRouteSupersedeTuples() []workflowRecoveryRouteSupersedeTupl
 			RecordWorkerJob: true,
 			WorkflowID:      "break_fix-v21-complete-supersede",
 		},
-		// The CON-887 work-context versions republish the same complete-step
-		// supersede routes; their journeys follow the same local-accept +
-		// record_delivery integration the v24/v21 authors do.
 		{
 			Ref: "workflow.implementation", Version: 25,
 			Step: "release", Target: "execution",
@@ -1376,6 +1510,21 @@ func workflowRecoveryRouteSupersedeTuples() []workflowRecoveryRouteSupersedeTupl
 			Step: "complete", Target: "repair",
 			RecordWorkerJob: true,
 			WorkflowID:      "break_fix-v22-complete-supersede",
+		},
+		// The CON-887 work-context versions republish the same complete-step
+		// supersede routes; their journeys follow the same local-accept +
+		// record_delivery integration the v25/v22 premise-floor authors do.
+		{
+			Ref: "workflow.implementation", Version: 26,
+			Step: "release", Target: "execution",
+			RecordWorkerJob: true,
+			WorkflowID:      "implementation-v26-release-supersede",
+		},
+		{
+			Ref: "workflow.break_fix", Version: 23,
+			Step: "complete", Target: "repair",
+			RecordWorkerJob: true,
+			WorkflowID:      "break_fix-v23-complete-supersede",
 		},
 	}
 }

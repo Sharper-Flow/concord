@@ -51,9 +51,6 @@ route-scoping sentence does not reach them.
   Rejected: the refusal makes cancellation the only exit for a stale-pinned
   `workflow.ops_runbook` item at its complete step, and it changes released
   behavior this amendment does not need.
-- Reword CD-0172 D1 in place without a new record. Rejected: accepted law
-  changes through an explicit amendment record that carries its own authority
-  and approval.
 
 ## Consequences
 

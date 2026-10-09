@@ -429,28 +429,50 @@ with `status` `failed`, and name the missing packet fields in the evidence.
 """
 
 
-def execute_source_lookup_instructions() -> str:
-    # Host connections decide which research services exist, so these
-    # instructions name Context7 and Exa as host-connected options and require
-    # discovery before invocation. utility_projection appends the block only
-    # where `execute` access is declared, so a utility without `execute`
-    # never receives it.
-    return """## Source lookup through `execute`
+def reads_repository(lane: dict) -> bool:
+    """Whether the lane's declared capabilities grant repository reads."""
+    return "read_repository" in lane.get("capabilities", [])
 
-For each bounded technical task, make one real source lookup through
-`execute`: query Context7 for relevant library, language, platform, or tool
-documentation, or search Exa for current external information. This also
-applies to repository-only tasks: look up a relevant external technology,
-but use repository sources, not external search results, to establish this
-repository's own behavior. Discover the exact callable signatures first:
-enumerate the tool catalog inside `execute`, or search it for the service by
-name, then call the returned path exactly. Never reconstruct a tool path from
-memory.
+
+def source_lookup_routing_instructions(repository_reads: bool) -> str:
+    # Host connections decide which research services exist, so these
+    # instructions name Context7 and Exa as host-connected options, route
+    # each lookup to the source class that owns the fact, and require
+    # discovery before invocation. The repository paragraph is projected
+    # only where the recipient's declared capability grants repository
+    # reads — a lane's `read_repository` capability, or `read`/`grep` tool
+    # access for a utility — so an external-only recipient never receives
+    # guidance to inspect repository files or use repository search tools.
+    # utility_projection appends the block only where `execute` access is
+    # declared, so a utility without `execute` never receives it.
+    if repository_reads:
+        routed_sources = (
+            "Establish this repository's own behavior from local source lookup: `read`\n"
+            "and `grep` over its files, or a connected code-search tool through\n"
+            "`execute` (for example `tools.lgrep.search_semantic`) when one serves the\n"
+            "question better. Query Context7 for a library, API, platform, or tool fact\n"
+            "the repository does not settle. Search Exa for current external facts that\n"
+            "change over time.\n"
+        )
+    else:
+        routed_sources = (
+            "Query Context7 for a library, API, platform, or tool fact. Search Exa for\n"
+            "current external facts that change over time.\n"
+        )
+    return f"""## Source lookup routing
+
+Route each technical lookup to the source class that owns the fact.
+{routed_sources}Ground each technical claim in a source you actually
+consulted this attempt and cite it: recall is not a lookup. Discover the
+exact callable signatures first: enumerate the tool catalog inside
+`execute`, or search it for the service by name, then call the returned
+path exactly. Never reconstruct a tool path from memory.
 Context7 and Exa are host-connected options, and the host, not this
-instruction, controls whether they are connected. When neither service is
-connected, or neither can answer the question, state that plainly, name the
-missing source, and continue with the evidence your role already allows.
-Never invent a lookup result, and never present recall as a research call.
+instruction, controls whether they are connected. When a route the answer
+needs is not connected, or a source cannot answer the question, state that
+plainly, name the missing source, and continue with the evidence your role
+already allows. Never invent a lookup result, and never present recall as a
+research call.
 """
 
 
@@ -757,7 +779,7 @@ record workflow transitions, verdicts, completion, or spawn nested workers.
 {checkpoint_instructions()}
 {objective_binding_instructions(packet_schema, premise_max_bytes)}
 {concord_context_boundary_instructions()}
-{execute_source_lookup_instructions()}
+{source_lookup_routing_instructions(reads_repository(lane))}
 {command_duration_instructions(lane)}
 Return the report as a single JSON object, and nothing else, as your final
 message. Do not include `attempt_id`, `lane_id`, `lane_version`, or
@@ -855,10 +877,12 @@ question from the working directory or from prior context.
 
 ## Method
 
-1. Fetch each supplied source URL with `webfetch`.
-2. Use `execute` for the required source lookup, whether or not the parent
-   supplied URLs. Query Context7 for library documentation or Exa for current
-   research. Discover the exact callable signature first and call that path.
+1. Fetch each supplied source URL with `webfetch`. Fetching a supplied
+   authoritative source is external research.
+2. Search connected services through `execute` as needed for external
+   evidence the supplied URLs do not settle: query Context7 for library
+   documentation or Exa for current research. Discover the exact callable
+   signature first and call that path.
 3. Prefer authoritative documentation, source code, or a primary publisher.
 4. Compare sources when they report different versions, dates, or behavior.
 5. Stop when the question has a source-backed answer, or after {duration} of
@@ -921,7 +945,10 @@ def utility_projection(utility: dict) -> str:
     duration = f"{minutes} minutes" if seconds == 0 else f"{utility['time_seconds_max']} seconds"
     body_text = body.format(duration=duration).rstrip()
     if "execute" in utility["allowed_tools"]:
-        body_text += "\n\n" + execute_source_lookup_instructions().strip()
+        # The repository paragraph names `read` and `grep`, so it is
+        # projected only where the utility's declared tools can act on it.
+        repository_reads = bool({"read", "grep"} & set(utility["allowed_tools"]))
+        body_text += "\n\n" + source_lookup_routing_instructions(repository_reads).strip()
     return f"""---
 description: Concord {utility['id']} utility — {utility['purpose']}
 mode: subagent

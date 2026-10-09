@@ -230,6 +230,40 @@ func pendingBreakingStore(t *testing.T, path string, unpoison bool) {
 	}
 	if unpoison {
 		for _, statement := range []string{
+			`DROP TABLE outside_repair_reconciliations`,
+			`DROP TABLE outside_repair_dispositions`,
+			// Restore the pre-117 column set and CHECK while retaining every row.
+			// DROP COLUMN alone leaves the widened instance_state constraint.
+			`CREATE TABLE workflow_instances_before_outside_repair (
+    work_id TEXT PRIMARY KEY REFERENCES work_items(id) ON DELETE RESTRICT,
+    definition_ref TEXT NOT NULL,
+    definition_version INTEGER NOT NULL,
+    definition_digest TEXT NOT NULL,
+    current_step TEXT NOT NULL,
+    instance_state TEXT NOT NULL CHECK(instance_state IN ('planned','ready','running','blocked','awaiting_condition','verifying','completed','cancelled','superseded')),
+    execution_actor_ref TEXT REFERENCES workflow_actors(actor_ref) ON DELETE RESTRICT,
+    execution_model TEXT NOT NULL DEFAULT '' CHECK(length(execution_model) <= 128),
+    started_at TEXT,
+    completed_at TEXT,
+    last_checkpoint_at TEXT,
+    execution_started_at TEXT,
+    CHECK(definition_version > 0 AND definition_version <= 2147483647),
+    CHECK(length(definition_ref) BETWEEN 2 AND 128),
+    CHECK(length(definition_digest) = 71 AND substr(definition_digest,1,7) = 'sha256:'),
+    CHECK(length(current_step) BETWEEN 2 AND 128)
+);
+INSERT INTO workflow_instances_before_outside_repair
+    (work_id, definition_ref, definition_version, definition_digest, current_step, instance_state,
+     execution_actor_ref, execution_model, started_at, completed_at, last_checkpoint_at, execution_started_at)
+SELECT work_id, definition_ref, definition_version, definition_digest, current_step, instance_state,
+       execution_actor_ref, execution_model, started_at, completed_at, last_checkpoint_at, execution_started_at
+  FROM workflow_instances;
+DROP TABLE workflow_instances;
+ALTER TABLE workflow_instances_before_outside_repair RENAME TO workflow_instances;
+CREATE INDEX workflow_instances_state ON workflow_instances(instance_state, work_id);
+CREATE TRIGGER workflow_instances_guard_insert BEFORE INSERT ON workflow_instances FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_instances is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_instances_guard_update BEFORE UPDATE ON workflow_instances FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_instances is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER workflow_instances_guard_delete BEFORE DELETE ON workflow_instances FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'workflow_instances is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;`,
 			`DROP TABLE product_knowledge_sources`,
 			`DROP TABLE law_cross_source_relations`,
 			`ALTER TABLE workflow_proposal_records DROP COLUMN out_of_scope`,
@@ -259,7 +293,7 @@ func pendingBreakingStore(t *testing.T, path string, unpoison bool) {
 			`DROP VIEW IF EXISTS initiative_work_scope`,
 			`DROP TABLE IF EXISTS initiative_entry_violations`,
 			`DROP TABLE IF EXISTS initiative_scope_violations`,
-			// Migration 121's guarded projection is one plain CREATE TABLE:
+			// Migration 122's guarded projection is one plain CREATE TABLE:
 			// its guard triggers and index are owned by the table and drop
 			// with it.
 			`DROP TABLE IF EXISTS worktree_ref_outcomes`,

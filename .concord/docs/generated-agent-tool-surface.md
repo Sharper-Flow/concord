@@ -1,7 +1,7 @@
 # Generated Concord agent tool surface
 
-Manifest digest: `sha256:65fdc7a1db8a7d3f2b5d9878119e35bdca394622b06fa21129b66f7935107713`
-Payload schema digest: `sha256:c78a5b47c030c348ee6c5676540a6cb61cd6ad3db01eaa91afda281714ee5a7c`
+Manifest digest: `sha256:72636c4fab6ec5c8e998090793825518eb6427e8dc3fdd03921219eecf87111b`
+Payload schema digest: `sha256:cad1ff027573bb0e2414d20498c65c40189de0eb0aebb8508a9eb839c5633a65`
 Envelope schema: `1.0`
 
 | Operation | Kind | Query | Capability | Consequence | Availability |
@@ -81,3 +81,5 @@ Envelope schema: `1.0`
 | `concord_work_transition.correct_delivery` | `mutation` | `—` | `work_transition` | `recovery` | `always` |
 | `concord_work_relate.product_project_add` | `mutation` | `—` | `work_relate` | `scope` | `always` |
 | `concord_work_relate.client_policy_grant_request` | `mutation` | `—` | `work_relate` | `scope` | `always` |
+| `concord_work_transition.outside_repair` | `mutation` | `—` | `work_transition` | `recovery` | `always` |
+| `concord_work_transition.outside_repair_reconcile` | `mutation` | `—` | `work_transition` | `recovery` | `always` |

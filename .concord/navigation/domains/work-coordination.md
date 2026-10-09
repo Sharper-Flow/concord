@@ -7,11 +7,11 @@ File accountability does not change a document's law home or a handler's semanti
 ## Responsibility
 Owns the work item as an entity: its declared attributes and urgency, provenance, the typed relation vocabulary between work items, durable inter-agent resource claims, work-addressed peer messages, and non-authoritative mid-execution observations. It owns what a work item means and how work items refer to one another, not how work executes and not how it persists.
 
-Mapped files: 55; tests: 34; unresolved candidates: 78.
+Mapped files: 55; tests: 34; unresolved candidates: 77.
 Candidate counts overlap when a file has several candidates; no candidate is an assigned owner.
 
 ## Code and tests
-Full paths, unresolved reasons, shared-test coverage, and source fingerprints: `.concord/navigation/inventory.json`.
+Full paths, unresolved reasons, and shared-test coverage: `.concord/navigation/inventory.json`.
 - Include: `internal/store/worktrees.go`, `internal/store/worktrees_test.go`, `internal/store/worktrees_audit_reclaim_test.go`, `internal/store/worktrees_live_head_reclaim_test.go`, `internal/store/worktrees_native_admission_test.go`
 - Include: `internal/store/worktrees_native_phase_matrix_test.go`, `internal/store/worktrees_ref_boundary_test.go`, `internal/store/worktrees_removal_plan_test.go`, `internal/store/worktrees_replay_determinism_test.go`, `internal/linearclient/**`
 - Include: `internal/store/lifecycle.go`, `internal/store/generated_work_kinds.go`, `internal/store/generated_relation_vocabulary.go`, `internal/store/work_messages.go`, `internal/store/work_observations.go`
@@ -41,6 +41,3 @@ Run the narrow selected command with `bin/oc-test targeted -- <command> [args...
 Invariant/control joins, allowed-dependency interpretation, observed import/call edges,
 non-law navigation homes, CON-887 packet reading, and CON-890 owner oracles remain later work.
 Required-reading entries will be pinned references, not inlined card content.
-
-Navigation source fingerprint: `sha256:cb3ed33e5eee214cec48086ae4bde9b66eac07346778a1807983e63afa54133e`.
-Other fingerprints and the exact file universe are in the generated inventory.

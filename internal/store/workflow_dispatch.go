@@ -101,6 +101,14 @@ func WorkflowActionDefinitionFor(ctx context.Context, s *Store, registry Definit
 	if err != nil {
 		return RegisteredDefinition{}, WorkflowActionDefinition{}, err
 	}
+	active, err := outsideRepairActiveTx(ctx, s.db, workID)
+	if err != nil {
+		return RegisteredDefinition{}, WorkflowActionDefinition{}, err
+	}
+	if active {
+		decision := workflowAdmit(entry.Definition, WorkflowAdmissionState{OutsideRepairActive: true}, actionID)
+		return RegisteredDefinition{}, WorkflowActionDefinition{}, decision.Failure
+	}
 	if actionID == "record_verdict" {
 		var currentStep, state string
 		if err := s.db.QueryRowContext(ctx, `SELECT current_step,instance_state FROM workflow_instances WHERE work_id=?`, workID).Scan(&currentStep, &state); err != nil {
@@ -243,19 +251,6 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *foldScope,
 	if err != nil {
 		return result, err
 	}
-	var workerClaimedWorktree string
-	if request.ActionID == "dispatch_worker" {
-		claimed, claimErr := activeWorkerClaimedWorktree(ctx, tx, request.WorkID, request.SessionWorktree)
-		if claimErr != nil {
-			return result, claimErr
-		}
-		canonical, canonicalErr := canonicalWorkerWorktreePath(request.SessionWorktree)
-		if canonicalErr != nil {
-			return result, newFailure(KindUnauthorizedDispatch, "worker_dispatch", "host session worktree identity cannot be resolved", false, "refresh the host session boundary")
-		}
-		request.SessionWorktreeIdentity = workerWorktreeIdentity(canonical)
-		workerClaimedWorktree = claimed
-	}
 	var currentStep, state, lifecycle string
 	var version int64
 	if err := tx.QueryRowContext(ctx, `SELECT current_step,instance_state,(SELECT lifecycle FROM work_items WHERE id=workflow_instances.work_id),(SELECT version FROM work_items WHERE id=workflow_instances.work_id) FROM workflow_instances WHERE work_id=?`, request.WorkID).Scan(&currentStep, &state, &lifecycle, &version); err != nil {
@@ -288,6 +283,20 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *foldScope,
 	decision := workflowAdmit(entry.Definition, admission, request.ActionID)
 	if !decision.Admitted && !decision.OffStep && !decision.AdvanceHeld && !decision.OperatorQuestionClosed && !workflowAdmissionDefersToReviewGate(decision, request.ActionID) {
 		return result, workflowExecutionAdmissionFailure(decision, request.ProjectTooling)
+	}
+	var workerClaimedWorktree string
+	if request.ActionID == "dispatch_worker" {
+		claimed, claimErr := activeWorkerClaimedWorktree(ctx, tx, request.WorkID, request.SessionWorktree)
+		if claimErr != nil {
+			return result, claimErr
+		}
+		canonical, canonicalErr := canonicalWorkerWorktreePath(request.SessionWorktree)
+		if canonicalErr != nil {
+			return result, newFailure(KindUnauthorizedDispatch, "worker_dispatch", "host session worktree identity cannot be resolved", false, "refresh the host session boundary")
+		}
+		request.SessionWorktreeIdentity = workerWorktreeIdentity(canonical)
+		workerClaimedWorktree = claimed
+		guards.request = request
 	}
 	guards.admissionState = &admission
 	guards.admissionDecision = &decision

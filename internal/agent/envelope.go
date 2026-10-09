@@ -751,6 +751,11 @@ var enforcedRecoveryCouplings = map[string]string{
 	"stale_law_revision":     "request_approval",
 	"timeout":                "retry_same_request",
 	"version_conflict":       "reread_entities",
+	// The outside-repair active refusal (CD-0210) carries the declared route
+	// refs the store names: reconcile and resume. The work pin pre-records the
+	// same routes, so a refusal that reaches a caller names routes the caller
+	// can dispatch without a second read.
+	"outside_repair_active": "use_declared_route",
 }
 
 func validateError(err TypedError) error {

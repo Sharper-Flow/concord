@@ -24,8 +24,11 @@ func workflowInstancePin(t *testing.T, s *Store, workID string) (string, int64, 
 }
 
 func startWorkflowPinnedTo(t *testing.T, s *Store, workID string, definition RegisteredDefinition) (WorkflowActor, int64) {
+	return startWorkflowPinnedToContext(t, context.Background(), s, workID, definition)
+}
+
+func startWorkflowPinnedToContext(t *testing.T, ctx context.Context, s *Store, workID string, definition RegisteredDefinition) (WorkflowActor, int64) {
 	t.Helper()
-	ctx := context.Background()
 	seedWork(t, s, workID)
 	actor := WorkflowActor{PrincipalRef: "principal:evolution", ClientRef: "client:evolution", AgentRef: "agent:evolution", SessionRef: "session:evolution", ActorClass: ActorAgent}
 	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
@@ -147,9 +150,9 @@ func TestInFlightWorkflowSurvivesSchemaMigration(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The write path now ends in the initiative invariant validator, whose
-	// projection tables belong to the newest migration, so the fixture
-	// applies every step and then rolls the manifest and objects of exactly
-	// the newest one back: the item starts at full schema, the newest
+	// projection tables belong to migration 120, so the fixture applies
+	// every step and then rolls the manifest and objects of exactly the
+	// newest one back: the item starts at full schema, the newest
 	// migration applies while it is open, and the mid-flight scenario keeps
 	// its original shape instead of assuming a write path that tolerates a
 	// missing validator projection.
@@ -176,12 +179,11 @@ func TestInFlightWorkflowSurvivesSchemaMigration(t *testing.T) {
 	if _, err := db.ExecContext(ctx, `DELETE FROM schema_migrations WHERE version=?`, last.Version); err != nil {
 		t.Fatalf("cannot roll the manifest back to v%d: %v", last.Version-1, err)
 	}
-	// The drop helper must remove exactly the objects the newest migration
-	// creates, so the Migrate below re-applies the real tail. A migration
-	// appended after the current tail fails this test loudly at that Migrate
-	// until the call follows the new tail — the same loud coupling
-	// upgrade_recovery_test.go carries for its tail.
-	if err := dropMigration121Objects(ctx, db); err != nil {
+	// dropMigration122Objects drops exactly the objects the newest
+	// migration creates. A migration appended after 122 fails this test
+	// loudly at the Migrate below until its objects join the helper, the
+	// same loud coupling upgrade_recovery_test.go carries for its tail.
+	if err := dropMigration122Objects(ctx, db); err != nil {
 		t.Fatalf("cannot drop migration %d objects for its mid-flight re-apply: %v", last.Version, err)
 	}
 	beforeVersion, err := readSchemaManifestVersion(ctx, db)

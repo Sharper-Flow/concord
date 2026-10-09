@@ -135,6 +135,11 @@ func CompleteWorkflowTxWithRegistry(ctx context.Context, tx *sql.Tx, registry De
 		return err
 	}
 	if !isWorkflowReplay(ctx) {
+		if active, err := outsideRepairActiveTx(ctx, tx, event.SubjectID); err != nil {
+			return err
+		} else if active {
+			return newOutsideRepairRouteFailure("complete_workflow", "workflow completion refused: outside-repair disposition is active")
+		}
 		// The staleness boundary consults the current Git-derived law state,
 		// which the log never carried; replay owes only the projection folds
 		// below.

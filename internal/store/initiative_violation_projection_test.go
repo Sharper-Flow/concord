@@ -558,10 +558,10 @@ func dropMigration120Objects(ctx context.Context, db *sql.DB) error {
 	return nil
 }
 
-// dropMigration121Objects removes every schema object migration 121 creates.
+// dropMigration122Objects removes every schema object migration 122 creates.
 // The guarded worktree_ref_outcomes projection is one plain CREATE TABLE:
 // its guard triggers and index are owned by the table and drop with it.
-func dropMigration121Objects(ctx context.Context, db *sql.DB) error {
+func dropMigration122Objects(ctx context.Context, db *sql.DB) error {
 	_, err := db.ExecContext(ctx, `DROP TABLE IF EXISTS worktree_ref_outcomes`)
 	return err
 }
@@ -612,13 +612,20 @@ func TestInitiativeProjection_MigrationBackfillPreservesDefects(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The backfill under test belongs to migration 120: the manifest tail
+	// from 120 on is removed and every step's objects drop, so the upgrade
+	// re-applies the ordered tail and the 120 backfill runs against the
+	// pre-120 shape it originally met.
 	if _, err := raw.ExecContext(ctx, `DELETE FROM schema_migrations WHERE version>=120`); err != nil {
+		t.Fatal(err)
+	}
+	if err := dropMigration120Objects(ctx, raw); err != nil {
 		t.Fatal(err)
 	}
 	if err := dropMigration121Objects(ctx, raw); err != nil {
 		t.Fatal(err)
 	}
-	if err := dropMigration120Objects(ctx, raw); err != nil {
+	if err := dropMigration122Objects(ctx, raw); err != nil {
 		t.Fatal(err)
 	}
 	// Defects a pre-120 store can carry: an initiative that lost its primary
@@ -698,13 +705,20 @@ func TestInitiativeProjection_MigrationBackfillCleanStoreIsEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The backfill under test belongs to migration 120: the manifest tail
+	// from 120 on is removed and every step's objects drop, so the upgrade
+	// re-applies the ordered tail and the 120 backfill runs against the
+	// pre-120 shape it originally met.
 	if _, err := raw.ExecContext(ctx, `DELETE FROM schema_migrations WHERE version>=120`); err != nil {
+		t.Fatal(err)
+	}
+	if err := dropMigration120Objects(ctx, raw); err != nil {
 		t.Fatal(err)
 	}
 	if err := dropMigration121Objects(ctx, raw); err != nil {
 		t.Fatal(err)
 	}
-	if err := dropMigration120Objects(ctx, raw); err != nil {
+	if err := dropMigration122Objects(ctx, raw); err != nil {
 		t.Fatal(err)
 	}
 	_ = raw.Close()

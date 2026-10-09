@@ -11,7 +11,7 @@ Mapped files: 5; tests: 0; unresolved candidates: 0.
 Candidate counts overlap when a file has several candidates; no candidate is an assigned owner.
 
 ## Code and tests
-Full paths, unresolved reasons, shared-test coverage, and source fingerprints: `.concord/navigation/inventory.json`.
+Full paths, unresolved reasons, and shared-test coverage: `.concord/navigation/inventory.json`.
 - Include: `LICENSE`, `CODE_OF_CONDUCT.md`, `SECURITY.md`, `go.mod`, `go.sum`
 
 ## Entry surfaces
@@ -33,6 +33,3 @@ Run the narrow selected command with `bin/oc-test targeted -- <command> [args...
 Invariant/control joins, allowed-dependency interpretation, observed import/call edges,
 non-law navigation homes, CON-887 packet reading, and CON-890 owner oracles remain later work.
 Required-reading entries will be pinned references, not inlined card content.
-
-Navigation source fingerprint: `sha256:cb3ed33e5eee214cec48086ae4bde9b66eac07346778a1807983e63afa54133e`.
-Other fingerprints and the exact file universe are in the generated inventory.

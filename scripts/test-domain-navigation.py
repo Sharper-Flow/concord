@@ -90,20 +90,89 @@ class NavigationTests(unittest.TestCase):
         self.save()
         self.assertTrue(self.findings())
 
-    def test_changed_legacy_unresolved_path_refuses(self):
+    def test_changed_legacy_unresolved_path_is_advisory(self):
         self.navigation["rules"][1]["exclude"].append("src/a.go")
         self.navigation["unresolved"].append({"path": "src/a.go", "candidate_domain_ids": ["core"], "reason": "Legacy uncertainty."})
         self.save()
         self.git("add", ".")
         self.git("commit", "-q", "-m", "legacy unresolved")
         self.write("src/a.go", "package fixture\n// Changed.\n")
-        self.assertTrue(self.findings())
+        self.assertEqual(self.findings(), [])
+        state = nav.partition(self.root, self.registry)
+        self.assertIn("changed legacy unresolved path: src/a.go", " ".join(state["advisories"]))
 
     def test_legacy_unresolved_list_cannot_grow(self):
         self.navigation["rules"][1]["exclude"].append("src/a.go")
         self.navigation["unresolved"].append({"path": "src/a.go", "candidate_domain_ids": ["core"], "reason": "Unchanged but newly unresolved."})
         self.save()
         self.assertTrue(self.findings())
+
+    def default_src(self, domain="core"):
+        self.navigation["rules"][1]["include"] = ["src/a.go", ".concord/navigation/**"]
+        self.navigation["default_rules"] = [{"domain_id": domain, "include": ["src/**"], "exclude": []}]
+        self.save()
+
+    def test_new_file_in_directory_uses_authored_default(self):
+        self.default_src()
+        self.write("src/new_test.go", "package fixture\n")
+        self.assertEqual(nav.partition(self.root, self.registry)["owners"]["src/new_test.go"], "core")
+
+    def test_explicit_rule_wins_over_directory_default(self):
+        self.default_src("product-root:fixture")
+        self.assertEqual(nav.partition(self.root, self.registry)["owners"]["src/a.go"], "core")
+
+    def test_default_rule_order_never_decides_an_owner(self):
+        self.default_src()
+        self.navigation["default_rules"].append({"domain_id": "product-root:fixture", "include": ["src/**"], "exclude": []})
+        self.write("src/new.go", "package fixture\n")
+        self.save()
+        with self.assertRaisesRegex(nav.NavigationError, "overlapping default navigation owners"):
+            nav.partition(self.root, self.registry)
+
+    def test_default_never_resolves_a_named_legacy_gap(self):
+        self.default_src()
+        self.navigation["rules"][1]["exclude"].append("src/a.go")
+        self.navigation["unresolved"].append({"path": "src/a.go", "candidate_domain_ids": ["core"], "reason": "Legacy uncertainty."})
+        self.save()
+        self.git("add", ".")
+        self.git("commit", "-q", "-m", "legacy unresolved")
+        state = nav.partition(self.root, self.registry)
+        self.assertNotIn("src/a.go", state["owners"])
+        self.assertIn("src/a.go", state["unresolved"])
+
+    def test_unmapped_new_path_names_navmap_style_remediation(self):
+        self.write("new.go", "package fixture\n")
+        with self.assertRaisesRegex(nav.NavigationError, "new.go.*navmap-style remediation"):
+            nav.partition(self.root, self.registry)
+
+    def test_default_requires_a_known_domain_and_existing_directory(self):
+        for domain, pattern in (("unknown", "src/**"), ("core", "missing/**")):
+            with self.subTest(domain=domain, pattern=pattern):
+                self.navigation["default_rules"] = [{"domain_id": domain, "include": [pattern], "exclude": []}]
+                self.save()
+                self.assertTrue(self.findings())
+
+    def test_future_test_pattern_uses_existing_directory_default(self):
+        self.navigation["default_rules"] = [{"domain_id": "core", "include": ["src/**/*_test.go"], "exclude": []}]
+        self.save()
+        self.assertEqual(self.findings(), [])
+        self.write("src/future_test.go", "package fixture\n")
+        self.assertEqual(nav.partition(self.root, self.registry)["owners"]["src/future_test.go"], "core")
+
+    def test_changed_gap_prints_advisory_even_in_strict_mode(self):
+        self.registry["domains"][0]["architecture_relations"] = [
+            {"kind": "depends_on", "target_domain_id": "core", "governing_law_ids": ["root-law"]}
+        ]
+        self.navigation["rules"][1]["exclude"].append("src/a.go")
+        self.navigation["unresolved"].append({"path": "src/a.go", "candidate_domain_ids": ["core"], "reason": "Legacy uncertainty."})
+        self.save()
+        self.git("add", ".")
+        self.git("commit", "-q", "-m", "legacy unresolved")
+        self.write("src/a.go", "package fixture\n// Changed.\n")
+        with patch.object(checker.knowledge_index, "compose_manifest", return_value=self.manifest):
+            code, out, _ = self.invoke("check-domain-registry.py", "--strict")
+        self.assertEqual(code, 0)
+        self.assertIn("domain navigation advisory: changed legacy unresolved path: src/a.go", out)
 
     def test_dead_glob_refuses(self):
         self.navigation["rules"][1]["include"].append("missing/**")
@@ -150,14 +219,15 @@ class NavigationTests(unittest.TestCase):
         self.save()
         self.assertEqual(self.findings(), [])
 
-    def test_unresolved_file_mode_change_requires_mapping(self):
+    def test_unresolved_file_mode_change_is_advisory(self):
         self.navigation["rules"][1]["exclude"].append("src/a.go")
         self.navigation["unresolved"].append({"path": "src/a.go", "candidate_domain_ids": ["core"], "reason": "Legacy uncertainty."})
         self.save()
         self.git("add", ".")
         self.git("commit", "-q", "-m", "legacy unresolved")
         (self.root / "src/a.go").chmod(0o755)
-        self.assertTrue(self.findings())
+        self.assertEqual(self.findings(), [])
+        self.assertTrue(nav.partition(self.root, self.registry)["advisories"])
 
     def test_rule_order_does_not_choose_an_owner(self):
         self.save()
@@ -235,6 +305,30 @@ class NavigationTests(unittest.TestCase):
         self.assertEqual(core["agent_operations"], ["fixture.inspect"])
         self.assertEqual(core["cli_verbs"], [{"canonical": "inspect", "two_word": ""}])
 
+    def test_mapping_change_leaves_other_domain_card_unchanged(self):
+        self.prepare_catalogs()
+        before = nav.artifacts(self.root)
+        self.write("OTHER.md", "Product-wide fixture\n")
+        self.navigation["rules"][0]["include"].append("OTHER.md")
+        self.save()
+        after = nav.artifacts(self.root)
+        self.assertEqual(before[nav.card_path("core")], after[nav.card_path("core")])
+        self.assertNotEqual(before[nav.card_path("product-root:fixture")], after[nav.card_path("product-root:fixture")])
+
+    def test_committed_artifacts_have_no_per_change_fingerprints(self):
+        self.prepare_catalogs()
+        generated = nav.artifacts(self.root)
+        data = json.loads(generated[f"{nav.OUTPUT}/inventory.json"])
+        self.assertNotIn("source_fingerprints", data)
+        self.assertNotIn("path_set_fingerprint", data)
+        self.assertTrue(all(b"fingerprint" not in content for path, content in generated.items() if path.endswith(".md")))
+
+    def test_check_rederives_content_without_rejecting_irrelevant_source_bytes(self):
+        self.prepare_catalogs()
+        self.assertEqual(self.invoke("generate-domain-navigation.py")[0], 0)
+        self.write("cmd/concord/main.go", 'package fixture; var commandSpecs = []commandSpec{{Canonical: "inspect"}}\n// Comment only.\n')
+        self.assertEqual(self.invoke("generate-domain-navigation.py", "--check")[0], 0)
+
     def test_missing_stale_extra_and_changed_source_artifacts_refuse(self):
         self.prepare_catalogs()
         self.assertEqual(self.invoke("generate-domain-navigation.py", "--check")[0], 1)
@@ -246,7 +340,7 @@ class NavigationTests(unittest.TestCase):
         self.write(f"{nav.OUTPUT}/extra.md", "Unexpected artifact\n")
         self.assertEqual(self.invoke("generate-domain-navigation.py", "--check")[0], 1)
         (self.root / nav.OUTPUT / "extra.md").unlink()
-        self.write("cmd/concord/main.go", "Changed declaration bytes\n")
+        self.write("contracts/agent-tool-surface.v1.json", json.dumps({"tools": [{"id": "fixture", "operations": ["fixture.inspect", "fixture.update"]}]}))
         self.assertEqual(self.invoke("generate-domain-navigation.py", "--check")[0], 1)
 
     def test_card_filename_slug_preserves_domain_identity(self):

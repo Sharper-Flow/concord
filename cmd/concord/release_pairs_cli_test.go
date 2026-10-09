@@ -21,15 +21,15 @@ import (
 	"github.com/sharper-flow/concord/internal/version"
 )
 
-// The coexistence pair freezes two published sources separated only by
-// additive migrations (CON-807). The current source is tested separately
-// against the older release at the breaking migration boundary.
+// Coexistence uses two immutable released sources below the candidate's
+// breaking floor, not the current source with migrations removed.
 const releasedPairTag = "v11.61.0"
 const releasedPairSchema = 114
-const additivePairTag = "v11.63.30"
-const additivePairSchema = 116
+const compatiblePairCommit = "v11.63.30"
+const compatiblePairVersion = "v11.63.30"
+const compatiblePairSchema = 116
 
-// extractReleasedSource checks out the tagged release's source tree into a
+// extractReleasedSource checks out a release tag or pinned commit into a
 // private directory. The bytes come from this repository's object store, so
 // the built core is the released source, not a relabel of the working tree.
 func extractReleasedSource(t *testing.T, tag string) string {
@@ -48,7 +48,11 @@ func extractReleasedSource(t *testing.T, tag string) string {
 	}
 	root := strings.TrimSpace(string(toplevel))
 	if err := exec.Command(git, "-C", root, "rev-parse", "--verify", "--quiet", tag+"^{commit}").Run(); err != nil {
-		t.Fatalf("the released source %s is absent from this clone; fetch it with: git fetch --no-tags --depth=1 origin +refs/tags/%s:refs/tags/%s", tag, tag, tag)
+		fetchRef := tag
+		if tag == releasedPairTag {
+			fetchRef = "+refs/tags/" + tag + ":refs/tags/" + tag
+		}
+		t.Fatalf("the released source %s is absent from this clone; fetch it with: git fetch --no-tags --depth=1 origin %s", tag, fetchRef)
 	}
 	scratch := t.TempDir()
 	tarball := filepath.Join(scratch, "source.tar")
@@ -157,41 +161,16 @@ func coreAnswersRoute(binary string, args ...string) bool {
 	return exec.Command(binary, args...).Run() == nil
 }
 
-// TestDistinctReleasedCoresCoexistOnOneStore proves the compatible-
-// coexistence contract (CON-807) with a genuinely distinct released pair on
-// synthetic store state:
-//
-//   - the older core is built from the actually released source tagged
-//     v11.61.0 (migration set ends at 114), the newer core from the released
-//     source v11.63.30 (defines additive steps 115 and 116). Two distinct
-//     sources, two distinct artifacts, one store;
-//   - the sessions are real adapter operations, not CLI substitutions: each
-//     release's own adapter code — the released tree's for the old session,
-//     the additive release's for the new one — claims its host lease through
-//     the core binary it is stamped against, the way the plugin factory does
-//     at load (CD-0111 D1);
-//   - an old session pinned to the released pair keeps operating after the
-//     newer core advances the store additively — compatibility-floor
-//     admission, not schema equality;
-//   - the newer release's CLI reads the same store and plans unblocked,
-//     naming its own pinned binary;
-//   - both releases' sessions hold leases beside each other, each pinned
-//     to its own release root;
-//   - the released pair's older tree is honestly legacy for the
-//     maintenance boundary: it carries no fence-protocol marker and its
-//     leases carry no fence protocol, so the boundary's fail-closed
-//     enumeration names it. Coexistence and unfenceability are proved
-//     together, not traded off.
-//
-// The store state is synthetic only in location (a temporary root); every
-// session operation on it runs through the real released binaries and the
-// real released adapter code. This is not blanket rolling compatibility and
-// not projection/binary-skew repair (CON-411 stays out of scope); schema-
-// floor admission is necessary, not sufficient, for any arbitrary release
-// pair.
+// TestDistinctReleasedCoresCoexistOnOneStore proves CD-0111 D1/D3 with
+// each released source's real adapter and core on one temporary store.
+// Schema 114 and 116 coexist across additive migrations; the distinct
+// candidate must refuse its breaking migration while either session lives.
+// After both sessions stop, the candidate migrates forward under the fence,
+// and both older cores refuse the incompatible floor. This is supported-pair
+// evidence, not blanket rolling compatibility or projection/binary-skew repair.
 func TestDistinctReleasedCoresCoexistOnOneStore(t *testing.T) {
 	if testing.Short() {
-		t.Skip("builds two release cores from two distinct sources")
+		t.Skip("builds three release cores from three distinct sources")
 	}
 	root := t.TempDir()
 	dataRoot := filepath.Join(root, "data", "concord")
@@ -200,22 +179,22 @@ func TestDistinctReleasedCoresCoexistOnOneStore(t *testing.T) {
 	}
 	path := filepath.Join(dataRoot, "concord.db")
 	releasedSource := extractReleasedSource(t, releasedPairTag)
-	additiveSource := extractReleasedSource(t, additivePairTag)
+	compatibleSource := extractReleasedSource(t, compatiblePairCommit)
 	older := buildCoreFrom(t, releasedSource, releasedPairTag)
-	newer := buildCoreFrom(t, additiveSource, additivePairTag)
+	newer := buildCoreFrom(t, compatibleSource, compatiblePairVersion)
 	oldRoot := installReleaseTree(t, dataRoot, releasedPairTag, older, false)
-	newRoot := installReleaseTree(t, dataRoot, additivePairTag, newer, true)
+	newRoot := installReleaseTree(t, dataRoot, compatiblePairVersion, newer, true)
 	oldBinary := filepath.Join(oldRoot, "bin", "concord")
 	newBinary := filepath.Join(newRoot, "bin", "concord")
 	// Each release's own adapter runtime, stamped to its own tree exactly
 	// the way the installer stamps it: the sessions below call their own
 	// pinned cores (CD-0111 D1).
 	oldAdapter := stampAdapterRuntime(t, filepath.Join(releasedSource, "adapter", "opencode"), oldRoot)
-	newAdapter := stampAdapterRuntime(t, filepath.Join(additiveSource, "adapter", "opencode"), newRoot)
+	newAdapter := stampAdapterRuntime(t, filepath.Join(compatibleSource, "adapter", "opencode"), newRoot)
 
 	// Distinct-source identity evidence: the released core answers its own
 	// tag and predates the descriptor route (a known legacy core for the
-	// installer's probe), while the additive release reports a complete
+	// installer's probe), while the compatible core reports a complete
 	// descriptor pinned to its own tree.
 	code, out, _ := runRelease(t, oldBinary, path, "--version", "")
 	if code != 0 || strings.TrimSpace(out) != releasedPairTag {
@@ -225,12 +204,12 @@ func TestDistinctReleasedCoresCoexistOnOneStore(t *testing.T) {
 		t.Fatal("the released core predates the descriptor route; it must not answer --version --json")
 	}
 	newerDescriptor := coreDescriptor(t, newBinary)
-	if newerDescriptor["version"] != additivePairTag {
-		t.Fatalf("the new core must report its own stamp: %v", newerDescriptor["version"])
+	if newerDescriptor["version"] != compatiblePairVersion || newerDescriptor["schema_version"] != float64(compatiblePairSchema) || newerDescriptor["fence_protocol"] != float64(hostlease.CurrentFenceProtocol) {
+		t.Fatalf("the compatible core must report its actual release, schema and fence protocol: %+v", newerDescriptor)
 	}
 	newSchema, ok := newerDescriptor["schema_version"].(float64)
-	if !ok || newSchema != additivePairSchema {
-		t.Fatalf("the additive release must define schema %d: %v", additivePairSchema, newerDescriptor["schema_version"])
+	if !ok || newSchema != compatiblePairSchema {
+		t.Fatalf("the additive release must define schema %d: %v", compatiblePairSchema, newerDescriptor["schema_version"])
 	}
 	newSchemaVersion := int(newSchema)
 	if newerDescriptor["fence_protocol"] != float64(hostlease.CurrentFenceProtocol) {
@@ -265,7 +244,7 @@ func TestDistinctReleasedCoresCoexistOnOneStore(t *testing.T) {
 	// adapter claims its lease by running its own pinned core (CD-0111 D1).
 	oldSession := startAdapterSessionOperation(t, oldAdapter, path, "/srv/old-session")
 
-	// The newer core advances the store by its additive steps (115 and 116).
+	// The compatible core advances the store by its actual additive tail.
 	var newUpgrade struct {
 		SchemaVersion int   `json:"schema_version"`
 		Applied       []int `json:"applied"`
@@ -316,8 +295,8 @@ func TestDistinctReleasedCoresCoexistOnOneStore(t *testing.T) {
 	}
 
 	// The newer release's session is the same kind of real adapter
-	// operation from the additive release's own adapter, admitted beside the
-	// old one, and both leases are observable together, each naming its own
+	// operation from the compatible release's own adapter, beside the old
+	// one, and both leases are observable together, each naming its own
 	// release root — the old one honestly recorded at fence protocol 0, a
 	// legacy participant the maintenance boundary must fail closed on.
 	newSession := startAdapterSessionOperation(t, newAdapter, path, "/srv/new-session")
@@ -352,9 +331,6 @@ func TestDistinctReleasedCoresCoexistOnOneStore(t *testing.T) {
 	if newLease.FenceProtocol != hostlease.CurrentFenceProtocol {
 		t.Fatalf("the newer session's lease must record its fence protocol: %+v", newLease)
 	}
-	oldSession.stop()
-	newSession.stop()
-
 	// The fail-closed legacy rule holds beside coexistence: the boundary's
 	// own enumeration names the released tree, because its core predates
 	// the fence protocol (CON-807, the operator-owned offline bootstrap's
@@ -366,6 +342,90 @@ func TestDistinctReleasedCoresCoexistOnOneStore(t *testing.T) {
 	if len(unfenceable) != 1 || unfenceable[0] != oldRoot {
 		t.Fatalf("the released tree must be the boundary's unfenceable legacy entry: %v", unfenceable)
 	}
+
+	candidateVersion := "v0.0.0-con869-candidate"
+	candidate := buildCoreFrom(t, repoSourceDir(t), candidateVersion)
+	candidateRoot := installReleaseTree(t, dataRoot, candidateVersion, candidate, true)
+	candidateBinary := filepath.Join(candidateRoot, "bin", "concord")
+	descriptor := coreDescriptor(t, candidateBinary)
+	if descriptor["schema_version"] != float64(store.CurrentSchemaVersion()) || descriptor["core_binary"] != candidateBinary || descriptor["version"] != candidateVersion || descriptor["manifest_digest"] == newerDescriptor["manifest_digest"] {
+		t.Fatalf("the candidate must identify its own distinct core and contract: %+v", descriptor)
+	}
+	assertPendingFloor := func(t *testing.T) {
+		t.Helper()
+		readiness, err := store.PlanUpgradeReadiness(context.Background(), path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if readiness.SchemaVersion != compatiblePairSchema || readiness.CompatibilityFloor != 111 || !readiness.ActivationBlocked || len(readiness.PendingBreaking) != 3 || readiness.PendingBreaking[0].Version != 119 || readiness.PendingBreaking[1].Version != 120 || readiness.PendingBreaking[2].Version != 121 {
+			t.Fatalf("refusal must leave the compatible store and breaking floor pending: %+v", readiness)
+		}
+		if fence, err := hostlease.ReadFence(dataRoot); err != nil || fence != nil {
+			t.Fatalf("a pre-commit refusal must close its own fence: %+v %v", fence, err)
+		}
+	}
+	t.Run("breaking_candidate_refuses_live_legacy_session", func(t *testing.T) {
+		code, _, errText := runRelease(t, candidateBinary, path, "upgrade", `{}`)
+		if code != 1 || !strings.Contains(errText, "unfenceable legacy participant") || !strings.Contains(errText, oldRoot) || !strings.Contains(errText, "fence protocol 0") {
+			t.Fatalf("the breaking candidate must name the live legacy session: %d %s", code, errText)
+		}
+		assertPendingFloor(t)
+	})
+	oldSession.stop()
+	t.Run("breaking_candidate_refuses_live_compatible_session", func(t *testing.T) {
+		code, _, errText := runRelease(t, candidateBinary, path, "upgrade", `{"confirm_sessions_stopped":true}`)
+		if code != 1 || !strings.Contains(errText, "upgrade_blocked") || !strings.Contains(errText, newRoot) || !strings.Contains(errText, "migration 119") {
+			t.Fatalf("confirmation cannot bypass a live older schema holder: %d %s", code, errText)
+		}
+		assertPendingFloor(t)
+	})
+	newSession.stop()
+	t.Run("incompatible_floor_admission_after_sessions_stop", func(t *testing.T) {
+		code, _, errText := runRelease(t, candidateBinary, path, "upgrade", `{}`)
+		if code != 1 || !strings.Contains(errText, oldRoot) || !strings.Contains(errText, "confirm_sessions_stopped") {
+			t.Fatalf("the stopped unmarked tree still requires confirmation: %d %s", code, errText)
+		}
+		assertPendingFloor(t)
+		code, out, errText := runRelease(t, candidateBinary, path, "upgrade", `{"confirm_sessions_stopped":true}`)
+		if code != 0 {
+			t.Fatalf("the candidate must migrate forward after sessions stop: %d %s %s", code, out, errText)
+		}
+		var upgrade struct {
+			SchemaVersion int   `json:"schema_version"`
+			Applied       []int `json:"applied"`
+		}
+		if err := json.Unmarshal([]byte(out), &upgrade); err != nil {
+			t.Fatal(err)
+		}
+		if upgrade.SchemaVersion != store.CurrentSchemaVersion() || len(upgrade.Applied) != 6 || upgrade.Applied[0] != 117 || upgrade.Applied[1] != 118 || upgrade.Applied[2] != 119 || upgrade.Applied[3] != 120 || upgrade.Applied[4] != 121 || upgrade.Applied[5] != 122 {
+			t.Fatalf("the candidate must commit the actual breaking tail: %+v", upgrade)
+		}
+		readiness, err := store.PlanUpgradeReadiness(context.Background(), path)
+		if err != nil || readiness.CompatibilityFloor != 121 || len(readiness.PendingBreaking) != 0 || readiness.ActivationBlocked {
+			t.Fatalf("the committed store must require floor 121: %+v %v", readiness, err)
+		}
+		fence, err := hostlease.ReadFence(dataRoot)
+		if err != nil || fence == nil || fence.ReleaseRoot != candidateRoot || fence.CoreBinary != candidateBinary {
+			t.Fatalf("the candidate's committed breaking boundary must remain open: %+v %v", fence, err)
+		}
+		for _, binary := range []string{oldBinary, newBinary} {
+			code, _, errText := runRelease(t, binary, path, "upgrade", `{}`)
+			if code != 1 || !strings.Contains(errText, "schema_unsupported") || !strings.Contains(errText, "schema version 121") {
+				t.Fatalf("the real older core %s must refuse the incompatible floor: %d %s", binary, code, errText)
+			}
+		}
+		code, _, errText = runRelease(t, candidateBinary, path, "host-lease", `{"pid":`+pidJSON(os.Getpid())+`}`)
+		if code != 1 || !strings.Contains(errText, "maintenance") {
+			t.Fatalf("admission must remain excluded until activation: %d %s", code, errText)
+		}
+		code, _, errText = runRelease(t, candidateBinary, path, "upgrade", `{}`)
+		if code != 0 {
+			t.Fatalf("the actual candidate must support forward recovery: %d %s", code, errText)
+		}
+		if after, err := hostlease.ReadFence(dataRoot); err != nil || after == nil || after.FenceID != fence.FenceID {
+			t.Fatalf("a candidate no-op must retain the activation boundary: %+v %v", after, err)
+		}
+	})
 }
 
 // releaseMigrationSnapshot reads logical schema and manifest state without
@@ -440,8 +500,9 @@ func TestDistinctReleasedCoreBreakingUpgradeRequiresStoppedSessions(t *testing.T
 		t.Fatal(err)
 	}
 	if before.SchemaVersion != releasedPairSchema || before.CompatibilityFloor >= releasedPairSchema ||
-		len(before.PendingBreaking) != 2 || before.PendingBreaking[0].Version != 119 || !before.PendingBreaking[0].Breaking ||
-		before.PendingBreaking[1].Version != 120 || !before.PendingBreaking[1].Breaking {
+		len(before.PendingBreaking) != 3 || before.PendingBreaking[0].Version != 119 || !before.PendingBreaking[0].Breaking ||
+		before.PendingBreaking[1].Version != 120 || !before.PendingBreaking[1].Breaking ||
+		before.PendingBreaking[2].Version != 121 || !before.PendingBreaking[2].Breaking {
 		t.Fatalf("the released store must await the breaking worker-attempt migration first: %+v", before)
 	}
 	snapshot := releaseMigrationSnapshot(t, path)
@@ -499,10 +560,11 @@ func TestDistinctReleasedCoreBreakingUpgradeRequiresStoppedSessions(t *testing.T
 		}
 	}
 	after, err := store.PlanUpgradeReadiness(context.Background(), path)
-	// The floor is the highest breaking version applied: the initiative
-	// violation projection step (120) raises it past the v119 rebuild.
-	if err != nil || after.SchemaVersion != report.SchemaVersion || after.CompatibilityFloor != 120 || len(after.PendingBreaking) != 0 {
-		t.Fatalf("the breaking upgrade must raise the floor to 120: %+v %v", after, err)
+	// The floor is the highest breaking version applied: the outside-repair
+	// disposition step (121) raises it past the initiative violation
+	// projection step (120) and the v119 rebuild.
+	if err != nil || after.SchemaVersion != report.SchemaVersion || after.CompatibilityFloor != 121 || len(after.PendingBreaking) != 0 {
+		t.Fatalf("the breaking upgrade must raise the floor to 121: %+v %v", after, err)
 	}
 	fence, err := hostlease.ReadFence(dataRoot)
 	if err != nil || fence == nil || !fence.AuthorizesNativeMigration(currentRoot, currentBinary, report.SchemaVersion) {
@@ -520,7 +582,7 @@ func TestDistinctReleasedCoreBreakingUpgradeRequiresStoppedSessions(t *testing.T
 	upgradedSnapshot := releaseMigrationSnapshot(t, path)
 	code, out, errText = runRelease(t, oldBinary, path, "upgrade", `{}`)
 	if code != 1 || out != "" || !strings.Contains(errText, "schema_unsupported") ||
-		!strings.Contains(errText, "defines schema version 120") ||
+		!strings.Contains(errText, "defines schema version 121") ||
 		!strings.Contains(errText, fmt.Sprintf("this binary defines %d", releasedPairSchema)) {
 		t.Fatalf("the old core must refuse the breaking floor, not the maintenance fence: %d %s %s", code, out, errText)
 	}

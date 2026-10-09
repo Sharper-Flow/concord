@@ -505,6 +505,11 @@ func foldWorkTransitioned(ctx context.Context, tx *sql.Tx, event Event) error {
 		return newFailure(KindInvalidPayload, "fold_event", "work.transitioned payload has invalid lifecycle fields", false,
 			"supply accepted states and a non-empty reason")
 	}
+	// Resolve the hold before ordinary workflow gates can fail on the state
+	// under repair. The lifecycle writer rechecks the same admission boundary.
+	if err := requireWorkLifecycleAdmissionTx(ctx, tx, event, payload.To, nil); err != nil {
+		return err
+	}
 	current, err := readWork(ctx, tx, event.SubjectID)
 	if err != nil {
 		return err
@@ -584,7 +589,7 @@ func foldWorkTransitioned(ctx context.Context, tx *sql.Tx, event Event) error {
 	if err := validateWorkVersion(event.SubjectID, current.version, payload.ExpectedVersion, payload.ResultingVersion); err != nil {
 		return err
 	}
-	if err := updateWorkLifecycle(ctx, tx, event, payload.To, current.version, payload.ResultingVersion); err != nil {
+	if err := updateWorkLifecycle(ctx, tx, event, payload.To, current.version, payload.ResultingVersion, nil); err != nil {
 		return err
 	}
 	if isTerminalLifecycle(payload.To) {
@@ -662,7 +667,7 @@ func foldWorkReopened(ctx context.Context, tx *sql.Tx, event Event) error {
 	if err := invalidateWorkflowOverlapResolutionsForWorkTx(ctx, tx, event.EventID, event.SubjectID); err != nil {
 		return err
 	}
-	return updateWorkLifecycle(ctx, tx, event, "needed", current.version, payload.ResultingVersion)
+	return updateWorkLifecycle(ctx, tx, event, "needed", current.version, payload.ResultingVersion, nil)
 }
 
 func foldWorkSuperseded(ctx context.Context, tx *sql.Tx, event Event) error {
@@ -676,6 +681,9 @@ func foldWorkSuperseded(ctx context.Context, tx *sql.Tx, event Event) error {
 	if payload.Reason == "" || payload.Superseded != event.SubjectID || payload.Successor == "" || payload.Successor == payload.Superseded {
 		return newFailure(KindInvalidPayload, "fold_event", "work.superseded payload does not identify two distinct work items", false,
 			"supply successor and superseded work IDs plus a non-empty reason")
+	}
+	if err := requireWorkLifecycleAdmissionTx(ctx, tx, event, "superseded", nil); err != nil {
+		return err
 	}
 	predecessor, err := readWork(ctx, tx, payload.Superseded)
 	if err != nil {
@@ -730,7 +738,7 @@ func foldWorkSuperseded(ctx context.Context, tx *sql.Tx, event Event) error {
 	if err := insertRelation(ctx, tx, event, relationPayload{From: payload.Successor, To: payload.Superseded, Kind: "supersedes"}); err != nil {
 		return err
 	}
-	if err := updateWorkLifecycle(ctx, tx, event, "superseded", predecessor.version, payload.ResultingVersion); err != nil {
+	if err := updateWorkLifecycle(ctx, tx, event, "superseded", predecessor.version, payload.ResultingVersion, nil); err != nil {
 		return err
 	}
 	if payload.SuccessorVersion != 0 && payload.SuccessorResultingVer != 0 {
@@ -809,7 +817,7 @@ func foldWorkReopenedFromSuperseded(ctx context.Context, tx *sql.Tx, event Event
 			// Historical composite reopen events carried a replacement label as
 			// caller metadata only. New mutation events include both endpoint
 			// versions and create the replacement edge below.
-			return updateWorkLifecycle(ctx, tx, event, "needed", current.version, payload.ResultingVersion)
+			return updateWorkLifecycle(ctx, tx, event, "needed", current.version, payload.ResultingVersion, nil)
 		}
 		replacement, err := readWork(ctx, tx, payload.Replacement)
 		if err != nil {
@@ -840,7 +848,7 @@ func foldWorkReopenedFromSuperseded(ctx context.Context, tx *sql.Tx, event Event
 	if err := invalidateWorkflowOverlapResolutionsForWorkTx(ctx, tx, event.EventID, event.SubjectID, successor, payload.Replacement); err != nil {
 		return err
 	}
-	return updateWorkLifecycle(ctx, tx, event, "needed", current.version, payload.ResultingVersion)
+	return updateWorkLifecycle(ctx, tx, event, "needed", current.version, payload.ResultingVersion, nil)
 }
 
 func foldRelationAdded(ctx context.Context, tx *sql.Tx, event Event) error {
@@ -1051,7 +1059,10 @@ func validateWorkVersion(subjectID string, current, expected, resulting int64) e
 	return nil
 }
 
-func updateWorkLifecycle(ctx context.Context, tx *sql.Tx, event Event, lifecycle string, current, resulting int64) error {
+func updateWorkLifecycle(ctx context.Context, tx *sql.Tx, event Event, lifecycle string, current, resulting int64, scope *foldScope) error {
+	if err := requireWorkLifecycleAdmissionTx(ctx, tx, event, lifecycle, scope); err != nil {
+		return err
+	}
 	now := event.OccurredAt.UTC().Format(time.RFC3339Nano)
 	var terminalTime any
 	if isTerminalLifecycle(lifecycle) {
@@ -1089,6 +1100,13 @@ func updateWorkLifecycle(ctx context.Context, tx *sql.Tx, event Event, lifecycle
 	return nil
 }
 
+func requireWorkLifecycleAdmissionTx(ctx context.Context, tx *sql.Tx, event Event, lifecycle string, scope *foldScope) error {
+	if isWorkflowReplay(ctx) || scope.permitsOutsideRepairLifecycle(tx, event, lifecycle) {
+		return nil
+	}
+	return requireNoOutsideRepairTx(ctx, tx, event.SubjectID, "fold_event")
+}
+
 // refuseLiveWorkflowLifecycleCompletionTx refuses a completed lifecycle
 // target whose workflow instance still runs (CD-0183 D4). The typed refusal
 // names the workflow completion action as its remedy. A parked delivery gate
@@ -1103,7 +1121,7 @@ func refuseLiveWorkflowLifecycleCompletionTx(ctx context.Context, tx *sql.Tx, wo
 	if err != nil {
 		return workflowProjectionError(err, "cannot read the workflow instance for lifecycle completion")
 	}
-	if state == "completed" || state == "cancelled" || state == "superseded" {
+	if state == "completed" || state == "cancelled" || state == "superseded" || state == "outside_repair" {
 		return nil
 	}
 	return newFailure(KindNotTerminal, "fold_event",
@@ -1117,13 +1135,15 @@ func refuseLiveWorkflowLifecycleCompletionTx(ctx context.Context, tx *sql.Tx, wo
 // the instance records the abandoned workflow as cancelled while the item's
 // lifecycle carries the outcome and its evidence. An instance that already
 // reached a terminal state keeps that record: workflow.completed is the only
-// fold that may mark an instance completed.
+// fold that may mark an instance completed. An outside_repair instance closed
+// through a reconciliation event keeps its terminal state, and a transition
+// that follows the reconciliation event leaves it alone.
 func closeWorkflowInstanceForTerminalLifecycle(ctx context.Context, tx *sql.Tx, workID, lifecycle, at string) error {
 	state := "cancelled"
 	if lifecycle == "superseded" {
 		state = "superseded"
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE workflow_instances SET instance_state=?, completed_at=? WHERE work_id=? AND instance_state NOT IN ('completed','cancelled','superseded')`, state, at, workID); err != nil {
+	if _, err := tx.ExecContext(ctx, `UPDATE workflow_instances SET instance_state=?, completed_at=? WHERE work_id=? AND instance_state NOT IN ('completed','cancelled','superseded','outside_repair')`, state, at, workID); err != nil {
 		return wrapFailure(KindUnavailable, "fold_event", "cannot close the workflow instance of a terminal work item", true,
 			"retry once the database is writable", err)
 	}

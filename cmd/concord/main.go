@@ -215,6 +215,7 @@ var commandSpecs = []commandSpec{
 	{Canonical: "work-cancel", RequiredFields: requiredFields(field("operation_id"), field("idempotency_key"), field("work_id"), field("expected_version"), field("handoff")), Optional: "product_id, linear, actor, safety evidence", Enums: "reason is fixed to cancelled; removal is not archival"},
 	{Canonical: "ci-wait", RequiredFields: requiredFields(field("selector"), field("repo")), Optional: "mode (pr checks|merge), time_seconds_max, state_file", Enums: "selector.kind: pr|sha|run; mode: checks|merge"},
 	{Canonical: "session-prepare", RequiredFields: requiredFields(field("product_id"), field("work_id"), field("agent")), Optional: "task (max 8192 bytes; none on resume); agent is the active agent; refusals exit 2", Enums: "none"},
+	{Canonical: "outside-repair", RequiredFields: requiredFields(field("work_id"), field("agent")), Optional: "none; requires an active outside-repair hold and a controlling TTY; JSON stdout names the exact directory and argv; host I/O uses /dev/tty", Enums: "none"},
 	{Canonical: "project-resolve", TwoWord: "project resolve", RequiredFields: requiredFields(field("directory")), Optional: "worktree (defaults to directory)", Enums: "none"},
 	{Canonical: "restore", RequiredFields: requiredFields(field("source"), field("destination")), Optional: "none", Enums: "source: existing verified backup snapshot path; destination: absolute clean path that does not yet exist and is not the live database"},
 	{Canonical: "predecessor-inventory", TwoWord: "predecessor inventory", RequiredFields: requiredFields(field("snapshot_path")), Optional: "none", Enums: "snapshot_path: absolute path to a predecessor snapshot file (CD-0097)"},
@@ -827,6 +828,8 @@ func runJSONCommand(command string, args []string, in io.Reader, out, errOut io.
 		return writeJSON(out, receipt, errOut)
 	case "session-prepare":
 		return runSessionPrepare(raw, s, out, errOut, hostLaneAgentIdentity, hostSessionHostCommand, hostOrchestratorIdentity, DeriveSessionBoot)
+	case "outside-repair":
+		return runOutsideRepairCommand(raw, s, defaultOutsideRepairDeps(), out, errOut)
 	case "receipt":
 		return runReceipt(raw, s, out, errOut)
 	default:

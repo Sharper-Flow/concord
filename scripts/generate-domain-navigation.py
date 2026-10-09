@@ -5,7 +5,14 @@ import argparse
 from pathlib import Path
 import sys
 
-from domain_navigation import COMPANION, OUTPUT, NavigationError, artifacts
+from domain_navigation import COMPANION, GENERATED, OUTPUT, REGISTRY, NavigationError, artifacts, expected_paths, read_json
+
+
+def owned_card(root: Path, path: str) -> bool:
+    target = root / path
+    return (target.parent == root / OUTPUT / "domains" and target.suffix == ".md"
+            and not target.is_symlink() and target.parent.resolve() == target.parent
+            and target.read_bytes().startswith(f"<!-- {GENERATED} -->\n".encode()))
 
 
 def main():
@@ -19,11 +26,16 @@ def main():
         print("domain navigation: no companion; not adopted")
         return 0
     try:
-        expected = artifacts(root, base_ref=args.base_ref)
+        desired = expected_paths(read_json(root, REGISTRY))
         actual = {str(p.relative_to(root)) for p in (root / OUTPUT).rglob("*") if p.is_file()}
-        extras = actual - expected.keys()
-        if extras:
+        extras = actual - desired
+        if extras and (args.check or not all(owned_card(root, path) for path in extras)):
             raise NavigationError(f"unexpected generated artifacts: {', '.join(sorted(extras))}")
+        # Only obsolete cards in this generator's namespace can be removed.
+        # Remove them before deriving the inventory's exact file universe.
+        for path in sorted(extras):
+            (root / path).unlink()
+        expected = artifacts(root, base_ref=args.base_ref)
         for path, content in expected.items():
             target = root / path
             if args.check:

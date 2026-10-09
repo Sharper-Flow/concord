@@ -249,6 +249,56 @@ class NavigationTests(unittest.TestCase):
         self.write("cmd/concord/main.go", "Changed declaration bytes\n")
         self.assertEqual(self.invoke("generate-domain-navigation.py", "--check")[0], 1)
 
+    def test_card_filename_slug_preserves_domain_identity(self):
+        self.prepare_catalogs()
+        root_path = ".concord/navigation/domains/product-root--fixture.md"
+        self.assertEqual(nav.card_path("product-root:fixture"), root_path)
+        self.assertEqual(nav.card_path("core"), ".concord/navigation/domains/core.md")
+        generated = nav.artifacts(self.root)
+        self.assertTrue(all(":" not in Path(path).name for path in generated))
+        self.assertIn(b"Domain: `product-root:fixture`", generated[root_path])
+
+    def test_card_slug_collision_refuses(self):
+        self.registry["domains"].append({
+            "domain_id": "product-root--fixture", "name": "Collision", "purpose": "Fixture collision.",
+            "status": "current", "architecture_relations": [],
+        })
+        with self.assertRaisesRegex(nav.NavigationError, "card filename collision"):
+            nav.expected_paths(self.registry)
+
+    def test_generator_reconciles_obsolete_owned_cards(self):
+        self.prepare_catalogs()
+        self.assertEqual(self.invoke("generate-domain-navigation.py")[0], 0)
+        obsolete = f"{nav.OUTPUT}/domains/product-root:fixture.md"
+        self.write(obsolete, f"<!-- {nav.GENERATED} -->\nDomain: `product-root:fixture`\n")
+        self.assertEqual(self.invoke("generate-domain-navigation.py", "--check")[0], 1)
+        self.assertEqual(self.invoke("generate-domain-navigation.py")[0], 0)
+        self.assertFalse((self.root / obsolete).exists())
+        self.assertTrue((self.root / nav.OUTPUT / "domains/product-root--fixture.md").is_file())
+        inventory = json.loads((self.root / nav.OUTPUT / "inventory.json").read_text())
+        self.assertNotIn(obsolete, inventory["files"])
+        self.assertEqual(self.invoke("generate-domain-navigation.py", "--check")[0], 0)
+
+    def test_generator_never_deletes_unowned_extras(self):
+        self.prepare_catalogs()
+        self.assertEqual(self.invoke("generate-domain-navigation.py")[0], 0)
+        orphan = f"{nav.OUTPUT}/domains/orphan.md"
+        self.write(orphan, f"<!-- {nav.GENERATED} -->\nObsolete generated card\n")
+        unowned = f"{nav.OUTPUT}/domains/notes.md"
+        self.write(unowned, "Authored notes must not be deleted.\n")
+        self.assertEqual(self.invoke("generate-domain-navigation.py")[0], 1)
+        self.assertTrue((self.root / orphan).exists())
+        self.assertEqual((self.root / unowned).read_text(), "Authored notes must not be deleted.\n")
+
+    def test_lookup_root_uses_slug_without_changing_domain_id(self):
+        self.prepare_catalogs()
+        for flags in (("--domain", "product-root:fixture"), ("--path", "ROOT.md")):
+            with self.subTest(flags=flags):
+                code, out, _ = self.invoke("domain-navigation.py", *flags)
+                self.assertEqual(code, 0)
+                self.assertEqual(json.loads(out)["domain_id"], "product-root:fixture")
+                self.assertEqual(json.loads(out)["card_path"], ".concord/navigation/domains/product-root--fixture.md")
+
     def test_oversize_card_refuses_without_truncation(self):
         self.prepare_catalogs()
         self.registry["domains"][1]["purpose"] = "\u754c" * 3000

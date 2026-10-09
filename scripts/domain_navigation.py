@@ -77,13 +77,24 @@ def matches(path: str, pattern: str) -> bool:
 
 
 def card_path(domain_id: str) -> str:
+    """Use colon-free ASCII slugs without changing the Domain identity."""
     if not re.fullmatch(r"[a-z0-9:-]+", domain_id):
         raise NavigationError(f"Domain ID cannot name a card: {domain_id!r}")
-    return f"{OUTPUT}/domains/{domain_id}.md"
+    slug = domain_id.replace(":", "--")
+    return f"{OUTPUT}/domains/{slug}.md"
 
 
 def expected_paths(registry: dict) -> set[str]:
-    return {f"{OUTPUT}/inventory.json", *(card_path(d["domain_id"]) for d in registry["domains"] if d["status"] == "current")}
+    cards = {}
+    for domain in registry["domains"]:
+        if domain["status"] != "current":
+            continue
+        domain_id = domain["domain_id"]
+        path = card_path(domain_id)
+        if path in cards:
+            raise NavigationError(f"card filename collision: {cards[path]} and {domain_id}: {path}")
+        cards[path] = domain_id
+    return {f"{OUTPUT}/inventory.json", *cards}
 
 
 def repository_paths(root: Path) -> set[str]:

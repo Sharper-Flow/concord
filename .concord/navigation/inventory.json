@@ -1227,7 +1227,7 @@
     },
     {
       "agent_operations": [],
-      "card_path": ".concord/navigation/domains/product-root:concord.md",
+      "card_path": ".concord/navigation/domains/product-root--concord.md",
       "checks": [
         {
           "config_path": "bin/oc-test",
@@ -2755,7 +2755,7 @@
     ".concord/navigation/domains/durable-authority.md": "product-memory",
     ".concord/navigation/domains/operator-surface.md": "product-memory",
     ".concord/navigation/domains/product-memory.md": "product-memory",
-    ".concord/navigation/domains/product-root:concord.md": "product-memory",
+    ".concord/navigation/domains/product-root--concord.md": "product-memory",
     ".concord/navigation/domains/repository-verification.md": "product-memory",
     ".concord/navigation/domains/work-coordination.md": "product-memory",
     ".concord/navigation/domains/workflow-engine.md": "product-memory",
@@ -3818,7 +3818,7 @@
     "workflows/README.md": "workflow-engine"
   },
   "mapped_count": 1861,
-  "path_set_fingerprint": "sha256:841353b952675798f73a617ebdee1f1aefcea6741830cfcc2b9a39253912a38b",
+  "path_set_fingerprint": "sha256:18b41eab3c67a43fb3d0715a2fef8c2197f1b57282d3f5029abb7677fa932329",
   "schema_version": "1.0",
   "scope": "coarse file navigation, not law homes or semantic mechanism ownership",
   "source_fingerprints": {
@@ -3829,7 +3829,7 @@
     "contracts/agent-tool-surface.v1.json": "sha256:ef7c1eda2201a6426bc73b29233d5bf2331e532540367c2823026b3d0fe5fa3b",
     "go.mod": "sha256:7c76ec3b5b4906d067a2d4245e3cc1b3e45b8668497298a210a6c33b87be72f3",
     "scripts/domain-navigation-cli/main.go": "sha256:d440f0ed930a34741a5c1e230e3f554fa9a17717d76c2dcb4ea607007239d75a",
-    "scripts/domain_navigation.py": "sha256:05122c059aaadac44d30819bee4d11b73da92db16297e2df319e8eef0ad5c2e1"
+    "scripts/domain_navigation.py": "sha256:2c7d9cdb8b2b0b26c1ed2fe32104d9cc16492c9bdcc93fc959b8afac2f20d89c"
   },
   "test_coverage": {
     "internal/store/conformance_test.go": [

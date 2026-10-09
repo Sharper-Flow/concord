@@ -119,6 +119,12 @@ class UmbrellaPropagationTests(unittest.TestCase):
         self.assertIn("JSON validation passed", out)
         self.assertEqual(err, "")
 
+    def test_navigation_drift_fails_the_existing_umbrella(self):
+        code, out, err = self._main(_FakeSubprocess(failing="generate-domain-navigation.py"))
+        self.assertEqual(code, 1)
+        self.assertIn("domain navigation drift", out)
+        self.assertIn("JSON validation failed", err)
+
 
 class ExternalSuiteOptionForwardingTests(unittest.TestCase):
     """CON-893: the umbrella forwards CI's external-suite routing verbatim.

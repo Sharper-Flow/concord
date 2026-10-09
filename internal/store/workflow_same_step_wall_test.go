@@ -12,8 +12,11 @@ import (
 
 // dispatchSameStepAttempt dispatches one worker attempt at the named step
 // through the dispatch_worker action, with the current correction context when
-// one is open, and records the lane dispatch. It returns the dispatch refusal,
-// so the wall journeys can classify it.
+// one is open, and records the lane dispatch. The retained bool carries the
+// request's FailedRetryApproved flag, the operator approval a below-limit
+// failed retry still consumes; at the convergence wall the flag admits
+// nothing. It returns the dispatch refusal, so the wall journeys can classify
+// it.
 func dispatchSameStepAttempt(t *testing.T, s *Store, workID, stepID, attemptID string, actor WorkflowActor, escalated bool, correction *WorkflowCorrectionContext) error {
 	t.Helper()
 	packet := dispatchWorkerPacket(t, s, workID, stepID, attemptID)
@@ -35,7 +38,7 @@ func dispatchSameStepAttempt(t *testing.T, s *Store, workID, stepID, attemptID s
 		SessionWorktree: dispatchSessionWorktree(t, s, workID),
 		Actor:           actor, AcceptedInputsDigest: "sha256:" + strings.Repeat("d", 64), IdempotencyIdentity: key, OperationID: key,
 		PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: key, RequestID: "request:" + key,
-		ContractDigest: testManifestDigest, Now: time.Unix(10, 0).UTC(), EscalatedRetryApproved: escalated,
+		ContractDigest: testManifestDigest, Now: time.Unix(10, 0).UTC(), FailedRetryApproved: escalated,
 	}); err != nil {
 		return err
 	}
@@ -43,10 +46,11 @@ func dispatchSameStepAttempt(t *testing.T, s *Store, workID, stepID, attemptID s
 	return nil
 }
 
-// The dispatch wall no longer depends on a recorded correction: three failed
-// attempts dispatched at the current step since the window anchor refuse the
-// fourth dispatch behind the operator approval wall, whatever route
-// re-dispatched them and whatever was recorded.
+// The dispatch wall no longer depends on a recorded correction: three
+// non-progress attempts since the last accepted productive result refuse the
+// fourth dispatch behind the convergence wall, whatever route re-dispatched
+// them and whatever was recorded. Only a store-derived basis admits the
+// retry; no operator approval opens the wall.
 func TestSameStepFailuresRefuseTheFourthDispatch(t *testing.T) {
 	const workID = "same-step-wall-fourth"
 	s, _, _, _ := seedOldDefinitionWorker(t, workID)
@@ -61,22 +65,27 @@ func TestSameStepFailuresRefuseTheFourthDispatch(t *testing.T) {
 	}
 	err := dispatchSameStepAttempt(t, s, workID, "repair", fmt.Sprintf("attempt:%s:same:4", workID), worker, false, nil)
 	var failure *Failure
-	if !errors.As(err, &failure) || failure.Kind != KindApprovalRequired {
-		t.Fatalf("fourth same-step dispatch failure=%v, want approval_required", err)
+	if !errors.As(err, &failure) || failure.Kind != KindMissingEvidence {
+		t.Fatalf("fourth same-step dispatch failure=%v, want missing_evidence", err)
 	}
-	if !strings.Contains(failure.Detail, "repair") || !strings.Contains(failure.Detail, "3 failed attempts dispatched at this step since the last accepted result or step entry") {
+	if !strings.Contains(failure.Detail, "repair") || !strings.Contains(failure.Detail, "3 non-progress attempts since the last accepted productive result") {
 		t.Fatalf("refusal does not name the counted population: %q", failure.Detail)
 	}
 }
 
-// The escalated retry approval is the one escape: the same wall that refuses
-// the fourth dispatch admits it behind the operator approval, unchanged from
-// the correction-event route.
-func TestEscalatedApprovalAdmitsTheSameStepDispatch(t *testing.T) {
-	const workID = "same-step-wall-approval"
-	s, _, _, _ := seedOldDefinitionWorker(t, workID)
+// The convergence basis is the same-step wall's one escape: the operator
+// approval flag the wall once consumed no longer admits anything, and a
+// contract supersession recorded after the latest dispatch admits exactly one
+// fresh dispatch whose completion carries the derived basis. The completed
+// attempt that is never accepted counts as neither non-progress nor a window
+// reset, and the wall re-arms behind the basis-buying dispatch, so the next
+// dispatch needs a new basis.
+func TestConvergenceBasisAdmitsTheSameStepDispatch(t *testing.T) {
+	const workID = "same-step-wall-basis"
+	s, owner, _, _ := seedOldDefinitionWorker(t, workID)
 	defer s.Close()
 	worker := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/worker", SessionRef: "session/" + workID, ActorClass: ActorAgent}
+	third := fmt.Sprintf("attempt:%s:same:3", workID)
 	for n := 1; n <= 3; n++ {
 		attemptID := fmt.Sprintf("attempt:%s:same:%d", workID, n)
 		if err := dispatchSameStepAttempt(t, s, workID, "repair", attemptID, worker, false, nil); err != nil {
@@ -84,26 +93,51 @@ func TestEscalatedApprovalAdmitsTheSameStepDispatch(t *testing.T) {
 		}
 		failWorkerAttemptWithKind(t, s, workID, attemptID, "the lane failed before a judgeable result existed")
 	}
-	if err := dispatchSameStepAttempt(t, s, workID, "repair", "attempt:"+workID+":same:4", worker, false, nil); err == nil {
-		t.Fatal("fourth same-step dispatch admitted without approval")
+	// The operator approval representation cannot bypass the missing basis.
+	if err := dispatchSameStepAttempt(t, s, workID, "repair", "attempt:"+workID+":same:4", worker, true, nil); !hasFailureKind(err, KindMissingEvidence) {
+		t.Fatalf("approved fourth same-step dispatch = %v, want the missing-basis refusal", err)
 	}
-	approved := "attempt:" + workID + ":same:5"
-	if err := dispatchSameStepAttempt(t, s, workID, "repair", approved, worker, true, nil); err != nil {
-		t.Fatalf("approved same-step dispatch: %v", err)
+	// Record the third failure so the contract-correction route the
+	// supersession basis needs is available, then change the approach.
+	applyRecordWorkerFailureForTest(t, s, workID, owner, third, latestStepStartEpoch(t, s, workID, "repair"), readWorkVersion(t, s, workID), "same-step-basis-record")
+	if err := convergenceSupersedeBasis(t, s, workID, owner); err != nil {
+		t.Fatalf("supersede the contract behind the same-step wall: %v", err)
 	}
-	var completions int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=?`, workID, WorkflowActionCompleted, approved).Scan(&completions); err != nil {
+	converged := "attempt:" + workID + ":same:4"
+	if err := dispatchSameStepAttempt(t, s, workID, "repair", converged, worker, false, issue1013Pin(t, s, workID).Correction); err != nil {
+		t.Fatalf("converging same-step dispatch: %v", err)
+	}
+	var basis string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.retry_convergence.basis') FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=?`, workID, WorkflowActionCompleted, converged).Scan(&basis); err != nil {
 		t.Fatal(err)
 	}
-	if completions != 1 {
-		t.Fatalf("approved same-step dispatch recorded %d completions for %s, want 1", completions, approved)
+	if basis != "approach_changed" {
+		t.Fatalf("converging same-step dispatch basis = %q, want approach_changed", basis)
+	}
+	// The converging attempt completes without acceptance: it is neither
+	// counted nor a reset, and its dispatch consumed the basis.
+	lane := BuiltinLaneDefinitions()[0]
+	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{{
+		EventID: "worker-completed-" + converged, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID,
+		Actor: "worker:test", OccurredAt: time.Unix(11, 0).UTC(), PayloadVersion: 1,
+		Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: converged, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion}),
+	}}}); err != nil {
+		t.Fatal(err)
+	}
+	err := dispatchSameStepAttempt(t, s, workID, "repair", "attempt:"+workID+":same:5", worker, false, nil)
+	var failure *Failure
+	if !errors.As(err, &failure) || failure.Kind != KindMissingEvidence {
+		t.Fatalf("fifth same-step dispatch failure=%v, want missing_evidence", err)
+	}
+	if !strings.Contains(failure.Detail, "3 non-progress attempts since the last accepted productive result") {
+		t.Fatalf("refusal does not name the counted population: %q", failure.Detail)
 	}
 }
 
-// An accepted result resets the same-step count (CD-0164 D2): a failure at
-// repair before the accepted delivery, the mismatch verdict, and the
-// correction request's return to repair leave the window holding only the
-// post-return failures, so exactly three of them arm the wall.
+// An accepted productive result resets the same-step count (CD-0164 D2): a
+// failure at repair before the accepted delivery, the mismatch verdict, and
+// the correction request's return to repair leave the window holding only the
+// post-return non-progress attempts, so exactly three of them arm the wall.
 func TestAcceptedResultResetsTheSameStepCount(t *testing.T) {
 	const workID = "same-step-wall-accept-reset"
 	ctx := context.Background()
@@ -175,18 +209,20 @@ func TestAcceptedResultResetsTheSameStepCount(t *testing.T) {
 	}
 	err := dispatchSameStepAttempt(t, s, workID, "repair", "attempt:"+workID+":d5", worker, false, nil)
 	var failure *Failure
-	if !errors.As(err, &failure) || failure.Kind != KindApprovalRequired {
-		t.Fatalf("post-return dispatch d5 failure=%v, want approval_required", err)
+	if !errors.As(err, &failure) || failure.Kind != KindMissingEvidence {
+		t.Fatalf("post-return dispatch d5 failure=%v, want missing_evidence", err)
 	}
-	if !strings.Contains(failure.Detail, "3 failed attempts dispatched at this step since the last accepted result or step entry") {
+	if !strings.Contains(failure.Detail, "3 non-progress attempts since the last accepted productive result") {
 		t.Fatalf("refusal counted outside the post-accept window: %q", failure.Detail)
 	}
 }
 
-// A step entry opens a fresh window: review failures from the first refine
-// pass stay outside it after the confirm_premise failure edge re-enters
-// refine, so exactly three post-entry failures arm the wall.
-func TestStepEntryResetsTheSameStepCount(t *testing.T) {
+// An accepted productive review resets the same-step window: first-pass
+// review failures from before the accepted review stay outside it after the
+// confirm_premise failure edge re-enters refine, and the step change and the
+// recorded dispositions that follow renew nothing, so exactly three
+// post-acceptance failures arm the wall.
+func TestAcceptedRefineReviewResetsTheSameStepCount(t *testing.T) {
 	const workID = "same-step-wall-step-entry"
 	fixture, acceptor := seedRefineFirstPass(t, workID)
 	s, operator := fixture.store, fixture.operator
@@ -230,19 +266,19 @@ func TestStepEntryResetsTheSameStepCount(t *testing.T) {
 	}
 	_, _, _, err = dispatchRefineAttemptOnly(t, fixture, workID, "u4", nil)
 	var failure *Failure
-	if !errors.As(err, &failure) || failure.Kind != KindApprovalRequired {
-		t.Fatalf("fourth post-entry dispatch failure=%v, want approval_required", err)
+	if !errors.As(err, &failure) || failure.Kind != KindMissingEvidence {
+		t.Fatalf("fourth post-entry dispatch failure=%v, want missing_evidence", err)
 	}
-	if !strings.Contains(failure.Detail, "3 failed attempts dispatched at this step since the last accepted result or step entry") {
+	if !strings.Contains(failure.Detail, "3 non-progress attempts since the last accepted productive result (step refine)") {
 		t.Fatalf("refusal does not name the counted population: %q", failure.Detail)
 	}
 }
 
 // The correction-event path keeps its CD-0164 population and comparators: the
 // recorded failure loop still counts every dispatch since the last accepted
-// result, escalates at the limit on the >= comparator, and the fourth
-// dispatch refuses with the correction wall's own message, not the same-step
-// wall's.
+// productive result, escalates at the limit on the >= comparator, and the
+// fourth dispatch refuses with the convergence wall's own refusal — a missing
+// store-derived basis — not an operator approval challenge.
 func TestCorrectionComparatorsKeepTheirPopulations(t *testing.T) {
 	const workID = "same-step-wall-correction-unchanged"
 	s, owner, attemptID, _ := seedOldDefinitionWorker(t, workID)
@@ -282,23 +318,25 @@ func TestCorrectionComparatorsKeepTheirPopulations(t *testing.T) {
 		ContractDigest: testManifestDigest, Now: time.Unix(30, 0).UTC(),
 	})
 	var failure *Failure
-	if !errors.As(dispatchErr, &failure) || failure.Kind != KindApprovalRequired {
-		t.Fatalf("fourth correction dispatch failure=%v, want approval_required", dispatchErr)
+	if !errors.As(dispatchErr, &failure) || failure.Kind != KindMissingEvidence {
+		t.Fatalf("fourth correction dispatch failure=%v, want missing_evidence", dispatchErr)
 	}
-	if failure.Detail != "worker correction reached the three-attempt limit" {
-		t.Fatalf("correction wall detail = %q, want the unchanged CD-0164 refusal", failure.Detail)
+	if failure.Detail != "worker correction reached the three-attempt limit without a convergence basis: 3 non-progress attempts since the last accepted productive result (step repair)" {
+		t.Fatalf("correction wall detail = %q, want the convergence refusal", failure.Detail)
 	}
 }
 
-// The CON-729 journey: the escalated retry approval arms at three failed
-// attempts, the approved retry dispatch folds, and the session dies before the
-// host dispatches the worker. The half-materialized dispatch must leave the
-// correction record live, so the retry binding keeps naming the failed attempt
-// identity and epoch, the unapproved re-dispatch still refuses at the wall, and
-// the approved re-dispatch passes it exactly as the refusal message promises.
-func TestHalfMaterializedDispatchKeepsTheWallOperatorApprovable(t *testing.T) {
+// The CON-729 journey behind the convergence wall: the operator approval
+// flag the wall once consumed no longer admits anything, the retry approval
+// binding the boundary once minted no longer exists, and a contract
+// supersession recorded after the latest dispatch derives the one basis that
+// admits the retry. The session then dies before the host dispatches the
+// worker — no worker.dispatched event, no worker_attempts dispatch evidence —
+// and the half-materialized dispatch still consumes the basis, so the next
+// dispatch faces the wall again with no approval escape.
+func TestHalfMaterializedDispatchConsumesTheConvergenceBasis(t *testing.T) {
 	const workID = "same-step-wall-half-dispatch"
-	s, _, pin := seedIssue1013EscalatedCorrection(t, workID)
+	s, owner, pin := seedIssue1013EscalatedCorrection(t, workID)
 	defer s.Close()
 	worker := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/worker", SessionRef: "session/" + workID, ActorClass: ActorAgent}
 	failedID := "attempt:" + workID + ":3"
@@ -306,57 +344,50 @@ func TestHalfMaterializedDispatchKeepsTheWallOperatorApprovable(t *testing.T) {
 		t.Fatalf("escalated correction = %#v, want the failed attempt %s", pin.Correction, failedID)
 	}
 
-	// The approved retry folds, then the interruption: no worker.dispatched
-	// event, no worker_attempts row.
+	// The operator approval representation cannot bypass the missing basis,
+	// and the wall mints no retry approval binding.
 	interrupted := "attempt:" + workID + ":4"
 	payload := issue1013CorrectionDispatchPayload(t, s, workID, "repair", interrupted, pin.Correction)
 	if _, err := invokeWorkflowActionForCD0059(context.Background(), t, s, WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: pin.Version, ActionID: "dispatch_worker", Payload: payload, SessionWorktree: dispatchSessionWorktree(t, s, workID),
 		Actor: worker, AcceptedInputsDigest: "sha256:" + strings.Repeat("c", 64), IdempotencyIdentity: "half-dispatch-approved-" + workID, OperationID: "half-dispatch-approved-" + workID,
 		PrincipalRef: worker.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "half-dispatch-approved-" + workID, RequestID: "request:half-dispatch-approved-" + workID,
-		ContractDigest: testManifestDigest, Now: time.Unix(40, 0).UTC(), EscalatedRetryApproved: true,
+		ContractDigest: testManifestDigest, Now: time.Unix(40, 0).UTC(), FailedRetryApproved: true,
+	}); !hasFailureKind(err, KindMissingEvidence) {
+		t.Fatalf("approved interrupted retry = %v, want the missing-basis refusal", err)
+	}
+	if binding, bindingErr := WorkflowFailedWorkerRetryBinding(context.Background(), s, nil, workID); bindingErr != nil || binding != nil {
+		t.Fatalf("retry binding at the wall = %+v, %v, want none", binding, bindingErr)
+	}
+
+	// The supersession basis admits the retry, and the session dies before
+	// the host dispatches the worker.
+	if err := convergenceSupersedeBasis(t, s, workID, owner); err != nil {
+		t.Fatalf("supersede the contract behind the escalation wall: %v", err)
+	}
+	pin = issue1013Pin(t, s, workID)
+	payload = issue1013CorrectionDispatchPayload(t, s, workID, "repair", interrupted, pin.Correction)
+	if _, err := invokeWorkflowActionForCD0059(context.Background(), t, s, WorkflowActionExecutionRequest{
+		WorkID: workID, ExpectedVersion: pin.Version, ActionID: "dispatch_worker", Payload: payload, SessionWorktree: dispatchSessionWorktree(t, s, workID),
+		Actor: worker, AcceptedInputsDigest: "sha256:" + strings.Repeat("d", 64), IdempotencyIdentity: "half-dispatch-converging-" + workID, OperationID: "half-dispatch-converging-" + workID,
+		PrincipalRef: worker.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "half-dispatch-converging-" + workID, RequestID: "request:half-dispatch-converging-" + workID,
+		ContractDigest: testManifestDigest, Now: time.Unix(41, 0).UTC(),
 	}); err != nil {
-		t.Fatalf("approved interrupted retry: %v", err)
+		t.Fatalf("converging interrupted retry: %v", err)
 	}
 
-	binding, err := WorkflowFailedWorkerRetryBinding(context.Background(), s, nil, workID)
-	if err != nil {
-		t.Fatalf("read retry binding after the interruption: %v", err)
-	}
-	if binding == nil || binding.FailedAttemptID != failedID || binding.FailedAttemptEpoch != 5 {
-		t.Fatalf("retry binding after the interruption = %+v, want the failed attempt identity and epoch", binding)
-	}
-
-	// The wall keeps refusing the re-dispatch without the operator approval.
+	// The interrupted dispatch consumed the basis, so the wall re-arms with
+	// no approval escape for the next retry.
 	retry := "attempt:" + workID + ":5"
 	payload = issue1013CorrectionDispatchPayload(t, s, workID, "repair", retry, pin.Correction)
 	_, dispatchErr := invokeWorkflowActionForCD0059(context.Background(), t, s, WorkflowActionExecutionRequest{
 		WorkID: workID, ExpectedVersion: readWorkVersion(t, s, workID), ActionID: "dispatch_worker", Payload: payload, SessionWorktree: dispatchSessionWorktree(t, s, workID),
 		Actor: worker, AcceptedInputsDigest: "sha256:" + strings.Repeat("b", 64), IdempotencyIdentity: "half-dispatch-retry-" + workID, OperationID: "half-dispatch-retry-" + workID,
 		PrincipalRef: worker.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "half-dispatch-retry-" + workID, RequestID: "request:half-dispatch-retry-" + workID,
-		ContractDigest: testManifestDigest, Now: time.Unix(41, 0).UTC(),
+		ContractDigest: testManifestDigest, Now: time.Unix(42, 0).UTC(), FailedRetryApproved: true,
 	})
 	var refusal *Failure
-	if !errors.As(dispatchErr, &refusal) || refusal.Kind != KindApprovalRequired {
-		t.Fatalf("unapproved re-dispatch failure=%v, want approval_required", dispatchErr)
-	}
-
-	// The approved re-dispatch passes the wall, and its materialization
-	// consumes the record.
-	if _, err := invokeWorkflowActionForCD0059(context.Background(), t, s, WorkflowActionExecutionRequest{
-		WorkID: workID, ExpectedVersion: readWorkVersion(t, s, workID), ActionID: "dispatch_worker", Payload: payload, SessionWorktree: dispatchSessionWorktree(t, s, workID),
-		Actor: worker, AcceptedInputsDigest: "sha256:" + strings.Repeat("a", 64), IdempotencyIdentity: "half-dispatch-retry-approved-" + workID, OperationID: "half-dispatch-retry-approved-" + workID,
-		PrincipalRef: worker.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "half-dispatch-retry-approved-" + workID, RequestID: "request:half-dispatch-retry-approved-" + workID,
-		ContractDigest: testManifestDigest, Now: time.Unix(42, 0).UTC(), EscalatedRetryApproved: true,
-	}); err != nil {
-		t.Fatalf("approved re-dispatch after the interruption: %v", err)
-	}
-	issue1013RecordWorkerDispatch(t, s, workID, retry)
-	binding, err = WorkflowFailedWorkerRetryBinding(context.Background(), s, nil, workID)
-	if err != nil {
-		t.Fatalf("read retry binding after the materialized re-dispatch: %v", err)
-	}
-	if binding != nil {
-		t.Fatalf("retry binding after the materialized re-dispatch = %+v, want the consumed record", binding)
+	if !errors.As(dispatchErr, &refusal) || refusal.Kind != KindMissingEvidence {
+		t.Fatalf("re-dispatch after the interrupted retry failure=%v, want missing_evidence", dispatchErr)
 	}
 }

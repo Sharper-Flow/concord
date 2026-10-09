@@ -116,6 +116,15 @@ def main(argv: list[str] | None = None) -> int:
         if checked.returncode:
             findings.append(f"domain registry drift: {checked.stdout.strip() or checked.stderr.strip()}")
 
+    if (ROOT / ".concord/domain-navigation.v1.json").is_file():
+        navigation_generator = ROOT / "scripts/generate-domain-navigation.py"
+        if not navigation_generator.is_file():
+            findings.append("domain navigation generator is missing: scripts/generate-domain-navigation.py")
+        else:
+            checked = subprocess.run([sys.executable, str(navigation_generator), "--check"], cwd=ROOT, capture_output=True, text=True)
+            if checked.returncode:
+                findings.append(f"domain navigation drift: {checked.stdout.strip() or checked.stderr.strip()}")
+
     floor_checker = ROOT / "scripts/check-floor-readiness.py"
     if floor_checker.is_file():
         checked = subprocess.run([sys.executable, str(floor_checker)], cwd=ROOT, capture_output=True, text=True)

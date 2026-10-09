@@ -87,3 +87,17 @@ func TestKnowledgeSearchInputAdmitsReferenceAndConstitution(t *testing.T) {
 		t.Fatalf("reference and constitution refused by the search input: %v", err)
 	}
 }
+
+// CD-0020 D2 excludes a time-window filter from Q9: law lookup has no time
+// job. The closed search input refuses since and until as unknown fields.
+func TestKnowledgeSearchInputRefusesTimeWindow(t *testing.T) {
+	t.Parallel()
+	for _, payload := range []string{
+		`{"product_id":"concord","since":"2026-01-01T00:00:00Z","page":{"cursor":null,"limit":5}}`,
+		`{"product_id":"concord","until":"2026-01-01T00:00:00Z","page":{"cursor":null,"limit":5}}`,
+	} {
+		if err := ValidateOperationPayload("concord_knowledge", "search", []byte(payload), false); err == nil {
+			t.Errorf("search input accepted a time window: %s", payload)
+		}
+	}
+}

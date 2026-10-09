@@ -358,6 +358,10 @@ func recordWorkerJobRevisionForTest(t *testing.T, s *Store, workID string, actor
 		"ready":                true, "readiness_evidence": []string{"evidence:coordinator-ready"},
 	}
 	if oracleCapablePinForWork(t, s, workID) {
+		// The oracle-bearing revision seeds trusted preparations against the
+		// work's qualified subject; the bootstrap is idempotent and leaves an
+		// already-qualified subject untouched.
+		bootstrapOracleFixtureSubject(t, s, workID)
 		fields["acceptance_oracle"] = acceptanceOracleFieldsForTest(t, s, workID)
 	}
 	if err := recordWorkerJobActionForTest(t, s, workID, actor, fields); err != nil {

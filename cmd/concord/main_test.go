@@ -771,6 +771,22 @@ func TestOutsideRepairHelpDeclaresJSONAndSeparateTTY(t *testing.T) {
 	}
 }
 
+func TestInvokeHelpDeclaresNativeOracleOnExistingRoutes(t *testing.T) {
+	var out, errOut bytes.Buffer
+	in := &countingStdin{}
+	if code := runWithInput([]string{"invoke", "--help"}, in, &out, &errOut); code != 0 {
+		t.Fatalf("help: %d %s", code, errOut.String())
+	}
+	for _, text := range []string{"concord_work_transition.worktree_verify", "concord_work_browse.worktree_inspect", "command OR oracle", "phase prepare | execute", "oracle_output", "1-16384 raw bytes", "never path or idempotency_key"} {
+		if !strings.Contains(out.String(), text) {
+			t.Errorf("invoke help omits %q", text)
+		}
+	}
+	if in.reads != 0 {
+		t.Fatal("invoke help consumed JSON input")
+	}
+}
+
 func TestProductStageUpdateCLIRecordsPromotion(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "concord.db")
 	seedCLIProduct(t, dbPath, "stage-update-product", "stage-update-project")

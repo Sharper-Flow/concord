@@ -393,6 +393,7 @@ func TestWorkContextNavigationSharedConsumersAndWorktreeBase(t *testing.T) {
 	if _, err := db.Exec(`DELETE FROM fold_guard`); err != nil {
 		t.Fatal(err)
 	}
+	job := seedReadyWorkerJob(t, f)
 	ctx := workContextNavigationPreparedContext(t, f)
 	view, err := readWorkContextView(ctx, db, f.workID)
 	if err != nil {
@@ -415,7 +416,7 @@ func TestWorkContextNavigationSharedConsumersAndWorktreeBase(t *testing.T) {
 	if string(mustJSONValue(pin.WorkContext)) != string(mustJSONValue(view)) || string(mustJSONValue(continuity.WorkContext)) != string(mustJSONValue(view)) {
 		t.Fatal("shared consumers changed the derived navigation view")
 	}
-	packet := workContextDispatchPacket(t, f, "navigation-attempt", view)
+	packet := workContextDispatchPacket(t, f, "navigation-attempt", job, view)
 	if err := dispatchWorkContextAttempt(t, f, packet); err != nil {
 		t.Fatal(err)
 	}

@@ -729,6 +729,7 @@ type WorkerDispatchWindow struct {
 	AttemptEpoch     int64
 	StartSeq         int64
 	PacketDigest     string
+	SubjectCommit    string
 	WorktreeIdentity string
 }
 
@@ -748,7 +749,7 @@ func FindAuthorizedDispatchWindowTx(ctx context.Context, tx *sql.Tx, workID, att
 	var window WorkerDispatchWindow
 	window.WorkID = workID
 	window.AttemptID = attemptID
-	if err := tx.QueryRowContext(ctx, `SELECT seq,json_extract(payload,'$.step_id'),COALESCE(json_extract(payload,'$.attempt_epoch'),0),COALESCE(json_extract(payload,'$.worker_packet_digest'),''),COALESCE(json_extract(payload,'$.worker_worktree_identity'),'') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')=? AND json_extract(payload,'$.worker_attempt_id')=? ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkflowActionCompleted, "dispatch_worker", attemptID).Scan(&window.StartSeq, &window.StepID, &window.AttemptEpoch, &window.PacketDigest, &window.WorktreeIdentity); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT seq,json_extract(payload,'$.step_id'),COALESCE(json_extract(payload,'$.attempt_epoch'),0),COALESCE(json_extract(payload,'$.worker_packet_digest'),''),COALESCE(json_extract(payload,'$.worker_worktree_identity'),''),COALESCE(json_extract(payload,'$.worker_subject_commit'),'') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')=? AND json_extract(payload,'$.worker_attempt_id')=? ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkflowActionCompleted, "dispatch_worker", attemptID).Scan(&window.StartSeq, &window.StepID, &window.AttemptEpoch, &window.PacketDigest, &window.WorktreeIdentity, &window.SubjectCommit); err != nil {
 		if err == sql.ErrNoRows {
 			return window, newFailure(KindUnauthorizedDispatch, "worker_dispatch_window", "no authorized dispatch window exists for this work item bound to this attempt", false, "open a dispatch_worker authorization for this attempt before recording worker evidence")
 		}
@@ -761,6 +762,9 @@ func FindAuthorizedDispatchWindowTx(ctx context.Context, tx *sql.Tx, workID, att
 			return window, newFailure(KindInvariantViolation, "worker_dispatch_window", "dispatch_worker completed without a starting authorization event", false, "reopen the workflow action against a fresh step epoch")
 		}
 		return window, wrapFailure(KindUnavailable, "worker_dispatch_window", "cannot read the dispatch authorization start", true, "retry once the database is readable", err)
+	}
+	if window.SubjectCommit != "" && !worktreeSHAPattern.MatchString(window.SubjectCommit) {
+		return window, newFailure(KindInvalidPayload, "worker_dispatch_window", "worker_subject_commit must be one raw commit OID", false, "reconcile the recorded authorization")
 	}
 	return window, nil
 }

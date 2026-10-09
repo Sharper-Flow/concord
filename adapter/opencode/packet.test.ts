@@ -1310,7 +1310,7 @@ test("the legacy packet schema forbids job fields while the current identity bin
 // The builder rides the recorded revision verbatim, so the oracle rides with
 // it byte-for-byte inside inputs.worker_job — the same copy every admitted
 // lane receives — and the closed packet schema owns the oracle bounds.
-const ORACLE_RECIPE_SOURCE = { kind: "repository_file", project_id: "project-1", path: "internal/store/worker_oracle_harness_test.go", commit_oid: `a1${"0".repeat(38)}` }
+const ORACLE_RECIPE_SOURCE = { kind: "repository_file" as const, project_id: "project-1", path: "internal/store/worker_oracle_harness_test.go", commit_oid: `a1${"0".repeat(38)}` }
 const ORACLE = {
   owners: [{
     owner_id: "owner:acceptance-graph",
@@ -1318,7 +1318,7 @@ const ORACLE = {
     mechanism: { project_id: "project-1", path: "internal/store/worker_jobs.go", entry_point: "DeriveWorkerJobDigest" },
     obligation: "The job digest covers every recorded content field, the oracle included.",
     predicate_ids: ["predicate:primary"],
-    law_bindings: [{ source: { kind: "knowledge", source_id: "records", law_id: "CD-0205", content_hash: `sha256:${"b".repeat(64)}` }, clause: "D1 lines 39-53" }],
+    law_bindings: [{ source: { kind: "knowledge" as const, source_id: "records", law_id: "CD-0205", content_hash: `sha256:${"b".repeat(64)}` }, clause: "D1 lines 39-53" }],
   }],
   cases: [{
     case_id: "case:digest-covers-oracle",
@@ -1336,8 +1336,8 @@ const ORACLE = {
     recipe_source: ORACLE_RECIPE_SOURCE,
     argv: ["go", "test", "./internal/store", "-run", "TestOwnerOracleGraph"],
     cwd: ".",
-    expected_result: "pass",
-    required_evidence_role: "reported",
+    expected_result: "pass" as const,
+    required_evidence_role: "reported" as const,
     readiness_evidence_refs: ["run:harness-selftest"],
   }],
 }

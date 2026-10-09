@@ -283,6 +283,43 @@ export interface AgentLanePacketWorkContextFindingView {
   ordinal: number
 }
 
+export interface NativeOracleStream {
+  stream: "stdout" | "stderr"
+  length: number
+  sha256: string
+  complete: boolean
+  ref: string
+}
+
+// The store selects these immutable records by the job's preparation refs.
+// This type carries metadata only, never the retained stdout/stderr bytes.
+export interface NativeOraclePreparation {
+  protocol: "native_oracle_v2"
+  phase: "prepare"
+  qualification: "ready" | "unavailable"
+  run_ref: string
+  work_id: string
+  project_id: string
+  contract_version: number
+  subject_commit: string
+  bundle_digest: string
+  logical_argv_digest: string
+  logical_cwd: string
+  recipe_source: AgentLanePacketWorkContextReadingSource
+  manifest_blob: string
+  manifest_digest: string
+  files: { path: string; blob_oid: string; sha256: string }[]
+  toolchain_identity: string
+  build_environment_digest: string
+  selected_test_names: string[]
+  case_to_test_map: Record<string, string[]>
+  selected_distinct_count: number
+  native_plan_sha256: string
+  stdout: NativeOracleStream
+  stderr: NativeOracleStream
+  streams_complete: boolean
+}
+
 export interface AgentLanePacketWorkContext {
   source_event_frontier: number
   required_reading: AgentLanePacketWorkContextReading[]
@@ -298,10 +335,12 @@ export interface AgentLanePacketWorkContext {
       commit_oid: string
     })[]
   }[]
-  // The core-qualified verify receipt supplies the candidate subject. The
+  // The core-qualified verify receipt supplies the raw subject OID. The
   // readiness check compares it with the clean HEAD before authorization;
   // worker reports and harness pins cannot supply a substitute.
-  candidate_subject?: string
+  subject_commit?: string
+  oracle_preparations?: NativeOraclePreparation[]
+  oracle_receipts?: AgentLaneReportOracleReceipt[]
 }
 
 // AgentLanePacketCheckpoint mirrors inputs.checkpoint of
@@ -402,12 +441,12 @@ export interface AgentLaneReportResolvedFinding {
 
 // AgentLaneReportOracleReceipt is one typed control-execution receipt
 // (CON-890): reported evidence, never native-run authority. The adapter
-// strips any worker-echoed candidate_subject and injects the observed
+// strips any worker-echoed subject_commit and injects the observed raw OID
 // subject from the dispatch packet before the canonical report forms.
 export interface AgentLaneReportOracleReceipt {
   control_ids: string[]
   case_ids: string[]
-  candidate_subject?: string
+  subject_commit?: string
   recipe_source: AgentLanePacketWorkContextReadingSource
   result: "pass" | "fail" | "unavailable" | "not_run"
   exit_code?: number
@@ -811,11 +850,20 @@ function validateSchema(schema: any, value: unknown, root: any, path = "", failu
   }
   if (isRecord(value)) {
     const properties = schema.properties ?? {}
+    const patterns = Object.entries(schema.patternProperties ?? {}).map(([pattern, child]) => ({ pattern: new RegExp(pattern), child }))
+    const count = Object.keys(value).length
+    if (schema.minProperties !== undefined && count < schema.minProperties) return fail(`carries ${count} properties against a minimum of ${schema.minProperties}`)
+    if (schema.maxProperties !== undefined && count > schema.maxProperties) return fail(`carries ${count} properties against a limit of ${schema.maxProperties}`)
     const missing = (schema.required ?? []).filter((key: string) => !Object.hasOwn(value, key))
     if (missing.length > 0) return fail(`is missing required propert${missing.length === 1 ? "y" : "ies"} ${missing.join(", ")}`)
     for (const [key, child] of Object.entries(properties)) if (Object.hasOwn(value, key) && !validateSchema(child, value[key], root, path ? `${path}.${key}` : key, failures)) return false
+    for (const { pattern, child } of patterns) {
+      for (const [key, entry] of Object.entries(value)) {
+        if (pattern.test(key) && !validateSchema(child, entry, root, path ? `${path}.${key}` : key, failures)) return false
+      }
+    }
     if (schema.additionalProperties === false) {
-      const extra = Object.keys(value).filter((key) => !Object.hasOwn(properties, key))
+      const extra = Object.keys(value).filter((key) => !Object.hasOwn(properties, key) && !patterns.some(({ pattern }) => pattern.test(key)))
       if (extra.length > 0) return fail(`carries undeclared propert${extra.length === 1 ? "y" : "ies"} ${extra.join(", ")}`)
     }
   }
@@ -1214,30 +1262,25 @@ export function resolvedFindingsAggregateRefusal(review: unknown, maxArrayBytes:
   return `worker report failed the closed agent-lane-report.v1 schema: review.resolved_findings: serialize to ${bytes} UTF-8 bytes against a limit of ${maxArrayBytes}; the claims are refused, never truncated`
 }
 
-// rebindOracleReceiptSubjects composes the dispatch-owned candidate-subject
+// rebindOracleReceiptSubjects composes the dispatch-owned subject-commit
 // identity of every oracle receipt (CON-890). A worker-echoed
-// candidate_subject is stripped exactly like the other dispatch-owned report
+// subject_commit is stripped exactly like the other dispatch-owned report
 // fields: the model never authors subject identity. The observed subject is
 // injected from the packet's work context when the core supplied one; absent
 // it, the receipt rides without a candidate subject rather than inventing
 // one, and the store's reference/subject joins stay the authority.
 function rebindOracleReceiptSubjects(report: Record<string, unknown>, packet: AgentLanePacket): Record<string, unknown> {
-  const observed = packet.inputs?.work_context?.candidate_subject
-  const observedSubject = typeof observed === "string" && observed.length > 0 ? observed : undefined
+  const observed = packet.inputs?.work_context?.subject_commit
+  const observedSubject = typeof observed === "string" && /^[0-9a-f]{40}([0-9a-f]{24})?$/.test(observed) ? observed : undefined
   if (!Array.isArray(report.evidence)) return report
   let changed = false
   const evidence = report.evidence.map((entry) => {
     if (!isRecord(entry) || !isRecord(entry.oracle_receipt)) return entry
     const receipt = entry.oracle_receipt as Record<string, unknown>
-    if (typeof receipt.candidate_subject === "string" && receipt.candidate_subject.length > 0 && receipt.candidate_subject !== observedSubject) {
-      changed = true
-      return { ...entry, oracle_receipt: observedSubject === undefined ? omitMember(receipt, "candidate_subject") : { ...receipt, candidate_subject: observedSubject } }
-    }
-    if (observedSubject !== undefined && receipt.candidate_subject === undefined) {
-      changed = true
-      return { ...entry, oracle_receipt: { ...receipt, candidate_subject: observedSubject } }
-    }
-    return entry
+    const rebound = omitMember(receipt, "subject_commit")
+    if (observedSubject !== undefined) rebound.subject_commit = observedSubject
+    changed = true
+    return { ...entry, oracle_receipt: rebound }
   })
   return changed ? { ...report, evidence } : report
 }

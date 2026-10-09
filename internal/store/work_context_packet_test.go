@@ -21,11 +21,11 @@ import (
 // dispatches only a selected ready worker-job revision, so the packet binds
 // the recorded revision, and the work context is the reader's current view,
 // which is the exact object the work pin carries.
-func workContextDispatchPacket(t *testing.T, f workContextFixture, attemptID string, view any) map[string]any {
+// The caller records job with seedReadyWorkerJob before it reads view: the
+// recording advances the work version the binding carries, and a ready
+// oracle job adds its preparations to the current work context view.
+func workContextDispatchPacket(t *testing.T, f workContextFixture, attemptID string, job WorkerJobBinding, view any) map[string]any {
 	t.Helper()
-	// Record the job revision before reading the packet inputs: the
-	// recording advances the work version the binding must carry.
-	job := seedReadyWorkerJob(t, f)
 	laneVersion, laneDigest := implementLaneIdentity()
 	task, binding := recordedPacketInputs(t, f.store, f.workID, "implement")
 	inputs := map[string]any{
@@ -59,6 +59,79 @@ func seedReadyWorkerJob(t *testing.T, f workContextFixture) WorkerJobBinding {
 	job := WorkerJobBinding{JobID: "ctx-packet-job-" + f.workID, Revision: 1}
 	recordWorkerJobRevisionForTest(t, f.store, f.workID, f.owner, &job)
 	return job
+}
+
+// TestNativeOracleDispatchRecordsAdmittedSubjectOnce proves the live
+// dispatch_worker path records the admitted core subject exactly once: the
+// completion carries the subject the admitted work-context view pinned and
+// the digest of the exact packet that carried it, the authorized dispatch
+// window exposes both values unchanged, and a tampered candidate view
+// refuses typed, with no completion and no start.
+func TestNativeOracleDispatchRecordsAdmittedSubjectOnce(t *testing.T) {
+	fixture := seedWorkContextFixture(t, "ctx-dispatch-subject-once")
+	defer fixture.store.Close()
+	s := fixture.store
+	bootstrapOracleFixtureSubject(t, s, fixture.workID)
+	job := seedReadyWorkerJob(t, fixture)
+	view, err := readWorkContextView(context.Background(), s.DatabaseForTesting(), fixture.workID)
+	if err != nil || view == nil || view.SubjectCommit == "" {
+		t.Fatalf("admitted work context = %+v, error = %v, want a qualified subject", view, err)
+	}
+	attemptID := "attempt-ctx-subject-once"
+	packet := workContextDispatchPacket(t, fixture, attemptID, job, view)
+	if err := dispatchWorkContextAttempt(t, fixture, packet); err != nil {
+		t.Fatalf("live dispatch refused: %v", err)
+	}
+	packetBytes, err := json.Marshal(packet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	canonical, err := canonicalJSON(packetBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantDigest := nativeDigest(canonical)
+	completionsWithSubject := func() int {
+		t.Helper()
+		var count int
+		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_subject_commit') IS NOT NULL`, fixture.workID, WorkflowActionCompleted).Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		return count
+	}
+	if got := completionsWithSubject(); got != 1 {
+		t.Fatalf("dispatch completions recording an admitted subject = %d, want exactly one", got)
+	}
+	var recordedSubject, recordedDigest string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.worker_subject_commit'), json_extract(payload,'$.worker_packet_digest') FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_subject_commit') IS NOT NULL`, fixture.workID, WorkflowActionCompleted).Scan(&recordedSubject, &recordedDigest); err != nil {
+		t.Fatal(err)
+	}
+	if recordedSubject != view.SubjectCommit || recordedDigest != wantDigest {
+		t.Fatalf("recorded subject=%s digest=%s, want the admitted subject=%s with the packet digest=%s", recordedSubject, recordedDigest, view.SubjectCommit, wantDigest)
+	}
+	var window WorkerDispatchWindow
+	if err := s.Transact(context.Background(), func(tx *Transaction) error {
+		var windowErr error
+		window, windowErr = FindAuthorizedDispatchWindowTx(context.Background(), tx.tx, fixture.workID, attemptID)
+		return windowErr
+	}); err != nil {
+		t.Fatalf("authorized dispatch window read refused: %v", err)
+	}
+	if window.SubjectCommit != view.SubjectCommit || window.PacketDigest != wantDigest {
+		t.Fatalf("dispatch window subject=%s digest=%s, want subject=%s digest=%s", window.SubjectCommit, window.PacketDigest, view.SubjectCommit, wantDigest)
+	}
+	tampered := *view
+	tampered.SubjectCommit = strings.Repeat("b", 40)
+	tamperedPacket := workContextDispatchPacket(t, fixture, "attempt-ctx-subject-tampered", job, &tampered)
+	if err := dispatchWorkContextAttempt(t, fixture, tamperedPacket); err == nil || !strings.Contains(err.Error(), "does not consume the current work context") {
+		t.Fatalf("tampered candidate view error = %v, want the typed consumption refusal", err)
+	}
+	if got := completionsWithSubject(); got != 1 {
+		t.Fatalf("dispatch completions after the tampered attempt = %d, want still the one admitted subject", got)
+	}
+	if got := dispatchStartedCount(t, s, fixture.workID); got != 1 {
+		t.Fatalf("dispatch_worker starts = %d, want only the admitted attempt's start", got)
+	}
 }
 
 // dispatchWorkContextAttempt dispatches one implement-lane attempt on the
@@ -149,11 +222,12 @@ func TestDispatchAdmitsPacketConsumingCurrentWorkContext(t *testing.T) {
 	fixture := seedWorkContextFixture(t, "ctx-dispatch-admit")
 	defer fixture.store.Close()
 	declareSampleWorkContext(t, fixture, "the unbounded log scan was rejected")
+	job := seedReadyWorkerJob(t, fixture)
 	view, err := readWorkContextView(context.Background(), fixture.store.DatabaseForTesting(), fixture.workID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := dispatchWorkContextAttempt(t, fixture, workContextDispatchPacket(t, fixture, "attempt-ctx-admit", view)); err != nil {
+	if err := dispatchWorkContextAttempt(t, fixture, workContextDispatchPacket(t, fixture, "attempt-ctx-admit", job, view)); err != nil {
 		t.Fatalf("dispatch refused a packet consuming the current work context: %v", err)
 	}
 	if got := dispatchStartedCount(t, fixture.store, fixture.workID); got != 1 {
@@ -170,11 +244,12 @@ func TestDispatchRefusesStaleWorkContextPacket(t *testing.T) {
 	fixture := seedWorkContextFixture(t, "ctx-dispatch-stale")
 	defer fixture.store.Close()
 	declareSampleWorkContext(t, fixture, "the first declaration stands")
+	job := seedReadyWorkerJob(t, fixture)
 	view, err := readWorkContextView(context.Background(), fixture.store.DatabaseForTesting(), fixture.workID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	packet := workContextDispatchPacket(t, fixture, "attempt-ctx-stale", view)
+	packet := workContextDispatchPacket(t, fixture, "attempt-ctx-stale", job, view)
 	lane := BuiltinLaneDefinitions()[0]
 	if err := ApplyOperation(context.Background(), fixture.store, Operation{Events: []Event{workerDispatchEvent(fixture.workID, "attempt-ctx-stale-report", lane, nil)}}); err != nil {
 		t.Fatal(err)
@@ -199,6 +274,7 @@ func TestDispatchRefusesTamperedWorkContextPacket(t *testing.T) {
 	fixture := seedWorkContextFixture(t, "ctx-dispatch-tampered")
 	defer fixture.store.Close()
 	declareSampleWorkContext(t, fixture, "the unbounded log scan was rejected")
+	job := seedReadyWorkerJob(t, fixture)
 	view, err := readWorkContextView(context.Background(), fixture.store.DatabaseForTesting(), fixture.workID)
 	if err != nil {
 		t.Fatal(err)
@@ -206,24 +282,35 @@ func TestDispatchRefusesTamperedWorkContextPacket(t *testing.T) {
 	tampered := *view
 	tampered.Findings = append([]WorkContextFindingView(nil), view.Findings...)
 	tampered.Findings[0].Statement = "the tampered statement the core never recorded"
-	err = dispatchWorkContextAttempt(t, fixture, workContextDispatchPacket(t, fixture, "attempt-ctx-tampered", &tampered))
+	err = dispatchWorkContextAttempt(t, fixture, workContextDispatchPacket(t, fixture, "attempt-ctx-tampered", job, &tampered))
 	if !hasFailureKind(err, KindInvalidPayload) || !strings.Contains(err.Error(), "worker packet does not consume the current work context") {
 		t.Fatalf("tampered packet error = %v, want %s refusing the tampered work context", err, KindInvalidPayload)
 	}
 }
 
-// A packet may not carry a work context the work item does not hold.
+// A packet may not carry a work context the work item does not hold. On the
+// oracle-capable break-fix pin the ready job that dispatch requires derives
+// its native preparations into the current view, so dispatch always meets a
+// current view; the refusal is asserted on the admission before any job
+// exists, where the work item holds no view.
 func TestDispatchRefusesWorkContextWithoutCurrentView(t *testing.T) {
 	t.Parallel()
 	fixture := seedWorkContextFixture(t, "ctx-dispatch-without-view")
 	defer fixture.store.Close()
-	fabricated := map[string]any{
+	db := fixture.store.DatabaseForTesting()
+	if view, err := readWorkContextView(context.Background(), db, fixture.workID); err != nil || view != nil {
+		t.Fatalf("fixture holds a current view before any declaration or job: %+v %v", view, err)
+	}
+	packet, err := json.Marshal(map[string]any{"inputs": map[string]any{"work_context": map[string]any{
 		"source_event_frontier": 1,
 		"required_reading":      []any{},
 		"findings":              []any{},
 		"domain_groups":         []any{},
+	}}})
+	if err != nil {
+		t.Fatal(err)
 	}
-	err := dispatchWorkContextAttempt(t, fixture, workContextDispatchPacket(t, fixture, "attempt-ctx-without-view", fabricated))
+	err = validateWorkerPacketWorkContext(context.Background(), db, fixture.workID, packet)
 	if !hasFailureKind(err, KindInvalidPayload) || !strings.Contains(err.Error(), "worker packet carries work context without a current work context") {
 		t.Fatalf("fabricated context error = %v, want %s refusing the work context without a current view", err, KindInvalidPayload)
 	}
@@ -235,7 +322,7 @@ func TestDispatchRefusesPacketMissingWorkContext(t *testing.T) {
 	fixture := seedWorkContextFixture(t, "ctx-dispatch-missing")
 	defer fixture.store.Close()
 	declareSampleWorkContext(t, fixture, "the unbounded log scan was rejected")
-	err := dispatchWorkContextAttempt(t, fixture, workContextDispatchPacket(t, fixture, "attempt-ctx-missing", nil))
+	err := dispatchWorkContextAttempt(t, fixture, workContextDispatchPacket(t, fixture, "attempt-ctx-missing", seedReadyWorkerJob(t, fixture), nil))
 	if !hasFailureKind(err, KindInvalidPayload) || !strings.Contains(err.Error(), "worker packet does not consume the current work context") {
 		t.Fatalf("missing context error = %v, want %s refusing the packet without the current work context", err, KindInvalidPayload)
 	}
@@ -260,7 +347,7 @@ func TestDispatchRefusesWorkContextViewOverflow(t *testing.T) {
 	if bytes.Contains(marshaled, []byte(`"work_context"`)) {
 		t.Fatalf("work pin carries work context past the view bound:\n%s", marshaled)
 	}
-	err = dispatchWorkContextAttempt(t, fixture, workContextDispatchPacket(t, fixture, "attempt-ctx-overflow", nil))
+	err = dispatchWorkContextAttempt(t, fixture, workContextDispatchPacket(t, fixture, "attempt-ctx-overflow", seedReadyWorkerJob(t, fixture), nil))
 	if !hasFailureKind(err, KindLimitExceeded) {
 		t.Fatalf("overflow dispatch error = %v, want %s from the work context reader", err, KindLimitExceeded)
 	}

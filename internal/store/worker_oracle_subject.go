@@ -88,14 +88,16 @@ func readOracleVerifySubjectReceipt(ctx context.Context, q queryer, workID, runR
 // active worktree. It does not claim that Git is still there: the
 // adapter must compare this pinned subject with its fresh clean HEAD before
 // authorization. A later dirty/failed run contributes no qualified subject.
-func readCurrentOracleSubject(ctx context.Context, q queryer, workID string) (string, error) {
-	var raw string
-	err := q.QueryRowContext(ctx, oracleVerifyReceiptSQL+`
+const oracleCurrentVerifyReceiptSQL = oracleVerifyReceiptSQL + `
 		AND EXISTS (SELECT 1 FROM worktree_entries e
 			WHERE e.set_id=? AND e.project_id=l.project_id AND e.path=l.path
 			AND e.branch=json_extract(l.result_json,'$.branch')
 			AND e.state='active')
-		ORDER BY d.rowid DESC LIMIT 1`, workID, WorktreeSetID(workID)).Scan(&raw)
+		ORDER BY d.rowid DESC LIMIT 1`
+
+func readCurrentOracleSubject(ctx context.Context, q queryer, workID string) (string, error) {
+	var raw string
+	err := q.QueryRowContext(ctx, oracleCurrentVerifyReceiptSQL, workID, WorktreeSetID(workID)).Scan(&raw)
 	if err == sql.ErrNoRows {
 		return "", nil
 	}
@@ -106,5 +108,5 @@ func readCurrentOracleSubject(ctx context.Context, q queryer, workID string) (st
 	if err != nil {
 		return "", err
 	}
-	return result.SubjectRef, nil
+	return strings.TrimPrefix(result.SubjectRef, "commit:"), nil
 }

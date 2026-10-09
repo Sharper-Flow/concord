@@ -49,6 +49,10 @@ type Store struct {
 	// so a test can interleave a committed state change into exactly that
 	// window. Production leaves it nil.
 	retireProbeInterleave func()
+	// Observation-only seam at the native test program's successful Start.
+	// It cannot replace execution or change authorization.
+	nativeOracleProgramLaunched func()
+	nativeOracleStageObserved   func(string, string, []string, []string)
 
 	// durableCommits counts the durable transactions this handle committed.
 	durableCommits atomic.Uint64

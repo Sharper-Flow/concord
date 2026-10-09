@@ -1,27 +1,18 @@
 import { test, expect } from "bun:test"
+import { createHash } from "node:crypto"
 import { agentLanes } from "./generated-agent-lanes"
-import { configureCoreBinary, dispatchWorker, resolveWorkerReportFromText, validateAgentLanePacket, validateAgentLaneReport, type AgentLanePacket, type CanonicalLaneReport, type DispatchRunner, type HostProvenance } from "./dispatch"
+import { configureCoreBinary, dispatchWorker, resolveWorkerReportFromText, validateAgentLanePacket, validateAgentLaneReport, type AgentLanePacket, type CanonicalLaneReport, type DispatchRunner, type HostProvenance, type NativeOraclePreparation } from "./dispatch"
 import { verifyPacketOracleReadiness } from "./oracle-readiness"
 
-// CON-890 slice A, adapter side. Three focused groups:
-//
-// 1. Predispatch readiness: the pinned harness sources of a packet's
-//    acceptance oracle must resolve as exact Git objects and paths in the
-//    repository the dispatch can reach, the retained readiness evidence must
-//    be present per control, and the check never executes the oracle's own
-//    argv and never calls the core.
-// 2. Dispatch wiring: the readiness refusal fires before the authorization
-//    call, so no authorized attempt persists for an unverifiable oracle.
-// 3. Terminal report admission: typed oracle findings, resolutions, and
-//    receipts ride the canonical report, while the dispatch-owned candidate
-//    subject is stripped from worker echo and injected only from the packet.
+// Readiness consumes native metadata and observes clean HEAD. Report
+// admission composes the raw subject OID from the authorized typed packet.
 
 // Fake-runner suite: bind any worker-evidence CLI call to a nominal core path
 // instead of the unstamped repository placeholder (CD-0111 D1).
 configureCoreBinary("concord-test")
 
-const ORACLE_RECIPE_SOURCE = { kind: "repository_file", project_id: "project-1", path: "internal/store/worker_oracle_harness_test.go", commit_oid: `a1${"0".repeat(38)}` }
-const OTHER_RECIPE_SOURCE = { kind: "repository_file", project_id: "project-1", path: "scripts/harness_second_test.go", commit_oid: `b2${"1".repeat(38)}` }
+const ORACLE_RECIPE_SOURCE = { kind: "repository_file" as const, project_id: "project-1", path: "testdata/oracle_recipe.json", commit_oid: `a1${"0".repeat(38)}` }
+const OTHER_RECIPE_SOURCE = { kind: "repository_file" as const, project_id: "project-1", path: "testdata/second_recipe.json", commit_oid: `b2${"1".repeat(38)}` }
 const ORACLE = {
   owners: [{
     owner_id: "owner:acceptance-graph",
@@ -29,7 +20,7 @@ const ORACLE = {
     mechanism: { project_id: "project-1", path: "internal/store/worker_jobs.go", entry_point: "DeriveWorkerJobDigest" },
     obligation: "The job digest covers every recorded content field, the oracle included.",
     predicate_ids: ["predicate:primary"],
-    law_bindings: [{ source: { kind: "knowledge", source_id: "records", law_id: "CD-0205", content_hash: `sha256:${"b".repeat(64)}` }, clause: "D1 lines 39-53" }],
+    law_bindings: [{ source: { kind: "knowledge" as const, source_id: "records", law_id: "CD-0205", content_hash: `sha256:${"b".repeat(64)}` }, clause: "D1 lines 39-53" }],
   }],
   cases: [{
     case_id: "case:digest-covers-oracle",
@@ -52,22 +43,22 @@ const ORACLE = {
     predicate_ids: ["predicate:primary"],
     case_ids: ["case:digest-covers-oracle"],
     recipe_source: ORACLE_RECIPE_SOURCE,
-    argv: ["bin/oc-test", "targeted", "--", "go", "test", "./internal/store", "-run", "TestOwnerOracleGraph"],
+    argv: ["go", "test", "-count=1", "-run", "^(TestOwnerOracleGraph)$", "."],
     cwd: ".",
     expected_result: "pass",
     required_evidence_role: "reported",
-    readiness_evidence_refs: ["run:harness-selftest"],
+    readiness_evidence_refs: ["worktree_verify:harness-graph-prepare"],
   }, {
     control_id: "control:harness-second",
     owner_id: "owner:acceptance-graph",
     predicate_ids: ["predicate:primary"],
     case_ids: ["case:digest-covers-oracle", "case:second-entry-path"],
     recipe_source: OTHER_RECIPE_SOURCE,
-    argv: ["go", "test", "./internal/store", "-run", "TestOwnerOracleSecond"],
+    argv: ["go", "test", "-count=1", "-run", "^(TestOwnerOracleSecond)$", "."],
     cwd: ".",
     expected_result: "pass",
     required_evidence_role: "independently_executed",
-    readiness_evidence_refs: ["run:harness-selftest", "run:harness-selector-proof"],
+    readiness_evidence_refs: ["worktree_verify:harness-second-prepare"],
   }],
 }
 
@@ -90,6 +81,23 @@ const JOB = {
 const reviewLane = agentLanes.find((candidate) => candidate.id === "review")!
 const implementLane = agentLanes.find((candidate) => candidate.id === "implement")!
 
+function preparation(control: typeof ORACLE.controls[number]): NativeOraclePreparation {
+  const digest = `sha256:${"d".repeat(64)}`
+  const names = control.control_id === "control:harness-digest" ? ["TestOwnerOracleGraph"] : ["TestOwnerOracleSecond"]
+  return {
+    protocol: "native_oracle_v2", phase: "prepare", qualification: "ready", run_ref: control.readiness_evidence_refs[0],
+    work_id: "work-oracle-1", project_id: JOB.project_scope, contract_version: 1, subject_commit: "a".repeat(40),
+    bundle_digest: digest, logical_argv_digest: `sha256:${createHash("sha256").update(JSON.stringify(control.argv)).digest("hex")}`,
+    logical_cwd: control.cwd, recipe_source: control.recipe_source, manifest_blob: "d".repeat(40), manifest_digest: digest,
+    files: [{ path: "harness_test.go", blob_oid: "d".repeat(40), sha256: digest }],
+    toolchain_identity: "go1.26.7", build_environment_digest: digest, selected_test_names: names,
+    case_to_test_map: Object.fromEntries(control.case_ids.map((id) => [id, names])), selected_distinct_count: 1,
+    native_plan_sha256: digest, streams_complete: true,
+    stdout: { stream: "stdout", length: 0, sha256: digest, complete: true, ref: "output:stdout" },
+    stderr: { stream: "stderr", length: 0, sha256: digest, complete: true, ref: "output:stderr" },
+  }
+}
+
 const oraclePacket = (): AgentLanePacket => ({
   schema_version: "1.1",
   attempt_id: "attempt-oracle-1",
@@ -102,7 +110,7 @@ const oraclePacket = (): AgentLanePacket => ({
     task: "Deliver the bounded store change under the recorded job.",
     binding: { objective_source: "contract_premise", work_version: 1, contract_version: 1, assigned_result: "files_touched" },
     worker_job: JOB as AgentLanePacket["inputs"]["worker_job"],
-    work_context: { source_event_frontier: 0, required_reading: [], findings: [], domain_groups: [], candidate_subject: `commit:${"a".repeat(40)}` },
+    work_context: { source_event_frontier: 0, required_reading: [], findings: [], domain_groups: [], subject_commit: "a".repeat(40), oracle_preparations: ORACLE.controls.map(preparation) },
   },
 })
 
@@ -120,37 +128,20 @@ function reviewPacket(): AgentLanePacket {
   } as AgentLanePacket
 }
 
-// The scripted runner answers git object probes by shape and records every
-// argv it saw, so the tests can prove the oracle's own argv never executes.
-function gitRunner(outcomes: { [commit: string]: { commitExists: boolean; paths?: { [path: string]: boolean } } } = {}): { runner: DispatchRunner; seen: string[][] } {
+// The runner observes HEAD/status and records every argv. Any other native
+// command is an error, not a fabricated preparation or worker outcome.
+function gitRunner(): { runner: DispatchRunner; seen: string[][] } {
   const seen: string[][] = []
   const runner: DispatchRunner = {
     async run(argv) {
       seen.push([...argv])
       const rest = argv[0] === "git" && argv[1] === "-C" ? argv.slice(3) : argv
-      if (argv[0] !== "git") return { exitCode: 0, stdout: "", stderr: "" }
       if (rest[0] === "rev-parse") return { exitCode: 0, stdout: `${"a".repeat(40)}\n`, stderr: "" }
-      if (rest[0] === "cat-file") {
-        const oid = rest[2]?.replace(/\^\{commit\}$/, "") ?? ""
-        const outcome = outcomes[oid]
-        return outcome && outcome.commitExists ? { exitCode: 0, stdout: "", stderr: "" } : { exitCode: 1, stdout: "", stderr: `fatal: not a valid object name ${oid}` }
-      }
-      if (rest[0] === "ls-tree") {
-        const oid = rest[2] ?? ""
-        const pathSpec = rest[rest.indexOf("--") + 1] ?? ""
-        const outcome = outcomes[oid]
-        const present = outcome?.commitExists && outcome.paths?.[pathSpec] === true
-        return { exitCode: 0, stdout: present ? `100644 blob ${"d".repeat(40)}\t${pathSpec}\n` : "", stderr: "" }
-      }
-      return { exitCode: 0, stdout: "", stderr: "" }
+      if (argv[0] === "git" && rest[0] === "status") return { exitCode: 0, stdout: "", stderr: "" }
+      throw new Error(`unexpected preauthorization command: ${argv.join(" ")}`)
     },
   }
   return { runner, seen }
-}
-
-const RESOLVED_SOURCES = {
-  [ORACLE_RECIPE_SOURCE.commit_oid]: { commitExists: true, paths: { [ORACLE_RECIPE_SOURCE.path]: true } },
-  [OTHER_RECIPE_SOURCE.commit_oid]: { commitExists: true, paths: { [OTHER_RECIPE_SOURCE.path]: true } },
 }
 
 const SIGNAL = new AbortController().signal
@@ -162,38 +153,51 @@ test("the oracle packet fixture passes the closed packet schema", () => {
   expect(valid).toBe(true)
 })
 
-test("an oracle packet passes readiness when every pinned source resolves as an exact Git object and path", async () => {
-  const { runner, seen } = gitRunner(RESOLVED_SOURCES)
+test("native case witness maps admit only bounded case keys and typed witness arrays", () => {
+  for (const cases of [{}, { "not-a-case": ["TestOwnerOracleGraph"] },
+    { [`case:${"x".repeat(124)}`]: ["TestOwnerOracleGraph"] }, { "case:one": ["not-a-test"] },
+    { "case:one": "TestOwnerOracleGraph" },
+    Object.fromEntries(Array.from({ length: 65 }, (_, index) => [`case:${index}`, ["TestOwnerOracleGraph"]]))]) {
+    const packet = oraclePacket()
+    packet.inputs.work_context!.oracle_preparations![0].case_to_test_map = cases as Record<string, string[]>
+    const failures: string[] = []
+    expect(validateAgentLanePacket(packet, failures)).toBe(false)
+    expect(failures.join(" ")).toContain("oracle_preparations[0].case_to_test_map")
+  }
+})
+
+test("an oracle packet consumes matching native preparations and rechecks clean HEAD", async () => {
+  const { runner, seen } = gitRunner()
   const refusal = await verifyPacketOracleReadiness(oraclePacket(), { runner, directory: "/claimed/worktree", signal: SIGNAL })
   expect(refusal).toBeNull()
-  // One probe pair per unique pinned source, never one per control.
-  expect(seen.length).toBe(6)
+  expect(seen.length).toBe(2)
 })
 
 test("an oracle-free packet performs no git probes and refuses nothing", async () => {
-  const { runner, seen } = gitRunner(RESOLVED_SOURCES)
+  const { runner, seen } = gitRunner()
   const legacy: AgentLanePacket = { ...oraclePacket(), inputs: { ...oraclePacket().inputs, worker_job: undefined } }
   const refusal = await verifyPacketOracleReadiness(legacy, { runner, directory: "/claimed/worktree", signal: SIGNAL })
   expect(refusal).toBeNull()
   expect(seen.length).toBe(0)
 })
 
-test("an absent pinned commit object refuses readiness and names the control and commit", async () => {
-  const { runner } = gitRunner({ [ORACLE_RECIPE_SOURCE.commit_oid]: { commitExists: false, paths: {} }, [OTHER_RECIPE_SOURCE.commit_oid]: RESOLVED_SOURCES[OTHER_RECIPE_SOURCE.commit_oid] })
-  const refusal = await verifyPacketOracleReadiness(oraclePacket(), { runner, directory: "/claimed/worktree", signal: SIGNAL })
+test("a mismatched native recipe commit refuses readiness and names its control", async () => {
+  const { runner } = gitRunner()
+  const candidate = oraclePacket()
+  candidate.inputs.work_context!.oracle_preparations![0].recipe_source = { ...ORACLE_RECIPE_SOURCE, commit_oid: "f".repeat(40) }
+  const refusal = await verifyPacketOracleReadiness(candidate, { runner, directory: "/claimed/worktree", signal: SIGNAL })
   expect(refusal).not.toBeNull()
   expect(refusal!.message).toContain("control:harness-digest")
-  expect(refusal!.message).toContain(ORACLE_RECIPE_SOURCE.commit_oid)
+  expect(refusal!.message).toContain("qualified native preparation")
 })
 
-test("a pinned path absent from the commit tree refuses readiness", async () => {
-  const { runner } = gitRunner({
-    [ORACLE_RECIPE_SOURCE.commit_oid]: { commitExists: true, paths: {} },
-    [OTHER_RECIPE_SOURCE.commit_oid]: RESOLVED_SOURCES[OTHER_RECIPE_SOURCE.commit_oid],
-  })
-  const refusal = await verifyPacketOracleReadiness(oraclePacket(), { runner, directory: "/claimed/worktree", signal: SIGNAL })
+test("a mismatched native recipe path refuses readiness", async () => {
+  const { runner } = gitRunner()
+  const candidate = oraclePacket()
+  candidate.inputs.work_context!.oracle_preparations![0].recipe_source = { ...ORACLE_RECIPE_SOURCE, path: "wrong.json" }
+  const refusal = await verifyPacketOracleReadiness(candidate, { runner, directory: "/claimed/worktree", signal: SIGNAL })
   expect(refusal).not.toBeNull()
-  expect(refusal!.message).toContain("internal/store/worker_oracle_harness_test.go")
+  expect(refusal!.message).toContain("control:harness-digest")
 })
 
 test("a git probe that itself fails refuses readiness with the probe outcome", async () => {
@@ -207,7 +211,7 @@ test("a git probe that itself fails refuses readiness with the probe outcome", a
 test("a control without retained readiness evidence refuses readiness structurally", async () => {
   const evidenceless = { ...ORACLE, controls: [{ ...ORACLE.controls[0], readiness_evidence_refs: [] }, ORACLE.controls[1]] }
   const packet = { ...oraclePacket(), inputs: { ...oraclePacket().inputs, worker_job: { ...JOB, acceptance_oracle: evidenceless } } } as AgentLanePacket
-  const { runner } = gitRunner(RESOLVED_SOURCES)
+  const { runner } = gitRunner()
   const refusal = await verifyPacketOracleReadiness(packet, { runner, directory: "/claimed/worktree", signal: SIGNAL })
   expect(refusal).not.toBeNull()
   expect(refusal!.message).toContain("control:harness-digest")
@@ -215,7 +219,7 @@ test("a control without retained readiness evidence refuses readiness structural
 })
 
 test("readiness never executes the oracle argv and never calls the core", async () => {
-  const { runner, seen } = gitRunner(RESOLVED_SOURCES)
+  const { runner, seen } = gitRunner()
   await verifyPacketOracleReadiness(oraclePacket(), { runner, directory: "/claimed/worktree", signal: SIGNAL })
   expect(seen.length).toBeGreaterThan(0)
   for (const argv of seen) {
@@ -229,8 +233,10 @@ const FIXED_PROVENANCE: HostProvenance = { sources: [{ kind: "agent_definition",
 
 test("dispatch refuses an unverifiable oracle before the authorization call", async () => {
   let authorizations = 0
-  const { runner, seen } = gitRunner({}) // no pinned source resolves
-  const result = await dispatchWorker(oraclePacket(), {
+  const { runner, seen } = gitRunner()
+  const candidate = oraclePacket()
+  candidate.inputs.work_context!.oracle_preparations = []
+  const result = await dispatchWorker(candidate, {
     runner,
     workerDirectory: process.cwd(),
     sessionID: "session-parent",
@@ -238,7 +244,7 @@ test("dispatch refuses an unverifiable oracle before the authorization call", as
     authorize: async () => { authorizations++; return { outcome: "ok" } },
   })
   expect(authorizations).toBe(0)
-  expect(seen.length).toBeGreaterThan(0)
+  expect(seen.length).toBe(0)
   expect(result.outcome).toBe("error")
   expect(result.error?.kind).toBe("invalid_input")
   expect(result.error?.message).toContain("acceptance oracle")
@@ -256,7 +262,7 @@ const oracleReportText = () => JSON.stringify({
     { obligation: "verification_commands", detail: "ran both declared controls; exit 0", oracle_receipt: {
       control_ids: ["control:harness-digest", "control:harness-second"],
       case_ids: ["case:digest-covers-oracle", "case:second-entry-path"],
-      candidate_subject: "model-claimed-subject-echo",
+      subject_commit: "model-claimed-subject-echo",
       recipe_source: ORACLE_RECIPE_SOURCE,
       result: "pass",
       exit_code: 0,
@@ -301,11 +307,11 @@ test("typed oracle findings, resolutions, and receipts ride the canonical report
 
 test("the worker-echoed candidate subject is stripped from an oracle receipt", () => {
   const packet = reviewPacket()
-  delete packet.inputs.work_context!.candidate_subject
+  delete packet.inputs.work_context!.subject_commit
   const admitted = resolveWorkerReportFromText(oracleReportText(), packet)
   if (!("report" in admitted)) throw new Error(admitted.detail)
   const receipt = admitted.report.evidence.find((entry) => entry.oracle_receipt)?.oracle_receipt
-  expect(receipt?.candidate_subject).toBeUndefined()
+  expect(receipt?.subject_commit).toBeUndefined()
 })
 
 test("the observed candidate subject from the packet's work context is injected when present", () => {
@@ -315,16 +321,17 @@ test("the observed candidate subject from the packet's work context is injected 
     required_reading: [],
     findings: [],
     domain_groups: [],
-    candidate_subject: "git:commit:observed-subject",
+    subject_commit: "f".repeat(40),
   }
   const admitted = resolveWorkerReportFromText(oracleReportText(), packet)
   if (!("report" in admitted)) throw new Error(admitted.detail)
   const receipt = admitted.report.evidence.find((entry) => entry.oracle_receipt)?.oracle_receipt
-  expect(receipt?.candidate_subject).toBe("git:commit:observed-subject")
+  expect(receipt?.subject_commit).toBe("f".repeat(40))
 })
 
 test("an executed receipt without a run locator is refused by the closed report schema", () => {
   const withoutRunRef = JSON.parse(oracleReportText())
+  delete withoutRunRef.evidence[1].oracle_receipt.subject_commit
   withoutRunRef.evidence[1].oracle_receipt.run_ref = ""
   const failures: string[] = []
   expect(validateAgentLaneReport(withoutRunRef, failures)).toBe(false)
@@ -332,6 +339,7 @@ test("an executed receipt without a run locator is refused by the closed report 
 
 test("a not_run receipt carries the empty run locator and no exit code", () => {
   const notRun = JSON.parse(oracleReportText())
+  delete notRun.evidence[1].oracle_receipt.subject_commit
   notRun.evidence[1].oracle_receipt.result = "not_run"
   delete notRun.evidence[1].oracle_receipt.exit_code
   notRun.evidence[1].oracle_receipt.run_ref = ""

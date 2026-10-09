@@ -21,6 +21,7 @@ func TestWorkerJobVerificationDispatchRequiresChecks(t *testing.T) {
 			fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
 			s := fixture.store
 			defer s.Close()
+			bootstrapOracleFixtureSubject(t, s, workID)
 			fields := map[string]any{
 				"job_id": "job:verify", "objective": "Run the recorded verification commands",
 				"stopping_condition":   "Each command exits zero",

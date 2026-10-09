@@ -6098,6 +6098,19 @@ CREATE TRIGGER worktree_ref_outcomes_guard_update BEFORE UPDATE ON worktree_ref_
 CREATE TRIGGER worktree_ref_outcomes_guard_delete BEFORE DELETE ON worktree_ref_outcomes FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'worktree_ref_outcomes is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
 `,
 	},
+	{
+		Version:  123,
+		Name:     "native_oracle_plan_and_streams",
+		Breaking: false,
+		SQL: `
+ALTER TABLE worktree_verify_leases ADD COLUMN native_plan_json TEXT CHECK(native_plan_json IS NULL OR (json_valid(native_plan_json) AND length(CAST(native_plan_json AS BLOB))<=65536));
+ALTER TABLE worktree_verify_leases ADD COLUMN native_plan_sha256 TEXT CHECK(native_plan_sha256 IS NULL OR length(native_plan_sha256)=71);
+ALTER TABLE worktree_verify_leases ADD COLUMN stdout_blob BLOB CHECK(stdout_blob IS NULL OR (typeof(stdout_blob)='blob' AND length(stdout_blob)<=2097152));
+ALTER TABLE worktree_verify_leases ADD COLUMN stderr_blob BLOB CHECK(stderr_blob IS NULL OR (typeof(stderr_blob)='blob' AND length(stderr_blob)<=2097152));
+CREATE TRIGGER native_oracle_plan_pair_insert BEFORE INSERT ON worktree_verify_leases WHEN (NEW.native_plan_json IS NULL) != (NEW.native_plan_sha256 IS NULL) BEGIN SELECT RAISE(ABORT,'native oracle plan columns must be paired'); END;
+CREATE TRIGGER native_oracle_plan_pair_update BEFORE UPDATE ON worktree_verify_leases WHEN (NEW.native_plan_json IS NULL) != (NEW.native_plan_sha256 IS NULL) BEGIN SELECT RAISE(ABORT,'native oracle plan columns must be paired'); END;
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

@@ -1132,7 +1132,7 @@
         },
         "recipe_source": {
           "$ref": "#/$defs/lane_work_context_reading_source_repository_file",
-          "description": "The pinned harness source (CON-890): read the pinned Git bytes at this commit, not the changed checkout. The harness may intentionally come from an earlier immutable commit than the candidate subject."
+          "description": "The exact pinned recipe manifest, not the candidate's modified harness. Native preparation resolves its file bytes, cwd, build-selected witnesses, and environment without test execution. Dispatch consumes that qualified preparation, never an automatic compiler or control run."
         },
         "argv": {
           "type": "array",
@@ -1174,7 +1174,7 @@
             "minLength": 1,
             "maxLength": 2048
           },
-          "description": "The retained evidence that proves the harness resolves and the test selector is nonempty."
+          "description": "The qualified native preparation run references for this exact owner/case/control bundle, parent contract, Project, raw subject, and environment. A legacy green command, unrelated evidence binding, compilation assertion, or zero-selector control is not readiness."
         }
       }
     },
@@ -1225,7 +1225,7 @@
         "run_ref",
         "evidence_refs"
       ],
-      "description": "One typed control-execution receipt (CON-890), mirroring contracts/agent-lane-report.schema.json $defs/oracle_receipt exactly: reported evidence, never native-run authority. A retained receipt is a prior-subject regression baseline; candidate_subject is host-derived identity, filled only from the packet's work context subject when the core supplied one. A timeout is unavailable evidence, not a measured failure.",
+      "description": "One typed control-execution receipt (CON-890), mirroring contracts/agent-lane-report.schema.json $defs/oracle_receipt exactly: reported evidence, never native-run authority. A retained receipt is a prior-subject regression baseline; subject_commit is the host-derived raw OID, filled only from the packet's core work context. A timeout is unavailable evidence, not a measured failure.",
       "properties": {
         "control_ids": {
           "type": "array",
@@ -1251,11 +1251,12 @@
             "pattern": "^case:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$"
           }
         },
-        "candidate_subject": {
+        "subject_commit": {
           "type": "string",
-          "minLength": 1,
-          "maxLength": 512,
-          "description": "Host-derived observed subject identity. Dispatch-owned: a worker-authored value here is stripped before the canonical report; it is filled only from the packet's work context subject when the core supplied one."
+          "minLength": 40,
+          "maxLength": 64,
+          "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
+          "description": "Host-derived raw commit OID. Dispatch-owned: a worker-authored value is stripped before the canonical report; only the core work-context subject supplies it."
         },
         "recipe_source": {
           "$ref": "#/$defs/lane_work_context_reading_source_repository_file",
@@ -1427,6 +1428,70 @@
         }
       }
     },
+    "lane_native_oracle_stream": {
+      "type": "object", "additionalProperties": false,
+      "required": ["stream", "length", "sha256", "complete", "ref"],
+      "properties": {
+        "stream": {"type": "string", "enum": ["stdout", "stderr"]},
+        "length": {"type": "integer", "minimum": 0, "maximum": 2097152},
+        "sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$", "minLength": 71, "maxLength": 71},
+        "complete": {"type": "boolean"},
+        "ref": {"type": "string", "minLength": 0, "maxLength": 512}
+      },
+      "description": "Native producer descriptor only. One raw BLOB per stream stays on the existing verify lease. A complete ref requires atomic full capture; incomplete and abandoned output cannot supply full-output acceptance. Preview truncation does not imply stream truncation.",
+      "if": {"properties": {"complete": {"const": true}}, "required": ["complete"]},
+      "then": {"properties": {"ref": {"minLength": 1}}},
+      "else": {"properties": {"ref": {"const": ""}}}
+    },
+    "lane_native_oracle_file": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "blob_oid", "sha256"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1, "maxLength": 512},
+        "blob_oid": {"type": "string", "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$", "minLength": 40, "maxLength": 64},
+        "sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$", "minLength": 71, "maxLength": 71}
+      }
+    },
+    "lane_native_oracle_test_name": {
+      "type": "string", "pattern": "^Test[A-Z][A-Za-z0-9_]*$", "minLength": 5, "maxLength": 64
+    },
+    "lane_native_oracle_preparation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["protocol", "phase", "qualification", "run_ref", "work_id", "project_id", "contract_version", "subject_commit", "bundle_digest", "logical_argv_digest", "logical_cwd", "recipe_source", "manifest_blob", "manifest_digest", "files", "toolchain_identity", "build_environment_digest", "selected_test_names", "case_to_test_map", "selected_distinct_count", "native_plan_sha256", "stdout", "stderr", "streams_complete"],
+      "properties": {
+        "protocol": {"type": "string", "const": "native_oracle_v2"},
+        "phase": {"type": "string", "const": "prepare"},
+        "qualification": {"type": "string", "enum": ["ready", "unavailable"]},
+        "run_ref": {"type": "string", "minLength": 1, "maxLength": 512},
+        "work_id": {"type": "string", "minLength": 1, "maxLength": 128},
+        "project_id": {"type": "string", "minLength": 1, "maxLength": 128},
+        "contract_version": {"type": "integer", "minimum": 1, "maximum": 9223372036854775807},
+        "subject_commit": {"type": "string", "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$", "minLength": 40, "maxLength": 64},
+        "bundle_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$", "minLength": 71, "maxLength": 71},
+        "logical_argv_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$", "minLength": 71, "maxLength": 71},
+        "logical_cwd": {"type": "string", "minLength": 1, "maxLength": 512},
+        "recipe_source": {"$ref": "#/$defs/lane_work_context_reading_source_repository_file"},
+        "manifest_blob": {"type": "string", "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$", "minLength": 40, "maxLength": 64},
+        "manifest_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$", "minLength": 71, "maxLength": 71},
+        "files": {"type": "array", "minItems": 1, "maxItems": 32, "items": {"$ref": "#/$defs/lane_native_oracle_file"}},
+        "toolchain_identity": {"type": "string", "minLength": 1, "maxLength": 512},
+        "build_environment_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$", "minLength": 71, "maxLength": 71},
+        "selected_test_names": {"type": "array", "minItems": 1, "maxItems": 40, "uniqueItems": true, "items": {"$ref": "#/$defs/lane_native_oracle_test_name"}, "description": "The nominal maximum derives from floor((256-13)/6), not an independent test allowance. Every rendered selector still obeys sum(name bytes)+N+13 <= 256. No truncation or omitted witness."},
+        "case_to_test_map": {"type": "object", "additionalProperties": false, "minProperties": 1, "maxProperties": 64, "patternProperties": {"^case:[A-Za-z0-9][A-Za-z0-9._:-]{0,122}$": {"type": "array", "minItems": 1, "maxItems": 8, "uniqueItems": true, "items": {"$ref": "#/$defs/lane_native_oracle_test_name"}}}},
+        "selected_distinct_count": {"type": "integer", "minimum": 1, "maximum": 40},
+        "native_plan_sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$", "minLength": 71, "maxLength": 71},
+        "stdout": {"$ref": "#/$defs/lane_native_oracle_stream"},
+        "stderr": {"$ref": "#/$defs/lane_native_oracle_stream"},
+        "streams_complete": {"type": "boolean"}
+      },
+      "description": "The store-selected qualified preparation for an immutable job's exact readiness reference, never a latest-run guess or worker assertion. Pure-Go top-level tests only. The native owner proves exact pinned file bytes, cwd, build-selected nonempty witnesses, and compile-only readiness. Non-Go and resolved embed inputs must be declared pinned fixtures or explicit compiler inputs; no production Go/module replacement. Every stage pins the installed toolchain and native target with GOTOOLCHAIN=local, GOPROXY=off, GOFLAGS=-mod=readonly, CGO_ENABLED=0, GOWORK=off, and a private disposable GOCACHE. No aggregate scratch quota or uncommitted-diagnostics promise. Preparation grants no worker attempt, verification authority, or semantic acceptance.",
+      "if": {"properties": {"qualification": {"const": "ready"}}, "required": ["qualification"]},
+      "then": {"properties": {
+        "streams_complete": {"const": true},
+        "stdout": {"properties": {"stream": {"const": "stdout"}, "complete": {"const": true}, "ref": {"minLength": 1}}},
+        "stderr": {"properties": {"stream": {"const": "stderr"}, "complete": {"const": true}, "ref": {"minLength": 1}}}
+      }}
+    },
     "lane_work_context_view": {
       "type": "object",
       "additionalProperties": false,
@@ -1476,11 +1541,17 @@
           },
           "description": "The prior typed control-execution receipts this work retained (CON-890), in log order: reported regression baselines with their exact identities, never current-subject acceptance."
         },
-        "candidate_subject": {
+        "oracle_preparations": {
+          "type": "array", "minItems": 0, "maxItems": 512,
+          "items": {"$ref": "#/$defs/lane_native_oracle_preparation"},
+          "description": "Only native preparation records selected by the immutable job's readiness refs. No raw output or alternative readiness authority."
+        },
+        "subject_commit": {
           "type": "string",
-          "minLength": 1,
-          "maxLength": 512,
-          "description": "The core-derived observed candidate subject of the current dispatch (CON-890 seam): the exact commit or tree the oracle controls execute against. The only subject oracle receipts may quote as candidate_subject."
+          "minLength": 40,
+          "maxLength": 64,
+          "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
+          "description": "The sole core-derived current subject, as a raw commit OID. Native receipt subject_ref remains commit:OID and the store normalizes that reference once."
         }
       }
     },

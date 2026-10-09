@@ -5175,6 +5175,10 @@ type WorktreeInspectRequest struct {
 	WorkID    string
 	ProjectID string
 	Mode      string
+	RunRef    string
+	Stream    string
+	Offset    int64
+	Length    int64
 	// Path is the relative file selector for file mode. It is a selector
 	// inside the derived worktree, never a worktree path (CD-0096 D2).
 	Path     string
@@ -5184,13 +5188,14 @@ type WorktreeInspectRequest struct {
 
 // WorktreeInspectResult is the bounded content of one inspection.
 type WorktreeInspectResult struct {
-	WorkID    string `json:"work_id"`
-	ProjectID string `json:"project_id"`
-	Branch    string `json:"branch"`
-	Path      string `json:"path"`
-	Mode      string `json:"mode"`
-	Content   string `json:"content"`
-	Truncated bool   `json:"truncated"`
+	OracleOutput *NativeOracleOutputPage `json:"oracle_output,omitempty"`
+	WorkID       string                  `json:"work_id"`
+	ProjectID    string                  `json:"project_id"`
+	Branch       string                  `json:"branch"`
+	Path         string                  `json:"path"`
+	Mode         string                  `json:"mode"`
+	Content      string                  `json:"content"`
+	Truncated    bool                    `json:"truncated"`
 }
 
 // InspectWorktree reads files, Git status, or a diff from the work item's
@@ -5199,6 +5204,9 @@ type WorktreeInspectResult struct {
 func (s *Store) InspectWorktree(ctx context.Context, req WorktreeInspectRequest) (WorktreeInspectResult, error) {
 	if s == nil || s.db == nil {
 		return WorktreeInspectResult{}, newFailure(KindUnavailable, "worktree_inspect", "store is not open", false, "open the authority database")
+	}
+	if req.Mode == "oracle_output" {
+		return s.readNativeVerifyOutput(ctx, req)
 	}
 	runner := req.Runner
 	if runner == nil {
@@ -5301,10 +5309,17 @@ func readBoundedFile(path string, maxBytes int) (string, error) {
 // Project, under an exclusive lease, and completion refuses when tracked
 // files changed while the lease was held.
 type WorktreeVerifyRequest struct {
-	Owner     SessionWorktreeOwner
-	WorkID    string
-	ProjectID string
-	Command   []string
+	Owner                      SessionWorktreeOwner
+	WorkID                     string
+	ProjectID                  string
+	Command                    []string
+	Oracle                     *NativeOracleRequest
+	nativePlanJSON             string
+	nativePlanSHA256           string
+	nativeCommandJSON          string
+	nativeAcceptedInputsDigest string
+	nativeEvidenceRefsJSON     string
+	nativeLeaseOwner           verifyLeaseOwnerProcess
 	// LeaseID scopes the lease and its pinned command. Retrying an
 	// interrupted verify with the same LeaseID resumes only the command the
 	// lease first pinned.
@@ -5321,18 +5336,19 @@ type WorktreeVerifyRequest struct {
 // names the durable operation a green run recorded, so a caller can bind the
 // run as verification evidence (CD-0192).
 type WorktreeVerifyResult struct {
-	WorkID              string   `json:"work_id"`
-	ProjectID           string   `json:"project_id"`
-	Branch              string   `json:"branch"`
-	Path                string   `json:"path"`
-	LeaseID             string   `json:"lease_id"`
-	OperationRef        string   `json:"operation_ref"`
-	SubjectRef          string   `json:"subject_ref,omitempty"`
-	Command             []string `json:"command"`
-	ExitCode            int      `json:"exit_code"`
-	Output              string   `json:"output"`
-	OutputTruncated     bool     `json:"output_truncated"`
-	TrackedFilesChanged bool     `json:"tracked_files_changed"`
+	Oracle              *NativeOracleResult `json:"oracle,omitempty"`
+	WorkID              string              `json:"work_id"`
+	ProjectID           string              `json:"project_id"`
+	Branch              string              `json:"branch"`
+	Path                string              `json:"path"`
+	LeaseID             string              `json:"lease_id"`
+	OperationRef        string              `json:"operation_ref"`
+	SubjectRef          string              `json:"subject_ref,omitempty"`
+	Command             []string            `json:"command"`
+	ExitCode            int                 `json:"exit_code"`
+	Output              string              `json:"output"`
+	OutputTruncated     bool                `json:"output_truncated"`
+	TrackedFilesChanged bool                `json:"tracked_files_changed"`
 }
 
 // VerifyWorktree acquires the exclusive verify lease, runs the command, and
@@ -5348,6 +5364,9 @@ func (s *Store) VerifyWorktree(ctx context.Context, req WorktreeVerifyRequest) (
 	}
 	if err := validateSessionWorktreeOwner(req.Owner); err != nil {
 		return WorktreeVerifyResult{}, retitleFailure(err, "worktree_verify")
+	}
+	if req.Oracle != nil {
+		return s.verifyNativeOracle(ctx, req)
 	}
 	if err := validateWorktreeVerifyCommand(req.Command); err != nil {
 		return WorktreeVerifyResult{}, err
@@ -5611,16 +5630,24 @@ func worktreeVerifyOperationRef(leaseID string) string {
 // because the tier runs outside the step graph, and the closed step_kind
 // enum's external_effect member is the honest class for a command run.
 func recordWorktreeVerifyAuthorityTx(ctx context.Context, tx *sql.Tx, req WorktreeVerifyRequest, commandJSON string, acquired, released time.Time, resultJSON string) error {
-	commandDigest := sha256.Sum256([]byte(commandJSON))
+	acceptedDigest := req.nativeAcceptedInputsDigest
+	evidenceJSON := req.nativeEvidenceRefsJSON
+	if req.nativePlanSHA256 == "" {
+		commandDigest := sha256.Sum256([]byte(commandJSON))
+		acceptedDigest = "sha256:" + hex.EncodeToString(commandDigest[:])
+		evidenceJSON = workflowJSON([]string{worktreeVerifyOperationRef(req.LeaseID)})
+	} else if acceptedDigest == "" || evidenceJSON == "" {
+		return newFailure(KindInvariantViolation, "worktree_verify", "native authority lacks its pre-finalized identity metadata", false, "reconcile the native lease")
+	}
 	_, err := tx.ExecContext(ctx, `INSERT INTO durable_operations
 		(op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_version,step_id,step_kind,
 		 accepted_inputs_digest,accepted_scope_snapshot,principal_ref,request_id,observed_at,contract_digest,
 		 result_kind,result_payload,evidence_refs,changed_refs,completed_at)
 		VALUES(?, 1, ?, 'worktree.verify', 1, '', 'external_effect', ?, '{}', ?, ?, ?, '', 'completed', ?, ?, '[]', ?)`,
 		worktreeVerifyOperationRef(req.LeaseID), req.WorkID,
-		"sha256:"+hex.EncodeToString(commandDigest[:]), req.PrincipalRef, req.RequestID,
+		acceptedDigest, req.PrincipalRef, req.RequestID,
 		acquired.UTC().Format(time.RFC3339Nano),
-		resultJSON, workflowJSON([]string{worktreeVerifyOperationRef(req.LeaseID)}),
+		resultJSON, evidenceJSON,
 		released.UTC().Format(time.RFC3339Nano))
 	if err != nil {
 		return wrapFailure(KindUnavailable, "worktree_verify", "cannot record the verify run's evidence authority", true, "retry the same operation with the same lease id", err)
@@ -5636,13 +5663,18 @@ type worktreeVerifyCompleted struct {
 	failure error
 }
 
-// annotateCommittedEffect preserves the typed effect boundary when a lease
-// transaction or the external command crossed the point where no effect is
-// still provable. Pre-effect failures pass through unchanged.
+// annotateCommittedEffect marks a failure that occurred after the lease
+// committed: the lease row exists, so no caller may treat the failure as
+// effect-free. An untyped cause gains a typed wrapper rather than escaping
+// without the committed lease reference. Callers apply it only after the
+// lease commit; pre-commit failures never pass through it.
 func annotateCommittedEffect(err error, ref SubjectCurrentVersion) error {
+	if err == nil {
+		return nil
+	}
 	var failure *Failure
 	if !errors.As(err, &failure) {
-		return err
+		failure = wrapFailure(KindUnavailable, "worktree_verify", "verify failed after its lease committed: "+err.Error(), false, "reconcile_operation", err)
 	}
 	failure.EffectPossible = true
 	failure.CommittedRefs = append(failure.CommittedRefs, ref)
@@ -5659,10 +5691,14 @@ func (c *worktreeVerifyCompleted) Error() string {
 // never redirect the run, and a released lease reports its recorded outcome.
 func acquireVerifyLeaseTx(ctx context.Context, tx *sql.Tx, req WorktreeVerifyRequest, entry WorktreeEntry, commandJSON string, now time.Time) error {
 	var state, pinnedJSON, clientRef, agentRef, sessionRef, outcome, resultJSON string
-	err := tx.QueryRowContext(ctx, `SELECT state,command_json,client_ref,agent_ref,session_ref,outcome,coalesce(result_json,'') FROM worktree_verify_leases WHERE lease_id=?`, req.LeaseID).
-		Scan(&state, &pinnedJSON, &clientRef, &agentRef, &sessionRef, &outcome, &resultJSON)
+	var pinnedPlan, pinnedDigest, work, project, principal string
+	err := tx.QueryRowContext(ctx, `SELECT state,command_json,client_ref,agent_ref,session_ref,outcome,coalesce(result_json,''),coalesce(native_plan_json,''),coalesce(native_plan_sha256,''),work_id,project_id,principal_ref FROM worktree_verify_leases WHERE lease_id=?`, req.LeaseID).
+		Scan(&state, &pinnedJSON, &clientRef, &agentRef, &sessionRef, &outcome, &resultJSON, &pinnedPlan, &pinnedDigest, &work, &project, &principal)
 	switch {
 	case err == nil:
+		if pinnedPlan != req.nativePlanJSON || pinnedDigest != req.nativePlanSHA256 || work != req.WorkID || project != req.ProjectID || principal != req.PrincipalRef || pinnedJSON != commandJSON || clientRef != req.Owner.ClientRef || agentRef != req.Owner.AgentRef || sessionRef != req.Owner.SessionRef {
+			return newFailure(KindInvalidOperation, "worktree_verify", "retry differs from the immutable lease command, plan, owner, or scope", false, "use the original request or a fresh identity")
+		}
 		if state != "held" {
 			if outcome == "aborted" {
 				// The window abandoned this run before it recorded an
@@ -5681,6 +5717,13 @@ func acquireVerifyLeaseTx(ctx context.Context, tx *sql.Tx, req WorktreeVerifyReq
 			}
 			return newFailure(KindUnavailable, "worktree_verify", "released verify lease carries no readable outcome", true, "retry the read of the lease outcome")
 		}
+		if req.Oracle != nil {
+			// A native run executes at most once. A concurrent duplicate that
+			// passed the unlocked replay read refuses here, inside the
+			// acquiring transaction, instead of resuming the held run.
+			return newFailure(KindWorktreeLeaseHeld, "worktree_verify",
+				"native run "+req.LeaseID+" remains held and cannot be executed twice", false, "reconcile the held lease before requesting another run")
+		}
 		if clientRef != req.Owner.ClientRef || agentRef != req.Owner.AgentRef || sessionRef != req.Owner.SessionRef {
 			return newFailure(KindWorktreeLeaseHeld, "worktree_verify",
 				"verify lease "+req.LeaseID+" is held by session "+clientRef+"/"+agentRef+"/"+sessionRef, true, "retry_same_request")
@@ -5690,10 +5733,13 @@ func acquireVerifyLeaseTx(ctx context.Context, tx *sql.Tx, req WorktreeVerifyReq
 		}
 		return nil
 	case err == sql.ErrNoRows:
-		owner := currentProcessIdentity()
+		owner := req.nativeLeaseOwner
+		if req.Oracle == nil {
+			owner = currentProcessIdentity()
+		}
 		insertLease := func() error {
-			_, insertErr := tx.ExecContext(ctx, `INSERT INTO worktree_verify_leases(lease_id,work_id,project_id,path,state,client_ref,agent_ref,session_ref,principal_ref,command_json,acquired_at,outcome,owner_pid,owner_started) VALUES(?,?,?,?, 'held', ?,?,?,?,?,?, 'running', ?, ?)`,
-				req.LeaseID, req.WorkID, req.ProjectID, entry.Path, req.Owner.ClientRef, req.Owner.AgentRef, req.Owner.SessionRef, req.PrincipalRef, commandJSON, now.Format(time.RFC3339Nano), owner.pid, owner.started)
+			_, insertErr := tx.ExecContext(ctx, `INSERT INTO worktree_verify_leases(lease_id,work_id,project_id,path,state,client_ref,agent_ref,session_ref,principal_ref,command_json,acquired_at,outcome,owner_pid,owner_started,native_plan_json,native_plan_sha256) VALUES(?,?,?,?, 'held', ?,?,?,?,?,?, 'running', ?, ?,?,?)`,
+				req.LeaseID, req.WorkID, req.ProjectID, entry.Path, req.Owner.ClientRef, req.Owner.AgentRef, req.Owner.SessionRef, req.PrincipalRef, commandJSON, now.Format(time.RFC3339Nano), owner.pid, owner.started, nullableText(req.nativePlanJSON), nullableText(req.nativePlanSHA256))
 			return insertErr
 		}
 		if insertErr := insertLease(); insertErr != nil {

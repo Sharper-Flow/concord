@@ -40,7 +40,7 @@ func testOracleGraph() *AcceptanceOracle {
 				ControlID: "control:immutable", OwnerID: "owner:entry",
 				PredicateIDs: []string{"predicate:one"}, CaseIDs: []string{"case:immutable", "case:rerecord"},
 				RecipeSource:          WorkContextReadingSource{Kind: WorkContextSourceRepositoryFile, ProjectID: "project", Path: "scripts/oracle_check.sh", CommitOID: testOracleCommit()},
-				Argv:                  []string{"bash", "scripts/oracle_check.sh", "immutability"},
+				Argv:                  oracleGoArgv("immutability"),
 				Cwd:                   "internal/store",
 				ExpectedResult:        "pass",
 				RequiredEvidenceRole:  "reported",
@@ -50,7 +50,7 @@ func testOracleGraph() *AcceptanceOracle {
 				ControlID: "control:bind", OwnerID: "owner:dispatch",
 				PredicateIDs: []string{"predicate:two"}, CaseIDs: []string{"case:bind", "case:tamper"},
 				RecipeSource:          WorkContextReadingSource{Kind: WorkContextSourceRepositoryFile, ProjectID: "project", Path: "scripts/oracle_check.sh", CommitOID: testOracleCommit()},
-				Argv:                  []string{"bash", "scripts/oracle_check.sh", "binding"},
+				Argv:                  oracleGoArgv("binding"),
 				Cwd:                   "internal/store",
 				ExpectedResult:        "pass",
 				RequiredEvidenceRole:  "independently_executed",
@@ -230,7 +230,7 @@ func TestOwnerOracleControlsRetained(t *testing.T) {
 		ControlID: "control:added", OwnerID: "owner:entry",
 		PredicateIDs: []string{"predicate:one"}, CaseIDs: []string{"case:immutable"},
 		RecipeSource: WorkContextReadingSource{Kind: WorkContextSourceRepositoryFile, ProjectID: "project", Path: "scripts/oracle_check.sh", CommitOID: testOracleCommit()},
-		Argv:         []string{"bash", "scripts/oracle_check.sh", "added"},
+		Argv:         oracleGoArgv("added"),
 		Cwd:          "internal/store", ExpectedResult: "pass", RequiredEvidenceRole: "reported",
 		ReadinessEvidenceRefs: []string{"evidence:oracle-ready"},
 	})
@@ -250,9 +250,25 @@ func TestOwnerOracleControlsRetained(t *testing.T) {
 		t.Fatal("a re-pinned recipe counted as retained")
 	}
 	retitled := testOracleGraph()
-	retitled.Controls[0].Argv = []string{"bash", "scripts/oracle_check.sh", "immutability-v2"}
+	retitled.Controls[0].Argv = oracleGoArgv("immutability-v2")
 	if oracleControlsRetained(previous, retitled) {
 		t.Fatal("a changed argument vector counted as retained")
+	}
+	reroled := testOracleGraph()
+	reroled.Controls[0].RequiredEvidenceRole = "independently_executed"
+	if oracleControlsRetained(previous, reroled) {
+		t.Fatal("a changed evidence role counted as retained")
+	}
+	// Refreshing every control's readiness references to a new candidate's
+	// preparations is not a rewrite: the bundle digest excludes readiness
+	// references, and the exact native-readiness gate re-proves them at
+	// record time.
+	refreshed := testOracleGraph()
+	for i := range refreshed.Controls {
+		refreshed.Controls[i].ReadinessEvidenceRefs = []string{"worktree_verify:fixture-prepare-next-candidate"}
+	}
+	if !oracleControlsRetained(previous, refreshed) {
+		t.Fatal("a readiness-reference refresh on unchanged obligations counted as a rewrite")
 	}
 	if oracleControlsRetained(previous, nil) {
 		t.Fatal("a dropped oracle counted as retaining its controls")

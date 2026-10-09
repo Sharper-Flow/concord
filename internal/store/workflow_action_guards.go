@@ -1562,8 +1562,12 @@ func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoc
 			// CON-887: the packet must consume the current work-context
 			// view the same way it consumes the current correction — the
 			// spawn compares the pinned bytes against current state.
-			if err := validateWorkerPacketWorkContext(in.ctx, in.tx, in.request.WorkID, packetRaw); err != nil {
-				return events, "", err
+			admittedContext, contextErr := admittedWorkerPacketWorkContext(in.ctx, in.tx, in.request.WorkID, packetRaw)
+			if contextErr != nil {
+				return events, "", contextErr
+			}
+			if admittedContext != nil && admittedContext.SubjectCommit != "" {
+				completionValues["worker_subject_commit"] = admittedContext.SubjectCommit
 			}
 			// CON-883: the packet must carry the latest context
 			// checkpoint the same way it consumes the current correction,

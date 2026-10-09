@@ -137,11 +137,12 @@ type WorkContextDomainGroup struct {
 // from this view goes stale exactly when a context source changes, and
 // unrelated work events do not invalidate it.
 type WorkContextView struct {
-	CandidateSubject    string                   `json:"candidate_subject,omitempty"`
-	SourceEventFrontier int64                    `json:"source_event_frontier"`
-	RequiredReading     []WorkContextReading     `json:"required_reading"`
-	Findings            []WorkContextFindingView `json:"findings"`
-	DomainGroups        []WorkContextDomainGroup `json:"domain_groups"`
+	SubjectCommit       string                    `json:"subject_commit,omitempty"`
+	OraclePreparations  []NativeOraclePreparation `json:"oracle_preparations,omitempty"`
+	SourceEventFrontier int64                     `json:"source_event_frontier"`
+	RequiredReading     []WorkContextReading      `json:"required_reading"`
+	Findings            []WorkContextFindingView  `json:"findings"`
+	DomainGroups        []WorkContextDomainGroup  `json:"domain_groups"`
 	// OracleReceipts are the prior typed control-execution receipts this
 	// work retained (CON-890), in log order: reported evidence a later
 	// lane receives as regression baselines with their exact identities,
@@ -625,7 +626,12 @@ func readWorkContextView(ctx context.Context, q queryer, workID string) (*WorkCo
 	if subjectErr != nil {
 		return nil, subjectErr
 	}
-	view.CandidateSubject = subject
+	view.SubjectCommit = subject
+	preparations, prepareErr := readSelectedOraclePreparations(ctx, q, workID)
+	if prepareErr != nil {
+		return nil, prepareErr
+	}
+	view.OraclePreparations = preparations
 	if err := q.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind IN (?,?,?)`, workID, WorkflowWorkContextRecorded, WorkerCompleted, WorkerFailed).Scan(&view.SourceEventFrontier); err != nil {
 		return nil, wrapFailure(KindUnavailable, "work_context_read", "cannot read the work context source frontier", true, "retry once the event log is readable", err)
 	}
@@ -757,7 +763,7 @@ func readWorkContextView(ctx context.Context, q queryer, workID string) (*WorkCo
 	if err := assembleWorkContextDomainGroups(ctx, q, workID, &view); err != nil {
 		return nil, err
 	}
-	if anchorErr == sql.ErrNoRows && len(order) == 0 && len(view.RequiredReading) == 0 && len(view.OracleReceipts) == 0 && view.CandidateSubject == "" {
+	if anchorErr == sql.ErrNoRows && len(order) == 0 && len(view.RequiredReading) == 0 && len(view.OracleReceipts) == 0 && len(view.OraclePreparations) == 0 && view.SubjectCommit == "" {
 		return nil, nil
 	}
 	return &view, nil
@@ -848,38 +854,43 @@ func assembleWorkContextDomainGroups(ctx context.Context, q queryer, workID stri
 // reader's canonical serialization. A view past its bounds propagates the
 // reader's own limit_exceeded refusal rather than truncating.
 func validateWorkerPacketWorkContext(ctx context.Context, q queryer, workID string, packetRaw json.RawMessage) error {
+	_, err := admittedWorkerPacketWorkContext(ctx, q, workID, packetRaw)
+	return err
+}
+
+func admittedWorkerPacketWorkContext(ctx context.Context, q queryer, workID string, packetRaw json.RawMessage) (*WorkContextView, error) {
 	var packet struct {
 		Inputs struct {
 			WorkContext json.RawMessage `json:"work_context"`
 		} `json:"inputs"`
 	}
 	if err := json.Unmarshal(packetRaw, &packet); err != nil {
-		return newFailure(KindInvalidPayload, "workflow_action", "dispatch_worker worker_packet is malformed", false, "supply the lane packet bound to this work item and attempt")
+		return nil, newFailure(KindInvalidPayload, "workflow_action", "dispatch_worker worker_packet is malformed", false, "supply the lane packet bound to this work item and attempt")
 	}
 	current, err := readWorkContextView(ctx, q, workID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	present := len(packet.Inputs.WorkContext) != 0 && string(packet.Inputs.WorkContext) != "null"
 	if current == nil {
 		if present {
-			return newFailure(KindInvalidPayload, "workflow_action", "worker packet carries work context without a current work context view", false, "build the packet from the current work pin")
+			return nil, newFailure(KindInvalidPayload, "workflow_action", "worker packet carries work context without a current work context view", false, "build the packet from the current work pin")
 		}
-		return nil
+		return nil, nil
 	}
 	if !present {
-		return newFailure(KindInvalidPayload, "workflow_action", "worker packet does not consume the current work context", false, "build a fresh packet from the current work pin")
+		return nil, newFailure(KindInvalidPayload, "workflow_action", "worker packet does not consume the current work context", false, "build a fresh packet from the current work pin")
 	}
 	decoder := json.NewDecoder(strings.NewReader(string(packet.Inputs.WorkContext)))
 	decoder.DisallowUnknownFields()
 	var claimed WorkContextView
 	if err := decoder.Decode(&claimed); err != nil {
-		return newFailure(KindInvalidPayload, "workflow_action", "worker packet inputs.work_context is not one closed work-context view", false, "build a fresh packet from the current work pin")
+		return nil, newFailure(KindInvalidPayload, "workflow_action", "worker packet inputs.work_context is not one closed work-context view", false, "build a fresh packet from the current work pin")
 	}
 	claimedJSON, claimedErr := json.Marshal(claimed)
 	currentJSON, currentErr := json.Marshal(current)
 	if claimedErr != nil || currentErr != nil || !bytes.Equal(claimedJSON, currentJSON) {
-		return newFailure(KindInvalidPayload, "workflow_action", "worker packet does not consume the current work context", false, "build a fresh packet from the current work pin")
+		return nil, newFailure(KindInvalidPayload, "workflow_action", "worker packet does not consume the current work context", false, "build a fresh packet from the current work pin")
 	}
-	return nil
+	return current, nil
 }

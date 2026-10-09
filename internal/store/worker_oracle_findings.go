@@ -49,7 +49,6 @@ const (
 	oracleReceiptControlsMax        = 8
 	oracleReceiptCasesMax           = 64
 	oracleReceiptEvidenceRefsMax    = 8
-	oracleReceiptSubjectMaxBytes    = 512
 	oracleReceiptRunRefMaxBytes     = 512
 	oracleReceiptEvidenceRefBytes   = 256
 	oracleFindingPredicateMax       = 8
@@ -107,21 +106,21 @@ type WorkerOracleRecipeSource struct {
 
 // WorkerOracleReceipt is one typed control-execution receipt (CON-890):
 // optional reported evidence on one evidence entry, never native-run
-// authority. CandidateSubject is host-derived observed subject identity —
-// dispatch-owned, stripped of any worker echo before the canonical report.
+// authority. SubjectCommit is the raw commit OID of the core-derived observed
+// subject: dispatch-owned, stripped of any worker echo before the canonical report.
 // ExitCode is a pointer so the pass/fail-required, otherwise-forbidden
 // coupling stays decidable. RunRef is the immutable native-run locator:
 // nonempty exactly when result is pass or fail; a not_run or unavailable
 // receipt carries the empty string and explains itself in evidence_refs.
 type WorkerOracleReceipt struct {
-	ControlIDs       []string                 `json:"control_ids"`
-	CaseIDs          []string                 `json:"case_ids"`
-	CandidateSubject string                   `json:"candidate_subject,omitempty"`
-	RecipeSource     WorkerOracleRecipeSource `json:"recipe_source"`
-	Result           string                   `json:"result"`
-	ExitCode         *int                     `json:"exit_code,omitempty"`
-	RunRef           string                   `json:"run_ref"`
-	EvidenceRefs     []string                 `json:"evidence_refs"`
+	ControlIDs    []string                 `json:"control_ids"`
+	CaseIDs       []string                 `json:"case_ids"`
+	SubjectCommit string                   `json:"subject_commit,omitempty"`
+	RecipeSource  WorkerOracleRecipeSource `json:"recipe_source"`
+	Result        string                   `json:"result"`
+	ExitCode      *int                     `json:"exit_code,omitempty"`
+	RunRef        string                   `json:"run_ref"`
+	EvidenceRefs  []string                 `json:"evidence_refs"`
 }
 
 // WorkerOracleLawSource is the knowledge arm of one finding's law tie.
@@ -221,8 +220,8 @@ func ValidateWorkerOracleReceiptShape(receipt *WorkerOracleReceipt) error {
 		}
 		seenCases[entry] = true
 	}
-	if len(receipt.CandidateSubject) > oracleReceiptSubjectMaxBytes {
-		return oracleFindingFailure(KindInvalidPayload, "oracle_receipt candidate_subject must be at most 512 bytes", "carry the host-derived observed subject identity")
+	if receipt.SubjectCommit != "" && !worktreeSHAPattern.MatchString(receipt.SubjectCommit) {
+		return oracleFindingFailure(KindInvalidPayload, "oracle_receipt subject_commit must be one raw commit OID", "carry the core-derived observed subject commit")
 	}
 	if err := validateWorkerOracleRecipeSourceShape(receipt.RecipeSource); err != nil {
 		return err
@@ -749,7 +748,7 @@ func validateWorkerOracleCompletedReportTx(ctx context.Context, tx *sql.Tx, work
 		if err := validateWorkerOracleReceiptJoins(entry.OracleReceipt, controls); err != nil {
 			return err
 		}
-		if _, err := workerOracleReceiptProducerTx(ctx, tx, workID, entry.OracleReceipt, controls, currentSubject); err != nil {
+		if _, err := workerOracleReceiptProducerTx(ctx, tx, workID, entry.OracleReceipt, oracle, currentSubject); err != nil {
 			return err
 		}
 	}
@@ -836,19 +835,19 @@ func validateWorkerOracleReceiptJoins(receipt *WorkerOracleReceipt, controls map
 	return nil
 }
 
-// A qualified receipt proves only the retained command's exit result. Output
-// remains bounded by the producer's OutputTruncated flag, never full-output
-// or semantic acceptance proof. Native reports must join the existing matched
-// observation and an actual command producer; a started or signed row alone
-// supplies neither command identity nor verification authority.
-func workerOracleReceiptProducerTx(ctx context.Context, q queryer, workID string, receipt *WorkerOracleReceipt, controls map[string]OracleControl, currentSubject string) (*WorktreeVerifyResult, error) {
-	if receipt.CandidateSubject != "" && receipt.CandidateSubject != currentSubject {
-		return nil, oracleFindingFailure(KindMissingEvidence, "oracle_receipt candidate_subject differs from the current qualified producer subject", "use the current qualified candidate subject")
+// A qualified receipt joins the native execute plan, complete retained streams,
+// and observed case witnesses. It does not prove semantic acceptance. A matched
+// native report must resolve that same producer; a started or signed row alone
+// supplies neither execution identity nor verification authority.
+func workerOracleReceiptProducerTx(ctx context.Context, q queryer, workID string, receipt *WorkerOracleReceipt, oracle *AcceptanceOracle, currentSubject string) (*WorktreeVerifyResult, error) {
+	controls := oracleControlIndex(oracle)
+	if receipt.SubjectCommit != "" && receipt.SubjectCommit != currentSubject {
+		return nil, oracleFindingFailure(KindMissingEvidence, "oracle_receipt subject_commit differs from the current qualified producer subject", "use the current qualified candidate subject")
 	}
 	if receipt.Result == OracleReceiptResultUnavailable || receipt.Result == OracleReceiptResultNotRun {
 		return nil, nil
 	}
-	if currentSubject == "" || receipt.CandidateSubject != currentSubject {
+	if currentSubject == "" || receipt.SubjectCommit != currentSubject {
 		return nil, oracleFindingFailure(KindMissingEvidence, "oracle_receipt execution has no current qualified candidate subject", "verify the clean current candidate or report unavailable")
 	}
 	producer, err := readOracleControlProducerTx(ctx, q, workID, receipt.RunRef, receipt.Result)
@@ -864,7 +863,7 @@ func workerOracleReceiptProducerTx(ctx context.Context, q queryer, workID string
 		err := q.QueryRowContext(ctx, `SELECT n.evidence_ref FROM workflow_native_runs n JOIN external_observations o ON o.observation_id=n.observation_id AND o.work_id=n.work_id
 			WHERE n.work_id=? AND n.run_id=? AND n.phase='health' AND n.status=? AND n.native_subject_ref=? AND n.verification_state=?
 			AND o.subject_kind='native_run' AND o.subject_ref=n.native_subject_ref AND o.subject_digest=n.subject_digest
-			AND o.verification_state=? AND o.verification_result=?`, workID, receipt.RunRef, status, currentSubject, string(VerificationVerified), string(VerificationVerified), string(VerificationMatched)).Scan(&evidenceRef)
+			AND o.verification_state=? AND o.verification_result=?`, workID, receipt.RunRef, status, "commit:"+currentSubject, string(VerificationVerified), string(VerificationVerified), string(VerificationMatched)).Scan(&evidenceRef)
 		if err != nil && err != sql.ErrNoRows {
 			return nil, wrapFailure(KindUnavailable, "worker_oracle_findings", "cannot read the receipt's verified native producer", true, "retry once the projection is readable", err)
 		}
@@ -878,14 +877,24 @@ func workerOracleReceiptProducerTx(ctx context.Context, q queryer, workID string
 	if producer == nil {
 		return nil, oracleFindingFailure(KindMissingEvidence, "oracle_receipt run_ref "+receipt.RunRef+" names no verified command producer for the current subject", "use an actual verify receipt or a matched native report tied to that producer, or report unavailable")
 	}
-	if producer.SubjectRef != currentSubject || receipt.ExitCode == nil || producer.ExitCode != *receipt.ExitCode || (receipt.Result == OracleReceiptResultPass) != (producer.ExitCode == 0) {
+	if producer.SubjectRef != "commit:"+currentSubject || receipt.ExitCode == nil || producer.ExitCode != *receipt.ExitCode || (receipt.Result == OracleReceiptResultPass) != (producer.ExitCode == 0) {
 		return nil, oracleFindingFailure(KindMissingEvidence, "oracle_receipt result or subject differs from its producer", "report the producer's exact subject and exit result")
 	}
 	for _, id := range receipt.ControlIDs {
 		control, exists := controls[id]
-		if !exists || producer.ProjectID != control.RecipeSource.ProjectID || !slices.Equal(producer.Command, control.Argv) {
+		if !exists || producer.ProjectID != control.RecipeSource.ProjectID || !slices.Equal(producer.Command, control.Argv) || producer.Oracle == nil || producer.Oracle.ControlID != id || producer.Oracle.LogicalCwd != control.Cwd || producer.Oracle.RecipeSource != control.RecipeSource {
 			return nil, oracleFindingFailure(KindMissingEvidence, "oracle_receipt command or Project differs from control "+id, "run the exact control argument vector in its Project")
 		}
+		// The producer must have executed this oracle's complete
+		// owner/control/case bundle, not a control with matching argv, cwd,
+		// and recipe whose owner or cases differ.
+		bundle, err := nativeBundleForControl(oracle, id)
+		if err != nil || producer.Oracle.BundleDigest != nativeBundleDigest(bundle) {
+			return nil, oracleFindingFailure(KindMissingEvidence, "oracle_receipt producer executed a bundle that differs from control "+id+" of the dispatched oracle", "execute the dispatched oracle's exact control bundle")
+		}
+	}
+	if err := validateNativeOracleProducerTx(ctx, q, workID, producer, receipt.Result); err != nil {
+		return nil, err
 	}
 	return producer, nil
 }
@@ -1109,13 +1118,13 @@ func validateWorkerOracleResolutionEvidenceTx(ctx context.Context, tx *sql.Tx, w
 	for _, ref := range resolution.EvidenceRefs {
 		qualified := false
 		for _, receipt := range receipts {
-			if receipt.Result != OracleReceiptResultPass || currentSubject == "" || receipt.CandidateSubject != currentSubject {
+			if receipt.Result != OracleReceiptResultPass || currentSubject == "" || receipt.SubjectCommit != currentSubject {
 				continue
 			}
 			if err := validateWorkerOracleReceiptJoins(&receipt, controls); err != nil {
 				continue
 			}
-			producer, producerErr := workerOracleReceiptProducerTx(ctx, tx, workID, &receipt, controls, currentSubject)
+			producer, producerErr := workerOracleReceiptProducerTx(ctx, tx, workID, &receipt, oracle, currentSubject)
 			if producerErr != nil {
 				return producerErr
 			}
@@ -1219,8 +1228,11 @@ func oracleReceiptCoversControl(receipt WorkerOracleReceipt, control OracleContr
 // repeats receipts. A later failure of this exact command on the same subject
 // prevents an earlier success from closing a finding, even if re-reported.
 func oracleControlProducerFreshTx(ctx context.Context, q queryer, workID, subject string, control OracleControl, producer *WorktreeVerifyResult) (bool, error) {
+	if producer.Oracle == nil {
+		return false, nil
+	}
 	var lease string
-	err := q.QueryRowContext(ctx, `SELECT lease_id FROM worktree_verify_leases WHERE work_id=? AND project_id=? AND command_json=? AND state='released' AND json_valid(result_json) AND json_extract(result_json,'$.subject_ref')=? ORDER BY rowid DESC LIMIT 1`, workID, control.RecipeSource.ProjectID, workflowJSON(control.Argv), subject).Scan(&lease)
+	err := q.QueryRowContext(ctx, `SELECT lease_id FROM worktree_verify_leases WHERE work_id=? AND project_id=? AND command_json=? AND state='released' AND json_valid(result_json) AND json_extract(result_json,'$.subject_ref')='commit:'||? AND json_extract(result_json,'$.oracle.phase')='execute' AND json_extract(result_json,'$.oracle.bundle_digest')=? AND json_extract(result_json,'$.oracle.logical_cwd')=? AND json_extract(result_json,'$.oracle.build_environment_digest')=? ORDER BY rowid DESC LIMIT 1`, workID, control.RecipeSource.ProjectID, workflowJSON(control.Argv), subject, producer.Oracle.BundleDigest, control.Cwd, producer.Oracle.BuildEnvironmentDigest).Scan(&lease)
 	if err == sql.ErrNoRows {
 		return false, nil
 	}

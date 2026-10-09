@@ -168,7 +168,7 @@ func TestOwnerOracleSubjectCurrentReceiptJoin(t *testing.T) {
 	}
 	defer tx.Rollback()
 	view, err := readWorkContextView(ctx, tx, "work-w")
-	if err != nil || view == nil || view.CandidateSubject != second.SubjectRef {
+	if err != nil || view == nil || view.SubjectCommit != strings.TrimPrefix(second.SubjectRef, "commit:") {
 		t.Fatalf("view=%+v err=%v", view, err)
 	}
 	for _, check := range []struct{ work, run, subject string }{
@@ -197,7 +197,7 @@ func TestOwnerOracleSubjectCurrentReceiptJoin(t *testing.T) {
 	if _, err := s.db.ExecContext(ctx, `UPDATE durable_operations SET result_payload='{}' WHERE op_id=?`, second.OperationRef); err != nil {
 		t.Fatal(err)
 	}
-	if got, err := readCurrentOracleSubject(ctx, s.db, "work-w"); err != nil || got != first.SubjectRef {
+	if got, err := readCurrentOracleSubject(ctx, s.db, "work-w"); err != nil || got != strings.TrimPrefix(first.SubjectRef, "commit:") {
 		t.Fatalf("unjoined current=%q err=%v", got, err)
 	}
 	if _, err := s.db.ExecContext(ctx, `UPDATE worktree_verify_leases SET result_json=json_remove(result_json,'$.subject_ref') WHERE lease_id=?`, first.LeaseID); err != nil {
@@ -236,7 +236,7 @@ func TestOwnerOracleSubjectCurrentExcludesFailedDirtyAndReclaimed(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, err := readCurrentOracleSubject(ctx, s.db, "work-w"); err != nil || got != clean.SubjectRef {
+	if got, err := readCurrentOracleSubject(ctx, s.db, "work-w"); err != nil || got != strings.TrimPrefix(clean.SubjectRef, "commit:") {
 		t.Fatalf("clean current=%q err=%v", got, err)
 	}
 	if _, err := s.db.ExecContext(ctx, `UPDATE worktree_entries SET state='reclaimed' WHERE path=?`, entry.Path); err != nil {

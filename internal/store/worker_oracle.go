@@ -371,6 +371,19 @@ func validateOracleControls(entries []OracleControl, owners map[string]OracleOwn
 // argument vector, the contained working directory, the closed result and
 // evidence-role vocabulary, and the readiness evidence references.
 func validateOracleControlEntry(control OracleControl) error {
+	if err := validateOracleControlDefinition(control); err != nil {
+		return err
+	}
+	if len(control.ReadinessEvidenceRefs) < 1 || len(control.ReadinessEvidenceRefs) > OracleReadinessRefsMax {
+		return oracleFailure(KindInvalidPayload, "acceptance oracle control "+control.ControlID+" must carry 1 to 8 readiness evidence references", "bind the evidence that proves the harness resolves and the selector is nonempty")
+	}
+	return validateUniqueOracleReferences(control.ReadinessEvidenceRefs, workflowEvidenceRef,
+		"acceptance oracle control "+control.ControlID+" readiness evidence reference ", " is not a bounded evidence reference", "acceptance oracle control "+control.ControlID+" readiness evidence reference ", "bind each retained readiness evidence reference once")
+}
+
+// Preparation validates executable content before readiness exists. Recorded
+// job controls also require the separate readiness-reference validator.
+func validateOracleControlDefinition(control OracleControl) error {
 	if len(control.PredicateIDs) < 1 || len(control.PredicateIDs) > OracleControlPredicatesMax {
 		return oracleFailure(KindInvalidPayload, "acceptance oracle control "+control.ControlID+" must exercise 1 to 8 predicates", "name the predicates this control exercises")
 	}
@@ -400,11 +413,7 @@ func validateOracleControlEntry(control OracleControl) error {
 	if control.RequiredEvidenceRole != OracleEvidenceRoleReported && control.RequiredEvidenceRole != OracleEvidenceRoleIndependentlyExecuted {
 		return oracleFailure(KindInvalidPayload, "acceptance oracle control "+control.ControlID+" required_evidence_role must be reported or independently_executed", "declare the evidence role the control's receipt must carry")
 	}
-	if len(control.ReadinessEvidenceRefs) < 1 || len(control.ReadinessEvidenceRefs) > OracleReadinessRefsMax {
-		return oracleFailure(KindInvalidPayload, "acceptance oracle control "+control.ControlID+" must carry 1 to 8 readiness evidence references", "bind the evidence that proves the harness resolves and the selector is nonempty")
-	}
-	return validateUniqueOracleReferences(control.ReadinessEvidenceRefs, workflowEvidenceRef,
-		"acceptance oracle control "+control.ControlID+" readiness evidence reference ", " is not a bounded evidence reference", "acceptance oracle control "+control.ControlID+" readiness evidence reference ", "bind each retained readiness evidence reference once")
+	return nil
 }
 
 // validateOracleArgv enforces one control's exact argument vector: 1 to 32
@@ -512,11 +521,16 @@ func oracleControlIndex(oracle *AcceptanceOracle) map[string]OracleControl {
 }
 
 // oracleControlsRetained reports whether the latest oracle retains every
-// previous owner, case, and control byte-identically, including the pinned recipe identity,
-// the argument vector, the expected result, and the evidence role. A newer
-// revision may add cases and controls — a strengthened inventory — but a
-// deleted or changed required control does not discharge the earlier
-// obligation, and a re-pinned recipe never compares as retained.
+// previous owner, case, and control's obligation: the pinned recipe identity,
+// the argument vector, the expected result, and the evidence role. Readiness
+// evidence references are normalized out: they are candidate-specific
+// pointers to that revision's native preparations, excluded from the protocol
+// bundle digest and re-proven against the current candidate by the exact
+// native-readiness gate at record time, so refreshing them is not a rewrite
+// of the obligation. A newer revision may add cases and controls — a
+// strengthened inventory — but a deleted or changed required control does not
+// discharge the earlier obligation, and a re-pinned recipe never compares as
+// retained.
 func oracleControlsRetained(previous, latest *AcceptanceOracle) bool {
 	if previous == nil {
 		return true
@@ -547,14 +561,20 @@ func oracleControlsRetained(previous, latest *AcceptanceOracle) bool {
 	latestControls := oracleControlIndex(latest)
 	for _, control := range previous.Controls {
 		retained, exists := latestControls[control.ControlID]
-		if !exists {
-			return false
-		}
-		if !oracleEntryIdentical(control, retained) {
+		if !exists || !oracleControlObligationEqual(control, retained) {
 			return false
 		}
 	}
 	return true
+}
+
+// oracleControlObligationEqual compares two controls on every semantic
+// obligation field, with the candidate-specific readiness references
+// normalized out of both sides.
+func oracleControlObligationEqual(previous, latest OracleControl) bool {
+	previous.ReadinessEvidenceRefs = nil
+	latest.ReadinessEvidenceRefs = nil
+	return oracleEntryIdentical(previous, latest)
 }
 
 func oracleEntryIdentical[T any](previous, latest T) bool {
@@ -653,13 +673,25 @@ func validateAcceptanceOracleAuthorityTx(ctx context.Context, tx *sql.Tx, workID
 		}
 	}
 	for _, control := range oracle.Controls {
+		bundle, bundleErr := nativeBundleForControl(oracle, control.ControlID)
+		if bundleErr != nil {
+			return bundleErr
+		}
+		var project string
+		if err := tx.QueryRowContext(ctx, `SELECT project_id FROM work_projects WHERE work_id=? AND role='primary'`, workID).Scan(&project); err != nil {
+			return err
+		}
+		current, subjectErr := readCurrentOracleSubject(ctx, tx, workID)
+		if subjectErr != nil {
+			return subjectErr
+		}
 		for _, ref := range control.ReadinessEvidenceRefs {
-			retained, err := oracleReadinessEvidenceRetainedTx(ctx, tx, workID, ref)
+			preparation, err := readOraclePreparationReceiptTx(ctx, tx, workID, project, ref)
 			if err != nil {
 				return err
 			}
-			if !retained {
-				return oracleFailure(KindInvalidPayload, "acceptance oracle control "+control.ControlID+" readiness evidence "+ref+" names no evidence this work retained", "bind readiness evidence the work's evidence binding or native-run record already retains")
+			if preparation == nil || preparation.ContractVersion != contractVersion || preparation.SubjectCommit != current || preparation.BundleDigest != nativeBundleDigest(bundle) {
+				return oracleFailure(KindInvalidPayload, "acceptance oracle control "+control.ControlID+" readiness evidence "+ref+" is not its exact qualified native preparation", "prepare the exact owner/case/control bundle before recording the ready job")
 			}
 		}
 	}
@@ -715,28 +747,6 @@ func validateOracleDomainTx(ctx context.Context, tx *sql.Tx, workID string, cont
 		return wrapFailure(KindUnavailable, "worker_oracle", "cannot read the contract architecture binding", true, "retry once the contract projection is readable", err)
 	}
 	return nil
-}
-
-// oracleReadinessEvidenceRetainedTx reports whether one readiness evidence
-// reference names evidence this work item retained through an existing
-// authoritative surface: an evidence binding the work recorded, or a native
-// run the work captured. A reference no retained record answers is a naked
-// string, not proof, and readiness fails — this surface authorizes no new
-// local-log path and never pretends a plain string is retrievable proof.
-func oracleReadinessEvidenceRetainedTx(ctx context.Context, tx *sql.Tx, workID, ref string) (bool, error) {
-	var bound int
-	err := tx.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.immutable_subject_ref')=?`, SubjectWorkItem, workID, WorkflowEvidenceBound, ref).Scan(&bound)
-	if err != nil {
-		return false, wrapFailure(KindUnavailable, "worker_oracle", "cannot read the work's retained evidence", true, "retry once the event log is readable", err)
-	}
-	if bound > 0 {
-		return true, nil
-	}
-	var runs int
-	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM workflow_native_runs WHERE work_id=? AND run_id=?`, workID, ref).Scan(&runs); err != nil {
-		return false, wrapFailure(KindUnavailable, "worker_oracle", "cannot read the work's retained native runs", true, "retry once the native-run projection is readable", err)
-	}
-	return runs > 0, nil
 }
 
 // readWorkerJobOraclesTx is the one tx-scoped reader of recorded oracles:

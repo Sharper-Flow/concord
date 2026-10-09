@@ -31,10 +31,23 @@ func oracleCapablePinForWork(t *testing.T, s *Store, workID string) bool {
 // from the work's live fixture state: the active contract's first approved
 // predicate (seeded when the fixture approved none), the primary Project,
 // the contract's first affected Domain or the Product's root Domain (with a
-// registry seeded when the fixture registered none), and one retained
-// evidence reference (seeded when the work bound none). Shared job-recording
+// registry seeded when the fixture registered none), and exact preparation
+// ledger fixtures. Shared job-recording
 // helpers call this only on oracle-capable pins.
+// acceptanceOracleFieldsForTest authors the fixture oracle fields and seeds
+// their trusted native preparations against the work's qualified verify
+// subject, so a ready job records under the full admission contract.
 func acceptanceOracleFieldsForTest(t *testing.T, s *Store, workID string) map[string]any {
+	t.Helper()
+	fields := acceptanceOracleFieldsWithoutPreparationsForTest(t, s, workID)
+	seedOraclePreparationFieldsFixture(t, s, workID, fields)
+	return fields
+}
+
+// acceptanceOracleFieldsWithoutPreparationsForTest authors the fixture oracle
+// fields only. Routes that refuse the oracle member, or record jobs whose
+// readiness is never validated, use this variant and seed no preparation.
+func acceptanceOracleFieldsWithoutPreparationsForTest(t *testing.T, s *Store, workID string) map[string]any {
 	t.Helper()
 	db := s.DatabaseForTesting()
 	var contractVersion int64
@@ -100,38 +113,7 @@ func acceptanceOracleFieldsForTest(t *testing.T, s *Store, workID string) map[st
 	} else if err != sql.ErrNoRows {
 		t.Fatalf("read architecture binding for %s: %v", workID, err)
 	}
-	readiness := ""
-	err = db.QueryRow(`SELECT json_extract(payload,'$.immutable_subject_ref') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? ORDER BY seq LIMIT 1`, string(SubjectWorkItem), workID, WorkflowEvidenceBound).Scan(&readiness)
-	if err == sql.ErrNoRows {
-		readiness = "evidence:oracle-fixture-ready"
-		op := "op:oracle-ready-" + workID
-		// Fixture seed, not a folded event: the durable operation makes the
-		// producer join plausible, and these fixtures never rebuild.
-		if _, err := db.Exec(`INSERT INTO durable_operations(op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_version,step_id,step_kind,accepted_inputs_digest,accepted_scope_snapshot,result_kind,result_payload,evidence_refs,changed_refs,principal_ref,request_id,observed_at,completed_at,contract_digest) VALUES(?,1,?,'workflow.test',1,'evidence','internal_sqlite','digest','{}','completed','{}',?,'[]','principal/oracle-ready','request/oracle-ready','2026-09-09T00:00:00Z','2026-09-09T00:00:01Z',?)`,
-			op, workID, workflowJSON([]string{readiness}), testManifestDigest); err != nil {
-			t.Fatalf("seed oracle readiness authority for %s: %v", workID, err)
-		}
-		payload, marshalErr := json.Marshal(map[string]any{
-			"work_id": workID, "expected_version": 1, "resulting_version": 2, "evidence_kind": "verification",
-			"immutable_subject_ref": readiness, "producer_id": "principal/oracle-ready", "producer_run_ref": op,
-			"producer_watermark": "request/oracle-ready", "observed_at": "2026-09-09T00:00:00Z",
-		})
-		if marshalErr != nil {
-			t.Fatal(marshalErr)
-		}
-		if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
-			t.Fatalf("open fold guard for %s: %v", workID, err)
-		}
-		if _, err := db.Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,'principal/oracle-ready','2026-09-09T00:00:00Z',1,?)`, "oracle-ready-"+workID, WorkflowEvidenceBound, string(SubjectWorkItem), workID, string(payload)); err != nil {
-			t.Fatalf("seed oracle readiness evidence for %s: %v", workID, err)
-		}
-		if _, err := db.Exec(`DELETE FROM fold_guard`); err != nil {
-			t.Fatalf("close fold guard for %s: %v", workID, err)
-		}
-	} else if err != nil {
-		t.Fatalf("read retained evidence for %s: %v", workID, err)
-	}
-	return map[string]any{
+	fields := map[string]any{
 		"owners": []map[string]any{{
 			"owner_id": "owner:fixture", "domain_id": domain,
 			"mechanism":     map[string]any{"project_id": project, "path": "internal/store/worker_jobs.go", "entry_point": "foldWorkerJobRecorded"},
@@ -148,11 +130,12 @@ func acceptanceOracleFieldsForTest(t *testing.T, s *Store, workID string) map[st
 			"control_id": "control:fixture", "owner_id": "owner:fixture",
 			"predicate_ids": []string{predicate}, "case_ids": []string{"case:fixture"},
 			"recipe_source": map[string]any{"kind": "repository_file", "project_id": project, "path": "scripts/oracle_check.sh", "commit_oid": testOracleCommit()},
-			"argv":          []string{"bash", "scripts/oracle_check.sh", "fixture"}, "cwd": "internal/store",
+			"argv":          oracleGoArgv("fixture"), "cwd": "internal/store",
 			"expected_result": "pass", "required_evidence_role": "reported",
-			"readiness_evidence_refs": []string{readiness},
+			"readiness_evidence_refs": []string{},
 		}},
 	}
+	return fields
 }
 
 // oracleAuthorityFixture seeds one pinned law revision and one more current
@@ -183,10 +166,11 @@ func TestOwnerOracleAuthorAuthorityJoins(t *testing.T) {
 	s := fixture.store
 	defer s.Close()
 	oracleAuthorityFixture(t, s, workID)
+	bootstrapOracleFixtureSubject(t, s, workID)
 	pinnedLawHash := "sha256:" + strings.Repeat("a", 64)
 	otherLawHash := "sha256:" + strings.Repeat("c", 64)
 	baseFields := func() map[string]any {
-		return map[string]any{
+		fields := map[string]any{
 			"job_id": "job:authority", "objective": "carry the oracle authority obligation",
 			"stopping_condition": "the oracle controls pass with authority joined",
 			"ready":              true, "readiness_evidence": []string{"evidence:return-route-verification"},
@@ -207,12 +191,14 @@ func TestOwnerOracleAuthorAuthorityJoins(t *testing.T) {
 					"control_id": "control:authority", "owner_id": "owner:authority",
 					"predicate_ids": []string{"predicate:return-route"}, "case_ids": []string{"case:authority"},
 					"recipe_source": map[string]any{"kind": "repository_file", "project_id": "project", "path": "scripts/oracle_check.sh", "commit_oid": testOracleCommit()},
-					"argv":          []string{"bash", "scripts/oracle_check.sh", "authority"}, "cwd": "internal/store",
+					"argv":          oracleGoArgv("authority"), "cwd": "internal/store",
 					"expected_result": "pass", "required_evidence_role": "reported",
 					"readiness_evidence_refs": []string{"evidence:return-route-verification"},
 				}},
 			},
 		}
+		seedOraclePreparationFieldsFixture(t, s, workID, fields["acceptance_oracle"].(map[string]any))
+		return fields
 	}
 	if err := recordWorkerJobActionForTest(t, s, workID, fixture.owner, baseFields()); err != nil {
 		t.Fatalf("fully joined oracle refused: %v", err)
@@ -259,7 +245,7 @@ func TestOwnerOracleAuthorAuthorityJoins(t *testing.T) {
 		{"naked readiness evidence", func(fields map[string]any) {
 			oracle := fields["acceptance_oracle"].(map[string]any)
 			oracle["controls"].([]map[string]any)[0]["readiness_evidence_refs"] = []string{"evidence:never-bound-anywhere"}
-		}, "names no evidence this work retained"},
+		}, "not its exact qualified native preparation"},
 	} {
 		t.Run(refusal.name, func(t *testing.T) {
 			fields := baseFields()
@@ -294,7 +280,7 @@ func TestOwnerOracleLegacyPinStaysOracleFree(t *testing.T) {
 	err := recordWorkerJobActionForTest(t, s, workID, fixture.owner, map[string]any{
 		"job_id": "job:legacy-oracle", "objective": "legacy job with an oracle",
 		"stopping_condition": "the legacy checks pass", "ready": false,
-		"acceptance_oracle": acceptanceOracleFieldsForTest(t, s, workID),
+		"acceptance_oracle": acceptanceOracleFieldsWithoutPreparationsForTest(t, s, workID),
 	})
 	if err == nil || !strings.Contains(err.Error(), "acceptance_oracle\" is not declared for action") {
 		t.Fatalf("legacy pin oracle error = %v, want the pinned-definition refusal", err)
@@ -357,6 +343,7 @@ func TestOwnerOracleImmutableProjection(t *testing.T) {
 	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
 	s := fixture.store
 	defer s.Close()
+	bootstrapOracleFixtureSubject(t, s, workID)
 	oracle := acceptanceOracleFieldsForTest(t, s, workID)
 	if err := recordWorkerJobActionForTest(t, s, workID, fixture.owner, map[string]any{
 		"job_id": "job:projection", "objective": "project the oracle to every lane",
@@ -398,7 +385,7 @@ func TestOwnerOracleImmutableProjection(t *testing.T) {
 		t.Fatalf("recorded-oracle packet refused: %v", err)
 	}
 	claimed := packetJobFromView(views[0])
-	claimed.AcceptanceOracle.Controls[0].Argv = []string{"bash", "scripts/oracle_check.sh", "tampered"}
+	claimed.AcceptanceOracle.Controls[0].Argv = oracleGoArgv("tampered")
 	packet["inputs"].(map[string]any)["worker_job"] = claimed
 	if _, err := validateWorkerPacketJob(context.Background(), s.DatabaseForTesting(), definition, workID, lane, mustJSONValue(packet)); err == nil || !strings.Contains(err.Error(), "content does not match the recorded revision") {
 		t.Fatalf("tampered-oracle packet error = %v, want the content-mismatch refusal", err)
@@ -415,6 +402,7 @@ func TestOwnerOracleImmutableRevisionAndReplay(t *testing.T) {
 	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
 	s := fixture.store
 	defer s.Close()
+	bootstrapOracleFixtureSubject(t, s, workID)
 	if err := recordWorkerJobActionForTest(t, s, workID, fixture.owner, map[string]any{
 		"job_id": "job:immutable", "objective": "keep the oracle immutable",
 		"stopping_condition": "the recorded oracle never changes",
@@ -425,7 +413,7 @@ func TestOwnerOracleImmutableRevisionAndReplay(t *testing.T) {
 	}
 	views, err := s.WorkerJobRevisions(context.Background(), workID)
 	if err != nil || len(views) != 1 {
-		t.Fatalf("recorded views = %#v, error = %v", err, views)
+		t.Fatalf("recorded views = %#v, error = %v", views, err)
 	}
 	var raw []byte
 	if err := s.DatabaseForTesting().QueryRowContext(context.Background(), `SELECT payload FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkerJobRecorded).Scan(&raw); err != nil {
@@ -441,7 +429,7 @@ func TestOwnerOracleImmutableRevisionAndReplay(t *testing.T) {
 	if err := json.Unmarshal(raw, &tampered); err != nil {
 		t.Fatal(err)
 	}
-	tampered.AcceptanceOracle.Controls[0].Argv = []string{"bash", "scripts/oracle_check.sh", "changed"}
+	tampered.AcceptanceOracle.Controls[0].Argv = oracleGoArgv("changed")
 	tampered.Digest = DeriveWorkerJobDigest(tampered)
 	if err := applyWorkerJobEventForTest(t, s, workID, tampered); err == nil || !strings.Contains(err.Error(), "cannot change content in place") {
 		t.Fatalf("tampered re-record error = %v, want the immutability refusal", err)
@@ -467,6 +455,7 @@ func TestOwnerOracleDigestCoversOracleContent(t *testing.T) {
 	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
 	s := fixture.store
 	defer s.Close()
+	bootstrapOracleFixtureSubject(t, s, workID)
 	oracle := acceptanceOracleFieldsForTest(t, s, workID)
 	if err := recordWorkerJobActionForTest(t, s, workID, fixture.owner, map[string]any{
 		"job_id": "job:digest-cover", "objective": "the digest covers the oracle",
@@ -508,6 +497,7 @@ func TestOwnerOracleSharedHelperRecordsOracle(t *testing.T) {
 	if !oracleCapablePinForWork(t, s, workID) {
 		t.Fatal("the newest break-fix pin is not oracle-capable")
 	}
+	bootstrapOracleFixtureSubject(t, s, workID)
 	job := &WorkerJobBinding{JobID: "job:helper", Revision: 1}
 	recordWorkerJobRevisionForTest(t, s, workID, fixture.owner, job)
 	views, err := s.WorkerJobRevisions(context.Background(), workID)

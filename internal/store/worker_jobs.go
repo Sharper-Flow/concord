@@ -594,6 +594,27 @@ func (s *Store) ReadyWorkerJobRevisions(ctx context.Context, workID string) ([]W
 // generic unreadiness: a revision recorded under a superseded contract stays
 // undispatchable until a new revision is recorded under the active contract.
 func requireWorkerJobRevisionReadyTx(ctx context.Context, q queryer, workID string, binding WorkerJobBinding) error {
+	if err := requireWorkerJobRevisionStateReadyTx(ctx, q, workID, binding); err != nil {
+		return err
+	}
+	oracle, err := readWorkerJobOracle(ctx, q, workID, binding)
+	if err != nil {
+		return err
+	}
+	if oracle != nil {
+		var project string
+		var contractVersion int64
+		if err := q.QueryRowContext(ctx, `SELECT project_scope,contract_version FROM worker_job_revisions WHERE work_id=? AND job_id=? AND revision=?`, workID, binding.JobID, binding.Revision).Scan(&project, &contractVersion); err != nil {
+			return err
+		}
+		return validateNativeJobPreparations(ctx, q, workID, project, contractVersion, oracle)
+	}
+	return nil
+}
+
+// The state recheck performs SQL only. Native release separately binds the
+// prevalidated oracle metadata to unchanged event and preparation snapshots.
+func requireWorkerJobRevisionStateReadyTx(ctx context.Context, q queryer, workID string, binding WorkerJobBinding) error {
 	var digest string
 	var contractVersion int64
 	var ready bool

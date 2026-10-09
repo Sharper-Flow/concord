@@ -358,7 +358,7 @@ def report_projection_constraints(report_schema: dict, lane: dict) -> list[str]:
         "`unavailable`/`not_run` carry the empty `run_ref` and name the explanation in "
         "`evidence_refs`. A receipt is reported evidence, never native-run authority: when no "
         "producing route issued an immutable locator, report `unavailable` and name the missing "
-        "producer honestly — never invent a run locator. `candidate_subject` is dispatch-owned "
+        "producer honestly — never invent a run locator. `subject_commit` is the dispatch-owned raw OID "
         "identity: never author it; any echo is stripped and the observed subject is injected "
         "from the dispatch packet.",
         "oracle_receipt.control_ids: "
@@ -704,8 +704,8 @@ checkpoint.
 def acceptance_oracle_instructions(packet_schema: dict) -> str:
     # CON-890: when the packet's worker job carries the acceptance oracle,
     # every lane reads the same recorded copy. The block teaches the shared
-    # oracle without adding acceptance criteria: run the declared controls,
-    # never substitute a preferred test, report a missing inventory case as a
+    # oracle without adding acceptance criteria: consume host-produced native
+    # receipts, never substitute a preferred test, report a missing case as a
     # legitimate blocker, treat earlier-subject receipts as baseline-only,
     # and treat a timeout as unavailable evidence. The bounds are read off
     # the packet schema, never restated as literals.
@@ -724,15 +724,24 @@ one entry path or transition; each control pins the exact harness source at
 an exact commit and the exact argument vector to run it from its contained
 working directory.
 
-Run the declared controls within your lane permissions and report each
-execution as a typed `oracle_receipt` on an evidence entry: the control ids,
+The authenticated host owns `native_oracle_v2` preparation and execution
+through the existing `worktree_verify` operation. Preparation compiles the
+pinned pure-Go harness without test execution and grants readiness only.
+Execution requires the exact persisted job, attempt, epoch, packet digest,
+control, preparation reference, and recorded raw subject. Managed workers
+gain no Concord tools. Do not replace this producer with your own argument
+vector, automatic preparation, or a model assertion. Ordinary test output
+does not acquire a qualified oracle receipt.
+
+Report the host-produced execution as a typed `oracle_receipt` on an evidence
+entry: the control ids,
 case ids, the pinned recipe source, the result (`pass`, `fail`, `unavailable`,
 or `not_run`), the exit code for an executed result, and the immutable run
 locator your host produced. A receipt is reported evidence, not authority:
 when no producing route issued an immutable locator, report `unavailable`
 with an empty `run_ref` and name the missing producer honestly — never
 invent a locator. A timeout is `unavailable` evidence, never a measured
-failure and never a source defect claim. Never author `candidate_subject`:
+failure and never a source defect claim. Never author `subject_commit`:
 the dispatch owns that identity.
 
 Do not replace a hard control with a preferred test, add an unrelated

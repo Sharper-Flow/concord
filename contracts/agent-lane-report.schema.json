@@ -175,7 +175,7 @@
         "run_ref",
         "evidence_refs"
       ],
-      "description": "One typed control-execution receipt (CON-890): reported evidence, never native-run authority. A signed worker report is a claim; the producing host's immutable native-run or artifact locator is the retrievable proof. candidate_subject is host-derived identity: the adapter strips any worker echo and injects the observed subject from the dispatch packet. A timeout is unavailable evidence, not a measured failure.",
+      "description": "One typed control-execution receipt (CON-890): reported evidence, never native-run authority. A signed worker report is a claim; the producing host's immutable native-run or artifact locator is the retrievable proof. subject_commit is the dispatch-owned raw commit OID: the adapter strips any worker echo and injects the admitted subject from the dispatch packet. A timeout is unavailable evidence, not a measured failure.",
       "properties": {
         "control_ids": {
           "type": "array",
@@ -201,11 +201,12 @@
             "pattern": "^case:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$"
           }
         },
-        "candidate_subject": {
+        "subject_commit": {
           "type": "string",
-          "minLength": 1,
-          "maxLength": 512,
-          "description": "Host-derived observed subject identity. Dispatch-owned: a worker-authored value here is stripped before the canonical report; it is filled only from the packet's work context subject when the core supplied one."
+          "minLength": 40,
+          "maxLength": 64,
+          "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
+          "description": "The admitted raw commit OID. Dispatch-owned: a worker-authored value is stripped before the canonical report and filled only from the packet's core subject_commit."
         },
         "recipe_source": {
           "$ref": "#/$defs/oracle_recipe_source"

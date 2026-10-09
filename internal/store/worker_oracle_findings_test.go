@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"strings"
 	"testing"
@@ -12,7 +13,7 @@ func TestOwnerOracleProducerAuthority(t *testing.T) {
 	s, git, _ := worktreeFixture(t)
 	claimFixtureWorktree(t, s, git)
 	ctx := context.Background()
-	command := []string{"bash", "scripts/oracle_check.sh", "immutability"}
+	command := oracleGoArgv("immutability")
 	result, err := s.VerifyWorktree(ctx, verifyRequest(git, "oracle-authority", command, func(context.Context, string, []string, int) (int, []byte, bool, error) {
 		return 0, []byte("bounded output"), true, nil
 	}))
@@ -21,8 +22,9 @@ func TestOwnerOracleProducerAuthority(t *testing.T) {
 	}
 	oracle := testOracleGraph()
 	oracle.Controls[0].RecipeSource.ProjectID = "project-w"
+	seedOracleExecuteLedgerFixture(t, s, &result, oracle)
 	exit := 0
-	receipt := WorkerOracleReceipt{ControlIDs: []string{"control:immutable"}, CaseIDs: []string{"case:immutable"}, CandidateSubject: result.SubjectRef,
+	receipt := WorkerOracleReceipt{ControlIDs: []string{"control:immutable"}, CaseIDs: []string{"case:immutable"}, SubjectCommit: strings.TrimPrefix(result.SubjectRef, "commit:"),
 		RecipeSource: WorkerOracleRecipeSource{Kind: WorkContextSourceRepositoryFile, ProjectID: "project-w", Path: "scripts/oracle_check.sh", CommitOID: testOracleCommit()},
 		Result:       OracleReceiptResultPass, ExitCode: &exit, RunRef: result.OperationRef}
 	validate := func(r WorkerOracleReceipt) error {
@@ -34,7 +36,7 @@ func TestOwnerOracleProducerAuthority(t *testing.T) {
 		t.Errorf("actual producer receipt refused: %v", err)
 	}
 	wrong := receipt
-	wrong.CandidateSubject = "commit:" + strings.Repeat("b", 40)
+	wrong.SubjectCommit = strings.Repeat("b", 40)
 	if err := validate(wrong); err == nil {
 		t.Error("model-selected candidate qualified")
 	}
@@ -55,19 +57,20 @@ func TestOwnerOracleResolutionAuthority(t *testing.T) {
 	s, git, _ := worktreeFixture(t)
 	claimFixtureWorktree(t, s, git)
 	ctx := context.Background()
-	result, err := s.VerifyWorktree(ctx, verifyRequest(git, "oracle-closure", []string{"bash", "scripts/oracle_check.sh", "immutability"}, func(context.Context, string, []string, int) (int, []byte, bool, error) { return 0, nil, false, nil }))
+	result, err := s.VerifyWorktree(ctx, verifyRequest(git, "oracle-closure", oracleGoArgv("immutability"), func(context.Context, string, []string, int) (int, []byte, bool, error) { return 0, nil, false, nil }))
 	if err != nil {
 		t.Fatal(err)
 	}
 	oracle := testOracleGraph()
 	oracle.Controls[0].RecipeSource.ProjectID = "project-w"
+	seedOracleExecuteLedgerFixture(t, s, &result, oracle)
 	exit := 0
-	receipt := WorkerOracleReceipt{ControlIDs: []string{"control:immutable"}, CaseIDs: []string{"case:immutable", "case:rerecord"}, CandidateSubject: result.SubjectRef,
+	receipt := WorkerOracleReceipt{ControlIDs: []string{"control:immutable"}, CaseIDs: []string{"case:immutable", "case:rerecord"}, SubjectCommit: strings.TrimPrefix(result.SubjectRef, "commit:"),
 		RecipeSource: WorkerOracleRecipeSource{Kind: WorkContextSourceRepositoryFile, ProjectID: "project-w", Path: "scripts/oracle_check.sh", CommitOID: testOracleCommit()}, Result: OracleReceiptResultPass, ExitCode: &exit, RunRef: result.OperationRef}
 	finding := &WorkerOpenOracleFinding{FindingID: "finding:1:0", OwnerID: "owner:entry", Classification: OracleClassificationDeliveryBlocker, ControlIDs: []string{"control:immutable"}}
 	validate := func(refs []string, receipts []WorkerOracleReceipt) error {
 		return s.Transact(ctx, func(tx *Transaction) error {
-			return validateWorkerOracleResolutionEvidenceTx(ctx, tx.tx, "work-w", finding, WorkerOracleResolution{FindingID: finding.FindingID, EvidenceRefs: refs}, result.SubjectRef, &workerOracleFindingLineage{retainedReceipts: receipts}, oracle, nil)
+			return validateWorkerOracleResolutionEvidenceTx(ctx, tx.tx, "work-w", finding, WorkerOracleResolution{FindingID: finding.FindingID, EvidenceRefs: refs}, strings.TrimPrefix(result.SubjectRef, "commit:"), &workerOracleFindingLineage{retainedReceipts: receipts}, oracle, nil)
 		})
 	}
 	if err := validate([]string{result.OperationRef}, []WorkerOracleReceipt{receipt}); err != nil {
@@ -78,6 +81,7 @@ func TestOwnerOracleResolutionAuthority(t *testing.T) {
 		t.Fatal(err)
 	}
 	newerFailure := receipt
+	seedOracleExecuteLedgerFixture(t, s, &failed, oracle)
 	failureExit := 1
 	newerFailure.Result, newerFailure.RunRef, newerFailure.ExitCode = OracleReceiptResultFail, failed.OperationRef, &failureExit
 	if err := validate([]string{result.OperationRef}, []WorkerOracleReceipt{receipt, newerFailure}); err == nil {
@@ -87,7 +91,7 @@ func TestOwnerOracleResolutionAuthority(t *testing.T) {
 		t.Error("re-reporting an old pass overrode the newer native failure")
 	}
 	old := receipt
-	old.CandidateSubject = "commit:" + strings.Repeat("b", 40)
+	old.SubjectCommit = strings.Repeat("b", 40)
 	if err := validate([]string{result.OperationRef}, []WorkerOracleReceipt{old}); err == nil {
 		t.Error("old subject closed current finding")
 	}
@@ -162,10 +166,10 @@ func TestOwnerOracleRealPacketAcceptance(t *testing.T) {
 		t.Fatal(err)
 	}
 	recordJobBoundWorkerDispatch(t, s, workID, attempt, &job)
-	run := oracleVerifyControl(t, f, workID, "real-packet-control", "1", []string{"bash", "scripts/oracle_check.sh", "path-a"}, 0)
+	run := oracleVerifyControl(t, f, workID, "real-packet-control", "1", oracleGoArgv("path-a"), 0)
 	exit := 0
 	event := oracleCompletionEvent(t, s, workID, attempt, "real-packet-completion", func(p *WorkerCompletedPayload) {
-		withReceipt(p, &WorkerOracleReceipt{ControlIDs: []string{"control:check-a"}, CaseIDs: []string{"case:path-a"}, CandidateSubject: run.SubjectRef,
+		withReceipt(p, &WorkerOracleReceipt{ControlIDs: []string{"control:check-a"}, CaseIDs: []string{"case:path-a"}, SubjectCommit: strings.TrimPrefix(run.SubjectRef, "commit:"),
 			RecipeSource: WorkerOracleRecipeSource{Kind: WorkContextSourceRepositoryFile, ProjectID: "project", Path: "scripts/oracle_check.sh", CommitOID: testOracleCommit()}, Result: OracleReceiptResultPass, ExitCode: &exit, RunRef: run.OperationRef})
 	})
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{event}}); err != nil {
@@ -175,7 +179,7 @@ func TestOwnerOracleRealPacketAcceptance(t *testing.T) {
 		t.Fatal(err)
 	}
 	view, err := readWorkContextView(context.Background(), s.db, workID)
-	if err != nil || view == nil || view.CandidateSubject != run.SubjectRef || len(view.OracleReceipts) != 1 {
+	if err != nil || view == nil || view.SubjectCommit != strings.TrimPrefix(run.SubjectRef, "commit:") || len(view.OracleReceipts) != 1 {
 		t.Fatalf("accepted context=%+v err=%v", view, err)
 	}
 }
@@ -184,7 +188,7 @@ func TestOwnerOracleMatchedNativeReceipt(t *testing.T) {
 	s, git, _ := worktreeFixture(t)
 	claimFixtureWorktree(t, s, git)
 	ctx := context.Background()
-	command := []string{"bash", "scripts/oracle_check.sh", "immutability"}
+	command := oracleGoArgv("immutability")
 	result, err := s.VerifyWorktree(ctx, verifyRequest(git, "oracle-native-command", command, func(context.Context, string, []string, int) (int, []byte, bool, error) { return 0, nil, false, nil }))
 	if err != nil {
 		t.Fatal(err)
@@ -200,12 +204,13 @@ func TestOwnerOracleMatchedNativeReceipt(t *testing.T) {
 	}
 	oracle := testOracleGraph()
 	oracle.Controls[0].RecipeSource.ProjectID = "project-w"
+	seedOracleExecuteLedgerFixture(t, s, &result, oracle)
 	exit := 0
-	receipt := WorkerOracleReceipt{ControlIDs: []string{"control:immutable"}, CaseIDs: []string{"case:immutable", "case:rerecord"}, CandidateSubject: result.SubjectRef,
+	receipt := WorkerOracleReceipt{ControlIDs: []string{"control:immutable"}, CaseIDs: []string{"case:immutable", "case:rerecord"}, SubjectCommit: strings.TrimPrefix(result.SubjectRef, "commit:"),
 		RecipeSource: WorkerOracleRecipeSource{Kind: WorkContextSourceRepositoryFile, ProjectID: "project-w", Path: "scripts/oracle_check.sh", CommitOID: testOracleCommit()}, Result: OracleReceiptResultPass, ExitCode: &exit, RunRef: "run:matched"}
 	validate := func() error {
 		return s.Transact(ctx, func(tx *Transaction) error {
-			_, err := workerOracleReceiptProducerTx(ctx, tx.tx, "work-w", &receipt, oracleControlIndex(oracle), result.SubjectRef)
+			_, err := workerOracleReceiptProducerTx(ctx, tx.tx, "work-w", &receipt, oracle, strings.TrimPrefix(result.SubjectRef, "commit:"))
 			return err
 		})
 	}
@@ -252,7 +257,7 @@ func TestOwnerOracleIndependentClosure(t *testing.T) {
 	id := lineage.openFindingIDs()[0]
 	second := "attempt:" + workID + ":2"
 	oracleDispatchAttempt(t, f, workID, second, nil, job)
-	command := []string{"bash", "scripts/oracle_check.sh", "path-b"}
+	command := oracleGoArgv("path-b")
 	// First execute as the dispatched lane itself and bind the real producer.
 	var laneActor string
 	if err := s.db.QueryRow(`SELECT json_extract(payload,'$.lane_actor_ref') FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.attempt_id')=?`, workID, WorkerDispatched, second).Scan(&laneActor); err != nil {
@@ -269,6 +274,7 @@ func TestOwnerOracleIndependentClosure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	seedOracleExecuteLedgerFixture(t, s, &self, oracleFixtureGraphForCommand(t, s, workID, command))
 	bind := func(result WorktreeVerifyResult, principal, watermark string) {
 		t.Helper()
 		event := workflowTypedEvent("bind-"+result.LeaseID, WorkflowEvidenceBound, workID, "actor:test", time.Unix(60, 0).UTC(), readWorkVersion(t, s, workID), map[string]any{
@@ -283,7 +289,7 @@ func TestOwnerOracleIndependentClosure(t *testing.T) {
 	completion := func(result WorktreeVerifyResult, key string) error {
 		return ApplyOperation(context.Background(), s, Operation{Events: []Event{oracleCompletionEvent(t, s, workID, second, key, func(p *WorkerCompletedPayload) {
 			exit := 0
-			withReceipt(p, &WorkerOracleReceipt{ControlIDs: []string{"control:check-b"}, CaseIDs: []string{"case:path-b"}, CandidateSubject: result.SubjectRef,
+			withReceipt(p, &WorkerOracleReceipt{ControlIDs: []string{"control:check-b"}, CaseIDs: []string{"case:path-b"}, SubjectCommit: strings.TrimPrefix(result.SubjectRef, "commit:"),
 				RecipeSource: WorkerOracleRecipeSource{Kind: WorkContextSourceRepositoryFile, ProjectID: "project", Path: "scripts/oracle_check.sh", CommitOID: testOracleCommit()}, Result: OracleReceiptResultPass, ExitCode: &exit, RunRef: result.OperationRef})
 			p.Review.ResolvedFindings = []WorkerOracleResolution{{FindingID: id, EvidenceRefs: []string{result.OperationRef}}}
 		})}})
@@ -324,6 +330,9 @@ func TestOwnerOracleUncoveredClosure(t *testing.T) {
 		t.Fatal(err)
 	}
 	id := lineage.openFindingIDs()[0]
+	// The reproduced case authors and executes on a fresh current subject:
+	// its preparation and job revision bind that candidate.
+	advanceOracleFixtureSubject(t, f, workID, "2")
 	fields := twoPathOracleFields(t, s, workID, func(o map[string]any) {
 		cases := o["cases"].([]map[string]any)
 		controls := o["controls"].([]map[string]any)
@@ -332,16 +341,16 @@ func TestOwnerOracleUncoveredClosure(t *testing.T) {
 		for key, value := range controls[0] {
 			control[key] = value
 		}
-		control["control_id"], control["case_ids"], control["argv"] = "control:check-c", []string{"case:path-c"}, []string{"bash", "scripts/oracle_check.sh", "path-c"}
+		control["control_id"], control["case_ids"], control["argv"] = "control:check-c", []string{"case:path-c"}, oracleGoArgv("path-c")
 		o["controls"] = append(controls, control)
 	})
 	newJob := recordOracleJobRevision(t, s, workID, f.owner, job.JobID, fields)
 	second := "attempt:" + workID + ":2"
 	oracleDispatchAttempt(t, f, workID, second, nil, &newJob)
-	run := oracleVerifyControl(t, f, workID, "uncovered-pass", "2", []string{"bash", "scripts/oracle_check.sh", "path-c"}, 0)
+	run := oracleVerifyControl(t, f, workID, "uncovered-pass", "2", oracleGoArgv("path-c"), 0)
 	exit := 0
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{oracleCompletionEvent(t, s, workID, second, "uncovered-resolution", func(p *WorkerCompletedPayload) {
-		withReceipt(p, &WorkerOracleReceipt{ControlIDs: []string{"control:check-c"}, CaseIDs: []string{"case:path-c"}, CandidateSubject: run.SubjectRef,
+		withReceipt(p, &WorkerOracleReceipt{ControlIDs: []string{"control:check-c"}, CaseIDs: []string{"case:path-c"}, SubjectCommit: strings.TrimPrefix(run.SubjectRef, "commit:"),
 			RecipeSource: WorkerOracleRecipeSource{Kind: WorkContextSourceRepositoryFile, ProjectID: "project", Path: "scripts/oracle_check.sh", CommitOID: testOracleCommit()}, Result: OracleReceiptResultPass, ExitCode: &exit, RunRef: run.OperationRef})
 		p.Review.ResolvedFindings = []WorkerOracleResolution{{FindingID: id, EvidenceRefs: []string{run.OperationRef}}}
 	})}}); err != nil {
@@ -418,6 +427,16 @@ func seedOracleRepairFixture(t *testing.T, workID string) oracleRepairFixture {
 	})}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
 		t.Fatal(err)
 	}
+	git, entry := oracleFixtureClaimedWorktree(t, s, workID)
+	result := oracleRepairFixture{store: s, owner: fixture.owner, worker: worker, acceptor: acceptor, git: git, entry: entry}
+	oracleVerifyControl(t, result, workID, "candidate", "1", []string{"true"}, 0)
+	return result
+}
+
+// oracleFixtureClaimedWorktree registers the Project locator, claims a fake
+// worktree for the work, and returns its git and entry.
+func oracleFixtureClaimedWorktree(t *testing.T, s *Store, workID string) (*fakeWorktreeGit, WorktreeEntry) {
+	t.Helper()
 	root := t.TempDir()
 	var projectVersion int64
 	if err := s.db.QueryRow(`SELECT version FROM projects WHERE id='project'`).Scan(&projectVersion); err != nil {
@@ -437,12 +456,35 @@ func seedOracleRepairFixture(t *testing.T, workID string) oracleRepairFixture {
 	if err := os.MkdirAll(claimed.Entry.Path, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	result := oracleRepairFixture{store: s, owner: fixture.owner, worker: worker, acceptor: acceptor, git: git, entry: claimed.Entry}
-	oracleVerifyControl(t, result, workID, "candidate", "1", []string{"true"}, 0)
-	return result
+	return git, claimed.Entry
+}
+
+// bootstrapOracleFixtureSubject claims a fixture worktree for the work and
+// qualifies its candidate subject with a plain verify, the same route the
+// repair family uses, so authoring and preparation fixtures bind a real
+// subject on an active claim. It is idempotent: a work that already holds a
+// qualified subject on an active claim keeps that subject and its evidence,
+// and no second claim or verify is recorded.
+func bootstrapOracleFixtureSubject(t *testing.T, s *Store, workID string) {
+	t.Helper()
+	if subject, err := readCurrentOracleSubject(context.Background(), s.db, workID); err != nil {
+		t.Fatal(err)
+	} else if subject != "" {
+		return
+	}
+	git, entry := oracleFixtureClaimedWorktree(t, s, workID)
+	oracleVerifyControl(t, oracleRepairFixture{store: s, git: git, entry: entry}, workID, "candidate", "1", []string{"true"}, 0)
 }
 
 func oracleTestSubject(round string) string { return "commit:" + strings.Repeat(round, 40) }
+
+// advanceOracleFixtureSubject moves the candidate to the round's subject and
+// qualifies it with a plain verify: each later round authors, prepares, and
+// executes against a fresh current candidate, never a retired subject.
+func advanceOracleFixtureSubject(t *testing.T, f oracleRepairFixture, workID, round string) {
+	t.Helper()
+	oracleVerifyControl(t, f, workID, "candidate-"+round, round, []string{"true"}, 0)
+}
 
 func oracleVerifyControl(t *testing.T, f oracleRepairFixture, workID, name, round string, command []string, exit int) WorktreeVerifyResult {
 	t.Helper()
@@ -452,6 +494,9 @@ func oracleVerifyControl(t *testing.T, f oracleRepairFixture, workID, name, roun
 	result, err := f.store.VerifyWorktree(context.Background(), req)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if len(command) > 1 {
+		seedOracleExecuteLedgerFixture(t, f.store, &result, oracleFixtureGraphForCommand(t, f.store, workID, command))
 	}
 	return result
 }
@@ -476,10 +521,10 @@ func twoPathOracleFields(t *testing.T, s *Store, workID string, mutation func(or
 	}
 	oracle["controls"] = []map[string]any{
 		{"control_id": "control:check-a", "owner_id": "owner:repair", "predicate_ids": []string{predicate}, "case_ids": []string{"case:path-a"},
-			"recipe_source": recipe, "argv": []string{"bash", "scripts/oracle_check.sh", "path-a"}, "cwd": "internal/store",
+			"recipe_source": recipe, "argv": oracleGoArgv("path-a"), "cwd": "internal/store",
 			"expected_result": "pass", "required_evidence_role": "reported", "readiness_evidence_refs": readiness},
 		{"control_id": "control:check-b", "owner_id": "owner:repair", "predicate_ids": []string{predicate}, "case_ids": []string{"case:path-b"},
-			"recipe_source": recipe, "argv": []string{"bash", "scripts/oracle_check.sh", "path-b"}, "cwd": "internal/store",
+			"recipe_source": recipe, "argv": oracleGoArgv("path-b"), "cwd": "internal/store",
 			"expected_result": "pass", "required_evidence_role": "independently_executed", "readiness_evidence_refs": readiness},
 	}
 	if mutation != nil {
@@ -493,6 +538,15 @@ func twoPathOracleFields(t *testing.T, s *Store, workID string, mutation func(or
 // shares, so obligation-key comparisons in the debt tests isolate the oracle.
 func recordOracleJobRevision(t *testing.T, s *Store, workID string, actor WorkflowActor, jobID string, oracle map[string]any) WorkerJobBinding {
 	t.Helper()
+	raw, err := json.Marshal(oracle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var graph AcceptanceOracle
+	if err := json.Unmarshal(raw, &graph); err != nil {
+		t.Fatal(err)
+	}
+	seedOraclePreparationLedgerFixture(t, s, workID, &graph)
 	fields := map[string]any{
 		"job_id": jobID, "objective": "bounded job objective for " + jobID,
 		"stopping_condition":   "the recorded checks pass with no unresolved reference",
@@ -500,7 +554,7 @@ func recordOracleJobRevision(t *testing.T, s *Store, workID string, actor Workfl
 		"checks":               []string{"go test ./internal/store/"},
 		"reserved_integration": "integration evidence binds at the parent effect step",
 		"ready":                true, "readiness_evidence": []string{"evidence:coordinator-ready"},
-		"acceptance_oracle": oracle,
+		"acceptance_oracle": &graph,
 	}
 	if err := recordWorkerJobActionForTest(t, s, workID, actor, fields); err != nil {
 		t.Fatalf("record oracle job %s: %v", jobID, err)
@@ -600,8 +654,8 @@ func oracleCompletionEvent(t *testing.T, s *Store, workID, attemptID, eventKey s
 		build(&payload)
 	}
 	for _, entry := range payload.Evidence {
-		if entry.OracleReceipt != nil && entry.OracleReceipt.CandidateSubject == "" && entry.OracleReceipt.RunRef != "" {
-			entry.OracleReceipt.CandidateSubject, err = readCurrentOracleSubject(context.Background(), s.db, workID)
+		if entry.OracleReceipt != nil && entry.OracleReceipt.SubjectCommit == "" && entry.OracleReceipt.RunRef != "" {
+			entry.OracleReceipt.SubjectCommit, err = readCurrentOracleSubject(context.Background(), s.db, workID)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -963,7 +1017,7 @@ func TestOwnerOracleReceipt(t *testing.T) {
 		t.Fatalf("unrelated case error = %v", err)
 	}
 	// A fail receipt over a retained native run folds.
-	failed := oracleVerifyControl(t, f, workID, "path-a-fail", "1", []string{"bash", "scripts/oracle_check.sh", "path-a"}, 1)
+	failed := oracleVerifyControl(t, f, workID, "path-a-fail", "1", oracleGoArgv("path-a"), 1)
 	if err := report(func(payload *WorkerCompletedPayload) {
 		withReceipt(payload, &WorkerOracleReceipt{ControlIDs: []string{"control:check-a"}, CaseIDs: []string{"case:path-a"}, RecipeSource: recipe, Result: OracleReceiptResultFail, ExitCode: &unavailableExit, RunRef: failed.OperationRef})
 	}); err != nil {
@@ -996,15 +1050,15 @@ func TestOwnerOracleRepairFamily(t *testing.T) {
 	// baseline a later round must not treat as current proof.
 	attempt1 := "attempt:" + workID + ":1"
 	oracleDispatchAttempt(t, f, workID, attempt1, twoPathOracleFields(t, s, workID, nil), job)
-	aFail1 := oracleVerifyControl(t, f, workID, "a-fail-s1", "1", []string{"bash", "scripts/oracle_check.sh", "path-a"}, fail)
-	bPass1 := oracleVerifyControl(t, f, workID, "b-pass-s1", "1", []string{"bash", "scripts/oracle_check.sh", "path-b"}, pass)
+	aFail1 := oracleVerifyControl(t, f, workID, "a-fail-s1", "1", oracleGoArgv("path-a"), fail)
+	bPass1 := oracleVerifyControl(t, f, workID, "b-pass-s1", "1", oracleGoArgv("path-b"), pass)
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{oracleCompletionEvent(t, s, workID, attempt1, "oracle-family", func(payload *WorkerCompletedPayload) {
 		payload.Evidence[0].OracleReceipt = &WorkerOracleReceipt{
-			ControlIDs: []string{"control:check-a"}, CaseIDs: []string{"case:path-a"}, CandidateSubject: aFail1.SubjectRef, RecipeSource: recipe,
+			ControlIDs: []string{"control:check-a"}, CaseIDs: []string{"case:path-a"}, SubjectCommit: strings.TrimPrefix(aFail1.SubjectRef, "commit:"), RecipeSource: recipe,
 			Result: OracleReceiptResultFail, ExitCode: &fail, RunRef: aFail1.OperationRef, EvidenceRefs: []string{"harness output a"},
 		}
 		payload.Evidence[1].OracleReceipt = &WorkerOracleReceipt{
-			ControlIDs: []string{"control:check-b"}, CaseIDs: []string{"case:path-b"}, CandidateSubject: bPass1.SubjectRef, RecipeSource: recipe,
+			ControlIDs: []string{"control:check-b"}, CaseIDs: []string{"case:path-b"}, SubjectCommit: strings.TrimPrefix(bPass1.SubjectRef, "commit:"), RecipeSource: recipe,
 			Result: OracleReceiptResultPass, ExitCode: &pass, RunRef: bPass1.OperationRef, EvidenceRefs: []string{"harness output b"},
 		}
 		payload.Review = &WorkerReviewBlock{Verdict: "no_ship", Findings: []WorkerReviewFinding{oracleBlockerFinding("path a fails", "path-a", "control:check-a")}}
@@ -1019,18 +1073,21 @@ func TestOwnerOracleRepairFamily(t *testing.T) {
 
 	// Round two: path a passes at the current subject and its finding
 	// closes on that receipt; path b now fails and opens a second finding.
+	// The new subject needs a fresh preparation and a new job revision
+	// bound to it: an old preparation never qualifies a new candidate.
 	attempt2 := "attempt:" + workID + ":2"
 	issue1013StartRepair(t, s, workID, f.owner, readWorkVersion(t, s, workID), latestStepStartEpoch(t, s, workID, "repair")+1)
-	oracleDispatchAttempt(t, f, workID, attempt2, nil, job)
-	aPass2 := oracleVerifyControl(t, f, workID, "a-pass-s2", "2", []string{"bash", "scripts/oracle_check.sh", "path-a"}, pass)
-	bFail2 := oracleVerifyControl(t, f, workID, "b-fail-s2", "2", []string{"bash", "scripts/oracle_check.sh", "path-b"}, fail)
+	advanceOracleFixtureSubject(t, f, workID, "2")
+	oracleDispatchAttempt(t, f, workID, attempt2, twoPathOracleFields(t, s, workID, nil), &WorkerJobBinding{JobID: job.JobID})
+	aPass2 := oracleVerifyControl(t, f, workID, "a-pass-s2", "2", oracleGoArgv("path-a"), pass)
+	bFail2 := oracleVerifyControl(t, f, workID, "b-fail-s2", "2", oracleGoArgv("path-b"), fail)
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{oracleCompletionEvent(t, s, workID, attempt2, "oracle-family-2", func(payload *WorkerCompletedPayload) {
 		payload.Evidence[0].OracleReceipt = &WorkerOracleReceipt{
-			ControlIDs: []string{"control:check-a"}, CaseIDs: []string{"case:path-a"}, CandidateSubject: aPass2.SubjectRef, RecipeSource: recipe,
+			ControlIDs: []string{"control:check-a"}, CaseIDs: []string{"case:path-a"}, SubjectCommit: strings.TrimPrefix(aPass2.SubjectRef, "commit:"), RecipeSource: recipe,
 			Result: OracleReceiptResultPass, ExitCode: &pass, RunRef: aPass2.OperationRef, EvidenceRefs: []string{"harness output a"},
 		}
 		payload.Evidence[1].OracleReceipt = &WorkerOracleReceipt{
-			ControlIDs: []string{"control:check-b"}, CaseIDs: []string{"case:path-b"}, CandidateSubject: bFail2.SubjectRef, RecipeSource: recipe,
+			ControlIDs: []string{"control:check-b"}, CaseIDs: []string{"case:path-b"}, SubjectCommit: strings.TrimPrefix(bFail2.SubjectRef, "commit:"), RecipeSource: recipe,
 			Result: OracleReceiptResultFail, ExitCode: &fail, RunRef: bFail2.OperationRef, EvidenceRefs: []string{"harness output b"},
 		}
 		payload.Review = &WorkerReviewBlock{
@@ -1062,14 +1119,16 @@ func TestOwnerOracleRepairFamily(t *testing.T) {
 	}
 
 	// A closure of the path-b finding citing the prior-subject baseline
-	// pass refuses: baseline never closes current obligations.
+	// pass refuses: baseline never closes current obligations. Round three
+	// runs on its own fresh subject, preparation, and job revision.
 	attempt3 := "attempt:" + workID + ":3"
 	issue1013StartRepair(t, s, workID, f.owner, readWorkVersion(t, s, workID), latestStepStartEpoch(t, s, workID, "repair")+1)
-	oracleDispatchAttempt(t, f, workID, attempt3, nil, job)
-	bPass3 := oracleVerifyControl(t, f, workID, "b-pass-s3", "3", []string{"bash", "scripts/oracle_check.sh", "path-b"}, pass)
+	advanceOracleFixtureSubject(t, f, workID, "3")
+	oracleDispatchAttempt(t, f, workID, attempt3, twoPathOracleFields(t, s, workID, nil), &WorkerJobBinding{JobID: job.JobID})
+	bPass3 := oracleVerifyControl(t, f, workID, "b-pass-s3", "3", oracleGoArgv("path-b"), pass)
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{oracleCompletionEvent(t, s, workID, attempt3, "oracle-family-3", func(payload *WorkerCompletedPayload) {
 		payload.Evidence[0].OracleReceipt = &WorkerOracleReceipt{
-			ControlIDs: []string{"control:check-b"}, CaseIDs: []string{"case:path-b"}, CandidateSubject: bPass3.SubjectRef, RecipeSource: recipe,
+			ControlIDs: []string{"control:check-b"}, CaseIDs: []string{"case:path-b"}, SubjectCommit: strings.TrimPrefix(bPass3.SubjectRef, "commit:"), RecipeSource: recipe,
 			Result: OracleReceiptResultPass, ExitCode: &pass, RunRef: bPass3.OperationRef, EvidenceRefs: []string{"harness output b"},
 		}
 		payload.Review = &WorkerReviewBlock{
@@ -1085,7 +1144,7 @@ func TestOwnerOracleRepairFamily(t *testing.T) {
 	// evidence closes it.
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{oracleCompletionEvent(t, s, workID, attempt3, "oracle-family-3b", func(payload *WorkerCompletedPayload) {
 		payload.Evidence[0].OracleReceipt = &WorkerOracleReceipt{
-			ControlIDs: []string{"control:check-b"}, CaseIDs: []string{"case:path-b"}, CandidateSubject: bPass3.SubjectRef, RecipeSource: recipe,
+			ControlIDs: []string{"control:check-b"}, CaseIDs: []string{"case:path-b"}, SubjectCommit: strings.TrimPrefix(bPass3.SubjectRef, "commit:"), RecipeSource: recipe,
 			Result: OracleReceiptResultPass, ExitCode: &pass, RunRef: bPass3.OperationRef, EvidenceRefs: []string{"harness output b"},
 		}
 		payload.Review = &WorkerReviewBlock{
@@ -1126,6 +1185,9 @@ func TestOwnerOracleConvergence(t *testing.T) {
 	job := &WorkerJobBinding{JobID: "job:convergence"}
 	recipe := WorkerOracleRecipeSource{Kind: WorkContextSourceRepositoryFile, ProjectID: "project", Path: "scripts/oracle_check.sh", CommitOID: testOracleCommit()}
 	pass := 0
+	reportedBoth := func(oracle map[string]any) {
+		oracle["controls"].([]map[string]any)[1]["required_evidence_role"] = "reported"
+	}
 
 	reject := func(attemptID string, openIDs []string) error {
 		payload := map[string]any{
@@ -1142,9 +1204,7 @@ func TestOwnerOracleConvergence(t *testing.T) {
 	// Round one mints two blockers on reported-role controls.
 	issue1013StartRepair(t, s, workID, f.owner, readWorkVersion(t, s, workID), latestStepStartEpoch(t, s, workID, "repair")+1)
 	attempt1 := "attempt:" + workID + ":1"
-	oracleDispatchAttempt(t, f, workID, attempt1, twoPathOracleFields(t, s, workID, func(oracle map[string]any) {
-		oracle["controls"].([]map[string]any)[1]["required_evidence_role"] = "reported"
-	}), job)
+	oracleDispatchAttempt(t, f, workID, attempt1, twoPathOracleFields(t, s, workID, reportedBoth), job)
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{oracleCompletionEvent(t, s, workID, attempt1, "oracle-convergence", func(payload *WorkerCompletedPayload) {
 		payload.Review = &WorkerReviewBlock{Verdict: "no_ship", Findings: []WorkerReviewFinding{
 			oracleBlockerFinding("first blocker", "family-one", "control:check-a"),
@@ -1178,13 +1238,15 @@ func TestOwnerOracleConvergence(t *testing.T) {
 	}
 
 	// Round two closes one blocker on a current-subject pass and reports
-	// nothing new; the rejection carries the strict subset.
+	// nothing new; the rejection carries the strict subset. The new subject
+	// gets a fresh preparation and job revision bound to it.
 	attempt2 := "attempt:" + workID + ":2"
 	issue1013StartRepair(t, s, workID, f.owner, readWorkVersion(t, s, workID), latestStepStartEpoch(t, s, workID, "repair")+1)
-	oracleDispatchAttempt(t, f, workID, attempt2, nil, job)
-	closeRun := oracleVerifyControl(t, f, workID, "convergence-close", "2", []string{"bash", "scripts/oracle_check.sh", "path-a"}, pass)
+	advanceOracleFixtureSubject(t, f, workID, "2")
+	oracleDispatchAttempt(t, f, workID, attempt2, twoPathOracleFields(t, s, workID, reportedBoth), &WorkerJobBinding{JobID: job.JobID})
+	closeRun := oracleVerifyControl(t, f, workID, "convergence-close", "2", oracleGoArgv("path-a"), pass)
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{oracleCompletionEvent(t, s, workID, attempt2, "oracle-convergence-2", func(payload *WorkerCompletedPayload) {
-		withReceipt(payload, &WorkerOracleReceipt{ControlIDs: []string{"control:check-a"}, CaseIDs: []string{"case:path-a"}, CandidateSubject: closeRun.SubjectRef, RecipeSource: recipe, Result: OracleReceiptResultPass, ExitCode: &pass, RunRef: closeRun.OperationRef})
+		withReceipt(payload, &WorkerOracleReceipt{ControlIDs: []string{"control:check-a"}, CaseIDs: []string{"case:path-a"}, SubjectCommit: strings.TrimPrefix(closeRun.SubjectRef, "commit:"), RecipeSource: recipe, Result: OracleReceiptResultPass, ExitCode: &pass, RunRef: closeRun.OperationRef})
 		payload.Review = &WorkerReviewBlock{
 			Verdict:          "ship",
 			Findings:         []WorkerReviewFinding{},
@@ -1209,10 +1271,11 @@ func TestOwnerOracleConvergence(t *testing.T) {
 	// incomparable pair.
 	attempt3 := "attempt:" + workID + ":3"
 	issue1013StartRepair(t, s, workID, f.owner, readWorkVersion(t, s, workID), latestStepStartEpoch(t, s, workID, "repair")+1)
-	oracleDispatchAttempt(t, f, workID, attempt3, nil, job)
-	replaceRun := oracleVerifyControl(t, f, workID, "convergence-replace", "3", []string{"bash", "scripts/oracle_check.sh", "path-a"}, pass)
+	advanceOracleFixtureSubject(t, f, workID, "3")
+	oracleDispatchAttempt(t, f, workID, attempt3, twoPathOracleFields(t, s, workID, reportedBoth), &WorkerJobBinding{JobID: job.JobID})
+	replaceRun := oracleVerifyControl(t, f, workID, "convergence-replace", "3", oracleGoArgv("path-a"), pass)
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{oracleCompletionEvent(t, s, workID, attempt3, "oracle-convergence-3", func(payload *WorkerCompletedPayload) {
-		withReceipt(payload, &WorkerOracleReceipt{ControlIDs: []string{"control:check-a"}, CaseIDs: []string{"case:path-a"}, CandidateSubject: replaceRun.SubjectRef, RecipeSource: recipe, Result: OracleReceiptResultPass, ExitCode: &pass, RunRef: replaceRun.OperationRef})
+		withReceipt(payload, &WorkerOracleReceipt{ControlIDs: []string{"control:check-a"}, CaseIDs: []string{"case:path-a"}, SubjectCommit: strings.TrimPrefix(replaceRun.SubjectRef, "commit:"), RecipeSource: recipe, Result: OracleReceiptResultPass, ExitCode: &pass, RunRef: replaceRun.OperationRef})
 		payload.Review = &WorkerReviewBlock{
 			Verdict:          "no_ship",
 			Findings:         []WorkerReviewFinding{oracleBlockerFinding("a fresh sibling of the closed family", "family-one", "control:check-a")},
@@ -1268,12 +1331,13 @@ func TestOwnerOracleConvergence(t *testing.T) {
 	}
 	attempt5 := "attempt:" + workID + ":5"
 	issue1013StartRepair(t, s, workID, f.owner, readWorkVersion(t, s, workID), latestStepStartEpoch(t, s, workID, "repair")+1)
-	oracleDispatchAttempt(t, f, workID, attempt5, nil, job)
-	defectRunA := oracleVerifyControl(t, f, workID, "defect-a", "5", []string{"bash", "scripts/oracle_check.sh", "path-a"}, pass)
-	defectRunB := oracleVerifyControl(t, f, workID, "defect-b", "5", []string{"bash", "scripts/oracle_check.sh", "path-b"}, pass)
+	advanceOracleFixtureSubject(t, f, workID, "5")
+	oracleDispatchAttempt(t, f, workID, attempt5, twoPathOracleFields(t, s, workID, reportedBoth), &WorkerJobBinding{JobID: job.JobID})
+	defectRunA := oracleVerifyControl(t, f, workID, "defect-a", "5", oracleGoArgv("path-a"), pass)
+	defectRunB := oracleVerifyControl(t, f, workID, "defect-b", "5", oracleGoArgv("path-b"), pass)
 	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{oracleCompletionEvent(t, s, workID, attempt5, "oracle-convergence-5", func(payload *WorkerCompletedPayload) {
-		withReceipt(payload, &WorkerOracleReceipt{ControlIDs: []string{"control:check-a"}, CaseIDs: []string{"case:path-a"}, CandidateSubject: defectRunA.SubjectRef, RecipeSource: recipe, Result: OracleReceiptResultPass, ExitCode: &pass, RunRef: defectRunA.OperationRef})
-		payload.Evidence[1].OracleReceipt = &WorkerOracleReceipt{ControlIDs: []string{"control:check-b"}, CaseIDs: []string{"case:path-b"}, CandidateSubject: defectRunB.SubjectRef, RecipeSource: recipe, Result: OracleReceiptResultPass, ExitCode: &pass, RunRef: defectRunB.OperationRef}
+		withReceipt(payload, &WorkerOracleReceipt{ControlIDs: []string{"control:check-a"}, CaseIDs: []string{"case:path-a"}, SubjectCommit: strings.TrimPrefix(defectRunA.SubjectRef, "commit:"), RecipeSource: recipe, Result: OracleReceiptResultPass, ExitCode: &pass, RunRef: defectRunA.OperationRef})
+		payload.Evidence[1].OracleReceipt = &WorkerOracleReceipt{ControlIDs: []string{"control:check-b"}, CaseIDs: []string{"case:path-b"}, SubjectCommit: strings.TrimPrefix(defectRunB.SubjectRef, "commit:"), RecipeSource: recipe, Result: OracleReceiptResultPass, ExitCode: &pass, RunRef: defectRunB.OperationRef}
 		payload.Review = &WorkerReviewBlock{
 			Verdict:  "ship",
 			Findings: []WorkerReviewFinding{},
@@ -1342,7 +1406,7 @@ func TestOwnerOracleJobDebt(t *testing.T) {
 
 	// Revision 2 rewrites a control: same base obligation, changed oracle.
 	rewritten := twoPathOracleFields(t, s, workID, func(oracle map[string]any) {
-		oracle["controls"].([]map[string]any)[0]["argv"] = []string{"bash", "scripts/oracle_check.sh", "path-a-v2"}
+		oracle["controls"].([]map[string]any)[0]["argv"] = oracleGoArgv("path-a-v2")
 	})
 	rev2 := recordOracleJobRevision(t, s, workID, f.owner, jobID, rewritten)
 	if count := jobWindowCorrectionCount(t, s, workID); count != 1 {
@@ -1368,7 +1432,7 @@ func TestOwnerOracleJobDebt(t *testing.T) {
 		added := map[string]any{
 			"control_id": "control:check-c", "owner_id": "owner:repair",
 			"predicate_ids": first["predicate_ids"], "case_ids": []string{"case:path-c"},
-			"recipe_source": first["recipe_source"], "argv": []string{"bash", "scripts/oracle_check.sh", "path-c"},
+			"recipe_source": first["recipe_source"], "argv": oracleGoArgv("path-c"),
 			"cwd": "internal/store", "expected_result": "pass", "required_evidence_role": "reported",
 			"readiness_evidence_refs": first["readiness_evidence_refs"],
 		}

@@ -26,6 +26,13 @@ func joinPacketFor(t *testing.T, s *Store, workID, stepID, attemptID, laneID str
 	for member, value := range recordedPacketRecords(t, s, workID) {
 		inputs[member] = value
 	}
+	view, err := readWorkContextView(context.Background(), s.DatabaseForTesting(), workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view != nil {
+		inputs["work_context"] = view
+	}
 	packet := map[string]any{
 		"schema_version": WorkerPacketSchemaVersion,
 		"attempt_id":     attemptID,

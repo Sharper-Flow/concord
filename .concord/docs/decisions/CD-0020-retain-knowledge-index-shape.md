@@ -155,8 +155,13 @@ intelligence remains independently owned and Product-scoped under the current
 vertical-integration direction. Concord does not duplicate a code-symbol graph or
 persist inferred code-to-law edges as authority.
 
-Authored links may be proposed through a later accepted law/schema change. Until
-then, code scans and inferred links are advisory and fail-open under CD-0008.
+A repository may author navigation links through a validated local companion
+to the Product's Domain registry. The companion binds mechanism and catalog
+identities to exact contract, law-clause, and control references. These links
+state accountability and reference targets. They do not enact law, prove
+behavior, or grant workflow authority. Dedicated code intelligence retains
+ownership of observed code relationships. Code scans and inferred code-to-law
+links remain advisory under CD-0008 and never become blocking law.
 
 ### D6. Repair conformance drift without expanding the architecture
 

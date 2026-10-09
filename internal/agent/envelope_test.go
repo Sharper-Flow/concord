@@ -121,6 +121,31 @@ func TestNonMutationEnvelopesOmitMutationMetadata(t *testing.T) {
 	}
 }
 
+func TestReadOKEnvelopeRejectsMutationMetadata(t *testing.T) {
+	t.Parallel()
+	for _, populated := range []bool{false, true} {
+		for _, field := range []string{"changed_refs", "next_valid_intents", "both"} {
+			t.Run(fmt.Sprintf("%s/populated=%t", field, populated), func(t *testing.T) {
+				e := newOKReadForTest(NewBase("read-metadata", "concord_product_view", "resolve"), json.RawMessage(`{"product_id":"p-1","projects":[]}`))
+				changed, intents := []ChangedRef{}, []NextIntent{}
+				if populated {
+					changed = append(changed, ChangedRef{EntityKind: "work", ID: "work-1", Version: "1"})
+					intents = append(intents, NextIntent{Tool: "concord_work_browse", Operation: "list", QueryID: "PM1.Q3", ReasonCode: "inspect"})
+				}
+				if field != "next_valid_intents" {
+					e.ChangedRefs = &changed
+				}
+				if field != "changed_refs" {
+					e.NextValidIntents = &intents
+				}
+				if err := e.validateOK(); err == nil || !strings.Contains(err.Error(), "read ok envelope") {
+					t.Fatalf("validateOK accepted read metadata or gave the wrong cause: %v", err)
+				}
+			})
+		}
+	}
+}
+
 func TestEnvelopeRejectsUnknownVariantsAndFields(t *testing.T) {
 	t.Parallel()
 	base := NewBase("req", "concord_product_view", "resolve")

@@ -1048,3 +1048,121 @@ func TestResearchFindingScopesAreValidatedReadBackAndCopied(t *testing.T) {
 		})
 	}
 }
+
+// A research source keeps its full provenance (kind, locator, title, author,
+// publication and access times) across a store close and reopen, so a later
+// session reads exactly what the authoring session recorded. Once a consumer
+// pins the revision, the source refuses a rewrite and its provenance stays as
+// recorded.
+func TestResearchSourceProvenanceSurvivesReopenAndConsumption(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "concord.db")
+	s, err := Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seedResearchWork(t, s, "owner", "consumer")
+	pack := createSimplePack(t, s, "provenance", "owner")
+	recorded := ResearchSource{PackID: pack.PackID, Revision: 1, SourceID: "s1", Kind: SourceOfficialDoc, Locator: "https://example.com/spec", Title: "Example specification", PublisherOrAuthor: "Example Org", PublishedAt: "2026-07-01T00:00:00Z", AccessedAt: "2026-08-07T00:00:00Z"}
+	if _, err := s.AddResearchSource(ctx, ResearchSourceRequest{Identity: researchIdentity("provenance-source"), PackID: pack.PackID, ExpectedVersion: 1, Source: recorded}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AddResearchFinding(ctx, ResearchFindingRequest{Identity: researchIdentity("provenance-finding"), PackID: pack.PackID, ExpectedVersion: 2, Finding: ResearchFinding{FindingID: "f1", Kind: FindingObservation, Statement: "observed", Confidence: ConfidenceHigh, Freshness: ResearchCurrent, Status: FindingActive, SourceIDs: []string{"s1"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := BindResearchConsumer(ctx, s, BindResearchConsumerRequest{Identity: researchIdentity("provenance-bind"), PackID: pack.PackID, Revision: 1, ExpectedVersion: 3, Consumer: ResearchConsumer{ConsumerWorkID: "consumer", UseRole: UseDecisionBasis, Required: true}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	readSource := func() ResearchSource {
+		t.Helper()
+		got, err := GetResearchPack(ctx, reopened, pack.PackID, 1000)
+		if err != nil || len(got.Revisions) != 1 || len(got.Revisions[0].Sources) != 1 || len(got.Revisions[0].Findings) != 1 {
+			t.Fatalf("reopened pack=%+v err=%v, want one revision with one source and one finding", got, err)
+		}
+		if ids := got.Revisions[0].Findings[0].SourceIDs; len(ids) != 1 || ids[0] != "s1" {
+			t.Fatalf("finding source ids=%v, want the finding to cite s1", ids)
+		}
+		return got.Revisions[0].Sources[0]
+	}
+	if got := readSource(); !reflect.DeepEqual(got, recorded) {
+		t.Fatalf("reopened source=%+v, want the recorded provenance %+v", got, recorded)
+	}
+	rewritten := recorded
+	rewritten.Locator = "https://example.com/other"
+	rewritten.PublisherOrAuthor = "Someone Else"
+	if _, err := reopened.UpdateResearchSource(ctx, ResearchSourceRequest{Identity: researchIdentity("provenance-rewrite"), PackID: pack.PackID, Revision: 1, ExpectedVersion: 4, Source: rewritten}); err == nil {
+		t.Fatal("a consumed revision accepted a source rewrite")
+	} else {
+		assertFailureKind(t, err, KindResearchRevisionImmutable)
+	}
+	if got := readSource(); !reflect.DeepEqual(got, recorded) {
+		t.Fatalf("source after the refused rewrite=%+v, want the recorded provenance %+v", got, recorded)
+	}
+}
+
+// A workflow action that declares research reliance is refused at the
+// declaration boundary when the pack is missing, the pack owner is terminal,
+// or a required binding pins a stale revision. A refusal records no consumer pin. A current required binding and
+// a non-required stale binding each record exactly one pin.
+func TestResearchRelianceRefusesUnprovableBindingsAndPinsProvableOnes(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openTemp(t)
+	seedResearchWork(t, s, "owner", "retired-owner", "consumer")
+	current := createSimplePack(t, s, "reliance-current", "owner")
+	stale := createSimplePack(t, s, "reliance-stale", "owner")
+	if err := SetResearchFreshness(ctx, s, SetResearchFreshnessRequest{Identity: researchIdentity("reliance-stale-set"), PackID: stale.PackID, ExpectedVersion: 1, Freshness: ResearchStale}); err != nil {
+		t.Fatal(err)
+	}
+	retired := createSimplePack(t, s, "reliance-retired", "retired-owner")
+	terminalizeResearchOwner(t, s, "retired-owner")
+	now := time.Date(2026, 9, 9, 0, 0, 0, 0, time.UTC)
+	for _, tc := range []struct {
+		name        string
+		declaration ResearchBindingDeclaration
+		refusal     FailureKind
+	}{
+		{"missing pack", ResearchBindingDeclaration{PackID: "no-such-pack", Revision: 1, UseRole: UseDecisionBasis, Required: true}, KindProjectionNotFound},
+		{"terminal owner", ResearchBindingDeclaration{PackID: retired.PackID, Revision: 1, UseRole: UseDecisionBasis, Required: true}, KindInvalidOperation},
+		{"required stale", ResearchBindingDeclaration{PackID: stale.PackID, Revision: 1, UseRole: UseDecisionBasis, Required: true}, KindResearchConsumerBlocked},
+		{"required current", ResearchBindingDeclaration{PackID: current.PackID, Revision: 1, UseRole: UseDecisionBasis, Required: true}, ""},
+		{"optional stale", ResearchBindingDeclaration{PackID: stale.PackID, Revision: 1, UseRole: UseContext, Required: false}, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer tx.Rollback()
+			err = BindResearchRelianceTx(ctx, tx, "consumer", []ResearchBindingDeclaration{tc.declaration}, now)
+			if tc.refusal != "" {
+				if err == nil {
+					t.Fatalf("binding %+v was admitted, want %s", tc.declaration, tc.refusal)
+				}
+				assertFailureKind(t, err, tc.refusal)
+			} else if err != nil {
+				t.Fatalf("binding %+v was refused: %v", tc.declaration, err)
+			}
+			var pins int
+			if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM active_research_consumers WHERE consumer_work_id=?`, "consumer").Scan(&pins); err != nil {
+				t.Fatal(err)
+			}
+			want := 1
+			if tc.refusal != "" {
+				want = 0
+			}
+			if pins != want {
+				t.Fatalf("consumer pins=%d, want %d", pins, want)
+			}
+		})
+	}
+}

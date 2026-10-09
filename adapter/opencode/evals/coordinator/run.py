@@ -52,6 +52,8 @@ TOOLS = r'''import { tool } from SDK;
 import { recordingTool } from "../recording-tool.ts";
 import { appendFileSync } from "node:fs";
 import { work_start as productionStart, work_transition as productionTransition } from SOURCE;
+import { validateAgainstSchema } from DISPATCH;
+import { hostToolSchemas } from GENSCONTRACTS;
 const responses = RESPONSES;
 const startConfig = STARTCONFIG;
 const transitionConfig = TRANSITIONCONFIG;
@@ -71,38 +73,33 @@ const refused = {outcome:"error", error:{reason_code:"authorization_denied", eff
 // diagnostics included):
 // the adapter owns concord_work_start's input boundary and answers a
 // pre-effect argument refusal with invalid_input, effect_state none,
-// recovery_action correct_request, retry_safe false — the exact message the
-// executed adapter serves (workStartFailure over validateWorkStartArgs);
+// recovery_action correct_request, retry_safe false — the double runs the
+// adapter's own validateAgainstSchema over the same generated work_start
+// branch schemas validateWorkStartArgs selects, so its message is the
+// executed adapter's bytes, never a hand-written copy;
 // the core owns the worktree_claim and continuity input boundaries and
 // answers a malformed payload with the same kind and effect but
 // recovery_action restart_query and the core's own diagnostics.
-const START_USAGE = "Capture requires title, value_statement, kind, task, idempotency_key. Resume requires only work_id, with an optional project_id naming a member Project in another repository: the call opens the second coordinator session or returns the exact launch command. A member Project in this repository is selected through concord_work_transition worktree_claim instead. Do not combine capture and resume fields.";
-const adapterInputRefusalMessage = detail => "work_start arguments failed the host-tool contract: " + detail + ". " + START_USAGE + " Submit a corrected request; resubmitting unchanged arguments will fail again.";
-const undeclaredDetail = keys => "carries undeclared propert" + (keys.length === 1 ? "y" : "ies") + " " + keys.join(", ");
-const missingDetail = keys => "is missing required propert" + (keys.length === 1 ? "y" : "ies") + " " + keys.join(", ");
+const [workStartCaptureBranch, workStartResumeBranch] = hostToolSchemas.concord_work_start.oneOf;
+// The usage line derives its field lists from the generated branches exactly
+// as the adapter's own workStartUsage does.
+const workStartUsage = `Capture requires ${workStartCaptureBranch.required.join(", ")}. Resume requires only ${workStartResumeBranch.required.join(", ")}, with an optional project_id naming a member Project in another repository: the call opens the second coordinator session or returns the exact launch command. A member Project in this repository is selected through concord_work_transition worktree_claim instead. Do not combine capture and resume fields.`;
+const adapterInputRefusalMessage = detail => "work_start arguments failed the host-tool contract: " + detail + ". " + workStartUsage + " Submit a corrected request; resubmitting unchanged arguments will fail again.";
 const adapterInputRefusal = message => ({outcome:"error",error:{kind:"invalid_input",effect_state:"none",recovery_action:{kind:"correct_request"},retry_safe:false,message}});
 const coreInputRefusal = message => ({outcome:"error",error:{kind:"invalid_input",effect_state:"none",recovery_action:{kind:"restart_query"},retry_safe:false,message}});
 // The core's executed payload classification, in the core's own order: the
 // closed per-operation rule names every missing required field in declared
-// order, then the payload schema validates each present value stop-at-first —
-// minLength, then maxLength, then pattern. The double classifies with the
-// same public constraints the core's payload contract states ($defs/id and
-// the inline base_sha rule), and the parity test holds every served message
-// to the executed core's bytes. Non-string values never reach this
-// classifier: the tool schema layer types every field before it.
-const idFieldRule = {minLength: 1, maxLength: 128, pattern: /^[A-Za-z0-9][A-Za-z0-9._:-]*$/};
-const payloadFieldRules = {
-  worktree_claim: {
-    required: ["work_id", "project_id", "base_sha", "expected_version", "idempotency_key"],
-    strings: {work_id: idFieldRule, project_id: idFieldRule,
-      base_sha: {minLength: 40, maxLength: 64, pattern: /^[0-9a-f]{40}([0-9a-f]{24})?$/},
-      idempotency_key: idFieldRule},
-  },
-  workflow_action: {
-    required: ["work_id", "expected_version", "action_id", "idempotency_key"],
-    strings: {work_id: idFieldRule, action_id: idFieldRule, idempotency_key: idFieldRule},
-  },
-};
+// order, then the payload schema validates each present value stop-at-first
+// (strings: minLength, maxLength, pattern; numbers: minimum). The rule
+// table below is derived at generation time from the tracked contracts —
+// the same operation input schemas the core validates with — and the parity
+// test holds every served message to the executed core's bytes. Wrong-typed
+// values never reach this classifier: the tool schema layer types every
+// field before it.
+const payloadFieldRules = PAYLOADRULES;
+for (const operation of Object.values(payloadFieldRules))
+  for (const field of Object.values(operation.fields))
+    if (field.pattern !== undefined) field.patternRegex = new RegExp(field.pattern);
 const coreInputDetail = (operation, data) => {
   const rule = payloadFieldRules[operation];
   if (rule === undefined) return null;
@@ -112,13 +109,17 @@ const coreInputDetail = (operation, data) => {
   // first invalid value; the double walks one fixed order, which the
   // single-violation corpus makes equivalent.
   for (const name of rule.required) {
-    const strings = rule.strings[name];
+    const field = rule.fields[name];
     const value = data[name];
-    if (strings === undefined || typeof value !== "string") continue;
-    const length = [...value].length;
-    if (length < strings.minLength) return "minLength at $." + name + ": carries " + length + " Unicode code points against a minimum of " + strings.minLength;
-    if (length > strings.maxLength) return "maxLength at $." + name + ": carries " + length + " Unicode code points against a limit of " + strings.maxLength;
-    if (!strings.pattern.test(value)) return "pattern at $." + name;
+    if (field === undefined || value === undefined) continue;
+    if (typeof value === "string") {
+      const length = [...value].length;
+      if (field.minLength !== undefined && length < field.minLength) return "minLength at $." + name + ": carries " + length + " Unicode code points against a minimum of " + field.minLength;
+      if (field.maxLength !== undefined && length > field.maxLength) return "maxLength at $." + name + ": carries " + length + " Unicode code points against a limit of " + field.maxLength;
+      if (field.patternRegex !== undefined && !field.patternRegex.test(value)) return "pattern at $." + name;
+    } else if (typeof value === "number" && field.minimum !== undefined && value < field.minimum) {
+      return "minimum at $." + name;
+    }
   }
   return null;
 };
@@ -131,24 +132,26 @@ export const work_start = recordingTool("concord_work_start", {
     work_id:tool.schema.string().optional(), project_id:tool.schema.string().optional(),
   },
   async execute(args) {
-    const required = ["title","value_statement","kind","task","idempotency_key"];
-    const missing = required.filter(key => typeof args[key] !== "string" || !args[key].trim());
+    // The adapter's own admission boundary: validateWorkStartArgs selects one
+    // generated branch (resume when work_id is present, else capture) and
+    // validateAgainstSchema produces every failure string; the double calls
+    // the same exported validator on the same generated schema, so a blank,
+    // oversize, pattern-refusing, undeclared, or missing field serves the
+    // adapter's exact diagnostic before any fixture logic runs.
+    const failures = [];
+    const branch = "work_id" in args ? workStartResumeBranch : workStartCaptureBranch;
+    const admitted = validateAgainstSchema(branch, args, failures);
     const unchanged = args.title === "Synthetic parser repair" && args.kind === "bug" && args.task === "Fix the synthetic parser defect with regression coverage";
-    const resumeFields = ["work_id","project_id"];
-    const captureFields = ["title","value_statement","kind","task","idempotency_key"];
-    const usesResume = args.work_id !== undefined || args.project_id !== undefined;
-    const usesCapture = captureFields.some(key => args[key] !== undefined);
     let value;
-    if (usesResume) {
-      const shaped = typeof args.work_id === "string" && args.work_id.trim() && !usesCapture
-        && resumeFields.every(key => args[key] === undefined || typeof args[key] === "string");
-      const admitted = shaped && startConfig !== null
+    if (!admitted) {
+      value = adapterInputRefusal(adapterInputRefusalMessage(failures.join("; ")));
+    } else if ("work_id" in args) {
+      const matches = startConfig !== null
         && Object.keys(startConfig.admit).every(key => args[key] === startConfig.admit[key])
         && Object.keys(args).every(key => key in startConfig.admit);
-      value = !admitted ? (shaped ? refused : adapterInputRefusal(adapterInputRefusalMessage(undeclaredDetail(captureFields.filter(key => args[key] !== undefined))))) : startConfig.result;
+      value = matches ? startConfig.result : refused;
     } else {
       value = !capture || !unchanged ? refused
-        : missing.length ? adapterInputRefusal(adapterInputRefusalMessage(missingDetail(missing)))
         : {outcome:"ok",work_id:"synthetic-work",output:"Synthetic capture succeeded. The capture-only fixture is complete."};
     }
     return result("concord_work_start", args, value);
@@ -259,15 +262,63 @@ def remove_own_dependency_copy(root):
 
 
 # The recording doubles import their tool descriptions from these production
-# sources, and the scenario notice doubles mirror move-notice.ts. Each run
-# snapshots them outside the repository and verifies their bytes after the
-# run, so a result identifies the exact production guidance it evaluated.
+# sources, run the adapter's own validator and generated work_start schemas,
+# and classify core-boundary payloads with a rule table derived from the
+# tracked contracts. The scenario notice doubles mirror move-notice.ts. Each
+# run snapshots every source outside the repository and verifies its bytes
+# after the run, so a result identifies the exact production guidance and
+# contract it evaluated.
 PRODUCTION_SOURCES = (
     "adapter/opencode/concord.ts",
+    "adapter/opencode/dispatch.ts",
     "adapter/opencode/generated-contracts.ts",
     "adapter/opencode/move-notice.ts",
+    "contracts/agent-tool-surface-payloads.schema.json",
+    "contracts/agent-tool-surface.v1.json",
     "contracts/host-tool-surface.v1.json",
 )
+
+# The core-owned input operations the generated doubles classify: each names
+# an input schema in the agent tool surface, whose payload contract the core
+# validates with.
+CORE_INPUT_OPERATIONS = (
+    ("concord_work_transition", "worktree_claim"),
+    ("concord_work_transition", "workflow_action"),
+)
+SCALAR_CONSTRAINT_KEYS = ("minLength", "maxLength", "pattern", "minimum")
+
+
+def resolve_payload_property(prop, defs):
+    """One payload schema property with its local $ref resolved."""
+    while "$ref" in prop:
+        prop = defs[prop["$ref"].rsplit("/", 1)[-1]]
+    return prop
+
+
+def core_payload_field_rules(repo):
+    """Derive the core's per-operation input classification table from the
+    tracked contracts: the operation's input schema name from the agent tool
+    surface, then the required field names and each field's scalar value
+    constraints from the generated payload schema the core validates with.
+    Returns the JSON-ready table the generated double classifies with; no
+    constraint is restated by hand here."""
+    surface = json.loads((repo / "contracts/agent-tool-surface.v1.json").read_text())
+    payloads = json.loads((repo / "contracts/agent-tool-surface-payloads.schema.json").read_text())
+    defs = payloads["$defs"]
+    operations = {item["id"]: item for item in surface["operations"]}
+    table = {}
+    for tool, operation in CORE_INPUT_OPERATIONS:
+        schema_name = operations[f"{tool}.{operation}"]["input_schema"].split("/")[-1]
+        ref = surface["schemas"][schema_name]["ref"]
+        schema = defs[ref.rsplit("/", 1)[-1]]
+        fields = {}
+        for name in schema["required"]:
+            prop = resolve_payload_property(schema["properties"][name], defs)
+            rule = {key: prop[key] for key in SCALAR_CONSTRAINT_KEYS if key in prop}
+            if rule:
+                fields[name] = rule
+        table[operation] = {"required": list(schema["required"]), "fields": fields}
+    return table
 
 
 def double_sources(root, case, *, sdk_tool, production_concord):
@@ -282,11 +333,14 @@ def double_sources(root, case, *, sdk_tool, production_concord):
     replacements = {
         "SDK": json.dumps(str(sdk_tool.resolve() if hasattr(sdk_tool, "resolve") else sdk_tool)),
         "SOURCE": json.dumps(str(production_concord)),
+        "DISPATCH": json.dumps(str(production_concord.with_name("dispatch.ts"))),
+        "GENSCONTRACTS": json.dumps(str(production_concord.with_name("generated-contracts.ts"))),
         "RESPONSES": json.dumps(case.get("responses", {})),
         "STARTCONFIG": json.dumps(case.get("start") if not case.get("capture") else None),
         "TRANSITIONCONFIG": json.dumps(case.get("transition") if not case.get("capture") else None),
         "TRACE": json.dumps(str(root / "calls.jsonl")),
         "CAPTURE": json.dumps(case.get("capture", False)),
+        "PAYLOADRULES": json.dumps(core_payload_field_rules(production_concord.parents[2])),
     }
     tool_source = TOOLS
     for key, value in replacements.items():

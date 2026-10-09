@@ -28,17 +28,17 @@ const workStartDefinition = {
   jsonSchema: undefined as unknown,
 }
 await publishWorkStartDefinition({ toolID: "concord_work_start" }, workStartDefinition)
-// The definition hook publishes the closed capture/resume contract itself:
-// each branch keeps its required set and field surface, instead of merging
-// into one all-optional object a caller cannot read modes from.
+// The root is provider-compatible; its conditional branches retain the
+// generated capture/resume contract without losing requireds or exclusions.
 const workStartRoot = object(workStartDefinition.jsonSchema, "published work start schema")
-if (JSON.stringify(workStartRoot) !== JSON.stringify(expectedWorkStart)) {
-  fail("concord_work_start does not publish the generated closed capture/resume contract")
+if (workStartRoot.type !== "object") fail("concord_work_start schema root is not an object")
+for (const keyword of ["oneOf", "anyOf", "allOf"]) {
+  if (Object.hasOwn(workStartRoot, keyword)) fail(`concord_work_start carries provider-unsafe root ${keyword}`)
 }
-const publishedBranches = (workStartRoot.oneOf as any[]).map((branch) => object(branch, "published work start branch"))
+if (JSON.stringify(workStartRoot.if) !== JSON.stringify({ required: ["work_id"] })) fail("concord_work_start does not select resume by work_id presence")
+const publishedBranches = [workStartRoot.else, workStartRoot.then].map((branch) => object(branch, "published work start branch"))
 for (const [index, branch] of publishedBranches.entries()) {
-  if (JSON.stringify(branch.required) !== JSON.stringify(expectedWorkStartBranches[index].required)) fail(`published work start branch ${index} loses its required set`)
-  if (branch.additionalProperties !== false) fail(`published work start branch ${index} is not closed`)
+  if (JSON.stringify(branch) !== JSON.stringify(expectedWorkStartBranches[index])) fail(`published work start branch ${index} differs from its generated closed contract`)
 }
 inspect(workStartRoot)
 // The registration map is the host's per-parameter rendering channel; its
@@ -90,6 +90,9 @@ for (const [toolName, exportedTool] of Object.entries(tools)) {
   const root = publishedArgsSchema(exportedTool.args, `${toolName} schema`)
   inspect(root)
   if (root.type !== "object") fail(`${toolName} schema root is not an object`)
+  for (const keyword of ["oneOf", "anyOf", "allOf"]) {
+    if (Object.hasOwn(root, keyword)) fail(`${toolName} carries provider-unsafe root ${keyword}`)
+  }
   if (JSON.stringify(root.required) !== JSON.stringify(["request"])) fail(`${toolName} schema does not require only request`)
   const properties = object(root.properties, `${toolName} properties`)
   if (JSON.stringify(Object.keys(properties)) !== JSON.stringify(["request"])) fail(`${toolName} schema exposes fields outside request`)

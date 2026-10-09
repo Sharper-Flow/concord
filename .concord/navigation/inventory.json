@@ -1344,7 +1344,7 @@
       ],
       "dependency_interpretations_to": [],
       "domain_id": "agent-surface",
-      "mapped_count": 426,
+      "mapped_count": 427,
       "mechanism_owner_ids": [
         "mechanism:adapter-transport",
         "mechanism:agent-tools",
@@ -1536,7 +1536,7 @@
           "law_refs": [
             {
               "clause_id": "1. Decision",
-              "content_hash": "sha256:d5120e54fe3afc1c40a147cf2f67e4964df3a26af5f1155864d395eb4ab45231",
+              "content_hash": "sha256:1ab4109410e62cf7d15f76861daba7619edbe30a04601383d92c433d29b7cd1d",
               "law_id": "TS3",
               "locator": ".concord/docs/agent-read-tool-contract.md"
             },
@@ -2185,6 +2185,7 @@
           "internal/store/worktree_verify_lease_recovery_test.go",
           "internal/store/worktree_occupancy_release_test.go",
           "internal/store/worktree_route_test.go",
+          "internal/store/multi_project_recovery_test.go",
           "internal/store/landing.go",
           "internal/store/session_vacate*.go",
           "internal/store/freshness*.go",
@@ -2200,7 +2201,7 @@
         ]
       },
       "purpose": "Owns the typed agent plane: the read and mutation tool surface, its budget and evolution constraints, call context, lanes and worker dispatch, the adapter transport contract, and the agent result envelope.",
-      "test_count": 273,
+      "test_count": 274,
       "test_packages": [
         "github.com/sharper-flow/concord/internal/agent",
         "github.com/sharper-flow/concord/internal/store"
@@ -2427,6 +2428,7 @@
         "internal/store/freshness_test.go",
         "internal/store/git_runner_test.go",
         "internal/store/lane_step_dispatch_test.go",
+        "internal/store/multi_project_recovery_test.go",
         "internal/store/native_run_status_vocabulary_test.go",
         "internal/store/native_run_verification_test.go",
         "internal/store/nil_store_agent_authority_test.go",
@@ -2593,7 +2595,7 @@
         }
       ],
       "domain_id": "durable-authority",
-      "mapped_count": 67,
+      "mapped_count": 68,
       "mechanism_owner_ids": [
         "mechanism:durable-store"
       ],
@@ -2681,9 +2683,13 @@
         "github.com/sharper-flow/concord/internal/testenv",
         "github.com/sharper-flow/concord/internal/version",
         "go/ast",
+        "go/constant",
+        "go/importer",
         "go/parser",
         "go/token",
+        "go/types",
         "io",
+        "io/fs",
         "modernc.org/sqlite",
         "modernc.org/sqlite/lib",
         "net/url",
@@ -2785,7 +2791,7 @@
         ]
       },
       "purpose": "Owns the durable state envelope: the SQLite authority, the append-only event log, typed projections, migrations, fold guards, and the transactional guarantees that make an acknowledged write durable.",
-      "test_count": 44,
+      "test_count": 45,
       "test_packages": [
         "github.com/sharper-flow/concord/internal/hostlease",
         "github.com/sharper-flow/concord/internal/store"
@@ -2827,6 +2833,7 @@
         "internal/store/schema_test.go",
         "internal/store/store_test.go",
         "internal/store/tx_subprocess_guard_test.go",
+        "internal/store/txbegin_guard_test.go",
         "internal/store/txscope_test.go",
         "internal/store/unstamped_open_test.go",
         "internal/store/upgrade_recovery_test.go",
@@ -4142,13 +4149,13 @@
           "law_refs": [
             {
               "clause_id": "D1. Retain the current manifest-primary hybrid",
-              "content_hash": "sha256:16f856c1de2aa7af31e9c78eee329271b6edd8d6f7134c238997f39fc9dbf59b",
+              "content_hash": "sha256:5ef9f24f24727c60cd3b9cdbc4313ecc782ddd483392ca703772c32c310a716d",
               "law_id": "CD-0020",
               "locator": ".concord/docs/decisions/CD-0020-retain-knowledge-index-shape.md"
             },
             {
               "clause_id": "D2. Retain PM1.Q9 and Q10 as the knowledge-query boundary",
-              "content_hash": "sha256:16f856c1de2aa7af31e9c78eee329271b6edd8d6f7134c238997f39fc9dbf59b",
+              "content_hash": "sha256:5ef9f24f24727c60cd3b9cdbc4313ecc782ddd483392ca703772c32c310a716d",
               "law_id": "CD-0020",
               "locator": ".concord/docs/decisions/CD-0020-retain-knowledge-index-shape.md"
             }
@@ -4656,7 +4663,7 @@
       ],
       "dependency_interpretations_to": [],
       "domain_id": "repository-verification",
-      "mapped_count": 190,
+      "mapped_count": 192,
       "mechanism_owner_ids": [
         "mechanism:repo-validators",
         "mechanism:test-infrastructure"
@@ -4866,7 +4873,7 @@
         ]
       },
       "purpose": "Owns the authority a repository check may hold: what a validator may assert, what it may block, how required checks bind to declared coverage, and the boundary between a check's finding and accepted Product law.",
-      "test_count": 86,
+      "test_count": 87,
       "test_packages": [
         "github.com/sharper-flow/concord/internal/gittest",
         "github.com/sharper-flow/concord/internal/pm1fixture",
@@ -4932,6 +4939,7 @@
         "scripts/test-generate-dependency-inventory.py",
         "scripts/test-generate-knowledge-index.py",
         "scripts/test-generate-law-coverage.py",
+        "scripts/test-go-test-shard.py",
         "scripts/test-installer.py",
         "scripts/test-knowledge-closure.py",
         "scripts/test-knowledge-index.py",
@@ -7649,6 +7657,7 @@
     "internal/store/managed_resources_test.go": "work-coordination",
     "internal/store/membership.go": "work-coordination",
     "internal/store/membership_test.go": "work-coordination",
+    "internal/store/multi_project_recovery_test.go": "agent-surface",
     "internal/store/native_run_status_vocabulary_test.go": "agent-surface",
     "internal/store/native_run_verification_test.go": "agent-surface",
     "internal/store/native_runs.go": "agent-surface",
@@ -7750,6 +7759,7 @@
     "internal/store/test_fixture_test.go": "repository-verification",
     "internal/store/transaction.go": "durable-authority",
     "internal/store/tx_subprocess_guard_test.go": "durable-authority",
+    "internal/store/txbegin_guard_test.go": "durable-authority",
     "internal/store/txscope_test.go": "durable-authority",
     "internal/store/typed_error_kinds_test.go": "agent-surface",
     "internal/store/unprocessed_knowledge.go": "product-memory",
@@ -8053,6 +8063,7 @@
     "scripts/generate-work-kinds.py": "repository-verification",
     "scripts/git_environment.py": "repository-verification",
     "scripts/go-test-assertions/main.go": "repository-verification",
+    "scripts/go-test-shard.py": "repository-verification",
     "scripts/install.py": "repository-verification",
     "scripts/knowledge_index.py": "repository-verification",
     "scripts/linear-issue-state/main.go": "repository-verification",
@@ -8086,6 +8097,7 @@
     "scripts/test-generate-dependency-inventory.py": "repository-verification",
     "scripts/test-generate-knowledge-index.py": "repository-verification",
     "scripts/test-generate-law-coverage.py": "repository-verification",
+    "scripts/test-go-test-shard.py": "repository-verification",
     "scripts/test-installer.py": "repository-verification",
     "scripts/test-knowledge-closure.py": "repository-verification",
     "scripts/test-knowledge-index.py": "repository-verification",
@@ -8123,7 +8135,7 @@
     "skills/README.md": "agent-surface",
     "workflows/README.md": "workflow-engine"
   },
-  "mapped_count": 2016,
+  "mapped_count": 2020,
   "mechanisms": [
     {
       "check_ids": [
@@ -8308,7 +8320,7 @@
       "law_refs": [
         {
           "clause_id": "1. Decision",
-          "content_hash": "sha256:d5120e54fe3afc1c40a147cf2f67e4964df3a26af5f1155864d395eb4ab45231",
+          "content_hash": "sha256:1ab4109410e62cf7d15f76861daba7619edbe30a04601383d92c433d29b7cd1d",
           "law_id": "TS3",
           "locator": ".concord/docs/agent-read-tool-contract.md"
         },
@@ -8562,13 +8574,13 @@
       "law_refs": [
         {
           "clause_id": "D1. Retain the current manifest-primary hybrid",
-          "content_hash": "sha256:16f856c1de2aa7af31e9c78eee329271b6edd8d6f7134c238997f39fc9dbf59b",
+          "content_hash": "sha256:5ef9f24f24727c60cd3b9cdbc4313ecc782ddd483392ca703772c32c310a716d",
           "law_id": "CD-0020",
           "locator": ".concord/docs/decisions/CD-0020-retain-knowledge-index-shape.md"
         },
         {
           "clause_id": "D2. Retain PM1.Q9 and Q10 as the knowledge-query boundary",
-          "content_hash": "sha256:16f856c1de2aa7af31e9c78eee329271b6edd8d6f7134c238997f39fc9dbf59b",
+          "content_hash": "sha256:5ef9f24f24727c60cd3b9cdbc4313ecc782ddd483392ca703772c32c310a716d",
           "law_id": "CD-0020",
           "locator": ".concord/docs/decisions/CD-0020-retain-knowledge-index-shape.md"
         }

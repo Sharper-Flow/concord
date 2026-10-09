@@ -11,8 +11,9 @@
 # Host admission control is provided by `oc-test-gate` when it is installed.
 # When it is missing the tier still runs, unthrottled, after a warning. Smoke
 # uses smoke admission; targeted uses ungated targeted admission; conformance
-# uses full admission; preflight uses ungated targeted admission because the
-# gates are the cheap CI-owned subset, not a heavy suite. The
+# uses full admission; preflight uses smoke admission because its gates vet,
+# build, lint, and compile every package, which is heavy on a shared host when
+# several worktrees push at once (CON-907). The
 # continuous-integration workflow does not use this wrapper; it calls the same
 # underlying commands natively so its behavior stays deterministic.
 #
@@ -34,7 +35,7 @@ Usage: bin/oc-test smoke | targeted -- <command> [args...] | conformance | prefl
   smoke        all Go packages, adapter suite, and JSON/law validation under host admission control
   targeted     caller-supplied command and arguments without heavy admission or added limits
   conformance  long uninstrumented ten-process SQLite harness under host admission control
-  preflight    Lefthook pre-push gates from lefthook.yml under targeted admission
+  preflight    Lefthook pre-push gates from lefthook.yml under smoke admission
 USAGE
   exit 64
 }
@@ -112,10 +113,10 @@ case "$tier" in
     # no_auto_install, and installing hooks is a one-time contributor step
     # documented in CONTRIBUTING.md.
     if command -v lefthook >/dev/null 2>&1; then
-      run_tier preflight targeted lefthook run pre-push
+      run_tier preflight smoke lefthook run pre-push
     else
       printf 'bin/oc-test: lefthook binary not found on PATH; using the pinned module.\n' >&2
-      run_tier preflight targeted go run github.com/evilmartians/lefthook/v2@v2.1.14 run pre-push
+      run_tier preflight smoke go run github.com/evilmartians/lefthook/v2@v2.1.14 run pre-push
     fi
     ;;
   *)

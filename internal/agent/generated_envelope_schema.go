@@ -65,7 +65,45 @@ const GeneratedEnvelopeSchemaDocument = `{
     "base": {
       "allOf": [
         {
-          "$ref": "#/$defs/toolOperation"
+          "anyOf": [
+            {
+              "$ref": "#/$defs/toolOperation"
+            },
+            {
+              "not": {
+                "required": [
+                  "query_id"
+                ]
+              },
+              "properties": {
+                "error": {
+                  "properties": {
+                    "adapter_reason": {
+                      "const": "invalid_request_wrapper"
+                    }
+                  },
+                  "required": [
+                    "adapter_reason"
+                  ]
+                },
+                "operation": {
+                  "const": ""
+                },
+                "origin": {
+                  "const": "adapter"
+                },
+                "outcome": {
+                  "const": "error"
+                }
+              },
+              "required": [
+                "origin",
+                "outcome",
+                "operation",
+                "error"
+              ]
+            }
+          ]
         },
         {
           "if": {
@@ -205,6 +243,7 @@ const GeneratedEnvelopeSchemaDocument = `{
         },
         "operation": {
           "enum": [
+            "",
             "active_work",
             "add_entry",
             "attachments",
@@ -534,6 +573,88 @@ const GeneratedEnvelopeSchemaDocument = `{
     "errorOutcome": {
       "allOf": [
         {
+          "if": {
+            "properties": {
+              "error": {
+                "anyOf": [
+                  {
+                    "properties": {
+                      "kind": {
+                        "const": "invalid_input"
+                      }
+                    },
+                    "required": [
+                      "kind"
+                    ]
+                  },
+                  {
+                    "properties": {
+                      "adapter_reason": {
+                        "enum": [
+                          "invalid_request_wrapper",
+                          "invalid_cli_input"
+                        ],
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "adapter_reason"
+                    ]
+                  }
+                ]
+              },
+              "origin": {
+                "const": "adapter"
+              }
+            },
+            "required": [
+              "origin",
+              "error"
+            ]
+          },
+          "then": {
+            "properties": {
+              "error": {
+                "properties": {
+                  "adapter_reason": {
+                    "enum": [
+                      "invalid_request_wrapper",
+                      "invalid_cli_input"
+                    ],
+                    "type": "string"
+                  },
+                  "effect_state": {
+                    "const": "none"
+                  },
+                  "kind": {
+                    "const": "invalid_input"
+                  },
+                  "recovery_action": {
+                    "properties": {
+                      "kind": {
+                        "const": "restart_query"
+                      }
+                    },
+                    "required": [
+                      "kind"
+                    ]
+                  },
+                  "retry_safe": {
+                    "const": false
+                  }
+                },
+                "required": [
+                  "kind",
+                  "adapter_reason",
+                  "effect_state",
+                  "retry_safe",
+                  "recovery_action"
+                ]
+              }
+            }
+          }
+        },
+        {
           "$ref": "#/$defs/base"
         },
         {
@@ -595,7 +716,8 @@ const GeneratedEnvelopeSchemaDocument = `{
                       "timeout",
                       "cancelled",
                       "operation_conflict",
-                      "unauthorized"
+                      "unauthorized",
+                      "invalid_input"
                     ],
                     "type": "string"
                   }
@@ -2683,7 +2805,9 @@ const GeneratedEnvelopeSchemaDocument = `{
             "session_directory_unreadable",
             "worker_abandon_refused",
             "worker_abandon_receipt_failed",
-            "lane_tool_refusal"
+            "lane_tool_refusal",
+            "invalid_cli_input",
+            "invalid_request_wrapper"
           ],
           "type": "string"
         },

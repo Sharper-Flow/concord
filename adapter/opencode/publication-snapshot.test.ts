@@ -18,8 +18,9 @@ const publishedBytes = (tool: string): number => Buffer.byteLength(JSON.stringif
 // reviewed surface, including the typed outside-repair operations. Update it
 // only through a reviewed size change. The figure counts schema bytes, not
 // tokens. The CON-887 record_work_context action adds 5550 bytes to
-// concord_work_transition.
-const PINNED_PUBLISHED_TOTAL_BYTES = 379059
+// concord_work_transition. The CON-901 removal of the knowledge search time
+// window takes 100 bytes from concord_knowledge.
+const PINNED_PUBLISHED_TOTAL_BYTES = 378959
 
 test("publication is repeatable: two publications are byte-identical", () => {
   for (const tool of tools) {

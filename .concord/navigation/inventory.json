@@ -145,7 +145,7 @@
       ],
       "cli_verbs": [],
       "domain_id": "agent-surface",
-      "mapped_count": 371,
+      "mapped_count": 372,
       "name": "Agent surface",
       "owner_id": "domain:agent-surface",
       "path_rules": {
@@ -188,7 +188,7 @@
         ]
       },
       "purpose": "Owns the typed agent plane: the read and mutation tool surface, its budget and evolution constraints, call context, lanes and worker dispatch, the adapter transport contract, and the agent result envelope.",
-      "test_count": 237,
+      "test_count": 238,
       "test_packages": [
         "github.com/sharper-flow/concord/internal/agent",
         "github.com/sharper-flow/concord/internal/store"
@@ -209,6 +209,7 @@
         "adapter/opencode/evals/assertions/lane-report.test.ts",
         "adapter/opencode/evals/coordinator/test_capture_evaluation.py",
         "adapter/opencode/evals/coordinator/test_evaluation.py",
+        "adapter/opencode/evals/coordinator/test_production_parity.py",
         "adapter/opencode/evals/coordinator/test_run_cleanup.py",
         "adapter/opencode/evals/coordinator/test_run_provenance.py",
         "adapter/opencode/fixture_owner.test.ts",
@@ -2929,6 +2930,7 @@
     "adapter/opencode/evals/coordinator/scenarios.py": "agent-surface",
     "adapter/opencode/evals/coordinator/test_capture_evaluation.py": "agent-surface",
     "adapter/opencode/evals/coordinator/test_evaluation.py": "agent-surface",
+    "adapter/opencode/evals/coordinator/test_production_parity.py": "agent-surface",
     "adapter/opencode/evals/coordinator/test_run_cleanup.py": "agent-surface",
     "adapter/opencode/evals/coordinator/test_run_provenance.py": "agent-surface",
     "adapter/opencode/evals/packets/design-bounded-task.json": "agent-surface",
@@ -3927,15 +3929,15 @@
     "skills/README.md": "agent-surface",
     "workflows/README.md": "workflow-engine"
   },
-  "mapped_count": 1876,
-  "path_set_fingerprint": "sha256:857c2644f68a4d217e4229c63f9c7293b19678c2617cbd165231aaccd9c8046e",
+  "mapped_count": 1877,
+  "path_set_fingerprint": "sha256:81238637396ce784648f6b50d6e65ea120ee39edf4430a5617a6fe7e5cd667da",
   "schema_version": "1.0",
   "scope": "coarse file navigation, not law homes or semantic mechanism ownership",
   "source_fingerprints": {
     ".concord/docs/knowledge/domain-registry.json": "sha256:02d9eb99b0f57aca2bfc2905d1f3994a7c926e9b2252cecbe324852cbe47d7de",
     ".concord/domain-navigation.v1.json": "sha256:ff2ebd25a4e4bdc6412f03ae22aaf399d8651998960d6aee311552fb4384f8ca",
     ".concord/tooling.v1.json": "sha256:19b72675d2a7bf5600d5ee1a67ac134149b2375d4e91b21d785f4917d84e65d3",
-    "cmd/concord/main.go": "sha256:a4b1cf90851373dc522ea75eea1d533dd25067ee748dd3f5ccaf8b199c7a50e5",
+    "cmd/concord/main.go": "sha256:bfce2d2797ce34ab697e53435b9a702e493ce7de5760d192653d65779d40ffa8",
     "contracts/agent-tool-surface.v1.json": "sha256:d0dc2698a3dfe256aab790cc5e03c15303634fe516592ecd604c2c7c117989e3",
     "go.mod": "sha256:7c76ec3b5b4906d067a2d4245e3cc1b3e45b8668497298a210a6c33b87be72f3",
     "scripts/domain-navigation-cli/main.go": "sha256:d440f0ed930a34741a5c1e230e3f554fa9a17717d76c2dcb4ea607007239d75a",

@@ -41,6 +41,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 import knowledge_index  # noqa: E402
+import domain_navigation  # noqa: E402
 
 def report(findings: list[str], subject: str, blocking: list[str] | None = None) -> int:
     blocking = findings if blocking is None else blocking
@@ -54,7 +55,7 @@ def report(findings: list[str], subject: str, blocking: list[str] | None = None)
     return 0
 
 
-def validate(root: Path) -> tuple[list[str], list[str]]:
+def validate(root: Path, *, base_ref: str = "HEAD") -> tuple[list[str], list[str]]:
     findings: list[str] = []
     try:
         manifest = knowledge_index.compose_manifest(root)
@@ -145,6 +146,7 @@ def validate(root: Path) -> tuple[list[str], list[str]]:
             if domain_id not in participating
         )
 
+    findings.extend(domain_navigation.validate_companion(root, registry, base_ref=base_ref))
     return findings, participation_findings
 
 
@@ -152,9 +154,10 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--strict", action="store_true", help="fail when a Domain does not participate in a relation")
     parser.add_argument("--root", type=Path, default=ROOT, help="repository root")
+    parser.add_argument("--base-ref", default="HEAD", help="Git revision for the optional navigation companion's unresolved-path ratchet")
     args = parser.parse_args()
 
-    findings, participation_findings = validate(args.root.resolve())
+    findings, participation_findings = validate(args.root.resolve(), base_ref=args.base_ref)
     all_findings = findings + participation_findings
     blocking = findings + (participation_findings if args.strict else [])
     return report(all_findings, "domain registry", blocking)

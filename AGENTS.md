@@ -137,4 +137,4 @@ inference. Conventional Commit titles are load-bearing for release semver.
 | What is proved versus merely present | [`.concord/docs/knowledge/coverage/`](.concord/docs/knowledge/coverage/); [`.concord/docs/reachability-exceptions.v1.json`](.concord/docs/reachability-exceptions.v1.json) |
 | Predecessor operational coverage state | [`.concord/docs/predecessor-operational-coverage.md`](.concord/docs/predecessor-operational-coverage.md) |
 | Product law, priorities, documentation rules, and release currency before capture | [`.concord/docs/README.md`](.concord/docs/README.md); [`.concord/docs/priorities.md`](.concord/docs/priorities.md); [`CD-0165`](.concord/docs/decisions/CD-0165-an-agent-begins-a-work-item-only-on-the-current-concord-release.md) |
-| Repository layout and component roles | [`.concord/docs/core-architecture.md`](.concord/docs/core-architecture.md) |
+| Repository layout, file → navigation Domain, Domain → card | [`.concord/docs/core-architecture.md`](.concord/docs/core-architecture.md); [`scripts/domain-navigation.py`](scripts/domain-navigation.py) `--help` |

@@ -309,6 +309,77 @@ test("a correction past the attempt limit still projects into the packet", async
   expect(built.packet!.inputs.correction!.escalated).toBe(true)
 })
 
+// CON-887: the pin's work-context view rides the packet verbatim. The core
+// refuses a dispatch whose inputs.work_context differs from the current view
+// byte-for-byte, so any re-derivation here would strand the dispatch.
+const WORK_CONTEXT = {
+  source_event_frontier: 19,
+  required_reading: [
+    {
+      domain_id: "root",
+      reason: "the reading carries the bounded reason",
+      product_wide_rationale: "the claim spans every Domain of the Product",
+      source: { kind: "repository_file", project_id: "project", path: "internal/store/work_context.go", commit_oid: "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1" },
+    },
+    {
+      domain_id: "child-alpha",
+      reason: "the law reading carries the bounded reason",
+      source: { kind: "knowledge", source_id: "concord_knowledge", law_id: "CD-0001", content_hash: "sha256:" + "e".repeat(64) },
+    },
+  ],
+  findings: [
+    {
+      finding_id: "finding:19:0",
+      kind: "rejected_approach",
+      statement: "the unbounded log scan was rejected",
+      subject_ref: "internal/store/work_context.go",
+      evidence_refs: ["internal/store/work_context_test.go"],
+      domain_id: "child-alpha",
+      origin: "declaration",
+      status: "reported",
+      source_event_id: "record_work_context-work-335-10:semantic",
+      source_event_seq: 19,
+      ordinal: 0,
+    },
+  ],
+  domain_groups: [
+    { domain_id: "child-alpha", required_reading_ordinals: [1], finding_ids: ["finding:19:0"], domain_cards: [] },
+    { domain_id: "root", required_reading_ordinals: [0], finding_ids: [], domain_cards: [] },
+  ],
+}
+
+test("a work context projects verbatim into the packet", async () => {
+  const built = await build({
+    ...defaultScript(),
+    "concord_work_trace.continuity": continuityEnvelope(pinnedContract(), null, { work_context: WORK_CONTEXT }),
+  })
+  expect(built.failure).toBeUndefined()
+  const packet = built.packet!
+  expect(packet.inputs.work_context).toEqual(WORK_CONTEXT)
+  expect(validateAgentLanePacket(packet)).toBe(true)
+})
+
+test("a pin without a work context adds no packet member", async () => {
+  const built = await build(defaultScript())
+  expect(built.failure).toBeUndefined()
+  expect("work_context" in built.packet!.inputs).toBe(false)
+  expect(validateAgentLanePacket(built.packet!)).toBe(true)
+})
+
+test("a malformed or over-bound work context refuses the packet", async () => {
+  const malformed = { ...WORK_CONTEXT, findings: [{ ...WORK_CONTEXT.findings[0], status: "accepted" }] }
+  const overBound = { ...WORK_CONTEXT, required_reading: Array.from({ length: 33 }, () => WORK_CONTEXT.required_reading[0]) }
+  for (const work_context of [malformed, overBound]) {
+    const built = await build({
+      ...defaultScript(),
+      "concord_work_trace.continuity": continuityEnvelope(pinnedContract(), null, { work_context }),
+    })
+    expect(built.failure).toBeDefined()
+    expect(built.failure!.kind).toBe("packet_refused")
+    expect(validateAgentLanePacket({ ...built.packet, inputs: { ...built.packet?.inputs, work_context } } as any)).toBe(false)
+  }
+})
+
 test("installed agents project the report schema bounds", async () => {
   const built = await build(defaultScript())
   expect(built.failure).toBeUndefined()

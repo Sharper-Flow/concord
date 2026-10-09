@@ -1,6 +1,7 @@
 package store
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -783,4 +784,50 @@ func assembleWorkContextDomainGroups(ctx context.Context, q queryer, workID stri
 // compares it against current state read identical bytes.
 func ReadWorkContextTx(ctx context.Context, tx *sql.Tx, workID string) (*WorkContextView, error) {
 	return readWorkContextView(ctx, tx, workID)
+}
+
+// validateWorkerPacketWorkContext refuses a dispatch whose packet does not
+// consume the current work-context view (CON-887), mirroring the correction
+// admission one guard above it. The current view is re-read inside the
+// dispatch transaction through the same tx-scoped reader the work pin used,
+// so the comparison is against the state the spawn will land on. A nil
+// current view refuses a packet that carries inputs.work_context; a present
+// view requires the member, decoded closed and equal byte-for-byte to the
+// reader's canonical serialization. A view past its bounds propagates the
+// reader's own limit_exceeded refusal rather than truncating.
+func validateWorkerPacketWorkContext(ctx context.Context, q queryer, workID string, packetRaw json.RawMessage) error {
+	var packet struct {
+		Inputs struct {
+			WorkContext json.RawMessage `json:"work_context"`
+		} `json:"inputs"`
+	}
+	if err := json.Unmarshal(packetRaw, &packet); err != nil {
+		return newFailure(KindInvalidPayload, "workflow_action", "dispatch_worker worker_packet is malformed", false, "supply the lane packet bound to this work item and attempt")
+	}
+	current, err := readWorkContextView(ctx, q, workID)
+	if err != nil {
+		return err
+	}
+	present := len(packet.Inputs.WorkContext) != 0 && string(packet.Inputs.WorkContext) != "null"
+	if current == nil {
+		if present {
+			return newFailure(KindInvalidPayload, "workflow_action", "worker packet carries work context without a current work context view", false, "build the packet from the current work pin")
+		}
+		return nil
+	}
+	if !present {
+		return newFailure(KindInvalidPayload, "workflow_action", "worker packet does not consume the current work context", false, "build a fresh packet from the current work pin")
+	}
+	decoder := json.NewDecoder(strings.NewReader(string(packet.Inputs.WorkContext)))
+	decoder.DisallowUnknownFields()
+	var claimed WorkContextView
+	if err := decoder.Decode(&claimed); err != nil {
+		return newFailure(KindInvalidPayload, "workflow_action", "worker packet inputs.work_context is not one closed work-context view", false, "build a fresh packet from the current work pin")
+	}
+	claimedJSON, claimedErr := json.Marshal(claimed)
+	currentJSON, currentErr := json.Marshal(current)
+	if claimedErr != nil || currentErr != nil || !bytes.Equal(claimedJSON, currentJSON) {
+		return newFailure(KindInvalidPayload, "workflow_action", "worker packet does not consume the current work context", false, "build a fresh packet from the current work pin")
+	}
+	return nil
 }

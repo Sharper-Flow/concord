@@ -36,6 +36,17 @@ canonicalJSON of the packet — on the WorkflowActionCompleted event beside
 WorkerDispatchWindow. domain_events.payload is untyped JSON, so no store
 migration is needed.
 
+Amended 2026-10-09 for the packet output-protocol pin
+([Linear](https://linear.app/sharper-flow/issue/CON-891/give-the-workers-final-report-an-explicit-protocol-identity-instead-of)):
+the packet declares its output protocol. `inputs.report_protocol`, when
+present, names the report framing its worker must use —
+`concord-worker-result-v1` — and every new packet builder sets it. The field
+travels inside the digested packet object, so `worker_packet_digest` pins it
+and the core still interprets nothing beyond object-ness and its two identity
+equalities. A packet without the field is historical, and its output follows
+the legacy report grammar; a packet that pins the protocol never falls back
+to that grammar.
+
 ### D3. Closed-object fields get a registry value type
 
 A new PayloadValueType `object` validates that a field is one strict JSON

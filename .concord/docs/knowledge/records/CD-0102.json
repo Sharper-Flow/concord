@@ -18,7 +18,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:f96bb66e33b4338a2022a6a3e5ec57f3f66f216e525209de1894b44255c44678",
+  "sha256": "sha256:fdff03e0d74be4c91a41ab737c22290df9c1bd348e2e432821ce0407e485a1a2",
   "status": "accepted",
   "summary": "Runs authorized lanes through native Task cards while limiting Concord Task control to explicitly managed sessions. Work start and public dispatch persist managed participation in host session metadata before the core operation. Children inherit participation, and agent changes or host restarts do not clear it. Managed Tasks consume one authorized packet window. Ordinary unmanaged Tasks retain host permissions and create no Concord evidence; unmanaged callers cannot start unapproved Concord lanes or resume managed sessions. Participation stores no copy of a worktree or workflow. The native Task result and host export retain report and executing-identity evidence, and lanes do not own workflow state.",
   "tags": [

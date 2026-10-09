@@ -18,7 +18,8 @@
   `work-6cc7450c84e7077407a4f7b5` on 2026-10-08 — recorded by
   `approve_contract` at work version 14, operation
   `workflow-740de6d41fb4a8114c3d732c` — and this record is legislated under
-  that contract (CD-0159 D2-D3).
+  that contract (CD-0159 D2-D3). This citation records contract approval,
+  not verbatim approval of every later exact commitment.
 
 ## Context
 
@@ -208,10 +209,12 @@ cannot run, or a successful inventory that is malformed or incomplete, is
 an unknown observation that refuses: it is never proof a branch is checked
 out nowhere. A checkout that appeared at
 the boundary is detected there — an unborn `HEAD` still names its branch —
-and the ref is restored through a create-only argv update at exactly the
+and restoration uses a create-only argv update at exactly the
 pinned tip the deletion proved, whose zero old-value refuses to overwrite
-anything a concurrent actor rebuilt, leaving the other worktree whole and a
-foreign rebuilt ref standing as it is. The independent stored-ref proof
+anything a concurrent actor rebuilt. A successful update restores the
+checkout at the pinned tip. Failed observation or restoration leaves durable,
+audit-visible recovery debt, not proof of successful restoration. A foreign
+rebuilt ref remains unchanged. The independent stored-ref proof
 also runs against the tip the plan pins, never against the mutable branch
 name.
 
@@ -322,11 +325,12 @@ and the native removal stays behind the commit.
   deletion. Checkout and default protections are re-derived at every
   boundary, so a retried removal converges the pinned deletion once the
   other worktree moves off the branch or the default moves away.
-- A checkout gained at the mutation boundary itself is detected after the
-  pinned deletion and restored at its pinned tip through a create-only
-  update: the second worktree never keeps an unborn `HEAD`, a concurrently
-  rebuilt ref is preserved as it stands, and the protection is reported
-  beside whatever else the removal converged.
+- A successful post-deletion observation detects a checkout gained at the
+  mutation boundary. When the create-only restoration succeeds, the second
+  worktree's `HEAD` resolves to the pinned tip. Failed observation or
+  restoration leaves durable, audit-visible recovery debt. A concurrently
+  rebuilt ref remains unchanged, and the recorded outcome is reported beside
+  whatever else the removal converged.
 - A pre-deletion observation, a post-deletion observation, or a restoration
   that cannot complete leaves durable, audit-visible recovery debt at the
   immutable pinned tip. A healthy replay resolves it — restoring the ref a

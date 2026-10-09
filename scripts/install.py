@@ -120,6 +120,7 @@ ADAPTER_FILES = (
     "project-link.ts",
     "task-result.ts",
     "turn-move-boundary.ts",
+    "worker_recovery.ts",
     "workflow-status.ts",
 )
 INSTRUCTION_FILES = (

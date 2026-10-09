@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/sharper-flow/concord/internal/store"
 	"github.com/sharper-flow/concord/internal/store/storetest"
@@ -71,6 +72,129 @@ func TestSameProductSiblingMembershipMutationPassesApprovalChallenge(t *testing.
 	memberships, err := s.ProjectsForWork(ctx, "work-1")
 	if err != nil || len(memberships) != 1 || memberships[0].ID != "project-2" {
 		t.Fatalf("work memberships = %+v, err = %v", memberships, err)
+	}
+}
+
+func TestSameProductMembershipApprovalWireRoundTrip(t *testing.T) {
+	for _, elapsed := range []time.Duration{0, 14 * time.Minute, 27 * time.Minute} {
+		t.Run(elapsed.String(), func(t *testing.T) {
+			testMembershipApprovalWireRoundTrip(t, elapsed, false)
+		})
+	}
+}
+
+func TestMembershipApprovalPreservesHostTimestampFailure(t *testing.T) {
+	testMembershipApprovalWireRoundTrip(t, 0, true)
+}
+
+func testMembershipApprovalWireRoundTrip(t *testing.T, elapsed time.Duration, malformedTimestamp bool) {
+	t.Helper()
+	ctx := context.Background()
+	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_relate"})
+	addAuthoritySibling(t, s)
+	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := mutationEnvelope(grant, scopeVersion)
+	request := InvokeRequest{Tool: "concord_work_relate", Operation: "set_memberships", Input: json.RawMessage(`{"work_id":"work-1","expected_version":2,"memberships":[{"project_id":"project-1","role":"primary"},{"project_id":"project-2","role":"secondary"}],"idempotency_key":"membership-wire-round-trip"}`)}
+	dispatchWire := func(request InvokeRequest, env CallEnvelope) Envelope {
+		t.Helper()
+		request.CallEnvelope, err = json.Marshal(env)
+		if err != nil {
+			t.Fatal(err)
+		}
+		wire, err := json.Marshal(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		decoded, decodedEnv, err := DecodeInvokeRequest(wire)
+		if err != nil {
+			t.Fatal(err)
+		}
+		response, err := Dispatch(ctx, s, service, decoded, decodedEnv)
+		if err != nil {
+			t.Fatal(err)
+		}
+		wire, err = json.Marshal(response)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(wire, &response); err != nil {
+			t.Fatal(err)
+		}
+		return response
+	}
+	challenge := dispatchWire(request, env)
+	if challenge.Error == nil || challenge.Error.Kind != "approval_required" || challenge.Error.ConsequenceSummary == nil {
+		t.Fatalf("membership challenge = %+v", challenge)
+	}
+	ref, ok := challenge.Error.Details["approval_ref"].(string)
+	if !ok || len(ref) != 64 {
+		t.Fatalf("challenge reference = %v", challenge.Error.Details["approval_ref"])
+	}
+	summary := challenge.Error.ConsequenceSummary
+	now := fixedTime().Add(elapsed)
+	service.Now = func() time.Time { return now }
+	env.HostApproval = &HostApprovalAssertion{
+		ChallengeRef: ref, RequestDigest: summary.OperationDigest,
+		Scope: summary.Scope, Versions: summary.Versions,
+		SessionRef: env.SessionRef, AgentRef: env.AgentRef, Worktree: env.Worktree,
+		IssuedAt: now.Format(time.RFC3339Nano),
+	}
+	if malformedTimestamp {
+		env.HostApproval.IssuedAt = "malformed-host-timestamp"
+	}
+	var input map[string]any
+	if err := json.Unmarshal(request.Input, &input); err != nil {
+		t.Fatal(err)
+	}
+	input["approval"] = map[string]string{"approval_ref": ref}
+	request.Input, err = json.Marshal(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	approved := dispatchWire(request, env)
+	if malformedTimestamp {
+		if approved.Error == nil || approved.Error.Kind != "internal_error" || approved.Error.EffectState != EffectNone || approved.Error.RetrySafe || approved.Error.RecoveryAction.Kind != "contact_operator" || approved.Error.Details["boundary"] != "host_approval_timestamp" || approved.Error.Details["reason"] != "malformed" {
+			t.Fatalf("host timestamp failure lost its cause or requested another approval: %+v", approved.Error)
+		}
+		if workVersion(t, s, "work-1") != 2 || usedCount(t, s.DatabaseForTesting(), `SELECT used_count FROM agent_approval_challenges WHERE challenge_ref=?`, ref) != 0 {
+			t.Fatal("host timestamp refusal changed work or consumed approval authority")
+		}
+		env.HostApproval.IssuedAt = now.Format(time.RFC3339Nano)
+		approved = dispatchWire(request, env)
+	}
+	if elapsed > 0 {
+		if approved.Error == nil || approved.Error.Kind != "approval_invalid" || approved.Error.EffectState != EffectNone || approved.Error.RetrySafe || approved.Error.RecoveryAction.Kind != "request_approval" {
+			t.Fatalf("expired challenge refusal = %+v", approved.Error)
+		}
+		if approved.Error.Details["boundary"] != "approval_challenge_binding" || approved.Error.Details["reason"] != "expired" || approved.Error.Details["validated_at"] != now.Format(time.RFC3339Nano) || approved.Error.Details["expires_at"] != summary.ExpiresAt {
+			t.Fatalf("expired challenge lost its exact cause: %+v", approved.Error)
+		}
+		if workVersion(t, s, "work-1") != 2 || usedCount(t, s.DatabaseForTesting(), `SELECT used_count FROM agent_approval_challenges WHERE challenge_ref=?`, ref) != 0 || countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approvals`) != 0 {
+			t.Fatal("expired challenge changed work or consumed approval authority")
+		}
+		return
+	}
+	if approved.Outcome != OutcomeOK {
+		t.Fatalf("approved membership = %+v, error = %+v", approved, approved.Error)
+	}
+	memberships, err := s.ProjectsForWork(ctx, "work-1")
+	if err != nil || len(memberships) != 2 {
+		t.Fatalf("work memberships = %+v, err = %v", memberships, err)
+	}
+	for _, membership := range memberships {
+		if (membership.ID != "project-1" || membership.Role != "primary") && (membership.ID != "project-2" || membership.Role != "secondary") {
+			t.Fatalf("unexpected membership = %+v", membership)
+		}
+	}
+	if workVersion(t, s, "work-1") != 3 || usedCount(t, s.DatabaseForTesting(), `SELECT used_count FROM agent_approval_challenges WHERE challenge_ref=?`, ref) != 1 {
+		t.Fatal("membership approval did not produce exactly one version increment and challenge consumption")
+	}
+	replayed := dispatchWire(request, env)
+	if replayed.Outcome != OutcomeOK || !replayed.Replayed || workVersion(t, s, "work-1") != 3 {
+		t.Fatalf("membership replay = %+v", replayed)
 	}
 }
 

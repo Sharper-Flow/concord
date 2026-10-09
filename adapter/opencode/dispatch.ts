@@ -3,6 +3,7 @@ import fs from "node:fs"
 import path from "node:path"
 import { agentLanePacketSchema, agentLaneReportSchema, laneForIdentity, workerScopeAssignedResult, type AgentLane } from "./generated-agent-lanes"
 import { maxEnvelopeBytes } from "./generated-contracts"
+import { validateGeneratedPayload } from "./generated-contract-tests"
 import { coreBinary } from "./generated-release"
 import { SecretToolCredentialStore, b64, clientRef, privateKeyObject, randomNonce, type CredentialStore } from "./credentials"
 import { canonicalDirectory, dispatchDirectoryMismatch, dispatchWindows, DispatchWindowError, serializeLanePacket, type DispatchWindows } from "./dispatch-window"
@@ -1267,13 +1268,39 @@ async function probeWorkerEvidenceCredential(credentials: CredentialStore): Prom
 // recordWorkerEvent appends one worker evidence event through the short-lived
 // JSON CLI, the same transport concord.ts uses for every tool invocation. The
 // adapter stays envelope-thin per CD-0017 D2 and never writes the event log
-// directly. Returns a bounded diagnostic on failure, or null on success.
-async function recordWorkerEvent(childRunner: DispatchRunner, binary: string, command: "worker-dispatch" | "worker-complete" | "worker-fail" | "worker-abandon", request: Record<string, unknown>, signal: AbortSignal): Promise<string | null> {
+// directly. Returns a typed failure carrying the effect state the core
+// reported, or null on success.
+class WorkerEvidenceFailure extends Error {
+  constructor(message: string, readonly effectState: "none" | "possible" | "unknown" = "unknown", readonly retrySafe = true, readonly operation = "worker_evidence", readonly eventIDs: string[] = [], readonly kind = "transport_failure") { super(message) }
+  toString(): string { return this.message }
+}
+
+function workerEvidenceEnvelope(lane: AgentLane, packet: AgentLanePacket | Pick<AgentLanePacket, "work_id" | "attempt_id">, failure: WorkerEvidenceFailure): AgentResultEnvelope {
+  const envelope = errorEnvelope(lane, packet, "error", "error", failure.message, "reconcile_operation")
+  envelope.error!.retry_safe = failure.retrySafe
+  envelope.error!.details = { effect_state: failure.effectState, operation: failure.operation, event_ids: failure.eventIDs }
+  return envelope
+}
+
+function workerEventID(verb: string, packet: Pick<AgentLanePacket, "work_id" | "attempt_id">): string {
+  return `worker-evidence-${createHash("sha256").update(`${verb}\0${packet.work_id}\0${packet.attempt_id}`).digest("hex")}`
+}
+
+async function recordWorkerEvent(childRunner: DispatchRunner, binary: string, command: "worker-dispatch" | "worker-complete" | "worker-fail" | "worker-abandon", request: Record<string, unknown>, signal: AbortSignal): Promise<WorkerEvidenceFailure | null> {
   const input = JSON.stringify(request)
-  if (Buffer.byteLength(input) > MAX_CLI_INPUT_BYTES) return `${command} request exceeded the bounded CLI input limit`
+  if (Buffer.byteLength(input) > MAX_CLI_INPUT_BYTES) return new WorkerEvidenceFailure(`${command} request exceeded the bounded CLI input limit`, "none", false)
   let result: { exitCode: number; stdout: string; stderr: string }
-  try { result = await childRunner.run([binary, command], input, signal) } catch (error) { return String(error).slice(0, MAX_ERROR_BYTES) }
-  if (result.exitCode !== 0) return (result.stderr || result.stdout).slice(0, MAX_ERROR_BYTES) || `${command} failed without diagnostic output`
+  try { result = await childRunner.run([binary, command], input, signal) } catch (error) { return new WorkerEvidenceFailure(String(error).slice(0, MAX_ERROR_BYTES)) }
+  if (result.exitCode !== 0) {
+    try {
+      const body = JSON.parse(result.stdout)
+      const error = body?.error
+      if (validateGeneratedPayload("worker_evidence_failure_result", body)) {
+        return new WorkerEvidenceFailure(boundedTextPrefix(error.message, MAX_ERROR_BYTES), error.effect_state, error.retry_safe, error.operation, body.event_ids ?? [], error.kind)
+      }
+    } catch { /* A transport without a typed result cannot prove no effect. */ }
+    return new WorkerEvidenceFailure(boundedTextPrefix(result.stderr || result.stdout || `${command} failed without diagnostic output`, MAX_ERROR_BYTES))
+  }
   return null
 }
 
@@ -1321,7 +1348,7 @@ async function recordModelReadbackFailure(lane: AgentLane, packet: AgentLanePack
     host_provenance: provenance, ...packetWorkerJobBinding(packet), assertion,
   }, signal)
   if (failure === null) onRecorded?.()
-  return failure
+  return failure?.message ?? null
 }
 
 // CD-0034 / issue #103: host prompt provenance. The adapter enumerates the
@@ -1342,6 +1369,20 @@ async function recordModelReadbackFailure(lane: AgentLane, packet: AgentLanePack
 // injected is silently absent.
 export type HostProvenanceSource = { kind: "agent_definition" | "agents_md" | "instruction_file" | "unenumerated"; path?: string; sha256?: string }
 export type HostProvenance = { digest: string; sources: HostProvenanceSource[] }
+
+export interface WorkerRecoveryContext {
+  packet_digest: string
+  worker_worktree: string
+  coordinator_session: string
+  attempt_epoch: number
+  dispatch_event_id: string
+  terminal_event_id?: string
+  lifecycle_state: "dispatched" | "completed"
+  dispatch: {
+    attempt_id: string; lane_id: string; lane_version: number; lane_digest: string
+    packet_digest: string; readback_model: string; host_provenance: HostProvenance
+  }
+}
 
 const UNENUMERATED_SURFACES: HostProvenanceSource[] = [
   // CD-0034: a surface the adapter cannot read is recorded by name and no
@@ -1872,7 +1913,7 @@ export async function completeWorkerAttempt(
   lane: AgentLane,
   packet: AgentLanePacket,
   taskResult: string,
-  options: { signal?: AbortSignal; runner?: DispatchRunner; sessionReader?: SessionReader; evidenceRunner?: DispatchRunner; binary?: string; concordBinary?: string; credentials?: CredentialStore; authorize?: DispatchAuthorizer; packetDigest?: string; workerDirectory: string; capturedProvenance?: HostProvenance },
+  options: { signal?: AbortSignal; runner?: DispatchRunner; sessionReader?: SessionReader; evidenceRunner?: DispatchRunner; binary?: string; concordBinary?: string; credentials?: CredentialStore; authorize?: DispatchAuthorizer; packetDigest?: string; workerDirectory: string; recovery?: WorkerRecoveryContext; onRecorded?: () => void; capturedProvenance?: HostProvenance },
   signal: AbortSignal,
 ): Promise<AgentResultEnvelope> {
   // The wrapper carries the worker session identifier, so a body that is not a
@@ -1880,7 +1921,7 @@ export async function completeWorkerAttempt(
   // readback, and without readback there is no executing-model evidence.
   const read = readTaskResult(taskResult)
   if (!read) return errorEnvelope(lane, packet, "error", "invalid_report", "worker result is not a host task result wrapper", "reconcile_operation")
-  return completeWorkerSession(lane, packet, read.sessionID, read.text, options, signal)
+  return completeWorkerSession(lane, packet, read.sessionID, read.text, options, signal, undefined, options.onRecorded)
 }
 
 type WorkerCompletionOptions = Parameters<typeof completeWorkerAttempt>[3]
@@ -1942,7 +1983,7 @@ export async function abandonWorkerAttempt(
     detail: boundedTextPrefix(detail, MAX_FAILURE_DETAIL_BYTES),
     assertion,
   }, signal)
-  if (failure) return errorEnvelope(lane, packet, "error", "error", `worker attempt remains open because abandonment could not be recorded: ${failure}`.slice(0, MAX_ERROR_BYTES), "reconcile_operation")
+  if (failure) return workerEvidenceEnvelope(lane, packet, failure)
   onRecorded?.()
   const envelope = errorEnvelope(lane, packet, "error", "error", detail.slice(0, MAX_ERROR_BYTES), "reconcile_operation")
   envelope.error!.retry_safe = false
@@ -1984,6 +2025,7 @@ async function completeWorkerSession(
       // had.
       return errorEnvelope(lane, packet, "error", "error", read.message, "reconcile_operation")
     }
+    if (options.recovery) return errorEnvelope(lane, packet, "error", "invalid_report", read.message, "contact_operator")
     return refuseWorkerReadback(lane, packet, {
       predicate: read.predicate,
       export_digest: sha256Digest(read.body),
@@ -1995,6 +2037,7 @@ async function completeWorkerSession(
   const body = read.body
   const opening = readExportOpeningPacket(body, workerSessionID, packet)
   if (!opening.ok) {
+    if (options.recovery) return errorEnvelope(lane, packet, "error", "invalid_report", opening.message, "contact_operator")
     return refuseWorkerReadback(lane, packet, {
       predicate: opening.predicate,
       export_digest: sha256Digest(body),
@@ -2005,6 +2048,7 @@ async function completeWorkerSession(
   }
   const readbackResult = readExportSession(body, workerSessionID)
   if (!readbackResult.ok) {
+    if (options.recovery) return errorEnvelope(lane, packet, "error", "invalid_report", readbackResult.message, "contact_operator")
     return refuseWorkerReadback(lane, packet, {
       predicate: readbackResult.predicate,
       export_digest: readbackResult.export_digest,
@@ -2014,6 +2058,9 @@ async function completeWorkerSession(
     }, workerSessionID, workerDirectory, resultBody, options, signal, onRecorded)
   }
   const readback = readbackResult.metadata
+  if (options.recovery && readSessionParent(body, workerSessionID) !== options.recovery.coordinator_session) {
+    return errorEnvelope(lane, packet, "error", "invalid_report", "retained worker parent session differs from its original dispatch", "contact_operator")
+  }
   // The adapter names the lane executor; the host owns which model executes
   // it (CD-0058 D1). Because the host may also substitute the agent itself —
   // run mode falls back to the default agent when an agent definition is not
@@ -2081,10 +2128,12 @@ async function completeWorkerSession(
   // gate (CD-0178 D3).
   // Completion records the manifest captured at authorization; a fallback
   // computes one now. A refusal records no worker evidence — the authorized
-  // attempt stays open for reconciliation.
+  // attempt stays open for reconciliation. CD-0208 D5: retained recovery reads
+  // its original proof, so the dispatch record's manifest wins over any later
+  // capture and no host file is re-read on that route.
   let provenance: HostProvenance
   try {
-    provenance = options.capturedProvenance ?? await computeHostPromptProvenance(lane.id, workerDirectory)
+    provenance = options.recovery?.dispatch.host_provenance ?? options.capturedProvenance ?? await computeHostPromptProvenance(lane.id, workerDirectory)
   } catch (error) {
     return provenanceRefusal(lane, packet, error, "reconcile_operation", "worker evidence was not recorded; the authorized attempt requires reconciliation")
   }
@@ -2109,6 +2158,7 @@ async function completeWorkerSession(
     return errorEnvelope(lane, packet as Partial<AgentLanePacket>, "error", "invalid_input", "dispatch evidence requires the packet digest recorded by the dispatch authorization", "reconcile_operation")
   }
   let dispatchAssertion: Record<string, unknown>
+  const dispatchModel = options.recovery?.dispatch.readback_model ?? readback.readback_model
   try {
     // The evidence binds the digest the core authorized in the packet, never
     // the resolved current definition: a legacy-digest dispatch keeps its
@@ -2121,7 +2171,7 @@ async function completeWorkerSession(
       lane_id: lane.id,
       lane_version: lane.version,
       lane_digest: packet.lane_digest,
-      readback_model: readback.readback_model,
+      readback_model: dispatchModel,
       host_provenance_digest: provenance.digest,
       packet_digest: options.packetDigest,
     })
@@ -2131,24 +2181,25 @@ async function completeWorkerSession(
     return errorEnvelope(lane, packet, "error", "error", String(error).slice(0, MAX_ERROR_BYTES), "contact_operator")
   }
   const dispatchFailure = await recordWorkerEvent(cliRunner, cli, "worker-dispatch", {
-    event_id: crypto.randomUUID(),
+    event_id: options.recovery?.dispatch_event_id ?? workerEventID("worker-dispatch", packet),
     work_id: packet.work_id,
     attempt_id: packet.attempt_id,
     lane_id: lane.id,
     lane_version: lane.version,
     lane_digest: packet.lane_digest,
-    readback_model: readback.readback_model,
+    readback_model: dispatchModel,
     packet_schema_version: packet.schema_version,
     report_schema_version: packet.schema_version,
     // The CLI requires the digest on the request as well as inside the
     // signed assertion: it is the seam that checks the value the assertion
     // claims is the value the core recorded (CD-0067 D6).
     packet_digest: options.packetDigest,
+    authorized_packet: packet,
     host_provenance: provenance,
     ...packetWorkerJobBinding(packet),
     assertion: dispatchAssertion,
   }, signal)
-  if (dispatchFailure) return errorEnvelope(lane, packet, "error", "error", dispatchFailure, "reconcile_operation")
+  if (dispatchFailure) return workerEvidenceEnvelope(lane, packet, dispatchFailure)
 
   // The terminal assertion is minted immediately before its own CLI write,
   // after the dispatch write has landed. The core refuses an assertion whose
@@ -2194,7 +2245,7 @@ async function completeWorkerSession(
 
   if (terminal.verb === "worker-fail") {
     const failureRecordFailure = await recordWorkerEvent(cliRunner, cli, "worker-fail", {
-      event_id: crypto.randomUUID(),
+      event_id: workerEventID("worker-fail", packet),
       work_id: packet.work_id,
       attempt_id: packet.attempt_id,
       readback_model: readback.readback_model,
@@ -2202,7 +2253,7 @@ async function completeWorkerSession(
       detail: terminal.detail,
       assertion: terminalAssertion,
     }, signal)
-    if (failureRecordFailure) return errorEnvelope(lane, packet, "error", "error", failureRecordFailure, "reconcile_operation")
+    if (failureRecordFailure) return workerEvidenceEnvelope(lane, packet, failureRecordFailure)
     onRecorded?.()
     const failed = errorEnvelope(lane, packet, "error", terminal.failure_kind === "invalid_report" ? "invalid_report" : "error", terminal.detail, "reconcile_operation")
     failed.error!.retry_safe = false
@@ -2212,7 +2263,7 @@ async function completeWorkerSession(
   }
 
   const completionFailure = await recordWorkerEvent(cliRunner, cli, "worker-complete", {
-    event_id: crypto.randomUUID(),
+    event_id: options.recovery?.terminal_event_id ?? workerEventID("worker-complete", packet),
     work_id: packet.work_id,
     attempt_id: packet.attempt_id,
     readback_model: readback.readback_model,
@@ -2226,7 +2277,8 @@ async function completeWorkerSession(
     assertion: terminalAssertion,
   }, signal)
   if (completionFailure) {
-    // A refused completion closes the attempt as invalid_report with the
+    if (completionFailure.effectState !== "none" || completionFailure.retrySafe || completionFailure.kind !== "invalid_payload") return workerEvidenceEnvelope(lane, packet, completionFailure)
+    // A precommit report-payload refusal closes the attempt as invalid_report with the
     // refusal text as its detail. abandoned stays reserved for attempts that
     // returned no report, so its liveness gate (CD-0178 D3) cannot block this
     // close while the lane runs inside the live coordinator process. The
@@ -2249,7 +2301,7 @@ async function completeWorkerSession(
       return errorEnvelope(lane, packet, "error", "error", `${detail}; the attempt stays open because its failure could not be signed: ${String(error)}`.slice(0, MAX_ERROR_BYTES), "contact_operator")
     }
     const closeFailure = await recordWorkerEvent(cliRunner, cli, "worker-fail", {
-      event_id: crypto.randomUUID(),
+      event_id: workerEventID("worker-fail", packet),
       work_id: packet.work_id,
       attempt_id: packet.attempt_id,
       readback_model: readback.readback_model,
@@ -2257,9 +2309,31 @@ async function completeWorkerSession(
       detail,
       assertion: closeAssertion,
     }, signal)
-    const message = closeFailure ? `${detail}; the attempt stays open because its failure could not be recorded: ${closeFailure}` : detail
-    return errorEnvelope(lane, packet, "error", "invalid_report", message.slice(0, MAX_ERROR_BYTES), "reconcile_operation")
+    if (closeFailure) {
+      // The close write's own typed failure governs the coordinator's next
+      // move: its effect state, retry safety, operation, and event ids reach
+      // the caller intact, and onRecorded stays unset so the window record
+      // stays retained for the recovery the refusal names. Flattening the
+      // refusal into prose alone would guess an effect the transport never
+      // proved.
+      return workerEvidenceEnvelope(lane, packet, new WorkerEvidenceFailure(
+        `${detail}; the attempt stays open because its failure could not be recorded: ${closeFailure}`.slice(0, MAX_ERROR_BYTES),
+        closeFailure.effectState, closeFailure.retrySafe, closeFailure.operation, closeFailure.eventIDs, closeFailure.kind))
+    }
+    onRecorded?.()
+    // The landed worker-fail close is the attempt's terminal outcome
+    // (CD-0044 D4: a recorded result is final), so this returns the same
+    // terminal diagnostic the direct failure route returns — never the
+    // success envelope for a report the core refused. retry_safe is false
+    // because finality is known: a retry needs the operator-approved route,
+    // not an automatic one.
+    const closed = errorEnvelope(lane, packet, "error", "invalid_report", detail, "reconcile_operation")
+    closed.error!.retry_safe = false
+    closed.readback_model = readback.readback_model
+    closed.session_id = readback.session_id
+    return withHostBoundedOutput(closed, resultBody) ?? closed
   }
 
+  onRecorded?.()
   return envelope
 }

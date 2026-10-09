@@ -1187,6 +1187,9 @@
         },
         "liveness": {
           "$ref": "#/$defs/work_liveness"
+        },
+        "defect_intake": {
+          "$ref": "#/$defs/defect_classification"
         }
       }
     },
@@ -4049,6 +4052,10 @@
         },
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "defect_intake": {
+          "$ref": "#/$defs/defect_intake",
+          "description": "Capture admission record (defect intake). Required for kind bug, optional for kind research, refused for every other kind; the core enforces the kind rules and the admission decision."
         }
       }
     },
@@ -4452,6 +4459,102 @@
         },
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"
+        }
+      }
+    },
+    "worker_evidence_failure_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ok", "event_ids", "error"],
+      "properties": {
+        "ok": {"const": false},
+        "event_ids": {"oneOf": [{"type": "null"}, {"type": "array", "maxItems": 16, "items": {"$ref": "#/$defs/id"}}]},
+        "error": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "operation", "retry_safe", "effect_state", "message"],
+          "properties": {
+            "kind": {"$ref": "#/$defs/id"},
+            "operation": {"$ref": "#/$defs/id"},
+            "retry_safe": {"type": "boolean"},
+            "effect_state": {"type": "string", "enum": ["none", "possible"]},
+            "message": {"type": "string", "minLength": 1, "maxLength": 65536}
+          }
+        }
+      }
+    },
+    "work_transition_worker_reconcile_input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["work_id", "attempt_id", "task_part_id", "idempotency_key"],
+      "properties": {
+        "work_id": {"$ref": "#/$defs/id"},
+        "attempt_id": {"$ref": "#/$defs/id"},
+        "task_part_id": {"$ref": "#/$defs/id"},
+        "idempotency_key": {"$ref": "#/$defs/id"},
+        "approval": {"$ref": "#/$defs/approval"},
+        "requested_budget_seconds": {"$ref": "#/$defs/requested_budget_seconds"}
+      }
+    },
+    "worker_recovery_context": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["packet_digest", "worker_worktree", "coordinator_session", "attempt_epoch", "dispatch_event_id", "lifecycle_state", "dispatch"],
+      "properties": {
+        "packet_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "worker_worktree": {"$ref": "#/$defs/absolute_path"},
+        "coordinator_session": {"$ref": "#/$defs/id"},
+        "attempt_epoch": {"type": "integer", "minimum": 1},
+        "dispatch_event_id": {"$ref": "#/$defs/id"},
+        "terminal_event_id": {"$ref": "#/$defs/id"},
+        "lifecycle_state": {"type": "string", "enum": ["dispatched", "completed"]},
+        "dispatch": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["attempt_id", "lane_id", "lane_version", "lane_digest", "capability_class", "packet_schema_version", "report_schema_version", "packet_digest", "host_provenance", "readback_model"],
+          "properties": {
+            "attempt_id": {"$ref": "#/$defs/id"},
+            "lane_id": {"$ref": "#/$defs/id"},
+            "lane_version": {"type": "integer", "minimum": 1},
+            "lane_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+            "capability_class": {"$ref": "#/$defs/short"},
+            "packet_schema_version": {"type": "string", "enum": ["1.0", "1.1"], "description": "The packet identity the original dispatch recorded (CD-0205): \"1.0\" never carried inputs.worker_job; \"1.1\" is the job-capable packet. The core quotes the stored dispatch; the caller supplies no replacement."},
+            "report_schema_version": {"type": "string", "enum": ["1.0", "1.1"], "description": "The report identity the original dispatch recorded, as the matched pair the dispatch carried (CD-0205). The core quotes the stored dispatch; the caller supplies no replacement."},
+            "packet_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+            "readback_model": {"$ref": "#/$defs/short"},
+            "lane_actor_ref": {"$ref": "#/$defs/id"},
+            "worker_job": {
+              "type": "object",
+              "additionalProperties": false,
+              "description": "The worker-job binding the original dispatch recorded (CD-0205): the stable job identity, the immutable revision number, and the digest of the recorded revision content. Present only on a job-bound dispatch; the core quotes the stored dispatch, and the caller supplies no replacement.",
+              "required": ["job_id", "revision", "digest"],
+              "properties": {
+                "job_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{1,127}$", "minLength": 2, "maxLength": 128},
+                "revision": {"type": "integer", "minimum": 1, "maximum": 2147483647},
+                "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$", "minLength": 71, "maxLength": 71}
+              }
+            },
+            "host_provenance": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["digest", "sources"],
+              "properties": {
+                "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+                "sources": {
+                  "type": "array", "minItems": 1, "maxItems": 32,
+                  "items": {
+                    "type": "object", "additionalProperties": false,
+                    "required": ["kind", "path"],
+                    "properties": {
+                      "kind": {"type": "string", "enum": ["agent_definition", "agents_md", "instruction_file", "unenumerated"]},
+                      "path": {"type": "string", "maxLength": 512},
+                      "sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+                    }
+                  }
+                }
+              }
+            }
+          }
         }
       }
     },
@@ -5213,6 +5316,9 @@
         "vacate_target": {
           "$ref": "#/$defs/vacate_target",
           "description": "Present on a completed or cancelled lifecycle transition, and on a supersede, when the calling session's linked worktree is that work item's active worktree. Names the registered main checkout the adapter moves the session to after the transition."
+        },
+        "worker_recovery": {
+          "$ref": "#/$defs/worker_recovery_context"
         }
       }
     },
@@ -14723,11 +14829,15 @@
     "outside_repair_required_check": {
       "type": "object",
       "additionalProperties": false,
+      "description": "One required check the boundary authenticated on the immutable PR head, carrying its exact native check-run, workflow-run and job identities (CD-0210 D2) so distinct checks in one run stay distinguishable and a rerun cannot rewrite the receipt.",
       "required": [
         "name",
         "url",
         "commit_sha",
-        "conclusion"
+        "conclusion",
+        "check_run_id",
+        "run_id",
+        "job_id"
       ],
       "properties": {
         "name": {
@@ -14744,6 +14854,21 @@
         "conclusion": {
           "type": "string",
           "const": "success"
+        },
+        "check_run_id": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The native GitHub check-run identity that reported this required check."
+        },
+        "run_id": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The native Actions workflow-run identity whose URL the receipt names."
+        },
+        "job_id": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The native Actions job identity that proved this check on the fetched run."
         }
       }
     },
@@ -15156,6 +15281,98 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 512
+        }
+      }
+    },
+    "defect_classification": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Read-only projection of the persisted defect classification: the immutable intake fields a capture admitted plus the core's computed sibling snapshot. Rides the authoritative intent reads (the scope read and the full-detail list) beside the task and value statement; bounded summary reads omit it.",
+      "required": [
+        "failure_shape",
+        "reproduction",
+        "searched",
+        "related_defect_ids",
+        "sibling_ids"
+      ],
+      "properties": {
+        "failure_shape": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
+        },
+        "reproduction": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8192
+        },
+        "searched": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8192
+        },
+        "related_defect_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "root_cause_work_id": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^$|^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+        },
+        "sibling_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "description": "The core's complete same-shape sibling snapshot at admission. Never capped or sliced: a recurrent retry's coverage is checked against every member."
+        }
+      }
+    },
+    "defect_intake": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "failure_shape",
+        "reproduction",
+        "searched",
+        "related_defect_ids"
+      ],
+      "properties": {
+        "failure_shape": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[a-z0-9][a-z0-9-]{0,63}$",
+          "description": "Canonical bounded slug identifier for the defect class. Pick it once per class and repeat it on every capture of that class. It is an identifier, not a text heuristic derived from the title or task."
+        },
+        "reproduction": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8192,
+          "description": "The bounded steps that reproduce the failure."
+        },
+        "searched": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8192,
+          "description": "The bounded declaration of where earlier defects of this shape were searched before this capture."
+        },
+        "related_defect_ids": {
+          "type": "array",
+          "maxItems": 20,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "description": "Distinct earlier work IDs of the same failure shape. Historical unclassified bugs join the cluster only through this declaration; it may be empty."
+        },
+        "root_cause_work_id": {
+          "$ref": "#/$defs/id",
+          "description": "The completed workflow.research cluster RCA that admits a recurrent bug capture. Required once the core computes an earlier same-shape sibling; checked whenever a bug supplies it. Research captures must omit it."
         }
       }
     }

@@ -596,10 +596,11 @@ def validate(manifest: dict) -> str:
         if set(tool) != {"id", "description", "operations"} or not tool["operations"]:
             fail(f"tool section is not closed: {tool.get('id')}")
     operations = manifest.get("operations", [])
-    # 74 base operations plus the two operator-approved outside-repair
-    # transition actions (CD-0210): concord_work_transition.outside_repair and
+    # 75 base operations (74 plus concord_work_transition.worker_reconcile)
+    # plus the two operator-approved outside-repair transition actions
+    # (CD-0210): concord_work_transition.outside_repair and
     # concord_work_transition.outside_repair_reconcile.
-    expected_operations = 76
+    expected_operations = 77
     if len(operations) != expected_operations or len({o.get("id") for o in operations}) != expected_operations:
         fail(f"manifest must contain exactly {expected_operations} unique operations")
     tool_ids = {t["id"] for t in tools}
@@ -714,7 +715,7 @@ def validate_host_manifest(manifest: dict, schema: dict) -> str:
     if [tool.get("name") for tool in tools] != ["concord_work_start"]:
         fail("host tool manifest must declare concord_work_start once")
     args = tools[0].get("args", {})
-    capture = ["title", "value_statement", "kind", "task", "idempotency_key", "priority", "urgency", "tags", "workflow_type_ref", "external_ref", "raised_from_work_id", "governing_requirements", "ref"]
+    capture = ["title", "value_statement", "kind", "task", "idempotency_key", "priority", "urgency", "tags", "workflow_type_ref", "external_ref", "raised_from_work_id", "governing_requirements", "ref", "defect_intake"]
     resume_required = ["work_id"]
     resume_properties = ["work_id", "project_id"]
     branches = args.get("oneOf")

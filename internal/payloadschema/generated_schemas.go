@@ -1102,6 +1102,98 @@ const GeneratedPayloadSchemaDocument = `{
       "minLength": 2,
       "type": "string"
     },
+    "defect_classification": {
+      "additionalProperties": false,
+      "description": "Read-only projection of the persisted defect classification: the immutable intake fields a capture admitted plus the core's computed sibling snapshot. Rides the authoritative intent reads (the scope read and the full-detail list) beside the task and value statement; bounded summary reads omit it.",
+      "properties": {
+        "failure_shape": {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^[a-z0-9][a-z0-9-]{0,63}$",
+          "type": "string"
+        },
+        "related_defect_ids": {
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "type": "array"
+        },
+        "reproduction": {
+          "maxLength": 8192,
+          "minLength": 1,
+          "type": "string"
+        },
+        "root_cause_work_id": {
+          "maxLength": 128,
+          "pattern": "^$|^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+          "type": "string"
+        },
+        "searched": {
+          "maxLength": 8192,
+          "minLength": 1,
+          "type": "string"
+        },
+        "sibling_ids": {
+          "description": "The core's complete same-shape sibling snapshot at admission. Never capped or sliced: a recurrent retry's coverage is checked against every member.",
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "failure_shape",
+        "reproduction",
+        "searched",
+        "related_defect_ids",
+        "sibling_ids"
+      ],
+      "type": "object"
+    },
+    "defect_intake": {
+      "additionalProperties": false,
+      "properties": {
+        "failure_shape": {
+          "description": "Canonical bounded slug identifier for the defect class. Pick it once per class and repeat it on every capture of that class. It is an identifier, not a text heuristic derived from the title or task.",
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^[a-z0-9][a-z0-9-]{0,63}$",
+          "type": "string"
+        },
+        "related_defect_ids": {
+          "description": "Distinct earlier work IDs of the same failure shape. Historical unclassified bugs join the cluster only through this declaration; it may be empty.",
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "maxItems": 20,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "reproduction": {
+          "description": "The bounded steps that reproduce the failure.",
+          "maxLength": 8192,
+          "minLength": 1,
+          "type": "string"
+        },
+        "root_cause_work_id": {
+          "$ref": "#/$defs/id",
+          "description": "The completed workflow.research cluster RCA that admits a recurrent bug capture. Required once the core computes an earlier same-shape sibling; checked whenever a bug supplies it. Research captures must omit it."
+        },
+        "searched": {
+          "description": "The bounded declaration of where earlier defects of this shape were searched before this capture.",
+          "maxLength": 8192,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "failure_shape",
+        "reproduction",
+        "searched",
+        "related_defect_ids"
+      ],
+      "type": "object"
+    },
     "detail": {
       "enum": [
         "summary",
@@ -2836,6 +2928,9 @@ const GeneratedPayloadSchemaDocument = `{
           "pattern": "^sha256:[0-9a-f]{64}$",
           "type": "string"
         },
+        "worker_recovery": {
+          "$ref": "#/$defs/worker_recovery_context"
+        },
         "worker_worktree": {
           "$ref": "#/$defs/absolute_path"
         }
@@ -3244,7 +3339,13 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "outside_repair_required_check": {
       "additionalProperties": false,
+      "description": "One required check the boundary authenticated on the immutable PR head, carrying its exact native check-run, workflow-run and job identities (CD-0210 D2) so distinct checks in one run stay distinguishable and a rerun cannot rewrite the receipt.",
       "properties": {
+        "check_run_id": {
+          "description": "The native GitHub check-run identity that reported this required check.",
+          "minimum": 1,
+          "type": "integer"
+        },
         "commit_sha": {
           "$ref": "#/$defs/outside_repair_git_sha"
         },
@@ -3252,8 +3353,18 @@ const GeneratedPayloadSchemaDocument = `{
           "const": "success",
           "type": "string"
         },
+        "job_id": {
+          "description": "The native Actions job identity that proved this check on the fetched run.",
+          "minimum": 1,
+          "type": "integer"
+        },
         "name": {
           "$ref": "#/$defs/short"
+        },
+        "run_id": {
+          "description": "The native Actions workflow-run identity whose URL the receipt names.",
+          "minimum": 1,
+          "type": "integer"
         },
         "url": {
           "maxLength": 1024,
@@ -3265,7 +3376,10 @@ const GeneratedPayloadSchemaDocument = `{
         "name",
         "url",
         "commit_sha",
-        "conclusion"
+        "conclusion",
+        "check_run_id",
+        "run_id",
+        "job_id"
       ],
       "type": "object"
     },
@@ -5629,6 +5743,10 @@ const GeneratedPayloadSchemaDocument = `{
         "approval": {
           "$ref": "#/$defs/approval"
         },
+        "defect_intake": {
+          "$ref": "#/$defs/defect_intake",
+          "description": "Capture admission record (defect intake). Required for kind bug, optional for kind research, refused for every other kind; the core enforces the kind rules and the admission decision."
+        },
         "external_ref": {
           "$ref": "#/$defs/short"
         },
@@ -7803,6 +7921,9 @@ const GeneratedPayloadSchemaDocument = `{
     "work_summary": {
       "additionalProperties": false,
       "properties": {
+        "defect_intake": {
+          "$ref": "#/$defs/defect_classification"
+        },
         "id": {
           "$ref": "#/$defs/id"
         },
@@ -12696,6 +12817,36 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "object"
     },
+    "work_transition_worker_reconcile_input": {
+      "additionalProperties": false,
+      "properties": {
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "attempt_id": {
+          "$ref": "#/$defs/id"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "task_part_id": {
+          "$ref": "#/$defs/id"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "attempt_id",
+        "task_part_id",
+        "idempotency_key"
+      ],
+      "type": "object"
+    },
     "work_transition_worktree_audit_reclaim_input": {
       "additionalProperties": false,
       "properties": {
@@ -12871,6 +13022,68 @@ const GeneratedPayloadSchemaDocument = `{
         "work_id",
         "command",
         "idempotency_key"
+      ],
+      "type": "object"
+    },
+    "worker_evidence_failure_result": {
+      "additionalProperties": false,
+      "properties": {
+        "error": {
+          "additionalProperties": false,
+          "properties": {
+            "effect_state": {
+              "enum": [
+                "none",
+                "possible"
+              ],
+              "type": "string"
+            },
+            "kind": {
+              "$ref": "#/$defs/id"
+            },
+            "message": {
+              "maxLength": 65536,
+              "minLength": 1,
+              "type": "string"
+            },
+            "operation": {
+              "$ref": "#/$defs/id"
+            },
+            "retry_safe": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "kind",
+            "operation",
+            "retry_safe",
+            "effect_state",
+            "message"
+          ],
+          "type": "object"
+        },
+        "event_ids": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "items": {
+                "$ref": "#/$defs/id"
+              },
+              "maxItems": 16,
+              "type": "array"
+            }
+          ]
+        },
+        "ok": {
+          "const": false
+        }
+      },
+      "required": [
+        "ok",
+        "event_ids",
+        "error"
       ],
       "type": "object"
     },
@@ -13333,6 +13546,184 @@ const GeneratedPayloadSchemaDocument = `{
         "prerequisites",
         "unresolved_refs",
         "reserved_integration"
+      ],
+      "type": "object"
+    },
+    "worker_recovery_context": {
+      "additionalProperties": false,
+      "properties": {
+        "attempt_epoch": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "coordinator_session": {
+          "$ref": "#/$defs/id"
+        },
+        "dispatch": {
+          "additionalProperties": false,
+          "properties": {
+            "attempt_id": {
+              "$ref": "#/$defs/id"
+            },
+            "capability_class": {
+              "$ref": "#/$defs/short"
+            },
+            "host_provenance": {
+              "additionalProperties": false,
+              "properties": {
+                "digest": {
+                  "pattern": "^sha256:[0-9a-f]{64}$",
+                  "type": "string"
+                },
+                "sources": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "kind": {
+                        "enum": [
+                          "agent_definition",
+                          "agents_md",
+                          "instruction_file",
+                          "unenumerated"
+                        ],
+                        "type": "string"
+                      },
+                      "path": {
+                        "maxLength": 512,
+                        "type": "string"
+                      },
+                      "sha256": {
+                        "pattern": "^sha256:[0-9a-f]{64}$",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "path"
+                    ],
+                    "type": "object"
+                  },
+                  "maxItems": 32,
+                  "minItems": 1,
+                  "type": "array"
+                }
+              },
+              "required": [
+                "digest",
+                "sources"
+              ],
+              "type": "object"
+            },
+            "lane_actor_ref": {
+              "$ref": "#/$defs/id"
+            },
+            "lane_digest": {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            "lane_id": {
+              "$ref": "#/$defs/id"
+            },
+            "lane_version": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "packet_digest": {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            "packet_schema_version": {
+              "description": "The packet identity the original dispatch recorded (CD-0205): \"1.0\" never carried inputs.worker_job; \"1.1\" is the job-capable packet. The core quotes the stored dispatch; the caller supplies no replacement.",
+              "enum": [
+                "1.0",
+                "1.1"
+              ],
+              "type": "string"
+            },
+            "readback_model": {
+              "$ref": "#/$defs/short"
+            },
+            "report_schema_version": {
+              "description": "The report identity the original dispatch recorded, as the matched pair the dispatch carried (CD-0205). The core quotes the stored dispatch; the caller supplies no replacement.",
+              "enum": [
+                "1.0",
+                "1.1"
+              ],
+              "type": "string"
+            },
+            "worker_job": {
+              "additionalProperties": false,
+              "description": "The worker-job binding the original dispatch recorded (CD-0205): the stable job identity, the immutable revision number, and the digest of the recorded revision content. Present only on a job-bound dispatch; the core quotes the stored dispatch, and the caller supplies no replacement.",
+              "properties": {
+                "digest": {
+                  "maxLength": 71,
+                  "minLength": 71,
+                  "pattern": "^sha256:[0-9a-f]{64}$",
+                  "type": "string"
+                },
+                "job_id": {
+                  "maxLength": 128,
+                  "minLength": 2,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{1,127}$",
+                  "type": "string"
+                },
+                "revision": {
+                  "maximum": 2147483647,
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "job_id",
+                "revision",
+                "digest"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "attempt_id",
+            "lane_id",
+            "lane_version",
+            "lane_digest",
+            "capability_class",
+            "packet_schema_version",
+            "report_schema_version",
+            "packet_digest",
+            "host_provenance",
+            "readback_model"
+          ],
+          "type": "object"
+        },
+        "dispatch_event_id": {
+          "$ref": "#/$defs/id"
+        },
+        "lifecycle_state": {
+          "enum": [
+            "dispatched",
+            "completed"
+          ],
+          "type": "string"
+        },
+        "packet_digest": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "terminal_event_id": {
+          "$ref": "#/$defs/id"
+        },
+        "worker_worktree": {
+          "$ref": "#/$defs/absolute_path"
+        }
+      },
+      "required": [
+        "packet_digest",
+        "worker_worktree",
+        "coordinator_session",
+        "attempt_epoch",
+        "dispatch_event_id",
+        "lifecycle_state",
+        "dispatch"
       ],
       "type": "object"
     },

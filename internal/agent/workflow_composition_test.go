@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/sharper-flow/concord/internal/store"
@@ -69,6 +70,17 @@ func captureCompositionWork(t *testing.T, ctx context.Context, s *store.Store, s
 	if workflowRef != "" {
 		input["workflow_type_ref"] = workflowRef
 	}
+	if kind == "bug" {
+		// A public bug capture classifies: the synthetic intake carries a
+		// distinct failure shape per capture so composition fixtures never
+		// trip recurrence admission.
+		input["defect_intake"] = map[string]any{
+			"failure_shape":      "composition-" + sanitizeCompositionSlug(idempotencyKey),
+			"reproduction":       "run the composition fixture",
+			"searched":           "the composition fixture store",
+			"related_defect_ids": []string{},
+		}
+	}
 	raw, err := json.Marshal(input)
 	if err != nil {
 		t.Fatal(err)
@@ -104,4 +116,19 @@ func agentCompositionWorkVersion(t *testing.T, s *store.Store, workID string) in
 		t.Fatal(err)
 	}
 	return version
+}
+
+// sanitizeCompositionSlug folds an idempotency key into the lowercase slug
+// grammar a failure shape accepts.
+func sanitizeCompositionSlug(key string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(key) {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+		default:
+			b.WriteRune('-')
+		}
+	}
+	return b.String()
 }

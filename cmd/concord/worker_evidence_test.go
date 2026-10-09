@@ -401,6 +401,13 @@ func TestWorkerAbandonDerivesReadbackAndRequiresAnEmptyObservation(t *testing.T)
 	}
 	out.Reset()
 	errOut.Reset()
+	if code := runWithInput([]string{"worker-abandon"}, strings.NewReader(mustJSON(t, request)), &out, &errOut); code == 0 || !strings.Contains(errOut.String(), "nonce replayed") {
+		t.Fatalf("consumed abandon assertion exit=%d stderr=%q, want nonce replay refusal", code, errOut.String())
+	}
+	assertion.Nonce = "nonce-abandon-fresh-replay01"
+	request["assertion"] = signWorkerEvidence(t, key, assertion)
+	out.Reset()
+	errOut.Reset()
 	if code := runWithInput([]string{"worker-abandon"}, strings.NewReader(mustJSON(t, request)), &out, &errOut); code != 0 {
 		t.Fatalf("replayed worker-abandon exit=%d stderr=%q, want the existing event", code, errOut.String())
 	}

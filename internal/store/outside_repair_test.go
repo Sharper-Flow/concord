@@ -37,7 +37,7 @@ func outsideRepairSampleEvidence() OutsideRepairEvidence {
 	for i := int64(1); i <= 2; i++ {
 		head := strings.Repeat(jsonInt(i+1), 40)
 		e.PullRequests = append(e.PullRequests, OutsideRepairPullRequestEvidence{URL: "https://github.com/octo-org/concord/pull/" + jsonInt(i), Number: i, HeadSHA: head, MergeSHA: strings.Repeat(jsonInt(i+3), 40), MergedAt: at,
-			RequiredChecks: []OutsideRepairRequiredCheck{{Name: "required-ci", URL: "https://github.com/octo-org/concord/actions/runs/" + jsonInt(i) + "/job/1", CommitSHA: head, Conclusion: "success"}},
+			RequiredChecks: []OutsideRepairRequiredCheck{{Name: "required-ci", URL: "https://github.com/octo-org/concord/actions/runs/" + jsonInt(i) + "/job/1", CommitSHA: head, Conclusion: "success", CheckRunID: 400 + i, RunID: i, JobID: 1}},
 		})
 	}
 	return e
@@ -234,6 +234,64 @@ func TestOutsideRepairReconcileBothLiveLifecyclesAndReplay(t *testing.T) {
 	}
 }
 
+// TestOutsideRepairReceiptNativeIdentitiesSurvivePersistenceAndReplay pins
+// CD-0210 D2's receipt obligation on the durable side: the exact native
+// check-run, run and job identities the boundary authenticated must persist
+// in both durable evidence projections and survive a full log rebuild, so a
+// later rerun cannot rewrite what the recorded receipt proves.
+func TestOutsideRepairReceiptNativeIdentitiesSurvivePersistenceAndReplay(t *testing.T) {
+	s := openTemp(t)
+	work := "outside-identity"
+	seedOutsideRepairTestWork(t, s, work)
+	if err := outsideRepairApply(t, s, outsideRepairTestRequest(t, s, work, "hold"), WorkflowOutsideRepairDispositionSet, OutsideRepairEvidence{}); err != nil {
+		t.Fatal(err)
+	}
+	evidence := outsideRepairSampleEvidence()
+	if err := outsideRepairApply(t, s, outsideRepairTestRequest(t, s, work, "reconcile"), WorkflowOutsideRepairReconciled, evidence); err != nil {
+		t.Fatal(err)
+	}
+	assertNativeIdentities := func(t *testing.T, raw string) {
+		t.Helper()
+		var persisted OutsideRepairEvidence
+		if err := json.Unmarshal([]byte(raw), &persisted); err != nil {
+			t.Fatal(err)
+		}
+		for index, pr := range persisted.PullRequests {
+			for checkIndex, check := range pr.RequiredChecks {
+				if check.CheckRunID <= 0 || check.RunID <= 0 || check.JobID <= 0 {
+					t.Fatalf("pr %d check %d lost native identity: %+v", index, checkIndex, check)
+				}
+			}
+		}
+		if !reflect.DeepEqual(persisted.PullRequests[0].RequiredChecks, evidence.PullRequests[0].RequiredChecks) {
+			t.Fatalf("persisted receipt identities drifted: %+v", persisted.PullRequests[0].RequiredChecks)
+		}
+	}
+	var dispositionRaw, reconciliationRaw string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT evidence_json FROM outside_repair_dispositions WHERE work_id=?`, work).Scan(&dispositionRaw); err != nil {
+		t.Fatal(err)
+	}
+	assertNativeIdentities(t, dispositionRaw)
+	if err := s.DatabaseForTesting().QueryRow(`SELECT evidence_json FROM outside_repair_reconciliations WHERE work_id=?`, work).Scan(&reconciliationRaw); err != nil {
+		t.Fatal(err)
+	}
+	assertNativeIdentities(t, reconciliationRaw)
+	pin, err := ReadWorkPin(context.Background(), s, work)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pin.OutsideRepairDisposition == nil || pin.OutsideRepairDisposition.Evidence == nil || !reflect.DeepEqual(pin.OutsideRepairDisposition.Evidence.PullRequests[0].RequiredChecks, evidence.PullRequests[0].RequiredChecks) {
+		t.Fatalf("pin receipt lost native identities: %+v", pin.OutsideRepairDisposition)
+	}
+	if err := RebuildFromLog(context.Background(), s); err != nil {
+		t.Fatal(err)
+	}
+	after, err := ReadWorkPin(context.Background(), s, work)
+	if err != nil || !reflect.DeepEqual(pin, after) {
+		t.Fatalf("identity replay drift: before=%+v after=%+v err=%v", pin, after, err)
+	}
+}
+
 func TestOutsideRepairResumePreservesStateAndAllowsAnotherHold(t *testing.T) {
 	s := openTemp(t)
 	work := "outside-resume"
@@ -313,6 +371,15 @@ func TestOutsideRepairReconciliationEvidenceRefusesInvalidReceipts(t *testing.T)
 		"no checks":           func(e *OutsideRepairEvidence) { e.PullRequests[0].RequiredChecks = nil },
 		"duplicate check": func(e *OutsideRepairEvidence) {
 			e.PullRequests[0].RequiredChecks = append(e.PullRequests[0].RequiredChecks, e.PullRequests[0].RequiredChecks[0])
+		},
+		"check without check-run identity": func(e *OutsideRepairEvidence) { e.PullRequests[0].RequiredChecks[0].CheckRunID = 0 },
+		"check without run identity":       func(e *OutsideRepairEvidence) { e.PullRequests[0].RequiredChecks[0].RunID = 0 },
+		"check without job identity":       func(e *OutsideRepairEvidence) { e.PullRequests[0].RequiredChecks[0].JobID = 0 },
+		"run identity disagrees with url":  func(e *OutsideRepairEvidence) { e.PullRequests[0].RequiredChecks[0].RunID = 991 },
+		"job identity disagrees with url":  func(e *OutsideRepairEvidence) { e.PullRequests[0].RequiredChecks[0].JobID = 997 },
+		"one check-run identity proves two checks": func(e *OutsideRepairEvidence) {
+			e.PullRequests[0].RequiredChecks = append(e.PullRequests[0].RequiredChecks, e.PullRequests[0].RequiredChecks[0])
+			e.PullRequests[0].RequiredChecks[1].Name = "other-required"
 		},
 	}
 	for name, mutate := range cases {

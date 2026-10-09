@@ -74,6 +74,7 @@ func TestMutationInputSchemasBindDecodingStructs(t *testing.T) {
 		"concord_work_transition.worktree_destroy":         worktreeDestroyInput{},
 		"concord_work_transition.worktree_reclaim":         worktreeReclaimInput{},
 		"concord_work_transition.worktree_verify":          worktreeVerifyInput{},
+		"concord_work_transition.worker_reconcile":         workerReconcileInput{},
 	}
 	for _, entry := range ContractOperations {
 		if entry.Kind != OperationKind("mutation") {

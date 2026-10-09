@@ -185,7 +185,7 @@ func installOutsideBoundary(t *testing.T, service *Service, fake *fakeOutsideBou
 			}
 			return fmt.Sprintf(`{"nameWithOwner":"%s","url":"%s"}`, canonical, canonicalURL), nil
 		case len(args) > 1 && args[1] == "graphql":
-			return `{"data":{"repository":{"databaseId":123,"nameWithOwner":"outside-fixture/concord","url":"https://github.com/outside-fixture/concord","pullRequest":{"number":1339,"headRefOid":"` + fake.resolvedHead() + `","baseRefName":"main","baseRef":{"name":"main","branchProtectionRule":{"requiresStatusChecks":true,"requiredStatusCheckContexts":["ci/build","ci/lint"],"requiredStatusChecks":[{"context":"ci/build","app":{"databaseId":15368}},{"context":"ci/lint","app":{"databaseId":15368}}]}}}}}}`, nil
+			return `{"data":{"repository":{"databaseId":123,"nameWithOwner":"outside-fixture/concord","url":"https://github.com/outside-fixture/concord","pullRequest":{"number":1339,"headRefOid":"` + fake.resolvedHead() + `","baseRefName":"main","baseRef":{"name":"main","branchProtectionRule":{"requiresStatusChecks":true,"requiredStatusCheckContexts":["ci/build","ci/lint"],"requiredStatusChecks":[{"context":"ci/build","app":{"databaseId":15368}},{"context":"ci/lint","app":{"databaseId":15368}}],"requiresDeployments":false,"requiredDeploymentEnvironments":[]}}}}}}`, nil
 		case strings.Contains(joined, "/rules/branches/"):
 			if fake.effectiveRulesJSON != "" {
 				return fake.effectiveRulesJSON, nil
@@ -725,6 +725,150 @@ func TestOutsideRepairRequiredWorkflowRuleRefusesMissingEvidence(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestOutsideRepairCollectorClassicDeploymentEnforcementFailsClosed covers
+// CD-0210 D2's complete required set for classic branch protection: a classic
+// rule that requires deployments (requiresDeployments with
+// requiredDeploymentEnvironments) is effective enforcement the collector
+// cannot certify without deployment receipts, so it refuses with
+// missing_evidence exactly like the ruleset required_deployments rule. An
+// absent or incomplete classic deployment answer is not evidence of absence.
+func TestOutsideRepairCollectorClassicDeploymentEnforcementFailsClosed(t *testing.T) {
+	classicRule := func(v any) map[string]any {
+		return v.(map[string]any)["data"].(map[string]any)["repository"].(map[string]any)["pullRequest"].(map[string]any)["baseRef"].(map[string]any)["branchProtectionRule"].(map[string]any)
+	}
+	for _, test := range []struct {
+		name   string
+		change func(any) any
+		refuse bool
+	}{
+		{"classic required deployments refuse", func(v any) any {
+			rule := classicRule(v)
+			rule["requiresDeployments"] = true
+			rule["requiredDeploymentEnvironments"] = []any{"production"}
+			return v
+		}, true},
+		{"classic deployments combine with ruleset checks refuse", func(v any) any {
+			rule := classicRule(v)
+			rule["requiresDeployments"] = true
+			rule["requiredDeploymentEnvironments"] = []any{"staging", "production"}
+			return v
+		}, true},
+		{"classic deployment answer omitted refuses", func(v any) any {
+			rule := classicRule(v)
+			delete(rule, "requiresDeployments")
+			delete(rule, "requiredDeploymentEnvironments")
+			return v
+		}, true},
+		{"classic deployments disabled still pass", func(v any) any {
+			rule := classicRule(v)
+			rule["requiresDeployments"] = false
+			rule["requiredDeploymentEnvironments"] = []any{}
+			return v
+		}, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fake := &fakeOutsideBoundary{checks: outsideSuccessfulChecks()}
+			if test.name == "classic deployments combine with ruleset checks refuse" {
+				fake.apiOutputs = map[string]string{"repos/" + outsideFakeRepository + "/rules/branches/main?per_page=100": `[[{"type":"required_status_checks","parameters":{"required_status_checks":[{"context":"ci/build","integration_id":15368},{"context":"ci/lint","integration_id":15368}]}}]]`}
+			}
+			overrideOutsideAPI(t, fake, "graphql", test.change)
+			service := &Service{}
+			installOutsideBoundary(t, service, fake)
+			evidence, refusal := (runtime{Authority: service}).selectedOutsideRepairPullRequest(context.Background(), Envelope{}, outsideFakeRepository, outsideFakeIssueNumber, outsideFakeIssueKey)
+			if test.refuse {
+				assertOutsideRefusedWith(t, refusal, test.name, "missing_evidence")
+				if len(evidence.RequiredChecks) != 0 {
+					t.Fatalf("%s recorded a partial receipt: %+v", test.name, evidence)
+				}
+				return
+			}
+			if refusal.Error != nil || len(evidence.RequiredChecks) != 2 {
+				t.Fatalf("%s: %+v / %+v", test.name, evidence, refusal.Error)
+			}
+		})
+	}
+}
+
+// TestOutsideRepairCollectorReceiptPreservesNativeIdentities proves CD-0210
+// D2's native-identifier receipt obligation at the owning boundary: the
+// check-run, workflow-run and job identities the collector just authenticated
+// must ride the receipt (asserted at the JSON wire shape, so the obligation is
+// visible before any struct carries it). Distinct required checks inside one
+// workflow run stay distinguishable, and the receipt names the exact attempt
+// that passed, so a later rerun cannot rewrite what it proves.
+func TestOutsideRepairCollectorReceiptPreservesNativeIdentities(t *testing.T) {
+	receiptFields := func(t *testing.T, check store.OutsideRepairRequiredCheck) map[string]any {
+		t.Helper()
+		encoded, err := json.Marshal(check)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var fields map[string]any
+		if err := json.Unmarshal(encoded, &fields); err != nil {
+			t.Fatal(err)
+		}
+		return fields
+	}
+	expectIdentity := func(t *testing.T, fields map[string]any, checkRunID, runID, jobID int64, what string) {
+		t.Helper()
+		if got, _ := fields["check_run_id"].(float64); got != float64(checkRunID) {
+			t.Fatalf("%s check_run_id = %v, want %d: %v", what, fields["check_run_id"], checkRunID, fields)
+		}
+		if got, _ := fields["run_id"].(float64); got != float64(runID) {
+			t.Fatalf("%s run_id = %v, want %d: %v", what, fields["run_id"], runID, fields)
+		}
+		if got, _ := fields["job_id"].(float64); got != float64(jobID) {
+			t.Fatalf("%s job_id = %v, want %d: %v", what, fields["job_id"], jobID, fields)
+		}
+	}
+	collect := func(t *testing.T, fake *fakeOutsideBoundary) store.OutsideRepairPullRequestEvidence {
+		t.Helper()
+		service := &Service{}
+		installOutsideBoundary(t, service, fake)
+		evidence, refusal := (runtime{Authority: service}).selectedOutsideRepairPullRequest(context.Background(), Envelope{}, outsideFakeRepository, outsideFakeIssueNumber, outsideFakeIssueKey)
+		if refusal.Error != nil {
+			t.Fatalf("collector refused: %+v", refusal.Error)
+		}
+		return evidence
+	}
+	t.Run("receipt carries the authenticated identities", func(t *testing.T) {
+		evidence := collect(t, &fakeOutsideBoundary{checks: outsideSuccessfulChecks()})
+		if len(evidence.RequiredChecks) != 2 {
+			t.Fatalf("receipt = %+v", evidence.RequiredChecks)
+		}
+		expectIdentity(t, receiptFields(t, evidence.RequiredChecks[0]), 1, 9000000001, 9101, "ci/build")
+		expectIdentity(t, receiptFields(t, evidence.RequiredChecks[1]), 2, 9000000002, 9102, "ci/lint")
+	})
+	t.Run("distinct checks in one run stay distinguishable", func(t *testing.T) {
+		fake := &fakeOutsideBoundary{checks: []map[string]string{
+			{"id": "11", "name": "ci/build", "link": "https://github.com/" + outsideFakeRepository + "/actions/runs/9000000001", "bucket": "pass"},
+			{"id": "12", "name": "ci/lint", "link": "https://github.com/" + outsideFakeRepository + "/actions/runs/9000000001/job/9112", "bucket": "pass"},
+		}}
+		evidence := collect(t, fake)
+		if len(evidence.RequiredChecks) != 2 {
+			t.Fatalf("receipt = %+v", evidence.RequiredChecks)
+		}
+		first, second := receiptFields(t, evidence.RequiredChecks[0]), receiptFields(t, evidence.RequiredChecks[1])
+		expectIdentity(t, first, 11, 9000000001, 9111, "ci/build")
+		expectIdentity(t, second, 12, 9000000001, 9112, "ci/lint")
+		if first["url"] != second["url"] || first["name"] == second["name"] {
+			t.Fatalf("same-run fixture lost its shape: %v / %v", first, second)
+		}
+	})
+	t.Run("rerun cannot rewrite the proved attempt", func(t *testing.T) {
+		fake := &fakeOutsideBoundary{checks: []map[string]string{
+			{"id": "1", "name": "ci/build", "link": "https://github.com/" + outsideFakeRepository + "/actions/runs/9000000001", "bucket": "fail", "started_at": "2026-08-07T09:00:00Z"},
+			{"id": "2", "name": "ci/lint", "link": "https://github.com/" + outsideFakeRepository + "/actions/runs/9000000002", "bucket": "pass"},
+			{"id": "3", "name": "ci/build", "link": "https://github.com/" + outsideFakeRepository + "/actions/runs/9000000001/job/9103", "bucket": "pass", "started_at": "2026-08-07T09:05:00Z"},
+		}}
+		evidence := collect(t, fake)
+		if len(evidence.RequiredChecks) != 2 {
+			t.Fatalf("receipt = %+v", evidence.RequiredChecks)
+		}
+		expectIdentity(t, receiptFields(t, evidence.RequiredChecks[0]), 3, 9000000001, 9103, "ci/build rerun")
+	})
 }
 
 // TestOutsideRepairBenignRuleTypesStillPass keeps the benign rule types

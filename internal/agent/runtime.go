@@ -889,7 +889,17 @@ func boundedErrorMessage(message string) string {
 	if len(message) <= maxBytes {
 		return message
 	}
-	return strings.ToValidUTF8(message[:maxBytes], "")
+	// A producer that must keep refusal content whole renders it inside this
+	// budget before the message reaches the boundary (see
+	// store.recurrenceRefusalDetail). When a producer exceeds the budget
+	// anyway, the cut is marked rather than silent, so a shortened refusal
+	// never reads as the complete decision it is not.
+	const marker = "… [truncated]"
+	cut := maxBytes - len(marker)
+	if cut < 0 {
+		cut = 0
+	}
+	return strings.ToValidUTF8(message[:cut], "") + marker
 }
 
 // governingConflictEnvelope refuses a capture that does not cover the governing
@@ -1374,19 +1384,23 @@ type workSummary struct {
 	// revision. Bounded summary and preview reads leave them empty, and
 	// empty values stay omitted. Urgency is not intent detail: CD-0018
 	// declares it on work_summary, so every summary carries the band.
-	Task            string         `json:"task,omitempty"`
-	ValueStatement  string         `json:"value_statement,omitempty"`
-	Tags            []string       `json:"tags,omitzero"`
-	WorkflowTypeRef string         `json:"workflow_type_ref,omitempty"`
-	Urgency         string         `json:"urgency"`
-	Lifecycle       string         `json:"lifecycle"`
-	Version         int64          `json:"version"`
-	Priority        int64          `json:"priority,omitempty"`
-	ProjectIDs      []string       `json:"project_ids,omitempty"`
-	Ready           bool           `json:"ready,omitempty"`
-	Narrative       string         `json:"narrative,omitempty"`
-	TerminalAt      *string        `json:"terminal_at"`
-	WorkPin         *store.WorkPin `json:"work_pin,omitempty"`
+	// DefectIntake rides the same authoritative reads: the immutable defect
+	// classification and the core's sibling snapshot, so a coordinator can
+	// retrieve the canonical cluster keys without reading storage.
+	Task            string                      `json:"task,omitempty"`
+	ValueStatement  string                      `json:"value_statement,omitempty"`
+	Tags            []string                    `json:"tags,omitzero"`
+	WorkflowTypeRef string                      `json:"workflow_type_ref,omitempty"`
+	DefectIntake    *store.DefectClassification `json:"defect_intake,omitempty"`
+	Urgency         string                      `json:"urgency"`
+	Lifecycle       string                      `json:"lifecycle"`
+	Version         int64                       `json:"version"`
+	Priority        int64                       `json:"priority,omitempty"`
+	ProjectIDs      []string                    `json:"project_ids,omitempty"`
+	Ready           bool                        `json:"ready,omitempty"`
+	Narrative       string                      `json:"narrative,omitempty"`
+	TerminalAt      *string                     `json:"terminal_at"`
+	WorkPin         *store.WorkPin              `json:"work_pin,omitempty"`
 }
 
 func summary(w store.WorkItem) workSummary {
@@ -1402,7 +1416,7 @@ func summary(w store.WorkItem) workSummary {
 	if w.TerminalAt != "" {
 		terminal = &w.TerminalAt
 	}
-	return workSummary{ID: w.ID, Kind: kind, Title: w.Title, Task: w.Task, ValueStatement: w.ValueStatement, Tags: w.Tags, WorkflowTypeRef: w.WorkflowTypeRef, Urgency: w.Urgency, Lifecycle: w.Lifecycle, Version: w.Version, Priority: w.Priority, ProjectIDs: ids, Ready: w.Ready, Narrative: w.Narrative, TerminalAt: terminal, WorkPin: w.WorkPin}
+	return workSummary{ID: w.ID, Kind: kind, Title: w.Title, Task: w.Task, ValueStatement: w.ValueStatement, Tags: w.Tags, WorkflowTypeRef: w.WorkflowTypeRef, DefectIntake: w.DefectIntake, Urgency: w.Urgency, Lifecycle: w.Lifecycle, Version: w.Version, Priority: w.Priority, ProjectIDs: ids, Ready: w.Ready, Narrative: w.Narrative, TerminalAt: terminal, WorkPin: w.WorkPin}
 }
 func (r runtime) q1(base Envelope, q store.Q1Result) (Envelope, error) {
 	projects := []map[string]any{}

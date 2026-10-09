@@ -826,9 +826,31 @@ func (s *Service) validateHostApprovalAssertionIdentityTx(ctx context.Context, t
 	if challengeErr == nil {
 		storedScope, _ := json.Marshal(check.Scope)
 		storedVersions, _ := json.Marshal(check.Versions)
-		challengeExpired := expiryPassed(challenge.ExpiresAt, s.now())
-		if challenge.Status != "active" || challengeExpired || challenge.OperationDigest != check.OperationDigest || challenge.ScopeJSON != string(storedScope) || challenge.VersionJSON != string(storedVersions) || challenge.Consequence != check.Consequence || challenge.HostAssertionDigest != in.HostAssertionDigest {
-			return false, newRuntimeFailure("approval_invalid", "approval challenge binding invalid", "request_approval", false)
+		validatedAt := s.now()
+		reason := ""
+		switch {
+		case challenge.Status != "active":
+			reason = "inactive"
+		case expiryPassed(challenge.ExpiresAt, validatedAt):
+			reason = "expired"
+		case challenge.OperationDigest != check.OperationDigest:
+			reason = "operation_digest"
+		case challenge.ScopeJSON != string(storedScope):
+			reason = "scope"
+		case challenge.VersionJSON != string(storedVersions):
+			reason = "versions"
+		case challenge.Consequence != check.Consequence:
+			reason = "consequence"
+		case challenge.HostAssertionDigest != in.HostAssertionDigest:
+			reason = "host_assertion_digest"
+		}
+		if reason != "" {
+			failure := newRuntimeFailure("approval_invalid", "approval challenge binding invalid: "+reason, "request_approval", false)
+			failure.Details = map[string]any{"boundary": "approval_challenge_binding", "reason": reason, "validated_at": validatedAt.UTC().Format(time.RFC3339Nano)}
+			if expiry, err := time.Parse(time.RFC3339Nano, challenge.ExpiresAt); err == nil {
+				failure.Details["expires_at"] = expiry.UTC().Format(time.RFC3339Nano)
+			}
+			return false, failure
 		}
 	} else if challengeErr != nil {
 		var failure *store.Failure

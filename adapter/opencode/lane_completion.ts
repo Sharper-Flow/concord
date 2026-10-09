@@ -84,7 +84,7 @@ function unavailableEnvelope(pending: DispatchRecord, message: string): AgentRes
 export async function completeDispatchedWorker(input: LaneCompletionInput, output: LaneCompletionOutput, deps: LaneCompletionDeps = {}): Promise<void> {
   if (input.tool !== TASK_TOOL_ID) return
   const windows = deps.windows ?? dispatchWindows()
-  const record = windows.takeInFlight(input.sessionID, input.callID)
+  const record = windows.claimSettlement(input.sessionID, input.callID)
   if (!record) return
   // The packet pins the lane's version and digest, so completion binds to the
   // definition the dispatch authorized rather than to whatever the registry
@@ -95,16 +95,24 @@ export async function completeDispatchedWorker(input: LaneCompletionInput, outpu
   // downstream can catch the substitution.
   const lane = laneForIdentity(record.packet.lane_id, record.packet.lane_version, record.packet.lane_digest)
   if (!lane) {
+    windows.refuseSettlement(input.sessionID)
     output.output += renderAttempt({ schema_version: "1.0", outcome: "error", lane: { id: record.packet.lane_id, version: record.packet.lane_version, digest: record.packet.lane_digest }, agent: `concord-${record.packet.lane_id}`, readback_model: null, session_id: null, error: { kind: "invalid_input", retry_safe: false, recovery_action: "contact_operator", message: "in-flight attempt names a lane at a version and digest the registry does not carry" } })
     return
   }
   const signal = deps.signal ?? new AbortController().signal
   let envelope: AgentResultEnvelope
+  let recorded = false
   try {
-    envelope = await completeWorkerAttempt(lane, record.packet, output.output, { credentials: deps.credentials, runner: deps.runner, evidenceRunner: deps.evidenceRunner, sessionReader: deps.sessionReader, concordBinary: deps.concordBinary, packetDigest: record.packetDigest, workerDirectory: record.workerDirectory, capturedProvenance: record.provenance }, signal)
+    envelope = await completeWorkerAttempt(lane, record.packet, output.output, { credentials: deps.credentials, runner: deps.runner, evidenceRunner: deps.evidenceRunner, sessionReader: deps.sessionReader, concordBinary: deps.concordBinary, packetDigest: record.packetDigest, workerDirectory: record.workerDirectory, capturedProvenance: record.provenance, onRecorded: () => { recorded = true } }, signal)
   } catch (error) {
     envelope = { schema_version: "1.0", outcome: "error", lane: { id: lane.id, version: lane.version, digest: record.packet.lane_digest }, agent: `concord-${lane.id}`, readback_model: null, session_id: null, error: { kind: "error", retry_safe: false, recovery_action: "reconcile_operation", message: String(error).slice(0, 2048) } }
   }
+  // onRecorded confirms the terminal evidence write, and only then does
+  // settlement release the retained record. Anything else keeps it in the
+  // refused state, so the worker_reconcile recovery the in-flight refusal
+  // names stays available for exactly this attempt.
+  if (recorded) windows.finishSettlement(input.sessionID, input.callID)
+  else windows.refuseSettlement(input.sessionID)
   output.output += renderAttempt(envelope)
 }
 

@@ -180,6 +180,36 @@ missing, invalid, or failed report follows the typed worker-failure route.
 Workers return reports; they do not own workflow transitions, verdicts, operator
 approvals, or completion.
 
+### Recover a retained completed Task
+
+A durability-pending result does not prove that evidence failed to commit.
+Do not run the worker again or abandon an attempt whose completed Task still
+holds its report. Use `concord_work_transition` operation `worker_reconcile`
+from the original Project's active claimed worktree, with current credentials
+whose verified client and principal equal the original evidence actor:
+
+```json
+{"request":{"operation":"worker_reconcile","input":{"work_id":"work-example","attempt_id":"attempt-example","task_part_id":"part-example","idempotency_key":"recover-example"}}}
+```
+
+`task_part_id` names the completed Task part in the original parent session's
+host transcript, not its child session or tool call. The
+[closed input schema](../../contracts/agent-tool-surface-payloads.schema.json)
+admits no report, packet, model, provenance, or signature argument, so the
+caller supplies no evidence and no fresh worker run happens: recovery reads
+the original host records itself and preserves the original event identities.
+The optional `requested_budget_seconds` bounds one invocation across
+preparation, host readback, evidence reconciliation, and receipt; no phase
+renews it.
+
+The session must run in the original active claimed worktree of the Project
+that owns it. A failed attempt refuses, as does missing or mismatched
+original proof. Repeat the same request to recover the receipt after a
+reported storage or transport fault; recovery also works after an adapter
+restart, because it holds no in-memory dispatch state. A successful receipt
+acknowledges the original completed attempt: it reconciles the evidence
+record and neither accepts the report nor advances the workflow.
+
 ### Managed Task scope
 
 `concord_work_start` enrolls its calling session before capture or resume. A

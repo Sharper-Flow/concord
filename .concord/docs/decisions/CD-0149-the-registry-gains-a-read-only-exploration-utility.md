@@ -7,6 +7,11 @@
   the agent registry
 - **Approval:** The operator approved this bounded registry change.
 - **Related:** CD-0017, CD-0081, CD-0102, and CD-0045
+- **Amended by:** [CD-0211](CD-0211-defect-intake-classifies-recurrence-before-fix.md)
+  at D2's explore body prose: the body requires a facts-only packet — observed
+  facts with source `path:line`, counts with their populations, historical
+  commit identifiers, and explicit unknowns — and prohibits inferred root
+  causes, diagnoses, and repair recommendations
 - **Preserves:** The worker authority boundary; the utility distinction from
   lane evidence; fail-closed tool and command permissions
 - **Supersedes:** Nothing
@@ -47,8 +52,11 @@ tool an operator connects.
 The manifest owns utility facts that other projections consume. The generator
 owns the body prose because no second consumer needs to parse that prose. The
 `ci-wait` body remains its current terminal CI procedure. The `explore` body
-requires a bounded question, read and search steps, source-backed findings,
-explicit paths and line ranges, and plain-text output.
+requires a bounded question, read and search steps, and a plain-text facts
+packet: observed facts with source `path:line`, relevant counts with their
+populations, historical commit identifiers, and explicit unknowns. It
+prohibits inferred root causes, diagnoses, and repair recommendations. The
+parent coordinator owns diagnosis (amended by CD-0211 D5).
 
 ### D3. The registry admits `explore` v1
 

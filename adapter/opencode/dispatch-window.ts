@@ -90,22 +90,22 @@ export class DispatchWindows {
   // completion still needs the packet and the digest the core recorded.
   readonly #inFlight = new Map<string, DispatchRecord>()
   readonly #settling = new Set<string>()
-  // Sessions whose settle attempt ended with the terminal write refused. The
-  // record stays retained, no route may re-attempt the write, and only the
-  // worker_abandon release (releaseRetained) or the record's own settle
-  // receipt clears it.
+  // A refused after-hook retains its record. Only an explicit authenticated
+  // recovery or a confirmed no-report abandonment releases it; repeated host
+  // notifications cannot silently re-attempt settlement.
   readonly #refused = new Set<string>()
 
   open(sessionID: string, packet: AgentLanePacket, packetDigest = "", workerDirectory?: string, pinnedWorkerDirectory?: string, provenance?: HostProvenance): void {
     const running = this.#inFlight.get(sessionID)
     if (running) {
-      // The in-flight refusal names its recovery route. A record that stays
-      // in-flight has no settle left to wait for, and without the named route
-      // an agent that hits this refusal restarts the host instead of closing
-      // the attempt through worker_abandon, whose accepted receipt releases
-      // the retained record.
+      // The in-flight refusal names its recovery routes. A record that stays
+      // in-flight has no settle left to wait for, and without the named
+      // routes an agent that hits this refusal restarts the host instead of
+      // recovering the retained completed Task through worker_reconcile, or
+      // closing an attempt with no report through worker_abandon, whose
+      // accepted receipt releases the retained record.
       throw new DispatchWindowError(
-        `session ${sessionID} already holds an in-flight dispatch attempt (${running.packet.lane_id} lane, attempt ${running.packet.attempt_id}, work ${running.packet.work_id}) that never settled; close it with concord_work_transition operation worker_abandon naming that work_id, attempt_id, and lane_id, then dispatch again`,
+        `session ${sessionID} already holds an in-flight dispatch attempt (${running.packet.lane_id} lane, attempt ${running.packet.attempt_id}, work ${running.packet.work_id}) that never settled; recover its retained completed Task with concord_work_transition operation worker_reconcile, or use worker_abandon naming that work_id, attempt_id, and lane_id only when no worker report exists, then dispatch again`,
       )
     }
     if (this.#open.has(sessionID)) {
@@ -153,7 +153,7 @@ export class DispatchWindows {
 
   inFlight(sessionID: string, callID: string): DispatchRecord | null {
     const record = this.#inFlight.get(sessionID)
-    return record?.callID === callID ? record : null
+    return record && (record.callID === undefined || record.callID === callID) ? record : null
   }
 
   // The spawn-failure settle path observes the retained attempt by session
@@ -189,10 +189,8 @@ export class DispatchWindows {
   }
 
   // refuseSettlement ends a settle attempt whose terminal write was refused.
-  // The retained record stays, a repeat event cannot re-attempt the write (the
-  // terminal evidence verbs are not idempotent), and the worker_abandon release
-  // route the in-flight refusal names stays live: releaseRetained ignores this
-  // state and drops the record.
+  // The retained record stays and a repeat host notification cannot settle it.
+  // The explicit recovery receipt releases only its matching attempt.
   refuseSettlement(sessionID: string): void {
     this.#settling.delete(sessionID)
     this.#refused.add(sessionID)

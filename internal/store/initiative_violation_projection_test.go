@@ -604,7 +604,9 @@ func TestInitiativeProjection_MigrationBackfillPreservesDefects(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := raw.ExecContext(ctx, `DELETE FROM schema_migrations WHERE version>=120`); err != nil {
+	// The backfill under test belongs to migration 120 alone: later steps
+	// stay applied, so the re-apply exercises exactly the one migration.
+	if _, err := raw.ExecContext(ctx, `DELETE FROM schema_migrations WHERE version=120`); err != nil {
 		t.Fatal(err)
 	}
 	if err := dropMigration120Objects(ctx, raw); err != nil {
@@ -672,7 +674,9 @@ func TestInitiativeProjection_MigrationBackfillCleanStoreIsEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := raw.ExecContext(ctx, `DELETE FROM schema_migrations WHERE version>=120`); err != nil {
+	// The backfill under test belongs to migration 120 alone: later steps
+	// stay applied, so the re-apply exercises exactly the one migration.
+	if _, err := raw.ExecContext(ctx, `DELETE FROM schema_migrations WHERE version=120`); err != nil {
 		t.Fatal(err)
 	}
 	if err := dropMigration120Objects(ctx, raw); err != nil {

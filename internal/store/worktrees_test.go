@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -74,7 +76,40 @@ func (g *fakeWorktreeGit) treeOf(ref string) string {
 	if tree, ok := g.content[name]; ok {
 		return tree
 	}
+	if tree, ok := g.content[g.revisionBranch(ref)]; ok {
+		return tree
+	}
 	return g.resolveRef(ref)
+}
+
+// revisionBranch maps a revision the store's gates read onto the branch whose
+// modeled state the query is about. CD-0212 D1 feeds every gate the observed
+// tip SHA, not the branch name, so a tip resolves back through the branches
+// that hold it. When several share one tip, the one with the non-zero
+// modeled count is the one the fixture means: a branch with commits beyond a
+// ref cannot share its tip with that ref in real git. The zero-state
+// candidates answer zero either way, so a stable order keeps the model
+// deterministic.
+func (g *fakeWorktreeGit) revisionBranch(rev string) string {
+	name := strings.TrimPrefix(strings.TrimPrefix(rev, "refs/remotes/"), "origin/")
+	if _, ok := g.branches[name]; ok {
+		return name
+	}
+	var zero []string
+	for branch, tip := range g.branches {
+		if tip != rev {
+			continue
+		}
+		if g.unpushed[branch] > 0 || g.ahead[branch] > 0 {
+			return branch
+		}
+		zero = append(zero, branch)
+	}
+	if len(zero) > 0 {
+		sort.Strings(zero)
+		return zero[0]
+	}
+	return name
 }
 
 func newFakeWorktreeGit(repoRoot string) *fakeWorktreeGit {
@@ -163,7 +198,7 @@ func (g *fakeWorktreeGit) Run(_ context.Context, dir string, args ...string) ([]
 			return nil, fmt.Errorf("malformed merge-base")
 		}
 		for _, ref := range parts[1:3] {
-			if _, ok := g.branches[strings.TrimPrefix(ref, "origin/")]; !ok {
+			if _, ok := g.branches[g.revisionBranch(ref)]; !ok {
 				return nil, errors.New("unknown ref " + ref)
 			}
 		}
@@ -178,7 +213,7 @@ func (g *fakeWorktreeGit) Run(_ context.Context, dir string, args ...string) ([]
 		}
 		return []byte(strings.Join(g.defaultCommits, "\n") + "\n"), nil
 	case strings.HasPrefix(join, "rev-list --count ") && strings.HasSuffix(join, " --not --remotes"):
-		branch := strings.TrimSuffix(strings.TrimPrefix(join, "rev-list --count "), " --not --remotes")
+		branch := g.revisionBranch(strings.TrimSuffix(strings.TrimPrefix(join, "rev-list --count "), " --not --remotes"))
 		return []byte(strconv.Itoa(g.unpushed[branch]) + "\n"), nil
 	case strings.HasPrefix(join, "rev-list --count "):
 		refs := strings.TrimPrefix(join, "rev-list --count ")
@@ -186,7 +221,7 @@ func (g *fakeWorktreeGit) Run(_ context.Context, dir string, args ...string) ([]
 		if dotdot < 0 {
 			return nil, fmt.Errorf("malformed revision range")
 		}
-		branch := strings.TrimPrefix(refs[dotdot+2:], "origin/")
+		branch := g.revisionBranch(refs[dotdot+2:])
 		return []byte(strconv.Itoa(g.ahead[branch]) + "\n"), nil
 	case strings.HasPrefix(join, "worktree add"):
 		if g.failAdd {
@@ -222,6 +257,68 @@ func (g *fakeWorktreeGit) Run(_ context.Context, dir string, args ...string) ([]
 		}
 		delete(g.branches, branch)
 		return nil, nil
+	case strings.HasPrefix(join, "update-ref --no-deref -d refs/heads/"):
+		// The pinned argv no-deref deletion (CD-0212 D4): one command whose
+		// old-value argument refuses a ref that moved, exactly the
+		// compare-and-delete git runs, deleting the named ref itself.
+		fields := strings.Fields(join)
+		if len(fields) != 5 {
+			return nil, fmt.Errorf("malformed pinned delete: %s", join)
+		}
+		branch := strings.TrimPrefix(fields[3], "refs/heads/")
+		sha, exists := g.branches[branch]
+		if !exists {
+			return nil, fmt.Errorf("cannot lock ref '%s': unable to resolve reference '%s'", fields[3], fields[3])
+		}
+		if sha != fields[4] {
+			return nil, fmt.Errorf("cannot lock ref '%s': is at %s but expected %s", fields[3], sha, fields[4])
+		}
+		delete(g.branches, branch)
+		return nil, nil
+	case strings.HasPrefix(join, "update-ref --no-deref refs/heads/"):
+		// The create-only argv restoration (CD-0212 D4): the zero old-value
+		// refuses to overwrite a ref a concurrent actor already rebuilt.
+		fields := strings.Fields(join)
+		if len(fields) != 5 || strings.Trim(fields[4], "0") != "" {
+			return nil, fmt.Errorf("malformed create-only restoration: %s", join)
+		}
+		branch := strings.TrimPrefix(fields[1], "refs/heads/")
+		if _, exists := g.branches[branch]; exists {
+			return nil, fmt.Errorf("cannot lock ref '%s': reference already exists", fields[1])
+		}
+		g.branches[branch] = fields[2]
+		return nil, nil
+	case join == "worktree list --porcelain":
+		// The porcelain worktree list the checked-out protection reads: the
+		// querying repository's own main checkout plus its linked worktrees
+		// with their checked-out branches (CD-0212 D4). The fake shares
+		// branch state across registered roots, so the listing is scoped to
+		// the root that asked, exactly as git scopes it to one repository.
+		// An entry whose branch never received a SHA reports git's all-zero
+		// unborn HEAD, so the complete-inventory parse stays honest.
+		var out strings.Builder
+		porcelainHead := func(branch string) string {
+			sha := g.resolveRef(branch)
+			if len(sha) == 40 || len(sha) == 64 {
+				return sha
+			}
+			return strings.Repeat("0", 40)
+		}
+		if dir == g.repoRoot || g.extraRoots[dir] {
+			fmt.Fprintf(&out, "worktree %s\nHEAD %s\nbranch refs/heads/%s\n\n", dir, porcelainHead(g.headBranch), g.headBranch)
+		}
+		paths := make([]string, 0, len(g.worktrees))
+		for path, root := range g.worktreeRepos {
+			if root == dir {
+				paths = append(paths, path)
+			}
+		}
+		sort.Strings(paths)
+		for _, path := range paths {
+			branch := g.worktrees[path]
+			fmt.Fprintf(&out, "worktree %s\nHEAD %s\nbranch refs/heads/%s\n\n", path, porcelainHead(branch), branch)
+		}
+		return []byte(out.String()), nil
 	case strings.HasPrefix(join, "worktree remove"):
 		fields := strings.Fields(join)
 		path := fields[2]
@@ -251,10 +348,14 @@ func (g *fakeWorktreeGit) Run(_ context.Context, dir string, args ...string) ([]
 		if len(parts) < 6 || parts[5] != "--" {
 			return nil, fmt.Errorf("malformed record diff")
 		}
-		return []byte(strings.Join(g.addedRecordShards[strings.TrimPrefix(parts[4], "origin/")], "\n")), nil
+		return []byte(strings.Join(g.addedRecordShards[g.revisionBranch(parts[4])], "\n")), nil
 	case strings.HasPrefix(join, "show "):
 		ref := strings.TrimPrefix(join, "show ")
-		kind, ok := g.recordShardKinds[ref]
+		rev, path, split := strings.Cut(ref, ":")
+		if !split {
+			return nil, fmt.Errorf("unmodelled blob %s", ref)
+		}
+		kind, ok := g.recordShardKinds[g.revisionBranch(rev)+":"+path]
 		if !ok {
 			return nil, fmt.Errorf("unmodelled blob %s", ref)
 		}
@@ -277,6 +378,18 @@ func (g *fakeWorktreeGit) Run(_ context.Context, dir string, args ...string) ([]
 			return nil, fmt.Errorf("no origin HEAD")
 		}
 		return []byte("refs/remotes/" + g.defaultRef + "\n"), nil
+	case join == "symbolic-ref --quiet HEAD":
+		// The repository's own checked-out HEAD: the fake models a branch
+		// checkout, like the repositories the real surface runs against.
+		if g.headBranch == "" {
+			return nil, exec.Command("false").Run()
+		}
+		return []byte("refs/heads/" + g.headBranch + "\n"), nil
+	case strings.HasPrefix(join, "symbolic-ref --quiet refs/heads/"):
+		// Every branch the fake holds is a direct ref, so the symbolic probe
+		// answers "not a symbolic ref" with git's own exit status 1, for a
+		// missing ref exactly as for a direct one.
+		return nil, exec.Command("false").Run()
 	case strings.HasPrefix(join, "fetch --no-tags --no-recurse-submodules --refmap= origin +refs/heads/"):
 		if g.failFetch {
 			return nil, fmt.Errorf("unreachable origin")
@@ -298,6 +411,15 @@ func (g *fakeWorktreeGit) Run(_ context.Context, dir string, args ...string) ([]
 			ref = g.headBranch
 		}
 		if sha := g.resolveRef(ref); sha != ref {
+			return []byte(sha + "\n"), nil
+		}
+		return nil, fmt.Errorf("unknown ref")
+	case strings.HasPrefix(join, "rev-parse --verify refs/heads/"):
+		// The exact-path resolution the ref boundary pins by (CD-0212 D4):
+		// a full refs/heads path admits no tag shadowing, and the fake holds
+		// only direct branches.
+		branch := strings.TrimPrefix(join, "rev-parse --verify refs/heads/")
+		if sha, ok := g.branches[branch]; ok {
 			return []byte(sha + "\n"), nil
 		}
 		return nil, fmt.Errorf("unknown ref")
@@ -365,6 +487,25 @@ func (g *fakeWorktreeGit) countCalls(prefix string) int {
 	return n
 }
 
+// divergeBranch models a branch holding commits beyond the default ref:
+// ahead of them, unpushed of those unreachable from local remotes. The tip
+// moves to a fresh sha, because a branch with commits beyond a ref cannot
+// share that ref's tip in real git, and the store's gates query revisions
+// by observed tip (CD-0212 D1), so the fake's tips must identify the branch
+// whose state was modeled.
+func (g *fakeWorktreeGit) divergeBranch(branch string, ahead, unpushed int) {
+	g.ahead[branch] = ahead
+	g.unpushed[branch] = unpushed
+	g.branches[branch] = distinctTip(branch)
+}
+
+// distinctTip derives a stable pseudo-sha unlike every fixture base.
+func distinctTip(branch string) string {
+	sum := fnv.New32a()
+	_, _ = sum.Write([]byte(branch))
+	return fmt.Sprintf("d%039x", sum.Sum32())
+}
+
 // addBranchRecordShard models one record shard the branch tree adds beyond
 // the default tree, with the record kind its committed JSON carries. An
 // empty kind removes the branch's modelled shards, the shape a merge leaves.
@@ -375,6 +516,11 @@ func (g *fakeWorktreeGit) addBranchRecordShard(branch, path, kind string) {
 	}
 	g.addedRecordShards[branch] = append(g.addedRecordShards[branch], path)
 	g.recordShardKinds[branch+":"+path] = kind
+	// A branch whose tree adds a record holds a commit, so its tip cannot
+	// stay the default ref's tip (CD-0212 D1 tip-keyed gates).
+	if tip := distinctTip(branch); g.branches[branch] != tip {
+		g.branches[branch] = tip
+	}
 }
 
 func worktreeFixture(t *testing.T) (*Store, *fakeWorktreeGit, string) {
@@ -722,7 +868,7 @@ func TestReclaimWorktreeUsesRemoteDurabilityFacts(t *testing.T) {
 	git.dirty[claimed.Entry.Path] = false
 
 	// A local-only commit is the sole copy and must remain in the worktree.
-	git.unpushed[claimBranch()] = 1
+	git.divergeBranch(claimBranch(), 1, 1)
 	if _, err := s.ReclaimWorktree(context.Background(), reclaim); err == nil || !strings.Contains(err.Error(), "not reachable from remote refs") {
 		t.Fatalf("local-only commit must be refused, got %v", err)
 	}
@@ -1055,7 +1201,7 @@ func TestReclaimWorktreeAcceptsSquashMergedBranchWithDeletedRemote(t *testing.T)
 	if _, err := s.ClaimWorktree(context.Background(), req); err != nil {
 		t.Fatal(err)
 	}
-	git.unpushed[claimBranch()] = 2
+	git.divergeBranch(claimBranch(), 2, 2)
 	git.squashMergeIntoDefault(claimBranch())
 
 	reclaim := WorktreeReclaimRequest{WorkID: "work-w", ProjectID: "project-w", DefaultRef: "origin/main", PrincipalRef: "principal-1", RequestID: "req-squash", ExpectedVersion: 3, Now: time.Unix(20, 0).UTC(), Runner: git}
@@ -1081,7 +1227,7 @@ func TestReclaimWorktreeResolvesDefaultRefForSquashContainment(t *testing.T) {
 	if _, err := s.ClaimWorktree(context.Background(), req); err != nil {
 		t.Fatal(err)
 	}
-	git.unpushed[claimBranch()] = 2
+	git.divergeBranch(claimBranch(), 2, 2)
 	git.squashMergeIntoDefault(claimBranch())
 
 	reclaim := WorktreeReclaimRequest{WorkID: "work-w", ProjectID: "project-w", PrincipalRef: "principal-1", RequestID: "req-squash-implicit", ExpectedVersion: 3, Now: time.Unix(20, 0).UTC(), Runner: git}
@@ -1100,7 +1246,7 @@ func TestReclaimWorktreeRefusesEmptyNetDiff(t *testing.T) {
 	if _, err := s.ClaimWorktree(context.Background(), req); err != nil {
 		t.Fatal(err)
 	}
-	git.unpushed[claimBranch()] = 2
+	git.divergeBranch(claimBranch(), 2, 2)
 	git.content["merge-base"] = "shared-tree"
 	git.content[claimBranch()] = "shared-tree"
 
@@ -1129,7 +1275,7 @@ func TestReclaimWorktreeRefusesCommitsBeyondTheMergedPatch(t *testing.T) {
 	if _, err := s.ClaimWorktree(context.Background(), req); err != nil {
 		t.Fatal(err)
 	}
-	git.unpushed[claimBranch()] = 2
+	git.divergeBranch(claimBranch(), 2, 2)
 	git.content[claimBranch()] = "squash-tree"
 	git.squashMergeIntoDefault(claimBranch())
 	git.content[claimBranch()] = "later-tree"
@@ -1286,7 +1432,7 @@ func TestWorktreeAuditClassifiesEachDriftClass(t *testing.T) {
 	// Healthy: a verified claim whose worktree exists on disk reports
 	// nothing, because the branch holds commits beyond the default ref.
 	auditWork(t, s, git, "work-healthy", true)
-	git.ahead["work/work-healthy"] = 1
+	git.divergeBranch("work/work-healthy", 1, 0)
 	// Stale claim only: the work moved past needed, so its gone worktree is a
 	// claim problem, not a stranded work item.
 	stalePath := auditWork(t, s, git, "work-stale", false)
@@ -1479,6 +1625,8 @@ func TestClaimWorktreeRollbackKeepsDirtyWorktreeAndReportsPossibleEffect(t *test
 func TestClaimWorktreeRollbackKeepsCommittedWorktreeAndReportsPossibleEffect(t *testing.T) {
 	t.Parallel()
 	s, git, _ := worktreeFixture(t)
+	// The rollback probe reads the branch by name (the claim surface, not
+	// the reclaim gates), so the modeled commits need no distinct tip.
 	git.ahead[claimBranch()] = 1
 	request := baseClaim(git)
 	request.ExpectedVersion = 99

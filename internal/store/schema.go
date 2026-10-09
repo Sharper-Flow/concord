@@ -5967,6 +5967,55 @@ INSERT INTO initiative_entry_violations(initiative_work_id,child_work_id,positio
     SELECT initiative_work_id,child_work_id,position,violation FROM initiative_entry_violation_rows WHERE violation IS NOT NULL AND 1=1;
 		`,
 	},
+	{
+		Version:  121,
+		Name:     "worktree_ref_outcomes",
+		Breaking: false,
+		SQL: `
+-- CD-0212 D3-D4: the durable per-ref phase rows of one reclamation. The
+-- worktree_entries row a later claim replaces cannot carry them, so the
+-- retention and deletion debt of every claim generation hold their own
+-- fold-only projection. The work.worktree_reclaimed fold inserts each
+-- retained ref and each pinned deletion the recorded plan owes at phase
+-- planned (retained refs enter at retained_unproven); the
+-- work.worktree_removal_settled fold records each later phase. The audit
+-- reads the rows, so a retained or protected ref, an unsettled deletion,
+-- and an unresolved restoration all stay visible after directory removal
+-- and after a later claim. No historical pin is migrated: reclamation
+-- facts that predate this projection belong to releases whose removals
+-- already converged.
+-- A retained ref names a live branch Git itself accepted, so the branch
+-- column carries no upper bound beyond non-emptiness: loose refs admit
+-- names whose refs/heads path fits PATH_MAX, while a reftable-backed
+-- repository admits identities of any length its writer's block size
+-- allows, so a fixed bound would narrow valid native identities the
+-- projection must record whole. The claim-surface bound stays in
+-- normalizeBranchRef. The phase vocabulary is the one durable owner of
+-- per-ref state:
+-- planned, checkout_proven_absent, deleted, restoration_owed, restored,
+-- retained_unproven, settled. Settlement is never inferred from ref
+-- absence: only the recorded phase table of worktreeRefPhaseTransitions
+-- moves a ref between them.
+CREATE TABLE worktree_ref_outcomes (
+    set_id            TEXT NOT NULL,
+    project_id        TEXT NOT NULL,
+    claim_op_id       TEXT NOT NULL,
+    claim_incarnation INTEGER NOT NULL DEFAULT 0,
+    branch            TEXT NOT NULL,
+    phase             TEXT NOT NULL CHECK(phase IN ('planned','checkout_proven_absent','deleted','restoration_owed','restored','retained_unproven','settled')),
+    tip               TEXT NOT NULL DEFAULT '',
+    reason            TEXT NOT NULL CHECK(length(reason) > 0 AND length(reason) <= 512),
+    path              TEXT NOT NULL DEFAULT '',
+    recorded_at       TEXT NOT NULL,
+    PRIMARY KEY(set_id, project_id, claim_op_id, claim_incarnation, branch),
+    CHECK(length(branch) >= 1)
+);
+CREATE INDEX worktree_ref_outcomes_project ON worktree_ref_outcomes(project_id);
+CREATE TRIGGER worktree_ref_outcomes_guard_insert BEFORE INSERT ON worktree_ref_outcomes FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'worktree_ref_outcomes is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER worktree_ref_outcomes_guard_update BEFORE UPDATE ON worktree_ref_outcomes FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'worktree_ref_outcomes is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER worktree_ref_outcomes_guard_delete BEFORE DELETE ON worktree_ref_outcomes FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'worktree_ref_outcomes is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

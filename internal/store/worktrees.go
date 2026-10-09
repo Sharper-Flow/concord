@@ -164,6 +164,22 @@ type worktreeOccupancyReleasedPayload struct {
 	SessionRef       string `json:"session_ref"`
 }
 
+// worktreeRemovalSettledPayload is one per-ref outcome a native removal
+// produced after its reclamation committed: a pinned deletion settled, or a
+// ref protected with the bounded reason. The fold upserts the outcome row
+// keyed by the claim generation, so the record survives directory removal
+// and later claims (CD-0212 D3-D4).
+type worktreeRemovalSettledPayload struct {
+	SetID            string `json:"set_id"`
+	ProjectID        string `json:"project_id"`
+	ClaimOpID        string `json:"claim_op_id"`
+	ClaimIncarnation int    `json:"claim_incarnation,omitempty"`
+	Branch           string `json:"branch"`
+	Tip              string `json:"tip,omitempty"`
+	Phase            string `json:"phase"`
+	Reason           string `json:"reason"`
+}
+
 func foldWorktreeCreated(ctx context.Context, tx *sql.Tx, event Event) error {
 	if err := checkSubject(event, SubjectWorkItem); err != nil {
 		return err
@@ -254,8 +270,8 @@ func foldWorktreeReclaimedTx(ctx context.Context, tx *sql.Tx, event Event, p wor
 	if p.ResultingVersion != p.ExpectedVersion+1 {
 		return newFailure(KindInvalidPayload, "fold_event", "worktree reclamation version must advance by exactly one", false, "supply expected and resulting versions one apart")
 	}
-	var state, currentClaim string
-	err := tx.QueryRowContext(ctx, `SELECT state,claim_op_id FROM worktree_entries WHERE set_id=? AND project_id=?`, p.SetID, p.ProjectID).Scan(&state, &currentClaim)
+	var state, currentClaim, entryPath string
+	err := tx.QueryRowContext(ctx, `SELECT state,claim_op_id,path FROM worktree_entries WHERE set_id=? AND project_id=?`, p.SetID, p.ProjectID).Scan(&state, &currentClaim, &entryPath)
 	if err == sql.ErrNoRows {
 		return newFailure(KindProjectionNotFound, "fold_event", "no worktree exists for this Project", false, "claim a worktree before reclaiming it")
 	}
@@ -307,6 +323,13 @@ func foldWorktreeReclaimedTx(ctx context.Context, tx *sql.Tx, event Event, p wor
 	if n, _ := res.RowsAffected(); n != 1 {
 		return newFailure(KindProjectionNotFound, "fold_event", "no active worktree to reclaim for this Project", false, "claim a worktree before reclaiming it")
 	}
+	// The reclamation's per-ref outcomes start durable here, keyed by the
+	// claim generation: every retained ref and every deletion the recorded
+	// plan owes holds one row, so the retention and the debt survive
+	// directory removal and later claims (CD-0212 D3-D4).
+	if err := recordReclaimedRefOutcomesTx(ctx, tx, p, claimOpID, entryPath, event.OccurredAt); err != nil {
+		return err
+	}
 	// The claim row is operational state maintained by live operations, which
 	// include routes that revive a reclaimed claim. Replaying the log's
 	// reclaims must not regress that newer operational truth, so only the
@@ -321,6 +344,115 @@ func foldWorktreeReclaimedTx(ctx context.Context, tx *sql.Tx, event Event, p wor
 		return nil
 	}
 	return bumpVersion(ctx, tx, "work_items", event, p.ExpectedVersion, p.ResultingVersion, "work item")
+}
+
+// recordReclaimedRefOutcomesTx inserts the per-ref outcome rows one
+// reclamation starts with: its retained refs and the tip-pinned deletions
+// its recorded plan owes. The upsert keys on the claim generation and
+// incarnation, so an earlier generation's rows never overwrite a later one's
+// and vice versa.
+func recordReclaimedRefOutcomesTx(ctx context.Context, tx *sql.Tx, p worktreeReclaimedPayload, claimOpID, entryPath string, occurredAt time.Time) error {
+	var facts struct {
+		RetainedRefs    []WorktreeRetainedRef    `json:"retained_refs"`
+		BranchDeletions []WorktreeBranchDeletion `json:"branch_deletions"`
+	}
+	if len(p.GitFacts) > 0 && json.Unmarshal(p.GitFacts, &facts) != nil {
+		// Facts the plan cannot decode carry no deletions and no retentions;
+		// the reclamation itself already validated them at append time.
+		return nil
+	}
+	recordedAt := occurredAt.Format(time.RFC3339Nano)
+	for _, ref := range facts.RetainedRefs {
+		if ref.Branch == "" {
+			continue
+		}
+		reason := ref.Reason
+		if reason == "" {
+			reason = "retained by the reclamation"
+		}
+		if err := upsertWorktreeRefOutcomeTx(ctx, tx, worktreeRefOutcome{
+			setID: p.SetID, projectID: p.ProjectID, claimOpID: claimOpID, claimIncarnation: p.ClaimIncarnation, branch: ref.Branch,
+			phase: WorktreeRefPhaseRetainedUnproven, tip: ref.Tip, reason: reason, path: entryPath, recordedAt: recordedAt,
+		}); err != nil {
+			return err
+		}
+	}
+	for _, deletion := range facts.BranchDeletions {
+		if deletion.Branch == "" {
+			continue
+		}
+		reason := deletion.Reason
+		if reason == "" {
+			reason = "pinned deletion the recorded plan owes"
+		}
+		if err := upsertWorktreeRefOutcomeTx(ctx, tx, worktreeRefOutcome{
+			setID: p.SetID, projectID: p.ProjectID, claimOpID: claimOpID, claimIncarnation: p.ClaimIncarnation, branch: deletion.Branch,
+			phase: WorktreeRefPhasePlanned, tip: deletion.ExpectedTip, reason: reason, path: entryPath, recordedAt: recordedAt,
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// upsertWorktreeRefOutcomeTx writes one per-ref outcome row. The rows are
+// fold-only projection state: the worktree_reclaimed fold inserts them, the
+// worktree_removal_settled fold updates them, and nothing else writes them.
+func upsertWorktreeRefOutcomeTx(ctx context.Context, tx *sql.Tx, row worktreeRefOutcome) error {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO worktree_ref_outcomes(set_id,project_id,claim_op_id,claim_incarnation,branch,phase,tip,reason,path,recorded_at) VALUES(?,?,?,?,?,?,?,?,?,?)
+		ON CONFLICT(set_id,project_id,claim_op_id,claim_incarnation,branch) DO UPDATE SET phase=excluded.phase, tip=excluded.tip, reason=excluded.reason, recorded_at=excluded.recorded_at`,
+		row.setID, row.projectID, row.claimOpID, row.claimIncarnation, row.branch, row.phase, row.tip, row.reason, row.path, row.recordedAt); err != nil {
+		return err
+	}
+	return nil
+}
+
+// foldWorktreeRemovalSettled folds one per-ref native outcome behind its
+// committed reclamation: a settled deletion retires the debt row, a
+// protection records the ref it kept with the bounded reason. The
+// admission and the write live in applyWorktreeRefOutcomeTx.
+func foldWorktreeRemovalSettled(ctx context.Context, tx *sql.Tx, event Event) error {
+	if err := checkSubject(event, SubjectWorkItem); err != nil {
+		return err
+	}
+	var p worktreeRemovalSettledPayload
+	if err := decodePayload(event, &p); err != nil {
+		return err
+	}
+	return applyWorktreeRefOutcomeTx(ctx, tx, p, event.OccurredAt.Format(time.RFC3339Nano))
+}
+
+// applyWorktreeRefOutcomeTx is the durable phase owner's admission and
+// write: a row already holding the recorded phase converges, and any move
+// to a different phase must be one the transition table admits from the
+// row's recorded predecessor (CD-0212 D4).
+func applyWorktreeRefOutcomeTx(ctx context.Context, tx *sql.Tx, p worktreeRemovalSettledPayload, recordedAt string) error {
+	if p.SetID == "" || p.ProjectID == "" || p.ClaimOpID == "" || p.Branch == "" || p.Phase == "" {
+		return newFailure(KindInvalidPayload, "fold_event", "worktree removal settlement payload is missing required fields", false, "supply set, project, claim, branch, and phase")
+	}
+	if !validWorktreeRefPhase(p.Phase) {
+		return newFailure(KindInvalidPayload, "fold_event", "worktree removal settlement carries an unknown ref phase", false, "settle one of the seven recorded phases")
+	}
+	var current sql.NullString
+	err := tx.QueryRowContext(ctx,
+		`SELECT phase FROM worktree_ref_outcomes WHERE set_id=? AND project_id=? AND claim_op_id=? AND claim_incarnation=? AND branch=?`,
+		p.SetID, p.ProjectID, p.ClaimOpID, p.ClaimIncarnation, p.Branch).Scan(&current)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	if current.Valid && current.String != p.Phase && !refPhaseTransitionAdmitted(current.String, p.Phase) {
+		return newFailure(KindProjectionConflict, "fold_event",
+			"the durable ref phase owner refuses to move branch "+p.Branch+" from "+current.String+" to "+p.Phase+": no recorded step admits that transition",
+			false, "settle the branch through the predecessor phase its recorded plan admits")
+	}
+	reason := p.Reason
+	if reason == "" {
+		reason = "settled by the native removal"
+	}
+	return upsertWorktreeRefOutcomeTx(ctx, tx, worktreeRefOutcome{
+		setID: p.SetID, projectID: p.ProjectID, claimOpID: p.ClaimOpID, claimIncarnation: p.ClaimIncarnation,
+		branch: p.Branch, phase: p.Phase, tip: p.Tip, reason: reason, recordedAt: recordedAt,
+	})
 }
 
 func foldWorktreeOccupancyReleased(ctx context.Context, tx *sql.Tx, event Event) error {
@@ -944,16 +1076,309 @@ func legacyOccupancyRowEnded(set HostLeaseSet, recordedAt string) bool {
 	return true
 }
 
-// WorktreeNativeRemoval is the native removal one committed reclaim or
-// destroy still owes: the worktree remove and the branch deletion. The
-// transaction commits the reclamation event first; the caller runs this
-// removal after that commit, with no transaction open (CD-0195 D2).
+// WorktreeNativeRemoval is the bounded native-removal plan one committed
+// reclaim or destroy still owes (CD-0212 D4): the worktree remove and the
+// proven, tip-pinned branch deletions. The transaction commits the
+// reclamation event first, recording this plan in its facts; the caller runs
+// the removal after that commit, with no transaction open (CD-0195 D2), and
+// a retry re-derives the pending deletions from the recorded plan so a
+// directory removal that outlived its branch deletion cannot lose it.
+//
+// The plan is the authority for every replay: the retry decodes it from the
+// committed facts and never re-derives its force, its pinned tips, or its
+// recorded live-HEAD identity from the retry's own arguments.
 type WorktreeNativeRemoval struct {
 	RepoRoot string
 	Path     string
-	Branch   string
 	Force    bool
 	Op       string
+	// LiveTip is the tip the committed plan recorded on the live HEAD. The
+	// removal revalidates it, and the repository identity of the checkout,
+	// before its destructive directory effect. A retry carries the recorded
+	// tip, never a freshly observed one.
+	LiveTip string
+	// DefaultRef is the merge-target spelling the plan carried. The native
+	// boundary re-derives the protected default set from the repository and
+	// this spelling together, so a default that moved onto a planned branch
+	// after the plan committed still protects it (CD-0212 D3-D4).
+	DefaultRef string
+	// BranchDeletions are the branch deletions the plan owes, each proven
+	// durable at probe time and pinned to the tip then observed. A ref whose
+	// tip changed is never deleted.
+	BranchDeletions []WorktreeBranchDeletion
+	// WorkID, ProjectID, ClaimOpID, and ClaimIncarnation name the committed
+	// reclamation whose plan this removal executes. They key the durable
+	// per-ref outcome settlement, so a later claim generation cannot erase
+	// another generation's retentions or deletion debt.
+	WorkID           string
+	ProjectID        string
+	ClaimOpID        string
+	ClaimIncarnation int
+	// PrincipalRef and RequestID name the request that committed the plan,
+	// carried onto the settlement events its native outcomes append.
+	PrincipalRef string
+	RequestID    string
+	// persistPhase, when set by FinishWorktreeNativeRemoval, records each
+	// phase the run reaches as it reaches it — the authorization
+	// (checkout_proven_absent, restoration_owed) before the native effect
+	// it authorizes — through the same SQL-only settlement owner that
+	// settles the run's collected outcomes. It is unexported so only the
+	// store wires it.
+	persistPhase func(WorktreeNativeOutcome) error
+}
+
+// recordPhase persists one phase record through the wired sink, if any. A
+// nil sink (a direct RunWorktreeNativeRemoval caller) collects outcomes
+// only; the caller then settles them itself.
+func (r *WorktreeNativeRemoval) recordPhase(outcome WorktreeNativeOutcome) error {
+	if r == nil || r.persistPhase == nil {
+		return nil
+	}
+	return r.persistPhase(outcome)
+}
+
+// Durable per-ref phases (CD-0212 D3-D4, migration 123). One reclamation
+// records every retained ref and every deletion it owes as a row in
+// worktree_ref_outcomes; the phase column is the one durable owner of the
+// row's state. A native step moves a row only along
+// worktreeRefPhaseTransitions, every step starts from its recorded
+// predecessor phase, and settlement is never inferred from ref absence.
+const (
+	// WorktreeRefPhasePlanned records a tip-pinned deletion the plan owes.
+	WorktreeRefPhasePlanned = "planned"
+	// WorktreeRefPhaseCheckoutProvenAbsent records a complete pre-delete
+	// observation that proved no worktree holds the ref: the authorization
+	// the pinned deletion requires, persisted before the native effect.
+	WorktreeRefPhaseCheckoutProvenAbsent = "checkout_proven_absent"
+	// WorktreeRefPhaseDeleted records that the pinned deletion ran; the
+	// post-deletion observation has not yet settled the row.
+	WorktreeRefPhaseDeleted = "deleted"
+	// WorktreeRefPhaseRestorationOwed records that an observation around
+	// the pinned deletion found, or could not exclude, a checkout naming
+	// the ref: the deletion ran or may have run, so the create-only
+	// restoration at the immutable pinned tip is owed and durably pending.
+	// It stays owed across directory removal, replay, later claims, and
+	// audit, and absence never settles it.
+	WorktreeRefPhaseRestorationOwed = "restoration_owed"
+	// WorktreeRefPhaseRestored records a restoration that rebuilt the ref
+	// at its immutable pinned tip for a checkout that holds it. A restored
+	// ref remains retained — never deletion-settled by the restore — and
+	// stays replayable: the checkout protection tracks a live condition
+	// git itself owns, so a later replay re-derives it and converges the
+	// pinned deletion once no worktree holds the ref (CD-0212 D4).
+	WorktreeRefPhaseRestored = "restored"
+	// WorktreeRefPhaseRetainedUnproven records a ref the plan or a native
+	// boundary retained because its identity, ownership, or durability was
+	// never proven deletable — an unproven live identity, an unobservable
+	// inventory, a moved or symbolic ref, the protected default, or a ref
+	// another actor already rebuilt. Terminal: replay never rebuilds
+	// deletion authority over an unproven identity.
+	WorktreeRefPhaseRetainedUnproven = "retained_unproven"
+	// WorktreeRefPhaseSettled records a pinned deletion that completed and
+	// whose complete post-deletion observation verified no worktree holds
+	// the ref.
+	WorktreeRefPhaseSettled = "settled"
+)
+
+// WorktreeRefStep names one native step of the per-ref phase machine. The
+// step set, with worktreeRefPhaseTransitions, is the typed transition table
+// the generated phase-pair matrix is derived from.
+const (
+	// WorktreeRefStepObserveCheckouts re-derives ownership: the complete
+	// worktree inventory, the direct ref identity at its pinned tip, and
+	// the protected default set, all observed inside the attempt.
+	WorktreeRefStepObserveCheckouts = "observe_checkouts"
+	// WorktreeRefStepDeletePinned is the pinned argv deletion
+	// `update-ref --no-deref -d <ref> <expected-oid>`.
+	WorktreeRefStepDeletePinned = "delete_pinned"
+	// WorktreeRefStepObservePostDelete reads every listed worktree HEAD
+	// again immediately after the deletion.
+	WorktreeRefStepObservePostDelete = "observe_post_delete"
+	// WorktreeRefStepRestoreExpected is the create-only argv restoration
+	// `update-ref <ref> <expected-oid> <zero-oid>`.
+	WorktreeRefStepRestoreExpected = "restore_expected"
+)
+
+// Typed refusal reasons the phase owner enumerates. Every refusal the
+// native boundary returns carries one of these, and the generated matrix
+// exercises each one from the phase pair that produces it.
+const (
+	// WorktreeRefRefusalTerminalPhase: the step cannot run because the row
+	// sits at a terminal phase (restored, retained_unproven, settled).
+	WorktreeRefRefusalTerminalPhase = "terminal_phase"
+	// WorktreeRefRefusalStalePredecessor: the step's recorded predecessor
+	// phase is not one the step may start from.
+	WorktreeRefRefusalStalePredecessor = "stale_predecessor"
+	// WorktreeRefRefusalHolderPresent: a pre-read HEAD names the ref, so
+	// the deletion is refused while the row keeps the phase it had.
+	WorktreeRefRefusalHolderPresent = "holder_present"
+	// WorktreeRefRefusalMovedTip: the ref moved from the tip the plan
+	// pinned; the changed identity is retained.
+	WorktreeRefRefusalMovedTip = "moved_from_pinned_tip"
+	// WorktreeRefRefusalSymbolicRef: the ref became a symbolic ref; a
+	// no-deref deletion would still be refused as unproven direct identity.
+	WorktreeRefRefusalSymbolicRef = "symbolic_ref"
+	// WorktreeRefRefusalProtectedDefault: the ref is the repository's
+	// protected default, or the default set could not be established.
+	WorktreeRefRefusalProtectedDefault = "protected_default"
+	// WorktreeRefRefusalInventoryUnknown: the complete worktree inventory
+	// could not be observed; the observation proves nothing.
+	WorktreeRefRefusalInventoryUnknown = "inventory_unproven"
+)
+
+// worktreeRefPhases is the ordered phase vocabulary of the durable owner.
+var worktreeRefPhases = []string{
+	WorktreeRefPhasePlanned,
+	WorktreeRefPhaseCheckoutProvenAbsent,
+	WorktreeRefPhaseDeleted,
+	WorktreeRefPhaseRestorationOwed,
+	WorktreeRefPhaseRestored,
+	WorktreeRefPhaseRetainedUnproven,
+	WorktreeRefPhaseSettled,
+}
+
+// worktreeRefPhaseTransitions is the owning typed transition table: for
+// each native step, the phases it may start from and the phases it may
+// record. observe_checkouts re-derives ownership from every pending phase
+// — planned, checkout_proven_absent, deleted, restoration_owed, and the
+// restored ref whose checkout protection tracks a live condition (a replay
+// never trusts an earlier observation): for a ref still present at its
+// pinned tip it records the checkout_proven_absent authorization, and for
+// a ref observed absent it records the complete-inventory verdict —
+// settled when no holder names it, restoration_owed when one does or the
+// observation cannot run — because the deletion itself is already moot
+// against an absent ref. Identity protections record retained_unproven
+// from every pending phase and are terminal. delete_pinned starts only
+// from a persisted checkout_proven_absent; observe_post_delete starts only
+// from deleted; restore_expected starts only from restoration_owed.
+// retained_unproven and settled admit no step, so a recorded settlement
+// moving a row between phases the table does not admit — including any
+// move out of those terminal phases — refuses. The generated matrix tests
+// all 49 ordered phase pairs against this table through the durable
+// settlement owner.
+var worktreeRefPhaseTransitions = map[string]map[string][]string{
+	WorktreeRefStepObserveCheckouts: {
+		WorktreeRefPhasePlanned:              {WorktreeRefPhaseCheckoutProvenAbsent, WorktreeRefPhaseSettled, WorktreeRefPhaseRestorationOwed, WorktreeRefPhaseRetainedUnproven},
+		WorktreeRefPhaseCheckoutProvenAbsent: {WorktreeRefPhaseCheckoutProvenAbsent, WorktreeRefPhaseSettled, WorktreeRefPhaseRestorationOwed, WorktreeRefPhaseRetainedUnproven},
+		WorktreeRefPhaseDeleted:              {WorktreeRefPhaseCheckoutProvenAbsent, WorktreeRefPhaseSettled, WorktreeRefPhaseRestorationOwed, WorktreeRefPhaseRetainedUnproven},
+		WorktreeRefPhaseRestorationOwed:      {WorktreeRefPhaseCheckoutProvenAbsent, WorktreeRefPhaseSettled, WorktreeRefPhaseRestorationOwed, WorktreeRefPhaseRetainedUnproven},
+		WorktreeRefPhaseRestored:             {WorktreeRefPhaseCheckoutProvenAbsent, WorktreeRefPhaseSettled, WorktreeRefPhaseRestorationOwed, WorktreeRefPhaseRetainedUnproven},
+	},
+	WorktreeRefStepDeletePinned: {
+		WorktreeRefPhaseCheckoutProvenAbsent: {WorktreeRefPhaseDeleted},
+	},
+	WorktreeRefStepObservePostDelete: {
+		WorktreeRefPhaseDeleted: {WorktreeRefPhaseSettled, WorktreeRefPhaseRestorationOwed, WorktreeRefPhaseRetainedUnproven},
+	},
+	WorktreeRefStepRestoreExpected: {
+		WorktreeRefPhaseRestorationOwed: {WorktreeRefPhaseRestored, WorktreeRefPhaseRetainedUnproven},
+	},
+}
+
+// validWorktreeRefPhase reports whether phase is one of the seven phases
+// the durable owner admits.
+func validWorktreeRefPhase(phase string) bool {
+	for _, candidate := range worktreeRefPhases {
+		if candidate == phase {
+			return true
+		}
+	}
+	return false
+}
+
+// terminalRefPhase reports whether no native step may start from phase.
+// An unproven or settled identity is terminal: replay never rebuilds
+// deletion authority over an unproven identity, and a settled deletion is
+// complete. A restored ref is not terminal — its protection tracks a live
+// checkout, which a later replay re-derives.
+func terminalRefPhase(phase string) bool {
+	switch phase {
+	case WorktreeRefPhaseRetainedUnproven, WorktreeRefPhaseSettled:
+		return true
+	}
+	return false
+}
+
+// worktreeRefStepRefusal is the typed refusal for running step from
+// fromPhase: the enumerated reason, or "" when the table permits the step.
+func worktreeRefStepRefusal(step, fromPhase string) string {
+	if !validWorktreeRefPhase(fromPhase) {
+		return WorktreeRefRefusalStalePredecessor
+	}
+	if terminalRefPhase(fromPhase) {
+		return WorktreeRefRefusalTerminalPhase
+	}
+	if _, ok := worktreeRefPhaseTransitions[step][fromPhase]; !ok {
+		return WorktreeRefRefusalStalePredecessor
+	}
+	return ""
+}
+
+// worktreeRefStepTarget reports whether the owner table admits step moving
+// a row from fromPhase to toPhase.
+func worktreeRefStepTarget(step, fromPhase, toPhase string) bool {
+	for _, target := range worktreeRefPhaseTransitions[step][fromPhase] {
+		if target == toPhase {
+			return true
+		}
+	}
+	return false
+}
+
+// refPhaseTransitionAdmitted reports whether any step of the owning
+// transition table admits moving a row from fromPhase to toPhase. The
+// settlement fold validates a recorded phase move against this union: the
+// fold carries no step of its own, so a move the whole table refuses is a
+// settlement the durable owner never authorized — a stale predecessor, a
+// jump over a required intermediate, or a move out of a terminal phase.
+func refPhaseTransitionAdmitted(fromPhase, toPhase string) bool {
+	for _, targets := range worktreeRefPhaseTransitions {
+		for _, target := range targets[fromPhase] {
+			if target == toPhase {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// WorktreeNativeOutcome is one bounded per-item result the native removal
+// produced: one phase the row moved to (or was refused at), with the tip
+// observed and the bounded reason. The store persists each phase record
+// durably as the run reaches it — the authorization before its native
+// effect — in SQL-only settlements keyed by the claim generation.
+type WorktreeNativeOutcome struct {
+	Branch string `json:"branch"`
+	Tip    string `json:"tip,omitempty"`
+	Phase  string `json:"phase"`
+	Reason string `json:"reason"`
+	// Refusal carries the enumerated refusal reason when the outcome is a
+	// typed refusal that kept the row at its recorded phase.
+	Refusal string `json:"refusal,omitempty"`
+}
+
+// WorktreeBranchDeletion is one branch deletion the native removal owes. The
+// expected tip is pinned at probe time and revalidated before the deletion
+// runs, so a ref that moved after the plan was recorded survives.
+type WorktreeBranchDeletion struct {
+	Branch      string `json:"branch"`
+	ExpectedTip string `json:"expected_tip"`
+	Reason      string `json:"reason"`
+	// Phase is the durable phase the owner last recorded for this branch.
+	// A replay carries it so each native step starts from its recorded
+	// predecessor; a fresh plan leaves it empty and the run starts at
+	// planned.
+	Phase string `json:"phase,omitempty"`
+}
+
+// WorktreeRetainedRef names a branch ref a reclamation proved it must not
+// delete, with the tip observed when the reclaim retained it and the bounded
+// reason. Retentions are recorded in the reclamation facts, so they survive
+// directory removal and stay visible to the audit (CD-0212 D3).
+type WorktreeRetainedRef struct {
+	Branch string `json:"branch"`
+	Tip    string `json:"tip,omitempty"`
+	Reason string `json:"reason"`
 }
 
 // WorktreeReclaimResult reports a reclaim or destroy whose event committed on
@@ -975,11 +1400,43 @@ type WorktreeReclaimProbe struct {
 	// AlreadyAbsent records that the native worktree is already gone, so the
 	// event records that fact and no removal is owed.
 	AlreadyAbsent bool
-	// AlreadyConverged records a committed reclaim whose native removal also
-	// completed: the retry answers from the folded projection with no event
-	// and no removal.
+	// AlreadyConverged records a committed reclaim whose reclamation event is
+	// the authority: the retry answers from the folded projection with no
+	// new event, converging the deletions its recorded plan still owes.
 	AlreadyConverged bool
-	// Facts are the git facts the reclamation event records.
+	// DirectoryPending records a committed reclaim whose directory phase
+	// failed: the checkout is still on disk, and the retry re-owes only its
+	// removal under the recorded plan (CD-0212 D4). The recorded plan's
+	// live-HEAD identity — never a fresh observation — authorizes the retry,
+	// so a surviving directory whose content changed refuses instead of
+	// repinning.
+	DirectoryPending bool
+	// ReplayForce records the force flag the committed plan carries, so a
+	// replay of an approved forced removal keeps its recorded authority and
+	// a replay of a safe removal stays safe whatever the retry declares.
+	ReplayForce bool
+	// LiveHead is the one immutable live-HEAD observation every content gate
+	// read (CD-0212 D1): the checked-out branch or the detached tip, the
+	// tip SHA, and the clean-tree fact.
+	LiveHead worktreeLiveHead
+	// DefaultRef is the canonical default endpoint the gates compared
+	// against, resolved even when the caller named none.
+	DefaultRef string
+	// DurableVia records how the live content passed its gate:
+	// remote_reachable, squash_merged (CD-0181), or unstarted.
+	DurableVia string
+	// Deletions are the proven, tip-pinned branch deletions the native
+	// removal owes. On a converged retry they hold the pending deletions
+	// re-derived from the recorded plan.
+	Deletions []WorktreeBranchDeletion
+	// Retained are the branch refs the reclaim proved it must not delete,
+	// recorded in the reclamation facts.
+	Retained []WorktreeRetainedRef
+	// StoredRefAbsent records that the stored claim ref no longer exists, so
+	// the reclamation owes no deletion for it.
+	StoredRefAbsent bool
+	// Facts are the git facts the reclamation event records. They are
+	// composed from the fields above; a caller must not hand-edit them.
 	Facts json.RawMessage
 }
 
@@ -1045,8 +1502,9 @@ func (s *Store) DestroyWorktree(ctx context.Context, req WorktreeDestroyRequest)
 	}
 	// The event is committed; the native removal follows it with no
 	// transaction open. A retry of the same request converges a committed
-	// reclaim whose native removal failed (CD-0195 D2).
-	if err := RunWorktreeNativeRemoval(ctx, runner, removal); err != nil {
+	// reclaim whose native removal failed (CD-0195 D2), and the per-ref
+	// outcomes the run produced settle durably behind it.
+	if err := s.FinishWorktreeNativeRemoval(ctx, runner, removal); err != nil {
 		return entry, err
 	}
 	return entry, nil
@@ -1105,11 +1563,166 @@ func (s *Store) ReclaimWorktree(ctx context.Context, req WorktreeReclaimRequest)
 	}
 	// The event is committed; the native removal follows it with no
 	// transaction open. A retry of the same request converges a committed
-	// reclaim whose native removal failed (CD-0195 D2).
-	if err := RunWorktreeNativeRemoval(ctx, runner, removal); err != nil {
+	// reclaim whose native removal failed (CD-0195 D2), and the per-ref
+	// outcomes the run produced settle durably behind it.
+	if err := s.FinishWorktreeNativeRemoval(ctx, runner, removal); err != nil {
 		return entry, err
 	}
 	return entry, nil
+}
+
+// FinishWorktreeNativeRemoval runs the bounded native removal a committed
+// reclamation owes, then settles every per-ref outcome the run produced
+// through one SQL-only transaction keyed by the claim generation (CD-0212
+// D4). The settlement is idempotent, so a replay converges, and it appends
+// no work-item version advance: the reclamation event already owns that.
+// A removal without settlement identity, or a run that produced no
+// outcomes, settles nothing.
+func (s *Store) FinishWorktreeNativeRemoval(ctx context.Context, runner GitRunner, removal *WorktreeNativeRemoval) error {
+	if s == nil || s.db == nil {
+		return newFailure(KindUnavailable, "worktree_native_removal", "store is not open", false, "open the authority database")
+	}
+	// The phase records persist as the run reaches them — the authorized
+	// predecessor before the native effect it authorizes — and the
+	// collected outcomes settle again after the run through the same
+	// idempotent owner, converging anything a failed inline record left.
+	if removal != nil {
+		removal.persistPhase = func(outcome WorktreeNativeOutcome) error {
+			tx, err := s.db.BeginTx(ctx, nil)
+			if err != nil {
+				return wrapFailure(KindUnavailable, "worktree_native_removal", "cannot begin removal phase record", true, "retry the same operation", err)
+			}
+			if err := settleWorktreeRefOutcomeTx(ctx, tx, removal, outcome); err != nil {
+				tx.Rollback()
+				return err
+			}
+			if err := tx.Commit(); err != nil {
+				return wrapFailure(KindUnavailable, "worktree_native_removal", "cannot commit removal phase record", true, "retry the same operation", err)
+			}
+			return nil
+		}
+	}
+	outcomes, runErr := RunWorktreeNativeRemoval(ctx, runner, removal)
+	settleErr := s.settleWorktreeNativeOutcomes(ctx, removal, outcomes)
+	if runErr != nil {
+		return runErr
+	}
+	return settleErr
+}
+
+// settleWorktreeNativeOutcomes appends one settlement event per bounded
+// outcome the native run produced, in one SQL-only transaction. Each event
+// identity is deterministic in the claim generation, the branch, and the
+// outcome kind, so a replay of the same outcome converges instead of
+// appending a second record.
+func (s *Store) settleWorktreeNativeOutcomes(ctx context.Context, removal *WorktreeNativeRemoval, outcomes []WorktreeNativeOutcome) error {
+	if removal == nil || len(outcomes) == 0 || removal.WorkID == "" || removal.ProjectID == "" || removal.ClaimOpID == "" {
+		return nil
+	}
+	for _, outcome := range outcomes {
+		if outcome.Branch == "" || outcome.Phase == "" {
+			continue
+		}
+		if !validWorktreeRefPhase(outcome.Phase) {
+			continue
+		}
+		tx, err := s.db.BeginTx(ctx, nil)
+		if err != nil {
+			return wrapFailure(KindUnavailable, "worktree_native_removal", "cannot begin removal settlement", true, "retry the same operation", err)
+		}
+		if err := settleWorktreeRefOutcomeTx(ctx, tx, removal, outcome); err != nil {
+			tx.Rollback()
+			return err
+		}
+		if err := tx.Commit(); err != nil {
+			return wrapFailure(KindUnavailable, "worktree_native_removal", "cannot commit removal settlement", true, "retry the same operation", err)
+		}
+	}
+	return nil
+}
+
+// settleWorktreeRefOutcomeTx records one per-ref native outcome through the
+// durable owner. The row is fold state of the settlement log: a settlement
+// the row already holds — same phase, tip, and reason — converges with no
+// new event and no mutation, and every other record is one fresh
+// chronological settlement event whose identity derives from the durable
+// per-ref predecessor and the event sequence the log holds, appended and
+// folded atomically in this SQL-only transaction. A move the transition
+// table refuses from the row's current phase refuses typed before anything
+// is appended, so a phase some earlier attempt recorded — or a stale probe
+// carried — never authorizes an effect against a different predecessor
+// (CD-0195 D2, CD-0212 D4). An event-id collision takes the ordinary
+// append conflict path: an identical payload is the durable effect already
+// recorded, a different one refuses typed.
+func settleWorktreeRefOutcomeTx(ctx context.Context, tx *sql.Tx, removal *WorktreeNativeRemoval, outcome WorktreeNativeOutcome) error {
+	setID := WorktreeSetID(removal.WorkID)
+	settlement := worktreeRemovalSettledPayload{
+		SetID: setID, ProjectID: removal.ProjectID, ClaimOpID: removal.ClaimOpID, ClaimIncarnation: removal.ClaimIncarnation,
+		Branch: outcome.Branch, Tip: outcome.Tip, Phase: outcome.Phase, Reason: outcome.Reason,
+	}
+	if settlement.Reason == "" {
+		settlement.Reason = "settled by the native removal"
+	}
+	var currentPhase, currentTip, currentReason sql.NullString
+	err := tx.QueryRowContext(ctx,
+		`SELECT phase,tip,reason FROM worktree_ref_outcomes WHERE set_id=? AND project_id=? AND claim_op_id=? AND claim_incarnation=? AND branch=?`,
+		settlement.SetID, settlement.ProjectID, settlement.ClaimOpID, settlement.ClaimIncarnation, settlement.Branch).Scan(&currentPhase, &currentTip, &currentReason)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	if currentPhase.Valid && currentPhase.String == settlement.Phase && currentTip.String == settlement.Tip && currentReason.String == settlement.Reason {
+		return nil
+	}
+	if currentPhase.Valid && currentPhase.String != settlement.Phase && !refPhaseTransitionAdmitted(currentPhase.String, settlement.Phase) {
+		return newFailure(KindProjectionConflict, "worktree_native_removal",
+			"the durable ref phase owner refuses to move branch "+outcome.Branch+" from "+currentPhase.String+" to "+settlement.Phase+": no recorded step admits that transition",
+			false, "settle the branch through the predecessor phase its recorded plan admits")
+	}
+	fromPhase := ""
+	if currentPhase.Valid {
+		fromPhase = currentPhase.String
+	}
+	base := worktreeRefSettlementEventBase(removal.WorkID, removal.ProjectID, removal.ClaimOpID, outcome.Branch)
+	sequence, err := worktreeRefSettlementSequence(ctx, tx, base)
+	if err != nil {
+		return err
+	}
+	payload, _ := json.Marshal(settlement)
+	_, err = applyOperationTx(ctx, tx, Operation{Events: []Event{{
+		EventID: settledRefOutcomeEventID(base, fromPhase, settlement.Phase, sequence, removal.ClaimIncarnation),
+		Kind:    "work.worktree_removal_settled", SubjectType: SubjectWorkItem, SubjectID: removal.WorkID,
+		Actor: removal.PrincipalRef, OccurredAt: nowFromClock(nil), PayloadVersion: 1, Payload: payload,
+	}}}, newFoldScope(tx), false)
+	return err
+}
+
+// worktreeRefSettlementEventBase derives the one per-ref settlement event
+// identity prefix from the raw work identity the event records: the claim
+// generation and the branch every settlement event for this ref shares,
+// whatever phase it holds. The same owner derives the invocation sequence
+// and the event identity, so a count can never range over keys the append
+// never wrote.
+func worktreeRefSettlementEventBase(workID, projectID, claimOpID, branch string) string {
+	return fmt.Sprintf("%s:%s:%s:worktree-removal-settled:%s:", workID, projectID, claimOpID, branch)
+}
+
+// worktreeRefSettlementSequence derives the next per-ref settlement
+// invocation from the durable log: the count of settlement events this
+// claim generation's branch already holds.
+func worktreeRefSettlementSequence(ctx context.Context, tx *sql.Tx, base string) (int, error) {
+	var sequence int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM domain_events WHERE event_id >= ? AND event_id < ?`, base, base+"\xff").Scan(&sequence); err != nil {
+		return 0, wrapFailure(KindUnavailable, "worktree_native_removal", "cannot derive the settlement sequence", true, "retry the same operation", err)
+	}
+	return sequence, nil
+}
+
+// settledRefOutcomeEventID derives one settlement transition's identity:
+// the per-ref base, the durable predecessor the transition starts from,
+// the phase it records, and the per-ref invocation sequence, scoped to the
+// claim incarnation like every other worktree event identity.
+func settledRefOutcomeEventID(base, fromPhase, toPhase string, sequence int, incarnation int) string {
+	return claimIncarnationEventID(fmt.Sprintf("%s%s>%s:%d", base, fromPhase, toPhase, sequence), incarnation)
 }
 
 // ReclaimWorktreeTx is the reclaim on an existing transaction, so the agent
@@ -1164,34 +1777,225 @@ func (s *Store) PrepareWorktreeReclaim(ctx context.Context, req WorktreeReclaimR
 	if err != nil {
 		return WorktreeReclaimProbe{}, err
 	}
-	return probeWorktreeReclaim(ctx, runner, req, op, entry, repoRoot)
+	// The durable per-ref outcome rows of this claim generation retire the
+	// recorded deletions already settled or protected, so a replay never
+	// re-attempts what a prior native run finished or protected (CD-0212 D4).
+	priorOutcomes, err := worktreeRefOutcomeRows(ctx, s.db, WorktreeSetID(req.WorkID), req.ProjectID, entry.ClaimOpID)
+	if err != nil {
+		return WorktreeReclaimProbe{}, err
+	}
+	return probeWorktreeReclaim(ctx, runner, req, op, entry, repoRoot, priorOutcomes)
+}
+
+// worktreeRefOutcomeRows reads the durable per-ref outcome rows one claim
+// generation holds.
+func worktreeRefOutcomeRows(ctx context.Context, q queryer, setID, projectID, claimOpID string) ([]worktreeRefOutcome, error) {
+	rows, err := q.QueryContext(ctx, `SELECT branch,phase,tip,reason FROM worktree_ref_outcomes WHERE set_id=? AND project_id=? AND claim_op_id=? ORDER BY branch`, setID, projectID, claimOpID)
+	if err != nil {
+		return nil, wrapFailure(KindUnavailable, "worktree_reclaim", "cannot read recorded ref outcomes", true, "retry once the database is readable", err)
+	}
+	defer rows.Close()
+	var out []worktreeRefOutcome
+	for rows.Next() {
+		var row worktreeRefOutcome
+		if err := rows.Scan(&row.branch, &row.phase, &row.tip, &row.reason); err != nil {
+			return nil, err
+		}
+		row.setID, row.projectID, row.claimOpID = setID, projectID, claimOpID
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
+// worktreeLiveHead is the one immutable live-HEAD content observation every
+// reclaim, destroy, and audit gate reads (CD-0212 D1): the branch the live
+// worktree has checked out (empty when detached), the live tip SHA, and the
+// clean-tree fact. The observation is captured once per operation, before
+// any effect, so every gate consumes the same head and no gate can drift to
+// a different one mid-operation.
+type worktreeLiveHead struct {
+	Branch   string
+	Detached bool
+	Tip      string
+	Clean    bool
+}
+
+// committish names the git revision the content gates read for this
+// observation: the observed tip, always. A branch name is mutable — the ref
+// can move between the observation and any later probe — so a gate that read
+// the name could measure content the worktree no longer holds. The observed
+// tip is the immutable half of the observation; label carries the branch
+// name for diagnostics. A durable stored branch is not proof that a
+// different or detached live HEAD is durable, so the gates run against this
+// revision.
+func (h worktreeLiveHead) committish() string {
+	return h.Tip
+}
+
+// label names the live head in bounded refusal details and facts.
+func (h worktreeLiveHead) label() string {
+	if h.Detached {
+		return "detached HEAD " + h.Tip
+	}
+	return "live branch " + h.Branch
+}
+
+// liveHeadFacts is the recorded shape of one live-HEAD observation.
+type liveHeadFacts struct {
+	Branch   string `json:"branch,omitempty"`
+	Detached bool   `json:"detached,omitempty"`
+	Tip      string `json:"tip"`
+}
+
+// worktreeReclaimFacts is the bounded fact payload a reclamation event
+// records: the live-HEAD observation, the gate the live content passed, the
+// stored claim branch when the checkout drifted from it, the retained refs,
+// and the bounded native-removal plan whose branch deletions a retry must
+// still converge (CD-0212 D3-D4).
+type worktreeReclaimFacts struct {
+	CleanTree        bool                     `json:"clean_tree,omitempty"`
+	DefaultRef       string                   `json:"default_ref,omitempty"`
+	StoredBranch     string                   `json:"stored_branch,omitempty"`
+	StoredRefAbsent  bool                     `json:"stored_ref_absent,omitempty"`
+	AlreadyAbsent    bool                     `json:"already_absent,omitempty"`
+	Forced           bool                     `json:"forced,omitempty"`
+	OperatorOverride string                   `json:"operator_override,omitempty"`
+	LiveHead         *liveHeadFacts           `json:"live_head,omitempty"`
+	SquashMerged     bool                     `json:"squash_merged,omitempty"`
+	RemoteReachable  bool                     `json:"remote_reachable,omitempty"`
+	CommitsBeyond    int                      `json:"commits_beyond,omitempty"`
+	RetainedRefs     []WorktreeRetainedRef    `json:"retained_refs,omitempty"`
+	BranchDeletions  []WorktreeBranchDeletion `json:"branch_deletions,omitempty"`
+}
+
+// worktreeRefOutcome is one durable per-ref outcome row the reclamation
+// projection holds (CD-0212 D3-D4): a retention, an owed deletion, a settled
+// deletion, or a protection. The rows key on the claim generation, so a later
+// claim cannot erase an earlier generation's retentions or deletion debt.
+type worktreeRefOutcome struct {
+	setID            string
+	projectID        string
+	claimOpID        string
+	claimIncarnation int
+	branch           string
+	phase            string
+	tip              string
+	reason           string
+	path             string
+	recordedAt       string
+}
+
+// recordedRemovalPlan is the bounded native-removal plan decoded from the
+// facts a committed reclamation recorded. One decoded plan drives both the
+// first native execution and every replay.
+type recordedRemovalPlan struct {
+	Forced          bool                     `json:"forced"`
+	AlreadyAbsent   bool                     `json:"already_absent"`
+	DefaultRef      string                   `json:"default_ref"`
+	LiveHead        *liveHeadFacts           `json:"live_head"`
+	BranchDeletions []WorktreeBranchDeletion `json:"branch_deletions"`
+	RetainedRefs    []WorktreeRetainedRef    `json:"retained_refs"`
+}
+
+// decodeRecordedRemovalPlan decodes the plan a committed reclamation recorded.
+// Empty or legacy facts decode to a zero plan: nothing is owed and nothing is
+// authorized. Unparsable facts refuse typed, because a retry cannot honor a
+// plan it cannot read.
+func decodeRecordedRemovalPlan(facts json.RawMessage, op string) (recordedRemovalPlan, error) {
+	var plan recordedRemovalPlan
+	if len(facts) == 0 {
+		return plan, nil
+	}
+	if err := json.Unmarshal(facts, &plan); err != nil {
+		return recordedRemovalPlan{}, newFailure(KindInvalidPayload, op, "recorded reclaim facts are unparsable", false, "repair the recorded reclamation facts")
+	}
+	return plan, nil
 }
 
 // probeWorktreeReclaim runs the reclaim's git probes with no transaction
 // open. Every refusal here is git-derived and leaves no store effect.
-func probeWorktreeReclaim(ctx context.Context, runner GitRunner, req WorktreeReclaimRequest, op string, entry WorktreeEntry, repoRoot string) (WorktreeReclaimProbe, error) {
+func probeWorktreeReclaim(ctx context.Context, runner GitRunner, req WorktreeReclaimRequest, op string, entry WorktreeEntry, repoRoot string, priorOutcomes []worktreeRefOutcome) (WorktreeReclaimProbe, error) {
 	probe := WorktreeReclaimProbe{Entry: entry, RepoRoot: repoRoot}
 	// A committed reclaim whose native removal also completed answers from
 	// the folded projection; a surviving directory falls through to the
 	// normal gates, which is what converges a failed removal on retry.
-	if _, probeErr := runner.Run(ctx, entry.Path, "rev-parse", "--abbrev-ref", "HEAD"); probeErr != nil {
-		if entry.State == worktreeEntryReclaimed {
-			probe.AlreadyConverged = true
-			return probe, nil
+	branchOut, probeErr := runner.Run(ctx, entry.Path, "rev-parse", "--abbrev-ref", "HEAD")
+	if entry.State == worktreeEntryReclaimed {
+		// The reclamation event is already durable, so its recorded plan is
+		// the authority a retry replays (CD-0212 D4). The pinned deletions
+		// re-derive from the recorded facts — never a fresh plan — and the
+		// durable outcome rows retire the deletions already settled or
+		// protected. A directory phase that failed re-owes only the removal,
+		// under the live-HEAD identity the plan recorded: a surviving
+		// directory whose content changed refuses instead of repinning, and
+		// the recorded force flag replays without the retry's own authority.
+		plan, planErr := decodeRecordedRemovalPlan(entry.GitFacts, op)
+		if planErr != nil {
+			return WorktreeReclaimProbe{}, planErr
 		}
-		probe.AlreadyAbsent = true
-		if req.Destructive {
-			probe.Facts = jsonMustMarshal(map[string]any{"already_absent": true, "forced": true, "operator_override": req.OperatorApprovalRef})
-		} else {
-			probe.Facts = jsonMustMarshal(map[string]any{"already_absent": true})
+		probe.AlreadyConverged = true
+		probe.Deletions = pendingRecordedDeletions(plan.BranchDeletions, priorOutcomes)
+		probe.ReplayForce = plan.Forced
+		// The recorded default spelling — never the retry's own — feeds the
+		// boundary's default-ownership revalidation when the plan still owes
+		// deletions (CD-0212 D4).
+		probe.DefaultRef = plan.DefaultRef
+		if probeErr == nil {
+			// The directory survived a failed removal phase. Its current
+			// live HEAD must still match the identity the plan recorded: a
+			// freshly observed tip authorizes nothing, so content that
+			// arrived after the committed plan keeps the refusal boundary.
+			current := worktreeLiveHead{Branch: strings.TrimSpace(string(branchOut))}
+			if current.Branch == "HEAD" {
+				current.Detached, current.Branch = true, ""
+			}
+			tipOut, tipErr := runner.Run(ctx, entry.Path, "rev-parse", "HEAD")
+			if tipErr != nil {
+				return WorktreeReclaimProbe{}, wrapFailure(KindGitUnreachable, op, "cannot read the live HEAD tip of the worktree", true, "retry once the worktree is reachable", tipErr)
+			}
+			current.Tip = strings.TrimSpace(string(tipOut))
+			recorded := worktreeLiveHead{}
+			if plan.LiveHead != nil {
+				recorded = worktreeLiveHead{Branch: plan.LiveHead.Branch, Detached: plan.LiveHead.Detached, Tip: plan.LiveHead.Tip}
+			}
+			if current.Tip == "" || recorded.Tip == "" || current.Tip != recorded.Tip || current.Detached != recorded.Detached || current.Branch != recorded.Branch {
+				return WorktreeReclaimProbe{}, newFailure(KindProjectionConflict, op,
+					fmt.Sprintf("the surviving worktree changed after the recorded removal plan (recorded %s, now %s); the retry refuses to remove unproven content", recorded.label(), current.label()),
+					false, "inspect the worktree content and reclaim it through its gates once accounted for")
+			}
+			probe.LiveHead = recorded
+			probe.DirectoryPending = true
 		}
 		return probe, nil
 	}
+	if probeErr != nil {
+		probe.AlreadyAbsent = true
+		probe.Facts = jsonMustMarshal(worktreeReclaimFacts{AlreadyAbsent: true, Forced: req.Destructive, OperatorOverride: approvalFactRef(req)})
+		return probe, nil
+	}
+	// One immutable live-HEAD observation feeds every gate below: the branch
+	// (or detached marker), the tip, and the clean-tree fact.
+	live := worktreeLiveHead{Branch: strings.TrimSpace(string(branchOut))}
+	if live.Branch == "HEAD" {
+		live.Detached, live.Branch = true, ""
+	}
+	tipOut, tipErr := runner.Run(ctx, entry.Path, "rev-parse", "HEAD")
+	if tipErr != nil {
+		return probe, wrapFailure(KindGitUnreachable, op, "cannot read the live HEAD tip of the worktree", true, "retry once the worktree is reachable", tipErr)
+	}
+	live.Tip = strings.TrimSpace(string(tipOut))
+	probe.LiveHead = live
 	// A destructive removal runs under its consumed operator approval: the
 	// clean-tree and durable-branch gates are skipped and the native remove
-	// is forced (CD-0096 D3 Destroy).
+	// is forced (CD-0096 D3 Destroy). Identity pinning still applies, and a
+	// stored ref is still proven and pinned before any deletion.
+	deletions, retained, planErr := planStoredRefDeletion(ctx, runner, req, op, entry, repoRoot, live, true, "")
+	if planErr != nil {
+		return WorktreeReclaimProbe{}, planErr
+	}
+	probe.Deletions, probe.Retained = deletions, retained
 	if req.Destructive {
-		probe.Facts = jsonMustMarshal(map[string]any{"forced": true, "operator_override": req.OperatorApprovalRef})
+		probe.Facts = probe.reclaimFacts(req)
 		return probe, nil
 	}
 	statusOut, statusErr := runner.Run(ctx, entry.Path, "status", "--porcelain")
@@ -1205,11 +2009,14 @@ func probeWorktreeReclaim(ctx context.Context, runner GitRunner, req WorktreeRec
 		}
 		return probe, newFailure(KindInvalidOperation, op, "worktree tree is dirty", false, recovery)
 	}
-	// Every non-destructive reclaim compares the branch against a canonical
-	// default endpoint: the RequireUnstarted commit count, the durability
-	// check, and the unpublished-lesson gate all read it. Derive the
-	// endpoint before any effect, and refuse a repository that cannot name
-	// its default branch instead of reclaiming with a skipped comparison.
+	live.Clean = true
+	probe.LiveHead = live
+	// Every non-destructive reclaim compares the live head against a
+	// canonical default endpoint: the RequireUnstarted commit count, the
+	// durability check, and the unpublished-lesson gate all read it. Derive
+	// the endpoint before any effect, and refuse a repository that cannot
+	// name its default branch instead of reclaiming with a skipped
+	// comparison.
 	defaultRef := req.DefaultRef
 	if defaultRef == "" {
 		refOut, refErr := runner.Run(ctx, repoRoot, "symbolic-ref", "refs/remotes/origin/HEAD")
@@ -1218,65 +2025,953 @@ func probeWorktreeReclaim(ctx context.Context, runner GitRunner, req WorktreeRec
 		}
 		defaultRef = strings.TrimPrefix(strings.TrimSpace(string(refOut)), "refs/remotes/")
 	}
-	squashMerged := false
+	probe.DefaultRef = defaultRef
+	// The content gates read the live head's revision, never the stored
+	// claim branch alone: the checkout, not the claim row, is the content a
+	// removal would lose (CD-0212 D1-D2).
 	if req.RequireUnstarted {
-		if err := branchHasNoCommitsBeyond(ctx, runner, repoRoot, entry.Branch, defaultRef, op); err != nil {
+		if err := branchHasNoCommitsBeyond(ctx, runner, repoRoot, live.committish(), live.label(), defaultRef, op); err != nil {
 			return probe, err
 		}
+		probe.DurableVia = "unstarted"
 	} else {
-		contained, durableErr := branchIsDurable(ctx, runner, repoRoot, entry.Branch, defaultRef, op)
+		contained, durableErr := branchIsDurable(ctx, runner, repoRoot, live.committish(), live.label(), defaultRef, op)
 		if durableErr != nil {
 			return probe, durableErr
 		}
-		squashMerged = contained
+		if contained {
+			probe.DurableVia = "squash_merged"
+		} else {
+			probe.DurableVia = "remote_reachable"
+		}
 	}
 	// A branch whose lesson records the default ref does not hold is
 	// prepared delivery the reclaim would delete. The gate runs after
 	// durability, so a pushed branch refuses exactly like an unpushed one,
 	// and a merged lesson (the shard exists on the default endpoint) never
 	// blocks a reclaim.
-	lessons, lessonErr := branchUnpublishedLessonRecords(ctx, runner, repoRoot, entry.Branch, defaultRef, op)
+	lessons, lessonErr := branchUnpublishedLessonRecords(ctx, runner, repoRoot, live.committish(), defaultRef, op)
 	if lessonErr != nil {
 		return probe, lessonErr
 	}
 	if len(lessons) > 0 {
-		return probe, newFailure(KindWorktreeUnpublishedLesson, op, worktreeUnpublishedLessonDetail(len(lessons), lessons, defaultRef), false, "merge the branch's pull request or supersede the lesson before reclaiming")
+		return probe, newFailure(KindWorktreeUnpublishedLesson, op, worktreeUnpublishedLessonDetail(live.label(), len(lessons), lessons, defaultRef), false, "merge the branch's pull request or supersede the lesson before reclaiming")
 	}
-	reclaimFacts := map[string]any{"clean_tree": true}
-	switch {
-	case req.RequireUnstarted:
-		reclaimFacts["default_ref"] = defaultRef
-		reclaimFacts["commits_beyond"] = 0
-	case squashMerged:
-		reclaimFacts["squash_merged"] = true
-	default:
-		reclaimFacts["remote_reachable"] = true
+	// Directory removal is proven; the stored claim ref's deletion is a
+	// separate decision with its own proof (CD-0212 D3).
+	deletions, retained, planErr = planStoredRefDeletion(ctx, runner, req, op, entry, repoRoot, live, false, probe.DurableVia)
+	if planErr != nil {
+		return WorktreeReclaimProbe{}, planErr
 	}
-	probe.Facts = jsonMustMarshal(reclaimFacts)
+	probe.Deletions, probe.Retained = deletions, retained
+	probe.StoredRefAbsent = storedRefAbsent(deletions, retained, entry)
+	probe.Facts = probe.reclaimFacts(req)
 	return probe, nil
 }
 
-// RunWorktreeNativeRemoval removes the worktree and deletes the branch one
-// committed reclaim still owes. It runs with no transaction open: the caller
-// commits the reclamation event first (CD-0195 D2).
-func RunWorktreeNativeRemoval(ctx context.Context, runner GitRunner, removal *WorktreeNativeRemoval) error {
+// approvalFactRef returns the operator approval reference a forced fact
+// records, empty on the safe path.
+func approvalFactRef(req WorktreeReclaimRequest) string {
+	if req.Destructive {
+		return req.OperatorApprovalRef
+	}
+	return ""
+}
+
+// storedRefAbsent reports whether the stored claim ref was observed missing:
+// no deletion was planned and no retention was recorded for it.
+func storedRefAbsent(deletions []WorktreeBranchDeletion, retained []WorktreeRetainedRef, entry WorktreeEntry) bool {
+	for _, d := range deletions {
+		if d.Branch == entry.Branch {
+			return false
+		}
+	}
+	for _, r := range retained {
+		if r.Branch == entry.Branch {
+			return false
+		}
+	}
+	return true
+}
+
+// reclaimFacts composes the bounded facts the reclamation event records from
+// the probe's observations and plan. The composition is the probe's own, so
+// a caller cannot record a plan its gates did not prove.
+func (p WorktreeReclaimProbe) reclaimFacts(req WorktreeReclaimRequest) json.RawMessage {
+	facts := worktreeReclaimFacts{
+		DefaultRef:       p.DefaultRef,
+		StoredRefAbsent:  p.StoredRefAbsent,
+		AlreadyAbsent:    p.AlreadyAbsent,
+		Forced:           req.Destructive,
+		OperatorOverride: approvalFactRef(req),
+		RetainedRefs:     p.Retained,
+		BranchDeletions:  p.Deletions,
+	}
+	if !p.AlreadyAbsent && !req.Destructive && p.LiveHead.Tip != "" {
+		facts.CleanTree = p.LiveHead.Clean
+	}
+	if p.LiveHead.Tip != "" {
+		facts.LiveHead = &liveHeadFacts{Branch: p.LiveHead.Branch, Detached: p.LiveHead.Detached, Tip: p.LiveHead.Tip}
+	}
+	if p.LiveHead.Branch != p.Entry.Branch {
+		facts.StoredBranch = p.Entry.Branch
+	}
+	switch p.DurableVia {
+	case "squash_merged":
+		facts.SquashMerged = true
+	case "remote_reachable":
+		facts.RemoteReachable = true
+	case "unstarted":
+		facts.CommitsBeyond = 0
+	}
+	return jsonMustMarshal(facts)
+}
+
+// factsFor composes the reclamation facts the event records from the probe's
+// own observations and the request that will actually commit. The agent
+// surface captures its probe before the approval tail supplies the consumed
+// operator reference, so composing at the append boundary is what keeps the
+// committed forced facts naming the approval they consumed (CD-0212 D2).
+// Every planned fact still comes from the probe; the request contributes
+// only the destructive flag and the approval reference, which the
+// transaction re-validates.
+func (p WorktreeReclaimProbe) factsFor(req WorktreeReclaimRequest) json.RawMessage {
+	if p.AlreadyAbsent {
+		return jsonMustMarshal(worktreeReclaimFacts{AlreadyAbsent: true, Forced: req.Destructive, OperatorOverride: approvalFactRef(req)})
+	}
+	return p.reclaimFacts(req)
+}
+
+// planStoredRefDeletion separates directory-removal proof from stored-ref
+// deletion (CD-0212 D3). The stored claim branch is a deletion candidate
+// only under its own proof: the live checkout's durability covers it when
+// the live head is that branch; otherwise the ref is proven independently
+// against the tip the plan pins, and retained whenever the proof, the ref,
+// or the ownership fails. The default-ref ownership guard runs before every
+// candidate — including the checked-out claim branch — and a divergent live
+// branch ref is retained, because no authority here owns its deletion.
+//
+// The protected default set is established independently of the caller's
+// merge target: the normalized caller ref, the repository's origin/HEAD
+// target, and the repository's own checked-out HEAD each contribute, and
+// accepted ref spellings normalize before comparison. When the set cannot be
+// established at all, deletion permission fails closed: candidate refs are
+// retained with the reason recorded, and a proven-durable live removal is
+// never blocked by that unknown.
+func planStoredRefDeletion(ctx context.Context, runner GitRunner, req WorktreeReclaimRequest, op string, entry WorktreeEntry, repoRoot string, live worktreeLiveHead, destructive bool, liveDurableVia string) ([]WorktreeBranchDeletion, []WorktreeRetainedRef, error) {
+	var deletions []WorktreeBranchDeletion
+	var retained []WorktreeRetainedRef
+	if !live.Detached && live.Branch != "" && live.Branch != entry.Branch {
+		retained = append(retained, WorktreeRetainedRef{Branch: live.Branch, Tip: live.Tip, Reason: "live branch differs from the stored claim; no deletion authority"})
+	}
+	protected, defaultsKnown := protectedDefaultBranches(ctx, runner, repoRoot, req.DefaultRef)
+	// The ownership guard runs before every deletion candidate, including the
+	// checked-out claim branch itself: the default ref is never deleted,
+	// whatever the claim row or the live checkout says (CD-0212 D3).
+	if protected[entry.Branch] {
+		resolved := resolveBranchRef(ctx, runner, repoRoot, entry.Branch)
+		if resolved.err != nil {
+			return nil, nil, resolved.err
+		}
+		if resolved.exists {
+			retained = append(retained, WorktreeRetainedRef{Branch: entry.Branch, Tip: resolved.tip, Reason: "the default ref is never deleted"})
+		}
+		return deletions, retained, nil
+	}
+	if !live.Detached && live.Branch == entry.Branch {
+		if !defaultsKnown {
+			// Ownership failed closed: the claim branch may itself be the
+			// unestablished default, so the ref is retained, while the
+			// proven-durable live removal proceeds unblocked.
+			return deletions, append(retained, WorktreeRetainedRef{Branch: entry.Branch, Tip: live.Tip, Reason: "cannot establish the protected default; the ref was retained"}), nil
+		}
+		reason := "live head is the stored claim branch, durable: " + liveDurableVia
+		if destructive {
+			reason = "operator-approved destructive removal of the checked-out claim branch"
+		}
+		return append(deletions, WorktreeBranchDeletion{Branch: entry.Branch, ExpectedTip: live.Tip, Reason: reason}), retained, nil
+	}
+	resolved := resolveBranchRef(ctx, runner, repoRoot, entry.Branch)
+	if resolved.err != nil {
+		return nil, nil, resolved.err
+	}
+	if !resolved.exists {
+		return deletions, retained, nil
+	}
+	if resolved.symbolic {
+		return deletions, append(retained, WorktreeRetainedRef{Branch: entry.Branch, Tip: resolved.tip, Reason: "the stored claim ref is a symbolic ref; no deletion authority"}), nil
+	}
+	if !defaultsKnown {
+		return deletions, append(retained, WorktreeRetainedRef{Branch: entry.Branch, Tip: resolved.tip, Reason: "cannot establish the protected default; the ref was retained"}), nil
+	}
+	if destructive {
+		return append(deletions, WorktreeBranchDeletion{Branch: entry.Branch, ExpectedTip: resolved.tip, Reason: "operator-approved destructive removal of the stored claim branch"}), retained, nil
+	}
+	// The independent proof runs against the tip the plan just pinned, not
+	// the mutable branch name it read it from: a ref that moved between the
+	// two probes must not be deleted under proof of content it no longer
+	// holds (CD-0212 D3).
+	contained, durableErr := branchIsDurable(ctx, runner, repoRoot, resolved.tip, "stored branch "+entry.Branch, req.DefaultRef, op)
+	if durableErr != nil {
+		return deletions, append(retained, WorktreeRetainedRef{Branch: entry.Branch, Tip: resolved.tip, Reason: "stored claim content is not proven durable; the ref was retained"}), nil
+	}
+	via := "remote_reachable"
+	if contained {
+		via = "squash_merged"
+	}
+	return append(deletions, WorktreeBranchDeletion{Branch: entry.Branch, ExpectedTip: resolved.tip, Reason: "stored claim ref is durable: " + via}), retained, nil
+}
+
+// normalizeBranchRef normalizes one accepted ref spelling to its short
+// branch name: refs/remotes/origin/<b>, refs/remotes/<b>, refs/heads/<b>,
+// and origin/<b> all reduce to <b>. A spelling a branch name cannot hold —
+// empty, still prefixed refs/, leading dash or slash, a trailing slash or
+// .lock, or any character git forbids in one ref component — returns empty,
+// which leaves default ownership unestablished and fails deletion closed.
+func normalizeBranchRef(ref string) string {
+	name := strings.TrimSpace(ref)
+	for _, prefix := range []string{"refs/remotes/origin/", "refs/remotes/", "refs/heads/"} {
+		if strings.HasPrefix(name, prefix) {
+			name = strings.TrimPrefix(name, prefix)
+			break
+		}
+	}
+	if strings.HasPrefix(name, "origin/") {
+		name = strings.TrimPrefix(name, "origin/")
+	}
+	if name == "" || len(name) > 128 || strings.HasPrefix(name, "-") || strings.HasPrefix(name, "/") || strings.HasSuffix(name, "/") || strings.HasSuffix(name, ".lock") || strings.Contains(name, "..") {
+		return ""
+	}
+	if strings.ContainsAny(name, " \t\n\r~^:?*[\\") || name == "refs" || strings.HasPrefix(name, "refs/") {
+		return ""
+	}
+	return name
+}
+
+// protectedDefaultBranches establishes the repository's protected default
+// branches independently of any single caller input: the normalized caller
+// merge target, the origin/HEAD target, and the repository's own checked-out
+// HEAD each contribute a short name. known reports whether any observation
+// actually established a default. Absence is not establishment: a caller ref
+// that cannot normalize, a probe that failed outright (not one that merely
+// found no such ref), a symbolic target no branch name can hold, and a set
+// where no observation contributed anything at all — no caller ref, a missing
+// origin/HEAD, a detached repository HEAD — each leave the protected set
+// unestablished, and deletion permission fails closed against it: an empty
+// set nothing established proves no default, so it can never authorize
+// deleting the repository's default by accident.
+func protectedDefaultBranches(ctx context.Context, runner GitRunner, repoRoot, callerDefaultRef string) (protected map[string]bool, known bool) {
+	protected = map[string]bool{}
+	established := 0
+	if callerDefaultRef != "" {
+		short := normalizeBranchRef(callerDefaultRef)
+		if short == "" {
+			return protected, false
+		}
+		protected[short] = true
+		established++
+	}
+	for _, ref := range []string{"refs/remotes/origin/HEAD", "HEAD"} {
+		out, err := runner.Run(ctx, repoRoot, "symbolic-ref", "--quiet", ref)
+		if err != nil {
+			if !gitProbeFoundRefAbsent(err) {
+				return protected, false
+			}
+			continue
+		}
+		short := normalizeBranchRef(strings.TrimSpace(string(out)))
+		if short == "" {
+			return protected, false
+		}
+		protected[short] = true
+		established++
+	}
+	return protected, established > 0
+}
+
+// gitProbeFoundRefAbsent reports whether a failed git probe is the typed
+// absence of the ref it named (exit status 1) rather than a probe that could
+// not run. Only absence proves the ref contributes nothing; every other
+// failure leaves the question open.
+func gitProbeFoundRefAbsent(err error) bool {
+	var exitErr *exec.ExitError
+	return errors.As(err, &exitErr) && exitErr.ExitCode() == 1
+}
+
+// branchRefResolution is one local branch ref resolved by its exact
+// refs/heads path: the observed tip, whether the ref is itself symbolic, and
+// whether it exists at all.
+type branchRefResolution struct {
+	tip      string
+	symbolic bool
+	exists   bool
+	err      error
+}
+
+// resolveBranchRef resolves a local branch ref by its exact refs/heads path,
+// never by its short name: a tag that shadows the branch name cannot bend
+// the resolution, because the full ref path admits no ambiguity. A symbolic
+// ref resolves to its target's tip and is reported symbolic, so a caller can
+// refuse to delete through it. show-ref reports a missing ref with exit
+// status 1 and every other failure with a different status; only exit 1 is
+// absence, so native deletion debt is never marked converged by a probe that
+// could not run (CD-0212 D4).
+func resolveBranchRef(ctx context.Context, runner GitRunner, repoRoot, branch string) branchRefResolution {
+	full := "refs/heads/" + branch
+	_, symErr := runner.Run(ctx, repoRoot, "symbolic-ref", "--quiet", full)
+	if symErr == nil {
+		tipOut, tipErr := runner.Run(ctx, repoRoot, "rev-parse", "--verify", full)
+		if tipErr != nil {
+			return branchRefResolution{symbolic: true, exists: true, err: wrapFailure(KindGitUnreachable, "worktree_reclaim", "cannot resolve the tip of branch "+branch, true, "retry once the repository is reachable", tipErr)}
+		}
+		return branchRefResolution{tip: strings.TrimSpace(string(tipOut)), symbolic: true, exists: true}
+	}
+	if !gitProbeFoundRefAbsent(symErr) {
+		return branchRefResolution{err: wrapFailure(KindGitUnreachable, "worktree_reclaim", "cannot inspect branch "+branch, true, "retry once the repository is reachable", symErr)}
+	}
+	if _, err := runner.Run(ctx, repoRoot, "show-ref", "--verify", "--quiet", full); err != nil {
+		if gitProbeFoundRefAbsent(err) {
+			return branchRefResolution{}
+		}
+		return branchRefResolution{err: wrapFailure(KindGitUnreachable, "worktree_reclaim", "cannot inspect branch "+branch, true, "retry once the repository is reachable", err)}
+	}
+	tipOut, tipErr := runner.Run(ctx, repoRoot, "rev-parse", "--verify", full)
+	if tipErr != nil {
+		return branchRefResolution{exists: true, err: wrapFailure(KindGitUnreachable, "worktree_reclaim", "cannot resolve the tip of branch "+branch, true, "retry once the repository is reachable", tipErr)}
+	}
+	return branchRefResolution{tip: strings.TrimSpace(string(tipOut)), exists: true}
+}
+
+// pendingRecordedDeletions filters the recorded plan's pinned deletions
+// against the durable outcome rows of the same claim generation: a deletion
+// already settled, or protected by a sticky identity protection, replays no
+// native attempt. Everything else is still owed — including a recovery debt,
+// whose replay resolves the restoration or verifies the absence before the
+// plan converges, and a restored ref whose checkout protection a later
+// replay re-derives — and the native boundary classifies it against git when
+// the removal runs.
+// pendingRecordedDeletions returns the recorded deletions the durable
+// phase owner still owes, each carrying its recorded phase so the native
+// run resumes the recorded predecessor instead of re-deriving it. A row at
+// a terminal phase — settled or retained_unproven — owes nothing; every
+// pending phase stays owed until the owner table moves it.
+func pendingRecordedDeletions(recorded []WorktreeBranchDeletion, prior []worktreeRefOutcome) []WorktreeBranchDeletion {
+	recorded2 := map[string]string{}
+	for _, outcome := range prior {
+		recorded2[outcome.branch] = outcome.phase
+	}
+	var pending []WorktreeBranchDeletion
+	for _, deletion := range recorded {
+		phase, seen := recorded2[deletion.Branch]
+		if seen {
+			if terminalRefPhase(phase) {
+				continue
+			}
+			deletion.Phase = phase
+		}
+		pending = append(pending, deletion)
+	}
+	return pending
+}
+
+// RunWorktreeNativeRemoval removes the worktree and finishes the branch
+// deletions one committed reclaim still owes, following the bounded plan its
+// event recorded. It runs with no transaction open: the caller commits the
+// reclamation event first (CD-0195 D2). Before every destructive native
+// effect it revalidates the identity the plan pinned: the checkout must
+// still belong to the probed repository at the recorded tip, and a branch is
+// deleted only when it is still the direct ref the plan pinned, still at its
+// pinned tip, and checked out nowhere (CD-0212 D4). Every per-item result is
+// reported as one bounded outcome — settled, protected, or recovery owed —
+// for the caller's durable settlement; a failed probe leaves the item owed
+// and records nothing, while a post-deletion uncertainty records the
+// restoration debt it cannot resolve.
+func RunWorktreeNativeRemoval(ctx context.Context, runner GitRunner, removal *WorktreeNativeRemoval) ([]WorktreeNativeOutcome, error) {
 	if removal == nil {
-		return nil
+		return nil, nil
 	}
 	if runner == nil {
 		runner = ExecGitRunner{}
 	}
-	args := []string{"worktree", "remove"}
-	if removal.Force {
-		args = append(args, "--force")
+	var outcomes []WorktreeNativeOutcome
+	if removal.Path != "" {
+		if err := revalidateNativeWorktree(ctx, runner, removal); err != nil {
+			return outcomes, err
+		}
+		args := []string{"worktree", "remove"}
+		if removal.Force {
+			args = append(args, "--force")
+		}
+		if _, err := runner.Run(ctx, removal.RepoRoot, append(args, removal.Path)...); err != nil {
+			return outcomes, wrapFailure(KindGitUnreachable, removal.Op, "reclaimed in Concord but native removal failed", true, "remove the worktree manually; the projection already records reclamation", err)
+		}
 	}
-	if _, err := runner.Run(ctx, removal.RepoRoot, append(args, removal.Path)...); err != nil {
-		return wrapFailure(KindGitUnreachable, removal.Op, "reclaimed in Concord but native removal failed", true, "remove the worktree manually; the projection already records reclamation", err)
+	// The pinned stdin transaction below is what keeps the forced deletion
+	// honest: the durability gate probed remote refs and squash containment,
+	// while git's own ancestry checks cannot answer that question, so the
+	// deletion carries its own proof — the tip the plan pinned — into the
+	// mutation itself.
+	var protected error
+	for _, deletion := range removal.BranchDeletions {
+		outcome, err := deleteBranchPinned(ctx, runner, removal, deletion)
+		if outcome.Branch != "" {
+			outcomes = append(outcomes, outcome)
+		}
+		var failure *Failure
+		switch {
+		case err == nil:
+		case errors.As(err, &failure) && (failure.Kind == KindProjectionConflict || failure.Kind == KindInvalidOperation):
+			// A protected ref is reported and the removal continues: one
+			// retained branch must not mask the deletions the plan still
+			// owes, and a protected ref must not mask an independently safe
+			// pending directory either.
+			if protected == nil {
+				protected = err
+			}
+		default:
+			return outcomes, err
+		}
 	}
-	// -D, not -d: the durability gate probed remote refs, while git's own -d
-	// check tests branch ancestry.
-	if _, err := runner.Run(ctx, removal.RepoRoot, "branch", "-D", "--", removal.Branch); err != nil {
-		return wrapFailure(KindGitUnreachable, removal.Op, "reclaimed in Concord but branch deletion failed", true, "delete the branch manually; the projection already records reclamation", err)
+	return outcomes, protected
+}
+
+// pinnedDeletionRun tracks one branch deletion's durable phase through a
+// native run, so every phase record the run makes starts from the phase the
+// row holds and moves only along the owning transition table
+// (worktreeRefPhaseTransitions). Each record precedes the native effect it
+// authorizes, and the run's in-memory phase follows the durable record.
+type pinnedDeletionRun struct {
+	removal  *WorktreeNativeRemoval
+	deletion WorktreeBranchDeletion
+	phase    string
+}
+
+// recordPhase persists one table-admitted phase move: the step must start
+// from the run's recorded predecessor phase and admit the target. The
+// settlement owner validates the same table against the durable row, so a
+// phase a stale probe carried can never authorize what the row refuses.
+func (r *pinnedDeletionRun) recordPhase(step, toPhase, tip, reason string) error {
+	if refusal := worktreeRefStepRefusal(step, r.phase); refusal != "" {
+		return newFailure(KindProjectionConflict, r.removal.Op,
+			"branch "+r.deletion.Branch+" sits at phase "+r.phase+" ("+refusal+"); the "+step+" step cannot start from it",
+			false, "the durable phase owner refuses this step; inspect the recorded phase")
+	}
+	if !worktreeRefStepTarget(step, r.phase, toPhase) {
+		return newFailure(KindProjectionConflict, r.removal.Op,
+			"branch "+r.deletion.Branch+" cannot move from phase "+r.phase+" to "+toPhase+" through the "+step+" step",
+			false, "the durable phase owner admits no such transition; inspect the recorded phase")
+	}
+	if err := r.removal.recordPhase(WorktreeNativeOutcome{Branch: r.deletion.Branch, Tip: tip, Phase: toPhase, Reason: reason}); err != nil {
+		return err
+	}
+	r.phase = toPhase
+	return nil
+}
+
+// restorationOwedRun shapes one durable restoration debt and persists it:
+// an observation around the pinned deletion found, or could not exclude, a
+// checkout naming the ref, so the recovery at the immutable pinned tip is
+// still owed. The debt stays pending across directory removal, replay,
+// later claims, and audit; ref absence never settles it. A record that
+// cannot persist keeps the outcome — the settlement pass records it after
+// the run — and carries the failure in the reason.
+func (r *pinnedDeletionRun) restorationOwedRun(step, reason string) WorktreeNativeOutcome {
+	outcome := WorktreeNativeOutcome{Branch: r.deletion.Branch, Tip: r.deletion.ExpectedTip, Phase: WorktreeRefPhaseRestorationOwed, Reason: reason}
+	if err := r.recordPhase(step, WorktreeRefPhaseRestorationOwed, r.deletion.ExpectedTip, reason); err != nil {
+		outcome.Reason = reason + "; the phase record could not be persisted: " + err.Error()
+		return outcome
+	}
+	return outcome
+}
+
+// deleteBranchPinned advances one planned branch deletion along the
+// durable phase owner (CD-0212 D4), resuming from the phase the recorded
+// plan carried. Each step starts only from its recorded predecessor in
+// worktreeRefPhaseTransitions: ownership is re-derived inside the attempt
+// (the complete worktree inventory, the direct ref identity at its pinned
+// tip, and the protected default set), the authorization
+// (checkout_proven_absent) is persisted before the pinned argv deletion
+// `update-ref --no-deref -d <ref> <expected-tip>` runs, the deleted phase
+// is persisted before the post-deletion observation reads every listed
+// worktree HEAD again, and a restoration is persisted as restoration_owed
+// before the create-only argv restore rebuilds the ref at exactly the
+// pinned tip. Every refusal is one of the enumerated typed reasons and
+// keeps the row at the phase it holds; every uncertain observation yields
+// restoration_owed or retained_unproven, never settled, and an absent ref
+// settles only when a complete inventory verifies no worktree holds it.
+func deleteBranchPinned(ctx context.Context, runner GitRunner, removal *WorktreeNativeRemoval, deletion WorktreeBranchDeletion) (WorktreeNativeOutcome, error) {
+	if deletion.ExpectedTip == "" {
+		return WorktreeNativeOutcome{}, newFailure(KindProjectionConflict, removal.Op, "branch "+deletion.Branch+" has no pinned tip in the recorded plan; the ref was retained and not deleted", false, "re-run the reclaim probe so the plan records the tip it proved")
+	}
+	phase := deletion.Phase
+	if phase == "" {
+		phase = WorktreeRefPhasePlanned
+	}
+	run := &pinnedDeletionRun{removal: removal, deletion: deletion, phase: phase}
+	if refusal := worktreeRefStepRefusal(WorktreeRefStepObserveCheckouts, phase); refusal != "" {
+		return WorktreeNativeOutcome{}, newFailure(KindProjectionConflict, removal.Op, "branch "+deletion.Branch+" sits at phase "+phase+" ("+refusal+"); the observe_checkouts step cannot start from it", false, "the durable phase owner refuses this step; inspect the recorded phase")
+	}
+	retain := func(tip, reason, refusal string, err error) (WorktreeNativeOutcome, error) {
+		outcome := WorktreeNativeOutcome{Branch: deletion.Branch, Tip: tip, Phase: WorktreeRefPhaseRetainedUnproven, Reason: reason, Refusal: refusal}
+		if recordErr := run.recordPhase(WorktreeRefStepObserveCheckouts, WorktreeRefPhaseRetainedUnproven, tip, reason); recordErr != nil {
+			return WorktreeNativeOutcome{}, recordErr
+		}
+		return outcome, err
+	}
+	resolved := resolveBranchRef(ctx, runner, removal.RepoRoot, deletion.Branch)
+	if resolved.err != nil {
+		return WorktreeNativeOutcome{}, resolved.err
+	}
+	if !resolved.exists {
+		// An absent ref is not settlement: an earlier attempt may have
+		// deleted it while another worktree held it checked out, leaving
+		// restoration debt. Only a complete inventory that observes no
+		// holder converges the debt (CD-0212 D4).
+		return classifyAbsentPinnedDeletion(ctx, runner, run)
+	}
+	if resolved.symbolic {
+		return retain(resolved.tip, "the ref became a symbolic ref; deleting through it would delete its target", WorktreeRefRefusalSymbolicRef,
+			newFailure(KindProjectionConflict, removal.Op, "branch "+deletion.Branch+" became a symbolic ref after the reclaim pinned it; the ref and its target were retained", false, "inspect the symbolic ref and delete it by hand if its content is disposable"))
+	}
+	if resolved.tip != deletion.ExpectedTip {
+		return retain(resolved.tip, "the ref moved from the tip the reclaim pinned", WorktreeRefRefusalMovedTip,
+			newFailure(KindProjectionConflict, removal.Op, "branch "+deletion.Branch+" moved from the tip the reclaim pinned; the ref was retained and not deleted", false, "inspect the branch and delete it by hand if its new content is disposable"))
+	}
+	// The default ownership is re-derived here, not trusted from the plan:
+	// the repository's default may have moved onto this branch after the
+	// plan committed, and the default ref is never deleted whatever the
+	// plan proved about the tip (CD-0212 D3). The default protection tracks
+	// a live condition git itself owns, so it keeps the row at its recorded
+	// pending phase — the refusal reason settles over it and a later replay
+	// re-derives the ownership — instead of recording a terminal identity
+	// protection.
+	protected, defaultsKnown := protectedDefaultBranches(ctx, runner, removal.RepoRoot, removal.DefaultRef)
+	if protected[deletion.Branch] {
+		return WorktreeNativeOutcome{Branch: deletion.Branch, Tip: resolved.tip, Phase: run.phase, Reason: "the branch is the repository's default ref; the default ref is never deleted", Refusal: WorktreeRefRefusalProtectedDefault},
+			newFailure(KindProjectionConflict, removal.Op, "branch "+deletion.Branch+" is the repository's default ref; it was retained and not deleted", false, "inspect the default ref: the reclaim proved the content durable, but the default ref is never deleted")
+	}
+	if !defaultsKnown {
+		// Fail closed exactly as the plan-time guard does: no observation
+		// established a protected default, so the ref may itself be the
+		// unestablished default. The ref is kept at its recorded pending
+		// phase and the outcome is reported without failing the removal —
+		// a proven-durable directory or another debt is never masked by
+		// the unknown, and a later replay re-derives the default set.
+		return WorktreeNativeOutcome{Branch: deletion.Branch, Tip: resolved.tip, Phase: run.phase, Reason: "cannot establish the protected default; the ref was retained", Refusal: WorktreeRefRefusalProtectedDefault}, nil
+	}
+	if err := refuseWhenBranchCheckedOut(ctx, runner, removal.RepoRoot, deletion.Branch, removal.Op); err != nil {
+		var failure *Failure
+		if errors.As(err, &failure) && failure.Kind == KindInvalidOperation {
+			// A pre-read holder refuses the deletion but retires nothing:
+			// the row keeps its recorded phase, so the debt stays owed and
+			// a later replay converges once the holder releases the ref.
+			return WorktreeNativeOutcome{Branch: deletion.Branch, Tip: resolved.tip, Phase: phase, Reason: "the branch is checked out in a worktree of this repository", Refusal: WorktreeRefRefusalHolderPresent}, err
+		}
+		// The pre-deletion observation itself could not run or could not be
+		// completed: it cannot exclude a worktree holding the ref, so the
+		// actual uncertainty is durable — a recovery phase with the
+		// failed-observation reason, never a silent pending row that still
+		// carries its original durability reason (CD-0212 D4).
+		return run.restorationOwedRun(WorktreeRefStepObserveCheckouts, "cannot inspect the worktree checkouts before the pinned deletion; the observation could not exclude a holder and the state at the pinned tip is uncertain"),
+			err
+	}
+	// The authorization precedes its native effect: the row records
+	// checkout_proven_absent before the pinned deletion runs.
+	if err := run.recordPhase(WorktreeRefStepObserveCheckouts, WorktreeRefPhaseCheckoutProvenAbsent, deletion.ExpectedTip, "complete inventory proved no worktree holds the ref at its pinned tip"); err != nil {
+		return WorktreeNativeOutcome{}, err
+	}
+	full := "refs/heads/" + deletion.Branch
+	if _, err := runner.Run(ctx, removal.RepoRoot, "update-ref", "--no-deref", "-d", full, deletion.ExpectedTip); err != nil {
+		after := resolveBranchRef(ctx, runner, removal.RepoRoot, deletion.Branch)
+		if after.err != nil {
+			return WorktreeNativeOutcome{}, after.err
+		}
+		if !after.exists {
+			// The ref vanished at the boundary; only a complete inventory
+			// that observes no holder may converge the debt.
+			return classifyAbsentPinnedDeletion(ctx, runner, run)
+		}
+		if after.symbolic {
+			return retain(after.tip, "the ref became a symbolic ref; deleting through it would delete its target", WorktreeRefRefusalSymbolicRef,
+				newFailure(KindProjectionConflict, removal.Op, "branch "+deletion.Branch+" became a symbolic ref after the reclaim pinned it; the ref and its target were retained", false, "inspect the symbolic ref and delete it by hand if its content is disposable"))
+		}
+		if after.tip != deletion.ExpectedTip {
+			return retain(after.tip, "the ref moved from the tip the reclaim pinned", WorktreeRefRefusalMovedTip,
+				newFailure(KindProjectionConflict, removal.Op, "branch "+deletion.Branch+" moved from the tip the reclaim pinned; the ref was retained and not deleted", false, "inspect the branch and delete it by hand if its new content is disposable"))
+		}
+		return WorktreeNativeOutcome{}, wrapFailure(KindGitUnreachable, removal.Op, "reclaimed in Concord but branch deletion failed", true, "delete the branch manually; the projection already records reclamation", err)
+	}
+	// The deletion ran; the phase records it before the post-deletion
+	// observation, so an interruption between them resumes as uncertainty
+	// rather than inferred settlement.
+	if err := run.recordPhase(WorktreeRefStepDeletePinned, WorktreeRefPhaseDeleted, deletion.ExpectedTip, "the pinned deletion ran at its pinned tip"); err != nil {
+		return WorktreeNativeOutcome{}, err
+	}
+	// update-ref enforces no checkout guard of its own, so ownership is
+	// observed once more on this side of the deletion, from the complete
+	// inventory: a worktree that gained the branch between the pre-check and
+	// the mutation would otherwise strand an unborn HEAD.
+	return settleDeletedBranchUnderCheckouts(ctx, runner, run)
+}
+
+// classifyAbsentPinnedDeletion resolves an absent ref the recorded plan
+// pinned: verified absence — a complete inventory that observes no worktree
+// holding the branch — converges the debt, while a checkout that still names
+// the absent branch owes its restoration at the immutable pinned tip, and
+// that debt is persisted before the restore runs so the restore step starts
+// from its recorded predecessor. An observation that cannot run leaves
+// durable restoration debt; it never settles an absence it could not verify
+// (CD-0212 D4).
+func classifyAbsentPinnedDeletion(ctx context.Context, runner GitRunner, run *pinnedDeletionRun) (WorktreeNativeOutcome, error) {
+	held, err := observeBranchCheckouts(ctx, runner, run.removal.RepoRoot, run.deletion.Branch, run.removal.Op)
+	if err != nil {
+		return run.restorationOwedRun(WorktreeRefStepObserveCheckouts, "cannot inspect worktree checkouts after the pinned deletion; the restoration at the pinned tip is still owed"), err
+	}
+	if held {
+		// The restoration debt is persisted before the restore runs.
+		if recordErr := run.recordPhase(WorktreeRefStepObserveCheckouts, WorktreeRefPhaseRestorationOwed, run.deletion.ExpectedTip, "a worktree holds the deleted branch checked out; the restoration at the pinned tip is owed"); recordErr != nil {
+			return WorktreeNativeOutcome{}, recordErr
+		}
+		return restoreDeletedBranchAtPinnedTip(ctx, runner, run)
+	}
+	outcome := WorktreeNativeOutcome{Branch: run.deletion.Branch, Tip: run.deletion.ExpectedTip, Phase: WorktreeRefPhaseSettled, Reason: "the ref no longer exists and no worktree holds it; the pinned deletion converged"}
+	if recordErr := run.recordPhase(WorktreeRefStepObserveCheckouts, WorktreeRefPhaseSettled, run.deletion.ExpectedTip, outcome.Reason); recordErr != nil {
+		return WorktreeNativeOutcome{}, recordErr
+	}
+	return outcome, nil
+}
+
+// settleDeletedBranchUnderCheckouts observes the complete worktree inventory
+// after a successful pinned deletion. No holder settles the deletion; a
+// holder owes the restoration at the pinned tip and, once restored, leaves
+// the ref retained; an unobservable inventory leaves durable restoration
+// debt.
+func settleDeletedBranchUnderCheckouts(ctx context.Context, runner GitRunner, run *pinnedDeletionRun) (WorktreeNativeOutcome, error) {
+	held, err := observeBranchCheckouts(ctx, runner, run.removal.RepoRoot, run.deletion.Branch, run.removal.Op)
+	if err != nil {
+		return run.restorationOwedRun(WorktreeRefStepObservePostDelete, "cannot inspect worktree checkouts after the pinned deletion; the restoration at the pinned tip is still owed"), err
+	}
+	if held {
+		// The restoration debt is persisted before the restore runs.
+		if recordErr := run.recordPhase(WorktreeRefStepObservePostDelete, WorktreeRefPhaseRestorationOwed, run.deletion.ExpectedTip, "a worktree holds the deleted branch checked out; the restoration at the pinned tip is owed"); recordErr != nil {
+			return WorktreeNativeOutcome{}, recordErr
+		}
+		return restoreDeletedBranchAtPinnedTip(ctx, runner, run)
+	}
+	outcome := WorktreeNativeOutcome{Branch: run.deletion.Branch, Tip: run.deletion.ExpectedTip, Phase: WorktreeRefPhaseSettled, Reason: "the pinned deletion ran at its pinned tip"}
+	if recordErr := run.recordPhase(WorktreeRefStepObservePostDelete, WorktreeRefPhaseSettled, run.deletion.ExpectedTip, outcome.Reason); recordErr != nil {
+		return WorktreeNativeOutcome{}, recordErr
+	}
+	return outcome, nil
+}
+
+// restoreDeletedBranchAtPinnedTip restores a branch the pinned deletion
+// removed while another worktree held it checked out, through a create-only
+// argv update — `update-ref --no-deref <ref> <pinned-tip> <zero-oid>` —
+// whose zero old-value refuses to overwrite anything a concurrent actor
+// already rebuilt, so a foreign or concurrently recreated ref is preserved
+// exactly as it stands. A restoration that cannot run leaves durable
+// restoration debt at the immutable pinned tip; a ref another actor already
+// rebuilt leaves the identity retained unproven.
+func restoreDeletedBranchAtPinnedTip(ctx context.Context, runner GitRunner, run *pinnedDeletionRun) (WorktreeNativeOutcome, error) {
+	full := "refs/heads/" + run.deletion.Branch
+	zero := strings.Repeat("0", len(run.deletion.ExpectedTip))
+	if _, err := runner.Run(ctx, run.removal.RepoRoot, "update-ref", "--no-deref", full, run.deletion.ExpectedTip, zero); err != nil {
+		after := resolveBranchRef(ctx, runner, run.removal.RepoRoot, run.deletion.Branch)
+		if after.err != nil {
+			return run.restorationOwedRun(WorktreeRefStepRestoreExpected, "the raced branch could not be restored at its pinned tip and its state is unobservable; the restoration is still owed"), after.err
+		}
+		if after.exists {
+			outcome := WorktreeNativeOutcome{Branch: run.deletion.Branch, Tip: after.tip, Phase: WorktreeRefPhaseRetainedUnproven, Reason: "the branch was checked out at the deletion boundary; the ref already stands rebuilt", Refusal: WorktreeRefRefusalInventoryUnknown}
+			if recordErr := run.recordPhase(WorktreeRefStepRestoreExpected, WorktreeRefPhaseRetainedUnproven, after.tip, outcome.Reason); recordErr != nil {
+				return WorktreeNativeOutcome{}, recordErr
+			}
+			return outcome, newFailure(KindInvalidOperation, run.removal.Op, "branch "+run.deletion.Branch+" was checked out at the deletion boundary and was already rebuilt by another actor", false, "inspect the branch: the recorded plan no longer owes its deletion")
+		}
+		return run.restorationOwedRun(WorktreeRefStepRestoreExpected, "the raced branch could not be restored at its pinned tip; the restoration is still owed"),
+			wrapFailure(KindGitUnreachable, run.removal.Op, "reclaimed in Concord but the raced branch could not be restored at its pinned tip", true, "restore branch "+run.deletion.Branch+" at "+run.deletion.ExpectedTip+" by hand; a worktree holds it checked out", err)
+	}
+	// A restored checked-out ref remains retained, never deletion-settled.
+	outcome := WorktreeNativeOutcome{Branch: run.deletion.Branch, Tip: run.deletion.ExpectedTip, Phase: WorktreeRefPhaseRestored, Reason: "the branch was checked out at the deletion boundary and was restored at its pinned tip"}
+	if recordErr := run.recordPhase(WorktreeRefStepRestoreExpected, WorktreeRefPhaseRestored, run.deletion.ExpectedTip, outcome.Reason); recordErr != nil {
+		return WorktreeNativeOutcome{}, recordErr
+	}
+	return outcome, newFailure(KindInvalidOperation, run.removal.Op, "branch "+run.deletion.Branch+" was checked out at the deletion boundary; it was restored at its pinned tip and retained", false, "check out another branch in that worktree, then retry the removal")
+}
+
+// refuseWhenBranchCheckedOut refuses the deletion of a branch any worktree
+// of the repository still has checked out. git branch -D refuses this shape
+// itself; the pinned compare-and-delete path must refuse it just as
+// forcefully, because deleting the ref would strand that worktree's HEAD.
+// The refusal reads the complete worktree inventory: an observation that
+// cannot run, or a malformed or incomplete inventory, refuses rather than
+// guessing, because an unknown checkout state is never proof a branch is
+// checked out nowhere.
+func refuseWhenBranchCheckedOut(ctx context.Context, runner GitRunner, repoRoot, branch, op string) error {
+	held, err := observeBranchCheckouts(ctx, runner, repoRoot, branch, op)
+	if err != nil {
+		return err
+	}
+	if held {
+		return newFailure(KindInvalidOperation, op, "branch "+branch+" is checked out in a worktree of this repository and was retained", false, "check out another branch in that worktree, then retry the removal")
+	}
+	return nil
+}
+
+// worktreeCheckoutEntry is one complete entry of the porcelain worktree
+// inventory: the worktree's path and the symbolic identity of its HEAD — the
+// full branch ref an attached HEAD names, or the detached or bare marker.
+type worktreeCheckoutEntry struct {
+	path     string
+	branch   string
+	detached bool
+	bare     bool
+}
+
+// worktreeInventory is the validated porcelain inventory of every worktree
+// the repository holds. Completeness is structural: every entry carries a
+// known HEAD disposition, so an inventory that names a worktree without
+// observing its HEAD's identity refuses instead of guessing (CD-0212 D4).
+type worktreeInventory struct {
+	entries []worktreeCheckoutEntry
+}
+
+// isWorktreeOID reports whether the porcelain HEAD attribute carries an
+// object name: 40 or 64 lowercase hex digits, all-zero for an unborn HEAD.
+func isWorktreeOID(value string) bool {
+	if len(value) != 40 && len(value) != 64 {
+		return false
+	}
+	for _, c := range value {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return true
+}
+
+// parseWorktreeInventory parses and validates the complete porcelain output
+// of `git worktree list --porcelain`, observing the symbolic identity of
+// every listed HEAD. The parse is whole or nothing, and the record grammar
+// is the one real git emits: records are separated and terminated by truly
+// empty boundary lines — a whitespace-only line is content, not a boundary
+// — every attribute a complete record carries once, a worktree path appears
+// in exactly one record, an attribute before any worktree line or after a
+// boundary closed its record, a worktree without a path, an entry whose
+// HEAD disposition is missing or contradictory, a non-bare entry without
+// its HEAD attribute, a bare entry claiming a HEAD or a branch, a HEAD that
+// is not an object name, and an unknown attribute each refuse, because a
+// malformed successful inventory is an unknown observation — never proof
+// that a branch is checked out nowhere.
+func parseWorktreeInventory(out []byte) (*worktreeInventory, error) {
+	malformed := errors.New("store: worktree_reclaim: the worktree inventory is malformed or incomplete")
+	inv := &worktreeInventory{}
+	var current *worktreeCheckoutEntry
+	attrSeen := map[string]bool{}
+	paths := map[string]bool{}
+	// boundary reports whether the previous line closed a record: the
+	// first record needs no preceding separator, every later one does, and
+	// the output must end on the terminating boundary after the last
+	// record. The trailing newline of the final line is the byte artifact
+	// of line splitting, not a boundary, so it is stripped before the
+	// split and only a genuine empty line closes a record.
+	boundary := true
+	complete := func() error {
+		if current == nil {
+			return nil
+		}
+		switch {
+		case current.bare:
+			// A bare record's disposition is its bareness alone: it carries
+			// no HEAD, branch, or detached attribute.
+			if current.branch != "" || current.detached || attrSeen["HEAD"] {
+				return malformed
+			}
+		case current.branch != "":
+			if current.detached || !attrSeen["HEAD"] {
+				return malformed
+			}
+		case current.detached:
+			if !attrSeen["HEAD"] {
+				return malformed
+			}
+		default:
+			// Neither bare, nor attached, nor detached: the entry never
+			// observed its HEAD's identity.
+			return malformed
+		}
+		inv.entries = append(inv.entries, *current)
+		current = nil
+		attrSeen = map[string]bool{}
+		return nil
+	}
+	for _, raw := range strings.Split(strings.TrimSuffix(string(out), "\n"), "\n") {
+		line := strings.TrimRight(raw, "\r")
+		if line == "" {
+			// The empty line is the explicit record boundary porcelain
+			// promises: it closes the record it terminates, so an
+			// attribute that follows one belongs to no record.
+			if err := complete(); err != nil {
+				return nil, err
+			}
+			boundary = true
+			continue
+		}
+		key, value, _ := strings.Cut(line, " ")
+		if key == "worktree" {
+			if current != nil {
+				// A record was still open: the separating boundary never
+				// came, so this is not a recognized record start.
+				return nil, malformed
+			}
+			if value == "" || paths[value] {
+				return nil, malformed
+			}
+			paths[value] = true
+			current = &worktreeCheckoutEntry{path: value}
+			boundary = false
+			continue
+		}
+		if current == nil {
+			return nil, malformed
+		}
+		boundary = false
+		switch key {
+		case "HEAD":
+			if attrSeen[key] || !isWorktreeOID(value) {
+				return nil, malformed
+			}
+			attrSeen[key] = true
+		case "branch":
+			if value == "" || !strings.HasPrefix(value, "refs/") || current.branch != "" {
+				return nil, malformed
+			}
+			current.branch = value
+		case "bare":
+			if value != "" || current.bare {
+				return nil, malformed
+			}
+			current.bare = true
+		case "detached":
+			if value != "" || current.detached {
+				return nil, malformed
+			}
+			current.detached = true
+		case "locked", "prunable":
+			// Presentational attributes with an optional free-text value,
+			// carried once by a complete record.
+			if attrSeen[key] {
+				return nil, malformed
+			}
+			attrSeen[key] = true
+		default:
+			return nil, malformed
+		}
+	}
+	if !boundary {
+		// The output did not end on the terminating boundary of its last
+		// record, or held no complete record at all.
+		return nil, malformed
+	}
+	if err := complete(); err != nil {
+		return nil, err
+	}
+	if len(inv.entries) == 0 {
+		return nil, malformed
+	}
+	return inv, nil
+}
+
+// observeListedWorktreeHead reads one listed worktree's symbolic HEAD live:
+// `symbolic-ref --quiet HEAD` names the full ref an attached HEAD holds —
+// including an unborn one, whose branch the ref itself no longer records —
+// exit status 1 is the established detached marker, and every other failure
+// is a failed observation that leaves the checkout state unknown. Only the
+// live read turns the inventory's branch line into an observed identity the
+// list-to-observation window cannot slip past (CD-0212 D4).
+func observeListedWorktreeHead(ctx context.Context, runner GitRunner, path, op string) (string, error) {
+	out, err := runner.Run(ctx, path, "symbolic-ref", "--quiet", "HEAD")
+	if err == nil {
+		ref := strings.TrimSpace(string(out))
+		if !strings.HasPrefix(ref, "refs/") {
+			return "", wrapFailure(KindGitUnreachable, op, "cannot observe the symbolic HEAD of worktree "+path, true, "retry once the worktree inventory is observable", nil)
+		}
+		return ref, nil
+	}
+	if gitProbeFoundRefAbsent(err) {
+		return "", nil
+	}
+	return "", wrapFailure(KindGitUnreachable, op, "cannot observe the symbolic HEAD of worktree "+path, true, "retry once the worktree inventory is observable", err)
+}
+
+// observeBranchCheckouts reads and validates the complete worktree
+// inventory, then reads every listed non-bare worktree's symbolic HEAD
+// live, and reports whether any observed HEAD holds the branch checked out.
+// Every listed HEAD is read — holders accumulate instead of ending the
+// observation at the first one — so a failed later observation is never
+// hidden by an earlier holder, and the live reads close the
+// list-to-observation window in both directions: a checkout that gained
+// the branch after the inventory listed it is still observed — an unborn
+// HEAD names its branch symbolically — and a listed branch line keeps
+// refusing until a later observation re-derives the state. A probe that
+// cannot run, a successful inventory that does not parse completely, and a
+// listed HEAD that cannot be observed each leave the question open as a
+// typed unreachable failure: only a complete observation may prove a
+// branch checked out nowhere (CD-0212 D4).
+func observeBranchCheckouts(ctx context.Context, runner GitRunner, repoRoot, branch, op string) (bool, error) {
+	out, err := runner.Run(ctx, repoRoot, "worktree", "list", "--porcelain")
+	if err != nil {
+		return false, wrapFailure(KindGitUnreachable, op, "cannot inspect worktree checkouts", true, "retry once the repository is reachable", err)
+	}
+	inv, err := parseWorktreeInventory(out)
+	if err != nil {
+		return false, wrapFailure(KindGitUnreachable, op, "the worktree inventory is malformed or incomplete", true, "retry once git reports a complete worktree inventory", err)
+	}
+	full := "refs/heads/" + branch
+	held := false
+	for _, entry := range inv.entries {
+		if entry.bare {
+			// A bare record is an established bare disposition, not a
+			// checkout: it holds no branch.
+			continue
+		}
+		live, obsErr := observeListedWorktreeHead(ctx, runner, entry.path, op)
+		if obsErr != nil {
+			return false, obsErr
+		}
+		if entry.branch == full || live == full {
+			held = true
+		}
+	}
+	return held, nil
+}
+
+// revalidateNativeWorktree revalidates the native identity before the
+// destructive directory effect: the checkout must still belong to the
+// repository the reclaim probed and still sit at the live tip the probe
+// observed (CD-0212 D4).
+func revalidateNativeWorktree(ctx context.Context, runner GitRunner, removal *WorktreeNativeRemoval) error {
+	commonOut, err := runner.Run(ctx, removal.Path, "rev-parse", "--git-common-dir")
+	if err != nil {
+		return wrapFailure(KindGitUnreachable, removal.Op, "cannot revalidate the worktree before removal", true, "retry once the worktree is reachable", err)
+	}
+	common := strings.TrimSpace(string(commonOut))
+	if !filepath.IsAbs(common) {
+		common = filepath.Join(removal.Path, common)
+	}
+	canonicalCommon, commonErr := normalizePath(filepath.Dir(common))
+	canonicalRoot, rootErr := normalizePath(removal.RepoRoot)
+	if commonErr != nil || rootErr != nil || canonicalCommon != canonicalRoot {
+		return newFailure(KindProjectionConflict, removal.Op, "the worktree no longer belongs to the repository the reclaim probed", false, "inspect the worktree drift with the audit read before removing it by hand")
+	}
+	if removal.LiveTip != "" {
+		tipOut, tipErr := runner.Run(ctx, removal.Path, "rev-parse", "HEAD")
+		if tipErr != nil {
+			return wrapFailure(KindGitUnreachable, removal.Op, "cannot revalidate the live HEAD before removal", true, "retry once the worktree is reachable", tipErr)
+		}
+		if strings.TrimSpace(string(tipOut)) != removal.LiveTip {
+			return newFailure(KindProjectionConflict, removal.Op, "the worktree HEAD moved after the reclaim probe", false, "inspect the worktree and retry the removal once its content is accounted for")
+		}
 	}
 	return nil
 }
@@ -1354,15 +3049,34 @@ func reclaimWorktreeStoreTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaim
 	if entry.Path != probe.Entry.Path || entry.Branch != probe.Entry.Branch || entry.ClaimOpID != probe.Entry.ClaimOpID {
 		return out, nil, wrapFailure(KindProjectionConflict, op, "worktree changed under the reclaim probe", true, "retry the same operation", nil)
 	}
-	if probe.AlreadyConverged {
-		return entry, nil, nil
-	}
 	// Every event this reclaim appends derives its identity from the claim's
 	// incarnation, so a claim row a bootstrap reopen revived records its own
 	// events instead of re-deriving its first incarnation's.
 	incarnation, err := claimIncarnationTx(ctx, tx, entry.ClaimOpID)
 	if err != nil {
 		return out, nil, err
+	}
+	if probe.AlreadyConverged {
+		// The reclamation event is already durable. A deletion the recorded
+		// plan still owes converges here, and a directory phase that failed
+		// re-owes only the removal — with no new event and no re-planned
+		// deletions (CD-0212 D4). The replayed removal keeps the recorded
+		// plan's force flag and pinned live-HEAD tip; the retry's own
+		// destructive declaration grants nothing.
+		if len(probe.Deletions) == 0 && !probe.DirectoryPending {
+			return entry, nil, nil
+		}
+		removal := &WorktreeNativeRemoval{
+			RepoRoot: probe.RepoRoot, Op: op, BranchDeletions: probe.Deletions, DefaultRef: probe.DefaultRef,
+			WorkID: req.WorkID, ProjectID: entry.ProjectID, ClaimOpID: entry.ClaimOpID, ClaimIncarnation: incarnation,
+			PrincipalRef: req.PrincipalRef, RequestID: req.RequestID,
+		}
+		if probe.DirectoryPending {
+			removal.Path = entry.Path
+			removal.Force = probe.ReplayForce
+			removal.LiveTip = probe.LiveHead.Tip
+		}
+		return entry, removal, nil
 	}
 	now := req.Now
 	if now.IsZero() {
@@ -1373,7 +3087,7 @@ func reclaimWorktreeStoreTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaim
 	// proved the native worktree already gone, so reclamation records that
 	// fact instead of demanding unreachable probes.
 	if probe.AlreadyAbsent {
-		if err := appendReclaimedTx(ctx, tx, req, setID, entry.ClaimOpID, incarnation, now, probe.Facts); err != nil {
+		if err := appendReclaimedTx(ctx, tx, req, setID, entry.ClaimOpID, incarnation, now, probe.factsFor(req)); err != nil {
 			return out, nil, err
 		}
 		final, err := worktreeEntryAfterReclaimTx(ctx, tx, req.WorkID, req.ProjectID)
@@ -1399,10 +3113,14 @@ func reclaimWorktreeStoreTx(ctx context.Context, tx *sql.Tx, req WorktreeReclaim
 	if err := reclaimOccupancyGateTx(ctx, tx, req, op, entry, setID, occupants, incarnation, now); err != nil {
 		return out, nil, err
 	}
-	if err := appendReclaimedTx(ctx, tx, req, setID, entry.ClaimOpID, incarnation, now, probe.Facts); err != nil {
+	if err := appendReclaimedTx(ctx, tx, req, setID, entry.ClaimOpID, incarnation, now, probe.factsFor(req)); err != nil {
 		return out, nil, err
 	}
-	removal := &WorktreeNativeRemoval{RepoRoot: probe.RepoRoot, Path: entry.Path, Branch: entry.Branch, Force: req.Destructive, Op: op}
+	removal := &WorktreeNativeRemoval{
+		RepoRoot: probe.RepoRoot, Path: entry.Path, Force: req.Destructive, Op: op, LiveTip: probe.LiveHead.Tip, BranchDeletions: probe.Deletions, DefaultRef: probe.DefaultRef,
+		WorkID: req.WorkID, ProjectID: entry.ProjectID, ClaimOpID: entry.ClaimOpID, ClaimIncarnation: incarnation,
+		PrincipalRef: req.PrincipalRef, RequestID: req.RequestID,
+	}
 	final, err := worktreeEntryAfterReclaimTx(ctx, tx, req.WorkID, req.ProjectID)
 	return final, removal, err
 }
@@ -1956,22 +3674,24 @@ func probeWorktree(ctx context.Context, runner GitRunner, repoRoot, path, branch
 	return true, worktreeFacts{branch: branch, headSHA: head, repositoryID: canonicalRoot}, nil
 }
 
-// branchIsDurable reports whether the branch's content survives the reclaim.
-// The remote-ref count stays the first way to pass: every commit reachable
-// from branch is also reachable from a local remote-tracking ref. The second
-// way is squash containment (CD-0181): the default ref holds a commit whose
-// git patch-id --stable equals the branch's net diff from its merge base, the
-// shape a squash merge leaves behind after the remote head branch is deleted.
-// It protects the sole copy of a commit without requiring the branch to merge
-// cleanly into main.
-func branchIsDurable(ctx context.Context, runner GitRunner, repoRoot, branch, defaultRef, op string) (bool, error) {
-	countOut, err := runner.Run(ctx, repoRoot, "rev-list", "--count", branch, "--not", "--remotes")
+// branchIsDurable reports whether the named revision's content survives the
+// reclaim. The remote-ref count stays the first way to pass: every commit
+// reachable from the revision is also reachable from a local remote-tracking
+// ref. The second way is squash containment (CD-0181): the default ref holds
+// a commit whose git patch-id --stable equals the revision's net diff from
+// its merge base, the shape a squash merge leaves behind after the remote
+// head branch is deleted. It protects the sole copy of a commit without
+// requiring the branch to merge cleanly into main. label names the revision
+// in the refusal detail, so a live head and a stored ref each report as
+// themselves.
+func branchIsDurable(ctx context.Context, runner GitRunner, repoRoot, committish, label, defaultRef, op string) (bool, error) {
+	countOut, err := runner.Run(ctx, repoRoot, "rev-list", "--count", committish, "--not", "--remotes")
 	if err != nil {
-		return false, wrapFailure(KindGitUnreachable, op, "cannot count commits not reachable from remote refs for "+branch, true, "retry once the repository is reachable", err)
+		return false, wrapFailure(KindGitUnreachable, op, "cannot count commits not reachable from remote refs for "+committish, true, "retry once the repository is reachable", err)
 	}
 	count, parseErr := strconv.Atoi(strings.TrimSpace(string(countOut)))
 	if parseErr != nil || count < 0 {
-		return false, newFailure(KindGitUnreachable, op, "local Git returned an invalid durable commit count for "+branch, false, "repair the repository refs before reclaiming")
+		return false, newFailure(KindGitUnreachable, op, "local Git returned an invalid durable commit count for "+committish, false, "repair the repository refs before reclaiming")
 	}
 	if count == 0 {
 		return false, nil
@@ -1984,10 +3704,10 @@ func branchIsDurable(ctx context.Context, runner GitRunner, repoRoot, branch, de
 			defaultRef = strings.TrimPrefix(strings.TrimSpace(string(refOut)), "refs/remotes/")
 		}
 	}
-	if branchSquashContained(ctx, runner, repoRoot, branch, defaultRef) {
+	if branchSquashContained(ctx, runner, repoRoot, committish, defaultRef) {
 		return true, nil
 	}
-	return false, newFailure(KindInvalidOperation, op, "worktree branch holds "+strconv.Itoa(count)+" commit(s) not reachable from remote refs", false, "push or otherwise preserve the commits before reclaiming")
+	return false, newFailure(KindInvalidOperation, op, label+" holds "+strconv.Itoa(count)+" commit(s) not reachable from remote refs", false, "push or otherwise preserve the commits before reclaiming")
 }
 
 // branchSquashContained reports whether the default ref holds a commit whose
@@ -2049,19 +3769,20 @@ func firstDiffField(out []byte) string {
 	return fields[0]
 }
 
-// branchHasNoCommitsBeyond reports whether the branch holds no commit the
-// default ref does not already hold. The unstarted tier's safety question is
-// narrower than the merged question: nothing may exist to lose, so tree
+// branchHasNoCommitsBeyond reports whether the named revision holds no commit
+// the default ref does not already hold. The unstarted tier's safety question
+// is narrower than the merged question: nothing may exist to lose, so tree
 // identity — which a branch of commit-and-revert pairs can satisfy while
-// still holding commits — cannot answer it.
-func branchHasNoCommitsBeyond(ctx context.Context, runner GitRunner, repoRoot, branch, defaultRef, op string) error {
-	countOut, err := runner.Run(ctx, repoRoot, "rev-list", "--count", defaultRef+".."+branch)
+// still holding commits — cannot answer it. label names the revision in the
+// refusal detail.
+func branchHasNoCommitsBeyond(ctx context.Context, runner GitRunner, repoRoot, committish, label, defaultRef, op string) error {
+	countOut, err := runner.Run(ctx, repoRoot, "rev-list", "--count", defaultRef+".."+committish)
 	if err != nil {
 		return wrapFailure(KindGitUnreachable, op, "cannot count commits beyond "+defaultRef, true, "retry once the repository is reachable", err)
 	}
 	count := strings.TrimSpace(string(countOut))
 	if count != "0" {
-		return newFailure(KindInvalidOperation, op, "worktree branch holds "+count+" commit(s) beyond "+defaultRef, false, "merge or remove the commits before reclaiming, or obtain an operator-approved destroy")
+		return newFailure(KindInvalidOperation, op, label+" holds "+count+" commit(s) beyond "+defaultRef, false, "merge or remove the commits before reclaiming, or obtain an operator-approved destroy")
 	}
 	return nil
 }
@@ -2365,6 +4086,12 @@ const (
 	// reclaim: the reclaim gate refuses the worktree while the record stays
 	// unpublished.
 	WorktreeDriftUnpublishedLesson = "unpublished_lesson"
+	// WorktreeDriftRetainedRef: a completed reclamation retained a branch ref
+	// it proved it must not delete (CD-0212 D3). The retention is recorded in
+	// the reclamation facts and stays visible after the directory is gone,
+	// because the operator, not the audit, decides the retained ref's
+	// disposal. The row names inspect.
+	WorktreeDriftRetainedRef = "retained_ref"
 )
 
 // Typed recovery actions. Where a Concord operation owns the recovery, the
@@ -2402,6 +4129,22 @@ type WorktreeDrift struct {
 	// ClaimAgeSeconds is the age of the claim at audit time. It is an
 	// operator display fact; no gate reads it.
 	ClaimAgeSeconds int64 `json:"claim_age_seconds,omitempty"`
+	// HeadBranch names the live branch the audit's one immutable live-HEAD
+	// observation read (CD-0212 D1). It is empty when the live HEAD is
+	// detached, and it differs from the stored claim branch exactly when the
+	// checkout drifted from the claim.
+	HeadBranch string `json:"head_branch,omitempty"`
+	// HeadDetached records that the live-HEAD observation read a detached
+	// HEAD rather than a branch checkout.
+	HeadDetached bool `json:"head_detached,omitempty"`
+	// RetainedBranch names one branch ref a completed reclamation retained
+	// (CD-0212 D3): the ref survived the reclaim with its branch, tip, and
+	// reason recorded in the reclamation facts, and the operator decides its
+	// disposal by hand.
+	RetainedBranch string `json:"retained_branch,omitempty"`
+	// RetainedTip is the tip the reclamation observed when it retained the
+	// ref named by RetainedBranch.
+	RetainedTip string `json:"retained_tip,omitempty"`
 }
 
 // WorktreeAudit is one page of one audit pass. The caller pages through
@@ -2549,7 +4292,15 @@ func worktreeAudit(ctx context.Context, db *sql.DB, root string, productID strin
 		return WorktreeAudit{}, err
 	}
 	drift := append([]WorktreeDrift{}, orphanDrift...)
-	contentRows, contentRiskPaths, err := classifyWorktreeContent(ctx, db, runner, defaultRefOverride, auditRows.entries, auditRows.lifecycleByWorkID)
+	// One immutable live-HEAD observation per present active entry feeds every
+	// classification and every gate below (CD-0212 D1), so the content
+	// classes, the lesson class, and the unstarted class all read the same
+	// head and report the branch that actually prevents removal.
+	heads, err := observeAuditLiveHeads(ctx, runner, auditRows.entries)
+	if err != nil {
+		return WorktreeAudit{}, err
+	}
+	contentRows, contentRiskPaths, err := classifyWorktreeContent(ctx, db, runner, defaultRefOverride, auditRows.entries, auditRows.lifecycleByWorkID, heads)
 	if err != nil {
 		return WorktreeAudit{}, err
 	}
@@ -2558,16 +4309,21 @@ func worktreeAudit(ctx context.Context, db *sql.DB, root string, productID strin
 	// and they do not set content-risk paths, so a terminal worktree stays
 	// classified and the reclaim pass attempts it and reports the typed
 	// refusal the gate produces.
-	lessonRows, err := classifyUnpublishedLessonWorktrees(ctx, db, runner, defaultRefOverride, auditRows.entries, auditRows.lifecycleByWorkID)
+	lessonRows, err := classifyUnpublishedLessonWorktrees(ctx, db, runner, defaultRefOverride, auditRows.entries, auditRows.lifecycleByWorkID, heads)
 	if err != nil {
 		return WorktreeAudit{}, err
 	}
 	drift = append(drift, lessonRows...)
-	stateDrift, err := worktreeStateDrift(auditRows.claims, auditRows.entries, auditRows.strandedIDs, auditRows.terminalLifecycle, contentRiskPaths)
+	stateDrift, err := worktreeStateDrift(auditRows.claims, auditRows.entries, auditRows.strandedIDs, auditRows.terminalLifecycle, contentRiskPaths, heads)
 	if err != nil {
 		return WorktreeAudit{}, err
 	}
 	drift = append(drift, stateDrift...)
+	// Retained refs of reclaimed entries: recorded durably in the
+	// reclamation facts, reported here so the retention stays visible after
+	// directory removal (CD-0212 D3). The rows are report-only in every
+	// pass that acts.
+	drift = append(drift, worktreeRetainedRefDrift(auditRows.retentions)...)
 	// Unstarted present: needed work whose active worktree holds nothing a
 	// merge could lose (CD-0118). The gate facts come from git, probed only
 	// for candidates: a dirty tree or a branch with commits beyond the
@@ -2578,12 +4334,59 @@ func worktreeAudit(ctx context.Context, db *sql.DB, root string, productID strin
 			claimObservedAt[c.workID] = c.observedAt
 		}
 	}
-	unstarted, err := classifyUnstartedWorktrees(ctx, db, runner, now, defaultRefOverride, refRequired, auditRows.entries, auditRows.strandedIDs, claimObservedAt, contentRiskPaths)
+	unstarted, err := classifyUnstartedWorktrees(ctx, db, runner, now, defaultRefOverride, refRequired, auditRows.entries, auditRows.strandedIDs, claimObservedAt, contentRiskPaths, heads)
 	if err != nil {
 		return WorktreeAudit{}, err
 	}
 	drift = append(drift, unstarted...)
 	return WorktreeAudit{Root: root, Drift: drift}, nil
+}
+
+// observeAuditLiveHeads captures the one immutable live-HEAD observation for
+// every present active entry (CD-0212 D1). An unreachable worktree refuses
+// the pass typed, exactly as the status probe did before the observation
+// carried it.
+func observeAuditLiveHeads(ctx context.Context, runner GitRunner, entries []worktreeAuditEntry) (map[string]worktreeLiveHead, error) {
+	heads := map[string]worktreeLiveHead{}
+	for _, e := range entries {
+		present, err := pathExistsForAudit(e.path)
+		if err != nil {
+			return nil, err
+		}
+		if !present {
+			continue
+		}
+		head, err := observeWorktreeLiveHead(ctx, runner, e.path, "worktree_audit")
+		if err != nil {
+			return nil, err
+		}
+		heads[e.path] = head
+	}
+	return heads, nil
+}
+
+// observeWorktreeLiveHead reads one worktree's live HEAD once: the checked
+// out branch (empty when detached), the tip SHA, and the clean-tree fact.
+func observeWorktreeLiveHead(ctx context.Context, runner GitRunner, path, op string) (worktreeLiveHead, error) {
+	branchOut, branchErr := runner.Run(ctx, path, "rev-parse", "--abbrev-ref", "HEAD")
+	if branchErr != nil {
+		return worktreeLiveHead{}, wrapFailure(KindGitUnreachable, op, "cannot read the live HEAD branch of the worktree at "+path, true, "retry once the worktree is reachable", branchErr)
+	}
+	head := worktreeLiveHead{Branch: strings.TrimSpace(string(branchOut))}
+	if head.Branch == "HEAD" {
+		head.Detached, head.Branch = true, ""
+	}
+	tipOut, tipErr := runner.Run(ctx, path, "rev-parse", "HEAD")
+	if tipErr != nil {
+		return worktreeLiveHead{}, wrapFailure(KindGitUnreachable, op, "cannot read the live HEAD tip of the worktree at "+path, true, "retry once the worktree is reachable", tipErr)
+	}
+	head.Tip = strings.TrimSpace(string(tipOut))
+	statusOut, statusErr := runner.Run(ctx, path, "status", "--porcelain")
+	if statusErr != nil {
+		return worktreeLiveHead{}, wrapFailure(KindGitUnreachable, op, "cannot read worktree status at "+path, true, "retry once the worktree is reachable", statusErr)
+	}
+	head.Clean = strings.TrimSpace(string(statusOut)) == ""
+	return head, nil
 }
 
 // worktreeAuditRows holds every projection row one audit pass reads.
@@ -2594,6 +4397,11 @@ type worktreeAuditRows struct {
 	strandedIDs       map[string]bool
 	terminalLifecycle map[string]string
 	lifecycleByWorkID map[string]string
+	// retentions are the per-ref outcome rows of reclaimed claim
+	// generations (CD-0212 D3-D4): retained refs, native protections, and
+	// deletions still owed, read so the whole record stays visible after
+	// directory removal and after a later claim.
+	retentions []worktreeRefOutcome
 }
 
 // readWorktreeAuditRows reads the Product's Projects, its pending and
@@ -2680,7 +4488,55 @@ func readWorktreeAuditRows(ctx context.Context, db *sql.DB, productID string) (w
 	for _, pair := range lifecycles {
 		out.lifecycleByWorkID[pair[0]] = pair[1]
 	}
+	// Per-ref outcome rows of reclaimed claim generations (CD-0212 D3-D4):
+	// every retained ref, every native protection, and every deletion still
+	// owed, read so all of it stays visible after directory removal and
+	// after a later claim replaced the entry row. Settled deletions carry no
+	// report: their debt is gone.
+	outcomes, err := collectAuditQuery(ctx, db, "cannot read worktree ref outcomes", `SELECT o.set_id,o.project_id,o.path,o.branch,o.phase,o.tip,o.reason FROM worktree_ref_outcomes o JOIN product_projects pp ON pp.project_id=o.project_id WHERE pp.product_id=? AND o.phase != 'settled' ORDER BY o.path,o.branch`, []any{productID}, func(r *sql.Rows) (worktreeRefOutcome, error) {
+		var row worktreeRefOutcome
+		var setID string
+		if err := r.Scan(&setID, &row.projectID, &row.path, &row.branch, &row.phase, &row.tip, &row.reason); err != nil {
+			return row, err
+		}
+		row.setID = setID
+		return row, nil
+	})
+	if err != nil {
+		return out, err
+	}
+	out.retentions = outcomes
 	return out, nil
+}
+
+// worktreeRetainedRefDrift reports the retained-ref rows one audit pass owes
+// (CD-0212 D3-D4): one row per ref a reclaimed claim generation retained, a
+// native run protected, or a deletion it still owes. The rows read the store
+// only — the directory is gone and the repository may be elsewhere — so the
+// classification names the recorded outcome and never re-proves it. The
+// operator, not the audit, decides a retained or protected ref's disposal;
+// an owed deletion names the retry that converges it.
+func worktreeRetainedRefDrift(retentions []worktreeRefOutcome) []WorktreeDrift {
+	var drift []WorktreeDrift
+	for _, row := range retentions {
+		risk := row.reason
+		switch row.phase {
+		case WorktreeRefPhasePlanned, WorktreeRefPhaseCheckoutProvenAbsent, WorktreeRefPhaseDeleted:
+			risk = row.reason + " (the recorded plan still owes this deletion; a retry of the reclaim converges it)"
+		case WorktreeRefPhaseRestorationOwed:
+			risk = row.reason + " (the pinned deletion ran or its observation could not exclude a holder; the restoration at the pinned tip is still owed, and a retry of the reclaim resolves it)"
+		case WorktreeRefPhaseRestored:
+			risk = row.reason + " (the restored ref remains retained; a later replay converges the deletion once no worktree holds it)"
+		case WorktreeRefPhaseRetainedUnproven:
+			risk = row.reason + " (the protection is durable: the recorded plan never re-attempts this deletion)"
+		}
+		drift = append(drift, WorktreeDrift{
+			Class: WorktreeDriftRetainedRef, ProjectID: row.projectID, WorkID: strings.TrimPrefix(row.setID, worktreeSetPrefix), Path: row.path,
+			ClaimState: worktreeEntryReclaimed, RecoveryAction: WorktreeRecoveryInspect, Risk: risk,
+			RetainedBranch: row.branch, RetainedTip: row.tip,
+		})
+	}
+	return drift
 }
 
 // worktreeOrphanDrift reports on-disk directories under the Product's
@@ -2719,8 +4575,9 @@ func worktreeOrphanDrift(root string, projects []string, claimedPaths, enteredPa
 // worktreeStateDrift reports the three disk-state classes: stale verified
 // claims whose path vanished, stranded needed work whose active entry points
 // at nothing, and terminal work whose worktree is still present with no
-// content risk on it.
-func worktreeStateDrift(claims []auditClaim, entries []worktreeAuditEntry, strandedIDs map[string]bool, terminalLifecycle map[string]string, contentRiskPaths map[string]bool) ([]WorktreeDrift, error) {
+// content risk on it. Terminal-present rows carry the live head the pass
+// observed, so a checkout that drifted from the claim reports as itself.
+func worktreeStateDrift(claims []auditClaim, entries []worktreeAuditEntry, strandedIDs map[string]bool, terminalLifecycle map[string]string, contentRiskPaths map[string]bool, heads map[string]worktreeLiveHead) ([]WorktreeDrift, error) {
 	drift := []WorktreeDrift{}
 	// Stale claim: the verified locator points at a path the disk no longer
 	// holds. ReclaimWorktree reconciles exactly this shape (already_absent).
@@ -2769,7 +4626,8 @@ func worktreeStateDrift(claims []auditClaim, entries []worktreeAuditEntry, stran
 		if contentRiskPaths[e.path] {
 			continue
 		}
-		drift = append(drift, WorktreeDrift{Class: WorktreeDriftTerminalPresent, ProjectID: e.projectID, WorkID: e.workID, Path: e.path, Lifecycle: lifecycle, RecoveryAction: WorktreeRecoveryReclaim})
+		head := heads[e.path]
+		drift = append(drift, WorktreeDrift{Class: WorktreeDriftTerminalPresent, ProjectID: e.projectID, WorkID: e.workID, Path: e.path, Lifecycle: lifecycle, RecoveryAction: WorktreeRecoveryReclaim, HeadBranch: head.Branch, HeadDetached: head.Detached})
 	}
 	return drift, nil
 }
@@ -2810,6 +4668,20 @@ type WorktreeAuditReclaimRow struct {
 	Version     int64  `json:"version,omitempty"`
 	RefusalKind string `json:"refusal_kind,omitempty"`
 	Detail      string `json:"detail,omitempty"`
+	// RetainedRefs reports the branch refs the reclamation proved it must
+	// not delete and retained instead (CD-0212 D3): the unproven stored
+	// claim ref, a divergent live branch, or the default ref. It is empty on
+	// a refused row and on a reclaim that owed and completed every deletion.
+	RetainedRefs []WorktreeAuditRetainedRef `json:"retained_refs,omitempty"`
+}
+
+// WorktreeAuditRetainedRef is one retained branch ref a reclaimed row reports:
+// the ref's name, the tip observed when the reclaim retained it, and the
+// bounded reason retention was owed.
+type WorktreeAuditRetainedRef struct {
+	Branch string `json:"branch"`
+	Tip    string `json:"tip,omitempty"`
+	Reason string `json:"reason"`
 }
 
 // WorktreeAuditReclaimResult is one pass: what the audit reported for the
@@ -2881,7 +4753,7 @@ func (s *Store) WorktreeAuditReclaim(ctx context.Context, req WorktreeAuditRecla
 		if err != nil {
 			return out, err
 		}
-		_, reclaimErr := s.ReclaimWorktree(ctx, WorktreeReclaimRequest{
+		entry, reclaimErr := s.ReclaimWorktree(ctx, WorktreeReclaimRequest{
 			WorkID: drift.WorkID, ProjectID: drift.ProjectID, DefaultRef: req.DefaultRef,
 			PrincipalRef: req.PrincipalRef, RequestID: req.RequestID + ":" + drift.WorkID,
 			ExpectedVersion: version, Now: req.Now, Runner: runner, RequireTerminal: requireTerminal, RequireUnstarted: requireUnstarted,
@@ -2896,6 +4768,9 @@ func (s *Store) WorktreeAuditReclaim(ctx context.Context, req WorktreeAuditRecla
 				return out, versionErr
 			}
 			row.Outcome, row.Version = WorktreeAuditReclaimed, after
+			// The retained refs the reclamation recorded stay visible on the
+			// row after the directory is gone (CD-0212 D3).
+			row.RetainedRefs = retainedRefsFromFacts(entry.GitFacts)
 			out.Rows = append(out.Rows, row)
 			continue
 		}
@@ -2909,17 +4784,34 @@ func (s *Store) WorktreeAuditReclaim(ctx context.Context, req WorktreeAuditRecla
 	return out, nil
 }
 
+// retainedRefsFromFacts reads the retained refs a reclamation event recorded,
+// so a reporting surface can show them after the directory is gone. Facts
+// that carry none decode to nil.
+func retainedRefsFromFacts(facts json.RawMessage) []WorktreeAuditRetainedRef {
+	if len(facts) == 0 {
+		return nil
+	}
+	var payload struct {
+		RetainedRefs []WorktreeAuditRetainedRef `json:"retained_refs"`
+	}
+	if json.Unmarshal(facts, &payload) != nil {
+		return nil
+	}
+	return payload.RetainedRefs
+}
+
 // worktreeAuditRepoRoot resolves one Project's repository root for the
 // unstarted classification's git probes, through the same locator the claim
 // and reclaim paths use.
 // classifyUnstartedWorktrees derives the unstarted_present rows for one
 // audit pass (CD-0118). Git is probed only for candidates: needed work with
-// an active entry whose path exists. A dirty tree or a branch with commits
+// an active entry whose path exists. A dirty tree or a live head with commits
 // beyond the default ref is not unstarted drift. Content-risk classification
 // reports those commits separately. A read whose default ref is underivable
 // skips the project's candidates; a pass that will act on the class refuses
-// typed instead (refRequired).
-func classifyUnstartedWorktrees(ctx context.Context, db *sql.DB, runner GitRunner, now time.Time, defaultRefOverride string, refRequired bool, entries []worktreeAuditEntry, strandedIDs map[string]bool, claimObservedAt map[string]string, contentRiskPaths map[string]bool) ([]WorktreeDrift, error) {
+// typed instead (refRequired). The gate reads the live-HEAD observation's
+// revision, so a drifted or detached checkout counts as itself (CD-0212 D1).
+func classifyUnstartedWorktrees(ctx context.Context, db *sql.DB, runner GitRunner, now time.Time, defaultRefOverride string, refRequired bool, entries []worktreeAuditEntry, strandedIDs map[string]bool, claimObservedAt map[string]string, contentRiskPaths map[string]bool, heads map[string]worktreeLiveHead) ([]WorktreeDrift, error) {
 	repoRoots := map[string]string{}
 	defaultRefs := map[string]string{}
 	var rows []WorktreeDrift
@@ -2927,11 +4819,8 @@ func classifyUnstartedWorktrees(ctx context.Context, db *sql.DB, runner GitRunne
 		if !strandedIDs[e.workID] {
 			continue
 		}
-		present, err := pathExistsForAudit(e.path)
-		if err != nil {
-			return nil, err
-		}
-		if !present {
+		head, observed := heads[e.path]
+		if !observed {
 			continue
 		}
 		if contentRiskPaths[e.path] {
@@ -2939,6 +4828,7 @@ func classifyUnstartedWorktrees(ctx context.Context, db *sql.DB, runner GitRunne
 		}
 		repoRoot, ok := repoRoots[e.projectID]
 		if !ok {
+			var err error
 			repoRoot, err = worktreeAuditRepoRoot(ctx, db, e.projectID)
 			if err != nil {
 				return nil, err
@@ -2964,21 +4854,17 @@ func classifyUnstartedWorktrees(ctx context.Context, db *sql.DB, runner GitRunne
 		if defaultRef == "" {
 			continue
 		}
-		statusOut, statusErr := runner.Run(ctx, e.path, "status", "--porcelain")
-		if statusErr != nil {
-			return nil, wrapFailure(KindGitUnreachable, "worktree_audit", "cannot read worktree status at "+e.path, true, "retry once the worktree is reachable", statusErr)
-		}
-		if strings.TrimSpace(string(statusOut)) != "" {
+		if !head.Clean {
 			continue
 		}
-		countOut, countErr := runner.Run(ctx, repoRoot, "rev-list", "--count", defaultRef+".."+e.branch)
+		countOut, countErr := runner.Run(ctx, repoRoot, "rev-list", "--count", defaultRef+".."+head.committish())
 		if countErr != nil {
-			return nil, wrapFailure(KindGitUnreachable, "worktree_audit", "cannot count commits beyond "+defaultRef+" for "+e.branch, true, "retry once the repository is reachable", countErr)
+			return nil, wrapFailure(KindGitUnreachable, "worktree_audit", "cannot count commits beyond "+defaultRef+" for "+head.committish(), true, "retry once the repository is reachable", countErr)
 		}
 		if strings.TrimSpace(string(countOut)) != "0" {
 			continue
 		}
-		row := WorktreeDrift{Class: WorktreeDriftUnstartedPresent, ProjectID: e.projectID, WorkID: e.workID, Path: e.path, ClaimState: worktreeStateVerified, Lifecycle: "needed", CommitsAhead: 0, RecoveryAction: WorktreeRecoveryReclaim}
+		row := WorktreeDrift{Class: WorktreeDriftUnstartedPresent, ProjectID: e.projectID, WorkID: e.workID, Path: e.path, ClaimState: worktreeStateVerified, Lifecycle: "needed", CommitsAhead: 0, RecoveryAction: WorktreeRecoveryReclaim, HeadBranch: head.Branch, HeadDetached: head.Detached}
 		if observed := claimObservedAt[e.workID]; observed != "" {
 			if claimed, parseErr := time.Parse(time.RFC3339Nano, observed); parseErr == nil {
 				if age := int64(now.Sub(claimed).Seconds()); age > 0 {
@@ -2991,48 +4877,43 @@ func classifyUnstartedWorktrees(ctx context.Context, db *sql.DB, runner GitRunne
 	return rows, nil
 }
 
-// classifyWorktreeContent derives content risk from local Git state. Remote
-// tracking refs are local observations and do not require network access.
-// Branch commits the default ref already holds as one squash merge (CD-0181)
-// carry no content risk: the class names content a reclaim could lose, and a
-// squash-contained branch loses none.
-func classifyWorktreeContent(ctx context.Context, db *sql.DB, runner GitRunner, defaultRefOverride string, entries []worktreeAuditEntry, lifecycleByWorkID map[string]string) ([]WorktreeDrift, map[string]bool, error) {
+// classifyWorktreeContent derives content risk from the live-HEAD
+// observation each entry's gates share (CD-0212 D1). Remote tracking refs are
+// local observations and do not require network access. Branch commits the
+// default ref already holds as one squash merge (CD-0181) carry no content
+// risk: the class names content a reclaim could lose, and a squash-contained
+// branch loses none.
+func classifyWorktreeContent(ctx context.Context, db *sql.DB, runner GitRunner, defaultRefOverride string, entries []worktreeAuditEntry, lifecycleByWorkID map[string]string, heads map[string]worktreeLiveHead) ([]WorktreeDrift, map[string]bool, error) {
 	repoRoots := map[string]string{}
 	defaultRefs := map[string]string{}
 	rows := []WorktreeDrift{}
 	riskPaths := map[string]bool{}
 	for _, entry := range entries {
-		present, err := pathExistsForAudit(entry.path)
-		if err != nil {
-			return nil, nil, err
-		}
-		if !present {
+		head, observed := heads[entry.path]
+		if !observed {
 			continue
 		}
 		repoRoot, ok := repoRoots[entry.projectID]
 		if !ok {
+			var err error
 			repoRoot, err = worktreeAuditRepoRoot(ctx, db, entry.projectID)
 			if err != nil {
 				return nil, nil, err
 			}
 			repoRoots[entry.projectID] = repoRoot
 		}
-		statusOut, statusErr := runner.Run(ctx, entry.path, "status", "--porcelain")
-		if statusErr != nil {
-			return nil, nil, wrapFailure(KindGitUnreachable, "worktree_audit", "cannot read worktree status at "+entry.path, true, "retry once the worktree is reachable", statusErr)
-		}
 		lifecycle := lifecycleByWorkID[entry.workID]
-		if strings.TrimSpace(string(statusOut)) != "" {
-			rows = append(rows, WorktreeDrift{Class: WorktreeDriftUncommittedContent, ProjectID: entry.projectID, WorkID: entry.workID, Path: entry.path, ClaimState: worktreeStateVerified, Lifecycle: lifecycle, RecoveryAction: WorktreeRecoveryInspect, Risk: "uncommitted changes"})
+		if !head.Clean {
+			rows = append(rows, WorktreeDrift{Class: WorktreeDriftUncommittedContent, ProjectID: entry.projectID, WorkID: entry.workID, Path: entry.path, ClaimState: worktreeStateVerified, Lifecycle: lifecycle, RecoveryAction: WorktreeRecoveryInspect, Risk: "uncommitted changes", HeadBranch: head.Branch, HeadDetached: head.Detached})
 			riskPaths[entry.path] = true
 		}
-		countOut, countErr := runner.Run(ctx, repoRoot, "rev-list", "--count", entry.branch, "--not", "--remotes")
+		countOut, countErr := runner.Run(ctx, repoRoot, "rev-list", "--count", head.committish(), "--not", "--remotes")
 		if countErr != nil {
-			return nil, nil, wrapFailure(KindGitUnreachable, "worktree_audit", "cannot count unpushed commits for "+entry.branch, true, "retry once the repository is reachable", countErr)
+			return nil, nil, wrapFailure(KindGitUnreachable, "worktree_audit", "cannot count unpushed commits for "+head.committish(), true, "retry once the repository is reachable", countErr)
 		}
 		unpushed, parseErr := strconv.Atoi(strings.TrimSpace(string(countOut)))
 		if parseErr != nil || unpushed < 0 {
-			return nil, nil, newFailure(KindGitUnreachable, "worktree_audit", "local Git returned an invalid unpushed commit count for "+entry.branch, false, "repair the repository refs before auditing worktrees")
+			return nil, nil, newFailure(KindGitUnreachable, "worktree_audit", "local Git returned an invalid unpushed commit count for "+head.committish(), false, "repair the repository refs before auditing worktrees")
 		}
 		if unpushed > 0 {
 			defaultRef, resolved := defaultRefs[entry.projectID]
@@ -3045,8 +4926,8 @@ func classifyWorktreeContent(ctx context.Context, db *sql.DB, runner GitRunner, 
 				// authoritative, which reports the row fail-closed.
 				defaultRefs[entry.projectID] = defaultRef
 			}
-			if !branchSquashContained(ctx, runner, repoRoot, entry.branch, defaultRef) {
-				rows = append(rows, WorktreeDrift{Class: WorktreeDriftUnpushedContent, ProjectID: entry.projectID, WorkID: entry.workID, Path: entry.path, ClaimState: worktreeStateVerified, Lifecycle: lifecycle, RecoveryAction: WorktreeRecoveryInspect, Risk: "unpushed commits", UnpushedCommits: unpushed})
+			if !branchSquashContained(ctx, runner, repoRoot, head.committish(), defaultRef) {
+				rows = append(rows, WorktreeDrift{Class: WorktreeDriftUnpushedContent, ProjectID: entry.projectID, WorkID: entry.workID, Path: entry.path, ClaimState: worktreeStateVerified, Lifecycle: lifecycle, RecoveryAction: WorktreeRecoveryInspect, Risk: "unpushed commits", UnpushedCommits: unpushed, HeadBranch: head.Branch, HeadDetached: head.Detached})
 				riskPaths[entry.path] = true
 			}
 		}
@@ -3089,36 +4970,35 @@ func branchUnpublishedLessonRecords(ctx context.Context, runner GitRunner, repoR
 }
 
 // worktreeUnpublishedLessonDetail renders the bounded refusal detail: the
-// count always, and up to the first three record paths.
-func worktreeUnpublishedLessonDetail(count int, lessons []string, defaultRef string) string {
+// subject always, the count always, and up to the first three record paths.
+func worktreeUnpublishedLessonDetail(subject string, count int, lessons []string, defaultRef string) string {
 	shown := lessons
 	if len(shown) > 3 {
 		shown = shown[:3]
 	}
-	return fmt.Sprintf("branch carries %d lesson record(s) absent from %s: %s", count, defaultRef, strings.Join(shown, ", "))
+	return fmt.Sprintf("%s carries %d lesson record(s) absent from %s: %s", subject, count, defaultRef, strings.Join(shown, ", "))
 }
 
 // classifyUnpublishedLessonWorktrees derives the unpublished_lesson rows for
 // one audit pass. The signal is a lesson record shard the default ref does
 // not hold: prepared delivery a merge could still lose, visible whether or
-// not the branch is pushed. Git is probed per present active entry; a
-// project whose default ref cannot be resolved contributes no rows, because
-// the comparison that names an unpublished lesson needs the default
-// endpoint, and the read must stay deliverable (issue #831).
-func classifyUnpublishedLessonWorktrees(ctx context.Context, db *sql.DB, runner GitRunner, defaultRefOverride string, entries []worktreeAuditEntry, lifecycleByWorkID map[string]string) ([]WorktreeDrift, error) {
+// not the branch is pushed. The comparison reads the live-HEAD observation's
+// revision (CD-0212 D1); a project whose default ref cannot be resolved
+// contributes no rows, because the comparison that names an unpublished
+// lesson needs the default endpoint, and the read must stay deliverable
+// (issue #831).
+func classifyUnpublishedLessonWorktrees(ctx context.Context, db *sql.DB, runner GitRunner, defaultRefOverride string, entries []worktreeAuditEntry, lifecycleByWorkID map[string]string, heads map[string]worktreeLiveHead) ([]WorktreeDrift, error) {
 	repoRoots := map[string]string{}
 	defaultRefs := map[string]string{}
 	var rows []WorktreeDrift
 	for _, entry := range entries {
-		present, err := pathExistsForAudit(entry.path)
-		if err != nil {
-			return nil, err
-		}
-		if !present {
+		head, observed := heads[entry.path]
+		if !observed {
 			continue
 		}
 		repoRoot, ok := repoRoots[entry.projectID]
 		if !ok {
+			var err error
 			repoRoot, err = worktreeAuditRepoRoot(ctx, db, entry.projectID)
 			if err != nil {
 				return nil, err
@@ -3138,7 +5018,7 @@ func classifyUnpublishedLessonWorktrees(ctx context.Context, db *sql.DB, runner 
 		if defaultRef == "" {
 			continue
 		}
-		lessons, lessonErr := branchUnpublishedLessonRecords(ctx, runner, repoRoot, entry.branch, defaultRef, "worktree_audit")
+		lessons, lessonErr := branchUnpublishedLessonRecords(ctx, runner, repoRoot, head.committish(), defaultRef, "worktree_audit")
 		if lessonErr != nil {
 			return nil, lessonErr
 		}
@@ -3150,6 +5030,7 @@ func classifyUnpublishedLessonWorktrees(ctx context.Context, db *sql.DB, runner 
 			Path: entry.path, ClaimState: worktreeStateVerified, Lifecycle: lifecycleByWorkID[entry.workID],
 			RecoveryAction: WorktreeRecoveryInspect,
 			Risk:           fmt.Sprintf("%d lesson record(s) absent from %s", len(lessons), defaultRef),
+			HeadBranch:     head.Branch, HeadDetached: head.Detached,
 		})
 	}
 	return rows, nil

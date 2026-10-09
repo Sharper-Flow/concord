@@ -7,17 +7,17 @@ File accountability does not change a document's law home or a handler's semanti
 ## Responsibility
 Owns the authority a repository check may hold: what a validator may assert, what it may block, how required checks bind to declared coverage, and the boundary between a check's finding and accepted Product law.
 
-Mapped files: 176; tests: 77; unresolved candidates: 7.
+Mapped files: 181; tests: 79; unresolved candidates: 7.
 Candidate counts overlap when a file has several candidates; no candidate is an assigned owner.
 
 ## Code and tests
 Full paths, unresolved reasons, and shared-test coverage: `.concord/navigation/inventory.json`.
-- Include: `scripts/**`, `bin/**`, `internal/testenv/**`, `internal/gittest/**`, `internal/pm1fixture/**`
-- Include: `internal/store/storetest/**`, `internal/store/project_tooling.go`, `internal/store/conformance*_test.go`, `internal/store/test_fixture_test.go`, `internal/store/scrub_env_test.go`
-- Include: `internal/store/workflow_test_support_test.go`, `internal/store/race*_test.go`, `internal/store/worktrees_tx_subprocess_test.go`, `internal/store/neighbor_test.go`, `contracts/complexity-budget.schema.json`
-- Include: `contracts/floor-readiness.schema.json`, `contracts/maturity-readiness.schema.json`, `contracts/project-tooling.v1.schema.json`, `contracts/reachability-exceptions.schema.json`, `contracts/README.md`
-- Include: `.concord/tooling.v1.json`, `.concord/scenarios/README.md`, `AGENTS.md`, `.github/**`, `.gitattributes`
-- Include: `.gitignore`, `.editorconfig`, `.golangci.yml`
+- Include: `lefthook.yml`, `scripts/**`, `bin/**`, `internal/testenv/**`, `internal/gittest/**`
+- Include: `internal/pm1fixture/**`, `internal/store/storetest/**`, `internal/store/project_tooling.go`, `internal/store/conformance*_test.go`, `internal/store/test_fixture_test.go`
+- Include: `internal/store/scrub_env_test.go`, `internal/store/workflow_test_support_test.go`, `internal/store/race*_test.go`, `internal/store/worktrees_tx_subprocess_test.go`, `internal/store/neighbor_test.go`
+- Include: `contracts/complexity-budget.schema.json`, `contracts/floor-readiness.schema.json`, `contracts/maturity-readiness.schema.json`, `contracts/project-tooling.v1.schema.json`, `contracts/reachability-exceptions.schema.json`
+- Include: `contracts/README.md`, `.concord/tooling.v1.json`, `.concord/scenarios/README.md`, `AGENTS.md`, `.github/**`
+- Include: `.gitattributes`, `.gitignore`, `.editorconfig`, `.golangci.yml`
 - Exclude: `.github/ISSUE_TEMPLATE/**`, `.github/workflows/release.yml`
 Explicit rules win over directory defaults; named legacy gaps remain unresolved.
 - Default include: `internal/store/**/*_test.go`
@@ -43,6 +43,7 @@ Run the narrow selected command with `bin/oc-test targeted -- <command> [args...
 - `go-vet` (fast): `go vet ./...`
 - `gofmt` (fast): `gofmt -l .`
 - `govulncheck` (standard): `go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...`
+- `lefthook-preflight` (standard): `bin/oc-test preflight`
 - `repo-validators` (fast): `python3 scripts/check-json.py`
 
 ## Not covered by slice A

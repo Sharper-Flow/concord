@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import copy, importlib.util, io, json, os, re, tempfile, unittest, unittest.mock
+import copy, importlib.util, io, json, os, re, subprocess, tempfile, unittest, unittest.mock
 from contextlib import ExitStack, redirect_stderr, redirect_stdout
 from pathlib import Path
 
@@ -627,8 +627,8 @@ class MutationApprovalPropertyTests(unittest.TestCase):
         self.assertTrue(any("concord_work_define.observation_record" in f for f in refusals), refusals)
 
 
-def verify_job_steps() -> list[dict]:
-    """The verify job's steps as name/run/env records.
+def workflow_job_steps(job_name: str) -> list[dict]:
+    """One job's steps as name/run/env records.
 
     Pinned to the indents scripts/check-script-tests.py enforces (step names
     at six spaces, `run:` and `env:` at eight, their bodies at ten), so the
@@ -648,9 +648,9 @@ def verify_job_steps() -> list[dict]:
             and not stripped.startswith("#")
             and stripped.endswith(":")
         ):
-            break  # the next job's key ends the verify job
+            break  # the next job's key ends this job
         if not in_job:
-            if line == "  verify:":
+            if line == f"  {job_name}:":
                 in_job = True
             continue
         if line.startswith("      - name:"):
@@ -677,42 +677,144 @@ def verify_job_steps() -> list[dict]:
     return steps
 
 
+def workflow_job_block(job_name: str) -> str:
+    """The job's YAML text, from its key line to the next job-level key."""
+    text = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    body: list[str] = []
+    collecting = False
+    for line in text.splitlines():
+        if not collecting:
+            collecting = line == f"  {job_name}:"
+            if collecting:
+                body.append(line)
+            continue
+        if (
+            line.startswith("  ")
+            and not line.startswith("   ")
+            and not line.strip().startswith("#")
+            and line.strip().endswith(":")
+        ):
+            break  # the next job's key ends this job
+        body.append(line)
+    return "\n".join(body)
+
+
+def job_needs(block: str) -> list[str]:
+    """The job's `needs` dependencies, inline or as a block list."""
+    inline = re.search(r"^ {4}needs: (.+)$", block, re.MULTILINE)
+    if inline:
+        return re.findall(r"[a-z][a-z0-9-]*", inline.group(1))
+    listed = re.search(r"^ {4}needs:\n((?: {6}- .+\n?)+)", block, re.MULTILINE)
+    return re.findall(r"- ([a-z][a-z0-9-]*)", listed.group(1)) if listed else []
+
+
+AGGREGATE_DEPENDENCIES = ("verify-history", "verify-contracts", "verify-adapter", "verify-tooling")
+
+
 class CIContractRoutingTests(unittest.TestCase):
-    """The complete contract check executes once, through the JSON umbrella.
+    """Each suite has one owner, and the required gate demands all owners pass."""
 
-    The verify job used to run scripts/check-agent-contracts.py twice: once
-    directly under CONCORD_REQUIRE_BUN=1 and once nested through
-    scripts/check-json.py without it, so the nested copy degraded to the
-    contributor-laptop fallbacks whenever Bun was missing. The duplicate
-    direct step is gone; the strict environment lives on the umbrella step
-    and reaches the nested checker because subprocess.run without `env=`
-    inherits the caller's environment. These assertions fail on the old
-    wiring (a direct step exists, the umbrella carries no env) and pass on
-    the new one.
-    """
-
-    def test_the_complete_contract_check_runs_only_through_the_umbrella(self):
-        steps = verify_job_steps()
+    def test_verify_contracts_runs_the_umbrella_with_both_external_suite_options(self):
+        steps = workflow_job_steps("verify-contracts")
         direct = [step for step in steps if "scripts/check-agent-contracts.py" in step["run"]]
         self.assertEqual(
             direct,
             [],
             f"standalone complete-contract steps must not exist: {[step['name'] for step in direct]}",
         )
+        for owner, command in (
+            ("verify-adapter", "bun test adapter/opencode"),
+            ("verify-tooling", "scripts/test-agent-contracts.py"),
+        ):
+            duplicated = [step for step in steps if command in step["run"]]
+            self.assertEqual(
+                duplicated,
+                [],
+                f"{command} belongs to {owner}; verify-contracts must pass the matching external-suite option instead",
+            )
         umbrella = [step for step in steps if "scripts/check-json.py" in step["run"]]
-        self.assertEqual(len(umbrella), 1, "expected exactly one JSON umbrella step")
+        self.assertEqual(len(umbrella), 1, "expected exactly one JSON umbrella step in verify-contracts")
+        for flag in ("--adapter-tests-external", "--contract-tests-external"):
+            self.assertIn(
+                flag,
+                umbrella[0]["run"],
+                f"the umbrella step must pass {flag}: that suite runs as its own CI step",
+            )
         self.assertEqual(
             umbrella[0]["env"].get("CONCORD_REQUIRE_BUN"),
             "1",
             "the umbrella must run under CONCORD_REQUIRE_BUN=1 so the nested check fails closed",
         )
 
-    def test_the_direct_adapter_suite_step_is_retained(self):
-        # The nested contract check also runs `bun test adapter/opencode`,
-        # but the adapter_test evidence anchors resolve only against a direct
+    def test_verify_adapter_runs_the_adapter_suite_directly(self):
+        # The adapter_test evidence anchors resolve only against a direct
         # workflow invocation, so deleting the direct step would strand them.
-        direct = [step for step in verify_job_steps() if "bun test adapter/opencode" in step["run"]]
-        self.assertTrue(direct, "the direct bun test adapter/opencode/ step is required coverage")
+        direct = [step for step in workflow_job_steps("verify-adapter") if "bun test adapter/opencode" in step["run"]]
+        self.assertTrue(direct, "verify-adapter must run the adapter suite directly")
+
+    def test_verify_tooling_runs_the_contract_selftest_directly(self):
+        direct = [step for step in workflow_job_steps("verify-tooling") if "scripts/test-agent-contracts.py" in step["run"]]
+        self.assertTrue(direct, "verify-tooling must run scripts/test-agent-contracts.py directly")
+
+    def test_the_aggregate_verify_job_gates_every_dependency_on_success(self):
+        block = workflow_job_block("verify")
+        needs = job_needs(block)
+        for dependency in AGGREGATE_DEPENDENCIES:
+            self.assertIn(dependency, needs, f"the aggregate verify job must depend on {dependency}")
+        self.assertRegex(
+            block,
+            r"(?m)^ {4}if: always\(\)$",
+            "the aggregate must run its gates even when a dependency failed",
+        )
+        gated: set[str] = set()
+        for step in workflow_job_steps("verify"):
+            text = " ".join(step["env"].values()) + " " + step["run"]
+            referenced = {dependency for dependency in AGGREGATE_DEPENDENCIES if f"needs.{dependency}.result" in text}
+            if not referenced:
+                continue
+            self.assertIn(
+                "success",
+                step["run"],
+                f"step {step['name']!r} reads a dependency result but does not refuse non-success results",
+            )
+            gated |= referenced
+        self.assertEqual(
+            gated,
+            set(AGGREGATE_DEPENDENCIES),
+            f"dependencies without a success gate: {sorted(set(AGGREGATE_DEPENDENCIES) - gated)}",
+        )
+
+    def test_the_real_gate_refuses_each_non_success_owner(self):
+        steps = workflow_job_steps("verify")
+        bindings = {
+            key: dependency
+            for step in steps
+            for key, value in step["env"].items()
+            for dependency in AGGREGATE_DEPENDENCIES
+            if value == f"${{{{ needs.{dependency}.result }}}}"
+        }
+        self.assertEqual(set(bindings.values()), set(AGGREGATE_DEPENDENCIES))
+        command = "\n".join(step["run"] for step in steps)
+        environment = dict(os.environ, **{key: "success" for key in bindings})
+        passed = subprocess.run(["bash", "-e", "-c", command], env=environment, capture_output=True)
+        self.assertEqual(passed.returncode, 0, passed.stderr)
+        for key, dependency in bindings.items():
+            for result in ("failure", "cancelled", "skipped"):
+                with self.subTest(owner=dependency, result=result):
+                    failed = subprocess.run(
+                        ["bash", "-e", "-c", command],
+                        env=dict(environment, **{key: result}), capture_output=True,
+                    )
+                    self.assertNotEqual(failed.returncode, 0, "a non-success owner must fail verify")
+
+    def test_each_direct_suite_has_exactly_one_owner(self):
+        text = (ROOT / ".github/workflows/ci.yml").read_text()
+        jobs = re.findall(r"^  ([a-z][a-z0-9-]*):$", text, re.MULTILINE)
+        runs = [step["run"] for job in jobs for step in workflow_job_steps(job)]
+        for command in ("bun test adapter/opencode", "scripts/test-agent-contracts.py", "scripts/check-json.py"):
+            self.assertEqual(sum(run.count(command) for run in runs), 1, command)
+        self.assertFalse(any("scripts/check-project-tooling.py" in run for run in runs),
+                         "the JSON umbrella owns project tooling validation")
 
 
 class _Completed:
@@ -773,7 +875,7 @@ class StrictFailureControls(unittest.TestCase):
             with redirect_stdout(out), redirect_stderr(err):
                 if not require_bun:
                     os.environ.pop("CONCORD_REQUIRE_BUN", None)
-                code = lane_checker.main()
+                code = lane_checker.main([])
         return code, out.getvalue(), err.getvalue()
 
     def test_missing_bun_fails_closed_under_the_strict_environment(self):
@@ -873,9 +975,157 @@ class StrictFailureControls(unittest.TestCase):
         out, err = io.StringIO(), io.StringIO()
         with unittest.mock.patch.object(lane_checker, "_load_json", broken_fixture):
             with redirect_stdout(out), redirect_stderr(err):
-                code = lane_checker.main()
+                code = lane_checker.main([])
         self.assertEqual(code, 1)
         self.assertIn("expected valid instance", err.getvalue())
+
+
+class ExternalSuiteRoutingOptionsTests(unittest.TestCase):
+    """CON-893: the external-suite options omit exactly one subprocess each.
+
+    CI splits the old verify job so each suite runs as its own step, and the
+    nested complete check must not duplicate them. Each option removes only
+    its suite subprocess: every other obligation — the selftest, the
+    generated checks, the lane validators, the Bun builds, the fixture probe,
+    the expected-suite presence check, the host typecheck, and both strict
+    failures — still runs and still propagates failure. A default invocation
+    runs the complete check with both suites.
+    """
+
+    MINIMAL_PIN = {
+        "sources": ["adapter/opencode"],
+        "packages": [],
+        "typescript": "5.9.3",
+        "compiler_options": {},
+        "allowances": [],
+        "runtime_probe": {},
+    }
+
+    def _main(self, argv, fake=None, which="/fake/bun", staging=lambda *args: None, require_bun=False):
+        fake = fake if fake is not None else _FakeSubprocess()
+        patches = [
+            unittest.mock.patch.object(lane_checker, "subprocess", fake),
+            unittest.mock.patch.object(lane_checker, "stage_host_workspace", staging),
+            unittest.mock.patch.object(lane_checker, "load_host_pin", lambda findings: copy.deepcopy(self.MINIMAL_PIN)),
+            unittest.mock.patch("shutil.which", return_value=which),
+        ]
+        patches.append(unittest.mock.patch.dict(os.environ, {"CONCORD_REQUIRE_BUN": "1"} if require_bun else {}))
+        out, err = io.StringIO(), io.StringIO()
+        with ExitStack() as stack:
+            for patch in patches:
+                stack.enter_context(patch)
+            if not require_bun:
+                os.environ.pop("CONCORD_REQUIRE_BUN", None)
+            with redirect_stdout(out), redirect_stderr(err):
+                code = lane_checker.main(list(argv))
+        return code, fake.calls, out.getvalue(), err.getvalue()
+
+    @staticmethod
+    def _selftest_calls(calls):
+        return [call for call in calls if any("test-agent-contracts.py" in word for word in call)]
+
+    @staticmethod
+    def _adapter_suite_calls(calls):
+        return [call for call in calls if call[1:3] == ["test", "adapter/opencode"]]
+
+    def test_a_default_invocation_runs_both_suites(self):
+        code, calls, out, _ = self._main([])
+        self.assertEqual(code, 0)
+        self.assertTrue(self._selftest_calls(calls), "a default invocation must run the contract selftest")
+        self.assertTrue(self._adapter_suite_calls(calls), "a default invocation must run the adapter suite")
+        self.assertIn("agent contract check passed", out)
+
+    def test_adapter_tests_external_omits_only_the_adapter_suite(self):
+        code, calls, out, _ = self._main(["--adapter-tests-external"])
+        self.assertEqual(code, 0)
+        self.assertFalse(self._adapter_suite_calls(calls), "the adapter suite subprocess must be omitted")
+        self.assertTrue(self._selftest_calls(calls), "the contract selftest must still run")
+        self.assertTrue(any(call[1] == "build" for call in calls), "the Bun builds must still run")
+
+    def test_contract_tests_external_omits_only_the_selftest(self):
+        code, calls, _, _ = self._main(["--contract-tests-external"])
+        self.assertEqual(code, 0)
+        self.assertFalse(self._selftest_calls(calls), "the contract selftest subprocess must be omitted")
+        self.assertTrue(self._adapter_suite_calls(calls), "the adapter suite must still run")
+
+    def test_both_options_retain_every_other_subprocess(self):
+        code, calls, out, _ = self._main(["--adapter-tests-external", "--contract-tests-external"])
+        self.assertEqual(code, 0)
+        self.assertFalse(self._selftest_calls(calls))
+        self.assertFalse(self._adapter_suite_calls(calls))
+        self.assertEqual(len([call for call in calls if call[1] == "build"]), 2, "both Bun builds must still run")
+        self.assertTrue(any(call[1] == "run" for call in calls), "the fixture probe and host schema probe must still run")
+        self.assertTrue(any(call[1] == "x" for call in calls), "the host typecheck must still run")
+        self.assertTrue(any(any("generate-agent-contracts.py" in word for word in call) for call in calls))
+        self.assertTrue(any(any("generate-agent-lanes.py" in word for word in call) for call in calls))
+
+    def test_the_expected_suite_presence_check_survives_adapter_tests_external(self):
+        # The option skips the suite subprocess, never the obligation that
+        # the suite files exist: a job running the suite externally still has
+        # to carry it.
+        real_glob = Path.glob
+
+        def hiding_glob(self, pattern):
+            return iter(()) if pattern == "*.test.ts" else real_glob(self, pattern)
+
+        with unittest.mock.patch.object(Path, "glob", hiding_glob):
+            code, _, _, err = self._main(["--adapter-tests-external"])
+        self.assertEqual(code, 1)
+        self.assertIn("adapter test suite missing", err)
+
+    def test_a_selftest_failure_propagates_under_adapter_tests_external(self):
+        fake = _FakeSubprocess(results=[(
+            lambda words: any("test-agent-contracts.py" in word for word in words),
+            _Completed(1, "", "simulated selftest failure"),
+        )])
+        code, _, _, _ = self._main(["--adapter-tests-external"], fake=fake)
+        self.assertEqual(code, 1)
+
+    def test_an_adapter_suite_failure_propagates_under_contract_tests_external(self):
+        fake = _FakeSubprocess(results=[(
+            lambda words: words[1:3] == ["test", "adapter/opencode"],
+            _Completed(1),
+        )])
+        code, _, _, _ = self._main(["--contract-tests-external"], fake=fake)
+        self.assertEqual(code, 1)
+
+    def test_a_generated_contract_check_failure_propagates_under_both_options(self):
+        fake = _FakeSubprocess(results=[(
+            lambda words: any("generate-agent-contracts.py" in word for word in words),
+            _Completed(1),
+        )])
+        code, _, _, _ = self._main(["--adapter-tests-external", "--contract-tests-external"], fake=fake)
+        self.assertEqual(code, 1)
+
+    def test_a_bun_build_failure_propagates_under_both_options(self):
+        fake = _FakeSubprocess(results=[(lambda words: len(words) > 1 and words[1] == "build", _Completed(1))])
+        code, _, _, _ = self._main(["--adapter-tests-external", "--contract-tests-external"], fake=fake)
+        self.assertEqual(code, 1)
+
+    def test_a_host_typecheck_failure_propagates_under_both_options(self):
+        # TS9999 is not a code the TypeScript compiler emits, so no recorded
+        # allowance can absorb the simulated diagnostic.
+        typecheck = _Completed(1, "src/concord.ts(1,1): error TS9999: simulated host type failure\n", "")
+        fake = _FakeSubprocess(results=[(lambda words: len(words) > 1 and words[1] == "x", typecheck)])
+        code, _, _, err = self._main(["--adapter-tests-external", "--contract-tests-external"], fake=fake)
+        self.assertEqual(code, 1)
+        self.assertIn("TS9999", err)
+        self.assertIn("does not satisfy the pinned host declarations", err)
+
+    def test_missing_bun_fails_closed_under_both_options(self):
+        code, _, _, err = self._main(["--adapter-tests-external", "--contract-tests-external"], which=None, require_bun=True)
+        self.assertEqual(code, 1)
+        self.assertIn("Bun is not installed", err)
+
+    def test_an_unreachable_registry_fails_closed_under_both_options(self):
+        error = "host declarations could not be installed: simulated registry unreachable"
+        code, _, _, err = self._main(
+            ["--adapter-tests-external", "--contract-tests-external"],
+            staging=lambda *args: error,
+            require_bun=True,
+        )
+        self.assertEqual(code, 1)
+        self.assertIn(error, err)
 
 
 class WorkflowActionVariantCorpusTests(unittest.TestCase):

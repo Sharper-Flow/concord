@@ -26,6 +26,7 @@ Run the narrow selected command with `bin/oc-test targeted -- <command> [args...
 - `go-vet` (fast): `go vet ./...`
 - `gofmt` (fast): `gofmt -l .`
 - `govulncheck` (standard): `go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...`
+- `lefthook-preflight` (standard): `bin/oc-test preflight`
 - `repo-validators` (fast): `python3 scripts/check-json.py`
 
 ## Not covered by slice A

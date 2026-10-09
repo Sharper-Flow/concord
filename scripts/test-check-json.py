@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
 """Tests for the CI umbrella behavior of scripts/check-json.py.
 
-check-json.py is the one complete contract entrypoint in the verify job: it
-nests scripts/check-agent-contracts.py, the nested subprocess inherits the
-umbrella step's environment (where CONCORD_REQUIRE_BUN=1 now lives), and a
-nonzero nested exit must fail the umbrella rather than hide behind it. These
-tests pin those three properties; the subprocess layer is faked so the real
-nested checkers are not executed from inside this suite, which
-check-agent-contracts.py itself invokes as its tamper step.
+check-json.py is the one complete contract entrypoint in the verify-contracts
+job: it nests scripts/check-agent-contracts.py, the nested subprocess inherits
+the umbrella step's environment (where CONCORD_REQUIRE_BUN=1 now lives), and a
+nonzero nested exit must fail the umbrella. External-suite options forward
+ownership to separately required CI jobs. The subprocess layer is faked so
+these tests do not execute the nested checkers.
 """
 from __future__ import annotations
 
@@ -81,16 +80,18 @@ class _FakeSubprocess:
 
     def __init__(self, failing: str | None = None):
         self.failing = failing
+        self.calls: list[list[str]] = []
 
     def run(self, args, **kwargs):
         words = [str(arg) for arg in args]
+        self.calls.append(words)
         if self.failing and any(self.failing in word for word in words):
             return _Completed(1, "", "simulated nested failure")
         return _Completed()
 
 
 class UmbrellaPropagationTests(unittest.TestCase):
-    def _main(self, fake: _FakeSubprocess) -> tuple[int, str, str]:
+    def _main(self, fake: _FakeSubprocess, argv: list[str] | None = None) -> tuple[int, str, str]:
         out, err = io.StringIO(), io.StringIO()
         with (
             unittest.mock.patch.object(umbrella, "repository_files", return_value=[]),
@@ -98,7 +99,7 @@ class UmbrellaPropagationTests(unittest.TestCase):
             redirect_stdout(out),
             redirect_stderr(err),
         ):
-            code = umbrella.main()
+            code = umbrella.main(list(argv or []))
         return code, out.getvalue(), err.getvalue()
 
     def test_a_nonzero_nested_contract_check_fails_the_umbrella(self):
@@ -122,6 +123,64 @@ class UmbrellaPropagationTests(unittest.TestCase):
         code, out, err = self._main(_FakeSubprocess(failing="generate-domain-navigation.py"))
         self.assertEqual(code, 1)
         self.assertIn("domain navigation drift", out)
+        self.assertIn("JSON validation failed", err)
+
+
+class ExternalSuiteOptionForwardingTests(unittest.TestCase):
+    """CON-893: the umbrella forwards CI's external-suite routing verbatim.
+
+    verify-adapter and verify-tooling own the suites. verify-contracts passes
+    both external-suite options. A default invocation forwards neither, and
+    a nested failure still fails the umbrella.
+    """
+
+    def _main(self, argv: list[str], fake: _FakeSubprocess) -> tuple[int, str, str]:
+        out, err = io.StringIO(), io.StringIO()
+        with (
+            unittest.mock.patch.object(umbrella, "repository_files", return_value=[]),
+            unittest.mock.patch.object(umbrella, "subprocess", fake),
+            redirect_stdout(out),
+            redirect_stderr(err),
+        ):
+            code = umbrella.main(list(argv))
+        return code, out.getvalue(), err.getvalue()
+
+    def nested_arguments(self, fake: _FakeSubprocess) -> list[str]:
+        calls = [call for call in fake.calls if any("check-agent-contracts.py" in word for word in call)]
+        self.assertEqual(len(calls), 1, "expected exactly one nested contract-check invocation")
+        return calls[0]
+
+    def test_a_default_invocation_forwards_no_external_suite_option(self):
+        fake = _FakeSubprocess()
+        code, out, err = self._main([], fake)
+        self.assertEqual(code, 0)
+        arguments = self.nested_arguments(fake)
+        for flag in ("--adapter-tests-external", "--contract-tests-external"):
+            self.assertNotIn(flag, arguments)
+
+    def test_each_external_suite_option_is_forwarded_individually(self):
+        for flag in ("--adapter-tests-external", "--contract-tests-external"):
+            with self.subTest(flag=flag):
+                fake = _FakeSubprocess()
+                code, _, _ = self._main([flag], fake)
+                self.assertEqual(code, 0)
+                self.assertIn(flag, self.nested_arguments(fake))
+
+    def test_both_external_suite_options_are_forwarded_together(self):
+        fake = _FakeSubprocess()
+        code, _, _ = self._main(["--adapter-tests-external", "--contract-tests-external"], fake)
+        self.assertEqual(code, 0)
+        arguments = self.nested_arguments(fake)
+        self.assertIn("--adapter-tests-external", arguments)
+        self.assertIn("--contract-tests-external", arguments)
+
+    def test_a_nested_failure_still_fails_the_umbrella_with_both_options(self):
+        code, out, err = self._main(
+            ["--adapter-tests-external", "--contract-tests-external"],
+            _FakeSubprocess(failing="check-agent-contracts.py"),
+        )
+        self.assertEqual(code, 1)
+        self.assertIn("agent contract drift", out)
         self.assertIn("JSON validation failed", err)
 
 

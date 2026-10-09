@@ -705,7 +705,7 @@ a fenced action first emits `workflow.action_started` and may emit
 | `accept_worker_result` | `workflow.evidence_bound` naming the accepted attempt as its `immutable_subject_ref`, with the lane's capability class as the evidence kind, then `workflow.action_completed` v2 bound to the exact completed attempt and current step epoch; the fold rechecks dispatch order, work ownership, lifecycle, model readback, and actor distinctness before advancing. The verdict on the next step cites the attempt id. |
 | `record_worker_failure` | `workflow.action_completed` v2 in hold mode, bound to the exact failed attempt and current step epoch; the fold rechecks dispatch order, work ownership, failed lifecycle, actor distinctness, and prior recording. A fresh fenced start opens the recovery attempt. |
 
-On `workflow.implementation` v26 and `workflow.break_fix` v23,
+On `workflow.implementation` v27 and `workflow.break_fix` v24,
 `record_worker_job` requires the immutable owner/case/control oracle in the
 recorded job digest (CD-0205 D1). Every admitted dispatch carries that same
 oracle. Structure and retained readiness references join existing contract,

@@ -192,7 +192,7 @@ counts as it did before. The packet, the report, the dispatch evidence, and
 the completion carry the binding as an optional member, and every reader
 treats its absence as no job.
 
-`workflow.implementation` version 26 and `workflow.break_fix` version 23
+`workflow.implementation` version 27 and `workflow.break_fix` version 24
 require the oracle through the declared `record_worker_job` payload.
 Released pins retain their oracle-free shape and behavior. Replay never
 invents an oracle or uses today's registry to reinterpret historical content.

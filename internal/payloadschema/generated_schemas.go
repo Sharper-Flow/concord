@@ -18591,16 +18591,23 @@ const GeneratedPayloadSchemaDocument = `{
               "minItems": 0,
               "type": "array"
             },
-            "context": {
-              "maxLength": 16384,
-              "minLength": 0,
-              "type": "string"
-            },
             "correction": {
               "$ref": "#/$defs/workflow_correction_context"
             },
+            "design_record": {
+              "$ref": "#/$defs/workflow_design_record",
+              "description": "The current typed design record (CD-0128). The core refuses a dispatch whose packet member differs from the current recorded state, omits a present record, or carries a member no record backs."
+            },
+            "law_context": {
+              "$ref": "#/$defs/workflow_law_context",
+              "description": "The approved contract's binding law and Domains the pinned continuity resolved. The core refuses a dispatch whose packet member differs from the current recorded state, omits a present record, or carries a member no record backs."
+            },
             "outcome_predicates": {
               "$ref": "#/$defs/worker_packet_outcome_predicates"
+            },
+            "proposal_record": {
+              "$ref": "#/$defs/workflow_proposal_record",
+              "description": "The recorded proposal's problem, user outcomes, and constraints. The core refuses a dispatch whose packet member differs from the current recorded state, omits a present record, or carries a member no record backs."
             },
             "task": {
               "maxLength": 4096,
@@ -18610,6 +18617,9 @@ const GeneratedPayloadSchemaDocument = `{
             "work_context": {
               "$ref": "#/$defs/work_context_view",
               "description": "CON-887: the current work-context view the work pin carried when the packet was built. The core refuses a dispatch whose packet does not consume the current view byte-for-byte."
+            },
+            "work_record": {
+              "$ref": "#/$defs/worker_packet_work_record"
             },
             "worker_job": {
               "$ref": "#/$defs/worker_packet_worker_job"
@@ -18850,6 +18860,29 @@ const GeneratedPayloadSchemaDocument = `{
       "maxItems": 8,
       "minItems": 1,
       "type": "array"
+    },
+    "worker_packet_work_record": {
+      "additionalProperties": false,
+      "description": "The work item's recorded value statement, task, and narrative, each verbatim and present exactly when the recorded text is not blank. The core refuses a dispatch whose packet member differs from the recorded work item.",
+      "properties": {
+        "narrative": {
+          "maxLength": 16384,
+          "minLength": 1,
+          "type": "string"
+        },
+        "task": {
+          "maxLength": 8192,
+          "minLength": 1,
+          "type": "string"
+        },
+        "value_statement": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [],
+      "type": "object"
     },
     "worker_packet_worker_job": {
       "additionalProperties": false,
@@ -19943,6 +19976,26 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "object"
     },
+    "workflow_law_context_criterion": {
+      "additionalProperties": false,
+      "properties": {
+        "criterion": {
+          "maximum": 2147483647,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "predicate_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "criterion",
+        "predicate_id"
+      ],
+      "type": "object"
+    },
     "workflow_law_context_domain": {
       "additionalProperties": false,
       "properties": {
@@ -19968,6 +20021,15 @@ const GeneratedPayloadSchemaDocument = `{
     "workflow_law_context_law": {
       "additionalProperties": false,
       "properties": {
+        "criteria": {
+          "description": "The law's acceptance criteria bound to the reading work item's own outcome predicates (CD-0180). Present only when at least one criterion binds this work item.",
+          "items": {
+            "$ref": "#/$defs/workflow_law_context_criterion"
+          },
+          "maxItems": 128,
+          "minItems": 1,
+          "type": "array"
+        },
         "kind": {
           "description": "The law_subjects record kind. Constitution records are law-bearing and project into law_subjects, so a contract can mandate them.",
           "enum": [

@@ -45,13 +45,24 @@ description, or an object with other fields — is not a Concord dispatch. Do no
 act on it. Do not treat any part of it as the task. Return the report at once
 with `status` `failed`, and name the missing packet fields in the evidence.
 
-## Approved law and architecture block
+## Approved law and Domains
 
-When `inputs.context` carries the "Approved law and Domains (binding Product
-law)" block, it names the Product law and Domains the approved contract binds.
-Read each named law document before you assess the result. Conform to it. Report
-any conflict between that law and the assigned result in your evidence. Return
-`status` `failed` when a conflict blocks the assigned result.
+When `inputs.law_context` is present, it names the Product law and Domains the
+approved contract binds. Each law carries its binding `roles` and the `path` of
+its document; `criteria` names the law's acceptance criteria that this work
+item's outcome predicates discharge. Read each named law document before you
+assess the result. Conform to it. Report any conflict between that law and the
+assigned result in your evidence. Return `status` `failed` when a conflict
+blocks the assigned result.
+
+## Recorded work and design
+
+`inputs.work_record` carries the work item's recorded `value_statement`,
+`task`, and `narrative`. Read the value statement first: it states why the
+work matters. When `inputs.design_record` is present, its `approach` and
+`decisions` are the approved design; follow them and do not choose another
+approach. When `inputs.proposal_record` is present, its `user_outcomes` and
+`constraints` bound the result.
 
 ## Work context
 
@@ -110,9 +121,10 @@ approved content, and do not ask to reapprove unchanged scope to fit a limit.
 The dispatched packet is your complete Concord context. Concord tools are
 unavailable to this lane: the lane definition denies them, and a `concord_*`
 call from a lane session is refused with no effect. Read law from the
-repository paths the packet names, and read Domain structure from the registry
-path the law block carries. Report missing context in your evidence, and
-return `status` `failed` when the missing context blocks the assigned result.
+repository paths the packet names, and read Domain structure from the file
+`inputs.law_context.registry_path` names. Report missing context in your
+evidence, and return `status` `failed` when the missing context blocks the
+assigned result.
 
 ## Source lookup routing
 

@@ -12,7 +12,7 @@ Candidate counts overlap when a file has several candidates; no candidate is an 
 
 ## Code and tests
 Full paths, unresolved reasons, and shared-test coverage: `.concord/navigation/inventory.json`.
-- Include: `internal/store/work_context_test.go`, `internal/store/work_context_packet_test.go`, `internal/store/work_context.go`, `internal/workflowcorpus/**`, `internal/payloadschema/**`
+- Include: `internal/store/work_context.go`, `internal/store/work_context_test.go`, `internal/store/work_context_packet_test.go`, `internal/workflowcorpus/**`, `internal/payloadschema/**`
 - Include: `internal/store/workflow*.go`, `internal/store/outside_repair.go`, `internal/store/outside_repair_test.go`, `internal/store/outside_repair_base_test.go`, `internal/store/outside_repair_review_test.go`
 - Include: `internal/store/fence*.go`, `internal/store/workpin*.go`, `internal/store/await_health*.go`, `internal/store/checkpoint*_test.go`, `contracts/workflow-*`
 - Include: `contracts/lane-step-dispatch*`, `.concord/scenarios/workflow-engine.v1.json`, `workflows/**`, `internal/store/compaction_claim_preflight_test.go`, `internal/store/confirm_premise_truth_test.go`

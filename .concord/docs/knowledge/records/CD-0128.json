@@ -35,7 +35,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:04fffbbe782ad6ac0142fac6e1a033b6eb519837dc71ddc174d7406b3f3f238f",
+  "sha256": "sha256:fce1c74dc43c2cb62115793816e786f2d1a9ee0a330c1cff1ade9c22034852b9",
   "status": "accepted",
   "summary": "Projects the current typed design into implement context, preserves superseded designs as history, and requires an approved replacement after contract correction.",
   "tags": [

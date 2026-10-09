@@ -148,7 +148,7 @@
       "cli_verbs": [],
       "default_path_rules": null,
       "domain_id": "agent-surface",
-      "mapped_count": 380,
+      "mapped_count": 382,
       "name": "Agent surface",
       "owner_id": "domain:agent-surface",
       "path_rules": {
@@ -192,7 +192,7 @@
         ]
       },
       "purpose": "Owns the typed agent plane: the read and mutation tool surface, its budget and evolution constraints, call context, lanes and worker dispatch, the adapter transport contract, and the agent result envelope.",
-      "test_count": 243,
+      "test_count": 244,
       "test_packages": [
         "github.com/sharper-flow/concord/internal/agent",
         "github.com/sharper-flow/concord/internal/store"
@@ -437,6 +437,7 @@
         "internal/store/worker_job_lifecycle_witness_test.go",
         "internal/store/worker_lanes_test.go",
         "internal/store/worker_packet_binding_test.go",
+        "internal/store/worker_packet_records_test.go",
         "internal/store/worker_recovery_test.go",
         "internal/store/worker_review_block_test.go",
         "internal/store/worker_spawn_directory_test.go",
@@ -1918,9 +1919,9 @@
           "internal/store/workflow_test_support_test.go"
         ],
         "include": [
+          "internal/store/work_context.go",
           "internal/store/work_context_test.go",
           "internal/store/work_context_packet_test.go",
-          "internal/store/work_context.go",
           "internal/workflowcorpus/**",
           "internal/payloadschema/**",
           "internal/store/workflow*.go",
@@ -3721,6 +3722,8 @@
     "internal/store/worker_lanes_test.go": "agent-surface",
     "internal/store/worker_packet_binding.go": "agent-surface",
     "internal/store/worker_packet_binding_test.go": "agent-surface",
+    "internal/store/worker_packet_records.go": "agent-surface",
+    "internal/store/worker_packet_records_test.go": "agent-surface",
     "internal/store/worker_recovery.go": "agent-surface",
     "internal/store/worker_recovery_test.go": "agent-surface",
     "internal/store/worker_review_block_test.go": "agent-surface",
@@ -4027,7 +4030,7 @@
     "skills/README.md": "agent-surface",
     "workflows/README.md": "workflow-engine"
   },
-  "mapped_count": 1916,
+  "mapped_count": 1918,
   "schema_version": "1.0",
   "scope": "coarse file navigation, not law homes or semantic mechanism ownership",
   "test_coverage": {

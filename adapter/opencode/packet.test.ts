@@ -1,7 +1,7 @@
 import { test, expect, mock } from "bun:test"
 import { manifestDigest } from "./generated-contracts"
 import { validateGeneratedEnvelope, validateGeneratedPayload } from "./generated-contract-tests"
-import { configureCoreBinary, validateAgentLanePacket, type AgentLanePacketBinding, type AgentLanePacketCorrection, type AgentLanePacketWorkContext } from "./dispatch"
+import { configureCoreBinary, validateAgentLanePacket, type AgentLanePacketBinding, type AgentLanePacketCorrection, type AgentLanePacketLawContext, type AgentLanePacketWorkContext } from "./dispatch"
 import { agentLaneReportSchema, agentLanes, workerScopeAssignedResult } from "./generated-agent-lanes"
 
 // The builder reaches core through the adapter transport in concord.ts, which
@@ -196,7 +196,7 @@ test("a well-formed build projects mandate, narrative, and obligations into a va
   expect(packet.inputs.task).not.toContain(OUTCOME_PAYLOAD)
   expect(packet.inputs.binding).toEqual({ objective_source: "contract_premise", work_version: 1, contract_version: 1, assigned_result: "files_touched" })
   expect(typedPredicates(packet)).toEqual(decodedContractPredicates())
-  expect(packet.inputs.context).toBe(NARRATIVE)
+  expect(packet.inputs.work_record).toEqual({ narrative: NARRATIVE })
   const agent = await Bun.file(new URL("../../.opencode/agents/concord-implement.md", import.meta.url)).text()
   for (const obligation of agentLanes[1].evidence_obligations) {
     expect(agent).toContain(`"${obligation}"`)
@@ -258,7 +258,7 @@ test("a correction projects recorded failure fields into the packet", async () =
   })
   expect(built.failure).toBeUndefined()
   expect(built.packet!.inputs.correction).toEqual(correction)
-  expect(built.packet!.inputs.context).toBe(NARRATIVE)
+  expect(built.packet!.inputs.work_record).toEqual({ narrative: NARRATIVE })
 })
 
 // The checkpoint failed-review return (amended CD-0143 D1) projects the same
@@ -283,7 +283,7 @@ test("a checkpoint failed-review correction projects its bounded verdict evidenc
   expect(built.failure).toBeUndefined()
   expect(built.packet!.inputs.correction).toEqual(correction)
   expect(built.packet!.inputs.correction!.disposition).toBe("failed")
-  expect(built.packet!.inputs.context).toBe(NARRATIVE)
+  expect(built.packet!.inputs.work_record).toEqual({ narrative: NARRATIVE })
 })
 
 // A correction counts every operator-authorized retry, so its count passes
@@ -484,7 +484,7 @@ test("a read-only lane carries the recorded question verbatim before contract ap
   expect(packet.inputs.task).not.toContain("Step question:")
   expect(packet.inputs.task).not.toContain(NARRATIVE)
   expect(packet.inputs.binding).toEqual({ objective_source: "work_question", work_version: 1, contract_version: null, assigned_result: "bounded_findings" })
-  expect(packet.inputs.context).toBe(NARRATIVE)
+  expect(packet.inputs.work_record).toEqual({ narrative: NARRATIVE })
   expect(packet.inputs.outcome_predicates).toBeUndefined()
   assertNoMandateSplice(packet)
 })
@@ -501,7 +501,7 @@ test("a read-only recorded question preserves surrounding whitespace and Unicode
   expect(built.failure).toBeUndefined()
   expect(built.packet!.inputs.task).toBe(question)
   expect(Buffer.from(built.packet!.inputs.task)).toEqual(Buffer.from(question))
-  expect(built.packet!.inputs.context).not.toContain(question)
+  expect(built.packet!.inputs.work_record).toEqual({ task: question, narrative: NARRATIVE })
 })
 
 test("a review lane keeps the pinned contract mandate after read-only classification", async () => {
@@ -518,19 +518,18 @@ test("a review lane keeps the pinned contract mandate after read-only classifica
   expect(typedPredicates(packet)).toEqual(decodedContractPredicates(contract))
 })
 
-test("the context carries the pinned design before the work narrative", async () => {
+test("the packet carries the pinned design record verbatim", async () => {
   const built = await build({ ...defaultScript(), "concord_work_trace.continuity": continuityEnvelope(pinnedContract(), DESIGN_RECORD) })
   expect(built.failure).toBeUndefined()
-  const context = built.packet!.inputs.context!
-  expect(context.indexOf("Approved design record:")).toBe(0)
-  expect(context.indexOf("The dispatched worker goal")).toBeGreaterThan(context.indexOf("Touched refs:"))
-  expect(context).toContain("The typed design record.")
+  expect(validateAgentLanePacket(built.packet!)).toBe(true)
+  expect(built.packet!.inputs.design_record).toEqual(DESIGN_RECORD)
+  expect(built.packet!.inputs.work_record).toEqual({ narrative: NARRATIVE })
 })
 
 // The core resolves the approved contract's bound law and Domains at
-// continuity read time; the builder renders that block and the recorded
-// proposal after the design record, ahead of the work narrative.
-const LAW_CONTEXT = {
+// continuity read time; the builder carries that law context and the
+// recorded proposal verbatim as typed packet members.
+const LAW_CONTEXT: AgentLanePacketLawContext = {
   laws: [
     { roles: ["added"], law_id: "law:new" },
     { roles: ["mandated", "modified", "obligation"], law_id: "spec:one", kind: "spec", status: "accepted", title: "Synthetic test law", path: ".concord/docs/spec.md", obligation_ids: ["verification"] },
@@ -543,83 +542,69 @@ const LAW_CONTEXT = {
 }
 const PROPOSAL = { problem: "Workers receive bare law IDs", user_outcomes: ["Workers read the binding law"], constraints: ["Overflow stays fail-closed"] }
 
-test("the context carries the resolved law block and proposal after the design record", async () => {
+test("the packet carries the resolved law context and proposal verbatim", async () => {
   const continuity = continuityEnvelope(pinnedContract(), DESIGN_RECORD, null, LAW_CONTEXT, PROPOSAL)
   expect(validateGeneratedEnvelope(continuity)).toBe(true)
   expect(validateGeneratedPayload("continuity_snapshot", (continuity as any).result)).toBe(true)
   const built = await build({ ...defaultScript(), "concord_work_trace.continuity": continuity })
   expect(built.failure, JSON.stringify(built.failure)).toBeUndefined()
   expect(validateAgentLanePacket(built.packet!)).toBe(true)
-  const context = built.packet!.inputs.context!
-  const designAt = context.indexOf("Approved design record:")
-  const lawAt = context.indexOf("Approved law and Domains (binding Product law):")
-  const proposalAt = context.indexOf("Recorded proposal:")
-  expect(designAt).toBe(0)
-  expect(lawAt).toBeGreaterThan(designAt)
-  expect(proposalAt).toBeGreaterThan(lawAt)
-  expect(context.indexOf(NARRATIVE)).toBeGreaterThan(proposalAt)
-  expect(context).toContain("- mandated, modified, obligation law spec:one (obligation verification): Synthetic test law, spec, accepted — .concord/docs/spec.md")
-  expect(context).toContain("- added law law:new")
-  expect(context).toContain("- Domain root: Root — Product law")
-  expect(context).toContain("- Domain child: Child — Child law")
-  expect(context).toContain("Domain registry: .concord/docs/knowledge/domain-registry.json")
-  expect(context).toContain("Problem: Workers receive bare law IDs")
-  expect(context).toContain("- Workers read the binding law")
-  expect(context).toContain("- Overflow stays fail-closed")
+  expect(built.packet!.inputs.law_context).toEqual(LAW_CONTEXT)
+  expect(built.packet!.inputs.proposal_record).toEqual(PROPOSAL)
+  expect(built.packet!.inputs.design_record).toEqual(DESIGN_RECORD)
+  expect(built.packet!.inputs.work_record).toEqual({ narrative: NARRATIVE })
 })
 
-// The registry path rides the law context only when the core sets it, so a
-// context without one renders no registry line for the lane to follow.
-test("a law context without a registry path renders no registry line", async () => {
-  const { registry_path: _omitted, ...withoutRegistry } = LAW_CONTEXT
-  const continuity = continuityEnvelope(pinnedContract(), DESIGN_RECORD, null, withoutRegistry, PROPOSAL)
-  const built = await build({ ...defaultScript(), "concord_work_trace.continuity": continuity })
-  expect(built.failure, JSON.stringify(built.failure)).toBeUndefined()
-  expect(built.packet!.inputs.context).toContain("- Domain root: Root — Product law")
-  expect(built.packet!.inputs.context).not.toContain("Domain registry:")
+// A retained packet from an attempt dispatched before the typed record
+// members carried prose in inputs.context. Recovery re-validates that exact
+// packet, so the lane-packet schema still admits the member, while the
+// builder never emits it.
+test("a retained pre-record packet with prose context still validates, and the builder never emits it", async () => {
+  const built = await build({ ...defaultScript(), "concord_work_trace.continuity": continuityEnvelope(pinnedContract(), DESIGN_RECORD, null, LAW_CONTEXT, PROPOSAL) })
+  expect(built.failure).toBeUndefined()
+  expect("context" in built.packet!.inputs).toBe(false)
+  const { law_context: _law, design_record: _design, proposal_record: _proposal, work_record: _work, ...legacyInputs } = built.packet!.inputs
+  const failures: string[] = []
+  expect(validateAgentLanePacket({ ...built.packet!, inputs: { ...legacyInputs, context: `Approved design record:\n${NARRATIVE}` } }, failures), failures.join("; ")).toBe(true)
 })
 
-test("a contract with no bound law dispatches without a law block", async () => {
+test("a contract with no bound law dispatches without a law context or proposal", async () => {
   const built = await build(defaultScript())
   expect(built.failure, JSON.stringify(built.failure)).toBeUndefined()
-  expect(built.packet!.inputs.context).not.toContain("Approved law and Domains")
-  expect(built.packet!.inputs.context).not.toContain("Recorded proposal:")
+  expect(built.packet!.inputs.law_context).toBeUndefined()
+  expect(built.packet!.inputs.proposal_record).toBeUndefined()
+  expect(built.packet!.inputs.design_record).toBeUndefined()
 })
 
 // The core resolves the mandated spec's criteria bound to this work item's
-// predicates (CD-0180) into the law entry's criteria field; the packet lists
-// the chaining on the law line so the worker sees which criterion each of
-// this item's predicates discharges.
-test("the law block lists the mandated criteria bound to this work item's predicates", async () => {
-  const lawContext = {
+// predicates (CD-0180) into the law entry's criteria field; the packet carries
+// them typed on the law entry so the worker sees which criterion each of this
+// item's predicates discharges.
+test("the law context carries the mandated criteria bound to this work item's predicates", async () => {
+  const lawContext: AgentLanePacketLawContext = {
     laws: [
       { roles: ["mandated"], law_id: "spec:one", kind: "spec", status: "accepted", title: "Synthetic test law", path: ".concord/docs/spec.md", criteria: [{ criterion: 2, predicate_id: "predicate:criterion-bindings-predicate-form" }, { criterion: 1, predicate_id: "predicate:packet-mandated-criteria" }] },
       { roles: ["mandated"], law_id: "spec:plain", kind: "spec", status: "accepted", title: "Unbound spec", path: ".concord/docs/plain.md" },
     ],
     domains: [],
   }
-  const built = await build({ ...defaultScript(), "concord_work_trace.continuity": continuityEnvelope(pinnedContract(), null, null, lawContext) })
+  const continuity = continuityEnvelope(pinnedContract(), null, null, lawContext)
+  expect(validateGeneratedPayload("continuity_snapshot", (continuity as any).result)).toBe(true)
+  const built = await build({ ...defaultScript(), "concord_work_trace.continuity": continuity })
   expect(built.failure, JSON.stringify(built.failure)).toBeUndefined()
   expect(validateAgentLanePacket(built.packet!)).toBe(true)
-  const context = built.packet!.inputs.context!
-  expect(context).toContain("law spec:one")
-  expect(context).toContain("(criteria bound to this work item: criterion 2 discharges predicate:criterion-bindings-predicate-form; criterion 1 discharges predicate:packet-mandated-criteria)")
-  expect(context).toContain("law spec:plain")
-  expect(context).not.toContain("criteria bound to this work item: criterion 1 discharges predicate:criterion-bindings-predicate-form")
+  expect(built.packet!.inputs.law_context).toEqual(lawContext)
 })
 
-test("an oversized law block is a typed context overflow, not a truncated packet", async () => {
-  // Every entry stays inside the generated law-context bounds; only their
-  // number pushes the combined context past the bound.
-  const oversized = { laws: Array.from({ length: 64 }, (_, index) => ({ roles: ["mandated"], law_id: `spec:big-${index}`, title: "t".repeat(512) })), domains: [] }
+test("a law context past the packet bounds is refused, not truncated", async () => {
+  const oversized = { laws: Array.from({ length: 129 }, (_, index) => ({ roles: ["mandated"], law_id: `spec:big-${index}` })), domains: [] }
   const built = await build({ ...defaultScript(), "concord_work_trace.continuity": continuityEnvelope(pinnedContract(), null, null, oversized) })
   expect(built.packet).toBeUndefined()
-  expect(built.failure!.kind).toBe("projection_overflow")
-  expect(built.failure!.field).toBe("context")
-  expect(built.failure!.limit).toBe(16_384)
+  expect(built.failure!.kind).toBe("packet_refused")
+  expect(built.failure!.message).toContain("law_context")
 })
 
-test("the packet carries bounded correction data outside the narrative", async () => {
+test("the packet carries bounded correction data outside the work record", async () => {
   const continuity = continuityEnvelope()
   const pinned = (continuity as any).result.pinned
   pinned.work_pin = {
@@ -648,8 +633,7 @@ test("the packet carries bounded correction data outside the narrative", async (
   const built = await build({ ...defaultScript(), "concord_work_trace.continuity": continuity })
   expect(built.failure).toBeUndefined()
   expect(built.packet!.inputs.correction).toEqual(pinned.work_pin.correction)
-  expect(built.packet!.inputs.context).toBe(NARRATIVE)
-  expect(built.packet!.inputs.context).not.toContain("change the helper and add a test")
+  expect(built.packet!.inputs.work_record).toEqual({ narrative: NARRATIVE })
 })
 
 // #903: non-Initiative work items carry no narrative, and a missing
@@ -659,7 +643,7 @@ test("a non-Initiative work item with no narrative still carries the approved ob
   expect(built.failure, JSON.stringify(built.failure)).toBeUndefined()
   const packet = built.packet!
   expect(validateAgentLanePacket(packet)).toBe(true)
-  expect(packet.inputs.context).toBeUndefined()
+  expect(packet.inputs.work_record).toBeUndefined()
   expect(packet.inputs.task).toBe("Dispatch inputs are retyped rather than projected.")
   expect(packet.inputs.task).not.toContain(OUTCOME_PAYLOAD)
   expect(typedPredicates(packet)).toEqual(decodedContractPredicates())
@@ -739,14 +723,14 @@ test("every installed lane definition states the multi-entry remedy", async () =
   }
 })
 
-// The lane contract owns what the law block in inputs.context means and what
-// the report must disclose, so every generated lane definition carries the
-// conformance rule. Only a lane granted edit_scoped_files is told to change
+// The lane contract owns what inputs.law_context means and what the report
+// must disclose, so every generated lane definition carries the conformance
+// rule. Only a lane granted edit_scoped_files is told to change
 // files or law documents.
 test("every installed lane definition carries the law conformance rule", async () => {
   for (const lane of agentLanes) {
     const agent = (await Bun.file(`${import.meta.dir}/../../.opencode/agents/concord-${lane.id}.md`).text()).replace(/\s+/g, " ")
-    expect(agent, `${lane.id} omitted the law conformance rule`).toContain("Approved law and architecture block")
+    expect(agent, `${lane.id} omitted the law conformance rule`).toContain("## Approved law and Domains")
     expect(agent).toContain("Conform to it.")
     expect(agent).toContain("Report any conflict between that law and the assigned result in your evidence")
     expect(agent).toContain("`status` `failed`")
@@ -782,24 +766,11 @@ test("a representable multi-subject predicate rides the typed field verbatim", a
   expect(typedPredicates(built.packet!)).toEqual(decodedContractPredicates(contract))
 })
 
-test("an oversized narrative is a typed context overflow, not a truncated packet", async () => {
-  const narrative = "n".repeat(16_385)
-  const built = await build({ ...defaultScript(), "concord_work_browse.scope": scopeEnvelope(narrative) })
+test("a narrative past the work record bound is refused, not truncated", async () => {
+  const built = await build({ ...defaultScript(), "concord_work_browse.scope": scopeEnvelope("n".repeat(16_385)) })
   expect(built.packet).toBeUndefined()
-  expect(built.failure!.kind).toBe("projection_overflow")
-  expect(built.failure!.field).toBe("context")
-  expect(built.failure!.limit).toBe(16_384)
-  expect(built.failure!.actual).toBe(16_385)
-  expect(built.failure!.message).toContain("inputs.context")
-})
-
-test("an oversized pinned design and narrative are a typed context overflow", async () => {
-  const design = { ...DESIGN_RECORD, approach: "d".repeat(4_096) }
-  const built = await build({ ...defaultScript(), "concord_work_browse.scope": scopeEnvelope("n".repeat(12_289)), "concord_work_trace.continuity": continuityEnvelope(pinnedContract(), design) })
-  expect(built.packet).toBeUndefined()
-  expect(built.failure!.kind).toBe("projection_overflow")
-  expect(built.failure!.field).toBe("context")
-  expect(built.failure!.limit).toBe(16_384)
+  expect(built.failure!.kind).toBe("packet_refused")
+  expect(built.failure!.message).toContain("narrative")
 })
 
 test("an outcome_payload the core recorded but that cannot decode is a typed transport failure", async () => {
@@ -960,7 +931,7 @@ test("the closed packet schema enforces the strict per-kind outcome payload fiel
   expect(validateAgentLanePacket({ ...packet(check), inputs: { ...packet(check).inputs, outcome_predicates: nine } }, failures)).toBe(false)
 })
 
-test("a typed packet field is deterministic across builds and carries the design context", async () => {
+test("a typed packet field is deterministic across builds and carries the design record", async () => {
   const script = { ...defaultScript(), "concord_work_trace.continuity": continuityEnvelope(pinnedContract(), DESIGN_RECORD) }
   const first = await build(script)
   const second = await build(script)
@@ -968,16 +939,15 @@ test("a typed packet field is deterministic across builds and carries the design
   expect(second).toEqual(first)
   expect(validateAgentLanePacket(first.packet!)).toBe(true)
   expect(typedPredicates(first.packet!)).toEqual(decodedContractPredicates())
-  expect(first.packet!.inputs.context).toContain("The typed design record.")
-  expect(first.packet!.inputs.context).toEndWith(NARRATIVE)
+  expect(first.packet!.inputs.design_record).toEqual(DESIGN_RECORD)
 })
 
-test("a narrative at the context bound still fits", async () => {
+test("a narrative at the work record bound still fits", async () => {
   const narrative = "n".repeat(16_384)
   const built = await build({ ...defaultScript(), "concord_work_browse.scope": scopeEnvelope(narrative) })
   expect(built.failure).toBeUndefined()
   expect(validateAgentLanePacket(built.packet!)).toBe(true)
-  expect(built.packet!.inputs.context!.length).toBe(16_384)
+  expect(built.packet!.inputs.work_record!.narrative!.length).toBe(16_384)
 })
 
 test("no pinned contract is a typed unapproved-mandate failure", async () => {
@@ -1038,11 +1008,11 @@ test("the default transport is the adapter transport, and its refusals stay type
 // The persisted work task is the operator's recorded instruction for the
 // worker. The scope read carries it on the work summary, and the packet must
 // project it: the read-only question prefers it over the bare title, and the
-// context carries it ahead of the narrative so a contract-mandated worker
+// work record carries it beside the narrative so a contract-mandated worker
 // receives the concrete instructions, not only the approved premise.
 const PERSISTED_TASK = "Reproduce the refusal, extract the combinator loop, and keep the complexity budget green."
 
-test("the context carries the persisted work task ahead of the narrative", async () => {
+test("the work record carries the persisted work task beside the narrative", async () => {
   const withTask = coreEnvelope("concord_work_browse", "scope", "PM1.Q6", "ok", {
     result: {
       work: { id: WORK_ID, kind: "task", title: "Project dispatch inputs from durable state", lifecycle: "in_progress", version: 1, priority: 0, project_ids: [PRODUCT_ID], ready: true, narrative: NARRATIVE, task: PERSISTED_TASK, terminal_at: null },
@@ -1052,10 +1022,7 @@ test("the context carries the persisted work task ahead of the narrative", async
   })
   const built = await build({ ...defaultScript(), "concord_work_browse.scope": withTask })
   expect(built.failure, JSON.stringify(built.failure)).toBeUndefined()
-  const packet = built.packet!
-  const context = packet.inputs.context!
-  expect(context).toContain(PERSISTED_TASK)
-  expect(context.indexOf(PERSISTED_TASK)).toBeLessThan(context.indexOf(NARRATIVE))
+  expect(built.packet!.inputs.work_record).toEqual({ task: PERSISTED_TASK, narrative: NARRATIVE })
 })
 
 test("a read-only lane prefers the persisted work task as the recorded question", async () => {
@@ -1075,9 +1042,8 @@ test("a read-only lane prefers the persisted work task as the recorded question"
   expect(packet.inputs.task).toContain(PERSISTED_TASK)
 })
 
-// The why rides ahead of the how: the item's recorded value statement renders
-// as one line before the design record, and an item without a value statement
-// omits the line, so older items stay legal.
+// The item's recorded value statement rides the work record verbatim, and an
+// item without one omits the member, so older items stay legal.
 const VALUE_STATEMENT = "A dispatched worker reads why the work matters before the how."
 
 const scopeWithValue = (valueStatement?: string, narrative: string = NARRATIVE) =>
@@ -1089,64 +1055,30 @@ const scopeWithValue = (valueStatement?: string, narrative: string = NARRATIVE) 
     },
   })
 
-test("the context carries the value line ahead of the design record", async () => {
-  const built = await build({
-    "concord_work_browse.scope": scopeWithValue(VALUE_STATEMENT),
-    "concord_work_trace.continuity": continuityEnvelope(pinnedContract(), DESIGN_RECORD),
-  })
-  expect(built.failure, JSON.stringify(built.failure)).toBeUndefined()
-  const packet = built.packet!
-  expect(validateAgentLanePacket(packet)).toBe(true)
-  const context = packet.inputs.context!
-  expect(context).toContain(`Value: ${VALUE_STATEMENT}`)
-  expect(context.indexOf(`Value: ${VALUE_STATEMENT}`)).toBe(0)
-  expect(context.indexOf("Approved design record:")).toBeGreaterThan(context.indexOf(`Value: ${VALUE_STATEMENT}`))
-  expect(context.indexOf("The dispatched worker goal")).toBeGreaterThan(context.indexOf("Approved design record:"))
+test("the work record carries the value statement verbatim", async () => {
+  const multiLineValue = "why it matters\r\nsecond line of the why"
+  for (const value of [VALUE_STATEMENT, multiLineValue, "  padded why  "]) {
+    const built = await build({
+      "concord_work_browse.scope": scopeWithValue(value),
+      "concord_work_trace.continuity": continuityEnvelope(pinnedContract(), DESIGN_RECORD),
+    })
+    expect(built.failure, JSON.stringify(built.failure)).toBeUndefined()
+    expect(validateAgentLanePacket(built.packet!)).toBe(true)
+    expect(built.packet!.inputs.work_record).toEqual({ value_statement: value, narrative: NARRATIVE })
+  }
 })
 
-test("a value statement carrying embedded newlines renders as one guaranteed line", async () => {
-  const multiLineValue = "why it matters\r\nsecond line of the why\nthird line"
-  const built = await build({
-    "concord_work_browse.scope": scopeWithValue(multiLineValue),
-    "concord_work_trace.continuity": continuityEnvelope(pinnedContract(), DESIGN_RECORD),
-  })
-  expect(built.failure, JSON.stringify(built.failure)).toBeUndefined()
-  const context = built.packet!.inputs.context!
-  const rendered = `Value: why it matters second line of the why third line`
-  expect(context.indexOf(rendered)).toBe(0)
-  expect(context.slice(0, context.indexOf("\n\n"))).toBe(rendered)
-  expect(context.indexOf("Approved design record:")).toBeGreaterThan(context.indexOf(rendered))
-})
-
-test("a work item without a value statement omits the value line", async () => {
+test("a work item without a value statement omits the member", async () => {
   const withoutValue = await build({ ...defaultScript(), "concord_work_browse.scope": scopeWithValue() })
   expect(withoutValue.failure).toBeUndefined()
-  expect(withoutValue.packet!.inputs.context).not.toContain("Value:")
-  expect(withoutValue.packet!.inputs.context).toBe(NARRATIVE)
-  const blankValue = await build({ ...defaultScript(), "concord_work_browse.scope": scopeWithValue("   ") })
-  expect(blankValue.failure).toBeUndefined()
-  expect(blankValue.packet!.inputs.context).toBe(NARRATIVE)
-})
-
-test("a value statement counts inside the unchanged context overflow bound", async () => {
-  const fatValue = "v".repeat(16_000)
-  const valueLine = `Value: ${fatValue}\n\n`
-  const narrative = "n".repeat(16_384 - valueLine.length + 1)
-  const built = await build({
-    "concord_work_browse.scope": scopeWithValue(fatValue, narrative),
-    "concord_work_trace.continuity": continuityEnvelope(),
-  })
-  expect(built.packet).toBeUndefined()
-  expect(built.failure!.kind).toBe("projection_overflow")
-  expect(built.failure!.field).toBe("context")
-  expect(built.failure!.limit).toBe(16_384)
+  expect(withoutValue.packet!.inputs.work_record).toEqual({ narrative: NARRATIVE })
 })
 
 // The synthetic full-contract fixture: one pinned contract carrying all eight
-// predicate slots, plus the context block, a recorded correction, and the
+// predicate slots, plus the design record, a recorded correction, and the
 // resolved law and Domains the contract binds. The packet must preserve all
 // eight predicate objects in order with identical payloads, and carry the
-// context, correction, and authority metadata beside them — nothing the
+// records, correction, and authority metadata beside them — nothing the
 // binding restructure may drop or reorder.
 const EIGHT_PAYLOADS = [
   { kind: "exists", surface: "repository", subjects: ["file/one", "file/two"] },
@@ -1183,7 +1115,7 @@ const EIGHT_CORRECTION: AgentLanePacketCorrection = {
   evidence_refs: ["evidence:con795"],
 }
 
-test("the synthetic full-contract fixture preserves all eight predicates, context, correction, and authority metadata", async () => {
+test("the synthetic full-contract fixture preserves all eight predicates, records, correction, and authority metadata", async () => {
   const continuity = continuityEnvelope(EIGHT_CONTRACT, DESIGN_RECORD, { correction: EIGHT_CORRECTION }, LAW_CONTEXT, PROPOSAL)
   const built = await build({ ...defaultScript(), "concord_work_trace.continuity": continuity })
   expect(built.failure, JSON.stringify(built.failure)).toBeUndefined()
@@ -1197,13 +1129,12 @@ test("the synthetic full-contract fixture preserves all eight predicates, contex
     expect(predicate.outcome_kind).toBe(EIGHT_PAYLOADS[index].kind)
     expect(predicate.outcome_payload).toEqual(EIGHT_PAYLOADS[index])
   })
-  // Context, correction, and authority metadata ride beside the predicates.
+  // Records, correction, and authority metadata ride beside the predicates.
   expect(packet.inputs.correction).toEqual(EIGHT_CORRECTION)
-  const context = packet.inputs.context!
-  expect(context.indexOf("Approved design record:")).toBe(0)
-  expect(context).toContain("Approved law and Domains (binding Product law):")
-  expect(context).toContain("Recorded proposal:")
-  expect(context).toEndWith(NARRATIVE)
+  expect(packet.inputs.design_record).toEqual(DESIGN_RECORD)
+  expect(packet.inputs.law_context).toEqual(LAW_CONTEXT)
+  expect(packet.inputs.proposal_record).toEqual(PROPOSAL)
+  expect(packet.inputs.work_record).toEqual({ narrative: NARRATIVE })
   // The task stays the premise verbatim; none of the eight predicates or the
   // correction spills into it.
   expect(packet.inputs.task).toBe(EIGHT_CONTRACT.premise)

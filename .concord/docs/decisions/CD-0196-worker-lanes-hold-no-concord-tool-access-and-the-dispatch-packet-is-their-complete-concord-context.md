@@ -72,7 +72,7 @@ coordinator directions for the attempt.
   sole control.
 - Carrying the fetched state in the packet. Work history and other items'
   state are unbounded, and the packet already carries the approved objective,
-  the design record, the law block, and the outcome predicates.
+  the design record, the law context, and the outcome predicates.
 - A gate in the tool execution hook. A thrown hook error is not a structured
   envelope, and it carries no effect state the core can fold.
 

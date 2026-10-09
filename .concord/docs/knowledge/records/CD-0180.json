@@ -29,7 +29,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:6a7686eb7436d7875628e60a64af129a00b32737c410bc4e5c7270757c9f69da",
+  "sha256": "sha256:a9f4c733267fbebc09def004f63d2b417d72d6b34601eaba5f78bef9c16f45f7",
   "status": "accepted",
   "summary": "Spec acceptance criteria resolve through a third binding form, a work-item predicate reference of work_id plus predicate_id that the closed schema and the Go manifest model declare additively, the doc-contract checker resolves as bound while discharge stays the work-item side's per-predicate verdict, and the law context resolves the dispatching work item's bindings so the packet lists which criterion each of its predicates discharges.",
   "tags": [

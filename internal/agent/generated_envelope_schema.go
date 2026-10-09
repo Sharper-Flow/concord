@@ -1391,6 +1391,29 @@ const GeneratedEnvelopeSchemaDocument = `{
             "outcome"
           ],
           "type": "object"
+        },
+        {
+          "if": {
+            "required": [
+              "query_id"
+            ]
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "changed_refs"
+                  ]
+                },
+                {
+                  "required": [
+                    "next_valid_intents"
+                  ]
+                }
+              ]
+            }
+          }
         }
       ],
       "unevaluatedProperties": false

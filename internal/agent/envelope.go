@@ -444,6 +444,9 @@ func (e Envelope) validateInvariants() error {
 	return nil
 }
 func (e Envelope) validateOK() error {
+	if !isMutation(e.Tool, e.Operation) && (e.ChangedRefs != nil || e.NextValidIntents != nil) {
+		return errors.New("read ok envelope must not contain mutation metadata")
+	}
 	hasItems, hasResult := e.Items != nil, e.Result != nil
 	if hasItems == hasResult {
 		return errors.New("ok envelope requires exactly one payload")

@@ -20,8 +20,10 @@ const publishedBytes = (tool: string): number => Buffer.byteLength(JSON.stringif
 // the recorded branch. Update it only through a reviewed size change. The
 // closed per-action variants, per-kind outcome branches, and byte-bound
 // keywords cost about 2.5 times the merged-union publication they replaced
-// (CON-412 records both totals). The figure counts schema bytes, not tokens.
-const PINNED_PUBLISHED_TOTAL_BYTES = 370210
+// (CON-412 records both totals). The CON-887 record_work_context action adds
+// 5550 bytes to concord_work_transition. The figure counts schema bytes, not
+// tokens.
+const PINNED_PUBLISHED_TOTAL_BYTES = 375760
 
 test("publication is repeatable: two publications are byte-identical", () => {
   for (const tool of tools) {

@@ -2,7 +2,7 @@ import { afterEach, expect, spyOn, test } from "bun:test"
 import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
-import { bindCiWatchClient, ciWatchSettled, concord_ci_watch, configureCiWatch, drainQueuedCiReports, drainQueuedCiReportsForMessage, type VerbSpawner } from "./ci-watch"
+import { bindCiWatchClient, ciWatchSettled, ciWatchTool, configureCiWatch, drainQueuedCiReports, drainQueuedCiReportsForMessage, type VerbSpawner } from "./ci-watch"
 import { configureCoreBinary } from "./dispatch"
 import ConcordAdapterPlugin from "./concord-plugin"
 import { configureHostLease } from "./host-lease"
@@ -10,6 +10,10 @@ import { hostControlPlane } from "./move-session"
 
 const SESSION = "watch-session"
 const STATE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "ci-watch-test-"))
+
+// The suite exercises the watcher through the factory the plugin registers
+// from, so both surfaces see the same tool shape.
+const concord_ci_watch = ciWatchTool()
 
 type RouteRecord = { url: string; path?: Record<string, unknown>; query?: Record<string, unknown>; body?: unknown }
 

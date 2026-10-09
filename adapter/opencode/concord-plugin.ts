@@ -35,7 +35,7 @@ import { createContinuityTransform } from "./continuity-hook"
 import { createAgentSwitchNotice } from "./agent-switch-hook"
 import { dispatchWindows, DispatchWindowError, TASK_TOOL_ID } from "./dispatch-window"
 import { agentLanes, agentUtilities } from "./generated-agent-lanes"
-import { bindCiWatchClient, concord_ci_watch, drainQueuedCiReportsForMessage, isCiWatchNoticeMessage, publishCiWatchDefinition } from "./ci-watch"
+import { bindCiWatchClient, ciWatchTool, drainQueuedCiReportsForMessage, isCiWatchNoticeMessage, publishCiWatchDefinition } from "./ci-watch"
 import { completeDispatchedWorker, failDispatchedWorker } from "./lane_completion"
 import { hostControlPlane, SessionScopeUnavailable } from "./move-session"
 import { claimHostLease } from "./host-lease"
@@ -106,7 +106,10 @@ export default async function ConcordAdapterPlugin(input?: Partial<PluginInput>,
       concord_work_relate: work_relate,
       concord_work_compact: work_compact,
       concord_work_start: work_start,
-      concord_ci_watch,
+      // The registration is the watcher tool's only name: its module lives
+      // in the custom tools directory, where nothing but the plugin may name
+      // a tool.
+      concord_ci_watch: ciWatchTool(),
     },
     "chat.message": async (
       input: { sessionID: string; messageID?: string },

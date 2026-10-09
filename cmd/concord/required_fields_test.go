@@ -34,6 +34,27 @@ func TestInvokeDecodeRefusalExitIsPreEffect(t *testing.T) {
 	}
 }
 
+func TestCLIHelpDeclaresInputRefusalExit(t *testing.T) {
+	if got := topLevelHelp(t); !strings.Contains(got, "Required-field refusals exit 64 before dispatch.") {
+		t.Fatal("top-level help omits the pre-dispatch required-field exit")
+	}
+	for _, command := range []string{"invoke", "work-bootstrap", "work-resume", "session-prepare"} {
+		t.Run(command, func(t *testing.T) {
+			var out, errOut bytes.Buffer
+			if code := runWithInput([]string{command, "--help"}, &countingStdin{}, &out, &errOut); code != 0 {
+				t.Fatalf("help exit = %d, stderr = %q", code, &errOut)
+			}
+			want := "handler refusals exit 2; required-field refusals exit 64"
+			if command == "invoke" {
+				want = "pre-dispatch decode refusals exit 64"
+			}
+			if !strings.Contains(out.String(), want) {
+				t.Fatalf("%s help omits %q", command, want)
+			}
+		})
+	}
+}
+
 func TestValidateRequiredCommandFieldsRejectsMissingNestedField(t *testing.T) {
 	err := validateRequiredCommandFields("predecessor-import", []byte(`{"snapshot_path":"snapshot.json","projects":[],"select_change_ids":[],"product":{}}`))
 	if err == nil || !strings.Contains(err.Error(), "product.product_id") {

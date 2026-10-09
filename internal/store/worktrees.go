@@ -3433,6 +3433,7 @@ type WorktreeVerifyResult struct {
 	Path                string   `json:"path"`
 	LeaseID             string   `json:"lease_id"`
 	OperationRef        string   `json:"operation_ref"`
+	SubjectRef          string   `json:"subject_ref,omitempty"`
 	Command             []string `json:"command"`
 	ExitCode            int      `json:"exit_code"`
 	Output              string   `json:"output"`
@@ -3488,6 +3489,10 @@ func (s *Store) VerifyWorktree(ctx context.Context, req WorktreeVerifyRequest) (
 		return WorktreeVerifyResult{}, err
 	}
 	before, err := snapshotTrackedFiles(ctx, runner, entry.Path)
+	if err != nil {
+		return WorktreeVerifyResult{}, err
+	}
+	beforeSubject, err := snapshotOracleGitSubject(ctx, runner, entry.Path)
 	if err != nil {
 		return WorktreeVerifyResult{}, err
 	}
@@ -3549,12 +3554,16 @@ func (s *Store) VerifyWorktree(ctx context.Context, req WorktreeVerifyRequest) (
 	if err != nil {
 		return WorktreeVerifyResult{}, annotateCommittedEffect(err, leaseRef)
 	}
+	afterSubject, err := snapshotOracleGitSubject(finalizeCtx, runner, entry.Path)
+	if err != nil {
+		return WorktreeVerifyResult{}, annotateCommittedEffect(err, leaseRef)
+	}
 	releaseTx, err := s.db.BeginTx(finalizeCtx, nil)
 	if err != nil {
 		return WorktreeVerifyResult{}, annotateCommittedEffect(wrapFailure(KindUnavailable, "worktree_verify", "cannot begin verify release", true, "retry the same operation with the same lease id", err), leaseRef)
 	}
 	defer releaseTx.Rollback()
-	changed := before != after
+	changed := before != after || beforeSubject.head != afterSubject.head || before.head != beforeSubject.head || after.head != afterSubject.head
 	outcome := "completed"
 	if changed {
 		outcome = "refused_mutated"
@@ -3567,6 +3576,7 @@ func (s *Store) VerifyWorktree(ctx context.Context, req WorktreeVerifyRequest) (
 		truncated = true
 	}
 	result := WorktreeVerifyResult{WorkID: req.WorkID, ProjectID: req.ProjectID, Branch: entry.Branch, Path: entry.Path, LeaseID: req.LeaseID, OperationRef: worktreeVerifyOperationRef(req.LeaseID), Command: req.Command, ExitCode: exitCode, Output: boundedOutput, OutputTruncated: truncated, TrackedFilesChanged: changed}
+	result.SubjectRef = oracleVerifySubject(beforeSubject, afterSubject, changed)
 	resultJSON, _ := json.Marshal(result)
 	releasedAt := nowFromClock(nil)
 	if _, err := releaseTx.ExecContext(finalizeCtx, `UPDATE worktree_verify_leases SET state='released', released_at=?, exit_code=?, outcome=?, result_json=? WHERE lease_id=? AND state='held'`,

@@ -1930,10 +1930,11 @@ func foldWorkflowContextBoundaryCrossed(ctx context.Context, tx *sql.Tx, event E
 
 // validateWorkflowActionCompletedShape bounds the payload before any read.
 // worker_attempt_id belongs to the worker result actions and to dispatch_worker
-// alone, and a rejected result carries its full correction record or none.
+// alone, and a rejected result or a correction request carries its full
+// correction record or none.
 func validateWorkflowActionCompletedShape(p workflowActionCompletedPayload) error {
-	if p.CorrectionOpenFindingIDs != nil && (p.ActionID != "reject_worker_result" || !validWorkflowOpenFindings(p.CorrectionOpenFindingIDs)) {
-		return newFailure(KindInvalidPayload, "fold_event", "correction_open_finding_ids requires a rejected result with 1 to 32 unique finding IDs", false, "record the complete open finding set on reject_worker_result")
+	if p.CorrectionOpenFindingIDs != nil && ((p.ActionID != "reject_worker_result" && p.ActionID != "request_correction") || !validWorkflowOpenFindings(p.CorrectionOpenFindingIDs)) {
+		return newFailure(KindInvalidPayload, "fold_event", "correction_open_finding_ids requires a rejected result or a correction request with 1 to 32 unique finding IDs", false, "record the complete open finding set on reject_worker_result or request_correction")
 	}
 	if p.RetryConvergence != nil && (p.ActionID != "dispatch_worker" || !p.RetryConvergence.valid()) {
 		return newFailure(KindInvalidPayload, "fold_event", "retry_convergence requires a dispatch and a complete convergence basis", false, "record the convergence basis derived by the store")

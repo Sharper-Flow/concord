@@ -191,20 +191,25 @@ def load_workflow_action_contracts() -> tuple[list[dict], list[dict]]:
     if not actions or len({action.get("id") for action in actions}) != len(actions):
         fail("workflow action contract projection has no unique actions")
     for action in actions:
-        if set(action) != {"id", "payload", "public_payload", "legacy_payloads"}:
+        if set(action) != {"id", "variants", "legacy_payloads"}:
             fail("workflow action contract projection contains an open record")
-        for payload_key in ("payload", "public_payload"):
-            if set(action[payload_key]) - {"closed", "fields"}:
-                fail("workflow action contract projection contains an open payload")
-            if action[payload_key].get("closed") is not True:
-                fail(f"current workflow action {payload_key} is not closed: {action.get('id')}")
+        if not action["variants"]:
+            fail(f"workflow action contract projection names no variant: {action.get('id')}")
+        for variant in action["variants"]:
+            if set(variant) != {"payload", "public_payload"}:
+                fail(f"workflow action variant is an open record: {action.get('id')}")
+            for payload_key in ("payload", "public_payload"):
+                if set(variant[payload_key]) - {"closed", "fields"}:
+                    fail("workflow action contract projection contains an open payload")
+                if variant[payload_key].get("closed") is not True:
+                    fail(f"current workflow action {payload_key} is not closed: {action.get('id')}")
         if not isinstance(action["legacy_payloads"], list):
             fail(f"legacy workflow action payloads are not a list: {action.get('id')}")
         for legacy in action["legacy_payloads"]:
             if set(legacy) - {"closed", "fields"}:
                 fail(f"legacy workflow action payload is an open record: {action.get('id')}")
-            if legacy.get("closed") is not True or legacy.get("fields"):
-                fail(f"legacy workflow action payload is not an empty closed payload: {action.get('id')}")
+            if legacy.get("closed") is not True:
+                fail(f"legacy workflow action payload is not closed: {action.get('id')}")
     workflows = projection["workflows"]
     if not workflows or len({workflow.get("ref") for workflow in workflows}) != len(workflows):
         fail("workflow outcome contract projection has no unique workflows")
@@ -216,6 +221,29 @@ def load_workflow_action_contracts() -> tuple[list[dict], list[dict]]:
         if not isinstance(workflow["allowed_outcome_tokens"], list):
             fail(f"workflow outcome contract projection has no token list: {workflow.get('ref')}")
     return actions, workflows
+
+
+def single_variant(action: dict) -> dict:
+    """The one payload half of an action that must stay single-shaped.
+
+    Some projections name one action's payload directly (the design-content
+    def, the confirm_premise envelope fields, the supersede fieldset). An
+    action with several current variants cannot feed them without silently
+    choosing a branch, so the demand itself must fail loudly.
+    """
+    if len(action["variants"]) != 1:
+        fail(f"action {action['id']} carries {len(action['variants'])} current variants; this projection requires exactly one")
+    return action["variants"][0]
+
+
+def action_is_shared(action: dict) -> bool:
+    """An action is shared when every variant's public half equals its payload.
+
+    dispatch_worker is the divergent one: its public half replaces the
+    payload at the agent boundary. With variants, divergence is a property
+    of the whole pair set, not of one payload.
+    """
+    return all(variant["payload"] == variant["public_payload"] for variant in action["variants"])
 
 
 def workflow_allowed_tokens_description(workflows: list[dict]) -> str:
@@ -451,7 +479,7 @@ def project_workflow_action_schema(document: dict, actions: list[dict], workflow
     defs["decision_record_text"] = {"type": "string", "minLength": 2, "maxLength": 128}
     defs["native_report_timestamp"] = {"type": "string", "minLength": 20, "maxLength": 64, "format": "date-time"}
     design_action = next(action for action in actions if action["id"] == "record_design")
-    defs["workflow_design_content"] = workflow_payload_object_schema(design_action["payload"], defs)
+    defs["workflow_design_content"] = workflow_payload_object_schema(single_variant(design_action)["payload"], defs)
 
     outer_properties = copy.deepcopy(common)
     # The registry declares the envelope-carried fields once: the generator
@@ -459,7 +487,7 @@ def project_workflow_action_schema(document: dict, actions: list[dict], workflow
     # level, so the work pin (required_fields), this envelope schema, and the
     # store validator read one declaration and cannot drift.
     confirm_action = next(action for action in actions if action["id"] == "confirm_premise")
-    for field in confirm_action["payload"]["fields"]:
+    for field in single_variant(confirm_action)["payload"]["fields"]:
         if not field.get("envelope"):
             continue
         outer_properties[field["name"]] = workflow_payload_field_schema(field, defs)
@@ -468,7 +496,7 @@ def project_workflow_action_schema(document: dict, actions: list[dict], workflow
     def action_condition(action: dict, payload_key: str) -> dict:
         action_id = action["id"]
         if action_id == "confirm_premise":
-            projected = [field["name"] for field in action[payload_key]["fields"] if field.get("envelope") and field.get("required")]
+            projected = [field["name"] for field in single_variant(action)["payload"]["fields"] if field.get("envelope") and field.get("required")]
             then = {"required": projected, "not": {"required": ["fields"]}}
         else:
             def payload_branch(payload: dict) -> dict:
@@ -483,16 +511,24 @@ def project_workflow_action_schema(document: dict, actions: list[dict], workflow
                     branch["required"] = ["fields"]
                 return branch
 
-            branches = [payload_branch(action[payload_key])]
+            # CON-890: an action whose current families declare different
+            # closed fieldsets publishes as the union of those exact closed
+            # alternatives (its variants), plus the retained shapes that stay
+            # authorable because live work items pin them (legacy_payloads).
+            # Each branch is one whole closed object a registered definition
+            # declares; the union never merges fields into a shape no
+            # definition allows, and the store still validates each call
+            # against the pinned definition version.
+            branches = [payload_branch(variant[payload_key]) for variant in action["variants"]]
             branches.extend(payload_branch(legacy) for legacy in action["legacy_payloads"])
             then = branches[0] if len(branches) == 1 else {"anyOf": branches}
         return {"if": {"properties": {"action_id": {"const": action_id}}, "required": ["action_id"]}, "then": then}
 
-    shared_actions = [action for action in actions if action["payload"] == action["public_payload"]]
-    divergent_actions = [action for action in actions if action["payload"] != action["public_payload"]]
+    shared_actions = [action for action in actions if action_is_shared(action)]
+    divergent_actions = [action for action in actions if not action_is_shared(action)]
     shared_conditions = [action_condition(action, "payload") for action in shared_actions]
     supersede_action = next(action for action in actions if action["id"] == "supersede_contract")
-    shared_conditions.append({"if": {"properties": {"action_id": {"const": "supersede_contract"}}, "required": ["action_id"]}, "then": {"required": ["fields"], "properties": {"fields": workflow_supersede_fields_schema(defs, supersede_action["payload"])}, "not": {"anyOf": [{"required": ["selected_choice"]}, {"required": ["decision_context_digest"]}]}}})
+    shared_conditions.append({"if": {"properties": {"action_id": {"const": "supersede_contract"}}, "required": ["action_id"]}, "then": {"required": ["fields"], "properties": {"fields": workflow_supersede_fields_schema(defs, single_variant(supersede_action)["payload"])}, "not": {"anyOf": [{"required": ["selected_choice"]}, {"required": ["decision_context_digest"]}]}}})
     defs["work_transition_action_shared_input"] = {"type": "object", "additionalProperties": False, "required": common_required, "properties": copy.deepcopy(outer_properties), "allOf": shared_conditions}
     wrapper = {"type": "object", "additionalProperties": False, "required": common_required, "properties": copy.deepcopy(outer_properties)}
     defs["work_transition_action_input"] = copy.deepcopy(wrapper) | {"allOf": [{"$ref": "#/$defs/work_transition_action_shared_input"}] + [action_condition(action, "payload") for action in divergent_actions]}

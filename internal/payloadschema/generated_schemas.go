@@ -5668,6 +5668,7 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "string"
         },
         "evidence_refs": {
+          "description": "The evidence that supports the finding. A ranked finding without an oracle tie projects null; the core reader owns that wire shape.",
           "items": {
             "maxLength": 256,
             "minLength": 1,
@@ -5675,7 +5676,10 @@ const GeneratedPayloadSchemaDocument = `{
           },
           "maxItems": 8,
           "minItems": 0,
-          "type": "array"
+          "type": [
+            "array",
+            "null"
+          ]
         },
         "finding_id": {
           "description": "Core-derived from the source event sequence and ordinal; never authored.",
@@ -5683,7 +5687,9 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "string"
         },
         "kind": {
+          "description": "The generic claim vocabulary of an authored finding. A ranked oracle finding projects the empty kind: its identity is the oracle tie, never a generic claim class.",
           "enum": [
+            "",
             "observation",
             "inference",
             "hypothesis",
@@ -5693,6 +5699,10 @@ const GeneratedPayloadSchemaDocument = `{
             "direction"
           ],
           "type": "string"
+        },
+        "oracle": {
+          "$ref": "#/$defs/worker_oracle_finding",
+          "description": "The typed oracle tie of a ranked review finding (CON-890): classification plus the owner, predicate/law, case, and control references that bind it."
         },
         "ordinal": {
           "minimum": 0,
@@ -5718,14 +5728,25 @@ const GeneratedPayloadSchemaDocument = `{
           "minimum": 1,
           "type": "integer"
         },
+        "source_kind": {
+          "description": "Present only on a ranked review finding (CON-890): the entry carries an oracle tie and rides the open-set lineage, never the generic worker-claim notebook.",
+          "enum": [
+            "review_finding"
+          ],
+          "type": "string"
+        },
         "statement": {
           "maxLength": 1024,
           "minLength": 1,
           "type": "string"
         },
         "status": {
-          "const": "reported",
-          "description": "A finding is a reported claim, never acceptance."
+          "description": "A finding is a reported claim, never acceptance. The open status names a ranked review finding the lineage currently holds open (CON-890): still a claim, and open.",
+          "enum": [
+            "reported",
+            "open"
+          ],
+          "type": "string"
         },
         "subject_ref": {
           "maxLength": 128,
@@ -5849,6 +5870,12 @@ const GeneratedPayloadSchemaDocument = `{
     "work_context_view": {
       "additionalProperties": false,
       "properties": {
+        "candidate_subject": {
+          "description": "The core-derived observed candidate subject of the current dispatch (CON-890 seam): the exact commit or tree the oracle controls execute against. The only subject oracle receipts may quote as candidate_subject.",
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
         "domain_groups": {
           "items": {
             "$ref": "#/$defs/work_context_domain_group"
@@ -5862,6 +5889,15 @@ const GeneratedPayloadSchemaDocument = `{
             "$ref": "#/$defs/work_context_finding_view"
           },
           "maxItems": 32,
+          "minItems": 0,
+          "type": "array"
+        },
+        "oracle_receipts": {
+          "description": "The prior typed control-execution receipts this work retained (CON-890), in log order: reported regression baselines with their exact identities, never current-subject acceptance.",
+          "items": {
+            "$ref": "#/$defs/worker_oracle_receipt"
+          },
+          "maxItems": 64,
           "minItems": 0,
           "type": "array"
         },
@@ -8659,56 +8695,102 @@ const GeneratedPayloadSchemaDocument = `{
             ]
           },
           "then": {
-            "not": {
-              "anyOf": [
-                {
-                  "required": [
-                    "selected_choice"
+            "anyOf": [
+              {
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "selected_choice"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "decision_context_digest"
+                      ]
+                    }
                   ]
                 },
-                {
-                  "required": [
-                    "decision_context_digest"
-                  ]
-                }
-              ]
-            },
-            "properties": {
-              "fields": {
-                "additionalProperties": false,
-                "maxProperties": 32,
                 "properties": {
-                  "attempt_epoch": {
-                    "maximum": 2147483647,
-                    "minimum": 1,
-                    "type": "integer"
-                  },
-                  "attempt_id": {
-                    "$ref": "#/$defs/reference",
-                    "maxLength": 128,
-                    "minLength": 2
-                  },
-                  "delivery_artifact": {
-                    "$ref": "#/$defs/reference",
-                    "maxLength": 128,
-                    "minLength": 2
-                  },
-                  "delivery_state": {
-                    "enum": [
-                      "asserted"
+                  "fields": {
+                    "additionalProperties": false,
+                    "maxProperties": 32,
+                    "properties": {
+                      "attempt_epoch": {
+                        "maximum": 2147483647,
+                        "minimum": 1,
+                        "type": "integer"
+                      },
+                      "attempt_id": {
+                        "$ref": "#/$defs/reference",
+                        "maxLength": 128,
+                        "minLength": 2
+                      },
+                      "delivery_artifact": {
+                        "$ref": "#/$defs/reference",
+                        "maxLength": 128,
+                        "minLength": 2
+                      },
+                      "delivery_state": {
+                        "enum": [
+                          "asserted"
+                        ],
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "attempt_id",
+                      "attempt_epoch"
                     ],
-                    "type": "string"
+                    "type": "object"
                   }
                 },
                 "required": [
-                  "attempt_id",
-                  "attempt_epoch"
-                ],
-                "type": "object"
+                  "fields"
+                ]
+              },
+              {
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "selected_choice"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "decision_context_digest"
+                      ]
+                    }
+                  ]
+                },
+                "properties": {
+                  "fields": {
+                    "additionalProperties": false,
+                    "maxProperties": 32,
+                    "properties": {
+                      "attempt_epoch": {
+                        "maximum": 2147483647,
+                        "minimum": 1,
+                        "type": "integer"
+                      },
+                      "attempt_id": {
+                        "$ref": "#/$defs/reference",
+                        "maxLength": 128,
+                        "minLength": 2
+                      }
+                    },
+                    "required": [
+                      "attempt_id",
+                      "attempt_epoch"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "fields"
+                ]
               }
-            },
-            "required": [
-              "fields"
             ]
           }
         },
@@ -10810,6 +10892,88 @@ const GeneratedPayloadSchemaDocument = `{
                     "type": "object"
                   }
                 }
+              },
+              {
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "selected_choice"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "decision_context_digest"
+                      ]
+                    }
+                  ]
+                },
+                "properties": {
+                  "fields": {
+                    "additionalProperties": false,
+                    "maxProperties": 32,
+                    "properties": {
+                      "affected": {
+                        "items": {
+                          "$ref": "#/$defs/proposal_affected_text"
+                        },
+                        "maxItems": 16,
+                        "minItems": 1,
+                        "type": "array",
+                        "uniqueItems": true
+                      },
+                      "constraints": {
+                        "items": {
+                          "$ref": "#/$defs/proposal_text"
+                        },
+                        "maxItems": 16,
+                        "minItems": 0,
+                        "type": "array",
+                        "uniqueItems": true
+                      },
+                      "open_questions": {
+                        "items": {
+                          "$ref": "#/$defs/proposal_text"
+                        },
+                        "maxItems": 16,
+                        "minItems": 0,
+                        "type": "array",
+                        "uniqueItems": true
+                      },
+                      "problem": {
+                        "maxLength": 4096,
+                        "minLength": 1,
+                        "pattern": "\\S",
+                        "type": "string"
+                      },
+                      "stakes": {
+                        "maxLength": 2048,
+                        "minLength": 1,
+                        "pattern": "\\S",
+                        "type": "string"
+                      },
+                      "user_outcomes": {
+                        "items": {
+                          "$ref": "#/$defs/proposal_text"
+                        },
+                        "maxItems": 16,
+                        "minItems": 1,
+                        "type": "array",
+                        "uniqueItems": true
+                      }
+                    },
+                    "required": [
+                      "problem",
+                      "affected",
+                      "stakes",
+                      "user_outcomes"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "fields"
+                ]
               }
             ]
           }
@@ -11243,116 +11407,237 @@ const GeneratedPayloadSchemaDocument = `{
             ]
           },
           "then": {
-            "not": {
-              "anyOf": [
-                {
-                  "required": [
-                    "selected_choice"
+            "anyOf": [
+              {
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "selected_choice"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "decision_context_digest"
+                      ]
+                    }
                   ]
                 },
-                {
-                  "required": [
-                    "decision_context_digest"
-                  ]
-                }
-              ]
-            },
-            "properties": {
-              "fields": {
-                "additionalProperties": false,
-                "maxProperties": 32,
                 "properties": {
-                  "checks": {
-                    "items": {
-                      "$ref": "#/$defs/worker_job_text"
+                  "fields": {
+                    "additionalProperties": false,
+                    "maxProperties": 32,
+                    "properties": {
+                      "acceptance_oracle": {
+                        "$ref": "#/$defs/worker_acceptance_oracle"
+                      },
+                      "checks": {
+                        "items": {
+                          "$ref": "#/$defs/worker_job_text"
+                        },
+                        "maxItems": 64,
+                        "minItems": 0,
+                        "type": "array",
+                        "uniqueItems": true
+                      },
+                      "job_id": {
+                        "$ref": "#/$defs/reference",
+                        "maxLength": 128,
+                        "minLength": 2
+                      },
+                      "objective": {
+                        "maxLength": 4096,
+                        "minLength": 1,
+                        "pattern": "\\S",
+                        "type": "string"
+                      },
+                      "path_scope": {
+                        "items": {
+                          "$ref": "#/$defs/reference"
+                        },
+                        "maxItems": 64,
+                        "minItems": 0,
+                        "type": "array",
+                        "uniqueItems": true
+                      },
+                      "predicate_ids": {
+                        "items": {
+                          "$ref": "#/$defs/id"
+                        },
+                        "maxItems": 8,
+                        "minItems": 0,
+                        "type": "array",
+                        "uniqueItems": true
+                      },
+                      "prerequisites": {
+                        "items": {
+                          "$ref": "#/$defs/worker_job_prerequisite"
+                        },
+                        "maxItems": 64,
+                        "minItems": 0,
+                        "type": "array"
+                      },
+                      "readiness_evidence": {
+                        "items": {
+                          "$ref": "#/$defs/reference"
+                        },
+                        "maxItems": 16,
+                        "minItems": 0,
+                        "type": "array",
+                        "uniqueItems": true
+                      },
+                      "ready": {
+                        "type": "boolean"
+                      },
+                      "reserved_integration": {
+                        "maxLength": 4096,
+                        "minLength": 1,
+                        "pattern": "\\S",
+                        "type": "string"
+                      },
+                      "stopping_condition": {
+                        "maxLength": 2048,
+                        "minLength": 1,
+                        "pattern": "\\S",
+                        "type": "string"
+                      },
+                      "unresolved_refs": {
+                        "items": {
+                          "$ref": "#/$defs/worker_job_text"
+                        },
+                        "maxItems": 64,
+                        "minItems": 0,
+                        "type": "array",
+                        "uniqueItems": true
+                      }
                     },
-                    "maxItems": 64,
-                    "minItems": 0,
-                    "type": "array",
-                    "uniqueItems": true
-                  },
-                  "job_id": {
-                    "$ref": "#/$defs/reference",
-                    "maxLength": 128,
-                    "minLength": 2
-                  },
-                  "objective": {
-                    "maxLength": 4096,
-                    "minLength": 1,
-                    "pattern": "\\S",
-                    "type": "string"
-                  },
-                  "path_scope": {
-                    "items": {
-                      "$ref": "#/$defs/reference"
-                    },
-                    "maxItems": 64,
-                    "minItems": 0,
-                    "type": "array",
-                    "uniqueItems": true
-                  },
-                  "predicate_ids": {
-                    "items": {
-                      "$ref": "#/$defs/id"
-                    },
-                    "maxItems": 8,
-                    "minItems": 0,
-                    "type": "array",
-                    "uniqueItems": true
-                  },
-                  "prerequisites": {
-                    "items": {
-                      "$ref": "#/$defs/worker_job_prerequisite"
-                    },
-                    "maxItems": 64,
-                    "minItems": 0,
-                    "type": "array"
-                  },
-                  "readiness_evidence": {
-                    "items": {
-                      "$ref": "#/$defs/reference"
-                    },
-                    "maxItems": 16,
-                    "minItems": 0,
-                    "type": "array",
-                    "uniqueItems": true
-                  },
-                  "ready": {
-                    "type": "boolean"
-                  },
-                  "reserved_integration": {
-                    "maxLength": 4096,
-                    "minLength": 1,
-                    "pattern": "\\S",
-                    "type": "string"
-                  },
-                  "stopping_condition": {
-                    "maxLength": 2048,
-                    "minLength": 1,
-                    "pattern": "\\S",
-                    "type": "string"
-                  },
-                  "unresolved_refs": {
-                    "items": {
-                      "$ref": "#/$defs/worker_job_text"
-                    },
-                    "maxItems": 64,
-                    "minItems": 0,
-                    "type": "array",
-                    "uniqueItems": true
+                    "required": [
+                      "job_id",
+                      "objective",
+                      "stopping_condition",
+                      "ready",
+                      "acceptance_oracle"
+                    ],
+                    "type": "object"
                   }
                 },
                 "required": [
-                  "job_id",
-                  "objective",
-                  "stopping_condition",
-                  "ready"
-                ],
-                "type": "object"
+                  "fields"
+                ]
+              },
+              {
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "selected_choice"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "decision_context_digest"
+                      ]
+                    }
+                  ]
+                },
+                "properties": {
+                  "fields": {
+                    "additionalProperties": false,
+                    "maxProperties": 32,
+                    "properties": {
+                      "checks": {
+                        "items": {
+                          "$ref": "#/$defs/worker_job_text"
+                        },
+                        "maxItems": 64,
+                        "minItems": 0,
+                        "type": "array",
+                        "uniqueItems": true
+                      },
+                      "job_id": {
+                        "$ref": "#/$defs/reference",
+                        "maxLength": 128,
+                        "minLength": 2
+                      },
+                      "objective": {
+                        "maxLength": 4096,
+                        "minLength": 1,
+                        "pattern": "\\S",
+                        "type": "string"
+                      },
+                      "path_scope": {
+                        "items": {
+                          "$ref": "#/$defs/reference"
+                        },
+                        "maxItems": 64,
+                        "minItems": 0,
+                        "type": "array",
+                        "uniqueItems": true
+                      },
+                      "predicate_ids": {
+                        "items": {
+                          "$ref": "#/$defs/id"
+                        },
+                        "maxItems": 8,
+                        "minItems": 0,
+                        "type": "array",
+                        "uniqueItems": true
+                      },
+                      "prerequisites": {
+                        "items": {
+                          "$ref": "#/$defs/worker_job_prerequisite"
+                        },
+                        "maxItems": 64,
+                        "minItems": 0,
+                        "type": "array"
+                      },
+                      "readiness_evidence": {
+                        "items": {
+                          "$ref": "#/$defs/reference"
+                        },
+                        "maxItems": 16,
+                        "minItems": 0,
+                        "type": "array",
+                        "uniqueItems": true
+                      },
+                      "ready": {
+                        "type": "boolean"
+                      },
+                      "reserved_integration": {
+                        "maxLength": 4096,
+                        "minLength": 1,
+                        "pattern": "\\S",
+                        "type": "string"
+                      },
+                      "stopping_condition": {
+                        "maxLength": 2048,
+                        "minLength": 1,
+                        "pattern": "\\S",
+                        "type": "string"
+                      },
+                      "unresolved_refs": {
+                        "items": {
+                          "$ref": "#/$defs/worker_job_text"
+                        },
+                        "maxItems": 64,
+                        "minItems": 0,
+                        "type": "array",
+                        "uniqueItems": true
+                      }
+                    },
+                    "required": [
+                      "job_id",
+                      "objective",
+                      "stopping_condition",
+                      "ready"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "fields"
+                ]
               }
-            },
-            "required": [
-              "fields"
             ]
           }
         },
@@ -11465,67 +11750,144 @@ const GeneratedPayloadSchemaDocument = `{
             ]
           },
           "then": {
-            "not": {
-              "anyOf": [
-                {
-                  "required": [
-                    "selected_choice"
+            "anyOf": [
+              {
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "selected_choice"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "decision_context_digest"
+                      ]
+                    }
                   ]
                 },
-                {
-                  "required": [
-                    "decision_context_digest"
-                  ]
-                }
-              ]
-            },
-            "properties": {
-              "fields": {
-                "additionalProperties": false,
-                "maxProperties": 32,
                 "properties": {
-                  "diagnosis": {
-                    "maxLength": 4096,
-                    "minLength": 1,
-                    "pattern": "\\S",
-                    "type": "string"
-                  },
-                  "evidence_refs": {
-                    "items": {
-                      "$ref": "#/$defs/reference"
+                  "fields": {
+                    "additionalProperties": false,
+                    "maxProperties": 32,
+                    "properties": {
+                      "diagnosis": {
+                        "maxLength": 4096,
+                        "minLength": 1,
+                        "pattern": "\\S",
+                        "type": "string"
+                      },
+                      "evidence_refs": {
+                        "items": {
+                          "$ref": "#/$defs/reference"
+                        },
+                        "maxItems": 32,
+                        "minItems": 1,
+                        "type": "array",
+                        "uniqueItems": true
+                      },
+                      "open_finding_ids": {
+                        "items": {
+                          "$ref": "#/$defs/id"
+                        },
+                        "maxItems": 32,
+                        "minItems": 1,
+                        "type": "array",
+                        "uniqueItems": true
+                      },
+                      "predicate_ids": {
+                        "items": {
+                          "$ref": "#/$defs/reference"
+                        },
+                        "maxItems": 8,
+                        "minItems": 1,
+                        "type": "array",
+                        "uniqueItems": true
+                      },
+                      "strategy": {
+                        "maxLength": 4096,
+                        "minLength": 1,
+                        "pattern": "\\S",
+                        "type": "string"
+                      }
                     },
-                    "maxItems": 32,
-                    "minItems": 1,
-                    "type": "array",
-                    "uniqueItems": true
-                  },
-                  "predicate_ids": {
-                    "items": {
-                      "$ref": "#/$defs/reference"
-                    },
-                    "maxItems": 8,
-                    "minItems": 1,
-                    "type": "array",
-                    "uniqueItems": true
-                  },
-                  "strategy": {
-                    "maxLength": 4096,
-                    "minLength": 1,
-                    "pattern": "\\S",
-                    "type": "string"
+                    "required": [
+                      "diagnosis",
+                      "strategy",
+                      "predicate_ids",
+                      "evidence_refs"
+                    ],
+                    "type": "object"
                   }
                 },
                 "required": [
-                  "diagnosis",
-                  "strategy",
-                  "predicate_ids",
-                  "evidence_refs"
-                ],
-                "type": "object"
+                  "fields"
+                ]
+              },
+              {
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "selected_choice"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "decision_context_digest"
+                      ]
+                    }
+                  ]
+                },
+                "properties": {
+                  "fields": {
+                    "additionalProperties": false,
+                    "maxProperties": 32,
+                    "properties": {
+                      "diagnosis": {
+                        "maxLength": 4096,
+                        "minLength": 1,
+                        "pattern": "\\S",
+                        "type": "string"
+                      },
+                      "evidence_refs": {
+                        "items": {
+                          "$ref": "#/$defs/reference"
+                        },
+                        "maxItems": 32,
+                        "minItems": 1,
+                        "type": "array",
+                        "uniqueItems": true
+                      },
+                      "predicate_ids": {
+                        "items": {
+                          "$ref": "#/$defs/reference"
+                        },
+                        "maxItems": 8,
+                        "minItems": 1,
+                        "type": "array",
+                        "uniqueItems": true
+                      },
+                      "strategy": {
+                        "maxLength": 4096,
+                        "minLength": 1,
+                        "pattern": "\\S",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "diagnosis",
+                      "strategy",
+                      "predicate_ids",
+                      "evidence_refs"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "fields"
+                ]
               }
-            },
-            "required": [
-              "fields"
             ]
           }
         },
@@ -13089,6 +13451,42 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "object"
     },
+    "worker_acceptance_oracle": {
+      "additionalProperties": false,
+      "description": "The CON-890 owner-level acceptance oracle: typed immutable worker-job content. Owners with obligations, a finite case inventory, and executable controls with exact evidence requirements. The store validates the closed graph and its authority joins; the serialized oracle content is bounded by the store at 32 KiB and refused whole on overflow, never truncated.",
+      "properties": {
+        "cases": {
+          "items": {
+            "$ref": "#/$defs/worker_oracle_case"
+          },
+          "maxItems": 64,
+          "minItems": 1,
+          "type": "array"
+        },
+        "controls": {
+          "items": {
+            "$ref": "#/$defs/worker_oracle_control"
+          },
+          "maxItems": 64,
+          "minItems": 1,
+          "type": "array"
+        },
+        "owners": {
+          "items": {
+            "$ref": "#/$defs/worker_oracle_owner"
+          },
+          "maxItems": 8,
+          "minItems": 1,
+          "type": "array"
+        }
+      },
+      "required": [
+        "owners",
+        "cases",
+        "controls"
+      ],
+      "type": "object"
+    },
     "worker_evidence_failure_result": {
       "additionalProperties": false,
       "properties": {
@@ -13178,6 +13576,483 @@ const GeneratedPayloadSchemaDocument = `{
       "maxLength": 256,
       "minLength": 1,
       "type": "string"
+    },
+    "worker_oracle_case": {
+      "additionalProperties": false,
+      "properties": {
+        "case_id": {
+          "description": "A stable case: identity, unique within this work item.",
+          "maxLength": 128,
+          "minLength": 6,
+          "pattern": "^case:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
+          "type": "string"
+        },
+        "control_ids": {
+          "items": {
+            "maxLength": 128,
+            "minLength": 9,
+            "pattern": "^control:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
+            "type": "string"
+          },
+          "maxItems": 8,
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "entry_point": {
+          "description": "The named entry path or transition this case exercises.",
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "expected_state": {
+          "description": "A bounded description of the expected state, never a new predicate DSL.",
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "input_class": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "owner_id": {
+          "maxLength": 128,
+          "minLength": 7,
+          "pattern": "^owner:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "case_id",
+        "owner_id",
+        "entry_point",
+        "input_class",
+        "expected_state",
+        "control_ids"
+      ],
+      "type": "object"
+    },
+    "worker_oracle_control": {
+      "additionalProperties": false,
+      "properties": {
+        "argv": {
+          "description": "The exact argument vector, never shell text.",
+          "items": {
+            "maxLength": 512,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 32,
+          "minItems": 1,
+          "type": "array"
+        },
+        "case_ids": {
+          "items": {
+            "maxLength": 128,
+            "minLength": 6,
+            "pattern": "^case:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
+            "type": "string"
+          },
+          "maxItems": 64,
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "control_id": {
+          "description": "A stable control: identity, unique within this work item.",
+          "maxLength": 128,
+          "minLength": 9,
+          "pattern": "^control:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
+          "type": "string"
+        },
+        "cwd": {
+          "description": "A contained relative working directory.",
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "expected_result": {
+          "description": "The declared exit-status result the harness must produce. Slice A admits pass (exit 0) only.",
+          "enum": [
+            "pass"
+          ],
+          "type": "string"
+        },
+        "owner_id": {
+          "maxLength": 128,
+          "minLength": 7,
+          "pattern": "^owner:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
+          "type": "string"
+        },
+        "predicate_ids": {
+          "description": "The parent-approved predicates this control exercises.",
+          "items": {
+            "maxLength": 128,
+            "minLength": 11,
+            "pattern": "^predicate:[A-Za-z0-9][A-Za-z0-9._:-]*$",
+            "type": "string"
+          },
+          "maxItems": 8,
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "readiness_evidence_refs": {
+          "description": "The retained evidence that proves the harness resolves and the test selector is nonempty: an evidence binding or native-run record this work already retains.",
+          "items": {
+            "maxLength": 2048,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 8,
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "recipe_source": {
+          "$ref": "#/$defs/work_context_reading_source_repository_file",
+          "description": "The pinned harness source (CON-890): a repository file at an exact commit. It identifies the acceptance harness, not the delivered subject; the harness may intentionally come from an earlier immutable commit. The adapter verifies the Git object and path resolve before dispatch authorization."
+        },
+        "required_evidence_role": {
+          "description": "The evidence role the control's receipt must carry.",
+          "enum": [
+            "reported",
+            "independently_executed"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "control_id",
+        "owner_id",
+        "predicate_ids",
+        "case_ids",
+        "recipe_source",
+        "argv",
+        "cwd",
+        "expected_result",
+        "required_evidence_role",
+        "readiness_evidence_refs"
+      ],
+      "type": "object"
+    },
+    "worker_oracle_finding": {
+      "additionalProperties": false,
+      "description": "The typed oracle tie of one review finding (CON-890): a closed classification plus the owner, predicate/law, case, and control references that bind it. Classification and severity are different dimensions; the tie records no acceptance.",
+      "properties": {
+        "case_ids": {
+          "items": {
+            "maxLength": 128,
+            "minLength": 6,
+            "pattern": "^case:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
+            "type": "string"
+          },
+          "maxItems": 8,
+          "minItems": 0,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "classification": {
+          "description": "delivery_blocker: a failed obligation of a declared owner. uncovered_case: a legitimate new entry path the inventory omitted — a real blocker, not a rejection. follow_up: outside the approved owner/contract; never an open repair criterion. oracle_defect: the harness itself is obsolete, inconsistent, or unsound; it blocks readiness, not a fabricated repair.",
+          "enum": [
+            "delivery_blocker",
+            "uncovered_case",
+            "follow_up",
+            "oracle_defect"
+          ],
+          "type": "string"
+        },
+        "continues_finding_id": {
+          "description": "The earlier ranked finding of this work that this finding continues. Same failure, same canonical open identity; an uncertain join becomes a new finding and earns no shrink credit.",
+          "maxLength": 64,
+          "minLength": 11,
+          "pattern": "^finding:[0-9]+:[0-9]+$",
+          "type": "string"
+        },
+        "control_ids": {
+          "items": {
+            "maxLength": 128,
+            "minLength": 9,
+            "pattern": "^control:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
+            "type": "string"
+          },
+          "maxItems": 8,
+          "minItems": 0,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "entry_point": {
+          "description": "For an uncovered_case: the explicit new entry path or transition the inventory omitted.",
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "evidence_refs": {
+          "description": "The reproducible evidence that supports the finding. A known control failure names that control's receipt.",
+          "items": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 8,
+          "minItems": 0,
+          "type": "array"
+        },
+        "failure_family": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "law_bindings": {
+          "items": {
+            "$ref": "#/$defs/worker_oracle_law_binding"
+          },
+          "maxItems": 8,
+          "minItems": 0,
+          "type": "array"
+        },
+        "owner_id": {
+          "maxLength": 128,
+          "minLength": 7,
+          "pattern": "^owner:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
+          "type": "string"
+        },
+        "predicate_ids": {
+          "items": {
+            "maxLength": 128,
+            "minLength": 11,
+            "pattern": "^predicate:[A-Za-z0-9][A-Za-z0-9._:-]*$",
+            "type": "string"
+          },
+          "maxItems": 8,
+          "minItems": 0,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "variant_of": {
+          "description": "The owner-family finding this newly reproduced alternate entry path is a variant of. A variant is a new identity, not the same open finding.",
+          "maxLength": 64,
+          "minLength": 11,
+          "pattern": "^finding:[0-9]+:[0-9]+$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "classification"
+      ],
+      "type": "object"
+    },
+    "worker_oracle_law_binding": {
+      "additionalProperties": false,
+      "description": "One pinned law revision that explains an owner's obligation, plus the clause or criterion it serves.",
+      "properties": {
+        "clause": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/work_context_reading_source_knowledge"
+        }
+      },
+      "required": [
+        "source",
+        "clause"
+      ],
+      "type": "object"
+    },
+    "worker_oracle_mechanism": {
+      "additionalProperties": false,
+      "description": "The source-level owner of one obligation (CON-890): the Project that owns the repository, one contained source path, and the symbol or entry point that owns the behavior. A directory name alone does not identify a mechanism.",
+      "properties": {
+        "entry_point": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "path": {
+          "description": "A normalized relative repository-contained source path.",
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "project_id": {
+          "maxLength": 128,
+          "minLength": 2,
+          "type": "string"
+        }
+      },
+      "required": [
+        "project_id",
+        "path",
+        "entry_point"
+      ],
+      "type": "object"
+    },
+    "worker_oracle_owner": {
+      "additionalProperties": false,
+      "properties": {
+        "domain_id": {
+          "description": "An approved affected Domain of the active parent contract, validated against the current Product registry at admission.",
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "law_bindings": {
+          "items": {
+            "$ref": "#/$defs/worker_oracle_law_binding"
+          },
+          "maxItems": 8,
+          "minItems": 0,
+          "type": "array"
+        },
+        "mechanism": {
+          "$ref": "#/$defs/worker_oracle_mechanism"
+        },
+        "obligation": {
+          "description": "The bounded invariant statement this owner owes.",
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "owner_id": {
+          "description": "A stable owner: identity, unique within this work item.",
+          "maxLength": 128,
+          "minLength": 7,
+          "pattern": "^owner:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
+          "type": "string"
+        },
+        "predicate_ids": {
+          "description": "The parent-approved predicates this owner covers.",
+          "items": {
+            "maxLength": 128,
+            "minLength": 11,
+            "pattern": "^predicate:[A-Za-z0-9][A-Za-z0-9._:-]*$",
+            "type": "string"
+          },
+          "maxItems": 8,
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "owner_id",
+        "domain_id",
+        "mechanism",
+        "obligation",
+        "predicate_ids"
+      ],
+      "type": "object"
+    },
+    "worker_oracle_receipt": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "result": {
+                "enum": [
+                  "pass",
+                  "fail"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "result"
+            ]
+          },
+          "then": {
+            "properties": {
+              "run_ref": {
+                "minLength": 1
+              }
+            },
+            "required": [
+              "exit_code"
+            ]
+          }
+        }
+      ],
+      "description": "One typed control-execution receipt (CON-890): reported evidence, never native-run authority. A retained receipt is a prior-subject regression baseline; candidate_subject is host-derived identity, filled only from the packet's work context subject when the core supplied one. A timeout is unavailable evidence, not a measured failure.",
+      "properties": {
+        "candidate_subject": {
+          "description": "Host-derived observed subject identity. Dispatch-owned: a worker-authored value here is stripped before the canonical report; it is filled only from the packet's work context subject when the core supplied one.",
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "case_ids": {
+          "items": {
+            "maxLength": 128,
+            "minLength": 6,
+            "pattern": "^case:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
+            "type": "string"
+          },
+          "maxItems": 64,
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "control_ids": {
+          "items": {
+            "maxLength": 128,
+            "minLength": 9,
+            "pattern": "^control:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
+            "type": "string"
+          },
+          "maxItems": 8,
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "evidence_refs": {
+          "items": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 8,
+          "minItems": 0,
+          "type": "array"
+        },
+        "exit_code": {
+          "description": "Required exactly when result is pass or fail: the control's exit status.",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "recipe_source": {
+          "$ref": "#/$defs/work_context_reading_source_repository_file",
+          "description": "The exact pinned harness identity a receipt executed: a repository file at an exact commit. A receipt names the recipe the control pinned, never the candidate's modified copy of the harness."
+        },
+        "result": {
+          "enum": [
+            "pass",
+            "fail",
+            "unavailable",
+            "not_run"
+          ],
+          "type": "string"
+        },
+        "run_ref": {
+          "description": "The immutable native-run or artifact locator of the execution. Nonempty exactly when result is pass or fail; a not_run or unavailable result carries the empty string and names its explanation in evidence_refs.",
+          "maxLength": 512,
+          "minLength": 0,
+          "type": "string"
+        }
+      },
+      "required": [
+        "control_ids",
+        "case_ids",
+        "recipe_source",
+        "result",
+        "run_ref",
+        "evidence_refs"
+      ],
+      "type": "object"
     },
     "worker_packet": {
       "additionalProperties": false,
@@ -13495,6 +14370,10 @@ const GeneratedPayloadSchemaDocument = `{
       "additionalProperties": false,
       "description": "The selected ready worker-job revision this attempt executes (CD-0205). The core refuses a packet whose worker_job is not a ready recorded revision with this exact content, and refuses the member on a pinned definition that predates worker jobs. inputs.task stays the complete parent contract premise; this object bounds the attempt's own objective.",
       "properties": {
+        "acceptance_oracle": {
+          "$ref": "#/$defs/worker_acceptance_oracle",
+          "description": "The CON-890 owner-level acceptance oracle of this immutable revision. Optional and omitted on every revision a pre-oracle definition recorded; required by oracle-capable definition versions. It enters the job digest and reaches every admitted lane through this same copy."
+        },
         "checks": {
           "items": {
             "maxLength": 256,

@@ -28,7 +28,7 @@
     },
     {
       "domain_id": "workflow-engine",
-      "include": [
+      "include": ["internal/store/worktrees_test.go", "internal/store/worktrees.go", "internal/store/work_context_test.go", "internal/store/work_context_packet_test.go", "internal/store/work_context.go",
         "internal/workflowcorpus/**", "internal/payloadschema/**", "internal/store/workflow*.go",
         "internal/store/fence*.go", "internal/store/workpin*.go", "internal/store/await_health*.go",
         "internal/store/checkpoint*_test.go", "contracts/workflow-*", "contracts/lane-step-dispatch*",
@@ -190,7 +190,6 @@
     {"path": "internal/store/worktree_verify_evidence_test.go", "candidate_domain_ids": ["work-coordination", "repository-verification"], "reason": "Verification evidence runs through the mixed worktree lease owner."},
     {"path": "internal/store/worktree_verify_finalization_test.go", "candidate_domain_ids": ["work-coordination", "repository-verification"], "reason": "Verification finalization runs through the mixed worktree lease owner."},
     {"path": "internal/store/worktree_verify_lease_recovery_test.go", "candidate_domain_ids": ["work-coordination", "repository-verification"], "reason": "Verification lease recovery runs through the mixed worktree lease owner."},
-    {"path": "internal/store/worktrees.go", "candidate_domain_ids": ["work-coordination", "agent-surface", "repository-verification"], "reason": "Claims, occupancy, session landing, reclamation, and exclusive verification share a file."},
     {"path": "internal/store/worktrees_audit_reclaim_test.go", "candidate_domain_ids": ["work-coordination", "agent-surface"], "reason": "Tests audit/reclaim through the mixed worktree/session lifecycle owner."},
     {"path": "internal/store/worktrees_claim_landing_record_test.go", "candidate_domain_ids": ["work-coordination", "agent-surface"], "reason": "Tests claim/landing records through the mixed worktree/session owner."},
     {"path": "internal/store/worktrees_claim_landing_test.go", "candidate_domain_ids": ["work-coordination", "agent-surface"], "reason": "Tests claim landing through the mixed worktree/session owner."},
@@ -199,7 +198,6 @@
     {"path": "internal/store/worktrees_reclaim_convergence_test.go", "candidate_domain_ids": ["work-coordination", "agent-surface"], "reason": "Tests convergence through the mixed worktree/session reclaim owner."},
     {"path": "internal/store/worktrees_reclaim_identity_test.go", "candidate_domain_ids": ["work-coordination", "agent-surface"], "reason": "Tests identity through the mixed worktree/session reclaim owner."},
     {"path": "internal/store/worktrees_reclaim_replay_test.go", "candidate_domain_ids": ["work-coordination", "agent-surface"], "reason": "Tests replay through the mixed worktree/session reclaim owner."},
-    {"path": "internal/store/worktrees_test.go", "candidate_domain_ids": ["work-coordination", "agent-surface", "repository-verification"], "reason": "Tests claims, occupancy, session lifecycle, and verification through one owner."},
     {"path": "internal/store/worktrees_tiers_test.go", "candidate_domain_ids": ["work-coordination", "agent-surface"], "reason": "Tests reclamation tiers through the mixed worktree/session owner."},
     {"path": "internal/store/worktrees_unpublished_lesson_test.go", "candidate_domain_ids": ["work-coordination", "product-memory"], "reason": "Tests reclamation preservation coupled to unpublished knowledge."}
   ],

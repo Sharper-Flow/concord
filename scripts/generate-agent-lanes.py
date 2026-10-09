@@ -175,6 +175,10 @@ def report_projection_constraints(report_schema: dict, lane: dict) -> list[str]:
     review_block = review
     review_findings = review["properties"]["findings"]
     review_finding = report_schema["$defs"]["review_finding"]
+    oracle_finding = report_schema["$defs"]["oracle_finding"]
+    oracle_receipt = report_schema["$defs"]["oracle_receipt"]
+    resolved_findings = review["properties"]["resolved_findings"]
+    resolved_finding = report_schema["$defs"]["resolved_finding"]
     worker_job = properties["worker_job"]
     return [
         "Report top-level shape: "
@@ -313,6 +317,60 @@ def report_projection_constraints(report_schema: dict, lane: dict) -> list[str]:
         f"type={review_finding['properties']['detail']['type']}, "
         f"minLength={review_finding['properties']['detail']['minLength']}, "
         f"maxLength={review_finding['properties']['detail']['maxLength']}.",
+        "review_finding.oracle: "
+        "optional object (CON-890); "
+        f"type={oracle_finding['type']}, "
+        f"additionalProperties={json.dumps(oracle_finding['additionalProperties'])}, "
+        f"required={json.dumps(oracle_finding['required'], ensure_ascii=False)}. "
+        "Tie a finding on an oracle-capable job to the oracle: `classification` is one of "
+        f"{', '.join(f'`{item}`' for item in oracle_finding['properties']['classification']['enum'])}. "
+        "A `delivery_blocker` or `uncovered_case` names the `owner_id` it blocks and the "
+        "`predicate_ids` and/or `law_bindings` that govern it, with `case_ids`/`control_ids` and "
+        "reproducible `evidence_refs`; a known control failure names that control. An "
+        "`uncovered_case` additionally names the omitted `entry_point`. A `follow_up` stays "
+        "outside the approved owner or contract and never becomes a repair criterion; an "
+        "`oracle_defect` names the unsound harness evidence and blocks readiness, not a "
+        "fabricated repair. `continues_finding_id` claims the same failure as an earlier ranked "
+        "finding; `variant_of` marks a newly reproduced alternate entry path as a new identity "
+        "beside its owner-family finding.",
+        "review.resolved_findings: "
+        "optional array (CON-890); "
+        f"type={resolved_findings['type']}, "
+        f"minItems={resolved_findings['minItems']}, "
+        f"maxItems={resolved_findings['maxItems']}, "
+        f"x-maxArrayBytes={resolved_findings['x-maxArrayBytes']}. "
+        "Claim the closure of a previously open ranked finding with its `finding_id` and the "
+        "independent current-subject `evidence_refs` its control requires. A claim is a claim: "
+        "omission, relabeling, or a confidence change never closes a finding. An array past the "
+        "byte bound is refused whole: drop or split claims yourself, never truncate one to fit.",
+        "resolved_finding shape: "
+        f"type={resolved_finding['type']}, "
+        f"additionalProperties={json.dumps(resolved_finding['additionalProperties'])}, "
+        f"required={json.dumps(resolved_finding['required'], ensure_ascii=False)}; "
+        f"finding_id pattern={json.dumps(resolved_finding['properties']['finding_id']['pattern'], ensure_ascii=False)}.",
+        "evidence_entry.oracle_receipt: "
+        "optional object (CON-890); "
+        f"type={oracle_receipt['type']}, "
+        f"additionalProperties={json.dumps(oracle_receipt['additionalProperties'])}, "
+        f"required={json.dumps(oracle_receipt['required'], ensure_ascii=False)}. "
+        "Report one control execution: `result` is one of "
+        f"{', '.join(f'`{item}`' for item in oracle_receipt['properties']['result']['enum'])}. "
+        "An executed `pass`/`fail` carries its `exit_code` and a nonempty immutable `run_ref`; "
+        "`unavailable`/`not_run` carry the empty `run_ref` and name the explanation in "
+        "`evidence_refs`. A receipt is reported evidence, never native-run authority: when no "
+        "producing route issued an immutable locator, report `unavailable` and name the missing "
+        "producer honestly — never invent a run locator. `candidate_subject` is dispatch-owned "
+        "identity: never author it; any echo is stripped and the observed subject is injected "
+        "from the dispatch packet.",
+        "oracle_receipt.control_ids: "
+        f"type={oracle_receipt['properties']['control_ids']['type']}, "
+        f"minItems={oracle_receipt['properties']['control_ids']['minItems']}, "
+        f"maxItems={oracle_receipt['properties']['control_ids']['maxItems']}, "
+        f"pattern={json.dumps(oracle_receipt['properties']['control_ids']['items']['pattern'], ensure_ascii=False)}.",
+        "oracle_receipt.recipe_source: "
+        "the exact pinned harness identity the control declared "
+        f"(project_id, path, commit_oid at {json.dumps(oracle_receipt['properties']['recipe_source']['$ref'], ensure_ascii=False)}); "
+        "never the candidate's modified copy of the harness.",
         "review verdict consistency: "
         "the adapter and the store refuse a review block with a `ship` verdict and any P0 finding, "
         "and one with a `no_ship` verdict and zero findings.",
@@ -604,6 +662,55 @@ checkpoint.
 """
 
 
+def acceptance_oracle_instructions(packet_schema: dict) -> str:
+    # CON-890: when the packet's worker job carries the acceptance oracle,
+    # every lane reads the same recorded copy. The block teaches the shared
+    # oracle without adding acceptance criteria: run the declared controls,
+    # never substitute a preferred test, report a missing inventory case as a
+    # legitimate blocker, treat earlier-subject receipts as baseline-only,
+    # and treat a timeout as unavailable evidence. The bounds are read off
+    # the packet schema, never restated as literals.
+    oracle = packet_schema["$defs"]["lane_worker_acceptance_oracle"]
+    owners_max = oracle["properties"]["owners"]["maxItems"]
+    cases_max = oracle["properties"]["cases"]["maxItems"]
+    controls_max = oracle["properties"]["controls"]["maxItems"]
+    return f"""## Acceptance oracle
+
+When `inputs.worker_job.acceptance_oracle` is present, it is the owner-level
+acceptance oracle of the recorded job revision: the same copy every lane
+receives. Read it after the work context. It carries at most {owners_max}
+owners, {cases_max} cases, and {controls_max} controls. Each owner names the
+mechanism that owns the behavior and the obligation it owes; each case names
+one entry path or transition; each control pins the exact harness source at
+an exact commit and the exact argument vector to run it from its contained
+working directory.
+
+Run the declared controls within your lane permissions and report each
+execution as a typed `oracle_receipt` on an evidence entry: the control ids,
+case ids, the pinned recipe source, the result (`pass`, `fail`, `unavailable`,
+or `not_run`), the exit code for an executed result, and the immutable run
+locator your host produced. A receipt is reported evidence, not authority:
+when no producing route issued an immutable locator, report `unavailable`
+with an empty `run_ref` and name the missing producer honestly — never
+invent a locator. A timeout is `unavailable` evidence, never a measured
+failure and never a source defect claim. Never author `candidate_subject`:
+the dispatch owns that identity.
+
+Do not replace a hard control with a preferred test, add an unrelated
+delivery condition, or treat the finite case list as proof of complete
+semantics. When you find a real entry path or transition the inventory
+omits, report it as a review finding classified `uncovered_case` with its
+owner and entry point: a missing case is a legitimate delivery blocker, not
+a rejection. An obligation failure of a declared owner is a
+`delivery_blocker`; a concern outside the approved owner or contract is a
+`follow_up` and never becomes a repair criterion; an obsolete, inconsistent,
+or unsound harness is an `oracle_defect`, which blocks oracle readiness
+rather than manufacturing a repair obligation. Receipts from earlier
+subjects stay regression baselines: report current-subject evidence for
+current acceptance.
+"""
+
+
 def objective_binding_instructions(packet_schema: dict, premise_max_bytes: int) -> str:
     # The packet task is the objective verbatim and inputs.binding is the typed
     # authority for it, so the guidance teaches both and keeps the three count
@@ -736,6 +843,7 @@ record workflow transitions, verdicts, completion, or spawn nested workers.
 {law_conformance_instructions(lane)}
 {work_context_instructions(packet_schema)}
 {checkpoint_instructions()}
+{acceptance_oracle_instructions(packet_schema)}
 {objective_binding_instructions(packet_schema, premise_max_bytes)}
 {concord_context_boundary_instructions()}
 {execute_source_lookup_instructions()}

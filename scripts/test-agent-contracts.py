@@ -591,6 +591,198 @@ class DeliveryDecidableTeachingTests(unittest.TestCase):
             generator.require_delivery_rule_teaching(defs)
 
 
+def _schema_sample(node, root, path="$"):
+    """Build one value a schema node admits, resolving local $refs.
+
+    Bounded sampler for the variant-projection tests: it satisfies the
+    keyword disciplines the repository's schemas use (const, enum, type,
+    bounds, patterns, required) and fails loudly when it meets a shape it
+    cannot sample, so a drifted def cannot silently pass as authorable.
+    """
+    if not isinstance(node, dict):
+        raise AssertionError(f"unsamplable schema node at {path}: {node!r}")
+    if "$ref" in node:
+        ref = node["$ref"]
+        target = root.get("$defs", {}).get(ref.removeprefix("#/$defs/"))
+        if target is None:
+            raise AssertionError(f"missing schema ref {ref} at {path}")
+        merged = {key: value for key, value in node.items() if key != "$ref"}
+        return _schema_sample({**target, **merged} if merged else target, root, path)
+    if "const" in node:
+        return node["const"]
+    if "enum" in node:
+        return node["enum"][0]
+    types = node.get("type")
+    types = types if isinstance(types, list) else [types] if types else []
+    kind = next((candidate for candidate in ("object", "array", "string", "integer", "number", "boolean") if candidate in types), None)
+    if kind is None and "properties" in node:
+        kind = "object"
+    if kind == "object":
+        value = {}
+        for name in node.get("required", []):
+            value[name] = _schema_sample(node["properties"][name], root, f"{path}.{name}")
+        return value
+    if kind == "array":
+        minimum = node.get("minItems", 0)
+        item = _schema_sample(node.get("items", {}), root, f"{path}[]")
+        return [item for _ in range(max(minimum, 0))]
+    if kind in ("integer", "number"):
+        return node.get("minimum", 1)
+    if kind == "boolean":
+        return False
+    if kind == "string":
+        minimum, maximum = node.get("minLength", 0), node.get("maxLength", 64)
+        pattern = node.get("pattern")
+        if pattern is not None:
+            candidates = ["id-1", "predicate:x", "control:c-1", "case:c-1", "owner:o-1",
+                          "finding:1:1", "sha256:" + "0" * 64, "0" * 40, "msg:" + "0" * 32,
+                          "fence:prod-pause", "https://example.test/pull/1", "2026-08-08T00:00:00Z"]
+            for candidate in candidates:
+                if re.search(pattern, candidate) and minimum <= len(candidate) <= maximum:
+                    return candidate
+            raise AssertionError(f"no canned value matches pattern {pattern} within {minimum}..{maximum} at {path}")
+        return "x" * max(minimum, 1)
+    raise AssertionError(f"schema node names no samplable type at {path}: {sorted(node)}")
+
+
+def _action_condition(defs, action_id):
+    """The shared-input condition one action_id carries, as written."""
+    for condition in defs["work_transition_action_shared_input"]["allOf"]:
+        if condition.get("if", {}).get("properties", {}).get("action_id", {}).get("const") == action_id:
+            return condition["then"]
+    raise AssertionError(f"shared input names no condition for {action_id}")
+
+
+def _condition_branches(then):
+    return then["anyOf"] if "anyOf" in then else [then]
+
+
+def _fields_object(branch):
+    fields = branch.get("properties", {}).get("fields")
+    if not isinstance(fields, dict):
+        raise AssertionError(f"branch names no fields object: {branch!r}")
+    return fields
+
+
+class WorkflowActionVariantProjectionTests(unittest.TestCase):
+    """CON-890: an action whose current families declare different closed
+    fieldsets projects as the union of those exact closed alternatives, not
+    one merged shape. The store keeps validating each call against the
+    pinned definition version; these tests hold the authoring surface to
+    the same exactness.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.actions, cls.workflows = generator.load_workflow_action_contracts()
+
+    def action(self, action_id):
+        return next(action for action in self.actions if action["id"] == action_id)
+
+    def test_projection_records_carry_the_variant_shape(self):
+        for action in self.actions:
+            self.assertEqual(set(action), {"id", "variants", "legacy_payloads"},
+                             f"{action.get('id')} is not the closed variant record")
+            self.assertTrue(action["variants"], f"{action.get('id')} names no variant")
+            pairs = set()
+            for variant in action["variants"]:
+                self.assertEqual(set(variant), {"payload", "public_payload"})
+                for payload_key in ("payload", "public_payload"):
+                    payload = variant[payload_key]
+                    self.assertEqual(set(payload), {"closed", "fields"}, f"{action['id']} variant is open")
+                    self.assertIs(payload["closed"], True, f"{action['id']} variant is not closed")
+                pairs.add((json.dumps(variant["payload"], sort_keys=True), json.dumps(variant["public_payload"], sort_keys=True)))
+            self.assertEqual(len(pairs), len(action["variants"]), f"{action['id']} repeats a variant")
+            for legacy in action["legacy_payloads"]:
+                self.assertIs(legacy.get("closed"), True, f"{action['id']} legacy payload is not closed")
+
+    def test_request_correction_projects_both_exact_alternatives(self):
+        # impl26/breakfix23 append optional open_finding_ids; the recovery
+        # list and the other current families keep the four-field fieldset.
+        # Both stay authorable as whole shapes; neither merges into the other.
+        action = self.action("request_correction")
+        self.assertEqual(len(action["variants"]), 2)
+        fieldsets = [[field["name"] for field in variant["payload"]["fields"]] for variant in action["variants"]]
+        self.assertIn("open_finding_ids", fieldsets[0])
+        self.assertNotIn("open_finding_ids", fieldsets[1])
+        then = _action_condition(payload_schema["$defs"], "request_correction")
+        branches = _condition_branches(then)
+        self.assertEqual(len(branches), 2, "the mixed current contracts must publish as two alternatives")
+        for branch in branches:
+            fields = _fields_object(branch)
+            self.assertIs(fields.get("additionalProperties"), False, "an alternative is not a closed object")
+            self.assertIn("open_finding_ids", fields["properties"]) if branch is branches[0] else self.assertNotIn("open_finding_ids", fields["properties"])
+
+    def test_the_oracle_alternative_and_the_legacy_shape_are_both_authorable(self):
+        # record_worker_job requires acceptance_oracle on impl26/breakfix23;
+        # the retained v24/v25/v21/v22 shapes stay authorable because live
+        # work items pin them. A payload matching either whole shape passes;
+        # the branches are the exact closed objects, so any value outside
+        # both is refused.
+        defs = payload_schema["$defs"]
+        branches = _condition_branches(_action_condition(defs, "record_worker_job"))
+        self.assertEqual(len(branches), 2)
+        oracle_branch, legacy_branch = branches[0], branches[1]
+        self.assertIn("acceptance_oracle", _fields_object(oracle_branch).get("required", []))
+        self.assertNotIn("acceptance_oracle", _fields_object(legacy_branch)["properties"])
+        oracle_fields = _schema_sample(_fields_object(oracle_branch), payload_schema)
+        legacy_fields = _schema_sample(_fields_object(legacy_branch), payload_schema)
+        generator.schema_validate(oracle_fields, _fields_object(oracle_branch), payload_schema, "oracle.fields")
+        generator.schema_validate(legacy_fields, _fields_object(legacy_branch), payload_schema, "legacy.fields")
+
+    def test_no_merged_union_admits_combinations_no_definition_allows(self):
+        defs = payload_schema["$defs"]
+        branches = _condition_branches(_action_condition(defs, "record_worker_job"))
+        oracle_branch, legacy_branch = branches[0], branches[1]
+        # A malformed oracle value passes no definition: the current variant
+        # refuses the value, and the retained shapes never declared the
+        # field at all. A merged optional-union would admit both payloads.
+        broken = _schema_sample(_fields_object(oracle_branch), payload_schema)
+        broken["acceptance_oracle"] = {"owners": "not-an-array"}
+        for branch in branches:
+            with self.assertRaises(ValueError, msg=f"a branch admits a broken oracle: {sorted(_fields_object(branch)['properties'])}"):
+                generator.schema_validate(broken, _fields_object(branch), payload_schema, "broken")
+        # Dropping a field every alternative requires refuses both shapes.
+        request_correction = _condition_branches(_action_condition(defs, "request_correction"))
+        sample = _schema_sample(_fields_object(request_correction[0]), payload_schema)
+        sample.pop("diagnosis")
+        for branch in request_correction:
+            with self.assertRaises(ValueError):
+                generator.schema_validate(sample, _fields_object(branch), payload_schema, "missing-required")
+
+    def test_unknown_fields_are_refused_by_every_alternative(self):
+        defs = payload_schema["$defs"]
+        for action_id in ("request_correction", "record_worker_job"):
+            branches = _condition_branches(_action_condition(defs, action_id))
+            sample = _schema_sample(_fields_object(branches[0]), payload_schema)
+            sample["mystery"] = True
+            for branch in branches:
+                with self.assertRaises(ValueError):
+                    generator.schema_validate(sample, _fields_object(branch), payload_schema, "unknown")
+
+    def test_single_variant_actions_keep_one_unwrapped_condition(self):
+        then = _action_condition(payload_schema["$defs"], "add_condition")
+        self.assertNotIn("anyOf", then, "an action with one current contract and no retained compatible shapes must stay a single branch")
+
+    def test_the_public_dispatch_override_remains_correct(self):
+        # dispatch_worker stays one divergent variant: the payload route
+        # validates attempt_id and worker_packet, the public route validates
+        # lane_id alone.
+        action = self.action("dispatch_worker")
+        self.assertEqual(len(action["variants"]), 1)
+        variant = action["variants"][0]
+        self.assertNotEqual(variant["payload"], variant["public_payload"])
+        self.assertEqual([field["name"] for field in variant["public_payload"]["fields"]], ["lane_id"])
+        for defs_name, expected in (("work_transition_action_input", "worker_packet"), ("work_transition_action_public_input", "lane_id")):
+            for condition in payload_schema["$defs"][defs_name]["allOf"][1:]:
+                if condition.get("if", {}).get("properties", {}).get("action_id", {}).get("const") != "dispatch_worker":
+                    continue
+                fields = _condition_branches(condition["then"])[0]["properties"]["fields"]
+                self.assertEqual(sorted(fields["properties"]), sorted([expected, "attempt_id"]) if expected == "worker_packet" else ["lane_id"])
+                return
+        raise AssertionError("the divergent dispatch_worker conditions are missing from the generated inputs")
+
+
 class MutationApprovalPropertyTests(unittest.TestCase):
     """Every mutation can reach the cross-Product approval escalation: the
     runtime forces requiresApproval when the derived Product scope crosses the

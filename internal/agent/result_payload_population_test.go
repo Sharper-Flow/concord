@@ -514,6 +514,13 @@ var fixturePatternValues = []struct {
 	{regexp.MustCompile(`\^actor:`), "actor:" + strings.Repeat("0", 64)},
 	{regexp.MustCompile(`\^\[0-9a-f\]\{40(,64)?\}`), "7b83cbf41af2f9fa7990294a41a50cb75a1d6d1e"},
 	{regexp.MustCompile(`\^finding:`), "finding:1:0"},
+	// CON-890: the oracle receipt and finding ties carry the closed typed
+	// reference vocabularies (case, control, owner, predicate) the mirrored
+	// report contract pins.
+	{regexp.MustCompile(`\^case:`), "case:conformance"},
+	{regexp.MustCompile(`\^control:`), "control:conformance"},
+	{regexp.MustCompile(`\^owner:`), "owner:conformance"},
+	{regexp.MustCompile(`\^predicate:`), "predicate:conformance"},
 	{regexp.MustCompile(`\\S\+\$`), "ref-1"},
 }
 
@@ -649,6 +656,19 @@ func schemaFixtureValue(t *testing.T, schema map[string]any, defs map[string]map
 			}
 			if member == "boolean" {
 				return true
+			}
+			// CON-890: a nullable array member (the ranked finding view's
+			// evidence_refs) fixtures as its array arm; null is the absent
+			// arm and the object walker only builds populated shapes.
+			if member == "array" {
+				items, ok := schema["items"].(map[string]any)
+				if !ok {
+					t.Fatalf("array schema at depth %d carries no items", depth)
+				}
+				if upper, ok := schema["maxItems"].(json.Number); ok && upper.String() == "0" {
+					return []any{}
+				}
+				return []any{schemaFixtureValue(t, items, defs, depth+1)}
 			}
 		}
 		t.Fatalf("schema type union %v has no fixture rule", kind)

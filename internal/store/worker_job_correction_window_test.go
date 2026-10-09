@@ -346,16 +346,21 @@ func appendJobBoundWorkerDispatch(t *testing.T, s *Store, workID, attemptID stri
 // recordWorkerJobRevisionForTest records one worker-job revision through the
 // record_worker_job action, the authoring route a coordinator uses. The core
 // derives the revision, the parent authority, and the digest; the binding is
-// filled from the recorded revision.
+// filled from the recorded revision. On an oracle-capable pin the recording
+// carries the fixture oracle the definition requires.
 func recordWorkerJobRevisionForTest(t *testing.T, s *Store, workID string, actor WorkflowActor, job *WorkerJobBinding) {
 	t.Helper()
-	if err := recordWorkerJobActionForTest(t, s, workID, actor, map[string]any{
+	fields := map[string]any{
 		"job_id": job.JobID, "objective": "bounded job objective for " + job.JobID,
 		"stopping_condition": "the recorded checks pass with no unresolved reference",
 		"path_scope":         []string{"internal/store"}, "checks": []string{"go test ./internal/store/"},
 		"reserved_integration": "integration evidence binds at the parent effect step",
 		"ready":                true, "readiness_evidence": []string{"evidence:coordinator-ready"},
-	}); err != nil {
+	}
+	if oracleCapablePinForWork(t, s, workID) {
+		fields["acceptance_oracle"] = acceptanceOracleFieldsForTest(t, s, workID)
+	}
+	if err := recordWorkerJobActionForTest(t, s, workID, actor, fields); err != nil {
 		t.Fatalf("record worker-job %s: %v", job.JobID, err)
 	}
 	views, err := s.WorkerJobRevisions(context.Background(), workID)

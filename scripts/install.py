@@ -116,6 +116,7 @@ ADAPTER_FILES = (
     "manifest-pin.ts",
     "move-notice.ts",
     "move-session.ts",
+    "oracle-readiness.ts",
     "packet.ts",
     "project-link.ts",
     "task-result.ts",

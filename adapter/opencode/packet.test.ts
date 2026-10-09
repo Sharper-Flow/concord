@@ -1343,3 +1343,61 @@ test("the legacy packet schema forbids job fields while the current identity bin
   expect(validateAgentLanePacket(built.packet!)).toBe(true)
   expect(validateAgentLanePacket({ ...built.packet!, schema_version: "1.0" })).toBe(false)
 })
+
+// CON-890: the owner-level acceptance oracle is typed immutable job content.
+// The builder rides the recorded revision verbatim, so the oracle rides with
+// it byte-for-byte inside inputs.worker_job — the same copy every admitted
+// lane receives — and the closed packet schema owns the oracle bounds.
+const ORACLE_RECIPE_SOURCE = { kind: "repository_file", project_id: "project-1", path: "internal/store/worker_oracle_harness_test.go", commit_oid: `a1${"0".repeat(38)}` }
+const ORACLE = {
+  owners: [{
+    owner_id: "owner:acceptance-graph",
+    domain_id: "workflow-engine",
+    mechanism: { project_id: "project-1", path: "internal/store/worker_jobs.go", entry_point: "DeriveWorkerJobDigest" },
+    obligation: "The job digest covers every recorded content field, the oracle included.",
+    predicate_ids: ["predicate:primary"],
+    law_bindings: [{ source: { kind: "knowledge", source_id: "records", law_id: "CD-0205", content_hash: `sha256:${"b".repeat(64)}` }, clause: "D1 lines 39-53" }],
+  }],
+  cases: [{
+    case_id: "case:digest-covers-oracle",
+    owner_id: "owner:acceptance-graph",
+    entry_point: "record_worker_job",
+    input_class: "one oracle-bearing revision",
+    expected_state: "the digest changes when the oracle changes",
+    control_ids: ["control:harness-digest"],
+  }],
+  controls: [{
+    control_id: "control:harness-digest",
+    owner_id: "owner:acceptance-graph",
+    predicate_ids: ["predicate:primary"],
+    case_ids: ["case:digest-covers-oracle"],
+    recipe_source: ORACLE_RECIPE_SOURCE,
+    argv: ["go", "test", "./internal/store", "-run", "TestOwnerOracleGraph"],
+    cwd: ".",
+    expected_result: "pass",
+    required_evidence_role: "reported",
+    readiness_evidence_refs: ["run:harness-selftest"],
+  }],
+}
+const ORACLE_JOB = { ...READY_JOB, predicate_ids: ["predicate:primary"], acceptance_oracle: ORACLE }
+
+test("a ready worker job carrying an acceptance oracle rides the packet verbatim", async () => {
+  const built = await build({ ...defaultScript(), "concord_work_trace.continuity": jobContinuity(["dispatch_worker", "record_worker_job"], [ORACLE_JOB]) })
+  expect(built.failure).toBeUndefined()
+  expect(validateAgentLanePacket(built.packet!)).toBe(true)
+  expect(built.packet!.inputs.worker_job).toEqual(ORACLE_JOB)
+  expect(built.packet!.inputs.worker_job!.acceptance_oracle).toEqual(ORACLE)
+})
+
+test("a malformed acceptance oracle refuses the packet build rather than riding it", async () => {
+  const malformed = { ...ORACLE, owners: [{ ...ORACLE.owners[0], owner_id: "not-an-owner-identity" }] }
+  const built = await build({ ...defaultScript(), "concord_work_trace.continuity": jobContinuity(["dispatch_worker", "record_worker_job"], [{ ...ORACLE_JOB, acceptance_oracle: malformed }]) })
+  expect(built.failure?.kind).toBe("packet_refused")
+  expect(built.failure?.message).toContain("acceptance_oracle")
+})
+
+test("an oracle past the closed control bound refuses the packet build", async () => {
+  const overflow = { ...ORACLE, controls: [...ORACLE.controls, ...Array.from({ length: 64 }, (_, index) => ({ ...ORACLE.controls[0], control_id: `control:extra-${index}` }))] }
+  const built = await build({ ...defaultScript(), "concord_work_trace.continuity": jobContinuity(["dispatch_worker", "record_worker_job"], [{ ...ORACLE_JOB, acceptance_oracle: overflow }]) })
+  expect(built.failure?.kind).toBe("packet_refused")
+})

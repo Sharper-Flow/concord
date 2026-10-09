@@ -73,14 +73,23 @@ type WorkerJobRecordedPayload struct {
 	UnresolvedRefs      []string                `json:"unresolved_refs"`
 	ReservedIntegration string                  `json:"reserved_integration,omitempty"`
 	Readiness           *WorkerJobReadiness     `json:"readiness,omitempty"`
-	Digest              string                  `json:"digest"`
+	// AcceptanceOracle is the CON-890 owner-level acceptance oracle: typed
+	// immutable job content, optional on every revision a pre-oracle
+	// definition recorded and required only by oracle-capable definition
+	// versions. It enters the content digest, so a revision's oracle is as
+	// immutable as the rest of its content, and it reads back only from
+	// this event — no projection column carries it.
+	AcceptanceOracle *AcceptanceOracle `json:"acceptance_oracle,omitempty"`
+	Digest           string            `json:"digest"`
 }
 
 // DeriveWorkerJobDigest derives the canonical content digest of one worker-job
 // revision. The digest covers every content field and excludes the digest
 // field itself, so two recordings of one (job_id, revision) agree exactly when
 // their content agrees. Go's struct marshal order is fixed, which makes the
-// derivation deterministic for authors and for the fold that verifies it.
+// derivation deterministic for authors and for the fold that verifies it. The
+// oracle member is omitempty: a revision without one serializes exactly as it
+// did before the member existed, so every historical digest still holds.
 func DeriveWorkerJobDigest(payload WorkerJobRecordedPayload) string {
 	content := struct {
 		JobID               string                  `json:"job_id"`
@@ -96,7 +105,8 @@ func DeriveWorkerJobDigest(payload WorkerJobRecordedPayload) string {
 		UnresolvedRefs      []string                `json:"unresolved_refs"`
 		ReservedIntegration string                  `json:"reserved_integration,omitempty"`
 		Readiness           *WorkerJobReadiness     `json:"readiness,omitempty"`
-	}{payload.JobID, payload.Revision, payload.ContractVersion, payload.Objective, payload.StoppingCondition, payload.ProjectScope, payload.PathScope, payload.PredicateIDs, payload.Checks, payload.Prerequisites, payload.UnresolvedRefs, payload.ReservedIntegration, payload.Readiness}
+		AcceptanceOracle    *AcceptanceOracle       `json:"acceptance_oracle,omitempty"`
+	}{payload.JobID, payload.Revision, payload.ContractVersion, payload.Objective, payload.StoppingCondition, payload.ProjectScope, payload.PathScope, payload.PredicateIDs, payload.Checks, payload.Prerequisites, payload.UnresolvedRefs, payload.ReservedIntegration, payload.Readiness, payload.AcceptanceOracle}
 	raw, err := json.Marshal(content)
 	if err != nil {
 		return ""
@@ -183,6 +193,15 @@ func validateWorkerJobRecordedPayload(event Event, payload WorkerJobRecordedPayl
 	}
 	if payload.Readiness != nil && len(payload.Readiness.Evidence) > 16 {
 		return invalidWorkerPayload("worker.job_recorded readiness carries too many evidence references")
+	}
+	// The oracle graph is re-proved from the payload's own retained content:
+	// the closed shape and the job's declared predicates decide, never a
+	// registry read, so a replayed historical oracle holds without today's
+	// Domain or contract state.
+	if payload.AcceptanceOracle != nil {
+		if err := validateAcceptanceOracle(payload.AcceptanceOracle, payload.PredicateIDs); err != nil {
+			return err
+		}
 	}
 	if !workerProvenancePattern.MatchString(payload.Digest) {
 		return invalidWorkerPayload("worker.job_recorded digest must be a sha256 digest")
@@ -334,6 +353,31 @@ func workflowRecordWorkerJobEvents(ctx context.Context, tx *sql.Tx, request Work
 	if ready && len(readinessEvidence) == 0 {
 		return nil, newFailure(KindInvalidPayload, "workflow_action", "record_worker_job readiness requires evidence", false, "bind the evidence that makes the job ready in readiness_evidence")
 	}
+	// The CON-890 acceptance oracle is authored through the pinned
+	// definition's declared action member: an oracle-capable version
+	// requires one, and every earlier version refuses the member, so
+	// capability travels with the pin instead of a behavior flag. The
+	// authority joins (approved predicates, affected Domains, pinned law,
+	// Project scope, retained readiness evidence) run here, at author
+	// time, inside the caller's transaction.
+	registered, err := verifyWorkflowDefinitionPinTx(ctx, tx, nil, request.WorkID)
+	if err != nil {
+		return nil, err
+	}
+	oracleCapable := workflowOwnerOracleActive(registered.Definition)
+	var oracle *AcceptanceOracle
+	if raw, present := fields["acceptance_oracle"]; present && len(raw) > 0 && string(raw) != "null" {
+		if !oracleCapable {
+			return nil, oracleFailure(KindInvalidPayload, "record_worker_job acceptance_oracle is not admitted by the pinned workflow definition version "+fmt.Sprint(registered.Definition.Version), "record the job under an oracle-capable definition version or drop the oracle")
+		}
+		oracle, err = decodeAcceptanceOracle(raw)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if oracleCapable && oracle == nil {
+		return nil, oracleFailure(KindInvalidPayload, "record_worker_job requires an acceptance_oracle on definition version "+fmt.Sprint(registered.Definition.Version), "author the closed owner/case/control oracle for the job")
+	}
 	payload := WorkerJobRecordedPayload{
 		JobID: jobID, Revision: revision, ContractVersion: contractVersion,
 		Objective:           workflowFieldStringDefault(fields, "objective", ""),
@@ -346,6 +390,15 @@ func workflowRecordWorkerJobEvents(ctx context.Context, tx *sql.Tx, request Work
 		UnresolvedRefs:      nonNilStrings(workflowFieldStrings(fields, "unresolved_refs")),
 		ReservedIntegration: workflowFieldStringDefault(fields, "reserved_integration", ""),
 		Readiness:           &WorkerJobReadiness{Ready: ready, Evidence: nonNilStrings(readinessEvidence)},
+		AcceptanceOracle:    oracle,
+	}
+	if oracle != nil {
+		if err := validateAcceptanceOracle(oracle, payload.PredicateIDs); err != nil {
+			return nil, err
+		}
+		if err := validateAcceptanceOracleAuthorityTx(ctx, tx, request.WorkID, contractVersion, oracle); err != nil {
+			return nil, err
+		}
 	}
 	payload.Digest = DeriveWorkerJobDigest(payload)
 	values := map[string]any{}
@@ -426,10 +479,14 @@ type WorkerJobRevisionView struct {
 	Prerequisites       []WorkerJobPrerequisite `json:"prerequisites"`
 	UnresolvedRefs      []string                `json:"unresolved_refs"`
 	ReservedIntegration string                  `json:"reserved_integration"`
-	State               string                  `json:"state"`
-	Ready               bool                    `json:"ready"`
-	SatisfiedResultRef  string                  `json:"satisfied_result_ref,omitempty"`
-	RecordedAt          string                  `json:"recorded_at"`
+	// AcceptanceOracle reads back from the job-recorded event — never a
+	// projection column — so the view carries exactly the content the
+	// revision's digest covers.
+	AcceptanceOracle   *AcceptanceOracle `json:"acceptance_oracle,omitempty"`
+	State              string            `json:"state"`
+	Ready              bool              `json:"ready"`
+	SatisfiedResultRef string            `json:"satisfied_result_ref,omitempty"`
+	RecordedAt         string            `json:"recorded_at"`
 }
 
 // workerJobReadyPredicate is the one admission rule for selecting a revision
@@ -456,7 +513,10 @@ const workerJobReadyPredicate = `j.state='recorded'
           OR COALESCE(json_extract(prerequisite.value,'$.result_ref'),'')=COALESCE(satisfied.satisfied_result_ref,''))))`
 
 // readWorkerJobRevisions reads every recorded revision of the work, in job
-// and revision order, with the derived readiness of each.
+// and revision order, with the derived readiness of each. The oracle member
+// joins from the job-recorded events after the projection rows are fully
+// read and closed: no nested query runs while rows are open, and the read
+// uses the queryer already in hand.
 func readWorkerJobRevisions(ctx context.Context, q queryer, workID string) ([]WorkerJobRevisionView, error) {
 	rows, err := q.QueryContext(ctx, `SELECT j.job_id,j.revision,j.digest,j.contract_version,j.objective,j.stopping_condition,j.project_scope,j.path_scope,j.predicate_ids,j.checks,j.prerequisites,j.unresolved_refs,j.reserved_integration,j.state,COALESCE(j.satisfied_result_ref,''),j.recorded_at,
   CASE WHEN `+workerJobReadyPredicate+` THEN 1 ELSE 0 END
@@ -464,12 +524,12 @@ FROM worker_job_revisions j WHERE j.work_id=? ORDER BY j.job_id,j.revision`, wor
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "worker_job", "cannot read worker-job revisions", true, "retry once the worker-job projection is readable", err)
 	}
-	defer func() { _ = rows.Close() }()
 	views := []WorkerJobRevisionView{}
 	for rows.Next() {
 		var view WorkerJobRevisionView
 		var pathScope, predicates, checks, prerequisites, unresolved string
 		if err := rows.Scan(&view.Binding.JobID, &view.Binding.Revision, &view.Binding.Digest, &view.ContractVersion, &view.Objective, &view.StoppingCondition, &view.ProjectScope, &pathScope, &predicates, &checks, &prerequisites, &unresolved, &view.ReservedIntegration, &view.State, &view.SatisfiedResultRef, &view.RecordedAt, &view.Ready); err != nil {
+			_ = rows.Close()
 			return nil, wrapFailure(KindUnavailable, "worker_job", "cannot scan worker-job revisions", true, "retry once the worker-job projection is readable", err)
 		}
 		for _, column := range []struct {
@@ -477,13 +537,29 @@ FROM worker_job_revisions j WHERE j.work_id=? ORDER BY j.job_id,j.revision`, wor
 			target any
 		}{{pathScope, &view.PathScope}, {predicates, &view.PredicateIDs}, {checks, &view.Checks}, {prerequisites, &view.Prerequisites}, {unresolved, &view.UnresolvedRefs}} {
 			if err := json.Unmarshal([]byte(column.raw), column.target); err != nil {
+				_ = rows.Close()
 				return nil, wrapFailure(KindInvariantViolation, "worker_job", "a worker-job revision column is not valid JSON", false, "rebuild the worker-job projection from the event log", err)
 			}
 		}
 		views = append(views, view)
 	}
 	if err := rows.Err(); err != nil {
+		_ = rows.Close()
 		return nil, wrapFailure(KindUnavailable, "worker_job", "cannot scan worker-job revisions", true, "retry once the worker-job projection is readable", err)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, wrapFailure(KindUnavailable, "worker_job", "cannot close the worker-job revision read", true, "retry once the worker-job projection is readable", err)
+	}
+	oracles, err := readWorkerJobOraclesTx(ctx, q, workID)
+	if err != nil {
+		return nil, err
+	}
+	for index := range views {
+		oracle, recorded := oracles[views[index].Binding]
+		if !recorded {
+			return nil, wrapFailure(KindInvariantViolation, "worker_job", "a worker-job revision holds no job-recorded event for its oracle", false, "rebuild the worker-job events from the authoritative log", nil)
+		}
+		views[index].AcceptanceOracle = oracle
 	}
 	return views, nil
 }
@@ -576,6 +652,11 @@ type WorkerPacketJob struct {
 	Prerequisites       []WorkerJobPrerequisite `json:"prerequisites"`
 	UnresolvedRefs      []string                `json:"unresolved_refs"`
 	ReservedIntegration string                  `json:"reserved_integration"`
+	// AcceptanceOracle is the one oracle copy every admitted lane receives
+	// (CON-890): the same recorded job content and digest the implement,
+	// review, and verify packets bind. Optional and omitted on every
+	// revision a pre-oracle definition recorded.
+	AcceptanceOracle *AcceptanceOracle `json:"acceptance_oracle,omitempty"`
 }
 
 // packetJobFromView projects a recorded revision onto the packet shape.
@@ -585,6 +666,7 @@ func packetJobFromView(view WorkerJobRevisionView) WorkerPacketJob {
 		Objective: view.Objective, StoppingCondition: view.StoppingCondition, ProjectScope: view.ProjectScope,
 		PathScope: nonNilStrings(view.PathScope), PredicateIDs: nonNilStrings(view.PredicateIDs), Checks: nonNilStrings(view.Checks),
 		Prerequisites: nonNilPrerequisites(view.Prerequisites), UnresolvedRefs: nonNilStrings(view.UnresolvedRefs), ReservedIntegration: view.ReservedIntegration,
+		AcceptanceOracle: view.AcceptanceOracle,
 	}
 }
 

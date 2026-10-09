@@ -313,6 +313,45 @@ func workflowRecoveryRouteTuples() []workflowRecoveryRouteTuple {
 			RecordWorkerJob:  true,
 			WorkflowID:       "break_fix-v22-complete",
 		},
+		// The CON-890 oracle-capable versions republish the same recovery
+		// tables the work-context versions pinned; their journeys record the
+		// oracle-bearing worker jobs the definitions require.
+		{
+			Ref: "workflow.implementation", Version: 26,
+			Step: "acceptance", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execution",
+			ProducerStep: "execution", DeliveryStep: "execution", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "start_execution",
+			VerdictStep: "acceptance", BindStep: "execution", BindKind: store.EvidenceArtifact,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
+			RecordWorkerJob:  true,
+			WorkflowID:       "implementation-v26-acceptance",
+		},
+		{
+			Ref: "workflow.implementation", Version: 26,
+			Step: "release", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execution",
+			ProducerStep: "execution", DeliveryStep: "execution", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "start_execution",
+			VerdictStep: "release", BindStep: "execution", BindKind: store.EvidenceArtifact,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
+			RecordWorkerJob:  true,
+			WorkflowID:       "implementation-v26-release",
+		},
+		{
+			Ref: "workflow.break_fix", Version: 23,
+			Step: "verify", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "repair",
+			ProducerStep: "repair", DeliveryStep: "repair", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "start_repair",
+			VerdictStep: "verify", BindStep: "repair", BindKind: store.EvidenceVerification,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceVerification},
+			RecordWorkerJob:  true,
+			WorkflowID:       "break_fix-v23-verify",
+		},
+		{
+			Ref: "workflow.break_fix", Version: 23,
+			Step: "complete", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "repair",
+			ProducerStep: "repair", DeliveryStep: "repair", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "start_repair",
+			VerdictStep: "complete", BindStep: "repair", BindKind: store.EvidenceVerification,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceVerification},
+			RecordWorkerJob:  true,
+			WorkflowID:       "break_fix-v23-complete",
+		},
 		{
 			Ref: "workflow.research", Version: 15,
 			Step: "conclude", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "investigate",
@@ -420,8 +459,8 @@ func workflowRecoveryRouteTuples() []workflowRecoveryRouteTuple {
 // (ref, version) fails the test before the journey runs.
 func TestWorkflowRecoveryRoutesDeclareEveryEvaluatorStep(t *testing.T) {
 	tuples := workflowRecoveryRouteTuples()
-	if len(tuples) != 38 {
-		t.Fatalf("recovery-route journey table carries %d tuples, want 38 (16 authored unhealthy routes + 2 frozen v13 routes + 4 CD-0205 worker-job authors + 16 CON-887 work-context versions)", len(tuples))
+	if len(tuples) != 42 {
+		t.Fatalf("recovery-route journey table carries %d tuples, want 42 (16 authored unhealthy routes + 2 frozen v13 routes + 4 CD-0205 worker-job authors + 16 CON-887 work-context versions + 4 CON-890 oracle-capable authors)", len(tuples))
 	}
 	seen := map[string]bool{}
 	for _, tuple := range tuples {
@@ -1377,6 +1416,21 @@ func workflowRecoveryRouteSupersedeTuples() []workflowRecoveryRouteSupersedeTupl
 			RecordWorkerJob: true,
 			WorkflowID:      "break_fix-v22-complete-supersede",
 		},
+		// The CON-890 oracle-capable versions republish the same complete-step
+		// supersede routes; their journeys follow the same local-accept +
+		// record_delivery integration the v25/v22 authors do.
+		{
+			Ref: "workflow.implementation", Version: 26,
+			Step: "release", Target: "execution",
+			RecordWorkerJob: true,
+			WorkflowID:      "implementation-v26-release-supersede",
+		},
+		{
+			Ref: "workflow.break_fix", Version: 23,
+			Step: "complete", Target: "repair",
+			RecordWorkerJob: true,
+			WorkflowID:      "break_fix-v23-complete-supersede",
+		},
 	}
 }
 
@@ -1858,6 +1912,14 @@ func appendLaneCompletionWithVerdict(t *testing.T, s *store.Store, grant Authori
 		payloadVersion = 3
 		completedPayload.EvidenceOrigin = store.WorkerEvidenceLegacyUnavailable
 		completedPayload.Review = &store.WorkerReviewBlock{Verdict: reviewVerdict, Findings: []store.WorkerReviewFinding{{Severity: "P3", Confidence: "high", Detail: "the corrected producer attempt " + suffix}}}
+		if oracle := recordedAgentOracle(t, s, job); oracle != nil {
+			owner := oracle.Owners[0]
+			completedPayload.Review.Findings[0].Oracle = &store.WorkerOracleFinding{
+				Classification: store.OracleClassificationFollowUp,
+				OwnerID:        owner.OwnerID, PredicateIDs: owner.PredicateIDs,
+			}
+			payloadVersion = store.WorkerEvidenceEventPayloadVersion(store.WorkerCompleted)
+		}
 	}
 	// The worker_job field on the worker.completed event is reserved for
 	// payload version >= 4 (CD-0205): the fold uses the version to admit

@@ -899,6 +899,510 @@
           "type": "string",
           "maxLength": 4096,
           "minLength": 0
+        },
+        "acceptance_oracle": {
+          "$ref": "#/$defs/lane_worker_acceptance_oracle",
+          "description": "The CON-890 owner-level acceptance oracle of the selected revision: the one oracle copy every admitted lane receives. Optional and omitted on every revision a pre-oracle definition recorded. The core refuses a packet whose worker_job differs from the recorded ready revision, oracle included."
+        }
+      }
+    },
+    "lane_worker_oracle_mechanism": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "project_id",
+        "path",
+        "entry_point"
+      ],
+      "description": "The source-level owner of one obligation (CON-890): the Project that owns the repository, one contained source path, and the symbol or entry point that owns the behavior.",
+      "properties": {
+        "project_id": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 128
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "description": "A normalized relative repository-contained source path."
+        },
+        "entry_point": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        }
+      }
+    },
+    "lane_worker_oracle_law_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source",
+        "clause"
+      ],
+      "properties": {
+        "source": {
+          "$ref": "#/$defs/lane_work_context_reading_source_knowledge"
+        },
+        "clause": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        }
+      }
+    },
+    "lane_worker_oracle_owner": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "owner_id",
+        "domain_id",
+        "mechanism",
+        "obligation",
+        "predicate_ids"
+      ],
+      "properties": {
+        "owner_id": {
+          "type": "string",
+          "pattern": "^owner:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
+          "minLength": 7,
+          "maxLength": 128
+        },
+        "domain_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "mechanism": {
+          "$ref": "#/$defs/lane_worker_oracle_mechanism"
+        },
+        "obligation": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "predicate_ids": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^predicate:[A-Za-z0-9][A-Za-z0-9._:-]*$",
+            "minLength": 11,
+            "maxLength": 128
+          }
+        },
+        "law_bindings": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 8,
+          "items": {
+            "$ref": "#/$defs/lane_worker_oracle_law_binding"
+          }
+        }
+      }
+    },
+    "lane_worker_oracle_case": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "case_id",
+        "owner_id",
+        "entry_point",
+        "input_class",
+        "expected_state",
+        "control_ids"
+      ],
+      "properties": {
+        "case_id": {
+          "type": "string",
+          "pattern": "^case:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
+          "minLength": 6,
+          "maxLength": 128
+        },
+        "owner_id": {
+          "type": "string",
+          "pattern": "^owner:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
+          "minLength": 7,
+          "maxLength": 128
+        },
+        "entry_point": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "input_class": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "expected_state": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "control_ids": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^control:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
+            "minLength": 9,
+            "maxLength": 128
+          }
+        }
+      }
+    },
+    "lane_worker_oracle_control": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "control_id",
+        "owner_id",
+        "predicate_ids",
+        "case_ids",
+        "recipe_source",
+        "argv",
+        "cwd",
+        "expected_result",
+        "required_evidence_role",
+        "readiness_evidence_refs"
+      ],
+      "properties": {
+        "control_id": {
+          "type": "string",
+          "pattern": "^control:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
+          "minLength": 9,
+          "maxLength": 128
+        },
+        "owner_id": {
+          "type": "string",
+          "pattern": "^owner:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
+          "minLength": 7,
+          "maxLength": 128
+        },
+        "predicate_ids": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^predicate:[A-Za-z0-9][A-Za-z0-9._:-]*$",
+            "minLength": 11,
+            "maxLength": 128
+          }
+        },
+        "case_ids": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^case:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
+            "minLength": 6,
+            "maxLength": 128
+          }
+        },
+        "recipe_source": {
+          "$ref": "#/$defs/lane_work_context_reading_source_repository_file",
+          "description": "The pinned harness source (CON-890): read the pinned Git bytes at this commit, not the changed checkout. The harness may intentionally come from an earlier immutable commit than the candidate subject."
+        },
+        "argv": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          },
+          "description": "The exact argument vector of the control, never shell text."
+        },
+        "cwd": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "description": "A contained relative working directory."
+        },
+        "expected_result": {
+          "type": "string",
+          "enum": [
+            "pass"
+          ]
+        },
+        "required_evidence_role": {
+          "type": "string",
+          "enum": [
+            "reported",
+            "independently_executed"
+          ]
+        },
+        "readiness_evidence_refs": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048
+          },
+          "description": "The retained evidence that proves the harness resolves and the test selector is nonempty."
+        }
+      }
+    },
+    "lane_worker_acceptance_oracle": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "The CON-890 owner-level acceptance oracle of one immutable worker-job revision, carried verbatim from the recorded job (CON-890). Every bound mirrors internal/store AcceptanceOracle exactly.",
+      "required": [
+        "owners",
+        "cases",
+        "controls"
+      ],
+      "properties": {
+        "owners": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "items": {
+            "$ref": "#/$defs/lane_worker_oracle_owner"
+          }
+        },
+        "cases": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "items": {
+            "$ref": "#/$defs/lane_worker_oracle_case"
+          }
+        },
+        "controls": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "items": {
+            "$ref": "#/$defs/lane_worker_oracle_control"
+          }
+        }
+      }
+    },
+    "lane_worker_oracle_receipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "control_ids",
+        "case_ids",
+        "recipe_source",
+        "result",
+        "run_ref",
+        "evidence_refs"
+      ],
+      "description": "One typed control-execution receipt (CON-890), mirroring contracts/agent-lane-report.schema.json $defs/oracle_receipt exactly: reported evidence, never native-run authority. A retained receipt is a prior-subject regression baseline; candidate_subject is host-derived identity, filled only from the packet's work context subject when the core supplied one. A timeout is unavailable evidence, not a measured failure.",
+      "properties": {
+        "control_ids": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 9,
+            "maxLength": 128,
+            "pattern": "^control:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$"
+          }
+        },
+        "case_ids": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 6,
+            "maxLength": 128,
+            "pattern": "^case:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$"
+          }
+        },
+        "candidate_subject": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "description": "Host-derived observed subject identity. Dispatch-owned: a worker-authored value here is stripped before the canonical report; it is filled only from the packet's work context subject when the core supplied one."
+        },
+        "recipe_source": {
+          "$ref": "#/$defs/lane_work_context_reading_source_repository_file",
+          "description": "The exact pinned harness identity a receipt executed: a repository file at an exact commit. A receipt names the recipe the control pinned, never the candidate's modified copy of the harness."
+        },
+        "result": {
+          "type": "string",
+          "enum": [
+            "pass",
+            "fail",
+            "unavailable",
+            "not_run"
+          ]
+        },
+        "exit_code": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 255,
+          "description": "Required exactly when result is pass or fail: the control's exit status."
+        },
+        "run_ref": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 512,
+          "description": "The immutable native-run or artifact locator of the execution. Nonempty exactly when result is pass or fail; a not_run or unavailable result carries the empty string and names its explanation in evidence_refs. Never invent a locator: when no producing route issued one, result is unavailable and run_ref stays empty."
+        },
+        "evidence_refs": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 8,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "result": {
+                "enum": [
+                  "pass",
+                  "fail"
+                ]
+              }
+            },
+            "required": [
+              "result"
+            ]
+          },
+          "then": {
+            "required": [
+              "exit_code"
+            ],
+            "properties": {
+              "run_ref": {
+                "minLength": 1
+              }
+            }
+          }
+        }
+      ]
+    },
+    "lane_worker_oracle_finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "classification"
+      ],
+      "description": "The typed oracle tie of one review finding (CON-890), mirroring contracts/agent-lane-report.schema.json $defs/oracle_finding exactly: a closed classification plus the owner, predicate/law, case, and control references that bind it. Classification and severity are different dimensions; the tie records no acceptance.",
+      "properties": {
+        "classification": {
+          "type": "string",
+          "enum": [
+            "delivery_blocker",
+            "uncovered_case",
+            "follow_up",
+            "oracle_defect"
+          ],
+          "description": "delivery_blocker: a failed obligation of a declared owner. uncovered_case: a legitimate new entry path the inventory omitted — a real blocker, not a rejection. follow_up: outside the approved owner/contract; never an open repair criterion. oracle_defect: the harness itself is obsolete, inconsistent, or unsound; it blocks readiness, not a fabricated repair."
+        },
+        "owner_id": {
+          "type": "string",
+          "minLength": 7,
+          "maxLength": 128,
+          "pattern": "^owner:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$"
+        },
+        "failure_family": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "predicate_ids": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 8,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 11,
+            "maxLength": 128,
+            "pattern": "^predicate:[A-Za-z0-9][A-Za-z0-9._:-]*$"
+          }
+        },
+        "law_bindings": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 8,
+          "items": {
+            "$ref": "#/$defs/lane_worker_oracle_law_binding"
+          }
+        },
+        "case_ids": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 8,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 6,
+            "maxLength": 128,
+            "pattern": "^case:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$"
+          }
+        },
+        "control_ids": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 8,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 9,
+            "maxLength": 128,
+            "pattern": "^control:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$"
+          }
+        },
+        "evidence_refs": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 8,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "description": "The reproducible evidence that supports the finding. A known control failure names that control's receipt."
+        },
+        "entry_point": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "description": "For an uncovered_case: the explicit new entry path or transition the inventory omitted."
+        },
+        "continues_finding_id": {
+          "type": "string",
+          "minLength": 11,
+          "maxLength": 64,
+          "pattern": "^finding:[0-9]+:[0-9]+$",
+          "description": "The earlier ranked finding of this work that this finding continues. Same failure, same canonical open identity; an uncertain join becomes a new finding and earns no shrink credit."
+        },
+        "variant_of": {
+          "type": "string",
+          "minLength": 11,
+          "maxLength": 64,
+          "pattern": "^finding:[0-9]+:[0-9]+$",
+          "description": "The owner-family finding this newly reproduced alternate entry path is a variant of. A variant is a new identity, not the same open finding."
         }
       }
     },
@@ -941,6 +1445,21 @@
           "items": {
             "$ref": "#/$defs/lane_work_context_domain_group"
           }
+        },
+        "oracle_receipts": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 64,
+          "items": {
+            "$ref": "#/$defs/lane_worker_oracle_receipt"
+          },
+          "description": "The prior typed control-execution receipts this work retained (CON-890), in log order: reported regression baselines with their exact identities, never current-subject acceptance."
+        },
+        "candidate_subject": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "description": "The core-derived observed candidate subject of the current dispatch (CON-890 seam): the exact commit or tree the oracle controls execute against. The only subject oracle receipts may quote as candidate_subject."
         }
       }
     },
@@ -1071,6 +1590,7 @@
         "kind": {
           "type": "string",
           "enum": [
+            "",
             "observation",
             "inference",
             "hypothesis",
@@ -1078,7 +1598,8 @@
             "open_question",
             "contradiction",
             "direction"
-          ]
+          ],
+          "description": "The generic claim vocabulary of an authored finding. A ranked oracle finding projects the empty kind (CON-890): its identity is the oracle tie, never a generic claim class."
         },
         "statement": {
           "type": "string",
@@ -1091,14 +1612,18 @@
           "maxLength": 128
         },
         "evidence_refs": {
-          "type": "array",
+          "type": [
+            "array",
+            "null"
+          ],
           "minItems": 0,
           "maxItems": 8,
           "items": {
             "type": "string",
             "minLength": 1,
             "maxLength": 256
-          }
+          },
+          "description": "The evidence that supports the finding. A ranked finding without an oracle tie projects null; the core reader owns that wire shape."
         },
         "domain_id": {
           "type": "string",
@@ -1118,8 +1643,12 @@
           ]
         },
         "status": {
-          "const": "reported",
-          "description": "A finding is a reported claim, never acceptance."
+          "type": "string",
+          "enum": [
+            "reported",
+            "open"
+          ],
+          "description": "A finding is a reported claim, never acceptance. The open status names a ranked review finding the lineage currently holds open (CON-890): still a claim, and open."
         },
         "source_event_id": {
           "type": "string",
@@ -1133,6 +1662,17 @@
         "ordinal": {
           "type": "integer",
           "minimum": 0
+        },
+        "source_kind": {
+          "type": "string",
+          "enum": [
+            "review_finding"
+          ],
+          "description": "Present only on a ranked review finding (CON-890): the entry carries an oracle tie and rides the open-set lineage, never the generic worker-claim notebook."
+        },
+        "oracle": {
+          "$ref": "#/$defs/lane_worker_oracle_finding",
+          "description": "The typed oracle tie of a ranked review finding (CON-890): classification plus the owner, predicate/law, case, and control references that bind it."
         }
       }
     },

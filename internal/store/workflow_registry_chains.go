@@ -91,6 +91,7 @@ func implementationVersionChain() []WorkflowDefinition {
 		implementationRecoveryRoutesV23(),
 		implementationWorkerJobsV24(),
 		implementationWorkContextV25(),
+		implementationOwnerOracleV26(),
 	}
 }
 
@@ -120,6 +121,7 @@ func breakFixVersionChain() []WorkflowDefinition {
 		breakFixRecoveryRoutesV20(),
 		breakFixWorkerJobsV21(),
 		breakFixWorkContextV22(),
+		breakFixOwnerOracleV23(),
 	}
 }
 

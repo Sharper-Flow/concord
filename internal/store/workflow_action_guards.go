@@ -84,7 +84,24 @@ func guardRejectWorkerResultRecovery(g *workflowActionGuardContext) error {
 	if !g.correctionRecovery {
 		return newFailure(KindInvalidOperation, "workflow_action", "worker result rejection is unavailable without a completed result", false, "accept or reject the completed worker result")
 	}
-	return nil
+	// CON-890: on an oracle-capable history the rejection's open finding
+	// set must exactly equal the derived open set — omission never closes
+	// a finding. Oracle-free histories keep the legacy optional field.
+	return g.validateCorrectionOpenFindings()
+}
+
+// validateCorrectionOpenFindings is the derived-set equality both correction
+// surfaces share (CON-890): the payload's open_finding_ids must equal the
+// lineage's derived open set whenever the work's history ever dispatched
+// under an oracle-bearing job revision.
+func (g *workflowActionGuardContext) validateCorrectionOpenFindings() error {
+	fields, fieldsErr := workflowActionObject(g.defaultedPayload())
+	if fieldsErr != nil {
+		return fieldsErr
+	}
+	supplied := workflowFieldStrings(fields, "open_finding_ids")
+	_, present := fields["open_finding_ids"]
+	return validateCorrectionOpenFindingsTx(g.ctx, g.tx, g.request.WorkID, supplied, present)
 }
 
 func guardRequestCorrectionRecovery(g *workflowActionGuardContext) error {
@@ -100,7 +117,13 @@ func guardRequestCorrectionRecovery(g *workflowActionGuardContext) error {
 	if state.CorrectionRequestContext == nil {
 		return workflowCorrectionRequestUnavailableFailure("workflow_action", state.CorrectionRequestMissing)
 	}
-	return validateCorrectionRequestPayload(g.ctx, g.tx, g.request.WorkID, g.request.Payload, "workflow_action", state.CorrectionRequestContext)
+	if err := validateCorrectionRequestPayload(g.ctx, g.tx, g.request.WorkID, g.request.Payload, "workflow_action", state.CorrectionRequestContext); err != nil {
+		return err
+	}
+	// CON-890: a correction request on an oracle-capable history carries
+	// the same derived open finding set a rejection does, and the folded
+	// convergence comparison prefers it over the legacy predicate list.
+	return g.validateCorrectionOpenFindings()
 }
 
 // runWorkflowActionGuard runs the request's guard when one is declared for
@@ -1623,7 +1646,12 @@ func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoc
 		completionValues["correction_predicate_ids"] = workflowFieldStrings(fields, "predicate_ids")
 		completionValues["correction_evidence_refs"] = workflowFieldStrings(fields, "evidence_refs")
 	}
-	if in.request.ActionID == "reject_worker_result" {
+	// CON-890: the derived open finding set serializes onto the correction
+	// record of both surfaces. A rejection carries it directly; a
+	// correction request carries it beside the predicate list the legacy
+	// comparison reads, and the folded convergence comparison prefers it
+	// whenever the request recorded one.
+	if in.request.ActionID == "reject_worker_result" || in.request.ActionID == "request_correction" {
 		if _, present := fields["open_finding_ids"]; present {
 			completionValues["correction_open_finding_ids"] = workflowFieldStrings(fields, "open_finding_ids")
 		}

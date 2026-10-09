@@ -71,6 +71,16 @@ func workflowRetryConvergence(ctx context.Context, q queryer, workID, stepID str
 			continue
 		}
 		if workflowFindingsShrink(previous.fields.openFindings(), latest.fields.openFindings()) {
+			comparable, comparableErr := workflowOracleConvergenceComparableTx(ctx, q, workID, previous, latest)
+			if comparableErr != nil {
+				return WorkflowRetryConvergence{}, comparableErr
+			}
+			if !comparable {
+				// The wall never widens: an incomparable pair simply
+				// buys no basis, and escalation proceeds only through
+				// the existing explicit supersession route.
+				return WorkflowRetryConvergence{}, nil
+			}
 			return WorkflowRetryConvergence{Basis: "findings_shrinking", PreviousRecordSeq: previous.seq, LatestRecordSeq: latest.seq}, nil
 		}
 		break
@@ -78,8 +88,76 @@ func workflowRetryConvergence(ctx context.Context, q queryer, workID, stepID str
 	return WorkflowRetryConvergence{}, nil
 }
 
+// workflowOracleConvergenceComparableTx decides whether two correction
+// records with a shrinking open-set comparison are comparable at all
+// (CON-890). An oracle-free history keeps the legacy comparison. An
+// oracle-capable history compares only under the wall's strengthened
+// comparability: same recorded contract and job identity, every earlier owner,
+// case, and control retained byte-identically including the pinned harness,
+// and every
+// dropped finding closed through a proven non-oracle-defect closure. An
+// oracle-defect closure never contributes: the harness was wrong, the set
+// did not truthfully shrink. Receipt preservation alone is not progress.
+func workflowOracleConvergenceComparableTx(ctx context.Context, q queryer, workID string, previous, latest workflowCorrectionRecordState) (bool, error) {
+	lineage, err := readWorkerOracleFindingLineageTx(ctx, q, workID)
+	if err != nil {
+		return false, err
+	}
+	if !lineage.oracleCapable {
+		return true, nil
+	}
+	if previous.jobBinding == nil || latest.jobBinding == nil {
+		return false, nil
+	}
+	if previous.jobBinding.JobID != latest.jobBinding.JobID {
+		return false, nil
+	}
+	previousContract, err := readOracleJobContractVersion(ctx, q, workID, *previous.jobBinding)
+	if err != nil {
+		return false, err
+	}
+	latestContract, err := readOracleJobContractVersion(ctx, q, workID, *latest.jobBinding)
+	if err != nil {
+		return false, err
+	}
+	if previousContract == 0 || previousContract != latestContract {
+		return false, nil
+	}
+	if !oracleControlsRetained(lineage.oracleForBinding(*previous.jobBinding), lineage.oracleForBinding(*latest.jobBinding)) {
+		return false, nil
+	}
+	for _, id := range previous.fields.openFindings() {
+		if contains(latest.fields.openFindings(), id) {
+			continue
+		}
+		finding, exists := lineage.findings[id]
+		if !exists || !finding.Closed || finding.ClosureKind != oracleClosureResolution {
+			// Vanished without a proven closure — replaced, relabeled,
+			// closed as an oracle defect, or closed by supersession:
+			// none of it is truthful shrinkage.
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
+func readOracleJobContractVersion(ctx context.Context, q queryer, workID string, binding WorkerJobBinding) (int64, error) {
+	var version int64
+	err := q.QueryRowContext(ctx, `SELECT json_extract(payload,'$.contract_version') FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.job_id')=? AND json_extract(payload,'$.revision')=? AND json_extract(payload,'$.digest')=?`, workID, WorkerJobRecorded, binding.JobID, binding.Revision, binding.Digest).Scan(&version)
+	if err != nil {
+		return 0, workflowProjectionError(err, "cannot read the oracle job's recorded contract authority")
+	}
+	return version, nil
+}
+
 func (f workflowCorrectionCompletionFields) openFindings() []string {
 	if f.ActionID == "request_correction" {
+		// CON-890: on an oracle-capable history the recorded request
+		// carries the derived open finding set; the legacy request keeps
+		// comparing predicate ids, which were never finding ids.
+		if f.OpenFindingIDs != nil {
+			return f.OpenFindingIDs
+		}
 		return f.CorrectionPredicates
 	}
 	return f.OpenFindingIDs

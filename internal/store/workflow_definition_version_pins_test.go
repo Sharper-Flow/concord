@@ -69,6 +69,11 @@ import (
 // research 15, architecture_spike 16, ops_runbook 17, static_analysis 14,
 // and generic_one_off 15 add record_work_context to every step except the
 // closed delivery gates, whose four-action shape the gate reader pins.
+// CON-890 ships the owner-level acceptance oracle on the two job-capable
+// repair families: implementation 26 and break_fix 23 declare the required
+// acceptance_oracle member on record_worker_job's payload. Every released
+// version below keeps the payload it was pinned under, so oracle capability
+// is a declared action member, never a behavior flag on a historical pin.
 // The complete-step correction trigger ships in the same tables (CD-0172
 // D3): implementation and break_fix carry a disproved_premise_at_complete
 // route from the complete action step their graphs pin, and CD-0186 keeps
@@ -202,6 +207,8 @@ var workflowDefinitionVersionPins = map[[2]string]string{
 	{"workflow.ops_runbook", "17"}:        "sha256:f5ba15ab3ade8917adc01ade6e8ba9c3b71ce97877579eb75e75a29bf63f5d66",
 	{"workflow.static_analysis", "14"}:    "sha256:baa3b734b8574bd730366238a858cf87973596bc43ece75f35afa5f13f5cd738",
 	{"workflow.generic_one_off", "15"}:    "sha256:038d5b757f2ec92ae3cb2ef71de6a0d1e0fc984b6bf985b3b3185e6aa878c064",
+	{"workflow.implementation", "26"}:     "sha256:d3d6a16f7fab7b46112848a4fa16f3c3a0538ea30ebe73728b247762935aa1b9",
+	{"workflow.break_fix", "23"}:          "sha256:c985bcf9db9f500d2b6fe2d4c062bd4c4ad871c9161dd01013a010f26c178290",
 }
 
 func TestWorkflowDefinitionVersionPinsHold(t *testing.T) {
@@ -367,8 +374,8 @@ func TestBuiltinDefinitionVersionContinuityRejectsGap(t *testing.T) {
 func TestBuiltinDefinitionForRefResolvesTheLatestVersion(t *testing.T) {
 	t.Parallel()
 	cases := map[string]int64{
-		"workflow.break_fix":          22,
-		"workflow.implementation":     25,
+		"workflow.break_fix":          23,
+		"workflow.implementation":     26,
 		"workflow.generic_one_off":    15,
 		"workflow.research":           15,
 		"workflow.architecture_spike": 16,

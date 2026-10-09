@@ -7,7 +7,7 @@ File accountability does not change a document's law home or a handler's semanti
 ## Responsibility
 Owns the authority a repository check may hold: what a validator may assert, what it may block, how required checks bind to declared coverage, and the boundary between a check's finding and accepted Product law.
 
-Mapped files: 176; tests: 77; unresolved candidates: 7.
+Mapped files: 177; tests: 78; unresolved candidates: 5.
 Candidate counts overlap when a file has several candidates; no candidate is an assigned owner.
 
 ## Code and tests
@@ -26,6 +26,7 @@ Full paths, unresolved reasons, shared-test coverage, and source fingerprints: `
 - Go test package: `github.com/sharper-flow/concord/internal/store/storetest/neighbor`
 - Go test package: `github.com/sharper-flow/concord/internal/testenv`
 - Go test package: `github.com/sharper-flow/concord/scripts/domain-navigation-cli`
+- Go test package: `github.com/sharper-flow/concord/scripts/workflow-action-contracts`
 
 ## Entry surfaces
 These are catalog surface entries, not invariant/control or handler joins.
@@ -46,5 +47,5 @@ Invariant/control joins, allowed-dependency interpretation, observed import/call
 non-law navigation homes, CON-887 packet reading, and CON-890 owner oracles remain later work.
 Required-reading entries will be pinned references, not inlined card content.
 
-Navigation source fingerprint: `sha256:2bb06aaabbb1741089cc4fb37ee2699f54556ba77ec2bc434b26ebf7b2455e09`.
+Navigation source fingerprint: `sha256:9323ffcfb084a119e963bd876e23eb6be301e6eea59907451fc4d0010e3c9bba`.
 Other fingerprints and the exact file universe are in the generated inventory.

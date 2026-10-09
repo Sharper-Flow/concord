@@ -183,6 +183,7 @@ Commands read one strict JSON object from stdin:
     accepted values: kind: task | bug | decision | research | other; urgency: standard | expedite
   concord work-resume < JSON stdin
     required: product_id, project_id, work_id
+    optional: deterministic refusals exit 2
   concord receipt < JSON stdin
     required: work_id
     accepted values: prints the product-owned closure receipt markdown (CD-0169) for a completed work item; empty output when the item is not completed
@@ -201,6 +202,9 @@ Commands read one strict JSON object from stdin:
   concord session-prepare < JSON stdin
     required: product_id, work_id, agent
     optional: task (max 8192 bytes; none on resume); agent is the active agent; refusals exit 2
+  concord outside-repair < JSON stdin
+    required: work_id, agent
+    optional: none; requires an active outside-repair hold and a controlling TTY; JSON stdout names the exact directory and argv; host I/O uses /dev/tty
   concord project-resolve < JSON stdin
   concord project resolve < JSON stdin
     required: directory

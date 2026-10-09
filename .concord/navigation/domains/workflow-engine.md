@@ -7,15 +7,16 @@ File accountability does not change a document's law home or a handler's semanti
 ## Responsibility
 Owns work lifecycle: workflow types and their contracts, workflow actions and transitions, completion predicates and verdicts, evidence binding, architecture overlap resolution, and terminal-state law.
 
-Mapped files: 185; tests: 133; unresolved candidates: 11.
+Mapped files: 190; tests: 137; unresolved candidates: 10.
 Candidate counts overlap when a file has several candidates; no candidate is an assigned owner.
 
 ## Code and tests
-Full paths, unresolved reasons, shared-test coverage, and source fingerprints: `.concord/navigation/inventory.json`.
-- Include: `internal/workflowcorpus/**`, `internal/payloadschema/**`, `internal/store/workflow*.go`, `internal/store/fence*.go`, `internal/store/workpin*.go`
-- Include: `internal/store/await_health*.go`, `internal/store/checkpoint*_test.go`, `contracts/workflow-*`, `contracts/lane-step-dispatch*`, `.concord/scenarios/workflow-engine.v1.json`
-- Include: `workflows/**`, `internal/store/compaction_claim_preflight_test.go`, `internal/store/confirm_premise_truth_test.go`, `internal/store/continuity_repins*_test.go`, `internal/store/evidence_bind*_test.go`
-- Include: `internal/store/inflight_evolution_test.go`, `internal/store/laneless_research_test.go`, `internal/store/operator_verdict_test.go`, `internal/store/verdict_evidence_binding_test.go`
+Full paths, unresolved reasons, and shared-test coverage: `.concord/navigation/inventory.json`.
+- Include: `internal/workflowcorpus/**`, `internal/payloadschema/**`, `internal/store/workflow*.go`, `internal/store/outside_repair.go`, `internal/store/outside_repair_test.go`
+- Include: `internal/store/outside_repair_base_test.go`, `internal/store/outside_repair_review_test.go`, `internal/store/fence*.go`, `internal/store/workpin*.go`, `internal/store/await_health*.go`
+- Include: `internal/store/checkpoint*_test.go`, `contracts/workflow-*`, `contracts/lane-step-dispatch*`, `.concord/scenarios/workflow-engine.v1.json`, `workflows/**`
+- Include: `internal/store/compaction_claim_preflight_test.go`, `internal/store/confirm_premise_truth_test.go`, `internal/store/continuity_repins*_test.go`, `internal/store/evidence_bind*_test.go`, `internal/store/inflight_evolution_test.go`
+- Include: `internal/store/laneless_research_test.go`, `internal/store/operator_verdict_test.go`, `internal/store/verdict_evidence_binding_test.go`
 - Exclude: `internal/store/workflow_test_support_test.go`
 - Go test package: `github.com/sharper-flow/concord/internal/payloadschema`
 - Go test package: `github.com/sharper-flow/concord/internal/store`
@@ -39,6 +40,3 @@ Run the narrow selected command with `bin/oc-test targeted -- <command> [args...
 Invariant/control joins, allowed-dependency interpretation, observed import/call edges,
 non-law navigation homes, CON-887 packet reading, and CON-890 owner oracles remain later work.
 Required-reading entries will be pinned references, not inlined card content.
-
-Navigation source fingerprint: `sha256:ff2ebd25a4e4bdc6412f03ae22aaf399d8651998960d6aee311552fb4384f8ca`.
-Other fingerprints and the exact file universe are in the generated inventory.

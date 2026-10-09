@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"net/url"
-	"strings"
 	"time"
 )
 
@@ -116,51 +115,12 @@ func ApplyWorkflowDeliveryCorrectionTx(ctx context.Context, tx *Transaction, req
 // it re-checks the row's one-use consumed state and the request's exact
 // binding, and the fold later re-derives the same admission from the event
 // payload and the log-derived workflow_actors row alone.
-func workflowDeliveryCorrectionOperatorFromApprovalTx(ctx context.Context, tx *sql.Tx, request WorkflowDeliveryCorrectionRequest) (workflowDeliveryCorrectionOperator, error) {
-	if request.ApprovalRef == "" {
-		return workflowDeliveryCorrectionOperator{}, newFailure(KindInvalidPayload, "workflow_delivery_correction", "delivery correction requires an operator approval reference", false, "request the core operator approval for this correction")
-	}
-	var principalRef, clientRef, sessionRef, approvalDigest, approvalScopeJSON, approvalVersionsJSON, approvalConsequence string
-	var usedCount, maxUses int
-	if err := tx.QueryRowContext(ctx, `SELECT human_principal_ref,client_ref,session_ref,operation_digest,scope_json,version_json,consequence,used_count,max_uses FROM agent_approvals WHERE approval_ref=? AND revoked_at IS NULL`, request.ApprovalRef).Scan(&principalRef, &clientRef, &sessionRef, &approvalDigest, &approvalScopeJSON, &approvalVersionsJSON, &approvalConsequence, &usedCount, &maxUses); err != nil {
-		if err == sql.ErrNoRows {
-			return workflowDeliveryCorrectionOperator{}, newFailure(KindApprovalRequired, "workflow_delivery_correction", "delivery correction requires a consumed operator approval", false, "request the core operator approval for this correction")
-		}
-		return workflowDeliveryCorrectionOperator{}, wrapFailure(KindUnavailable, "workflow_delivery_correction", "cannot read the delivery correction approval", true, "retry once the approval projection is readable", err)
-	}
-	if usedCount != 1 || maxUses != 1 {
-		return workflowDeliveryCorrectionOperator{}, newFailure(KindApprovalRequired, "workflow_delivery_correction", "delivery correction requires a consumed one-use operator approval", false, "request the core operator approval for this correction")
-	}
-	mismatches := make([]string, 0, 4)
-	if !validDigest(request.ApprovalOperationDigest) || request.ApprovalOperationDigest != approvalDigest {
-		mismatches = append(mismatches, "digest")
-	}
-	if request.ApprovalScopeJSON == "" || request.ApprovalScopeJSON != approvalScopeJSON {
-		mismatches = append(mismatches, "scope")
-	}
-	if request.ApprovalVersionsJSON == "" || request.ApprovalVersionsJSON != approvalVersionsJSON {
-		mismatches = append(mismatches, "versions")
-	}
-	if request.ApprovalConsequence == "" || request.ApprovalConsequence != approvalConsequence {
-		mismatches = append(mismatches, "consequence")
-	}
-	if len(mismatches) != 0 {
-		return workflowDeliveryCorrectionOperator{}, newFailure(KindUnauthorized, "workflow_delivery_correction", "delivery correction approval is not bound to the exact operation, scope, versions, or consequence: "+strings.Join(mismatches, ","), false, "request a fresh approval for the exact correction operation")
-	}
-	tuple := WorkflowActor{PrincipalRef: principalRef, ClientRef: clientRef, AgentRef: "approval:" + request.ApprovalRef, SessionRef: sessionRef, ActorClass: ActorOperator}
-	ref, err := WorkflowActorRef(tuple)
-	if err != nil {
-		return workflowDeliveryCorrectionOperator{}, newFailure(KindInvalidPayload, "workflow_delivery_correction", "operator approval does not carry a bounded actor tuple", false, "request a fresh approval for this correction")
-	}
-	return workflowDeliveryCorrectionOperator{WorkflowActor: tuple, ref: ref}, nil
-}
-
-// workflowDeliveryCorrectionOperator pairs the derived operator actor with
-// its computed reference, so the mutation writes the actor event and the
-// correction event under one identity.
-type workflowDeliveryCorrectionOperator struct {
-	WorkflowActor
-	ref string
+func workflowDeliveryCorrectionOperatorFromApprovalTx(ctx context.Context, tx *sql.Tx, request WorkflowDeliveryCorrectionRequest) (workflowApprovalOperator, error) {
+	return workflowOperatorFromConsumedApprovalTx(ctx, tx, workflowApprovalBinding{
+		ApprovalRef: request.ApprovalRef, OperationDigest: request.ApprovalOperationDigest,
+		ScopeJSON: request.ApprovalScopeJSON, VersionsJSON: request.ApprovalVersionsJSON,
+		Consequence: request.ApprovalConsequence,
+	}, "workflow_delivery_correction")
 }
 
 // foldWorkflowDeliveryCorrected admits one typed delivery correction and

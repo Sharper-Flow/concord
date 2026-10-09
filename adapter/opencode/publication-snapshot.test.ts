@@ -3,25 +3,22 @@ import { contractOperations, workflowActionPublicVariants } from "./generated-co
 
 const adapter = await import("./concord")
 
-// Publication cost and order evidence (CON-412). The published surface is
-// deterministic: `publishedRequestSchema` is the same production function the
+// The published surface is deterministic: `publishedRequestSchema` is the
+// same production function the
 // plugin tool hook registers through `argsSchema`, two publications of one
 // tool are byte-identical, branch order follows the contract operations and
 // the registry action order, and the per-tool published size is pinned in
 // UTF-8 bytes so a size regression is a visible test change, not silent
-// drift. PINNED_PUBLISHED_BYTES records the measured cost of the closed
-// per-action variants that replaced the merged union; the before/after
-// measurement lives in the CON-412 attempt evidence.
+// drift.
 const tools = [...new Set(contractOperations.map((operation: any) => operation.tool))]
 
 const publishedBytes = (tool: string): number => Buffer.byteLength(JSON.stringify(adapter.publishedRequestSchema(tool)), "utf8")
 
 // The pinned total is the sum of every tool's published UTF-8 byte size on
-// the recorded branch. Update it only through a reviewed size change. The
-// closed per-action variants, per-kind outcome branches, and byte-bound
-// keywords cost about 2.5 times the merged-union publication they replaced
-// (CON-412 records both totals). The figure counts schema bytes, not tokens.
-const PINNED_PUBLISHED_TOTAL_BYTES = 370210
+// reviewed surface, including the typed outside-repair operations. Update it
+// only through a reviewed size change. The figure counts schema bytes, not
+// tokens.
+const PINNED_PUBLISHED_TOTAL_BYTES = 373509
 
 test("publication is repeatable: two publications are byte-identical", () => {
   for (const tool of tools) {

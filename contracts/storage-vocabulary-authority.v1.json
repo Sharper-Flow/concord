@@ -220,6 +220,11 @@
       "authority": "check"
     },
     {
+      "table": "outside_repair_dispositions",
+      "column": "state",
+      "authority": "check"
+    },
+    {
       "table": "product_projects",
       "column": "role",
       "authority": "check"
@@ -406,6 +411,11 @@
     {
       "table": "workflow_instances",
       "column": "instance_state",
+      "authority": "check"
+    },
+    {
+      "table": "workflow_instances",
+      "column": "outside_repair_state",
       "authority": "check"
     },
     {

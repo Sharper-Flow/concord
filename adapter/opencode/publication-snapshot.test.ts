@@ -15,10 +15,11 @@ const tools = [...new Set(contractOperations.map((operation: any) => operation.t
 const publishedBytes = (tool: string): number => Buffer.byteLength(JSON.stringify(adapter.publishedRequestSchema(tool)), "utf8")
 
 // The pinned total is the sum of every tool's published UTF-8 byte size on
-// reviewed surface, including the typed research retirement operation. Update it
+// reviewed surface, including the typed outside-repair operations and the typed
+// research retirement operation. Update it
 // only through a reviewed size change. The figure counts schema bytes, not
 // tokens.
-const PINNED_PUBLISHED_TOTAL_BYTES = 380403
+const PINNED_PUBLISHED_TOTAL_BYTES = 383568
 
 test("publication is repeatable: two publications are byte-identical", () => {
   for (const tool of tools) {

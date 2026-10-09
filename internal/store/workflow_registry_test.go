@@ -119,6 +119,28 @@ func TestBuiltinWorkflowProductTruthClassification(t *testing.T) {
 	}
 }
 
+func TestWorkflowDefinitionVerificationReplaysLegacyInputReferences(t *testing.T) {
+	t.Parallel()
+	definition := builtinGenericOneOff(true)
+	definition.StalenessRules = []WorkflowStalenessRule{{ID: "staleness.legacy", InputRef: "input:a\fb", Severity: "warning"}}
+	if err := validateWorkflowDefinitionWithReference(definition, replayValidReference); err != nil {
+		t.Fatalf("legacy pinned definition failed replay validation: %v", err)
+	}
+	if err := ValidateWorkflowDefinition(definition); err == nil {
+		t.Fatal("new definition admission accepted a form-feed reference")
+	}
+	digest, err := workflowDefinitionDigestWithReference(definition, replayValidReference)
+	if err != nil {
+		t.Fatalf("legacy pinned definition could not be digested for replay: %v", err)
+	}
+	registry := &workflowDefinitionRegistry{entries: map[string]RegisteredDefinition{
+		registryKey(definition.Ref, definition.Version): {Definition: definition, Digest: digest},
+	}}
+	if err := registry.Verify(definition.Ref, definition.Version, digest); err != nil {
+		t.Fatalf("legacy pinned definition failed digest verification: %v", err)
+	}
+}
+
 // A family holds exactly the versions the digest pins declare: the frozen
 // version-1 shapes where persisted instances pin them (#861), the shipped
 // shape, and nothing beyond. workflow_definition_version_pins_test.go holds

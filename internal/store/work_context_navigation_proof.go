@@ -4,8 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"os"
-	"path/filepath"
 )
 
 // WorkContextNavigationRequest names the bounded sources a read or mutation
@@ -187,12 +185,7 @@ func prepareClaimNavigation(ctx context.Context, s *Store, req WorktreeClaimRequ
 }
 
 func workContextNavigationNonGit(repo string) bool {
-	for _, name := range []string{".git", "HEAD"} {
-		if _, err := os.Lstat(filepath.Join(repo, name)); !os.IsNotExist(err) {
-			return false
-		}
-	}
-	return !workContextNavigationPresentOnDisk(repo)
+	return !workContextRepoEntryPresent(repo, ".git", "HEAD") && !workContextNavigationPresentOnDisk(repo)
 }
 
 func mergeWorkContextNavigationProof(proofs ...*workContextNavigationProof) *workContextNavigationProof {

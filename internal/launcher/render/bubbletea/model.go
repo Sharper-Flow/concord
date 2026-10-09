@@ -1047,15 +1047,8 @@ func abnormalDomainLines(snapshot launcher.Snapshot) []string {
 	if section.RegistryIncomplete {
 		return []string{"DOMAIN: unavailable: domain_registry_incomplete"}
 	}
-	if section.RelationsTruncated || section.OverlapsTruncated {
-		var bounded []string
-		if section.RelationsTruncated {
-			bounded = append(bounded, "domain_relations_bounded")
-		}
-		if section.OverlapsTruncated {
-			bounded = append(bounded, "domain_overlaps_bounded")
-		}
-		return []string{"DOMAIN: unavailable: " + strings.Join(bounded, ",")}
+	if section.OverlapsTruncated {
+		return []string{"DOMAIN: unavailable: domain_overlaps_bounded"}
 	}
 	var unresolved []string
 	for _, pair := range section.Overlaps {

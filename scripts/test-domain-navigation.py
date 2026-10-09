@@ -1,0 +1,302 @@
+#!/usr/bin/env python3
+"""Navigation failures must stop at the repository boundary, not invent owners."""
+
+from __future__ import annotations
+
+import importlib.util
+import io
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
+import unittest
+from contextlib import redirect_stderr, redirect_stdout
+from unittest.mock import patch
+
+SCRIPTS = Path(__file__).resolve().parent
+sys.path.insert(0, str(SCRIPTS))
+SPEC = importlib.util.spec_from_file_location("navigation_registry_checker", SCRIPTS / "check-domain-registry.py")
+checker = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(checker)
+import domain_navigation as nav
+
+
+class NavigationTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.registry = {
+            "schema_version": "1.0", "product_key": "fixture", "root_domain_id": "product-root:fixture",
+            "domains": [
+                {"domain_id": "product-root:fixture", "name": "Fixture", "purpose": "Product-wide constraints.", "status": "current", "architecture_relations": []},
+                {"domain_id": "core", "name": "Core", "purpose": "Fixture implementation.", "status": "current", "parent_domain_id": "product-root:fixture", "architecture_relations": []},
+            ],
+        }
+        self.manifest = {"domain_registry": self.registry, "records": [
+            {"id": "root-law", "status": "accepted", "home_domain_id": "product-root:fixture"},
+            {"id": "core-law", "status": "accepted", "home_domain_id": "core"},
+        ]}
+        self.navigation = {"schema_version": "1.0", "rules": [
+            {"domain_id": "product-root:fixture", "include": ["ROOT.md"], "exclude": []},
+            {"domain_id": "core", "include": ["src/**", ".concord/navigation/**"], "exclude": []},
+        ], "unresolved": [], "test_coverage": []}
+        self.write("ROOT.md", "Fixture\n")
+        self.write("src/a.go", "package fixture\n")
+        self.save()
+        self.git("init", "-q", "-b", "main")
+        self.git("add", ".")
+        self.git("commit", "-q", "-m", "fixture")
+
+    def git(self, *args):
+        env = dict(os.environ, GIT_AUTHOR_NAME="Fixture", GIT_AUTHOR_EMAIL="fixture@example.invalid",
+                   GIT_COMMITTER_NAME="Fixture", GIT_COMMITTER_EMAIL="fixture@example.invalid")
+        return subprocess.run(["git", "-C", str(self.root), *args], env=env, check=True, capture_output=True, text=True).stdout
+
+    def write(self, path, text):
+        target = self.root / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text)
+
+    def save(self):
+        # The companion owns itself through the implementation Domain in fixtures.
+        if ".concord/domain-navigation.v1.json" not in self.navigation["rules"][1]["include"]:
+            self.navigation["rules"][1]["include"].append(".concord/domain-navigation.v1.json")
+        self.write(".concord/domain-navigation.v1.json", json.dumps(self.navigation))
+
+    def findings(self):
+        with patch.object(checker.knowledge_index, "compose_manifest", return_value=self.manifest):
+            return checker.validate(self.root)[0]
+
+    def test_unknown_domain_refuses(self):
+        self.navigation["rules"][1]["domain_id"] = "unknown"
+        self.save()
+        self.assertTrue(self.findings())
+
+    def test_overlap_refuses_without_precedence(self):
+        self.navigation["rules"][0]["include"].append("src/**")
+        self.save()
+        self.assertTrue(self.findings())
+
+    def test_new_unmapped_path_refuses(self):
+        self.write("new.go", "package fixture\n")
+        self.assertTrue(self.findings())
+
+    def test_new_unresolved_path_refuses(self):
+        self.write("new.go", "package fixture\n")
+        self.navigation["unresolved"].append({"path": "new.go", "candidate_domain_ids": ["core"], "reason": "New uncertainty."})
+        self.save()
+        self.assertTrue(self.findings())
+
+    def test_changed_legacy_unresolved_path_refuses(self):
+        self.navigation["rules"][1]["exclude"].append("src/a.go")
+        self.navigation["unresolved"].append({"path": "src/a.go", "candidate_domain_ids": ["core"], "reason": "Legacy uncertainty."})
+        self.save()
+        self.git("add", ".")
+        self.git("commit", "-q", "-m", "legacy unresolved")
+        self.write("src/a.go", "package fixture\n// Changed.\n")
+        self.assertTrue(self.findings())
+
+    def test_legacy_unresolved_list_cannot_grow(self):
+        self.navigation["rules"][1]["exclude"].append("src/a.go")
+        self.navigation["unresolved"].append({"path": "src/a.go", "candidate_domain_ids": ["core"], "reason": "Unchanged but newly unresolved."})
+        self.save()
+        self.assertTrue(self.findings())
+
+    def test_dead_glob_refuses(self):
+        self.navigation["rules"][1]["include"].append("missing/**")
+        self.save()
+        self.assertTrue(self.findings())
+
+    def test_parent_selector_refuses(self):
+        self.navigation["rules"][1]["include"].append("../outside/**")
+        self.save()
+        self.assertTrue(self.findings())
+
+    def test_symlink_escape_refuses(self):
+        (self.root / "src/escape.go").symlink_to(self.root.parent / "outside.go")
+        self.assertTrue(self.findings())
+
+    def test_valid_partition_passes(self):
+        self.assertEqual(self.findings(), [])
+
+    def test_foreign_product_without_companion_stays_optional(self):
+        self.git("rm", "-q", ".concord/domain-navigation.v1.json")
+        self.git("commit", "-q", "-m", "foreign product has no companion")
+        self.assertEqual(self.findings(), [])
+
+    def test_adopted_companion_cannot_be_removed(self):
+        (self.root / ".concord/domain-navigation.v1.json").unlink()
+        self.assertTrue(self.findings())
+
+    def test_initial_adoption_may_name_unchanged_legacy_paths(self):
+        self.git("rm", "--cached", "-q", nav.COMPANION)
+        self.git("commit", "-q", "-m", "pre-adoption baseline")
+        self.navigation["rules"][1]["exclude"].append("src/a.go")
+        self.navigation["unresolved"].append({"path": "src/a.go", "candidate_domain_ids": ["core"], "reason": "Legacy uncertainty."})
+        self.save()
+        self.assertEqual(self.findings(), [])
+
+    def test_unresolved_list_can_shrink(self):
+        self.navigation["rules"][1]["exclude"].append("src/a.go")
+        self.navigation["unresolved"].append({"path": "src/a.go", "candidate_domain_ids": ["core"], "reason": "Legacy uncertainty."})
+        self.save()
+        self.git("add", ".")
+        self.git("commit", "-q", "-m", "legacy unresolved")
+        self.navigation["rules"][1]["exclude"] = []
+        self.navigation["unresolved"] = []
+        self.save()
+        self.assertEqual(self.findings(), [])
+
+    def test_unresolved_file_mode_change_requires_mapping(self):
+        self.navigation["rules"][1]["exclude"].append("src/a.go")
+        self.navigation["unresolved"].append({"path": "src/a.go", "candidate_domain_ids": ["core"], "reason": "Legacy uncertainty."})
+        self.save()
+        self.git("add", ".")
+        self.git("commit", "-q", "-m", "legacy unresolved")
+        (self.root / "src/a.go").chmod(0o755)
+        self.assertTrue(self.findings())
+
+    def test_rule_order_does_not_choose_an_owner(self):
+        self.save()
+        before = nav.partition(self.root, self.registry)["owners"]
+        self.navigation["rules"].reverse()
+        self.write(nav.COMPANION, json.dumps(self.navigation))
+        self.assertEqual(nav.partition(self.root, self.registry)["owners"], before)
+
+    def test_root_cannot_be_a_catch_all(self):
+        self.navigation["rules"][0]["include"].append("**")
+        self.save()
+        self.assertTrue(self.findings())
+
+    def test_duplicate_json_keys_refuse(self):
+        self.write(nav.COMPANION, '{"schema_version":"1.0","schema_version":"1.0"}')
+        self.assertIn("duplicate JSON key", " ".join(self.findings()))
+
+    def test_unknown_shared_test_owner_refuses(self):
+        self.write("src/a_test.go", "package fixture\n")
+        self.navigation["test_coverage"] = [{"path": "src/a_test.go", "covers_owner_ids": ["domain:unknown"]}]
+        self.save()
+        self.assertTrue(self.findings())
+
+    def test_shared_test_keeps_one_file_home(self):
+        self.write("src/a_test.go", "package fixture\n")
+        self.navigation["test_coverage"] = [{"path": "src/a_test.go", "covers_owner_ids": ["domain:core", "domain:product-root:fixture"]}]
+        self.save()
+        state = nav.partition(self.root, self.registry)
+        self.assertEqual(state["owners"]["src/a_test.go"], "core")
+        self.assertEqual(len(state["coverage"]["src/a_test.go"]), 2)
+
+    def prepare_catalogs(self):
+        self.navigation["rules"][1]["include"].extend([".concord/docs/**", ".concord/tooling.v1.json", "contracts/**", "cmd/**", "go.mod", "scripts/**"])
+        self.save()
+        self.write(nav.REGISTRY, json.dumps(self.registry))
+        self.write(".concord/tooling.v1.json", json.dumps({"tools": [{"id": "fixture-check", "tier": "fast", "invocation": "python3 check.py"}]}))
+        self.write("contracts/agent-tool-surface.v1.json", json.dumps({"tools": [{"id": "fixture", "operations": ["fixture.inspect"]}]}))
+        self.write("cmd/concord/main.go", 'package fixture; var commandSpecs = []commandSpec{{Canonical: "inspect"}}')
+        self.write("go.mod", "module example.invalid/fixture\n")
+        for path in ("scripts/domain_navigation.py", "scripts/domain-navigation-cli/main.go"):
+            self.write(path, "Fixture generator source\n")
+        original = subprocess.run
+
+        def run(argv, **kwargs):
+            if argv[0] == "go":
+                return subprocess.CompletedProcess(argv, 0, '[{"canonical":"inspect","two_word":""}]', "")
+            return original(argv, **kwargs)
+
+        patched = patch.object(nav.subprocess, "run", side_effect=run)
+        patched.start()
+        self.addCleanup(patched.stop)
+
+    def invoke(self, script, *args):
+        spec = importlib.util.spec_from_file_location("navigation_command", SCRIPTS / script)
+        command = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(command)
+        out, err = io.StringIO(), io.StringIO()
+        with patch.object(sys, "argv", [script, "--root", str(self.root), *args]), redirect_stdout(out), redirect_stderr(err):
+            code = command.main()
+        return code, out.getvalue(), err.getvalue()
+
+    def test_generator_is_deterministic_and_cards_are_bounded(self):
+        self.prepare_catalogs()
+        first = nav.artifacts(self.root)
+        self.assertEqual(first, nav.artifacts(self.root))
+        for path, content in first.items():
+            if path.endswith(".md"):
+                self.assertIn(b"DO NOT EDIT", content)
+                self.assertLessEqual(len(content), 8192)
+                self.assertLessEqual(len(content.splitlines()), 120)
+        data = json.loads(first[f"{nav.OUTPUT}/inventory.json"])
+        self.assertEqual(len(data["files"]), data["mapped_count"])
+        self.assertEqual(len(data["domains"]), 2)
+        core = next(d for d in data["domains"] if d["domain_id"] == "core")
+        self.assertEqual(core["agent_operations"], ["fixture.inspect"])
+        self.assertEqual(core["cli_verbs"], [{"canonical": "inspect", "two_word": ""}])
+
+    def test_missing_stale_extra_and_changed_source_artifacts_refuse(self):
+        self.prepare_catalogs()
+        self.assertEqual(self.invoke("generate-domain-navigation.py", "--check")[0], 1)
+        self.assertEqual(self.invoke("generate-domain-navigation.py")[0], 0)
+        self.assertEqual(self.invoke("generate-domain-navigation.py", "--check")[0], 0)
+        self.write(nav.card_path("core"), "Tampered card\n")
+        self.assertEqual(self.invoke("generate-domain-navigation.py", "--check")[0], 1)
+        self.assertEqual(self.invoke("generate-domain-navigation.py")[0], 0)
+        self.write(f"{nav.OUTPUT}/extra.md", "Unexpected artifact\n")
+        self.assertEqual(self.invoke("generate-domain-navigation.py", "--check")[0], 1)
+        (self.root / nav.OUTPUT / "extra.md").unlink()
+        self.write("cmd/concord/main.go", "Changed declaration bytes\n")
+        self.assertEqual(self.invoke("generate-domain-navigation.py", "--check")[0], 1)
+
+    def test_oversize_card_refuses_without_truncation(self):
+        self.prepare_catalogs()
+        self.registry["domains"][1]["purpose"] = "\u754c" * 3000
+        self.write(nav.REGISTRY, json.dumps(self.registry))
+        with self.assertRaisesRegex(nav.NavigationError, "card exceeds"):
+            nav.artifacts(self.root)
+
+    def test_lookup_returns_domain_card_and_explicit_unresolved(self):
+        self.prepare_catalogs()
+        code, out, _ = self.invoke("domain-navigation.py", "--path", "src/a.go")
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(out)["domain_id"], "core")
+        code, out, _ = self.invoke("domain-navigation.py", "--domain", "core")
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(out)["card_path"], nav.card_path("core"))
+        self.git("rm", "--cached", "-q", nav.COMPANION)
+        self.git("commit", "-q", "-m", "pre-adoption baseline")
+        self.navigation["rules"][1]["exclude"].append("src/a.go")
+        self.navigation["unresolved"].append({"path": "src/a.go", "candidate_domain_ids": ["core"], "reason": "Legacy uncertainty."})
+        self.save()
+        code, out, _ = self.invoke("domain-navigation.py", "--path", "src/a.go")
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(out)["status"], "unresolved")
+
+    def test_lookup_rejects_escape_unknown_path_and_unknown_domain(self):
+        for flags in (("--path", "../outside.go"), ("--path", "missing.go"), ("--domain", "unknown")):
+            with self.subTest(flags=flags):
+                self.assertEqual(self.invoke("domain-navigation.py", *flags)[0], 1)
+
+
+class SegmentPatternTests(unittest.TestCase):
+    def test_single_segment_wildcards_never_cross_a_slash(self):
+        # Exhaust a finite domain rather than sample only the successful paths.
+        from itertools import product
+        for name in ("a", "ab", ".hidden"):
+            for parts in product(("a", "b", ".hidden"), repeat=2):
+                path = "/".join(parts) + "/" + name
+                self.assertFalse(nav.matches(path, "*"))
+                self.assertTrue(nav.matches(path, "**/*"))
+                self.assertEqual(nav.matches(path, "a/*/*"), parts[0] == "a")
+
+    def test_recursive_segment_matches_zero_or_more_segments(self):
+        for path in ("a.go", "src/a.go", "src/deep/a.go", ".hidden/a.go"):
+            self.assertTrue(nav.matches(path, "**/a.go"))
+        self.assertFalse(nav.matches("src/b.go", "**/a.go"))
+        self.assertFalse(nav.matches("SRC/a.go", "src/**"))
+        self.assertTrue(nav.matches("src/a.go", "src/?.go"))
+
+
+if __name__ == "__main__":
+    unittest.main()

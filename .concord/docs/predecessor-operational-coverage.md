@@ -76,6 +76,11 @@ evidence paths win, because they are checked.
 
 Turning intent into durable, reviewable commitment before implementation.
 
+Planning facts live in Linear through the Linear MCP server under
+[CD-0213](./decisions/CD-0213-linear-mcp-is-the-only-planning-authority.md).
+The covered paths below concern Concord's managed execution records and contracts,
+not a local planning backlog or remote issue writer.
+
 | Outcome | State | Evidence or reason |
 |---|---|---|
 | Capture a unit of work with value statement, kind, priority, urgency, tags, and Project membership | Covered | `internal/agent/mutations.go` (`concord_work_define.capture`) |
@@ -85,8 +90,8 @@ Turning intent into durable, reviewable commitment before implementation.
 | Triage a defect before committing to a fix shape | Covered | `break_fix` workflow definition (reproduce → diagnose → repair → verify), `internal/store/workflow_registry.go` |
 | Declare which laws a unit of work is mandated by, and which it amends | Covered | CD-0015; `spec_mandate` / `law_modifies` in `internal/store/workflow_completion.go` |
 | Block planning and completion on unknown laws or unresolved law conflicts | Covered | CD-0015; `internal/store/workflow_completion.go` |
-| Frame an initiative that spans several units of work, with a narrative and an ordered entry set | Covered | `concord_work_initiative.create`, entry mutations, narrative revision, and bounded `entries` read in `internal/agent/mutations.go`, `internal/agent/runtime.go`, and `contracts/agent-tool-surface.v1.json`; `TestDispatchInitiativeSurfaceUsesInitiativeEventsAndBoundedEntriesRead` proves the reachable event and read path. |
-| Track lightweight future work that is not yet ready to start | Excluded | CD-0009 rejects additional trackable kinds. Early-lifecycle work items carry this, and a separate backlog entity would reintroduce the trackable proliferation the decision closes. |
+| Frame an initiative that spans several units of work, with a narrative and an ordered entry set | Excluded | CD-0213 places Projects, Initiatives, grouping, and ordering in Linear through the Linear MCP server. Concord has no Initiative authoring or entry projection. |
+| Track lightweight future work that is not yet ready to start | Excluded | CD-0213 places the planning backlog in Linear through the Linear MCP server. Concord's managed work records are execution state, not a future-work planning copy. |
 | Audit drift between recorded law and current implementation | Covered | Manifest records carry `evidence` paths; `scripts/check-knowledge-index.py` fails when an evidence path rots (CD-0026). Structural reachability, not semantic verification. |
 | Resolve an ambiguous requirement into a decidable operator choice before commitment | Covered | `operator_question` projection with closed choices and action mapping, `internal/store/workflow_operator.go`; `confirm_premise` requires `selected_choice=confirm` and the matching `decision_context_digest` ([`workflow-engine-contract.md`](./workflow-engine-contract.md) §8.1) |
 
@@ -176,9 +181,9 @@ Knowledge that outlives the change that produced it.
 | Resolve the canonical note for a completed unit of work | Covered | Q10, `internal/store/knowledge_query.go` |
 | Keep specifications as binding law with typed relations between them | Covered | CD-0015; `.concord/docs/decisions/CD-0015-typed-law-relations.md` |
 | Bind a law change to the work that justified it, so law and history move together | Covered | `law_modifies` amendment path, `internal/store/workflow_completion.go` |
-| Preserve the provenance link between a unit of work and its external tracking record | Covered | `external_ref` on capture, `internal/agent/mutations.go` |
+| Preserve the provenance link between a unit of work and its external tracking record | Covered | CD-0213's record-only `concord_work_define.issue_link_record` stores the reported key, UUID, and URL without remote confirmation (`internal/store/linear_issue_link.go`, `internal/agent/issue_link_record_test.go`). |
 | Capture a per-change learning and promote the durable ones to project scope | Covered | `concord_work_compact.lesson_publish` records a lesson per change under operator approval; explicit scopes promote it to project/Product reach through the existing scope-filtered reads (CD-0026 D1/D2), dispatched in `internal/agent/mutations.go`. |
-| Preserve provenance when an item is promoted into an initiative | Covered | `concord_work_initiative.add_entry` folds the dedicated `includes` relation and ordered `initiative_entries` projection through `store.InitiativeEntryEvent`; the scoped agent boundary test in `internal/agent/mutation_dispatch_test.go` verifies removal clears the relation without changing the child, against the dispatch in `internal/agent/mutations.go`. |
+| Preserve provenance when an item is promoted into an initiative | Excluded | CD-0213 places grouping and membership changes in Linear through the Linear MCP server. Concord retains the work unit's recorded issue identity, not an Initiative promotion operation or membership history projection. |
 | Audit instruction and guidance prose against executable anchors | Covered | CD-0026 D4: manifest records name implementation evidence and `scripts/check-knowledge-index.py` fails in CI when a named path rots, so guidance cannot silently outlive the code it describes. |
 
 ## 7. Cross-cutting
@@ -201,9 +206,9 @@ Territory that appears across all six and is an outcome in its own right.
 
 | State | Count |
 |---|---|
-| Covered | 62 |
+| Covered | 60 |
 | Not covered | 0 |
-| Excluded with reason | 12 |
+| Excluded with reason | 14 |
 
 **Total enumerated outcomes: 74.**
 
@@ -222,8 +227,9 @@ The not-covered entries clustered as follows while the floor was open:
    by issue #88 (§5).
 
 The operator-surface and isolation groups are gone: CD-0021 resolved the former as
-deliberate exclusions; issues #124 and #125 covered the latter; and CD-0024 makes
-initiative coordination reachable.
+deliberate exclusions; issues #124 and #125 covered the latter. CD-0213 excludes
+Concord Initiative authoring and membership from runtime coverage; Linear MCP
+owns those planning outcomes.
 
 ## Predecessor surfaces consumed as evidence
 

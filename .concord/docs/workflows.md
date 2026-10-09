@@ -158,7 +158,7 @@ surfaces.
 ### 2.5 Product → Domain navigation
 
 Workflows are reached primarily by **Product → Domain**, not by a flat list of
-changes or Initiatives.
+changes or external planning groups.
 
 - A Product owns canonical Domains; Projects and resources attach without becoming
   architecture identity.

@@ -11,8 +11,8 @@
 > **Product → Domain**, with current law and architecture-bound work together.
 > **Origin:** User direction, 2026-07-25. Lifecycle stage (§8) and shared resources
 > (§9) added by user direction, 2026-07-31; resource-first C15 shape accepted
-> 2026-08-06; Domain and Initiative shape
-> accepted by CD-0041 on 2026-08-18.
+> 2026-08-06; Domain shape accepted by CD-0041 on 2026-08-18.
+> CD-0213 places planning and business grouping in Linear through the Linear MCP server.
 
 ## TL;DR
 
@@ -30,8 +30,8 @@ carry (§10).
 
 Product-changing work additionally binds to one home Domain, every affected
 Domain, exact governing law revisions, authorized law changes, and verification
-obligations. Initiative supplies business/outcome context only; it never owns
-architecture or law.
+obligations. Business grouping lives in Linear through the Linear MCP server;
+Concord keeps managed execution and at most one recorded issue identity per work unit.
 
 The canonical Concord priorities are maintained in [`priorities.md`](./priorities.md); this document
 follows them without restating the ranked list.
@@ -89,7 +89,7 @@ Product-internal architecture through which law and work are organized.
 - Domain identity, hierarchy, and architecture relations are declared in the
   Product's Git knowledge manifest. SQLite projects that law and owns only local
   stage/Project/resource attachments. Neither side infers identity from paths,
-  tags, repository names, or Initiative membership.
+  tags, repository names, or planning groups.
 - A Domain may have zero or one parent Domain. The `subdomain_of` hierarchy is
   acyclic; additional architecture relations follow CD-0041's endpoint-specific
   grammar.
@@ -108,7 +108,7 @@ grouping store survives the CD-0041 target state.
 
 - Everything a Product owns is **co-located and navigable together**. An agent
   working on a Product immediately sees its Domains and, through them, current
-  law, Projects, managed resources, active work, evidence, initiatives, and ops.
+  law, Projects, managed resources, active work, evidence, and ops.
 - *"Where things belong"* must be **obvious** — no hunting across disconnected
   systems to learn what a Product comprises.
 - This is a **first-class design goal**, not a nice-to-have. The data model
@@ -122,7 +122,7 @@ grouping store survives the CD-0041 target state.
 Both query directions are first-class:
 
 - **Product → members:** *"What does Alpha own?"* → its Domains, Projects,
-  resources, current law, active work, initiatives, and ops.
+  resources, current law, active work, and ops.
 - **Member → Product:** *"Which Product owns this azure job / repo / SaaS?"* →
   Alpha.
 
@@ -152,7 +152,7 @@ Product {
       current_law_refs, active_workflows, recent_changes, stage_override? }
   ],
   domain_relations,
-  ...wishlist, ops, initiatives scoped to this Product
+  ...ops scoped to this Product
 }
 
 ManagedResource {
@@ -168,8 +168,9 @@ work-item supersession keep their bounded owners in CD-0041 and PM4.
 CD-0041 and CD-0213 amend CD-0009's predecessor shape. Business grouping lives in
 Linear. Product embeds no grouping record, and grouping is not a second Product,
 Domain, or architecture authority.
-CD-0042 makes this a direct pre-go-live replacement: #196 deletes the predecessor runtime
-forms instead of preserving aliases, upcasters, or a compatibility window.
+[CD-0213 D8](./decisions/CD-0213-linear-mcp-is-the-only-planning-authority.md#d8-history-stays-replayable)
+keeps the event log immutable and historical planning events replayable while
+refusing new planning appends.
 
 Member records carry **identity + role + metadata** — not credentials, not live
 connections.
@@ -179,16 +180,16 @@ connections.
 ## 6. Primary navigation: Product → Domain
 
 Durable Concord knowledge is navigated primarily by **Product → Domain**, not by
-a flat list of changes, workflows, or initiatives.
+a flat list of changes or workflows.
 
 - Open a Product and see its Domain hierarchy and typed architecture relations.
 - Drill into a Domain to see its current law, dependencies, active workflows,
-  evidence, decisions, resources, wishlist, recent changes, and operational
+  evidence, decisions, resources, recent changes, and operational
   signals.
 - A change or workflow is **architecture-bound history** from the Domain; it is not the
   top-level browse path.
-- An Initiative may group work across Domains for business/outcome context, but
-  it never replaces Domain navigation or supplies architecture truth.
+- Linear Projects and Initiatives may group planning work across Domains, but
+  Concord has no grouping projection. Linear grouping supplies no architecture truth.
 - Completed history, archived work, and passive context are available through
   explicit drill-down, not in the default view.
 

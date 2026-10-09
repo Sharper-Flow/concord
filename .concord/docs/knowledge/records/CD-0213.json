@@ -45,7 +45,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:14d840e7b43eda2460f44e2274d6ba30005ecbbb78ee3b7ec46c10c78eeda43d",
+  "sha256": "sha256:d0656ff02df620856036e4d6b60d26e386968329ce0f31e95b98d41431d3b14f",
   "status": "accepted",
   "summary": "Linear, reached only through the Linear MCP server, is the only planning authority. Concord keeps managed execution state and at most one recorded Linear issue identity per managed work unit, mirrors no planning change, holds no Linear credential, keeps planning events replayable, and requires a non-closing Related to reference on each pull request.",
   "tags": [

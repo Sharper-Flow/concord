@@ -26,9 +26,9 @@ read. The binding inputs are the accepted PM1 query contract, PM2 global
 authority, PM3's hybrid explicit core, and CD-0002 invariants I1 through I6.
 This record decides the closed lifecycle state set, the allowed transitions,
 the derived work views, and the typed relation model with its graph rules.
-CD-0041 and CD-0042 amend it: initiative is the sole grouping kind with a
-dedicated entry projection, and architecture-overlap resolutions extend the
-work-pair grammar.
+CD-0041 and CD-0042 extend the work-pair grammar with architecture-overlap
+resolutions. CD-0213 places business grouping in Linear through the Linear
+MCP server; Concord keeps no grouping projection or membership authoring.
 ## Contract
 
 The binding contract is sections 1 through 6: the decision, the closed
@@ -131,8 +131,7 @@ read names are part of the contract; callers never create mirrored rows.
 | `supersedes`: A supersedes B | B superseded-by A | A is B's canonical replacement | no self-edge, duplicate, cycle, or second direct successor for B |
 | `implements`: A implements B | B implemented-by A | A fulfills another work item | no self-edge or duplicate; no lifecycle effect |
 
-CD-0041 makes `parent` legacy for Initiative membership. The future canonical
-work-pair grammar adds version-pinned `compatible_with`, `merged_into`, and
+CD-0041's work-pair grammar adds version-pinned `compatible_with`, `merged_into`, and
 architecture-sequencing use of `blocks`/`depends_on`/`supersedes`; its
 implementation issue must update this table, schemas, events, and conformance in
 one major rather than partially accepting new relation strings.

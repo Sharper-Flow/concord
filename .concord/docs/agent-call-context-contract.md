@@ -349,9 +349,10 @@ identity.
 
 - Criterion 1 is proved by the bound `AJ1-ambiguous-product` scenario of
   `.concord/scenarios/agent-jobs.v1.json`, executed by `TestAgentJobsCorpus`
-  (`internal/agent/agent_jobs_corpus_test.go`), and by
-  `TestDispatchInitiativeCreateRejectsAmbiguousProductBeforeCreation`
-  (`internal/agent/mutation_dispatch_test.go`).
+  (`internal/agent/agent_jobs_corpus_test.go`) for read-side refusal.
+  Mutation refusal before effects is proved by
+  `TestAmbiguousProductRefusesMutationBeforeEffects`
+  (`internal/agent/product_project_authority_test.go`).
 - Criterion 2 is proved by
   `TestStaleUnchangedScopePermitsReadAndRejectsMutationBeforeAnyEffect`
   (`internal/agent/context_freshness_test.go`).

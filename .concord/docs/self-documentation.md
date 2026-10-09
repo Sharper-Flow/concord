@@ -50,7 +50,7 @@ follows them without restating the ranked list.
   document trail, end to end.
 - Not opaque files; **navigable, linked, queryable**.
 - They are reached from the **Product → Domain** view, not from a flat list or
-  Initiative hierarchy.
+  an external planning hierarchy.
 
 ### 1.3 Lifecycle truth, factored
 - See [`clarifications.md`](./clarifications.md) R3.
@@ -118,8 +118,8 @@ impact state.
 
 CD-0041 adds the active architecture footprint: affected Domains, exact law pins,
 write overlaps, and the current version-pinned resolution. The default Domain
-view surfaces unresolved overlap as a blocking problem. Initiative membership is
-display context only and never clears that state.
+view surfaces unresolved overlap as a blocking problem. Business grouping lives
+in Linear through the Linear MCP server under CD-0213 and never clears that state.
 
 ---
 

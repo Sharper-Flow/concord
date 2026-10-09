@@ -118,6 +118,11 @@ Linear.
 - `python3 scripts/check-knowledge-index.py` validates the record graph and the
   supersession relations.
 - `python3 scripts/check-pr-linear-link.py` enforces D5 on each pull request.
-- The deletion slices carry the runtime evidence for D3, D4, D7, and D8.
-  `python3 scripts/check-law-coverage.py` reports the shard outstanding until
-  those slices merge.
+- `internal/agent.TestDispatchIssueLinkRecordStoresReportedIdentity` exercises
+  D3's record-only issue identity through the public dispatch boundary.
+- `internal/store.TestRetiredPlanningEventsReplayWithoutInitiativeState` and
+  `internal/store.TestRetiredPlanningEventsRefuseNewAppends` exercise D8's
+  historical replay and refusal of new planning appends.
+- `python3 scripts/check-law-coverage.py` resolves the coverage shard's typed
+  anchors and checks their required-CI wiring. Anchor presence does not report
+  the outcome of a test run.

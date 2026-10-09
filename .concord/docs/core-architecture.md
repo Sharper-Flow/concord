@@ -9,10 +9,10 @@
 
 ---
 
-## 0. SQLite engine and global physical authority resolved
+## 0. SQLite execution authority and Linear planning authority
 
 The storage-engine authority question is **resolved.** SQLite is Concord's sole
-durable authority: transactional state + durable event history,
+durable local execution authority: transactional state + durable event history,
 `synchronous=NORMAL`, WAL, and `busy_timeout=5000`; six binding invariants I1–I6
 map 1:1 to the Advance failure modes. **PM2 selects one global local SQLite
 authority per Concord installation/operator-machine; Product/Project remain logical
@@ -20,6 +20,13 @@ scopes.** Full records:
 [`decisions/CD-0002-concord-state-authority.md`](./decisions/CD-0002-concord-state-authority.md).
 [`product-memory-authority-scope.md`](./product-memory-authority-scope.md).
 Topology is **library-in-process — no daemon** (CD-0002 §2b).
+
+Linear owns planning through the Linear MCP server. Concord keeps managed
+execution contracts, sessions, worktrees, worker dispatch, evidence, and delivery
+receipts. A work unit can retain one reported issue identity (key, UUID, URL).
+The binary holds no Linear credential and makes no Linear API call. See
+[`CD-0213`](./decisions/CD-0213-linear-mcp-is-the-only-planning-authority.md) and
+[`managed-development-authority.md`](./managed-development-authority.md).
 
 An earlier private pre-public durability proposal is superseded. Its useful
 single-authoritative-log lesson carries forward, but Temporal is not adopted;
@@ -141,7 +148,7 @@ This table records accepted architecture decisions that previously remained open
 | **Evidence-resolution architecture** | **Resolved by CD-0008 D2:** immutable-subject binding records the attributable producer proof that authorized a transition; the producer remains verdict authority and current re-resolution is typed when unavailable. | [`decisions/CD-0008-concord-mechanism-hardening.md`](./decisions/CD-0008-concord-mechanism-hardening.md) §D2; [`design-constraints.md`](./design-constraints.md) Research backlog item 6. |
 | **Validation-failure isolation** | **Resolved by CD-0008 D3:** unreadable records contribute unknown; typed degraded omissions are allowed for independently provable positive reads, while safety conclusions fail closed only over their bounded dependency/touch closure. | [`decisions/CD-0008-concord-mechanism-hardening.md`](./decisions/CD-0008-concord-mechanism-hardening.md) §D3; [`design-constraints.md`](./design-constraints.md) Research backlog item 7. |
 | **Migrations / schema evolution** | **Resolved by CD-0008 D6:** typed ordered upcasters, projection schema versions, deterministic replay tests, fail-closed newer versions, pinned active workflow versions, point-in-time reconstruction, and falsifier-driven snapshots. | [`decisions/CD-0008-concord-mechanism-hardening.md`](./decisions/CD-0008-concord-mechanism-hardening.md) §D6; CD-0002 §7. |
-| **Product architecture and concurrent-law coordination** | **Resolved by CD-0041:** canonical Domains own law; Product-changing contracts declare architecture footprints; overlapping work requires a version-pinned resolution; Initiative is secondary context. | [`decisions/CD-0041-architecture-bound-product-law.md`](./decisions/CD-0041-architecture-bound-product-law.md). |
+| **Product architecture and concurrent-law coordination** | **Resolved by CD-0041:** canonical Domains own law; Product-changing contracts declare architecture footprints; overlapping work requires a version-pinned resolution. CD-0213 places business grouping in Linear. | [`decisions/CD-0041-architecture-bound-product-law.md`](./decisions/CD-0041-architecture-bound-product-law.md); [`decisions/CD-0213-linear-mcp-is-the-only-planning-authority.md`](./decisions/CD-0213-linear-mcp-is-the-only-planning-authority.md). |
 
 All rows in this table are resolved explicitly by PM1–PM10/CD-0005/CD-0008/CD-0041—not by
 implication from Go, storage, or CLI choice.
@@ -155,7 +162,7 @@ implication from Go, storage, or CLI choice.
 | [`priorities.md`](./priorities.md) | Canonical authority | Ranked priorities and operating envelope; this document follows them. |
 | [`design-constraints.md`](./design-constraints.md) | NFRs and constraints | §7 updated to reference this document. §5 read-path target retained. |
 | [`decisions/CD-0002-concord-state-authority.md`](./decisions/CD-0002-concord-state-authority.md) | State authority | Sole durable authority for SQLite; invariants I1–I6. |
-| [`decisions/CD-0041-architecture-bound-product-law.md`](./decisions/CD-0041-architecture-bound-product-law.md) | Product-law architecture | Adds canonical Domain identity, architecture-bound work contracts, overlap revalidation, and the Initiative migration while preserving SQLite. |
+| [`decisions/CD-0041-architecture-bound-product-law.md`](./decisions/CD-0041-architecture-bound-product-law.md) | Product-law architecture | Adds canonical Domain identity, architecture-bound work contracts, and overlap revalidation while preserving SQLite. |
 | [`storage-spine-slice.md`](./storage-spine-slice.md) | Implementation acceptance plan | Runs against accepted PM1–PM10 and CD-0002/CD-0006/CD-0007/CD-0008 mechanics; validates the accepted shape rather than choosing it. |
 | [`clarifications.md`](./clarifications.md) | Build-authorizing decisions | PM1–PM10 shape Product memory; TS1–TS9 shape the current agent tool surface; CD-0006/CD-0007/CD-0008/CD-0041 settle root policy, repository boundary, mechanism hardening, and Product-law architecture. |
 | [`rollout-plan.md`](./rollout-plan.md) | Entry conditions | Go-core direction is not an entry condition. |

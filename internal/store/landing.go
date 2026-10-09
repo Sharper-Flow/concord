@@ -21,7 +21,7 @@ func recordLanding[T any](s *Store, ctx context.Context, op, workID, sessionRef,
 	if hostPID <= 0 {
 		return zero, newFailure(KindInvalidOperation, op, "landing requires the host process pid", false, "supply the adapter's process.pid with the landing request")
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := beginOrdinaryTx(ctx, s.db)
 	if err != nil {
 		return zero, wrapFailure(KindUnavailable, op, "cannot begin landing", true, "retry once the database is writable", err)
 	}

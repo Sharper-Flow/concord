@@ -17,7 +17,7 @@ import (
 // observations are comparable.
 //
 // Capabilities granted: product_read, work_define, work_transition,
-// work_relate, and work_initiative. work_compact is deliberately excluded
+// work_relate. work_compact is deliberately excluded
 // because the AJ3/AJ4/AJ5 mutation corpus exercises only the mutation
 // families covered by these bindings.
 func agentJobsMutationPM1Fixture(t *testing.T) (*store.Store, *Service, Authority, ed25519.PrivateKey, pm1fixture.Corpus) {
@@ -34,7 +34,7 @@ func agentJobsMutationPM1Fixture(t *testing.T) (*store.Store, *Service, Authorit
 	if err := pm1fixture.Seed(context.Background(), s, corpus); err != nil {
 		t.Fatalf("pm1fixture.Seed: %v", err)
 	}
-	service, _, grant := newAuthorizedService(t, s, "client-mutation", "human-operator", []Capability{"product_read", "work_define", "work_transition", "work_relate", "work_compact", "work_initiative"}, []string{"prod-alpha", "prod-beta"}, []string{"proj-web", "proj-api", "proj-shared"}, store.ProjectResolution{ProjectID: "proj-web"})
+	service, _, grant := newAuthorizedService(t, s, "client-mutation", "human-operator", []Capability{"product_read", "work_define", "work_transition", "work_relate", "work_compact"}, []string{"prod-alpha", "prod-beta"}, []string{"proj-web", "proj-api", "proj-shared"}, store.ProjectResolution{ProjectID: "proj-web"})
 	grant.SessionRef = "session-mutation"
 	grant.AgentRef = "agent-engineer"
 	privateKey := mustKey(t)

@@ -477,7 +477,7 @@ func grantRequestInputGrants(idempotencyKey string, capabilities, products, proj
 // work_relate client does not hold yet, so the total-additions boundary tests
 // below can count the derived diff exactly.
 func totalBoundCapabilities() []string {
-	return []string{"cross_scope", "product_read", "research", "work_compact", "work_define", "work_initiative", "work_transition"}
+	return []string{"cross_scope", "product_read", "research", "work_compact", "work_define", "work_transition"}
 }
 
 func totalBoundProducts() []string {

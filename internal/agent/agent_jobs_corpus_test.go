@@ -1398,7 +1398,6 @@ func init() {
 	jobBindings["AJ4-completion-missing-evidence"] = bindAJ4CompletionMissingEvidence
 	jobBindings["AJ4-stale-version"] = bindAJ4StaleVersion
 	jobBindings["AJ5-add-dependency"] = bindAJ5AddDependency
-	jobBindings["AJ5-frame-initiative"] = bindAJ5FrameInitiative
 	jobBindings["AJ5-reject-cycle"] = bindAJ5RejectCycle
 	jobBindings["AJ5-atomic-supersession"] = bindAJ5AtomicSupersession
 	jobBindings["AJ5-resolve-domain-overlap"] = bindAJ5ResolveDomainOverlap

@@ -915,25 +915,8 @@ type WorkStartCaptureArgs = {
 // session's Project.
 type WorkStartArgs = WorkStartCaptureArgs | { work_id: string; project_id?: string }
 
-// LinearRemoteComment is one remote comment created after the recorded
-// remote freshness, with its body already bounded by the core.
-type LinearRemoteComment = { author: string; created_at: string; body: string }
-
-// LinearRemoteSection mirrors the resume-time remote Linear check the core
-// attaches to a work-resume result. Degraded authority carries only the
-// typed reason; ok carries the full comparison. The core writes nothing on
-// this path, so the section is information the resuming session reads.
-type LinearRemoteSection = {
-  authority: "ok" | "degraded"
-  reason?: string
-  changed_since_recorded?: boolean
-  updated_at?: string
-  status?: { expected: string; actual: string; remote_state_type: string; mismatch: boolean }
-  title?: { remote: string; differs: boolean }
-  description?: string
-  description_truncated?: boolean
-  comments?: { items: LinearRemoteComment[]; truncated: boolean; reason?: string }
-}
+// RecordedLinearIssueSection carries only the identity held by the local store.
+type RecordedLinearIssueSection = { human_key: string; remote_issue_uuid: string; url: string }
 
 // ProjectHandoffSection is the bounded addressed handoff a Project-selected
 // work-resume renders (CD-0182 amendment): the durable handoff identity, the
@@ -960,7 +943,7 @@ type WorkStartResume = {
   work_id: string
   worktree: { set_id: string; path: string; branch: string; base_sha: string; state: "active" }
   branch_freshness: BranchFreshness
-  linear_remote?: LinearRemoteSection
+  linear_issue?: RecordedLinearIssueSection
   project_handoff?: ProjectHandoffSection
 }
 
@@ -1006,7 +989,7 @@ type WorkStartEnvelope = {
   agent?: string
   session_id?: string | null
   output?: string
-  linear_remote?: LinearRemoteSection
+  linear_issue?: RecordedLinearIssueSection
   project_handoff?: ProjectHandoffSection
   branch_freshness?: BranchFreshness
   launch?: WorkStartLaunch
@@ -1080,8 +1063,8 @@ function validateWorkStartPrepared(value: unknown, bootstrap: { product_id: stri
 // child. It mirrors validateWorkStartBootstrap minus the capture-only fields
 // (operation id, replay flag, work version): the active-entry read records
 // nothing, while missing-entry bootstrap keeps those fields outside this
-// shared resume response. linear_remote is the optional remote Linear check
-// section: absent exactly when the resume applies no remote check.
+// shared resume response.
+// linear_issue is the optional locally recorded issue identity.
 // branch_freshness is the typed behind-the-default sample the resume always
 // carries; a fetch or probe failure degrades it to the typed unknown.
 // project_handoff is the optional bounded addressed handoff the core renders
@@ -1093,7 +1076,7 @@ function validateWorkStartPrepared(value: unknown, bootstrap: { product_id: stri
 function validateWorkStartResume(value: unknown): value is WorkStartResume {
   if (!record(value)) return false
   const baseKeys = ["schema_version", "product_id", "project_id", "work_id", "worktree", "branch_freshness"]
-  const optionalKeys = ["linear_remote", "project_handoff"]
+  const optionalKeys = ["linear_issue", "project_handoff"]
   if (!baseKeys.every((key) => key in value)) return false
   const extraKeys = Object.keys(value).filter((key) => !baseKeys.includes(key))
   if (extraKeys.some((key) => !optionalKeys.includes(key))) return false
@@ -1105,8 +1088,16 @@ function validateWorkStartResume(value: unknown): value is WorkStartResume {
     && nonEmptyString(worktree.branch) && typeof worktree.base_sha === "string" && /^[0-9a-f]{40}$/.test(worktree.base_sha) && worktree.state === "active"
   if (!worktreeOk) return false
   if (!validateBranchFreshness(value.branch_freshness)) return false
-  if ("linear_remote" in value && !validateLinearRemoteSection(value.linear_remote)) return false
+  if ("linear_issue" in value && !validateRecordedLinearIssueSection(value.linear_issue)) return false
   return !("project_handoff" in value) || validateProjectHandoffSection(value.project_handoff)
+}
+
+function validateRecordedLinearIssueSection(value: unknown): value is RecordedLinearIssueSection {
+  if (!record(value) || !exactKeys(value, ["human_key", "remote_issue_uuid", "url"])) return false
+  const fields = payloadSchemas.work_define_issue_link_record_input.properties
+  return validateAgainstSchema(fields.human_key, value.human_key)
+    && validateAgainstSchema(fields.remote_issue_uuid, value.remote_issue_uuid)
+    && validateAgainstSchema(fields.url, value.url)
 }
 
 // validateProjectHandoffSection is the strict shape for the rendered bounded
@@ -1165,39 +1156,6 @@ export function validateBranchFreshness(value: unknown): value is BranchFreshnes
     return exactKeys(value, ["status", "reason"]) && typeof value.reason === "string" && branchFreshnessReasons.has(value.reason)
   }
   return false
-}
-
-const linearRemoteReasons = new Set(["missing_credentials", "unauthorized", "rate_limited", "timeout", "unavailable", "not_found", "local_unavailable"])
-
-function validateLinearRemoteComment(value: unknown): value is LinearRemoteComment {
-  return record(value) && exactKeys(value, ["author", "created_at", "body"])
-    && typeof value.author === "string" && typeof value.created_at === "string" && typeof value.body === "string"
-}
-
-// validateLinearRemoteSection is the strict shape for the remote Linear
-// check section. Degraded authority carries only its typed reason; ok
-// carries the full comparison with the comments reason as the one optional
-// key. Exact keys keep the contract closed on both sides.
-function validateLinearRemoteSection(value: unknown): boolean {
-  if (!record(value)) return false
-  if (value.authority === "degraded") {
-    return exactKeys(value, ["authority", "reason"]) && typeof value.reason === "string" && linearRemoteReasons.has(value.reason)
-  }
-  if (value.authority !== "ok") return false
-  if (!exactKeys(value, ["authority", "changed_since_recorded", "updated_at", "status", "title", "description", "description_truncated", "comments"])) return false
-  if (typeof value.changed_since_recorded !== "boolean" || typeof value.updated_at !== "string" || typeof value.description !== "string" || typeof value.description_truncated !== "boolean") return false
-  const status = value.status
-  if (!record(status) || !exactKeys(status, ["expected", "actual", "remote_state_type", "mismatch"])) return false
-  if (typeof status.expected !== "string" || typeof status.actual !== "string" || typeof status.remote_state_type !== "string" || typeof status.mismatch !== "boolean") return false
-  const title = value.title
-  if (!record(title) || !exactKeys(title, ["remote", "differs"]) || typeof title.remote !== "string" || typeof title.differs !== "boolean") return false
-  const comments = value.comments
-  if (!record(comments)) return false
-  const commentKeys = Object.keys(comments)
-  if (commentKeys.length !== 2 && commentKeys.length !== 3) return false
-  if (typeof comments.truncated !== "boolean" || !Array.isArray(comments.items) || !comments.items.every(validateLinearRemoteComment)) return false
-  if (!("reason" in comments)) return commentKeys.length === 2
-  return commentKeys.length === 3 && typeof comments.reason === "string" && linearRemoteReasons.has(comments.reason)
 }
 
 function boundedUTF8(value: string, maxBytes: number): string {
@@ -1594,7 +1552,7 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext, warni
       throw new AdapterFailure("unreachable", "managed_scope_unavailable", error instanceof Error ? error.message : String(error), "none", "contact_operator")
     }
     let prepareTask: string
-    let resumeRemote: LinearRemoteSection | undefined
+    let recordedIssue: RecordedLinearIssueSection | undefined
     let renderedHandoff: ProjectHandoffSection | undefined
     let resumeFreshness: BranchFreshness | undefined
     if (resume) {
@@ -1609,7 +1567,7 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext, warni
       try { resumedValue = singleJSON(resumed.stdout) } catch (error) { throw new AdapterFailure("malformed_response", "malformed_resume_response", String(error), "none", "retry_same_request") }
       if (!validateWorkStartResume(resumedValue) || resumedValue.product_id !== productID || resumedValue.project_id !== projectID || resumedValue.work_id !== workID) throw new AdapterFailure("malformed_response", "malformed_resume_response", "work-resume response failed the strict resume contract", "none", "retry_same_request")
       target = resumedValue
-      resumeRemote = resumedValue.linear_remote
+      recordedIssue = resumedValue.linear_issue
       renderedHandoff = resumedValue.project_handoff
       resumeFreshness = resumedValue.branch_freshness
       prepareTask = ""
@@ -1788,9 +1746,7 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext, warni
       output: renderedHandoff
         ? `${moveNoticeText(target.worktree.path, dispatchRequiresNextTurn(context.sessionID))} Bounded job: ${renderedHandoff.bounded_job} Next action: ${renderedHandoff.next_action}`
         : moveNoticeText(target.worktree.path, dispatchRequiresNextTurn(context.sessionID)),
-      // The remote Linear check rides the resume result into the envelope so
-      // the resuming session sees remote drift before it acts.
-      ...(resumeRemote ? { linear_remote: resumeRemote } : {}),
+      ...(recordedIssue ? { linear_issue: recordedIssue } : {}),
       // The consumed handoff's bounded job rides the result so the receiving
       // session holds its repository job and exact next action without the
       // operator copying context (CD-0182 amendment).
@@ -1811,7 +1767,6 @@ export const work_trace = tool({ description: "Concord work trace", args: argsSc
 export const knowledge = tool({ description: "Concord knowledge", args: argsSchema("concord_knowledge"), execute: laneGuarded("concord_knowledge", (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_knowledge", hostRequest(args), context)) })
 export const work_define = tool({ description: "Concord work define", args: argsSchema("concord_work_define"), execute: laneGuarded("concord_work_define", (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_work_define", hostRequest(args), context)) })
 export const domain = tool({ description: "Concord domain", args: argsSchema("concord_domain"), execute: laneGuarded("concord_domain", (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_domain", hostRequest(args), context)) })
-export const work_initiative = tool({ description: "Concord work initiative", args: argsSchema("concord_work_initiative"), execute: laneGuarded("concord_work_initiative", (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_work_initiative", hostRequest(args), context)) })
 const guardedWorkTransition = laneGuarded("concord_work_transition", (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTransition(hostRequest(args), context))
 export const work_transition = tool({ description: "Concord work transition. Use operation workflow_action for declared workflow actions. Use operation worker_abandon with the attempt and lane identity to close a dispatched attempt with no report. Use operation worker_reconcile to recover the original retained completed Task without a new worker run. Use action_id dispatch_worker with fields.lane_id for the native worker route. Route discovery does not prove admission at the current workflow step.", args: argsSchema("concord_work_transition"), execute: async (args: HostToolCall, context: ToolContext): Promise<ToolResult> => {
   const request = hostRequest(args)

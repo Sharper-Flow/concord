@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sharper-flow/concord/internal/linearclient"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -194,9 +193,6 @@ func TestRunZLForwardingRefusesProjectForUnlinkedLinearIssue(t *testing.T) {
 	seedCLIProduct(t, dbPath, "fwd-alpha-product", "fwd-alpha-project")
 	t.Setenv(dbOverrideEnv, dbPath)
 	t.Setenv(selectedProductEnv, "fwd-alpha-product")
-	// A regression that skips the guard must fail here without a remote call.
-	t.Setenv(linearclient.EnvAPIKey, "")
-	t.Setenv(linearclient.EnvEndpoint, "https://linear.invalid/graphql")
 	calls := captureForwardSession(t)
 	var out, errOut bytes.Buffer
 	if code := runZLForwarding([]string{"FWD-404", "--project", "fwd-alpha-project"}, strings.NewReader(""), &out, &errOut); code != 1 {
@@ -205,8 +201,8 @@ func TestRunZLForwardingRefusesProjectForUnlinkedLinearIssue(t *testing.T) {
 	if len(*calls) != 0 {
 		t.Fatalf("forwarded handoffs = %+v, want none", *calls)
 	}
-	if !strings.Contains(errOut.String(), "--project needs a Linear issue already linked") {
-		t.Fatalf("stderr = %q, want the linked-issue refusal", errOut.String())
+	if !strings.Contains(errOut.String(), "no work item records Linear issue FWD-404") || !strings.Contains(errOut.String(), "concord_work_define.issue_link_record") {
+		t.Fatalf("stderr = %q, want the recorded-issue refusal and recovery operation", errOut.String())
 	}
 	s, err := store.Open(context.Background(), dbPath)
 	if err != nil {
@@ -218,7 +214,7 @@ func TestRunZLForwardingRefusesProjectForUnlinkedLinearIssue(t *testing.T) {
 		t.Fatal(err)
 	}
 	if works != 0 {
-		t.Fatalf("work_items = %d, want 0: the refusal must precede adoption effects", works)
+		t.Fatalf("work_items = %d, want 0: the refusal must not create managed work", works)
 	}
 }
 
@@ -231,11 +227,7 @@ func TestResolveZLLinearReferenceFollowsLandingProject(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.RecordLinearLink(context.Background(), "fwd-work", "fwd-issue-1", "FWD-1", "https://linear.app/example/issue/FWD-1", "", "", store.LinearLinkPending); err != nil {
-		s.Close()
-		t.Fatal(err)
-	}
-	if err := s.RecordLinearLink(context.Background(), "fwd-work", "fwd-issue-1", "FWD-1", "https://linear.app/example/issue/FWD-1", "", "", store.LinearLinkConfirmed); err != nil {
+	if _, err := s.RecordLinearIssueLink(context.Background(), store.LinearIssueLink{WorkID: "fwd-work", RemoteIssueUUID: "fwd-issue-1", HumanKey: "FWD-1", URL: "https://linear.app/example/issue/FWD-1"}); err != nil {
 		s.Close()
 		t.Fatal(err)
 	}

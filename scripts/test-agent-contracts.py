@@ -145,7 +145,7 @@ class Ts2BudgetTests(unittest.TestCase):
     def test_a_shrunk_document_budget_is_rejected(self):
         manifest = json.loads((ROOT / "contracts/agent-tool-surface.v1.json").read_text())
         document = (ROOT / ".concord/docs/agent-tool-surface-budget.md").read_text().replace(
-            "always_visible_tools: 10", "always_visible_tools: 9")
+            "always_visible_tools: 9", "always_visible_tools: 8")
         with self.assertRaises(AssertionError):
             matches = re.findall(r"always_visible_tools: (\d+)", document)
             declared = int(matches[0])

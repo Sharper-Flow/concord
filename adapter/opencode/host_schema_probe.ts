@@ -1,6 +1,6 @@
 import { contractOperations, hostToolSchemas, workflowActionPublicVariants } from "./generated-contracts"
 import { ciWatchTool, publishCiWatchDefinition } from "./ci-watch"
-import { domain, knowledge, product_view, publishWorkStartDefinition, work_browse, work_compact, work_define, work_initiative, work_relate, work_start, work_trace, work_transition } from "./concord"
+import { domain, knowledge, product_view, publishWorkStartDefinition, work_browse, work_compact, work_define, work_relate, work_start, work_trace, work_transition } from "./concord"
 
 const concord_ci_watch = ciWatchTool()
 
@@ -11,7 +11,6 @@ const tools: Record<string, any> = {
   concord_knowledge: knowledge,
   concord_work_define: work_define,
   concord_domain: domain,
-  concord_work_initiative: work_initiative,
   concord_work_transition: work_transition,
   concord_work_relate: work_relate,
   concord_work_compact: work_compact,

@@ -17,6 +17,12 @@ database. Agents reach that state only through typed, authorized operations, and
 the engine decides whether each operation is admissible. The
 [core architecture](.concord/docs/core-architecture.md) describes these boundaries.
 
+Linear is the sole planning authority. Agents read and write issues, Projects,
+Initiatives, and backlog through the Linear MCP server. Concord keeps managed
+execution state and at most one recorded Linear issue identity (key, UUID, URL)
+per work unit. The binary makes no Linear API call and holds no Linear
+credential. See [managed development authority](.concord/docs/managed-development-authority.md).
+
 ## Why it is different
 
 When agents make independent changes in related parts of one project, each
@@ -69,6 +75,15 @@ an interrupted operation. Restart OpenCode after installation.
 The [installation guide](.concord/docs/installation.md) covers artifact verification,
 managed paths, repair, upgrade, uninstall, and first-use requirements.
 
+### Planning retirement upgrade
+
+Run `concord backup` before upgrading. Migration 123 intentionally drops unsent
+planning-mirror writes, Initiative projections, Linear Project links, and the
+Product planning-mode column. It retains recorded issue identities only when
+both the issue key and URL are non-empty; incomplete links remain only in the
+backup. Use the backup for any reconciliation through the Linear MCP server.
+The migration preserves event history for replay, not retired planning behavior.
+
 ## First use
 
 Complete the [operator bootstrap](adapter/opencode/README.md#operator-bootstrap-cli)
@@ -108,7 +123,7 @@ The adapter test command needs Bun.
 
 - [Installation guide](.concord/docs/installation.md)
 - [OpenCode adapter guide](adapter/opencode/README.md)
-- [Development authority](.concord/docs/development-authority.md)
+- [Managed development authority](.concord/docs/managed-development-authority.md)
 - [Documentation index](.concord/docs/README.md)
 
 ## Contributing

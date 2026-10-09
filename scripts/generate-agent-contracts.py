@@ -968,13 +968,13 @@ def validate(manifest: dict) -> str:
     expected_top = {"$schema", "schema_version", "surface", "envelope", "tools", "operations", "schemas", "capabilities", "consequences", "bounds", "generation", "payload_digest", "digest"}
     if set(manifest) != expected_top:
         fail("manifest has unknown or missing top-level sections")
-    if manifest.get("schema_version") != "1.0" or manifest.get("surface", {}).get("tool_count") != 10:
+    if manifest.get("schema_version") != "1.0" or manifest.get("surface", {}).get("tool_count") != 9:
         fail("manifest schema or tool count is invalid")
     capabilities = set(manifest.get("capabilities", []))
     consequences = set(manifest.get("consequences", []))
     tools = manifest.get("tools", [])
-    if len(tools) != 10 or len({t.get("id") for t in tools}) != 10:
-        fail("manifest must contain exactly ten unique tools")
+    if len(tools) != 9 or len({t.get("id") for t in tools}) != 9:
+        fail("manifest must contain exactly nine unique tools")
     for tool in tools:
         if set(tool) != {"id", "description", "operations"} or not tool["operations"]:
             fail(f"tool section is not closed: {tool.get('id')}")
@@ -983,7 +983,7 @@ def validate(manifest: dict) -> str:
     # plus the two operator-approved outside-repair transition actions
     # (CD-0210): concord_work_transition.outside_repair and
     # concord_work_transition.outside_repair_reconcile.
-    expected_operations = 77
+    expected_operations = 70
     if len(operations) != expected_operations or len({o.get("id") for o in operations}) != expected_operations:
         fail(f"manifest must contain exactly {expected_operations} unique operations")
     tool_ids = {t["id"] for t in tools}

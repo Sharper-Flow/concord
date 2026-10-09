@@ -37,16 +37,16 @@ Commands read one strict JSON object from stdin:
   concord client-register < JSON stdin
   concord client register < JSON stdin
     required: client_ref, key_id, principal_ref, public_key, capabilities, product_scope, project_scope, agent_scope
-    accepted values: capabilities: product_read | work_define | work_transition | work_relate | work_compact | work_initiative | cross_scope | research | worker_evidence | worker_dispatch; public_key: base64 Ed25519; agent_scope: the agent references this client may present
+    accepted values: capabilities: product_read | work_define | work_transition | work_relate | work_compact | cross_scope | research | worker_evidence | worker_dispatch; public_key: base64 Ed25519; agent_scope: the agent references this client may present
   concord client-policy-update < JSON stdin
   concord client policy-update < JSON stdin
     required: client_ref, principal_ref, capabilities, product_scope, project_scope, agent_scope
-    accepted values: capabilities: product_read | work_define | work_transition | work_relate | work_compact | work_initiative | cross_scope | research | worker_evidence | worker_dispatch; agent_scope: the agent references this client may present
+    accepted values: capabilities: product_read | work_define | work_transition | work_relate | work_compact | cross_scope | research | worker_evidence | worker_dispatch; agent_scope: the agent references this client may present
   concord client-policy-expand < JSON stdin
   concord client policy-expand < JSON stdin
     required: client_ref
     optional: capabilities, product_scope, project_scope, agent_scope — additive union; every existing grant and the stored principal are preserved (CD-0097 D6)
-    accepted values: capabilities: product_read | work_define | work_transition | work_relate | work_compact | work_initiative | cross_scope | research | worker_evidence | worker_dispatch
+    accepted values: capabilities: product_read | work_define | work_transition | work_relate | work_compact | cross_scope | research | worker_evidence | worker_dispatch
   concord client-key-rotate < JSON stdin
   concord client key-rotate < JSON stdin
     required: client_ref, key_id, public_key
@@ -59,45 +59,6 @@ Commands read one strict JSON object from stdin:
     required: product_id, display_name, stage_maturity, stage_audience_commitment, project_id, project_display_name, role
     optional: reason
     accepted values: stage_maturity: prototype | alpha | beta | production | deprecated; stage_audience_commitment: operator_only | limited | public; role: primary | secondary
-  concord product-mode-set < JSON stdin
-  concord product mode-set < JSON stdin
-    required: product_id, planning_mode, expected_version, reason
-    accepted values: planning_mode: local_only | linear_enabled
-  concord linear-health < JSON stdin
-  concord linear health < JSON stdin
-    required: product_id
-  concord linear-divergence < JSON stdin
-  concord linear divergence < JSON stdin
-    required: product_id
-  concord linear-unlinked-remote-in-progress < JSON stdin
-  concord linear unlinked-remote-in-progress < JSON stdin
-    required: product_id
-  concord linear-issue-enqueue < JSON stdin
-  concord linear issue-enqueue < JSON stdin
-    required: product_id, work_id, op_kind
-    optional: remote_issue_uuid (required for issue_adopt), audit_comment (required for issue_audit_comment)
-    accepted values: op_kind: issue_create | issue_update | issue_adopt | issue_audit_comment
-  concord linear-outbox-drain < JSON stdin
-  concord linear outbox-drain < JSON stdin
-    required: product_id
-    optional: max_operations
-  concord linear-outbox-disposition < JSON stdin
-  concord linear outbox-disposition < JSON stdin
-    required: product_id, reason
-    optional: operation_ids (defaults to all undisposed failed rows)
-    accepted values: disposition: acknowledged
-  concord linear-backfill < JSON stdin
-  concord linear backfill < JSON stdin
-    required: product_id
-  concord linear-connection-update < JSON stdin
-  concord linear connection-update < JSON stdin
-    required: event_id, resource_id, product_id, expected_resource_version
-    optional: team_id, status_ids, label_ids
-    accepted values: status_ids: needed | in_progress | completed | cancelled | superseded; label_ids: task | bug | decision | research | other | expedite | optional | project:<project_id>
-  concord linear-initiative-import < JSON stdin
-  concord linear initiative-import < JSON stdin
-    required: product_id, linear_project_id
-    accepted values: linear_project_id: Linear Project uuid
   concord resource-create < JSON stdin
   concord resource create < JSON stdin
     required: event_id, resource_id, product_id, display_name, class, kind, purpose, stage_maturity, stage_audience_commitment, environments, expected_product_version

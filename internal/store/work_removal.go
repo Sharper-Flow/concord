@@ -415,61 +415,32 @@ func (s *Store) validateRemovalDestination(ctx context.Context, req WorkRemovalR
 }
 
 func validateRemovalDestinationQ(ctx context.Context, q queryer, req WorkRemovalRequest) error {
-	if req.ProductID == "" {
-		if req.Linear != nil {
-			products, productErr := productsForWorkIDs(ctx, q, []string{req.WorkID})
-			if productErr != nil {
-				return wrapFailure(KindUnavailable, "work_removal_prepare", "cannot read the work item's Product destinations", true, "retry once the database is readable", productErr)
-			}
-			return newAmbiguousScopeFailure("work_removal_prepare", "Linear confirmation has no Product destination", "supply the authorized Product", products[req.WorkID])
-		}
-		return nil
-	}
-	var planningMode string
-	if err := q.QueryRowContext(ctx, `SELECT planning_mode FROM products WHERE id=?`, req.ProductID).Scan(&planningMode); err == sql.ErrNoRows {
-		return newFailure(KindUnknownScope, "planning_mode_resolve", "Product does not exist", false, "supply an existing Product")
-	} else if err != nil {
-		return wrapFailure(KindUnavailable, "planning_mode_resolve", "cannot read Product planning mode", true, "retry once the Product projection is readable", err)
-	}
-	if planningMode == PlanningModeLocalOnly {
-		if req.Linear != nil {
-			return newFailure(KindInvalidOperation, "work_removal_prepare", "local-only work cannot use a Linear destination", false, "preserve the handoff in an operator-selected non-Linear record")
-		}
-		return nil
+	// CD-0142 handoff, CD-0213 D3: a work item that records a Linear issue
+	// identity hands its preservation to that issue. The agent confirms the
+	// handoff through the Linear MCP server; the store checks the
+	// confirmation against the recorded identity and makes no Linear call.
+	link, recorded, err := readLinearLinkCore(ctx, q, req.WorkID)
+	if err != nil {
+		return err
 	}
 	if req.Linear == nil {
-		return newFailure(KindInvalidOperation, "work_removal_prepare", "Linear-enabled work has no confirmed preservation", false, "confirm the authorized Linear issue and handoff before removal")
+		if recorded {
+			return newFailure(KindInvalidOperation, "work_removal_prepare", "the work item records a Linear issue but the removal carries no Linear handoff confirmation", false, "confirm the handoff on the recorded Linear issue before removal")
+		}
+		return nil
 	}
-	var resourceID, metadataJSON string
-	var resourceVersion int64
-	err := q.QueryRowContext(ctx, `SELECT r.resource_id,r.version,r.metadata FROM managed_resources r JOIN resource_products rp ON rp.resource_id=r.resource_id WHERE rp.product_id=? AND rp.role='owner' AND r.class='saas' AND r.kind='saas_account' ORDER BY r.resource_id LIMIT 1`, req.ProductID).Scan(&resourceID, &resourceVersion, &metadataJSON)
-	if err == sql.ErrNoRows {
-		return newFailure(KindInvalidOperation, "work_removal_prepare", "Linear destination is not fully declared", false, "declare the Product Linear connection before removal")
-	}
-	if err != nil {
-		return wrapFailure(KindUnavailable, "work_removal_prepare", "cannot read the Linear destination", true, "retry once the Linear connection is readable", err)
-	}
-	var metadata map[string]any
-	var linear map[string]any
-	if json.Unmarshal([]byte(metadataJSON), &metadata) == nil {
-		linear, _ = metadata["linear"].(map[string]any)
-	}
-	workspace, _ := linear["workspace_url"].(string)
-	team, _ := linear["team_id"].(string)
-	authMode, _ := linear["auth_mode"].(string)
-	if resourceID == "" || resourceVersion < 1 || workspace == "" || team == "" || authMode == "" {
-		return newFailure(KindInvalidOperation, "work_removal_prepare", "Linear destination is not fully declared", false, "declare the Product Linear connection before removal")
+	if req.ProductID == "" {
+		products, productErr := productsForWorkIDs(ctx, q, []string{req.WorkID})
+		if productErr != nil {
+			return wrapFailure(KindUnavailable, "work_removal_prepare", "cannot read the work item's Product destinations", true, "retry once the database is readable", productErr)
+		}
+		return newAmbiguousScopeFailure("work_removal_prepare", "Linear confirmation has no Product destination", "supply the authorized Product", products[req.WorkID])
 	}
 	if req.Linear.ProductID != req.ProductID || req.Linear.Destination != "linear" || req.Linear.RemoteIssueUUID == "" {
 		return newFailure(KindInvalidRelation, "work_removal_prepare", "Linear confirmation does not name the authorized destination", false, "confirm the exact Product and remote issue")
 	}
-	var linkedUUID, state string
-	err = q.QueryRowContext(ctx, `SELECT remote_issue_uuid,link_state FROM linear_issue_links WHERE work_id=?`, req.WorkID).Scan(&linkedUUID, &state)
-	if err == nil && state == LinearLinkConfirmed && linkedUUID != req.Linear.RemoteIssueUUID {
-		return newFailure(KindInvalidRelation, "work_removal_prepare", "Linear confirmation does not match the local issue identity", false, "confirm the locally linked remote issue")
-	}
-	if err != nil && err != sql.ErrNoRows {
-		return wrapFailure(KindUnavailable, "work_removal_prepare", "cannot read the local Linear identity", true, "retry once the Linear link is readable", err)
+	if recorded && link.RemoteIssueUUID != req.Linear.RemoteIssueUUID {
+		return newFailure(KindInvalidRelation, "work_removal_prepare", "Linear confirmation does not match the recorded issue identity", false, "confirm the handoff on the recorded Linear issue")
 	}
 	return nil
 }
@@ -537,8 +508,6 @@ func validateRemovalGatesQ(ctx context.Context, q queryer, req WorkRemovalReques
 		{`SELECT count(*) FROM worktree_claims WHERE work_id=? AND state IN ('pending','verified')`, "work has an active worktree claim"},
 		{`SELECT count(*) FROM worktree_entries WHERE set_id=? AND state='active'`, "work has an active worktree"},
 		{`SELECT count(*) FROM worktree_verify_leases WHERE work_id=? AND state='held'`, "work has a held worktree verification lease"},
-		{`SELECT count(*) FROM linear_outbox WHERE work_id=? AND state IN ('queued','in_flight')`, "work has an unreconciled external write"},
-		{`SELECT count(*) FROM linear_issue_links WHERE work_id=? AND link_state IN ('pending','degraded')`, "work has an unreconciled Linear identity"},
 		{`SELECT count(*) FROM bootstrap_operations WHERE work_id=? AND state IN ('pending','creating','native_ready','rolling_back')`, "work has an incomplete bootstrap effect"},
 		{`SELECT count(*) FROM active_research_consumers WHERE consumer_work_id=? AND required=1`, "work has a required research consumer"},
 		{`SELECT count(*) FROM active_research_consumers c JOIN active_research_packs p ON p.pack_id=c.pack_id WHERE p.owner_work_id=? AND c.required=1 AND c.consumer_work_id<>?`, "work has a required research consumer that depends on its findings"},
@@ -628,7 +597,7 @@ func deleteWorkOwnedProjections(ctx context.Context, tx *sql.Tx, workID string) 
 	if _, err := tx.ExecContext(ctx, `DELETE FROM workflow_backlog_alignment WHERE work_id=? OR related_work_id=?`, workID, workID); err != nil {
 		return projectionDeleteFailure("workflow_backlog_alignment", err)
 	}
-	tables := []string{"workflow_impact_notices", "workflow_candidate_sets", "workflow_contract_predicates", "workflow_contract_law_revisions", "workflow_contract_law_modifications", "workflow_contract_verification_obligations", "workflow_contract_law_additions", "workflow_contract_domain_relation_modifications", "workflow_contract_domain_modifications", "workflow_contract_affected_domains", "workflow_law_addition_reservations", "workflow_architecture_bindings", "workflow_premise_confirmations", "workflow_context_boundaries", "workflow_context_checkpoints", "workflow_impact_edges", "workflow_external_conditions", "workflow_checkpoints", "workflow_decision_records", "workflow_native_runs", "workflow_contracts", "workflow_design_records", "workflow_proposal_records", "workflow_instances", "resource_claims", "work_messages", "work_observations", "external_observations", "worker_attempts", "initiative_entries", "relations", "work_projects", "linear_outbox_dispositions", "linear_outbox", "linear_issue_links"}
+	tables := []string{"workflow_impact_notices", "workflow_candidate_sets", "workflow_contract_predicates", "workflow_contract_law_revisions", "workflow_contract_law_modifications", "workflow_contract_verification_obligations", "workflow_contract_law_additions", "workflow_contract_domain_relation_modifications", "workflow_contract_domain_modifications", "workflow_contract_affected_domains", "workflow_law_addition_reservations", "workflow_architecture_bindings", "workflow_premise_confirmations", "workflow_context_boundaries", "workflow_context_checkpoints", "workflow_impact_edges", "workflow_external_conditions", "workflow_checkpoints", "workflow_decision_records", "workflow_native_runs", "workflow_contracts", "workflow_design_records", "workflow_proposal_records", "workflow_instances", "resource_claims", "work_messages", "work_observations", "external_observations", "worker_attempts", "relations", "work_projects", "linear_issue_links"}
 	for _, table := range tables {
 		_, deleteErr := tx.ExecContext(ctx, `DELETE FROM `+table+` WHERE work_id=?`, workID) //nolint:gosec // table comes only from the closed FK-order projection list above and the work ID stays parameter-bound.
 		if deleteErr == nil {
@@ -650,10 +619,6 @@ func deleteWorkOwnedProjections(ctx context.Context, tx *sql.Tx, workID string) 
 			}
 		case "relations":
 			if _, err := tx.ExecContext(ctx, `DELETE FROM relations WHERE work_id_from=? OR work_id_to=?`, workID, workID); err != nil {
-				return projectionDeleteFailure(table, err)
-			}
-		case "initiative_entries":
-			if _, err := tx.ExecContext(ctx, `DELETE FROM initiative_entries WHERE initiative_work_id=? OR child_work_id=?`, workID, workID); err != nil {
 				return projectionDeleteFailure(table, err)
 			}
 		case "workflow_law_addition_reservations":

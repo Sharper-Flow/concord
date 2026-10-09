@@ -1581,8 +1581,7 @@ func foldWorkflowActionStarted(ctx context.Context, tx *sql.Tx, event Event) err
 }
 
 // beginWorkflowLifecycleTx moves a needed work item to in_progress when the
-// store applies a workflow action to it, and enqueues the Linear issue update
-// in the same transaction (CD-0183 D1). Every action fold calls it, so the
+// store applies a workflow action to it (CD-0183 D1). Every action fold calls it, so the
 // first action of any kind — checkpoint and dispatch included — starts the
 // lifecycle and the item stops reading ready. Only a needed item moves, which
 // leaves a resumed item untouched, and the move carries no version of its
@@ -1597,20 +1596,9 @@ func beginWorkflowLifecycleTx(ctx context.Context, tx *sql.Tx, event Event) erro
 		return wrapFailure(KindUnavailable, "fold_event", "cannot start the work item lifecycle", true,
 			"retry once the database is writable", err)
 	}
-	affected, err := result.RowsAffected()
-	if err != nil {
+	if _, err := result.RowsAffected(); err != nil {
 		return wrapFailure(KindUnavailable, "fold_event", "cannot verify the work item lifecycle start", true,
 			"retry once the database is readable", err)
-	}
-	if affected == 0 {
-		return nil
-	}
-	// A Linear configuration gap never fails the local action start: the
-	// capture fold absorbs the same refusals, the fold marks the linked
-	// work item's confirmed issue degraded, and the explicit enqueue verb
-	// and the drain keep reporting them.
-	if err := enqueueLinearIssueForLifecycleTx(ctx, tx, event.SubjectID, "in_progress", event.OccurredAt); err != nil && !linearCaptureConfigurationRefusal(err) {
-		return err
 	}
 	return nil
 }

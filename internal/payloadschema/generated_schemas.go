@@ -2164,295 +2164,6 @@ const GeneratedPayloadSchemaDocument = `{
       "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
       "type": "string"
     },
-    "initiative_add_entry_input": {
-      "additionalProperties": false,
-      "properties": {
-        "approval": {
-          "$ref": "#/$defs/approval"
-        },
-        "child_work_id": {
-          "$ref": "#/$defs/id"
-        },
-        "expected_version": {
-          "$ref": "#/$defs/version"
-        },
-        "idempotency_key": {
-          "$ref": "#/$defs/id"
-        },
-        "initiative_work_id": {
-          "$ref": "#/$defs/id"
-        },
-        "position": {
-          "maximum": 1000,
-          "minimum": 0,
-          "type": "integer"
-        },
-        "requested_budget_seconds": {
-          "$ref": "#/$defs/requested_budget_seconds"
-        },
-        "required": {
-          "default": true,
-          "type": "boolean"
-        }
-      },
-      "required": [
-        "initiative_work_id",
-        "child_work_id",
-        "expected_version",
-        "position",
-        "idempotency_key"
-      ],
-      "type": "object"
-    },
-    "initiative_change_requiredness_input": {
-      "additionalProperties": false,
-      "properties": {
-        "approval": {
-          "$ref": "#/$defs/approval"
-        },
-        "child_work_id": {
-          "$ref": "#/$defs/id"
-        },
-        "expected_version": {
-          "$ref": "#/$defs/version"
-        },
-        "idempotency_key": {
-          "$ref": "#/$defs/id"
-        },
-        "initiative_work_id": {
-          "$ref": "#/$defs/id"
-        },
-        "requested_budget_seconds": {
-          "$ref": "#/$defs/requested_budget_seconds"
-        },
-        "required": {
-          "type": "boolean"
-        }
-      },
-      "required": [
-        "initiative_work_id",
-        "child_work_id",
-        "expected_version",
-        "required",
-        "idempotency_key"
-      ],
-      "type": "object"
-    },
-    "initiative_create_input": {
-      "additionalProperties": false,
-      "properties": {
-        "approval": {
-          "$ref": "#/$defs/approval"
-        },
-        "external_ref": {
-          "$ref": "#/$defs/short"
-        },
-        "idempotency_key": {
-          "$ref": "#/$defs/id"
-        },
-        "priority": {
-          "maximum": 100,
-          "minimum": -100,
-          "type": "integer"
-        },
-        "project_ids": {
-          "items": {
-            "$ref": "#/$defs/id"
-          },
-          "maxItems": 100,
-          "minItems": 1,
-          "type": "array",
-          "uniqueItems": true
-        },
-        "requested_budget_seconds": {
-          "$ref": "#/$defs/requested_budget_seconds"
-        },
-        "tags": {
-          "items": {
-            "$ref": "#/$defs/id"
-          },
-          "maxItems": 32,
-          "type": "array",
-          "uniqueItems": true
-        },
-        "title": {
-          "$ref": "#/$defs/short"
-        },
-        "urgency": {
-          "$ref": "#/$defs/urgency"
-        },
-        "value_statement": {
-          "$ref": "#/$defs/short"
-        }
-      },
-      "required": [
-        "title",
-        "value_statement",
-        "project_ids",
-        "idempotency_key"
-      ],
-      "type": "object"
-    },
-    "initiative_entries_input": {
-      "additionalProperties": false,
-      "properties": {
-        "initiative_work_id": {
-          "$ref": "#/$defs/id"
-        },
-        "requested_budget_seconds": {
-          "$ref": "#/$defs/requested_budget_seconds"
-        }
-      },
-      "required": [
-        "initiative_work_id"
-      ],
-      "type": "object"
-    },
-    "initiative_entries_result": {
-      "additionalProperties": false,
-      "properties": {
-        "entries": {
-          "items": {
-            "additionalProperties": false,
-            "properties": {
-              "child_work_id": {
-                "$ref": "#/$defs/id"
-              },
-              "initiative_work_id": {
-                "$ref": "#/$defs/id"
-              },
-              "position": {
-                "minimum": 0,
-                "type": "integer"
-              },
-              "required": {
-                "type": "boolean"
-              }
-            },
-            "required": [
-              "initiative_work_id",
-              "child_work_id",
-              "position",
-              "required"
-            ],
-            "type": "object"
-          },
-          "maxItems": 1000,
-          "type": "array"
-        },
-        "narrative": {
-          "maxLength": 16384,
-          "type": "string"
-        }
-      },
-      "required": [
-        "entries",
-        "narrative"
-      ],
-      "type": "object"
-    },
-    "initiative_remove_entry_input": {
-      "additionalProperties": false,
-      "properties": {
-        "approval": {
-          "$ref": "#/$defs/approval"
-        },
-        "child_work_id": {
-          "$ref": "#/$defs/id"
-        },
-        "expected_version": {
-          "$ref": "#/$defs/version"
-        },
-        "idempotency_key": {
-          "$ref": "#/$defs/id"
-        },
-        "initiative_work_id": {
-          "$ref": "#/$defs/id"
-        },
-        "requested_budget_seconds": {
-          "$ref": "#/$defs/requested_budget_seconds"
-        }
-      },
-      "required": [
-        "initiative_work_id",
-        "child_work_id",
-        "expected_version",
-        "idempotency_key"
-      ],
-      "type": "object"
-    },
-    "initiative_reorder_entry_input": {
-      "additionalProperties": false,
-      "properties": {
-        "approval": {
-          "$ref": "#/$defs/approval"
-        },
-        "child_work_id": {
-          "$ref": "#/$defs/id"
-        },
-        "expected_version": {
-          "$ref": "#/$defs/version"
-        },
-        "idempotency_key": {
-          "$ref": "#/$defs/id"
-        },
-        "initiative_work_id": {
-          "$ref": "#/$defs/id"
-        },
-        "position": {
-          "maximum": 1000,
-          "minimum": 0,
-          "type": "integer"
-        },
-        "requested_budget_seconds": {
-          "$ref": "#/$defs/requested_budget_seconds"
-        }
-      },
-      "required": [
-        "initiative_work_id",
-        "child_work_id",
-        "expected_version",
-        "position",
-        "idempotency_key"
-      ],
-      "type": "object"
-    },
-    "initiative_revise_narrative_input": {
-      "additionalProperties": false,
-      "properties": {
-        "approval": {
-          "$ref": "#/$defs/approval"
-        },
-        "expected_version": {
-          "$ref": "#/$defs/version"
-        },
-        "idempotency_key": {
-          "$ref": "#/$defs/id"
-        },
-        "initiative_work_id": {
-          "$ref": "#/$defs/id"
-        },
-        "narrative": {
-          "maxLength": 16384,
-          "minLength": 1,
-          "type": "string"
-        },
-        "reason": {
-          "$ref": "#/$defs/short"
-        },
-        "requested_budget_seconds": {
-          "$ref": "#/$defs/requested_budget_seconds"
-        }
-      },
-      "required": [
-        "initiative_work_id",
-        "expected_version",
-        "narrative",
-        "reason",
-        "idempotency_key"
-      ],
-      "type": "object"
-    },
     "knowledge_page": {
       "additionalProperties": false,
       "properties": {
@@ -6180,11 +5891,17 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "object"
     },
-    "work_define_issue_adopt_input": {
+    "work_define_issue_link_record_input": {
       "additionalProperties": false,
       "properties": {
         "approval": {
           "$ref": "#/$defs/approval"
+        },
+        "human_key": {
+          "maxLength": 64,
+          "minLength": 3,
+          "pattern": "^[A-Z][A-Z0-9]*-[1-9][0-9]*$",
+          "type": "string"
         },
         "idempotency_key": {
           "$ref": "#/$defs/id"
@@ -6197,13 +5914,21 @@ const GeneratedPayloadSchemaDocument = `{
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"
         },
+        "url": {
+          "maxLength": 2048,
+          "minLength": 9,
+          "pattern": "^https://",
+          "type": "string"
+        },
         "work_id": {
           "$ref": "#/$defs/id"
         }
       },
       "required": [
         "work_id",
+        "human_key",
         "remote_issue_uuid",
+        "url",
         "idempotency_key"
       ],
       "type": "object"
@@ -7413,7 +7138,6 @@ const GeneratedPayloadSchemaDocument = `{
               "work_transition",
               "work_relate",
               "work_compact",
-              "work_initiative",
               "cross_scope",
               "research"
             ],
@@ -7480,7 +7204,6 @@ const GeneratedPayloadSchemaDocument = `{
               "work_transition",
               "work_relate",
               "work_compact",
-              "work_initiative",
               "cross_scope",
               "research"
             ],

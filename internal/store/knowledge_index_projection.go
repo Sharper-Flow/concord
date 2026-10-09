@@ -1107,3 +1107,24 @@ func orderedStrings(values []string) []string {
 func knowledgeWatermarkMeta(queryID, _, authority string, observedAt time.Time) ResultMeta {
 	return ResultMeta{QueryID: queryID, ContractVersion: queryContractVersion, ResolvedScope: ResolvedScope{ProductID: ""}, SourceVersionWatermark: 0, Authority: authority, Freshness: Freshness{ObservedAt: observedAt.UTC().Format(time.RFC3339Nano), Age: 0, Stale: authority != "authoritative"}, OrderingKeys: []string{"structured_match", "completed_at_desc", "id"}, NextCursor: nil, Omissions: []string{}, Warnings: []string{}}
 }
+
+// workProductIDs derives the Product a work item belongs to over its primary
+// Project membership: the primary Project's Product owns the pre-approval
+// knowledge warm, so a secondary membership in another Product must not widen
+// this scope into an ambiguity.
+func workProductIDs(ctx context.Context, q queryer, id string) ([]string, error) {
+	rows, err := q.QueryContext(ctx, `SELECT DISTINCT pp.product_id FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=? AND wp.role='primary' ORDER BY pp.product_id`, id)
+	if err != nil {
+		return nil, wrapFailure(KindUnavailable, "fold_event", "cannot derive Product scope", true, "retry once the database is readable", err)
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var p string
+		if err := rows.Scan(&p); err != nil {
+			return nil, wrapFailure(KindUnavailable, "fold_event", "cannot decode Product scope", true, "retry once the database is readable", err)
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}

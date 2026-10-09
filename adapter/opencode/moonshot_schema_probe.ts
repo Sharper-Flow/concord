@@ -1,5 +1,5 @@
 import { hostToolDescriptions, hostToolSchemas } from "./generated-contracts"
-import { domain, knowledge, product_view, publishWorkStartDefinition, work_browse, work_compact, work_define, work_initiative, work_relate, work_start, work_trace, work_transition } from "./concord"
+import { domain, knowledge, product_view, publishWorkStartDefinition, work_browse, work_compact, work_define, work_relate, work_start, work_trace, work_transition } from "./concord"
 
 // Live probe: submit every published Concord tool schema to the Moonshot-backed
 // opencode-go provider and fail when its flavored validator refuses any of them.
@@ -20,7 +20,6 @@ const coreTools: Record<string, any> = {
   concord_knowledge: knowledge,
   concord_work_define: work_define,
   concord_domain: domain,
-  concord_work_initiative: work_initiative,
   concord_work_transition: work_transition,
   concord_work_relate: work_relate,
   concord_work_compact: work_compact,

@@ -827,7 +827,7 @@ func runJSONCommand(command string, args []string, in io.Reader, out, errOut io.
 		}
 		return writeJSON(out, receipt, errOut)
 	case "session-prepare":
-		return runSessionPrepare(raw, s, out, errOut, hostLaneAgentIdentity, hostSessionHostCommand, hostOrchestratorIdentity, DeriveSessionBoot)
+		return runSessionPrepare(raw, s, out, errOut, hostLaneAgentIdentity, hostSessionPrepareRegistry, hostOrchestratorIdentity, DeriveSessionBoot)
 	case "outside-repair":
 		return runOutsideRepairCommand(raw, s, defaultOutsideRepairDeps(), out, errOut)
 	case "receipt":

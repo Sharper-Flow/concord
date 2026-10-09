@@ -23,7 +23,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:9c428b2b003859a26ccb634ff49b90697c60f8cb24b77fa8e163d9a0499eef80",
+  "sha256": "sha256:faf4d07b72c4dec0fb29ab0ace512eb3afd8b471e1182faf5a6d72c96b3e2a34",
   "status": "accepted",
   "summary": "New decisions carry the exact outline Context, Decision, Alternatives considered, Consequences, and Verification on the current profile authored in each record shard; decisions accepted earlier stay on a legacy profile bounded by the closed historical set frozen in the index schema, the Domain stays in the record shard field, and an optional decision acceptance-criteria section parses under either heading spelling, with fenced criteria included and every matching section read, while a legacy criteria section stays recorded unparsed and the spec rule stays unchanged.",
   "tags": [

@@ -34,7 +34,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:2d8ca1e67c7f31f930c3f8d17468122d2287616d34dbd668ae89905e1cae11bc",
+  "sha256": "sha256:926ee755fc48b6196048b155933c37662eec459bf63c53f2e0d0bb42dfbdbdb0",
   "status": "accepted",
   "summary": "A rejected refinement result and an accepted no_ship review open the same settling review obligation. An initial no_ship acceptance binds its findings, and the obligation then holds the delivery gate: record_delivery refuses while the evidence-bearing corrective return with the verification disposition stays admitted. Only a ship or absent verdict settles the obligation, only the newest completed review can bind, and no definition version changes.",
   "tags": [

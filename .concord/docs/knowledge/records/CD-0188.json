@@ -23,7 +23,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:e722f371d3fc88ab67f9d46bc5d96fa301989bc2baba98b36d5477f884a6b19e",
+  "sha256": "sha256:ee5e8ed69135564cfc191fab33d901907ff92860a9898773a21ad3654d7593f1",
   "status": "accepted",
   "summary": "CD-0171 D2's sentence naming the Project description for the Initiative narrative reads instead: the narrative becomes the Project content, and the description holds only legacy text a pre-import Project carried. The shipped Linear client and narrative-revision sync already send content. Amends CD-0171 D2 at that sentence only; every other D2 sentence and D1 and D3 through D6 stand unchanged.",
   "tags": [

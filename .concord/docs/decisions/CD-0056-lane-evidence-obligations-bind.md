@@ -85,6 +85,12 @@ free string in a manifest.
 durable at the same moment its attempt becomes terminal. The evidence is recorded
 as reported. Concord does not summarize, score, or rewrite it.
 
+A completed or a valid failed report may also carry at most 16 typed
+`context_findings` within 16 KiB. Each finding names a registry Domain.
+Concord keeps the findings as reported claims. A finding discharges no
+obligation, records no verdict, and carries no subject identity. Concord
+refuses an array past its bound as a whole and never truncates a finding.
+
 ### D4. An undischarged obligation is not a completion
 
 A `worker.completed` event whose evidence leaves any of the dispatching lane's

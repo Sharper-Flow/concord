@@ -49,7 +49,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:dd17673d438156e5a63a37c49e9a8db828c89cd4cbda5956fddb0bb3e1943053",
+  "sha256": "sha256:c0afc6ab0e762dc0a426b6302782763d5e1d28b62374a537f47af781b4eb7bff",
   "status": "accepted",
   "summary": "Records completed worker-result disposition, bounded correction context, fresh attempt consumption, and a three-attempt escalation limit without changing historical pins.",
   "tags": [

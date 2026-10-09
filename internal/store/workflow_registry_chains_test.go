@@ -45,3 +45,35 @@ func TestBuiltinDefinitionsAreTheChainTails(t *testing.T) {
 		}
 	}
 }
+
+// Store open answers pin compatibility from builtinWorkflowCurrentVersions
+// instead of building the chains (CON-905). The table must name exactly the
+// versions the registry registers, so a promotion that forgets the table
+// fails here rather than refusing its own pins at open.
+func TestBuiltinWorkflowCurrentVersionsMatchChains(t *testing.T) {
+	t.Parallel()
+	registry := BuiltinWorkflowRegistry()
+	current := map[string]int64{}
+	for _, definition := range builtinWorkflowDefinitionsWithHistory() {
+		if definition.Version > current[definition.Ref] {
+			current[definition.Ref] = definition.Version
+		}
+	}
+	if len(current) != len(builtinWorkflowCurrentVersions) {
+		t.Fatalf("builtinWorkflowCurrentVersions names %d families, chains register %d: %v", len(builtinWorkflowCurrentVersions), len(current), current)
+	}
+	for ref, version := range current {
+		if builtinWorkflowCurrentVersions[ref] != version {
+			t.Fatalf("builtinWorkflowCurrentVersions[%q] = %d, chains register through version %d", ref, builtinWorkflowCurrentVersions[ref], version)
+		}
+		for candidate := int64(0); candidate <= version+1; candidate++ {
+			_, registered := registry.Lookup(ref, candidate)
+			if got := builtinWorkflowVersionRegistered(ref, candidate); got != registered {
+				t.Fatalf("builtinWorkflowVersionRegistered(%q, %d) = %v, registry Lookup = %v", ref, candidate, got, registered)
+			}
+		}
+	}
+	if builtinWorkflowVersionRegistered("workflow.unknown", 1) {
+		t.Fatal("an unknown workflow family must not be registered")
+	}
+}

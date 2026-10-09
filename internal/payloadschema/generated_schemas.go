@@ -2676,13 +2676,6 @@ const GeneratedPayloadSchemaDocument = `{
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"
         },
-        "since": {
-          "maxLength": 64,
-          "type": [
-            "string",
-            "null"
-          ]
-        },
         "tags": {
           "items": {
             "$ref": "#/$defs/id"
@@ -2694,13 +2687,6 @@ const GeneratedPayloadSchemaDocument = `{
         "text": {
           "maxLength": 512,
           "type": "string"
-        },
-        "until": {
-          "maxLength": 64,
-          "type": [
-            "string",
-            "null"
-          ]
         }
       },
       "type": "object"

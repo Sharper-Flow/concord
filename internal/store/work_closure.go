@@ -43,7 +43,7 @@ func ReadWorkClosure(ctx context.Context, s *Store, workID string) (WorkClosure,
 	if err != nil {
 		return closure, err
 	}
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	tx, err := beginReadTx(ctx, s.db)
 	if err != nil {
 		return closure, wrapFailure(KindUnavailable, "work_closure", "cannot open a consistent work closure snapshot", true, "retry once the database is readable", err)
 	}

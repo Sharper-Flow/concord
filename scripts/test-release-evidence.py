@@ -56,6 +56,12 @@ CI_JOB_IDS = (
     "verify-tooling",
     "verify-go",
     "verify-tests",
+    "verify-tests-rest",
+    "verify-tests-store-1",
+    "verify-tests-store-2",
+    "verify-tests-store-3",
+    "verify-tests-cli-1",
+    "verify-tests-cli-2",
     "verify-race",
     "verify-acceptance",
 )

@@ -82,7 +82,7 @@ type operationObserver struct {
 
 func beginObservedTx(ctx context.Context, s *Store, durable bool, observer *operationObserver) (*writeTx, error) {
 	started := time.Now()
-	tx, err := beginWriteTx(ctx, s, durable)
+	tx, err := s.beginStoreWriteTx(ctx, durable)
 	if observer != nil {
 		observer.beginWait = time.Since(started)
 	}
@@ -697,7 +697,7 @@ func RebuildFromLog(ctx context.Context, s *Store) error {
 		return newFailure(KindUnavailable, "rebuild_from_log", "store is not open", false,
 			"open a store before rebuilding projections")
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := beginOrdinaryTx(ctx, s.db)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "rebuild_from_log", "cannot begin projection rebuild", true,
 			"retry once the database is writable", err)

@@ -67,9 +67,9 @@ class CiWaitDeterministicWaitContract(unittest.TestCase):
         self.assertIn("ci-wait", result.stdout)
 
     def test_missing_selector_refuses(self):
-        """No selector: refused before any effect."""
+        """No selector: the typed required-field refusal (exit 64) before any effect."""
         code, out, err = run_cli_text(self.binary, {})
-        self.assertEqual(code, 1)
+        self.assertEqual(code, 64)
         self.assertIn("selector", err)
         self.assertEqual(out.strip(), "")
 

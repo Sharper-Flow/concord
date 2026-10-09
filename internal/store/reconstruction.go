@@ -55,7 +55,7 @@ func ReconstructSubjectAt(ctx context.Context, s *Store, subject SubjectRef, asO
 			"supply a recognized subject type and non-empty ID")
 	}
 
-	liveTx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	liveTx, err := beginReadTx(ctx, s.db)
 	if err != nil {
 		return snapshot, wrapFailure(KindUnavailable, "reconstruct_subject", "cannot begin live diagnostic read", true,
 			"retry once the database is readable", err)
@@ -75,7 +75,7 @@ func ReconstructSubjectAt(ctx context.Context, s *Store, subject SubjectRef, asO
 		return snapshot, err
 	}
 	defer func() { _ = scratch.Close() }()
-	tx, err := scratch.db.BeginTx(ctx, nil)
+	tx, err := beginOrdinaryTx(ctx, scratch.db)
 	if err != nil {
 		return snapshot, wrapFailure(KindUnavailable, "reconstruct_subject", "cannot begin scratch reconstruction", true,
 			"retry once the temporary database is available", err)

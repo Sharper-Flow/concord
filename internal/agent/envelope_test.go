@@ -121,6 +121,113 @@ func TestNonMutationEnvelopesOmitMutationMetadata(t *testing.T) {
 	}
 }
 
+func TestAdapterCLIInputRefusalMarshals(t *testing.T) {
+	e := NewCoreError(NewBase("cli-input-refusal", "concord_work_define", "capture"), TypedError{Kind: "invalid_input", RetrySafe: false, RecoveryAction: RecoveryAction{Kind: "restart_query"}, EffectState: EffectNone, AdapterReason: "invalid_cli_input"})
+	e.Origin, e.Authority = OriginAdapter, AuthorityUnreachable
+	if _, err := e.Encode(); err != nil {
+		t.Fatalf("adapter CLI input refusal cannot marshal: %v", err)
+	}
+	e.Error.EffectState = EffectPossible
+	if err := e.Validate(); err == nil {
+		t.Fatal("pre-effect adapter input refusal accepted a possible effect")
+	}
+}
+
+func TestAdapterWrapperRefusalMarshals(t *testing.T) {
+	e := NewCoreError(NewBase("wrapper-refusal", "concord_work_browse", "list"), TypedError{Kind: "invalid_input", RetrySafe: false, RecoveryAction: RecoveryAction{Kind: "restart_query"}, EffectState: EffectNone, AdapterReason: "invalid_request_wrapper"})
+	e.Origin, e.Authority = OriginAdapter, AuthorityUnreachable
+	if _, err := e.Encode(); err != nil {
+		t.Fatalf("adapter wrapper refusal cannot marshal: %v", err)
+	}
+	e.Error.EffectState = EffectPossible
+	if err := e.Validate(); err == nil {
+		t.Fatal("pre-effect adapter input refusal accepted a possible effect")
+	}
+}
+
+func TestAdapterWrapperRefusalUnresolvedOperation(t *testing.T) {
+	e := NewCoreError(NewBase("wrapper-unresolved", "concord_work_browse", ""), TypedError{Kind: "invalid_input", RecoveryAction: RecoveryAction{Kind: "restart_query"}, EffectState: EffectNone, AdapterReason: "invalid_request_wrapper"})
+	e.Origin, e.Authority = OriginAdapter, AuthorityUnreachable
+	encoded, err := e.Encode()
+	if err != nil {
+		t.Fatalf("unresolved wrapper refusal cannot marshal: %v", err)
+	}
+	var decoded Envelope
+	if err := json.Unmarshal(encoded, &decoded); err != nil {
+		t.Fatalf("unresolved wrapper refusal cannot decode: %v", err)
+	}
+	if decoded.Operation != "" || decoded.QueryID != "" {
+		t.Fatal("unresolved wrapper refusal fabricated an operation or query")
+	}
+	for name, mutate := range map[string]func(*Envelope){
+		"core origin":       func(e *Envelope) { e.Origin = OriginCore },
+		"unknown operation": func(e *Envelope) { e.Operation = "unknown" },
+		"query identity":    func(e *Envelope) { e.QueryID = "PM1.Q1" },
+		"transport kind":    func(e *Envelope) { e.Error.Kind = "transport_failure" },
+		"other reason":      func(e *Envelope) { e.Error.AdapterReason = "missing_binary" },
+		"possible effect":   func(e *Envelope) { e.Error.EffectState = EffectPossible },
+		"retry safe":        func(e *Envelope) { e.Error.RetrySafe = true },
+		"same request":      func(e *Envelope) { e.Error.RecoveryAction.Kind = "retry_same_request" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			invalid, invalidError := e, *e.Error
+			invalid.Error = &invalidError
+			mutate(&invalid)
+			if err := invalid.Validate(); err == nil {
+				t.Fatal("invalid unresolved refusal accepted")
+			}
+		})
+	}
+}
+
+func TestAdapterWrapperRefusalAcceptedOperationCoupling(t *testing.T) {
+	for _, pair := range []struct{ tool, operation string }{{"concord_work_browse", "list"}, {"concord_work_define", "capture"}} {
+		e := NewCoreError(NewBase("wrapper-coupling", pair.tool, pair.operation), TypedError{Kind: "invalid_input", RecoveryAction: RecoveryAction{Kind: "restart_query"}, EffectState: EffectNone, AdapterReason: "invalid_request_wrapper"})
+		e.Origin, e.Authority = OriginAdapter, AuthorityUnreachable
+		for name, mutate := range map[string]func(*TypedError){
+			"transport kind":  func(e *TypedError) { e.Kind, e.RecoveryAction.Kind = "transport_failure", "contact_operator" },
+			"other reason":    func(e *TypedError) { e.AdapterReason = "missing_binary" },
+			"possible effect": func(e *TypedError) { e.EffectState = EffectPossible },
+			"retry safe":      func(e *TypedError) { e.RetrySafe = true },
+			"same request":    func(e *TypedError) { e.RecoveryAction.Kind = "retry_same_request" },
+		} {
+			t.Run(pair.tool+"/"+name, func(t *testing.T) {
+				invalid, invalidError := e, *e.Error
+				invalid.Error = &invalidError
+				mutate(invalid.Error)
+				if err := invalid.Validate(); err == nil {
+					t.Fatal("contradictory wrapper refusal accepted")
+				}
+			})
+		}
+	}
+}
+
+func TestReadOKEnvelopeRejectsMutationMetadata(t *testing.T) {
+	t.Parallel()
+	for _, populated := range []bool{false, true} {
+		for _, field := range []string{"changed_refs", "next_valid_intents", "both"} {
+			t.Run(fmt.Sprintf("%s/populated=%t", field, populated), func(t *testing.T) {
+				e := newOKReadForTest(NewBase("read-metadata", "concord_product_view", "resolve"), json.RawMessage(`{"product_id":"p-1","projects":[]}`))
+				changed, intents := []ChangedRef{}, []NextIntent{}
+				if populated {
+					changed = append(changed, ChangedRef{EntityKind: "work", ID: "work-1", Version: "1"})
+					intents = append(intents, NextIntent{Tool: "concord_work_browse", Operation: "list", QueryID: "PM1.Q3", ReasonCode: "inspect"})
+				}
+				if field != "next_valid_intents" {
+					e.ChangedRefs = &changed
+				}
+				if field != "changed_refs" {
+					e.NextValidIntents = &intents
+				}
+				if err := e.validateOK(); err == nil || !strings.Contains(err.Error(), "read ok envelope") {
+					t.Fatalf("validateOK accepted read metadata or gave the wrong cause: %v", err)
+				}
+			})
+		}
+	}
+}
+
 func TestEnvelopeRejectsUnknownVariantsAndFields(t *testing.T) {
 	t.Parallel()
 	base := NewBase("req", "concord_product_view", "resolve")

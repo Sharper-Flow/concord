@@ -122,7 +122,7 @@ func WorkflowActionPreflightWithRegistry(ctx context.Context, s *Store, registry
 	if err != nil {
 		return err
 	}
-	readTx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	readTx, err := beginReadTx(ctx, s.db)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "workflow_action_preflight", "cannot begin workflow admission read snapshot", true, "retry once the database is readable", err)
 	}

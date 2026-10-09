@@ -627,7 +627,7 @@ func (s *Store) EnqueueLinearOperation(ctx context.Context, entry LinearOutboxEn
 	} else if err != nil {
 		return wrapFailure(KindUnavailable, "linear_outbox_enqueue", "cannot read work item", true, "retry once the database is readable", err)
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := beginOrdinaryTx(ctx, s.db)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "linear_outbox_enqueue", "cannot open queue transaction", true, "retry once the database is writable", err)
 	}
@@ -657,7 +657,7 @@ func (s *Store) EnqueueLinearOperation(ctx context.Context, entry LinearOutboxEn
 
 // linearOutboxTransition moves one queued operation through its typed states.
 func (s *Store) linearOutboxTransition(ctx context.Context, operationID, from, to, lastError string) error {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := beginOrdinaryTx(ctx, s.db)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "linear_outbox_transition", "cannot open queue transaction", true, "retry once the database is writable", err)
 	}
@@ -724,7 +724,7 @@ func (s *Store) RecordLinearLink(ctx context.Context, workID, remoteUUID, humanK
 	if contentHash != "" && (len(contentHash) != 71 || contentHash[:7] != "sha256:") {
 		return newFailure(KindInvalidPayload, "linear_link_record", "content hash must be a sha256 digest", false, "supply sha256:<hex> or leave empty")
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := beginOrdinaryTx(ctx, s.db)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "linear_link_record", "cannot open link transaction", true, "retry once the database is writable", err)
 	}
@@ -1080,7 +1080,7 @@ func (s *Store) RefreshConfirmedLinearLink(ctx context.Context, workID, humanKey
 	if strings.TrimSpace(url) == "" || len(url) > 2048 {
 		return newFailure(KindInvalidPayload, "linear_link_identity_refresh", "Linear issue URL is empty or longer than 2048 characters", false, "supply the Linear issue URL")
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := beginOrdinaryTx(ctx, s.db)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "linear_link_identity_refresh", "cannot open link refresh transaction", true, "retry once the database is writable", err)
 	}
@@ -1125,7 +1125,7 @@ func (s *Store) MarkLinearLinkRefreshed(ctx context.Context, workID string) erro
 	if len(workID) < 2 || len(workID) > 128 {
 		return newFailure(KindInvalidPayload, "linear_link_identity_refresh", "work id must be 2 to 128 characters", false, "supply a bounded work id")
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := beginOrdinaryTx(ctx, s.db)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "linear_link_identity_refresh", "cannot open link refresh transaction", true, "retry once the database is writable", err)
 	}
@@ -1544,7 +1544,7 @@ func (s *Store) EnqueueLinearIssueForProduct(ctx context.Context, productID, wor
 // leave the fold, commit. The op string and the two messages name the verb in
 // every failure this wrapper writes.
 func (s *Store) runLinearEnqueueTx(ctx context.Context, op, openMsg, commitMsg string, core func(context.Context, *sql.Tx) (ClaimedLinearOperation, error)) (ClaimedLinearOperation, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := beginOrdinaryTx(ctx, s.db)
 	if err != nil {
 		return ClaimedLinearOperation{}, wrapFailure(KindUnavailable, op, openMsg, true, "retry once the database is writable", err)
 	}
@@ -2074,7 +2074,7 @@ func persistLinearIssueEnqueueTx(ctx context.Context, tx *sql.Tx, plan linearIss
 // resolved identity, so identifying the correct existing issue never forces
 // duplicate issue creation.
 func (s *Store) EnqueueLinearIssueAdoption(ctx context.Context, productID, workID, remoteIssueUUID string) (ClaimedLinearOperation, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := beginOrdinaryTx(ctx, s.db)
 	if err != nil {
 		return ClaimedLinearOperation{}, wrapFailure(KindUnavailable, "linear_issue_adopt_enqueue", "cannot open adoption transaction", true, "retry once the database is writable", err)
 	}
@@ -2190,7 +2190,7 @@ func enqueueLinearIssueAdoptionCore(ctx context.Context, q queryer, expectedProd
 // EnqueueLinearProjectForInitiative queues one project_create or
 // project_update operation for an Initiative work item.
 func (s *Store) EnqueueLinearProjectForInitiative(ctx context.Context, productID, initiativeWorkID, opKind string) (ClaimedLinearOperation, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := beginOrdinaryTx(ctx, s.db)
 	if err != nil {
 		return ClaimedLinearOperation{}, wrapFailure(KindUnavailable, "linear_project_enqueue", "cannot open Project enqueue transaction", true, "retry once the database is writable", err)
 	}
@@ -2548,7 +2548,7 @@ func (s *Store) CompleteLinearProjectOperation(ctx context.Context, operationID,
 	if len(remoteProjectUUID) < 2 || len(remoteProjectUUID) > 128 {
 		return newFailure(KindInvalidPayload, "linear_outbox_complete", "remote project uuid must be 2 to 128 characters", false, "supply the bounded remote project uuid")
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := beginOrdinaryTx(ctx, s.db)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "linear_outbox_complete", "cannot open completion transaction", true, "retry once the database is writable", err)
 	}
@@ -2920,7 +2920,7 @@ func (s *Store) BackfillLinearIssueCreates(ctx context.Context, productID string
 	if _, err := resolveLinearPlanningTargetCore(ctx, s.db, productID); err != nil {
 		return nil, err
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := beginOrdinaryTx(ctx, s.db)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "linear_backfill", "cannot open backfill transaction", true, "retry once the database is writable", err)
 	}
@@ -2998,7 +2998,7 @@ func (s *Store) claimLinearOperations(ctx context.Context, productID string, lim
 	if limit < 1 || limit > 25 {
 		return nil, newFailure(KindInvalidPayload, "linear_outbox_claim", "limit must be 1 to 25", false, "bound each drain pass to 25 operations")
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := beginOrdinaryTx(ctx, s.db)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "linear_outbox_claim", "cannot open claim transaction", true, "retry once the database is writable", err)
 	}
@@ -3139,7 +3139,7 @@ func (s *Store) CompleteSupersededLinearOperation(ctx context.Context, operation
 }
 
 func (s *Store) completeLinearOperation(ctx context.Context, operationID string, identity *LinearRemoteIdentity, afterLink func(context.Context, *sql.Tx, string) error) error {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := beginOrdinaryTx(ctx, s.db)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "linear_outbox_complete", "cannot open completion transaction", true, "retry once the database is writable", err)
 	}
@@ -3299,7 +3299,7 @@ func (s *Store) RequeueLinearOperationsForRateLimit(ctx context.Context, rateLim
 	if detail == "" {
 		return newFailure(KindInvalidPayload, "linear_outbox_transition", "rate-limit reason is required", false, "state why the operations returned to queued")
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := beginOrdinaryTx(ctx, s.db)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "linear_outbox_transition", "cannot open rate-limit requeue transaction", true, "retry once the database is writable", err)
 	}
@@ -3342,7 +3342,7 @@ func (s *Store) AcknowledgeFailedLinearOperations(ctx context.Context, productID
 	if strings.TrimSpace(reason) == "" || len(reason) > 4096 {
 		return nil, newFailure(KindInvalidPayload, "linear_outbox_disposition", "disposition reason is empty or longer than 4096 characters", false, "state why the failed operations are acknowledged")
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := beginOrdinaryTx(ctx, s.db)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "linear_outbox_disposition", "cannot open disposition transaction", true, "retry once the database is writable", err)
 	}

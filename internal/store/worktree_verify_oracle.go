@@ -650,7 +650,7 @@ func (s *Store) verifyNativeOracle(ctx context.Context, req WorktreeVerifyReques
 	unavailableOracle := *result.Oracle
 	unavailable.Oracle = &unavailableOracle
 	unavailable.Oracle.Qualification = "unavailable"
-	unavailable.Oracle.Detail = "authorization or subject changed during release"
+	unavailable.Oracle.Detail = "native applicability or cancellation prevented publication"
 	unavailableRaw, err := marshalNativeVerifyRecord(&unavailable, capture)
 	if err != nil {
 		return result, annotateCommittedEffect(err, leaseRef)
@@ -750,7 +750,7 @@ func (s *Store) releaseNativeOracle(ctx context.Context, req WorktreeVerifyReque
 			valid = false
 		}
 	}
-	if !valid || current != stamp || versionErr != nil || version != p.ContractVersion || outsideErr != nil || scopeErr != nil || live.ClaimOpID != entry.ClaimOpID || live.Path != entry.Path || live.Branch != entry.Branch {
+	if aborted || !valid || current != stamp || versionErr != nil || version != p.ContractVersion || outsideErr != nil || scopeErr != nil || live.ClaimOpID != entry.ClaimOpID || live.Path != entry.Path || live.Branch != entry.Branch {
 		result = unavailable
 		raw = unavailableRaw
 	}
@@ -770,7 +770,7 @@ func (s *Store) releaseNativeOracle(ctx context.Context, req WorktreeVerifyReque
 	if count != 1 {
 		return result, oracleFailure(KindProjectionConflict, "native lease changed before release", "reconcile the lease")
 	}
-	if req.Oracle.Phase == "execute" && result.Oracle.Qualification == "pass" && result.ExitCode == 0 && !result.TrackedFilesChanged {
+	if !aborted && req.Oracle.Phase == "execute" && result.Oracle.Qualification == "pass" && result.ExitCode == 0 && !result.TrackedFilesChanged {
 		if err := recordWorktreeVerifyAuthorityTx(ctx, tx, req, req.nativeCommandJSON, req.Now, releasedAt, string(raw)); err != nil {
 			return result, err
 		}

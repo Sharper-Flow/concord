@@ -432,6 +432,64 @@ func TestNativeOracleReleaseStampBindsDependencies(t *testing.T) {
 	}
 }
 
+func TestNativeOracleLateCancellationPublishesNoGreen(t *testing.T) {
+	f := newNativeOracleFixture(t)
+	req := f.request("late-cancel", &f.a)
+	r, err := f.s.VerifyWorktree(context.Background(), req)
+	if err != nil || r.Oracle == nil || r.Oracle.Qualification != "pass" {
+		t.Fatalf("execution fixture failed: %v", err)
+	}
+	var planRaw, digest string
+	capture := &nativeStreamCapture{complete: true}
+	if err := f.s.db.QueryRow(`SELECT native_plan_json,native_plan_sha256,stdout_blob,stderr_blob FROM worktree_verify_leases WHERE lease_id=?`, r.LeaseID).Scan(&planRaw, &digest, &capture.stdout, &capture.stderr); err != nil {
+		t.Fatal(err)
+	}
+	var plan nativeOraclePlan
+	if err := json.Unmarshal([]byte(planRaw), &plan); err != nil {
+		t.Fatal(err)
+	}
+	req.Command = r.Command
+	req.nativePlanJSON, req.nativePlanSHA256 = planRaw, digest
+	req.nativeCommandJSON = workflowJSON(req.Command)
+	req.nativeAcceptedInputsDigest = nativeDigest([]byte(req.nativeCommandJSON + "\x00" + digest))
+	req.nativeEvidenceRefsJSON = workflowJSON([]string{r.OperationRef})
+	raw, err := marshalNativeVerifyRecord(&r, capture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unavailable := r
+	unavailableOracle := *r.Oracle
+	unavailable.Oracle = &unavailableOracle
+	unavailable.Oracle.Qualification = "unavailable"
+	unavailableRaw, err := marshalNativeVerifyRecord(&unavailable, capture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Restore the held release boundary with complete pre-finalized metadata.
+	// Cancellation arrives after that metadata qualified, not during execution.
+	if _, err := f.s.db.Exec(`DELETE FROM durable_operations WHERE op_id=?`, r.OperationRef); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.s.db.Exec(`UPDATE worktree_verify_leases SET state='held',outcome='running' WHERE lease_id=?`, r.LeaseID); err != nil {
+		t.Fatal(err)
+	}
+	entry, err := activeWorktreeEntryForProject(context.Background(), f.s.db, "test", f.work, "project")
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := f.s.releaseNativeOracle(context.Background(), req, entry, oracleGitSubjectSnapshot{head: plan.SubjectCommit, clean: true}, plan.WorktreeIdentity, plan, r, raw, unavailable, unavailableRaw, capture, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var green int
+	if err := f.s.db.QueryRow(`SELECT count(*) FROM durable_operations WHERE op_id=?`, r.OperationRef).Scan(&green); err != nil {
+		t.Fatal(err)
+	}
+	if green != 0 || result.Oracle.Qualification != "unavailable" {
+		t.Fatalf("cancelled release qualified: green=%d qualification=%s", green, result.Oracle.Qualification)
+	}
+}
+
 // A native run executes at most once. A concurrent duplicate that passed the
 // unlocked replay read meets the held lease inside its own acquiring
 // transaction and refuses, where a non-native same-owner retry resumes.

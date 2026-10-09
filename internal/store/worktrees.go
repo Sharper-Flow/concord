@@ -580,8 +580,9 @@ type WorktreeClaimCreation struct {
 // transaction re-validates the durable state against it and records the
 // verified locator.
 type WorktreeClaimNative struct {
-	Location WorktreeLocation
-	Facts    worktreeFacts
+	Location   WorktreeLocation
+	Facts      worktreeFacts
+	navigation *workContextNavigationProof
 	// CreatedBranch records whether this operation created the branch itself,
 	// as opposed to adopting one a prior attempt left behind. Compensation
 	// may remove only what this operation created.
@@ -656,6 +657,7 @@ func ClaimWorktreeTx(ctx context.Context, transaction *Transaction, req Worktree
 	if req.Now.IsZero() {
 		req.Now = transaction.now()
 	}
+	transaction.navigation = mergeWorkContextNavigationProof(transaction.navigation, native.navigation)
 	return claimWorktreeStoreTx(ctx, tx, req, native)
 }
 
@@ -727,6 +729,7 @@ func (s *Store) PrepareWorktreeClaimNative(ctx context.Context, req WorktreeClai
 	}
 	native.Facts = facts
 	if created {
+		native.navigation = prepareClaimNavigation(ctx, s, req, location.Path)
 		return native, nil, nil
 	}
 	// A branch left by a prior failed claim can be adopted only when it
@@ -760,6 +763,7 @@ func (s *Store) PrepareWorktreeClaimNative(ctx context.Context, req WorktreeClai
 		return native, createdTree, newFailure(KindGitUnreachable, "worktree_claim", "created worktree did not verify against the pinned intent", false, "contact_operator")
 	}
 	native.Facts = facts
+	native.navigation = prepareClaimNavigation(ctx, s, req, location.Path)
 	return native, createdTree, nil
 }
 

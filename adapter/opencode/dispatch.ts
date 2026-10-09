@@ -287,12 +287,20 @@ export interface AgentLanePacketWorkContext {
   source_event_frontier: number
   required_reading: AgentLanePacketWorkContextReading[]
   findings: AgentLanePacketWorkContextFindingView[]
-  domain_groups: { domain_id: string; required_reading_ordinals: number[]; finding_ids: string[]; domain_cards: [] }[]
-  // CON-890 seam: the core-derived observed candidate subject of the current
-  // dispatch (the exact commit/tree the controls execute against). The landed
-  // CON-887 view does not carry it yet; when the core adds the member, it is
-  // the only source oracle receipts may quote as candidate_subject. Absent
-  // it, receipts ride without a candidate subject rather than inventing one.
+  domain_groups: {
+    domain_id: string
+    required_reading_ordinals: number[]
+    finding_ids: string[]
+    domain_cards: (AgentLanePacketWorkContextReadingSource & {
+      kind: "repository_file"
+      project_id: string
+      path: string
+      commit_oid: string
+    })[]
+  }[]
+  // The core-qualified verify receipt supplies the candidate subject. The
+  // readiness check compares it with the clean HEAD before authorization;
+  // worker reports and harness pins cannot supply a substitute.
   candidate_subject?: string
 }
 

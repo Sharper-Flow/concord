@@ -22,7 +22,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:19ba4c61f8c6b889e7cd0285263cf53e693e964c1bebaa934b77736b510fc4e2",
+  "sha256": "sha256:2bc7b49fa35f9602891401132b16ee2f7d396f866c8cbe6a8dc6d46c08a76c05",
   "status": "accepted",
   "summary": "Concord's Domain registry enacts seven child Domains under the Product root: durable-authority, workflow-engine, agent-surface, product-memory, work-coordination, operator-surface, and repository-verification. Every current law record declares one home_domain_id; eight Product-wide records stay at the root and 21 straddling records declare bounded applies_to_domain_ids. No Domain enters the registry owning no law, which defers predecessor-migration until its first law exists. Architecture relations carry governing_law_ids, and Domain identity is never inferred from a record's title.",
   "tags": [

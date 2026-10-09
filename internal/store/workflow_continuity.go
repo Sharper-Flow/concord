@@ -190,6 +190,10 @@ func ReadWorkflowContinuity(ctx context.Context, s *Store, req ContinuityRequest
 	if err != nil {
 		return out, err
 	}
+	ctx, err = prepareWorkNavigation(ctx, s, req.Work)
+	if err != nil {
+		return out, err
+	}
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return out, wrapFailure(KindUnavailable, "C19.Continuity", "cannot open a consistent continuity snapshot", true, "retry once the database is readable", err)

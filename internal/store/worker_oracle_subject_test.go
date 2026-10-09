@@ -156,6 +156,10 @@ func TestOwnerOracleSubjectCurrentReceiptJoin(t *testing.T) {
 	if err != nil || first.SubjectRef == second.SubjectRef {
 		t.Fatalf("second=%+v err=%v", second, err)
 	}
+	ctx, err = s.EstablishWorkContextNavigationProof(ctx, WorkContextNavigationRequest{WorkIDs: []string{"work-w"}})
+	if err != nil {
+		t.Fatal(err)
+	}
 	// WorkContext and the receipt join work with the caller's transaction and
 	// no native probes. The claim's cached HEAD is the earlier first subject.
 	tx, err := s.db.BeginTx(ctx, nil)

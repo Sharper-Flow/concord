@@ -7,24 +7,30 @@ File accountability does not change a document's law home or a handler's semanti
 ## Responsibility
 Owns the work item as an entity: its declared attributes and urgency, provenance, the typed relation vocabulary between work items, durable inter-agent resource claims, work-addressed peer messages, and non-authoritative mid-execution observations. It owns what a work item means and how work items refer to one another, not how work executes and not how it persists.
 
-Mapped files: 55; tests: 34; unresolved candidates: 77.
+Mapped files: 80; tests: 55; unresolved candidates: 0.
 Candidate counts overlap when a file has several candidates; no candidate is an assigned owner.
 
 ## Code and tests
 Full paths, unresolved reasons, and shared-test coverage: `.concord/navigation/inventory.json`.
-- Include: `internal/store/worktrees.go`, `internal/store/worktrees_test.go`, `internal/store/worktrees_audit_reclaim_test.go`, `internal/store/worktrees_live_head_reclaim_test.go`, `internal/store/worktrees_native_admission_test.go`
-- Include: `internal/store/worktrees_native_phase_matrix_test.go`, `internal/store/worktrees_ref_boundary_test.go`, `internal/store/worktrees_removal_plan_test.go`, `internal/store/worktrees_replay_determinism_test.go`, `internal/linearclient/**`
-- Include: `internal/store/lifecycle.go`, `internal/store/generated_work_kinds.go`, `internal/store/generated_relation_vocabulary.go`, `internal/store/work_messages.go`, `internal/store/work_observations.go`
-- Include: `internal/store/work_external_observations.go`, `internal/store/external_observation*.go`, `internal/store/resource_claims.go`, `internal/store/managed_resources*.go`, `internal/store/work_removal*.go`
-- Include: `internal/store/defect_intake*.go`, `internal/store/initiative*.go`, `internal/store/observation_optional_lists_test.go`, `internal/store/work_observation_pages_test.go`, `internal/store/urgency_and_relation_order_test.go`
-- Include: `internal/store/work_kind_vocabulary_test.go`, `internal/store/relation_vocabulary_test.go`, `internal/store/external_ref_collision_test.go`, `internal/store/lifecycle_relations_test.go`, `internal/store/work_observations_test.go`
-- Include: `contracts/work-kinds*`, `contracts/relation-vocabulary*`
+- Include: `internal/linearclient/**`, `internal/store/lifecycle.go`, `internal/store/generated_work_kinds.go`, `internal/store/generated_relation_vocabulary.go`, `internal/store/work_messages.go`
+- Include: `internal/store/work_observations.go`, `internal/store/work_external_observations.go`, `internal/store/external_observation*.go`, `internal/store/resource_claims.go`, `internal/store/managed_resources*.go`
+- Include: `internal/store/work_removal*.go`, `internal/store/defect_intake*.go`, `internal/store/initiative*.go`, `internal/store/observation_optional_lists_test.go`, `internal/store/work_observation_pages_test.go`
+- Include: `internal/store/urgency_and_relation_order_test.go`, `internal/store/work_kind_vocabulary_test.go`, `internal/store/relation_vocabulary_test.go`, `internal/store/external_ref_collision_test.go`, `internal/store/lifecycle_relations_test.go`
+- Include: `internal/store/work_observations_test.go`, `internal/store/linear*`, `internal/store/scope*.go`, `internal/store/ambiguous_scope_candidates_test.go`, `internal/store/nil_store_scope_test.go`
+- Include: `internal/store/nil_store_work_item_test.go`, `internal/store/membership*.go`, `internal/store/governing_requirements*.go`, `internal/store/work_intent_task_test.go`, `contracts/work-kinds*`
+- Include: `contracts/relation-vocabulary*`
 - Go test package: `github.com/sharper-flow/concord/internal/linearclient`
 - Go test package: `github.com/sharper-flow/concord/internal/store`
 
+## Mechanisms
+Advisory semantic ownership; the complete enriched references live in the inventory.
+- `mechanism:external-planning`: External planning integration: Linear connections and status maps, Product planning-mode selecti… (laws 1, controls 1, checks 1, contracts 1)
+- `mechanism:managed-resources`: Durable inter-agent resource claims and the managed-resource inventory: stable locators, Product… (laws 1, controls 1, checks 1, contracts 1)
+- `mechanism:work-items`: The work item as an entity: capture and intent revision, lifecycle and closure removal, urgency,… (laws 2, controls 2, checks 1, contracts 2)
+
 ## Entry surfaces
 These are catalog surface entries, not invariant/control or handler joins.
-No surface catalog is owned by this Domain; semantic entry-point joins remain slice B.
+No surface catalog is owned by this Domain; semantic entry-point joins live in the inventory.
 
 ## Verification references
 Declared repository commands are shared checks, not Domain-specific acceptance or automatic execution.
@@ -37,7 +43,16 @@ Run the narrow selected command with `bin/oc-test targeted -- <command> [args...
 - `lefthook-preflight` (standard): `bin/oc-test preflight`
 - `repo-validators` (fast): `python3 scripts/check-json.py`
 
-## Not covered by slice A
-Invariant/control joins, allowed-dependency interpretation, observed import/call edges,
-non-law navigation homes, CON-887 packet reading, and CON-890 owner oracles remain later work.
-Required-reading entries will be pinned references, not inlined card content.
+## Allowed and observed references
+Bindings and interpretations are advisory joins; navigation does not prove dispatch admission at the current workflow step.
+- CLI entries bound: 15 (`linear-backfill`, `linear-connection-update`, `linear-divergence`, …)
+- agent operations bound: 37 (`concord_work_browse.blocked`, `concord_work_browse.list`, `concord_work_browse.messages`, …)
+- workflow actions bound: 0
+- Interpretation `depends_on` -> `durable-authority` (advisory, not an import allowlist).
+- Observed package imports: 34 distinct paths; package-level only; intra-package edges unmeasured; no symbol graph or execution permission.
+- Observed package edge via `github.com/sharper-flow/concord/internal/testenv` -> `repository-verification` (advisory).
+
+## Not covered here
+Symbol-level call edges, dispatch-admission proof at the current workflow step, CON-887 packet reading,
+and CON-890 owner oracles remain later work. Required-reading entries will be pinned references,
+not inlined card content.

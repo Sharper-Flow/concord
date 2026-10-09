@@ -47,15 +47,15 @@ layer costs one predicate in a validator that already runs.
 
 ## Decision
 
-### D1. The operator's launcher panel is the consumer
+### D1. The launcher and repository navigation are consumers
 
-The Domain graph exists to show the operator how a Product's boundaries stand to
-each other. That reader is the launcher Domain panel. The graph gates nothing,
-and this record does not make it gate anything. An agent may read the same data
-through `concord_domain.detail`, and that read stays advisory.
-
-A Product whose panel is blank tells the operator that its boundaries relate in
-no way. For six Products that claim is false, and nothing in the system says so.
+The Domain graph serves the operator's launcher Domain panel and agent
+navigation in a repository that adopts a navigation companion.
+`concord_domain.detail` remains an advisory read. Navigation shows law-backed
+dependency interpretations separately from observed code relationships.
+The graph grants no workflow execution authority and proves no behavior.
+Navigation validation checks declared references and completeness, not
+architectural execution authority or behavioral conformance.
 
 ### D2. A Domain must participate in the graph
 
@@ -105,6 +105,28 @@ it. Concord ships no validator asset and gains no new install channel.
 Adoption is one change per Product, raised against that Product. A Product
 adopts the rule when its registry passes and its gate runs the check.
 
+Registry validation and repository navigation have separate adoption contracts.
+A Product without a navigation companion keeps its existing registry checks.
+A repository that adopts navigation declares its supported format and
+completeness level. Coarse navigation may retain a finite, named legacy
+unresolved set. New paths must map, and that set may only shrink.
+Changed legacy unresolved paths report advisories until authored assignments
+resolve them.
+
+Complete navigation requires zero unresolved or ambiguously owned paths.
+Every scoped source-catalog entry has one explicit mechanism binding.
+Contract, governing-clause, control, and declared-check references must resolve.
+Unknown or duplicate identities, uncovered entries, dangling references,
+and stale generated artifacts refuse complete-navigation validation.
+Generation preserves mandatory references and refuses a declared bound overflow.
+Invariant/control inventories retain declared coverage gaps and their required
+issue or reason. Complete navigation does not claim complete behavioral coverage.
+
+Repository companions and generated cards do not change the shared registry
+schema or create another registry owner. Navigation format changes require
+explicit reader validation. Closed older readers may refuse unsupported formats.
+A passing registry participation check does not claim complete navigation.
+
 ## Consequences
 
 - Six Products gain a named finding where they held silence. None of them
@@ -127,3 +149,7 @@ adopts the rule when its registry passes and its gate runs the check.
 - A registry that declares one Domain passes both modes.
 - A Domain named only as a relation target passes both modes.
 - The existing CD-0060 D4 and CD-0041 D4 checks keep their current results.
+- `python3 scripts/test-domain-navigation.py` checks complete-navigation
+  catalog and reference refusals, coarse-format compatibility, and card bounds.
+- `python3 scripts/generate-domain-navigation.py --check` refuses stale
+  navigation artifacts without changing the registry participation result.

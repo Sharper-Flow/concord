@@ -1364,13 +1364,6 @@ func replayExistingBootstrapTx(ctx context.Context, tx *sql.Tx, req BootstrapReq
 	if !errors.As(activeErr, &activeFailure) || activeFailure.Kind != KindProjectionNotFound {
 		return bootstrapPrepared{}, false, activeErr
 	}
-	var activeElsewhere bool
-	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM worktree_entries e JOIN worktree_claims c ON c.op_id=e.claim_op_id WHERE c.work_id=? AND e.state='active')`, workID).Scan(&activeElsewhere); err != nil {
-		return bootstrapPrepared{}, false, err
-	}
-	if activeElsewhere {
-		return bootstrapPrepared{}, false, newFailure(KindUnknownScope, "work_bootstrap", "work item has an active worktree in another Project", false, "resume from the Project that owns the active worktree")
-	}
 	return bootstrapPrepared{}, false, nil
 }
 

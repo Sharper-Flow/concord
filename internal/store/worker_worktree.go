@@ -3,8 +3,11 @@ package store
 import (
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
+	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
 )
@@ -12,6 +15,62 @@ import (
 func validateWorkerDispatchWorktree(ctx context.Context, q queryer, workID, sessionWorktree string) error {
 	_, err := activeWorkerClaimedWorktree(ctx, q, workID, sessionWorktree)
 	return err
+}
+
+// workerAttemptProjectTx resolves ownership from the attempt's own dispatch
+// authorization, including reclaimed entries whose native directory is gone.
+// Legacy authorizations without a worktree binding cannot prove a Project:
+// they retain the conservative occupancy check across the whole work item.
+func workerAttemptProjectTx(ctx context.Context, tx *sql.Tx, workID, attemptID string) (string, error) {
+	window, err := FindAuthorizedDispatchWindowTx(ctx, tx, workID, attemptID)
+	if err != nil {
+		var failure *Failure
+		if errors.As(err, &failure) && failure.Kind == KindUnauthorizedDispatch {
+			return "", nil
+		}
+		return "", err
+	}
+	if window.WorktreeIdentity == "" {
+		return "", nil
+	}
+	entries, err := worktreeEntriesCore(ctx, tx, workID)
+	if err != nil {
+		return "", err
+	}
+	for _, entry := range entries {
+		// The durable path survives native removal. Resolving its surviving
+		// ancestors also preserves dispatch identity beneath a symlinked root.
+		if workerWorktreeIdentity(filepath.Clean(entry.Path)) == window.WorktreeIdentity {
+			return entry.ProjectID, nil
+		}
+		if canonical, err := canonicalWorkerRecoveryPath(entry.Path); err == nil && workerWorktreeIdentity(canonical) == window.WorktreeIdentity {
+			return entry.ProjectID, nil
+		}
+	}
+	return "", newFailure(KindWorktreeOwnershipConflict, "worker_fail", "worker attempt worktree identity has no recorded Project", false, "restore the attempt's recorded worktree claim before abandonment")
+}
+
+// canonicalWorkerRecoveryPath resolves surviving ancestors without requiring
+// the lost native worktree itself. Dispatch still requires an existing path
+// through canonicalWorkerWorktreePath.
+func canonicalWorkerRecoveryPath(value string) (string, error) {
+	path, err := filepath.Abs(value)
+	if err != nil {
+		return "", err
+	}
+	var missing []string
+	for {
+		resolved, err := filepath.EvalSymlinks(path)
+		if err == nil {
+			return filepath.Join(append([]string{resolved}, missing...)...), nil
+		}
+		parent := filepath.Dir(path)
+		if !os.IsNotExist(err) || parent == path {
+			return "", err
+		}
+		missing = append([]string{filepath.Base(path)}, missing...)
+		path = parent
+	}
 }
 
 // activeWorkerClaimedWorktree answers the canonical path of the durable active

@@ -18,6 +18,12 @@ import tempfile
 import unittest
 import xml.etree.ElementTree as ET
 
+import git_environment
+
+# CON-896: this suite reads Git in the real checkout, so a hook that launched
+# it must not redirect those reads into another repository.
+git_environment.scrub_inherited()
+
 ROOT = Path(__file__).resolve().parents[1]
 BASELINE_REF = "v8.13.3"
 BASELINE_COMMIT = "d6a97fcb7f7b8ae0095abdf51431cbb1147b4cdf"
@@ -152,9 +158,14 @@ class HistoricalReplayTest(unittest.TestCase):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--output-dir", type=Path, required=True)
+    # The selector runner and the hook execute this suite bare, so the output
+    # directory defaults to fresh scratch outside the checkout; CI names an
+    # explicit directory to retain the evidence as an artifact.
+    parser.add_argument("--output-dir", type=Path, default=None)
     args = parser.parse_args()
-    HistoricalReplayTest.output = args.output_dir.resolve()
+    HistoricalReplayTest.output = (
+        args.output_dir.resolve() if args.output_dir is not None else Path(tempfile.mkdtemp(prefix="concord-history-"))
+    )
     if HistoricalReplayTest.output.is_relative_to(ROOT):
         parser.error("execution evidence must be written outside the checkout")
     unittest.main(argv=[__file__], verbosity=2)

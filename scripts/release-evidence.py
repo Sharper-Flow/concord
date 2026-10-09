@@ -40,6 +40,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
+import git_environment
+
 try:
     import yaml
 except ImportError:  # pragma: no cover - CI runner images carry PyYAML
@@ -582,8 +584,9 @@ def main(argv: list[str] | None = None) -> int:
         return 0 if admitted else 1
 
     try:
+        git_environment.scrub_inherited()
         selection = select_evidence(args.root.resolve(), args.repository, args.target_sha)
-    except EvidenceError as error:
+    except (EvidenceError, git_environment.GitEnvironmentError) as error:
         print(f"release evidence: refusing publication: {error}", file=sys.stderr)
         return 2
     _write_outputs(selection, args.output_file, args.github_output)

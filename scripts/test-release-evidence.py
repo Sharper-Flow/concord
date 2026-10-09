@@ -33,7 +33,12 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
+
+import git_environment
+
+git_environment.scrub_inherited()
 
 import yaml
 
@@ -679,6 +684,18 @@ class SelectEvidenceTests(unittest.TestCase):
         self.assertEqual(completed.returncode, 0, completed.stderr)
         assert receipt is not None
         self.assertEqual(receipt["mode"], "reuse")
+
+    def test_explicit_root_owns_git_identity_despite_inherited_git_dir(self) -> None:
+        origin, clone, target = self.make_pair()
+        before = {path.relative_to(origin): path.read_bytes() for path in origin.rglob("*") if path.is_file()}
+        with patch.dict(os.environ, {"GIT_DIR": str(origin / ".git")}):
+            completed, receipt, _ = self.run_select(clone)
+        after = {path.relative_to(origin): path.read_bytes() for path in origin.rglob("*") if path.is_file()}
+        self.assertEqual(before, after, "the explicit root must not redirect Git writes into the outer repository")
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        assert receipt is not None
+        self.assertEqual(receipt["mode"], "reuse")
+        self.assertEqual(receipt["target_sha"], target)
 
     def test_diagnostic_metadata_cannot_override_the_selected_route(self) -> None:
         origin, clone, target = self.make_pair()

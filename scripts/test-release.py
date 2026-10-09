@@ -3,11 +3,19 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+
+import git_environment
+
+# CON-896: this suite builds temporary Git repositories, so a hook that
+# launched it must not keep a redirecting Git namespace in place. The scrub
+# runs before the in-process Git helpers below load.
+git_environment.scrub_inherited()
 
 import install
 import release
@@ -122,6 +130,20 @@ def replace_once(workflow: str, old: str, new: str) -> str:
     if old not in workflow:
         raise AssertionError(f"test mutation target is absent: {old!r}")
     return workflow.replace(old, new, 1)
+
+
+def repository_snapshot(root: Path) -> dict[str, bytes]:
+    """Byte inventory of everything a redirected Git child could mutate."""
+    inventory: dict[str, bytes] = {}
+    for path in sorted(root.rglob("*")):
+        rel = str(path.relative_to(root))
+        if path.is_symlink():
+            inventory[rel] = os.readlink(path).encode()
+        elif path.is_dir():
+            inventory[rel + os.sep] = b""
+        else:
+            inventory[rel] = path.read_bytes()
+    return inventory
 
 
 class ReleaseTests(unittest.TestCase):
@@ -473,6 +495,59 @@ class ReleaseTests(unittest.TestCase):
 
         self.assertFalse(result["release"])
         self.assertIsNone(result["version"])
+
+    def test_hook_inherited_git_dir_cannot_reach_an_outer_repository(self) -> None:
+        """CON-896 regression: this real suite under a hook's inherited GIT_DIR.
+
+        The suite runs again as a child process with GIT_DIR pointing at a
+        scratch outer repository. Without startup sanitization every scratch
+        repository this suite builds is redirected into the outer one while
+        the suite still reports success; with it, the outer repository stays
+        byte-for-byte untouched and the child passes.
+        """
+        with tempfile.TemporaryDirectory(prefix="con-896-outer-") as outer_dir:
+            outer = Path(outer_dir) / "outer-repository"
+            outer.mkdir()
+
+            def outer_git(*args: str) -> None:
+                subprocess.run(
+                    ["git", "-C", str(outer), *args],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                    env=git_environment.sanitized_environment(),
+                )
+
+            outer_git("init", "--quiet")
+            outer_git("config", "user.name", "Outer Keeper")
+            outer_git("config", "user.email", "outer-keeper@example.invalid")
+            (outer / "outer-file.txt").write_text("outer worktree content\n", encoding="utf-8")
+            outer_git("add", "outer-file.txt")
+            outer_git("commit", "--quiet", "--message", "outer baseline")
+            outer_git("tag", "outer-tag")
+            before = repository_snapshot(outer)
+            env = git_environment.sanitized_environment()
+            env["GIT_DIR"] = str(outer / ".git")
+            child = subprocess.run(
+                [sys.executable, str(Path(__file__)), "ReleaseTests.test_fix_is_patch"],
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            after = repository_snapshot(outer)
+        changed = sorted(set(before) ^ set(after)) + sorted(
+            key for key in before if before[key] != after.get(key)
+        )
+        # The snapshot comparison runs before the exit-code check so a broken
+        # child still reports the writes it managed.
+        self.assertEqual(
+            before,
+            after,
+            "the inherited GIT_DIR redirected this suite's scratch repositories "
+            f"into the outer repository ({len(changed)} paths changed: {', '.join(changed[:10])})",
+        )
+        self.assertEqual(child.returncode, 0, child.stderr)
 
 
 if __name__ == "__main__":

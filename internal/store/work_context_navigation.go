@@ -119,7 +119,8 @@ func navigationProductSources(ctx context.Context, q queryer, productID string) 
 	var rootID, registryHash, projectID, locatorID, oid string
 	err := q.QueryRowContext(ctx, `SELECT root_domain_id,content_hash,home_project_id,home_locator_id,scanned_commit_oid FROM domain_registries WHERE product_id=?`, productID).Scan(&rootID, &registryHash, &projectID, &locatorID, &oid)
 	var sources []workContextNavigationSource
-	if err == sql.ErrNoRows {
+	switch {
+	case err == sql.ErrNoRows:
 		homes, homeErr := productKnowledgeHomeCandidates(ctx, q, productID)
 		if homeErr != nil {
 			return "", "", nil, homeErr
@@ -132,9 +133,9 @@ func navigationProductSources(ctx context.Context, q queryer, productID string) 
 			oid, _ = resolveKnowledgeHeadCheap(home.RepoPath, home.HeadRef)
 			sources = append(sources, workContextNavigationSource{home.HomeProjectID, home.RepoPath, oid})
 		}
-	} else if err != nil {
+	case err != nil:
 		return "", "", nil, err
-	} else {
+	default:
 		repo, err := workflowLawHomeRepo(ctx, q, projectID, locatorID)
 		if err != nil {
 			return "", "", nil, err

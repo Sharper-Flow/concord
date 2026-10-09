@@ -675,7 +675,11 @@ func TestWorkContextNavigationLegacyProofNeedsHeadObjects(t *testing.T) {
 	if err := os.Rename(objects, objects+"-unavailable"); err != nil {
 		t.Fatal(err)
 	}
-	defer os.Rename(objects+"-unavailable", objects)
+	t.Cleanup(func() {
+		if err := os.Rename(objects+"-unavailable", objects); err != nil {
+			t.Errorf("restore git objects: %v", err)
+		}
+	})
 	ctx := workContextNavigationPreparedContext(t, f)
 	_, err := readWorkContextView(ctx, f.store.DatabaseForTesting(), f.workID)
 	if err == nil {

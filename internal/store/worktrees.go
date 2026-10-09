@@ -2236,9 +2236,7 @@ func normalizeBranchRef(ref string) string {
 			break
 		}
 	}
-	if strings.HasPrefix(name, "origin/") {
-		name = strings.TrimPrefix(name, "origin/")
-	}
+	name = strings.TrimPrefix(name, "origin/")
 	if name == "" || len(name) > 128 || strings.HasPrefix(name, "-") || strings.HasPrefix(name, "/") || strings.HasSuffix(name, "/") || strings.HasSuffix(name, ".lock") || strings.Contains(name, "..") {
 		return ""
 	}

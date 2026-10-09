@@ -7,7 +7,7 @@ File accountability does not change a document's law home or a handler's semanti
 ## Responsibility
 Owns Product knowledge: the knowledge index and its records, the Domain registry as law, law-coverage and conformance records, lessons and research, and compaction and retention policy.
 
-Mapped files: 865; tests: 41; unresolved candidates: 13.
+Mapped files: 868; tests: 41; unresolved candidates: 13.
 Candidate counts overlap when a file has several candidates; no candidate is an assigned owner.
 
 ## Code and tests
@@ -39,5 +39,5 @@ Invariant/control joins, allowed-dependency interpretation, observed import/call
 non-law navigation homes, CON-887 packet reading, and CON-890 owner oracles remain later work.
 Required-reading entries will be pinned references, not inlined card content.
 
-Navigation source fingerprint: `sha256:2bb06aaabbb1741089cc4fb37ee2699f54556ba77ec2bc434b26ebf7b2455e09`.
+Navigation source fingerprint: `sha256:ff74b4721f64d9eb6da0a5ab1570fa484e0f558f09d4825b8c672ea3321d319a`.
 Other fingerprints and the exact file universe are in the generated inventory.

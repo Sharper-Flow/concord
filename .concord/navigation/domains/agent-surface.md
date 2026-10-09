@@ -7,7 +7,7 @@ File accountability does not change a document's law home or a handler's semanti
 ## Responsibility
 Owns the typed agent plane: the read and mutation tool surface, its budget and evolution constraints, call context, lanes and worker dispatch, the adapter transport contract, and the agent result envelope.
 
-Mapped files: 365; tests: 231; unresolved candidates: 40.
+Mapped files: 365; tests: 231; unresolved candidates: 37.
 Candidate counts overlap when a file has several candidates; no candidate is an assigned owner.
 
 ## Code and tests
@@ -49,5 +49,5 @@ Invariant/control joins, allowed-dependency interpretation, observed import/call
 non-law navigation homes, CON-887 packet reading, and CON-890 owner oracles remain later work.
 Required-reading entries will be pinned references, not inlined card content.
 
-Navigation source fingerprint: `sha256:2bb06aaabbb1741089cc4fb37ee2699f54556ba77ec2bc434b26ebf7b2455e09`.
+Navigation source fingerprint: `sha256:ff74b4721f64d9eb6da0a5ab1570fa484e0f558f09d4825b8c672ea3321d319a`.
 Other fingerprints and the exact file universe are in the generated inventory.

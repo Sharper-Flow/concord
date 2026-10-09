@@ -669,7 +669,7 @@ type con829LateMoveRunner struct {
 	fired  bool
 }
 
-func (r con829LateMoveRunner) Run(ctx context.Context, dir string, args ...string) ([]byte, error) {
+func (r *con829LateMoveRunner) Run(ctx context.Context, dir string, args ...string) ([]byte, error) {
 	if !r.fired && len(args) > 0 && args[0] == "update-ref" {
 		for _, arg := range args {
 			if arg == "-d" {
@@ -684,7 +684,7 @@ func (r con829LateMoveRunner) Run(ctx context.Context, dir string, args ...strin
 	return (ExecGitRunner{}).Run(ctx, dir, args...)
 }
 
-func (r con829LateMoveRunner) RunStdin(ctx context.Context, dir string, stdin []byte, args ...string) ([]byte, error) {
+func (r *con829LateMoveRunner) RunStdin(ctx context.Context, dir string, stdin []byte, args ...string) ([]byte, error) {
 	return (ExecGitRunner{}).RunStdin(ctx, dir, stdin, args...)
 }
 
@@ -862,7 +862,7 @@ func TestReclaimNativePlanProtectsChangedTipsAndConverges(t *testing.T) {
 		}
 		f.git(f.repoRoot, "add", "late-move.txt")
 		f.git(f.repoRoot, "commit", "-m", "late ref update")
-		_, err = RunWorktreeNativeRemoval(context.Background(), con829LateMoveRunner{branch: claimBranch}, removal)
+		_, err = RunWorktreeNativeRemoval(context.Background(), &con829LateMoveRunner{branch: claimBranch}, removal)
 		var failure *Failure
 		if !errors.As(err, &failure) || failure.Kind != KindProjectionConflict || !strings.Contains(failure.Detail, claimBranch) {
 			t.Fatalf("the pinned transaction must refuse the moved ref by name, got %v", err)

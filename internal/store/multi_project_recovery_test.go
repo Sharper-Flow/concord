@@ -221,6 +221,62 @@ func TestMultiProjectRecoveryKeepsLegacyAttemptConservative(t *testing.T) {
 	f.assertSiblingUnchanged(t)
 }
 
+func TestMultiProjectRecoveryAbandonmentReplaysWithoutHostObservations(t *testing.T) {
+	for _, observation := range []string{"removed_symlink", "legacy_occupancy"} {
+		t.Run(observation, func(t *testing.T) {
+			alias := filepath.Join(t.TempDir(), "store-link")
+			if err := os.Symlink(t.TempDir(), alias); err != nil {
+				t.Fatal(err)
+			}
+			s, err := Open(context.Background(), filepath.Join(alias, "concord.db"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = s.Close() })
+			f := multiProjectRecoveryFixtureForStore(t, s)
+			attempt := "attempt-replay"
+			f.dispatch(t, attempt)
+			version, digest := implementLaneIdentity()
+			lane, err := LookupLane("implement", version, digest)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{workerDispatchEvent(f.seed.workID, attempt, lane, nil)}}); err != nil {
+				t.Fatal(err)
+			}
+			f.occupy(t, "project-sibling", true)
+			if err := f.abandon(attempt); err != nil {
+				t.Fatalf("live abandonment refused: %v", err)
+			}
+			terminal := func() [3]string {
+				t.Helper()
+				var row [3]string
+				if err := s.db.QueryRow(`SELECT lifecycle_state,failure_kind,readback_model FROM worker_attempts WHERE work_id=? AND attempt_id=?`, f.seed.workID, attempt).Scan(&row[0], &row[1], &row[2]); err != nil {
+					t.Fatal(err)
+				}
+				return row
+			}
+			before := terminal()
+			if want := [3]string{"failed", WorkerFailureAbandoned, preferredModelForLane(lane)}; before != want {
+				t.Fatalf("live terminal row = %v, want %v", before, want)
+			}
+			if observation == "removed_symlink" {
+				if err := os.Remove(alias); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				f.occupy(t, "project", false)
+			}
+			if err := RebuildFromLog(context.Background(), s); err != nil {
+				t.Fatalf("recorded abandonment consulted present-day %s: %v", observation, err)
+			}
+			if after := terminal(); after != before {
+				t.Fatalf("replay terminal row = %v, want %v", after, before)
+			}
+		})
+	}
+}
+
 func (f multiProjectRecoveryFixture) assertSiblingUnchanged(t *testing.T) {
 	t.Helper()
 	entry := worktreeEntriesByProject(t, f.store, f.seed.workID)["project-sibling"]

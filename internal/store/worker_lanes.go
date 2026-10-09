@@ -1264,7 +1264,7 @@ func foldWorkerFailed(ctx context.Context, tx *sql.Tx, event Event) error {
 	if err != nil {
 		return err
 	}
-	if payload.FailureKind == WorkerFailureAbandoned {
+	if payload.FailureKind == WorkerFailureAbandoned && !isWorkflowReplay(ctx) {
 		if err := validateNoLiveWorkerSession(ctx, tx, event.SubjectID, payload.AttemptID); err != nil {
 			return err
 		}
@@ -1288,11 +1288,12 @@ func foldWorkerFailed(ctx context.Context, tx *sql.Tx, event Event) error {
 	return nil
 }
 
-// validateNoLiveWorkerSession is the host-observation gate for an abandoned
-// attempt (CD-0178 D3). Its dispatch window owns the Project, and the durable
-// projection owns occupancy: a worktree's
-// recorded rows carry the host process identity, and the kernel proves
-// whether a process is still alive. A live row blocks abandonment; a dead
+// validateNoLiveWorkerSession is the live-admission host-observation gate for
+// an abandoned attempt (CD-0178 D3). Replay trusts the recorded worker.failed
+// event instead of consulting today's filesystem, occupancy, or host liveness.
+// Its dispatch window owns the Project, and the durable projection owns
+// occupancy. Recorded rows carry the host process identity, and the kernel
+// proves whether a process is still alive. A live row blocks abandonment; a dead
 // row or no row at all admits the close. The store never reaches for the
 // host session list, so a session running in another repository cannot
 // strand this attempt through observation alone.

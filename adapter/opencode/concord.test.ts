@@ -287,7 +287,7 @@ test("all exported tools return one serialized Concord envelope", async () => {
 })
 
 test("request-wrapped tools refuse a missing request wrapper before any host effect", async () => {
-  const tools = { product_view: adapter.product_view, work_browse: adapter.work_browse, work_trace: adapter.work_trace, knowledge: adapter.knowledge, work_define: adapter.work_define, domain: adapter.domain, work_initiative: adapter.work_initiative, work_transition: adapter.work_transition, work_relate: adapter.work_relate, work_compact: adapter.work_compact }
+  const tools = { product_view: adapter.product_view, work_browse: adapter.work_browse, work_trace: adapter.work_trace, knowledge: adapter.knowledge, work_define: adapter.work_define, domain: adapter.domain, work_transition: adapter.work_transition, work_relate: adapter.work_relate, work_compact: adapter.work_compact }
   let calls = 0
   adapter.configureConcordAdapter({ runner: { run: async () => { calls++; throw new Error("must not run") } } })
   for (const [name, exportedTool] of Object.entries(tools)) {

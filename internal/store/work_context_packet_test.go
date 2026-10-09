@@ -26,7 +26,7 @@ func workContextDispatchPacket(t *testing.T, f workContextFixture, attemptID str
 	// Record the job revision before reading the packet inputs: the
 	// recording advances the work version the binding must carry.
 	job := seedReadyWorkerJob(t, f)
-	laneVersion, laneDigest := mustLaneIdentity("implement")
+	laneVersion, laneDigest := implementLaneIdentity()
 	task, binding := recordedPacketInputs(t, f.store, f.workID, "implement")
 	inputs := map[string]any{
 		"task":        task,

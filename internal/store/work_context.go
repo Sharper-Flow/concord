@@ -778,14 +778,6 @@ func assembleWorkContextDomainGroups(ctx context.Context, q queryer, workID stri
 	return nil
 }
 
-// ReadWorkContextTx is the tx-scoped work-context read the continuity
-// projection and the dispatch packet share: one transaction assembles the
-// current view, so a packet built from it and the admission check that
-// compares it against current state read identical bytes.
-func ReadWorkContextTx(ctx context.Context, tx *sql.Tx, workID string) (*WorkContextView, error) {
-	return readWorkContextView(ctx, tx, workID)
-}
-
 // validateWorkerPacketWorkContext refuses a dispatch whose packet does not
 // consume the current work-context view (CON-887), mirroring the correction
 // admission one guard above it. The current view is re-read inside the

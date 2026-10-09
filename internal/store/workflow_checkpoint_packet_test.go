@@ -32,7 +32,7 @@ func recordFixtureCheckpoint(t *testing.T, f workContextFixture, strategy string
 func checkpointDispatchPacket(t *testing.T, f workContextFixture, attemptID string, checkpoint any) map[string]any {
 	t.Helper()
 	job := seedReadyWorkerJob(t, f)
-	laneVersion, laneDigest := mustLaneIdentity("implement")
+	laneVersion, laneDigest := implementLaneIdentity()
 	task, binding := recordedPacketInputs(t, f.store, f.workID, "implement")
 	inputs := map[string]any{
 		"task":        task,

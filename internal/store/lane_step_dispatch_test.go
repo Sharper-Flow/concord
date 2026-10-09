@@ -34,13 +34,15 @@ func joinPacketFor(t *testing.T, s *Store, workID, stepID, attemptID, laneID str
 	}
 }
 
-func mustLaneIdentity(laneID string) (int64, string) {
+// implementLaneIdentity answers the registered implement lane's version and
+// digest for fixtures built outside a *testing.T scope.
+func implementLaneIdentity() (int64, string) {
 	for _, lane := range BuiltinLaneDefinitions() {
-		if lane.ID == laneID {
+		if lane.ID == "implement" {
 			return lane.Version, lane.Digest
 		}
 	}
-	panic("lane " + laneID + " is not registered")
+	panic("lane implement is not registered")
 }
 
 func registeredLaneIdentity(t *testing.T, laneID string) (int64, string) {

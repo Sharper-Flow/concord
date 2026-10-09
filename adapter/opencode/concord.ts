@@ -269,13 +269,9 @@ function argsSchema(toolName: string): any {
   return { request: publishedRequestSchema(toolName) }
 }
 
-// The host tool registry consumes `args` as a per-parameter map, which cannot
-// state cross-parameter modes, so the registration view stays the generated
-// per-field union of both branches' properties. The definition hook's
-// jsonSchema channel carries full JSON Schema, so publication there is the
-// closed two-branch capture/resume contract itself — requireds and exclusions
-// preserved, not merged into one all-optional object (CON-412). The runtime
-// decoder (validateWorkStartArgs) keeps enforcing the same closed branches.
+// The registration map exposes every declared field. The definition hook
+// publishes an object with conditional capture/resume branches, so providers
+// that reject root combinators still receive each mode's closed constraints.
 function workStartArgsSchema() {
   const properties = Object.assign({}, ...hostToolSchemas.concord_work_start.oneOf.map((branch) => branch.properties))
   // Host hooks can mutate published schemas, but never the runtime contract.
@@ -287,9 +283,18 @@ export async function publishWorkStartDefinition(
   output: { description: string; parameters: unknown; jsonSchema?: unknown },
 ): Promise<void> {
   if (input.toolID !== "concord_work_start") return
-  // The host registry consumes jsonSchema independently of its runtime decoder.
-  // Keep parameters unchanged so publication does not alter execution admission.
-  output.jsonSchema = JSON.parse(JSON.stringify(hostToolSchemas.concord_work_start))
+  const [capture, resume] = hostToolSchemas.concord_work_start.oneOf
+  // Anthropic rejects root oneOf/anyOf/allOf. Presence of work_id selects
+  // the same closed branch as validateWorkStartArgs, including invalid IDs.
+  // Parameters remain unchanged: publication cannot alter runtime admission.
+  output.jsonSchema = JSON.parse(JSON.stringify({
+    type: "object",
+    properties: { ...capture.properties, ...resume.properties },
+    additionalProperties: false,
+    if: { required: ["work_id"] },
+    then: resume,
+    else: capture,
+  }))
 }
 
 function baseEnvelope(toolName: string, operation: string, requestID: string) {

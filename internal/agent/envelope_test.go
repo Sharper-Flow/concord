@@ -121,6 +121,18 @@ func TestNonMutationEnvelopesOmitMutationMetadata(t *testing.T) {
 	}
 }
 
+func TestAdapterCLIInputRefusalMarshals(t *testing.T) {
+	e := NewCoreError(NewBase("cli-input-refusal", "concord_work_define", "capture"), TypedError{Kind: "invalid_input", RetrySafe: false, RecoveryAction: RecoveryAction{Kind: "restart_query"}, EffectState: EffectNone, AdapterReason: "invalid_cli_input"})
+	e.Origin, e.Authority = OriginAdapter, AuthorityUnreachable
+	if _, err := e.Encode(); err != nil {
+		t.Fatalf("adapter CLI input refusal cannot marshal: %v", err)
+	}
+	e.Error.EffectState = EffectPossible
+	if err := e.Validate(); err == nil {
+		t.Fatal("pre-effect adapter input refusal accepted a possible effect")
+	}
+}
+
 func TestEnvelopeRejectsUnknownVariantsAndFields(t *testing.T) {
 	t.Parallel()
 	base := NewBase("req", "concord_product_view", "resolve")

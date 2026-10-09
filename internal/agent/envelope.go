@@ -520,7 +520,7 @@ func (e Envelope) validateError() error {
 		return errors.New("adapter error reason missing")
 	}
 	if e.Origin == OriginAdapter {
-		allowedKinds := map[string]bool{"transport_failure": true, "malformed_response": true, "timeout": true, "cancelled": true, "operation_conflict": true}
+		allowedKinds := map[string]bool{"transport_failure": true, "malformed_response": true, "timeout": true, "cancelled": true, "operation_conflict": true, "invalid_input": true}
 		if !allowedKinds[e.Error.Kind] {
 			return errors.New("adapter error kind is not transport-safe")
 		}
@@ -533,7 +533,11 @@ func (e Envelope) validateError() error {
 	if e.Origin == OriginCore && e.Error.AdapterReason != "" {
 		return errors.New("core error contains adapter reason")
 	}
-	if e.Origin == OriginAdapter && (e.Error.EffectState != EffectNone || e.Error.RecoveryAction.Kind != "contact_operator") {
+	adapterRecovery := "contact_operator"
+	if e.Error.Kind == "invalid_input" {
+		adapterRecovery = "restart_query"
+	}
+	if e.Origin == OriginAdapter && (e.Error.EffectState != EffectNone || e.Error.RecoveryAction.Kind != adapterRecovery) {
 		return errors.New("adapter error effect or recovery is not fail-closed")
 	}
 	return nil
@@ -780,7 +784,7 @@ func validateError(err TypedError) error {
 		}
 	}
 	if err.AdapterReason != "" {
-		adapterReasons := map[string]bool{"missing_binary": true, "spawn_failure": true, "io_failure": true, "malformed_core_response": true, "timeout_no_effect": true, "cancelled_no_effect": true, "manifest_mismatch": true, "grant_bootstrap_failed": true, "unknown_effect": true}
+		adapterReasons := map[string]bool{"missing_binary": true, "spawn_failure": true, "io_failure": true, "malformed_core_response": true, "timeout_no_effect": true, "cancelled_no_effect": true, "manifest_mismatch": true, "grant_bootstrap_failed": true, "unknown_effect": true, "invalid_cli_input": true}
 		if !adapterReasons[err.AdapterReason] {
 			return fmt.Errorf("unknown adapter reason %q", err.AdapterReason)
 		}

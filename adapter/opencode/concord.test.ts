@@ -531,7 +531,7 @@ test("typed CLI input refusals report invalid_input and no effect", async () => 
 })
 
 test("validation text without the typed CLI signal cannot erase a possible effect", async () => {
-  for (const response of [{ exitCode: 1, stdout: "", stderr: "missing required field input" }, { exitCode: 64, stdout: "not-json", stderr: "missing required field input" }]) {
+  for (const response of [{ exitCode: 1, stdout: "", stderr: "missing required field input" }, ...["not-json", "\n", " \t"].map((stdout) => ({ exitCode: 64, stdout, stderr: "missing required field input" }))]) {
     adapter.configureConcordAdapter({ runner: runnerWithContext(response) })
     const result: any = await rawHostResult(adapter.work_define.execute(hostCall("capture", {}), contextFor()))
     expect(result.error.effect_state).toBe("possible")

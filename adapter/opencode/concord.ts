@@ -548,7 +548,7 @@ async function invokeConcordOperationRaw(toolName: string, args: HostToolArgs, c
   let result: any
   try { result = await run(args.input) } catch (error) { return invokeRunnerFailureEnvelope(toolName, operation, requestID, error, context.abort, false) }
   if (result.exitCode !== 0 && !result.stdout.trim()) {
-    if (result.exitCode === CLI_INPUT_REFUSAL_EXIT) return cliInputRefusal(toolName, operation, requestID, result.stderr)
+    if (result.exitCode === CLI_INPUT_REFUSAL_EXIT && result.stdout === "") return cliInputRefusal(toolName, operation, requestID, result.stderr)
     const [kind, reason, effect, recovery] = unknownOutcomeClassification(toolName, operation, true)
     return adapterError(toolName, operation, requestID, kind, reason, outcomeMessage(result.stderr.slice(0, MAX_STDERR)), effect, recovery)
   }
@@ -587,7 +587,7 @@ async function invokeConcordOperationRaw(toolName: string, args: HostToolArgs, c
       let retryResult: any
       try { retryResult = await run(args.input) } catch (error) { return invokeRunnerFailureEnvelope(toolName, operation, requestID, error, context.abort, true) }
       if (retryResult.exitCode !== 0 && !retryResult.stdout.trim()) {
-        if (retryResult.exitCode === CLI_INPUT_REFUSAL_EXIT && !operationIsMutation(toolName, operation)) return cliInputRefusal(toolName, operation, requestID, retryResult.stderr)
+        if (retryResult.exitCode === CLI_INPUT_REFUSAL_EXIT && retryResult.stdout === "" && !operationIsMutation(toolName, operation)) return cliInputRefusal(toolName, operation, requestID, retryResult.stderr)
         const [kind, reason, effect, recovery] = unknownOutcomeClassification(toolName, operation, true)
         return adapterError(toolName, operation, requestID, kind, reason, outcomeMessage(retryResult.stderr.slice(0, MAX_STDERR)), effect, recovery)
       }

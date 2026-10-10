@@ -1,0 +1,74 @@
+{
+  "applies_to_domain_ids": [
+    "durable-authority"
+  ],
+  "authority": {
+    "tier": "derived"
+  },
+  "criterion_bindings": [
+    {
+      "criterion": 1,
+      "scenario": "Q10-not-compacted"
+    },
+    {
+      "criterion": 2,
+      "exemption": "The historical-tier join remains deferred under CD-0217. Existing watermark evidence is TestRebuildKnowledgeIndexAndQ9Q10UseCurrentGitHead in internal/store/knowledge_index_test.go; no executed prune mechanism is asserted."
+    },
+    {
+      "criterion": 3,
+      "exemption": "Retirement eligibility is an operation property, not a PM1 query-corpus case. TestResearchRetirementTerminalOwnersEligible in internal/store/research_retirement_test.go is a candidate anchor; integrated coverage remains unmeasured under CON-816."
+    },
+    {
+      "criterion": 4,
+      "exemption": "Publication separation and optional-pin protection require operation witnesses. TestResearchRetirementActivePinsProtectAndTerminalReleaseFences in internal/store/research_retirement_test.go is a candidate anchor; publication coverage remains unmeasured under CON-816."
+    },
+    {
+      "criterion": 5,
+      "exemption": "Historical derivation is a rebuild property, covered by TestCompactionPayloadRequiresExplicitUniqueScopeArrays and TestUpcastCompactionLinkPublishedV1PreservesLegacyBytesAndOrder in internal/store/knowledge_index_test.go."
+    },
+    {
+      "criterion": 6,
+      "exemption": "Dry-run write absence is an operation property. TestResearchRetirementDryRunMixedBatchHasNoWrites in internal/store/research_retirement_test.go is a candidate anchor; integrated coverage remains unmeasured under CON-816."
+    },
+    {
+      "criterion": 7,
+      "exemption": "Restart and committed replay are operation properties. TestResearchRetireDryRunAndReplay in internal/agent/research_surface_test.go is a candidate replay anchor; restart coverage remains unmeasured under CON-816."
+    }
+  ],
+  "date": "2026-10-09T00:00:00Z",
+  "doc_contract_profile": "current",
+  "evidence": [
+    ".concord/scenarios/product-memory-query.v1.json",
+    "internal/store/knowledge_index_test.go",
+    "internal/store/research_retirement_test.go",
+    "internal/agent/research_surface_test.go",
+    ".concord/docs/knowledge/coverage/compaction-retention-policy.json"
+  ],
+  "home_domain_id": "product-memory",
+  "id": "compaction-retention-policy",
+  "kind": "spec",
+  "law_relations": [
+    {
+      "kind": "supersedes",
+      "target_id": "PM7"
+    }
+  ],
+  "path": ".concord/docs/compaction-retention-policy-successor.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:0ee74a2c78ace594f7afd804fe1971f68e3306f49573bf0141d47099aaf2d482",
+  "status": "accepted",
+  "summary": "Complete PM7 successor preserving deferred terminal work pruning, Git and event authority, canonical locator proof, historical front matter and frozen Domain scope, live/historical query composition, immutable pruned identities and PM10 separation. Replaces archive-driven research cleanup with reusable read-only terminal packs and explicit bounded idempotent retirement of terminal-owner packs with zero active required or optional pins, without calendar expiration. Live cutover and integrated conformance remain deployment obligations.",
+  "tags": [
+    "compaction",
+    "retention",
+    "rebuild",
+    "research"
+  ],
+  "title": "Compaction retention and historical index"
+}

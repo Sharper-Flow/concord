@@ -65,6 +65,7 @@ GENERATORS: tuple[tuple[str, ...], ...] = (
     ("scripts/generate-law-coverage.py", "--update"),
     ("scripts/generate-agent-contracts.py",),
     ("scripts/generate-agent-lanes.py",),
+    ("scripts/generate-domain-navigation.py",),
 )
 
 # Outputs the generators own. This tool never edits them, and it fails when a
@@ -81,6 +82,15 @@ GENERATED = frozenset(
         "internal/agent/generated_payload_schemas.go",
         "internal/store/generated_agent_lanes.go",
         "internal/store/generated_typed_error_kinds.go",
+        ".concord/navigation/inventory.json",
+        ".concord/navigation/domains/agent-surface.md",
+        ".concord/navigation/domains/durable-authority.md",
+        ".concord/navigation/domains/operator-surface.md",
+        ".concord/navigation/domains/product-memory.md",
+        ".concord/navigation/domains/product-root--concord.md",
+        ".concord/navigation/domains/repository-verification.md",
+        ".concord/navigation/domains/work-coordination.md",
+        ".concord/navigation/domains/workflow-engine.md",
     }
 )
 

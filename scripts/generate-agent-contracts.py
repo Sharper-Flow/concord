@@ -1092,11 +1092,8 @@ def validate(manifest: dict) -> str:
         if set(tool) != {"id", "description", "operations"} or not tool["operations"]:
             fail(f"tool section is not closed: {tool.get('id')}")
     operations = manifest.get("operations", [])
-    # 75 base operations (74 plus concord_work_transition.worker_reconcile)
-    # plus the two operator-approved outside-repair transition actions
-    # (CD-0210): concord_work_transition.outside_repair and
-    # concord_work_transition.outside_repair_reconcile.
-    expected_operations = 77
+    # The closed surface includes explicit bounded research retirement.
+    expected_operations = 78
     if len(operations) != expected_operations or len({o.get("id") for o in operations}) != expected_operations:
         fail(f"manifest must contain exactly {expected_operations} unique operations")
     tool_ids = {t["id"] for t in tools}
@@ -1321,6 +1318,13 @@ def fixtures_projection(manifest: dict, public_variants: list[dict]) -> str:
         if input_name == "work_transition_action_input":
             input_sample_schema = first_variant
         valid_input=sample(input_sample_schema);valid_result=sample(payload[result_name])
+        if result_name == "research_retire_result" and isinstance(valid_result, dict):
+            # A real retirement run reclassifies every eligible candidate to
+            # retired before the result returns, so eligible only appears in a
+            # dry run. Keep the sampled eligible candidate and flip the run to
+            # dry; dry_run=false with eligible is a result the core can never
+            # produce.
+            valid_result["dry_run"]=True
         invalid_input=dict(valid_input) if isinstance(valid_input,dict) else {"value":valid_input};invalid_input["unknown"]=True
         invalid_result=dict(valid_result) if isinstance(valid_result,dict) else {"value":valid_result};invalid_result["unknown"]=True
         input_invalid=[case for case in [invalid_input,nested_unknown(valid_input),oversized(valid_input)] if case != valid_input]

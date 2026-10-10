@@ -129,6 +129,9 @@ func TestUpgradeResumesAfterTheCollisionIsRepaired(t *testing.T) {
 	if err := dropMigration122Objects(context.Background(), db); err != nil {
 		t.Fatalf("cannot drop migration 122's colliding objects: %v", err)
 	}
+	if err := dropMigration123Objects(context.Background(), db); err != nil {
+		t.Fatalf("cannot drop migration 123's colliding objects: %v", err)
+	}
 	_ = db.Close()
 	report, err := Upgrade(context.Background(), path, nil)
 	if err != nil {

@@ -1,0 +1,5 @@
+{
+  "id": "compaction-retention-policy",
+  "reason": "Complete PM7 successor under CON-816 A1. Preserved locator, watermark and historical-scope anchors and candidate retirement anchors are recorded without claiming replacement conformance. Parent must assess publication separation, optional pins, bounded dry run, restart/replay, migration and restore before deployment.",
+  "state": "unmeasured"
+}

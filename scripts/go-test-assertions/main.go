@@ -107,7 +107,7 @@ func parseModule(root string, candidates map[string]bool) ([]sourceFile, error) 
 		}
 		relativeTarget, err := filepath.Rel(root, resolved)
 		if err != nil || relativeTarget == ".." || strings.HasPrefix(relativeTarget, ".."+string(filepath.Separator)) {
-			return fmt.Errorf("Go source escapes module: %s", path)
+			return fmt.Errorf("go source escapes module: %s", path)
 		}
 		file, err := parser.ParseFile(fset, path, nil, parser.ParseComments)
 		if err != nil {

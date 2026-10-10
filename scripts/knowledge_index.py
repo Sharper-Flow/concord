@@ -35,8 +35,8 @@ COVERAGE_DIR = ".concord/docs/knowledge/coverage"
 # Layout tiers for reading history. A ref composes from the newest layout it
 # carries; each tier is the shape that commit has, not a fallback around it.
 # - current:  shards under .concord/docs/knowledge (CD-0194 placement law)
-# - previous: shards under docs/knowledge (CD-0114, before the .concord move)
-# - legacy:   one aggregate file, before the shards existed
+# - previous: shards under docs/knowledge (CD-0114 placement)
+# - legacy:   one aggregate manifest file
 PRE_MIGRATION_KNOWLEDGE_ROOT = "docs/knowledge"
 PRE_MIGRATION_HEAD_PATH = "docs/knowledge/manifest.json"
 LEGACY_MANIFEST_PATH = "docs/concord-knowledge-index.v1.json"

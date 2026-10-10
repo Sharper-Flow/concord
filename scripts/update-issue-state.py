@@ -8,7 +8,7 @@ what makes it true.
 
 It covers every plane in coverage_state.ISSUE_STATE_MANIFESTS at once. A
 per-plane refresh would let a new plane's pointers go uncovered until someone
-noticed, which is the failure the shared registry exists to prevent (#451).
+noticed, which is the failure the shared registry exists to prevent.
 """
 from __future__ import annotations
 

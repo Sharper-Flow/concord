@@ -23,7 +23,6 @@ def rejects(subject: str) -> bool:
 
 
 def test_non_conventional_subject_is_rejected() -> None:
-    # The exact shape that reached main as `Update priorities (#61)`.
     assert rejects("Update priorities"), "a bare imperative subject must be rejected"
 
 
@@ -215,8 +214,8 @@ def test_landed_subject_strips_the_squash_reference() -> None:
 
 
 def test_landed_subject_path_rejects_a_violating_subject() -> None:
-    # The exact shape that reached main as `Update priorities (#61)`: stripping
-    # the reference must not rescue a subject outside the grammar.
+    # Stripping the reference must not rescue a subject
+    # outside the grammar.
     assert rejects(guard.landed_subject("Update priorities (#61)"))
     long_body = "a" * (guard.MAX_TITLE_BYTES - len("feat: ") + 1)
     assert rejects(guard.landed_subject(f"feat: {long_body} (#1473)"))

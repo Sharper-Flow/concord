@@ -127,7 +127,7 @@ class UmbrellaPropagationTests(unittest.TestCase):
 
 
 class ExternalSuiteOptionForwardingTests(unittest.TestCase):
-    """CON-893: the umbrella forwards CI's external-suite routing verbatim.
+    """The umbrella forwards CI's external-suite routing verbatim.
 
     verify-adapter and verify-tooling own the suites. verify-contracts passes
     both external-suite options. A default invocation forwards neither, and

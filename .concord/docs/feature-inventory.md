@@ -7,8 +7,8 @@
 > reworked but not rewritten), or **New** (net-new, no Advance precedent). Each
 > capability is aligned with the canonical Concord priorities without restating
 > the ranked list.
-> **Primary surface:** Product-first terminal launcher; admin panel / web UI are
-> optional projections.
+> **Primary surface:** Defined by [`priorities.md`](./priorities.md); admin
+> panel / web UI are optional projections.
 > **Snapshot evidence for "what existed in the predecessor":** public issue-linked
 > lessons and the predecessor postmortem. Refresh against reachable public sources
 > before implementation or cutover decisions; this inventory does not establish
@@ -276,7 +276,7 @@ descriptions because they are referenced from elsewhere in the docset.
 | 3.7 | Portfolio-review tooling + cadence | "What should I work on across everything" with a periodic portfolio-review cadence, Product-scoped (per-repo `/adv-triage` and `/adv-cleanup` Transfer). | — |
 | 3.8 | Product wishlist | Planning backlog lives in Linear through the Linear MCP server, not in a repository or a Concord planning projection. | [`decisions/CD-0213-linear-mcp-is-the-only-planning-authority.md`](./decisions/CD-0213-linear-mcp-is-the-only-planning-authority.md) |
 | 3.9 | Infra status tracking | Tracked surface over §3.3 signal ingestion; presents azure/cron/health/ops status within a Product. | [`product-data-model.md`](./product-data-model.md) |
-| 3.10 | Admin panel (lightweight grid/table projection) | Optional human-facing projection over the fast read-path; **not** the primary operator surface (terminal launcher is). The CD-0108 launcher owns the session bootstrap role. | [`design-constraints.md`](./design-constraints.md) §5 |
+| 3.10 | Admin panel (lightweight grid/table projection) | Optional human-facing projection over the fast read-path; **not** the primary operator surface (the session entry is). The CD-0108 replacement owns the session bootstrap role through the entry route. | [`design-constraints.md`](./design-constraints.md) §5 |
 | 3.11 | Work-type taxonomy / phase-spanning work | First-class handling of idea/bug/optimization/research/ops work spanning phases; each may mature into the 7-gate lifecycle when ready. | [`workflows.md`](./workflows.md) |
 | 3.12 | Spec & document browse surface (self-documentation) | Navigable Product → Domain browse surface over current Product law, evidence, and durable workflow docs. | [`self-documentation.md`](./self-documentation.md) |
 | 3.13 | Workflow-type system (plurality of workflows) | Registry of purpose-built workflow types — implementation change, research/investigation, static-analysis variants, ops runbooks, break-fix, db/config/infra. | [`workflows.md`](./workflows.md) |

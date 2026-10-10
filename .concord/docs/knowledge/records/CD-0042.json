@@ -9,7 +9,6 @@
   "evidence": [
     ".concord/docs/agent-tool-surface-evolution.md",
     ".concord/docs/agent-tool-surface-measurement.md",
-    ".concord/scenarios/launcher-portfolio.v1.json",
     ".concord/scenarios/workflow-engine.v1.json",
     "contracts/workflow-engine-scenarios.schema.json",
     "scripts/check-agent-contracts.py"

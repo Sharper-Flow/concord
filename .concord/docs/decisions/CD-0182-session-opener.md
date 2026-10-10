@@ -51,7 +51,7 @@ Two accepted boundaries stood in the way of a product answer. CD-0078 D1
 forbids every Concord component from knowing a terminal multiplexer, and its
 record rejected a pluggable terminal-placement strategy as an abstraction
 with one real implementation on one machine. CD-0163 restates that boundary
-for the launcher.
+for the session entry route.
 
 CD-0176 D2 limited the worktree landing to the work's primary Project. A
 session could not start in a member Project that lives in another
@@ -215,9 +215,9 @@ under this record.
 - `go test ./internal/agent/ -run
   TestWorktreeClaimRefusesCrossRepositoryBeforeCreation` proves D3's remedy
   text names `concord_work_start` with both identities.
-- `go test ./internal/launcher/render/bubbletea/ -run
+- `go test ./cmd/concord/ -run
   TestSessionCommandPassesProjectSelectionThroughEnvironment` proves the
-  selector travels the launcher handoff.
+  selector travels the session handoff.
 - `bun test adapter/opencode/` proves D3's adapter route: the opener
   substitution, the exit-status report, the no-opener command, the invalid
   opener refusal, and the same-repository route that keeps the move.

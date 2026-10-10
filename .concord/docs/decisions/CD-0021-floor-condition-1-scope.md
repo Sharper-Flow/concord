@@ -86,9 +86,9 @@ need; no such need is demonstrated.
 
 ## Verification
 
-- [`priorities.md`](../priorities.md) condition 1 and
-  [`terminal-launcher-contract.md`](../terminal-launcher-contract.md) §12 agree
-  in wording after this change.
+- [`priorities.md`](../priorities.md) condition 1 and the C18 contract's §12
+  agreed in wording after this change; the C18 contract retired with the
+  launcher TUI under CD-0219.
 - [`floor-readiness.v1.json`](../floor-readiness.v1.json) records both items as
   satisfied with this decision among their evidence, and
   `scripts/check-floor-readiness.py` passes.

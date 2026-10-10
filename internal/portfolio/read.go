@@ -1,6 +1,6 @@
 // Package portfolio owns the application Product-portfolio read/result
-// boundary. Agent and launcher adapters consume this package so neither can
-// select a different Product-row query or wire payload.
+// boundary. Agent adapters consume this package so no caller can select a
+// different Product-row query or wire payload.
 package portfolio
 
 import (
@@ -11,7 +11,7 @@ import (
 
 // Result is the canonical C14 Product-row result returned by the store.
 // Keeping the store result intact preserves row groups and read metadata for
-// both transport and terminal consumers.
+// transport consumers.
 type Result = store.ProductRowResult
 
 // Read executes the single bounded Product-row projection used by all

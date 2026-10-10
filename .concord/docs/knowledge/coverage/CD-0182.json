@@ -2,6 +2,10 @@
   "evidence": [
     {
       "kind": "go_test",
+      "value": "cmd/concord.TestSessionCommandPassesProjectSelectionThroughEnvironment"
+    },
+    {
+      "kind": "go_test",
       "value": "internal/store.TestResolveSessionDirectoryForProjectSelectsAMemberProject"
     },
     {
@@ -15,10 +19,6 @@
     {
       "kind": "go_test",
       "value": "internal/agent.TestWorktreeClaimRefusesCrossRepositoryBeforeCreation"
-    },
-    {
-      "kind": "go_test",
-      "value": "internal/launcher/render/bubbletea.TestSessionCommandPassesProjectSelectionThroughEnvironment"
     },
     {
       "kind": "adapter_test",

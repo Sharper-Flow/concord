@@ -174,18 +174,6 @@ func validateRemovalRequest(req WorkRemovalRequest) error {
 	return nil
 }
 
-// ShelveWork performs an operator-directed preservation-first removal.
-func (s *Store) ShelveWork(ctx context.Context, req WorkRemovalRequest) (WorkRemovalReceipt, error) {
-	req.Reason = "shelved"
-	return s.RemoveWork(ctx, req)
-}
-
-// CancelWork uses the same safety gates but records a cancellation reason.
-func (s *Store) CancelWork(ctx context.Context, req WorkRemovalRequest) (WorkRemovalReceipt, error) {
-	req.Reason = "cancelled"
-	return s.RemoveWork(ctx, req)
-}
-
 // PrepareWorkRemoval records the stable operation and pinned handoff without
 // deleting anything. It is the reconciliation boundary for remote publication.
 func (s *Store) PrepareWorkRemoval(ctx context.Context, req WorkRemovalRequest) (WorkRemovalReceipt, error) {

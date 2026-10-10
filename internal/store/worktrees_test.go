@@ -1112,7 +1112,7 @@ func TestDestroyRefusesOccupiedWorktreeDespiteApproval(t *testing.T) {
 		t.Fatal(err)
 	}
 	seedWorktreeLifecycle(t, s)
-	_, err = s.DestroyWorktree(context.Background(), WorktreeDestroyRequest{
+	_, err = destroyWorktreeForTest(context.Background(), s, WorktreeDestroyRequest{
 		WorkID: "work-w", ProjectID: "project-w", DefaultRef: "origin/main",
 		ExpectedVersion: 4, PrincipalRef: "principal-1", RequestID: "destroy-occupied",
 		Now: time.Unix(30, 0).UTC(), Runner: git,
@@ -1141,7 +1141,7 @@ func TestDestroyReleasesRecordedStaleOccupancyWithApproval(t *testing.T) {
 		t.Fatal(err)
 	}
 	seedWorktreeLifecycle(t, s)
-	entry, err := s.DestroyWorktree(context.Background(), WorktreeDestroyRequest{
+	entry, err := destroyWorktreeForTest(context.Background(), s, WorktreeDestroyRequest{
 		WorkID: "work-w", ProjectID: "project-w", DefaultRef: "origin/main",
 		ExpectedVersion: 4, PrincipalRef: "principal-1", RequestID: "destroy-stale-occupancy",
 		Now: time.Unix(30, 0).UTC(), Runner: git,

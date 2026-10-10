@@ -108,9 +108,9 @@ Research is a supported kind but remains `supported_not_indexed` until an
 accepted canonical form exists. Missing or invalid manifest records fail closed
 and leave the prior SQLite projection unchanged.
 
-The launcher consumes this index only through bounded Q9 Product-scoped reads;
-S3 resolves a canonical work note through Q10. It preserves `unread`,
-`authoritative-empty`, and `unavailable` as distinct rendered states and does
+Agent surfaces consume this index only through bounded Q9 Product-scoped
+reads; Q10 resolves a canonical work note. Consumers preserve `unread`,
+`authoritative-empty`, and `unavailable` as distinct states and do
 not create or update index records.
 
 This design does not weaken work-note compaction publication or fold guards.

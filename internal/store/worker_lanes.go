@@ -1673,16 +1673,6 @@ func verifyWorkerTerminalUpdate(result sql.Result, unavailableDetail, missingDet
 	return nil
 }
 
-// WorkerAttemptByID returns the durable dispatch identity needed to validate a
-// completion or failure callback. The lookup is read-only; worker projections
-// remain fold-only and can only be changed by appending an event.
-func (s *Store) WorkerAttemptByID(ctx context.Context, attemptID string) (WorkerAttempt, error) {
-	if s == nil || s.db == nil {
-		return WorkerAttempt{}, newFailure(KindUnavailable, "worker_attempt_read", "database is not open", true, "open the authority database")
-	}
-	return workerAttemptByIDCore(ctx, s.db, attemptID)
-}
-
 // WorkerAttemptByIDTx is the transaction-scoped lookup. Authenticating a worker
 // evidence write, checking that the attempt has not already reached a recorded
 // outcome, and appending the evidence must observe one snapshot, so the caller

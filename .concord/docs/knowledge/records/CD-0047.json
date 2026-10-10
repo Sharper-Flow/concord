@@ -27,7 +27,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:fce0bcf75c680eada5b936a84ca0376a166409bbdbe1f615f7d49d09265b8530",
+  "sha256": "sha256:3a181f2d4e9e3b96a5b654b974f793946a6f808bb0c4db0444a9e7f80da06c10",
   "status": "accepted",
   "summary": "Every indexed law record carries a coverage state and a satisfied record cites typed anchors that resolve and execute in a required check; product reachability is computed by a pinned callgraph analysis and only its exceptions are declared; both planes reuse the floor-readiness state vocabulary and fail on an undeclared gap in either direction.",
   "tags": [

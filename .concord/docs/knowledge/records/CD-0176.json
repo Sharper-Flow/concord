@@ -16,7 +16,7 @@
     }
   ],
   "path": ".concord/docs/decisions/CD-0176-the-launcher-lands-in-the-active-worktree.md",
-  "product_wide_rationale": "Governs the session landing directory across the launcher, the session command, and the worktree workflow, so no single runtime Domain owns it.",
+  "product_wide_rationale": "Governs the session landing directory across the session entry route, the session command, and the worktree workflow, so no single runtime Domain owns it.",
   "scopes": {
     "domain_ids": [],
     "mode": "home",
@@ -24,9 +24,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:c6640b4715b12b6c4ff268fc0b9bc33db0140a392b9492c866ba81a4b4e1a1dd",
+  "sha256": "sha256:c84e026c61cb86e9b80b4ff7cdbecfcf69615b87fd4183d879c83db068c32a69",
   "status": "accepted",
-  "summary": "A launcher-started session for selected work lands in that work's active worktree in its primary Project when the worktree is a usable directory on the machine, and in the Project canonical path otherwise; the one-directory binding, the fail-closed canonical path, and the host command as CD-0189 amended it stand, and the adapter landing guard plus the capture-launch turn stay out of scope.",
+  "summary": "A session for selected work lands in that work's active worktree in its primary Project when the worktree is a usable directory on the machine, and in the Project canonical path otherwise; the one-directory binding, the fail-closed canonical path, and the host command as CD-0189 amended it stand, and the adapter landing guard plus the capture-launch turn stay out of scope.",
   "tags": [
     "launcher",
     "session-boot",

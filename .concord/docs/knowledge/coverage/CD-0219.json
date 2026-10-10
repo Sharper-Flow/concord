@@ -1,0 +1,22 @@
+{
+  "evidence": [
+    {
+      "kind": "validator",
+      "value": "scripts/check-doc-links.py"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/check-knowledge-index.py"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/check-law-coverage.py"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/check-floor-readiness.py"
+    }
+  ],
+  "id": "CD-0219",
+  "state": "satisfied"
+}

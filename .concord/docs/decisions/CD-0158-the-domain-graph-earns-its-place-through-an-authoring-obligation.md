@@ -19,11 +19,10 @@ Seven Products hold a Domain registry. Concord authors eight `depends_on`
 relations and twenty-four records that name applied Domains. Every other
 Product authors none. No registry has been amended since its bootstrap commit.
 
-The layer has one reader and it is the operator. `SelectProduct` at
-[`internal/launcher/model.go:332-350`](../../../internal/launcher/model.go) sets
-`SectionDomains` as the default panel on every Product screen, and
-[`internal/launcher/render/bubbletea/model.go:953`](../../../internal/launcher/render/bubbletea/model.go)
-renders each relation. Six of seven Products render that panel blank.
+The layer has one reader and it is the operator. The launcher's Product screen
+set `SectionDomains` as the default panel on every Product screen and rendered
+each relation; that surface retired with the launcher TUI under CD-0219. Six
+of seven Products render that panel blank.
 
 No gate reads the layer. The overlap predicate at
 [`internal/store/workflow_domain_overlap.go:334-345`](../../../internal/store/workflow_domain_overlap.go)

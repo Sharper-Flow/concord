@@ -23,9 +23,9 @@ Four findings carry the decision:
 
 1. **The ranking half is already built; the gap is semantic, not mechanical.**
    `priority` is a fully wired first-class field and the *primary* sort key on every
-   ready, list, blocked, and launcher query. An agent can already raise work that
-   sorts to the top of the operator's ready queue, and the launcher can already hand
-   that item to a fresh agent session. Nothing needs building for "high priority."
+   ready, list, and blocked query. An agent can already raise ranked work,
+   and `concord zl <work>` hands named work to a fresh agent session.
+   The interactive launcher is not a consumer under CD-0219.
    What is missing is a shared meaning for the number and any record of *why* the
    item exists.
 
@@ -73,7 +73,7 @@ inference.
 | [`product-coordination-view.md`](../product-coordination-view.md) §5.2 | No activity-derived priority | Any urgency signal must be **declared** at capture, never inferred from recency, blocker age, or churn. |
 | [`product-coordination-view.md`](../product-coordination-view.md) §5.4 | No third blocked state; no stalled, idle, or inferred category | An "expedited" treatment must not become a fourth lifecycle or a derived state. It is an attribute of an item, not a state of one. |
 | [`product-coordination-view.md`](../product-coordination-view.md) §5.6 | Terminal counts, repository paths, velocity, percent complete, estimates, **owners, and assignments** stay excluded | The clause to read narrowly per finding 4. |
-| [`terminal-launcher-contract.md`](../terminal-launcher-contract.md) §12 | The launcher performs **no durable writes**; no repair actions; no second read path | The launcher can *display* an urgency band and *hand off* identity, which it already does. It cannot dispatch, transition, or acknowledge without amending C18. |
+| CD-0108 D4, as amended by CD-0219 | The kept entry route performs **no durable writes** | Urgency does not grant the entry route dispatch or transition authority. |
 | [`agent-tool-surface-evolution.md`](../agent-tool-surface-evolution.md) §2 | MAJOR covers adding an operation, changing required fields or meaning, or removing an accepted variant; adding an optional field is MINOR **only** when negotiation can losslessly down-convert for older clients | Adding a closed `urgency` enum to `capture` input and to `work_summary` output is not automatically MINOR: strict clients reject unknown output fields. Any read-surface addition is MAJOR unless negotiated omission is built. Adding a `relation_kind` member changes a closed variant set and is MAJOR. |
 | CD-0009 D2 | Architecture spikes are distinct because they must publish an accepted binding decision; research may conclude `no change` | This document is a spike. Its outcome is a decision record or an explicit `no change` with durable guidance. |
 | CD-0013, CD-0017 D4 | Workers never record step transitions, verdicts, or completion; durable authority stays with the owning workflow | A second agent started on an expedited item runs its own workflow. Nothing here creates nested authority or lets one item's worker advance another item. |
@@ -96,16 +96,14 @@ ignores that would over-build.
 | Contract | `work_define.capture` and `.revise_intent` accept `priority` integer `[-100, 100]`; `work_browse.list` accepts `priority_min` / `priority_max`; `work_summary` returns it; `product_row_focus` **requires** it | `contracts/agent-tool-surface-payloads.schema.json` |
 | Persistence | `work_items.priority INTEGER NOT NULL` since migration v3; decode rejects events missing it | `internal/store/schema.go:147`; `internal/store/lifecycle.go:151` |
 | Ready queue (PM1.Q5) | `ORDER BY w.priority, w.created_at DESC, w.id` — priority is the **primary** key | `internal/store/query.go:1141` |
-| List (PM1.Q3), blocked (PM1.Q4), launcher search and product | priority primary or first tiebreak in every case | `internal/store/query.go:666,948`; `internal/store/launcher_query.go:131,238` |
+| List (PM1.Q3), blocked (PM1.Q4) | declared priority participates in ordering | `internal/store/query.go` |
 | Product row focus (C14) | attention-kind rank first, then priority ascending | `internal/store/product_row.go:406-414,586` |
-| Launcher display | priority column in the S2 ranked table; `PRIORITY:` in the S3 detail header | `internal/launcher/render/bubbletea/model.go:587,637` |
-| Operator handoff | `l` spawns a fresh session carrying `CONCORD_SELECTED_PRODUCT_ID` and `CONCORD_SELECTED_WORK_ID` | `internal/launcher/render/bubbletea/model.go:743-752` |
+| Operator handoff | `concord zl <work>` starts the session for named work through Concord's session bootstrap | `cmd/concord/main.go` (`runZLForwarding`); `cmd/concord/session_handoff.go` (`sessionCommand`) |
 
-So the following already works end to end today, with no change of any kind **(i)**:
-an agent calls `capture` with `priority: -100`; the item sorts to the head of the
-operator's ready queue and to the head of the Product row; the operator presses `l`;
-a second agent session starts already scoped to that work item. The two agents then
-run concurrently, which the operating envelope already anticipates.
+The retained handoff starts from named work: the operator runs `concord zl <work>`
+and the session starts with core-derived continuity. The route displays no ranked
+table and derives no workflow position. Agent concurrency remains inside the
+operating envelope.
 
 Three things that path does not do:
 
@@ -139,7 +137,7 @@ Three tradeoffs the sources state themselves:
 - **Expedite is a policy exception, not a rank.** Kanban's entire expedite content is
   the WIP-limit override plus the requirement that the class be rare, declared, and
   recognizable under "agreed rules and criteria known to all drivers." Concord has no
-  WIP limit and a read-only launcher, so there is nothing for an expedite flag to
+   WIP limit and a store-write-free entry route, so there is nothing for an expedite flag to
   override. What transfers is the *policy discipline* — rare, declared, visibly
   distinct — not the mechanism **(iii)**.
 - **Impact and urgency are separated precisely because they diverge.** The canonical
@@ -283,8 +281,8 @@ CD-0017 lane.
 4. **Whether any attention surface beyond ordering is warranted.** C14 already ranks
    the Product-row focus by attention kind before priority
    (`internal/store/product_row.go:406-414`). Whether an expedited item needs anything
-   more than a distinct band rendered in the existing ranked table is unmeasured, and
-   the launcher's read-only contract means anything more is a C18 amendment.
+   more than a distinct band in a view is unmeasured. The entry route's
+   store-write-free boundary remains under CD-0108 D4; the TUI display has no subject.
 
 5. **The "priority inflation" critique could not be sourced.** The everything-is-P0
    failure mode is widely asserted but no reachable public citation was found. The

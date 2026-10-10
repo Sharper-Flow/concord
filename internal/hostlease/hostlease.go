@@ -4,7 +4,7 @@
 // live session predates a pending breaking migration (CD-0111 D3). Both
 // decisions belong to callers; this package only writes, reads, and prunes
 // the leases themselves, and owns the maintenance fence that excludes new
-// session admission across an incompatible maintenance boundary (CON-807).
+// session admission across an incompatible maintenance boundary.
 //
 // A lease is live when its process exists and started when the lease says it
 // did. The start time separates a live pid from a recycled one. Liveness
@@ -35,7 +35,7 @@ type Lease struct {
 	ManifestDigest string `json:"manifest_digest"`
 	RecordedAt     string `json:"recorded_at"`
 	// FenceProtocol is the maintenance-boundary protocol the core that
-	// wrote this lease speaks (CON-807). A writer at the current protocol
+	// wrote this lease speaks. A writer at the current protocol
 	// refuses admission while a fence is open, so its sessions can be
 	// excluded across a boundary. A lease that carries no protocol was
 	// written by a legacy core that admits sessions without looking at the
@@ -59,7 +59,7 @@ const CurrentFenceProtocol = 1
 
 // FenceOperationUpgrade names the one operation this package records as the
 // authorized opener of a maintenance boundary: the core's incompatible-
-// migration command (CON-807). A boundary that names no operation, or any
+// migration command. A boundary that names no operation, or any
 // other operation, is unattributed or foreign: it stays unchanged and
 // authorizes no migration or activation.
 const FenceOperationUpgrade = "concord-upgrade-incompatible-migration"
@@ -78,7 +78,7 @@ var ErrMaintenanceExcluded = errors.New("hostlease: session admission is exclude
 // lease pins no longer exists: release cleanup removed its tree.
 var ErrReleaseRemoved = errors.New("hostlease: the pinned release was removed; start a new session on the active release")
 
-// Fence is the durable session-admission exclusion record (CON-807). The
+// Fence is the durable session-admission exclusion record. The
 // migration command opens it before its final lease check, and the
 // installer's activation removes it after the prepared candidate commits
 // and release cleanup finishes. Between those instants no new session may
@@ -92,7 +92,7 @@ type Fence struct {
 	// Operation attributes the boundary to the operation that opened it:
 	// FenceOperationUpgrade for the core's incompatible-migration command.
 	// An existing fence naming no operation, or a different one, is
-	// unattributed or foreign: it authorizes no migration (CON-807).
+	// unattributed or foreign: it authorizes no migration.
 	Operation string `json:"operation,omitempty"`
 	// ReleaseRoot and CoreBinary name the binary that opened the boundary.
 	ReleaseRoot string `json:"release_root"`
@@ -360,7 +360,7 @@ const maintenanceAcquireAttempts = 3
 // and returns its release. One maintenance command runs at a time: a run
 // decides whether to close the boundary it opened from what it alone could
 // have committed, and that decision is only sound when no other run can
-// migrate under the same boundary meanwhile (CON-807). The lock is a flock
+// migrate under the same boundary meanwhile. The lock is a flock
 // on the data root directory itself, so it leaves no file behind, and the
 // installer's commands take the same lock (scripts/install.py
 // maintenance_lock): no installer recovery or boundary close overlaps a
@@ -378,7 +378,7 @@ const maintenanceAcquireAttempts = 3
 // next attempt re-opens the current path; the bounded sequence never
 // sleeps.
 //
-// The release removes nothing (CON-807, obs:1ca149d633e69626): a held
+// The release removes nothing (obs:1ca149d633e69626): a held
 // directory flock cannot make a later path-based removal conditional on
 // the inode the holder once observed, so no cleanup removes the data root
 // at all. The empty root an acquisition created, its ancestors, a root
@@ -427,7 +427,7 @@ func acquireMaintenanceLock(
 		// The root is created before it is opened: the bootstrap of a
 		// first install holds the same lock an established root holds.
 		// The creation is a plain mkdir, and what it created is retained
-		// at release (CON-807): no attribution machinery may follow it,
+		// at release: no attribution machinery may follow it,
 		// because attribution existed only to authorize deletion, and no
 		// deletion is safe against a replacement holder.
 		if err := os.MkdirAll(dataRoot, 0o700); err != nil { //nolint:gosec // dataRoot is the operator's data root; the acquisition creates its missing levels.

@@ -21,18 +21,29 @@ fetch from the public API, not a provider call.
 Each step prints one bounded line ``PASS <name>`` or ``FAIL <name>: <detail>``.
 A failure exits 1 after every attempted step has been reported; the partial
 sequence gives CI a fast signal that pinpoints the broken step.
+
+Opt-in neighbor mode (CON-847 scope 3): with ``--neighbors N`` the harness
+also runs N background reader processes and N ordinary writer processes
+against the same temporary store while the suite steps run. The neighbors
+speak only the real ``concord`` CLI; they never open the SQLite file. After
+the suite steps, the mode asserts zero busy and error responses, real reader
+progress, and writer effects that survive with no lost and no duplicated
+work items.
 """
 from __future__ import annotations
 
+import argparse
 import base64
 import contextlib
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
 import tempfile
+from collections import Counter
 from pathlib import Path
 
 import git_environment
@@ -775,11 +786,446 @@ def step_i_upgrade(binary: Path, env: dict, work: Path, repo: Path, seed: bytes,
 
 
 # ---------------------------------------------------------------------------
+# Opt-in neighbor mode (CON-847 scope 3). N background reader processes and N
+# ordinary writer processes run real ``concord`` CLI invocations against the
+# same temporary store while the suite steps run. The mode is off unless
+# --neighbors is given. Neighbors never open the SQLite file; every check is
+# derived from CLI responses and CLI read-back.
+# ---------------------------------------------------------------------------
+
+NEIGHBOR_MAX_NEIGHBORS = 8
+NEIGHBOR_MAX_WRITES = 50
+# Bounded reader work: a reader exits on the stop file or at this cap,
+# whichever comes first, so cleanup stays deterministic.
+NEIGHBOR_READER_ITERATION_CAP = 2000
+# Per-child join budget after the stop file appears. One in-flight CLI call
+# is bounded by the _run timeout; anything past this budget is killed and
+# recorded as a problem.
+NEIGHBOR_JOIN_TIMEOUT_SECONDS = 90.0
+
+_BUSY_FAILURE_RE = re.compile(
+    r"sqlite_busy|sqlite_locked|database is locked|database table is locked",
+    re.IGNORECASE,
+)
+
+
+def _parse_args(argv: list[str]) -> argparse.Namespace:
+    """Parse harness arguments. With no arguments the mode is off and the
+    suite runs exactly as the CI step invokes it."""
+    parser = argparse.ArgumentParser(
+        prog='test-blackbox-acceptance.py',
+        description='Packaged black-box acceptance harness for the shipped Concord product.',
+    )
+    parser.add_argument(
+        '--neighbors', type=int, default=0,
+        help='run N background concord readers and N ordinary writers beside the suite (default: off)',
+    )
+    parser.add_argument(
+        '--neighbor-writes', type=int, default=4,
+        help='captures per neighbor writer when --neighbors is on (default: 4)',
+    )
+    parser.add_argument(
+        '--neighbor-worker', default=None, help=argparse.SUPPRESS,
+    )
+    args = parser.parse_args(argv)
+    if args.neighbor_worker is None:
+        if not 0 <= args.neighbors <= NEIGHBOR_MAX_NEIGHBORS:
+            parser.error(f"--neighbors must be between 0 and {NEIGHBOR_MAX_NEIGHBORS}")
+        if not 1 <= args.neighbor_writes <= NEIGHBOR_MAX_WRITES:
+            parser.error(f"--neighbor-writes must be between 1 and {NEIGHBOR_MAX_WRITES}")
+    return args
+
+
+def _classify_cli_failure(detail: str) -> str:
+    """Classify one failed CLI invocation: 'busy' lock contention or 'error'."""
+    return 'busy' if _BUSY_FAILURE_RE.search(detail) else 'error'
+
+
+def _neighbor_key(writer_index: int, sequence: int) -> str:
+    """The unique idempotency key for one writer's one capture."""
+    return f"harness-neighbor-w{writer_index:02d}-n{sequence:03d}"
+
+
+def _neighbor_title(writer_index: int, sequence: int) -> str:
+    return f"Harness neighbor writer {writer_index:02d} item {sequence:03d}"
+
+
+def _neighbor_envelope(session_ref: str, sequence: int, repo: Path, project_id: str,
+                       scope_version: int, manifest_digest: str) -> dict:
+    """The call envelope one neighbor invocation carries. The client, agent,
+    and product are the seeded synthetic ones from the bootstrap step."""
+    return {
+        'schema_version': '1.0',
+        'request_id': f'{session_ref}-{sequence:05d}',
+        'client_ref': 'harness-client',
+        'principal_ref': '',
+        'session_ref': session_ref,
+        'agent_ref': 'harness-agent-1',
+        'directory': str(repo),
+        'worktree': str(repo),
+        'ambient_project_id': project_id,
+        'selected_product_id': 'harness-product',
+        'scope_version': scope_version,
+        'manifest_digest': manifest_digest,
+    }
+
+
+def _neighbor_capture_input(writer_index: int, number: int, project_id: str) -> dict:
+    """An ordinary capture, shaped exactly like the suite's own step 05."""
+    return {
+        'title': _neighbor_title(writer_index, number),
+        'value_statement': 'The black-box neighbor mode exercises an ordinary concurrent write.',
+        'kind': 'task',
+        'project_ids': [project_id],
+        'priority': 0,
+        'urgency': 'standard',
+        'workflow_type_ref': 'workflow.implementation',
+        'idempotency_key': _neighbor_key(writer_index, number),
+    }
+
+
+def _run_neighbor_worker(config_path: str) -> int:
+    """One neighbor process. Reads its JSON config, runs its role loop, and
+    records one JSON report line per CLI invocation. A failed invocation is
+    recorded and ends the worker; the parent judges the mode from the
+    reports, so the worker itself always exits 0 on a clean stop."""
+    config = json.loads(Path(config_path).read_text(encoding='utf-8'))
+    binary = Path(config['binary'])
+    env = config['env']
+    repo = Path(config['repo'])
+    stop_path = Path(config['stop_path'])
+    report_path = Path(config['report_path'])
+    role = config['role']
+    index = int(config['index'])
+    session_ref = config['session_ref']
+    project_id = config['project_id']
+    scope_version = config['scope_version']
+    manifest_digest = config['manifest_digest']
+    writes = int(config.get('writes', 0))
+    sequence = 0
+
+    def record(report_file, entry: dict) -> None:
+        report_file.write(json.dumps(entry, separators=(',', ':')) + '\n')
+        report_file.flush()
+
+    def failed(entry: dict, exc: Exception) -> dict:
+        entry['detail'] = f"{type(exc).__name__}: {exc}"[:300]
+        entry['busy'] = _classify_cli_failure(entry['detail']) == 'busy'
+        return entry
+
+    with report_path.open('w', encoding='utf-8') as report_file:
+        if role == 'writer':
+            for number in range(1, writes + 1):
+                sequence += 1
+                entry: dict = {'seq': sequence, 'kind': 'write', 'ok': False, 'busy': False}
+                try:
+                    invoke = _run(binary, ['invoke'], {
+                        'call_envelope': _neighbor_envelope(
+                            session_ref, sequence, repo, project_id, scope_version, manifest_digest),
+                        'tool': 'concord_work_define',
+                        'operation': 'capture',
+                        'input': _neighbor_capture_input(index, number, project_id),
+                    }, env)
+                    _assert_envelope_ok(invoke, 'neighbor capture')
+                    refs = invoke.get('changed_refs') or []
+                    if not refs:
+                        raise HarnessError(f"neighbor capture returned no changed_refs: {json.dumps(invoke)[:300]}")
+                    entry['ok'] = True
+                    entry['work_id'] = refs[0].get('id')
+                except Exception as exc:  # noqa: BLE001 — every failure mode is recorded, not raised
+                    record(report_file, failed(entry, exc))
+                    return 0  # fail fast: any error fails the mode at the parent
+                record(report_file, entry)
+            return 0
+
+        for _ in range(NEIGHBOR_READER_ITERATION_CAP):
+            if stop_path.exists():
+                return 0
+            sequence += 1
+            read_resolve = sequence % 2 == 1
+            entry = {
+                'seq': sequence,
+                'kind': 'read',
+                'ok': False,
+                'busy': False,
+                'op': 'concord_product_view.resolve' if read_resolve else 'concord_work_browse.list',
+            }
+            try:
+                if read_resolve:
+                    invoke = _run(binary, ['invoke'], {
+                        'call_envelope': _neighbor_envelope(
+                            session_ref, sequence, repo, project_id, scope_version, manifest_digest),
+                        'tool': 'concord_product_view',
+                        'operation': 'resolve',
+                        'input': {'project_id': project_id},
+                    }, env)
+                    _assert_envelope_ok(invoke, entry['op'])
+                else:
+                    invoke = _run(binary, ['invoke'], {
+                        'call_envelope': _neighbor_envelope(
+                            session_ref, sequence, repo, project_id, scope_version, manifest_digest),
+                        'tool': 'concord_work_browse',
+                        'operation': 'list',
+                        'input': {'project_ids': [project_id], 'page': {'cursor': '', 'limit': 50}},
+                    }, env)
+                    _assert_envelope_ok(invoke, entry['op'])
+                    if not isinstance((invoke.get('result') or {}).get('items'), list):
+                        raise HarnessError(f"{entry['op']} result carries no items array")
+                entry['ok'] = True
+            except Exception as exc:  # noqa: BLE001 — every failure mode is recorded, not raised
+                record(report_file, failed(entry, exc))
+                return 0
+            record(report_file, entry)
+    return 0
+
+
+def _read_jsonl(path: Path) -> list[dict] | None:
+    """Parse a worker report file; None when it is missing or malformed."""
+    try:
+        lines = path.read_text(encoding='utf-8').splitlines()
+    except OSError:
+        return None
+    entries: list[dict] = []
+    for line in lines:
+        if not line.strip():
+            continue
+        try:
+            entries.append(json.loads(line))
+        except json.JSONDecodeError:
+            return None
+    return entries
+
+
+def _aggregate_neighbor_entries(labelled: list[tuple[str, list[dict]]]) -> dict:
+    """Aggregate worker reports: busy and error counts, per-worker progress,
+    and the writer work identities the final read-back must find."""
+    busy = 0
+    errors = 0
+    reader_ok: dict[str, int] = {}
+    writer_ok: dict[str, int] = {}
+    expected_ids: list[str] = []
+    for label, entries in labelled:
+        for entry in entries:
+            if not entry.get('ok'):
+                if entry.get('busy'):
+                    busy += 1
+                else:
+                    errors += 1
+                continue
+            if entry.get('kind') == 'read':
+                reader_ok[label] = reader_ok.get(label, 0) + 1
+            elif entry.get('kind') == 'write':
+                writer_ok[label] = writer_ok.get(label, 0) + 1
+                expected_ids.append(str(entry.get('work_id')))
+    return {
+        'busy': busy,
+        'errors': errors,
+        'reader_ok': reader_ok,
+        'writer_ok': writer_ok,
+        'expected_ids': expected_ids,
+    }
+
+
+def _neighbor_mode_verdict(aggregate: dict, neighbors: int, writes: int) -> str | None:
+    """None when the neighbor mode passed; the failure detail otherwise."""
+    if aggregate['busy']:
+        return f"{aggregate['busy']} busy response(s) under concurrency"
+    if aggregate['errors']:
+        return f"{aggregate['errors']} error response(s) under concurrency"
+    for index in range(neighbors):
+        label = f"reader-{index:02d}"
+        if aggregate['reader_ok'].get(label, 0) < 1:
+            return f"reader {label} completed no successful read"
+    for index in range(neighbors):
+        label = f"writer-{index:02d}"
+        done = aggregate['writer_ok'].get(label, 0)
+        if done != writes:
+            return f"writer {label} completed {done} of {writes} writes"
+    return None
+
+
+def _reconcile_neighbor_items(expected_ids: list[str], observed_ids: list[str],
+                              expected_total: int) -> list[str]:
+    """Findings for lost, duplicated, or unexpected work items. An empty list
+    is the zero-lost, zero-duplicates verdict."""
+    findings: list[str] = []
+    observed_counts = Counter(observed_ids)
+    expected_counts = Counter(expected_ids)
+    for work_id, count in sorted(expected_counts.items()):
+        if count > 1:
+            findings.append(f"duplicate capture identity {work_id} reported {count} times")
+            continue
+        seen = observed_counts.get(work_id, 0)
+        if seen == 0:
+            findings.append(f"lost: {work_id} is absent from the store")
+        elif seen > 1:
+            findings.append(f"duplicate: {work_id} listed {seen} times")
+    if len(observed_ids) != expected_total:
+        findings.append(f"work item count {len(observed_ids)} != expected {expected_total}")
+    return findings
+
+
+def _list_project_work_ids(binary: Path, env: dict, repo: Path, context: dict,
+                           manifest_digest: str, project_id: str) -> list[str]:
+    """Every work id in one project, paged through the real CLI read path."""
+    ids: list[str] = []
+    cursor = ''
+    for _ in range(200):
+        invoke = _run(binary, ['invoke'], {
+            'call_envelope': _neighbor_envelope(
+                'harness-session-1', len(ids) + 1, repo, context['project_id'],
+                context['scope_version'], manifest_digest),
+            'tool': 'concord_work_browse',
+            'operation': 'list',
+            'input': {'project_ids': [project_id], 'page': {'cursor': cursor, 'limit': 50}},
+        }, env)
+        _assert_envelope_ok(invoke, 'neighbor audit concord_work_browse.list')
+        result = invoke.get('result') or {}
+        items = result.get('items') or []
+        ids.extend(str(item.get('id')) for item in items)
+        next_cursor = result.get('next_cursor')
+        if not next_cursor:
+            return ids
+        cursor = str(next_cursor)
+    raise HarnessError("neighbor audit listing did not reach a final page within 200 pages")
+
+
+class NeighborMode:
+    """Owns the neighbor child processes for one harness run.
+
+    Startup is deterministic: workers spawn only after the store is
+    bootstrapped and the project context resolves, and each worker carries a
+    JSON config pinned to this run's binary, environment, and context.
+    Cleanup is deterministic: the stop file plus a bounded join, and a kill
+    plus a recorded problem for any worker that will not stop.
+    """
+
+    def __init__(self, binary: Path, env: dict, repo: Path, manifest_digest: str,
+                 work: Path, neighbors: int, writes: int) -> None:
+        self._binary = binary
+        self._env = dict(env)
+        self._repo = repo
+        self._manifest_digest = manifest_digest
+        self._neighbors = neighbors
+        self._writes = writes
+        self._dir = work / 'neighbor'
+        self.stop_path = self._dir / 'STOP'
+        self._children: list[tuple[str, subprocess.Popen]] = []
+        self._report_paths: list[tuple[str, Path]] = []
+        self._started = False
+        self._stopped = False
+        self._aggregate: dict | None = None
+
+    @property
+    def started(self) -> bool:
+        return self._started
+
+    @property
+    def stopped(self) -> bool:
+        return self._stopped
+
+    def start(self, context: dict) -> None:
+        """Spawn the readers and writers. Called once, after the context resolves."""
+        if self._started:
+            raise HarnessError("neighbor mode started twice")
+        self._dir.mkdir(parents=True, exist_ok=False)
+        for index in range(self._neighbors):
+            self._spawn_worker(role='reader', index=index,
+                               session_ref=f'harness-neighbor-r{index:02d}',
+                               writes=0, context=context)
+        for index in range(self._neighbors):
+            self._spawn_worker(role='writer', index=index,
+                               session_ref=f'harness-neighbor-w{index:02d}',
+                               writes=self._writes, context=context)
+        self._started = True
+
+    def _spawn_worker(self, role: str, index: int, session_ref: str, writes: int,
+                      context: dict) -> None:
+        label = f"{role}-{index:02d}"
+        config_path = self._dir / f'config-{label}.json'
+        report_path = self._dir / f'report-{label}.jsonl'
+        worker_log = self._dir / f'worker-{label}.log'
+        config = {
+            'binary': str(self._binary),
+            'env': self._env,
+            'repo': str(self._repo),
+            'manifest_digest': self._manifest_digest,
+            'role': role,
+            'index': index,
+            'writes': writes,
+            'session_ref': session_ref,
+            'project_id': context['project_id'],
+            'scope_version': context['scope_version'],
+            'stop_path': str(self.stop_path),
+            'report_path': str(report_path),
+        }
+        config_path.write_text(json.dumps(config), encoding='utf-8')
+        with worker_log.open('w', encoding='utf-8') as log:
+            process = subprocess.Popen(
+                [sys.executable, str(Path(__file__).resolve()), '--neighbor-worker', str(config_path)],
+                stdout=log, stderr=log, env=os.environ.copy(),
+            )
+        self._children.append((label, process))
+        self._report_paths.append((label, report_path))
+
+    def stop_and_collect(self) -> dict:
+        """Stop every worker deterministically and aggregate the reports."""
+        if self._stopped and self._aggregate is not None:
+            return self._aggregate
+        self.stop_path.touch(exist_ok=True)
+        problems: list[str] = []
+        for label, process in self._children:
+            try:
+                process.wait(timeout=NEIGHBOR_JOIN_TIMEOUT_SECONDS)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
+                problems.append(f"neighbor {label} ignored the stop file and was killed")
+            if process.returncode != 0:
+                problems.append(f"neighbor {label} exited {process.returncode}")
+        labelled: list[tuple[str, list[dict]]] = []
+        for label, report_path in self._report_paths:
+            entries = _read_jsonl(report_path)
+            if entries is None:
+                problems.append(f"neighbor {label} wrote no readable report")
+                entries = []
+            labelled.append((label, entries))
+        self._stopped = True
+        self._aggregate = _aggregate_neighbor_entries(labelled)
+        self._aggregate['problems'] = problems
+        return self._aggregate
+
+
+def step_j_neighbor_concurrency(binary: Path, env: dict, repo: Path, context: dict,
+                                manifest_digest: str, neighbors: NeighborMode,
+                                neighbors_count: int, writes: int) -> None:
+    """CON-847 scope 3: the neighbors ran beside the suite; assert zero busy
+    and error responses, real reader progress, and writer effects with no
+    lost and no duplicated work items, all through the real CLI."""
+    aggregate = neighbors.stop_and_collect()
+    for problem in aggregate.get('problems', []):
+        print(f"WARN neighbor: {problem}", flush=True)
+    verdict = _neighbor_mode_verdict(aggregate, neighbors_count, writes)
+    if verdict is not None:
+        raise HarnessError(verdict)
+    # One capture belongs to the suite itself (step 05); the rest are the
+    # neighbors' ordinary writes.
+    observed = _list_project_work_ids(binary, env, repo, context, manifest_digest, 'harness-project-1')
+    findings = _reconcile_neighbor_items(
+        aggregate['expected_ids'], observed, 1 + neighbors_count * writes)
+    if findings:
+        raise HarnessError('; '.join(findings[:10]))
+
+
+# ---------------------------------------------------------------------------
 # Top-level driver.
 # ---------------------------------------------------------------------------
 
 
 def main() -> int:
+    args = _parse_args(sys.argv[1:])
+    if args.neighbor_worker:
+        return _run_neighbor_worker(args.neighbor_worker)
     if sys.platform != 'linux':
         print(f"SKIP: blackbox harness only runs on Linux; got platform={sys.platform}", flush=True)
         return 0
@@ -800,6 +1246,7 @@ def main() -> int:
     work_root = Path(tempfile.mkdtemp(prefix='concord-blackbox-', dir=_preferred_temp_root()))
     work = work_root
     work.mkdir(parents=True, exist_ok=True)
+    neighbors: NeighborMode | None = None
     try:
         binary = _build_binary(work)
         _stage_adapter(work)
@@ -813,6 +1260,11 @@ def main() -> int:
         public_key = _publickey(seed)
         if public_key == b'\x00' * 32:
             raise HarnessError("public key derivation produced the neutral element")
+        if args.neighbors > 0:
+            neighbors = NeighborMode(
+                binary=binary, env=env, repo=repo, manifest_digest=manifest_digest,
+                work=work, neighbors=args.neighbors, writes=args.neighbor_writes,
+            )
 
         context: dict | None = None
         work_id: str | None = None
@@ -826,6 +1278,13 @@ def main() -> int:
         def run_c():
             nonlocal context
             context = step_c_context(binary, env, repo)
+            # Deterministic startup: the neighbors spawn only once the store is
+            # bootstrapped and the project context has resolved, so they always
+            # find the seeded synthetic product and a valid scope. On any
+            # bootstrap failure they never start.
+            if neighbors is not None:
+                assert context is not None
+                neighbors.start(context)
 
         def run_d():
             assert context is not None
@@ -854,6 +1313,13 @@ def main() -> int:
         def run_i():
             step_i_upgrade(binary, env, work, repo, seed, public_key)
 
+        def run_j():
+            assert neighbors is not None
+            assert context is not None
+            step_j_neighbor_concurrency(
+                binary, env, repo, context, manifest_digest,
+                neighbors, args.neighbors, args.neighbor_writes)
+
         steps = [
             ('01_version_stamp', run_a),
             ('02_bootstrap', run_b),
@@ -865,12 +1331,27 @@ def main() -> int:
             ('08_backup_restore', run_h),
             ('09_upgrade_compatibility', run_i),
         ]
+        if neighbors is not None:
+            # The neighbors run beside steps 04-09; this step stops them and
+            # issues the zero-busy/error, progress, and lost/duplicates verdict.
+            steps.append(('10_neighbor_concurrency', run_j))
         any_failed = False
         for name, fn in steps:
             if not _step(name, fn):
                 any_failed = True
                 break  # later steps depend on prior state; stop on first failure
     finally:
+        # The suite stops on first failure before the neighbor verdict step;
+        # stop the workers anyway so the work tree can be removed, and keep
+        # any cleanup problem visible without masking the step failure.
+        if neighbors is not None and neighbors.started and not neighbors.stopped:
+            try:
+                leftover = neighbors.stop_and_collect()
+            except Exception as exc:  # noqa: BLE001 — cleanup must never mask the step result
+                print(f"WARN neighbor cleanup failed: {type(exc).__name__}: {exc}", flush=True)
+            else:
+                for problem in leftover.get('problems', []):
+                    print(f"WARN neighbor: {problem}", flush=True)
         with contextlib.suppress(Exception):
             shutil.rmtree(work_root)
     return 1 if any_failed else 0

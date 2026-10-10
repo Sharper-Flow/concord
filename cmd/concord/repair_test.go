@@ -45,6 +45,14 @@ func newRepairFixture(t *testing.T, installerContent string) *repairFixture {
 	}
 	digest := sha256.Sum256([]byte(installerContent))
 	fixture.argvPath = filepath.Join(fixture.root, "argv")
+	workspaceRoot := t.TempDir()
+	t.Setenv("TMPDIR", workspaceRoot)
+	t.Cleanup(func() {
+		entries, err := os.ReadDir(workspaceRoot)
+		if err != nil || len(entries) != 0 {
+			t.Errorf("repair workspace cleanup: entries=%v, error=%v", entries, err)
+		}
+	})
 	archive := filepath.Join(fixture.artifactDir, "concord-v9.9.9.tar.gz")
 	if err := os.WriteFile(archive, []byte("release archive bytes"), 0o644); err != nil {
 		t.Fatal(err)
@@ -124,6 +132,23 @@ func TestRepairBacksUpTheWorkDatabaseBeforeRepair(t *testing.T) {
 	entries, err := os.ReadDir(filepath.Join(fixture.dataRoot, "backups"))
 	if err != nil || len(entries) == 0 {
 		t.Fatalf("no pre-repair backup was written under the data root: %v", err)
+	}
+}
+
+func TestRepairRemovesWorkspaceWhenInstallerFails(t *testing.T) {
+	fixture := newRepairFixture(t, "#!/bin/sh\nexit 23\n")
+	code, _, errOut := runRepairStdin(t, `{"artifact_dir":"`+filepath.ToSlash(fixture.artifactDir)+`"}`)
+	if code != 23 {
+		t.Fatalf("installer failure code = %d, want 23: %s", code, errOut.String())
+	}
+}
+
+func TestRepairRemovesWorkspaceWhenInterpreterCannotStart(t *testing.T) {
+	fixture := newRepairFixture(t, "#!/bin/sh\nexit 0\n")
+	repairInterpreter = filepath.Join(fixture.root, "missing-python")
+	code, _, errOut := runRepairStdin(t, `{"artifact_dir":"`+filepath.ToSlash(fixture.artifactDir)+`"}`)
+	if code != 1 || !strings.Contains(errOut.String(), "cannot run the verified installer") {
+		t.Fatalf("missing interpreter: code=%d, error=%s", code, errOut.String())
 	}
 }
 

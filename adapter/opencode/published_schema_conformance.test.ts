@@ -107,7 +107,9 @@ test("the published workflow_action variants state each action's exact required 
         expect(input.properties[field]).toBeObject()
         expect(input.required).toContain(field)
       } else {
-        expect(input.properties[field]).toBeUndefined()
+        expect(input.properties[field]).toBeObject()
+        expect(input.required).not.toContain(field)
+        expect(input.not.anyOf).toContainEqual({ required: [field] })
       }
     }
   }

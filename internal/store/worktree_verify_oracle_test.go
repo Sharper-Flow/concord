@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/sharper-flow/concord/internal/payloadschema"
 )
 
 type nativeOracleFixture struct {
@@ -19,6 +21,24 @@ type nativeOracleFixture struct {
 	a, b                                     NativeOracleRequest
 	actor                                    WorkflowActor
 	launches                                 int
+}
+
+func TestNativeOraclePreparedMetadataMatchesPublicResult(t *testing.T) {
+	f := newNativeOracleFixture(t)
+	r := f.prepare
+	raw, err := json.Marshal(map[string]any{
+		"work_id": r.WorkID, "project_id": r.ProjectID, "branch": r.Branch, "path": r.Path,
+		"lease_id": r.LeaseID, "operation_ref": r.OperationRef, "command": r.Command,
+		"exit_code": r.ExitCode, "output": r.Output, "output_truncated": r.OutputTruncated,
+		"tracked_files_changed": r.TrackedFilesChanged, "oracle": r.Oracle,
+		"changed_refs": []any{}, "next_valid_intents": []any{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := payloadschema.Validate("worktree_verify_result", raw); err != nil {
+		t.Fatalf("producer preparation violates the public result: %v", err)
+	}
 }
 
 func newNativeOracleFixture(t *testing.T, recordedSubject ...string) *nativeOracleFixture {

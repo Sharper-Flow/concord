@@ -3629,6 +3629,9 @@ const GeneratedPayloadSchemaDocument = `{
             ]
           },
           "properties": {
+            "binary_digest": {
+              "$ref": "#/$defs/native_oracle_digest"
+            },
             "build_environment_digest": {
               "maxLength": 71,
               "minLength": 71,
@@ -3681,6 +3684,9 @@ const GeneratedPayloadSchemaDocument = `{
               "maxItems": 32,
               "minItems": 1,
               "type": "array"
+            },
+            "input_manifest_digest": {
+              "$ref": "#/$defs/native_oracle_digest"
             },
             "logical_argv_digest": {
               "maxLength": 71,

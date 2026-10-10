@@ -26895,6 +26895,12 @@
               "maxLength": 128,
               "description": "A stable control: identity, unique within this work item."
             },
+            "input_manifest_digest": {
+              "$ref": "#/$defs/native_oracle_digest"
+            },
+            "binary_digest": {
+              "$ref": "#/$defs/native_oracle_digest"
+            },
             "stages": {
               "type": "array",
               "minItems": 0,
@@ -27140,6 +27146,12 @@
               "maxLength": 128,
               "description": "A stable control: identity, unique within this work item."
             },
+            "input_manifest_digest": {
+              "$ref": "#/$defs/native_oracle_digest"
+            },
+            "binary_digest": {
+              "$ref": "#/$defs/native_oracle_digest"
+            },
             "stages": {
               "type": "array",
               "minItems": 0,
@@ -27183,12 +27195,6 @@
               "type": "integer",
               "minimum": 1,
               "maximum": 9223372036854775807
-            },
-            "input_manifest_digest": {
-              "$ref": "#/$defs/native_oracle_digest"
-            },
-            "binary_digest": {
-              "$ref": "#/$defs/native_oracle_digest"
             },
             "observed_test_names": {
               "type": "array",

@@ -346,7 +346,7 @@ func nativeReplaceHarness(ctx context.Context, r GitRunner, repo, root string, p
 	if err != nil {
 		return err
 	}
-	defer rooted.Close()
+	defer func() { _ = rooted.Close() }()
 	// The recipe is producer metadata, not an undeclared runtime fixture.
 	if err := rooted.Remove(p.ManifestFile.Path); err != nil && !os.IsNotExist(err) {
 		return err
@@ -382,14 +382,18 @@ func nativeReplaceHarness(ctx context.Context, r GitRunner, repo, root string, p
 }
 
 func validateNativeOraclePackageInputs(root string, p nativeOraclePlan) (string, error) {
+	rooted, err := os.OpenRoot(root)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = rooted.Close() }()
 	fixtures := map[string]NativeOracleFile{}
 	for _, f := range p.Files {
 		if slices.Contains(p.Manifest.FixtureFiles, f.Path) {
 			fixtures[f.Path] = f
 		}
 	}
-	cwd := filepath.Join(root, filepath.FromSlash(p.Bundle.Control.Cwd))
-	err := filepath.WalkDir(cwd, func(name string, d fs.DirEntry, err error) error {
+	err = fs.WalkDir(rooted.FS(), p.Bundle.Control.Cwd, func(name string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -402,12 +406,8 @@ func validateNativeOraclePackageInputs(root string, p nativeOraclePlan) (string,
 		if !d.Type().IsRegular() {
 			return nativeUnavailable("package inputs must be regular files")
 		}
-		rel, err := filepath.Rel(root, name)
-		if err != nil {
-			return err
-		}
-		rel = filepath.ToSlash(rel)
-		data, err := os.ReadFile(name)
+		rel := name
+		data, err := rooted.ReadFile(name)
 		if err != nil {
 			return err
 		}
@@ -423,7 +423,7 @@ func validateNativeOraclePackageInputs(root string, p nativeOraclePlan) (string,
 	if err != nil {
 		return "", err
 	}
-	if _, err := os.Stat(filepath.Join(root, "go.work")); err == nil {
+	if _, err := rooted.Stat("go.work"); err == nil {
 		return "", nativeUnavailable("Go workspaces are unsupported")
 	} else if !os.IsNotExist(err) {
 		return "", err
@@ -438,7 +438,7 @@ func nativeSnapshotInputDigest(root string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer rooted.Close()
+	defer func() { _ = rooted.Close() }()
 	var inventory []NativeOracleFile
 	err = fs.WalkDir(rooted.FS(), ".", func(name string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -485,6 +485,11 @@ type nativeGoPackage struct {
 }
 
 func validateNativeGoMetadata(raw []byte, root string, p nativeOraclePlan) (string, error) {
+	rooted, err := os.OpenRoot(root)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = rooted.Close() }()
 	d := json.NewDecoder(bytes.NewReader(raw))
 	var target *nativeGoPackage
 	fixtures := map[string]NativeOracleFile{}
@@ -513,8 +518,8 @@ func validateNativeGoMetadata(raw []byte, root string, p nativeOraclePlan) (stri
 			return "", nativeUnavailable("local module replacement escapes the controlled snapshot")
 		}
 		if pkg.Dir == cwd && !strings.Contains(pkg.ImportPath, " [") && !strings.HasSuffix(pkg.ImportPath, ".test") {
-			copy := pkg
-			target = &copy
+			selectedPackage := pkg
+			target = &selectedPackage
 		}
 		if !nativeContained(root, pkg.Dir) {
 			continue
@@ -535,7 +540,7 @@ func validateNativeGoMetadata(raw []byte, root string, p nativeOraclePlan) (stri
 				if !ok {
 					return "", nativeUnavailable("resolved repository embed is not a declared pinned fixture: " + filepath.ToSlash(rel))
 				}
-				b, err := os.ReadFile(absolute)
+				b, err := rooted.ReadFile(rel)
 				if err != nil || nativeDigest(b) != f.SHA256 {
 					return "", nativeUnavailable("resolved embed differs from its pinned fixture")
 				}
@@ -561,7 +566,12 @@ func validateNativeGoMetadata(raw []byte, root string, p nativeOraclePlan) (stri
 	}
 	found := map[string]bool{}
 	for _, name := range selected {
-		file, err := parser.ParseFile(token.NewFileSet(), filepath.Join(cwd, name), nil, 0)
+		name = path.Join(p.Bundle.Control.Cwd, name)
+		data, err := rooted.ReadFile(name)
+		if err != nil {
+			return "", err
+		}
+		file, err := parser.ParseFile(token.NewFileSet(), name, data, 0)
 		if err != nil {
 			return "", err
 		}
@@ -625,7 +635,16 @@ func nativeContained(root, name string) bool {
 }
 
 func validateNativeLocalPackageClosure(root, dir string, p nativeOraclePlan) error {
-	return filepath.WalkDir(dir, func(name string, d fs.DirEntry, err error) error {
+	rooted, err := os.OpenRoot(root)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = rooted.Close() }()
+	relativeDir, err := filepath.Rel(root, dir)
+	if err != nil {
+		return err
+	}
+	return fs.WalkDir(rooted.FS(), filepath.ToSlash(relativeDir), func(name string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -635,17 +654,13 @@ func validateNativeLocalPackageClosure(root, dir string, p nativeOraclePlan) err
 		if !d.Type().IsRegular() {
 			return nativeUnavailable("repository dependency contains a nonregular input")
 		}
-		rel, err := filepath.Rel(root, name)
-		if err != nil {
-			return err
-		}
-		rel = filepath.ToSlash(rel)
+		rel := name
 		if strings.HasSuffix(rel, ".go") || rel == "go.mod" || rel == "go.sum" {
 			return nil
 		}
 		for _, f := range p.Files {
 			if f.Path == rel && slices.Contains(p.Manifest.FixtureFiles, rel) {
-				b, err := os.ReadFile(name)
+				b, err := rooted.ReadFile(name)
 				if err != nil {
 					return err
 				}
@@ -812,12 +827,17 @@ func (s *Store) runNativeGoOracle(ctx context.Context, r GitRunner, entry Worktr
 	if err != nil {
 		return err
 	}
-	defer rooted.Close()
+	defer func() { _ = rooted.Close() }()
 	packageRoot, err := rooted.OpenRoot(p.Bundle.Control.Cwd)
 	if err != nil {
 		return nativeUnavailable("effective cwd is not rooted in the candidate snapshot")
 	}
-	defer packageRoot.Close()
+	defer func() { _ = packageRoot.Close() }()
+	scratchRoot, err := os.OpenRoot(root)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = scratchRoot.Close() }()
 	packagePath := ""
 	testStdout := []byte{}
 	programExit := -1
@@ -839,24 +859,25 @@ func (s *Store) runNativeGoOracle(ctx context.Context, r GitRunner, entry Worktr
 			if err != nil || actual != digest {
 				return nativeUnavailable("candidate inputs changed before test launch")
 			}
-			binary, err := os.ReadFile(filepath.Join(root, "oracle.test"))
+			binary, err := scratchRoot.ReadFile("oracle.test")
 			if err != nil || nativeDigest(binary) != result.BinaryDigest {
 				return nativeUnavailable("test binary changed before launch")
 			}
 		}
 		if stage.Name == "convert" {
-			converter, err := os.ReadFile(filepath.Join(root, "test2json"))
+			converter, err := scratchRoot.ReadFile("test2json")
 			if err != nil || converterDigest == "" || nativeDigest(converter) != converterDigest {
 				return nativeUnavailable("trusted converter binary changed before conversion")
 			}
 		}
 		argv := slices.Clone(stage.Argv)
 		for i, part := range argv {
-			if part == "go" {
+			switch {
+			case part == "go":
 				argv[i] = p.Environment.GoExecutable
-			} else if strings.HasPrefix(part, "$scratch/") {
+			case strings.HasPrefix(part, "$scratch/"):
 				argv[i] = filepath.Join(root, strings.TrimPrefix(part, "$scratch/"))
-			} else if part == "$package" {
+			case part == "$package":
 				argv[i] = packagePath
 			}
 		}
@@ -896,23 +917,21 @@ func (s *Store) runNativeGoOracle(ctx context.Context, r GitRunner, entry Worktr
 				return err
 			}
 		case "compile":
-			name := filepath.Join(root, "oracle.test")
-			stat, err := os.Stat(name)
+			stat, err := scratchRoot.Stat("oracle.test")
 			if err != nil || !stat.Mode().IsRegular() || stat.Mode().Perm()&0111 == 0 {
 				return nativeUnavailable("compiler produced no regular executable")
 			}
-			binary, err := os.ReadFile(name)
+			binary, err := scratchRoot.ReadFile("oracle.test")
 			if err != nil {
 				return err
 			}
 			result.BinaryDigest = nativeDigest(binary)
 		case "converter_compile":
-			name := filepath.Join(root, "test2json")
-			stat, err := os.Lstat(name)
+			stat, err := scratchRoot.Lstat("test2json")
 			if err != nil || !stat.Mode().IsRegular() || stat.Mode().Perm()&0111 == 0 {
 				return nativeUnavailable("converter compiler produced no regular executable")
 			}
-			binary, err := os.ReadFile(name)
+			binary, err := scratchRoot.ReadFile("test2json")
 			if err != nil {
 				return err
 			}
@@ -945,11 +964,11 @@ func (s *Store) runNativeGoOracle(ctx context.Context, r GitRunner, entry Worktr
 	if finalEnv != p.Environment {
 		return nativeUnavailable("consumed toolchain identity changed during execution")
 	}
-	binary, err := os.ReadFile(filepath.Join(root, "oracle.test"))
+	binary, err := scratchRoot.ReadFile("oracle.test")
 	if err != nil || nativeDigest(binary) != result.BinaryDigest {
 		return nativeUnavailable("consumed binary changed during execution")
 	}
-	converter, err := os.ReadFile(filepath.Join(root, "test2json"))
+	converter, err := scratchRoot.ReadFile("test2json")
 	if err != nil || nativeDigest(converter) != converterDigest {
 		return nativeUnavailable("consumed converter changed during execution")
 	}

@@ -844,20 +844,6 @@ func assembleWorkContextDomainGroups(ctx context.Context, q queryer, workID stri
 	return nil
 }
 
-// validateWorkerPacketWorkContext refuses a dispatch whose packet does not
-// consume the current work-context view (CON-887), mirroring the correction
-// admission one guard above it. The current view is re-read inside the
-// dispatch transaction through the same tx-scoped reader the work pin used,
-// so the comparison is against the state the spawn will land on. A nil
-// current view refuses a packet that carries inputs.work_context; a present
-// view requires the member, decoded closed and equal byte-for-byte to the
-// reader's canonical serialization. A view past its bounds propagates the
-// reader's own limit_exceeded refusal rather than truncating.
-func validateWorkerPacketWorkContext(ctx context.Context, q queryer, workID string, packetRaw json.RawMessage) error {
-	_, err := admittedWorkerPacketWorkContext(ctx, q, workID, packetRaw)
-	return err
-}
-
 func admittedWorkerPacketWorkContext(ctx context.Context, q queryer, workID string, packetRaw json.RawMessage) (*WorkContextView, error) {
 	var packet struct {
 		Inputs struct {

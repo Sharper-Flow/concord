@@ -720,7 +720,7 @@ func (s *Store) releaseNativeOracle(ctx context.Context, req WorktreeVerifyReque
 	if err != nil {
 		return result, err
 	}
-	valid := true
+	var valid bool
 	if req.Oracle.Phase == "execute" {
 		_, _, auth, authErr := readNativeOracleAuthorizationTx(ctx, s.db, req, after, identity)
 		valid = authErr == nil && auth == p.Authorization

@@ -826,35 +826,42 @@ class WorkflowActionVariantProjectionTests(unittest.TestCase):
             self.assertIs(fields.get("additionalProperties"), False, "an alternative is not a closed object")
             self.assertIn("open_finding_ids", fields["properties"])
 
-    def test_the_oracle_alternative_and_the_legacy_shape_are_both_authorable(self):
-        # record_worker_job requires acceptance_oracle on impl26/breakfix23;
-        # the retained v24/v25/v21/v22 shapes stay authorable because live
-        # work items pin them. A payload matching either whole shape passes;
-        # the branches are the exact closed objects, so any value outside
-        # both is refused.
+    def test_oracle_current_and_legacy_core_layouts_remain_separate(self):
+        # Current publication requires the oracle. Historical oracle-free
+        # layouts stay executable only through the core legacy input.
         defs = payload_schema["$defs"]
-        branches = _condition_branches(_action_condition(defs, "record_worker_job"))
-        self.assertEqual(len(branches), 2)
-        oracle_branch, legacy_branch = branches[0], branches[1]
+        current = _condition_branches(_action_condition(defs, "record_worker_job"))
+        self.assertEqual(len(current), 1)
+        oracle_branch = current[0]
+        legacy_condition = next(condition for condition in defs["work_transition_action_legacy_input"]["allOf"]
+                                if condition.get("if", {}).get("properties", {}).get("action_id", {}).get("const") == "record_worker_job")
+        legacy = _condition_branches(legacy_condition["then"])
+        self.assertEqual(len(legacy), 1)
+        legacy_branch = legacy[0]
         self.assertIn("acceptance_oracle", _fields_object(oracle_branch).get("required", []))
         self.assertNotIn("acceptance_oracle", _fields_object(legacy_branch)["properties"])
         oracle_fields = _schema_sample(_fields_object(oracle_branch), payload_schema)
         legacy_fields = _schema_sample(_fields_object(legacy_branch), payload_schema)
-        generator.schema_validate(oracle_fields, _fields_object(oracle_branch), payload_schema, "oracle.fields")
-        generator.schema_validate(legacy_fields, _fields_object(legacy_branch), payload_schema, "legacy.fields")
+        envelope = {"work_id": "work-1", "expected_version": 1, "action_id": "record_worker_job", "idempotency_key": "job-1"}
+        for fields in (oracle_fields, legacy_fields):
+            generator.schema_validate(envelope | {"fields": fields}, defs["work_transition_action_input"], payload_schema, "core")
+        generator.schema_validate(envelope | {"fields": oracle_fields}, defs["work_transition_action_public_input"], payload_schema, "public")
+        with self.assertRaises(ValueError):
+            generator.schema_validate(envelope | {"fields": legacy_fields}, defs["work_transition_action_public_input"], payload_schema, "legacy-public")
 
     def test_no_merged_union_admits_combinations_no_definition_allows(self):
         defs = payload_schema["$defs"]
         branches = _condition_branches(_action_condition(defs, "record_worker_job"))
-        oracle_branch, legacy_branch = branches[0], branches[1]
+        oracle_branch = branches[0]
         # A malformed oracle value passes no definition: the current variant
         # refuses the value, and the retained shapes never declared the
         # field at all. A merged optional-union would admit both payloads.
         broken = _schema_sample(_fields_object(oracle_branch), payload_schema)
         broken["acceptance_oracle"] = {"owners": "not-an-array"}
-        for branch in branches:
-            with self.assertRaises(ValueError, msg=f"a branch admits a broken oracle: {sorted(_fields_object(branch)['properties'])}"):
-                generator.schema_validate(broken, _fields_object(branch), payload_schema, "broken")
+        call = {"work_id": "work-1", "expected_version": 1, "action_id": "record_worker_job", "idempotency_key": "job-1", "fields": broken}
+        for name in ("work_transition_action_input", "work_transition_action_public_input"):
+            with self.assertRaises(ValueError, msg=f"{name} admits a broken oracle"):
+                generator.schema_validate(call, defs[name], payload_schema, "broken")
         # Dropping a field every alternative requires refuses both shapes.
         request_correction = _condition_branches(_action_condition(defs, "request_correction"))
         sample = _schema_sample(_fields_object(request_correction[0]), payload_schema)

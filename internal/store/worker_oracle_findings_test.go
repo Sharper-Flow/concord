@@ -433,10 +433,18 @@ func seedOracleRepairFixture(t *testing.T, workID string) oracleRepairFixture {
 	return result
 }
 
-// oracleFixtureClaimedWorktree registers the Project locator, claims a fake
-// worktree for the work, and returns its git and entry.
+// oracleFixtureClaimedWorktree returns fixture git for the active claim, or
+// registers a Project locator and claims a fixture worktree when none exists.
 func oracleFixtureClaimedWorktree(t *testing.T, s *Store, workID string) (*fakeWorktreeGit, WorktreeEntry) {
 	t.Helper()
+	if entry, err := activeWorktreeEntryForProject(context.Background(), s.db, "oracle_fixture", workID, "project"); err == nil {
+		git := newFakeWorktreeGit(entry.Path)
+		git.worktrees[entry.Path] = entry.Branch
+		git.worktreeRepos[entry.Path] = entry.Path
+		return git, entry
+	} else if !hasFailureKind(err, KindProjectionNotFound) {
+		t.Fatal(err)
+	}
 	root := t.TempDir()
 	var projectVersion int64
 	if err := s.db.QueryRow(`SELECT version FROM projects WHERE id='project'`).Scan(&projectVersion); err != nil {

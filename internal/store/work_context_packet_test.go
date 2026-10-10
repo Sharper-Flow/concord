@@ -310,7 +310,7 @@ func TestDispatchRefusesWorkContextWithoutCurrentView(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = validateWorkerPacketWorkContext(context.Background(), db, fixture.workID, packet)
+	_, err = admittedWorkerPacketWorkContext(context.Background(), db, fixture.workID, packet)
 	if !hasFailureKind(err, KindInvalidPayload) || !strings.Contains(err.Error(), "worker packet carries work context without a current work context") {
 		t.Fatalf("fabricated context error = %v, want %s refusing the work context without a current view", err, KindInvalidPayload)
 	}

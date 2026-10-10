@@ -58,8 +58,9 @@ Bindings and interpretations are advisory joins; navigation does not prove dispa
 - agent operations bound: 0
 - workflow actions bound: 0
 - Interpretation `depends_on` -> `product-memory` (advisory, not an import allowlist).
-- Observed package imports: 36 distinct paths; package-level only; intra-package edges unmeasured; no symbol graph or execution permission.
+- Observed package imports: 37 distinct paths; package-level only; intra-package edges unmeasured; no symbol graph or execution permission.
 - Observed package edge via `github.com/sharper-flow/concord/internal/linearclient` -> `work-coordination` (advisory).
+- Observed package edge via `github.com/sharper-flow/concord/internal/payloadschema` -> `workflow-engine` (advisory).
 - Observed package edge via `github.com/sharper-flow/concord/internal/store` -> `agent-surface`, `durable-authority`, `operator-surface`, `product-memory`, `repository-verification`, `work-coordination`, `workflow-engine` (advisory).
 
 ## Not covered here

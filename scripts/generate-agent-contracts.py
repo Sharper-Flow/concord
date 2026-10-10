@@ -788,6 +788,8 @@ def project_native_oracle_metadata(defs: dict, packet_defs: dict) -> None:
     prepare = copy.deepcopy(defs["native_oracle_preparation"])
     prepare["properties"].update({
         "control_id": copy.deepcopy(defs["worker_oracle_control"]["properties"]["control_id"]),
+        "input_manifest_digest": {"$ref": "#/$defs/native_oracle_digest"},
+        "binary_digest": {"$ref": "#/$defs/native_oracle_digest"},
         "stages": {"type": "array", "minItems": 0, "maxItems": 16, "items": {"$ref": "#/$defs/native_oracle_stage"}},
         "detail": {"type": "string", "maxLength": 4096},
     })
@@ -803,8 +805,6 @@ def project_native_oracle_metadata(defs: dict, packet_defs: dict) -> None:
         "authorization_event_id": {"$ref": "#/$defs/id"},
         "authorization_seq": {"type": "integer", "minimum": 1, "maximum": 9223372036854775807},
         "start_seq": {"type": "integer", "minimum": 1, "maximum": 9223372036854775807},
-        "input_manifest_digest": {"$ref": "#/$defs/native_oracle_digest"},
-        "binary_digest": {"$ref": "#/$defs/native_oracle_digest"},
         "observed_test_names": {"type": "array", "minItems": 0, "maxItems": 40, "uniqueItems": True,
                                 "items": {"$ref": "#/$defs/native_oracle_test_name"}},
     })

@@ -4778,6 +4778,7 @@
         "fmt",
         "github.com/sharper-flow/concord/internal/gittest",
         "github.com/sharper-flow/concord/internal/linearclient",
+        "github.com/sharper-flow/concord/internal/payloadschema",
         "github.com/sharper-flow/concord/internal/store",
         "github.com/sharper-flow/concord/internal/store/storetest",
         "github.com/sharper-flow/concord/internal/store/storetest/neighbor",
@@ -4807,6 +4808,12 @@
           "import_path": "github.com/sharper-flow/concord/internal/linearclient",
           "target_domain_ids": [
             "work-coordination"
+          ]
+        },
+        {
+          "import_path": "github.com/sharper-flow/concord/internal/payloadschema",
+          "target_domain_ids": [
+            "workflow-engine"
           ]
         },
         {

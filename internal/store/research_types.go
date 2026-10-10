@@ -145,6 +145,31 @@ type ResearchPack struct {
 	Consumers       []ResearchConsumer `json:"consumers,omitempty"`
 }
 
+// ResearchReadRequest selects a complete pack or one exact revision. FindingIDs
+// restricts that revision to selected findings and their linked sources.
+type ResearchReadRequest struct {
+	PackID     string
+	Revision   int64
+	FindingIDs []string
+	Limit      int
+}
+
+// ResearchPackDescriptor carries no nested research content.
+type ResearchPackDescriptor struct {
+	PackID          string            `json:"pack_id"`
+	OwnerWorkID     string            `json:"owner_work_id"`
+	CurrentRevision int64             `json:"current_revision"`
+	Freshness       ResearchFreshness `json:"freshness"`
+	ExpectedVersion int64             `json:"expected_version"`
+	CreatedAt       string            `json:"created_at"`
+	UpdatedAt       string            `json:"updated_at"`
+}
+
+type ResearchPackPage struct {
+	Packs      []ResearchPackDescriptor `json:"packs"`
+	NextCursor *string                  `json:"-"`
+}
+
 type CreateResearchPackRequest struct {
 	Identity    ResearchMutationIdentity `json:"identity"`
 	PackID      string                   `json:"pack_id,omitempty"`

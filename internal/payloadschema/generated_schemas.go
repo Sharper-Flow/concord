@@ -5571,6 +5571,201 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "object"
     },
+    "research_pack_descriptor": {
+      "additionalProperties": false,
+      "properties": {
+        "created_at": {
+          "maxLength": 40,
+          "minLength": 1,
+          "type": "string"
+        },
+        "current_revision": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "expected_version": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "freshness": {
+          "enum": [
+            "current",
+            "stale",
+            "unknown"
+          ],
+          "type": "string"
+        },
+        "owner_work_id": {
+          "$ref": "#/$defs/id"
+        },
+        "pack_id": {
+          "$ref": "#/$defs/id"
+        },
+        "updated_at": {
+          "maxLength": 40,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "pack_id",
+        "owner_work_id",
+        "current_revision",
+        "freshness",
+        "expected_version",
+        "created_at",
+        "updated_at"
+      ],
+      "type": "object"
+    },
+    "research_read_result": {
+      "additionalProperties": false,
+      "description": "The versioned concord_work_trace.research result: the legacy bare research_pack, or a typed version 2 wrapper that carries the full pack, an exact revision with selected findings and provenance, or the bounded owner descriptor page.",
+      "oneOf": [
+        {
+          "$ref": "#/$defs/research_pack"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "pack": {
+              "$ref": "#/$defs/research_pack"
+            },
+            "result_version": {
+              "const": 2,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "result_version",
+            "pack"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "packs": {
+              "items": {
+                "$ref": "#/$defs/research_pack_descriptor"
+              },
+              "maxItems": 100,
+              "type": "array"
+            },
+            "result_version": {
+              "const": 2,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "result_version",
+            "packs"
+          ],
+          "type": "object"
+        }
+      ],
+      "properties": {
+        "consumers": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "accepted_at": {
+                "maxLength": 40,
+                "minLength": 1,
+                "type": "string"
+              },
+              "consumer_work_id": {
+                "$ref": "#/$defs/id"
+              },
+              "pack_id": {
+                "$ref": "#/$defs/id"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "revision": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "use_role": {
+                "enum": [
+                  "context",
+                  "design_input",
+                  "verification_basis",
+                  "decision_basis"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "pack_id",
+              "revision",
+              "consumer_work_id",
+              "use_role",
+              "required",
+              "accepted_at"
+            ],
+            "type": "object"
+          },
+          "maxItems": 100,
+          "type": "array"
+        },
+        "created_at": {
+          "maxLength": 40,
+          "minLength": 1,
+          "type": "string"
+        },
+        "current_revision": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "expected_version": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "freshness": {
+          "enum": [
+            "current",
+            "stale",
+            "unknown"
+          ],
+          "type": "string"
+        },
+        "owner_work_id": {
+          "$ref": "#/$defs/id"
+        },
+        "pack": {
+          "$ref": "#/$defs/research_pack"
+        },
+        "pack_id": {
+          "$ref": "#/$defs/id"
+        },
+        "packs": {
+          "items": {
+            "$ref": "#/$defs/research_pack_descriptor"
+          },
+          "maxItems": 100,
+          "type": "array"
+        },
+        "result_version": {
+          "const": 2,
+          "type": "integer"
+        },
+        "revisions": {
+          "items": {
+            "$ref": "#/$defs/research_revision"
+          },
+          "maxItems": 100,
+          "type": "array"
+        },
+        "updated_at": {
+          "maxLength": 40,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
     "research_retire_result": {
       "additionalProperties": false,
       "properties": {
@@ -9821,6 +10016,15 @@ const GeneratedPayloadSchemaDocument = `{
     "work_trace_research_input": {
       "additionalProperties": false,
       "properties": {
+        "finding_ids": {
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "maxItems": 32,
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        },
         "limit": {
           "$ref": "#/$defs/limit"
         },
@@ -9835,6 +10039,19 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "result_version": {
+          "description": "The result contract this read returns. Absent and 1 keep the legacy full research_pack result keyed by pack_id only. 2 is the canonical read: an exact revision and finding selection through pack_id, or the owner descriptor page through work_id. Owner reads without 2 are refused, never silently reshaped.",
+          "enum": [
+            1,
+            2
+          ],
+          "type": "integer"
+        },
+        "revision": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "type": "integer"
         },
         "work_id": {
           "$ref": "#/$defs/id"

@@ -297,6 +297,7 @@ CREATE TRIGGER workflow_instances_guard_delete BEFORE DELETE ON workflow_instanc
 			// its guard triggers and index are owned by the table and drop
 			// with it.
 			`DROP TABLE IF EXISTS worktree_ref_outcomes`,
+			`DROP TRIGGER IF EXISTS active_research_packs_retirement_delete_guard`,
 		} {
 			if _, err := db.Exec(statement); err != nil {
 				t.Fatalf("cannot unpoison %q: %v", statement, err)

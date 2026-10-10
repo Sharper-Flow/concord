@@ -635,6 +635,9 @@ func TestInitiativeProjection_MigrationBackfillPreservesDefects(t *testing.T) {
 	if err := dropMigration122Objects(ctx, raw); err != nil {
 		t.Fatal(err)
 	}
+	if err := dropMigration123Objects(ctx, raw); err != nil {
+		t.Fatal(err)
+	}
 	// Defects a pre-120 store can carry: an initiative that lost its primary
 	// (scope defect) and a foreign-product child entry whose includes relation
 	// exists (entry defect). The two exercise the two backfill statements.
@@ -726,6 +729,9 @@ func TestInitiativeProjection_MigrationBackfillCleanStoreIsEmpty(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := dropMigration122Objects(ctx, raw); err != nil {
+		t.Fatal(err)
+	}
+	if err := dropMigration123Objects(ctx, raw); err != nil {
 		t.Fatal(err)
 	}
 	_ = raw.Close()

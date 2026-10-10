@@ -293,6 +293,87 @@ CREATE TRIGGER workflow_instances_guard_delete BEFORE DELETE ON workflow_instanc
 			`DROP VIEW IF EXISTS initiative_work_scope`,
 			`DROP TABLE IF EXISTS initiative_entry_violations`,
 			`DROP TABLE IF EXISTS initiative_scope_violations`,
+			// Migration 123's retirement dropped the planning mirror objects
+			// that the re-applied tail reads and drops again: migration 120
+			// attaches its maintenance triggers to initiative_entries, and
+			// migration 123 drops the mirror tables, the products planning
+			// mode, and the phase-0 issue-link shape it rebuilds. Restore
+			// each object's pre-123 shape from the migration that last
+			// created it (8, 76, 102), carrying any current rows forward.
+			`CREATE TABLE initiative_entries (
+    initiative_work_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
+    child_work_id  TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
+    position       INTEGER NOT NULL CHECK(position >= 0),
+    required       INTEGER NOT NULL CHECK(required IN (0,1)),
+    PRIMARY KEY(initiative_work_id, child_work_id),
+    UNIQUE(initiative_work_id, position),
+    CHECK(initiative_work_id <> child_work_id)
+)`,
+			`CREATE INDEX initiative_entries_by_child ON initiative_entries(child_work_id, initiative_work_id)`,
+			`ALTER TABLE products ADD COLUMN planning_mode TEXT NOT NULL DEFAULT 'local_only'
+    CHECK (planning_mode IN ('local_only','linear_enabled'))`,
+			`ALTER TABLE linear_issue_links RENAME TO linear_issue_links_v123_stage`,
+			`CREATE TABLE linear_issue_links (
+    work_id            TEXT PRIMARY KEY CHECK(length(work_id) BETWEEN 2 AND 128),
+    remote_issue_uuid  TEXT NOT NULL CHECK(length(remote_issue_uuid) BETWEEN 2 AND 128),
+    human_key          TEXT NOT NULL DEFAULT '' CHECK(length(human_key) <= 64),
+    url                TEXT NOT NULL DEFAULT '' CHECK(length(url) <= 2048),
+    remote_updated_at  TEXT NOT NULL DEFAULT '',
+    content_hash       TEXT NOT NULL DEFAULT '' CHECK(content_hash = '' OR (length(content_hash) = 71 AND substr(content_hash,1,7) = 'sha256:')),
+    link_state         TEXT NOT NULL DEFAULT 'unpublished' CHECK(link_state IN ('unpublished','pending','confirmed','degraded')),
+    created_at         TEXT NOT NULL,
+    updated_at         TEXT NOT NULL
+)`,
+			`INSERT INTO linear_issue_links
+    (work_id, remote_issue_uuid, human_key, url, created_at, updated_at)
+    SELECT work_id, remote_issue_uuid, human_key, url, created_at, updated_at FROM linear_issue_links_v123_stage`,
+			`DROP TABLE linear_issue_links_v123_stage`,
+			`CREATE INDEX linear_issue_links_state ON linear_issue_links(link_state)`,
+			`CREATE TRIGGER linear_issue_links_guard_insert BEFORE INSERT ON linear_issue_links FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_issue_links is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER linear_issue_links_guard_update BEFORE UPDATE ON linear_issue_links FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_issue_links is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER linear_issue_links_guard_delete BEFORE DELETE ON linear_issue_links FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_issue_links is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;`,
+			`CREATE TABLE linear_project_links (
+    work_id             TEXT PRIMARY KEY CHECK(length(work_id) BETWEEN 2 AND 128),
+    remote_project_uuid TEXT NOT NULL UNIQUE CHECK(length(remote_project_uuid) BETWEEN 2 AND 128),
+    name                TEXT NOT NULL DEFAULT '',
+    url                 TEXT NOT NULL DEFAULT '',
+    created_at          TEXT NOT NULL,
+    updated_at          TEXT NOT NULL
+)`,
+			`CREATE INDEX linear_project_links_uuid ON linear_project_links(remote_project_uuid)`,
+			`CREATE TABLE linear_outbox (
+    operation_id     TEXT PRIMARY KEY CHECK(length(operation_id) BETWEEN 2 AND 128),
+    work_id          TEXT NOT NULL CHECK(length(work_id) BETWEEN 2 AND 128),
+    op_kind          TEXT NOT NULL CHECK(op_kind IN ('issue_create','issue_update','issue_adopt','issue_audit_comment','project_create','project_update')),
+    idempotency_key  TEXT NOT NULL UNIQUE CHECK(length(idempotency_key) BETWEEN 2 AND 128),
+    payload          TEXT NOT NULL CHECK(json_valid(payload) AND json_type(payload) = 'object'),
+    state            TEXT NOT NULL DEFAULT 'queued' CHECK(state IN ('queued','in_flight','done','failed')),
+    attempts         INTEGER NOT NULL DEFAULT 0 CHECK(attempts >= 0),
+    last_error       TEXT NOT NULL DEFAULT '',
+    created_at       TEXT NOT NULL,
+    updated_at       TEXT NOT NULL,
+    CHECK((state = 'queued' AND attempts = 0) OR attempts > 0)
+)`,
+			`CREATE INDEX linear_outbox_state ON linear_outbox(state, created_at)`,
+			`CREATE TABLE linear_outbox_dispositions (
+    operation_id TEXT PRIMARY KEY REFERENCES linear_outbox(operation_id) ON DELETE RESTRICT,
+    work_id      TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
+    disposition  TEXT NOT NULL CHECK(disposition IN ('acknowledged')),
+    reason       TEXT NOT NULL CHECK(length(reason) BETWEEN 1 AND 4096),
+    created_at   TEXT NOT NULL,
+    CHECK(length(operation_id) BETWEEN 2 AND 128),
+    CHECK(length(work_id) BETWEEN 2 AND 128)
+)`,
+			`CREATE INDEX linear_outbox_dispositions_work ON linear_outbox_dispositions(work_id)`,
+			`CREATE TRIGGER linear_project_links_guard_insert BEFORE INSERT ON linear_project_links FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_project_links is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER linear_project_links_guard_update BEFORE UPDATE ON linear_project_links FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_project_links is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER linear_project_links_guard_delete BEFORE DELETE ON linear_project_links FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_project_links is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;`,
+			`CREATE TRIGGER linear_outbox_guard_insert BEFORE INSERT ON linear_outbox FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_outbox is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER linear_outbox_guard_update BEFORE UPDATE ON linear_outbox FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_outbox is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER linear_outbox_guard_delete BEFORE DELETE ON linear_outbox FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_outbox is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;`,
+			`CREATE TRIGGER linear_outbox_dispositions_guard_insert BEFORE INSERT ON linear_outbox_dispositions FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_outbox_dispositions is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER linear_outbox_dispositions_guard_update BEFORE UPDATE ON linear_outbox_dispositions FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_outbox_dispositions is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER linear_outbox_dispositions_guard_delete BEFORE DELETE ON linear_outbox_dispositions FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_outbox_dispositions is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;`,
 			// Migration 122's guarded projection is one plain CREATE TABLE:
 			// its guard triggers and index are owned by the table and drop
 			// with it.
@@ -426,8 +507,20 @@ func TestUpgradeKeepsTheFenceWhenFinishOpenFailsAfterACommit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
-		t.Fatalf("cannot poison the projections: %v", err)
+	// The strand must survive the migration itself: migration 123 ends by
+	// clearing fold_guard, so a work item without its required membership
+	// strands finishOpen instead — no tail step repairs a membership
+	// invariant, and the committed store still refuses every open. The
+	// fold-only guard needs a transiently active fold to accept the row,
+	// and the strand keeps no fold_guard row behind.
+	for _, statement := range []string{
+		`INSERT INTO fold_guard(active) VALUES(1)`,
+		`INSERT INTO work_items (id, kind, title, lifecycle, priority, version, created_at, updated_at) VALUES ('finish-open-strand-probe', 'task', 'finishOpen refusal probe', 'needed', 0, 1, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')`,
+		`DELETE FROM fold_guard`,
+	} {
+		if _, err := db.Exec(statement); err != nil {
+			t.Fatalf("cannot strand the membership invariants with %q: %v", statement, err)
+		}
 	}
 	if err := db.Close(); err != nil {
 		t.Fatal(err)

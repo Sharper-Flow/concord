@@ -473,7 +473,7 @@ func grantRequestInputGrants(idempotencyKey string, capabilities, products, proj
 		`,"agent_scope":[],"reason":"dependent work claims a cross-Product worktree","idempotency_key":"` + idempotencyKey + `"}`
 }
 
-// totalBoundCapabilities names the seven bearer-safe capabilities a fresh
+// totalBoundCapabilities names the six bearer-safe capabilities a fresh
 // work_relate client does not hold yet, so the total-additions boundary tests
 // below can count the derived diff exactly.
 func totalBoundCapabilities() []string {
@@ -481,8 +481,8 @@ func totalBoundCapabilities() []string {
 }
 
 func totalBoundProducts() []string {
-	products := make([]string, 0, 24)
-	for i := 2; i <= 25; i++ {
+	products := make([]string, 0, 25)
+	for i := 2; i <= 26; i++ {
 		products = append(products, fmt.Sprintf("product-%d", i))
 	}
 	return products
@@ -495,7 +495,7 @@ func TestGrantRequestOverTheTotalBoundRefuses(t *testing.T) {
 	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_relate"})
 	before := readStoredPolicy(t, s, "client-1")
 	env := grantRequestEnvelope(t, s, grant)
-	// 7 + 24 additions and 2 identity bindings exceed the 32-binding summary.
+	// 6 + 25 additions and 2 identity bindings exceed the 32-binding summary.
 	input := grantRequestInputGrants("grant-request-over", totalBoundCapabilities(), totalBoundProducts(), []string{})
 	response := dispatchGrantRequest(t, s, service, env, input)
 	if response.Error == nil || response.Error.Kind != "limit_exceeded" || response.Error.EffectState != EffectNone || response.Error.RecoveryAction.Kind != "reduce_limit" {
@@ -522,8 +522,8 @@ func TestGrantRequestAtTheTotalBoundMints(t *testing.T) {
 	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_relate"})
 	before := readStoredPolicy(t, s, "client-1")
 	env := grantRequestEnvelope(t, s, grant)
-	// 7 + 23 additions and 2 identity bindings fill the 32-binding summary.
-	products := totalBoundProducts()[:23]
+	// 6 + 24 additions and 2 identity bindings fill the 32-binding summary.
+	products := totalBoundProducts()[:24]
 	input := grantRequestInputGrants("grant-request-bound", totalBoundCapabilities(), products, []string{})
 	response := dispatchGrantRequest(t, s, service, env, input)
 	if response.Error == nil || response.Error.Kind != "approval_required" {

@@ -6140,6 +6140,29 @@ DROP TABLE linear_outbox_dispositions;
 DROP TABLE linear_outbox;
 DROP TABLE linear_project_links;
 DELETE FROM relations WHERE kind = 'includes';
+CREATE TABLE relations_v123 (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    work_id_from TEXT NOT NULL REFERENCES work_items(id),
+    work_id_to   TEXT NOT NULL REFERENCES work_items(id),
+    kind         TEXT NOT NULL CHECK(kind IN ('parent','blocks','implements','supersedes','forward_link','raised_from','depends_on','compatible_with','merged_into')),
+    created_at   TEXT NOT NULL,
+    resolution_id TEXT,
+    CHECK(work_id_from <> work_id_to),
+    UNIQUE(work_id_from, work_id_to, kind)
+);
+-- Preserve the high-water mark even when the highest relation was retired.
+INSERT INTO sqlite_sequence(name,seq) SELECT 'relations_v123',seq FROM sqlite_sequence WHERE name='relations';
+INSERT INTO relations_v123(id,work_id_from,work_id_to,kind,created_at,resolution_id)
+    SELECT id,work_id_from,work_id_to,kind,created_at,resolution_id FROM relations;
+DROP TABLE relations;
+ALTER TABLE relations_v123 RENAME TO relations;
+CREATE INDEX idx_relations_from_kind ON relations(work_id_from, kind, work_id_to);
+CREATE INDEX idx_relations_to_kind ON relations(work_id_to, kind, work_id_from);
+CREATE UNIQUE INDEX relations_supersedes_target ON relations(work_id_to) WHERE kind = 'supersedes';
+CREATE UNIQUE INDEX relations_merged_into_source ON relations(work_id_from) WHERE kind = 'merged_into';
+CREATE TRIGGER relations_guard_insert BEFORE INSERT ON relations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'relations is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1); END;
+CREATE TRIGGER relations_guard_update BEFORE UPDATE ON relations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'relations is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1); END;
+CREATE TRIGGER relations_guard_delete BEFORE DELETE ON relations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'relations is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1); END;
 ALTER TABLE products DROP COLUMN planning_mode;
 CREATE TABLE linear_issue_links_v123 (
     work_id            TEXT PRIMARY KEY CHECK(length(work_id) BETWEEN 2 AND 128),

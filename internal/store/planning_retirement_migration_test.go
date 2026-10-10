@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -60,6 +61,21 @@ func undoMigration123(t *testing.T, ctx context.Context, db *sql.DB) error {
 	}
 	if _, err := tx.ExecContext(ctx, `DROP TABLE linear_issue_links`); err != nil {
 		return err
+	}
+	for _, object := range preObjects {
+		if object.kind != "table" || object.name != "relations" {
+			continue
+		}
+		ddl := strings.Replace(object.sql, "CREATE TABLE relations", "CREATE TABLE relations_pre123", 1)
+		if _, err := tx.ExecContext(ctx, ddl); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO sqlite_sequence(name,seq) SELECT 'relations_pre123',seq FROM sqlite_sequence WHERE name='relations';
+INSERT INTO relations_pre123 SELECT * FROM relations;
+DROP TABLE relations;
+ALTER TABLE relations_pre123 RENAME TO relations;`); err != nil {
+			return err
+		}
 	}
 	if _, err := tx.ExecContext(ctx, `ALTER TABLE products ADD COLUMN planning_mode TEXT NOT NULL DEFAULT 'local_only' CHECK (planning_mode IN ('local_only','linear_enabled'))`); err != nil {
 		return err
@@ -149,7 +165,7 @@ func TestMigration123RetiresThePlanningMirror(t *testing.T) {
 INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at,intent_json,narrative,urgency)
 VALUES('initiative-a','initiative','Initiative','needed',0,1,'t','t','{}','','standard'),
       ('child-a','task','Child','needed',0,1,'t','t','{}','','standard');
-INSERT INTO relations(id,work_id_from,work_id_to,kind,created_at) VALUES(1,'initiative-a','child-a','includes','t'),(2,'initiative-a','child-a','blocks','t');
+INSERT INTO relations(id,work_id_from,work_id_to,kind,created_at,resolution_id) VALUES(901,'initiative-a','child-a','includes','t',NULL),(2,'initiative-a','child-a','blocks','t','resolution-a');
 INSERT INTO linear_issue_links(work_id,remote_issue_uuid,human_key,url,link_state,created_at,updated_at)
 VALUES('child-a','uuid-confirmed','CON-1','https://linear.app/x/issue/CON-1','confirmed','t','t'),
       ('initiative-a','uuid-pending','','','pending','t','t');
@@ -214,6 +230,29 @@ DELETE FROM fold_guard;`); err != nil {
 	}
 	if includes != 0 || blocks != 1 {
 		t.Fatalf("relations after migration: includes=%d blocks=%d; want 0 and 1", includes, blocks)
+	}
+	var resolutionID string
+	if err := db.QueryRowContext(ctx, `SELECT resolution_id FROM relations WHERE id=2`).Scan(&resolutionID); err != nil || resolutionID != "resolution-a" {
+		t.Fatalf("retained relation lost its identity or resolution: %q, %v", resolutionID, err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO relations(work_id_from,work_id_to,kind,created_at) VALUES('child-a','initiative-a','blocks','t')`); err == nil {
+		t.Fatal("relations lost its fold guard")
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO relations(work_id_from,work_id_to,kind,created_at) VALUES('initiative-a','child-a','includes','t')`); err == nil {
+		t.Fatal("relations still admits the retired includes kind")
+	}
+	result, err := db.ExecContext(ctx, `INSERT INTO relations(work_id_from,work_id_to,kind,created_at) VALUES('child-a','initiative-a','blocks','t')`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id, err := result.LastInsertId(); err != nil || id <= 901 {
+		t.Fatalf("relation sequence reused a retired identity: %d, %v", id, err)
+	}
+	if _, err := db.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
+		t.Fatal(err)
 	}
 	if _, err := db.ExecContext(ctx, `INSERT INTO linear_issue_links(work_id,remote_issue_uuid,human_key,url,created_at,updated_at) VALUES('child-b','uuid-x','CON-2','https://linear.app/x/issue/CON-2','t','t')`); err == nil {
 		t.Fatal("linear_issue_links lost its fold guard")

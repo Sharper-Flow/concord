@@ -4257,6 +4257,79 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "object"
     },
+    "research_retire_result": {
+      "additionalProperties": false,
+      "properties": {
+        "candidates": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "classification": {
+                "enum": [
+                  "eligible",
+                  "retired",
+                  "protected",
+                  "version_conflict"
+                ],
+                "type": "string"
+              },
+              "current_version": {
+                "$ref": "#/$defs/version"
+              },
+              "expected_version": {
+                "$ref": "#/$defs/version"
+              },
+              "owner_work_id": {
+                "$ref": "#/$defs/id"
+              },
+              "pack_id": {
+                "$ref": "#/$defs/id"
+              },
+              "protection_reason": {
+                "enum": [
+                  "owner_active",
+                  "active_pin"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "pack_id",
+              "owner_work_id",
+              "expected_version",
+              "current_version",
+              "classification"
+            ],
+            "type": "object"
+          },
+          "maxItems": 100,
+          "minItems": 1,
+          "type": "array"
+        },
+        "dry_run": {
+          "type": "boolean"
+        },
+        "next_valid_intents": {
+          "items": {
+            "$ref": "#/$defs/next_valid_intent"
+          },
+          "maxItems": 16,
+          "type": "array"
+        },
+        "work_pins": {
+          "items": {
+            "$ref": "#/$defs/work_pin"
+          },
+          "maxItems": 32,
+          "type": "array"
+        }
+      },
+      "required": [
+        "dry_run",
+        "candidates"
+      ],
+      "type": "object"
+    },
     "research_revision": {
       "additionalProperties": false,
       "properties": {
@@ -6236,6 +6309,57 @@ const GeneratedPayloadSchemaDocument = `{
       "required": [
         "owner_work_id",
         "revision",
+        "idempotency_key"
+      ],
+      "type": "object"
+    },
+    "work_define_research_retire_input": {
+      "additionalProperties": false,
+      "properties": {
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "candidates": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "expected_version": {
+                "maximum": 9223372036854775807,
+                "minimum": 1,
+                "type": "integer"
+              },
+              "pack_id": {
+                "$ref": "#/$defs/id"
+              }
+            },
+            "required": [
+              "pack_id",
+              "expected_version"
+            ],
+            "type": "object"
+          },
+          "maxItems": 100,
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "dry_run": {
+          "type": "boolean"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "product_id": {
+          "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        }
+      },
+      "required": [
+        "product_id",
+        "candidates",
+        "dry_run",
         "idempotency_key"
       ],
       "type": "object"

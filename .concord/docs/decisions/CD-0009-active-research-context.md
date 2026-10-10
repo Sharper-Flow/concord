@@ -1,6 +1,7 @@
 # CD-0009: Active Research Context and Epic Shape
 
-**Status:** Accepted
+**Status:** Superseded
+**Successor:** [CD-0215](CD-0215-retained-research-context.md)
 **Date:** 2026-08-07
 **Decision owner:** Operator
 **Accepted by operator:** 2026-08-07

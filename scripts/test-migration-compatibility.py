@@ -4607,11 +4607,10 @@ finally:
     connection.close()
 
 
-# The live manifest's compatibility floor is 124: Initiative maintenance
-# triggers (120) attach to pre-existing dependency tables, the
-# outside-repair terminal instance (121) rebuilds workflow_instances, and
-# the planning mirror retirement (124) drops the mirror tables and the
-# products planning mode, so all three classify as breaking.
+# The planning retirement (124) sets the live compatibility floor. The
+# research retirement delete guard (123) constrains older binaries' writes
+# to active_research_packs. Initiative maintenance triggers (120) and the
+# outside-repair terminal instance rebuild (121) also classify as breaking.
 # The earlier compound-CHECK rebuilds stay breaking too.
 with open(check.SCHEMA, encoding="utf-8", newline="") as handle:
     live_source = handle.read()

@@ -23,7 +23,7 @@ type ResearchBindingDeclaration struct {
 
 // BindResearchRelianceTx validates declared research bindings and records the
 // consumer pin inside the caller's transaction. For each declaration: the pack
-// must exist with a nonterminal owner, the revision must exist, and a required
+// must exist, the revision must exist, and a required
 // binding on a revision whose freshness is not current fails closed with
 // KindResearchConsumerBlocked. Each consumer holds one pin per pack through
 // this route. An identical declaration is a no-op; a changed declaration replaces
@@ -50,8 +50,7 @@ func BindResearchRelianceTx(ctx context.Context, tx *sql.Tx, consumerWorkID stri
 		// pack summary — pack-level churn must not clear a required binding.
 		var freshness sql.NullString
 		var revision sql.NullInt64
-		var ownerTerminal int
-		err := tx.QueryRowContext(ctx, `SELECT r.revision, r.freshness, CASE WHEN w.lifecycle IN ('completed','cancelled','superseded') THEN 1 ELSE 0 END FROM active_research_packs p JOIN work_items w ON w.id=p.owner_work_id LEFT JOIN active_research_revisions r ON r.pack_id=p.pack_id AND r.revision=? WHERE p.pack_id=?`, declaration.Revision, declaration.PackID).Scan(&revision, &freshness, &ownerTerminal)
+		err := tx.QueryRowContext(ctx, `SELECT r.revision, r.freshness FROM active_research_packs p LEFT JOIN active_research_revisions r ON r.pack_id=p.pack_id AND r.revision=? WHERE p.pack_id=?`, declaration.Revision, declaration.PackID).Scan(&revision, &freshness)
 		if err == sql.ErrNoRows {
 			return newFailure(KindProjectionNotFound, "research_reliance", "declared research pack does not exist", false, "check the pack identifier")
 		}
@@ -60,9 +59,6 @@ func BindResearchRelianceTx(ctx context.Context, tx *sql.Tx, consumerWorkID stri
 		}
 		if !revision.Valid {
 			return newFailure(KindProjectionNotFound, "research_reliance", "declared research revision does not exist", false, "pin an existing revision")
-		}
-		if ownerTerminal == 1 {
-			return newFailure(KindInvalidOperation, "research_reliance", "declared research pack has a terminal owner", false, "rebind to an active pack")
 		}
 		// CD-0009 D6: a required consumer cannot proceed on stale or unknown
 		// research. Fail closed at the boundary where reliance is declared.

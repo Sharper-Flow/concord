@@ -168,6 +168,11 @@
     },
     {
       "catalog": "agent",
+      "entry_id": "concord_work_define.research_retire",
+      "owner_id": "mechanism:knowledge-index"
+    },
+    {
+      "catalog": "agent",
       "entry_id": "concord_work_define.research_revision_append",
       "owner_id": "mechanism:knowledge-index"
     },
@@ -908,7 +913,7 @@
     }
   ],
   "catalog_sizes": {
-    "agent": 70,
+    "agent": 71,
     "cli": 52,
     "workflow": 58
   },
@@ -1095,6 +1100,7 @@
         "concord_work_define.research_finding_record",
         "concord_work_define.research_freshness_set",
         "concord_work_define.research_pack_create",
+        "concord_work_define.research_retire",
         "concord_work_define.research_revision_append",
         "concord_work_define.research_source_record",
         "concord_work_define.revise_intent",
@@ -3767,6 +3773,7 @@
           "concord_work_define.research_finding_record",
           "concord_work_define.research_freshness_set",
           "concord_work_define.research_pack_create",
+          "concord_work_define.research_retire",
           "concord_work_define.research_revision_append",
           "concord_work_define.research_source_record",
           "concord_work_trace.research"
@@ -3866,7 +3873,7 @@
         }
       ],
       "domain_id": "product-memory",
-      "mapped_count": 876,
+      "mapped_count": 890,
       "mechanism_owner_ids": [
         "mechanism:domain-registry",
         "mechanism:knowledge-index"
@@ -4080,7 +4087,7 @@
         ]
       },
       "purpose": "Owns Product knowledge: the knowledge index and its records, the Domain registry as law, law-coverage and conformance records, lessons and research, and compaction and retention policy.",
-      "test_count": 44,
+      "test_count": 45,
       "test_packages": [
         "github.com/sharper-flow/concord/internal/store"
       ],
@@ -4127,6 +4134,7 @@
         "internal/store/product_knowledge_home_test.go",
         "internal/store/product_knowledge_source_test.go",
         "internal/store/research_reliance_refusal_test.go",
+        "internal/store/research_retirement_test.go",
         "internal/store/research_test.go",
         "internal/store/unprocessed_knowledge_test.go"
       ],
@@ -5907,6 +5915,7 @@
     ".concord/docs/canonical-git-note-placement.md": "product-memory",
     ".concord/docs/capability-placement.md": "product-memory",
     ".concord/docs/clarifications.md": "product-memory",
+    ".concord/docs/compaction-retention-policy-successor.md": "product-memory",
     ".concord/docs/compaction-retention-policy.md": "product-memory",
     ".concord/docs/complexity-budget.v1.json": "product-memory",
     ".concord/docs/concord-knowledge-index.md": "product-memory",
@@ -6110,6 +6119,9 @@
     ".concord/docs/decisions/CD-0211-defect-intake-classifies-recurrence-before-fix.md": "product-memory",
     ".concord/docs/decisions/CD-0212-reclaim-gates-the-live-head-and-records-retained-refs.md": "product-memory",
     ".concord/docs/decisions/CD-0213-linear-mcp-is-the-only-planning-authority.md": "product-memory",
+    ".concord/docs/decisions/CD-0215-retained-research-context.md": "product-memory",
+    ".concord/docs/decisions/CD-0216-research-surface-and-explicit-retirement.md": "product-memory",
+    ".concord/docs/decisions/CD-0217-publication-and-retention-boundaries.md": "product-memory",
     ".concord/docs/decisions/license-evidence/github.com/aymanbagabas/go-udiff/v0.4.1/LICENSE-BSD": "product-memory",
     ".concord/docs/decisions/license-evidence/github.com/aymanbagabas/go-udiff/v0.4.1/LICENSE-MIT": "product-memory",
     ".concord/docs/decisions/license-evidence/github.com/charmbracelet/x/exp/golden/v0.0.0-20250806222409-83e3a29d542f/LICENSE": "product-memory",
@@ -6326,6 +6338,9 @@
     ".concord/docs/knowledge/coverage/CD-0211.json": "product-memory",
     ".concord/docs/knowledge/coverage/CD-0212.json": "product-memory",
     ".concord/docs/knowledge/coverage/CD-0213.json": "product-memory",
+    ".concord/docs/knowledge/coverage/CD-0215.json": "product-memory",
+    ".concord/docs/knowledge/coverage/CD-0216.json": "product-memory",
+    ".concord/docs/knowledge/coverage/CD-0217.json": "product-memory",
     ".concord/docs/knowledge/coverage/PM1.json": "product-memory",
     ".concord/docs/knowledge/coverage/PM10.json": "product-memory",
     ".concord/docs/knowledge/coverage/PM2.json": "product-memory",
@@ -6351,6 +6366,7 @@
     ".concord/docs/knowledge/coverage/architecture-spike.json": "product-memory",
     ".concord/docs/knowledge/coverage/capability-placement.json": "product-memory",
     ".concord/docs/knowledge/coverage/clarifications.json": "product-memory",
+    ".concord/docs/knowledge/coverage/compaction-retention-policy.json": "product-memory",
     ".concord/docs/knowledge/coverage/concord-knowledge-index.json": "product-memory",
     ".concord/docs/knowledge/coverage/core-architecture.json": "product-memory",
     ".concord/docs/knowledge/coverage/design-constraints.json": "product-memory",
@@ -6585,6 +6601,9 @@
     ".concord/docs/knowledge/records/CD-0211.json": "product-memory",
     ".concord/docs/knowledge/records/CD-0212.json": "product-memory",
     ".concord/docs/knowledge/records/CD-0213.json": "product-memory",
+    ".concord/docs/knowledge/records/CD-0215.json": "product-memory",
+    ".concord/docs/knowledge/records/CD-0216.json": "product-memory",
+    ".concord/docs/knowledge/records/CD-0217.json": "product-memory",
     ".concord/docs/knowledge/records/PM1.json": "product-memory",
     ".concord/docs/knowledge/records/PM10.json": "product-memory",
     ".concord/docs/knowledge/records/PM2.json": "product-memory",
@@ -6610,6 +6629,7 @@
     ".concord/docs/knowledge/records/architecture-spike.json": "product-memory",
     ".concord/docs/knowledge/records/capability-placement.json": "product-memory",
     ".concord/docs/knowledge/records/clarifications.json": "product-memory",
+    ".concord/docs/knowledge/records/compaction-retention-policy.json": "product-memory",
     ".concord/docs/knowledge/records/concord-knowledge-index.json": "product-memory",
     ".concord/docs/knowledge/records/core-architecture.json": "product-memory",
     ".concord/docs/knowledge/records/design-constraints.json": "product-memory",
@@ -7455,6 +7475,8 @@
     "internal/store/research_rebuild.go": "durable-authority",
     "internal/store/research_reliance.go": "product-memory",
     "internal/store/research_reliance_refusal_test.go": "product-memory",
+    "internal/store/research_retirement.go": "product-memory",
+    "internal/store/research_retirement_test.go": "product-memory",
     "internal/store/research_test.go": "product-memory",
     "internal/store/research_types.go": "product-memory",
     "internal/store/resource_claims.go": "work-coordination",
@@ -7861,7 +7883,7 @@
     "skills/README.md": "agent-surface",
     "workflows/README.md": "workflow-engine"
   },
-  "mapped_count": 1971,
+  "mapped_count": 1985,
   "mechanisms": [
     {
       "check_ids": [

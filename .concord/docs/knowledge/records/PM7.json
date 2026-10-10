@@ -45,8 +45,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:71d8af7b0d098c8245c1ab4570bbda7246528585656525ffa2d091a1f9bdbc60",
-  "status": "accepted",
+  "sha256": "sha256:ae9153045d46b3d3873b02df04cd0fa0808bf337488663aa6277a1a919b595d3",
+  "status": "superseded",
+  "successor": "compaction-retention-policy",
   "summary": "Defines bounded projection retention and git-rebuildable historical indexing.",
   "tags": [
     "pm7",

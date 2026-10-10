@@ -119,6 +119,13 @@ func dropMigration122Objects(ctx context.Context, db *sql.DB) error {
 	return err
 }
 
+// dropMigration123Objects removes the retirement delete guard migration 123
+// creates on the pre-existing research pack table.
+func dropMigration123Objects(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `DROP TRIGGER IF EXISTS active_research_packs_retirement_delete_guard`)
+	return err
+}
+
 // dropMigration120Objects removes the Initiative violation projection
 // migration 120 creates, triggers first because they attach to tables that
 // predate it.

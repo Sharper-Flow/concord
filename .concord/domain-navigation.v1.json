@@ -480,6 +480,7 @@
     {"catalog": "agent", "entry_id": "concord_work_define.research_finding_record", "owner_id": "mechanism:knowledge-index"},
     {"catalog": "agent", "entry_id": "concord_work_define.research_source_record", "owner_id": "mechanism:knowledge-index"},
     {"catalog": "agent", "entry_id": "concord_work_define.research_freshness_set", "owner_id": "mechanism:knowledge-index"},
+    {"catalog": "agent", "entry_id": "concord_work_define.research_retire", "owner_id": "mechanism:knowledge-index"},
     {"catalog": "agent", "entry_id": "concord_work_compact.lesson_publish", "owner_id": "mechanism:knowledge-index"},
     {"catalog": "agent", "entry_id": "concord_domain.active_work", "owner_id": "mechanism:domain-registry"},
     {"catalog": "agent", "entry_id": "concord_domain.attachments", "owner_id": "mechanism:domain-registry"},

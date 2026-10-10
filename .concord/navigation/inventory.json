@@ -997,7 +997,7 @@
       "law_refs": [
         {
           "clause_id": "D3. Law evidence is a typed anchor, never a path",
-          "content_hash": "sha256:3a181f2d4e9e3b96a5b654b974f793946a6f808bb0c4db0444a9e7f80da06c10",
+          "content_hash": "sha256:8003b2b410e0b8668c53e78c97b37124c5d1a247486c5775324df0cc7eb7c6dd",
           "law_id": "CD-0047",
           "locator": ".concord/docs/decisions/CD-0047-declared-coverage-state.md"
         }
@@ -3118,7 +3118,7 @@
           "law_refs": [
             {
               "clause_id": "1. Decision",
-              "content_hash": "sha256:8febcb794b494b9cbee36df145d48df01c1719c2a989936f439c4851d225334f",
+              "content_hash": "sha256:523df52746e9fa1a5e8e3e4b0eb6ec3e627eb355585cb5ee5deebc002a609060",
               "law_id": "C14",
               "locator": ".concord/docs/product-row-contract.md"
             },
@@ -4445,7 +4445,7 @@
           "law_refs": [
             {
               "clause_id": "D1. An undeclared gap is a failure; a declared gap is not",
-              "content_hash": "sha256:3a181f2d4e9e3b96a5b654b974f793946a6f808bb0c4db0444a9e7f80da06c10",
+              "content_hash": "sha256:8003b2b410e0b8668c53e78c97b37124c5d1a247486c5775324df0cc7eb7c6dd",
               "law_id": "CD-0047",
               "locator": ".concord/docs/decisions/CD-0047-declared-coverage-state.md"
             },
@@ -8371,7 +8371,7 @@
       "law_refs": [
         {
           "clause_id": "1. Decision",
-          "content_hash": "sha256:8febcb794b494b9cbee36df145d48df01c1719c2a989936f439c4851d225334f",
+          "content_hash": "sha256:523df52746e9fa1a5e8e3e4b0eb6ec3e627eb355585cb5ee5deebc002a609060",
           "law_id": "C14",
           "locator": ".concord/docs/product-row-contract.md"
         },
@@ -8530,7 +8530,7 @@
       "law_refs": [
         {
           "clause_id": "D1. An undeclared gap is a failure; a declared gap is not",
-          "content_hash": "sha256:3a181f2d4e9e3b96a5b654b974f793946a6f808bb0c4db0444a9e7f80da06c10",
+          "content_hash": "sha256:8003b2b410e0b8668c53e78c97b37124c5d1a247486c5775324df0cc7eb7c6dd",
           "law_id": "CD-0047",
           "locator": ".concord/docs/decisions/CD-0047-declared-coverage-state.md"
         },

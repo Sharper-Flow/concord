@@ -14,9 +14,10 @@
     "schema_version": {
       "enum": [
         "1.0",
-        "1.1"
+        "1.1",
+        "2.0"
       ],
-      "description": "The report identity this report records. \"1.0\" is the released report: it never carries worker_job. \"1.1\" is the job-capable report (CD-0205): it may carry worker_job when the dispatching packet selected a worker-job revision."
+      "description": "The report identity this report records. \"1.0\" is the released report: it never carries worker_job. \"1.1\" is the released job-capable report (CD-0205): it may carry worker_job when the dispatching packet selected a worker-job revision. \"2.0\" is the current report (CON-899), coupled to the card-free 2.0 packet: the canonical report inherits the dispatching packet's identity, and it is the only identity a live dispatch may record."
     },
     "readback_model": {
       "type": "string",

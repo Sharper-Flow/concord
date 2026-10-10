@@ -275,10 +275,11 @@ test("a packet whose worker-job binding the closed report schema refuses is refu
 
 test("a packet that names no schema version keeps the report's own enum-bound version", () => {
   expect(run(report(), {})).toMatchObject({ pass: true, score: 1 })
-  const refused = run(report({ schema_version: "2.0" }), {})
+  expect(run(report({ schema_version: "2.0" }), {})).toMatchObject({ pass: true, score: 1 })
+  const refused = run(report({ schema_version: "9.9" }), {})
   expect(refused.pass).toBe(false)
   expect(refused.reason).toContain("schema_version")
-  expect(refused.reason).toContain('expected one of ["1.0","1.1"]')
+  expect(refused.reason).toContain('expected one of ["1.0","1.1","2.0"]')
 })
 
 test("a malformed packet schema identity never falls back to the worker echo", () => {

@@ -21,7 +21,7 @@ the accepted PM3 through PM7 domain operations, TS1 jobs and scenarios, TS2
 budget and granularity, the TS3 read surface, the capability-placement
 native-authority rule, and the Advance postmortem. This record fixes the four
 always-visible mutation tools, their operation tables, the batch boundary,
-and the inline-versus-durable execution rule. CD-0041 requires typed
+and the inline-versus-durable execution rule. CD-0222 requires typed
 architecture binding for Product-changing work; CD-0213 removes planning writes; CD-0042 makes the
 generated manifest the only pre-go-live surface identity.
 ## Contract

@@ -190,8 +190,18 @@ func TestNativeOracleMigrationLegacyNulls(t *testing.T) {
 	if err := s.db.QueryRow(`SELECT (native_plan_json IS NULL)+(native_plan_sha256 IS NULL)+(stdout_blob IS NULL)+(stderr_blob IS NULL) FROM worktree_verify_leases WHERE lease_id=?`, r.LeaseID).Scan(&nulls); err != nil || nulls != 4 {
 		t.Fatalf("legacy columns upcast: %d %v", nulls, err)
 	}
-	if migration := migrations[len(migrations)-1]; !migration.Breaking || migration.FoldMaintained != "origin" {
-		t.Fatal("native migration must declare its write constraints and origin-owned columns")
+	found := false
+	for _, migration := range migrations {
+		if migration.Name != "native_oracle_plan_and_streams" {
+			continue
+		}
+		found = true
+		if !migration.Breaking || migration.FoldMaintained != "origin" {
+			t.Fatal("native migration must declare its write constraints and origin-owned columns")
+		}
+	}
+	if !found {
+		t.Fatal("native oracle migration is missing")
 	}
 	for _, column := range []string{"stdout_blob", "stderr_blob"} {
 		if _, err := s.db.Exec(`UPDATE worktree_verify_leases SET `+column+`=? WHERE lease_id=?`, bytes.Repeat([]byte{1}, nativeOracleStreamLimit), r.LeaseID); err != nil {

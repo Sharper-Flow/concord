@@ -147,7 +147,7 @@ func verifyWallPacketForStep(t *testing.T, s *store.Store, attemptID string, cor
 	if correction != nil {
 		inputs["correction"] = correction
 	}
-	return bindPacketToRecordedState(t, s, map[string]any{"schema_version": "1.0", "attempt_id": attemptID, "lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest, "work_id": "work-1", "step_id": step, "inputs": inputs})
+	return bindPacketToRecordedState(t, s, map[string]any{"schema_version": store.WorkerPacketSchemaVersion, "attempt_id": attemptID, "lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest, "work_id": "work-1", "step_id": step, "inputs": inputs})
 }
 
 // applyVerifyWallDispatchAndFailure records the lane dispatch on the review

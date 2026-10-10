@@ -973,9 +973,10 @@ def project_workflow_action_schema(document: dict, actions: list[dict], workflow
         defs["worker_oracle_control"]["properties"][name]["description"] = packet_defs["lane_worker_oracle_control"]["properties"][name]["description"]
     project_native_oracle_requests(defs)
     project_native_oracle_metadata(defs, packet_defs)
-    card_refs = copy.deepcopy(packet_defs["lane_work_context_domain_group"]["properties"]["domain_cards"])
-    card_refs["items"]["$ref"] = "#/$defs/work_context_reading_source_repository_file"
-    defs["work_context_domain_group"]["properties"]["domain_cards"] = card_refs
+    # The card-free work-context view carries domain groups without
+    # the retired domain_cards member. The live view keeps its own closed
+    # shape; released card-bearing 1.0/1.1 packets replay through the
+    # versioned lane packet contract's branches, never through this view.
     # The action-discriminated variants replaced the shared conditional input.
     # Projection starts from the previous document, so drop the retired
     # definition explicitly; a stale copy would keep satisfying checks that

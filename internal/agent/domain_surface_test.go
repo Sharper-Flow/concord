@@ -15,7 +15,6 @@ func TestComponentInputsAreProhibitedOnTheAgentSurface(t *testing.T) {
 		{"concord_work_browse", "list", `{"page":{"cursor":null,"limit":20},"component_id":"auth"}`},
 		{"concord_work_define", "capture", `{"title":"T","value_statement":"V","kind":"task","project_ids":["project-1"],"component_id":"auth","idempotency_key":"probe"}`},
 		{"concord_work_define", "revise_intent", `{"work_id":"work-1","expected_version":1,"title":"T","value_statement":"V","kind":"task","reason":"probe","component_id":"auth","idempotency_key":"probe"}`},
-		{"concord_work_initiative", "create", `{"title":"T","value_statement":"V","project_ids":["project-1"],"component_id":"auth","idempotency_key":"probe"}`},
 		{"concord_knowledge", "search", `{"page":{"cursor":null,"limit":20},"component_ids":["auth"]}`},
 		// CD-0041 D9 renamed the research scope wire from component_ids to
 		// domain_ids. The input $def research_scopes_input never declared

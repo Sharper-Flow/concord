@@ -253,9 +253,6 @@ type workIDInput struct {
 	WorkID string      `json:"work_id"`
 	Budget budgetInput `json:"budget"`
 }
-type initiativeEntriesInput struct {
-	InitiativeWorkID string `json:"initiative_work_id"`
-}
 type domainReadInput struct {
 	ProductID string    `json:"product_id"`
 	DomainID  string    `json:"domain_id"`
@@ -994,10 +991,6 @@ func mapFailureKind(kind store.FailureKind) string {
 		return "invalid_transition"
 	case store.KindInvalidRelation, store.KindCycleDetected, store.KindRelationConflict, store.KindRelationNotFound, store.KindRelationContractViolation, store.KindSupersessionTargetAlreadySuperseded, store.KindSupersessionSecondSuccessor:
 		return "invalid_relation"
-	case store.KindInitiativeScopeViolation:
-		return "invariant_violation"
-	case store.KindInitiativeEntryConflict:
-		return "invalid_relation"
 	case store.KindMembershipInvariant, store.KindMembershipConflict:
 		return "invariant_violation"
 	case store.KindInvalidNoteProof, store.KindKnowledgeMissing:
@@ -1228,8 +1221,6 @@ func (r runtime) readResult(ctx context.Context, base Envelope, input []byte, qu
 		return r.readTraceRelations(ctx, base, input)
 	case "concord_work_trace.project_retirement":
 		return r.readTraceProjectRetirement(ctx, base, input)
-	case "concord_work_initiative.entries":
-		return r.readInitiativeEntries(ctx, base, input, queryID)
 	case "concord_knowledge.search":
 		return r.readKnowledgeSearch(ctx, base, input)
 	case "concord_knowledge.resolve_note":

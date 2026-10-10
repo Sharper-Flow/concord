@@ -59,7 +59,7 @@ func openMigrated(t *testing.T) *sql.DB {
 
 func TestMigrationRepairsADatabaseBuiltFromTheEarlierHistory(t *testing.T) {
 	t.Parallel()
-	db := openMigrated(t)
+	db := openMigratedTo(t, filepath.Join(t.TempDir(), "repair-v59.db"), 59)
 	ctx := context.Background()
 
 	// Reproduce a store whose migration 8 and 9 applied their earlier text: the
@@ -77,14 +77,13 @@ func TestMigrationRepairsADatabaseBuiltFromTheEarlierHistory(t *testing.T) {
 			CHECK(epic_work_id <> child_work_id)
 		)`,
 		`CREATE INDEX epic_entries_by_child ON epic_entries(child_work_id, epic_work_id)`,
-		`DELETE FROM schema_migrations WHERE version = 60`,
 	} {
 		if _, err := db.ExecContext(ctx, statement); err != nil {
 			t.Fatalf("stage earlier history (%s): %v", statement, err)
 		}
 	}
 
-	if err := Migrate(ctx, db); err != nil {
+	if err := applyMigration(ctx, db, migrations[59]); err != nil {
 		t.Fatalf("repair migrate: %v", err)
 	}
 
@@ -109,7 +108,11 @@ func TestMigrationRepairsADatabaseBuiltFromTheEarlierHistory(t *testing.T) {
 
 func TestRepairMigrationIsIdempotentOnAFreshDatabase(t *testing.T) {
 	t.Parallel()
-	fresh := schemaObjects(t, openMigrated(t))
+	db := openMigratedTo(t, filepath.Join(t.TempDir(), "repair-v60.db"), 60)
+	if err := applyMigration(context.Background(), db, migrations[59]); err != nil {
+		t.Fatalf("repeat repair migration: %v", err)
+	}
+	fresh := schemaObjects(t, db)
 	if !fresh["initiative_entries"] || !fresh["project_governing_requirements"] {
 		t.Fatal("a fresh database is missing objects the repair migration creates")
 	}

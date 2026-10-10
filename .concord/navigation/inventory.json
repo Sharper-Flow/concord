@@ -143,8 +143,8 @@
     },
     {
       "catalog": "agent",
-      "entry_id": "concord_work_define.issue_adopt",
-      "owner_id": "mechanism:work-items"
+      "entry_id": "concord_work_define.issue_link_record",
+      "owner_id": "mechanism:issue-identity"
     },
     {
       "catalog": "agent",
@@ -184,41 +184,6 @@
     {
       "catalog": "agent",
       "entry_id": "concord_work_define.revise_intent",
-      "owner_id": "mechanism:work-items"
-    },
-    {
-      "catalog": "agent",
-      "entry_id": "concord_work_initiative.add_entry",
-      "owner_id": "mechanism:work-items"
-    },
-    {
-      "catalog": "agent",
-      "entry_id": "concord_work_initiative.change_requiredness",
-      "owner_id": "mechanism:work-items"
-    },
-    {
-      "catalog": "agent",
-      "entry_id": "concord_work_initiative.create",
-      "owner_id": "mechanism:work-items"
-    },
-    {
-      "catalog": "agent",
-      "entry_id": "concord_work_initiative.entries",
-      "owner_id": "mechanism:work-items"
-    },
-    {
-      "catalog": "agent",
-      "entry_id": "concord_work_initiative.remove_entry",
-      "owner_id": "mechanism:work-items"
-    },
-    {
-      "catalog": "agent",
-      "entry_id": "concord_work_initiative.reorder_entry",
-      "owner_id": "mechanism:work-items"
-    },
-    {
-      "catalog": "agent",
-      "entry_id": "concord_work_initiative.revise_narrative",
       "owner_id": "mechanism:work-items"
     },
     {
@@ -478,51 +443,6 @@
     },
     {
       "catalog": "cli",
-      "entry_id": "linear-backfill",
-      "owner_id": "mechanism:external-planning"
-    },
-    {
-      "catalog": "cli",
-      "entry_id": "linear-connection-update",
-      "owner_id": "mechanism:external-planning"
-    },
-    {
-      "catalog": "cli",
-      "entry_id": "linear-divergence",
-      "owner_id": "mechanism:external-planning"
-    },
-    {
-      "catalog": "cli",
-      "entry_id": "linear-health",
-      "owner_id": "mechanism:external-planning"
-    },
-    {
-      "catalog": "cli",
-      "entry_id": "linear-initiative-import",
-      "owner_id": "mechanism:external-planning"
-    },
-    {
-      "catalog": "cli",
-      "entry_id": "linear-issue-enqueue",
-      "owner_id": "mechanism:external-planning"
-    },
-    {
-      "catalog": "cli",
-      "entry_id": "linear-outbox-disposition",
-      "owner_id": "mechanism:external-planning"
-    },
-    {
-      "catalog": "cli",
-      "entry_id": "linear-outbox-drain",
-      "owner_id": "mechanism:external-planning"
-    },
-    {
-      "catalog": "cli",
-      "entry_id": "linear-unlinked-remote-in-progress",
-      "owner_id": "mechanism:external-planning"
-    },
-    {
-      "catalog": "cli",
       "entry_id": "outside-repair",
       "owner_id": "mechanism:launcher-terminal"
     },
@@ -560,11 +480,6 @@
       "catalog": "cli",
       "entry_id": "product-knowledge-source-remove",
       "owner_id": "mechanism:knowledge-index"
-    },
-    {
-      "catalog": "cli",
-      "entry_id": "product-mode-set",
-      "owner_id": "mechanism:external-planning"
     },
     {
       "catalog": "cli",
@@ -998,8 +913,8 @@
     }
   ],
   "catalog_sizes": {
-    "agent": 78,
-    "cli": 62,
+    "agent": 71,
+    "cli": 52,
     "workflow": 58
   },
   "dependency_interpretations": [
@@ -1125,7 +1040,7 @@
         },
         {
           "clause_id": "3.1 One generic log remains authoritative",
-          "content_hash": "sha256:a112ae79f74c107b28486ddf7f8784ab5120b550cb0772980218d25a6fa18ecb",
+          "content_hash": "sha256:46bee2eae2f22755dfa81256a1e6d74cb679b933a63d1136b407720811bb50e9",
           "law_id": "PM3",
           "locator": ".concord/docs/product-memory-domain-schema.md"
         }
@@ -1180,7 +1095,7 @@
         "concord_work_compact.publish",
         "concord_work_compact.reconcile",
         "concord_work_define.capture",
-        "concord_work_define.issue_adopt",
+        "concord_work_define.issue_link_record",
         "concord_work_define.observation_record",
         "concord_work_define.research_finding_record",
         "concord_work_define.research_freshness_set",
@@ -1189,13 +1104,6 @@
         "concord_work_define.research_revision_append",
         "concord_work_define.research_source_record",
         "concord_work_define.revise_intent",
-        "concord_work_initiative.add_entry",
-        "concord_work_initiative.change_requiredness",
-        "concord_work_initiative.create",
-        "concord_work_initiative.entries",
-        "concord_work_initiative.remove_entry",
-        "concord_work_initiative.reorder_entry",
-        "concord_work_initiative.revise_narrative",
         "concord_work_relate.client_policy_grant_request",
         "concord_work_relate.link",
         "concord_work_relate.message_send",
@@ -1350,7 +1258,7 @@
       ],
       "dependency_interpretations_to": [],
       "domain_id": "agent-surface",
-      "mapped_count": 426,
+      "mapped_count": 424,
       "mechanism_owner_ids": [
         "mechanism:adapter-transport",
         "mechanism:agent-tools",
@@ -1548,7 +1456,7 @@
             },
             {
               "clause_id": "1. Decision",
-              "content_hash": "sha256:155208a3eb0a7a6391fc99a3a95c5b63de8e9ec63bd964043cf60e91c098cfce",
+              "content_hash": "sha256:3567463aebcd065e6919b4d5f2f3d0a5b1e84db20e4ce3fee0eda17a2bee135b",
               "law_id": "TS4",
               "locator": ".concord/docs/agent-mutation-tool-contract.md"
             },
@@ -2207,7 +2115,7 @@
         ]
       },
       "purpose": "Owns the typed agent plane: the read and mutation tool surface, its budget and evolution constraints, call context, lanes and worker dispatch, the adapter transport contract, and the agent result envelope.",
-      "test_count": 274,
+      "test_count": 272,
       "test_packages": [
         "github.com/sharper-flow/concord/internal/agent",
         "github.com/sharper-flow/concord/internal/store"
@@ -2322,9 +2230,8 @@
         "internal/agent/fixtures_test.go",
         "internal/agent/generated_contract_boundaries_test.go",
         "internal/agent/host_approval_timestamp_test.go",
-        "internal/agent/initiative_cross_product_approval_test.go",
-        "internal/agent/initiative_entries_marshal_test.go",
         "internal/agent/invoke_boundary_test.go",
+        "internal/agent/issue_link_record_test.go",
         "internal/agent/knowledge_kinds_enum_test.go",
         "internal/agent/knowledge_q9_federated_wire_test.go",
         "internal/agent/knowledge_status_projection_test.go",
@@ -2333,7 +2240,6 @@
         "internal/agent/lifecycle_completion_evidence_test.go",
         "internal/agent/lifecycle_enum_test.go",
         "internal/agent/lifecycle_evidence_bound_test.go",
-        "internal/agent/linear_issue_adopt_test.go",
         "internal/agent/mutation_dispatch_test.go",
         "internal/agent/mutation_input_schema_test.go",
         "internal/agent/mutation_replay_durability_test.go",
@@ -2601,7 +2507,7 @@
         }
       ],
       "domain_id": "durable-authority",
-      "mapped_count": 68,
+      "mapped_count": 71,
       "mechanism_owner_ids": [
         "mechanism:durable-store"
       ],
@@ -2651,7 +2557,7 @@
             },
             {
               "clause_id": "3.1 One generic log remains authoritative",
-              "content_hash": "sha256:a112ae79f74c107b28486ddf7f8784ab5120b550cb0772980218d25a6fa18ecb",
+              "content_hash": "sha256:46bee2eae2f22755dfa81256a1e6d74cb679b933a63d1136b407720811bb50e9",
               "law_id": "PM3",
               "locator": ".concord/docs/product-memory-domain-schema.md"
             }
@@ -2792,12 +2698,13 @@
           "internal/store/store_test.go",
           "internal/store/worktree_claim_incarnation_migration_test.go",
           "internal/store/worktree_occupancy_migration105_test.go",
+          "internal/store/planning_retirement*.go",
           "contracts/durable-tier-budget.schema.json",
           "contracts/storage-vocabulary-authority*"
         ]
       },
       "purpose": "Owns the durable state envelope: the SQLite authority, the append-only event log, typed projections, migrations, fold guards, and the transactional guarantees that make an acknowledged write durable.",
-      "test_count": 45,
+      "test_count": 47,
       "test_packages": [
         "github.com/sharper-flow/concord/internal/hostlease",
         "github.com/sharper-flow/concord/internal/store"
@@ -2826,6 +2733,8 @@
         "internal/store/nil_store_test.go",
         "internal/store/open_concurrency_test.go",
         "internal/store/operation_test.go",
+        "internal/store/planning_retirement_migration_test.go",
+        "internal/store/planning_retirement_test.go",
         "internal/store/read_neighbor_test.go",
         "internal/store/readiness_test.go",
         "internal/store/rebuild_clear_list_test.go",
@@ -3008,46 +2917,6 @@
           "two_word": "product create"
         },
         {
-          "canonical": "product-mode-set",
-          "two_word": "product mode-set"
-        },
-        {
-          "canonical": "linear-health",
-          "two_word": "linear health"
-        },
-        {
-          "canonical": "linear-divergence",
-          "two_word": "linear divergence"
-        },
-        {
-          "canonical": "linear-unlinked-remote-in-progress",
-          "two_word": "linear unlinked-remote-in-progress"
-        },
-        {
-          "canonical": "linear-issue-enqueue",
-          "two_word": "linear issue-enqueue"
-        },
-        {
-          "canonical": "linear-outbox-drain",
-          "two_word": "linear outbox-drain"
-        },
-        {
-          "canonical": "linear-outbox-disposition",
-          "two_word": "linear outbox-disposition"
-        },
-        {
-          "canonical": "linear-backfill",
-          "two_word": "linear backfill"
-        },
-        {
-          "canonical": "linear-connection-update",
-          "two_word": "linear connection-update"
-        },
-        {
-          "canonical": "linear-initiative-import",
-          "two_word": "linear initiative-import"
-        },
-        {
           "canonical": "resource-create",
           "two_word": "resource create"
         },
@@ -3197,7 +3066,7 @@
       ],
       "dependency_interpretations_to": [],
       "domain_id": "operator-surface",
-      "mapped_count": 170,
+      "mapped_count": 157,
       "mechanism_owner_ids": [
         "mechanism:launcher-terminal",
         "mechanism:portfolio-view",
@@ -3526,7 +3395,7 @@
             },
             {
               "clause_id": "2. Accepted shape",
-              "content_hash": "sha256:3efde9e573dcbf1304512406c25d886eda851f0f32609f8eff4e8ed47aec475e",
+              "content_hash": "sha256:122d0451379b8f847e178826f2e9495186b53cbfed39760aa302d6ed0fc51d12",
               "law_id": "C17",
               "locator": ".concord/docs/product-coordination-view.md"
             }
@@ -3667,7 +3536,6 @@
         "github.com/sharper-flow/concord/internal/launcher",
         "github.com/sharper-flow/concord/internal/launcher/render/bubbletea",
         "github.com/sharper-flow/concord/internal/launcher/storeport",
-        "github.com/sharper-flow/concord/internal/linearclient",
         "github.com/sharper-flow/concord/internal/payloadschema",
         "github.com/sharper-flow/concord/internal/pm1fixture",
         "github.com/sharper-flow/concord/internal/portfolio",
@@ -3684,7 +3552,6 @@
         "io/fs",
         "modernc.org/sqlite",
         "net/http",
-        "net/http/httptest",
         "net/url",
         "os",
         "os/exec",
@@ -3698,7 +3565,6 @@
         "strconv",
         "strings",
         "sync",
-        "sync/atomic",
         "syscall",
         "testing",
         "time",
@@ -3721,12 +3587,6 @@
           "import_path": "github.com/sharper-flow/concord/internal/hostlease",
           "target_domain_ids": [
             "durable-authority"
-          ]
-        },
-        {
-          "import_path": "github.com/sharper-flow/concord/internal/linearclient",
-          "target_domain_ids": [
-            "work-coordination"
           ]
         },
         {
@@ -3801,7 +3661,7 @@
         ]
       },
       "purpose": "Owns the human-facing plane: the terminal launcher, the CLI verb surface and its operator diagnostics, installation and release packaging, and the navigation path an operator uses to reach Product state.",
-      "test_count": 91,
+      "test_count": 78,
       "test_packages": [
         "github.com/sharper-flow/concord/cmd/concord",
         "github.com/sharper-flow/concord/internal/launcher",
@@ -3825,18 +3685,6 @@
         "cmd/concord/launcher_bare_test.go",
         "cmd/concord/launcher_portfolio_corpus_test.go",
         "cmd/concord/launcher_work_row_long_identity_test.go",
-        "cmd/concord/linear_adopt_test.go",
-        "cmd/concord/linear_audit_comment_test.go",
-        "cmd/concord/linear_backfill_test.go",
-        "cmd/concord/linear_description_ownership_test.go",
-        "cmd/concord/linear_divergence_envelope_test.go",
-        "cmd/concord/linear_divergence_test.go",
-        "cmd/concord/linear_drain_completion_test.go",
-        "cmd/concord/linear_drain_rate_limit_test.go",
-        "cmd/concord/linear_drain_test.go",
-        "cmd/concord/linear_import_cli_test.go",
-        "cmd/concord/linear_link_refresh_rate_limit_test.go",
-        "cmd/concord/linear_link_refresh_test.go",
         "cmd/concord/main_test.go",
         "cmd/concord/maintenance_lock_interop_cli_test.go",
         "cmd/concord/outside_repair_launch_test.go",
@@ -3857,7 +3705,6 @@
         "cmd/concord/upgrade_refusal_test.go",
         "cmd/concord/work_bootstrap_test.go",
         "cmd/concord/work_resume_freshness_creation_test.go",
-        "cmd/concord/work_resume_linear_remote_test.go",
         "cmd/concord/work_resume_test.go",
         "cmd/concord/worker_cli_required_fields_test.go",
         "cmd/concord/worker_context_findings_cli_test.go",
@@ -4026,7 +3873,7 @@
         }
       ],
       "domain_id": "product-memory",
-      "mapped_count": 884,
+      "mapped_count": 890,
       "mechanism_owner_ids": [
         "mechanism:domain-registry",
         "mechanism:knowledge-index"
@@ -4517,7 +4364,7 @@
             },
             {
               "clause_id": "D2. Domain is the canonical Product-internal architectural identity",
-              "content_hash": "sha256:678d7a328749e64fdbcdad8b0b5c7d660d9cd451da8ab284707e09fe2c6bfcbb",
+              "content_hash": "sha256:1fa141e3b8c961f4ee9903635a8ae50c0303885b90e1ca6c524957654b46fad3",
               "law_id": "CD-0041",
               "locator": ".concord/docs/decisions/CD-0041-architecture-bound-product-law.md"
             }
@@ -4663,7 +4510,7 @@
           ],
           "control_law_ids": [
             "CD-0047",
-            "development-authority"
+            "managed-development-authority"
           ],
           "controls": [
             {
@@ -4681,14 +4528,9 @@
               "state": "satisfied"
             },
             {
-              "evidence": [
-                {
-                  "kind": "validator",
-                  "value": "scripts/check-predecessor-independence.py"
-                }
-              ],
-              "id": "development-authority",
-              "state": "satisfied"
+              "id": "managed-development-authority",
+              "reason": "This process-authority contract assigns planning, review, merge, and workflow authority; it adds no runtime contract.",
+              "state": "out_of_scope"
             }
           ],
           "domain_id": "repository-verification",
@@ -4701,9 +4543,9 @@
             },
             {
               "clause_id": "Contract",
-              "content_hash": "sha256:8632c35897330f36d9a17eecde1485dc0d1eff77bd3872397fcf6ea1dd2efb10",
-              "law_id": "development-authority",
-              "locator": ".concord/docs/development-authority.md"
+              "content_hash": "sha256:f10b8ab00d79994df3d2d23b70c6e9798572304abdc09d372e44465ac168ed24",
+              "law_id": "managed-development-authority",
+              "locator": ".concord/docs/managed-development-authority.md"
             }
           ],
           "owner_id": "mechanism:repo-validators",
@@ -4725,27 +4567,22 @@
             ".concord/scenarios/README.md"
           ],
           "control_law_ids": [
-            "development-authority"
+            "managed-development-authority"
           ],
           "controls": [
             {
-              "evidence": [
-                {
-                  "kind": "validator",
-                  "value": "scripts/check-predecessor-independence.py"
-                }
-              ],
-              "id": "development-authority",
-              "state": "satisfied"
+              "id": "managed-development-authority",
+              "reason": "This process-authority contract assigns planning, review, merge, and workflow authority; it adds no runtime contract.",
+              "state": "out_of_scope"
             }
           ],
           "domain_id": "repository-verification",
           "law_refs": [
             {
-              "clause_id": "Verification",
-              "content_hash": "sha256:8632c35897330f36d9a17eecde1485dc0d1eff77bd3872397fcf6ea1dd2efb10",
-              "law_id": "development-authority",
-              "locator": ".concord/docs/development-authority.md"
+              "clause_id": "Preserved boundaries",
+              "content_hash": "sha256:f10b8ab00d79994df3d2d23b70c6e9798572304abdc09d372e44465ac168ed24",
+              "law_id": "managed-development-authority",
+              "locator": ".concord/docs/managed-development-authority.md"
             }
           ],
           "owner_id": "mechanism:test-infrastructure",
@@ -4970,16 +4807,9 @@
           "concord_work_compact.publish",
           "concord_work_compact.reconcile",
           "concord_work_define.capture",
-          "concord_work_define.issue_adopt",
+          "concord_work_define.issue_link_record",
           "concord_work_define.observation_record",
           "concord_work_define.revise_intent",
-          "concord_work_initiative.add_entry",
-          "concord_work_initiative.change_requiredness",
-          "concord_work_initiative.create",
-          "concord_work_initiative.entries",
-          "concord_work_initiative.remove_entry",
-          "concord_work_initiative.reorder_entry",
-          "concord_work_initiative.revise_narrative",
           "concord_work_relate.link",
           "concord_work_relate.message_send",
           "concord_work_relate.message_withdraw",
@@ -5000,16 +4830,6 @@
           "concord_work_transition.remove"
         ],
         "cli": [
-          "linear-backfill",
-          "linear-connection-update",
-          "linear-divergence",
-          "linear-health",
-          "linear-initiative-import",
-          "linear-issue-enqueue",
-          "linear-outbox-disposition",
-          "linear-outbox-drain",
-          "linear-unlinked-remote-in-progress",
-          "product-mode-set",
           "product-project-add",
           "resource-create",
           "resource-share",
@@ -5093,9 +4913,9 @@
       ],
       "dependency_interpretations_to": [],
       "domain_id": "work-coordination",
-      "mapped_count": 80,
+      "mapped_count": 51,
       "mechanism_owner_ids": [
-        "mechanism:external-planning",
+        "mechanism:issue-identity",
         "mechanism:managed-resources",
         "mechanism:work-items"
       ],
@@ -5105,33 +4925,48 @@
             "go-test-race"
           ],
           "contract_refs": [
-            "cmd/concord/main.go"
+            "contracts/agent-tool-surface.v1.json"
           ],
           "control_law_ids": [
-            "CD-0121"
+            "CD-0213"
           ],
           "controls": [
             {
-              "id": "CD-0121",
-              "reason": "This is a process-authority amendment, not an implementation of Product-mode configuration or Linear integration. Document and knowledge checks verify its artifacts; runtime activation and routing require separately scoped capability evidence.",
-              "state": "out_of_scope"
+              "evidence": [
+                {
+                  "kind": "go_test",
+                  "value": "internal/store.TestRetiredPlanningEventsReplayWithoutInitiativeState"
+                },
+                {
+                  "kind": "go_test",
+                  "value": "internal/store.TestRetiredPlanningEventsRefuseNewAppends"
+                },
+                {
+                  "kind": "go_test",
+                  "value": "internal/agent.TestDispatchIssueLinkRecordStoresReportedIdentity"
+                },
+                {
+                  "kind": "validator",
+                  "value": "scripts/check-pr-linear-link.py"
+                }
+              ],
+              "id": "CD-0213",
+              "state": "satisfied"
             }
           ],
           "domain_id": "work-coordination",
           "law_refs": [
             {
-              "clause_id": "D1. The Product owns the planning choice",
-              "content_hash": "sha256:cf57bbb011e460b416dde48a45131d821bc112d55f8cf1706f4f54a92ac7e3bb",
-              "law_id": "CD-0121",
-              "locator": ".concord/docs/decisions/CD-0121-product-scoped-planning-authority.md"
+              "clause_id": "D3. One Linear issue identity per managed work unit",
+              "content_hash": "sha256:d0656ff02df620856036e4d6b60d26e386968329ce0f31e95b98d41431d3b14f",
+              "law_id": "CD-0213",
+              "locator": ".concord/docs/decisions/CD-0213-linear-mcp-is-the-only-planning-authority.md"
             }
           ],
-          "owner_id": "mechanism:external-planning",
-          "responsibility": "External planning integration: Linear connections and status maps, Product planning-mode selection, issue enqueue and outbox drain, initiative import, and work external-ref identity as one SQLite scalar rule.",
+          "owner_id": "mechanism:issue-identity",
+          "responsibility": "Local record-only Linear issue identity: one reported key, UUID, and URL per managed work unit, with duplicate-identity refusal and no remote API call or credential.",
           "source_paths": [
-            "internal/linearclient/client.go",
-            "internal/store/linear_identity_sqlite.go",
-            "internal/store/linear_integration.go"
+            "internal/store/linear_issue_link.go"
           ]
         },
         {
@@ -5251,7 +5086,7 @@
           "law_refs": [
             {
               "clause_id": "2.2 Allowed transitions",
-              "content_hash": "sha256:919d3d42f00aa72b0f2fab61344b202a733216b802a63811e67269b47737ba29",
+              "content_hash": "sha256:d0bfa7daf9fc493b6fc1cfd74dad34da4a90ce3a58cf9ebc4d3f8551eecc056b",
               "law_id": "PM4",
               "locator": ".concord/docs/product-memory-lifecycle-relations.md"
             },
@@ -5263,13 +5098,12 @@
             }
           ],
           "owner_id": "mechanism:work-items",
-          "responsibility": "The work item as an entity: capture and intent revision, lifecycle and closure removal, urgency, the typed relation vocabulary, memberships and scope resolution, peer messages, observations, initiatives, and governing-requirement obligations.",
+          "responsibility": "The work item as an entity: capture and intent revision, lifecycle and closure removal, urgency, the typed relation vocabulary, memberships and scope resolution, peer messages, observations, and governing-requirement obligations.",
           "source_paths": [
             "internal/store/defect_intake.go",
             "internal/store/generated_relation_vocabulary.go",
             "internal/store/generated_work_kinds.go",
             "internal/store/governing_requirements.go",
-            "internal/store/initiative.go",
             "internal/store/lifecycle.go",
             "internal/store/membership.go",
             "internal/store/scope.go",
@@ -5283,10 +5117,8 @@
       "observed_imports": [
         "bytes",
         "context",
-        "crypto/rand",
         "crypto/sha256",
         "database/sql",
-        "database/sql/driver",
         "encoding/base64",
         "encoding/hex",
         "encoding/json",
@@ -5297,7 +5129,6 @@
         "go/parser",
         "go/token",
         "io",
-        "modernc.org/sqlite",
         "net/http",
         "net/http/httptest",
         "net/url",
@@ -5311,7 +5142,6 @@
         "strconv",
         "strings",
         "sync",
-        "sync/atomic",
         "testing",
         "time",
         "unicode/utf8"
@@ -5341,7 +5171,6 @@
           "internal/store/managed_resources*.go",
           "internal/store/work_removal*.go",
           "internal/store/defect_intake*.go",
-          "internal/store/initiative*.go",
           "internal/store/observation_optional_lists_test.go",
           "internal/store/work_observation_pages_test.go",
           "internal/store/urgency_and_relation_order_test.go",
@@ -5363,7 +5192,7 @@
         ]
       },
       "purpose": "Owns the work item as an entity: its declared attributes and urgency, provenance, the typed relation vocabulary between work items, durable inter-agent resource claims, work-addressed peer messages, and non-authoritative mid-execution observations. It owns what a work item means and how work items refer to one another, not how work executes and not how it persists.",
-      "test_count": 55,
+      "test_count": 28,
       "test_packages": [
         "github.com/sharper-flow/concord/internal/linearclient",
         "github.com/sharper-flow/concord/internal/store"
@@ -5379,34 +5208,7 @@
         "internal/store/external_observation_test.go",
         "internal/store/external_ref_collision_test.go",
         "internal/store/governing_requirements_test.go",
-        "internal/store/initiative_contention_test.go",
-        "internal/store/initiative_entries_test.go",
-        "internal/store/initiative_invariants_test.go",
-        "internal/store/initiative_narrative_test.go",
-        "internal/store/initiative_position_bound_test.go",
-        "internal/store/initiative_validation_bound_test.go",
-        "internal/store/initiative_violation_projection_test.go",
         "internal/store/lifecycle_relations_test.go",
-        "internal/store/linear_adopt_test.go",
-        "internal/store/linear_audit_comment_test.go",
-        "internal/store/linear_backfill_recovery_test.go",
-        "internal/store/linear_capture_backfill_test.go",
-        "internal/store/linear_connection_migration_test.go",
-        "internal/store/linear_connection_shared_resource_test.go",
-        "internal/store/linear_cross_product_test.go",
-        "internal/store/linear_degraded_link_test.go",
-        "internal/store/linear_disposition_test.go",
-        "internal/store/linear_health_label_gaps_test.go",
-        "internal/store/linear_import_test.go",
-        "internal/store/linear_initiative_ownership_order_test.go",
-        "internal/store/linear_initiative_project_test.go",
-        "internal/store/linear_integration_test.go",
-        "internal/store/linear_label_key_refusal_test.go",
-        "internal/store/linear_link_refresh_test.go",
-        "internal/store/linear_owner_scope_test.go",
-        "internal/store/linear_phase1_test.go",
-        "internal/store/linear_priority_test.go",
-        "internal/store/linear_project_links_migration_test.go",
         "internal/store/managed_resources_read_test.go",
         "internal/store/managed_resources_test.go",
         "internal/store/membership_test.go",
@@ -5846,7 +5648,7 @@
             },
             {
               "clause_id": "2. Definition registry",
-              "content_hash": "sha256:ce2563456150bd235700cf1b22f320590be370325c9856c810059f61de13ea5e",
+              "content_hash": "sha256:57741d93e2740b8a4d8a71b09b58f0a4a38d69d1c19f1a4d3e0020b30fa016bf",
               "law_id": "workflow-engine-contract",
               "locator": ".concord/docs/workflow-engine-contract.md"
             }
@@ -6317,6 +6119,7 @@
     ".concord/docs/decisions/CD-0210-outside-repair-route-narrows-CD-0183-D-4.md": "product-memory",
     ".concord/docs/decisions/CD-0211-defect-intake-classifies-recurrence-before-fix.md": "product-memory",
     ".concord/docs/decisions/CD-0212-reclaim-gates-the-live-head-and-records-retained-refs.md": "product-memory",
+    ".concord/docs/decisions/CD-0213-linear-mcp-is-the-only-planning-authority.md": "product-memory",
     ".concord/docs/decisions/CD-0215-retained-research-context.md": "product-memory",
     ".concord/docs/decisions/CD-0216-research-surface-and-explicit-retirement.md": "product-memory",
     ".concord/docs/decisions/CD-0217-publication-and-retention-boundaries.md": "product-memory",
@@ -6535,6 +6338,7 @@
     ".concord/docs/knowledge/coverage/CD-0210.json": "product-memory",
     ".concord/docs/knowledge/coverage/CD-0211.json": "product-memory",
     ".concord/docs/knowledge/coverage/CD-0212.json": "product-memory",
+    ".concord/docs/knowledge/coverage/CD-0213.json": "product-memory",
     ".concord/docs/knowledge/coverage/CD-0215.json": "product-memory",
     ".concord/docs/knowledge/coverage/CD-0216.json": "product-memory",
     ".concord/docs/knowledge/coverage/CD-0217.json": "product-memory",
@@ -6579,6 +6383,7 @@
     ".concord/docs/knowledge/coverage/lesson-stalled-record-wrong-route.json": "product-memory",
     ".concord/docs/knowledge/coverage/lesson-test-fake-models-dependency-contract.json": "product-memory",
     ".concord/docs/knowledge/coverage/lesson:byte-verify-copied-digests-before-submitting.json": "product-memory",
+    ".concord/docs/knowledge/coverage/managed-development-authority.json": "product-memory",
     ".concord/docs/knowledge/coverage/market-landscape.json": "product-memory",
     ".concord/docs/knowledge/coverage/predecessor-migration-runbook.json": "product-memory",
     ".concord/docs/knowledge/coverage/predecessor-operational-coverage.json": "product-memory",
@@ -6796,6 +6601,7 @@
     ".concord/docs/knowledge/records/CD-0210.json": "product-memory",
     ".concord/docs/knowledge/records/CD-0211.json": "product-memory",
     ".concord/docs/knowledge/records/CD-0212.json": "product-memory",
+    ".concord/docs/knowledge/records/CD-0213.json": "product-memory",
     ".concord/docs/knowledge/records/CD-0215.json": "product-memory",
     ".concord/docs/knowledge/records/CD-0216.json": "product-memory",
     ".concord/docs/knowledge/records/CD-0217.json": "product-memory",
@@ -6840,6 +6646,7 @@
     ".concord/docs/knowledge/records/lesson-stalled-record-wrong-route.json": "product-memory",
     ".concord/docs/knowledge/records/lesson-test-fake-models-dependency-contract.json": "product-memory",
     ".concord/docs/knowledge/records/lesson:byte-verify-copied-digests-before-submitting.json": "product-memory",
+    ".concord/docs/knowledge/records/managed-development-authority.json": "product-memory",
     ".concord/docs/knowledge/records/market-landscape.json": "product-memory",
     ".concord/docs/knowledge/records/predecessor-migration-runbook.json": "product-memory",
     ".concord/docs/knowledge/records/predecessor-operational-coverage.json": "product-memory",
@@ -6862,6 +6669,7 @@
     ".concord/docs/lessons/2026-09-29-pick-a-required-evidence-kind-the-recorder-can-a.md": "product-memory",
     ".concord/docs/lessons/2026-09-30-drive-a-live-workflow-to-complete-keep-the-cance.md": "product-memory",
     ".concord/docs/lessons/2026-10-01-a-recurring-defect-shape-needs-root-cause-analys.md": "product-memory",
+    ".concord/docs/managed-development-authority.md": "product-memory",
     ".concord/docs/managed-resource-inventory.md": "product-memory",
     ".concord/docs/market-landscape.md": "product-memory",
     ".concord/docs/maturity-readiness.beta.v1.json": "product-memory",
@@ -7117,18 +6925,6 @@
     "cmd/concord/launcher_bare_test.go": "operator-surface",
     "cmd/concord/launcher_portfolio_corpus_test.go": "operator-surface",
     "cmd/concord/launcher_work_row_long_identity_test.go": "operator-surface",
-    "cmd/concord/linear_adopt_test.go": "operator-surface",
-    "cmd/concord/linear_audit_comment_test.go": "operator-surface",
-    "cmd/concord/linear_backfill_test.go": "operator-surface",
-    "cmd/concord/linear_description_ownership_test.go": "operator-surface",
-    "cmd/concord/linear_divergence_envelope_test.go": "operator-surface",
-    "cmd/concord/linear_divergence_test.go": "operator-surface",
-    "cmd/concord/linear_drain_completion_test.go": "operator-surface",
-    "cmd/concord/linear_drain_rate_limit_test.go": "operator-surface",
-    "cmd/concord/linear_drain_test.go": "operator-surface",
-    "cmd/concord/linear_import_cli_test.go": "operator-surface",
-    "cmd/concord/linear_link_refresh_rate_limit_test.go": "operator-surface",
-    "cmd/concord/linear_link_refresh_test.go": "operator-surface",
     "cmd/concord/main.go": "operator-surface",
     "cmd/concord/main_test.go": "operator-surface",
     "cmd/concord/maintenance_lock_interop_cli_test.go": "operator-surface",
@@ -7162,7 +6958,6 @@
     "cmd/concord/work_bootstrap_test.go": "operator-surface",
     "cmd/concord/work_resume.go": "operator-surface",
     "cmd/concord/work_resume_freshness_creation_test.go": "operator-surface",
-    "cmd/concord/work_resume_linear_remote_test.go": "operator-surface",
     "cmd/concord/work_resume_test.go": "operator-surface",
     "cmd/concord/worker_cli_required_fields_test.go": "operator-surface",
     "cmd/concord/worker_context_findings_cli_test.go": "operator-surface",
@@ -7290,9 +7085,8 @@
     "internal/agent/generated_contracts.go": "agent-surface",
     "internal/agent/generated_envelope_schema.go": "agent-surface",
     "internal/agent/host_approval_timestamp_test.go": "agent-surface",
-    "internal/agent/initiative_cross_product_approval_test.go": "agent-surface",
-    "internal/agent/initiative_entries_marshal_test.go": "agent-surface",
     "internal/agent/invoke_boundary_test.go": "agent-surface",
+    "internal/agent/issue_link_record_test.go": "agent-surface",
     "internal/agent/knowledge_kinds_enum_test.go": "agent-surface",
     "internal/agent/knowledge_q9_federated_wire_test.go": "agent-surface",
     "internal/agent/knowledge_status_projection_test.go": "agent-surface",
@@ -7301,7 +7095,6 @@
     "internal/agent/lifecycle_completion_evidence_test.go": "agent-surface",
     "internal/agent/lifecycle_enum_test.go": "agent-surface",
     "internal/agent/lifecycle_evidence_bound_test.go": "agent-surface",
-    "internal/agent/linear_issue_adopt_test.go": "agent-surface",
     "internal/agent/mutation_dispatch_test.go": "agent-surface",
     "internal/agent/mutation_input_schema_test.go": "agent-surface",
     "internal/agent/mutation_replay_durability_test.go": "agent-surface",
@@ -7560,14 +7353,6 @@
     "internal/store/home_pair_binding.go": "product-memory",
     "internal/store/home_pair_binding_test.go": "product-memory",
     "internal/store/inflight_evolution_test.go": "workflow-engine",
-    "internal/store/initiative.go": "work-coordination",
-    "internal/store/initiative_contention_test.go": "work-coordination",
-    "internal/store/initiative_entries_test.go": "work-coordination",
-    "internal/store/initiative_invariants_test.go": "work-coordination",
-    "internal/store/initiative_narrative_test.go": "work-coordination",
-    "internal/store/initiative_position_bound_test.go": "work-coordination",
-    "internal/store/initiative_validation_bound_test.go": "work-coordination",
-    "internal/store/initiative_violation_projection_test.go": "work-coordination",
     "internal/store/knowledge_body_bench_test.go": "product-memory",
     "internal/store/knowledge_constitution_migration_test.go": "product-memory",
     "internal/store/knowledge_constitution_projection_test.go": "product-memory",
@@ -7611,28 +7396,7 @@
     "internal/store/lesson_publish_test.go": "product-memory",
     "internal/store/lifecycle.go": "work-coordination",
     "internal/store/lifecycle_relations_test.go": "work-coordination",
-    "internal/store/linear_adopt_test.go": "work-coordination",
-    "internal/store/linear_audit_comment_test.go": "work-coordination",
-    "internal/store/linear_backfill_recovery_test.go": "work-coordination",
-    "internal/store/linear_capture_backfill_test.go": "work-coordination",
-    "internal/store/linear_connection_migration_test.go": "work-coordination",
-    "internal/store/linear_connection_shared_resource_test.go": "work-coordination",
-    "internal/store/linear_cross_product_test.go": "work-coordination",
-    "internal/store/linear_degraded_link_test.go": "work-coordination",
-    "internal/store/linear_disposition_test.go": "work-coordination",
-    "internal/store/linear_health_label_gaps_test.go": "work-coordination",
-    "internal/store/linear_identity_sqlite.go": "work-coordination",
-    "internal/store/linear_import_test.go": "work-coordination",
-    "internal/store/linear_initiative_ownership_order_test.go": "work-coordination",
-    "internal/store/linear_initiative_project_test.go": "work-coordination",
-    "internal/store/linear_integration.go": "work-coordination",
-    "internal/store/linear_integration_test.go": "work-coordination",
-    "internal/store/linear_label_key_refusal_test.go": "work-coordination",
-    "internal/store/linear_link_refresh_test.go": "work-coordination",
-    "internal/store/linear_owner_scope_test.go": "work-coordination",
-    "internal/store/linear_phase1_test.go": "work-coordination",
-    "internal/store/linear_priority_test.go": "work-coordination",
-    "internal/store/linear_project_links_migration_test.go": "work-coordination",
+    "internal/store/linear_issue_link.go": "work-coordination",
     "internal/store/managed_resources.go": "work-coordination",
     "internal/store/managed_resources_read.go": "work-coordination",
     "internal/store/managed_resources_read_test.go": "work-coordination",
@@ -7665,6 +7429,9 @@
     "internal/store/outside_repair_review_test.go": "workflow-engine",
     "internal/store/outside_repair_schema_parity_test.go": "agent-surface",
     "internal/store/outside_repair_test.go": "workflow-engine",
+    "internal/store/planning_retirement.go": "durable-authority",
+    "internal/store/planning_retirement_migration_test.go": "durable-authority",
+    "internal/store/planning_retirement_test.go": "durable-authority",
     "internal/store/pm8_pm9_absence_test.go": "agent-surface",
     "internal/store/predecessor_conflict_read_test.go": "operator-surface",
     "internal/store/predecessor_import.go": "operator-surface",
@@ -8119,7 +7886,7 @@
     "skills/README.md": "agent-surface",
     "workflows/README.md": "workflow-engine"
   },
-  "mapped_count": 2022,
+  "mapped_count": 1987,
   "mechanisms": [
     {
       "check_ids": [
@@ -8310,7 +8077,7 @@
         },
         {
           "clause_id": "1. Decision",
-          "content_hash": "sha256:155208a3eb0a7a6391fc99a3a95c5b63de8e9ec63bd964043cf60e91c098cfce",
+          "content_hash": "sha256:3567463aebcd065e6919b4d5f2f3d0a5b1e84db20e4ce3fee0eda17a2bee135b",
           "law_id": "TS4",
           "locator": ".concord/docs/agent-mutation-tool-contract.md"
         },
@@ -8449,7 +8216,7 @@
         },
         {
           "clause_id": "3.1 One generic log remains authoritative",
-          "content_hash": "sha256:a112ae79f74c107b28486ddf7f8784ab5120b550cb0772980218d25a6fa18ecb",
+          "content_hash": "sha256:46bee2eae2f22755dfa81256a1e6d74cb679b933a63d1136b407720811bb50e9",
           "law_id": "PM3",
           "locator": ".concord/docs/product-memory-domain-schema.md"
         }
@@ -8473,33 +8240,48 @@
         "go-test-race"
       ],
       "contract_refs": [
-        "cmd/concord/main.go"
+        "contracts/agent-tool-surface.v1.json"
       ],
       "control_law_ids": [
-        "CD-0121"
+        "CD-0213"
       ],
       "controls": [
         {
-          "id": "CD-0121",
-          "reason": "This is a process-authority amendment, not an implementation of Product-mode configuration or Linear integration. Document and knowledge checks verify its artifacts; runtime activation and routing require separately scoped capability evidence.",
-          "state": "out_of_scope"
+          "evidence": [
+            {
+              "kind": "go_test",
+              "value": "internal/store.TestRetiredPlanningEventsReplayWithoutInitiativeState"
+            },
+            {
+              "kind": "go_test",
+              "value": "internal/store.TestRetiredPlanningEventsRefuseNewAppends"
+            },
+            {
+              "kind": "go_test",
+              "value": "internal/agent.TestDispatchIssueLinkRecordStoresReportedIdentity"
+            },
+            {
+              "kind": "validator",
+              "value": "scripts/check-pr-linear-link.py"
+            }
+          ],
+          "id": "CD-0213",
+          "state": "satisfied"
         }
       ],
       "domain_id": "work-coordination",
       "law_refs": [
         {
-          "clause_id": "D1. The Product owns the planning choice",
-          "content_hash": "sha256:cf57bbb011e460b416dde48a45131d821bc112d55f8cf1706f4f54a92ac7e3bb",
-          "law_id": "CD-0121",
-          "locator": ".concord/docs/decisions/CD-0121-product-scoped-planning-authority.md"
+          "clause_id": "D3. One Linear issue identity per managed work unit",
+          "content_hash": "sha256:d0656ff02df620856036e4d6b60d26e386968329ce0f31e95b98d41431d3b14f",
+          "law_id": "CD-0213",
+          "locator": ".concord/docs/decisions/CD-0213-linear-mcp-is-the-only-planning-authority.md"
         }
       ],
-      "owner_id": "mechanism:external-planning",
-      "responsibility": "External planning integration: Linear connections and status maps, Product planning-mode selection, issue enqueue and outbox drain, initiative import, and work external-ref identity as one SQLite scalar rule.",
+      "owner_id": "mechanism:issue-identity",
+      "responsibility": "Local record-only Linear issue identity: one reported key, UUID, and URL per managed work unit, with duplicate-identity refusal and no remote API call or credential.",
       "source_paths": [
-        "internal/linearclient/client.go",
-        "internal/store/linear_identity_sqlite.go",
-        "internal/store/linear_integration.go"
+        "internal/store/linear_issue_link.go"
       ]
     },
     {
@@ -8932,7 +8714,7 @@
         },
         {
           "clause_id": "2. Accepted shape",
-          "content_hash": "sha256:3efde9e573dcbf1304512406c25d886eda851f0f32609f8eff4e8ed47aec475e",
+          "content_hash": "sha256:122d0451379b8f847e178826f2e9495186b53cbfed39760aa302d6ed0fc51d12",
           "law_id": "C17",
           "locator": ".concord/docs/product-coordination-view.md"
         }
@@ -9058,7 +8840,7 @@
       ],
       "control_law_ids": [
         "CD-0047",
-        "development-authority"
+        "managed-development-authority"
       ],
       "controls": [
         {
@@ -9076,14 +8858,9 @@
           "state": "satisfied"
         },
         {
-          "evidence": [
-            {
-              "kind": "validator",
-              "value": "scripts/check-predecessor-independence.py"
-            }
-          ],
-          "id": "development-authority",
-          "state": "satisfied"
+          "id": "managed-development-authority",
+          "reason": "This process-authority contract assigns planning, review, merge, and workflow authority; it adds no runtime contract.",
+          "state": "out_of_scope"
         }
       ],
       "domain_id": "repository-verification",
@@ -9096,9 +8873,9 @@
         },
         {
           "clause_id": "Contract",
-          "content_hash": "sha256:8632c35897330f36d9a17eecde1485dc0d1eff77bd3872397fcf6ea1dd2efb10",
-          "law_id": "development-authority",
-          "locator": ".concord/docs/development-authority.md"
+          "content_hash": "sha256:f10b8ab00d79994df3d2d23b70c6e9798572304abdc09d372e44465ac168ed24",
+          "law_id": "managed-development-authority",
+          "locator": ".concord/docs/managed-development-authority.md"
         }
       ],
       "owner_id": "mechanism:repo-validators",
@@ -9252,7 +9029,7 @@
         },
         {
           "clause_id": "D2. Domain is the canonical Product-internal architectural identity",
-          "content_hash": "sha256:678d7a328749e64fdbcdad8b0b5c7d660d9cd451da8ab284707e09fe2c6bfcbb",
+          "content_hash": "sha256:1fa141e3b8c961f4ee9903635a8ae50c0303885b90e1ca6c524957654b46fad3",
           "law_id": "CD-0041",
           "locator": ".concord/docs/decisions/CD-0041-architecture-bound-product-law.md"
         }
@@ -9276,27 +9053,22 @@
         ".concord/scenarios/README.md"
       ],
       "control_law_ids": [
-        "development-authority"
+        "managed-development-authority"
       ],
       "controls": [
         {
-          "evidence": [
-            {
-              "kind": "validator",
-              "value": "scripts/check-predecessor-independence.py"
-            }
-          ],
-          "id": "development-authority",
-          "state": "satisfied"
+          "id": "managed-development-authority",
+          "reason": "This process-authority contract assigns planning, review, merge, and workflow authority; it adds no runtime contract.",
+          "state": "out_of_scope"
         }
       ],
       "domain_id": "repository-verification",
       "law_refs": [
         {
-          "clause_id": "Verification",
-          "content_hash": "sha256:8632c35897330f36d9a17eecde1485dc0d1eff77bd3872397fcf6ea1dd2efb10",
-          "law_id": "development-authority",
-          "locator": ".concord/docs/development-authority.md"
+          "clause_id": "Preserved boundaries",
+          "content_hash": "sha256:f10b8ab00d79994df3d2d23b70c6e9798572304abdc09d372e44465ac168ed24",
+          "law_id": "managed-development-authority",
+          "locator": ".concord/docs/managed-development-authority.md"
         }
       ],
       "owner_id": "mechanism:test-infrastructure",
@@ -9377,7 +9149,7 @@
       "law_refs": [
         {
           "clause_id": "2.2 Allowed transitions",
-          "content_hash": "sha256:919d3d42f00aa72b0f2fab61344b202a733216b802a63811e67269b47737ba29",
+          "content_hash": "sha256:d0bfa7daf9fc493b6fc1cfd74dad34da4a90ce3a58cf9ebc4d3f8551eecc056b",
           "law_id": "PM4",
           "locator": ".concord/docs/product-memory-lifecycle-relations.md"
         },
@@ -9389,13 +9161,12 @@
         }
       ],
       "owner_id": "mechanism:work-items",
-      "responsibility": "The work item as an entity: capture and intent revision, lifecycle and closure removal, urgency, the typed relation vocabulary, memberships and scope resolution, peer messages, observations, initiatives, and governing-requirement obligations.",
+      "responsibility": "The work item as an entity: capture and intent revision, lifecycle and closure removal, urgency, the typed relation vocabulary, memberships and scope resolution, peer messages, observations, and governing-requirement obligations.",
       "source_paths": [
         "internal/store/defect_intake.go",
         "internal/store/generated_relation_vocabulary.go",
         "internal/store/generated_work_kinds.go",
         "internal/store/governing_requirements.go",
-        "internal/store/initiative.go",
         "internal/store/lifecycle.go",
         "internal/store/membership.go",
         "internal/store/scope.go",
@@ -9898,7 +9669,7 @@
         },
         {
           "clause_id": "2. Definition registry",
-          "content_hash": "sha256:ce2563456150bd235700cf1b22f320590be370325c9856c810059f61de13ea5e",
+          "content_hash": "sha256:57741d93e2740b8a4d8a71b09b58f0a4a38d69d1c19f1a4d3e0020b30fa016bf",
           "law_id": "workflow-engine-contract",
           "locator": ".concord/docs/workflow-engine-contract.md"
         }

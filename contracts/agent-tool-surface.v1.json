@@ -3,7 +3,7 @@
   "schema_version": "1.0",
   "surface": {
     "name": "concord-agent-tool-surface",
-    "tool_count": 10
+    "tool_count": 9
   },
   "envelope": {
     "schema_version": "1.0",
@@ -81,20 +81,7 @@
         "concord_work_define.research_freshness_set",
         "concord_work_define.research_retire",
         "concord_work_define.observation_record",
-        "concord_work_define.issue_adopt"
-      ]
-    },
-    {
-      "id": "concord_work_initiative",
-      "description": "Create and coordinate Product-scoped Initiatives.",
-      "operations": [
-        "concord_work_initiative.create",
-        "concord_work_initiative.add_entry",
-        "concord_work_initiative.remove_entry",
-        "concord_work_initiative.reorder_entry",
-        "concord_work_initiative.change_requiredness",
-        "concord_work_initiative.revise_narrative",
-        "concord_work_initiative.entries"
+        "concord_work_define.issue_link_record"
       ]
     },
     {
@@ -834,11 +821,11 @@
       "supported_budget_seconds": 300
     },
     {
-      "id": "concord_work_define.issue_adopt",
+      "id": "concord_work_define.issue_link_record",
       "tool": "concord_work_define",
       "kind": "mutation",
       "query_id": null,
-      "input_schema": "#/schemas/work_define_issue_adopt_input",
+      "input_schema": "#/schemas/work_define_issue_link_record_input",
       "result_schema": "#/schemas/mutation_result",
       "capability": "work_define",
       "consequence": "intent",
@@ -846,153 +833,6 @@
       "metadata": {
         "context": "ambient",
         "idempotency": "required",
-        "pagination": "none",
-        "output_bytes": 51200,
-        "versions": [
-          "1.0"
-        ]
-      },
-      "supported_budget_seconds": 300
-    },
-    {
-      "id": "concord_work_initiative.create",
-      "tool": "concord_work_initiative",
-      "kind": "mutation",
-      "query_id": null,
-      "input_schema": "#/schemas/initiative_create_input",
-      "result_schema": "#/schemas/mutation_result",
-      "capability": "work_initiative",
-      "consequence": "intent",
-      "approval": "none",
-      "metadata": {
-        "context": "explicit",
-        "idempotency": "required",
-        "pagination": "none",
-        "output_bytes": 51200,
-        "versions": [
-          "1.0"
-        ]
-      },
-      "supported_budget_seconds": 300
-    },
-    {
-      "id": "concord_work_initiative.add_entry",
-      "tool": "concord_work_initiative",
-      "kind": "mutation",
-      "query_id": null,
-      "input_schema": "#/schemas/initiative_add_entry_input",
-      "result_schema": "#/schemas/mutation_result",
-      "capability": "work_initiative",
-      "consequence": "relation",
-      "approval": "none",
-      "metadata": {
-        "context": "explicit",
-        "idempotency": "required",
-        "pagination": "none",
-        "output_bytes": 51200,
-        "versions": [
-          "1.0"
-        ]
-      },
-      "supported_budget_seconds": 300
-    },
-    {
-      "id": "concord_work_initiative.remove_entry",
-      "tool": "concord_work_initiative",
-      "kind": "mutation",
-      "query_id": null,
-      "input_schema": "#/schemas/initiative_remove_entry_input",
-      "result_schema": "#/schemas/mutation_result",
-      "capability": "work_initiative",
-      "consequence": "relation",
-      "approval": "none",
-      "metadata": {
-        "context": "explicit",
-        "idempotency": "required",
-        "pagination": "none",
-        "output_bytes": 51200,
-        "versions": [
-          "1.0"
-        ]
-      },
-      "supported_budget_seconds": 300
-    },
-    {
-      "id": "concord_work_initiative.reorder_entry",
-      "tool": "concord_work_initiative",
-      "kind": "mutation",
-      "query_id": null,
-      "input_schema": "#/schemas/initiative_reorder_entry_input",
-      "result_schema": "#/schemas/mutation_result",
-      "capability": "work_initiative",
-      "consequence": "relation",
-      "approval": "none",
-      "metadata": {
-        "context": "explicit",
-        "idempotency": "required",
-        "pagination": "none",
-        "output_bytes": 51200,
-        "versions": [
-          "1.0"
-        ]
-      },
-      "supported_budget_seconds": 300
-    },
-    {
-      "id": "concord_work_initiative.change_requiredness",
-      "tool": "concord_work_initiative",
-      "kind": "mutation",
-      "query_id": null,
-      "input_schema": "#/schemas/initiative_change_requiredness_input",
-      "result_schema": "#/schemas/mutation_result",
-      "capability": "work_initiative",
-      "consequence": "relation",
-      "approval": "none",
-      "metadata": {
-        "context": "explicit",
-        "idempotency": "required",
-        "pagination": "none",
-        "output_bytes": 51200,
-        "versions": [
-          "1.0"
-        ]
-      },
-      "supported_budget_seconds": 300
-    },
-    {
-      "id": "concord_work_initiative.revise_narrative",
-      "tool": "concord_work_initiative",
-      "kind": "mutation",
-      "query_id": null,
-      "input_schema": "#/schemas/initiative_revise_narrative_input",
-      "result_schema": "#/schemas/mutation_result",
-      "capability": "work_initiative",
-      "consequence": "intent",
-      "approval": "none",
-      "metadata": {
-        "context": "explicit",
-        "idempotency": "required",
-        "pagination": "none",
-        "output_bytes": 51200,
-        "versions": [
-          "1.0"
-        ]
-      },
-      "supported_budget_seconds": 300
-    },
-    {
-      "id": "concord_work_initiative.entries",
-      "tool": "concord_work_initiative",
-      "kind": "read",
-      "query_id": "C21.InitiativeEntries",
-      "input_schema": "#/schemas/initiative_entries_input",
-      "result_schema": "#/schemas/initiative_entries_result",
-      "capability": "product_read",
-      "consequence": "read",
-      "approval": "none",
-      "metadata": {
-        "context": "explicit",
-        "idempotency": "request_id",
         "pagination": "none",
         "output_bytes": 51200,
         "versions": [
@@ -1878,38 +1718,6 @@
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/external_observation_page",
       "closed": true
     },
-    "initiative_add_entry_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/initiative_add_entry_input",
-      "closed": true
-    },
-    "initiative_change_requiredness_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/initiative_change_requiredness_input",
-      "closed": true
-    },
-    "initiative_create_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/initiative_create_input",
-      "closed": true
-    },
-    "initiative_entries_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/initiative_entries_input",
-      "closed": true
-    },
-    "initiative_entries_result": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/initiative_entries_result",
-      "closed": true
-    },
-    "initiative_remove_entry_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/initiative_remove_entry_input",
-      "closed": true
-    },
-    "initiative_reorder_entry_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/initiative_reorder_entry_input",
-      "closed": true
-    },
-    "initiative_revise_narrative_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/initiative_revise_narrative_input",
-      "closed": true
-    },
     "knowledge_page": {
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/knowledge_page",
       "closed": true
@@ -2034,8 +1842,8 @@
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_define_capture_input",
       "closed": true
     },
-    "work_define_issue_adopt_input": {
-      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_define_issue_adopt_input",
+    "work_define_issue_link_record_input": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/work_define_issue_link_record_input",
       "closed": true
     },
     "work_define_observation_record_input": {
@@ -2281,7 +2089,6 @@
     "research",
     "work_compact",
     "work_define",
-    "work_initiative",
     "work_relate",
     "work_transition"
   ],
@@ -2323,6 +2130,6 @@
       "digest"
     ]
   },
-  "payload_digest": "sha256:263efe30e4d02754440315e908ea3a0a926f770eb9c1c6e0b3f7735d20f77baf",
-  "digest": "sha256:4dc1d12d748bb9cb6f516afc573258e4d1462d5afe8ec34e2b8e1a11836f86c2"
+  "payload_digest": "sha256:9ecd8700c3ff83e6baa05cd8cca8f90609912f7995e7fdd36e1ebf7e5a7f0fe4",
+  "digest": "sha256:de1cb48a597bfebbf04082549302b4f8de4d267b0b53a39490b9442e01ed8653"
 }

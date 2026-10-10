@@ -1,0 +1,5 @@
+{
+  "id": "managed-development-authority",
+  "reason": "This process-authority contract assigns planning, review, merge, and workflow authority; it adds no runtime contract.",
+  "state": "out_of_scope"
+}

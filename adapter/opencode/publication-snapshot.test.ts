@@ -1,6 +1,6 @@
 import { test, expect } from "bun:test"
 import { contractOperations, workflowActionPublicVariants } from "./generated-contracts"
-import { expandedPublishedRequestSchema } from "./generated-contract-tests"
+import { expandedPublishedRequestSchema, PINNED_PUBLISHED_TOTAL_BYTES } from "./generated-contract-tests"
 import { ciWatchTool, publishCiWatchDefinition } from "./ci-watch"
 
 const adapter = await import("./concord")
@@ -20,11 +20,8 @@ const tools = [...new Set(contractOperations.map((operation: any) => operation.t
 
 const publishedBytes = (tool: string): number => Buffer.byteLength(JSON.stringify(adapter.publishedRequestSchema(tool)), "utf8")
 
-// The pinned total is the sum of every request tool's compact published
-// UTF-8 byte size on the reviewed surface, including the typed
-// outside-repair operations. Update it only through a reviewed size change.
-// The figure counts schema bytes, not tokens.
-const PINNED_PUBLISHED_TOTAL_BYTES = 141775
+// scripts/generate-agent-contracts.py measures the production request
+// documents and emits the reviewed byte pin with the contract test data.
 
 test("publication is repeatable: two publications are byte-identical", () => {
   for (const tool of tools) {
@@ -106,12 +103,11 @@ test("published byte sizes are pinned in UTF-8 bytes", () => {
   }
 })
 
-// The registered surface is twelve tools, not the ten-document request
-// metric above: the ten request tools publish through the production
-// definition hook (definitions hoisted to the final argument root), and the
-// two flat tools keep their own hooks. Both identified populations must stay
-// below the serving budget (CON-812).
-test("all twelve registered parameter schemas stay below the serving budget", async () => {
+// Registered request tools publish through the production definition hook,
+// with definitions hoisted to the argument root. Work start and CI watch
+// keep their own hooks. Both identified populations must stay below the
+// serving budget (CON-812).
+test("all registered parameter schemas stay below the serving budget", async () => {
   const registered = new Map<string, number>()
   for (const tool of tools) {
     const output = { description: "", parameters: {}, jsonSchema: undefined as unknown }

@@ -65,13 +65,11 @@ func TestReadWorkPinUsesOneTransactionAndDeclaredStepActions(t *testing.T) {
 	}
 }
 
-func TestReadWorkPinIncludesConfirmedLinearIssueKeyInTheSameTransaction(t *testing.T) {
+func TestReadWorkPinIncludesRecordedLinearIssueKeyInTheSameTransaction(t *testing.T) {
 	s := openTemp(t)
 	continuityTestWorkflow(t, s, "workpin-linear")
-	for _, state := range []string{LinearLinkUnpublished, LinearLinkPending, LinearLinkConfirmed} {
-		if err := s.RecordLinearLink(context.Background(), "workpin-linear", "remote-1", "CON-42", "https://linear.app/example/issue/CON-42", "", "", state); err != nil {
-			t.Fatalf("RecordLinearLink(%s) error = %v", state, err)
-		}
+	if _, err := s.RecordLinearIssueLink(context.Background(), LinearIssueLink{WorkID: "workpin-linear", RemoteIssueUUID: "remote-1", HumanKey: "CON-42", URL: "https://linear.app/example/issue/CON-42"}); err != nil {
+		t.Fatalf("RecordLinearIssueLink error = %v", err)
 	}
 
 	pin, err := ReadWorkPin(context.Background(), s, "workpin-linear")
@@ -79,7 +77,7 @@ func TestReadWorkPinIncludesConfirmedLinearIssueKeyInTheSameTransaction(t *testi
 		t.Fatal(err)
 	}
 	if pin.Title == "" || pin.LinearIssueKey != "CON-42" {
-		t.Fatalf("pin=%+v, want title and confirmed Linear key", pin)
+		t.Fatalf("pin=%+v, want title and recorded Linear key", pin)
 	}
 }
 

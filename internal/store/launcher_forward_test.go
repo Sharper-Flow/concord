@@ -83,12 +83,8 @@ func seedForwardingFixture(t *testing.T) *Store {
 		{"fz-work-1", "fz-issue-1", "FZ-1"},
 		{"fz-work-2", "fz-issue-2", "FZ-2"},
 	} {
-		// A new link starts pending and moves to confirmed, as the CLI
-		// fixture does.
-		for _, state := range []string{LinearLinkPending, LinearLinkConfirmed} {
-			if err := s.RecordLinearLink(ctx, link.work, link.issue, link.key, "https://linear.app/example/issue/"+link.key, "", "", state); err != nil {
-				t.Fatal(err)
-			}
+		if _, err := s.RecordLinearIssueLink(ctx, LinearIssueLink{WorkID: link.work, RemoteIssueUUID: link.issue, HumanKey: link.key, URL: "https://linear.app/example/issue/" + link.key}); err != nil {
+			t.Fatal(err)
 		}
 	}
 	return s

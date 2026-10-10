@@ -7,7 +7,7 @@ File accountability does not change a document's law home or a handler's semanti
 ## Responsibility
 Owns the durable state envelope: the SQLite authority, the append-only event log, typed projections, migrations, fold guards, and the transactional guarantees that make an acknowledged write durable.
 
-Mapped files: 68; tests: 45; unresolved candidates: 0.
+Mapped files: 71; tests: 47; unresolved candidates: 0.
 Candidate counts overlap when a file has several candidates; no candidate is an assigned owner.
 
 ## Code and tests
@@ -20,7 +20,7 @@ Full paths, unresolved reasons, and shared-test coverage: `.concord/navigation/i
 - Include: `internal/store/constraint_classification_test.go`, `internal/store/contention_budget*_test.go`, `internal/store/events*_test.go`, `internal/store/errors_effect_test.go`, `internal/store/version_conflict*_test.go`
 - Include: `internal/store/clock_test.go`, `internal/store/nil_store_test.go`, `internal/store/read_neighbor_test.go`, `internal/store/rebuild_clear_list_test.go`, `internal/store/rebuild_msg_test.go`
 - Include: `internal/store/operation_test.go`, `internal/store/schema_test.go`, `internal/store/store_test.go`, `internal/store/worktree_claim_incarnation_migration_test.go`, `internal/store/worktree_occupancy_migration105_test.go`
-- Include: `contracts/durable-tier-budget.schema.json`, `contracts/storage-vocabulary-authority*`
+- Include: `internal/store/planning_retirement*.go`, `contracts/durable-tier-budget.schema.json`, `contracts/storage-vocabulary-authority*`
 Explicit rules win over directory defaults; named legacy gaps remain unresolved.
 - Default include: `internal/store/**`
 - Default exclude: `internal/store/**/*_test.go`

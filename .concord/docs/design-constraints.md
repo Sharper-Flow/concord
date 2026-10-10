@@ -175,7 +175,7 @@ default. Ownership and architecture are recorded facts, not active integrations.
 The Product Git knowledge home owns shared Domain identity, hierarchy, and
 architecture relations; SQLite projects that law and owns local
 Domain→Project/resource attachments. Domains are never derived from tags, paths,
-or Initiative membership. See
+or external planning membership. See
 [`product-data-model.md`](./product-data-model.md) and
 [`capability-placement.md`](./capability-placement.md).
 

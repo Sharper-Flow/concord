@@ -1007,7 +1007,7 @@ func runDurableMixedScenario(ctx context.Context, s *Store, worker int) WorkerRe
 			return result
 		}
 		started = time.Now()
-		_, err = ReadResearchPack(ctx, s, durableMixedResearchPackID, 100)
+		_, err = s.ReadResearchPack(ctx, ResearchReadRequest{PackID: durableMixedResearchPackID, Limit: 100})
 		if !appendMixedSample(&result, mixedSampleProfileRead, started, nil, err) {
 			return result
 		}
@@ -1096,7 +1096,7 @@ func verifyDurableMixedEffects(t *testing.T, ctx context.Context, s *Store, work
 			return fmt.Errorf("durable_mixed worker %d newest attempt epoch = %d, want %d", worker, got, completion.AttemptEpoch)
 		}
 	}
-	pack, err := ReadResearchPack(ctx, s, durableMixedResearchPackID, 100)
+	pack, err := s.ReadResearchPack(ctx, ResearchReadRequest{PackID: durableMixedResearchPackID, Limit: 100})
 	if err != nil {
 		return fmt.Errorf("durable_mixed probe pack read: %w", err)
 	}

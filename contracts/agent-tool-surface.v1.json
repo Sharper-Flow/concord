@@ -532,7 +532,7 @@
       "kind": "read",
       "query_id": "PM1.Q11",
       "input_schema": "#/schemas/work_trace_research_input",
-      "result_schema": "#/schemas/research_pack",
+      "result_schema": "#/schemas/research_read_result",
       "capability": "product_read",
       "consequence": "read",
       "approval": "none",
@@ -1774,6 +1774,10 @@
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/research_pack",
       "closed": true
     },
+    "research_read_result": {
+      "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/research_read_result",
+      "closed": true
+    },
     "resource_claims_page": {
       "ref": "contracts/agent-tool-surface-payloads.schema.json#/$defs/resource_claims_page",
       "closed": true
@@ -2130,6 +2134,6 @@
       "digest"
     ]
   },
-  "payload_digest": "sha256:f69f2ee6ce168ca9dd8a0c09870b933b6148fc7973ceae91c0440ad7933d6f03",
-  "digest": "sha256:17950d52e8130faa60990b19478ad9c7473a6de7afe18247fb350e0e06853efe"
+  "payload_digest": "sha256:0c7fe28bc954b7bf2a40633614e75294b5fa8f9138e182d60c285c7021062383",
+  "digest": "sha256:f1a3d62d27cac92800c2ced109fe6b6621af2105efb24550fd3a626c5808c0a9"
 }

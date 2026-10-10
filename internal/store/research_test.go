@@ -84,14 +84,14 @@ func TestActiveResearchRevisionAndIdempotencyBoundary(t *testing.T) {
 	if err := BindResearchFindingSource(ctx, s, ResearchFindingSourceRequest{Identity: researchIdentity("finding-source"), PackID: pack.PackID, Revision: 2, ExpectedVersion: 4, FindingID: "f1", SourceID: "s1"}); err != nil {
 		t.Fatal(err)
 	}
-	complete, err := GetResearchPack(ctx, s, pack.PackID, 1000)
+	complete, err := s.ReadResearchPack(ctx, ResearchReadRequest{PackID: pack.PackID, Limit: 1000})
 	if err != nil || len(complete.Revisions) != 2 || len(complete.Revisions[1].Sources) != 1 || len(complete.Revisions[1].Findings) != 1 || len(complete.Revisions[1].Findings[0].SourceIDs) != 1 {
 		t.Fatalf("complete research pack = %+v, %v", complete, err)
 	}
 	if err := RebuildFromLog(ctx, s); err != nil {
 		t.Fatal(err)
 	}
-	retained, err := GetResearchPack(ctx, s, pack.PackID, 1000)
+	retained, err := s.ReadResearchPack(ctx, ResearchReadRequest{PackID: pack.PackID, Limit: 1000})
 	if err != nil || len(retained.Revisions) != 2 {
 		t.Fatalf("research pack was not preserved across projection rebuild: %+v, %v", retained, err)
 	}
@@ -263,7 +263,7 @@ func TestActiveResearchPersistsAcrossCloseAndReopen(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer reopened.Close()
-	pack, err := GetResearchPack(ctx, reopened, "persist-pack", 1000)
+	pack, err := reopened.ReadResearchPack(ctx, ResearchReadRequest{PackID: "persist-pack", Limit: 1000})
 	if err != nil || len(pack.Revisions) != 1 || pack.OwnerWorkID != "owner" {
 		t.Fatalf("reopened pack=%+v err=%v", pack, err)
 	}
@@ -284,7 +284,7 @@ func TestResearchConsumersPinDifferentRevisions(t *testing.T) {
 	if _, err := BindResearchConsumer(ctx, s, BindResearchConsumerRequest{Identity: researchIdentity("pin-b"), PackID: pack.PackID, Revision: 2, ExpectedVersion: 3, Consumer: ResearchConsumer{ConsumerWorkID: "consumer-b", UseRole: UseDesignInput, Required: true}}); err != nil {
 		t.Fatal(err)
 	}
-	got, err := GetResearchPack(ctx, s, pack.PackID, 1000)
+	got, err := s.ReadResearchPack(ctx, ResearchReadRequest{PackID: pack.PackID, Limit: 1000})
 	if err != nil || len(got.Consumers) != 2 || got.Consumers[0].Revision == got.Consumers[1].Revision {
 		t.Fatalf("pinned consumers=%+v err=%v", got.Consumers, err)
 	}
@@ -308,7 +308,7 @@ func TestResearchPruneKeepsCurrentAndConsumedRevisions(t *testing.T) {
 	if count, err := PruneResearchRevisions(ctx, s, ResearchPackMutationRequest{Identity: researchIdentity("prune-operation"), PackID: pack.PackID, ExpectedVersion: 4}); err != nil || count != 1 {
 		t.Fatalf("prune count=%d err=%v", count, err)
 	}
-	got, err := GetResearchPack(ctx, s, pack.PackID, 1000)
+	got, err := s.ReadResearchPack(ctx, ResearchReadRequest{PackID: pack.PackID, Limit: 1000})
 	if err != nil || len(got.Revisions) != 2 || got.Revisions[0].Revision != 1 || got.Revisions[1].Revision != 3 {
 		t.Fatalf("pruned revisions=%+v err=%v", got.Revisions, err)
 	}
@@ -364,7 +364,7 @@ func TestRetainedOwnerContentIsReadOnlyExceptFreshness(t *testing.T) {
 	if _, err := UnbindResearchConsumer(ctx, s, UnbindResearchConsumerRequest{Identity: researchIdentity("retained-unbind"), PackID: pack.PackID, Revision: 1, ExpectedVersion: 3, ConsumerWorkID: "consumer"}); err != nil {
 		t.Fatalf("retained pack refused a pin release: %v", err)
 	}
-	got, err := GetResearchPack(ctx, s, pack.PackID, 1000)
+	got, err := s.ReadResearchPack(ctx, ResearchReadRequest{PackID: pack.PackID, Limit: 1000})
 	if err != nil || len(got.Revisions) != 1 || got.Revisions[0].Freshness != ResearchStale || len(got.Consumers) != 0 {
 		t.Fatalf("retained pack after read-only proofs=%+v err=%v", got, err)
 	}
@@ -377,7 +377,7 @@ func TestTerminalUnlinkedPackRemainsReadable(t *testing.T) {
 	seedResearchWork(t, s, "owner", "other")
 	pack := createSimplePack(t, s, "unlinked-terminal", "owner")
 	terminalizeResearchOwner(t, s, "owner")
-	if got, err := GetResearchPack(ctx, s, pack.PackID, 1000); err != nil || got.PackID != pack.PackID {
+	if got, err := s.ReadResearchPack(ctx, ResearchReadRequest{PackID: pack.PackID, Limit: 1000}); err != nil || got.PackID != pack.PackID {
 		t.Fatalf("unlinked terminal pack=%+v err=%v", got, err)
 	}
 	other := createSimplePack(t, s, "unrelated-active", "other")
@@ -393,7 +393,7 @@ func TestResearchRetentionLinkedReadDoesNotDelete(t *testing.T) {
 	pack := createSimplePack(t, s, "retained-linked-read", "owner")
 	terminalizeResearchOwner(t, s, "owner")
 	linkArchivedResearchOwner(t, s, "owner")
-	if got, err := GetResearchPack(ctx, s, pack.PackID, 1000); err != nil || got.PackID != pack.PackID {
+	if got, err := s.ReadResearchPack(ctx, ResearchReadRequest{PackID: pack.PackID, Limit: 1000}); err != nil || got.PackID != pack.PackID {
 		t.Fatalf("read deleted retained research: pack=%+v err=%v", got, err)
 	}
 }
@@ -537,7 +537,7 @@ func TestRetainedPackSurvivesProjectionRebuild(t *testing.T) {
 	if err := RebuildFromLog(ctx, s); err != nil {
 		t.Fatal(err)
 	}
-	got, err := GetResearchPack(ctx, s, pack.PackID, 1000)
+	got, err := s.ReadResearchPack(ctx, ResearchReadRequest{PackID: pack.PackID, Limit: 1000})
 	if err != nil || len(got.Revisions) != 1 || len(got.Consumers) != 1 {
 		t.Fatalf("rebuilt retained pack=%+v err=%v", got, err)
 	}
@@ -565,7 +565,7 @@ func TestRetainedPackSurvivesCloseAndReopen(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer reopened.Close()
-	got, err := GetResearchPack(ctx, reopened, pack.PackID, 1000)
+	got, err := reopened.ReadResearchPack(ctx, ResearchReadRequest{PackID: pack.PackID, Limit: 1000})
 	if err != nil || len(got.Revisions) != 1 || len(got.Consumers) != 1 || got.OwnerWorkID != "owner" {
 		t.Fatalf("reopened retained pack=%+v err=%v", got, err)
 	}
@@ -785,7 +785,7 @@ func TestPublishCompactionLinkRetainsResearchWithRequiredConsumer(t *testing.T) 
 	if countRows(t, s, "active_research_packs") != 1 || countRows(t, s, "active_research_consumers") != 1 {
 		t.Fatal("publication destroyed retained research")
 	}
-	if got, err := GetResearchPack(context.Background(), s, pack.PackID, 1000); err != nil || got.PackID != pack.PackID {
+	if got, err := s.ReadResearchPack(context.Background(), ResearchReadRequest{PackID: pack.PackID, Limit: 1000}); err != nil || got.PackID != pack.PackID {
 		t.Fatalf("retained pack unreadable after publication: %+v err=%v", got, err)
 	}
 }
@@ -812,7 +812,7 @@ func TestCompactionFoldAcceptsRequiredConsumer(t *testing.T) {
 	if countRows(t, s, "active_research_packs") != 1 || countRows(t, s, "active_research_consumers") != 1 {
 		t.Fatalf("fold destroyed retained research: packs=%d consumers=%d", countRows(t, s, "active_research_packs"), countRows(t, s, "active_research_consumers"))
 	}
-	if _, err := GetResearchPack(ctx, s, pack.PackID, 1000); err != nil {
+	if _, err := s.ReadResearchPack(ctx, ResearchReadRequest{PackID: pack.PackID, Limit: 1000}); err != nil {
 		t.Fatalf("retained pack unreadable after fold: %v", err)
 	}
 }
@@ -856,7 +856,7 @@ func TestProofBackedCompactionRetainsResearchAndNeverStoresBody(t *testing.T) {
 			t.Fatalf("%s lost rows after proof-backed compaction", table)
 		}
 	}
-	if got, err := GetResearchPack(ctx, s, pack.PackID, 1000); err != nil || len(got.Revisions) != 2 {
+	if got, err := s.ReadResearchPack(ctx, ResearchReadRequest{PackID: pack.PackID, Limit: 1000}); err != nil || len(got.Revisions) != 2 {
 		t.Fatalf("retained pack after publication=%+v err=%v", got, err)
 	}
 	var bodyEvents, bodySummary int
@@ -946,7 +946,7 @@ func TestResearchFindingSourceReadRejectsGlobalOverflow(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if _, err := ReadResearchPack(ctx, s, pack.PackID, 2); err == nil {
+	if _, err := s.ReadResearchPack(ctx, ResearchReadRequest{PackID: pack.PackID, Limit: 2}); err == nil {
 		t.Fatal("bounded research read silently truncated finding-source links")
 	} else {
 		assertFailureKind(t, err, KindInvalidOperation)
@@ -1068,7 +1068,7 @@ func TestAppendRevisionCarriesContentForward(t *testing.T) {
 		if _, err := AppendResearchRevision(ctx, s, AppendResearchRevisionRequest{Identity: researchIdentity("append-same"), PackID: pack.PackID, ExpectedVersion: 3, Revision: sameBrief}); err != nil {
 			t.Fatal(err)
 		}
-		got, err := GetResearchPack(ctx, s, pack.PackID, 1000)
+		got, err := s.ReadResearchPack(ctx, ResearchReadRequest{PackID: pack.PackID, Limit: 1000})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1095,7 +1095,7 @@ func TestAppendRevisionCarriesContentForward(t *testing.T) {
 		if _, err := AppendResearchRevision(ctx, s, AppendResearchRevisionRequest{Identity: researchIdentity("append-restated"), PackID: pack.PackID, ExpectedVersion: 3, Revision: restated}); err != nil {
 			t.Fatal(err)
 		}
-		got, err := GetResearchPack(ctx, s, pack.PackID, 1000)
+		got, err := s.ReadResearchPack(ctx, ResearchReadRequest{PackID: pack.PackID, Limit: 1000})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1126,7 +1126,7 @@ func TestAppendRevisionCarriesContentForward(t *testing.T) {
 		if _, err := AppendResearchRevision(ctx, s, AppendResearchRevisionRequest{Identity: researchIdentity("append-after-bind"), PackID: pack.PackID, ExpectedVersion: 4, Revision: restated}); err != nil {
 			t.Fatal(err)
 		}
-		got, err := GetResearchPack(ctx, s, pack.PackID, 1000)
+		got, err := s.ReadResearchPack(ctx, ResearchReadRequest{PackID: pack.PackID, Limit: 1000})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1170,7 +1170,7 @@ func TestResearchFindingScopesAreValidatedReadBackAndCopied(t *testing.T) {
 	if _, err := AppendResearchRevision(ctx, s, AppendResearchRevisionRequest{Identity: researchIdentity("scope-append"), PackID: pack.PackID, ExpectedVersion: 2, Revision: ResearchRevisionInput{Question: "q", ScopeIn: json.RawMessage(`[]`), ScopeOut: json.RawMessage(`[]`), DoneWhen: json.RawMessage(`[]`), Method: "m"}}); err != nil {
 		t.Fatal(err)
 	}
-	got, err := GetResearchPack(ctx, s, pack.PackID, 1000)
+	got, err := s.ReadResearchPack(ctx, ResearchReadRequest{PackID: pack.PackID, Limit: 1000})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1185,7 +1185,7 @@ func TestResearchFindingScopesAreValidatedReadBackAndCopied(t *testing.T) {
 	if _, err := s.UpdateResearchFinding(ctx, ResearchFindingRequest{Identity: researchIdentity("scope-home-update"), PackID: pack.PackID, Revision: 2, ExpectedVersion: 3, Finding: ResearchFinding{FindingID: "f1", Kind: FindingObservation, Statement: "scoped", Confidence: ConfidenceHigh, Freshness: ResearchCurrent, Status: FindingActive, Scopes: ResearchScopes{Mode: "home"}}}); err != nil {
 		t.Fatal(err)
 	}
-	updated, err := GetResearchPack(ctx, s, pack.PackID, 1000)
+	updated, err := s.ReadResearchPack(ctx, ResearchReadRequest{PackID: pack.PackID, Limit: 1000})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1246,7 +1246,7 @@ func TestResearchSourceProvenanceSurvivesReopenAndConsumption(t *testing.T) {
 	defer reopened.Close()
 	readSource := func() ResearchSource {
 		t.Helper()
-		got, err := GetResearchPack(ctx, reopened, pack.PackID, 1000)
+		got, err := reopened.ReadResearchPack(ctx, ResearchReadRequest{PackID: pack.PackID, Limit: 1000})
 		if err != nil || len(got.Revisions) != 1 || len(got.Revisions[0].Sources) != 1 || len(got.Revisions[0].Findings) != 1 {
 			t.Fatalf("reopened pack=%+v err=%v, want one revision with one source and one finding", got, err)
 		}

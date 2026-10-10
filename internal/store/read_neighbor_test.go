@@ -517,16 +517,18 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 			return nil
 		}},
 
-		// Research reads (canonical entry points only; aliases are deferred
-		// to CON-816 slice 2).
-		{name: "ReadResearchPack", run: func() error { _, err := ReadResearchPack(ctx, s, pack.PackID, 100); return err }},
+		// Research reads use the canonical pack reader and owner descriptor page.
+		{name: "ReadResearchPack", run: func() error {
+			_, err := s.ReadResearchPack(ctx, ResearchReadRequest{PackID: pack.PackID, Limit: 100})
+			return err
+		}},
 		{name: "ResearchPacksByOwner", run: func() error {
-			packs, err := ResearchPacksByOwner(ctx, s, "neighbor-research", 100)
+			page, err := s.ResearchPacksByOwner(ctx, "neighbor-research", 100, "")
 			if err != nil {
 				return err
 			}
-			if len(packs) != 1 {
-				return fmt.Errorf("packs=%d, want 1", len(packs))
+			if len(page.Packs) != 1 {
+				return fmt.Errorf("packs=%d, want 1", len(page.Packs))
 			}
 			return nil
 		}},

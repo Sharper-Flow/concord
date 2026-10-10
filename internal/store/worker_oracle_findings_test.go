@@ -1537,6 +1537,57 @@ func TestOwnerOracleReplay(t *testing.T) {
 // surface explicitly — never truncating — while the supersession route and
 // the stop route stay usable, and the context read refuses past the view
 // bound instead of dropping blockers.
+func TestOwnerOracleReceiptViewRecoversAfterContractSupersession(t *testing.T) {
+	s, git, _ := worktreeFixture(t)
+	claimFixtureWorktree(t, s, git)
+	ctx := context.Background()
+	appendEvent := func(id string, kind string, payload any) {
+		t.Helper()
+		raw, err := json.Marshal(payload)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := s.Transact(ctx, func(tx *Transaction) error {
+			_, err := tx.tx.ExecContext(ctx, `INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,'work_item','work-w','actor:fixture','2026-10-10T00:00:00Z',6,?)`, id, kind, string(raw))
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Ledger fixtures isolate projection lifetime. Native producer and terminal
+	// admission tests separately establish receipt execution and authority.
+	receipt := WorkerOracleReceipt{ControlIDs: []string{"control:immutable"}, CaseIDs: []string{"case:immutable"}, Result: OracleReceiptResultNotRun}
+	for i := range oracleRetainedReceiptsMax + 1 {
+		appendEvent("receipt-history-"+itoa(i), WorkerCompleted, WorkerCompletedPayload{Evidence: []WorkerReportEvidence{{OracleReceipt: &receipt}}})
+	}
+	if _, err := readWorkContextView(ctx, s.db, "work-w"); err == nil || !strings.Contains(err.Error(), "above the 64 view bound") {
+		t.Fatalf("over-bound receipt view = %v, want an explicit refusal", err)
+	}
+	appendEvent("receipt-contract-supersession", WorkflowContractSuperseded, map[string]any{})
+	lineage, err := readWorkerOracleFindingLineageTx(ctx, s.db, "work-w")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(lineage.retainedReceipts) != 0 {
+		t.Fatalf("superseded receipt view holds %d receipts, want 0", len(lineage.retainedReceipts))
+	}
+	if _, err := readWorkContextView(ctx, s.db, "work-w"); err != nil {
+		t.Fatalf("context remains stranded after contract supersession: %v", err)
+	}
+	appendEvent("receipt-successor-report", WorkerCompleted, WorkerCompletedPayload{Evidence: []WorkerReportEvidence{{OracleReceipt: &receipt}}})
+	lineage, err = readWorkerOracleFindingLineageTx(ctx, s.db, "work-w")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(lineage.retainedReceipts) != 1 {
+		t.Fatalf("successor receipt view holds %d receipts, want 1", len(lineage.retainedReceipts))
+	}
+	var retained int
+	if err := s.db.QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id='work-w' AND event_id LIKE 'receipt-history-%'`).Scan(&retained); err != nil || retained != oracleRetainedReceiptsMax+1 {
+		t.Fatalf("supersession changed immutable receipt history: %d %v", retained, err)
+	}
+}
+
 func TestOwnerOracleRecovery(t *testing.T) {
 	t.Parallel()
 	const workID = "owner-oracle-recovery"

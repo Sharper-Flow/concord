@@ -397,8 +397,13 @@ func TestDistinctReleasedCoresCoexistOnOneStore(t *testing.T) {
 		if err := json.Unmarshal([]byte(out), &upgrade); err != nil {
 			t.Fatal(err)
 		}
-		if upgrade.SchemaVersion != store.CurrentSchemaVersion() || len(upgrade.Applied) != 7 || upgrade.Applied[0] != 117 || upgrade.Applied[1] != 118 || upgrade.Applied[2] != 119 || upgrade.Applied[3] != 120 || upgrade.Applied[4] != 121 || upgrade.Applied[5] != 122 || upgrade.Applied[6] != 123 {
-			t.Fatalf("the candidate must commit the actual breaking tail: %+v", upgrade)
+		if upgrade.SchemaVersion != store.CurrentSchemaVersion() || len(upgrade.Applied) != store.CurrentSchemaVersion()-compatiblePairSchema {
+			t.Fatalf("the candidate must commit the complete pending tail: %+v", upgrade)
+		}
+		for i, applied := range upgrade.Applied {
+			if applied != compatiblePairSchema+i+1 {
+				t.Fatalf("the candidate must apply every pending step in order: %+v", upgrade)
+			}
 		}
 		readiness, err := store.PlanUpgradeReadiness(context.Background(), path)
 		if err != nil || readiness.CompatibilityFloor != 123 || len(readiness.PendingBreaking) != 0 || readiness.ActivationBlocked {

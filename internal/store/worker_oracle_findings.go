@@ -638,6 +638,9 @@ func readWorkerOracleFindingLineageExcludingTx(ctx context.Context, q queryer, w
 		case string(WorkflowContractSuperseded):
 			// Explicit contract supersession closes every open finding:
 			// the approved acceptance that minted them is gone.
+			// Its receipts remain in the immutable log, not in the successor's
+			// active context or closure evidence.
+			receipts = nil
 			for _, id := range lineage.openOrder {
 				if finding := lineage.findings[id]; finding != nil && !finding.Closed {
 					finding.Closed = true

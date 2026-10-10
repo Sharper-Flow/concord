@@ -742,7 +742,7 @@ func readWorkContextView(ctx context.Context, q queryer, workID string) (*WorkCo
 	// selection above.
 	projectWorkerOracleOpenFindings(lineage, addFinding)
 	if len(lineage.retainedReceipts) > oracleRetainedReceiptsMax {
-		return nil, oracleFindingFailure(KindLimitExceeded, fmt.Sprintf("the work retains %d oracle receipts above the %d view bound; the read refuses instead of truncating", len(lineage.retainedReceipts), oracleRetainedReceiptsMax), "close or supersede findings so old receipts stop projecting")
+		return nil, oracleFindingFailure(KindLimitExceeded, fmt.Sprintf("the work retains %d oracle receipts above the %d view bound; the read refuses instead of truncating", len(lineage.retainedReceipts), oracleRetainedReceiptsMax), "supersede the active contract through its approved recovery route or stop the work; predecessor receipts remain in the event log")
 	}
 	if len(lineage.retainedReceipts) > 0 {
 		view.OracleReceipts = lineage.retainedReceipts

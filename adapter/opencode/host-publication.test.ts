@@ -1,6 +1,6 @@
 import { test, expect, mock } from "bun:test"
 import { contractOperations, workflowActionPublicVariants } from "./generated-contracts"
-import { advertisedAdmissionTeachingGaps } from "./generated-contract-tests"
+import { advertisedAdmissionTeachingGaps, expandedPublishedRequestSchema } from "./generated-contract-tests"
 import { validateAgainstSchema } from "./dispatch"
 
 const fakeTool = (config: unknown) => config
@@ -8,10 +8,14 @@ mock.module("@opencode-ai/plugin", () => ({ tool: fakeTool }))
 
 const adapter = await import("./concord")
 
-// workflow_action publishes one closed branch per registry action variant.
-// Select by the action_id const, never by list position.
-function actionInputBranch(schema: any, actionId: string): any {
-  const branch = schema.oneOf.find(
+// workflow_action publishes its action variants grouped under one operation
+// branch; the expanded view restores one closed branch per action. Select by
+// the action_id const, never by list position.
+function actionInputBranch(published: any, actionId: string): any {
+  const direct = published.oneOf.find((candidate: any) => candidate.properties.operation.const === "workflow_action" && candidate.properties.input.properties?.action_id?.const === actionId)
+  if (direct !== undefined) return direct.properties.input
+  const expanded: any = expandedPublishedRequestSchema(published)
+  const branch = expanded.oneOf.find(
     (candidate: any) => candidate.properties.operation.const === "workflow_action"
       && candidate.properties.input.properties.action_id.const === actionId,
   )
@@ -19,38 +23,16 @@ function actionInputBranch(schema: any, actionId: string): any {
   return branch.properties.input
 }
 
-function inspectHostSchema(value: unknown, path = "$", seen = new Set<unknown>()): void {
-  if (typeof value !== "object" || value === null || seen.has(value)) return
-  seen.add(value)
-  if (Array.isArray(value)) {
-    value.forEach((item, index) => inspectHostSchema(item, `${path}[${index}]`, seen))
-    return
-  }
-  for (const [key, child] of Object.entries(value)) {
-    expect(key === "$ref", `${path} contains a reference`).toBe(false)
-    expect(key === "anyOf", `${path} contains a union`).toBe(false)
-    expect(key === "allOf", `${path} contains a union`).toBe(false)
-    expect(key === "definitions", `${path} contains definitions`).toBe(false)
-    // oneOf survives only as a bounded variant node: every branch is a
-    // self-contained closed object the host renders directly, as the
-    // outcome_payload variants do. Open or nested unions stay merged.
-    if (key === "oneOf") {
-      expect(Array.isArray(child), `${path} oneOf is a list`).toBe(true)
-      for (const [index, branch] of (child as unknown[]).entries()) {
-        expect(branch, `${path} oneOf branch ${index} is an object`).toBeObject()
-        expect((branch as Record<string, unknown>).additionalProperties, `${path} oneOf branch ${index} is closed`).toBe(false)
-      }
-    } else {
-      inspectHostSchema(child, `${path}.${key}`, seen)
-    }
-  }
+// The inspection view is a deep copy of the actual publication. Mutants edit
+// its selected branches, not a second copy returned by a subsequent traversal.
+function inlineExpanded(published: unknown): any {
+  return expandedPublishedRequestSchema(published)
 }
 
-test("published request schemas are flattened and safe for host publication", () => {
+test("published request schemas are compact and safe for host publication", () => {
   const tools = [...new Set(contractOperations.map((operation: any) => operation.tool))]
   for (const toolName of tools) {
     const schema = adapter.publishedRequestSchema(toolName) as any
-    inspectHostSchema(schema, toolName)
     expect(schema).toMatchObject({
       type: "object",
       required: ["operation", "input"],
@@ -59,32 +41,42 @@ test("published request schemas are flattened and safe for host publication", ()
         input: { type: "object" },
       },
     })
+    // The compact document is self-contained: every reference is local, and
+    // the expansion resolves the whole document or throws.
+    expect(schema.$defs, toolName).toBeObject()
+    expect(() => expandedPublishedRequestSchema(schema), toolName).not.toThrow()
+    expect(JSON.stringify(schema), toolName).not.toContain('"allOf"')
     const branches = schema.oneOf
-    // One closed branch per operation — and for workflow_action, one closed
-    // branch per registry action variant instead of a merged union — so the
-    // branch count is registry-derived, not a handwritten parity list.
+    // One compact branch per operation; the 58 action variants share the
+    // workflow_action branch's grouped input union.
     const toolOperations = contractOperations.filter((operation: any) => operation.tool === toolName)
-    const actionBranchExtra = toolOperations.some((operation: any) => operation.id === "concord_work_transition.workflow_action")
-      ? workflowActionPublicVariants.length - 1
-      : 0
-    expect(branches).toHaveLength(toolOperations.length + actionBranchExtra)
-    for (const branch of branches) {
-      expect(branch.type).toBe("object")
-      expect(branch.additionalProperties).toBe(false)
-      expect(Array.isArray(branch.required)).toBe(true)
-      expect(branch.properties.input.type).toBe("object")
-      expect(branch.properties.input.additionalProperties).toBe(false)
-    }
+    expect(branches, toolName).toHaveLength(toolOperations.length)
     expect(schema.properties.operation.enum).toEqual(
       contractOperations.filter((operation: any) => operation.tool === toolName).map((operation: any) => operation.id.split(".")[1]),
     )
+    // The legacy-effective view carries one closed branch per operation and
+    // per action variant: factoring inherits constraints, it never opens a
+    // branch.
+    const expanded: any = expandedPublishedRequestSchema(schema)
+    const actionBranchExtra = toolOperations.some((operation: any) => operation.id === "concord_work_transition.workflow_action")
+      ? workflowActionPublicVariants.length - 1
+      : 0
+    expect(expanded.oneOf, toolName).toHaveLength(toolOperations.length + actionBranchExtra)
+    for (const branch of expanded.oneOf) {
+      expect(branch.type, toolName).toBe("object")
+      expect(branch.additionalProperties, toolName).toBe(false)
+      expect(Array.isArray(branch.required), toolName).toBe(true)
+      expect(branch.properties.input.type, toolName).toBe("object")
+      expect(branch.properties.input.additionalProperties, toolName).toBe(false)
+    }
   }
 })
 
 test("published workflow transition teaches every approve_contract admission rule", () => {
   const schema = adapter.publishedRequestSchema("concord_work_transition") as any
   // The advertised schema carries all four store admission rules; the store's
-  // ValidateOperationPayload stays the closed boundary.
+  // ValidateOperationPayload stays the closed boundary. The traversal reads
+  // the compact document through the expansion helper.
   expect(advertisedAdmissionTeachingGaps(schema)).toEqual([])
   const items = actionInputBranch(schema, "approve_contract").properties.fields.properties.outcome_predicates.items
   // CON-412: each published predicate item is closed per kind — outcome_kind
@@ -99,7 +91,7 @@ test("published workflow transition teaches every approve_contract admission rul
 
   // Schema-vs-payload conformance: a canonical workflow.research
   // approve_contract payload validates against the advertised schema with
-  // zero unexplained gaps.
+  // zero unexplained gaps. The verdict runs on the raw compact document.
   const canonical = {
     operation: "workflow_action",
     input: {
@@ -143,15 +135,17 @@ test("delivery-decidable-rule: the published schema teaches it and the gap check
   expect(waitFields.expected_within_seconds.description).toContain("raised_from")
   expect(waitFields.expected_within_seconds.description).toContain("time window")
 
-  // Dropping either teaching from the published schema is a reported gap, so
-  // generation and its tests fail on drift.
-  const droppedPredicateRule = structuredClone(schema)
+  // Dropping either teaching from the published document is a reported gap,
+  // so generation and its tests fail on drift. The mutation lands on an
+  // inlined clone of the actual compact document, and the gap check walks
+  // that mutated document the same way it walks the real one.
+  const droppedPredicateRule = inlineExpanded(schema)
   delete actionInputBranch(droppedPredicateRule, "approve_contract").properties.fields.properties.outcome_predicates.description
   expect(advertisedAdmissionTeachingGaps(droppedPredicateRule)).toContain(
     "outcome_predicates description does not teach the delivery-decidable rule (CD-0184) on action approve_contract",
   )
 
-  const droppedWaitRule = structuredClone(schema)
+  const droppedWaitRule = inlineExpanded(schema)
   delete actionInputBranch(droppedWaitRule, "add_condition").properties.fields.properties.expected_within_seconds.description
   expect(advertisedAdmissionTeachingGaps(droppedWaitRule)).toContain(
     "expected_within_seconds description does not teach the delivery-decidable rule (CD-0184) on action add_condition",
@@ -159,11 +153,47 @@ test("delivery-decidable-rule: the published schema teaches it and the gap check
 
   // A description cut down to its marker phrases no longer carries the rule,
   // so it is a gap too.
-  const reducedRules = structuredClone(schema)
+  const reducedRules = inlineExpanded(schema)
   actionInputBranch(reducedRules, "approve_contract").properties.fields.properties.outcome_predicates.description = "decidable at delivery; raised_from"
   actionInputBranch(reducedRules, "add_condition").properties.fields.properties.expected_within_seconds.description = "raised_from; time window"
   expect(advertisedAdmissionTeachingGaps(reducedRules)).toEqual(expect.arrayContaining([
     "outcome_predicates description does not teach the delivery-decidable rule (CD-0184) on action approve_contract",
     "expected_within_seconds description does not teach the delivery-decidable rule (CD-0184) on action add_condition",
   ]))
+})
+
+test("the request definition hook publishes an isolated root per tool and hoists no definitions anywhere else", async () => {
+  const outputFor = async (toolID: string) => {
+    const output = { description: "kept", parameters: { kept: true } as Record<string, unknown>, jsonSchema: undefined as unknown }
+    await adapter.publishRequestDefinition({ toolID }, output)
+    return output
+  }
+  const untouched = { description: "d", parameters: {}, jsonSchema: { type: "object" } as unknown }
+  await adapter.publishRequestDefinition({ toolID: "bash" }, untouched)
+  expect(untouched.jsonSchema).toEqual({ type: "object" })
+  expect(untouched.parameters).toEqual({})
+
+  const first = await outputFor("concord_work_define")
+  const transition = await outputFor("concord_work_transition")
+  // Publication replaces the definition schema and nothing else: the host's
+  // parameters and description pass through untouched.
+  expect(first.parameters).toEqual({ kept: true })
+  expect(first.description).toBe("kept")
+  expect(transition.parameters).toEqual({ kept: true })
+
+  // Each call publishes a fresh root: mutating one publication cannot mutate
+  // the registration arguments, a later publication, or another tool's root.
+  const registration = (adapter.work_transition as any).args.request
+  const registrationSnapshot = JSON.stringify(registration)
+  const firstSnapshot = JSON.stringify(first.jsonSchema)
+  const transitionDefs = Object.keys(transition.jsonSchema.$defs).sort()
+  delete first.jsonSchema.$defs[Object.keys(first.jsonSchema.$defs)[0]]
+  expect(JSON.stringify((adapter.work_transition as any).args.request)).toBe(registrationSnapshot)
+  expect(Object.keys(transition.jsonSchema.$defs).sort()).toEqual(transitionDefs)
+  const firstAgain = await outputFor("concord_work_define")
+  expect(firstAgain.jsonSchema).not.toBe(first.jsonSchema)
+  expect(JSON.stringify(firstAgain.jsonSchema)).toBe(firstSnapshot)
+  // Each root resolves only against its own table.
+  expect(() => expandedPublishedRequestSchema(firstAgain.jsonSchema)).not.toThrow()
+  expect(() => expandedPublishedRequestSchema(transition.jsonSchema)).not.toThrow()
 })

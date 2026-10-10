@@ -154,6 +154,86 @@ func TestWorkflowSelfRepairRequiresConcordAndOperatorAuthority(t *testing.T) {
 	}
 }
 
+func TestWorkflowSelfRepairFoldAuthorityDoesNotReapplyAdmission(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	const workID = "self-repair-legacy-whitespace"
+	s, _, binding, _, _, _ := architectureValidationFixtureWithProductKey(t, workID, "concord")
+	seedProductChangingContract(t, s, workID, binding)
+	operator := seedSelfRepairOperator(t, s)
+	repair := &WorkflowSelfRepair{
+		RefusalKind: string(KindDomainOverlap), BlockedOperation: "workflow_action.\u00a0dispatch_worker",
+		EvidenceRefs: []string{"obs:\u00a0legacy"},
+	}
+	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	if err := validateWorkflowSelfRepairAuthorityTx(ctx, tx, workID, operator, repair); err != nil {
+		t.Fatalf("fold authority rejected legacy self-repair references: %v", err)
+	}
+}
+
+func TestInitialContractSelfRepairAdmissionRunsBeforeAppend(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	const workID = "initial-self-repair-admission"
+	s, _, binding, _, _, _ := architectureValidationFixtureWithProductKey(t, workID, "concord")
+	actor, version := seedProductChangingContract(t, s, workID, binding)
+	actorRef, err := WorkflowActorRef(actor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	event := workflowEventWithActor("initial-self-repair-invalid", WorkflowContractApproved, workID, actorRef, map[string]any{
+		"work_id": workID, "expected_version": version, "resulting_version": version + 1,
+		"contract_version": 2, "premise": "record the initial repair classification",
+		"outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:self-repair", "immutable_subject_ref": "commit:self-repair", "expected_result": "pass"},
+		"required_evidence": []string{}, "route_conventions": []string{}, "spec_mandate": []string{},
+		"rigor_class": "production_safety_critical", "consequence_class": "internal_sqlite",
+		"self_repair": map[string]any{"refusal_kind": string(KindDomainOverlap), "blocked_operation": "workflow_action.\u00a0dispatch_worker", "evidence_refs": []string{"obs:\u00a0legacy"}},
+	})
+	event.PayloadVersion = 4
+	before := countWorkflowSubjectEvents(t, s, workID)
+	err = applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{event}, ExpectedVersions: workVersion(workID, version)})
+	failure := &Failure{}
+	if !failureAs(err, &failure) || failure.Op != "workflow_self_repair_admission" {
+		t.Fatalf("initial self-repair admission error=%v, want pre-append admission refusal", err)
+	}
+	if after := countWorkflowSubjectEvents(t, s, workID); after != before {
+		t.Fatalf("invalid initial self-repair appended events: before=%d after=%d", before, after)
+	}
+}
+
+func TestSupersedingContractSelfRepairAdmissionRunsBeforeAppend(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	const workID = "superseding-self-repair-admission"
+	s, _, binding, _, _, _ := architectureValidationFixtureWithProductKey(t, workID, "concord")
+	_, version := seedProductChangingContract(t, s, workID, binding)
+	operator := seedSelfRepairOperator(t, s)
+	successor := selfRepairSuccessorContract(binding)
+	repair := successor["self_repair"].(WorkflowSelfRepair)
+	repair.BlockedOperation = "workflow_action.\u00a0dispatch_worker"
+	repair.EvidenceRefs = []string{"obs:\u00a0legacy"}
+	successor["self_repair"] = repair
+	event := workflowEventWithActor("superseding-self-repair-invalid", WorkflowContractSuperseded, workID, operator, map[string]any{
+		"work_id": workID, "expected_version": version, "resulting_version": version + 1,
+		"previous_contract_version": int64(1), "new_contract_version": int64(2), "supersede_reason": "preserve legacy self-repair admission",
+		"audit_evidence": []string{"obs:legacy"}, "successor_contract": successor,
+	})
+	event.PayloadVersion = 2
+	before := countWorkflowSubjectEvents(t, s, workID)
+	err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{event}, ExpectedVersions: workVersion(workID, version)})
+	failure := &Failure{}
+	if !failureAs(err, &failure) || failure.Op != "workflow_self_repair_admission" {
+		t.Fatalf("superseding self-repair admission error=%v, want pre-append admission refusal", err)
+	}
+	if after := countWorkflowSubjectEvents(t, s, workID); after != before {
+		t.Fatalf("invalid successor self-repair appended events: before=%d after=%d", before, after)
+	}
+}
+
 func selfRepairSuccessorContract(binding WorkflowArchitectureBinding) map[string]any {
 	return map[string]any{
 		"contract_version": int64(2), "premise": "repair a Concord workflow refusal", "outcome_kind": "check",

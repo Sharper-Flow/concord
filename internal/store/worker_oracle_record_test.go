@@ -47,6 +47,9 @@ func acceptanceOracleFieldsForTest(t *testing.T, s *Store, workID string) map[st
 // acceptanceOracleFieldsWithoutPreparationsForTest authors the fixture oracle
 // fields only. Routes that refuse the oracle member, or record jobs whose
 // readiness is never validated, use this variant and seed no preparation.
+// When the fixture must seed the Product's Domain registry, it seeds the
+// registry's home-pair Project locator first. Registry and root Domain rows
+// share a transaction because their deferred foreign keys reference each other.
 func acceptanceOracleFieldsWithoutPreparationsForTest(t *testing.T, s *Store, workID string) map[string]any {
 	t.Helper()
 	db := s.DatabaseForTesting()
@@ -86,17 +89,28 @@ func acceptanceOracleFieldsWithoutPreparationsForTest(t *testing.T, s *Store, wo
 	if err := db.QueryRow(`SELECT root_domain_id,content_hash FROM domain_registries WHERE product_id=?`, product).Scan(&rootDomain, &registryHash); err == sql.ErrNoRows {
 		rootDomain = "root"
 		registryHash = "sha256:" + strings.Repeat("b", 64)
-		if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+		tx, err := db.BeginTx(context.Background(), nil)
+		if err != nil {
+			t.Fatalf("begin registry seed for %s: %v", workID, err)
+		}
+		defer tx.Rollback()
+		if _, err := tx.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
 			t.Fatalf("open fold guard for %s: %v", workID, err)
 		}
-		if _, err := db.Exec(`INSERT INTO domain_registries(product_id,home_project_id,home_locator_id,product_key,root_domain_id,schema_version,content_hash,scanned_commit_oid) VALUES(?,?,'oracle-fixture-locator',?,'root','1.0',?,'test')`, product, project, product+"-key", registryHash); err != nil {
+		if _, err := tx.Exec(`INSERT OR IGNORE INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES('oracle-fixture-locator',?,'canonical_path','/fixture/oracle-registry','/fixture/oracle-registry','now','now')`, project); err != nil {
+			t.Fatalf("seed registry home locator for %s: %v", workID, err)
+		}
+		if _, err := tx.Exec(`INSERT INTO domain_registries(product_id,home_project_id,home_locator_id,product_key,root_domain_id,schema_version,content_hash,scanned_commit_oid) VALUES(?,?,'oracle-fixture-locator',?,'root','1.0',?,'test')`, product, project, product+"-key", registryHash); err != nil {
 			t.Fatalf("seed registry for %s: %v", workID, err)
 		}
-		if _, err := db.Exec(`INSERT INTO domains(home_project_id,home_locator_id,product_id,domain_id,name,purpose,status,registry_content_hash,scanned_commit_oid) VALUES(?,'oracle-fixture-locator',?,'root','Root','oracle fixture','current',?,'test')`, project, product, registryHash); err != nil {
+		if _, err := tx.Exec(`INSERT INTO domains(home_project_id,home_locator_id,product_id,domain_id,name,purpose,status,registry_content_hash,scanned_commit_oid) VALUES(?,'oracle-fixture-locator',?,'root','Root','oracle fixture','current',?,'test')`, project, product, registryHash); err != nil {
 			t.Fatalf("seed root Domain for %s: %v", workID, err)
 		}
-		if _, err := db.Exec(`DELETE FROM fold_guard`); err != nil {
+		if _, err := tx.Exec(`DELETE FROM fold_guard`); err != nil {
 			t.Fatalf("close fold guard for %s: %v", workID, err)
+		}
+		if err := tx.Commit(); err != nil {
+			t.Fatalf("commit registry seed for %s: %v", workID, err)
 		}
 	} else if err != nil {
 		t.Fatalf("read Domain registry for %s: %v", product, err)

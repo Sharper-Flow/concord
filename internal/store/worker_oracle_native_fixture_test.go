@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -85,7 +86,11 @@ func seedOraclePreparationLedgerFixture(t *testing.T, s *Store, work string, ora
 		if err := s.db.QueryRow(`SELECT path FROM worktree_entries WHERE set_id=? AND state='active' ORDER BY project_id=? DESC LIMIT 1`, WorktreeSetID(work), project).Scan(&root); err != nil {
 			t.Fatalf("preparation fixture for %s has no active claim: %v", work, err)
 		}
-		id := "fixture-prepare-" + work + "-" + strings.TrimPrefix(nativeBundleDigest(bundle), "sha256:") + "-" + subject
+		// The lease id carries the contract version: the insert folds on it,
+		// so a successor contract seeds its own preparation instead of
+		// silently keeping the predecessor's row, whose contract version the
+		// authority join would refuse.
+		id := "fixture-prepare-" + work + "-v" + strconv.FormatInt(version, 10) + "-" + strings.TrimPrefix(nativeBundleDigest(bundle), "sha256:") + "-" + subject
 		ref := worktreeVerifyOperationRef(id)
 		control.ReadinessEvidenceRefs = []string{ref}
 		testFile := control.Cwd + "/oracle_fixture_test.go"

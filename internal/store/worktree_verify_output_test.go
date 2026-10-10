@@ -138,6 +138,48 @@ func TestNativeOracleOutputReadNoIdempotency(t *testing.T) {
 	}
 }
 
+func TestNativeOracleStreamLifetime(t *testing.T) {
+	for _, owner := range []string{"lease", "work"} {
+		t.Run(owner, func(t *testing.T) {
+			s, result, _, _ := seedNativeOutputLease(t)
+			ctx := context.Background()
+			var retained int
+			if err := s.db.QueryRow(`SELECT count(*) FROM worktree_verify_leases WHERE lease_id=? AND stdout_blob IS NOT NULL AND stderr_blob IS NOT NULL`, result.LeaseID).Scan(&retained); err != nil || retained != 1 {
+				t.Fatalf("stream lifetime fixture has no retained pair: %d %v", retained, err)
+			}
+			if owner == "lease" {
+				if _, err := s.db.Exec(`DELETE FROM worktree_verify_leases WHERE lease_id=?`, result.LeaseID); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				tx, err := s.db.BeginTx(ctx, nil)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer tx.Rollback()
+				if err := enterFold(ctx, tx); err != nil {
+					t.Fatal(err)
+				}
+				if err := deleteWorkOwnedProjections(ctx, tx, result.WorkID); err != nil {
+					t.Fatal(err)
+				}
+				if err := leaveFold(ctx, tx); err != nil {
+					t.Fatal(err)
+				}
+				if err := tx.Commit(); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := s.db.QueryRow(`SELECT count(*) FROM worktree_verify_leases WHERE lease_id=?`, result.LeaseID).Scan(&retained); err != nil || retained != 0 {
+				t.Fatalf("%s deletion retained the stream lease: %d %v", owner, retained, err)
+			}
+			if _, err := s.InspectWorktree(ctx, WorktreeInspectRequest{WorkID: result.WorkID, ProjectID: result.ProjectID, Mode: "oracle_output", RunRef: result.OperationRef, Stream: "stdout", Length: 16384}); err == nil {
+				t.Fatal("deleted producer output remains readable")
+			}
+		})
+	}
+}
+
 func TestNativeOracleMigrationLegacyNulls(t *testing.T) {
 	s, _ := realGitTiersFixture(t)
 	r, err := s.VerifyWorktree(context.Background(), oracleRealVerifyRequest("legacy-null", nil))
@@ -151,8 +193,13 @@ func TestNativeOracleMigrationLegacyNulls(t *testing.T) {
 	if migration := migrations[len(migrations)-1]; !migration.Breaking || migration.FoldMaintained != "origin" {
 		t.Fatal("native migration must declare its write constraints and origin-owned columns")
 	}
-	if _, err := s.db.Exec(`UPDATE worktree_verify_leases SET stdout_blob=? WHERE lease_id=?`, bytes.Repeat([]byte{1}, nativeOracleStreamLimit+1), r.LeaseID); err == nil {
-		t.Fatal("BLOB bound is not enforced")
+	for _, column := range []string{"stdout_blob", "stderr_blob"} {
+		if _, err := s.db.Exec(`UPDATE worktree_verify_leases SET `+column+`=? WHERE lease_id=?`, bytes.Repeat([]byte{1}, nativeOracleStreamLimit), r.LeaseID); err != nil {
+			t.Fatalf("%s rejects the stream limit: %v", column, err)
+		}
+		if _, err := s.db.Exec(`UPDATE worktree_verify_leases SET `+column+`=? WHERE lease_id=?`, bytes.Repeat([]byte{1}, nativeOracleStreamLimit+1), r.LeaseID); err == nil {
+			t.Fatalf("%s byte bound is not enforced", column)
+		}
 	}
 	if _, err := s.db.Exec(`UPDATE worktree_verify_leases SET native_plan_json='{}' WHERE lease_id=?`, r.LeaseID); err == nil {
 		t.Fatal("plan pairing is not enforced")
@@ -239,8 +286,8 @@ func TestNativeOracleEnvironmentPinned(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	env := nativeControlledEnv(e, "/private/lease/cache")
-	for _, v := range []string{"GOTOOLCHAIN=local", "GOPROXY=off", "GOFLAGS=-mod=readonly", "CGO_ENABLED=0", "GOWORK=off", "GOCACHE=/private/lease/cache"} {
+	env := nativeControlledEnv(e, "/lease-cache")
+	for _, v := range []string{"GOTOOLCHAIN=local", "GOPROXY=off", "GOFLAGS=-mod=readonly", "CGO_ENABLED=0", "GOWORK=off", "GOCACHE=/lease-cache"} {
 		if !slices.Contains(env, v) {
 			t.Fatalf("pinned environment omits %s", v)
 		}

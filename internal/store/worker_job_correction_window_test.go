@@ -343,6 +343,20 @@ func appendJobBoundWorkerDispatch(t *testing.T, s *Store, workID, attemptID stri
 	})
 }
 
+// recordWorkerJobFieldsForTest records one worker-job revision whose authored
+// fields the caller owns — an unrelated rewritten objective, for example. On
+// an oracle-capable pin the recording carries the fixture oracle the
+// definition requires; the oracle-bearing revision seeds trusted preparations
+// against the work's qualified subject, and the bootstrap is idempotent.
+func recordWorkerJobFieldsForTest(t *testing.T, s *Store, workID string, actor WorkflowActor, fields map[string]any) error {
+	t.Helper()
+	if oracleCapablePinForWork(t, s, workID) {
+		bootstrapOracleFixtureSubject(t, s, workID)
+		fields["acceptance_oracle"] = acceptanceOracleFieldsForTest(t, s, workID)
+	}
+	return recordWorkerJobActionForTest(t, s, workID, actor, fields)
+}
+
 // recordWorkerJobRevisionForTest records one worker-job revision through the
 // record_worker_job action, the authoring route a coordinator uses. The core
 // derives the revision, the parent authority, and the digest; the binding is
@@ -357,14 +371,7 @@ func recordWorkerJobRevisionForTest(t *testing.T, s *Store, workID string, actor
 		"reserved_integration": "integration evidence binds at the parent effect step",
 		"ready":                true, "readiness_evidence": []string{"evidence:coordinator-ready"},
 	}
-	if oracleCapablePinForWork(t, s, workID) {
-		// The oracle-bearing revision seeds trusted preparations against the
-		// work's qualified subject; the bootstrap is idempotent and leaves an
-		// already-qualified subject untouched.
-		bootstrapOracleFixtureSubject(t, s, workID)
-		fields["acceptance_oracle"] = acceptanceOracleFieldsForTest(t, s, workID)
-	}
-	if err := recordWorkerJobActionForTest(t, s, workID, actor, fields); err != nil {
+	if err := recordWorkerJobFieldsForTest(t, s, workID, actor, fields); err != nil {
 		t.Fatalf("record worker-job %s: %v", job.JobID, err)
 	}
 	views, err := s.WorkerJobRevisions(context.Background(), workID)

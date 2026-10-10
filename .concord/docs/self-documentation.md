@@ -37,8 +37,8 @@ follows them without restating the ranked list.
 - Public predecessor evidence proved the value of bounded spec list/show/search;
   Concord redesigns that outcome as a Domain-bound, browsable surface rather than
   calling or mirroring predecessor runtime state.
-- The primary operator surface is the **Product-first terminal launcher**, not a
-  web admin panel. Any grid/table view is an optional projection.
+- The primary operator surface follows [`priorities.md`](./priorities.md).
+  Any grid/table view is an optional projection.
 - Connects to [`specs-as-laws.md`](./specs-as-laws.md): the laws are **visible**,
   not hidden. A legislator can't govern what they can't read.
 

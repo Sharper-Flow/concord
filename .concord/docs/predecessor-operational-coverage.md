@@ -109,10 +109,10 @@ Seeing the state of the portfolio without blind spots, across sessions.
 | Look up work across Projects | Covered | Q6, `internal/store/query.go` |
 | Read the typed history of one unit of work | Covered | Q7, `internal/store/query.go` |
 | Read the typed relation graph around one unit of work | Covered | Q8, `internal/store/query.go` |
-| Navigate portfolio → Product → work from a terminal surface | Covered | `internal/launcher/model.go`, `internal/launcher/render/bubbletea/` |
-| See the full Product scope from the operator surface | Excluded | Per CD-0021 D2, "across the full Product scope" means every Product is reachable from the launcher, which the S1 portfolio delivers. Result sets spanning Products stay excluded by C18 §12 anti-requirement 11 and CD-0014. |
-| Create work from the operator surface without agent authorization | Excluded | Per CD-0021 D1, the operator plans by reaching work in the launcher and opening a session that authors it. The launcher stays read-only and work creation keeps a single write authority. |
-| See which concurrent agent sessions are active and which are blocked on an operator decision | Covered | `concord_product_view.blocked_sessions` (PM1.Q12) resolves active approval challenges to session, agent, worktree, consequence, and block age (`internal/store/blocked_sessions.go`); the launcher's approval-gated focus row routes to the oldest waiting session. |
+| Navigate portfolio → Product → work from a terminal surface | Excluded | Per CD-0219, the interactive terminal browse surface retired with the launcher TUI; the operator enters work by naming it to `concord zl` or `concord session`, and no Concord surface browses portfolio → Product → work interactively. |
+| See the full Product scope from the operator surface | Excluded | Per CD-0021 D2, "across the full Product scope" means every Product is reachable from the entry route, which the store query family delivers to agent and CLI readers. Result sets spanning Products stay excluded by C18 §12 anti-requirement 11 and CD-0014. |
+| Create work from the operator surface without agent authorization | Excluded | Per CD-0021 D1, the operator plans by reaching work through the entry route and opening a session that authors it. The entry stays read-only and work creation keeps a single write authority. |
+| See which concurrent agent sessions are active and which are blocked on an operator decision | Covered | `concord_product_view.blocked_sessions` (PM1.Q12) resolves active approval challenges to session, agent, worktree, consequence, and block age (`internal/store/blocked_sessions.go`); the session entry resolves the oldest waiting session for the work it starts. |
 
 ## 3. Implementation changes
 
@@ -207,9 +207,9 @@ Territory that appears across all six and is an outcome in its own right.
 
 | State | Count |
 |---|---|
-| Covered | 60 |
+| Covered | 59 |
 | Not covered | 0 |
-| Excluded with reason | 15 |
+| Excluded with reason | 16 |
 
 **Total enumerated outcomes: 75.**
 

@@ -2,23 +2,19 @@
   "evidence": [
     {
       "kind": "go_test",
-      "value": "internal/launcher.TestLauncherAndCommandCarryNoMultiplexerKnowledge"
+      "value": "cmd/concord.TestZLForwardingReadsLeaveAuthorityUnchanged"
     },
     {
       "kind": "go_test",
-      "value": "cmd/concord.TestBareConcordOnTTYStartsLauncher"
+      "value": "cmd/concord.TestLauncherAndCommandCarryNoMultiplexerKnowledge"
     },
     {
       "kind": "go_test",
-      "value": "cmd/concord.TestBareConcordOffTTYPrintsUsageAndExits2"
+      "value": "cmd/concord.TestDefaultSessionLauncherHandsOnlyIdentityToCoreBootstrap"
     },
     {
       "kind": "go_test",
-      "value": "internal/launcher/render/bubbletea.TestNewBacklogResolvesIssueKeyOrDegradesToProjects"
-    },
-    {
-      "kind": "go_test",
-      "value": "internal/launcher/storeport.TestLauncherPortReadsPerformNoDurableWrite"
+      "value": "cmd/concord.TestZLForwardingStartsASessionThroughTheRealSessionChild"
     }
   ],
   "id": "CD-0163",

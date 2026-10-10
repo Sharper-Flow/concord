@@ -7,7 +7,6 @@
   "date": "2026-08-20T00:00:00Z",
   "doc_contract_profile": "legacy",
   "evidence": [
-    ".concord/docs/terminal-launcher-contract.md",
     "internal/store/product_row.go",
     "internal/store/domain_reads.go",
     "internal/store/launcher_query.go",
@@ -24,9 +23,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:0933313042c1621a01f6549715a1056afef6bbd893eaa639c757648d84690e44",
+  "sha256": "sha256:bb64b01fbdbd9f195669e35b0f0344c96c5bf0bf1f0fea5457f676a5d5899d00",
   "status": "accepted",
-  "summary": "S2 renders as a panel stack in the terminal-launcher contract's job order — governing Domain with overlap state, blocked and blockers, next work; collapsed panels carry store-materialized answers and their reasons; ordering stays on the stored rank and deterministic store tiers, the closed screen set and widget floor are unchanged, and the Tab key becomes panel-focus cycling.",
+  "summary": "The S2 answer-stack clauses are vacated with the retired launcher TUI under CD-0219. Store event, replay, and query contracts stand unchanged: the store materialization the record documented keeps its owning contracts, migration 109 drops the fold-maintained work_items.last_activity_at column, and updated_at keeps its versioned-write meaning.",
   "tags": [
     "launcher",
     "terminal-contract"

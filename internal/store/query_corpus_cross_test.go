@@ -21,9 +21,9 @@ func TestExtraCrossProductFixture(t *testing.T) {
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{workCreatedEvent("cross-work", "cross-work-create"), operationEvent("cross-work-project", "work_project.added", SubjectWorkItem, "cross-work", map[string]any{"work_id": "cross-work", "project_id": "cross-project", "role": "primary", "reason": "cross fixture", "expected_version": 1, "resulting_version": 2})}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "cross-work"): 0}}); err != nil {
 		t.Fatal(err)
 	}
-	scope, err := s.ProductsForWork(ctx, "cross-work")
-	if err != nil || len(scope.Products) != 2 || !scope.CrossProduct {
-		t.Fatalf("ProductsForWork = %#v, err %v", scope, err)
+	scope, err := s.ProductsForWorkIDs(ctx, []string{"cross-work"})
+	if err != nil || len(scope["cross-work"]) != 2 {
+		t.Fatalf("ProductsForWorkIDs = %v, err %v", scope["cross-work"], err)
 	}
 	result, err := s.QueryQ6(ctx, Q6Request{Work: "cross-work"})
 	if err != nil || result.Work == nil || result.Work.ID != "cross-work" {

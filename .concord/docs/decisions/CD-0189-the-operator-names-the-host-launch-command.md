@@ -70,8 +70,8 @@ through a fallback command. CD-0049 D4 admits no degraded start.
 
 The Product/work launch, the Project-path launch, and the `concord session`
 registry probe run the resolved command. One resolution per start keeps the
-probe and the launch on one host for every launching entry: the launcher TUI,
-`concord zl`, and the CD-0182 opener. The Project-path launch gains the
+probe and the launch on one host for every launching entry: `concord zl`
+and the CD-0182 opener. The Project-path launch gains the
 bootstrap probe; it carries no agent registry to check.
 
 session-prepare runs one bare probe and does not resolve the command. It

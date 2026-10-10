@@ -5,9 +5,7 @@
   "date": "2026-10-09T00:00:00Z",
   "doc_contract_profile": "current",
   "evidence": [
-    "internal/store/launcher_domains_test.go",
-    "internal/launcher/storeport/domain_evidence_test.go",
-    "internal/launcher/render/bubbletea/model_test.go",
+    "internal/store/domain_reads_test.go",
     "internal/store/domain_reads.go",
     "scripts/check-domain-registry.py",
     "scripts/test-check-domain-registry.py",
@@ -34,9 +32,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:24c6087dadde906f0bea13052be7075b28df8d60b4c1c527952ebab66fbad5f3",
+  "sha256": "sha256:c8fedf7724926bb1d392437843b545db158283e31df07aeb3e140327b99eb04e",
   "status": "accepted",
-  "summary": "Repository navigation retains the Domain graph while the launcher retains registry, law, work, and unresolved overlap without copied architecture relations. Registry participation, optional applicability, warning and strict adoption, and navigation completeness obligations remain.",
+  "summary": "Repository navigation and exact Domain-detail reads retain the Domain graph. The launcher display obligations have no subject under CD-0219. Registry participation, optional applicability, warning and strict adoption, and navigation completeness obligations remain.",
   "tags": [
     "domains",
     "knowledge",

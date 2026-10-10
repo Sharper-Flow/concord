@@ -52,12 +52,12 @@ func TestPM5MembershipScopeIsAtomicAndDerived(t *testing.T) {
 		t.Fatalf("Product membership impact event IDs = %v, want [product-a-project-a]", got)
 	}
 
-	products, err := s.ProductsForWork(ctx, "work-a")
+	scope, err := s.ProductsForWorkIDs(ctx, []string{"work-a"})
 	if err != nil {
-		t.Fatalf("ProductsForWork: %v", err)
+		t.Fatalf("ProductsForWorkIDs: %v", err)
 	}
-	if len(products.Products) != 1 || products.Products[0].ID != "product-a" || products.CrossProduct {
-		t.Fatalf("derived Product scope = %+v, want one Product and CrossProduct=false", products)
+	if len(scope["work-a"]) != 1 || scope["work-a"][0] != "product-a" {
+		t.Fatalf("derived Product scope = %v, want one Product", scope["work-a"])
 	}
 }
 
@@ -153,9 +153,9 @@ func TestPM5InvariantsPrimaryRolesAndDerivedOrdering(t *testing.T) {
 	if err != nil || len(projects) != 2 || projects[0].Role != "primary" || projects[0].ID != "project-z" || projects[1].ID != "project-a" {
 		t.Fatalf("ProjectsForProduct ordering = %+v, err=%v", projects, err)
 	}
-	products, err := s.ProductsForProject(ctx, "project-z")
-	if err != nil || len(products) != 2 || products[0].ID != "product-a" || products[1].ID != "product-b" {
-		t.Fatalf("ProductsForProject ordering = %+v, err=%v", products, err)
+	products, err := s.ProductsForProjectIDs(ctx, []string{"project-z"})
+	if err != nil || len(products["project-z"]) != 2 || products["project-z"][0] != "product-a" || products["project-z"][1] != "product-b" {
+		t.Fatalf("ProductsForProjectIDs ordering = %v, err=%v", products["project-z"], err)
 	}
 
 	if err := ApplyOperation(ctx, s, Operation{
@@ -171,9 +171,9 @@ func TestPM5InvariantsPrimaryRolesAndDerivedOrdering(t *testing.T) {
 	if err != nil || len(workProjects) != 2 || workProjects[0].Role != "primary" || workProjects[1].ID != "project-a" {
 		t.Fatalf("ProjectsForWork ordering = %+v, err=%v", workProjects, err)
 	}
-	scope, err := s.ProductsForWork(ctx, "work-1")
-	if err != nil || len(scope.Products) != 2 || !scope.CrossProduct || scope.Products[0].ID != "product-a" || scope.Products[1].ID != "product-b" {
-		t.Fatalf("ProductsForWork scope = %+v, err=%v", scope, err)
+	scope, err := s.ProductsForWorkIDs(ctx, []string{"work-1"})
+	if err != nil || len(scope["work-1"]) != 2 || scope["work-1"][0] != "product-a" || scope["work-1"][1] != "product-b" {
+		t.Fatalf("ProductsForWorkIDs scope = %v, err=%v", scope["work-1"], err)
 	}
 }
 

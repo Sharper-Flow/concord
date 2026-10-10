@@ -20,9 +20,6 @@ import (
 	"testing"
 
 	"github.com/sharper-flow/concord/internal/agent"
-	"github.com/sharper-flow/concord/internal/launcher"
-	"github.com/sharper-flow/concord/internal/launcher/render/bubbletea"
-	"github.com/sharper-flow/concord/internal/launcher/storeport"
 	"github.com/sharper-flow/concord/internal/store"
 	"github.com/sharper-flow/concord/internal/store/storetest"
 )
@@ -110,7 +107,10 @@ func TestResolveZLLinearReferenceUsesRecordedLink(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.RecordLinearIssueLink(context.Background(), store.LinearIssueLink{WorkID: "linear-work", RemoteIssueUUID: "issue-uuid", HumanKey: "CON-30", URL: "https://linear.app/example/issue/CON-30"}); err != nil {
+	if err := s.Transact(context.Background(), func(tx *store.Transaction) error {
+		_, err := store.RecordLinearIssueLinkTx(context.Background(), tx, store.LinearIssueLink{WorkID: "linear-work", RemoteIssueUUID: "issue-uuid", HumanKey: "CON-30", URL: "https://linear.app/example/issue/CON-30"})
+		return err
+	}); err != nil {
 		s.Close()
 		t.Fatal(err)
 	}
@@ -232,19 +232,6 @@ func TestHelpListsSessionVacateOperation(t *testing.T) {
 	}
 }
 
-func TestLauncherRoutesBeforeJSONAndRejectsNonTTY(t *testing.T) {
-	var out, errOut bytes.Buffer
-	if code := runWithInput([]string{"launcher"}, strings.NewReader("not json"), &out, &errOut); code != 2 {
-		t.Fatalf("launcher exit code = %d, want 2; stderr=%q", code, errOut.String())
-	}
-	if !strings.Contains(errOut.String(), "requires an interactive TTY") {
-		t.Fatalf("non-TTY diagnostic = %q", errOut.String())
-	}
-	if strings.Contains(errOut.String(), "JSON") {
-		t.Fatalf("launcher was routed through JSON handling: %q", errOut.String())
-	}
-}
-
 // freshMigratedCLIDatabase points the database override at a copy of the
 // shared migrated template and returns the path. The first in-process CLI
 // run then validates a current schema instead of replaying every migration,
@@ -262,158 +249,17 @@ func freshMigratedCLIDatabase(t *testing.T) string {
 	return path
 }
 
-func TestLauncherFirstRunRendersWithoutCreatingAuthority(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "nested", "concord.db")
-	t.Setenv(dbOverrideEnv, dbPath)
-	var out, errOut bytes.Buffer
-	if code := runLauncherCommand(nil, strings.NewReader("q"), &out, &errOut, true); code != 0 {
-		t.Fatalf("first-run launcher exit code = %d; stderr=%q", code, errOut.String())
-	}
-	if _, err := os.Stat(dbPath); !os.IsNotExist(err) {
-		t.Fatalf("first-run launcher changed authority path: stat=%v", err)
-	}
-	if _, err := os.Stat(filepath.Dir(dbPath)); !os.IsNotExist(err) {
-		t.Fatalf("first-run launcher created an authority parent: stat=%v", err)
-	}
-	firstRun, err := firstRunPort{}.Read(context.Background(), launcher.ReadRequest{Kind: launcher.ReadPortfolio})
-	if err != nil || !firstRun.FirstRun || firstRun.Coverage != "first_run" || firstRun.StatusMessage == "" {
-		t.Fatalf("first-run state = %#v, err=%v", firstRun, err)
-	}
-}
-
-func TestLauncherSessionHasNoDurableEffects(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "concord.db")
-	t.Setenv(dbOverrideEnv, dbPath)
-	s, err := store.Open(context.Background(), dbPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.CreateProductWithProject(context.Background(), store.ProductCreation{
-		ProductID: "product-1", DisplayName: "Concord", StageMaturity: "prototype",
-		StageAudienceCommitment: "operator_only", ProjectID: "project-1", ProjectDisplayName: "Core", Role: "primary",
-	}); err != nil {
-		s.Close()
-		t.Fatal(err)
-	}
-	before := launcherDurableCounts(t, s)
-	if before == nil {
-		s.Close()
-		return
-	}
-	if err := s.Close(); err != nil {
-		t.Fatal(err)
-	}
-
-	var out, errOut bytes.Buffer
-	if code := runLauncherCommand(nil, strings.NewReader("q"), &out, &errOut, true); code != 0 {
-		t.Fatalf("launcher exit code = %d; stderr=%q", code, errOut.String())
-	}
-	s, err = store.Open(context.Background(), dbPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
-	after := launcherDurableCounts(t, s)
-	if after == nil {
-		return
-	}
-	if fmt.Sprint(after) != fmt.Sprint(before) {
-		t.Fatalf("launcher changed durable state: before=%v after=%v", before, after)
-	}
-}
-
-func launcherDurableCounts(t *testing.T, s *store.Store) map[string]int {
+func durableCounts(t *testing.T, s *store.Store) map[string]int {
 	t.Helper()
 	counts := make(map[string]int)
 	for _, table := range []string{"domain_events", "agent_approvals", "agent_approval_challenges", "idempotency_records", "durable_operations"} {
 		var count int
 		if err := s.DatabaseForTesting().QueryRow("SELECT count(*) FROM " + table).Scan(&count); err != nil {
-			t.Errorf("count %s: %v", table, err)
-			return nil
+			t.Fatalf("count %s: %v", table, err)
 		}
 		counts[table] = count
 	}
 	return counts
-}
-
-// recordingPort records which read kinds a launcher session actually reached,
-// so a durability assertion cannot pass by never reading at all.
-type recordingPort struct {
-	inner launcher.ReadPort
-	kinds map[launcher.ReadKind]int
-}
-
-func (p *recordingPort) Read(ctx context.Context, request launcher.ReadRequest) (launcher.Snapshot, error) {
-	if p.kinds == nil {
-		p.kinds = map[launcher.ReadKind]int{}
-	}
-	p.kinds[request.Kind]++
-	return p.inner.Read(ctx, request)
-}
-
-func TestFullLauncherSessionAppendsNothingToTheEventLog(t *testing.T) {
-	ctx := context.Background()
-	dbPath := filepath.Join(t.TempDir(), "concord.db")
-	if code, _, diag := runPredecessorImportRequest(t, dbPath, predecessorImportRequest(t, writeSyntheticSnapshot(t))); code != 0 {
-		t.Fatalf("seed import exit=%d, want 0; stderr=%q", code, diag)
-	}
-	s := openFreshImportStore(t, dbPath)
-	defer s.Close()
-
-	before := eventLogState(t, s)
-	if before == "" {
-		t.Fatal("seeded event log is empty, so an unchanged log would prove nothing")
-	}
-	beforeCounts := launcherDurableCounts(t, s)
-	if beforeCounts == nil {
-		return
-	}
-
-	port := &recordingPort{inner: storeport.New(s)}
-	core := launcher.New(port)
-	if err := core.Enter(ctx); err != nil {
-		t.Fatalf("S1 entry: %v", err)
-	}
-	m := bubbletea.New(core, ctx, bubbletea.Profile{})
-	m.Sync()
-	if got := core.Snapshot(); len(got.Rows) == 0 {
-		t.Fatalf("seeded S1 rendered no Products, so the session reads nothing: %#v", got)
-	}
-
-	m.UpdateKey("r") // S1 explicit refresh
-	m.UpdateKey("/") // S1 local filter
-	m.UpdateKey("a")
-	m.UpdateKey("ctrl+l") // clear the filter input
-	m.UpdateKey("enter")  // submit the empty filter, leaving filter mode
-	m.UpdateKey("?")      // help toggle, twice
-	m.UpdateKey("?")
-	m.UpdateKey("enter") // S1 -> the Product work list, the composed Product read
-	if got := core.Snapshot(); got.Screen != launcher.ScreenProduct || got.AmbientProduct == "" {
-		t.Fatalf("product entry = %#v", got)
-	}
-	m.UpdateKey("r") // product explicit refresh
-	m.UpdateKey("s") // semantic query
-	m.UpdateKey("b")
-	m.UpdateKey("enter")
-	m.UpdateKey("esc") // leave the query result
-	m.UpdateKey("esc") // product -> S1
-	m.UpdateKey("r")   // S1 explicit refresh
-	m.Render()
-
-	for _, kind := range []launcher.ReadKind{
-		launcher.ReadPortfolio, launcher.ReadDomains, launcher.ReadSearch,
-	} {
-		if port.kinds[kind] == 0 {
-			t.Fatalf("session never issued a %s read: kinds=%v", kind, port.kinds)
-		}
-	}
-
-	if after := eventLogState(t, s); after != before {
-		t.Fatalf("launcher session changed the event log:\nbefore:\n%s\nafter:\n%s", before, after)
-	}
-	if after := launcherDurableCounts(t, s); after == nil || fmt.Sprint(after) != fmt.Sprint(beforeCounts) {
-		t.Fatalf("launcher session changed durable state: before=%v after=%v", beforeCounts, after)
-	}
 }
 
 // eventLogState serializes every column of every event in log order. It reads

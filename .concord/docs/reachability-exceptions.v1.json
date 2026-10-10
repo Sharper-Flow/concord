@@ -61,12 +61,13 @@
         "internal/store.insertScratchWorkWithExternalRef",
         "internal/store.newReconstructionStore",
         "internal/store.populateReconstructionSnapshot",
+        "internal/store.productsForProject",
         "internal/store.readSubjectEvents",
         "internal/store.reconstructionRelations",
         "internal/store.seedReconstructionEndpoints",
         "internal/store.upcastEvent"
       ],
-      "reason": "CD-0008 permits read-only point-in-time reconstruction for audit and diagnosis, CD-0013 D13 defines the mechanism, and .concord/docs/floor-readiness.v1.json cites it as fc5 evidence, so the capability is required law rather than spare code. The WF36 corpus scenario proves it folds a subject's event prefix without mutating live state. R4 row 12 classifies an operator surface for point-in-time diagnosis as a post-spine tool candidate, so no verb is owed before the floor. ReconstructSubjectAt is the sole entry point, the other eight are its private helpers, and upcastEvent is reachable only through this cluster."
+      "reason": "CD-0008 permits read-only point-in-time reconstruction for audit and diagnosis, CD-0013 D13 defines the mechanism, and .concord/docs/floor-readiness.v1.json cites it as fc5 evidence. The WF36 corpus scenario proves it folds a subject's event prefix without mutating live state. R4 row 12 classifies an operator surface for point-in-time diagnosis as a post-spine tool candidate, so no verb is owed before the floor. ReconstructSubjectAt is the entry point; its private helpers include productsForProject, which populates reconstructed Project membership, and upcastEvent."
     },
     {
       "id": "test-only-registry-assertions",
@@ -122,6 +123,84 @@
         "internal/store.validateManifestPath"
       ],
       "reason": "Current-placement entry points the knowledge-manifest bindings call. The path prefix became a parameter (CD-0194 D5) so history composes under the tier its revision carries, and these zero-argument forms pin the tier authored law uses: TestKnowledgeManifestIneligiblePathsMatchSchema and the vocabulary tests bind them to contracts/concord-knowledge-index.v1.schema.json, so the schema keeps one validated restatement per tier instead of each test restating the prefix."
+    },
+    {
+      "id": "research-pooled-transaction-test-surface",
+      "state": "out_of_scope",
+      "functions": [
+        "internal/store.AppendResearchRevision",
+        "internal/store.BindResearchConsumer",
+        "internal/store.BindResearchFindingSource",
+        "internal/store.CreateResearchPack",
+        "internal/store.PruneResearchRevisions",
+        "internal/store.ResearchFreshnessForPack",
+        "internal/store.SetResearchFreshness",
+        "internal/store.Store.AddResearchFinding",
+        "internal/store.Store.AddResearchSource",
+        "internal/store.Store.AppendResearchRevision",
+        "internal/store.Store.BindResearchConsumer",
+        "internal/store.Store.BindResearchFindingSource",
+        "internal/store.Store.CreateResearchPack",
+        "internal/store.Store.PruneResearchRevisions",
+        "internal/store.Store.RequiredResearchFreshness",
+        "internal/store.Store.ResearchFreshness",
+        "internal/store.Store.SetResearchFreshness",
+        "internal/store.Store.UnbindResearchConsumer",
+        "internal/store.Store.UpdateResearchFinding",
+        "internal/store.Store.UpdateResearchSource",
+        "internal/store.UnbindResearchConsumer",
+        "internal/store.addResearchFinding",
+        "internal/store.addResearchSource",
+        "internal/store.beginResearchMutation",
+        "internal/store.canonicalRequestDigest",
+        "internal/store.finishResearchMutation",
+        "internal/store.readConsumerTx",
+        "internal/store.requiredResearchFreshness",
+        "internal/store.validateResearchIdentity"
+      ],
+      "reason": "CD-0025 governs research-pack lifecycle, consumer binding, and fail-closed freshness. Production mutations use the WithinTx forms; research_test.go, research_retirement_test.go, and agent research_surface_test.go exercise these plain forms and their pooled-transaction idempotent replay. CON-816 (https://linear.app/sharper-flow/issue/CON-816/keep-and-optimize-research-pack-management-fix-lifecycle-and-retention) owns folding them into the WithinTx forms. Retain these tested forms until that owner settles their lifecycle and retention; their runtime unreachability does not authorize deletion of the protected research mechanism."
+    },
+    {
+      "id": "law-boundary-pooled-test-seams",
+      "state": "out_of_scope",
+      "functions": [
+        "internal/store.Store.CheckMandatedLawsAtHome",
+        "internal/store.Store.QueryLawConflictsAtHome",
+        "internal/store.Store.verifyKnowledgeSourceSetFreshness",
+        "internal/store.queryLawConflictsAtHome"
+      ],
+      "reason": "CD-0200 governs mandated-law home and conflict checks. Runtime admission uses the transaction-scoped boundary; the law-boundary tests exercise these pooled-connection entry points, including knowledge source-set freshness. These test seams and their private helpers preserve that boundary's independent assertions without opening a second runtime admission path."
+    },
+    {
+      "id": "store-test-and-durable-introspection-seams",
+      "state": "out_of_scope",
+      "functions": [
+        "internal/store.Store.DatabaseForTesting",
+        "internal/store.Store.DurableCommits"
+      ],
+      "reason": "DatabaseForTesting is the declared raw-handle seam for tests and pm1fixture; boundary_test.go enforces that production callers do not use it. DurableCommits is the test introspection read for the durable commit mechanism CD-0207 governs, exercised by durable_test.go. Neither is an operator mutation surface, and deleting them would remove the surviving assertions rather than retire a runtime feature."
+    },
+    {
+      "id": "work-coordination-test-surface-disposition",
+      "state": "out_of_scope",
+      "functions": [
+        "internal/store.DeriveWorkLiveness",
+        "internal/store.Store.ActiveWorkInProduct",
+        "internal/store.Store.AwaitHealthForWork",
+        "internal/store.Store.ChangeProjectStage",
+        "internal/store.Store.ObservationsForDomain",
+        "internal/store.Store.OverdueAwaitsInProduct",
+        "internal/store.Store.ReadWorkLiveness",
+        "internal/store.Store.ReadWorkRemovalAudit",
+        "internal/store.Store.ReadyWorkerJobRevisions",
+        "internal/store.Store.UnreadMessageCount",
+        "internal/store.Store.WorkerJobRevisions",
+        "internal/store.activeWorkInProduct",
+        "internal/store.awaitHealthForWork",
+        "internal/store.overdueAwaitsInProduct",
+        "internal/store.unreadMessageCount"
+      ],
+      "reason": "The work-message, await-health, removal-audit, liveness, worker-job, Domain-observation, and Project-stage tests exercise these coordination seams and their private helpers. Runtime paths use transaction-scoped or composite forms. CON-902 (https://linear.app/sharper-flow/issue/CON-902/delete-redundant-workflow-ceremony-retain-minimal-authorized-agent) owns their delete-or-keep decision. Retain the tested coordination surface until that owner distinguishes redundant ceremony from required agent-session coordination; this exception grants no runtime authority."
     }
   ]
 }

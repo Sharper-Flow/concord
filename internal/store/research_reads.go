@@ -5,9 +5,6 @@ import (
 	"database/sql"
 )
 
-func (s *Store) ReadResearchPack(ctx context.Context, packID string, limit int) (ResearchPack, error) {
-	return ReadResearchPack(ctx, s, packID, limit)
-}
 func ReadResearchPack(ctx context.Context, s *Store, packID string, limit int) (ResearchPack, error) {
 	if s == nil || s.db == nil {
 		return ResearchPack{}, researchUnavailable("store is not open", nil)
@@ -19,12 +16,6 @@ func ReadResearchPack(ctx context.Context, s *Store, packID string, limit int) (
 		limit = 1000
 	}
 	return readResearchPack(ctx, s, packID, limit)
-}
-func (s *Store) ReadCompleteResearchPack(ctx context.Context, packID string) (ResearchPack, error) {
-	return ReadResearchPack(ctx, s, packID, 1000)
-}
-func (s *Store) GetResearchPack(ctx context.Context, packID string, limit int) (ResearchPack, error) {
-	return ReadResearchPack(ctx, s, packID, limit)
 }
 func GetResearchPack(ctx context.Context, s *Store, packID string, limit int) (ResearchPack, error) {
 	return ReadResearchPack(ctx, s, packID, limit)

@@ -20,9 +20,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:554cf1f495304bbcd91f1a06a0be90bfe72cd1af81752e3aa9bdf37c71d0d92e",
+  "sha256": "sha256:affaddaa6fbfc5610f284e873c1c6dea1a5b5d78667d3d8de292d500909add17",
   "status": "accepted",
-  "summary": "Assistive-technology validation stops being deferred to a launcher acceptance that already passed. The no-color half of C14 section 9 closes against named render anchors. Screen-reader validation becomes an open operator obligation naming Orca, a procedure, a pass test, and a trigger. A failed run remains a CD-0014 falsifier.",
+  "summary": "The assistive-technology validation obligations retired with the launcher render surface under CD-0219: the C14 section 9 no-color condition, the operator screen-reader obligation, and the CD-0014 falsifier are vacated with their subject, and coverage carries an out-of-scope state rather than a satisfied one.",
   "tags": [
     "launcher",
     "accessibility",

@@ -997,7 +997,7 @@
       "law_refs": [
         {
           "clause_id": "D3. Law evidence is a typed anchor, never a path",
-          "content_hash": "sha256:fce0bcf75c680eada5b936a84ca0376a166409bbdbe1f615f7d49d09265b8530",
+          "content_hash": "sha256:3a181f2d4e9e3b96a5b654b974f793946a6f808bb0c4db0444a9e7f80da06c10",
           "law_id": "CD-0047",
           "locator": ".concord/docs/decisions/CD-0047-declared-coverage-state.md"
         }
@@ -3118,13 +3118,13 @@
           "law_refs": [
             {
               "clause_id": "1. Decision",
-              "content_hash": "sha256:868a6d6b2968afe80ccfff7921f24441b03300eb7b9d51e2b9d66797b422455d",
+              "content_hash": "sha256:fe149d7c1eeb565bf895c438f3f4ebc953c322a3961969c9bf74f2db24d87e83",
               "law_id": "C14",
               "locator": ".concord/docs/product-row-contract.md"
             },
             {
               "clause_id": "2. Accepted shape",
-              "content_hash": "sha256:122d0451379b8f847e178826f2e9495186b53cbfed39760aa302d6ed0fc51d12",
+              "content_hash": "sha256:fd443f27eaee33ec4a82ec16570151229995246ba3aa3cbba5f91aa3fbab1fd9",
               "law_id": "C17",
               "locator": ".concord/docs/product-coordination-view.md"
             }
@@ -4441,7 +4441,7 @@
           "law_refs": [
             {
               "clause_id": "D1. An undeclared gap is a failure; a declared gap is not",
-              "content_hash": "sha256:fce0bcf75c680eada5b936a84ca0376a166409bbdbe1f615f7d49d09265b8530",
+              "content_hash": "sha256:3a181f2d4e9e3b96a5b654b974f793946a6f808bb0c4db0444a9e7f80da06c10",
               "law_id": "CD-0047",
               "locator": ".concord/docs/decisions/CD-0047-declared-coverage-state.md"
             },
@@ -8356,13 +8356,13 @@
       "law_refs": [
         {
           "clause_id": "1. Decision",
-          "content_hash": "sha256:868a6d6b2968afe80ccfff7921f24441b03300eb7b9d51e2b9d66797b422455d",
+          "content_hash": "sha256:fe149d7c1eeb565bf895c438f3f4ebc953c322a3961969c9bf74f2db24d87e83",
           "law_id": "C14",
           "locator": ".concord/docs/product-row-contract.md"
         },
         {
           "clause_id": "2. Accepted shape",
-          "content_hash": "sha256:122d0451379b8f847e178826f2e9495186b53cbfed39760aa302d6ed0fc51d12",
+          "content_hash": "sha256:fd443f27eaee33ec4a82ec16570151229995246ba3aa3cbba5f91aa3fbab1fd9",
           "law_id": "C17",
           "locator": ".concord/docs/product-coordination-view.md"
         }
@@ -8515,7 +8515,7 @@
       "law_refs": [
         {
           "clause_id": "D1. An undeclared gap is a failure; a declared gap is not",
-          "content_hash": "sha256:fce0bcf75c680eada5b936a84ca0376a166409bbdbe1f615f7d49d09265b8530",
+          "content_hash": "sha256:3a181f2d4e9e3b96a5b654b974f793946a6f808bb0c4db0444a9e7f80da06c10",
           "law_id": "CD-0047",
           "locator": ".concord/docs/decisions/CD-0047-declared-coverage-state.md"
         },

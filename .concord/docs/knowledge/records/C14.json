@@ -39,7 +39,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:868a6d6b2968afe80ccfff7921f24441b03300eb7b9d51e2b9d66797b422455d",
+  "sha256": "sha256:fe149d7c1eeb565bf895c438f3f4ebc953c322a3961969c9bf74f2db24d87e83",
   "status": "accepted",
   "summary": "Defines the five-group Product-row glance: identity, stage, reliance, action counts, and one deterministic focus item.",
   "tags": [

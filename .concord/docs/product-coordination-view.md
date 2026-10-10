@@ -2,19 +2,21 @@
 
 **Status:** Accepted C17 contract, amended by CD-0041; §5.2 amended
 2026-09-28 to carry the stored last-activity ordering rule of CD-0048 D3 as
-amended.
-**Implementation status:** Issue #51 wires the bounded S2 relation tree and ranked
-work projection. The replacement-ready floor is satisfied; see
-[`floor-readiness.v1.json`](./floor-readiness.v1.json).
+amended. Amended 2026-10-09: the launcher rendering of this view retired with
+the launcher TUI under CD-0219; the ranked-query contract continues under the
+product-memory query contract.
+**Readiness:** see [`floor-readiness.v1.json`](./floor-readiness.v1.json).
 
-This document binds the Product coordination view required by Priority 5 and launcher
-S2. It preserves the previously reviewed candidate behavior: two bounded modes over
-canonical Product-scoped reads, structural grouping only, stored-priority ranking,
-and visible incomplete coverage.
+This document bound the Product coordination view required by Priority 5 and
+launcher S2. It preserves the previously reviewed candidate behavior: two
+bounded modes over canonical Product-scoped reads, structural grouping only,
+stored-priority ranking, and visible incomplete coverage. The view's launcher
+rendering retired with the launcher TUI under CD-0219; the ranked-query reads
+continue under the product-memory query contract.
 
-Terminal-launcher interaction and prototype detail are explicitly reserved as
+Terminal-launcher interaction and prototype detail were explicitly reserved as
 implementation design by [`rollout-plan.md`](./rollout-plan.md) and CD-0006 D6, so a
-contract at this layer does not require a new decision record.
+contract at this layer did not require a new decision record.
 
 **CD-0041 amendment.** These two bounded work projections remain valid, but they
 are no longer the Product's primary architecture view. Product detail opens
@@ -117,13 +119,13 @@ The view inherits the reliance discipline C14 already established:
 
 | Accepted item | Status under this contract |
 |---|---|
-| CD-0108 in [`decisions/CD-0108-the-launcher-is-the-zlauncher-replacement.md`](./decisions/CD-0108-the-launcher-is-the-zlauncher-replacement.md) — the launcher is the primary operator surface and owns session bootstrap | Unchanged. This is a view inside the accepted launcher. |
+| CD-0108 in [`decisions/CD-0108-the-launcher-is-the-zlauncher-replacement.md`](./decisions/CD-0108-the-launcher-is-the-zlauncher-replacement.md) — the session entry route owns session bootstrap | The view retired with the launcher TUI; CD-0108 as amended carries the entry-route boundary. |
 | C14 default Product row fields and exclusions | Unchanged. No field is added to the row. |
 | C14 exclusion of the raw blocker graph from the row | Honored. The graph appears only after selection. |
-| C14 finding that activity is not value or priority | Honored. Activity is not value and not priority: the work list's stored last-activity order (CD-0048 D3 as amended) is a display order, not a priority or value ranking, and activity is not a default column. |
+| C14 finding that activity is not value or priority | Honored. Activity is not value and not priority: activity is not a default column, and the work list's stored last-activity display order (CD-0048 D3, vacated under CD-0219) was a display order, never a priority or value ranking. |
 | Query-contract deferral of cross-Product prioritization pending PM2 authority and portability | Honored. This view is single-Product only. |
 | R5 — active work first, history behind drill-down | Honored. Terminal and completed work is excluded. |
-| [`workflows.md`](./workflows.md) launcher responsibility — context-rich navigation with narrow actions | Honored. The view navigates and explains; it takes no substantive workflow action. |
+| [`workflows.md`](./workflows.md) launcher responsibility — context-rich navigation with narrow actions | Honored while the view stood: it navigated and explained; it took no substantive workflow action. |
 
 ## 5. Anti-requirements
 
@@ -134,11 +136,11 @@ unstable across runs.
 1. **No computed importance score.** Ranking uses the stored explicit priority rank. A
    model-assigned numeric importance is heuristic authority over correctness.
 2. **No activity-derived priority.** Computed importance and activity-derived
-   priority stay prohibited. **Amendment 2026-09-28:** the work list's display
-   order is the stored ordering rule of CD-0048 D3 as amended: stored
-   `last_activity_at` descending with an id tiebreak — a stored column the
-   event fold advances, ordered by the store alone, never a computed score
-   and never a priority or value ranking.
+   priority stay prohibited. **Amendment 2026-09-28, vacated 2026-10-09:** the
+   work-list display order this contract carried was the stored ordering rule
+   of CD-0048 D3. That ordering, its stored column, and its fold advance are
+   vacated with the launcher work list under CD-0219. No activity-derived
+   priority replaces them.
 3. **No thematic clustering.** Connected work subgraphs come from declared relation edges only.
 4. **No third blocked state.** No stalled, idle, or otherwise inferred category.
 5. **No silent truncation.** A result the query could not fully cover renders
@@ -239,22 +241,31 @@ This contract must be revised or superseded when:
 
 ## Verification
 
-No corpus scenario exercises the coordination view, so every criterion
-carries a typed exemption in the record naming the port test that proves
-the guarantee. `python3 scripts/check-doc-contract.py` validates those
-recorded exemptions.
+No corpus scenario exercises the coordination view, so criteria carry typed
+exemptions in the record. `python3 scripts/check-doc-contract.py` validates
+those recorded exemptions, and `python3 scripts/check-law-coverage.py` proves
+the recorded vacated states.
 
-- Criterion 1 is proved by `TestRelationTreeSurfacesCycles`
-  (`internal/launcher/storeport/port_test.go`).
-- Criterion 2 is proved by `TestRelationTreeResolvesSupersessionChainOnce`
-  (`internal/launcher/storeport/port_test.go`).
-- Criterion 3 is proved by `TestRelationTreeMarksDepthTruncationUnavailable`
-  (`internal/launcher/storeport/port_test.go`).
-- Criterion 4 is proved by
-  `TestRelationTreeKeepsStructuralComponentAndInverseOutOfCycleOracle`
-  (`internal/launcher/storeport/port_test.go`) together with
-  `TestProjectionIsDeterministicAndCarriesAttentionMarkers`
-  (`internal/launcher/model_test.go`).
+- Criterion 1 is vacated with the launcher view under CD-0219: the
+  relation-tree guarantee's proving surface retired with the launcher TUI,
+  and the view clause it served has no surviving reader.
+  `python3 scripts/check-law-coverage.py` proves the recorded out-of-scope
+  state.
+- Criterion 2 is vacated with the launcher view under CD-0219: the
+  relation-tree guarantee's proving surface retired with the launcher TUI,
+  and the view clause it served has no surviving reader.
+  `python3 scripts/check-law-coverage.py` proves the recorded out-of-scope
+  state.
+- Criterion 3 is vacated with the launcher view under CD-0219: the
+  relation-tree guarantee's proving surface retired with the launcher TUI,
+  and the view clause it served has no surviving reader.
+  `python3 scripts/check-law-coverage.py` proves the recorded out-of-scope
+  state.
+- Criterion 4 is vacated with the launcher view under CD-0219: the
+  relation-tree guarantee's proving surface retired with the launcher TUI,
+  and the view clause it served has no surviving reader.
+  `python3 scripts/check-law-coverage.py` proves the recorded out-of-scope
+  state.
 - Criterion 5 is proved by the bound `Q5-ready-ranking` scenario of
   `.concord/scenarios/product-memory-query.v1.json`, executed by
   `TestAcceptedQ1ToQ10Corpus` (`internal/store/query_corpus_test.go`).

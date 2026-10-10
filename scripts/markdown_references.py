@@ -16,10 +16,10 @@ def label_key(label: str) -> str:
     return " ".join(label.split()).casefold()
 
 
-def reference_definitions(lines: list[str]) -> dict[str, str]:
-    definitions: dict[str, str] = {}
+def reference_definitions(lines: list[str]) -> dict[str, tuple[str, int]]:
+    definitions: dict[str, tuple[str, int]] = {}
     fence: tuple[str, int] | None = None
-    for line in lines:
+    for number, line in enumerate(lines, 1):
         match = FENCE_RE.match(line)
         if match:
             delimiter, rest = match.groups()
@@ -32,11 +32,11 @@ def reference_definitions(lines: list[str]) -> dict[str, str]:
             match = DEFINITION_RE.match(line)
             if match:
                 label, angled, bare = match.groups()
-                definitions.setdefault(label_key(label), angled or bare)
+                definitions.setdefault(label_key(label), (angled or bare, number))
     return definitions
 
 
-def reference_links(line: str, definitions: dict[str, str]):
+def reference_links(line: str, definitions: dict[str, tuple[str, int]]):
     if DEFINITION_RE.match(line):
         return
     position = 0
@@ -45,13 +45,13 @@ def reference_links(line: str, definitions: dict[str, str]):
         position = match.end()
         suffix = SUFFIX_RE.match(line, position)
         if suffix:
-            destination = definitions.get(label_key(suffix.group(1) or label))
-            if destination is not None:
+            definition = definitions.get(label_key(suffix.group(1) or label))
+            if definition is not None:
                 position = suffix.end()
-                yield (match.start(), position), destination
+                yield (match.start(), position), definition[0]
                 continue
         if line[position:].startswith("("):
             continue
-        destination = definitions.get(label_key(label))
-        if destination is not None:
-            yield (match.start(), position), destination
+        definition = definitions.get(label_key(label))
+        if definition is not None:
+            yield (match.start(), position), definition[0]

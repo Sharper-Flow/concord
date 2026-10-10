@@ -2854,6 +2854,19 @@ def test_reference_link_target_stays_with_markdown_link_checker() -> None:
     assert "docs/citation.md:3: missing link target: ../retired/proof.go" in output.getvalue(), output.getvalue()
 
 
+def test_unused_reference_definition_target_stays_with_markdown_link_checker() -> None:
+    spec = importlib.util.spec_from_file_location("doc_links", SCRIPT.with_name("check-doc-links.py"))
+    assert spec and spec.loader
+    links = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(links)
+    root, _ = citation_fixture("[`retired/owner.go`]: ../retired/proof.go")
+    output, error = StringIO(), StringIO()
+    with mock.patch.object(links, "ROOT", root), mock.patch.object(sys, "stdout", output), mock.patch.object(sys, "stderr", error):
+        code = links.main()
+    assert code == 1, (code, output.getvalue(), error.getvalue())
+    assert "docs/citation.md:3: missing link target: ../retired/proof.go" in output.getvalue(), output.getvalue()
+
+
 def test_current_citation_selects_all_accepted_law_kinds_without_outline_exemption() -> None:
     for kind in ("constitution", "decision", "spec"):
         root, manifest = citation_fixture("The owner is `retired/owner.go`.")

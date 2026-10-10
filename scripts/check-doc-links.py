@@ -94,12 +94,17 @@ def main() -> int:
             continue
         lines = source.read_text(encoding="utf-8").splitlines()
         definitions = reference_definitions(lines)
+        checked: set[str] = set()
         for line_number, line in enumerate(lines, 1):
             destinations = LINK_RE.findall(line) + HREF_RE.findall(line)
             destinations.extend(destination for _, destination in reference_links(line, definitions))
             for destination in destinations:
+                checked.add(destination)
                 if destination.startswith(("http:", "https:", "mailto:")):
                     continue
+                check_link(source, line_number, destination, findings)
+        for destination, line_number in definitions.values():
+            if destination not in checked:
                 check_link(source, line_number, destination, findings)
 
     for finding in findings[:MAX_FINDINGS]:

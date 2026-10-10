@@ -7220,6 +7220,28 @@
         "limit": {
           "$ref": "#/$defs/limit"
         },
+        "result_version": {
+          "type": "integer",
+          "enum": [
+            1,
+            2
+          ],
+          "description": "The result contract this read returns. Absent and 1 keep the legacy full research_pack result keyed by pack_id only. 2 is the canonical read: an exact revision and finding selection through pack_id, or the owner descriptor page through work_id. Owner reads without 2 are refused, never silently reshaped."
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "finding_ids": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"
         }
@@ -7323,6 +7345,201 @@
           }
         }
       }
+    },
+    "research_pack_descriptor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pack_id",
+        "owner_work_id",
+        "current_revision",
+        "freshness",
+        "expected_version",
+        "created_at",
+        "updated_at"
+      ],
+      "properties": {
+        "pack_id": {
+          "$ref": "#/$defs/id"
+        },
+        "owner_work_id": {
+          "$ref": "#/$defs/id"
+        },
+        "current_revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "freshness": {
+          "type": "string",
+          "enum": [
+            "current",
+            "stale",
+            "unknown"
+          ]
+        },
+        "expected_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "created_at": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "updated_at": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40
+        }
+      }
+    },
+    "research_read_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "The versioned concord_work_trace.research result: the legacy bare research_pack, or a typed version 2 wrapper that carries the full pack, an exact revision with selected findings and provenance, or the bounded owner descriptor page.",
+      "properties": {
+        "pack_id": {
+          "$ref": "#/$defs/id"
+        },
+        "owner_work_id": {
+          "$ref": "#/$defs/id"
+        },
+        "current_revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "freshness": {
+          "type": "string",
+          "enum": [
+            "current",
+            "stale",
+            "unknown"
+          ]
+        },
+        "expected_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "created_at": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "updated_at": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "revisions": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "$ref": "#/$defs/research_revision"
+          }
+        },
+        "consumers": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "pack_id",
+              "revision",
+              "consumer_work_id",
+              "use_role",
+              "required",
+              "accepted_at"
+            ],
+            "properties": {
+              "pack_id": {
+                "$ref": "#/$defs/id"
+              },
+              "revision": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "consumer_work_id": {
+                "$ref": "#/$defs/id"
+              },
+              "use_role": {
+                "type": "string",
+                "enum": [
+                  "context",
+                  "design_input",
+                  "verification_basis",
+                  "decision_basis"
+                ]
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "accepted_at": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 40
+              }
+            }
+          }
+        },
+        "result_version": {
+          "type": "integer",
+          "const": 2
+        },
+        "pack": {
+          "$ref": "#/$defs/research_pack"
+        },
+        "packs": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "$ref": "#/$defs/research_pack_descriptor"
+          }
+        }
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/research_pack"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "result_version",
+            "pack"
+          ],
+          "properties": {
+            "result_version": {
+              "type": "integer",
+              "const": 2
+            },
+            "pack": {
+              "$ref": "#/$defs/research_pack"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "result_version",
+            "packs"
+          ],
+          "properties": {
+            "result_version": {
+              "type": "integer",
+              "const": 2
+            },
+            "packs": {
+              "type": "array",
+              "maxItems": 100,
+              "items": {
+                "$ref": "#/$defs/research_pack_descriptor"
+              }
+            }
+          }
+        }
+      ]
     },
     "research_revision": {
       "type": "object",

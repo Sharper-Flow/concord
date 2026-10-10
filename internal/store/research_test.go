@@ -460,7 +460,8 @@ func TestWorkRemovalRefusesUntilOwnedPacksRetire(t *testing.T) {
 	req.IdempotencyKey = "remove-research-owner-key"
 	req.WorkID = "owner"
 	req.ExpectedVersion = 3
-	if _, err := s.ShelveWork(ctx, req); err == nil {
+	req.Reason = "shelved"
+	if _, err := s.RemoveWork(ctx, req); err == nil {
 		t.Fatal("removal succeeded while the work still owned a research pack")
 	} else if !hasFailureKind(err, KindResourceClaimHeld) || !strings.Contains(err.Error(), "research pack") {
 		t.Fatalf("removal refusal=%v", err)
@@ -472,7 +473,7 @@ func TestWorkRemovalRefusesUntilOwnedPacksRetire(t *testing.T) {
 	if err != nil || len(out.Candidates) != 1 || out.Candidates[0].Classification != ResearchRetirementRetired {
 		t.Fatalf("retirement before removal=%+v err=%v", out, err)
 	}
-	if _, err := s.ShelveWork(ctx, req); err != nil {
+	if _, err := s.RemoveWork(ctx, req); err != nil {
 		t.Fatalf("removal after retirement refused: %v", err)
 	}
 	var work int
@@ -498,7 +499,8 @@ func TestWorkRemovalReleasesOptionalConsumerPin(t *testing.T) {
 	req.IdempotencyKey = "remove-research-consumer-key"
 	req.WorkID = "consumer"
 	req.ExpectedVersion = 2
-	if _, err := s.ShelveWork(ctx, req); err != nil {
+	req.Reason = "shelved"
+	if _, err := s.RemoveWork(ctx, req); err != nil {
 		t.Fatalf("removal of an optional-pin consumer refused: %v", err)
 	}
 	if countRows(t, s, "active_research_consumers") != 0 {

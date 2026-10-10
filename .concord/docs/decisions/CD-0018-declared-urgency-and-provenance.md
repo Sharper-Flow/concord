@@ -116,13 +116,11 @@ CD-0041 later makes that judgement structural without adding assignment or a
 lease: Product-changing contracts declare affected Domains, and overlapping work
 requires an operator-approved resolution pinned to both contract versions.
 
-### D5. The launcher displays the band; it does not dispatch
+### D5. The entry route does not dispatch
 
-The launcher renders the urgency band in the existing S2 ranked table and S3 detail
-header, alongside the existing priority column. An `expedite` item is visibly
-distinct from a `standard` item in the ranked list. The launcher performs no new
-action: the operator's existing `l` handoff path is how a second agent session starts.
-C18's read-only contract is honored without amendment.
+The entry route performs no dispatch action. The operator names work to
+`concord zl`, which starts a session through Concord's session bootstrap.
+CD-0108 D4 keeps that entry route store-write-free.
 
 ## Operational usage note
 

@@ -5,19 +5,19 @@
   "criterion_bindings": [
     {
       "criterion": 1,
-      "exemption": "No corpus scenario exercises the coordination view. The guarantee is proved by TestRelationTreeSurfacesCycles (internal/launcher/storeport/port_test.go)."
+      "exemption": "The relation-tree guarantee's proving surface retired with the launcher TUI under CD-0219; the view clause it served has no surviving reader."
     },
     {
       "criterion": 2,
-      "exemption": "No corpus scenario exercises the coordination view. The guarantee is proved by TestRelationTreeResolvesSupersessionChainOnce (internal/launcher/storeport/port_test.go)."
+      "exemption": "The relation-tree guarantee's proving surface retired with the launcher TUI under CD-0219; the view clause it served has no surviving reader."
     },
     {
       "criterion": 3,
-      "exemption": "No corpus scenario exercises the coordination view. The guarantee is proved by TestRelationTreeMarksDepthTruncationUnavailable (internal/launcher/storeport/port_test.go)."
+      "exemption": "The relation-tree guarantee's proving surface retired with the launcher TUI under CD-0219; the view clause it served has no surviving reader."
     },
     {
       "criterion": 4,
-      "exemption": "No corpus scenario exercises the coordination view. The guarantee is proved by TestRelationTreeKeepsStructuralComponentAndInverseOutOfCycleOracle (internal/launcher/storeport/port_test.go) and TestProjectionIsDeterministicAndCarriesC14Meaning (internal/launcher/model_test.go)."
+      "exemption": "The relation-tree guarantee's proving surface retired with the launcher TUI under CD-0219; the view clause it served has no surviving reader."
     },
     {
       "criterion": 5,
@@ -26,8 +26,6 @@
   ],
   "date": "2026-08-06T00:00:00Z",
   "evidence": [
-    "internal/launcher/storeport/port_test.go",
-    "internal/launcher/model_test.go",
     ".concord/scenarios/product-memory-query.v1.json",
     "internal/store/query_corpus_test.go"
   ],
@@ -42,7 +40,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:b71aecabd597d30349f983ed44dd2fed91ad07cdd6637fba938132f59e576382",
+  "sha256": "sha256:2458a92683c724e4b62fdd120f440752457255df56eabe738e69002731dfc9dc",
   "status": "accepted",
   "summary": "Defines the Product coordination drill-down: a structural relation tree and a ranked work table under typed truncation.",
   "tags": [

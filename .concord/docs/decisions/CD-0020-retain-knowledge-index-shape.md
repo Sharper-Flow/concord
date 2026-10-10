@@ -234,7 +234,6 @@ new read operation. Architecture expansion and conformance repair remain separat
 - [`../concord-knowledge-index.md`](../concord-knowledge-index.md)
 - [`../product-memory-query-contract.md`](../product-memory-query-contract.md) Q9/Q10
 - [`../agent-read-tool-contract.md`](../agent-read-tool-contract.md) TS3
-- [`../terminal-launcher-contract.md`](../terminal-launcher-contract.md)
 - `internal/store/knowledge_index_projection.go`
 - `internal/store/knowledge_query.go`
 - `internal/agent/runtime.go` (TS3 kind aliases)

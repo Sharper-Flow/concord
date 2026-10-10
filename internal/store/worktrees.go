@@ -1470,55 +1470,6 @@ type WorktreeDestroyRequest struct {
 	Runner           GitRunner
 }
 
-// DestroyWorktree reclaims the work item's worktree under the Destroy tier's
-// authority gates. The git probes run with no transaction open, the
-// transaction validates and commits the reclamation event, and the native
-// removal follows the commit (CD-0195 D2).
-func (s *Store) DestroyWorktree(ctx context.Context, req WorktreeDestroyRequest) (WorktreeEntry, error) {
-	reclaimReq := WorktreeReclaimRequest{
-		WorkID: req.WorkID, ProjectID: req.ProjectID, DefaultRef: req.DefaultRef,
-		PrincipalRef: req.PrincipalRef, RequestID: req.RequestID,
-		ExpectedVersion: req.ExpectedVersion, Now: req.Now, Runner: req.Runner,
-		RequireTerminal: true, OperatorApprovalRef: req.OperatorApprovalRef, Destructive: req.Destructive,
-		ReleaseOccupancy: req.ReleaseOccupancy,
-	}
-	if s == nil || s.db == nil {
-		return WorktreeEntry{}, newFailure(KindUnavailable, "worktree_destroy", "store is not open", false, "open the authority database")
-	}
-	// The lease set is read before the transaction opens: the legacy-row
-	// release proof compares it against the row's recorded_at (CD-0179), and
-	// a filesystem walk belongs outside the write transaction.
-	reclaimReq.HostLeases = s.ReadHostLeases()
-	runner := reclaimReq.Runner
-	if runner == nil {
-		runner = ExecGitRunner{}
-	}
-	probe, err := s.PrepareWorktreeReclaim(ctx, reclaimReq)
-	if err != nil {
-		return WorktreeEntry{}, err
-	}
-	tx, err := beginOrdinaryTx(ctx, s.db)
-	if err != nil {
-		return WorktreeEntry{}, wrapFailure(KindUnavailable, "worktree_destroy", "cannot begin destroy", true, "retry once the database is writable", err)
-	}
-	defer tx.Rollback()
-	entry, removal, err := reclaimWorktreeStoreTx(ctx, tx, reclaimReq, probe)
-	if err != nil {
-		return WorktreeEntry{}, err
-	}
-	if err := tx.Commit(); err != nil {
-		return WorktreeEntry{}, wrapFailure(KindUnavailable, "worktree_destroy", "cannot commit destroy", true, "retry the same operation", err)
-	}
-	// The event is committed; the native removal follows it with no
-	// transaction open. A retry of the same request converges a committed
-	// reclaim whose native removal failed (CD-0195 D2), and the per-ref
-	// outcomes the run produced settle durably behind it.
-	if err := s.FinishWorktreeNativeRemoval(ctx, runner, removal); err != nil {
-		return entry, err
-	}
-	return entry, nil
-}
-
 // DestroyWorktreeTx is the destroy on an existing transaction, so the agent
 // tool surface can compose it with its idempotency envelope. The caller
 // probes with PrepareWorktreeReclaim before its transaction opens and runs

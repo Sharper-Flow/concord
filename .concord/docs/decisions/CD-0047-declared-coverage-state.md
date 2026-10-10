@@ -29,15 +29,10 @@ satisfies the same structural shape. The `sha256` pin beside it proves the
 document has not changed, which is a different proposition: code drifts away
 from a frozen document and every hash still verifies.
 
-The result is measurable. Of the 41 CD records this decision inherits, one
-asserts its own body content —
-CD-0014, via `internal/launcher/dependency_inventory_test.go:545-573`. The
-other 40 can be rewritten, or contradicted by implementation, with the full
-suite green. `.concord/docs/workflow-engine-contract.md` documents `edge_class`,
+`.concord/docs/workflow-engine-contract.md` documents `edge_class`,
 `severity`, and `edge_kind` vocabularies that
 `contracts/workflow-engine-scenarios.schema.json` closes independently, and
-nothing compares them. `.concord/docs/terminal-launcher-contract.md` is excluded from
-knowledge-index record paths, so it carries no hash either.
+nothing compares them.
 
 The second mechanism is absent rather than weak. `go run
 golang.org/x/tools/cmd/deadcode -test=false ./cmd/...` reports 128 functions

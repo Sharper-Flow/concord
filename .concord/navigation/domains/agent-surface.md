@@ -66,10 +66,10 @@ Bindings and interpretations are advisory joins; navigation does not prove dispa
 - workflow actions bound: 1 (`dispatch_worker`)
 - Interpretation `depends_on` -> `durable-authority` (advisory, not an import allowlist).
 - Interpretation `depends_on` -> `workflow-engine` (advisory, not an import allowlist).
-- Observed package imports: 47 distinct paths; package-level only; intra-package edges unmeasured; no symbol graph or execution permission.
+- Observed package imports: 45 distinct paths; package-level only; intra-package edges unmeasured; no symbol graph or execution permission.
 - Observed package edge via `github.com/sharper-flow/concord/internal/gittest` -> `repository-verification` (advisory).
 - Observed package edge via `github.com/sharper-flow/concord/internal/hostlease` -> `durable-authority` (advisory).
-- Observed package edge via `github.com/sharper-flow/concord/internal/launcher` -> `operator-surface` (advisory).
+- Observed package edge via `github.com/sharper-flow/concord/internal/payloadschema` -> `workflow-engine` (advisory).
 
 ## Not covered here
 Symbol-level call edges, dispatch-admission proof at the current workflow step, CON-887 packet reading,

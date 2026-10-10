@@ -115,12 +115,12 @@
     {
       "domain_id": "operator-surface",
       "include": [
-        "cmd/**", "brand/**", "internal/launcher/**", "internal/portfolio/**", "internal/predecessor/**",
+        "cmd/**", "brand/**", "internal/portfolio/**", "internal/predecessor/**",
         "internal/receipt/**", "internal/sessionboot/**", "internal/version/**", "internal/store/operator.go",
         "internal/store/product_stage*.go", "internal/store/product_row*.go", "internal/store/launcher*.go",
         "internal/store/project_locator*.go", "internal/store/project_stage_test.go", "internal/store/display_name_bound_test.go",
         "internal/store/nil_store_launcher_test.go",
-        "contracts/predecessor-snapshot.schema.json", ".concord/scenarios/launcher-portfolio.v1.json",
+        "contracts/predecessor-snapshot.schema.json",
         "internal/store/work_closure*.go", "internal/store/session_identity.go",
         "internal/store/blocked_sessions*.go", "internal/store/predecessor_import*.go",
         "internal/store/predecessor_conflict_read_test.go",
@@ -342,17 +342,17 @@
       "check_ids": ["go-test-race"]
     },
     {
-      "owner_id": "mechanism:launcher-terminal",
+      "owner_id": "mechanism:session-entry",
       "domain_id": "operator-surface",
-      "responsibility": "The human-facing terminal: the Bubble Tea launcher and zl forwarding, session boot that derives continuity before the first prompt, and the orchestrator identity assertion a launcher-started session records.",
-      "source_paths": ["cmd/concord/outside_repair_launch.go", "cmd/concord/session.go", "internal/launcher/model.go", "internal/launcher/projection.go", "internal/launcher/surface.go", "internal/sessionboot/sessionboot.go", "internal/store/session_identity.go"],
-      "contract_refs": [".concord/docs/terminal-launcher-contract.md"],
+      "responsibility": "The operator's session entry route: zl forwarding that starts or resumes a session for selected work, session boot that derives continuity before the first prompt, the identity-only session handoff, and the orchestrator identity assertion a started session records.",
+      "source_paths": ["cmd/concord/outside_repair_launch.go", "cmd/concord/session.go", "cmd/concord/session_handoff.go", "internal/sessionboot/sessionboot.go", "internal/store/session_identity.go"],
+      "contract_refs": [".concord/docs/decisions/CD-0108-the-launcher-is-the-zlauncher-replacement.md"],
       "law_refs": [
-        {"law_id": "terminal-launcher-contract", "clause_id": "2. The launcher's job"},
+        {"law_id": "CD-0163", "clause_id": "D1. The launch action starts a session, and the operator owns the terminal"},
         {"law_id": "CD-0061", "clause_id": "D4. A session assertion is recorded as a domain event"},
         {"law_id": "CD-0210", "clause_id": "D3. The operator opens an unpinned repair session in an ad-hoc worktree"}
       ],
-      "control_law_ids": ["CD-0061", "CD-0210", "terminal-launcher-contract"],
+      "control_law_ids": ["CD-0061", "CD-0210"],
       "check_ids": ["go-test-race"]
     },
     {
@@ -452,11 +452,10 @@
     {"catalog": "cli", "entry_id": "product-project-add", "owner_id": "mechanism:work-items"},
     {"catalog": "cli", "entry_id": "resource-create", "owner_id": "mechanism:managed-resources"},
     {"catalog": "cli", "entry_id": "resource-share", "owner_id": "mechanism:managed-resources"},
-    {"catalog": "cli", "entry_id": "launcher", "owner_id": "mechanism:launcher-terminal"},
-    {"catalog": "cli", "entry_id": "zl", "owner_id": "mechanism:launcher-terminal"},
-    {"catalog": "cli", "entry_id": "session", "owner_id": "mechanism:launcher-terminal"},
-    {"catalog": "cli", "entry_id": "session-prepare", "owner_id": "mechanism:launcher-terminal"},
-    {"catalog": "cli", "entry_id": "outside-repair", "owner_id": "mechanism:launcher-terminal"},
+    {"catalog": "cli", "entry_id": "zl", "owner_id": "mechanism:session-entry"},
+    {"catalog": "cli", "entry_id": "session", "owner_id": "mechanism:session-entry"},
+    {"catalog": "cli", "entry_id": "session-prepare", "owner_id": "mechanism:session-entry"},
+    {"catalog": "cli", "entry_id": "outside-repair", "owner_id": "mechanism:session-entry"},
     {"catalog": "cli", "entry_id": "product-create", "owner_id": "mechanism:portfolio-view"},
     {"catalog": "cli", "entry_id": "product-stage-update", "owner_id": "mechanism:portfolio-view"},
     {"catalog": "cli", "entry_id": "project-create", "owner_id": "mechanism:portfolio-view"},

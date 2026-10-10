@@ -18,12 +18,7 @@ import (
 	"strings"
 	"time"
 
-	tea "charm.land/bubbletea/v2"
-
 	"github.com/sharper-flow/concord/internal/agent"
-	"github.com/sharper-flow/concord/internal/launcher"
-	"github.com/sharper-flow/concord/internal/launcher/render/bubbletea"
-	"github.com/sharper-flow/concord/internal/launcher/storeport"
 	"github.com/sharper-flow/concord/internal/predecessor"
 	"github.com/sharper-flow/concord/internal/store"
 	"github.com/sharper-flow/concord/internal/version"
@@ -62,19 +57,14 @@ func runWithInput(args []string, in io.Reader, out, errOut io.Writer) int {
 	if code, handled := runCommandHelpRoute(args, out, errOut); handled {
 		return code
 	}
-	// The launcher is a terminal command, not a JSON command. Route it before
-	// any stdin read so bytes intended for the TUI can never be parsed as JSON.
-	if len(args) > 0 && args[0] == "launcher" {
-		return runLauncherCommand(args[1:], in, out, errOut, terminalStreams(in, out))
-	}
 	if len(args) == 0 {
-		return runBareInvocation(in, out, errOut, terminalStreams(in, out))
+		writeUsage(errOut)
+		return 2
 	}
 	if len(args) > 0 && args[0] == "zl" {
 		return runZLForwarding(args[1:], in, out, errOut)
 	}
-	// Session boot is a TTY command invoked by the identity-only launcher.
-	// It derives continuity in the core before OpenCode receives any prompt.
+	// Session boot derives continuity before OpenCode receives any prompt.
 	if len(args) > 0 && args[0] == "session" {
 		return runSessionCommand(args[1:], in, out, errOut, terminalStreams(in, out), hostSessionDirectory, hostSessionHostCommand, DeriveSessionBoot, runOpenCode, hostLaneAgentIdentity, hostOrchestratorIdentity)
 	}
@@ -251,12 +241,10 @@ func writeUsage(out io.Writer) {
 	_, _ = fmt.Fprintln(out, "Usage:")
 	_, _ = fmt.Fprintln(out, "  concord --help")
 	_, _ = fmt.Fprintln(out, "  concord --version")
-	_, _ = fmt.Fprintln(out, "  concord launcher   # interactive TTY; does not read JSON stdin")
-	_, _ = fmt.Fprintln(out, "  concord launcher --list   # bounded candidate JSON")
-	_, _ = fmt.Fprintln(out, "  concord zl <work> -- <prompt>   # start or resume without the UI")
+	_, _ = fmt.Fprintln(out, "  concord zl <work> -- <prompt>   # start or resume a session")
 	_, _ = fmt.Fprintln(out, "  concord zl <work> --project <project>   # land in that member Project of the work")
 	_, _ = fmt.Fprintln(out, "  concord zl --resume-last   # resume the last workspace")
-	_, _ = fmt.Fprintln(out, "  concord session    # internal TTY bootstrap; launcher identity env required")
+	_, _ = fmt.Fprintln(out, "  concord session    # internal TTY bootstrap; session identity env required")
 	_, _ = fmt.Fprintln(out, "  concord continuity-block <directory>   # read-only continuity packet for the session directory")
 	_, _ = fmt.Fprintln(out, "  concord host-lease < JSON stdin      # record this host session's release lease (adapter-invoked)")
 	_, _ = fmt.Fprintln(out, "  concord host-leases                  # print live release leases; prunes stale ones")
@@ -365,18 +353,6 @@ func runCommandHelpRoute(args []string, out, errOut io.Writer) (int, bool) {
 	return 0, false
 }
 
-type firstRunPort struct{}
-
-func (firstRunPort) Read(context.Context, launcher.ReadRequest) (launcher.Snapshot, error) {
-	return launcher.Snapshot{Screen: launcher.ScreenPortfolio, Coverage: "first_run", FirstRun: true, StatusMessage: "initialize the Concord authority database through operator setup"}, nil
-}
-
-// Candidates satisfies launcher.Port; unparam cannot see the cross-package
-// interface binding, so the fixed signature and nil error stay.
-func (firstRunPort) Candidates(context.Context, int) ([]launcher.Candidate, error) { //nolint:unparam // launcher.Port interface method
-	return storeport.ScanRootCandidates(), nil
-}
-
 func terminalStreams(in io.Reader, out io.Writer) bool {
 	input, inOK := in.(*os.File)
 	output, outOK := out.(*os.File)
@@ -386,101 +362,6 @@ func terminalStreams(in io.Reader, out io.Writer) bool {
 	inInfo, inErr := input.Stat()
 	outInfo, outErr := output.Stat()
 	return inErr == nil && outErr == nil && inInfo.Mode()&os.ModeCharDevice != 0 && outInfo.Mode()&os.ModeCharDevice != 0
-}
-
-// runBareInvocation is the bare `concord` dispatch. The launcher is the
-// operator's daily entry surface, so bare invocation starts it on a TTY. Off a
-// TTY there is no interactive surface to hand over, so it prints usage and
-// exits 2 instead of reading stdin as JSON.
-func runBareInvocation(in io.Reader, out, errOut io.Writer, terminal bool) int {
-	if !terminal {
-		writeUsage(errOut)
-		return 2
-	}
-	return runLauncherCommand(nil, in, out, errOut, terminal)
-}
-
-func runLauncherCommand(args []string, in io.Reader, out, errOut io.Writer, terminal bool) int {
-	list := false
-	if len(args) == 1 {
-		switch {
-		case args[0] == "--list": // #nosec G602 -- args has length 1, checked by this branch.
-			list = true
-		case args[0] == "--resume-last": // #nosec G602 -- args has length 1, checked by this branch.
-			return runZLForwarding(args, in, out, errOut)
-		}
-	}
-	if len(args) != 0 && !list {
-		writeDiagnostic(errOut, "concord launcher: unsupported arguments; launcher accepts no JSON stdin arguments")
-		return 2
-	}
-	if list {
-		return runLauncherList(out, errOut)
-	}
-	if !terminal {
-		writeDiagnostic(errOut, "concord launcher requires an interactive TTY (use an internal terminal harness for tests)")
-		return 2
-	}
-	path, err := databasePath()
-	if err != nil {
-		writeDiagnostic(errOut, err.Error())
-		return 1
-	}
-	var port launcher.ReadPort
-	var closeStore func()
-	if _, statErr := os.Stat(path); os.IsNotExist(statErr) {
-		port = firstRunPort{}
-		closeStore = func() {}
-	} else if statErr != nil {
-		writeDiagnostic(errOut, "concord launcher: database path is unavailable: "+statErr.Error())
-		return 1
-	} else {
-		s, openErr := openStoreForCommand(context.Background(), path)
-		if openErr != nil {
-			writeDiagnostic(errOut, openErr.Error())
-			return 1
-		}
-		port = storeport.New(s)
-		closeStore = func() { _ = s.Close() }
-	}
-	defer closeStore()
-	core := launcher.New(port)
-	// The model retains a failed explicit read as typed unavailable state for rendering.
-	_ = core.Enter(context.Background())
-	profile := bubbletea.Profile{Color: os.Getenv("NO_COLOR") == ""}
-	model := bubbletea.New(core, context.Background(), profile)
-	program := tea.NewProgram(model, tea.WithInput(in), tea.WithOutput(out))
-	if _, err := program.Run(); err != nil {
-		writeDiagnostic(errOut, "concord launcher: "+err.Error())
-		return 1
-	}
-	return 0
-}
-
-func runLauncherList(out, errOut io.Writer) int {
-	path, err := databasePath()
-	if err != nil {
-		writeDiagnostic(errOut, err.Error())
-		return 1
-	}
-	if _, statErr := os.Stat(path); os.IsNotExist(statErr) {
-		return writeJSON(out, storeport.ScanRootCandidates(), errOut)
-	} else if statErr != nil {
-		writeDiagnostic(errOut, "concord launcher: database path is unavailable: "+statErr.Error())
-		return 1
-	}
-	s, err := openStoreForCommand(context.Background(), path)
-	if err != nil {
-		writeDiagnostic(errOut, err.Error())
-		return 1
-	}
-	defer func() { _ = s.Close() }()
-	candidates, err := storeport.New(s).Candidates(context.Background(), 100)
-	if err != nil {
-		writeDiagnostic(errOut, "concord launcher --list: "+err.Error())
-		return 1
-	}
-	return writeJSON(out, candidates, errOut)
 }
 
 // parseZLForwarding splits zl arguments into the explicit --project selector
@@ -581,7 +462,7 @@ func runZLForwarding(args []string, in io.Reader, out, errOut io.Writer) int {
 // the handoff runZLForwarding derives without executing a host.
 var forwardSession = launchForwardedSession
 
-// inheritedForwardedProduct reads the launcher's inherited Product selection.
+// inheritedForwardedProduct reads the inherited Product selection.
 // runZLForwarding passes it to the landing-Project resolver, which honors it
 // only when it names one of the landing Project's Products; it never decides
 // the scope on its own.
@@ -647,7 +528,7 @@ func resolveZLLinearReference(issueKey, issueURL, project, preferredProduct stri
 
 // resolveForwardedProduct derives the forwarded session's Product from the
 // landing Project: the Project the operator named, else the work's primary
-// Project. preferredProduct is the launcher's inherited selection; the
+// Project. preferredProduct is the inherited selection; the
 // landing Project owns the scope, so it applies only when it names one of
 // that Project's Products.
 func resolveForwardedProduct(work, project, preferredProduct string) (string, error) {
@@ -670,7 +551,7 @@ func resolveForwardedProduct(work, project, preferredProduct string) (string, er
 }
 
 func launchForwardedSession(product, work, prompt, project string, in io.Reader, out, errOut io.Writer) int {
-	cmd, err := bubbletea.SessionCommand(launcher.SessionHandoff{ProductID: product, WorkID: work, Prompt: prompt, ProjectID: project, Agent: launcher.DefaultSessionAgent})
+	cmd, err := sessionCommand(sessionHandoff{ProductID: product, WorkID: work, Prompt: prompt, ProjectID: project, Agent: defaultSessionAgent})
 	if err != nil {
 		writeDiagnostic(errOut, "concord zl: "+err.Error())
 		return 1

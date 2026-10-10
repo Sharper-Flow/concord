@@ -83,7 +83,10 @@ func seedForwardingFixture(t *testing.T) *Store {
 		{"fz-work-1", "fz-issue-1", "FZ-1"},
 		{"fz-work-2", "fz-issue-2", "FZ-2"},
 	} {
-		if _, err := s.RecordLinearIssueLink(ctx, LinearIssueLink{WorkID: link.work, RemoteIssueUUID: link.issue, HumanKey: link.key, URL: "https://linear.app/example/issue/" + link.key}); err != nil {
+		if err := s.Transact(ctx, func(tr *Transaction) error {
+			_, err := RecordLinearIssueLinkTx(ctx, tr, LinearIssueLink{WorkID: link.work, RemoteIssueUUID: link.issue, HumanKey: link.key, URL: "https://linear.app/example/issue/" + link.key})
+			return err
+		}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -168,19 +171,33 @@ func TestResolveLauncherLinearIssueFollowsLandingProject(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			linked, err := s.ResolveLauncherLinearIssue(ctx, tc.key, "", tc.project, tc.preferred)
-			if tc.wantKind != "" {
+			// The kept zl route composes the two live reads: the recorded-issue
+			// lookup, then the landing-Project Product rule for that work. A
+			// wanted refusal may surface from either read, as before.
+			workID, err := s.ResolveLauncherLinearIssueWork(ctx, tc.key, "")
+			if err != nil {
 				var failure *Failure
 				if !errors.As(err, &failure) || failure.Kind != tc.wantKind {
-					t.Fatalf("ResolveLauncherLinearIssue(%q, %q, %q) error = %v, want kind %s", tc.key, tc.project, tc.preferred, err, tc.wantKind)
+					t.Fatalf("ResolveLauncherLinearIssueWork(%q) error = %v, want kind %s", tc.key, err, tc.wantKind)
 				}
 				return
 			}
-			if err != nil {
-				t.Fatalf("ResolveLauncherLinearIssue(%q, %q, %q): %v", tc.key, tc.project, tc.preferred, err)
+			if tc.wantKind == "" && workID != tc.wantWork {
+				t.Fatalf("ResolveLauncherLinearIssueWork(%q) = %q, want work %q", tc.key, workID, tc.wantWork)
 			}
-			if linked.WorkID != tc.wantWork || linked.ProductID != tc.want {
-				t.Fatalf("ResolveLauncherLinearIssue(%q, %q, %q) = %q/%q, want %q/%q", tc.key, tc.project, tc.preferred, linked.WorkID, linked.ProductID, tc.wantWork, tc.want)
+			got, err := s.ResolveLauncherWorkProduct(ctx, workID, tc.project, tc.preferred)
+			if err != nil {
+				var failure *Failure
+				if !errors.As(err, &failure) || failure.Kind != tc.wantKind {
+					t.Fatalf("ResolveLauncherWorkProduct(%q, %q, %q) error = %v, want kind %s", workID, tc.project, tc.preferred, err, tc.wantKind)
+				}
+				return
+			}
+			if tc.wantKind != "" {
+				t.Fatalf("ResolveLauncherWorkProduct(%q, %q, %q) = %q, want kind %s", workID, tc.project, tc.preferred, got, tc.wantKind)
+			}
+			if got != tc.want {
+				t.Fatalf("ResolveLauncherWorkProduct(%q, %q, %q) = %q, want %q", workID, tc.project, tc.preferred, got, tc.want)
 			}
 		})
 	}

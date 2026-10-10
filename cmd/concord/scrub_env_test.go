@@ -10,6 +10,13 @@ import (
 )
 
 func TestMain(m *testing.M) {
+	// sessionCommand re-executes this test binary with the fixed `session`
+	// argument (session_handoff.go). That child is the real session command
+	// against the environment the parent staged, so it must exit before the
+	// suite runs or the environment scrubs.
+	if len(os.Args) > 1 && os.Args[1] == sessionChildArg {
+		os.Exit(runSessionSubprocess())
+	}
 	dir := testenv.ScrubEnv()
 	gittest.DisableBackgroundMaintenance()
 	code := m.Run()

@@ -3,8 +3,8 @@
 Concord is a public Go project: an agent-native Product coordination system for
 one operator and many local AI agents. It holds accepted Product law,
 machine-readable contracts and scenarios, a SQLite-backed storage and workflow
-engine, a Bubble Tea terminal launcher, a JSON CLI, an OpenCode TypeScript
-adapter, and repository validators. Linux amd64 is the only release platform.
+engine, a JSON CLI, an OpenCode TypeScript adapter, and repository validators.
+Linux amd64 is the only release platform.
 
 This file carries what you must decide before acting. Everything else is a
 pointer to the artifact that owns the answer, because a prose copy of a
@@ -70,8 +70,8 @@ Context is the scarcest resource in a session. Spend it on decisions.
 - Do not hand-tag or hand-cut a release. Releases are fully automated.
 - Do not weaken, bypass, or special-case a validator to make a check pass.
 - Do not introduce new third-party Go dependencies, framework abstractions, or
-  runtime behavior without accepted issue or decision scope. Bubble Tea v2,
-  bubbles v2, lipgloss v2, and modernc.org/sqlite are already accepted.
+  runtime behavior without accepted issue or decision scope. modernc.org/sqlite
+  is already accepted.
 - Do not populate reserved boundaries (`workflows/`, `skills/`) opportunistically.
 - Do not place any of the following in the repository, even temporarily:
   private Product or customer names and data; personal filesystem paths, machine

@@ -305,6 +305,71 @@ as its producer. The acceptance checkpoint's verification requirement then
 resolves against the core run that produced it. A failed or mutated run records
 no authority. The gate keeps refusing unbound verification.
 
+Native oracle preparation retains a qualified readiness lease but creates no
+green durable operation and discharges no candidate verification predicate.
+Execution publishes verification authority only for a qualified pass.
+Its bounded `result_json` is byte-identical to the green operation's
+`result_payload`; neither JSON record contains raw stream bodies.
+
+An oracle receipt joins retained execution evidence and creates no producer
+authority. The candidate and pinned recipe remain separate identities.
+The initial native recipe supports pure-Go top-level tests only.
+Preparation derives a nonempty, build-selected witness set and compiles the
+pinned harness without running its binary, initialization, or `TestMain`.
+Execution stages the candidate with the exact pinned test and fixture bytes.
+It preserves production Go/module inputs and uses the declared contained cwd.
+Undeclared non-Go inputs and unresolved embed targets refuse preparation or
+execution; only declared pinned fixtures and explicit compiler inputs enter.
+The producer pins the installed toolchain and native target, with
+`GOTOOLCHAIN=local`, `GOPROXY=off`, `GOFLAGS=-mod=readonly`, `CGO_ENABLED=0`, and
+`GOWORK=off`. Each lease uses a private disposable `GOCACHE`.
+Unsupported recipes and missing dependencies remain unavailable; no install,
+download, shell fallback, or aggregate scratch-quota guarantee is implied.
+A pass requires actual run and terminal pass events for every selected case
+witness, not exit zero alone, a skipped test, or package-level success.
+The selected case events come from the process that links the candidate.
+The producer does not authenticate those events against candidate code.
+Independent review judges candidate code for harness subversion, including
+process exit, output forgery, and initialization effects.
+Independent review still judges the semantic adequacy of those witnesses.
+
+Before test-program launch, the native owner proves the persisted dispatch's
+work, attempt, epoch, packet digest, exact job revision, control, and candidate.
+It joins the completion event, attempt projection, preceding start, and job
+event through the existing authority; `in_flight` or `dispatched` is required.
+The completion builder records `worker_subject_commit` beside the packet
+digest from the same tx-scoped core `subject_commit` view admitted at dispatch.
+The fold and window reader retain that event value without current derivation.
+The integrated work-context view exposes only `subject_commit`; no parallel
+`candidate_subject` property or independent subject reader survives.
+Current clean `HEAD`, current core subject, and recorded dispatch subject must
+be nonempty and equal. Historical or candidate-less completions refuse native
+oracle execution without an upcast, packet-body retention, or inferred value.
+A forged attempt, another job's digest, terminal state, or mismatched candidate
+binding refuses with zero test-program launches. Acquisition and release also
+recheck applicability. Caller assertions and today's context supply no missing
+historical authorization, and preparation requires no worker authorization.
+
+The existing lease retains a canonical producer plan and SHA-256 digest in
+separate columns; `command_json` remains a bare argument array.
+Resume compares plan bytes and digest as well as work, Project, and request
+identity. Completed replay returns retained metadata without another effect.
+The lease stores one stdout `BLOB` and one stderr `BLOB`, at most 2 MiB each.
+The producer finalizes lengths, hashes, completeness, and bounded JSON before
+the SQL-only release transaction stores streams and metadata atomically.
+No raw stream body enters durable operations or mutation idempotency records.
+Overflow, capture loss, mutation, or conversion failure cannot qualify a pass.
+A finalized incomplete diagnostic prefix remains explicitly incomplete.
+Abandonment before committed release promises no retained output or reference.
+An additive migration preserves legacy NULLs without fabricated empty streams.
+
+`worktree_inspect` mode `oracle_output` reads a retained same-work/Project run
+without requiring an active tree and returns at most 16 KiB of raw page bytes.
+The reader verifies retained length and SHA-256 before returning bounded base64
+data within the unchanged response envelope. The read creates no mutation,
+lease, native effect, or idempotency page record. Work removal deletes the
+lease and its streams; worktree reclamation alone does not erase access.
+
 ### 5.2 Fold rules and rebuild
 
 | Event family | Fold effect |
@@ -376,6 +441,12 @@ For all four kinds, unreadable data produces an undetermined result and cannot b
 treated as a pass. `outcome_mismatch` is the required typed semantic refusal for a
 weaker or incomparable delivery; the TS7 envelope amendment required by CD-0013
 D10 ships with the later surface-version change, not this documentation pass.
+
+Job-oracle controls use exit-status results and retained execution references
+(CD-0205, CD-0056). Their receipts are reported evidence, not per-predicate
+evaluation, independent verdicts, criterion discharge, or completion authority.
+Earlier-subject receipts are regression baselines. The oracle does not supply
+the deferred registered evaluator catalog or change the closed predicate union.
 
 ### 6.1 Architecture-spike record
 
@@ -694,6 +765,18 @@ a fenced action first emits `workflow.action_started` and may emit
 | `accept_worker_result` | `workflow.evidence_bound` naming the accepted attempt as its `immutable_subject_ref`, with the lane's capability class as the evidence kind, then `workflow.action_completed` v2 bound to the exact completed attempt and current step epoch; the fold rechecks dispatch order, work ownership, lifecycle, model readback, and actor distinctness before advancing. The verdict on the next step cites the attempt id. |
 | `record_worker_failure` | `workflow.action_completed` v2 in hold mode, bound to the exact failed attempt and current step epoch; the fold rechecks dispatch order, work ownership, failed lifecycle, actor distinctness, and prior recording. A fresh fenced start opens the recovery attempt. |
 
+On `workflow.implementation` v27 and `workflow.break_fix` v24,
+`record_worker_job` requires the immutable owner/case/control oracle in the
+recorded job digest (CD-0205 D1). Every admitted dispatch carries that same
+oracle. Structure and retained readiness references join existing contract,
+Domain, Project, and law authority; preparation resolves pinned recipes
+before authorization. Older pins retain oracle-free content and behavior.
+`worker.completed` v6 admits oracle receipts, ranked-finding ties, and closed
+resolution claims; historical upcasts invent none. `worker.failed` remains v2.
+Local job acceptance holds the step. Whole-work delivery still requires the
+complete parent admission, integration evidence, independent verdicts, and
+operator confirmation; an oracle pass supplies none of those authorities.
+
 ### 12.1 Correction escalation wall
 
 A failed or rejected worker correction consumes one correction attempt. The
@@ -716,11 +799,26 @@ opens the wall.
 The basis families are closed. Findings convergence requires a latest open
 findings set that is non-empty and a strict subset of the previous comparable
 reject `open_finding_ids` at the same step. The finding identifiers are
-stable, and the set holds 1 to 32 of them. Correction predicates require the
-`request_correction` predicate ids inside the open window. A latest failure
+stable, and the set holds 1 to 32 of them. Oracle-free correction histories
+compare `request_correction` predicate ids inside the open window.
+Oracle-capable rejection and correction records require the exact derived
+ranked-finding set, absent only when empty, not a caller's shorter list or
+predicate IDs. A latest failure
 supplies no findings basis, because a failure carries no findings. A
 contract supersession after the latest dispatch at any step is a changed
 approach, and a changed approach is a basis.
+
+Canonical finding IDs use terminal event sequence and ordinal: context
+findings first, ranked findings offset by their count (CD-0197). Continuations
+retain identity; uncovered variants mint new IDs and remain legitimate
+blockers. Comparability retains the approved contract, job and owner
+obligations, and every old control byte-identically, including its recipe pin
+and expected result. Added coverage may strengthen the oracle. Dropped
+findings require supported closure; omissions and replacements are not shrinkage.
+Oracle-defect closures and recipe re-pins cannot mint `findings_shrinking`.
+A required recipe change needs the existing explicit contract-supersession
+`approach_changed` route. Accepted `no_ship` and retained baseline receipts
+supply no productive acceptance or new basis family (CD-0148).
 
 Each basis admits exactly one fresh fenced attempt, and the admitted dispatch
 consumes its basis. Findings convergence compares records at one step, so a

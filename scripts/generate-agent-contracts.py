@@ -325,52 +325,26 @@ def load_workflow_action_contracts() -> tuple[list[dict], list[dict]]:
     if not actions or len({action.get("id") for action in actions}) != len(actions):
         fail("workflow action contract projection has no unique actions")
     for action in actions:
-        if set(action) != {"id", "payload", "public_payload", "legacy_payloads", "cross_field"}:
+        if set(action) != {"id", "variants", "legacy_payloads", "cross_field"}:
             fail("workflow action contract projection contains an open record")
-        for payload_key in ("payload", "public_payload"):
-            if set(action[payload_key]) - {"closed", "fields"}:
-                fail("workflow action contract projection contains an open payload")
-            if action[payload_key].get("closed") is not True:
-                fail(f"current workflow action {payload_key} is not closed: {action.get('id')}")
-            declared = {field["name"] for field in action[payload_key]["fields"]}
-            cross = action.get("cross_field")
-            if cross is None or set(cross) - {"combinations", "alternatives", "kind_matches"}:
-                fail("workflow action contract projection contains an open cross-field declaration")
-            combinations = (cross or {}).get("combinations", [])
-            alternatives = (cross or {}).get("alternatives", [])
-            kind_matches = (cross or {}).get("kind_matches", [])
-            if combinations and alternatives:
-                fail(f"workflow action {action.get('id')} declares both cross-field rule families")
-            for match in kind_matches:
-                if set(match) - {"field", "object", "discriminator", "remedy"}:
-                    fail(f"workflow action kind match is an open record: {action.get('id')}")
-                if match["field"] not in declared or match["object"] not in declared or not match.get("discriminator"):
-                    fail(f"workflow action {action.get('id')} kind match names undeclared fields or no discriminator")
-            for combination in combinations:
-                if set(combination) - {"field", "value", "requires", "forbids", "remedy"}:
-                    fail(f"workflow action combination is an open record: {action.get('id')}")
-                if combination["field"] not in declared:
-                    fail(f"workflow action {action.get('id')} combination names undeclared discriminator {combination['field']}")
-                for side in ("requires", "forbids"):
-                    for name in combination.get(side, []):
-                        if name not in declared:
-                            fail(f"workflow action {action.get('id')} combination names undeclared field {name}")
-            for group in alternatives:
-                if set(group) - {"fields", "forbids", "remedy"} or not group.get("fields"):
-                    fail(f"workflow action {action.get('id')} declares an open or empty alternative group")
-                for name in group["fields"]:
-                    if name not in declared:
-                        fail(f"workflow action {action.get('id')} alternative names undeclared field {name}")
-                for name in group.get("forbids", []):
-                    if name not in declared:
-                        fail(f"workflow action {action.get('id')} alternative forbids undeclared field {name}")
+        if not action["variants"]:
+            fail(f"workflow action contract projection names no variant: {action.get('id')}")
+        for variant in action["variants"]:
+            if set(variant) != {"payload", "public_payload"}:
+                fail(f"workflow action variant is an open record: {action.get('id')}")
+            for payload_key in ("payload", "public_payload"):
+                if set(variant[payload_key]) - {"closed", "fields"}:
+                    fail("workflow action contract projection contains an open payload")
+                if variant[payload_key].get("closed") is not True:
+                    fail(f"current workflow action {payload_key} is not closed: {action.get('id')}")
+                validate_workflow_cross_field(action, variant[payload_key])
         if not isinstance(action["legacy_payloads"], list):
             fail(f"legacy workflow action payloads are not a list: {action.get('id')}")
         for legacy in action["legacy_payloads"]:
             if set(legacy) - {"closed", "fields"}:
                 fail(f"legacy workflow action payload is an open record: {action.get('id')}")
-            if legacy.get("closed") is not True or legacy.get("fields"):
-                fail(f"legacy workflow action payload is not an empty closed payload: {action.get('id')}")
+            if legacy.get("closed") is not True:
+                fail(f"legacy workflow action payload is not closed: {action.get('id')}")
     workflows = projection["workflows"]
     if not workflows or len({workflow.get("ref") for workflow in workflows}) != len(workflows):
         fail("workflow outcome contract projection has no unique workflows")
@@ -382,6 +356,54 @@ def load_workflow_action_contracts() -> tuple[list[dict], list[dict]]:
         if not isinstance(workflow["allowed_outcome_tokens"], list):
             fail(f"workflow outcome contract projection has no token list: {workflow.get('ref')}")
     return actions, workflows, teaching
+
+
+def validate_workflow_cross_field(action: dict, payload: dict) -> None:
+    declared = {field["name"] for field in payload["fields"]}
+    cross = action["cross_field"]
+    if cross is None or set(cross) - {"combinations", "alternatives", "kind_matches"}:
+        fail("workflow action contract projection contains an open cross-field declaration")
+    combinations = cross.get("combinations", [])
+    alternatives = cross.get("alternatives", [])
+    kind_matches = cross.get("kind_matches", [])
+    if combinations and alternatives:
+        fail(f"workflow action {action.get('id')} declares both cross-field rule families")
+    for match in kind_matches:
+        if set(match) - {"field", "object", "discriminator", "remedy"}:
+            fail(f"workflow action kind match is an open record: {action.get('id')}")
+        if match["field"] not in declared or match["object"] not in declared or not match.get("discriminator"):
+            fail(f"workflow action {action.get('id')} kind match names undeclared fields or no discriminator")
+    for combination in combinations:
+        if set(combination) - {"field", "value", "requires", "forbids", "remedy"}:
+            fail(f"workflow action combination is an open record: {action.get('id')}")
+        if combination["field"] not in declared:
+            fail(f"workflow action {action.get('id')} combination names undeclared discriminator {combination['field']}")
+        for side in ("requires", "forbids"):
+            for name in combination.get(side, []):
+                if name not in declared:
+                    fail(f"workflow action {action.get('id')} combination names undeclared field {name}")
+    for group in alternatives:
+        if set(group) - {"fields", "forbids", "remedy"} or not group.get("fields"):
+            fail(f"workflow action {action.get('id')} declares an open or empty alternative group")
+        for name in group["fields"]:
+            if name not in declared:
+                fail(f"workflow action {action.get('id')} alternative names undeclared field {name}")
+        for name in group.get("forbids", []):
+            if name not in declared:
+                fail(f"workflow action {action.get('id')} alternative forbids undeclared field {name}")
+
+
+def single_variant(action: dict) -> dict:
+    """The one payload half of an action that must stay single-shaped.
+
+    Some projections name one action's payload directly (the design-content
+    def, the confirm_premise envelope fields, the supersede fieldset). An
+    action with several current variants cannot feed them without silently
+    choosing a branch, so the demand itself must fail loudly.
+    """
+    if len(action["variants"]) != 1:
+        fail(f"action {action['id']} carries {len(action['variants'])} current variants; this projection requires exactly one")
+    return action["variants"][0]
 
 
 def workflow_allowed_tokens_description(workflows: list[dict]) -> str:
@@ -704,12 +726,253 @@ def workflow_payload_alternative_branch(payload: dict, defs: dict, field_teachin
     return result
 
 
+def closed_operation_variants(branches: list[dict], required: list[str]) -> dict:
+    """Keep the operation's object root while closed branches own exclusions."""
+    properties = {}
+    for branch in branches:
+        properties.update(copy.deepcopy(branch["properties"]))
+    return {"type": "object", "additionalProperties": False, "required": required,
+            "properties": properties, "oneOf": branches}
+
+
+def project_native_oracle_requests(defs: dict) -> None:
+    """CD-0096: extend the existing verify mutation and inspect read only."""
+    def obj(properties: dict, required: list[str] | None = None) -> dict:
+        return {"type": "object", "additionalProperties": False,
+                "required": list(properties) if required is None else required, "properties": properties}
+
+    defs["native_oracle_digest"] = {"type": "string", "minLength": 71, "maxLength": 71, "pattern": "^sha256:[0-9a-f]{64}$"}
+
+    control = copy.deepcopy(defs["worker_oracle_control"])
+    control["required"].remove("readiness_evidence_refs")
+    control["properties"].pop("readiness_evidence_refs")
+    control["description"] = "Native prepare input only: readiness references are omitted, never invented. Recorded ready jobs still require them."
+    defs["native_oracle_prepare_control"] = control
+    defs["native_oracle_control_bundle"] = obj({
+        "owner": {"$ref": "#/$defs/worker_oracle_owner"},
+        "control": {"$ref": "#/$defs/native_oracle_prepare_control"},
+        "cases": {"type": "array", "minItems": 1, "maxItems": 64, "items": {"$ref": "#/$defs/worker_oracle_case"}},
+    })
+    defs["native_oracle_job_binding"] = obj({
+        "job_id": {"$ref": "#/$defs/id"}, "revision": {"type": "integer", "minimum": 1, "maximum": 2147483647},
+        "digest": {"$ref": "#/$defs/native_oracle_digest"},
+    })
+    defs["native_oracle_prepare_request"] = obj({
+        "phase": {"type": "string", "const": "prepare"},
+        "expected_contract_version": {"type": "integer", "minimum": 1, "maximum": 9223372036854775807},
+        "control_bundle": {"$ref": "#/$defs/native_oracle_control_bundle"},
+    })
+    defs["native_oracle_execute_request"] = obj({
+        "phase": {"type": "string", "const": "execute"},
+        "attempt_id": {"$ref": "#/$defs/id"},
+        "attempt_epoch": {"type": "integer", "minimum": 1, "maximum": 2147483647},
+        "worker_packet_digest": {"$ref": "#/$defs/native_oracle_digest"},
+        "worker_job_binding": {"$ref": "#/$defs/native_oracle_job_binding"},
+        "control_id": copy.deepcopy(defs["worker_oracle_control"]["properties"]["control_id"]),
+        "preparation_run_ref": {"type": "string", "minLength": 1, "maxLength": 512},
+    })
+    prepare = defs["native_oracle_prepare_request"]
+    execute = defs["native_oracle_execute_request"]
+    defs["native_oracle_request"] = closed_operation_variants([prepare, execute], ["phase"])
+    defs["native_oracle_request"]["properties"]["phase"] = {"type": "string", "enum": ["prepare", "execute"]}
+    defs["native_oracle_request"]["description"] = (
+        "native_oracle_v2: prepare compiles the pinned pure-Go harness without test execution; execute requires the exact persisted dispatch, job, epoch, packet digest, and clean subject. "
+        "The producer owns recipe bytes, cwd, environment, candidate, stages, and streams. Unsupported recipes are unavailable. No install, automatic preparation, or new worker authority."
+    )
+    verify = defs["work_transition_worktree_verify_input"]
+    verify = verify.get("oneOf", [verify])[0]
+    # Projection is idempotent: the legacy branch retains the exact authored
+    # command fields and bounds, not oracle properties from a prior run.
+    legacy = obj({name: copy.deepcopy(verify["properties"][name]) for name in
+                  ("work_id", "command", "idempotency_key", "approval", "requested_budget_seconds")},
+                 ["work_id", "command", "idempotency_key"])
+    native_properties = {name: copy.deepcopy(value) for name, value in legacy["properties"].items() if name != "command"}
+    native_properties["oracle"] = {"$ref": "#/$defs/native_oracle_request"}
+    native = obj(native_properties, ["work_id", "oracle", "idempotency_key"])
+    defs["work_transition_worktree_verify_input"] = closed_operation_variants([legacy, native], ["work_id", "idempotency_key"])
+    inspect = defs["work_browse_worktree_inspect_input"]
+    inspect = inspect.get("oneOf", [inspect])[0]
+    legacy = obj({name: copy.deepcopy(inspect["properties"][name]) for name in
+                  ("work_id", "mode", "path", "requested_budget_seconds")}, ["work_id", "mode"])
+    legacy["properties"]["mode"]["enum"] = ["status", "diff", "file"]
+    output = obj({
+        "work_id": copy.deepcopy(legacy["properties"]["work_id"]),
+        "mode": {"type": "string", "const": "oracle_output"},
+        "run_ref": {"type": "string", "minLength": 1, "maxLength": 512},
+        "stream": {"type": "string", "enum": ["stdout", "stderr"]},
+        "offset": {"type": "integer", "minimum": 0, "maximum": 9223372036854775807},
+        "length": {"type": "integer", "minimum": 1, "maximum": 16384},
+        "requested_budget_seconds": {"$ref": "#/$defs/requested_budget_seconds"},
+    }, ["work_id", "mode", "run_ref", "stream", "offset", "length"])
+    defs["work_browse_worktree_inspect_input"] = closed_operation_variants([legacy, output], ["work_id", "mode"])
+    defs["work_browse_worktree_inspect_input"]["properties"]["mode"] = {
+        "type": "string", "enum": ["status", "diff", "file", "oracle_output"],
+        "description": "oracle_output reads retained same-work/ambient-Project native stream bytes, even after worktree reclaim. No caller path, process, lease, or idempotency write. At most 16 KiB raw bytes per page within the unchanged envelope.",
+    }
+
+
+def closed_field_union(branches: list[dict]) -> dict:
+    """Publish the exact union without overlapping oneOf members.
+
+    Whole-field variants can be contained in another closed contract when all
+    shared declarations agree and the extra fields are optional. That smaller
+    contract adds no accepted inputs. Remaining alternatives exclude earlier
+    members instead of rejecting inputs valid under several original contracts.
+    """
+    flattened = []
+    for branch in branches:
+        for member in branch.get("oneOf", [branch]):
+            if member not in flattened:
+                flattened.append(member)
+
+    def contains(broad: dict, narrow: dict) -> bool:
+        allowed = {"type", "additionalProperties", "maxProperties", "properties", "required"}
+        if set(broad) - allowed or set(narrow) - allowed:
+            return False
+        if broad.get("type") != "object" or broad.get("additionalProperties") is not False:
+            return False
+        if any(broad.get(key) != narrow.get(key) for key in ("type", "additionalProperties", "maxProperties")):
+            return False
+        if not set(broad.get("required", [])) <= set(narrow.get("required", [])):
+            return False
+        return all(broad.get("properties", {}).get(name) == field for name, field in narrow.get("properties", {}).items())
+
+    members = [member for index, member in enumerate(flattened) if not any(
+        other_index != index and contains(other, member)
+        and (not contains(member, other) or other_index < index)
+        for other_index, other in enumerate(flattened)
+    )]
+    if len(members) == 1:
+        return copy.deepcopy(members[0])
+    disjoint = []
+    for index, member in enumerate(members):
+        branch = copy.deepcopy(member)
+        if index:
+            exclusions = copy.deepcopy(members[:index])
+            if "not" in branch:
+                exclusions.insert(0, branch.pop("not"))
+            branch["not"] = exclusions[0] if len(exclusions) == 1 else {"anyOf": exclusions}
+        disjoint.append(branch)
+    return {"oneOf": disjoint}
+
+
+def project_native_oracle_metadata(defs: dict, packet_defs: dict) -> None:
+    """The packet owns the shared native preparation projection; results add
+    only the fields the store producer publishes, never caller observations."""
+    aliases = {
+        "lane_native_oracle_stream": "native_oracle_stream",
+        "lane_native_oracle_file": "native_oracle_file",
+        "lane_native_oracle_test_name": "native_oracle_test_name",
+        "lane_native_oracle_preparation": "native_oracle_preparation",
+        "lane_work_context_reading_source_repository_file": "work_context_reading_source_repository_file",
+    }
+
+    def remap(node):
+        if isinstance(node, list):
+            return [remap(value) for value in node]
+        if not isinstance(node, dict):
+            return node
+        result = {key: remap(value) for key, value in node.items()}
+        if "$ref" in result:
+            name = result["$ref"].removeprefix("#/$defs/")
+            if name not in aliases:
+                fail(f"native oracle metadata names an unprojected schema: {name}")
+            result["$ref"] = "#/$defs/" + aliases[name]
+        return result
+
+    for source, target in aliases.items():
+        if source.startswith("lane_native_"):
+            defs[target] = remap(packet_defs[source])
+    for name in ("subject_commit", "oracle_preparations"):
+        defs["work_context_view"]["properties"][name] = remap(packet_defs["lane_work_context_view"]["properties"][name])
+    defs["work_context_view"]["properties"].pop("candidate_subject", None)
+    receipt = defs["worker_oracle_receipt"]
+    receipt["properties"].pop("candidate_subject", None)
+    receipt["properties"]["subject_commit"] = copy.deepcopy(packet_defs["lane_worker_oracle_receipt"]["properties"]["subject_commit"])
+    receipt["description"] = packet_defs["lane_worker_oracle_receipt"]["description"]
+    stage = {
+        "name": {"type": "string", "minLength": 1, "maxLength": 128},
+        "argv": copy.deepcopy(defs["work_transition_worktree_verify_input"]["properties"]["command"]),
+        "exit_code": {"type": "integer", "minimum": -1, "maximum": 255},
+    }
+    stage.update({field: {"type": "integer", "minimum": 0, "maximum": 2097152} for field in
+                  ("stdout_offset", "stdout_length", "stderr_offset", "stderr_length")})
+    defs["native_oracle_stage"] = {"type": "object", "additionalProperties": False, "required": list(stage), "properties": stage}
+    prepare = copy.deepcopy(defs["native_oracle_preparation"])
+    prepare["properties"].update({
+        "control_id": copy.deepcopy(defs["worker_oracle_control"]["properties"]["control_id"]),
+        "input_manifest_digest": {"$ref": "#/$defs/native_oracle_digest"},
+        "binary_digest": {"$ref": "#/$defs/native_oracle_digest"},
+        "stages": {"type": "array", "minItems": 0, "maxItems": 16, "items": {"$ref": "#/$defs/native_oracle_stage"}},
+        "detail": {"type": "string", "maxLength": 4096},
+    })
+    prepare["required"].extend(["control_id", "stages"])
+    execute = copy.deepcopy(prepare)
+    execute["properties"]["phase"] = {"type": "string", "const": "execute"}
+    execute["properties"]["qualification"] = {"type": "string", "enum": ["pass", "fail", "unavailable"]}
+    request = defs["native_oracle_execute_request"]
+    for name in ("attempt_id", "attempt_epoch", "worker_packet_digest", "worker_job_binding", "preparation_run_ref"):
+        execute["properties"][name] = copy.deepcopy(request["properties"][name])
+        execute["required"].append(name)
+    execute["properties"].update({
+        "authorization_event_id": {"$ref": "#/$defs/id"},
+        "authorization_seq": {"type": "integer", "minimum": 1, "maximum": 9223372036854775807},
+        "start_seq": {"type": "integer", "minimum": 1, "maximum": 9223372036854775807},
+        "observed_test_names": {"type": "array", "minItems": 0, "maxItems": 40, "uniqueItems": True,
+                                "items": {"$ref": "#/$defs/native_oracle_test_name"}},
+    })
+    execute["required"].extend(["authorization_event_id", "authorization_seq", "start_seq"])
+    execute["if"] = {"properties": {"qualification": {"const": "pass"}}, "required": ["qualification"]}
+    execute["then"] = copy.deepcopy(prepare["then"])
+    execute["then"]["required"] = ["input_manifest_digest", "binary_digest", "observed_test_names"]
+    execute["then"]["properties"]["observed_test_names"] = {"minItems": 1}
+    defs["native_oracle_result"] = {"oneOf": [prepare, execute], "description": (
+        "Native producer observations only. The canonical plan/digest are immutable in the existing lease; command remains bare argv. "
+        "Prepare grants readiness only. Execute pass requires actual run/pass witnesses, complete streams, pinned inputs/cwd/environment, "
+        "and the persisted live dispatch's three-way clean subject equality. Qualified green result metadata is byte-identical to lease result_json. "
+        "Raw BLOBs never enter result metadata or idempotency records. Replay starts no process. No semantic acceptance or independent evidence role is implied."
+    )}
+    defs["worktree_verify_result"]["properties"]["oracle"] = {"$ref": "#/$defs/native_oracle_result"}
+    page_properties = {
+        "run_ref": {"type": "string", "minLength": 1, "maxLength": 512},
+        "stream": {"type": "string", "enum": ["stdout", "stderr"]},
+        "offset": {"type": "integer", "minimum": 0, "maximum": 2097152},
+        "data_base64": {"type": "string", "maxLength": 21848, "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$"},
+        "length": {"type": "integer", "minimum": 0, "maximum": 16384},
+        "total_length": {"type": "integer", "minimum": 0, "maximum": 2097152},
+        "sha256": {"$ref": "#/$defs/native_oracle_digest"}, "complete": {"type": "boolean"},
+        "next_offset": {"type": "integer", "minimum": 0, "maximum": 2097152}, "eof": {"type": "boolean"},
+    }
+    defs["native_oracle_output_page"] = {"type": "object", "additionalProperties": False, "required": list(page_properties), "properties": page_properties}
+    result = defs["worktree_inspect_result"]
+    result = result.get("oneOf", [result])[0]
+    legacy = {"type": "object", "additionalProperties": False, "required": list(result["required"]),
+              "properties": {name: copy.deepcopy(result["properties"][name]) for name in
+                             ("work_id", "project_id", "branch", "path", "mode", "content", "truncated")}}
+    legacy["required"] = list(legacy["properties"])
+    legacy["properties"]["mode"]["enum"] = ["status", "diff", "file"]
+    output_properties = {name: copy.deepcopy(value) for name, value in legacy["properties"].items()}
+    output_properties["mode"] = {"type": "string", "const": "oracle_output"}
+    for name in ("branch", "path"):
+        output_properties[name].pop("minLength", None)
+    output_properties["oracle_output"] = {"$ref": "#/$defs/native_oracle_output_page"}
+    output = {"type": "object", "additionalProperties": False, "required": list(output_properties), "properties": output_properties}
+    defs["worktree_inspect_result"] = closed_operation_variants([legacy, output], ["work_id", "project_id", "mode"])
+    defs["worktree_inspect_result"]["properties"]["mode"] = {"type": "string", "enum": ["status", "diff", "file", "oracle_output"]}
+    for name in ("branch", "path"):
+        defs["worktree_inspect_result"]["properties"][name].pop("minLength", None)
+
+
 def project_workflow_action_schema(document: dict, actions: list[dict], workflows: list[dict], teaching: dict) -> tuple[dict, list[dict]]:
     projected = copy.deepcopy(document)
     defs = projected["$defs"]
     # Continuity and work pins expose the same card references as dispatch.
     # The authored packet schema owns the source shape, not a second union.
     packet_defs = json.loads((ROOT / "contracts/agent-lane-packet.schema.json").read_text())["$defs"]
+    for name in ("recipe_source", "readiness_evidence_refs"):
+        defs["worker_oracle_control"]["properties"][name]["description"] = packet_defs["lane_worker_oracle_control"]["properties"][name]["description"]
+    project_native_oracle_requests(defs)
+    project_native_oracle_metadata(defs, packet_defs)
     card_refs = copy.deepcopy(packet_defs["lane_work_context_domain_group"]["properties"]["domain_cards"])
     card_refs["items"]["$ref"] = "#/$defs/work_context_reading_source_repository_file"
     defs["work_context_domain_group"]["properties"]["domain_cards"] = card_refs
@@ -817,7 +1080,7 @@ def project_workflow_action_schema(document: dict, actions: list[dict], workflow
     defs["decision_record_text"] = {"type": "string", "minLength": 2, "maxLength": 128}
     defs["native_report_timestamp"] = {"type": "string", "minLength": 20, "maxLength": 64, "format": "date-time"}
     design_action = next(action for action in actions if action["id"] == "record_design")
-    defs["workflow_design_content"] = workflow_payload_object_schema(design_action["payload"], defs)
+    defs["workflow_design_content"] = workflow_payload_object_schema(single_variant(design_action)["payload"], defs)
 
     outer_properties = copy.deepcopy(common)
     # The registry declares the envelope-carried fields once: the generator
@@ -825,7 +1088,7 @@ def project_workflow_action_schema(document: dict, actions: list[dict], workflow
     # level, so the work pin (required_fields), this envelope schema, and the
     # store validator read one declaration and cannot drift.
     confirm_action = next(action for action in actions if action["id"] == "confirm_premise")
-    for field in confirm_action["payload"]["fields"]:
+    for field in single_variant(confirm_action)["payload"]["fields"]:
         if not field.get("envelope"):
             continue
         outer_properties[field["name"]] = workflow_payload_field_schema(field, defs)
@@ -837,7 +1100,9 @@ def project_workflow_action_schema(document: dict, actions: list[dict], workflow
         # declaration, but the legacy branch is a separate definition that no
         # published variant references — the surface never advertises legacy
         # forms (CON-412).
-        if not action["legacy_payloads"]:
+        # Envelope-carried fields keep their declared wire shape in every
+        # version; a historical fields object cannot replace that envelope.
+        if not action["legacy_payloads"] or any(field.get("envelope") for variant in action["variants"] for field in variant["payload"]["fields"]):
             return None
         def payload_branch(payload: dict) -> dict:
             field_object = workflow_payload_object_schema(payload, defs, field_teaching)
@@ -849,21 +1114,16 @@ def project_workflow_action_schema(document: dict, actions: list[dict], workflow
         then = branches[0] if len(branches) == 1 else {"anyOf": branches}
         return {"if": {"properties": {"action_id": {"const": action["id"]}}, "required": ["action_id"]}, "then": then}
 
-    # One authored closed action-discriminated variant per action, generated
-    # from the same registry projection for core validation and host
-    # publication — no union merging, no handwritten field list, no separate
-    # conditional core input (CON-412). Each variant is self-contained and
-    # flat: the action_id const discriminates, the required set is exact, and
-    # forbidden envelope fields are absent from properties so
-    # additionalProperties:false refuses them structurally — no provider-side
-    # if/then/not has to survive publication.
+    # Each action publishes its current closed fieldsets from the registry.
+    # Cross-field rules apply inside each alternative; no field union invents
+    # a contract. Retained layouts stay on the core-only legacy input path.
     def action_variant(action: dict, payload_key: str, name: str) -> None:
         action_id = action["id"]
         properties = copy.deepcopy(outer_properties)
         properties["action_id"] = {"type": "string", "const": action_id}
         required = list(common_required)
         if action_id == "confirm_premise":
-            required.extend(field["name"] for field in action[payload_key]["fields"] if field.get("envelope") and field.get("required"))
+            required.extend(field["name"] for field in single_variant(action)[payload_key]["fields"] if field.get("envelope") and field.get("required"))
             # The envelope alternative is closed: fields is not a property of
             # this variant at all, so supplying it is a structural refusal.
             properties.pop("fields", None)
@@ -872,15 +1132,31 @@ def project_workflow_action_schema(document: dict, actions: list[dict], workflow
             # engine registry's declarations (fields plus the action's
             # cross-field rules) produce the closed shape, so no action's
             # branch is hand-authored.
-            field_object = workflow_payload_object_schema(action[payload_key], defs, field_teaching, action.get("cross_field"))
-            if action_id == "add_condition":
-                wait = field_object.get("properties", {}).get("expected_within_seconds")
-                if isinstance(wait, dict):
+            payloads = [variant[payload_key] for variant in action["variants"]]
+            branches = []
+            for payload in payloads:
+                validate_workflow_cross_field(action, payload)
+                branch = workflow_payload_object_schema(payload, defs, field_teaching, action["cross_field"])
+                if action_id == "add_condition":
+                    wait = branch.get("properties", {}).get("expected_within_seconds")
+                    if not isinstance(wait, dict):
+                        fail("add_condition payload names no expected_within_seconds field for the delivery-rule teaching")
                     wait["description"] = DELIVERY_RULE_WAIT_DESCRIPTION
+                if branch not in branches:
+                    branches.append(branch)
+            field_object = closed_field_union(branches)
             properties["fields"] = field_object
-            if "required" in field_object or ("oneOf" in field_object and any("required" in branch for branch in field_object["oneOf"])):
+            def requires_fields(branch: dict) -> bool:
+                return bool(branch.get("required")) or any(all(requires_fields(child) for child in branch[keyword]) for keyword in ("oneOf", "anyOf") if keyword in branch)
+            if all(requires_fields(branch) for branch in branches):
                 required.append("fields")
         defs[name] = {"type": "object", "additionalProperties": False, "required": required, "properties": properties}
+        if action_id != "confirm_premise":
+            # Publish the common envelope declarations without admitting
+            # decision-only values on other actions. The host preserves this
+            # exclusion and the core retains the same closed input set.
+            defs[name]["not"] = {"anyOf": [{"required": [field]} for field in
+                                           ("selected_choice", "decision_context_digest")]}
 
     public_variants: list[dict] = []
     current_variant_refs: list[dict] = []
@@ -889,7 +1165,7 @@ def project_workflow_action_schema(document: dict, actions: list[dict], workflow
         action_variant(action, "payload", f"work_transition_action_variant_{action_id}")
         current_variant_refs.append({"$ref": f"#/$defs/work_transition_action_variant_{action_id}"})
         public_name = f"work_transition_action_variant_{action_id}"
-        if action["payload"] != action["public_payload"]:
+        if any(variant["payload"] != variant["public_payload"] for variant in action["variants"]):
             public_name = f"work_transition_action_public_variant_{action_id}"
             action_variant(action, "public_payload", public_name)
         public_variants.append({"action_id": action_id, "schema": public_name})
@@ -907,9 +1183,9 @@ def project_workflow_action_schema(document: dict, actions: list[dict], workflow
     # variant refuses. The gate names exactly the actions that carry recorded
     # legacy payload layouts, so historic execution stays admitted and current
     # shapes answer only to their closed variants.
-    legacy_action_ids = sorted(action["id"] for action in actions if action["legacy_payloads"])
-    legacy_gate = {"anyOf": [{"properties": {"action_id": {"type": "string", "enum": legacy_action_ids}}, "required": ["action_id"]}]} if legacy_action_ids else None
-    defs["work_transition_action_legacy_input"] = copy.deepcopy(variant_wrapper) | {"allOf": ([legacy_gate] if legacy_gate else []) + legacy_conditions}
+    legacy_action_ids = sorted(condition["if"]["properties"]["action_id"]["const"] for condition in legacy_conditions)
+    legacy_gate = {"anyOf": [{"properties": {"action_id": {"type": "string", "enum": legacy_action_ids}}, "required": ["action_id"]}]} if legacy_action_ids else {"not": {}}
+    defs["work_transition_action_legacy_input"] = copy.deepcopy(variant_wrapper) | {"allOf": [legacy_gate] + legacy_conditions}
     defs["work_transition_action_input"] = copy.deepcopy(variant_wrapper) | {"anyOf": current_variant_refs + [{"$ref": "#/$defs/work_transition_action_legacy_input"}]}
     defs["work_transition_action_public_input"] = copy.deepcopy(variant_wrapper) | {"anyOf": [{"$ref": f"#/$defs/{variant['schema']}"} for variant in public_variants]}
     require_delivery_rule_teaching(defs)

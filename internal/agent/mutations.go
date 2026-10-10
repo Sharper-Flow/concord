@@ -142,9 +142,10 @@ type worktreeVerifyInput struct {
 	WorkID string `json:"work_id"`
 	// Command is the bounded argv that runs in the derived worktree under
 	// the exclusive lease. A shell command string is never accepted.
-	Command        []string       `json:"command"`
-	IdempotencyKey string         `json:"idempotency_key"`
-	Approval       *approvalInput `json:"approval"`
+	Command        []string                   `json:"command"`
+	Oracle         *store.NativeOracleRequest `json:"oracle"`
+	IdempotencyKey string                     `json:"idempotency_key"`
+	Approval       *approvalInput             `json:"approval"`
 }
 type worktreeDestroyInput struct {
 	WorkID          string `json:"work_id"`
@@ -3055,6 +3056,7 @@ func (r runtime) mutateWorktreeVerify(ctx context.Context, base Envelope, raw []
 		WorkID:       in.WorkID,
 		ProjectID:    project,
 		Command:      in.Command,
+		Oracle:       in.Oracle,
 		LeaseID:      leaseID,
 		PrincipalRef: grant.PrincipalRef,
 		RequestID:    in.IdempotencyKey,
@@ -3067,13 +3069,22 @@ func (r runtime) mutateWorktreeVerify(ctx context.Context, base Envelope, raw []
 		}
 		return failure, nil
 	}
-	payload, _ := json.Marshal(map[string]any{
+	resultPayload := map[string]any{
 		"work_id": result.WorkID, "project_id": result.ProjectID, "branch": result.Branch, "path": result.Path,
 		"lease_id": result.LeaseID, "operation_ref": result.OperationRef, "command": result.Command, "exit_code": result.ExitCode,
 		"output": result.Output, "output_truncated": result.OutputTruncated, "tracked_files_changed": result.TrackedFilesChanged,
 		"changed_refs":       mutationResultChangedRefs([]ChangedRef{{EntityKind: "worktree_verify_lease", ID: leaseID, Version: "1"}}),
 		"next_valid_intents": mutationResultIntents(intents),
-	})
+	}
+	if result.Oracle != nil {
+		// Native producer metadata is already finalized by the store. The
+		// adapter neither derives observations nor copies raw stream bodies.
+		resultPayload["oracle"] = result.Oracle
+	}
+	payload, err := json.Marshal(resultPayload)
+	if err != nil {
+		return worktreeVerifyPostLeaseFailure(failureEnvelope(base, err), []ChangedRef{{EntityKind: "worktree_verify_lease", ID: leaseID, Version: "1"}}), nil
+	}
 	changed := []ChangedRef{{EntityKind: "worktree_verify_lease", ID: leaseID, Version: "1"}}
 	base.ResolvedScope = scopeFromMap(scope)
 	response := r.mutationResult(base, payload, changed, intents)

@@ -20,7 +20,7 @@ so a record cannot escape coverage by being absent (CD-0047 D1). Anchor
 resolution lives in `scripts/evidence_anchors.py` so the same proof machinery
 is shared with `scripts/check-floor-readiness.py`, and outstanding-pointer
 liveness lives in `scripts/coverage_state.py` so it is shared with every other
-plane that declares the same states (#451).
+plane that declares the same states.
 """
 from __future__ import annotations
 

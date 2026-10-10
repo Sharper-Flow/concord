@@ -136,7 +136,7 @@ def schema_default_path_pattern(schema: object, findings: list[str]) -> str | No
     so an override-admitted external path can validate beside it: JSON Schema
     intersects sibling constraints, so a base pattern that named only the
     default tree would refuse every external placement before the override
-    logic could speak. The rule now lives in an implication, and both this
+    logic could speak. The rule lives in an implication, and both this
     checker and the Go binding read it back out of that clause, so a
     restructure fails loudly instead of leaving the default rule unbound.
     """

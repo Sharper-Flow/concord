@@ -11,7 +11,7 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 )
 
-// CON-779: a scope list that names the same work item twice must not mask a
+// A scope list that names the same work item twice must not mask a
 // typed outcome behind an Envelope.MarshalJSON failure. Scope-list
 // normalization is the shared owner: bindings render strictly sorted and
 // unique however often a path repeats an identity, resolved scopes stay
@@ -158,7 +158,7 @@ func TestConsequenceSummaryStillRejectsNonCanonicalBindings(t *testing.T) {
 	}
 }
 
-// assertSelfSendInvariantRefusal holds the shared CON-779 regression shape:
+// assertSelfSendInvariantRefusal holds the shared regression shape:
 // an authorized direct self-addressed message_send answers with an
 // encodable typed invariant_violation, effect state none, naming the store
 // invariant's two sources, and leaves no message, version, or approval

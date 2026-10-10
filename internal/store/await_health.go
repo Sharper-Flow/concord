@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-// Issue #87: distinguish waiting from will-never-complete. A step that
+// Distinguish waiting from will-never-complete. A step that
 // delegates completion to an external actor declares how long the wait is
 // expected to take (expected_within_seconds, operator-approved through the
 // ordinary add_condition approval path). Health is derived at read time by

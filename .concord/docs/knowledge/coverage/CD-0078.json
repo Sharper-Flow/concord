@@ -2,15 +2,19 @@
   "evidence": [
     {
       "kind": "go_test",
-      "value": "internal/launcher.TestLauncherAndCommandCarryNoMultiplexerKnowledge"
+      "value": "cmd/concord.TestLauncherAndCommandCarryNoMultiplexerKnowledge"
     },
     {
       "kind": "go_test",
-      "value": "internal/launcher/render/bubbletea.TestDefaultSessionLauncherHandsOnlyIdentityToCoreBootstrap"
+      "value": "cmd/concord.TestDefaultSessionLauncherHandsOnlyIdentityToCoreBootstrap"
     },
     {
       "kind": "go_test",
-      "value": "internal/launcher/render/bubbletea.TestSessionLauncherFailsClosedWithoutRunningBinaryIdentity"
+      "value": "cmd/concord.TestSessionCommandPassesPromptThroughEnvironment"
+    },
+    {
+      "kind": "go_test",
+      "value": "cmd/concord.TestSessionBootPassesCorePacketToOpenCodeBeforeSessionStarts"
     }
   ],
   "id": "CD-0078",

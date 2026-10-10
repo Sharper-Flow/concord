@@ -31,14 +31,14 @@ follows them without restating the ranked list.
 
 ### 1.1 Spec law, browsable by Product and Domain
 - The spec system (capabilities → requirements → scenarios) is **navigable by
-  Product → Domain**. Open Concord → see the Product → Domain hierarchy and
-  typed architecture relations → drill into a Domain's current capabilities,
+  Product → Domain**. Open Concord → reach current Domain law and unresolved
+  work overlap → drill into a Domain's current capabilities,
   requirements, scenarios, decisions, and deltas.
 - Public predecessor evidence proved the value of bounded spec list/show/search;
   Concord redesigns that outcome as a Domain-bound, browsable surface rather than
   calling or mirroring predecessor runtime state.
-- The primary operator surface is the **Product-first terminal launcher**, not a
-  web admin panel. Any grid/table view is an optional projection.
+- The primary operator surface follows [`priorities.md`](./priorities.md).
+  Any grid/table view is an optional projection.
 - Connects to [`specs-as-laws.md`](./specs-as-laws.md): the laws are **visible**,
   not hidden. A legislator can't govern what they can't read.
 

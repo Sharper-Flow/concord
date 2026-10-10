@@ -10,8 +10,8 @@
 > research/investigation, architecture spike, ops runbook, static analysis, or
 > generic one-off. Database/configuration/infrastructure map to implementation or
 > ops until a distinct recurring lifecycle proves another type necessary.
-> **Primary surface:** The Product-first terminal launcher is the primary
-> operator surface; an admin panel or web UI is optional and secondary.
+> **Primary surface:** Defined by [`priorities.md`](./priorities.md); an admin
+> panel or web UI is optional and secondary.
 > **Origin:** User direction, 2026-07-25.
 
 ## TL;DR
@@ -22,8 +22,9 @@ work, break-fix, configuration, infrastructure, research, RCA, and static
 analysis through that one shape is wrong. Concord introduces a **full workflow
 coordination engine** with code-defined, versioned purpose-built types plus one
 generic type for true one-offs. Each type is shaped for its work kind.
-The primary operator interacts through a **Product-first terminal launcher**;
-optional grid/table views are projections, not the primary interface.
+The primary operator interacts through the `concord zl` launcher and its agent
+sessions until the Herdr cutover; optional grid/table views are
+projections, not the primary interface.
 
 The canonical Concord priorities are maintained in [`priorities.md`](./priorities.md); this document
 follows them without restating the ranked list.
@@ -32,17 +33,17 @@ follows them without restating the ranked list.
 
 ## 0. Audience and primary surface (resolved)
 
-- **Primary operator surface:** a Product-first terminal launcher that opens the
-  Product view directly from the shell.
-- **Launcher responsibility:** context-rich navigation and narrow open/start/resume/
-  launch actions. Substantive workflow decisions happen after selection.
+- **Primary operator surface:** follows [`priorities.md`](./priorities.md).
+  The `concord zl` entry starts named work directly from the shell.
+- **Entry responsibility:** narrow start/resume/launch actions. Substantive
+  workflow decisions happen after selection.
 - **Human questions:** provide purpose, relevant context, concrete examples, and
   consequences before asking one decision at a time.
 - **Web / admin panel:** optional; a grid/table projection for humans, not the
   daily operating surface.
-- **Terminal launcher:** the CD-0108 replacement owns the daily browse and
-  session bootstrap role. ZLauncher retires only after the replacement
-  acceptance test passes.
+- **Session entry:** CD-0108 owns session bootstrap until the terminal-layer
+  cutover. CD-0219 retires the interactive launcher TUI without transferring
+  its operator acceptance gate to the entry route.
 - **Agent surface:** CD-0005's eight scenario-validated tools through the accepted
   `concord.ts` custom-tool adapter and short-lived Go CLI. No plugin/MCP v1 and no
   separate human-only GUI required for correctness.
@@ -152,7 +153,7 @@ Default Concord views are intentionally minimal:
 - Completed history, archived work, and passive context are available through
   explicit drill-down, not cluttering the default Product view.
 
-This applies to the terminal launcher, any admin panel, and agent-tool read
+This applies to the session entry, any admin panel, and agent-tool read
 surfaces.
 
 ### 2.5 Product → Domain navigation
@@ -277,5 +278,4 @@ and [CD-0055 D4](./decisions/CD-0055-repository-check-authority.md#d4-heuristic-
 ---
 
 *One workflow was a start. A plurality of purpose-built workflows is the goal —
-each work kind gets the shape it deserves, navigated from the Product-first
-terminal launcher.*
+each work kind gets the shape it deserves, entered through the session entry.*

@@ -87,6 +87,50 @@ what the coordinator believed the work faces, and its `touched_refs` and
 departure as report `context_findings`, never by silently ignoring the
 checkpoint.
 
+## Acceptance oracle
+
+When `inputs.worker_job.acceptance_oracle` is present, it is the owner-level
+acceptance oracle of the recorded job revision: the same copy every lane
+receives. Read it after the work context. It carries at most 8
+owners, 64 cases, and 64 controls. Each owner names the
+mechanism that owns the behavior and the obligation it owes; each case names
+one entry path or transition; each control pins the exact harness source at
+an exact commit and the exact argument vector to run it from its contained
+working directory.
+
+The authenticated host owns `native_oracle_v2` preparation and execution
+through the existing `worktree_verify` operation. Preparation compiles the
+pinned pure-Go harness without test execution and grants readiness only.
+Execution requires the exact persisted job, attempt, epoch, packet digest,
+control, preparation reference, and recorded raw subject. Managed workers
+gain no Concord tools. Do not replace this producer with your own argument
+vector, automatic preparation, or a model assertion. Ordinary test output
+does not acquire a qualified oracle receipt.
+
+Report the host-produced execution as a typed `oracle_receipt` on an evidence
+entry: the control ids,
+case ids, the pinned recipe source, the result (`pass`, `fail`, `unavailable`,
+or `not_run`), the exit code for an executed result, and the immutable run
+locator your host produced. A receipt is reported evidence, not authority:
+when no producing route issued an immutable locator, report `unavailable`
+with an empty `run_ref` and name the missing producer honestly — never
+invent a locator. A timeout is `unavailable` evidence, never a measured
+failure and never a source defect claim. Never author `subject_commit`:
+the dispatch owns that identity.
+
+Do not replace a hard control with a preferred test, add an unrelated
+delivery condition, or treat the finite case list as proof of complete
+semantics. When you find a real entry path or transition the inventory
+omits, report it as a review finding classified `uncovered_case` with its
+owner and entry point: a missing case is a legitimate delivery blocker, not
+a rejection. An obligation failure of a declared owner is a
+`delivery_blocker`; a concern outside the approved owner or contract is a
+`follow_up` and never becomes a repair criterion; an obsolete, inconsistent,
+or unsound harness is an `oracle_defect`, which blocks oracle readiness
+rather than manufacturing a repair obligation. Receipts from earlier
+subjects stay regression baselines: report current-subject evidence for
+current acceptance.
+
 ## Objective and binding
 
 `inputs.task` is the canonical objective, carried verbatim: the approved
@@ -208,6 +252,12 @@ Report contract constraints:
 - review_finding.severity: enum=["P0", "P1", "P2", "P3"].
 - review_finding.confidence: enum=["low", "medium", "high"].
 - review_finding.detail: type=string, minLength=1, maxLength=512.
+- review_finding.oracle: optional object (CON-890); type=object, additionalProperties=false, required=["classification"]. Tie a finding on an oracle-capable job to the oracle: `classification` is one of `delivery_blocker`, `uncovered_case`, `follow_up`, `oracle_defect`. A `delivery_blocker` or `uncovered_case` names the `owner_id` it blocks and the `predicate_ids` and/or `law_bindings` that govern it, with `case_ids`/`control_ids` and reproducible `evidence_refs`; a known control failure names that control. An `uncovered_case` additionally names the omitted `entry_point`. A `follow_up` stays outside the approved owner or contract and never becomes a repair criterion; an `oracle_defect` names the unsound harness evidence and blocks readiness, not a fabricated repair. `continues_finding_id` claims the same failure as an earlier ranked finding; `variant_of` marks a newly reproduced alternate entry path as a new identity beside its owner-family finding.
+- review.resolved_findings: optional array (CON-890); type=array, minItems=0, maxItems=32, x-maxArrayBytes=8192. Claim the closure of a previously open ranked finding with its `finding_id` and the independent current-subject `evidence_refs` its control requires. A claim is a claim: omission, relabeling, or a confidence change never closes a finding. An array past the byte bound is refused whole: drop or split claims yourself, never truncate one to fit.
+- resolved_finding shape: type=object, additionalProperties=false, required=["finding_id", "evidence_refs"]; finding_id pattern="^finding:[0-9]+:[0-9]+$".
+- evidence_entry.oracle_receipt: optional object (CON-890); type=object, additionalProperties=false, required=["control_ids", "case_ids", "recipe_source", "result", "run_ref", "evidence_refs"]. Report one control execution: `result` is one of `pass`, `fail`, `unavailable`, `not_run`. An executed `pass`/`fail` carries its `exit_code` and a nonempty immutable `run_ref`; `unavailable`/`not_run` carry the empty `run_ref` and name the explanation in `evidence_refs`. A receipt is reported evidence, never native-run authority: when no producing route issued an immutable locator, report `unavailable` and name the missing producer honestly — never invent a run locator. `subject_commit` is the dispatch-owned raw OID identity: never author it; any echo is stripped and the observed subject is injected from the dispatch packet.
+- oracle_receipt.control_ids: type=array, minItems=1, maxItems=8, pattern="^control:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$".
+- oracle_receipt.recipe_source: the exact pinned harness identity the control declared (project_id, path, commit_oid at "#/$defs/oracle_recipe_source"); never the candidate's modified copy of the harness.
 - review verdict consistency: the adapter and the store refuse a review block with a `ship` verdict and any P0 finding, and one with a `no_ship` verdict and zero findings.
 - worker_job: optional top-level object; type=object, additionalProperties=false, required=["job_id", "revision", "digest"]. When the packet carries `inputs.worker_job`, copy its `job_id`, `revision`, and `digest` here unchanged; omit `worker_job` when the packet carries none. The store refuses a report that names another job or revision, or omits the job its attempt was dispatched under. `inputs.worker_job.objective` bounds this attempt; `inputs.task` stays the complete parent objective, and the job's `stopping_condition` says when to stop.
 

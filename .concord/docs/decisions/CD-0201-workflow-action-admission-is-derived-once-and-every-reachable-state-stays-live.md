@@ -74,6 +74,14 @@ the correction classifications. A duplicated contract projection folds on:
 the count classifies the supersede recovery, and the singular-reader folds
 degrade instead of refusing the route that recovery owns.
 
+For oracle-capable histories, the loader consumes the one ranked-finding
+lineage, including unresolved oracle defects, and folds its open count.
+Correction and context projections use that same reader's canonical IDs and
+retained receipts. Dispatch refuses above 32 open blockers without truncation.
+Oracle structure, readiness references, and receipt/current-subject joins
+remain checks at the existing job, preparation, and terminal boundaries.
+They do not create a second admission derivation or new evidence authority.
+
 The liveness checks count only exits the folded state proves, so they fail
 rather than assume. Widening the liveness, well-formed-exit, and
 conformance checks to the full folded state is later work in a separate
@@ -100,6 +108,12 @@ No runtime guard enforces the law. The law binds design and review through
 the checks alone. The model states which admission families it folds; an
 exit the model cannot prove is not counted, so the checks fail rather than
 assume.
+
+Missing oracle readiness, an oracle defect, or a new uncovered case must
+retain declared preparation, correction, contract-supersession, and operator-stop
+recovery as applicable. Recovery neither erases blockers nor resets the retry
+count. Each family extends the same admission owner; liveness checks count
+only the oracle dimensions their model actually folds.
 
 ### D3. The review debt settles only on a settling verdict
 
@@ -193,3 +207,4 @@ Scenario: A parked gate keeps the corrective return behind a no_ship review
 - `go test ./internal/store/ -run TestWorkflowAdmitDecisionTable` proves the pure function's total decision table and the settlement verdict rule.
 - `python3 scripts/check-doc-contract.py --report-only` proves this record carries the current decision outline and passes the writing rules.
 - `python3 scripts/check-cd-allocation.py --no-fetch` proves the CD-0201 identifier allocates once.
+- `TestOwnerOracleRecovery` covers the open-set bound and declared recovery without truncation or a second admission owner.

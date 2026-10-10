@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate the recorded lane eval baseline (issue #212).
+"""Validate the recorded lane eval baseline.
 
 The baseline is the only record that the lane prompts were measured, not
 merely that a harness exists. A run proves nothing about a later run whose

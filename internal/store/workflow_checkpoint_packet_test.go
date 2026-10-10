@@ -28,10 +28,16 @@ func recordFixtureCheckpoint(t *testing.T, f workContextFixture, strategy string
 // checkpointDispatchPacket builds the closed implement-lane packet the
 // repair step dispatches, carrying the given checkpoint member (nil omits
 // it). The job revision is recorded before the packet inputs are read
-// because the recording advances the work version the binding must carry.
+// because the recording advances the work version the binding must carry,
+// and the ready oracle job derives its preparations into the current work
+// context view the packet must consume.
 func checkpointDispatchPacket(t *testing.T, f workContextFixture, attemptID string, checkpoint any) map[string]any {
 	t.Helper()
 	job := seedReadyWorkerJob(t, f)
+	view, err := readWorkContextView(context.Background(), f.store.DatabaseForTesting(), f.workID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	laneVersion, laneDigest := implementLaneIdentity()
 	task, binding := recordedPacketInputs(t, f.store, f.workID, "implement")
 	inputs := map[string]any{
@@ -42,6 +48,9 @@ func checkpointDispatchPacket(t *testing.T, f workContextFixture, attemptID stri
 	}
 	for member, value := range recordedPacketRecords(t, f.store, f.workID) {
 		inputs[member] = value
+	}
+	if view != nil {
+		inputs["work_context"] = view
 	}
 	if checkpoint != nil {
 		inputs["checkpoint"] = checkpoint

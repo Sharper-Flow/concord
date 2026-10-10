@@ -238,8 +238,6 @@ def with_outstanding_exception(mutate, env_extra: dict[str, str] | None = None):
 
 
 def test_outstanding_pointer_to_a_closed_issue_fails() -> None:
-    """The #219 defect: a record kept citing a closed issue and stayed green (#451)."""
-
     def close_it(document: dict) -> None:
         document["issues"][str(SYNTHETIC_OUTSTANDING_ISSUE)] = "closed"
 

@@ -44,9 +44,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:da53fbd29fd4660b0fdb8935f650e600e9e0ddafc8c0939b4cb49ecf900912ba",
+  "sha256": "sha256:737ccfdd164b74d9486f7209f3e3e5694befec47c167ef0a12dfe0af60e3c9d7",
   "status": "accepted",
-  "summary": "Workflow action admission is derived once: a tx-scoped loader folds one work item's history into an abstract admission state, and a pure workflowAdmit function decides admission for preflight, the guard table, the work pin intents, the dispatch fold, and the correction binding, while payload and identity checks stay in the guards. The liveness law binds every registered definition version: every well-formed nonterminal abstract state admits a state-exiting action, every model-reachable nonterminal state reaches a terminal step through admitted actions, both checks fail with a witness and never skip, and a conformance replay binds the model to the real fold. A fresh accepted review settles post-rejection review debt only when its verdict is ship or absent, so a no_ship review leaves the debt outstanding and a parked delivery gate keeps admitting request_correction; no definition version changes.",
+  "summary": "One tx-scoped history loader and pure workflowAdmit function own admission across all sites; payload and identity checks stay at existing boundaries. Oracle histories consume one ranked-finding lineage, fold its open count, and expose canonical IDs and retained receipts through shared correction/context readers. Dispatch refuses above 32 blockers without truncation. Readiness, oracle defects, and uncovered cases retain declared preparation, correction, supersession, or stop recovery without resetting retries. Every registered version keeps the liveness law and conformance checks over modeled dimensions. Only fresh accepted ship or legacy absent reviews settle review debt.",
   "tags": [
     "workflow",
     "workflow-engine",

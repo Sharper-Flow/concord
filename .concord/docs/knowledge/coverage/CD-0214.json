@@ -1,0 +1,18 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestDomainDetailShowsCurrentLawRelationsAndRefusesUnknown"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/test-check-domain-registry.py"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/test-domain-navigation.py"
+    }
+  ],
+  "id": "CD-0214",
+  "state": "satisfied"
+}

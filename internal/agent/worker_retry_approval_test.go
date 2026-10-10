@@ -281,6 +281,7 @@ func seedWorkerRetryMutationFixture(t *testing.T, s *store.Store, grant Authorit
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
 		UPDATE workflow_instances SET current_step='execution' WHERE work_id='work-1';
 		INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES('work-1',1,'approved retry objective','internal_sqlite','[]','[]','now',?,'[]','[]',0,'prototype_internal');
+		INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload) VALUES('work-1',1,'predicate:retry-objective',0,'check','{"kind":"check","check_ref":"check:retry-objective","immutable_subject_ref":"commit:retry-objective","expected_result":"pass"}');
 		DELETE FROM fold_guard`, ownerRef); err != nil {
 		t.Fatalf("seed retry projections: %v", err)
 	}

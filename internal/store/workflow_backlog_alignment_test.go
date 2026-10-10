@@ -43,8 +43,8 @@ func TestAlignmentStepHasOnlyRecordAlignmentAsItsAdvanceExit(t *testing.T) {
 		nextStep    string
 		wantVersion int64
 	}{
-		{"workflow.implementation", "proposal", "discovery", 26},
-		{"workflow.break_fix", "reproduce", "diagnose", 23},
+		{"workflow.implementation", "proposal", "discovery", 27},
+		{"workflow.break_fix", "reproduce", "diagnose", 24},
 	}
 	for _, testCase := range cases {
 		registered, err := BuiltinWorkflowDefinitionForRef(testCase.ref)
@@ -294,7 +294,8 @@ func TestWorkRemovalClearsBacklogAlignmentAtBothEnds(t *testing.T) {
 			request.WorkID = testCase.removed
 			request.OperationID = "remove-align-" + testCase.removed
 			request.IdempotencyKey = "remove-align-key-" + testCase.removed
-			if _, err := s.ShelveWork(ctx, request); err != nil {
+			request.Reason = "shelved"
+			if _, err := s.RemoveWork(ctx, request); err != nil {
 				t.Fatalf("removing %s left a backlog alignment row behind: %v", testCase.removed, err)
 			}
 			var rows int

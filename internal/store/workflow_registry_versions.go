@@ -1398,3 +1398,44 @@ func genericOneOffWorkContextV16() WorkflowDefinition {
 	d.Version = 16
 	return withWorkContext(d)
 }
+
+// acceptanceOracleActionField binds immutable job content to the closed schema.
+func acceptanceOracleActionField() WorkflowPayloadField {
+	return actionObjectField("acceptance_oracle", true, "worker_acceptance_oracle")
+}
+
+// withOwnerOracle restates record_worker_job's payload as the
+// oracle-carrying contract: the predecessor's fields plus the required
+// acceptance_oracle member. Released versions keep the payload they were
+// pinned under — builtinActionPolicies stays byte-identical — so every
+// released definition digest holds, and oracle capability stays a declared
+// action member rather than a mutable behavior flag on historical defs.
+func withOwnerOracle(definition WorkflowDefinition) WorkflowDefinition {
+	definition = cloneWorkflowDefinition(definition)
+	for index := range definition.ActionDefinitions {
+		action := &definition.ActionDefinitions[index]
+		switch action.ID {
+		case "record_worker_job":
+			action.Payload.Fields = append(slices.Clone(action.Payload.Fields), acceptanceOracleActionField())
+		case "request_correction":
+			action.Payload.Fields = append(slices.Clone(action.Payload.Fields), actionIDListField("open_finding_ids", false, 1, 32))
+		}
+	}
+	return definition
+}
+
+// Each builder below ships the acceptance-oracle declaration at its
+// family's next version. The definition content stays the predecessor's;
+// the only content change is record_worker_job's declared payload, so every
+// released version above keeps its digest and its oracle-free behavior.
+func implementationOwnerOracleV27() WorkflowDefinition {
+	d := implementationWorkContextV26()
+	d.Version = 27
+	return withOwnerOracle(d)
+}
+
+func breakFixOwnerOracleV24() WorkflowDefinition {
+	d := breakFixWorkContextV23()
+	d.Version = 24
+	return withOwnerOracle(d)
+}

@@ -2,6 +2,18 @@
   "evidence": [
     {
       "kind": "go_test",
+      "value": "internal/store.TestOwnerOracleFinding"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestOwnerOracleLineage"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestOwnerOracleReplay"
+    },
+    {
+      "kind": "go_test",
       "value": "internal/store.TestReviewLaneCompletionRequiresTheTypedReviewBlock"
     },
     {

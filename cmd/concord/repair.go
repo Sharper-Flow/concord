@@ -24,7 +24,7 @@ const defaultReleaseBaseURL = "https://github.com/Sharper-Flow/concord/releases"
 var repairInterpreter = "python3"
 
 // runRepairCommand completes an incomplete installation of the installed
-// release (#912). The verb is orchestration around the owning installer:
+// release. The verb is orchestration around the owning installer:
 // resolve the installer a release published, checksum-verify it against that
 // release's published checksums, snapshot the work database through the
 // store's backup API, then hand the mutation to the installer's own repair

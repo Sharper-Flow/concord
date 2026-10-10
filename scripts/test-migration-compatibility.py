@@ -4607,7 +4607,8 @@ finally:
     connection.close()
 
 
-# The planning retirement (124) sets the live compatibility floor. The
+# Native lease plan-pair triggers (125) set the live compatibility floor. The
+# planning retirement (124) also constrains older binaries. The
 # research retirement delete guard (123) constrains older binaries' writes
 # to active_research_packs. Initiative maintenance triggers (120) and the
 # outside-repair terminal instance rebuild (121) also classify as breaking.
@@ -4617,10 +4618,10 @@ with open(check.SCHEMA, encoding="utf-8", newline="") as handle:
 live_failures, live_breaking = check.evaluate(check.migrations(live_source))
 if live_failures:
     FAILURES.append(f"live manifest drew refusals: {live_failures}")
-if max(live_breaking, default=0) != 124:
+if max(live_breaking, default=0) != 125:
     FAILURES.append(
         f"live compatibility floor moved: {max(live_breaking, default=0)}")
-if not {110, 111, 119, 120, 121, 123, 124}.issubset(live_breaking):
+if not {110, 111, 119, 120, 121, 123, 124, 125}.issubset(live_breaking):
     FAILURES.append(
         f"required migrations left breaking: {live_breaking}")
 

@@ -8,7 +8,7 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 )
 
-// CON-835 regression. Bounded summary and preview reads stay bounded: the
+// Bounded summary and preview reads stay bounded: the
 // recorded intent detail (task, value statement, tags, workflow type
 // reference) rides only the authoritative single-work scope read and the
 // full-detail list read. Snapshot previews, summary-detail listings, and the

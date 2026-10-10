@@ -13,7 +13,7 @@ import (
 
 // runRecoverFoldGuardCommand is the offline recovery route for a database
 // ordinary Open refuses because a fold_guard row committed without a closing
-// scope. It is separate from concord repair (#912): repair re-installs the
+// scope. It is separate from concord repair: repair re-installs the
 // release over the network, while this verb needs nothing but the database
 // file, so it routes around the store open like the release verbs.
 func runRecoverFoldGuardCommand(args []string, in io.Reader, out, errOut io.Writer) int {

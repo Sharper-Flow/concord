@@ -167,7 +167,7 @@ func TestWorkContextNavigationPinnedCardsAndDedup(t *testing.T) {
 	if strings.Contains(string(mustJSONValue(view)), "PRIVATE-CARD-CONTENT") {
 		t.Fatal("card content leaked into context")
 	}
-	if err := validateWorkerPacketWorkContext(ctx, tx, f.workID, mustJSONValue(map[string]any{"inputs": map[string]any{"work_context": view}})); err != nil {
+	if _, err := admittedWorkerPacketWorkContext(ctx, tx, f.workID, mustJSONValue(map[string]any{"inputs": map[string]any{"work_context": view}})); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -183,7 +183,7 @@ func TestWorkContextNavigationOverflowRefusesDispatch(t *testing.T) {
 		readings = append(readings, reading)
 	}
 	workContextNavigationDeclare(t, f, readings)
-	err := validateWorkerPacketWorkContext(workContextNavigationPreparedContext(t, f), f.store.DatabaseForTesting(), f.workID, mustJSONValue(map[string]any{"inputs": map[string]any{}}))
+	_, err := admittedWorkerPacketWorkContext(workContextNavigationPreparedContext(t, f), f.store.DatabaseForTesting(), f.workID, mustJSONValue(map[string]any{"inputs": map[string]any{}}))
 	if !hasFailureKind(err, KindLimitExceeded) {
 		t.Fatalf("overflow dispatch = %v, want limit_exceeded", err)
 	}
@@ -253,7 +253,7 @@ func TestWorkContextNavigationRefusals(t *testing.T) {
 				}
 			}
 			workContextNavigationHome(t, f, repo, oid)
-			err := validateWorkerPacketWorkContext(workContextNavigationPreparedContext(t, f), f.store.DatabaseForTesting(), f.workID, mustJSONValue(map[string]any{"inputs": map[string]any{}}))
+			_, err := admittedWorkerPacketWorkContext(workContextNavigationPreparedContext(t, f), f.store.DatabaseForTesting(), f.workID, mustJSONValue(map[string]any{"inputs": map[string]any{}}))
 			if !hasFailureKind(err, test.kind) {
 				t.Fatalf("dispatch = %v, want %s", err, test.kind)
 			}
@@ -440,6 +440,7 @@ func TestWorkContextNavigationSharedConsumersAndWorktreeBase(t *testing.T) {
 	if _, err := db.Exec(`DELETE FROM fold_guard`); err != nil {
 		t.Fatal(err)
 	}
+	job := seedReadyWorkerJob(t, f)
 	ctx := workContextNavigationPreparedContext(t, f)
 	view, err := readWorkContextView(ctx, db, f.workID)
 	if err != nil {
@@ -462,7 +463,7 @@ func TestWorkContextNavigationSharedConsumersAndWorktreeBase(t *testing.T) {
 	if string(mustJSONValue(pin.WorkContext)) != string(mustJSONValue(view)) || string(mustJSONValue(continuity.WorkContext)) != string(mustJSONValue(view)) {
 		t.Fatal("shared consumers changed the derived navigation view")
 	}
-	packet := workContextDispatchPacket(t, f, "navigation-attempt", view)
+	packet := workContextDispatchPacket(t, f, "navigation-attempt", job, view)
 	if err := dispatchWorkContextAttempt(t, f, packet); err != nil {
 		t.Fatal(err)
 	}

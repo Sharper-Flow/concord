@@ -301,14 +301,21 @@ function internPublication(schema: JSONSchema): JSONSchema {
   const definitions: Record<string, JSONSchema> = {}
   const intern = (node: JSONSchema): JSONSchema => {
     const key = JSON.stringify(node)
-    const repeated = (counts.get(key) ?? 0) > 1 && Buffer.byteLength(key, "utf8") >= 100
-    if (repeated && names.has(key)) return { $ref: `#/$defs/${names.get(key)}` }
+    if (names.has(key)) return { $ref: `#/$defs/${names.get(key)}` }
     const body = mapPublicationChildren(node, intern)
-    if (!repeated) return body
+    // Provider validators require reference targets to carry a concrete
+    // schema, not a bare combinator. Keep those unions inline.
+    if (Object.keys(body).every((keyword) => ["oneOf", "anyOf", "allOf"].includes(keyword))) return body
     const name = `d${names.size}`
+    const pointer = { $ref: `#/$defs/${name}` }
+    const occurrences = counts.get(key) ?? 0
+    const bytes = Buffer.byteLength(JSON.stringify(body), "utf8")
+    const pointerBytes = Buffer.byteLength(JSON.stringify(pointer), "utf8")
+    const entryBytes = Buffer.byteLength(JSON.stringify(name), "utf8") + 2
+    if (occurrences * bytes <= bytes + occurrences * pointerBytes + entryBytes) return body
     names.set(key, name)
     definitions[name] = body
-    return { $ref: `#/$defs/${name}` }
+    return pointer
   }
   const result = intern(schema)
   return Object.keys(definitions).length ? { ...result, $defs: definitions } : result

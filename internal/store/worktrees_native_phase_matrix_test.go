@@ -587,7 +587,7 @@ func TestReclaimRefusalReasonMatrix(t *testing.T) {
 				f := con829FixtureNew(t)
 				path, _ := f.claimWork("work-refuse-nonterminal")
 				return f, path, func() error {
-					_, err := f.s.DestroyWorktree(context.Background(), WorktreeDestroyRequest{
+					_, err := destroyWorktreeForTest(context.Background(), f.s, WorktreeDestroyRequest{
 						WorkID: "work-refuse-nonterminal", ProjectID: "project-w", DefaultRef: "origin/main",
 						PrincipalRef: "principal-1", RequestID: "refuse-nonterminal",
 					})
@@ -607,7 +607,7 @@ func TestReclaimRefusalReasonMatrix(t *testing.T) {
 					t.Fatal(err)
 				}
 				return f, path, func() error {
-					_, err := f.s.DestroyWorktree(context.Background(), WorktreeDestroyRequest{
+					_, err := destroyWorktreeForTest(context.Background(), f.s, WorktreeDestroyRequest{
 						WorkID: "work-refuse-destructive", ProjectID: "project-w", DefaultRef: "origin/main",
 						Destructive: true, PrincipalRef: "principal-1", RequestID: "refuse-destructive",
 					})

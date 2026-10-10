@@ -36,8 +36,8 @@ func dispatchUnderOverlap(t *testing.T, tool, operation string, input map[string
 	return response.Error.Kind
 }
 
-// TestOverlapGuardAdmitsOperationsOutsideD7Classes proves the guard no longer
-// refuses operations CD-0041 D7 never named. Each call may still fail a later
+// TestOverlapGuardAdmitsOperationsOutsideD7Classes proves the guard refuses
+// only the operations CD-0041 D7 names. Each call may still fail a later
 // gate; what it must not return is domain_overlap.
 func TestOverlapGuardAdmitsOperationsOutsideD7Classes(t *testing.T) {
 	for _, probe := range []struct {
@@ -78,7 +78,7 @@ func TestOverlapGuardAdmitsOperationsOutsideD7Classes(t *testing.T) {
 }
 
 // TestOverlapGuardStillRefusesNamedD7Classes is the control. It proves the
-// admission above narrowed the guard rather than removed it.
+// guard still refuses the named D7 classes.
 func TestOverlapGuardStillRefusesNamedD7Classes(t *testing.T) {
 	external := map[string]any{
 		"work_id":         "work-1",

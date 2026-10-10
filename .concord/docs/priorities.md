@@ -26,7 +26,7 @@ Concord is permanently scoped to one operator per installation, while remaining 
 - **One operator per installation.** Another human may run an independent Concord installation against shared git knowledge, but live workflow memory is not shared.
 - **Many concurrent OpenCode TUIs.** Multiple agents run in parallel against the same local state.
 - **Agents are first-class machine participants.** Agents read, write, and execute alongside the operator; they are not second-class consumers of a human-oriented GUI.
-- **Primary operator surface is a Product-first terminal launcher.** The operator starts, navigates, and acts from a launcher that is organized by Product, not by project or repository.
+- **Primary operator surface is the `concord zl` launcher together with the agent sessions it opens until the Herdr cutover.** Herdr replaces this surface at cutover.
 - **Web UI is optional.** A browser-based view may appear later, but it is not the design center.
 - **No team-server ambition.** Shared assignments, boards, identity, permissions, and multi-human live workflow coordination are non-goals. Git shares durable Product knowledge between independent installations.
 
@@ -159,7 +159,7 @@ in one place.
 - Reads are bounded, fast, and scoped to a Product.
 - Staleness is reviewed before action, with execution blocked according to risk.
 - Continuity is preserved across agent sessions and worktree switches.
-- The terminal launcher is the primary visibility surface.
+- Until the Herdr cutover, the `concord zl` launcher and its agent sessions form the primary visibility surface. Herdr replaces this surface at cutover.
 - Specs, decisions, runbooks, and durable workflow documents remain browsable
   through their Domain home; knowledge does not live only in chat history or a
   flat workflow list.
@@ -212,7 +212,7 @@ See [`workflows.md`](./workflows.md).
 
 ## First-usable floor
 
-Concord's first usable form is a **complete, replacement-ready coordination surface** for one operator and many agents on one machine, anchored to a **Product-first terminal launcher**. It must cover the full operational scope that Advance currently provides for this operator (Product-scoped planning, visibility, implementation changes, research/investigation tracking, ops runbooks, and durable product knowledge) while materially improving every one of the six priorities.
+Concord's first usable form is a **complete, replacement-ready coordination surface** for one operator and many agents on one machine. Until the Herdr cutover, its primary operator surface is the `concord zl` launcher together with the agent sessions it opens. Herdr replaces this surface at cutover. It must cover the full operational scope that Advance currently provides for this operator (Product-scoped planning, visibility, implementation changes, research/investigation tracking, ops runbooks, and durable product knowledge) while materially improving every one of the six priorities.
 
 Incremental design, build, replay, and evaluation are allowed, but a partial slice cannot be called usable or replacement-ready. Replacement readiness is an evidence claim, not migration activity.
 

@@ -68,7 +68,10 @@ func TestReadWorkPinUsesOneTransactionAndDeclaredStepActions(t *testing.T) {
 func TestReadWorkPinIncludesRecordedLinearIssueKeyInTheSameTransaction(t *testing.T) {
 	s := openTemp(t)
 	continuityTestWorkflow(t, s, "workpin-linear")
-	if _, err := s.RecordLinearIssueLink(context.Background(), LinearIssueLink{WorkID: "workpin-linear", RemoteIssueUUID: "remote-1", HumanKey: "CON-42", URL: "https://linear.app/example/issue/CON-42"}); err != nil {
+	if err := s.Transact(context.Background(), func(tr *Transaction) error {
+		_, err := RecordLinearIssueLinkTx(context.Background(), tr, LinearIssueLink{WorkID: "workpin-linear", RemoteIssueUUID: "remote-1", HumanKey: "CON-42", URL: "https://linear.app/example/issue/CON-42"})
+		return err
+	}); err != nil {
 		t.Fatalf("RecordLinearIssueLink error = %v", err)
 	}
 

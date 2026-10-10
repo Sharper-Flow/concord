@@ -136,12 +136,12 @@ func activeStaleRegistryContract(t *testing.T, s *Store, workID string) (int64, 
 	return version, active
 }
 
-// TestStaleRegistryRescanAdmitsExactlyOneRePinRoute reproduces the CON-513
-// state: a break_fix item at the repair step holds a completed, unaccepted
-// worker attempt when a Domain registry rescan drifts the hash its approved
-// contract pins. The attempt disposition records under the subject's own
-// stale pin, so the enclosed item settles its attempt, and an
-// operator-approved supersede_contract whose successor pins the current
+// TestStaleRegistryRescanAdmitsExactlyOneRePinRoute reproduces the state that
+// admits exactly one re-pin route: a break_fix item at the repair step holds
+// a completed, unaccepted worker attempt when a Domain registry rescan drifts
+// the hash its approved contract pins. The attempt disposition records under
+// the subject's own stale pin, so the enclosed item settles its attempt, and
+// an operator-approved supersede_contract whose successor pins the current
 // registry hash is the one admissible re-pin (CD-0041 D7).
 func TestStaleRegistryRescanAdmitsExactlyOneRePinRoute(t *testing.T) {
 	const workID = "stale-registry-repin"

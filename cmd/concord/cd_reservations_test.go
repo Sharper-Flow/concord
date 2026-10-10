@@ -163,13 +163,13 @@ func TestCDReservationsWritesNothing(t *testing.T) {
 	repo := initLocatorRepo(t)
 	s := openResolveStore(t)
 	seedReservationAuthority(t, s, repo)
-	before := launcherDurableCounts(t, s)
+	before := durableCounts(t, s)
 
 	var out, errOut bytes.Buffer
 	if code := runCDReservations([]byte(`{"directory":"`+repo+`"}`), s, &out, &errOut); code != 0 {
 		t.Fatalf("exit=%d stderr=%q", code, errOut.String())
 	}
-	if after := launcherDurableCounts(t, s); !reflect.DeepEqual(before, after) {
+	if after := durableCounts(t, s); !reflect.DeepEqual(before, after) {
 		t.Errorf("cd-reservations changed durable state: before=%v after=%v", before, after)
 	}
 }

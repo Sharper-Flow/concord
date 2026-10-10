@@ -9,7 +9,7 @@ import (
 
 // BlockedSession resolves active approval challenges to the session,
 // agent, worktree, and consequence that the operator's attention should
-// route to (issue #72). The projection reads only existing tables and
+// route to. The projection reads only existing tables and
 // indexes. Identity and consequence class are surfaced; authority material
 // never is. Revoked, consumed, and expired challenges are excluded — expiry is
 // re-evaluated at read time so a stale row can never present as blocked.

@@ -21,11 +21,15 @@ func TestWorkerJobVerificationDispatchRequiresChecks(t *testing.T) {
 			fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
 			s := fixture.store
 			defer s.Close()
+			bootstrapOracleFixtureSubject(t, s, workID)
 			fields := map[string]any{
 				"job_id": "job:verify", "objective": "Run the recorded verification commands",
 				"stopping_condition":   "Each command exits zero",
 				"reserved_integration": "The parent records whole-work integration separately",
 				"ready":                true, "readiness_evidence": []string{"evidence:verification-ready"},
+			}
+			if oracleCapablePinForWork(t, s, workID) {
+				fields["acceptance_oracle"] = acceptanceOracleFieldsForTest(t, s, workID)
 			}
 			if tc.checks != nil {
 				fields["checks"] = tc.checks
@@ -136,10 +140,14 @@ func TestWorkerJobAllRegisteredClassesBindReadyRevision(t *testing.T) {
 			if laneID != lane.ID || capabilityClass != lane.CapabilityClass {
 				t.Fatalf("dispatch lane = %s/%s, want %s/%s beside the exact attempt/job binding", laneID, capabilityClass, lane.ID, lane.CapabilityClass)
 			}
-			if err := recordWorkerJobActionForTest(t, s, workID, fixture.owner, map[string]any{
+			unreadyFields := map[string]any{
 				"job_id": job.JobID, "objective": "Await readiness evidence",
 				"stopping_condition": "The checks pass", "checks": []string{"go test ./internal/store/"}, "ready": false,
-			}); err != nil {
+			}
+			if oracleCapablePinForWork(t, s, workID) {
+				unreadyFields["acceptance_oracle"] = acceptanceOracleFieldsForTest(t, s, workID)
+			}
+			if err := recordWorkerJobActionForTest(t, s, workID, fixture.owner, unreadyFields); err != nil {
 				t.Fatal(err)
 			}
 			if _, err := validateWorkerPacketJob(context.Background(), s.DatabaseForTesting(), definition, workID, lane, mustJSONValue(packet)); err == nil || !strings.Contains(err.Error(), "is not ready") {

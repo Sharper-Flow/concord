@@ -70,24 +70,6 @@ func validateLinearIssueLink(link LinearIssueLink) error {
 	return nil
 }
 
-// RecordLinearIssueLink records one work item's Linear issue identity in its
-// own transaction.
-func (s *Store) RecordLinearIssueLink(ctx context.Context, link LinearIssueLink) (LinearIssueLink, error) {
-	var recorded LinearIssueLink
-	err := s.Transact(ctx, func(transaction *Transaction) error {
-		return recordLinearIssueLinkResultTx(ctx, transaction, link, &recorded)
-	})
-	return recorded, err
-}
-
-func recordLinearIssueLinkResultTx(ctx context.Context, transaction *Transaction, link LinearIssueLink, recorded *LinearIssueLink) error {
-	result, err := RecordLinearIssueLinkTx(ctx, transaction, link)
-	if err == nil {
-		*recorded = result
-	}
-	return err
-}
-
 // RecordLinearIssueLinkTx records one work item's Linear issue identity inside
 // the caller's transaction. Recording the identity the work item already holds
 // is a no-op. A different identity for the same work item, or the same issue

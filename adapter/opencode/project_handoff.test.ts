@@ -140,11 +140,10 @@ const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/
 const maxID = (head: string) => (head + "w".repeat(MAX_ID)).slice(0, MAX_ID)
 
 describe("projectHandoffConsumeKey", () => {
-  // The negative control: the pre-fix construction concatenated the full
-  // work_id, so the accepted 123-character work_id of the review
-  // reproduction produced a 156-character key the core refused with
-  // "maxLength at $.idempotency_key", and the maximum accepted pair produced
-  // 161. Both assertions fail again if the key ever grows unbounded.
+  // The negative control: the consume key fits the 128-character contract
+  // bound at maximum accepted identity lengths, so the maximum accepted
+  // work_id and handoff id pair stays within it. Both assertions fail if
+  // the key ever grows unbounded.
   test("fits the 128-character contract bound at maximum accepted identity lengths", () => {
     const workID = maxID("work-")
     const handoffID = maxID("project-handoff-")

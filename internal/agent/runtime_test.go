@@ -16,8 +16,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sharper-flow/concord/internal/launcher"
-	"github.com/sharper-flow/concord/internal/launcher/storeport"
 	"github.com/sharper-flow/concord/internal/pm1fixture"
 	"github.com/sharper-flow/concord/internal/portfolio"
 	"github.com/sharper-flow/concord/internal/store"
@@ -82,7 +80,7 @@ func TestSupersedeContractPayloadIsRepresentableAtAgentBoundary(t *testing.T) {
 	}
 }
 
-func TestSeededProductPortfolioParityAcrossEnvelopeAndLauncher(t *testing.T) {
+func TestSeededProductPortfolioParityAcrossEnvelopeAndStore(t *testing.T) {
 	t.Parallel()
 	s, err := storetest.OpenNamed(t.TempDir(), "portfolio.db")
 	if err != nil {
@@ -91,13 +89,20 @@ func TestSeededProductPortfolioParityAcrossEnvelopeAndLauncher(t *testing.T) {
 	defer s.Close()
 	seedPortfolioParityFixture(t, s)
 
-	result, err := portfolio.Read(context.Background(), s, store.ProductRowRequest{Limit: 3})
+	request := store.ProductRowRequest{Limit: 3, Source: &store.ProductRowRelianceInput{Authority: store.ProductRowAuthorityAuthoritative, ObservedAt: fixedTime().Format(time.RFC3339Nano)}}
+	result, err := portfolio.Read(context.Background(), s, request)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(result.Rows) != 3 || result.NextCursor == nil {
 		t.Fatalf("seeded page=%#v", result)
 	}
+	// A fixed source observation makes row reliance comparable across reads.
+	direct, err := s.QueryProductRows(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertPortfolioCarriesStoreRows(t, result, direct)
 	response, err := (runtime{}).productRows(NewBase("parity", "concord_product_view", "portfolio"), result)
 	if err != nil {
 		t.Fatal(err)
@@ -121,46 +126,9 @@ func TestSeededProductPortfolioParityAcrossEnvelopeAndLauncher(t *testing.T) {
 		t.Fatalf("envelope changed the production result: body=%#v result=%#v", envelopeBody, result)
 	}
 
-	snapshot := storeport.FromProductRows(result)
-	assertLauncherSnapshotMeta(t, snapshot, result)
-	for i, source := range result.Rows {
-		got := snapshot.Rows[i]
-		if got.ID != source.ProductID || got.Name != source.DisplayName || got.NameSuffix != source.DisplayNameSuffix ||
-			got.StageMaturity != source.Stage.Maturity || got.StageAudienceCommitment != source.Stage.AudienceCommitment || got.Stage != source.Stage.Maturity+"/"+source.Stage.AudienceCommitment ||
-			got.Reliance != source.Reliance.Authority || got.RelianceReason != source.Reliance.Reason || got.RelianceObservedAt != source.Reliance.ObservedAt || got.RelianceAge != source.Reliance.Age || got.RelianceStale != source.Reliance.Stale || got.BlocksExecution != source.Reliance.BlocksExecution || !reflect.DeepEqual(got.RelianceOmissions, source.Reliance.Omissions) {
-			t.Fatalf("row %d identity/stage/reliance drifted: got=%#v source=%#v", i, got, source)
-		}
-		if source.ActionCounts.Values != nil {
-			values := source.ActionCounts.Values
-			if got.CountsState != source.ActionCounts.State || got.InProgress != values.InProgress || got.Blocked != values.Blocked || got.Ready != values.Ready || got.ActiveProblems != values.ActiveProblems || got.ApprovalRequired != values.ApprovalRequired || got.Actions != values.InProgress+values.Blocked+values.Ready+values.ActiveProblems+values.ApprovalRequired {
-				t.Fatalf("row %d counts drifted: got=%#v source=%#v", i, got, source.ActionCounts)
-			}
-		}
-		if source.ActionCounts.Unavailable != nil {
-			if got.CountsState != source.ActionCounts.State || got.UnavailableReason != source.ActionCounts.Unavailable.Reason || !reflect.DeepEqual(got.UnavailableOmissions, source.ActionCounts.Unavailable.Omissions) {
-				t.Fatalf("row %d unavailable metadata drifted: got=%#v source=%#v", i, got, source.ActionCounts)
-			}
-		}
-		if source.Focus != nil {
-			focus := source.Focus
-			if got.Focus != focus.Title || got.FocusID != focus.WorkID || got.FocusWorkKind != focus.WorkKind || got.FocusLifecycle != focus.Lifecycle || got.FocusAttentionKind != focus.AttentionKind || got.FocusPriority != focus.Priority || got.FocusWorkflowStepLabel != focus.WorkflowStepLabel || got.FocusProjectCount != focus.ProjectCount || got.FocusStageContext != focus.StageContext.Kind {
-				t.Fatalf("row %d focus drifted: got=%#v source=%#v", i, got, focus)
-			}
-			if focus.StageContext.FocusOverride == nil {
-				if got.FocusStageOverrideMaturity != "" || got.FocusStageOverrideAudience != "" {
-					t.Fatalf("row %d unexpected focus stage override: got=%#v", i, got)
-				}
-			} else if got.FocusStageOverrideMaturity != focus.StageContext.FocusOverride.Maturity || got.FocusStageOverrideAudience != focus.StageContext.FocusOverride.AudienceCommitment {
-				t.Fatalf("row %d focus stage override drifted: got=%#v source=%#v", i, got, focus.StageContext.FocusOverride)
-			}
-		}
-		if got.FocusAbsentReason != source.FocusAbsentReason {
-			t.Fatalf("row %d focus absence drifted: got=%q source=%q", i, got.FocusAbsentReason, source.FocusAbsentReason)
-		}
-	}
-
 	for _, authority := range []string{store.ProductRowAuthorityDegraded, store.ProductRowAuthorityUnreachable} {
-		degraded, err := portfolio.Read(context.Background(), s, store.ProductRowRequest{Limit: 3, Source: &store.ProductRowRelianceInput{Authority: authority, Reason: "test-unavailable", Omissions: []string{"work_snapshot"}}})
+		request := store.ProductRowRequest{Limit: 3, Source: &store.ProductRowRelianceInput{Authority: authority, ObservedAt: fixedTime().Format(time.RFC3339Nano), Reason: "test-unavailable", Omissions: []string{"work_snapshot"}}}
+		degraded, err := portfolio.Read(context.Background(), s, request)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -186,15 +154,17 @@ func TestSeededProductPortfolioParityAcrossEnvelopeAndLauncher(t *testing.T) {
 		if !reflect.DeepEqual(envelopeUnavailable.Rows, degraded.Rows) || envelopeUnavailable.ObservedAt != degraded.ObservedAt {
 			t.Fatalf("%s envelope changed unavailable production result", authority)
 		}
-		snapshot := storeport.FromProductRows(degraded)
-		assertLauncherSnapshotMeta(t, snapshot, degraded)
+		directUnavailable, err := s.QueryProductRows(context.Background(), request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertPortfolioCarriesStoreRows(t, degraded, directUnavailable)
 		for i, row := range degraded.Rows {
 			if row.ActionCounts.State != store.ProductRowCountsUnavailable || row.ActionCounts.Values != nil || row.ActionCounts.Unavailable == nil || row.ActionCounts.Unavailable.Reason != "test-unavailable" || !reflect.DeepEqual(row.ActionCounts.Unavailable.Omissions, []string{"work_snapshot"}) {
 				t.Fatalf("%s row lost unavailable state: %#v", authority, row)
 			}
-			got := snapshot.Rows[i]
-			if got.CountsState != row.ActionCounts.State || got.UnavailableReason != row.ActionCounts.Unavailable.Reason || !reflect.DeepEqual(got.UnavailableOmissions, row.ActionCounts.Unavailable.Omissions) || got.FocusAbsentReason != row.FocusAbsentReason || got.Reliance != row.Reliance.Authority || got.RelianceReason != row.Reliance.Reason || got.RelianceObservedAt != row.Reliance.ObservedAt || got.RelianceAge != row.Reliance.Age || got.RelianceStale != row.Reliance.Stale || got.BlocksExecution != row.Reliance.BlocksExecution || !reflect.DeepEqual(got.RelianceOmissions, row.Reliance.Omissions) {
-				t.Fatalf("%s row %d unavailable parity drifted: got=%#v source=%#v", authority, i, got, row)
+			if row.Reliance.Authority != authority || row.Reliance.Reason != "test-unavailable" || !reflect.DeepEqual(row.Reliance.Omissions, []string{"work_snapshot"}) {
+				t.Fatalf("%s row %d lost the declared reliance: %#v", authority, i, row.Reliance)
 			}
 		}
 	}
@@ -227,13 +197,23 @@ func assertProductPortfolioEnvelopeMeta(t *testing.T, response Envelope, result 
 	}
 }
 
-func assertLauncherSnapshotMeta(t *testing.T, snapshot launcher.Snapshot, result store.ProductRowResult) {
+// assertPortfolioCarriesStoreRows proves the portfolio/store boundary: the
+// application read returns exactly the store rows and the same identity and
+// authority metadata, so nothing between the store and the envelope
+// re-derives or reshapes the result. Freshness is stamped per read, so the
+// two reads are compared by presence of their stamps rather than by bytes.
+func assertPortfolioCarriesStoreRows(t *testing.T, result portfolio.Result, direct store.ProductRowResult) {
 	t.Helper()
-	if snapshot.QueryID != result.QueryID || snapshot.ContractVersion != result.ContractVersion ||
-		snapshot.SourceVersionWatermark != result.SourceVersionWatermark || snapshot.Watermark != fmt.Sprint(result.SourceVersionWatermark) ||
-		snapshot.ObservedAt != result.ObservedAt || snapshot.Reliance != result.Authority || snapshot.Coverage != result.Authority ||
-		!reflect.DeepEqual(snapshot.OrderingKeys, result.OrderingKeys) || !reflect.DeepEqual(snapshot.NextCursor, result.NextCursor) {
-		t.Fatalf("launcher snapshot metadata drifted: snapshot=%#v result=%#v", snapshot, result)
+	if !reflect.DeepEqual(direct.Rows, result.Rows) {
+		t.Fatalf("portfolio rows drifted from the store read:\n got %#v\nwant %#v", result.Rows, direct.Rows)
+	}
+	if direct.QueryID != result.QueryID || direct.ContractVersion != result.ContractVersion || direct.Authority != result.Authority ||
+		direct.SourceVersionWatermark != result.SourceVersionWatermark || !reflect.DeepEqual(direct.OrderingKeys, result.OrderingKeys) ||
+		!reflect.DeepEqual(direct.ResolvedScope, result.ResolvedScope) || !reflect.DeepEqual(direct.NextCursor, result.NextCursor) {
+		t.Fatalf("portfolio metadata drifted from the store read: got=%#v want=%#v", result.ResultMeta, direct.ResultMeta)
+	}
+	if result.Freshness.ObservedAt == "" || direct.Freshness.ObservedAt == "" {
+		t.Fatalf("boundary reads lost their freshness stamps: %#v / %#v", result.Freshness, direct.Freshness)
 	}
 }
 

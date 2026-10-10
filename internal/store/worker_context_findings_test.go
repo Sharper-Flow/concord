@@ -173,8 +173,8 @@ func workerFailedContextFindingsEvent(workID, eventID, attemptID, model, failure
 // stored event payload retains the findings bytes verbatim.
 func TestWorkerTerminalEventsAdmitTypedContextFindings(t *testing.T) {
 	t.Parallel()
-	if got := WorkerEvidenceEventPayloadVersion(WorkerCompleted); got != 5 {
-		t.Fatalf("worker.completed current payload version = %d, want 5", got)
+	if got := WorkerEvidenceEventPayloadVersion(WorkerCompleted); got != 6 {
+		t.Fatalf("worker.completed current payload version = %d, want 6", got)
 	}
 	if got := WorkerEvidenceEventPayloadVersion(WorkerFailed); got != 2 {
 		t.Fatalf("worker.failed current payload version = %d, want 2", got)
@@ -305,8 +305,8 @@ func TestWorkerTerminalContextFindingsUpcastAndRebuildDeterministic(t *testing.T
 		if err != nil {
 			t.Fatal(err)
 		}
-		if upcast.PayloadVersion != 5 {
-			t.Fatalf("upcast completion version = %d, want 5", upcast.PayloadVersion)
+		if upcast.PayloadVersion != 6 {
+			t.Fatalf("upcast completion version = %d, want 6", upcast.PayloadVersion)
 		}
 		if string(upcast.Payload) != string(legacyCompletion.Payload) {
 			t.Fatalf("v4 completion upcast rewrote bytes:\n%s\nwant\n%s", upcast.Payload, legacyCompletion.Payload)

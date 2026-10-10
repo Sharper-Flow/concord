@@ -130,7 +130,7 @@ func reviewGateAcceptor(workID string) WorkflowActor {
 	return WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/review-gate-acceptor", SessionRef: "session/" + workID + "-acceptor", ActorClass: ActorAgent}
 }
 
-// TestPostRejectionReviewGateHoldsBreakFixDelivery drives the CON-421 shape
+// TestPostRejectionReviewGateHoldsBreakFixDelivery drives the post-rejection review-gate shape
 // on the current break-fix definition over both delivery entry routes: a
 // rejected review, then the accepted implement repair the gate holds at
 // refine until a fresh accepted review covers it. The record_delivery route
@@ -289,7 +289,7 @@ func TestPostRejectionReviewGateRefusesPreRejectionReviewAccept(t *testing.T) {
 }
 
 // TestPostRejectionReviewGateRefusesReviewDispatchedBeforeRepair pins the
-// repair-tied fresh-review rule on the CON-421 defect shape over both entry
+// repair-tied fresh-review rule on the post-rejection defect shape over both entry
 // routes: a review dispatched and completed after the rejection but before
 // the repaired implement result settles nothing, so the refine exit behind
 // it refuses; a review dispatched after the repaired result is the fresh

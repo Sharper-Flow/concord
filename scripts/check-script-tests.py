@@ -2,7 +2,7 @@
 """Check that every script test suite runs in CI.
 
 A `scripts/test-*.py` suite that no workflow invokes passes forever, because it
-never executes. #416 found three such suites and added them by hand; this check
+never executes. This check
 makes the next one fail instead of hiding.
 
 The same read also guards workflow structure: a workflow file GitHub cannot

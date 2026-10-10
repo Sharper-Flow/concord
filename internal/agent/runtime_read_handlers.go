@@ -306,14 +306,17 @@ func (r runtime) readWorktreeInspect(ctx context.Context, base Envelope, input [
 	if err := decodeOperationInput(input, &in); err != nil {
 		return base, err
 	}
-	// CD-0096 D3 Inspect: the worktree resolves through the session's
-	// Project anchor and the work item's folded entry. No path input
-	// exists, no lease is taken, and the persistent target never moves.
+	// CD-0096 D3 Inspect: both active-tree inspection and retained output
+	// resolve through the work and ambient Project. The store owns their
+	// separate lookup rules; this read takes no lease or idempotency record.
 	project := r.Envelope.AmbientProjectID
 	if project == "" {
 		return coreError(base, "unknown_scope", "worktree tiers resolve through the session's Project; this session holds none", "refresh_context", false), nil
 	}
-	inspect, err := r.Store.InspectWorktree(ctx, store.WorktreeInspectRequest{WorkID: in.WorkID, ProjectID: project, Mode: in.Mode, Path: in.Path})
+	inspect, err := r.Store.InspectWorktree(ctx, store.WorktreeInspectRequest{
+		WorkID: in.WorkID, ProjectID: project, Mode: in.Mode, Path: in.Path,
+		RunRef: in.RunRef, Stream: in.Stream, Offset: in.Offset, Length: in.Length,
+	})
 	if err != nil {
 		return failureEnvelope(base, err), nil
 	}

@@ -154,7 +154,7 @@ func AppendResearchRevision(ctx context.Context, s *Store, req AppendResearchRev
 		_ = tx.Rollback()
 		return out, err
 	}
-	// Pack freshness column is a display summary (issue #122); the new revision
+	// Pack freshness column is a display summary; the new revision
 	// is fresh by construction and every other revision's authoritative state is
 	// deliberately untouched, so an append can never silently un-stale pinned
 	// content.
@@ -671,7 +671,7 @@ func SetResearchFreshness(ctx context.Context, s *Store, req SetResearchFreshnes
 	if req.PackID == "" || req.ExpectedVersion < 1 || !validResearchFreshness(req.Freshness) {
 		return researchInvalid("pack_id, expected_version, and a closed freshness value are required")
 	}
-	// Issue #122: freshness is set on the revision consumers pin; 0 means
+	// Freshness is set on the revision consumers pin; 0 means
 	// the pack's current revision.
 	if req.Revision < 0 {
 		return researchInvalid("revision must be a positive pin or 0 for the current revision")
@@ -882,7 +882,7 @@ func appendResearchRevisionWithinRawTx(ctx context.Context, tx *sql.Tx, req Appe
 	if err := copyResearchRevisionContent(ctx, tx, req.PackID, pack.CurrentRevision, newRevision, restated); err != nil {
 		return out, err
 	}
-	// Pack freshness column is a display summary (issue #122); the new revision
+	// Pack freshness column is a display summary; the new revision
 	// is fresh by construction and every other revision's authoritative state is
 	// deliberately untouched, so an append can never silently un-stale pinned
 	// content.
@@ -1054,7 +1054,7 @@ func setResearchFreshnessWithinRawTx(ctx context.Context, tx *sql.Tx, req SetRes
 	if req.PackID == "" || req.ExpectedVersion < 1 || !validResearchFreshness(req.Freshness) {
 		return researchInvalid("pack_id, expected_version, and a closed freshness value are required")
 	}
-	// Issue #122: freshness is set on the revision consumers pin; 0 means
+	// Freshness is set on the revision consumers pin; 0 means
 	// the pack's current revision.
 	if req.Revision < 0 {
 		return researchInvalid("revision must be a positive pin or 0 for the current revision")

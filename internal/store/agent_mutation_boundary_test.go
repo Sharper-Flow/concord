@@ -14,9 +14,11 @@ func TestMutationIdempotencyBoundaryRoundTrip(t *testing.T) {
 	ctx := context.Background()
 	key := MutationIdempotencyKey{PrincipalRef: "principal-1", Tool: "concord_work_define", OperationKind: "work_define", IdempotencyKey: "mutation-key"}
 	now := time.Unix(10, 0).UTC()
-	if err := s.InsertMutationIdempotency(ctx, MutationIdempotencyInsert{
-		Key: key, CanonicalDigest: "sha256:digest", OperationID: "mutation-op", ResultEventIDs: "[]",
-		ResultPayload: `{"ok":true}`, ChangedRefs: `[]`, AuthorizedScopeSnapshot: `{}`, ObservedAt: now,
+	if err := s.Transact(ctx, func(tx *Transaction) error {
+		return InsertMutationIdempotencyTx(ctx, tx, MutationIdempotencyInsert{
+			Key: key, CanonicalDigest: "sha256:digest", OperationID: "mutation-op", ResultEventIDs: "[]",
+			ResultPayload: `{"ok":true}`, ChangedRefs: `[]`, AuthorizedScopeSnapshot: `{}`, ObservedAt: now,
+		})
 	}); err != nil {
 		t.Fatalf("insert idempotency record: %v", err)
 	}
@@ -27,10 +29,14 @@ func TestMutationIdempotencyBoundaryRoundTrip(t *testing.T) {
 	if record.CanonicalDigest != "sha256:digest" || record.OperationID != "mutation-op" {
 		t.Fatalf("lookup idempotency record = %+v", record)
 	}
-	if err := s.TouchMutationIdempotency(ctx, key, now.Add(time.Second)); err != nil {
+	if err := s.Transact(ctx, func(tx *Transaction) error {
+		return TouchMutationIdempotencyTx(ctx, tx, key, now.Add(time.Second))
+	}); err != nil {
 		t.Fatalf("touch idempotency record: %v", err)
 	}
-	if err := s.UpdateMutationResult(ctx, MutationResultUpdate{Key: key, ResultEventIDs: `["event-1"]`, ResultPayload: `{"done":true}`, ChangedRefs: `[{"id":"work-1"}]`, ObservedAt: now.Add(2 * time.Second)}); err != nil {
+	if err := s.Transact(ctx, func(tx *Transaction) error {
+		return UpdateMutationResultTx(ctx, tx, MutationResultUpdate{Key: key, ResultEventIDs: `["event-1"]`, ResultPayload: `{"done":true}`, ChangedRefs: `[{"id":"work-1"}]`, ObservedAt: now.Add(2 * time.Second)})
+	}); err != nil {
 		t.Fatalf("update mutation result: %v", err)
 	}
 	record, found, err = s.LookupMutationIdempotency(ctx, key)

@@ -236,10 +236,17 @@ lessons through their ordinary durable forms; it never serializes or indexes the
 | live typed work row | remove after eligibility | disposable projection |
 | live membership/relation rows for pruned ID | remove after eligibility | disposable projection |
 | historical index/scope edges | retain/rebuild | disposable git-derived projection |
-| WIP logs, traces, screenshots, and binary output | producer-owned process exhaust | no Concord retention |
+| external WIP logs, traces, screenshots, and binary output | producer-owned process exhaust | no Concord retention |
+| native oracle stdout/stderr | one raw `BLOB` per stream in its existing verify lease; remove with the lease/work | native producer observation, not knowledge or acceptance |
 | active research packs/revisions/findings/sources/bindings | delete after proof-backed owner archive | CD-0009 active-context authority only |
-| reports/traces/process exhaust | producer-owned | PM9: no Concord receipt/retention |
+| external reports/traces/process exhaust | producer-owned | PM9: no Concord receipt/retention |
 | backups/restore copies | PM10 recovery snapshots | accepted recovery policy |
+
+Native oracle retention is bounded to 2 MiB per stream, at most 4 MiB per lease.
+Its plan and bounded metadata remain separate; green operations copy metadata
+only. Repeated leases increase SQLite and backup size. No separate byte store,
+file garbage collector, generic WIP import, or post-removal retention is added.
+Reclaiming a worktree does not delete its retained verification lease.
 
 Core event pruning is rejected for v1 because it would break PM1 Q7 and CD-0002 I5
 unless a later accepted decision introduces another authoritative replay source.

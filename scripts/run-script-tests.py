@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the script test suites that a push file set selects (CON-893 preflight).
+"""Run the script test suites that a push file set selects.
 
 This is the hook-side selector that `lefthook.yml` invokes as
 `python3 scripts/run-script-tests.py -- {push_files}`. Preflight is not
@@ -28,7 +28,7 @@ Push files arrive as whole `argv` elements: Lefthook single-quotes expanded
 placeholders, and the forwarded `--` keeps a dash-prefixed path positional.
 
 Suites are spawned with the hook-inherited Git namespace cleared
-(scripts/git_environment.py, CON-896): a suite building its own scratch
+(scripts/git_environment.py): a suite building its own scratch
 repository would otherwise have its Git operations redirected into the outer
 repository the hook serves. If that namespace cannot be discovered, no suite
 is spawned at all.

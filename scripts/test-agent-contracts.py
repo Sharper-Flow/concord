@@ -728,6 +728,463 @@ class DeliveryDecidableTeachingTests(unittest.TestCase):
             generator.require_delivery_rule_teaching(defs)
 
 
+def _schema_sample(node, root, path="$"):
+    """Build one value a schema node admits, resolving local $refs.
+
+    Bounded sampler for the variant-projection tests: it satisfies the
+    keyword disciplines the repository's schemas use (const, enum, type,
+    bounds, patterns, required) and fails loudly when it meets a shape it
+    cannot sample, so a drifted def cannot silently pass as authorable.
+    """
+    if not isinstance(node, dict):
+        raise AssertionError(f"unsamplable schema node at {path}: {node!r}")
+    if "$ref" in node:
+        ref = node["$ref"]
+        target = root.get("$defs", {}).get(ref.removeprefix("#/$defs/"))
+        if target is None:
+            raise AssertionError(f"missing schema ref {ref} at {path}")
+        merged = {key: value for key, value in node.items() if key != "$ref"}
+        return _schema_sample({**target, **merged} if merged else target, root, path)
+    if "const" in node:
+        return node["const"]
+    if "enum" in node:
+        return node["enum"][0]
+    if "oneOf" in node and "type" not in node and "properties" not in node:
+        value = _schema_sample(node["oneOf"][0], root, path)
+        generator.schema_validate(value, node, root)
+        return value
+    types = node.get("type")
+    types = types if isinstance(types, list) else [types] if types else []
+    kind = next((candidate for candidate in ("object", "array", "string", "integer", "number", "boolean") if candidate in types), None)
+    if kind is None and "properties" in node:
+        kind = "object"
+    if kind == "object":
+        value = {}
+        for name in node.get("required", []):
+            value[name] = _schema_sample(node["properties"][name], root, f"{path}.{name}")
+        return value
+    if kind == "array":
+        minimum = node.get("minItems", 0)
+        item = _schema_sample(node.get("items", {}), root, f"{path}[]")
+        return [item for _ in range(max(minimum, 0))]
+    if kind in ("integer", "number"):
+        return node.get("minimum", 1)
+    if kind == "boolean":
+        return False
+    if kind == "string":
+        minimum, maximum = node.get("minLength", 0), node.get("maxLength", 64)
+        pattern = node.get("pattern")
+        if pattern is not None:
+            candidates = ["id-1", "conformance", "TestOne", "predicate:x", "control:c-1", "case:c-1", "owner:o-1",
+                          "finding:1:1", "sha256:" + "0" * 64, "0" * 40, "msg:" + "0" * 32,
+                          "fence:prod-pause", "https://example.test/pull/1", "2026-08-08T00:00:00Z"]
+            for candidate in candidates:
+                if re.search(pattern, candidate) and minimum <= len(candidate) <= maximum:
+                    return candidate
+            raise AssertionError(f"no canned value matches pattern {pattern} within {minimum}..{maximum} at {path}")
+        return "x" * max(minimum, 1)
+    raise AssertionError(f"schema node names no samplable type at {path}: {sorted(node)}")
+
+
+def _action_condition(defs, action_id):
+    """The generated closed envelope one action_id carries."""
+    return defs[f"work_transition_action_variant_{action_id}"]
+
+
+def _condition_branches(then):
+    fields = then["properties"]["fields"]
+    alternatives = fields.get("oneOf", fields.get("anyOf"))
+    return [{"properties": {"fields": branch}} for branch in alternatives] if alternatives else [then]
+
+
+def _fields_object(branch):
+    fields = branch.get("properties", {}).get("fields")
+    if not isinstance(fields, dict):
+        raise AssertionError(f"branch names no fields object: {branch!r}")
+    return fields
+
+
+class WorkflowActionVariantProjectionTests(unittest.TestCase):
+    """An action whose current families declare different closed
+    fieldsets projects as the union of those exact closed alternatives, not
+    one merged shape. The store keeps validating each call against the
+    pinned definition version; these tests hold the authoring surface to
+    the same exactness.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.actions, cls.workflows, cls.teaching = generator.load_workflow_action_contracts()
+
+    def action(self, action_id):
+        return next(action for action in self.actions if action["id"] == action_id)
+
+    def test_projection_records_carry_the_variant_shape(self):
+        for action in self.actions:
+            self.assertEqual(set(action), {"id", "variants", "legacy_payloads", "cross_field"},
+                             f"{action.get('id')} is not the closed variant record")
+            self.assertTrue(action["variants"], f"{action.get('id')} names no variant")
+            pairs = set()
+            for variant in action["variants"]:
+                self.assertEqual(set(variant), {"payload", "public_payload"})
+                for payload_key in ("payload", "public_payload"):
+                    payload = variant[payload_key]
+                    self.assertEqual(set(payload), {"closed", "fields"}, f"{action['id']} variant is open")
+                    self.assertIs(payload["closed"], True, f"{action['id']} variant is not closed")
+                pairs.add((json.dumps(variant["payload"], sort_keys=True), json.dumps(variant["public_payload"], sort_keys=True)))
+            self.assertEqual(len(pairs), len(action["variants"]), f"{action['id']} repeats a variant")
+            for legacy in action["legacy_payloads"]:
+                self.assertIs(legacy.get("closed"), True, f"{action['id']} legacy payload is not closed")
+
+    def test_request_correction_eliminates_the_contained_alternative(self):
+        # The optional open_finding_ids contract contains every valid input
+        # of the same contract without that property. One closed branch is
+        # their exact union, not a merge of unrelated fieldsets.
+        action = self.action("request_correction")
+        self.assertEqual(len(action["variants"]), 2)
+        fieldsets = [[field["name"] for field in variant["payload"]["fields"]] for variant in action["variants"]]
+        self.assertIn("open_finding_ids", fieldsets[0])
+        self.assertNotIn("open_finding_ids", fieldsets[1])
+        then = _action_condition(payload_schema["$defs"], "request_correction")
+        branches = _condition_branches(then)
+        self.assertEqual(len(branches), 1, "a contained alternative adds no accepted input")
+        for branch in branches:
+            fields = _fields_object(branch)
+            self.assertIs(fields.get("additionalProperties"), False, "an alternative is not a closed object")
+            self.assertIn("open_finding_ids", fields["properties"])
+
+    def test_oracle_current_and_legacy_core_layouts_remain_separate(self):
+        # Current publication requires the oracle. Historical oracle-free
+        # layouts stay executable only through the core legacy input.
+        defs = payload_schema["$defs"]
+        current = _condition_branches(_action_condition(defs, "record_worker_job"))
+        self.assertEqual(len(current), 1)
+        oracle_branch = current[0]
+        legacy_condition = next(condition for condition in defs["work_transition_action_legacy_input"]["allOf"]
+                                if condition.get("if", {}).get("properties", {}).get("action_id", {}).get("const") == "record_worker_job")
+        legacy = _condition_branches(legacy_condition["then"])
+        self.assertEqual(len(legacy), 1)
+        legacy_branch = legacy[0]
+        self.assertIn("acceptance_oracle", _fields_object(oracle_branch).get("required", []))
+        self.assertNotIn("acceptance_oracle", _fields_object(legacy_branch)["properties"])
+        oracle_fields = _schema_sample(_fields_object(oracle_branch), payload_schema)
+        legacy_fields = _schema_sample(_fields_object(legacy_branch), payload_schema)
+        envelope = {"work_id": "work-1", "expected_version": 1, "action_id": "record_worker_job", "idempotency_key": "job-1"}
+        for fields in (oracle_fields, legacy_fields):
+            generator.schema_validate(envelope | {"fields": fields}, defs["work_transition_action_input"], payload_schema, "core")
+        generator.schema_validate(envelope | {"fields": oracle_fields}, defs["work_transition_action_public_input"], payload_schema, "public")
+        with self.assertRaises(ValueError):
+            generator.schema_validate(envelope | {"fields": legacy_fields}, defs["work_transition_action_public_input"], payload_schema, "legacy-public")
+
+    def test_no_merged_union_admits_combinations_no_definition_allows(self):
+        defs = payload_schema["$defs"]
+        branches = _condition_branches(_action_condition(defs, "record_worker_job"))
+        oracle_branch = branches[0]
+        # A malformed oracle value passes no definition: the current variant
+        # refuses the value, and the retained shapes never declared the
+        # field at all. A merged optional-union would admit both payloads.
+        broken = _schema_sample(_fields_object(oracle_branch), payload_schema)
+        broken["acceptance_oracle"] = {"owners": "not-an-array"}
+        call = {"work_id": "work-1", "expected_version": 1, "action_id": "record_worker_job", "idempotency_key": "job-1", "fields": broken}
+        for name in ("work_transition_action_input", "work_transition_action_public_input"):
+            with self.assertRaises(ValueError, msg=f"{name} admits a broken oracle"):
+                generator.schema_validate(call, defs[name], payload_schema, "broken")
+        # Dropping a field every alternative requires refuses both shapes.
+        request_correction = _condition_branches(_action_condition(defs, "request_correction"))
+        sample = _schema_sample(_fields_object(request_correction[0]), payload_schema)
+        sample.pop("diagnosis")
+        for branch in request_correction:
+            with self.assertRaises(ValueError):
+                generator.schema_validate(sample, _fields_object(branch), payload_schema, "missing-required")
+
+    def test_unknown_fields_are_refused_by_every_alternative(self):
+        defs = payload_schema["$defs"]
+        for action_id in ("request_correction", "record_worker_job"):
+            branches = _condition_branches(_action_condition(defs, action_id))
+            sample = _schema_sample(_fields_object(branches[0]), payload_schema)
+            sample["mystery"] = True
+            for branch in branches:
+                with self.assertRaises(ValueError):
+                    generator.schema_validate(sample, _fields_object(branch), payload_schema, "unknown")
+
+    def test_single_variant_actions_keep_one_unwrapped_condition(self):
+        then = _action_condition(payload_schema["$defs"], "add_condition")
+        self.assertNotIn("anyOf", then["properties"]["fields"], "an action with one current contract and no retained compatible shapes must stay a single branch")
+
+    def test_the_public_dispatch_override_remains_correct(self):
+        # dispatch_worker stays one divergent variant: the payload route
+        # validates attempt_id and worker_packet, the public route validates
+        # lane_id alone.
+        action = self.action("dispatch_worker")
+        self.assertEqual(len(action["variants"]), 1)
+        variant = action["variants"][0]
+        self.assertNotEqual(variant["payload"], variant["public_payload"])
+        self.assertEqual([field["name"] for field in variant["public_payload"]["fields"]], ["lane_id"])
+        for schema_name, expected in (("work_transition_action_variant_dispatch_worker", "worker_packet"), ("work_transition_action_public_variant_dispatch_worker", "lane_id")):
+            fields = payload_schema["$defs"][schema_name]["properties"]["fields"]
+            self.assertEqual(sorted(fields["properties"]), sorted([expected, "attempt_id"]) if expected == "worker_packet" else ["lane_id"])
+
+    def test_retained_core_dispatch_payload_does_not_enter_public_override(self):
+        actions = copy.deepcopy(self.actions)
+        dispatch = next(action for action in actions if action["id"] == "dispatch_worker")
+        retained = copy.deepcopy(dispatch["variants"][0]["payload"])
+        retained["fields"] = [field for field in retained["fields"] if field["name"] == "attempt_id"]
+        dispatch["legacy_payloads"] = [retained]
+        projected, _ = generator.project_workflow_action_schema(payload_schema, actions, self.workflows, self.teaching)
+        defs = projected["$defs"]
+        public = defs["work_transition_action_public_variant_dispatch_worker"]
+        self.assertEqual(set(public["properties"]["fields"]["properties"]), {"lane_id"})
+        retained_call = {"work_id": "work-1", "expected_version": 1, "action_id": "dispatch_worker", "idempotency_key": "dispatch-1", "fields": {"attempt_id": "attempt-1"}}
+        generator.schema_validate(retained_call, defs["work_transition_action_input"], projected)
+        with self.assertRaises(ValueError):
+            generator.schema_validate(retained_call, defs["work_transition_action_public_input"], projected)
+
+
+class NativeOracleLaneInstructionTests(unittest.TestCase):
+    def test_native_producer_stays_host_owned_and_raw_subject_is_dispatch_owned(self):
+        spec = importlib.util.spec_from_file_location("native_lane_generator", ROOT / "scripts/generate-agent-lanes.py")
+        lanes = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(lanes)
+        text = lanes.acceptance_oracle_instructions(packet_schema)
+        for claim in ("authenticated host", "native_oracle_v2", "without test execution", "readiness only",
+                      "Managed workers", "gain no Concord tools", "Ordinary test output",
+                      "Never author `subject_commit`", "never", "invent a locator"):
+            self.assertIn(claim, text)
+        self.assertNotIn("candidate_subject", text)
+        self.assertNotIn("Run the declared controls within your lane permissions", text)
+
+
+class HostSafeWorkflowFieldUnionTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        actions, workflows, teaching = generator.load_workflow_action_contracts()
+        cls.projected, _ = generator.project_workflow_action_schema(payload_schema, actions, workflows, teaching)
+        cls.actions = actions
+
+    def test_common_decision_fields_are_published_but_refused_outside_decision(self):
+        for action in self.actions:
+            schema = self.projected["$defs"]["work_transition_action_variant_" + action["id"]]
+            for field in ("selected_choice", "decision_context_digest"):
+                self.assertIn(field, schema["properties"], action["id"])
+            if action["id"] == "confirm_premise":
+                continue
+            sample = _schema_sample(schema, self.projected)
+            generator.schema_validate(sample, schema, self.projected)
+            for field, value in (("selected_choice", "confirm"), ("decision_context_digest", "sha256:" + "a" * 64)):
+                with self.assertRaises(ValueError, msg=action["id"] + ":" + field):
+                    generator.schema_validate(sample | {field: value}, schema, self.projected)
+
+    def test_accept_worker_result_preserves_overlapping_valid_layouts_without_union(self):
+        fields = self.projected["$defs"]["work_transition_action_variant_accept_worker_result"]["properties"]["fields"]
+        self.assertNotIn("anyOf", fields)
+        self.assertNotIn("oneOf", fields, "the two-field contract is contained in the optional-delivery contract")
+        base = {"attempt_id": "attempt-1", "attempt_epoch": 1}
+        for delivery in ({}, {"delivery_artifact": "artifact:1"}, {"delivery_state": "asserted"},
+                         {"delivery_artifact": "artifact:1", "delivery_state": "asserted"}):
+            generator.schema_validate(base | delivery, fields, self.projected)
+        for bad in ({"attempt_id": "attempt-1"}, {"attempt_epoch": 1}, base | {"attempt_epoch": 0},
+                    base | {"delivery_state": "pending"}, base | {"delivery_artifact": ""}, base | {"unknown": True}):
+            with self.assertRaises(ValueError):
+                generator.schema_validate(bad, fields, self.projected)
+
+    def test_retained_only_layout_is_input_only(self):
+        actions = copy.deepcopy(self.actions)
+        action = next(action for action in actions if action["id"] == "accept_worker_result")
+        retained = copy.deepcopy(action["variants"][0]["payload"])
+        retained["fields"] = [field for field in retained["fields"] if field["name"] == "attempt_id"]
+        action["legacy_payloads"] = [retained]
+        _, workflows, teaching = generator.load_workflow_action_contracts()
+        projected, _ = generator.project_workflow_action_schema(payload_schema, actions, workflows, teaching)
+        call = {"work_id": "work-1", "expected_version": 1, "action_id": "accept_worker_result",
+                "idempotency_key": "accept-1", "fields": {"attempt_id": "attempt-1"}}
+        generator.schema_validate(call, projected["$defs"]["work_transition_action_input"], projected)
+        with self.assertRaises(ValueError):
+            generator.schema_validate(call, projected["$defs"]["work_transition_action_public_input"], projected)
+
+    def test_partial_overlap_is_disjoint_without_merging_fieldsets(self):
+        base = {"type": "object", "additionalProperties": False, "required": ["id"],
+                "properties": {"id": {"type": "string"}}}
+        left = copy.deepcopy(base)
+        right = copy.deepcopy(base)
+        left["properties"]["left"] = {"type": "boolean"}
+        right["properties"]["right"] = {"type": "boolean"}
+        union = generator.closed_field_union([left, right])
+        self.assertNotIn("anyOf", union)
+        self.assertEqual(len(union["oneOf"]), 2)
+        for sample in ({"id": "x"}, {"id": "x", "left": True}, {"id": "x", "right": False}):
+            generator.schema_validate(sample, union, {})
+        for sample in ({"id": "x", "left": True, "right": True}, {"id": "x", "left": "true"}, {}):
+            with self.assertRaises(ValueError):
+                generator.schema_validate(sample, union, {})
+
+    def test_equivalent_required_order_keeps_one_representative(self):
+        left = {"type": "object", "additionalProperties": False, "required": ["one", "two"],
+                "properties": {"one": {"type": "string"}, "two": {"type": "string"}}}
+        right = copy.deepcopy(left)
+        right["required"].reverse()
+        union = generator.closed_field_union([left, right])
+        self.assertEqual(union, left)
+        generator.schema_validate({"one": "1", "two": "2"}, union, {})
+
+
+class NativeOracleRequestProjectionTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        actions, workflows, teaching = generator.load_workflow_action_contracts()
+        cls.projected, _ = generator.project_workflow_action_schema(payload_schema, actions, workflows, teaching)
+
+    def validate(self, value, name):
+        generator.schema_validate(value, self.projected["$defs"][name], self.projected)
+
+    def test_prepare_and_execute_are_closed_disjoint_native_requests(self):
+        defs = self.projected["$defs"]
+        control = _schema_sample(defs["worker_oracle_control"], self.projected)
+        control.pop("readiness_evidence_refs")
+        bundle = {"owner": _schema_sample(defs["worker_oracle_owner"], self.projected), "control": control,
+                  "cases": [_schema_sample(defs["worker_oracle_case"], self.projected)]}
+        prepare = {"work_id": "work-1", "idempotency_key": "prepare-1", "oracle": {
+            "phase": "prepare", "expected_contract_version": 1, "control_bundle": bundle}}
+        execute = {"work_id": "work-1", "idempotency_key": "execute-1", "oracle": {
+            "phase": "execute", "attempt_id": "attempt-1", "attempt_epoch": 1,
+            "worker_packet_digest": "sha256:" + "a" * 64,
+            "worker_job_binding": {"job_id": "job:1", "revision": 1, "digest": "sha256:" + "b" * 64},
+            "control_id": "control:1", "preparation_run_ref": "worktree_verify:prepare-1"}}
+        name = "work_transition_worktree_verify_input"
+        for value in (prepare, execute, {"work_id": "work-1", "idempotency_key": "legacy-1", "command": ["true"]}):
+            self.validate(value, name)
+        for value in (prepare | {"command": ["true"]}, execute | {"command": []},
+                      {"work_id": "work-1", "idempotency_key": "no-variant"}):
+            with self.assertRaises(ValueError):
+                self.validate(value, name)
+        for value, foreign in ((prepare, execute["oracle"]), (execute, prepare["oracle"])):
+            for field, content in foreign.items():
+                if field == "phase":
+                    continue
+                invalid = copy.deepcopy(value)
+                invalid["oracle"][field] = content
+                with self.assertRaises(ValueError, msg=field):
+                    self.validate(invalid, name)
+            for field in ("subject_commit", "project_id", "cwd", "recipe_source", "stdout", "native_plan_sha256"):
+                invalid = copy.deepcopy(value)
+                invalid["oracle"][field] = "caller-assertion"
+                with self.assertRaises(ValueError, msg=field):
+                    self.validate(invalid, name)
+        invalid = copy.deepcopy(prepare)
+        invalid["oracle"]["control_bundle"]["control"]["readiness_evidence_refs"] = ["invented:ready"]
+        with self.assertRaises(ValueError):
+            self.validate(invalid, name)
+        self.assertIn("readiness_evidence_refs", defs["worker_oracle_control"]["required"])
+
+    def test_output_read_has_bounded_bytes_and_no_mutation_or_path_selector(self):
+        name = "work_browse_worktree_inspect_input"
+        page = {"work_id": "work-1", "mode": "oracle_output", "run_ref": "worktree_verify:run-1",
+                "stream": "stdout", "offset": 0, "length": 16384}
+        for stream in ("stdout", "stderr"):
+            self.validate(page | {"stream": stream}, name)
+        for mode in ("status", "diff", "file"):
+            self.validate({"work_id": "work-1", "mode": mode, "path": "fixture.txt"}, name)
+            with self.assertRaises(ValueError):
+                self.validate(page | {"mode": mode}, name)
+        for change in ({"path": "fixture.txt"}, {"project_id": "foreign"}, {"idempotency_key": "page-1"},
+                       {"offset": -1}, {"length": 0}, {"length": 16385}, {"stream": "combined"}):
+            with self.assertRaises(ValueError):
+                self.validate(page | change, name)
+        for field in ("run_ref", "stream", "offset", "length"):
+            missing = dict(page)
+            missing.pop(field)
+            with self.assertRaises(ValueError):
+                self.validate(missing, name)
+
+    def test_native_metadata_is_closed_bounded_and_phase_specific(self):
+        defs = self.projected["$defs"]
+        preparation = _schema_sample(defs["native_oracle_preparation"], self.projected)
+        preparation["case_to_test_map"] = {"case:one": ["TestOne"]}
+        preparation["selected_test_names"] = ["TestOne"]
+        preparation["selected_distinct_count"] = 1
+        preparation["streams_complete"] = True
+        for stream in ("stdout", "stderr"):
+            preparation[stream]["stream"] = stream
+            preparation[stream]["complete"] = True
+            preparation[stream]["ref"] = "oracle_output:" + stream
+        self.validate(preparation, "native_oracle_preparation")
+        self.validate(preparation | {"case_to_test_map": {"case:" + "a" * 123: ["TestOne"]}}, "native_oracle_preparation")
+        for cases in ({}, {"not-a-case": ["TestOne"]}, {"case:" + "a" * 124: ["TestOne"]},
+                      {"case:one": []}, {"case:one": ["not-a-test"]},
+                      {f"case:{index}": ["TestOne"] for index in range(65)}):
+            with self.assertRaises(ValueError):
+                self.validate(preparation | {"case_to_test_map": cases}, "native_oracle_preparation")
+        for field in ("candidate_subject", "output", "data_base64", "stdout_blob", "native_plan_json"):
+            with self.assertRaises(ValueError):
+                self.validate(preparation | {field: "not-native-metadata"}, "native_oracle_preparation")
+        for subject in ("commit:" + "a" * 40, "a" * 41, "not-an-oid"):
+            with self.assertRaises(ValueError):
+                self.validate(preparation | {"subject_commit": subject}, "native_oracle_preparation")
+        for stream in ("stdout", "stderr"):
+            invalid = copy.deepcopy(preparation)
+            invalid[stream]["length"] = 2097153
+            with self.assertRaises(ValueError):
+                self.validate(invalid, "native_oracle_preparation")
+        prepare_result = preparation | {"control_id": "control:one", "stages": []}
+        self.validate(prepare_result, "native_oracle_result")
+        execute = prepare_result | {"phase": "execute", "qualification": "pass", "attempt_id": "attempt-1",
+            "attempt_epoch": 1, "worker_packet_digest": "sha256:" + "a" * 64,
+            "worker_job_binding": {"job_id": "job:one", "revision": 1, "digest": "sha256:" + "b" * 64},
+            "preparation_run_ref": "run:prepare", "authorization_event_id": "event:dispatch", "authorization_seq": 9, "start_seq": 8,
+            "input_manifest_digest": "sha256:" + "c" * 64, "binary_digest": "sha256:" + "d" * 64, "observed_test_names": ["TestOne"]}
+        self.validate(execute, "native_oracle_result")
+        for invalid in (prepare_result | {"attempt_id": "attempt-1"}, execute | {"qualification": "ready"},
+                        prepare_result | {"qualification": "pass"}):
+            with self.assertRaises(ValueError):
+                self.validate(invalid, "native_oracle_result")
+        for field in ("worker_job_binding", "authorization_event_id", "preparation_run_ref"):
+            missing = dict(execute)
+            missing.pop(field)
+            with self.assertRaises(ValueError):
+                self.validate(missing, "native_oracle_result")
+        incomplete = copy.deepcopy(execute)
+        incomplete["streams_complete"] = False
+        with self.assertRaises(ValueError):
+            self.validate(incomplete, "native_oracle_result")
+
+    def test_projection_is_idempotent_and_keeps_navigation_and_report_pins(self):
+        actions, workflows, teaching = generator.load_workflow_action_contracts()
+        repeated, _ = generator.project_workflow_action_schema(self.projected, actions, workflows, teaching)
+        self.assertEqual(repeated, self.projected)
+        generator.check_schema_keywords(self.projected)
+        generator.check_payload_closed(self.projected)
+        for name in ("work_context_view", "worker_oracle_receipt"):
+            self.assertNotIn("candidate_subject", self.projected["$defs"][name]["properties"])
+            self.assertIn("subject_commit", self.projected["$defs"][name]["properties"])
+        self.assertEqual(self.projected["$defs"]["work_context_domain_group"]["properties"]["domain_cards"]["items"]["$ref"],
+                         "#/$defs/work_context_reading_source_repository_file")
+        generator.project_worker_packet_inputs(repeated, packet_schema)
+        self.assertEqual(repeated["$defs"]["worker_packet"]["properties"]["inputs"]["properties"]["report_protocol"],
+                         packet_schema["properties"]["inputs"]["properties"]["report_protocol"])
+
+    def test_output_page_result_keeps_legacy_modes_and_exact_byte_bound(self):
+        import base64
+        page = {"run_ref": "worktree_verify:run", "stream": "stderr", "offset": 0,
+                "data_base64": base64.b64encode(b"x" * 16384).decode(), "length": 16384,
+                "total_length": 2097152, "sha256": "sha256:" + "a" * 64, "complete": True,
+                "next_offset": 16384, "eof": False}
+        result = {"work_id": "work-1", "project_id": "project-1", "branch": "", "path": "", "mode": "oracle_output",
+                  "content": "", "truncated": False, "oracle_output": page}
+        self.validate(result, "worktree_inspect_result")
+        self.assertEqual(len(page["data_base64"]), 21848)
+        with self.assertRaises(ValueError):
+            self.validate(result | {"mode": "status"}, "worktree_inspect_result")
+        invalid = copy.deepcopy(result)
+        invalid["oracle_output"]["length"] = 16385
+        with self.assertRaises(ValueError):
+            self.validate(invalid, "worktree_inspect_result")
+        for mode in ("status", "diff", "file"):
+            legacy = {"work_id": "work-1", "project_id": "project-1", "branch": "work/work-1", "path": "/synthetic/tree", "mode": mode,
+                      "content": "", "truncated": False}
+            self.validate(legacy, "worktree_inspect_result")
+            with self.assertRaises(ValueError):
+                self.validate(legacy | {"path": ""}, "worktree_inspect_result")
+
+
 class MutationApprovalPropertyTests(unittest.TestCase):
     """Every mutation can reach the cross-Product approval escalation: the
     runtime forces requiresApproval when the derived Product scope crosses the
@@ -1346,14 +1803,11 @@ class WorkflowActionVariantCorpusTests(unittest.TestCase):
         return shapes
 
     def _legacy_layout(self, action, value):
-        # The core input keeps admitting recorded historical payload layouts
-        # (CON-412: historic execution preserved, never advertised). A mutant
-        # whose fields object is absent or empty is exactly that layout for
-        # an action that records legacy payloads, and only that.
+        # Historic fieldsets never waive the envelope's required identity.
+        # Compare the whole call with the exact core-only legacy definition.
         if not action.get("legacy_payloads"):
             return False
-        fields = value.get("fields", {})
-        return fields == {} or fields is None
+        return generator._valid(value, self.defs["work_transition_action_legacy_input"], payload_schema, "legacy")
 
     def _assert_verdict(self, value, schema_name, should_admit, label):
         try:
@@ -1439,7 +1893,7 @@ class WorkflowActionVariantCorpusTests(unittest.TestCase):
                 yield "; ".join(path) + " over maximum", schema["maximum"] + 1, path
 
     def test_valid_samples_admit_and_mutants_refuse(self):
-        own_fields = {action["id"]: {field["name"] for field in action["payload"]["fields"]} for action in self.actions}
+        own_fields = {action["id"]: {field["name"] for variant in action["variants"] for field in variant["payload"]["fields"]} for action in self.actions}
         for action, variant in self._variants():
             for kind, shape_name, names in self._shapes(action):
                 valid = self._sample(self.defs[shape_name])
@@ -1460,7 +1914,7 @@ class WorkflowActionVariantCorpusTests(unittest.TestCase):
                 if isinstance(fields, dict) and fields:
                     mutant = copy.deepcopy(valid); del mutant["fields"][next(iter(fields))]
                     cross = next((name for other in self.actions if other["id"] != action["id"]
-                                  for name in {field["name"] for field in other["payload"]["fields"]}
+                                  for name in own_fields[other["id"]]
                                   if name not in own_fields[action["id"]]), None)
                     if cross is not None:
                         mutant["fields"][cross] = "cross-variant"
@@ -1624,6 +2078,22 @@ class WorkflowActionVariantCorpusTests(unittest.TestCase):
                                     for name in names:
                                         self._assert_verdict(copy.deepcopy(mutant), name, False, f"{action['id']} alternative groups carry {exclusive} together")
 
+    def test_each_exact_fieldset_is_authorable_in_both_input_unions(self):
+        for action, variant in self._variants():
+            for _kind, shape_name, names in self._shapes(action):
+                envelope = self.defs[shape_name]
+                fields = envelope["properties"].get("fields")
+                if fields is None:
+                    continue
+                for branch in fields.get("anyOf", [fields]):
+                    value = self._sample(envelope)
+                    value["fields"] = self._sample(branch)
+                    for name in names:
+                        self._assert_verdict(value, name, True, f"{action['id']} exact fieldset")
+                    public_name = f"work_transition_action_public_variant_{action['id']}"
+                    if public_name not in self.defs:
+                        self._assert_verdict(value, "work_transition_action_public_input", True, f"{action['id']} shared public fieldset")
+
     def test_guard_owned_teaching_is_published(self):
         # CON-412: the items close per kind; every branch teaches the ordinal
         # position rule and the outcome_kind/outcome_payload.kind equality
@@ -1641,12 +2111,15 @@ class WorkflowActionVariantCorpusTests(unittest.TestCase):
     def test_every_registry_action_has_one_closed_variant(self):
         names = {f"work_transition_action_variant_{action['id']}" for action in self.actions}
         published = {name for name in self.defs if name.startswith("work_transition_action_variant_") or name.startswith("work_transition_action_public_variant_")}
-        self.assertEqual(published - {f"work_transition_action_public_variant_{a['id']}" for a in self.actions if a["payload"] != a["public_payload"]}, names)
+        self.assertEqual(published - {f"work_transition_action_public_variant_{a['id']}" for a in self.actions if any(variant["payload"] != variant["public_payload"] for variant in a["variants"])}, names)
 
     def _sample(self, schema, path="$", fallback_properties=None):
-        schema = self.defs[schema["$ref"].removeprefix("#/$defs/")] if "$ref" in schema else schema
+        if "$ref" in schema:
+            schema = self.defs[schema["$ref"].removeprefix("#/$defs/")] | {key: value for key, value in schema.items() if key != "$ref"}
         if "const" in schema: return schema["const"]
         if "enum" in schema: return schema["enum"][0]
+        if "anyOf" in schema:
+            return self._sample(schema["anyOf"][0], path, fallback_properties)
         if "oneOf" in schema:
             base = {key: self._sample(self._property(schema, fallback_properties, key), f"{path}.{key}") for key in schema.get("required", [])}
             branch_value = self._sample(schema["oneOf"][0], f"{path}.oneOf[0]", schema.get("properties"))
@@ -1657,11 +2130,21 @@ class WorkflowActionVariantCorpusTests(unittest.TestCase):
         if "allOf" in schema:
             base = self._sample({k: v for k, v in schema.items() if k != "allOf"}, path, fallback_properties)
             for member in schema["allOf"]:
+                if "if" in member:
+                    keyword = "then" if generator._valid(base, member["if"], payload_schema, path) else "else"
+                    member = member.get(keyword)
+                    if member is None:
+                        continue
+                    for key, constraint in member.get("properties", {}).items():
+                        if key in base:
+                            declared = self._property(schema, fallback_properties, key)
+                            base[key] = self._sample(declared | constraint, f"{path}.{key}")
                 merged = self._sample(member, path, fallback_properties)
                 if isinstance(base, dict) and isinstance(merged, dict): base.update(merged)
             return base
         kind = schema.get("type")
         if isinstance(kind, list): kind = next((candidate for candidate in kind if candidate != "null"), kind[0])
+        if kind == "null": return None
         if kind is None and ("properties" in schema or "required" in schema): kind = "object"
         if kind == "object":
             result = {}
@@ -1672,13 +2155,7 @@ class WorkflowActionVariantCorpusTests(unittest.TestCase):
         if kind == "integer": return schema.get("minimum", 0)
         if kind == "boolean": return True
         if schema.get("format") == "date-time": return "2026-08-08T00:00:00Z"
-        pattern = schema.get("pattern", "")
-        if "sha256:" in pattern: return "sha256:" + "0" * 64
-        if "[0-9a-f]{40}" in pattern: return "0" * 40
-        if pattern.startswith("^msg:"): return "msg:" + "0" * 32
-        if pattern.startswith("^https://"): return "https://example.test/pull/1"
-        if schema.get("minLength"): return "v" * schema["minLength"]
-        return "id-1"
+        return _schema_sample(schema, payload_schema, path)
 
     def _property(self, schema, fallback_properties, key):
         properties = schema.get("properties") or fallback_properties or {}

@@ -120,17 +120,57 @@ func seedSessionProject(t *testing.T, projectDir string) string {
 	if err != nil {
 		t.Fatalf("open session fixture store: %v", err)
 	}
-	seedLauncherCorpusProduct(t, s, "product-1", "Session product")
-	seedLauncherCorpusWork(t, s, "work-1", "product-1", "task", "Session work", "needed", 1, "2026-09-01T00:00:00Z", "2026-09-01T00:00:00Z")
+	seedSessionProduct(t, s, "product-1", "Session product")
+	seedSessionWork(t, s, "work-1", "product-1")
 	seedApprovalWorkflow(t, s, "work-1")
 	if projectDir != "" {
-		corpusExec(t, s, `INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES ('locator-session','product-1-project','canonical_path',?,?, 'now','now')`, projectDir, projectDir)
+		sessionFixtureExec(t, s, `INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES ('locator-session','product-1-project','canonical_path',?,?, 'now','now')`, projectDir, projectDir)
 	}
 	path := s.Path()
 	if err := s.Close(); err != nil {
 		t.Fatalf("close session fixture store: %v", err)
 	}
 	return path
+}
+
+func seedSessionProduct(t *testing.T, s *store.Store, id, name string) {
+	t.Helper()
+	projectID := id + "-project"
+	sessionFixtureExec(t, s, `INSERT INTO products(id,display_name,stage_maturity,stage_audience_commitment,version,created_at,updated_at) VALUES (?,?,'prototype','operator_only',1,?,?)`, id, name, "2026-08-01T00:00:00Z", "2026-08-01T00:00:00Z")
+	sessionFixtureExec(t, s, `INSERT INTO projects(id,display_name,version,created_at,updated_at) VALUES (?,?,1,?,?)`, projectID, name+" project", "2026-08-01T00:00:00Z", "2026-08-01T00:00:00Z")
+	sessionFixtureExec(t, s, `INSERT INTO product_projects(product_id,project_id,role) VALUES (?,?,'primary')`, id, projectID)
+}
+
+func seedSessionWork(t *testing.T, s *store.Store, id, productID string) {
+	t.Helper()
+	sessionFixtureExec(t, s, `INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at,terminal_time) VALUES (?,'task','Session work','needed',1,1,?,?,NULL)`, id, "2026-09-01T00:00:00Z", "2026-09-01T00:00:00Z")
+	sessionFixtureExec(t, s, `INSERT INTO work_projects(work_id,project_id,role) VALUES (?,?,'primary')`, id, productID+"-project")
+}
+
+func seedApprovalWorkflow(t *testing.T, s *store.Store, workID string) {
+	t.Helper()
+	definition, err := store.BuiltinWorkflowDefinitionForRef("workflow.implementation")
+	if err != nil {
+		t.Fatalf("load workflow definition: %v", err)
+	}
+	sessionFixtureExec(t, s, `INSERT INTO workflow_instances(work_id,definition_ref,definition_version,definition_digest,current_step,instance_state,started_at) VALUES (?,?,?,?,?,?,?)`, workID, definition.Definition.Ref, definition.Definition.Version, definition.Digest, "planning", "ready", "2026-08-01T00:00:00Z")
+}
+
+func sessionFixtureExec(t *testing.T, s *store.Store, statement string, args ...any) {
+	t.Helper()
+	db := s.DatabaseForTesting()
+	ctx := context.Background()
+	if _, err := db.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+		t.Fatalf("enable session fixture fold guard: %v", err)
+	}
+	defer func() {
+		if _, err := db.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
+			t.Errorf("disable session fixture fold guard: %v", err)
+		}
+	}()
+	if _, err := db.ExecContext(ctx, statement, args...); err != nil {
+		t.Fatalf("seed session fixture: %v", err)
+	}
 }
 
 // writeProjectHostArtifacts places the lane and orchestrator definitions
@@ -418,15 +458,15 @@ func seedWorktreeFixture(t *testing.T, projectDir, worktreePath string) string {
 	if err != nil {
 		t.Fatalf("open worktree fixture store: %v", err)
 	}
-	seedLauncherCorpusProduct(t, s, "product-1", "Session product")
-	seedLauncherCorpusWork(t, s, "work-1", "product-1", "task", "Session work", "needed", 1, "2026-09-01T00:00:00Z", "2026-09-01T00:00:00Z")
+	seedSessionProduct(t, s, "product-1", "Session product")
+	seedSessionWork(t, s, "work-1", "product-1")
 	seedApprovalWorkflow(t, s, "work-1")
-	corpusExec(t, s, `INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES ('locator-session','product-1-project','canonical_path',?,?,'now','now')`, projectDir, projectDir)
+	sessionFixtureExec(t, s, `INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES ('locator-session','product-1-project','canonical_path',?,?,'now','now')`, projectDir, projectDir)
 	base := strings.Repeat("a", 40)
 	branch := "work/work-1"
-	corpusExec(t, s, `INSERT INTO worktree_claims(op_id,work_id,project_id,set_id,repository_id,pinned_branch,pinned_base_sha,pinned_path,state,principal_ref,request_id,observed_at,updated_at) VALUES ('wt-op-1','work-1','product-1-project',?,'repo-1',?,?,?,'verified','operator','req-1','now','now')`,
+	sessionFixtureExec(t, s, `INSERT INTO worktree_claims(op_id,work_id,project_id,set_id,repository_id,pinned_branch,pinned_base_sha,pinned_path,state,principal_ref,request_id,observed_at,updated_at) VALUES ('wt-op-1','work-1','product-1-project',?,'repo-1',?,?,?,'verified','operator','req-1','now','now')`,
 		store.WorktreeSetID("work-1"), branch, base, filepath.Clean(worktreePath))
-	corpusExec(t, s, `INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at,git_facts) VALUES (?,'product-1-project','wt-op-1',?,?,?,'repo-1','active','now','{}')`,
+	sessionFixtureExec(t, s, `INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at,git_facts) VALUES (?,'product-1-project','wt-op-1',?,?,?,'repo-1','active','now','{}')`,
 		store.WorktreeSetID("work-1"), branch, base, filepath.Clean(worktreePath))
 	path := s.Path()
 	if err := s.Close(); err != nil {

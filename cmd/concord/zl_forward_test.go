@@ -227,7 +227,10 @@ func TestResolveZLLinearReferenceFollowsLandingProject(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.RecordLinearIssueLink(context.Background(), store.LinearIssueLink{WorkID: "fwd-work", RemoteIssueUUID: "fwd-issue-1", HumanKey: "FWD-1", URL: "https://linear.app/example/issue/FWD-1"}); err != nil {
+	if err := s.Transact(context.Background(), func(tx *store.Transaction) error {
+		_, err := store.RecordLinearIssueLinkTx(context.Background(), tx, store.LinearIssueLink{WorkID: "fwd-work", RemoteIssueUUID: "fwd-issue-1", HumanKey: "FWD-1", URL: "https://linear.app/example/issue/FWD-1"})
+		return err
+	}); err != nil {
 		s.Close()
 		t.Fatal(err)
 	}

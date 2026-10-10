@@ -2665,6 +2665,1320 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "object"
     },
+    "native_oracle_control_bundle": {
+      "additionalProperties": false,
+      "properties": {
+        "cases": {
+          "items": {
+            "$ref": "#/$defs/worker_oracle_case"
+          },
+          "maxItems": 64,
+          "minItems": 1,
+          "type": "array"
+        },
+        "control": {
+          "$ref": "#/$defs/native_oracle_prepare_control"
+        },
+        "owner": {
+          "$ref": "#/$defs/worker_oracle_owner"
+        }
+      },
+      "required": [
+        "owner",
+        "control",
+        "cases"
+      ],
+      "type": "object"
+    },
+    "native_oracle_digest": {
+      "maxLength": 71,
+      "minLength": 71,
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "native_oracle_execute_request": {
+      "additionalProperties": false,
+      "properties": {
+        "attempt_epoch": {
+          "maximum": 2147483647,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "attempt_id": {
+          "$ref": "#/$defs/id"
+        },
+        "control_id": {
+          "description": "A stable control: identity, unique within this work item.",
+          "maxLength": 128,
+          "minLength": 9,
+          "pattern": "^control:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
+          "type": "string"
+        },
+        "phase": {
+          "const": "execute",
+          "type": "string"
+        },
+        "preparation_run_ref": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "worker_job_binding": {
+          "$ref": "#/$defs/native_oracle_job_binding"
+        },
+        "worker_packet_digest": {
+          "$ref": "#/$defs/native_oracle_digest"
+        }
+      },
+      "required": [
+        "phase",
+        "attempt_id",
+        "attempt_epoch",
+        "worker_packet_digest",
+        "worker_job_binding",
+        "control_id",
+        "preparation_run_ref"
+      ],
+      "type": "object"
+    },
+    "native_oracle_file": {
+      "additionalProperties": false,
+      "properties": {
+        "blob_oid": {
+          "maxLength": 64,
+          "minLength": 40,
+          "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
+          "type": "string"
+        },
+        "path": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "sha256": {
+          "maxLength": 71,
+          "minLength": 71,
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "blob_oid",
+        "sha256"
+      ],
+      "type": "object"
+    },
+    "native_oracle_job_binding": {
+      "additionalProperties": false,
+      "properties": {
+        "digest": {
+          "$ref": "#/$defs/native_oracle_digest"
+        },
+        "job_id": {
+          "$ref": "#/$defs/id"
+        },
+        "revision": {
+          "maximum": 2147483647,
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "job_id",
+        "revision",
+        "digest"
+      ],
+      "type": "object"
+    },
+    "native_oracle_output_page": {
+      "additionalProperties": false,
+      "properties": {
+        "complete": {
+          "type": "boolean"
+        },
+        "data_base64": {
+          "maxLength": 21848,
+          "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
+          "type": "string"
+        },
+        "eof": {
+          "type": "boolean"
+        },
+        "length": {
+          "maximum": 16384,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "next_offset": {
+          "maximum": 2097152,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "offset": {
+          "maximum": 2097152,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "run_ref": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "sha256": {
+          "$ref": "#/$defs/native_oracle_digest"
+        },
+        "stream": {
+          "enum": [
+            "stdout",
+            "stderr"
+          ],
+          "type": "string"
+        },
+        "total_length": {
+          "maximum": 2097152,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "run_ref",
+        "stream",
+        "offset",
+        "data_base64",
+        "length",
+        "total_length",
+        "sha256",
+        "complete",
+        "next_offset",
+        "eof"
+      ],
+      "type": "object"
+    },
+    "native_oracle_preparation": {
+      "additionalProperties": false,
+      "description": "The store-selected qualified preparation for an immutable job's exact readiness reference, never a latest-run guess or worker assertion. Pure-Go top-level tests only. The native owner proves exact pinned file bytes, cwd, build-selected nonempty witnesses, and compile-only readiness. Non-Go and resolved embed inputs must be declared pinned fixtures or explicit compiler inputs; no production Go/module replacement. Every stage pins the installed toolchain and native target with GOTOOLCHAIN=local, GOPROXY=off, GOFLAGS=-mod=readonly, CGO_ENABLED=0, GOWORK=off, and a private disposable GOCACHE. No aggregate scratch quota or uncommitted-diagnostics promise. Preparation grants no worker attempt, verification authority, or semantic acceptance.",
+      "if": {
+        "properties": {
+          "qualification": {
+            "const": "ready"
+          }
+        },
+        "required": [
+          "qualification"
+        ]
+      },
+      "properties": {
+        "build_environment_digest": {
+          "maxLength": 71,
+          "minLength": 71,
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "bundle_digest": {
+          "maxLength": 71,
+          "minLength": 71,
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "case_to_test_map": {
+          "additionalProperties": false,
+          "maxProperties": 64,
+          "minProperties": 1,
+          "patternProperties": {
+            "^case:[A-Za-z0-9][A-Za-z0-9._:-]{0,122}$": {
+              "items": {
+                "$ref": "#/$defs/native_oracle_test_name"
+              },
+              "maxItems": 8,
+              "minItems": 1,
+              "type": "array",
+              "uniqueItems": true
+            }
+          },
+          "type": "object"
+        },
+        "contract_version": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "files": {
+          "items": {
+            "$ref": "#/$defs/native_oracle_file"
+          },
+          "maxItems": 32,
+          "minItems": 1,
+          "type": "array"
+        },
+        "logical_argv_digest": {
+          "maxLength": 71,
+          "minLength": 71,
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "logical_cwd": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "manifest_blob": {
+          "maxLength": 64,
+          "minLength": 40,
+          "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
+          "type": "string"
+        },
+        "manifest_digest": {
+          "maxLength": 71,
+          "minLength": 71,
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "native_plan_sha256": {
+          "maxLength": 71,
+          "minLength": 71,
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "phase": {
+          "const": "prepare",
+          "type": "string"
+        },
+        "project_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "protocol": {
+          "const": "native_oracle_v2",
+          "type": "string"
+        },
+        "qualification": {
+          "enum": [
+            "ready",
+            "unavailable"
+          ],
+          "type": "string"
+        },
+        "recipe_source": {
+          "$ref": "#/$defs/work_context_reading_source_repository_file"
+        },
+        "run_ref": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "selected_distinct_count": {
+          "maximum": 40,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "selected_test_names": {
+          "description": "The nominal maximum derives from floor((256-13)/6), not an independent test allowance. Every rendered selector still obeys sum(name bytes)+N+13 <= 256. No truncation or omitted witness.",
+          "items": {
+            "$ref": "#/$defs/native_oracle_test_name"
+          },
+          "maxItems": 40,
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "stderr": {
+          "$ref": "#/$defs/native_oracle_stream"
+        },
+        "stdout": {
+          "$ref": "#/$defs/native_oracle_stream"
+        },
+        "streams_complete": {
+          "type": "boolean"
+        },
+        "subject_commit": {
+          "maxLength": 64,
+          "minLength": 40,
+          "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
+          "type": "string"
+        },
+        "toolchain_identity": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "work_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "protocol",
+        "phase",
+        "qualification",
+        "run_ref",
+        "work_id",
+        "project_id",
+        "contract_version",
+        "subject_commit",
+        "bundle_digest",
+        "logical_argv_digest",
+        "logical_cwd",
+        "recipe_source",
+        "manifest_blob",
+        "manifest_digest",
+        "files",
+        "toolchain_identity",
+        "build_environment_digest",
+        "selected_test_names",
+        "case_to_test_map",
+        "selected_distinct_count",
+        "native_plan_sha256",
+        "stdout",
+        "stderr",
+        "streams_complete"
+      ],
+      "then": {
+        "properties": {
+          "stderr": {
+            "properties": {
+              "complete": {
+                "const": true
+              },
+              "ref": {
+                "minLength": 1
+              },
+              "stream": {
+                "const": "stderr"
+              }
+            }
+          },
+          "stdout": {
+            "properties": {
+              "complete": {
+                "const": true
+              },
+              "ref": {
+                "minLength": 1
+              },
+              "stream": {
+                "const": "stdout"
+              }
+            }
+          },
+          "streams_complete": {
+            "const": true
+          }
+        }
+      },
+      "type": "object"
+    },
+    "native_oracle_prepare_control": {
+      "additionalProperties": false,
+      "description": "Native prepare input only: readiness references are omitted, never invented. Recorded ready jobs still require them.",
+      "properties": {
+        "argv": {
+          "description": "The exact argument vector, never shell text.",
+          "items": {
+            "maxLength": 512,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 32,
+          "minItems": 1,
+          "type": "array"
+        },
+        "case_ids": {
+          "items": {
+            "maxLength": 128,
+            "minLength": 6,
+            "pattern": "^case:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
+            "type": "string"
+          },
+          "maxItems": 64,
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "control_id": {
+          "description": "A stable control: identity, unique within this work item.",
+          "maxLength": 128,
+          "minLength": 9,
+          "pattern": "^control:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
+          "type": "string"
+        },
+        "cwd": {
+          "description": "A contained relative working directory.",
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "expected_result": {
+          "description": "The declared exit-status result the harness must produce. Slice A admits pass (exit 0) only.",
+          "enum": [
+            "pass"
+          ],
+          "type": "string"
+        },
+        "owner_id": {
+          "maxLength": 128,
+          "minLength": 7,
+          "pattern": "^owner:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
+          "type": "string"
+        },
+        "predicate_ids": {
+          "description": "The parent-approved predicates this control exercises.",
+          "items": {
+            "maxLength": 128,
+            "minLength": 11,
+            "pattern": "^predicate:[A-Za-z0-9][A-Za-z0-9._:-]*$",
+            "type": "string"
+          },
+          "maxItems": 8,
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "recipe_source": {
+          "$ref": "#/$defs/work_context_reading_source_repository_file",
+          "description": "The exact pinned recipe manifest, not the candidate's modified harness. Native preparation resolves its file bytes, cwd, build-selected witnesses, and environment without test execution. Dispatch consumes that qualified preparation, never an automatic compiler or control run."
+        },
+        "required_evidence_role": {
+          "description": "The evidence role the control's receipt must carry.",
+          "enum": [
+            "reported",
+            "independently_executed"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "control_id",
+        "owner_id",
+        "predicate_ids",
+        "case_ids",
+        "recipe_source",
+        "argv",
+        "cwd",
+        "expected_result",
+        "required_evidence_role"
+      ],
+      "type": "object"
+    },
+    "native_oracle_prepare_request": {
+      "additionalProperties": false,
+      "properties": {
+        "control_bundle": {
+          "$ref": "#/$defs/native_oracle_control_bundle"
+        },
+        "expected_contract_version": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "phase": {
+          "const": "prepare",
+          "type": "string"
+        }
+      },
+      "required": [
+        "phase",
+        "expected_contract_version",
+        "control_bundle"
+      ],
+      "type": "object"
+    },
+    "native_oracle_request": {
+      "additionalProperties": false,
+      "description": "native_oracle_v2: prepare compiles the pinned pure-Go harness without test execution; execute requires the exact persisted dispatch, job, epoch, packet digest, and clean subject. The producer owns recipe bytes, cwd, environment, candidate, stages, and streams. Unsupported recipes are unavailable. No install, automatic preparation, or new worker authority.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "control_bundle": {
+              "$ref": "#/$defs/native_oracle_control_bundle"
+            },
+            "expected_contract_version": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "phase": {
+              "const": "prepare",
+              "type": "string"
+            }
+          },
+          "required": [
+            "phase",
+            "expected_contract_version",
+            "control_bundle"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "attempt_epoch": {
+              "maximum": 2147483647,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "attempt_id": {
+              "$ref": "#/$defs/id"
+            },
+            "control_id": {
+              "description": "A stable control: identity, unique within this work item.",
+              "maxLength": 128,
+              "minLength": 9,
+              "pattern": "^control:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
+              "type": "string"
+            },
+            "phase": {
+              "const": "execute",
+              "type": "string"
+            },
+            "preparation_run_ref": {
+              "maxLength": 512,
+              "minLength": 1,
+              "type": "string"
+            },
+            "worker_job_binding": {
+              "$ref": "#/$defs/native_oracle_job_binding"
+            },
+            "worker_packet_digest": {
+              "$ref": "#/$defs/native_oracle_digest"
+            }
+          },
+          "required": [
+            "phase",
+            "attempt_id",
+            "attempt_epoch",
+            "worker_packet_digest",
+            "worker_job_binding",
+            "control_id",
+            "preparation_run_ref"
+          ],
+          "type": "object"
+        }
+      ],
+      "properties": {
+        "attempt_epoch": {
+          "maximum": 2147483647,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "attempt_id": {
+          "$ref": "#/$defs/id"
+        },
+        "control_bundle": {
+          "$ref": "#/$defs/native_oracle_control_bundle"
+        },
+        "control_id": {
+          "description": "A stable control: identity, unique within this work item.",
+          "maxLength": 128,
+          "minLength": 9,
+          "pattern": "^control:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
+          "type": "string"
+        },
+        "expected_contract_version": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "phase": {
+          "enum": [
+            "prepare",
+            "execute"
+          ],
+          "type": "string"
+        },
+        "preparation_run_ref": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "worker_job_binding": {
+          "$ref": "#/$defs/native_oracle_job_binding"
+        },
+        "worker_packet_digest": {
+          "$ref": "#/$defs/native_oracle_digest"
+        }
+      },
+      "required": [
+        "phase"
+      ],
+      "type": "object"
+    },
+    "native_oracle_result": {
+      "description": "Native producer observations only. The canonical plan/digest are immutable in the existing lease; command remains bare argv. Prepare grants readiness only. Execute pass requires actual run/pass witnesses, complete streams, pinned inputs/cwd/environment, and the persisted live dispatch's three-way clean subject equality. Qualified green result metadata is byte-identical to lease result_json. Raw BLOBs never enter result metadata or idempotency records. Replay starts no process. No semantic acceptance or independent evidence role is implied.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "The store-selected qualified preparation for an immutable job's exact readiness reference, never a latest-run guess or worker assertion. Pure-Go top-level tests only. The native owner proves exact pinned file bytes, cwd, build-selected nonempty witnesses, and compile-only readiness. Non-Go and resolved embed inputs must be declared pinned fixtures or explicit compiler inputs; no production Go/module replacement. Every stage pins the installed toolchain and native target with GOTOOLCHAIN=local, GOPROXY=off, GOFLAGS=-mod=readonly, CGO_ENABLED=0, GOWORK=off, and a private disposable GOCACHE. No aggregate scratch quota or uncommitted-diagnostics promise. Preparation grants no worker attempt, verification authority, or semantic acceptance.",
+          "if": {
+            "properties": {
+              "qualification": {
+                "const": "ready"
+              }
+            },
+            "required": [
+              "qualification"
+            ]
+          },
+          "properties": {
+            "binary_digest": {
+              "$ref": "#/$defs/native_oracle_digest"
+            },
+            "build_environment_digest": {
+              "maxLength": 71,
+              "minLength": 71,
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            "bundle_digest": {
+              "maxLength": 71,
+              "minLength": 71,
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            "case_to_test_map": {
+              "additionalProperties": false,
+              "maxProperties": 64,
+              "minProperties": 1,
+              "patternProperties": {
+                "^case:[A-Za-z0-9][A-Za-z0-9._:-]{0,122}$": {
+                  "items": {
+                    "$ref": "#/$defs/native_oracle_test_name"
+                  },
+                  "maxItems": 8,
+                  "minItems": 1,
+                  "type": "array",
+                  "uniqueItems": true
+                }
+              },
+              "type": "object"
+            },
+            "contract_version": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "control_id": {
+              "description": "A stable control: identity, unique within this work item.",
+              "maxLength": 128,
+              "minLength": 9,
+              "pattern": "^control:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
+              "type": "string"
+            },
+            "detail": {
+              "maxLength": 4096,
+              "type": "string"
+            },
+            "files": {
+              "items": {
+                "$ref": "#/$defs/native_oracle_file"
+              },
+              "maxItems": 32,
+              "minItems": 1,
+              "type": "array"
+            },
+            "input_manifest_digest": {
+              "$ref": "#/$defs/native_oracle_digest"
+            },
+            "logical_argv_digest": {
+              "maxLength": 71,
+              "minLength": 71,
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            "logical_cwd": {
+              "maxLength": 512,
+              "minLength": 1,
+              "type": "string"
+            },
+            "manifest_blob": {
+              "maxLength": 64,
+              "minLength": 40,
+              "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
+              "type": "string"
+            },
+            "manifest_digest": {
+              "maxLength": 71,
+              "minLength": 71,
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            "native_plan_sha256": {
+              "maxLength": 71,
+              "minLength": 71,
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            "phase": {
+              "const": "prepare",
+              "type": "string"
+            },
+            "project_id": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            "protocol": {
+              "const": "native_oracle_v2",
+              "type": "string"
+            },
+            "qualification": {
+              "enum": [
+                "ready",
+                "unavailable"
+              ],
+              "type": "string"
+            },
+            "recipe_source": {
+              "$ref": "#/$defs/work_context_reading_source_repository_file"
+            },
+            "run_ref": {
+              "maxLength": 512,
+              "minLength": 1,
+              "type": "string"
+            },
+            "selected_distinct_count": {
+              "maximum": 40,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "selected_test_names": {
+              "description": "The nominal maximum derives from floor((256-13)/6), not an independent test allowance. Every rendered selector still obeys sum(name bytes)+N+13 <= 256. No truncation or omitted witness.",
+              "items": {
+                "$ref": "#/$defs/native_oracle_test_name"
+              },
+              "maxItems": 40,
+              "minItems": 1,
+              "type": "array",
+              "uniqueItems": true
+            },
+            "stages": {
+              "items": {
+                "$ref": "#/$defs/native_oracle_stage"
+              },
+              "maxItems": 16,
+              "minItems": 0,
+              "type": "array"
+            },
+            "stderr": {
+              "$ref": "#/$defs/native_oracle_stream"
+            },
+            "stdout": {
+              "$ref": "#/$defs/native_oracle_stream"
+            },
+            "streams_complete": {
+              "type": "boolean"
+            },
+            "subject_commit": {
+              "maxLength": 64,
+              "minLength": 40,
+              "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
+              "type": "string"
+            },
+            "toolchain_identity": {
+              "maxLength": 512,
+              "minLength": 1,
+              "type": "string"
+            },
+            "work_id": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "protocol",
+            "phase",
+            "qualification",
+            "run_ref",
+            "work_id",
+            "project_id",
+            "contract_version",
+            "subject_commit",
+            "bundle_digest",
+            "logical_argv_digest",
+            "logical_cwd",
+            "recipe_source",
+            "manifest_blob",
+            "manifest_digest",
+            "files",
+            "toolchain_identity",
+            "build_environment_digest",
+            "selected_test_names",
+            "case_to_test_map",
+            "selected_distinct_count",
+            "native_plan_sha256",
+            "stdout",
+            "stderr",
+            "streams_complete",
+            "control_id",
+            "stages"
+          ],
+          "then": {
+            "properties": {
+              "stderr": {
+                "properties": {
+                  "complete": {
+                    "const": true
+                  },
+                  "ref": {
+                    "minLength": 1
+                  },
+                  "stream": {
+                    "const": "stderr"
+                  }
+                }
+              },
+              "stdout": {
+                "properties": {
+                  "complete": {
+                    "const": true
+                  },
+                  "ref": {
+                    "minLength": 1
+                  },
+                  "stream": {
+                    "const": "stdout"
+                  }
+                }
+              },
+              "streams_complete": {
+                "const": true
+              }
+            }
+          },
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The store-selected qualified preparation for an immutable job's exact readiness reference, never a latest-run guess or worker assertion. Pure-Go top-level tests only. The native owner proves exact pinned file bytes, cwd, build-selected nonempty witnesses, and compile-only readiness. Non-Go and resolved embed inputs must be declared pinned fixtures or explicit compiler inputs; no production Go/module replacement. Every stage pins the installed toolchain and native target with GOTOOLCHAIN=local, GOPROXY=off, GOFLAGS=-mod=readonly, CGO_ENABLED=0, GOWORK=off, and a private disposable GOCACHE. No aggregate scratch quota or uncommitted-diagnostics promise. Preparation grants no worker attempt, verification authority, or semantic acceptance.",
+          "if": {
+            "properties": {
+              "qualification": {
+                "const": "pass"
+              }
+            },
+            "required": [
+              "qualification"
+            ]
+          },
+          "properties": {
+            "attempt_epoch": {
+              "maximum": 2147483647,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "attempt_id": {
+              "$ref": "#/$defs/id"
+            },
+            "authorization_event_id": {
+              "$ref": "#/$defs/id"
+            },
+            "authorization_seq": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "binary_digest": {
+              "$ref": "#/$defs/native_oracle_digest"
+            },
+            "build_environment_digest": {
+              "maxLength": 71,
+              "minLength": 71,
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            "bundle_digest": {
+              "maxLength": 71,
+              "minLength": 71,
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            "case_to_test_map": {
+              "additionalProperties": false,
+              "maxProperties": 64,
+              "minProperties": 1,
+              "patternProperties": {
+                "^case:[A-Za-z0-9][A-Za-z0-9._:-]{0,122}$": {
+                  "items": {
+                    "$ref": "#/$defs/native_oracle_test_name"
+                  },
+                  "maxItems": 8,
+                  "minItems": 1,
+                  "type": "array",
+                  "uniqueItems": true
+                }
+              },
+              "type": "object"
+            },
+            "contract_version": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "control_id": {
+              "description": "A stable control: identity, unique within this work item.",
+              "maxLength": 128,
+              "minLength": 9,
+              "pattern": "^control:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
+              "type": "string"
+            },
+            "detail": {
+              "maxLength": 4096,
+              "type": "string"
+            },
+            "files": {
+              "items": {
+                "$ref": "#/$defs/native_oracle_file"
+              },
+              "maxItems": 32,
+              "minItems": 1,
+              "type": "array"
+            },
+            "input_manifest_digest": {
+              "$ref": "#/$defs/native_oracle_digest"
+            },
+            "logical_argv_digest": {
+              "maxLength": 71,
+              "minLength": 71,
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            "logical_cwd": {
+              "maxLength": 512,
+              "minLength": 1,
+              "type": "string"
+            },
+            "manifest_blob": {
+              "maxLength": 64,
+              "minLength": 40,
+              "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
+              "type": "string"
+            },
+            "manifest_digest": {
+              "maxLength": 71,
+              "minLength": 71,
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            "native_plan_sha256": {
+              "maxLength": 71,
+              "minLength": 71,
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            "observed_test_names": {
+              "items": {
+                "$ref": "#/$defs/native_oracle_test_name"
+              },
+              "maxItems": 40,
+              "minItems": 0,
+              "type": "array",
+              "uniqueItems": true
+            },
+            "phase": {
+              "const": "execute",
+              "type": "string"
+            },
+            "preparation_run_ref": {
+              "maxLength": 512,
+              "minLength": 1,
+              "type": "string"
+            },
+            "project_id": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            "protocol": {
+              "const": "native_oracle_v2",
+              "type": "string"
+            },
+            "qualification": {
+              "enum": [
+                "pass",
+                "fail",
+                "unavailable"
+              ],
+              "type": "string"
+            },
+            "recipe_source": {
+              "$ref": "#/$defs/work_context_reading_source_repository_file"
+            },
+            "run_ref": {
+              "maxLength": 512,
+              "minLength": 1,
+              "type": "string"
+            },
+            "selected_distinct_count": {
+              "maximum": 40,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "selected_test_names": {
+              "description": "The nominal maximum derives from floor((256-13)/6), not an independent test allowance. Every rendered selector still obeys sum(name bytes)+N+13 <= 256. No truncation or omitted witness.",
+              "items": {
+                "$ref": "#/$defs/native_oracle_test_name"
+              },
+              "maxItems": 40,
+              "minItems": 1,
+              "type": "array",
+              "uniqueItems": true
+            },
+            "stages": {
+              "items": {
+                "$ref": "#/$defs/native_oracle_stage"
+              },
+              "maxItems": 16,
+              "minItems": 0,
+              "type": "array"
+            },
+            "start_seq": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "stderr": {
+              "$ref": "#/$defs/native_oracle_stream"
+            },
+            "stdout": {
+              "$ref": "#/$defs/native_oracle_stream"
+            },
+            "streams_complete": {
+              "type": "boolean"
+            },
+            "subject_commit": {
+              "maxLength": 64,
+              "minLength": 40,
+              "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
+              "type": "string"
+            },
+            "toolchain_identity": {
+              "maxLength": 512,
+              "minLength": 1,
+              "type": "string"
+            },
+            "work_id": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            "worker_job_binding": {
+              "$ref": "#/$defs/native_oracle_job_binding"
+            },
+            "worker_packet_digest": {
+              "$ref": "#/$defs/native_oracle_digest"
+            }
+          },
+          "required": [
+            "protocol",
+            "phase",
+            "qualification",
+            "run_ref",
+            "work_id",
+            "project_id",
+            "contract_version",
+            "subject_commit",
+            "bundle_digest",
+            "logical_argv_digest",
+            "logical_cwd",
+            "recipe_source",
+            "manifest_blob",
+            "manifest_digest",
+            "files",
+            "toolchain_identity",
+            "build_environment_digest",
+            "selected_test_names",
+            "case_to_test_map",
+            "selected_distinct_count",
+            "native_plan_sha256",
+            "stdout",
+            "stderr",
+            "streams_complete",
+            "control_id",
+            "stages",
+            "attempt_id",
+            "attempt_epoch",
+            "worker_packet_digest",
+            "worker_job_binding",
+            "preparation_run_ref",
+            "authorization_event_id",
+            "authorization_seq",
+            "start_seq"
+          ],
+          "then": {
+            "properties": {
+              "observed_test_names": {
+                "minItems": 1
+              },
+              "stderr": {
+                "properties": {
+                  "complete": {
+                    "const": true
+                  },
+                  "ref": {
+                    "minLength": 1
+                  },
+                  "stream": {
+                    "const": "stderr"
+                  }
+                }
+              },
+              "stdout": {
+                "properties": {
+                  "complete": {
+                    "const": true
+                  },
+                  "ref": {
+                    "minLength": 1
+                  },
+                  "stream": {
+                    "const": "stdout"
+                  }
+                }
+              },
+              "streams_complete": {
+                "const": true
+              }
+            },
+            "required": [
+              "input_manifest_digest",
+              "binary_digest",
+              "observed_test_names"
+            ]
+          },
+          "type": "object"
+        }
+      ]
+    },
+    "native_oracle_stage": {
+      "additionalProperties": false,
+      "properties": {
+        "argv": {
+          "description": "The argv that runs inside the derived worktree under the exclusive verify lease. Values run as separate arguments; a shell command string is never accepted.",
+          "items": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "type": "array"
+        },
+        "exit_code": {
+          "maximum": 255,
+          "minimum": -1,
+          "type": "integer"
+        },
+        "name": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "stderr_length": {
+          "maximum": 2097152,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "stderr_offset": {
+          "maximum": 2097152,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "stdout_length": {
+          "maximum": 2097152,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "stdout_offset": {
+          "maximum": 2097152,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "name",
+        "argv",
+        "exit_code",
+        "stdout_offset",
+        "stdout_length",
+        "stderr_offset",
+        "stderr_length"
+      ],
+      "type": "object"
+    },
+    "native_oracle_stream": {
+      "additionalProperties": false,
+      "description": "Native producer descriptor only. One raw BLOB per stream stays on the existing verify lease. A complete ref requires atomic full capture; incomplete and abandoned output cannot supply full-output acceptance. Preview truncation does not imply stream truncation.",
+      "else": {
+        "properties": {
+          "ref": {
+            "const": ""
+          }
+        }
+      },
+      "if": {
+        "properties": {
+          "complete": {
+            "const": true
+          }
+        },
+        "required": [
+          "complete"
+        ]
+      },
+      "properties": {
+        "complete": {
+          "type": "boolean"
+        },
+        "length": {
+          "maximum": 2097152,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "ref": {
+          "maxLength": 512,
+          "minLength": 0,
+          "type": "string"
+        },
+        "sha256": {
+          "maxLength": 71,
+          "minLength": 71,
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "stream": {
+          "enum": [
+            "stdout",
+            "stderr"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "stream",
+        "length",
+        "sha256",
+        "complete",
+        "ref"
+      ],
+      "then": {
+        "properties": {
+          "ref": {
+            "minLength": 1
+          }
+        }
+      },
+      "type": "object"
+    },
+    "native_oracle_test_name": {
+      "maxLength": 64,
+      "minLength": 5,
+      "pattern": "^Test[A-Z][A-Za-z0-9_]*$",
+      "type": "string"
+    },
     "native_report_timestamp": {
       "format": "date-time",
       "maxLength": 64,
@@ -5313,15 +6627,107 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_browse_worktree_inspect_input": {
       "additionalProperties": false,
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "mode": {
+              "description": "The inspection kind: porcelain status, the diff against HEAD, or one file's content.",
+              "enum": [
+                "status",
+                "diff",
+                "file"
+              ],
+              "type": "string"
+            },
+            "path": {
+              "description": "The relative file selector for file mode. It selects inside the derived worktree; absolute and parent-traversing selectors refuse.",
+              "maxLength": 512,
+              "minLength": 1,
+              "type": "string"
+            },
+            "requested_budget_seconds": {
+              "$ref": "#/$defs/requested_budget_seconds"
+            },
+            "work_id": {
+              "$ref": "#/$defs/id",
+              "description": "CD-0096 D3 Inspect: the work item whose active same-Project worktree is read. The worktree derives from the session's Project and work identity; no worktree path input exists (CD-0096 D2)."
+            }
+          },
+          "required": [
+            "work_id",
+            "mode"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "length": {
+              "maximum": 16384,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "mode": {
+              "const": "oracle_output",
+              "type": "string"
+            },
+            "offset": {
+              "maximum": 9223372036854775807,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "requested_budget_seconds": {
+              "$ref": "#/$defs/requested_budget_seconds"
+            },
+            "run_ref": {
+              "maxLength": 512,
+              "minLength": 1,
+              "type": "string"
+            },
+            "stream": {
+              "enum": [
+                "stdout",
+                "stderr"
+              ],
+              "type": "string"
+            },
+            "work_id": {
+              "$ref": "#/$defs/id",
+              "description": "CD-0096 D3 Inspect: the work item whose active same-Project worktree is read. The worktree derives from the session's Project and work identity; no worktree path input exists (CD-0096 D2)."
+            }
+          },
+          "required": [
+            "work_id",
+            "mode",
+            "run_ref",
+            "stream",
+            "offset",
+            "length"
+          ],
+          "type": "object"
+        }
+      ],
       "properties": {
+        "length": {
+          "maximum": 16384,
+          "minimum": 1,
+          "type": "integer"
+        },
         "mode": {
-          "description": "The inspection kind: porcelain status, the diff against HEAD, or one file's content.",
+          "description": "oracle_output reads retained same-work/ambient-Project native stream bytes, even after worktree reclaim. No caller path, process, lease, or idempotency write. At most 16 KiB raw bytes per page within the unchanged envelope.",
           "enum": [
             "status",
             "diff",
-            "file"
+            "file",
+            "oracle_output"
           ],
           "type": "string"
+        },
+        "offset": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "type": "integer"
         },
         "path": {
           "description": "The relative file selector for file mode. It selects inside the derived worktree; absolute and parent-traversing selectors refuse.",
@@ -5331,6 +6737,18 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "run_ref": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "stream": {
+          "enum": [
+            "stdout",
+            "stderr"
+          ],
+          "type": "string"
         },
         "work_id": {
           "$ref": "#/$defs/id",
@@ -5643,6 +7061,7 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "string"
         },
         "evidence_refs": {
+          "description": "The evidence that supports the finding. A ranked finding without an oracle tie projects null; the core reader owns that wire shape.",
           "items": {
             "maxLength": 256,
             "minLength": 1,
@@ -5650,7 +7069,10 @@ const GeneratedPayloadSchemaDocument = `{
           },
           "maxItems": 8,
           "minItems": 0,
-          "type": "array"
+          "type": [
+            "array",
+            "null"
+          ]
         },
         "finding_id": {
           "description": "Core-derived from the source event sequence and ordinal; never authored.",
@@ -5658,7 +7080,9 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "string"
         },
         "kind": {
+          "description": "The generic claim vocabulary of an authored finding. A ranked oracle finding projects the empty kind: its identity is the oracle tie, never a generic claim class.",
           "enum": [
+            "",
             "observation",
             "inference",
             "hypothesis",
@@ -5668,6 +7092,10 @@ const GeneratedPayloadSchemaDocument = `{
             "direction"
           ],
           "type": "string"
+        },
+        "oracle": {
+          "$ref": "#/$defs/worker_oracle_finding",
+          "description": "The typed oracle tie of a ranked review finding (CON-890): classification plus the owner, predicate/law, case, and control references that bind it."
         },
         "ordinal": {
           "minimum": 0,
@@ -5693,14 +7121,25 @@ const GeneratedPayloadSchemaDocument = `{
           "minimum": 1,
           "type": "integer"
         },
+        "source_kind": {
+          "description": "Present only on a ranked review finding (CON-890): the entry carries an oracle tie and rides the open-set lineage, never the generic worker-claim notebook.",
+          "enum": [
+            "review_finding"
+          ],
+          "type": "string"
+        },
         "statement": {
           "maxLength": 1024,
           "minLength": 1,
           "type": "string"
         },
         "status": {
-          "const": "reported",
-          "description": "A finding is a reported claim, never acceptance."
+          "description": "A finding is a reported claim, never acceptance. The open status names a ranked review finding the lineage currently holds open (CON-890): still a claim, and open.",
+          "enum": [
+            "reported",
+            "open"
+          ],
+          "type": "string"
         },
         "subject_ref": {
           "maxLength": 128,
@@ -5840,6 +7279,24 @@ const GeneratedPayloadSchemaDocument = `{
           "minItems": 0,
           "type": "array"
         },
+        "oracle_preparations": {
+          "description": "Only native preparation records selected by the immutable job's readiness refs. No raw output or alternative readiness authority.",
+          "items": {
+            "$ref": "#/$defs/native_oracle_preparation"
+          },
+          "maxItems": 512,
+          "minItems": 0,
+          "type": "array"
+        },
+        "oracle_receipts": {
+          "description": "The prior typed control-execution receipts this work retained (CON-890), in log order: reported regression baselines with their exact identities, never current-subject acceptance.",
+          "items": {
+            "$ref": "#/$defs/worker_oracle_receipt"
+          },
+          "maxItems": 64,
+          "minItems": 0,
+          "type": "array"
+        },
         "required_reading": {
           "items": {
             "$ref": "#/$defs/work_context_reading"
@@ -5852,6 +7309,13 @@ const GeneratedPayloadSchemaDocument = `{
           "description": "The work item's maximum event sequence at read time, so a packet built from this view can be compared against current state before spawn.",
           "minimum": 0,
           "type": "integer"
+        },
+        "subject_commit": {
+          "description": "The sole core-derived current subject, as a raw commit OID. Native receipt subject_ref remains commit:OID and the store normalizes that reference once.",
+          "maxLength": 64,
+          "minLength": 40,
+          "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
+          "type": "string"
         }
       },
       "required": [
@@ -8654,10 +10118,12 @@ const GeneratedPayloadSchemaDocument = `{
               "properties": {
                 "action_id": {
                   "enum": [
+                    "accept_worker_result",
                     "record_decision",
                     "record_delivery",
                     "record_design",
-                    "record_proposal"
+                    "record_proposal",
+                    "record_worker_job"
                   ],
                   "type": "string"
                 }
@@ -8667,6 +10133,50 @@ const GeneratedPayloadSchemaDocument = `{
               ]
             }
           ]
+        },
+        {
+          "if": {
+            "properties": {
+              "action_id": {
+                "const": "accept_worker_result"
+              }
+            },
+            "required": [
+              "action_id"
+            ]
+          },
+          "then": {
+            "properties": {
+              "fields": {
+                "additionalProperties": false,
+                "maxProperties": 32,
+                "properties": {
+                  "attempt_epoch": {
+                    "maximum": 2147483647,
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "attempt_id": {
+                    "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths.",
+                    "maxLength": 128,
+                    "minLength": 1,
+                    "pattern": "^[^\\x09-\\x0d    -     　]+$",
+                    "type": "string",
+                    "x-maxBytes": 128,
+                    "x-minBytes": 2
+                  }
+                },
+                "required": [
+                  "attempt_id",
+                  "attempt_epoch"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "fields"
+            ]
+          }
         },
         {
           "if": {
@@ -8746,14 +10256,211 @@ const GeneratedPayloadSchemaDocument = `{
             ]
           },
           "then": {
+            "anyOf": [
+              {
+                "properties": {
+                  "fields": {
+                    "additionalProperties": false,
+                    "maxProperties": 32,
+                    "properties": {},
+                    "type": "object"
+                  }
+                }
+              },
+              {
+                "properties": {
+                  "fields": {
+                    "additionalProperties": false,
+                    "maxProperties": 32,
+                    "properties": {
+                      "affected": {
+                        "items": {
+                          "$ref": "#/$defs/proposal_affected_text"
+                        },
+                        "maxItems": 16,
+                        "minItems": 1,
+                        "type": "array",
+                        "uniqueItems": true
+                      },
+                      "constraints": {
+                        "items": {
+                          "$ref": "#/$defs/proposal_text"
+                        },
+                        "maxItems": 16,
+                        "minItems": 0,
+                        "type": "array",
+                        "uniqueItems": true
+                      },
+                      "open_questions": {
+                        "items": {
+                          "$ref": "#/$defs/proposal_text"
+                        },
+                        "maxItems": 16,
+                        "minItems": 0,
+                        "type": "array",
+                        "uniqueItems": true
+                      },
+                      "problem": {
+                        "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
+                        "maxLength": 4096,
+                        "minLength": 1,
+                        "pattern": "\\S",
+                        "type": "string",
+                        "x-maxBytes": 4096
+                      },
+                      "stakes": {
+                        "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
+                        "maxLength": 2048,
+                        "minLength": 1,
+                        "pattern": "\\S",
+                        "type": "string",
+                        "x-maxBytes": 2048
+                      },
+                      "user_outcomes": {
+                        "items": {
+                          "$ref": "#/$defs/proposal_text"
+                        },
+                        "maxItems": 16,
+                        "minItems": 1,
+                        "type": "array",
+                        "uniqueItems": true
+                      }
+                    },
+                    "required": [
+                      "problem",
+                      "affected",
+                      "stakes",
+                      "user_outcomes"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "fields"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action_id": {
+                "const": "record_worker_job"
+              }
+            },
+            "required": [
+              "action_id"
+            ]
+          },
+          "then": {
             "properties": {
               "fields": {
                 "additionalProperties": false,
                 "maxProperties": 32,
-                "properties": {},
+                "properties": {
+                  "checks": {
+                    "items": {
+                      "$ref": "#/$defs/worker_job_text"
+                    },
+                    "maxItems": 64,
+                    "minItems": 0,
+                    "type": "array",
+                    "uniqueItems": true
+                  },
+                  "job_id": {
+                    "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths.",
+                    "maxLength": 128,
+                    "minLength": 1,
+                    "pattern": "^[^\\x09-\\x0d    -     　]+$",
+                    "type": "string",
+                    "x-maxBytes": 128,
+                    "x-minBytes": 2
+                  },
+                  "objective": {
+                    "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
+                    "maxLength": 4096,
+                    "minLength": 1,
+                    "pattern": "\\S",
+                    "type": "string",
+                    "x-maxBytes": 4096
+                  },
+                  "path_scope": {
+                    "items": {
+                      "$ref": "#/$defs/reference"
+                    },
+                    "maxItems": 64,
+                    "minItems": 0,
+                    "type": "array",
+                    "uniqueItems": true
+                  },
+                  "predicate_ids": {
+                    "items": {
+                      "$ref": "#/$defs/id"
+                    },
+                    "maxItems": 8,
+                    "minItems": 0,
+                    "type": "array",
+                    "uniqueItems": true
+                  },
+                  "prerequisites": {
+                    "items": {
+                      "$ref": "#/$defs/worker_job_prerequisite"
+                    },
+                    "maxItems": 64,
+                    "minItems": 0,
+                    "type": "array"
+                  },
+                  "readiness_evidence": {
+                    "items": {
+                      "$ref": "#/$defs/reference"
+                    },
+                    "maxItems": 16,
+                    "minItems": 0,
+                    "type": "array",
+                    "uniqueItems": true
+                  },
+                  "ready": {
+                    "type": "boolean"
+                  },
+                  "reserved_integration": {
+                    "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
+                    "maxLength": 4096,
+                    "minLength": 1,
+                    "pattern": "\\S",
+                    "type": "string",
+                    "x-maxBytes": 4096
+                  },
+                  "stopping_condition": {
+                    "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
+                    "maxLength": 2048,
+                    "minLength": 1,
+                    "pattern": "\\S",
+                    "type": "string",
+                    "x-maxBytes": 2048
+                  },
+                  "unresolved_refs": {
+                    "items": {
+                      "$ref": "#/$defs/worker_job_text"
+                    },
+                    "maxItems": 64,
+                    "minItems": 0,
+                    "type": "array",
+                    "uniqueItems": true
+                  }
+                },
+                "required": [
+                  "job_id",
+                  "objective",
+                  "stopping_condition",
+                  "ready"
+                ],
                 "type": "object"
               }
-            }
+            },
+            "required": [
+              "fields"
+            ]
           }
         }
       ],
@@ -9103,6 +10810,20 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_transition_action_public_variant_dispatch_worker": {
       "additionalProperties": false,
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "selected_choice"
+            ]
+          },
+          {
+            "required": [
+              "decision_context_digest"
+            ]
+          }
+        ]
+      },
       "properties": {
         "action_id": {
           "const": "dispatch_worker",
@@ -9208,6 +10929,20 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_transition_action_variant_accept_decision": {
       "additionalProperties": false,
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "selected_choice"
+            ]
+          },
+          {
+            "required": [
+              "decision_context_digest"
+            ]
+          }
+        ]
+      },
       "properties": {
         "action_id": {
           "const": "accept_decision",
@@ -9357,6 +11092,20 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_transition_action_variant_accept_worker_evidence": {
       "additionalProperties": false,
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "selected_choice"
+            ]
+          },
+          {
+            "required": [
+              "decision_context_digest"
+            ]
+          }
+        ]
+      },
       "properties": {
         "action_id": {
           "const": "accept_worker_evidence",
@@ -9468,6 +11217,20 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_transition_action_variant_accept_worker_result": {
       "additionalProperties": false,
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "selected_choice"
+            ]
+          },
+          {
+            "required": [
+              "decision_context_digest"
+            ]
+          }
+        ]
+      },
       "properties": {
         "action_id": {
           "const": "accept_worker_result",
@@ -9594,6 +11357,20 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_transition_action_variant_add_condition": {
       "additionalProperties": false,
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "selected_choice"
+            ]
+          },
+          {
+            "required": [
+              "decision_context_digest"
+            ]
+          }
+        ]
+      },
       "properties": {
         "action_id": {
           "const": "add_condition",
@@ -9729,6 +11506,20 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_transition_action_variant_approve_contract": {
       "additionalProperties": false,
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "selected_choice"
+            ]
+          },
+          {
+            "required": [
+              "decision_context_digest"
+            ]
+          }
+        ]
+      },
       "properties": {
         "action_id": {
           "const": "approve_contract",
@@ -10201,6 +11992,20 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_transition_action_variant_approve_operation": {
       "additionalProperties": false,
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "selected_choice"
+            ]
+          },
+          {
+            "required": [
+              "decision_context_digest"
+            ]
+          }
+        ]
+      },
       "properties": {
         "action_id": {
           "const": "approve_operation",
@@ -10350,6 +12155,20 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_transition_action_variant_bind_evidence": {
       "additionalProperties": false,
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "selected_choice"
+            ]
+          },
+          {
+            "required": [
+              "decision_context_digest"
+            ]
+          }
+        ]
+      },
       "properties": {
         "action_id": {
           "const": "bind_evidence",
@@ -10499,6 +12318,20 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_transition_action_variant_cancel_condition": {
       "additionalProperties": false,
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "selected_choice"
+            ]
+          },
+          {
+            "required": [
+              "decision_context_digest"
+            ]
+          }
+        ]
+      },
       "properties": {
         "action_id": {
           "const": "cancel_condition",
@@ -10631,6 +12464,20 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_transition_action_variant_checkpoint_action": {
       "additionalProperties": false,
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "selected_choice"
+            ]
+          },
+          {
+            "required": [
+              "decision_context_digest"
+            ]
+          }
+        ]
+      },
       "properties": {
         "action_id": {
           "const": "checkpoint_action",
@@ -10722,6 +12569,20 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_transition_action_variant_checkpoint_analysis": {
       "additionalProperties": false,
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "selected_choice"
+            ]
+          },
+          {
+            "required": [
+              "decision_context_digest"
+            ]
+          }
+        ]
+      },
       "properties": {
         "action_id": {
           "const": "checkpoint_analysis",
@@ -10813,6 +12674,20 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_transition_action_variant_checkpoint_context": {
       "additionalProperties": false,
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "selected_choice"
+            ]
+          },
+          {
+            "required": [
+              "decision_context_digest"
+            ]
+          }
+        ]
+      },
       "properties": {
         "action_id": {
           "const": "checkpoint_context",
@@ -10998,6 +12873,20 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_transition_action_variant_checkpoint_execution": {
       "additionalProperties": false,
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "selected_choice"
+            ]
+          },
+          {
+            "required": [
+              "decision_context_digest"
+            ]
+          }
+        ]
+      },
       "properties": {
         "action_id": {
           "const": "checkpoint_execution",
@@ -11089,6 +12978,20 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_transition_action_variant_checkpoint_poc": {
       "additionalProperties": false,
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "selected_choice"
+            ]
+          },
+          {
+            "required": [
+              "decision_context_digest"
+            ]
+          }
+        ]
+      },
       "properties": {
         "action_id": {
           "const": "checkpoint_poc",
@@ -11180,6 +13083,20 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_transition_action_variant_checkpoint_refine": {
       "additionalProperties": false,
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "selected_choice"
+            ]
+          },
+          {
+            "required": [
+              "decision_context_digest"
+            ]
+          }
+        ]
+      },
       "properties": {
         "action_id": {
           "const": "checkpoint_refine",
@@ -11271,6 +13188,20 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_transition_action_variant_checkpoint_repair": {
       "additionalProperties": false,
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "selected_choice"
+            ]
+          },
+          {
+            "required": [
+              "decision_context_digest"
+            ]
+          }
+        ]
+      },
       "properties": {
         "action_id": {
           "const": "checkpoint_repair",
@@ -11362,6 +13293,20 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_transition_action_variant_checkpoint_run": {
       "additionalProperties": false,
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "selected_choice"
+            ]
+          },
+          {
+            "required": [
+              "decision_context_digest"
+            ]
+          }
+        ]
+      },
       "properties": {
         "action_id": {
           "const": "checkpoint_run",
@@ -11453,6 +13398,20 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_transition_action_variant_cleanup_run": {
       "additionalProperties": false,
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "selected_choice"
+            ]
+          },
+          {
+            "required": [
+              "decision_context_digest"
+            ]
+          }
+        ]
+      },
       "properties": {
         "action_id": {
           "const": "cleanup_run",
@@ -11597,6 +13556,20 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_transition_action_variant_complete": {
       "additionalProperties": false,
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "selected_choice"
+            ]
+          },
+          {
+            "required": [
+              "decision_context_digest"
+            ]
+          }
+        ]
+      },
       "properties": {
         "action_id": {
           "const": "complete",
@@ -11835,6 +13808,20 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_transition_action_variant_cross_context_boundary": {
       "additionalProperties": false,
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "selected_choice"
+            ]
+          },
+          {
+            "required": [
+              "decision_context_digest"
+            ]
+          }
+        ]
+      },
       "properties": {
         "action_id": {
           "const": "cross_context_boundary",
@@ -11978,6 +13965,20 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_transition_action_variant_declare_impact": {
       "additionalProperties": false,
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "selected_choice"
+            ]
+          },
+          {
+            "required": [
+              "decision_context_digest"
+            ]
+          }
+        ]
+      },
       "properties": {
         "action_id": {
           "const": "declare_impact",
@@ -12116,6 +14117,20 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_transition_action_variant_declare_scope": {
       "additionalProperties": false,
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "selected_choice"
+            ]
+          },
+          {
+            "required": [
+              "decision_context_digest"
+            ]
+          }
+        ]
+      },
       "properties": {
         "action_id": {
           "const": "declare_scope",
@@ -12207,6 +14222,20 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_transition_action_variant_discard_poc": {
       "additionalProperties": false,
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "selected_choice"
+            ]
+          },
+          {
+            "required": [
+              "decision_context_digest"
+            ]
+          }
+        ]
+      },
       "properties": {
         "action_id": {
           "const": "discard_poc",
@@ -12298,6 +14327,20 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_transition_action_variant_dispatch_worker": {
       "additionalProperties": false,
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "selected_choice"
+            ]
+          },
+          {
+            "required": [
+              "decision_context_digest"
+            ]
+          }
+        ]
+      },
       "properties": {
         "action_id": {
           "const": "dispatch_worker",
@@ -12407,6 +14450,20 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_transition_action_variant_frame_question": {
       "additionalProperties": false,
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "selected_choice"
+            ]
+          },
+          {
+            "required": [
+              "decision_context_digest"
+            ]
+          }
+        ]
+      },
       "properties": {
         "action_id": {
           "const": "frame_question",
@@ -12498,6 +14555,20 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_transition_action_variant_frame_research": {
       "additionalProperties": false,
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "selected_choice"
+            ]
+          },
+          {
+            "required": [
+              "decision_context_digest"
+            ]
+          }
+        ]
+      },
       "properties": {
         "action_id": {
           "const": "frame_research",
@@ -12589,6 +14660,20 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_transition_action_variant_link_successor": {
       "additionalProperties": false,
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "selected_choice"
+            ]
+          },
+          {
+            "required": [
+              "decision_context_digest"
+            ]
+          }
+        ]
+      },
       "properties": {
         "action_id": {
           "const": "link_successor",
@@ -12703,6 +14788,20 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_transition_action_variant_record_alignment": {
       "additionalProperties": false,
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "selected_choice"
+            ]
+          },
+          {
+            "required": [
+              "decision_context_digest"
+            ]
+          }
+        ]
+      },
       "properties": {
         "action_id": {
           "const": "record_alignment",
@@ -12764,6 +14863,41 @@ const GeneratedPayloadSchemaDocument = `{
             {
               "additionalProperties": false,
               "maxProperties": 32,
+              "not": {
+                "additionalProperties": false,
+                "maxProperties": 32,
+                "properties": {
+                  "outcome": {
+                    "const": "related_found",
+                    "type": "string"
+                  },
+                  "related_ids": {
+                    "description": "record_alignment couples outcome and related_ids: outcome related_found requires a non-empty related_ids list, and outcome none_found must omit related_ids entirely; the store refuses any other combination.",
+                    "items": {
+                      "$ref": "#/$defs/id"
+                    },
+                    "maxItems": 64,
+                    "minItems": 1,
+                    "type": "array",
+                    "uniqueItems": true
+                  },
+                  "searched": {
+                    "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
+                    "maxLength": 4096,
+                    "minLength": 1,
+                    "pattern": "\\S",
+                    "type": "string",
+                    "x-maxBytes": 4096,
+                    "x-minBytes": 2
+                  }
+                },
+                "required": [
+                  "searched",
+                  "outcome",
+                  "related_ids"
+                ],
+                "type": "object"
+              },
               "properties": {
                 "outcome": {
                   "const": "none_found",
@@ -12852,6 +14986,20 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_transition_action_variant_record_conclusion": {
       "additionalProperties": false,
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "selected_choice"
+            ]
+          },
+          {
+            "required": [
+              "decision_context_digest"
+            ]
+          }
+        ]
+      },
       "properties": {
         "action_id": {
           "const": "record_conclusion",
@@ -12943,6 +15091,20 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_transition_action_variant_record_decision": {
       "additionalProperties": false,
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "selected_choice"
+            ]
+          },
+          {
+            "required": [
+              "decision_context_digest"
+            ]
+          }
+        ]
+      },
       "properties": {
         "action_id": {
           "const": "record_decision",
@@ -13106,6 +15268,20 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_transition_action_variant_record_delivery": {
       "additionalProperties": false,
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "selected_choice"
+            ]
+          },
+          {
+            "required": [
+              "decision_context_digest"
+            ]
+          }
+        ]
+      },
       "properties": {
         "action_id": {
           "const": "record_delivery",
@@ -13218,6 +15394,20 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_transition_action_variant_record_design": {
       "additionalProperties": false,
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "selected_choice"
+            ]
+          },
+          {
+            "required": [
+              "decision_context_digest"
+            ]
+          }
+        ]
+      },
       "properties": {
         "action_id": {
           "const": "record_design",
@@ -13342,6 +15532,20 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_transition_action_variant_record_discovery": {
       "additionalProperties": false,
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "selected_choice"
+            ]
+          },
+          {
+            "required": [
+              "decision_context_digest"
+            ]
+          }
+        ]
+      },
       "properties": {
         "action_id": {
           "const": "record_discovery",
@@ -13433,6 +15637,20 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_transition_action_variant_record_finding": {
       "additionalProperties": false,
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "selected_choice"
+            ]
+          },
+          {
+            "required": [
+              "decision_context_digest"
+            ]
+          }
+        ]
+      },
       "properties": {
         "action_id": {
           "const": "record_finding",
@@ -13524,6 +15742,20 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_transition_action_variant_record_health": {
       "additionalProperties": false,
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "selected_choice"
+            ]
+          },
+          {
+            "required": [
+              "decision_context_digest"
+            ]
+          }
+        ]
+      },
       "properties": {
         "action_id": {
           "const": "record_health",
@@ -13669,6 +15901,20 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_transition_action_variant_record_option": {
       "additionalProperties": false,
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "selected_choice"
+            ]
+          },
+          {
+            "required": [
+              "decision_context_digest"
+            ]
+          }
+        ]
+      },
       "properties": {
         "action_id": {
           "const": "record_option",
@@ -13760,6 +16006,20 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_transition_action_variant_record_proposal": {
       "additionalProperties": false,
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "selected_choice"
+            ]
+          },
+          {
+            "required": [
+              "decision_context_digest"
+            ]
+          }
+        ]
+      },
       "properties": {
         "action_id": {
           "const": "record_proposal",
@@ -13920,6 +16180,20 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_transition_action_variant_record_report": {
       "additionalProperties": false,
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "selected_choice"
+            ]
+          },
+          {
+            "required": [
+              "decision_context_digest"
+            ]
+          }
+        ]
+      },
       "properties": {
         "action_id": {
           "const": "record_report",
@@ -14069,6 +16343,20 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_transition_action_variant_record_reproduction": {
       "additionalProperties": false,
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "selected_choice"
+            ]
+          },
+          {
+            "required": [
+              "decision_context_digest"
+            ]
+          }
+        ]
+      },
       "properties": {
         "action_id": {
           "const": "record_reproduction",
@@ -14160,6 +16448,20 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_transition_action_variant_record_research": {
       "additionalProperties": false,
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "selected_choice"
+            ]
+          },
+          {
+            "required": [
+              "decision_context_digest"
+            ]
+          }
+        ]
+      },
       "properties": {
         "action_id": {
           "const": "record_research",
@@ -14309,6 +16611,20 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_transition_action_variant_record_root_cause": {
       "additionalProperties": false,
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "selected_choice"
+            ]
+          },
+          {
+            "required": [
+              "decision_context_digest"
+            ]
+          }
+        ]
+      },
       "properties": {
         "action_id": {
           "const": "record_root_cause",
@@ -14400,6 +16716,20 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_transition_action_variant_record_verdict": {
       "additionalProperties": false,
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "selected_choice"
+            ]
+          },
+          {
+            "required": [
+              "decision_context_digest"
+            ]
+          }
+        ]
+      },
       "properties": {
         "action_id": {
           "const": "record_verdict",
@@ -14478,6 +16808,58 @@ const GeneratedPayloadSchemaDocument = `{
             {
               "additionalProperties": false,
               "maxProperties": 32,
+              "not": {
+                "additionalProperties": false,
+                "maxProperties": 32,
+                "properties": {
+                  "contract_version": {
+                    "maximum": 2147483647,
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "evaluation_evidence": {
+                    "items": {
+                      "$ref": "#/$defs/reference"
+                    },
+                    "maxItems": 32,
+                    "minItems": 1,
+                    "type": "array",
+                    "uniqueItems": true
+                  },
+                  "incomparable_with_approved": {
+                    "type": "boolean"
+                  },
+                  "predicate_id": {
+                    "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths.",
+                    "maxLength": 128,
+                    "minLength": 1,
+                    "pattern": "^[^\\x09-\\x0d    -     　]+$",
+                    "type": "string",
+                    "x-maxBytes": 128,
+                    "x-minBytes": 2
+                  },
+                  "verdict_actor_ref": {
+                    "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
+                    "maxLength": 70,
+                    "minLength": 1,
+                    "pattern": "\\S",
+                    "type": "string",
+                    "x-maxBytes": 70
+                  },
+                  "verdict_kind": {
+                    "enum": [
+                      "ok",
+                      "outcome_mismatch",
+                      "insufficient_evidence"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "predicate_id"
+                ],
+                "type": "object"
+              },
               "properties": {
                 "contract_version": {
                   "maximum": 2147483647,
@@ -14573,6 +16955,20 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_transition_action_variant_record_work_context": {
       "additionalProperties": false,
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "selected_choice"
+            ]
+          },
+          {
+            "required": [
+              "decision_context_digest"
+            ]
+          }
+        ]
+      },
       "properties": {
         "action_id": {
           "const": "record_work_context",
@@ -14690,6 +17086,20 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_transition_action_variant_record_worker_failure": {
       "additionalProperties": false,
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "selected_choice"
+            ]
+          },
+          {
+            "required": [
+              "decision_context_digest"
+            ]
+          }
+        ]
+      },
       "properties": {
         "action_id": {
           "const": "record_worker_failure",
@@ -14801,6 +17211,20 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_transition_action_variant_record_worker_job": {
       "additionalProperties": false,
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "selected_choice"
+            ]
+          },
+          {
+            "required": [
+              "decision_context_digest"
+            ]
+          }
+        ]
+      },
       "properties": {
         "action_id": {
           "const": "record_worker_job",
@@ -14826,6 +17250,9 @@ const GeneratedPayloadSchemaDocument = `{
           "additionalProperties": false,
           "maxProperties": 32,
           "properties": {
+            "acceptance_oracle": {
+              "$ref": "#/$defs/worker_acceptance_oracle"
+            },
             "checks": {
               "items": {
                 "$ref": "#/$defs/worker_job_text"
@@ -14920,7 +17347,8 @@ const GeneratedPayloadSchemaDocument = `{
             "job_id",
             "objective",
             "stopping_condition",
-            "ready"
+            "ready",
+            "acceptance_oracle"
           ],
           "type": "object"
         },
@@ -14989,6 +17417,20 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_transition_action_variant_reject_worker_result": {
       "additionalProperties": false,
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "selected_choice"
+            ]
+          },
+          {
+            "required": [
+              "decision_context_digest"
+            ]
+          }
+        ]
+      },
       "properties": {
         "action_id": {
           "const": "reject_worker_result",
@@ -15147,6 +17589,20 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_transition_action_variant_request_correction": {
       "additionalProperties": false,
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "selected_choice"
+            ]
+          },
+          {
+            "required": [
+              "decision_context_digest"
+            ]
+          }
+        ]
+      },
       "properties": {
         "action_id": {
           "const": "request_correction",
@@ -15183,6 +17639,15 @@ const GeneratedPayloadSchemaDocument = `{
             "evidence_refs": {
               "items": {
                 "$ref": "#/$defs/reference"
+              },
+              "maxItems": 32,
+              "minItems": 1,
+              "type": "array",
+              "uniqueItems": true
+            },
+            "open_finding_ids": {
+              "items": {
+                "$ref": "#/$defs/id"
               },
               "maxItems": 32,
               "minItems": 1,
@@ -15280,6 +17745,20 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_transition_action_variant_resolve_condition": {
       "additionalProperties": false,
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "selected_choice"
+            ]
+          },
+          {
+            "required": [
+              "decision_context_digest"
+            ]
+          }
+        ]
+      },
       "properties": {
         "action_id": {
           "const": "resolve_condition",
@@ -15399,6 +17878,20 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_transition_action_variant_revise_candidates": {
       "additionalProperties": false,
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "selected_choice"
+            ]
+          },
+          {
+            "required": [
+              "decision_context_digest"
+            ]
+          }
+        ]
+      },
       "properties": {
         "action_id": {
           "const": "revise_candidates",
@@ -15540,6 +18033,20 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_transition_action_variant_rollback_run": {
       "additionalProperties": false,
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "selected_choice"
+            ]
+          },
+          {
+            "required": [
+              "decision_context_digest"
+            ]
+          }
+        ]
+      },
       "properties": {
         "action_id": {
           "const": "rollback_run",
@@ -15685,6 +18192,20 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_transition_action_variant_run_analysis": {
       "additionalProperties": false,
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "selected_choice"
+            ]
+          },
+          {
+            "required": [
+              "decision_context_digest"
+            ]
+          }
+        ]
+      },
       "properties": {
         "action_id": {
           "const": "run_analysis",
@@ -15776,6 +18297,20 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_transition_action_variant_start_action": {
       "additionalProperties": false,
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "selected_choice"
+            ]
+          },
+          {
+            "required": [
+              "decision_context_digest"
+            ]
+          }
+        ]
+      },
       "properties": {
         "action_id": {
           "const": "start_action",
@@ -15867,6 +18402,20 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_transition_action_variant_start_execution": {
       "additionalProperties": false,
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "selected_choice"
+            ]
+          },
+          {
+            "required": [
+              "decision_context_digest"
+            ]
+          }
+        ]
+      },
       "properties": {
         "action_id": {
           "const": "start_execution",
@@ -15958,6 +18507,20 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_transition_action_variant_start_poc": {
       "additionalProperties": false,
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "selected_choice"
+            ]
+          },
+          {
+            "required": [
+              "decision_context_digest"
+            ]
+          }
+        ]
+      },
       "properties": {
         "action_id": {
           "const": "start_poc",
@@ -16049,6 +18612,20 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_transition_action_variant_start_refine": {
       "additionalProperties": false,
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "selected_choice"
+            ]
+          },
+          {
+            "required": [
+              "decision_context_digest"
+            ]
+          }
+        ]
+      },
       "properties": {
         "action_id": {
           "const": "start_refine",
@@ -16140,6 +18717,20 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_transition_action_variant_start_repair": {
       "additionalProperties": false,
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "selected_choice"
+            ]
+          },
+          {
+            "required": [
+              "decision_context_digest"
+            ]
+          }
+        ]
+      },
       "properties": {
         "action_id": {
           "const": "start_repair",
@@ -16231,6 +18822,20 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_transition_action_variant_start_run": {
       "additionalProperties": false,
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "selected_choice"
+            ]
+          },
+          {
+            "required": [
+              "decision_context_digest"
+            ]
+          }
+        ]
+      },
       "properties": {
         "action_id": {
           "const": "start_run",
@@ -16375,6 +18980,20 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_transition_action_variant_supersede_contract": {
       "additionalProperties": false,
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "selected_choice"
+            ]
+          },
+          {
+            "required": [
+              "decision_context_digest"
+            ]
+          }
+        ]
+      },
       "properties": {
         "action_id": {
           "const": "supersede_contract",
@@ -16801,6 +19420,406 @@ const GeneratedPayloadSchemaDocument = `{
             {
               "additionalProperties": false,
               "maxProperties": 32,
+              "not": {
+                "additionalProperties": false,
+                "maxProperties": 32,
+                "properties": {
+                  "architecture_binding": {
+                    "$ref": "#/$defs/architecture_binding",
+                    "description": "Architecture bindings must name Domains that exist in the pinned domain registry, home every added or modified law in a declared Domain, and modify Domain relations only through current canonical tuples; the store refuses an unknown Domain or relation."
+                  },
+                  "audit_evidence": {
+                    "items": {
+                      "$ref": "#/$defs/reference"
+                    },
+                    "maxItems": 32,
+                    "minItems": 1,
+                    "type": "array",
+                    "uniqueItems": true
+                  },
+                  "contract_version": {
+                    "maximum": 2147483647,
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "design_record": {
+                    "$ref": "#/$defs/workflow_design_content"
+                  },
+                  "law_modifies": {
+                    "items": {
+                      "$ref": "#/$defs/law_id"
+                    },
+                    "maxItems": 32,
+                    "minItems": 0,
+                    "type": "array",
+                    "uniqueItems": true
+                  },
+                  "outcome_predicates": {
+                    "description": "CD-0184: acceptance is decidable at delivery. Each predicate names an end state verification can decide when the change is delivered. Post-delivery observation over a time window (traffic, an error rate, a metric over hours or days) is not acceptance: capture a follow-up work item and link it raised_from the delivering item before that item completes. A one-shot live check that verification can decide at delivery stays allowed.",
+                    "items": {
+                      "oneOf": [
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "ordinal": {
+                              "description": "The store refuses an outcome predicate whose ordinal is not its own zero-based position in outcome_predicates: the predicate at array position N must carry ordinal N (0, 1, 2, ...).",
+                              "maximum": 7,
+                              "minimum": 0,
+                              "type": "integer"
+                            },
+                            "outcome_kind": {
+                              "const": "exists",
+                              "description": "The store refuses an outcome predicate whose outcome_kind and outcome_payload.kind disagree: supply the outcome_payload variant that matches the declared outcome_kind.",
+                              "type": "string"
+                            },
+                            "outcome_payload": {
+                              "additionalProperties": false,
+                              "properties": {
+                                "kind": {
+                                  "const": "exists"
+                                },
+                                "subjects": {
+                                  "items": {
+                                    "$ref": "#/$defs/workflow_outcome_subject"
+                                  },
+                                  "maxItems": 100,
+                                  "minItems": 1,
+                                  "type": "array",
+                                  "uniqueItems": true
+                                },
+                                "surface": {
+                                  "$ref": "#/$defs/workflow_outcome_surface"
+                                }
+                              },
+                              "required": [
+                                "kind",
+                                "surface",
+                                "subjects"
+                              ],
+                              "type": "object"
+                            },
+                            "predicate_id": {
+                              "$ref": "#/$defs/id",
+                              "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\"."
+                            }
+                          },
+                          "required": [
+                            "predicate_id",
+                            "ordinal",
+                            "outcome_kind",
+                            "outcome_payload"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "ordinal": {
+                              "description": "The store refuses an outcome predicate whose ordinal is not its own zero-based position in outcome_predicates: the predicate at array position N must carry ordinal N (0, 1, 2, ...).",
+                              "maximum": 7,
+                              "minimum": 0,
+                              "type": "integer"
+                            },
+                            "outcome_kind": {
+                              "const": "absent",
+                              "description": "The store refuses an outcome predicate whose outcome_kind and outcome_payload.kind disagree: supply the outcome_payload variant that matches the declared outcome_kind.",
+                              "type": "string"
+                            },
+                            "outcome_payload": {
+                              "additionalProperties": false,
+                              "properties": {
+                                "distinguish_from": {
+                                  "items": {
+                                    "enum": [
+                                      "archived",
+                                      "relocated",
+                                      "renamed",
+                                      "disabled"
+                                    ],
+                                    "type": "string"
+                                  },
+                                  "maxItems": 4,
+                                  "minItems": 1,
+                                  "type": "array",
+                                  "uniqueItems": true
+                                },
+                                "kind": {
+                                  "const": "absent"
+                                },
+                                "subjects": {
+                                  "items": {
+                                    "$ref": "#/$defs/workflow_outcome_subject"
+                                  },
+                                  "maxItems": 100,
+                                  "minItems": 1,
+                                  "type": "array",
+                                  "uniqueItems": true
+                                },
+                                "surface": {
+                                  "$ref": "#/$defs/workflow_outcome_surface"
+                                }
+                              },
+                              "required": [
+                                "kind",
+                                "surface",
+                                "subjects",
+                                "distinguish_from"
+                              ],
+                              "type": "object"
+                            },
+                            "predicate_id": {
+                              "$ref": "#/$defs/id",
+                              "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\"."
+                            }
+                          },
+                          "required": [
+                            "predicate_id",
+                            "ordinal",
+                            "outcome_kind",
+                            "outcome_payload"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "ordinal": {
+                              "description": "The store refuses an outcome predicate whose ordinal is not its own zero-based position in outcome_predicates: the predicate at array position N must carry ordinal N (0, 1, 2, ...).",
+                              "maximum": 7,
+                              "minimum": 0,
+                              "type": "integer"
+                            },
+                            "outcome_kind": {
+                              "const": "outcome",
+                              "description": "The store refuses an outcome predicate whose outcome_kind and outcome_payload.kind disagree: supply the outcome_payload variant that matches the declared outcome_kind.",
+                              "type": "string"
+                            },
+                            "outcome_payload": {
+                              "additionalProperties": false,
+                              "properties": {
+                                "allowed": {
+                                  "description": "The store pins which outcome tokens the contract of the work item being approved may carry, per its workflow type: workflow.architecture_spike admits accepted_decision, insufficient_evidence (decision_record required); workflow.generic_one_off admits no_change, accepted_decision, insufficient_evidence, resolved, remediated, report_recorded, completed, operator_defined; workflow.research admits no_change, resolved, report_recorded; workflow.break_fix, workflow.implementation, workflow.ops_runbook, workflow.static_analysis admit no outcome tokens (only exists, absent and check predicate kinds).",
+                                  "items": {
+                                    "enum": [
+                                      "no_change",
+                                      "accepted_decision",
+                                      "insufficient_evidence",
+                                      "resolved",
+                                      "remediated",
+                                      "report_recorded",
+                                      "completed",
+                                      "operator_defined"
+                                    ],
+                                    "type": "string"
+                                  },
+                                  "maxItems": 8,
+                                  "minItems": 1,
+                                  "type": "array",
+                                  "uniqueItems": true
+                                },
+                                "decision_record": {
+                                  "$ref": "#/$defs/workflow_outcome_decision_record"
+                                },
+                                "kind": {
+                                  "const": "outcome"
+                                }
+                              },
+                              "required": [
+                                "kind",
+                                "allowed"
+                              ],
+                              "type": "object"
+                            },
+                            "predicate_id": {
+                              "$ref": "#/$defs/id",
+                              "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\"."
+                            }
+                          },
+                          "required": [
+                            "predicate_id",
+                            "ordinal",
+                            "outcome_kind",
+                            "outcome_payload"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "ordinal": {
+                              "description": "The store refuses an outcome predicate whose ordinal is not its own zero-based position in outcome_predicates: the predicate at array position N must carry ordinal N (0, 1, 2, ...).",
+                              "maximum": 7,
+                              "minimum": 0,
+                              "type": "integer"
+                            },
+                            "outcome_kind": {
+                              "const": "check",
+                              "description": "The store refuses an outcome predicate whose outcome_kind and outcome_payload.kind disagree: supply the outcome_payload variant that matches the declared outcome_kind.",
+                              "type": "string"
+                            },
+                            "outcome_payload": {
+                              "additionalProperties": false,
+                              "properties": {
+                                "check_ref": {
+                                  "maxLength": 134,
+                                  "minLength": 7,
+                                  "pattern": "^check:[a-z][a-z0-9_.:/-]{1,127}$",
+                                  "type": "string"
+                                },
+                                "expected_result": {
+                                  "enum": [
+                                    "true",
+                                    "false",
+                                    "pass",
+                                    "fail",
+                                    "present",
+                                    "absent",
+                                    "healthy",
+                                    "unhealthy",
+                                    "accepted",
+                                    "rejected"
+                                  ],
+                                  "type": "string"
+                                },
+                                "immutable_subject_ref": {
+                                  "maxLength": 256,
+                                  "minLength": 2,
+                                  "pattern": "^[a-z][a-z0-9_.:/-]{1,255}$",
+                                  "type": "string"
+                                },
+                                "kind": {
+                                  "const": "check"
+                                }
+                              },
+                              "required": [
+                                "kind",
+                                "check_ref",
+                                "immutable_subject_ref",
+                                "expected_result"
+                              ],
+                              "type": "object"
+                            },
+                            "predicate_id": {
+                              "$ref": "#/$defs/id",
+                              "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\"."
+                            }
+                          },
+                          "required": [
+                            "predicate_id",
+                            "ordinal",
+                            "outcome_kind",
+                            "outcome_payload"
+                          ],
+                          "type": "object"
+                        }
+                      ]
+                    },
+                    "maxItems": 8,
+                    "minItems": 1,
+                    "type": "array"
+                  },
+                  "predecessor_contract_versions": {
+                    "items": {
+                      "$ref": "#/$defs/workflow_contract_version"
+                    },
+                    "maxItems": 32,
+                    "minItems": 1,
+                    "type": "array"
+                  },
+                  "premise": {
+                    "description": "JSON Schema maxLength counts Unicode code points. Store admission also applies the same numerical limit to UTF-8 bytes (WorkflowPremiseMaxLength), so multibyte objectives must fit the byte allowance. This approval bound applies to objective content, not an OpenCode Task prompt or model-token limit. Do not truncate an approved objective or repeat its approval to repair packet projection.",
+                    "maxLength": 4096,
+                    "minLength": 1,
+                    "not": {
+                      "enum": [
+                        "workflow premise"
+                      ],
+                      "type": "string"
+                    },
+                    "pattern": "\\S",
+                    "type": "string",
+                    "x-maxBytes": 4096
+                  },
+                  "required_evidence": {
+                    "description": "Evidence obligations are admitted only when the work item's pinned workflow definition declares them at root, step, or rigor level; the WorkPin obligations list publishes that exact sorted membership.",
+                    "items": {
+                      "enum": [
+                        "verification",
+                        "review",
+                        "approval",
+                        "commit",
+                        "durable_note",
+                        "native_run",
+                        "artifact"
+                      ],
+                      "type": "string"
+                    },
+                    "maxItems": 7,
+                    "minItems": 0,
+                    "type": "array",
+                    "uniqueItems": true
+                  },
+                  "rigor_class": {
+                    "enum": [
+                      "prototype_internal",
+                      "prototype_trusted",
+                      "prototype_public",
+                      "prototype_safety_critical",
+                      "production_internal",
+                      "production_trusted",
+                      "production_public",
+                      "production_safety_critical",
+                      "critical_internal",
+                      "critical_trusted",
+                      "critical_public",
+                      "critical_safety_critical"
+                    ],
+                    "type": "string"
+                  },
+                  "route_conventions": {
+                    "items": {
+                      "$ref": "#/$defs/reference"
+                    },
+                    "maxItems": 16,
+                    "minItems": 0,
+                    "type": "array",
+                    "uniqueItems": true
+                  },
+                  "self_repair": {
+                    "$ref": "#/$defs/workflow_self_repair"
+                  },
+                  "spec_mandate": {
+                    "items": {
+                      "$ref": "#/$defs/law_id"
+                    },
+                    "maxItems": 32,
+                    "minItems": 0,
+                    "type": "array",
+                    "uniqueItems": true
+                  },
+                  "supersede_reason": {
+                    "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
+                    "maxLength": 4096,
+                    "minLength": 1,
+                    "pattern": "\\S",
+                    "type": "string",
+                    "x-maxBytes": 4096
+                  }
+                },
+                "required": [
+                  "contract_version",
+                  "premise",
+                  "outcome_predicates",
+                  "required_evidence",
+                  "route_conventions",
+                  "spec_mandate",
+                  "law_modifies",
+                  "rigor_class",
+                  "supersede_reason",
+                  "audit_evidence"
+                ],
+                "type": "object"
+              },
               "properties": {
                 "architecture_binding": {
                   "$ref": "#/$defs/architecture_binding",
@@ -16968,6 +19987,577 @@ const GeneratedPayloadSchemaDocument = `{
             {
               "additionalProperties": false,
               "maxProperties": 32,
+              "not": {
+                "anyOf": [
+                  {
+                    "additionalProperties": false,
+                    "maxProperties": 32,
+                    "properties": {
+                      "architecture_binding": {
+                        "$ref": "#/$defs/architecture_binding",
+                        "description": "Architecture bindings must name Domains that exist in the pinned domain registry, home every added or modified law in a declared Domain, and modify Domain relations only through current canonical tuples; the store refuses an unknown Domain or relation."
+                      },
+                      "audit_evidence": {
+                        "items": {
+                          "$ref": "#/$defs/reference"
+                        },
+                        "maxItems": 32,
+                        "minItems": 1,
+                        "type": "array",
+                        "uniqueItems": true
+                      },
+                      "contract_version": {
+                        "maximum": 2147483647,
+                        "minimum": 1,
+                        "type": "integer"
+                      },
+                      "design_record": {
+                        "$ref": "#/$defs/workflow_design_content"
+                      },
+                      "law_modifies": {
+                        "items": {
+                          "$ref": "#/$defs/law_id"
+                        },
+                        "maxItems": 32,
+                        "minItems": 0,
+                        "type": "array",
+                        "uniqueItems": true
+                      },
+                      "outcome_predicates": {
+                        "description": "CD-0184: acceptance is decidable at delivery. Each predicate names an end state verification can decide when the change is delivered. Post-delivery observation over a time window (traffic, an error rate, a metric over hours or days) is not acceptance: capture a follow-up work item and link it raised_from the delivering item before that item completes. A one-shot live check that verification can decide at delivery stays allowed.",
+                        "items": {
+                          "oneOf": [
+                            {
+                              "additionalProperties": false,
+                              "properties": {
+                                "ordinal": {
+                                  "description": "The store refuses an outcome predicate whose ordinal is not its own zero-based position in outcome_predicates: the predicate at array position N must carry ordinal N (0, 1, 2, ...).",
+                                  "maximum": 7,
+                                  "minimum": 0,
+                                  "type": "integer"
+                                },
+                                "outcome_kind": {
+                                  "const": "exists",
+                                  "description": "The store refuses an outcome predicate whose outcome_kind and outcome_payload.kind disagree: supply the outcome_payload variant that matches the declared outcome_kind.",
+                                  "type": "string"
+                                },
+                                "outcome_payload": {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "kind": {
+                                      "const": "exists"
+                                    },
+                                    "subjects": {
+                                      "items": {
+                                        "$ref": "#/$defs/workflow_outcome_subject"
+                                      },
+                                      "maxItems": 100,
+                                      "minItems": 1,
+                                      "type": "array",
+                                      "uniqueItems": true
+                                    },
+                                    "surface": {
+                                      "$ref": "#/$defs/workflow_outcome_surface"
+                                    }
+                                  },
+                                  "required": [
+                                    "kind",
+                                    "surface",
+                                    "subjects"
+                                  ],
+                                  "type": "object"
+                                },
+                                "predicate_id": {
+                                  "$ref": "#/$defs/id",
+                                  "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\"."
+                                }
+                              },
+                              "required": [
+                                "predicate_id",
+                                "ordinal",
+                                "outcome_kind",
+                                "outcome_payload"
+                              ],
+                              "type": "object"
+                            },
+                            {
+                              "additionalProperties": false,
+                              "properties": {
+                                "ordinal": {
+                                  "description": "The store refuses an outcome predicate whose ordinal is not its own zero-based position in outcome_predicates: the predicate at array position N must carry ordinal N (0, 1, 2, ...).",
+                                  "maximum": 7,
+                                  "minimum": 0,
+                                  "type": "integer"
+                                },
+                                "outcome_kind": {
+                                  "const": "absent",
+                                  "description": "The store refuses an outcome predicate whose outcome_kind and outcome_payload.kind disagree: supply the outcome_payload variant that matches the declared outcome_kind.",
+                                  "type": "string"
+                                },
+                                "outcome_payload": {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "distinguish_from": {
+                                      "items": {
+                                        "enum": [
+                                          "archived",
+                                          "relocated",
+                                          "renamed",
+                                          "disabled"
+                                        ],
+                                        "type": "string"
+                                      },
+                                      "maxItems": 4,
+                                      "minItems": 1,
+                                      "type": "array",
+                                      "uniqueItems": true
+                                    },
+                                    "kind": {
+                                      "const": "absent"
+                                    },
+                                    "subjects": {
+                                      "items": {
+                                        "$ref": "#/$defs/workflow_outcome_subject"
+                                      },
+                                      "maxItems": 100,
+                                      "minItems": 1,
+                                      "type": "array",
+                                      "uniqueItems": true
+                                    },
+                                    "surface": {
+                                      "$ref": "#/$defs/workflow_outcome_surface"
+                                    }
+                                  },
+                                  "required": [
+                                    "kind",
+                                    "surface",
+                                    "subjects",
+                                    "distinguish_from"
+                                  ],
+                                  "type": "object"
+                                },
+                                "predicate_id": {
+                                  "$ref": "#/$defs/id",
+                                  "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\"."
+                                }
+                              },
+                              "required": [
+                                "predicate_id",
+                                "ordinal",
+                                "outcome_kind",
+                                "outcome_payload"
+                              ],
+                              "type": "object"
+                            },
+                            {
+                              "additionalProperties": false,
+                              "properties": {
+                                "ordinal": {
+                                  "description": "The store refuses an outcome predicate whose ordinal is not its own zero-based position in outcome_predicates: the predicate at array position N must carry ordinal N (0, 1, 2, ...).",
+                                  "maximum": 7,
+                                  "minimum": 0,
+                                  "type": "integer"
+                                },
+                                "outcome_kind": {
+                                  "const": "outcome",
+                                  "description": "The store refuses an outcome predicate whose outcome_kind and outcome_payload.kind disagree: supply the outcome_payload variant that matches the declared outcome_kind.",
+                                  "type": "string"
+                                },
+                                "outcome_payload": {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "allowed": {
+                                      "description": "The store pins which outcome tokens the contract of the work item being approved may carry, per its workflow type: workflow.architecture_spike admits accepted_decision, insufficient_evidence (decision_record required); workflow.generic_one_off admits no_change, accepted_decision, insufficient_evidence, resolved, remediated, report_recorded, completed, operator_defined; workflow.research admits no_change, resolved, report_recorded; workflow.break_fix, workflow.implementation, workflow.ops_runbook, workflow.static_analysis admit no outcome tokens (only exists, absent and check predicate kinds).",
+                                      "items": {
+                                        "enum": [
+                                          "no_change",
+                                          "accepted_decision",
+                                          "insufficient_evidence",
+                                          "resolved",
+                                          "remediated",
+                                          "report_recorded",
+                                          "completed",
+                                          "operator_defined"
+                                        ],
+                                        "type": "string"
+                                      },
+                                      "maxItems": 8,
+                                      "minItems": 1,
+                                      "type": "array",
+                                      "uniqueItems": true
+                                    },
+                                    "decision_record": {
+                                      "$ref": "#/$defs/workflow_outcome_decision_record"
+                                    },
+                                    "kind": {
+                                      "const": "outcome"
+                                    }
+                                  },
+                                  "required": [
+                                    "kind",
+                                    "allowed"
+                                  ],
+                                  "type": "object"
+                                },
+                                "predicate_id": {
+                                  "$ref": "#/$defs/id",
+                                  "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\"."
+                                }
+                              },
+                              "required": [
+                                "predicate_id",
+                                "ordinal",
+                                "outcome_kind",
+                                "outcome_payload"
+                              ],
+                              "type": "object"
+                            },
+                            {
+                              "additionalProperties": false,
+                              "properties": {
+                                "ordinal": {
+                                  "description": "The store refuses an outcome predicate whose ordinal is not its own zero-based position in outcome_predicates: the predicate at array position N must carry ordinal N (0, 1, 2, ...).",
+                                  "maximum": 7,
+                                  "minimum": 0,
+                                  "type": "integer"
+                                },
+                                "outcome_kind": {
+                                  "const": "check",
+                                  "description": "The store refuses an outcome predicate whose outcome_kind and outcome_payload.kind disagree: supply the outcome_payload variant that matches the declared outcome_kind.",
+                                  "type": "string"
+                                },
+                                "outcome_payload": {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "check_ref": {
+                                      "maxLength": 134,
+                                      "minLength": 7,
+                                      "pattern": "^check:[a-z][a-z0-9_.:/-]{1,127}$",
+                                      "type": "string"
+                                    },
+                                    "expected_result": {
+                                      "enum": [
+                                        "true",
+                                        "false",
+                                        "pass",
+                                        "fail",
+                                        "present",
+                                        "absent",
+                                        "healthy",
+                                        "unhealthy",
+                                        "accepted",
+                                        "rejected"
+                                      ],
+                                      "type": "string"
+                                    },
+                                    "immutable_subject_ref": {
+                                      "maxLength": 256,
+                                      "minLength": 2,
+                                      "pattern": "^[a-z][a-z0-9_.:/-]{1,255}$",
+                                      "type": "string"
+                                    },
+                                    "kind": {
+                                      "const": "check"
+                                    }
+                                  },
+                                  "required": [
+                                    "kind",
+                                    "check_ref",
+                                    "immutable_subject_ref",
+                                    "expected_result"
+                                  ],
+                                  "type": "object"
+                                },
+                                "predicate_id": {
+                                  "$ref": "#/$defs/id",
+                                  "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\"."
+                                }
+                              },
+                              "required": [
+                                "predicate_id",
+                                "ordinal",
+                                "outcome_kind",
+                                "outcome_payload"
+                              ],
+                              "type": "object"
+                            }
+                          ]
+                        },
+                        "maxItems": 8,
+                        "minItems": 1,
+                        "type": "array"
+                      },
+                      "predecessor_contract_versions": {
+                        "items": {
+                          "$ref": "#/$defs/workflow_contract_version"
+                        },
+                        "maxItems": 32,
+                        "minItems": 1,
+                        "type": "array"
+                      },
+                      "premise": {
+                        "description": "JSON Schema maxLength counts Unicode code points. Store admission also applies the same numerical limit to UTF-8 bytes (WorkflowPremiseMaxLength), so multibyte objectives must fit the byte allowance. This approval bound applies to objective content, not an OpenCode Task prompt or model-token limit. Do not truncate an approved objective or repeat its approval to repair packet projection.",
+                        "maxLength": 4096,
+                        "minLength": 1,
+                        "not": {
+                          "enum": [
+                            "workflow premise"
+                          ],
+                          "type": "string"
+                        },
+                        "pattern": "\\S",
+                        "type": "string",
+                        "x-maxBytes": 4096
+                      },
+                      "required_evidence": {
+                        "description": "Evidence obligations are admitted only when the work item's pinned workflow definition declares them at root, step, or rigor level; the WorkPin obligations list publishes that exact sorted membership.",
+                        "items": {
+                          "enum": [
+                            "verification",
+                            "review",
+                            "approval",
+                            "commit",
+                            "durable_note",
+                            "native_run",
+                            "artifact"
+                          ],
+                          "type": "string"
+                        },
+                        "maxItems": 7,
+                        "minItems": 0,
+                        "type": "array",
+                        "uniqueItems": true
+                      },
+                      "rigor_class": {
+                        "enum": [
+                          "prototype_internal",
+                          "prototype_trusted",
+                          "prototype_public",
+                          "prototype_safety_critical",
+                          "production_internal",
+                          "production_trusted",
+                          "production_public",
+                          "production_safety_critical",
+                          "critical_internal",
+                          "critical_trusted",
+                          "critical_public",
+                          "critical_safety_critical"
+                        ],
+                        "type": "string"
+                      },
+                      "route_conventions": {
+                        "items": {
+                          "$ref": "#/$defs/reference"
+                        },
+                        "maxItems": 16,
+                        "minItems": 0,
+                        "type": "array",
+                        "uniqueItems": true
+                      },
+                      "self_repair": {
+                        "$ref": "#/$defs/workflow_self_repair"
+                      },
+                      "spec_mandate": {
+                        "items": {
+                          "$ref": "#/$defs/law_id"
+                        },
+                        "maxItems": 32,
+                        "minItems": 0,
+                        "type": "array",
+                        "uniqueItems": true
+                      },
+                      "supersede_reason": {
+                        "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
+                        "maxLength": 4096,
+                        "minLength": 1,
+                        "pattern": "\\S",
+                        "type": "string",
+                        "x-maxBytes": 4096
+                      }
+                    },
+                    "required": [
+                      "contract_version",
+                      "premise",
+                      "outcome_predicates",
+                      "required_evidence",
+                      "route_conventions",
+                      "spec_mandate",
+                      "law_modifies",
+                      "rigor_class",
+                      "supersede_reason",
+                      "audit_evidence"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "maxProperties": 32,
+                    "properties": {
+                      "architecture_binding": {
+                        "$ref": "#/$defs/architecture_binding",
+                        "description": "Architecture bindings must name Domains that exist in the pinned domain registry, home every added or modified law in a declared Domain, and modify Domain relations only through current canonical tuples; the store refuses an unknown Domain or relation."
+                      },
+                      "audit_evidence": {
+                        "items": {
+                          "$ref": "#/$defs/reference"
+                        },
+                        "maxItems": 32,
+                        "minItems": 1,
+                        "type": "array",
+                        "uniqueItems": true
+                      },
+                      "contract_version": {
+                        "maximum": 2147483647,
+                        "minimum": 1,
+                        "type": "integer"
+                      },
+                      "design_record": {
+                        "$ref": "#/$defs/workflow_design_content"
+                      },
+                      "law_modifies": {
+                        "items": {
+                          "$ref": "#/$defs/law_id"
+                        },
+                        "maxItems": 32,
+                        "minItems": 0,
+                        "type": "array",
+                        "uniqueItems": true
+                      },
+                      "outcome_kind": {
+                        "const": "exists",
+                        "type": "string"
+                      },
+                      "outcome_payload": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "kind": {
+                            "const": "exists"
+                          },
+                          "subjects": {
+                            "items": {
+                              "$ref": "#/$defs/workflow_outcome_subject"
+                            },
+                            "maxItems": 100,
+                            "minItems": 1,
+                            "type": "array",
+                            "uniqueItems": true
+                          },
+                          "surface": {
+                            "$ref": "#/$defs/workflow_outcome_surface"
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "surface",
+                          "subjects"
+                        ],
+                        "type": "object"
+                      },
+                      "predecessor_contract_versions": {
+                        "items": {
+                          "$ref": "#/$defs/workflow_contract_version"
+                        },
+                        "maxItems": 32,
+                        "minItems": 1,
+                        "type": "array"
+                      },
+                      "premise": {
+                        "description": "JSON Schema maxLength counts Unicode code points. Store admission also applies the same numerical limit to UTF-8 bytes (WorkflowPremiseMaxLength), so multibyte objectives must fit the byte allowance. This approval bound applies to objective content, not an OpenCode Task prompt or model-token limit. Do not truncate an approved objective or repeat its approval to repair packet projection.",
+                        "maxLength": 4096,
+                        "minLength": 1,
+                        "not": {
+                          "enum": [
+                            "workflow premise"
+                          ],
+                          "type": "string"
+                        },
+                        "pattern": "\\S",
+                        "type": "string",
+                        "x-maxBytes": 4096
+                      },
+                      "required_evidence": {
+                        "description": "Evidence obligations are admitted only when the work item's pinned workflow definition declares them at root, step, or rigor level; the WorkPin obligations list publishes that exact sorted membership.",
+                        "items": {
+                          "enum": [
+                            "verification",
+                            "review",
+                            "approval",
+                            "commit",
+                            "durable_note",
+                            "native_run",
+                            "artifact"
+                          ],
+                          "type": "string"
+                        },
+                        "maxItems": 7,
+                        "minItems": 0,
+                        "type": "array",
+                        "uniqueItems": true
+                      },
+                      "rigor_class": {
+                        "enum": [
+                          "prototype_internal",
+                          "prototype_trusted",
+                          "prototype_public",
+                          "prototype_safety_critical",
+                          "production_internal",
+                          "production_trusted",
+                          "production_public",
+                          "production_safety_critical",
+                          "critical_internal",
+                          "critical_trusted",
+                          "critical_public",
+                          "critical_safety_critical"
+                        ],
+                        "type": "string"
+                      },
+                      "route_conventions": {
+                        "items": {
+                          "$ref": "#/$defs/reference"
+                        },
+                        "maxItems": 16,
+                        "minItems": 0,
+                        "type": "array",
+                        "uniqueItems": true
+                      },
+                      "self_repair": {
+                        "$ref": "#/$defs/workflow_self_repair"
+                      },
+                      "spec_mandate": {
+                        "items": {
+                          "$ref": "#/$defs/law_id"
+                        },
+                        "maxItems": 32,
+                        "minItems": 0,
+                        "type": "array",
+                        "uniqueItems": true
+                      },
+                      "supersede_reason": {
+                        "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
+                        "maxLength": 4096,
+                        "minLength": 1,
+                        "pattern": "\\S",
+                        "type": "string",
+                        "x-maxBytes": 4096
+                      }
+                    },
+                    "required": [
+                      "contract_version",
+                      "premise",
+                      "outcome_kind",
+                      "outcome_payload",
+                      "required_evidence",
+                      "route_conventions",
+                      "spec_mandate",
+                      "law_modifies",
+                      "rigor_class",
+                      "supersede_reason",
+                      "audit_evidence"
+                    ],
+                    "type": "object"
+                  }
+                ]
+              },
               "properties": {
                 "architecture_binding": {
                   "$ref": "#/$defs/architecture_binding",
@@ -17151,6 +20741,760 @@ const GeneratedPayloadSchemaDocument = `{
             {
               "additionalProperties": false,
               "maxProperties": 32,
+              "not": {
+                "anyOf": [
+                  {
+                    "additionalProperties": false,
+                    "maxProperties": 32,
+                    "properties": {
+                      "architecture_binding": {
+                        "$ref": "#/$defs/architecture_binding",
+                        "description": "Architecture bindings must name Domains that exist in the pinned domain registry, home every added or modified law in a declared Domain, and modify Domain relations only through current canonical tuples; the store refuses an unknown Domain or relation."
+                      },
+                      "audit_evidence": {
+                        "items": {
+                          "$ref": "#/$defs/reference"
+                        },
+                        "maxItems": 32,
+                        "minItems": 1,
+                        "type": "array",
+                        "uniqueItems": true
+                      },
+                      "contract_version": {
+                        "maximum": 2147483647,
+                        "minimum": 1,
+                        "type": "integer"
+                      },
+                      "design_record": {
+                        "$ref": "#/$defs/workflow_design_content"
+                      },
+                      "law_modifies": {
+                        "items": {
+                          "$ref": "#/$defs/law_id"
+                        },
+                        "maxItems": 32,
+                        "minItems": 0,
+                        "type": "array",
+                        "uniqueItems": true
+                      },
+                      "outcome_predicates": {
+                        "description": "CD-0184: acceptance is decidable at delivery. Each predicate names an end state verification can decide when the change is delivered. Post-delivery observation over a time window (traffic, an error rate, a metric over hours or days) is not acceptance: capture a follow-up work item and link it raised_from the delivering item before that item completes. A one-shot live check that verification can decide at delivery stays allowed.",
+                        "items": {
+                          "oneOf": [
+                            {
+                              "additionalProperties": false,
+                              "properties": {
+                                "ordinal": {
+                                  "description": "The store refuses an outcome predicate whose ordinal is not its own zero-based position in outcome_predicates: the predicate at array position N must carry ordinal N (0, 1, 2, ...).",
+                                  "maximum": 7,
+                                  "minimum": 0,
+                                  "type": "integer"
+                                },
+                                "outcome_kind": {
+                                  "const": "exists",
+                                  "description": "The store refuses an outcome predicate whose outcome_kind and outcome_payload.kind disagree: supply the outcome_payload variant that matches the declared outcome_kind.",
+                                  "type": "string"
+                                },
+                                "outcome_payload": {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "kind": {
+                                      "const": "exists"
+                                    },
+                                    "subjects": {
+                                      "items": {
+                                        "$ref": "#/$defs/workflow_outcome_subject"
+                                      },
+                                      "maxItems": 100,
+                                      "minItems": 1,
+                                      "type": "array",
+                                      "uniqueItems": true
+                                    },
+                                    "surface": {
+                                      "$ref": "#/$defs/workflow_outcome_surface"
+                                    }
+                                  },
+                                  "required": [
+                                    "kind",
+                                    "surface",
+                                    "subjects"
+                                  ],
+                                  "type": "object"
+                                },
+                                "predicate_id": {
+                                  "$ref": "#/$defs/id",
+                                  "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\"."
+                                }
+                              },
+                              "required": [
+                                "predicate_id",
+                                "ordinal",
+                                "outcome_kind",
+                                "outcome_payload"
+                              ],
+                              "type": "object"
+                            },
+                            {
+                              "additionalProperties": false,
+                              "properties": {
+                                "ordinal": {
+                                  "description": "The store refuses an outcome predicate whose ordinal is not its own zero-based position in outcome_predicates: the predicate at array position N must carry ordinal N (0, 1, 2, ...).",
+                                  "maximum": 7,
+                                  "minimum": 0,
+                                  "type": "integer"
+                                },
+                                "outcome_kind": {
+                                  "const": "absent",
+                                  "description": "The store refuses an outcome predicate whose outcome_kind and outcome_payload.kind disagree: supply the outcome_payload variant that matches the declared outcome_kind.",
+                                  "type": "string"
+                                },
+                                "outcome_payload": {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "distinguish_from": {
+                                      "items": {
+                                        "enum": [
+                                          "archived",
+                                          "relocated",
+                                          "renamed",
+                                          "disabled"
+                                        ],
+                                        "type": "string"
+                                      },
+                                      "maxItems": 4,
+                                      "minItems": 1,
+                                      "type": "array",
+                                      "uniqueItems": true
+                                    },
+                                    "kind": {
+                                      "const": "absent"
+                                    },
+                                    "subjects": {
+                                      "items": {
+                                        "$ref": "#/$defs/workflow_outcome_subject"
+                                      },
+                                      "maxItems": 100,
+                                      "minItems": 1,
+                                      "type": "array",
+                                      "uniqueItems": true
+                                    },
+                                    "surface": {
+                                      "$ref": "#/$defs/workflow_outcome_surface"
+                                    }
+                                  },
+                                  "required": [
+                                    "kind",
+                                    "surface",
+                                    "subjects",
+                                    "distinguish_from"
+                                  ],
+                                  "type": "object"
+                                },
+                                "predicate_id": {
+                                  "$ref": "#/$defs/id",
+                                  "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\"."
+                                }
+                              },
+                              "required": [
+                                "predicate_id",
+                                "ordinal",
+                                "outcome_kind",
+                                "outcome_payload"
+                              ],
+                              "type": "object"
+                            },
+                            {
+                              "additionalProperties": false,
+                              "properties": {
+                                "ordinal": {
+                                  "description": "The store refuses an outcome predicate whose ordinal is not its own zero-based position in outcome_predicates: the predicate at array position N must carry ordinal N (0, 1, 2, ...).",
+                                  "maximum": 7,
+                                  "minimum": 0,
+                                  "type": "integer"
+                                },
+                                "outcome_kind": {
+                                  "const": "outcome",
+                                  "description": "The store refuses an outcome predicate whose outcome_kind and outcome_payload.kind disagree: supply the outcome_payload variant that matches the declared outcome_kind.",
+                                  "type": "string"
+                                },
+                                "outcome_payload": {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "allowed": {
+                                      "description": "The store pins which outcome tokens the contract of the work item being approved may carry, per its workflow type: workflow.architecture_spike admits accepted_decision, insufficient_evidence (decision_record required); workflow.generic_one_off admits no_change, accepted_decision, insufficient_evidence, resolved, remediated, report_recorded, completed, operator_defined; workflow.research admits no_change, resolved, report_recorded; workflow.break_fix, workflow.implementation, workflow.ops_runbook, workflow.static_analysis admit no outcome tokens (only exists, absent and check predicate kinds).",
+                                      "items": {
+                                        "enum": [
+                                          "no_change",
+                                          "accepted_decision",
+                                          "insufficient_evidence",
+                                          "resolved",
+                                          "remediated",
+                                          "report_recorded",
+                                          "completed",
+                                          "operator_defined"
+                                        ],
+                                        "type": "string"
+                                      },
+                                      "maxItems": 8,
+                                      "minItems": 1,
+                                      "type": "array",
+                                      "uniqueItems": true
+                                    },
+                                    "decision_record": {
+                                      "$ref": "#/$defs/workflow_outcome_decision_record"
+                                    },
+                                    "kind": {
+                                      "const": "outcome"
+                                    }
+                                  },
+                                  "required": [
+                                    "kind",
+                                    "allowed"
+                                  ],
+                                  "type": "object"
+                                },
+                                "predicate_id": {
+                                  "$ref": "#/$defs/id",
+                                  "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\"."
+                                }
+                              },
+                              "required": [
+                                "predicate_id",
+                                "ordinal",
+                                "outcome_kind",
+                                "outcome_payload"
+                              ],
+                              "type": "object"
+                            },
+                            {
+                              "additionalProperties": false,
+                              "properties": {
+                                "ordinal": {
+                                  "description": "The store refuses an outcome predicate whose ordinal is not its own zero-based position in outcome_predicates: the predicate at array position N must carry ordinal N (0, 1, 2, ...).",
+                                  "maximum": 7,
+                                  "minimum": 0,
+                                  "type": "integer"
+                                },
+                                "outcome_kind": {
+                                  "const": "check",
+                                  "description": "The store refuses an outcome predicate whose outcome_kind and outcome_payload.kind disagree: supply the outcome_payload variant that matches the declared outcome_kind.",
+                                  "type": "string"
+                                },
+                                "outcome_payload": {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "check_ref": {
+                                      "maxLength": 134,
+                                      "minLength": 7,
+                                      "pattern": "^check:[a-z][a-z0-9_.:/-]{1,127}$",
+                                      "type": "string"
+                                    },
+                                    "expected_result": {
+                                      "enum": [
+                                        "true",
+                                        "false",
+                                        "pass",
+                                        "fail",
+                                        "present",
+                                        "absent",
+                                        "healthy",
+                                        "unhealthy",
+                                        "accepted",
+                                        "rejected"
+                                      ],
+                                      "type": "string"
+                                    },
+                                    "immutable_subject_ref": {
+                                      "maxLength": 256,
+                                      "minLength": 2,
+                                      "pattern": "^[a-z][a-z0-9_.:/-]{1,255}$",
+                                      "type": "string"
+                                    },
+                                    "kind": {
+                                      "const": "check"
+                                    }
+                                  },
+                                  "required": [
+                                    "kind",
+                                    "check_ref",
+                                    "immutable_subject_ref",
+                                    "expected_result"
+                                  ],
+                                  "type": "object"
+                                },
+                                "predicate_id": {
+                                  "$ref": "#/$defs/id",
+                                  "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\"."
+                                }
+                              },
+                              "required": [
+                                "predicate_id",
+                                "ordinal",
+                                "outcome_kind",
+                                "outcome_payload"
+                              ],
+                              "type": "object"
+                            }
+                          ]
+                        },
+                        "maxItems": 8,
+                        "minItems": 1,
+                        "type": "array"
+                      },
+                      "predecessor_contract_versions": {
+                        "items": {
+                          "$ref": "#/$defs/workflow_contract_version"
+                        },
+                        "maxItems": 32,
+                        "minItems": 1,
+                        "type": "array"
+                      },
+                      "premise": {
+                        "description": "JSON Schema maxLength counts Unicode code points. Store admission also applies the same numerical limit to UTF-8 bytes (WorkflowPremiseMaxLength), so multibyte objectives must fit the byte allowance. This approval bound applies to objective content, not an OpenCode Task prompt or model-token limit. Do not truncate an approved objective or repeat its approval to repair packet projection.",
+                        "maxLength": 4096,
+                        "minLength": 1,
+                        "not": {
+                          "enum": [
+                            "workflow premise"
+                          ],
+                          "type": "string"
+                        },
+                        "pattern": "\\S",
+                        "type": "string",
+                        "x-maxBytes": 4096
+                      },
+                      "required_evidence": {
+                        "description": "Evidence obligations are admitted only when the work item's pinned workflow definition declares them at root, step, or rigor level; the WorkPin obligations list publishes that exact sorted membership.",
+                        "items": {
+                          "enum": [
+                            "verification",
+                            "review",
+                            "approval",
+                            "commit",
+                            "durable_note",
+                            "native_run",
+                            "artifact"
+                          ],
+                          "type": "string"
+                        },
+                        "maxItems": 7,
+                        "minItems": 0,
+                        "type": "array",
+                        "uniqueItems": true
+                      },
+                      "rigor_class": {
+                        "enum": [
+                          "prototype_internal",
+                          "prototype_trusted",
+                          "prototype_public",
+                          "prototype_safety_critical",
+                          "production_internal",
+                          "production_trusted",
+                          "production_public",
+                          "production_safety_critical",
+                          "critical_internal",
+                          "critical_trusted",
+                          "critical_public",
+                          "critical_safety_critical"
+                        ],
+                        "type": "string"
+                      },
+                      "route_conventions": {
+                        "items": {
+                          "$ref": "#/$defs/reference"
+                        },
+                        "maxItems": 16,
+                        "minItems": 0,
+                        "type": "array",
+                        "uniqueItems": true
+                      },
+                      "self_repair": {
+                        "$ref": "#/$defs/workflow_self_repair"
+                      },
+                      "spec_mandate": {
+                        "items": {
+                          "$ref": "#/$defs/law_id"
+                        },
+                        "maxItems": 32,
+                        "minItems": 0,
+                        "type": "array",
+                        "uniqueItems": true
+                      },
+                      "supersede_reason": {
+                        "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
+                        "maxLength": 4096,
+                        "minLength": 1,
+                        "pattern": "\\S",
+                        "type": "string",
+                        "x-maxBytes": 4096
+                      }
+                    },
+                    "required": [
+                      "contract_version",
+                      "premise",
+                      "outcome_predicates",
+                      "required_evidence",
+                      "route_conventions",
+                      "spec_mandate",
+                      "law_modifies",
+                      "rigor_class",
+                      "supersede_reason",
+                      "audit_evidence"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "maxProperties": 32,
+                    "properties": {
+                      "architecture_binding": {
+                        "$ref": "#/$defs/architecture_binding",
+                        "description": "Architecture bindings must name Domains that exist in the pinned domain registry, home every added or modified law in a declared Domain, and modify Domain relations only through current canonical tuples; the store refuses an unknown Domain or relation."
+                      },
+                      "audit_evidence": {
+                        "items": {
+                          "$ref": "#/$defs/reference"
+                        },
+                        "maxItems": 32,
+                        "minItems": 1,
+                        "type": "array",
+                        "uniqueItems": true
+                      },
+                      "contract_version": {
+                        "maximum": 2147483647,
+                        "minimum": 1,
+                        "type": "integer"
+                      },
+                      "design_record": {
+                        "$ref": "#/$defs/workflow_design_content"
+                      },
+                      "law_modifies": {
+                        "items": {
+                          "$ref": "#/$defs/law_id"
+                        },
+                        "maxItems": 32,
+                        "minItems": 0,
+                        "type": "array",
+                        "uniqueItems": true
+                      },
+                      "outcome_kind": {
+                        "const": "exists",
+                        "type": "string"
+                      },
+                      "outcome_payload": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "kind": {
+                            "const": "exists"
+                          },
+                          "subjects": {
+                            "items": {
+                              "$ref": "#/$defs/workflow_outcome_subject"
+                            },
+                            "maxItems": 100,
+                            "minItems": 1,
+                            "type": "array",
+                            "uniqueItems": true
+                          },
+                          "surface": {
+                            "$ref": "#/$defs/workflow_outcome_surface"
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "surface",
+                          "subjects"
+                        ],
+                        "type": "object"
+                      },
+                      "predecessor_contract_versions": {
+                        "items": {
+                          "$ref": "#/$defs/workflow_contract_version"
+                        },
+                        "maxItems": 32,
+                        "minItems": 1,
+                        "type": "array"
+                      },
+                      "premise": {
+                        "description": "JSON Schema maxLength counts Unicode code points. Store admission also applies the same numerical limit to UTF-8 bytes (WorkflowPremiseMaxLength), so multibyte objectives must fit the byte allowance. This approval bound applies to objective content, not an OpenCode Task prompt or model-token limit. Do not truncate an approved objective or repeat its approval to repair packet projection.",
+                        "maxLength": 4096,
+                        "minLength": 1,
+                        "not": {
+                          "enum": [
+                            "workflow premise"
+                          ],
+                          "type": "string"
+                        },
+                        "pattern": "\\S",
+                        "type": "string",
+                        "x-maxBytes": 4096
+                      },
+                      "required_evidence": {
+                        "description": "Evidence obligations are admitted only when the work item's pinned workflow definition declares them at root, step, or rigor level; the WorkPin obligations list publishes that exact sorted membership.",
+                        "items": {
+                          "enum": [
+                            "verification",
+                            "review",
+                            "approval",
+                            "commit",
+                            "durable_note",
+                            "native_run",
+                            "artifact"
+                          ],
+                          "type": "string"
+                        },
+                        "maxItems": 7,
+                        "minItems": 0,
+                        "type": "array",
+                        "uniqueItems": true
+                      },
+                      "rigor_class": {
+                        "enum": [
+                          "prototype_internal",
+                          "prototype_trusted",
+                          "prototype_public",
+                          "prototype_safety_critical",
+                          "production_internal",
+                          "production_trusted",
+                          "production_public",
+                          "production_safety_critical",
+                          "critical_internal",
+                          "critical_trusted",
+                          "critical_public",
+                          "critical_safety_critical"
+                        ],
+                        "type": "string"
+                      },
+                      "route_conventions": {
+                        "items": {
+                          "$ref": "#/$defs/reference"
+                        },
+                        "maxItems": 16,
+                        "minItems": 0,
+                        "type": "array",
+                        "uniqueItems": true
+                      },
+                      "self_repair": {
+                        "$ref": "#/$defs/workflow_self_repair"
+                      },
+                      "spec_mandate": {
+                        "items": {
+                          "$ref": "#/$defs/law_id"
+                        },
+                        "maxItems": 32,
+                        "minItems": 0,
+                        "type": "array",
+                        "uniqueItems": true
+                      },
+                      "supersede_reason": {
+                        "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
+                        "maxLength": 4096,
+                        "minLength": 1,
+                        "pattern": "\\S",
+                        "type": "string",
+                        "x-maxBytes": 4096
+                      }
+                    },
+                    "required": [
+                      "contract_version",
+                      "premise",
+                      "outcome_kind",
+                      "outcome_payload",
+                      "required_evidence",
+                      "route_conventions",
+                      "spec_mandate",
+                      "law_modifies",
+                      "rigor_class",
+                      "supersede_reason",
+                      "audit_evidence"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "maxProperties": 32,
+                    "properties": {
+                      "architecture_binding": {
+                        "$ref": "#/$defs/architecture_binding",
+                        "description": "Architecture bindings must name Domains that exist in the pinned domain registry, home every added or modified law in a declared Domain, and modify Domain relations only through current canonical tuples; the store refuses an unknown Domain or relation."
+                      },
+                      "audit_evidence": {
+                        "items": {
+                          "$ref": "#/$defs/reference"
+                        },
+                        "maxItems": 32,
+                        "minItems": 1,
+                        "type": "array",
+                        "uniqueItems": true
+                      },
+                      "contract_version": {
+                        "maximum": 2147483647,
+                        "minimum": 1,
+                        "type": "integer"
+                      },
+                      "design_record": {
+                        "$ref": "#/$defs/workflow_design_content"
+                      },
+                      "law_modifies": {
+                        "items": {
+                          "$ref": "#/$defs/law_id"
+                        },
+                        "maxItems": 32,
+                        "minItems": 0,
+                        "type": "array",
+                        "uniqueItems": true
+                      },
+                      "outcome_kind": {
+                        "const": "absent",
+                        "type": "string"
+                      },
+                      "outcome_payload": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "distinguish_from": {
+                            "items": {
+                              "enum": [
+                                "archived",
+                                "relocated",
+                                "renamed",
+                                "disabled"
+                              ],
+                              "type": "string"
+                            },
+                            "maxItems": 4,
+                            "minItems": 1,
+                            "type": "array",
+                            "uniqueItems": true
+                          },
+                          "kind": {
+                            "const": "absent"
+                          },
+                          "subjects": {
+                            "items": {
+                              "$ref": "#/$defs/workflow_outcome_subject"
+                            },
+                            "maxItems": 100,
+                            "minItems": 1,
+                            "type": "array",
+                            "uniqueItems": true
+                          },
+                          "surface": {
+                            "$ref": "#/$defs/workflow_outcome_surface"
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "surface",
+                          "subjects",
+                          "distinguish_from"
+                        ],
+                        "type": "object"
+                      },
+                      "predecessor_contract_versions": {
+                        "items": {
+                          "$ref": "#/$defs/workflow_contract_version"
+                        },
+                        "maxItems": 32,
+                        "minItems": 1,
+                        "type": "array"
+                      },
+                      "premise": {
+                        "description": "JSON Schema maxLength counts Unicode code points. Store admission also applies the same numerical limit to UTF-8 bytes (WorkflowPremiseMaxLength), so multibyte objectives must fit the byte allowance. This approval bound applies to objective content, not an OpenCode Task prompt or model-token limit. Do not truncate an approved objective or repeat its approval to repair packet projection.",
+                        "maxLength": 4096,
+                        "minLength": 1,
+                        "not": {
+                          "enum": [
+                            "workflow premise"
+                          ],
+                          "type": "string"
+                        },
+                        "pattern": "\\S",
+                        "type": "string",
+                        "x-maxBytes": 4096
+                      },
+                      "required_evidence": {
+                        "description": "Evidence obligations are admitted only when the work item's pinned workflow definition declares them at root, step, or rigor level; the WorkPin obligations list publishes that exact sorted membership.",
+                        "items": {
+                          "enum": [
+                            "verification",
+                            "review",
+                            "approval",
+                            "commit",
+                            "durable_note",
+                            "native_run",
+                            "artifact"
+                          ],
+                          "type": "string"
+                        },
+                        "maxItems": 7,
+                        "minItems": 0,
+                        "type": "array",
+                        "uniqueItems": true
+                      },
+                      "rigor_class": {
+                        "enum": [
+                          "prototype_internal",
+                          "prototype_trusted",
+                          "prototype_public",
+                          "prototype_safety_critical",
+                          "production_internal",
+                          "production_trusted",
+                          "production_public",
+                          "production_safety_critical",
+                          "critical_internal",
+                          "critical_trusted",
+                          "critical_public",
+                          "critical_safety_critical"
+                        ],
+                        "type": "string"
+                      },
+                      "route_conventions": {
+                        "items": {
+                          "$ref": "#/$defs/reference"
+                        },
+                        "maxItems": 16,
+                        "minItems": 0,
+                        "type": "array",
+                        "uniqueItems": true
+                      },
+                      "self_repair": {
+                        "$ref": "#/$defs/workflow_self_repair"
+                      },
+                      "spec_mandate": {
+                        "items": {
+                          "$ref": "#/$defs/law_id"
+                        },
+                        "maxItems": 32,
+                        "minItems": 0,
+                        "type": "array",
+                        "uniqueItems": true
+                      },
+                      "supersede_reason": {
+                        "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
+                        "maxLength": 4096,
+                        "minLength": 1,
+                        "pattern": "\\S",
+                        "type": "string",
+                        "x-maxBytes": 4096
+                      }
+                    },
+                    "required": [
+                      "contract_version",
+                      "premise",
+                      "outcome_kind",
+                      "outcome_payload",
+                      "required_evidence",
+                      "route_conventions",
+                      "spec_mandate",
+                      "law_modifies",
+                      "rigor_class",
+                      "supersede_reason",
+                      "audit_evidence"
+                    ],
+                    "type": "object"
+                  }
+                ]
+              },
               "properties": {
                 "architecture_binding": {
                   "$ref": "#/$defs/architecture_binding",
@@ -17328,6 +21672,937 @@ const GeneratedPayloadSchemaDocument = `{
             {
               "additionalProperties": false,
               "maxProperties": 32,
+              "not": {
+                "anyOf": [
+                  {
+                    "additionalProperties": false,
+                    "maxProperties": 32,
+                    "properties": {
+                      "architecture_binding": {
+                        "$ref": "#/$defs/architecture_binding",
+                        "description": "Architecture bindings must name Domains that exist in the pinned domain registry, home every added or modified law in a declared Domain, and modify Domain relations only through current canonical tuples; the store refuses an unknown Domain or relation."
+                      },
+                      "audit_evidence": {
+                        "items": {
+                          "$ref": "#/$defs/reference"
+                        },
+                        "maxItems": 32,
+                        "minItems": 1,
+                        "type": "array",
+                        "uniqueItems": true
+                      },
+                      "contract_version": {
+                        "maximum": 2147483647,
+                        "minimum": 1,
+                        "type": "integer"
+                      },
+                      "design_record": {
+                        "$ref": "#/$defs/workflow_design_content"
+                      },
+                      "law_modifies": {
+                        "items": {
+                          "$ref": "#/$defs/law_id"
+                        },
+                        "maxItems": 32,
+                        "minItems": 0,
+                        "type": "array",
+                        "uniqueItems": true
+                      },
+                      "outcome_predicates": {
+                        "description": "CD-0184: acceptance is decidable at delivery. Each predicate names an end state verification can decide when the change is delivered. Post-delivery observation over a time window (traffic, an error rate, a metric over hours or days) is not acceptance: capture a follow-up work item and link it raised_from the delivering item before that item completes. A one-shot live check that verification can decide at delivery stays allowed.",
+                        "items": {
+                          "oneOf": [
+                            {
+                              "additionalProperties": false,
+                              "properties": {
+                                "ordinal": {
+                                  "description": "The store refuses an outcome predicate whose ordinal is not its own zero-based position in outcome_predicates: the predicate at array position N must carry ordinal N (0, 1, 2, ...).",
+                                  "maximum": 7,
+                                  "minimum": 0,
+                                  "type": "integer"
+                                },
+                                "outcome_kind": {
+                                  "const": "exists",
+                                  "description": "The store refuses an outcome predicate whose outcome_kind and outcome_payload.kind disagree: supply the outcome_payload variant that matches the declared outcome_kind.",
+                                  "type": "string"
+                                },
+                                "outcome_payload": {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "kind": {
+                                      "const": "exists"
+                                    },
+                                    "subjects": {
+                                      "items": {
+                                        "$ref": "#/$defs/workflow_outcome_subject"
+                                      },
+                                      "maxItems": 100,
+                                      "minItems": 1,
+                                      "type": "array",
+                                      "uniqueItems": true
+                                    },
+                                    "surface": {
+                                      "$ref": "#/$defs/workflow_outcome_surface"
+                                    }
+                                  },
+                                  "required": [
+                                    "kind",
+                                    "surface",
+                                    "subjects"
+                                  ],
+                                  "type": "object"
+                                },
+                                "predicate_id": {
+                                  "$ref": "#/$defs/id",
+                                  "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\"."
+                                }
+                              },
+                              "required": [
+                                "predicate_id",
+                                "ordinal",
+                                "outcome_kind",
+                                "outcome_payload"
+                              ],
+                              "type": "object"
+                            },
+                            {
+                              "additionalProperties": false,
+                              "properties": {
+                                "ordinal": {
+                                  "description": "The store refuses an outcome predicate whose ordinal is not its own zero-based position in outcome_predicates: the predicate at array position N must carry ordinal N (0, 1, 2, ...).",
+                                  "maximum": 7,
+                                  "minimum": 0,
+                                  "type": "integer"
+                                },
+                                "outcome_kind": {
+                                  "const": "absent",
+                                  "description": "The store refuses an outcome predicate whose outcome_kind and outcome_payload.kind disagree: supply the outcome_payload variant that matches the declared outcome_kind.",
+                                  "type": "string"
+                                },
+                                "outcome_payload": {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "distinguish_from": {
+                                      "items": {
+                                        "enum": [
+                                          "archived",
+                                          "relocated",
+                                          "renamed",
+                                          "disabled"
+                                        ],
+                                        "type": "string"
+                                      },
+                                      "maxItems": 4,
+                                      "minItems": 1,
+                                      "type": "array",
+                                      "uniqueItems": true
+                                    },
+                                    "kind": {
+                                      "const": "absent"
+                                    },
+                                    "subjects": {
+                                      "items": {
+                                        "$ref": "#/$defs/workflow_outcome_subject"
+                                      },
+                                      "maxItems": 100,
+                                      "minItems": 1,
+                                      "type": "array",
+                                      "uniqueItems": true
+                                    },
+                                    "surface": {
+                                      "$ref": "#/$defs/workflow_outcome_surface"
+                                    }
+                                  },
+                                  "required": [
+                                    "kind",
+                                    "surface",
+                                    "subjects",
+                                    "distinguish_from"
+                                  ],
+                                  "type": "object"
+                                },
+                                "predicate_id": {
+                                  "$ref": "#/$defs/id",
+                                  "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\"."
+                                }
+                              },
+                              "required": [
+                                "predicate_id",
+                                "ordinal",
+                                "outcome_kind",
+                                "outcome_payload"
+                              ],
+                              "type": "object"
+                            },
+                            {
+                              "additionalProperties": false,
+                              "properties": {
+                                "ordinal": {
+                                  "description": "The store refuses an outcome predicate whose ordinal is not its own zero-based position in outcome_predicates: the predicate at array position N must carry ordinal N (0, 1, 2, ...).",
+                                  "maximum": 7,
+                                  "minimum": 0,
+                                  "type": "integer"
+                                },
+                                "outcome_kind": {
+                                  "const": "outcome",
+                                  "description": "The store refuses an outcome predicate whose outcome_kind and outcome_payload.kind disagree: supply the outcome_payload variant that matches the declared outcome_kind.",
+                                  "type": "string"
+                                },
+                                "outcome_payload": {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "allowed": {
+                                      "description": "The store pins which outcome tokens the contract of the work item being approved may carry, per its workflow type: workflow.architecture_spike admits accepted_decision, insufficient_evidence (decision_record required); workflow.generic_one_off admits no_change, accepted_decision, insufficient_evidence, resolved, remediated, report_recorded, completed, operator_defined; workflow.research admits no_change, resolved, report_recorded; workflow.break_fix, workflow.implementation, workflow.ops_runbook, workflow.static_analysis admit no outcome tokens (only exists, absent and check predicate kinds).",
+                                      "items": {
+                                        "enum": [
+                                          "no_change",
+                                          "accepted_decision",
+                                          "insufficient_evidence",
+                                          "resolved",
+                                          "remediated",
+                                          "report_recorded",
+                                          "completed",
+                                          "operator_defined"
+                                        ],
+                                        "type": "string"
+                                      },
+                                      "maxItems": 8,
+                                      "minItems": 1,
+                                      "type": "array",
+                                      "uniqueItems": true
+                                    },
+                                    "decision_record": {
+                                      "$ref": "#/$defs/workflow_outcome_decision_record"
+                                    },
+                                    "kind": {
+                                      "const": "outcome"
+                                    }
+                                  },
+                                  "required": [
+                                    "kind",
+                                    "allowed"
+                                  ],
+                                  "type": "object"
+                                },
+                                "predicate_id": {
+                                  "$ref": "#/$defs/id",
+                                  "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\"."
+                                }
+                              },
+                              "required": [
+                                "predicate_id",
+                                "ordinal",
+                                "outcome_kind",
+                                "outcome_payload"
+                              ],
+                              "type": "object"
+                            },
+                            {
+                              "additionalProperties": false,
+                              "properties": {
+                                "ordinal": {
+                                  "description": "The store refuses an outcome predicate whose ordinal is not its own zero-based position in outcome_predicates: the predicate at array position N must carry ordinal N (0, 1, 2, ...).",
+                                  "maximum": 7,
+                                  "minimum": 0,
+                                  "type": "integer"
+                                },
+                                "outcome_kind": {
+                                  "const": "check",
+                                  "description": "The store refuses an outcome predicate whose outcome_kind and outcome_payload.kind disagree: supply the outcome_payload variant that matches the declared outcome_kind.",
+                                  "type": "string"
+                                },
+                                "outcome_payload": {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "check_ref": {
+                                      "maxLength": 134,
+                                      "minLength": 7,
+                                      "pattern": "^check:[a-z][a-z0-9_.:/-]{1,127}$",
+                                      "type": "string"
+                                    },
+                                    "expected_result": {
+                                      "enum": [
+                                        "true",
+                                        "false",
+                                        "pass",
+                                        "fail",
+                                        "present",
+                                        "absent",
+                                        "healthy",
+                                        "unhealthy",
+                                        "accepted",
+                                        "rejected"
+                                      ],
+                                      "type": "string"
+                                    },
+                                    "immutable_subject_ref": {
+                                      "maxLength": 256,
+                                      "minLength": 2,
+                                      "pattern": "^[a-z][a-z0-9_.:/-]{1,255}$",
+                                      "type": "string"
+                                    },
+                                    "kind": {
+                                      "const": "check"
+                                    }
+                                  },
+                                  "required": [
+                                    "kind",
+                                    "check_ref",
+                                    "immutable_subject_ref",
+                                    "expected_result"
+                                  ],
+                                  "type": "object"
+                                },
+                                "predicate_id": {
+                                  "$ref": "#/$defs/id",
+                                  "description": "The store refuses a predicate_id without the \"predicate:\" prefix. Write ids in the form \"predicate:<name>\"."
+                                }
+                              },
+                              "required": [
+                                "predicate_id",
+                                "ordinal",
+                                "outcome_kind",
+                                "outcome_payload"
+                              ],
+                              "type": "object"
+                            }
+                          ]
+                        },
+                        "maxItems": 8,
+                        "minItems": 1,
+                        "type": "array"
+                      },
+                      "predecessor_contract_versions": {
+                        "items": {
+                          "$ref": "#/$defs/workflow_contract_version"
+                        },
+                        "maxItems": 32,
+                        "minItems": 1,
+                        "type": "array"
+                      },
+                      "premise": {
+                        "description": "JSON Schema maxLength counts Unicode code points. Store admission also applies the same numerical limit to UTF-8 bytes (WorkflowPremiseMaxLength), so multibyte objectives must fit the byte allowance. This approval bound applies to objective content, not an OpenCode Task prompt or model-token limit. Do not truncate an approved objective or repeat its approval to repair packet projection.",
+                        "maxLength": 4096,
+                        "minLength": 1,
+                        "not": {
+                          "enum": [
+                            "workflow premise"
+                          ],
+                          "type": "string"
+                        },
+                        "pattern": "\\S",
+                        "type": "string",
+                        "x-maxBytes": 4096
+                      },
+                      "required_evidence": {
+                        "description": "Evidence obligations are admitted only when the work item's pinned workflow definition declares them at root, step, or rigor level; the WorkPin obligations list publishes that exact sorted membership.",
+                        "items": {
+                          "enum": [
+                            "verification",
+                            "review",
+                            "approval",
+                            "commit",
+                            "durable_note",
+                            "native_run",
+                            "artifact"
+                          ],
+                          "type": "string"
+                        },
+                        "maxItems": 7,
+                        "minItems": 0,
+                        "type": "array",
+                        "uniqueItems": true
+                      },
+                      "rigor_class": {
+                        "enum": [
+                          "prototype_internal",
+                          "prototype_trusted",
+                          "prototype_public",
+                          "prototype_safety_critical",
+                          "production_internal",
+                          "production_trusted",
+                          "production_public",
+                          "production_safety_critical",
+                          "critical_internal",
+                          "critical_trusted",
+                          "critical_public",
+                          "critical_safety_critical"
+                        ],
+                        "type": "string"
+                      },
+                      "route_conventions": {
+                        "items": {
+                          "$ref": "#/$defs/reference"
+                        },
+                        "maxItems": 16,
+                        "minItems": 0,
+                        "type": "array",
+                        "uniqueItems": true
+                      },
+                      "self_repair": {
+                        "$ref": "#/$defs/workflow_self_repair"
+                      },
+                      "spec_mandate": {
+                        "items": {
+                          "$ref": "#/$defs/law_id"
+                        },
+                        "maxItems": 32,
+                        "minItems": 0,
+                        "type": "array",
+                        "uniqueItems": true
+                      },
+                      "supersede_reason": {
+                        "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
+                        "maxLength": 4096,
+                        "minLength": 1,
+                        "pattern": "\\S",
+                        "type": "string",
+                        "x-maxBytes": 4096
+                      }
+                    },
+                    "required": [
+                      "contract_version",
+                      "premise",
+                      "outcome_predicates",
+                      "required_evidence",
+                      "route_conventions",
+                      "spec_mandate",
+                      "law_modifies",
+                      "rigor_class",
+                      "supersede_reason",
+                      "audit_evidence"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "maxProperties": 32,
+                    "properties": {
+                      "architecture_binding": {
+                        "$ref": "#/$defs/architecture_binding",
+                        "description": "Architecture bindings must name Domains that exist in the pinned domain registry, home every added or modified law in a declared Domain, and modify Domain relations only through current canonical tuples; the store refuses an unknown Domain or relation."
+                      },
+                      "audit_evidence": {
+                        "items": {
+                          "$ref": "#/$defs/reference"
+                        },
+                        "maxItems": 32,
+                        "minItems": 1,
+                        "type": "array",
+                        "uniqueItems": true
+                      },
+                      "contract_version": {
+                        "maximum": 2147483647,
+                        "minimum": 1,
+                        "type": "integer"
+                      },
+                      "design_record": {
+                        "$ref": "#/$defs/workflow_design_content"
+                      },
+                      "law_modifies": {
+                        "items": {
+                          "$ref": "#/$defs/law_id"
+                        },
+                        "maxItems": 32,
+                        "minItems": 0,
+                        "type": "array",
+                        "uniqueItems": true
+                      },
+                      "outcome_kind": {
+                        "const": "exists",
+                        "type": "string"
+                      },
+                      "outcome_payload": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "kind": {
+                            "const": "exists"
+                          },
+                          "subjects": {
+                            "items": {
+                              "$ref": "#/$defs/workflow_outcome_subject"
+                            },
+                            "maxItems": 100,
+                            "minItems": 1,
+                            "type": "array",
+                            "uniqueItems": true
+                          },
+                          "surface": {
+                            "$ref": "#/$defs/workflow_outcome_surface"
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "surface",
+                          "subjects"
+                        ],
+                        "type": "object"
+                      },
+                      "predecessor_contract_versions": {
+                        "items": {
+                          "$ref": "#/$defs/workflow_contract_version"
+                        },
+                        "maxItems": 32,
+                        "minItems": 1,
+                        "type": "array"
+                      },
+                      "premise": {
+                        "description": "JSON Schema maxLength counts Unicode code points. Store admission also applies the same numerical limit to UTF-8 bytes (WorkflowPremiseMaxLength), so multibyte objectives must fit the byte allowance. This approval bound applies to objective content, not an OpenCode Task prompt or model-token limit. Do not truncate an approved objective or repeat its approval to repair packet projection.",
+                        "maxLength": 4096,
+                        "minLength": 1,
+                        "not": {
+                          "enum": [
+                            "workflow premise"
+                          ],
+                          "type": "string"
+                        },
+                        "pattern": "\\S",
+                        "type": "string",
+                        "x-maxBytes": 4096
+                      },
+                      "required_evidence": {
+                        "description": "Evidence obligations are admitted only when the work item's pinned workflow definition declares them at root, step, or rigor level; the WorkPin obligations list publishes that exact sorted membership.",
+                        "items": {
+                          "enum": [
+                            "verification",
+                            "review",
+                            "approval",
+                            "commit",
+                            "durable_note",
+                            "native_run",
+                            "artifact"
+                          ],
+                          "type": "string"
+                        },
+                        "maxItems": 7,
+                        "minItems": 0,
+                        "type": "array",
+                        "uniqueItems": true
+                      },
+                      "rigor_class": {
+                        "enum": [
+                          "prototype_internal",
+                          "prototype_trusted",
+                          "prototype_public",
+                          "prototype_safety_critical",
+                          "production_internal",
+                          "production_trusted",
+                          "production_public",
+                          "production_safety_critical",
+                          "critical_internal",
+                          "critical_trusted",
+                          "critical_public",
+                          "critical_safety_critical"
+                        ],
+                        "type": "string"
+                      },
+                      "route_conventions": {
+                        "items": {
+                          "$ref": "#/$defs/reference"
+                        },
+                        "maxItems": 16,
+                        "minItems": 0,
+                        "type": "array",
+                        "uniqueItems": true
+                      },
+                      "self_repair": {
+                        "$ref": "#/$defs/workflow_self_repair"
+                      },
+                      "spec_mandate": {
+                        "items": {
+                          "$ref": "#/$defs/law_id"
+                        },
+                        "maxItems": 32,
+                        "minItems": 0,
+                        "type": "array",
+                        "uniqueItems": true
+                      },
+                      "supersede_reason": {
+                        "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
+                        "maxLength": 4096,
+                        "minLength": 1,
+                        "pattern": "\\S",
+                        "type": "string",
+                        "x-maxBytes": 4096
+                      }
+                    },
+                    "required": [
+                      "contract_version",
+                      "premise",
+                      "outcome_kind",
+                      "outcome_payload",
+                      "required_evidence",
+                      "route_conventions",
+                      "spec_mandate",
+                      "law_modifies",
+                      "rigor_class",
+                      "supersede_reason",
+                      "audit_evidence"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "maxProperties": 32,
+                    "properties": {
+                      "architecture_binding": {
+                        "$ref": "#/$defs/architecture_binding",
+                        "description": "Architecture bindings must name Domains that exist in the pinned domain registry, home every added or modified law in a declared Domain, and modify Domain relations only through current canonical tuples; the store refuses an unknown Domain or relation."
+                      },
+                      "audit_evidence": {
+                        "items": {
+                          "$ref": "#/$defs/reference"
+                        },
+                        "maxItems": 32,
+                        "minItems": 1,
+                        "type": "array",
+                        "uniqueItems": true
+                      },
+                      "contract_version": {
+                        "maximum": 2147483647,
+                        "minimum": 1,
+                        "type": "integer"
+                      },
+                      "design_record": {
+                        "$ref": "#/$defs/workflow_design_content"
+                      },
+                      "law_modifies": {
+                        "items": {
+                          "$ref": "#/$defs/law_id"
+                        },
+                        "maxItems": 32,
+                        "minItems": 0,
+                        "type": "array",
+                        "uniqueItems": true
+                      },
+                      "outcome_kind": {
+                        "const": "absent",
+                        "type": "string"
+                      },
+                      "outcome_payload": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "distinguish_from": {
+                            "items": {
+                              "enum": [
+                                "archived",
+                                "relocated",
+                                "renamed",
+                                "disabled"
+                              ],
+                              "type": "string"
+                            },
+                            "maxItems": 4,
+                            "minItems": 1,
+                            "type": "array",
+                            "uniqueItems": true
+                          },
+                          "kind": {
+                            "const": "absent"
+                          },
+                          "subjects": {
+                            "items": {
+                              "$ref": "#/$defs/workflow_outcome_subject"
+                            },
+                            "maxItems": 100,
+                            "minItems": 1,
+                            "type": "array",
+                            "uniqueItems": true
+                          },
+                          "surface": {
+                            "$ref": "#/$defs/workflow_outcome_surface"
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "surface",
+                          "subjects",
+                          "distinguish_from"
+                        ],
+                        "type": "object"
+                      },
+                      "predecessor_contract_versions": {
+                        "items": {
+                          "$ref": "#/$defs/workflow_contract_version"
+                        },
+                        "maxItems": 32,
+                        "minItems": 1,
+                        "type": "array"
+                      },
+                      "premise": {
+                        "description": "JSON Schema maxLength counts Unicode code points. Store admission also applies the same numerical limit to UTF-8 bytes (WorkflowPremiseMaxLength), so multibyte objectives must fit the byte allowance. This approval bound applies to objective content, not an OpenCode Task prompt or model-token limit. Do not truncate an approved objective or repeat its approval to repair packet projection.",
+                        "maxLength": 4096,
+                        "minLength": 1,
+                        "not": {
+                          "enum": [
+                            "workflow premise"
+                          ],
+                          "type": "string"
+                        },
+                        "pattern": "\\S",
+                        "type": "string",
+                        "x-maxBytes": 4096
+                      },
+                      "required_evidence": {
+                        "description": "Evidence obligations are admitted only when the work item's pinned workflow definition declares them at root, step, or rigor level; the WorkPin obligations list publishes that exact sorted membership.",
+                        "items": {
+                          "enum": [
+                            "verification",
+                            "review",
+                            "approval",
+                            "commit",
+                            "durable_note",
+                            "native_run",
+                            "artifact"
+                          ],
+                          "type": "string"
+                        },
+                        "maxItems": 7,
+                        "minItems": 0,
+                        "type": "array",
+                        "uniqueItems": true
+                      },
+                      "rigor_class": {
+                        "enum": [
+                          "prototype_internal",
+                          "prototype_trusted",
+                          "prototype_public",
+                          "prototype_safety_critical",
+                          "production_internal",
+                          "production_trusted",
+                          "production_public",
+                          "production_safety_critical",
+                          "critical_internal",
+                          "critical_trusted",
+                          "critical_public",
+                          "critical_safety_critical"
+                        ],
+                        "type": "string"
+                      },
+                      "route_conventions": {
+                        "items": {
+                          "$ref": "#/$defs/reference"
+                        },
+                        "maxItems": 16,
+                        "minItems": 0,
+                        "type": "array",
+                        "uniqueItems": true
+                      },
+                      "self_repair": {
+                        "$ref": "#/$defs/workflow_self_repair"
+                      },
+                      "spec_mandate": {
+                        "items": {
+                          "$ref": "#/$defs/law_id"
+                        },
+                        "maxItems": 32,
+                        "minItems": 0,
+                        "type": "array",
+                        "uniqueItems": true
+                      },
+                      "supersede_reason": {
+                        "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
+                        "maxLength": 4096,
+                        "minLength": 1,
+                        "pattern": "\\S",
+                        "type": "string",
+                        "x-maxBytes": 4096
+                      }
+                    },
+                    "required": [
+                      "contract_version",
+                      "premise",
+                      "outcome_kind",
+                      "outcome_payload",
+                      "required_evidence",
+                      "route_conventions",
+                      "spec_mandate",
+                      "law_modifies",
+                      "rigor_class",
+                      "supersede_reason",
+                      "audit_evidence"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "maxProperties": 32,
+                    "properties": {
+                      "architecture_binding": {
+                        "$ref": "#/$defs/architecture_binding",
+                        "description": "Architecture bindings must name Domains that exist in the pinned domain registry, home every added or modified law in a declared Domain, and modify Domain relations only through current canonical tuples; the store refuses an unknown Domain or relation."
+                      },
+                      "audit_evidence": {
+                        "items": {
+                          "$ref": "#/$defs/reference"
+                        },
+                        "maxItems": 32,
+                        "minItems": 1,
+                        "type": "array",
+                        "uniqueItems": true
+                      },
+                      "contract_version": {
+                        "maximum": 2147483647,
+                        "minimum": 1,
+                        "type": "integer"
+                      },
+                      "design_record": {
+                        "$ref": "#/$defs/workflow_design_content"
+                      },
+                      "law_modifies": {
+                        "items": {
+                          "$ref": "#/$defs/law_id"
+                        },
+                        "maxItems": 32,
+                        "minItems": 0,
+                        "type": "array",
+                        "uniqueItems": true
+                      },
+                      "outcome_kind": {
+                        "const": "outcome",
+                        "type": "string"
+                      },
+                      "outcome_payload": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "allowed": {
+                            "description": "The store pins which outcome tokens the contract of the work item being approved may carry, per its workflow type: workflow.architecture_spike admits accepted_decision, insufficient_evidence (decision_record required); workflow.generic_one_off admits no_change, accepted_decision, insufficient_evidence, resolved, remediated, report_recorded, completed, operator_defined; workflow.research admits no_change, resolved, report_recorded; workflow.break_fix, workflow.implementation, workflow.ops_runbook, workflow.static_analysis admit no outcome tokens (only exists, absent and check predicate kinds).",
+                            "items": {
+                              "enum": [
+                                "no_change",
+                                "accepted_decision",
+                                "insufficient_evidence",
+                                "resolved",
+                                "remediated",
+                                "report_recorded",
+                                "completed",
+                                "operator_defined"
+                              ],
+                              "type": "string"
+                            },
+                            "maxItems": 8,
+                            "minItems": 1,
+                            "type": "array",
+                            "uniqueItems": true
+                          },
+                          "decision_record": {
+                            "$ref": "#/$defs/workflow_outcome_decision_record"
+                          },
+                          "kind": {
+                            "const": "outcome"
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "allowed"
+                        ],
+                        "type": "object"
+                      },
+                      "predecessor_contract_versions": {
+                        "items": {
+                          "$ref": "#/$defs/workflow_contract_version"
+                        },
+                        "maxItems": 32,
+                        "minItems": 1,
+                        "type": "array"
+                      },
+                      "premise": {
+                        "description": "JSON Schema maxLength counts Unicode code points. Store admission also applies the same numerical limit to UTF-8 bytes (WorkflowPremiseMaxLength), so multibyte objectives must fit the byte allowance. This approval bound applies to objective content, not an OpenCode Task prompt or model-token limit. Do not truncate an approved objective or repeat its approval to repair packet projection.",
+                        "maxLength": 4096,
+                        "minLength": 1,
+                        "not": {
+                          "enum": [
+                            "workflow premise"
+                          ],
+                          "type": "string"
+                        },
+                        "pattern": "\\S",
+                        "type": "string",
+                        "x-maxBytes": 4096
+                      },
+                      "required_evidence": {
+                        "description": "Evidence obligations are admitted only when the work item's pinned workflow definition declares them at root, step, or rigor level; the WorkPin obligations list publishes that exact sorted membership.",
+                        "items": {
+                          "enum": [
+                            "verification",
+                            "review",
+                            "approval",
+                            "commit",
+                            "durable_note",
+                            "native_run",
+                            "artifact"
+                          ],
+                          "type": "string"
+                        },
+                        "maxItems": 7,
+                        "minItems": 0,
+                        "type": "array",
+                        "uniqueItems": true
+                      },
+                      "rigor_class": {
+                        "enum": [
+                          "prototype_internal",
+                          "prototype_trusted",
+                          "prototype_public",
+                          "prototype_safety_critical",
+                          "production_internal",
+                          "production_trusted",
+                          "production_public",
+                          "production_safety_critical",
+                          "critical_internal",
+                          "critical_trusted",
+                          "critical_public",
+                          "critical_safety_critical"
+                        ],
+                        "type": "string"
+                      },
+                      "route_conventions": {
+                        "items": {
+                          "$ref": "#/$defs/reference"
+                        },
+                        "maxItems": 16,
+                        "minItems": 0,
+                        "type": "array",
+                        "uniqueItems": true
+                      },
+                      "self_repair": {
+                        "$ref": "#/$defs/workflow_self_repair"
+                      },
+                      "spec_mandate": {
+                        "items": {
+                          "$ref": "#/$defs/law_id"
+                        },
+                        "maxItems": 32,
+                        "minItems": 0,
+                        "type": "array",
+                        "uniqueItems": true
+                      },
+                      "supersede_reason": {
+                        "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
+                        "maxLength": 4096,
+                        "minLength": 1,
+                        "pattern": "\\S",
+                        "type": "string",
+                        "x-maxBytes": 4096
+                      }
+                    },
+                    "required": [
+                      "contract_version",
+                      "premise",
+                      "outcome_kind",
+                      "outcome_payload",
+                      "required_evidence",
+                      "route_conventions",
+                      "spec_mandate",
+                      "law_modifies",
+                      "rigor_class",
+                      "supersede_reason",
+                      "audit_evidence"
+                    ],
+                    "type": "object"
+                  }
+                ]
+              },
               "properties": {
                 "architecture_binding": {
                   "$ref": "#/$defs/architecture_binding",
@@ -18241,6 +23516,70 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "work_transition_worktree_verify_input": {
       "additionalProperties": false,
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "approval": {
+              "$ref": "#/$defs/approval"
+            },
+            "command": {
+              "description": "The argv that runs inside the derived worktree under the exclusive verify lease. Values run as separate arguments; a shell command string is never accepted.",
+              "items": {
+                "maxLength": 256,
+                "minLength": 1,
+                "type": "string"
+              },
+              "maxItems": 16,
+              "minItems": 1,
+              "type": "array"
+            },
+            "idempotency_key": {
+              "$ref": "#/$defs/id"
+            },
+            "requested_budget_seconds": {
+              "$ref": "#/$defs/requested_budget_seconds"
+            },
+            "work_id": {
+              "$ref": "#/$defs/id",
+              "description": "CD-0096 D3: the work item whose active same-Project worktree the command runs in. The worktree derives from the session's Project and work identity; no path input exists (CD-0096 D2)."
+            }
+          },
+          "required": [
+            "work_id",
+            "command",
+            "idempotency_key"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "approval": {
+              "$ref": "#/$defs/approval"
+            },
+            "idempotency_key": {
+              "$ref": "#/$defs/id"
+            },
+            "oracle": {
+              "$ref": "#/$defs/native_oracle_request"
+            },
+            "requested_budget_seconds": {
+              "$ref": "#/$defs/requested_budget_seconds"
+            },
+            "work_id": {
+              "$ref": "#/$defs/id",
+              "description": "CD-0096 D3: the work item whose active same-Project worktree the command runs in. The worktree derives from the session's Project and work identity; no path input exists (CD-0096 D2)."
+            }
+          },
+          "required": [
+            "work_id",
+            "oracle",
+            "idempotency_key"
+          ],
+          "type": "object"
+        }
+      ],
       "properties": {
         "approval": {
           "$ref": "#/$defs/approval"
@@ -18259,6 +23598,9 @@ const GeneratedPayloadSchemaDocument = `{
         "idempotency_key": {
           "$ref": "#/$defs/id"
         },
+        "oracle": {
+          "$ref": "#/$defs/native_oracle_request"
+        },
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"
         },
@@ -18269,8 +23611,43 @@ const GeneratedPayloadSchemaDocument = `{
       },
       "required": [
         "work_id",
-        "command",
         "idempotency_key"
+      ],
+      "type": "object"
+    },
+    "worker_acceptance_oracle": {
+      "additionalProperties": false,
+      "description": "The CON-890 owner-level acceptance oracle: typed immutable worker-job content. Owners with obligations, a finite case inventory, and executable controls with exact evidence requirements. The store validates the closed graph and its authority joins; the serialized oracle content is bounded by the store at 32 KiB and refused whole on overflow, never truncated.",
+      "properties": {
+        "cases": {
+          "items": {
+            "$ref": "#/$defs/worker_oracle_case"
+          },
+          "maxItems": 64,
+          "minItems": 1,
+          "type": "array"
+        },
+        "controls": {
+          "items": {
+            "$ref": "#/$defs/worker_oracle_control"
+          },
+          "maxItems": 64,
+          "minItems": 1,
+          "type": "array"
+        },
+        "owners": {
+          "items": {
+            "$ref": "#/$defs/worker_oracle_owner"
+          },
+          "maxItems": 8,
+          "minItems": 1,
+          "type": "array"
+        }
+      },
+      "required": [
+        "owners",
+        "cases",
+        "controls"
       ],
       "type": "object"
     },
@@ -18363,6 +23740,484 @@ const GeneratedPayloadSchemaDocument = `{
       "maxLength": 256,
       "minLength": 1,
       "type": "string"
+    },
+    "worker_oracle_case": {
+      "additionalProperties": false,
+      "properties": {
+        "case_id": {
+          "description": "A stable case: identity, unique within this work item.",
+          "maxLength": 128,
+          "minLength": 6,
+          "pattern": "^case:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
+          "type": "string"
+        },
+        "control_ids": {
+          "items": {
+            "maxLength": 128,
+            "minLength": 9,
+            "pattern": "^control:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
+            "type": "string"
+          },
+          "maxItems": 8,
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "entry_point": {
+          "description": "The named entry path or transition this case exercises.",
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "expected_state": {
+          "description": "A bounded description of the expected state, never a new predicate DSL.",
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "input_class": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "owner_id": {
+          "maxLength": 128,
+          "minLength": 7,
+          "pattern": "^owner:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "case_id",
+        "owner_id",
+        "entry_point",
+        "input_class",
+        "expected_state",
+        "control_ids"
+      ],
+      "type": "object"
+    },
+    "worker_oracle_control": {
+      "additionalProperties": false,
+      "properties": {
+        "argv": {
+          "description": "The exact argument vector, never shell text.",
+          "items": {
+            "maxLength": 512,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 32,
+          "minItems": 1,
+          "type": "array"
+        },
+        "case_ids": {
+          "items": {
+            "maxLength": 128,
+            "minLength": 6,
+            "pattern": "^case:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
+            "type": "string"
+          },
+          "maxItems": 64,
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "control_id": {
+          "description": "A stable control: identity, unique within this work item.",
+          "maxLength": 128,
+          "minLength": 9,
+          "pattern": "^control:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
+          "type": "string"
+        },
+        "cwd": {
+          "description": "A contained relative working directory.",
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "expected_result": {
+          "description": "The declared exit-status result the harness must produce. Slice A admits pass (exit 0) only.",
+          "enum": [
+            "pass"
+          ],
+          "type": "string"
+        },
+        "owner_id": {
+          "maxLength": 128,
+          "minLength": 7,
+          "pattern": "^owner:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
+          "type": "string"
+        },
+        "predicate_ids": {
+          "description": "The parent-approved predicates this control exercises.",
+          "items": {
+            "maxLength": 128,
+            "minLength": 11,
+            "pattern": "^predicate:[A-Za-z0-9][A-Za-z0-9._:-]*$",
+            "type": "string"
+          },
+          "maxItems": 8,
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "readiness_evidence_refs": {
+          "description": "The qualified native preparation run references for this exact owner/case/control bundle, parent contract, Project, raw subject, and environment. A legacy green command, unrelated evidence binding, compilation assertion, or zero-selector control is not readiness.",
+          "items": {
+            "maxLength": 2048,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 8,
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "recipe_source": {
+          "$ref": "#/$defs/work_context_reading_source_repository_file",
+          "description": "The exact pinned recipe manifest, not the candidate's modified harness. Native preparation resolves its file bytes, cwd, build-selected witnesses, and environment without test execution. Dispatch consumes that qualified preparation, never an automatic compiler or control run."
+        },
+        "required_evidence_role": {
+          "description": "The evidence role the control's receipt must carry.",
+          "enum": [
+            "reported",
+            "independently_executed"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "control_id",
+        "owner_id",
+        "predicate_ids",
+        "case_ids",
+        "recipe_source",
+        "argv",
+        "cwd",
+        "expected_result",
+        "required_evidence_role",
+        "readiness_evidence_refs"
+      ],
+      "type": "object"
+    },
+    "worker_oracle_finding": {
+      "additionalProperties": false,
+      "description": "The typed oracle tie of one review finding (CON-890): a closed classification plus the owner, predicate/law, case, and control references that bind it. Classification and severity are different dimensions; the tie records no acceptance.",
+      "properties": {
+        "case_ids": {
+          "items": {
+            "maxLength": 128,
+            "minLength": 6,
+            "pattern": "^case:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
+            "type": "string"
+          },
+          "maxItems": 8,
+          "minItems": 0,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "classification": {
+          "description": "delivery_blocker: a failed obligation of a declared owner. uncovered_case: a legitimate new entry path the inventory omitted — a real blocker, not a rejection. follow_up: outside the approved owner/contract; never an open repair criterion. oracle_defect: the harness itself is obsolete, inconsistent, or unsound; it blocks readiness, not a fabricated repair.",
+          "enum": [
+            "delivery_blocker",
+            "uncovered_case",
+            "follow_up",
+            "oracle_defect"
+          ],
+          "type": "string"
+        },
+        "continues_finding_id": {
+          "description": "The earlier ranked finding of this work that this finding continues. Same failure, same canonical open identity; an uncertain join becomes a new finding and earns no shrink credit.",
+          "maxLength": 64,
+          "minLength": 11,
+          "pattern": "^finding:[0-9]+:[0-9]+$",
+          "type": "string"
+        },
+        "control_ids": {
+          "items": {
+            "maxLength": 128,
+            "minLength": 9,
+            "pattern": "^control:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
+            "type": "string"
+          },
+          "maxItems": 8,
+          "minItems": 0,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "entry_point": {
+          "description": "For an uncovered_case: the explicit new entry path or transition the inventory omitted.",
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "evidence_refs": {
+          "description": "The reproducible evidence that supports the finding. A known control failure names that control's receipt.",
+          "items": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 8,
+          "minItems": 0,
+          "type": "array"
+        },
+        "failure_family": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "law_bindings": {
+          "items": {
+            "$ref": "#/$defs/worker_oracle_law_binding"
+          },
+          "maxItems": 8,
+          "minItems": 0,
+          "type": "array"
+        },
+        "owner_id": {
+          "maxLength": 128,
+          "minLength": 7,
+          "pattern": "^owner:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
+          "type": "string"
+        },
+        "predicate_ids": {
+          "items": {
+            "maxLength": 128,
+            "minLength": 11,
+            "pattern": "^predicate:[A-Za-z0-9][A-Za-z0-9._:-]*$",
+            "type": "string"
+          },
+          "maxItems": 8,
+          "minItems": 0,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "variant_of": {
+          "description": "The owner-family finding this newly reproduced alternate entry path is a variant of. A variant is a new identity, not the same open finding.",
+          "maxLength": 64,
+          "minLength": 11,
+          "pattern": "^finding:[0-9]+:[0-9]+$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "classification"
+      ],
+      "type": "object"
+    },
+    "worker_oracle_law_binding": {
+      "additionalProperties": false,
+      "description": "One pinned law revision that explains an owner's obligation, plus the clause or criterion it serves.",
+      "properties": {
+        "clause": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/work_context_reading_source_knowledge"
+        }
+      },
+      "required": [
+        "source",
+        "clause"
+      ],
+      "type": "object"
+    },
+    "worker_oracle_mechanism": {
+      "additionalProperties": false,
+      "description": "The source-level owner of one obligation (CON-890): the Project that owns the repository, one contained source path, and the symbol or entry point that owns the behavior. A directory name alone does not identify a mechanism.",
+      "properties": {
+        "entry_point": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "path": {
+          "description": "A normalized relative repository-contained source path.",
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "project_id": {
+          "maxLength": 128,
+          "minLength": 2,
+          "type": "string"
+        }
+      },
+      "required": [
+        "project_id",
+        "path",
+        "entry_point"
+      ],
+      "type": "object"
+    },
+    "worker_oracle_owner": {
+      "additionalProperties": false,
+      "properties": {
+        "domain_id": {
+          "description": "An approved affected Domain of the active parent contract, validated against the current Product registry at admission.",
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "law_bindings": {
+          "items": {
+            "$ref": "#/$defs/worker_oracle_law_binding"
+          },
+          "maxItems": 8,
+          "minItems": 0,
+          "type": "array"
+        },
+        "mechanism": {
+          "$ref": "#/$defs/worker_oracle_mechanism"
+        },
+        "obligation": {
+          "description": "The bounded invariant statement this owner owes.",
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "owner_id": {
+          "description": "A stable owner: identity, unique within this work item.",
+          "maxLength": 128,
+          "minLength": 7,
+          "pattern": "^owner:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
+          "type": "string"
+        },
+        "predicate_ids": {
+          "description": "The parent-approved predicates this owner covers.",
+          "items": {
+            "maxLength": 128,
+            "minLength": 11,
+            "pattern": "^predicate:[A-Za-z0-9][A-Za-z0-9._:-]*$",
+            "type": "string"
+          },
+          "maxItems": 8,
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "owner_id",
+        "domain_id",
+        "mechanism",
+        "obligation",
+        "predicate_ids"
+      ],
+      "type": "object"
+    },
+    "worker_oracle_receipt": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "result": {
+                "enum": [
+                  "pass",
+                  "fail"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "result"
+            ]
+          },
+          "then": {
+            "properties": {
+              "run_ref": {
+                "minLength": 1
+              }
+            },
+            "required": [
+              "exit_code"
+            ]
+          }
+        }
+      ],
+      "description": "One typed control-execution receipt (CON-890), mirroring contracts/agent-lane-report.schema.json $defs/oracle_receipt exactly: reported evidence, never native-run authority. A retained receipt is a prior-subject regression baseline; subject_commit is the host-derived raw OID, filled only from the packet's core work context. A timeout is unavailable evidence, not a measured failure.",
+      "properties": {
+        "case_ids": {
+          "items": {
+            "maxLength": 128,
+            "minLength": 6,
+            "pattern": "^case:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
+            "type": "string"
+          },
+          "maxItems": 64,
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "control_ids": {
+          "items": {
+            "maxLength": 128,
+            "minLength": 9,
+            "pattern": "^control:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
+            "type": "string"
+          },
+          "maxItems": 8,
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "evidence_refs": {
+          "items": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 8,
+          "minItems": 0,
+          "type": "array"
+        },
+        "exit_code": {
+          "description": "Required exactly when result is pass or fail: the control's exit status.",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "recipe_source": {
+          "$ref": "#/$defs/work_context_reading_source_repository_file",
+          "description": "The exact pinned harness identity a receipt executed: a repository file at an exact commit. A receipt names the recipe the control pinned, never the candidate's modified copy of the harness."
+        },
+        "result": {
+          "enum": [
+            "pass",
+            "fail",
+            "unavailable",
+            "not_run"
+          ],
+          "type": "string"
+        },
+        "run_ref": {
+          "description": "The immutable native-run or artifact locator of the execution. Nonempty exactly when result is pass or fail; a not_run or unavailable result carries the empty string and names its explanation in evidence_refs.",
+          "maxLength": 512,
+          "minLength": 0,
+          "type": "string"
+        },
+        "subject_commit": {
+          "description": "Host-derived raw commit OID. Dispatch-owned: a worker-authored value is stripped before the canonical report; only the core work-context subject supplies it.",
+          "maxLength": 64,
+          "minLength": 40,
+          "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "control_ids",
+        "case_ids",
+        "recipe_source",
+        "result",
+        "run_ref",
+        "evidence_refs"
+      ],
+      "type": "object"
     },
     "worker_packet": {
       "additionalProperties": false,
@@ -18724,6 +24579,10 @@ const GeneratedPayloadSchemaDocument = `{
       "additionalProperties": false,
       "description": "The selected ready worker-job revision this attempt executes (CD-0205). The core refuses a packet whose worker_job is not a ready recorded revision with this exact content, and refuses the member on a pinned definition that predates worker jobs. inputs.task stays the complete parent contract premise; this object bounds the attempt's own objective.",
       "properties": {
+        "acceptance_oracle": {
+          "$ref": "#/$defs/worker_acceptance_oracle",
+          "description": "The CON-890 owner-level acceptance oracle of this immutable revision. Optional and omitted on every revision a pre-oracle definition recorded; required by oracle-capable definition versions. It enters the job digest and reaches every admitted lane through this same copy."
+        },
         "checks": {
           "items": {
             "maxLength": 256,
@@ -21018,10 +26877,103 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "worktree_inspect_result": {
       "additionalProperties": false,
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "branch": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            "content": {
+              "description": "The bounded inspection content: porcelain status lines, the diff text, or the file content.",
+              "maxLength": 16384,
+              "type": "string"
+            },
+            "mode": {
+              "enum": [
+                "status",
+                "diff",
+                "file"
+              ],
+              "type": "string"
+            },
+            "path": {
+              "maxLength": 4096,
+              "minLength": 1,
+              "type": "string"
+            },
+            "project_id": {
+              "$ref": "#/$defs/id"
+            },
+            "truncated": {
+              "type": "boolean"
+            },
+            "work_id": {
+              "$ref": "#/$defs/id"
+            }
+          },
+          "required": [
+            "work_id",
+            "project_id",
+            "branch",
+            "path",
+            "mode",
+            "content",
+            "truncated"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "branch": {
+              "maxLength": 128,
+              "type": "string"
+            },
+            "content": {
+              "description": "The bounded inspection content: porcelain status lines, the diff text, or the file content.",
+              "maxLength": 16384,
+              "type": "string"
+            },
+            "mode": {
+              "const": "oracle_output",
+              "type": "string"
+            },
+            "oracle_output": {
+              "$ref": "#/$defs/native_oracle_output_page"
+            },
+            "path": {
+              "maxLength": 4096,
+              "type": "string"
+            },
+            "project_id": {
+              "$ref": "#/$defs/id"
+            },
+            "truncated": {
+              "type": "boolean"
+            },
+            "work_id": {
+              "$ref": "#/$defs/id"
+            }
+          },
+          "required": [
+            "work_id",
+            "project_id",
+            "branch",
+            "path",
+            "mode",
+            "content",
+            "truncated",
+            "oracle_output"
+          ],
+          "type": "object"
+        }
+      ],
       "properties": {
         "branch": {
           "maxLength": 128,
-          "minLength": 1,
           "type": "string"
         },
         "content": {
@@ -21033,13 +26985,16 @@ const GeneratedPayloadSchemaDocument = `{
           "enum": [
             "status",
             "diff",
-            "file"
+            "file",
+            "oracle_output"
           ],
           "type": "string"
         },
+        "oracle_output": {
+          "$ref": "#/$defs/native_oracle_output_page"
+        },
         "path": {
           "maxLength": 4096,
-          "minLength": 1,
           "type": "string"
         },
         "project_id": {
@@ -21055,11 +27010,7 @@ const GeneratedPayloadSchemaDocument = `{
       "required": [
         "work_id",
         "project_id",
-        "branch",
-        "path",
-        "mode",
-        "content",
-        "truncated"
+        "mode"
       ],
       "type": "object"
     },
@@ -21157,6 +27108,9 @@ const GeneratedPayloadSchemaDocument = `{
         "operation_ref": {
           "$ref": "#/$defs/id",
           "description": "CD-0192: the durable operation a green run recorded, so a caller can bind the run as verification evidence at refine."
+        },
+        "oracle": {
+          "$ref": "#/$defs/native_oracle_result"
         },
         "output": {
           "description": "The bounded combined output of the run. Output beyond the bound is dropped, never dumped.",

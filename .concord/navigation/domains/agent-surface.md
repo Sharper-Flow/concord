@@ -7,7 +7,7 @@ File accountability does not change a document's law home or a handler's semanti
 ## Responsibility
 Owns the typed agent plane: the read and mutation tool surface, its budget and evolution constraints, call context, lanes and worker dispatch, the adapter transport contract, and the agent result envelope.
 
-Mapped files: 424; tests: 272; unresolved candidates: 0.
+Mapped files: 437; tests: 281; unresolved candidates: 0.
 Candidate counts overlap when a file has several candidates; no candidate is an assigned owner.
 
 ## Code and tests
@@ -66,10 +66,10 @@ Bindings and interpretations are advisory joins; navigation does not prove dispa
 - workflow actions bound: 1 (`dispatch_worker`)
 - Interpretation `depends_on` -> `durable-authority` (advisory, not an import allowlist).
 - Interpretation `depends_on` -> `workflow-engine` (advisory, not an import allowlist).
-- Observed package imports: 47 distinct paths; package-level only; intra-package edges unmeasured; no symbol graph or execution permission.
+- Observed package imports: 45 distinct paths; package-level only; intra-package edges unmeasured; no symbol graph or execution permission.
 - Observed package edge via `github.com/sharper-flow/concord/internal/gittest` -> `repository-verification` (advisory).
 - Observed package edge via `github.com/sharper-flow/concord/internal/hostlease` -> `durable-authority` (advisory).
-- Observed package edge via `github.com/sharper-flow/concord/internal/launcher` -> `operator-surface` (advisory).
+- Observed package edge via `github.com/sharper-flow/concord/internal/payloadschema` -> `workflow-engine` (advisory).
 
 ## Not covered here
 Symbol-level call edges, dispatch-admission proof at the current workflow step, CON-887 packet reading,

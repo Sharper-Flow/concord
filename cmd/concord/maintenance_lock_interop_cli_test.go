@@ -16,7 +16,7 @@ import (
 	"github.com/sharper-flow/concord/internal/hostlease"
 )
 
-// The maintenance lock is one shared identity across two languages (CON-807):
+// The maintenance lock is one shared identity across two languages:
 // the installer's Python maintenance_lock and the core's Go
 // hostlease.AcquireMaintenance must be the same non-blocking flock on the
 // data root directory, including the first-install bootstrap of an absent
@@ -197,9 +197,7 @@ func runInstallerCommand(t *testing.T, installerPath string, arguments ...string
 
 // Direction one: the installer holds the maintenance lock over a first
 // install's absent root, and the real core's migration command refuses
-// before it reads the store (CON-807). Before the shared-identity repair,
-// the Python side left an absent root unlocked, and the core ran beside the
-// installer's bootstrap.
+// before it reads the store.
 func TestCoreRefusesMaintenanceWhileTheInstallerHoldsAnAbsentRoot(t *testing.T) {
 	repository := installerRepositoryRoot(t)
 	paths := newInteropPaths(t)
@@ -235,7 +233,7 @@ func TestCoreRefusesMaintenanceWhileTheInstallerHoldsAnAbsentRoot(t *testing.T) 
 }
 
 // Direction two: the real core holds the maintenance lock, and the real
-// installer refuses before it recovers a transaction (CON-807). The core is
+// installer refuses before it recovers a transaction. The core is
 // parked mid-upgrade on the shared admission lock the fence path takes, so
 // the hold is deterministic and the migration itself stays inside the
 // boundary until the test lets it finish.
@@ -296,7 +294,7 @@ func TestInstallerRefusesMaintenanceWhileTheCoreHoldsIt(t *testing.T) {
 
 // The read-only plan cooperates with a held maintenance lock: it takes no
 // maintenance lock itself and creates no missing store, so an operator can
-// plan while a migration runs (CON-807).
+// plan while a migration runs.
 func TestPlanReadsNoStoreIntoExistenceWhileMaintenanceIsHeld(t *testing.T) {
 	path, root := cliStoreRoot(t)
 	release, err := hostlease.AcquireMaintenance(root)

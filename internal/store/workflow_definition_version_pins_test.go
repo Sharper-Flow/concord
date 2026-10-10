@@ -64,10 +64,15 @@ import (
 // optional recovery_routes table. The omitempty field keeps every released
 // manifest above byte-identical; the released versions resolve the same
 // routes through workflowReleasedRecoveryRoutes until instances pin these.
-// CON-887 ships the work-context action: implementation 25, break_fix 22,
-// research 15, architecture_spike 16, ops_runbook 17, static_analysis 14,
-// and generic_one_off 15 add record_work_context to every step except the
+// The work-context action ships one new version per family: implementation 26, break_fix 23,
+// research 16, architecture_spike 17, ops_runbook 18, static_analysis 15,
+// and generic_one_off 16 add record_work_context to every step except the
 // closed delivery gates, whose four-action shape the gate reader pins.
+// The owner-level acceptance oracle ships on the two job-capable
+// repair families: implementation 27 and break_fix 24 declare the required
+// acceptance_oracle member on record_worker_job's payload. Every released
+// version below keeps the payload it was pinned under, so oracle capability
+// is a declared action member, never a behavior flag on a historical pin.
 // The complete-step correction trigger ships in the same tables (CD-0172
 // D3): implementation and break_fix carry a disproved_premise_at_complete
 // route from the complete action step their graphs pin, and CD-0186 keeps
@@ -201,14 +206,39 @@ var workflowDefinitionVersionPins = map[[2]string]string{
 	{"workflow.static_analysis", "14"}:    "sha256:9dcc6f432eb1da4963b86e8494a20aeabc49c0b5ac459838a80704e145284299",
 	{"workflow.generic_one_off", "14"}:    "sha256:727d5743776421aa55fc0a196412bdd57005cec6e3a1125d523d0cc27d9e79b2",
 	{"workflow.generic_one_off", "15"}:    "sha256:263e045c468d31248a33e3f563c7703707a0428e7160cf2e28cbacdd9b8f0abe",
-	// CON-887 work-context versions, after the CON-412 premise-floor versions.
 	{"workflow.implementation", "26"}:     "sha256:c4a5623f94eda4ac4578462b54b84f4475997780b3e75c457367971196c02ad1",
+	{"workflow.implementation", "27"}:     "sha256:a4510246b78d843cc27efad6d09f290c057dc2fc9b21f4a92a6ad8d1c9a42252",
 	{"workflow.break_fix", "23"}:          "sha256:abd2369cdb1614c52cfe54eab9f3040e87d37ffcf70c232d1c5088e9d92f42e0",
+	{"workflow.break_fix", "24"}:          "sha256:6e4445beac1027d110bc9512a7961ee9ecdac55054f10e861fdcc89c0a056137",
 	{"workflow.research", "16"}:           "sha256:df5941b03aaf8a47af83bb070b749ae322974ed026b2d9cf44f9a066eeff5018",
 	{"workflow.architecture_spike", "17"}: "sha256:3e9d434cba63d47aadea18399c3f950b89e93a5cc69317b8685fbbee2d245e55",
 	{"workflow.ops_runbook", "18"}:        "sha256:354390116b3faf7a73524ca4bfbbfe962650f8ed8eaf73a68845d812daade63a",
 	{"workflow.static_analysis", "15"}:    "sha256:5a561e9d53d26fc0ddec0f84aa72ca5cd2a0018e92dfa5dd0732efd0a8b32ade",
 	{"workflow.generic_one_off", "16"}:    "sha256:05e53c76e3f6c712cc62f7421c22a3df4719767aba91f7a07049ba973190d8d7",
+}
+
+// TestWorkflowDefinitionDraftVersionDigests prints only the unreleased
+// definitions whose digest pins must be recorded after composing their content.
+// Run with: bin/oc-test targeted -- go test ./internal/store -run '^TestWorkflowDefinitionDraftVersionDigests$' -v -count=1 -timeout=180s
+func TestWorkflowDefinitionDraftVersionDigests(t *testing.T) {
+	for _, definition := range []WorkflowDefinition{
+		implementationWorkContextV26(), implementationOwnerOracleV27(),
+		breakFixWorkContextV23(), breakFixOwnerOracleV24(),
+		researchWorkContextV16(), architectureWorkContextV17(),
+		opsRunbookWorkContextV18(), staticAnalysisWorkContextV15(), genericOneOffWorkContextV16(),
+	} {
+		digest, err := WorkflowDefinitionDigest(definition)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Logf("%s v%d %s", definition.Ref, definition.Version, digest)
+	}
+}
+
+func TestWorkflowDefinitionDraftPromotionRetainsGaplessPins(t *testing.T) {
+	t.Run("pins", TestBuiltinDefinitionsCoverExactlyThePinnedVersions)
+	t.Run("gapless", TestBuiltinDefinitionVersionsAreGapless)
+	t.Run("latest", TestBuiltinDefinitionForRefResolvesTheLatestVersion)
 }
 
 func TestWorkflowDefinitionVersionPinsHold(t *testing.T) {
@@ -368,8 +398,8 @@ func TestBuiltinDefinitionVersionContinuityRejectsGap(t *testing.T) {
 func TestBuiltinDefinitionForRefResolvesTheLatestVersion(t *testing.T) {
 	t.Parallel()
 	cases := map[string]int64{
-		"workflow.break_fix":          23,
-		"workflow.implementation":     26,
+		"workflow.break_fix":          24,
+		"workflow.implementation":     27,
 		"workflow.generic_one_off":    16,
 		"workflow.research":           16,
 		"workflow.architecture_spike": 17,

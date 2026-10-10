@@ -89,8 +89,8 @@ func runProjectResolve(raw []byte, s *store.Store, out, errOut io.Writer) int {
 // canonical_path locator, normalized. The adapter's second-session routing
 // compares two Projects' canonical paths (CD-0182), and that comparison
 // needs no git fact, so the read resolves no default branch and no commit.
-// worktree-locate stays the owner of branch, base, and path derivation
-// (issue #316); a Project whose repository cannot resolve a default ref
+// worktree-locate stays the owner of branch, base, and path derivation;
+// a Project whose repository cannot resolve a default ref
 // still answers here.
 //
 // Placement: a core CLI verb rather than a host script, the same rationale

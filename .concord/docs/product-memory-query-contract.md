@@ -309,8 +309,8 @@ The JSON corpus is executable through a candidate adapter implementing
   watermarks, and binds the cursor to a source-set digest. A source that is
   unreachable or stale refuses the answer unless the request allows degradation;
   a degraded answer carries one omission per missing source and never reads as
-  an authoritative negative. A one-element source set takes the identical
-  single-home path with unchanged output.
+  an authoritative negative. Every source set uses one query path. A one-element
+  set retains single-source output and uses a v3 cursor.
 
 ### Q10. Resolve canonical durable note
 

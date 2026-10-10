@@ -10,10 +10,33 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 )
 
+// payloadVariant is one exact closed contract an action admits. A variant
+// carries the store-side payload and the public authoring payload together:
+// the pair is what a registering definition declared, so the projected
+// alternative never mixes halves of two definitions.
+type payloadVariant struct {
+	Payload       store.WorkflowPayloadDefinition `json:"payload"`
+	PublicPayload store.WorkflowPayloadDefinition `json:"public_payload"`
+}
+
 type actionContract struct {
-	ID             string                            `json:"id"`
-	Payload        store.WorkflowPayloadDefinition   `json:"payload"`
-	PublicPayload  store.WorkflowPayloadDefinition   `json:"public_payload"`
+	ID string `json:"id"`
+	// Variants are the exact closed payload alternatives the action's
+	// current contracts declare: one per distinct (payload, public payload)
+	// pair among the current definitions and the engine-owned recovery
+	// list. Variants may differ only by whole fields; every field two
+	// variants both name must be declared identically, or collection
+	// refuses. The published authoring schema offers the variants as
+	// alternatives; the store still validates each call against the exact
+	// definition version the work item pins.
+	Variants []payloadVariant `json:"variants"`
+	// LegacyPayloads are the closed shapes retained versions declared that
+	// stay authorable because live work items pin those versions. A
+	// retained shape is admitted only when every field it shares with a
+	// current variant is declared identically; conflicting retained shapes
+	// were never part of the current authoring surface and stay
+	// unauthorable. The closed-empty shapes are the pre-contract open
+	// payload era and keep their historical handling.
 	LegacyPayloads []store.WorkflowPayloadDefinition `json:"legacy_payloads"`
 	// CrossField projects the engine registry's cross-field declaration for
 	// this action — the same single declaration workflowActionCrossField
@@ -36,56 +59,137 @@ type contractProjection struct {
 	Teaching      store.WorkflowContractTeaching `json:"teaching"`
 }
 
-func main() {
-	payloads := map[string]actionContract{}
-	addAction := func(action store.WorkflowActionDefinition) {
-		publicPayload := action.Payload
-		if action.PublicPayload != nil {
-			publicPayload = *action.PublicPayload
-		}
-		// The cross-field rules ride the engine registry declaration,
-		// resolved through the same accessor core validation reads — the
-		// registry action declaration is the single owner the published
-		// variants generate their closed branches from (CON-412).
-		contract := actionContract{ID: action.ID, Payload: action.Payload, PublicPayload: publicPayload, LegacyPayloads: []store.WorkflowPayloadDefinition{}, CrossField: store.WorkflowActionCrossFieldRules(action.ID)}
-		if previous, ok := payloads[action.ID]; ok && !reflect.DeepEqual(previous, contract) {
-			fmt.Fprintf(os.Stderr, "action %s has inconsistent current payload contracts\n", action.ID)
-			os.Exit(1)
-		}
-		payloads[action.ID] = contract
+// canonicalPayload normalizes a payload for comparison: a nil field list
+// and an empty field list declare the same contract, and definitions built
+// by different eras of the chain builders express both.
+func canonicalPayload(payload store.WorkflowPayloadDefinition) store.WorkflowPayloadDefinition {
+	if payload.Fields == nil {
+		payload.Fields = []store.WorkflowPayloadField{}
 	}
-	for _, definition := range store.BuiltinWorkflowDefinitions() {
-		for _, action := range definition.ActionDefinitions {
-			addAction(action)
-		}
-	}
-	for _, action := range store.BuiltinWorkflowRecoveryActionDefinitions() {
-		addAction(action)
-	}
-	for _, definition := range store.BuiltinWorkflowDefinitionsWithHistory() {
-		for _, action := range definition.ActionDefinitions {
-			contract, ok := payloads[action.ID]
-			if !ok || !action.Payload.Closed || len(action.Payload.Fields) != 0 {
-				continue
+	return payload
+}
+
+// samePayload reports whether two declarations describe one contract.
+func samePayload(a, b store.WorkflowPayloadDefinition) bool {
+	return reflect.DeepEqual(canonicalPayload(a), canonicalPayload(b))
+}
+
+// conflictingFieldName returns the first field both payloads name with
+// different declarations, or "" when every shared field agrees. Variants
+// are valid exactly when this is empty: a versioned action contract may
+// add or drop whole fields, never redeclare a shared one, so a conflict is
+// an authoring error the projection must refuse rather than merge.
+func conflictingFieldName(a, b store.WorkflowPayloadDefinition) string {
+	for _, left := range a.Fields {
+		for _, right := range b.Fields {
+			if left.Name == right.Name && !reflect.DeepEqual(left, right) {
+				return left.Name
 			}
-			if reflect.DeepEqual(contract.Payload, action.Payload) {
+		}
+	}
+	return ""
+}
+
+// collectActionContracts folds the registered definitions into the
+// projection's action contracts. Current definitions and the recovery list
+// contribute variants; retained versions contribute legacy payloads under
+// the compatibility rule above. Order is deterministic: variants keep
+// registration order (current families, then the recovery list), legacy
+// payloads keep chain order.
+func collectActionContracts(current []store.WorkflowDefinition, recovery []store.WorkflowActionDefinition, history []store.WorkflowDefinition) (map[string]actionContract, error) {
+	contracts := map[string]actionContract{}
+	addCurrent := func(action store.WorkflowActionDefinition) error {
+		public := action.Payload
+		if action.PublicPayload != nil {
+			public = *action.PublicPayload
+		}
+		variant := payloadVariant{Payload: canonicalPayload(action.Payload), PublicPayload: canonicalPayload(public)}
+		contract, ok := contracts[action.ID]
+		if !ok {
+			contract = actionContract{ID: action.ID, Variants: []payloadVariant{}, LegacyPayloads: []store.WorkflowPayloadDefinition{}, CrossField: store.WorkflowActionCrossFieldRules(action.ID)}
+		}
+		for _, existing := range contract.Variants {
+			if reflect.DeepEqual(existing, variant) {
+				contracts[action.ID] = contract
+				return nil
+			}
+			if field := conflictingFieldName(existing.Payload, variant.Payload); field != "" {
+				return fmt.Errorf("action %s has inconsistent current payload contracts: field %s is declared differently across current definitions", action.ID, field)
+			}
+			if field := conflictingFieldName(existing.PublicPayload, variant.PublicPayload); field != "" {
+				return fmt.Errorf("action %s has inconsistent current payload contracts: field %s is declared differently across current public payload contracts", action.ID, field)
+			}
+		}
+		contract.Variants = append(contract.Variants, variant)
+		contracts[action.ID] = contract
+		return nil
+	}
+	for _, definition := range current {
+		for _, action := range definition.ActionDefinitions {
+			if err := addCurrent(action); err != nil {
+				return nil, err
+			}
+		}
+	}
+	for _, action := range recovery {
+		if err := addCurrent(action); err != nil {
+			return nil, err
+		}
+	}
+	for _, definition := range history {
+		for _, action := range definition.ActionDefinitions {
+			contract, ok := contracts[action.ID]
+			if !ok || !action.Payload.Closed {
 				continue
 			}
 			seen := false
-			for _, legacy := range contract.LegacyPayloads {
-				if reflect.DeepEqual(legacy, action.Payload) {
+			for _, variant := range contract.Variants {
+				if samePayload(variant.Payload, action.Payload) {
 					seen = true
 					break
 				}
 			}
-			if !seen {
-				contract.LegacyPayloads = append(contract.LegacyPayloads, action.Payload)
-				payloads[action.ID] = contract
+			for _, legacy := range contract.LegacyPayloads {
+				if samePayload(legacy, action.Payload) {
+					seen = true
+					break
+				}
 			}
+			if seen {
+				continue
+			}
+			if len(action.Payload.Fields) != 0 {
+				// A retained shape rides the authoring surface only when
+				// it is a whole-field variant of every current contract:
+				// shared fields declared identically. A conflicting
+				// retained shape predates the current contract and was
+				// never authorable through it; it stays unauthorable.
+				compatible := true
+				for _, variant := range contract.Variants {
+					if field := conflictingFieldName(variant.Payload, action.Payload); field != "" {
+						compatible = false
+						break
+					}
+				}
+				if !compatible {
+					continue
+				}
+			}
+			contract.LegacyPayloads = append(contract.LegacyPayloads, canonicalPayload(action.Payload))
+			contracts[action.ID] = contract
 		}
 	}
-	ids := make([]string, 0, len(payloads))
-	for id := range payloads {
+	return contracts, nil
+}
+
+func main() {
+	contracts, err := collectActionContracts(store.BuiltinWorkflowDefinitions(), store.BuiltinWorkflowRecoveryActionDefinitions(), store.BuiltinWorkflowDefinitionsWithHistory())
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	ids := make([]string, 0, len(contracts))
+	for id := range contracts {
 		ids = append(ids, id)
 	}
 	sort.Strings(ids)
@@ -121,7 +225,7 @@ func main() {
 	}
 	projection := contractProjection{SchemaVersion: "1.0", Actions: make([]actionContract, 0, len(ids)), Workflows: workflows, Teaching: store.WorkflowContractTeachingRules()}
 	for _, id := range ids {
-		projection.Actions = append(projection.Actions, payloads[id])
+		projection.Actions = append(projection.Actions, contracts[id])
 	}
 	encoder := json.NewEncoder(os.Stdout)
 	encoder.SetEscapeHTML(false)

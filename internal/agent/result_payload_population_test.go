@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"maps"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -505,42 +506,48 @@ func payloadSchemaDefs(t *testing.T) map[string]map[string]any {
 	return defs
 }
 
-var fixturePatternValues = []struct {
-	pattern *regexp.Regexp
-	value   string
-}{
-	{regexp.MustCompile(`sha256`), "sha256:" + strings.Repeat("0", 64)},
-	{regexp.MustCompile(`\^check:`), "check:mutation.result.conformance"},
-	{regexp.MustCompile(`\^approval:`), "approval:conformance"},
-	{regexp.MustCompile(`\^actor:`), "actor:" + strings.Repeat("0", 64)},
-	{regexp.MustCompile(`\[A-Za-z0-9._-\]\+/\[A-Za-z0-9._-\]\+\$`), "conformance/examples"},
-	{regexp.MustCompile(`\^\[0-9a-f\]\{40(,64)?\}`), "7b83cbf41af2f9fa7990294a41a50cb75a1d6d1e"},
-	{regexp.MustCompile(`\^finding:`), "finding:1:0"},
-	{regexp.MustCompile(`\\S\+\$`), "ref-1"},
+// fixtureStringCandidates is the finite catalog of string values the fixture
+// builder can offer. Selection matches each candidate against the schema's
+// own pattern; the catalog carries no opinion about what a pattern's text
+// looks like.
+var fixtureStringCandidates = []string{
+	"sha256:" + strings.Repeat("0", 64),
+	"check:mutation.result.conformance",
+	"approval:conformance",
+	"actor:" + strings.Repeat("0", 64),
+	"7b83cbf41af2f9fa7990294a41a50cb75a1d6d1e",
+	"finding:1:0",
+	"case:conformance",
+	"control:conformance",
+	"owner:conformance",
+	"predicate:conformance",
+	"conformance/examples",
+	"ref-1",
+	"conformance",
+	"TestConformance",
 }
 
 // fixtureString answers one string value that satisfies the schema node's
-// pattern, format, and bounds. A pattern the table cannot satisfy fails the
-// test loudly: a fixture the builder cannot build must never masquerade as a
-// passing conformance check.
+// pattern, format, and bounds. A pattern no catalog candidate satisfies fails
+// the test loudly: a fixture the builder cannot build must never masquerade as
+// a passing conformance check.
 func fixtureString(t *testing.T, schema map[string]any) string {
 	t.Helper()
 	value := "conformance"
 	if pattern, ok := schema["pattern"].(string); ok {
+		compiled, err := regexp.Compile(pattern)
+		if err != nil {
+			t.Fatalf("schema pattern %q does not compile: %v", pattern, err)
+		}
 		value = ""
-		for _, entry := range fixturePatternValues {
-			if entry.pattern.MatchString(pattern) {
-				value = entry.value
+		for _, candidate := range fixtureStringCandidates {
+			if compiled.MatchString(candidate) {
+				value = candidate
 				break
 			}
 		}
 		if value == "" {
-			// A patternless default the common identifier patterns accept.
-			value = "conformance"
-		}
-		matched, err := regexp.MatchString(pattern, value)
-		if err != nil || !matched {
-			t.Fatalf("fixture value %q does not satisfy schema pattern %q", value, pattern)
+			t.Fatalf("no fixture candidate satisfies schema pattern %q", pattern)
 		}
 	}
 	if schema["format"] == "date-time" {
@@ -577,6 +584,19 @@ func fixtureNumber(t *testing.T, schema map[string]any) json.Number {
 	return value
 }
 
+func mergeFixtureSchema(base, constraints map[string]any) map[string]any {
+	merged := maps.Clone(base)
+	for key, value := range constraints {
+		if nested, ok := value.(map[string]any); ok {
+			if original, ok := merged[key].(map[string]any); ok {
+				value = mergeFixtureSchema(original, nested)
+			}
+		}
+		merged[key] = value
+	}
+	return merged
+}
+
 // schemaFixtureValue synthesizes one fully populated value for a schema node:
 // every declared object member, bound-respecting arrays, and bound-respecting scalars.
 // Optional members are populated on purpose, matching this file's fixture
@@ -592,7 +612,9 @@ func schemaFixtureValue(t *testing.T, schema map[string]any, defs map[string]map
 		if !ok {
 			t.Fatalf("schema ref %q does not resolve in the generated document", ref)
 		}
-		return schemaFixtureValue(t, target, defs, depth+1)
+		siblings := maps.Clone(schema)
+		delete(siblings, "$ref")
+		return schemaFixtureValue(t, mergeFixtureSchema(target, siblings), defs, depth+1)
 	}
 	if constValue, ok := schema["const"]; ok {
 		return constValue
@@ -666,6 +688,19 @@ func schemaFixtureValue(t *testing.T, schema map[string]any, defs map[string]map
 			if member == "boolean" {
 				return true
 			}
+			// A nullable array member (the ranked finding view's
+			// evidence_refs) fixtures as its array arm; null is the absent
+			// arm and the object walker only builds populated shapes.
+			if member == "array" {
+				items, ok := schema["items"].(map[string]any)
+				if !ok {
+					t.Fatalf("array schema at depth %d carries no items", depth)
+				}
+				if upper, ok := schema["maxItems"].(json.Number); ok && upper.String() == "0" {
+					return []any{}
+				}
+				return []any{schemaFixtureValue(t, items, defs, depth+1)}
+			}
 		}
 		t.Fatalf("schema type union %v has no fixture rule", kind)
 	default:
@@ -685,11 +720,20 @@ func schemaFixtureObject(t *testing.T, schema map[string]any, defs map[string]ma
 		}
 		out[name] = schemaFixtureValue(t, member, defs, depth+1)
 	}
+	if patterns, ok := schema["patternProperties"].(map[string]any); ok {
+		for pattern, node := range patterns {
+			name := fixtureString(t, map[string]any{"pattern": pattern})
+			out[name] = schemaFixtureValue(t, node.(map[string]any), defs, depth+1)
+		}
+	}
 	rootDefs := make(map[string]any, len(defs))
 	for name, node := range defs {
 		rootDefs[name] = node
 	}
 	branches, _ := schema["allOf"].([]any)
+	if _, ok := schema["if"]; ok {
+		branches = append(slices.Clone(branches), schema)
+	}
 	for _, node := range branches {
 		branch, ok := node.(map[string]any)
 		if !ok {
@@ -730,8 +774,7 @@ func schemaFixtureObject(t *testing.T, schema map[string]any, defs map[string]ma
 			if !ok {
 				t.Fatalf("conditional property %s is not a schema object", name)
 			}
-			constrained := maps.Clone(member)
-			maps.Copy(constrained, bounds)
+			constrained := mergeFixtureSchema(member, bounds)
 			out[name] = schemaFixtureValue(t, constrained, defs, depth+1)
 		}
 	}

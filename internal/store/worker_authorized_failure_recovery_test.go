@@ -84,11 +84,13 @@ func TestWitnessAbandonedJobFailureKeepsBindingThroughUnrelatedSuccess(t *testin
 	acceptor := reviewGateAcceptor(workID)
 	corrective := &WorkerJobBinding{JobID: "job:witness-abandoned", Revision: 1}
 	abandoned := "attempt:" + workID + ":abandoned"
+	// Record before building the packet: the recording qualifies the fixture
+	// oracle subject the packet's inputs.work_context must then consume.
 	// Authorization only: the dispatch_worker completion records the job
 	// binding, and no worker.dispatched evidence ever lands.
+	recordWorkerJobRevisionForTest(t, s, workID, worker, corrective)
 	packet := dispatchWorkerPacket(t, s, workID, "repair", abandoned)
 	packet["schema_version"] = WorkerPacketSchemaVersion
-	recordWorkerJobRevisionForTest(t, s, workID, worker, corrective)
 	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, *corrective)
 	if err := dispatchJobPacketForTest(t, s, workID, abandoned, worker, "witness-abandoned-dispatch", packet); err != nil {
 		t.Fatalf("authorize the abandoned job: %v", err)

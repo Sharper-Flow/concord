@@ -49,6 +49,10 @@ authorize, spawn, append evidence, in that order. The core authorizes before
 any process starts, replacing an arrangement where `worker-dispatch` records an
 attempt that already happened.
 
+The same completion records the admitted core subject for native oracle
+execution under CD-0067 D2. This snapshot belongs to the existing fenced
+dispatch; it grants no new capability, attempt window, or retry budget.
+
 This is the placement `docs/capability-placement.md` §4 selects: a capability
 that mutates durable state and needs validation, authorization, and approval is
 a core domain operation, exposed only through the accepted adapter. CD-0017 D2

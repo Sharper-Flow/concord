@@ -40,9 +40,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:57741d93e2740b8a4d8a71b09b58f0a4a38d69d1c19f1a4d3e0020b30fa016bf",
+  "sha256": "sha256:4bf373b7b633218cb95bcb2ba488a909ca0470e7ef98b90959ae984df1161700",
   "status": "accepted",
-  "summary": "Defines the machine-readable workflow engine implementation contract.",
+  "summary": "Defines workflow authority, dispatch, evaluation, and atomic completion. Implementation v27 and break-fix v24 require the immutable job oracle and existing source/readiness joins; earlier pins remain oracle-free. Worker.completed v6 carries reported receipts and canonical ranked-finding resolution, while worker.failed remains v2. Oracle evidence does not supply predicate evaluation or new authority. Exact derived open sets, retained old controls, and supported closures bind findings convergence without changing the three-attempt wall, two basis families, single-use consumption, independent verdicts, or operator confirmation.",
   "tags": [
     "workflow",
     "contract"

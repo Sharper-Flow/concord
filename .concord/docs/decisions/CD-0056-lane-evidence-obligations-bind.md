@@ -63,6 +63,13 @@ has existed since the lane surface landed, with no code path that can reach it.
 `obligation` is drawn from the closed vocabulary in D2. `detail` keeps the
 existing 1-512 character bound. The array bounds are unchanged.
 
+An entry may also carry an optional typed `oracle_receipt` under an
+oracle-bound job. It names controls, cases, the host-derived candidate
+subject, the pinned repository-file recipe, a closed result, and evidence
+references. `pass` and `fail` require an exit code and a retained execution
+locator; `unavailable` and `not_run` carry no exit code and an empty locator.
+These members share the existing evidence array, not a second receipt owner.
+
 ### D2. The obligation vocabulary is closed and shared
 
 The eleven tokens the four lanes already declare become a closed enum:
@@ -91,6 +98,19 @@ Concord keeps the findings as reported claims. A finding discharges no
 obligation, records no verdict, and carries no subject identity. Concord
 refuses an array past its bound as a whole and never truncates a finding.
 
+Oracle receipts remain reported evidence. The terminal boundary joins the
+dispatch's job, candidate subject, controls, cases, recipe, and retained
+execution authority. Native-run and worktree-verification producers retain
+their existing authority. Native oracle preparation supplies readiness only;
+a reported pass requires qualified execution, not compilation or zero tests.
+A full-output reference requires complete stdout and stderr retained by the
+native producer, with byte lengths and SHA-256 digests for the same streams.
+The existing inspect read route resolves these references within work/Project
+scope. A preview may be truncated while retained streams remain complete.
+Legacy bounded output, incomplete capture, and abandoned uncommitted output
+cannot acquire a full-output reference or qualified native-oracle pass.
+Neither a signed report nor an execution locator proves semantic acceptance.
+
 ### D4. An undischarged obligation is not a completion
 
 A `worker.completed` event whose evidence leaves any of the dispatching lane's
@@ -107,22 +127,23 @@ Coverage is the bar: every declared obligation appears at least once. Concord
 does not count entries, rank them, or judge their content. Whether the detail
 text is any good is a review question, and review is a lane, not a validator.
 
-### D5. The report contract changes in place at `schema_version` 1.0
+A ranked finding's closed resolution names its canonical ID and evidence
+references. Each reference must resolve to durably bound evidence or a
+retained current-subject pass receipt for that finding's controls. A control
+with role `independently_executed` requires the independent bound-evidence
+route, not a reported receipt alone. Earlier-subject receipts are regression
+baselines. Evidence-role and source joins do not grant a worker verdict
+authority or certify the semantic truth of a closure.
 
-No durable artifact holds a v1 report. Reports have never been parsed, never been
-stored, and never reached an event payload; the only v1 producers in the tree are
-test fixtures and eval packets, which this change updates. A version move would
-migrate nothing.
+### D5. The dispatch pins the report contract
 
-It would also cost something real. `report_schema_version` is pinned by a SQLite
-CHECK constraint on `worker_attempts` and asserted across the scenario corpus, so
-moving it forces a migration to record an evolution that no stored row underwent.
+Report schema `1.0` retains the pre-job shape. Schema `1.1` admits a
+worker-job binding and additive oracle report members. The terminal report
+must match the dispatch's recorded schema identity and job binding. Oracle
+members require an oracle-bearing dispatched revision; historical pins
+do not gain an oracle by absence, upcast, or today's registry.
 
-This is the CD-0054 precedent — `contracts/agent-lanes.schema.json` lost
-`pinned_model` in place — rather than the CD-0015 enum-and-conditional pattern,
-which exists for manifests with readers in the field.
-
-### D6. `worker.completed` moves to payload version 2, and legacy events say so
+### D6. Terminal versions preserve legacy evidence
 
 Stored v1 completions carry no evidence, and no upcaster can invent it. Rather
 than tolerate an absent field and let one shape mean both "reported nothing" and
@@ -133,6 +154,12 @@ than tolerate an absent field and let one shape mean both "reported nothing" and
 newly appended completion must set `reported` and satisfy D4. Validation is total
 in both directions, and a legacy completion is visibly legacy rather than
 indistinguishable from an empty one.
+
+The current `worker.completed` payload is version 6. Review, job binding,
+context findings, and oracle members retain their v3, v4, v5, and v6 source
+boundaries. Upcasts preserve absence without fabricated evidence.
+`worker.failed` remains version 2; valid failed reports retain their context
+findings without a new oracle terminal payload.
 
 ### D7. The adapter parses the report it already receives
 
@@ -145,29 +172,14 @@ This is where the boundary belongs. The adapter is the only component that sees
 worker output, and CD-0044 already places evidence admission at the boundary
 rather than inside the worker.
 
-Amended 2026-09-09 for [issue #962](https://github.com/Sharper-Flow/concord/issues/962):
-report identity is transport-owned. The worker-authored report surface carries
-`schema_version`, `readback_model`, `status`, and `evidence` only; the closed
-schema has no identity properties. The adapter composes `attempt_id`, `lane_id`,
-`lane_version`, and `lane_digest` onto the admitted canonical report from the
-authorized dispatch packet, and refuses a report that supplies any of those
-fields itself, whatever value it names. Exact opaque identity is structural at
-the boundary instead of probabilistic in the model: three live attempts failed
-on one-character transcription drift before this amendment.
-
-Amended 2026-09-17 for the lane-report envelope failure across seven
-models ([Linear](https://linear.app/sharper-flow/issue/CON-203/lane-report-envelope-refuses-valid-worker-output-across-seven-models)):
-the adapter strips dispatch-owned fields (`attempt_id`, `lane_id`,
+Report identity is transport-owned. The adapter strips dispatch-owned fields
+(`attempt_id`, `lane_id`,
 `lane_version`, `lane_digest`, `work_id`, `step_id`) from a worker-authored
 report before validation instead of refusing the report. Identity still
 reaches the canonical terminal report exclusively from the authorized dispatch
 packet, and the closed schema still refuses every other property the worker
-was not asked for, so admission is unchanged for everything except the echo
-itself. The 2026-09-09 amendment made an echo fatal at a cost it did not
-price: 18 of 48 `invalid_report` failures across seven models were reports
-whose only fault was supplying a field the adapter overwrites anyway, and
-each refusal discarded a full lane run. Stripping keeps the guarantee — the
-model's value never reaches the canonical report — without charging the run.
+was not asked for. The adapter supplies each oracle receipt's candidate
+subject from the dispatch subject, never from a worker echo.
 
 Amended 2026-10-09 for the explicit report protocol
 ([Linear](https://linear.app/sharper-flow/issue/CON-891/give-the-workers-final-report-an-explicit-protocol-identity-instead-of)):
@@ -226,6 +238,9 @@ step graph under CD-0013 D1.
   authorized dispatch packet, never from the worker's output. A worker echo
   of any dispatch-owned field, `work_id` and `step_id` included, is stripped
   before validation, so the model's value never reaches the canonical report.
+- `TestOwnerOracleReceipt`, `TestOwnerOracleReceiptShapeCoupling`, and
+  `TestOwnerOracleRepairFamily` cover receipt joins, closed results, and
+  current-subject closure without losing earlier controls.
 
 ## Rejected alternatives
 

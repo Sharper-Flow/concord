@@ -7,7 +7,7 @@ File accountability does not change a document's law home or a handler's semanti
 ## Responsibility
 Owns the authority a repository check may hold: what a validator may assert, what it may block, how required checks bind to declared coverage, and the boundary between a check's finding and accepted Product law.
 
-Mapped files: 192; tests: 87; unresolved candidates: 0.
+Mapped files: 195; tests: 90; unresolved candidates: 0.
 Candidate counts overlap when a file has several candidates; no candidate is an assigned owner.
 
 ## Code and tests
@@ -30,6 +30,7 @@ Explicit rules win over directory defaults; named legacy gaps remain unresolved.
 - Go test package: `github.com/sharper-flow/concord/internal/store/storetest/neighbor`
 - Go test package: `github.com/sharper-flow/concord/internal/testenv`
 - Go test package: `github.com/sharper-flow/concord/scripts/domain-navigation-cli`
+- Go test package: `github.com/sharper-flow/concord/scripts/workflow-action-contracts`
 
 ## Mechanisms
 Advisory semantic ownership; the complete enriched references live in the inventory.
@@ -57,8 +58,9 @@ Bindings and interpretations are advisory joins; navigation does not prove dispa
 - agent operations bound: 0
 - workflow actions bound: 0
 - Interpretation `depends_on` -> `product-memory` (advisory, not an import allowlist).
-- Observed package imports: 35 distinct paths; package-level only; intra-package edges unmeasured; no symbol graph or execution permission.
+- Observed package imports: 37 distinct paths; package-level only; intra-package edges unmeasured; no symbol graph or execution permission.
 - Observed package edge via `github.com/sharper-flow/concord/internal/linearclient` -> `work-coordination` (advisory).
+- Observed package edge via `github.com/sharper-flow/concord/internal/payloadschema` -> `workflow-engine` (advisory).
 - Observed package edge via `github.com/sharper-flow/concord/internal/store` -> `agent-surface`, `durable-authority`, `operator-surface`, `product-memory`, `repository-verification`, `work-coordination`, `workflow-engine` (advisory).
 
 ## Not covered here

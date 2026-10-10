@@ -6099,7 +6099,30 @@ CREATE TRIGGER worktree_ref_outcomes_guard_delete BEFORE DELETE ON worktree_ref_
 `,
 	},
 	{
+		// The schema refuses deletes while the owner or a consumer is active.
+		// Rebuild drops this guard during staging and restores it afterward.
 		Version:  123,
+		Name:     "research_retirement_delete_guard",
+		Breaking: true,
+		SQL: `
+CREATE TRIGGER active_research_packs_retirement_delete_guard
+BEFORE DELETE ON active_research_packs FOR EACH ROW
+WHEN NOT (
+    COALESCE((SELECT lifecycle FROM work_items WHERE id = OLD.owner_work_id), '') IN ('completed','cancelled','superseded')
+    AND NOT EXISTS (
+        SELECT 1 FROM active_research_consumers c
+        LEFT JOIN work_items cw ON cw.id = c.consumer_work_id
+        WHERE c.pack_id = OLD.pack_id
+          AND (cw.id IS NULL OR cw.lifecycle NOT IN ('completed','cancelled','superseded'))
+    )
+)
+BEGIN
+    SELECT RAISE(ABORT, 'active_research_packs deletes only retire-eligible packs through research_retire');
+END;
+`,
+	},
+	{
+		Version:  124,
 		Name:     "native_oracle_plan_and_streams",
 		Breaking: false,
 		SQL: `

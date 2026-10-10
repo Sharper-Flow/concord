@@ -1,6 +1,7 @@
 # Concord Compaction Retention and Historical Index (PM7)
 
-> **Status:** **Accepted — binding until superseded.**
+> **Status:** **Superseded.**
+> **Successor:** [compaction-retention-policy](compaction-retention-policy-successor.md).
 > **Accepted by operator:** 2026-08-06.
 > **Decision:** PM7; binding PM6 amendment.
 > **Binding inputs:** PM1 Q2/Q3/Q7–Q10, CD-0002 I1–I6, PM4 lifecycle,

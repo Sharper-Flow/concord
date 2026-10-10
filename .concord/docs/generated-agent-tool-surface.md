@@ -1,7 +1,7 @@
 # Generated Concord agent tool surface
 
-Manifest digest: `sha256:a443b6963450180ed43527bc02913924b864e451df43105ecafe47ddd8a3d05b`
-Payload schema digest: `sha256:8d0c793dc272d12ef23467182196279e9468d914e3d8c87887355f55afec7ef0`
+Manifest digest: `sha256:822d676642fa0f42caf4e3cbd10394b156e349a5610570e12c55ee78a3e5bc6a`
+Payload schema digest: `sha256:3135e06b6bdff2241bb7b70a215b293c33c376b98dfaccbd15ff259d74700f37`
 Envelope schema: `1.0`
 
 | Operation | Kind | Query | Capability | Consequence | Availability |
@@ -36,6 +36,7 @@ Envelope schema: `1.0`
 | `concord_work_define.research_finding_record` | `mutation` | `—` | `research` | `research` | `always` |
 | `concord_work_define.research_source_record` | `mutation` | `—` | `research` | `research` | `always` |
 | `concord_work_define.research_freshness_set` | `mutation` | `—` | `research` | `research` | `always` |
+| `concord_work_define.research_retire` | `mutation` | `—` | `research` | `research` | `always` |
 | `concord_work_define.observation_record` | `mutation` | `—` | `work_define` | `intent` | `always` |
 | `concord_work_define.issue_adopt` | `mutation` | `—` | `work_define` | `intent` | `always` |
 | `concord_work_initiative.create` | `mutation` | `—` | `work_initiative` | `intent` | `always` |

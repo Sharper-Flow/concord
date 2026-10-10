@@ -134,6 +134,10 @@ func AppendResearchRevision(ctx context.Context, s *Store, req AppendResearchRev
 		_ = tx.Rollback()
 		return out, err
 	}
+	if err := ensureResearchPackAuthorable(ctx, tx, pack); err != nil {
+		_ = tx.Rollback()
+		return out, err
+	}
 	priorRevision, err := readRevisionTx(ctx, tx, req.PackID, pack.CurrentRevision)
 	if err != nil {
 		_ = tx.Rollback()
@@ -223,6 +227,10 @@ func addResearchFinding(ctx context.Context, s *Store, req ResearchFindingReques
 	}
 	pack, err := lockResearchPack(ctx, tx, req.PackID, req.ExpectedVersion)
 	if err != nil {
+		_ = tx.Rollback()
+		return out, err
+	}
+	if err := ensureResearchPackAuthorable(ctx, tx, pack); err != nil {
 		_ = tx.Rollback()
 		return out, err
 	}
@@ -352,6 +360,10 @@ func addResearchSource(ctx context.Context, s *Store, req ResearchSourceRequest,
 	}
 	pack, err := lockResearchPack(ctx, tx, req.PackID, req.ExpectedVersion)
 	if err != nil {
+		_ = tx.Rollback()
+		return out, err
+	}
+	if err := ensureResearchPackAuthorable(ctx, tx, pack); err != nil {
 		_ = tx.Rollback()
 		return out, err
 	}
@@ -599,6 +611,10 @@ func PruneResearchRevisions(ctx context.Context, s *Store, req ResearchPackMutat
 		_ = tx.Rollback()
 		return 0, err
 	}
+	if err := ensureResearchPackAuthorable(ctx, tx, pack); err != nil {
+		_ = tx.Rollback()
+		return 0, err
+	}
 	result, err := tx.ExecContext(ctx, `DELETE FROM active_research_revisions WHERE pack_id=? AND revision < ? AND NOT EXISTS (SELECT 1 FROM active_research_consumers c WHERE c.pack_id=active_research_revisions.pack_id AND c.revision=active_research_revisions.revision)`, req.PackID, pack.CurrentRevision)
 	if err != nil {
 		_ = tx.Rollback()
@@ -640,65 +656,6 @@ func PruneResearchRevisions(ctx context.Context, s *Store, req ResearchPackMutat
 		return 0, researchUnavailable("cannot commit revision pruning", err)
 	}
 	return int(count), nil
-}
-
-func (s *Store) DeleteResearchPack(ctx context.Context, req ResearchPackMutationRequest) error {
-	return DeleteResearchPack(ctx, s, req)
-}
-func DeleteResearchPack(ctx context.Context, s *Store, req ResearchPackMutationRequest) error {
-	if err := validateResearchIdentity(req.Identity); err != nil {
-		return err
-	}
-	if req.PackID == "" || req.ExpectedVersion < 1 {
-		return researchInvalid("pack_id and positive expected_version are required")
-	}
-	digest, err := canonicalRequestDigest(req)
-	if err != nil {
-		return err
-	}
-	tx, prior, replay, err := beginResearchMutation(ctx, s, req.Identity, digest)
-	if err != nil {
-		return err
-	}
-	if replay {
-		_ = prior
-		return tx.Commit()
-	}
-	if _, err := lockResearchPack(ctx, tx, req.PackID, req.ExpectedVersion); err != nil {
-		_ = tx.Rollback()
-		return err
-	}
-	var blocked string
-	err = tx.QueryRowContext(ctx, `SELECT c.consumer_work_id FROM active_research_consumers c JOIN work_items w ON w.id=c.consumer_work_id WHERE c.pack_id=? AND c.required=1 AND w.lifecycle NOT IN ('completed','cancelled','superseded') LIMIT 1`, req.PackID).Scan(&blocked)
-	if err == nil {
-		_ = tx.Rollback()
-		return newFailure(KindResearchConsumerBlocked, "delete_research_pack", "required active consumer remains bound: "+blocked, false, "unbind, rebind, or terminalize every required active consumer")
-	}
-	if err != sql.ErrNoRows {
-		_ = tx.Rollback()
-		return researchUnavailable("cannot inspect active research consumers", err)
-	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM active_research_packs WHERE pack_id=?`, req.PackID); err != nil {
-		_ = tx.Rollback()
-		return researchUnavailable("cannot delete research pack", err)
-	}
-	var stillExists int
-	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM active_research_packs WHERE pack_id=?)`, req.PackID).Scan(&stillExists); err != nil {
-		_ = tx.Rollback()
-		return researchUnavailable("cannot verify research deletion", err)
-	}
-	if stillExists != 0 {
-		_ = tx.Rollback()
-		return newFailure(KindInvariantViolation, "research_mutation", "research deletion postcondition did not hold", false, "retry the research deletion")
-	}
-	if err := finishResearchMutation(ctx, tx, req.Identity, digest, s.now(), researchResult{PackID: req.PackID}); err != nil {
-		_ = tx.Rollback()
-		return err
-	}
-	if err := tx.Commit(); err != nil {
-		return researchUnavailable("cannot commit research deletion", err)
-	}
-	return nil
 }
 
 func (s *Store) SetResearchFreshness(ctx context.Context, req SetResearchFreshnessRequest) error {
@@ -791,7 +748,12 @@ func BindResearchFindingSource(ctx context.Context, s *Store, req ResearchFindin
 		_ = prior
 		return tx.Commit()
 	}
-	if _, err := lockResearchPack(ctx, tx, req.PackID, req.ExpectedVersion); err != nil {
+	pack, err := lockResearchPack(ctx, tx, req.PackID, req.ExpectedVersion)
+	if err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	if err := ensureResearchPackAuthorable(ctx, tx, pack); err != nil {
 		_ = tx.Rollback()
 		return err
 	}
@@ -904,6 +866,9 @@ func appendResearchRevisionWithinRawTx(ctx context.Context, tx *sql.Tx, req Appe
 	if err != nil {
 		return out, err
 	}
+	if err := ensureResearchPackAuthorable(ctx, tx, pack); err != nil {
+		return out, err
+	}
 	priorRevision, err := readRevisionTx(ctx, tx, req.PackID, pack.CurrentRevision)
 	if err != nil {
 		return out, err
@@ -950,6 +915,9 @@ func recordResearchFindingWithinRawTx(ctx context.Context, tx *sql.Tx, req Resea
 	}
 	pack, err := lockResearchPack(ctx, tx, req.PackID, req.ExpectedVersion)
 	if err != nil {
+		return out, err
+	}
+	if err := ensureResearchPackAuthorable(ctx, tx, pack); err != nil {
 		return out, err
 	}
 	if err := validateResearchScopeReferences(ctx, tx, req.Finding.Scopes); err != nil {
@@ -1030,6 +998,9 @@ func addResearchSourceWithinTx(ctx context.Context, tx *sql.Tx, req ResearchSour
 	}
 	pack, err := lockResearchPack(ctx, tx, req.PackID, req.ExpectedVersion)
 	if err != nil {
+		return out, err
+	}
+	if err := ensureResearchPackAuthorable(ctx, tx, pack); err != nil {
 		return out, err
 	}
 	revision, err := resolveResearchRevision(req.Revision, pack)

@@ -767,6 +767,15 @@ func rebuildFromLogTx(ctx context.Context, tx *sql.Tx) error {
 	if err != nil {
 		return err
 	}
+	// The retirement delete guard refuses every pack delete that is not a
+	// retire-eligible research_retire. Rebuild staging deletes every pack row
+	// and restores it from the direct-authority snapshot in this same
+	// transaction, so the guard steps aside for the window like the migration
+	// 52 locator guard below.
+	retirementGuardDDL, err := dropTriggerReturningDDL(ctx, tx, researchRetirementDeleteGuardName)
+	if err != nil {
+		return err
+	}
 	if err := snapshotActiveResearchForRebuild(ctx, tx); err != nil {
 		return err
 	}
@@ -817,6 +826,12 @@ func rebuildFromLogTx(ctx context.Context, tx *sql.Tx) error {
 	}
 	if err := restoreActiveResearchAfterRebuild(ctx, tx); err != nil {
 		return err
+	}
+	if retirementGuardDDL != "" {
+		if _, err := tx.ExecContext(ctx, retirementGuardDDL); err != nil {
+			return wrapFailure(KindUnavailable, "rebuild_from_log", "cannot restore the research retirement guard", true,
+				"retry once the database is writable", err)
+		}
 	}
 	if err := restoreOperationalAuthorityAfterRebuild(ctx, tx); err != nil {
 		return err

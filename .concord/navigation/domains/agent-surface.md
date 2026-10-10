@@ -43,7 +43,7 @@ These are catalog surface entries, not invariant/control or handler joins.
 - `concord_product_view`: `blocked_sessions`, `portfolio`, `resolve`, `resources`, `snapshot`
 - `concord_work_browse`: `blocked`, `list`, `messages`, `ready`, `resource_claims`, `scope`, `worktree_audit`, `worktree_inspect`
 - `concord_work_compact`: `lesson_publish`, `publish`, `reconcile`
-- `concord_work_define`: `capture`, `issue_adopt`, `observation_record`, `research_finding_record`, `research_freshness_set`, `research_pack_create`, `research_revision_append`, `research_source_record`, `revise_intent`
+- `concord_work_define`: `capture`, `issue_adopt`, `observation_record`, `research_finding_record`, `research_freshness_set`, `research_pack_create`, `research_retire`, `research_revision_append`, `research_source_record`, `revise_intent`
 - `concord_work_initiative`: `add_entry`, `change_requiredness`, `create`, `entries`, `remove_entry`, `reorder_entry`, `revise_narrative`
 - `concord_work_relate`: `client_policy_grant_request`, `link`, `message_send`, `message_withdraw`, `product_project_add`, `resolve_overlap`, `resource_claim`, `resource_release`, `restore_superseded`, `set_memberships`, `supersede`, `unlink`
 - `concord_work_trace`: `continuity`, `external_observations`, `history`, `observations`, `project_retirement`, `relations`, `research`

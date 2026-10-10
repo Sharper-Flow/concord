@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"maps"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -583,6 +584,19 @@ func fixtureNumber(t *testing.T, schema map[string]any) json.Number {
 	return value
 }
 
+func mergeFixtureSchema(base, constraints map[string]any) map[string]any {
+	merged := maps.Clone(base)
+	for key, value := range constraints {
+		if nested, ok := value.(map[string]any); ok {
+			if original, ok := merged[key].(map[string]any); ok {
+				value = mergeFixtureSchema(original, nested)
+			}
+		}
+		merged[key] = value
+	}
+	return merged
+}
+
 // schemaFixtureValue synthesizes one fully populated value for a schema node:
 // every declared object member, bound-respecting arrays, and bound-respecting scalars.
 // Optional members are populated on purpose, matching this file's fixture
@@ -598,7 +612,9 @@ func schemaFixtureValue(t *testing.T, schema map[string]any, defs map[string]map
 		if !ok {
 			t.Fatalf("schema ref %q does not resolve in the generated document", ref)
 		}
-		return schemaFixtureValue(t, target, defs, depth+1)
+		siblings := maps.Clone(schema)
+		delete(siblings, "$ref")
+		return schemaFixtureValue(t, mergeFixtureSchema(target, siblings), defs, depth+1)
 	}
 	if constValue, ok := schema["const"]; ok {
 		return constValue
@@ -704,11 +720,20 @@ func schemaFixtureObject(t *testing.T, schema map[string]any, defs map[string]ma
 		}
 		out[name] = schemaFixtureValue(t, member, defs, depth+1)
 	}
+	if patterns, ok := schema["patternProperties"].(map[string]any); ok {
+		for pattern, node := range patterns {
+			name := fixtureString(t, map[string]any{"pattern": pattern})
+			out[name] = schemaFixtureValue(t, node.(map[string]any), defs, depth+1)
+		}
+	}
 	rootDefs := make(map[string]any, len(defs))
 	for name, node := range defs {
 		rootDefs[name] = node
 	}
 	branches, _ := schema["allOf"].([]any)
+	if _, ok := schema["if"]; ok {
+		branches = append(slices.Clone(branches), schema)
+	}
 	for _, node := range branches {
 		branch, ok := node.(map[string]any)
 		if !ok {
@@ -749,8 +774,7 @@ func schemaFixtureObject(t *testing.T, schema map[string]any, defs map[string]ma
 			if !ok {
 				t.Fatalf("conditional property %s is not a schema object", name)
 			}
-			constrained := maps.Clone(member)
-			maps.Copy(constrained, bounds)
+			constrained := mergeFixtureSchema(member, bounds)
 			out[name] = schemaFixtureValue(t, constrained, defs, depth+1)
 		}
 	}

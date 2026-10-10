@@ -645,12 +645,18 @@ test("nested oneOf selectors keep their exactly-one exclusions on both published
   // product_view resolve: product_id and project_id are exclusive.
   const resolveInput = { operation: "resolve", input: { product_id: "prod-1", project_id: "proj-1" } }
   await refuseEverywhere("concord_product_view", resolveInput, "resolve product/project exclusivity")
-  // outside_repair_reconcile: release_tag and pull_requests cannot combine.
-  const reconcileInput = {
-    operation: "outside_repair_reconcile",
-    input: { work_id: "work-selector", expected_version: 1, reason: "the operator repaired outside the workflow", mode: "completed", release_tag: "v1.2.3", pull_requests: [12] },
+  // A completed reconcile requires both delivery selectors. Resume forbids
+  // either selector; each witness supplies all independent required fields.
+  const input = { work_id: "work-selector", expected_version: 1, reason: "the operator repaired outside the workflow", mode: "completed", idempotency_key: "selector-probe", release_tag: "v1.2.3", pull_requests: [12] }
+  expect(authoredVerdict("work_transition_outside_repair_reconcile_input", input).ok).toBe(true)
+  await expectParity("concord_work_transition", "work_transition_outside_repair_reconcile_input", { operation: "outside_repair_reconcile", input }, "completed reconcile selectors")
+  const { release_tag, pull_requests, ...resume } = input
+  resume.mode = "resume"
+  expect(authoredVerdict("work_transition_outside_repair_reconcile_input", resume).ok).toBe(true)
+  await expectParity("concord_work_transition", "work_transition_outside_repair_reconcile_input", { operation: "outside_repair_reconcile", input: resume }, "resume without delivery selectors")
+  for (const selectors of [{ release_tag }, { pull_requests }]) {
+    await refuseEverywhere("concord_work_transition", { operation: "outside_repair_reconcile", input: { ...resume, ...selectors } }, "resume forbids delivery selectors")
   }
-  await refuseEverywhere("concord_work_transition", reconcileInput, "outside repair reconcile exclusivity")
 })
 
 test("published references refuse missing, external, and cyclic definitions", () => {
@@ -683,6 +689,11 @@ test("published references refuse missing, external, and cyclic definitions", ()
   // A cyclic reference chain never resolves.
   expect(() => expandedPublishedRequestSchema({
     $defs: { d0: { $ref: "#/$defs/d1" }, d1: { $ref: "#/$defs/d0" } },
+    type: "object",
+    oneOf: [{ $ref: "#/$defs/d0" }],
+  })).toThrow(/cyclic/)
+  expect(() => expandedPublishedRequestSchema({
+    $defs: { d0: { type: "object", properties: { nested: { $ref: "#/$defs/d0" } } } },
     type: "object",
     oneOf: [{ $ref: "#/$defs/d0" }],
   })).toThrow(/cyclic/)

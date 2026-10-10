@@ -71,7 +71,8 @@ export function expandedPublishedRequestSchema(published: unknown): unknown {
     if (!Object.hasOwn(defs, name)) throw new Error(`published request reference ${node.$ref} resolves no local definition`);
     if (resolving.has(name)) throw new Error(`published request references are cyclic at ${node.$ref}`);
     resolving.add(name);
-    try { return resolve(defs[name]); } finally { resolving.delete(name); }
+    // Keep the name active through its full subtree, not only alias refs.
+    try { return expandValue(resolve(defs[name])); } finally { resolving.delete(name); }
   };
   // conjunction merges one factored union parent's object constraints into
   // one branch: required sets union, a parent property constraint fills the

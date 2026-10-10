@@ -35,13 +35,20 @@ func TestMutationIdempotencyBoundaryRoundTrip(t *testing.T) {
 		t.Fatalf("touch idempotency record: %v", err)
 	}
 	if err := s.Transact(ctx, func(tx *Transaction) error {
-		return UpdateMutationResultTx(ctx, tx, MutationResultUpdate{Key: key, ResultEventIDs: `["event-1"]`, ResultPayload: `{"done":true}`, ChangedRefs: `[{"id":"work-1"}]`, ObservedAt: now.Add(2 * time.Second)})
+		return UpdateMutationEventRefsTx(ctx, tx, MutationEventRefsUpdate{Key: key, ResultEventIDs: `["event-1"]`, ObservedAt: now.Add(2 * time.Second)})
 	}); err != nil {
 		t.Fatalf("update mutation result: %v", err)
 	}
 	record, found, err = s.LookupMutationIdempotency(ctx, key)
-	if err != nil || !found || record.ResultPayload != `{"done":true}` || record.ChangedRefs != `[{"id":"work-1"}]` {
+	if err != nil || !found || record.ResultPayload != `{"ok":true}` || record.ChangedRefs != `[]` {
 		t.Fatalf("updated idempotency record = (%+v, %t, %v)", record, found, err)
+	}
+	var events, observed string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT result_event_ids,last_observed_at FROM idempotency_records WHERE idempotency_key='mutation-key'`).Scan(&events, &observed); err != nil {
+		t.Fatal(err)
+	}
+	if events != `["event-1"]` || observed != now.Add(2*time.Second).Format(time.RFC3339Nano) {
+		t.Fatalf("event update=(%s, %s)", events, observed)
 	}
 	var replayed int
 	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT replayed_count FROM idempotency_records WHERE principal_ref=? AND tool=? AND operation_kind=? AND idempotency_key=?`, key.PrincipalRef, key.Tool, key.OperationKind, key.IdempotencyKey).Scan(&replayed); err != nil {

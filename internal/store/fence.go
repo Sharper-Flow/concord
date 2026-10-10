@@ -113,6 +113,18 @@ func Step(ctx context.Context, s *Store, opID string) (FenceResult, error) {
 	return readStep(ctx, s.db, opID, false)
 }
 
+// StepTx reads the newest durable attempt in the caller's transaction.
+func StepTx(ctx context.Context, transaction *Transaction, opID string) (FenceResult, error) {
+	tx, err := transactionSQL(transaction, "step")
+	if err != nil {
+		return FenceResult{}, err
+	}
+	if opID == "" {
+		return FenceResult{}, newFailure(KindInvalidOperation, "step", "operation ID is empty", false, "supply a durable operation ID")
+	}
+	return readStep(ctx, tx, opID, true)
+}
+
 // ClaimStep starts the next fenced attempt. The connection's _txlock=immediate
 // setting makes this transaction BEGIN IMMEDIATE across all callers. The claim
 // commits durably (CD-0050 D3): a claim lost to power failure could permit a

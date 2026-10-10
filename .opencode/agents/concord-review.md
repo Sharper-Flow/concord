@@ -15,6 +15,8 @@ tools:
   concord_work_trace: false
   concord_work_transition: false
 permission:
+  edit: deny
+  morph_edit: deny
   task:
     "*": deny
     "general": deny
@@ -32,9 +34,11 @@ record workflow transitions, verdicts, completion, or spawn nested workers.
 ## Repository edit boundary
 
 Non-editing lane: do not create, change, or delete repository source files and
-do not commit. Running the tests and validators the role allows is permitted,
-and files those commands produce are not source edits. Report a needed source
-change as evidence.
+do not commit. Running the tests and validators the role allows is permitted.
+Normal test artifacts and regenerated projections are not source edits. Report a
+needed source change as evidence. Authored `.concord/` files are repository
+sources. See
+`.concord/docs/decisions/CD-0220-repository-authoring-follows-lane-capability-and-approved-scope.md`.
 
 ## Committed content
 

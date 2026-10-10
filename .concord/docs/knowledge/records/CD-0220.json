@@ -1,0 +1,36 @@
+{
+  "applies_to_domain_ids": [
+    "product-memory",
+    "repository-verification"
+  ],
+  "authority": {
+    "tier": "derived"
+  },
+  "date": "2026-10-10T00:00:00Z",
+  "doc_contract_profile": "current",
+  "evidence": [
+    ".concord/docs/knowledge/coverage/CD-0220.json",
+    "scripts/generate-agent-lanes.py",
+    "scripts/test-generate-agent-lanes.py"
+  ],
+  "home_domain_id": "agent-surface",
+  "id": "CD-0220",
+  "kind": "decision",
+  "path": ".concord/docs/decisions/CD-0220-repository-authoring-follows-lane-capability-and-approved-scope.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:3b046eeb1db071a775a891616f37ca75fbd29d54f6b7c91f3213b5cdab722b0d",
+  "status": "accepted",
+  "summary": "Repository authoring follows lane capability and approved scope. Non-editing lanes deny native editors and morph_edit. Product-law approval, allowed command artifacts, independent repository review, and host-owned shell permissions retain separate authority boundaries.",
+  "tags": [
+    "agent-lanes",
+    "authoring",
+    "permissions"
+  ],
+  "title": "Repository authoring follows lane capability and approved scope"
+}

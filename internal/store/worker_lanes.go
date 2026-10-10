@@ -19,11 +19,18 @@ const (
 	WorkerFailed     = "worker.failed"
 
 	// WorkerPacketSchemaVersion and WorkerReportSchemaVersion are the
-	// job-capable schema identities (CD-0205): the versions whose packets
-	// and reports may carry the worker-job binding. The adapter records
-	// them on every dispatch and report it builds.
-	WorkerPacketSchemaVersion = "1.1"
-	WorkerReportSchemaVersion = "1.1"
+	// current schema identities: the card-free 2.0 revision whose
+	// packet drops the retired domain_cards member. The matched pair is the
+	// only one a live dispatch may record; the adapter records it on every
+	// dispatch and report it builds.
+	WorkerPacketSchemaVersion = "2.0"
+	WorkerReportSchemaVersion = "2.0"
+	// WorkerPacketSchemaVersionPrior and WorkerReportSchemaVersionPrior are
+	// the released job-capable identities (CD-0205) the 2.0 cutover retired
+	// from live production. Recorded dispatches that carry them keep
+	// folding and replaying; no host may record a new one.
+	WorkerPacketSchemaVersionPrior = "1.1"
+	WorkerReportSchemaVersionPrior = "1.1"
 	// WorkerPacketSchemaVersionLegacy and WorkerReportSchemaVersionLegacy
 	// are the released pre-job identities. A payload that records them
 	// never carries a worker-job binding: the binding at "1.0" was the
@@ -32,6 +39,26 @@ const (
 	WorkerPacketSchemaVersionLegacy = "1.0"
 	WorkerReportSchemaVersionLegacy = "1.0"
 )
+
+// workerMatchedSchemaVersions is the closed set of released packet/report
+// revisions one recorded dispatch may carry. The set is released history, not
+// configuration: 1.0 (pre-job), 1.1 (job-capable CD-0205), and the current
+// card-free 2.0 are exactly the identities a store ever recorded.
+var workerMatchedSchemaVersions = map[string]bool{
+	WorkerPacketSchemaVersionLegacy: true,
+	WorkerPacketSchemaVersionPrior:  true,
+	WorkerPacketSchemaVersion:       true,
+}
+
+// workerJobCapableSchemaVersions is the closed set of released revisions
+// whose packets and reports may carry the worker-job binding (CD-0205). Job
+// presence binds the recorded revision, not today's current: a recorded 1.1
+// history stays job-bound after the 2.0 cutover, while 1.0 never carries a
+// job.
+var workerJobCapableSchemaVersions = map[string]bool{
+	WorkerPacketSchemaVersionPrior: true,
+	WorkerPacketSchemaVersion:      true,
+}
 
 // workerDispatchedWorkerJobVersion and workerCompletedWorkerJobVersion are
 // the payload versions at which each worker event kind may first bind a
@@ -376,11 +403,11 @@ func validateWorkerCompletedPayload(_ Event, payload WorkerCompletedPayload) err
 	if payload.AttemptID == "" || !workerModelPattern.MatchString(payload.ReadbackModel) {
 		return invalidWorkerPayload("worker.completed payload has invalid identity or report schema")
 	}
-	if payload.ReportSchemaVersion != WorkerReportSchemaVersion && payload.ReportSchemaVersion != WorkerReportSchemaVersionLegacy {
+	if !workerMatchedSchemaVersions[payload.ReportSchemaVersion] {
 		return invalidWorkerPayload("worker.completed payload has invalid identity or report schema")
 	}
-	if payload.WorkerJob != nil && payload.ReportSchemaVersion != WorkerReportSchemaVersion {
-		return invalidWorkerPayload("worker.completed worker_job requires the job-capable report schema " + WorkerReportSchemaVersion)
+	if payload.WorkerJob != nil && !workerJobCapableSchemaVersions[payload.ReportSchemaVersion] {
+		return invalidWorkerPayload("worker.completed worker_job requires the job-capable report schema " + WorkerReportSchemaVersionPrior + " or " + WorkerReportSchemaVersion)
 	}
 	if err := validateWorkerBaseComparison(payload.BaseComparison); err != nil {
 		return err
@@ -399,17 +426,17 @@ func validateWorkerCompletedPayload(_ Event, payload WorkerCompletedPayload) err
 
 // workerSchemaVersionFault names the boundary violation of one dispatch's
 // recorded packet/report schema identities against its worker-job binding
-// (CD-0205): the released "1.0" identities never carry a job, the job-capable
-// "1.1" identities may, and a dispatch records one matched pair. An empty
-// return means the coupling holds.
+// (CD-0205): every dispatch records one matched released pair — 1.0/1.0
+// (pre-job), 1.1/1.1 (job-capable), or the current card-free 2.0/2.0 — and a
+// job binding is reserved for the job-capable revisions, so the released 1.0
+// pair never carries a job. An empty return means the coupling holds.
 func workerSchemaVersionFault(packetVersion, reportVersion string, jobBound bool) string {
-	current := packetVersion == WorkerPacketSchemaVersion && reportVersion == WorkerReportSchemaVersion
-	legacy := packetVersion == WorkerPacketSchemaVersionLegacy && reportVersion == WorkerReportSchemaVersionLegacy
+	matched := packetVersion == reportVersion && workerMatchedSchemaVersions[packetVersion]
 	switch {
-	case !current && !legacy:
-		return "packet and report schema versions must be the matched pair " + WorkerPacketSchemaVersion + " or " + WorkerPacketSchemaVersionLegacy
-	case jobBound && !current:
-		return "worker_job requires the job-capable packet and report schema " + WorkerPacketSchemaVersion
+	case !matched:
+		return "packet and report schema versions must be the matched pair " + WorkerPacketSchemaVersion + " (current), " + WorkerPacketSchemaVersionPrior + ", or " + WorkerPacketSchemaVersionLegacy
+	case jobBound && !workerJobCapableSchemaVersions[packetVersion]:
+		return "worker_job requires the job-capable packet and report schema " + WorkerPacketSchemaVersionPrior + " or " + WorkerPacketSchemaVersion
 	}
 	return ""
 }
@@ -985,6 +1012,15 @@ func foldWorkerDispatched(ctx context.Context, tx *sql.Tx, event Event) error {
 	if err := decodeClosedWorkerPayload(event, &payload); err != nil {
 		return err
 	}
+	// The live dispatch boundary records only the current card-free
+	// pair. An old host that stamps a released 1.0 or 1.1 identity is refused
+	// typed before the dispatch can land, so the cutover leaves exactly one
+	// live producer; recorded 1.0/1.1 history folds unchanged on replay.
+	if !isWorkflowReplay(ctx) && (payload.PacketSchemaVersion != WorkerPacketSchemaVersion || payload.ReportSchemaVersion != WorkerReportSchemaVersion) {
+		return newFailure(KindInvalidPayload, "fold_event",
+			"worker.dispatched must record the current matched packet and report schema "+WorkerPacketSchemaVersion+", not the retired pair "+payload.PacketSchemaVersion+"/"+payload.ReportSchemaVersion,
+			false, "dispatch from a host that records the current lane packet revision")
+	}
 	// CD-0205: worker_job was introduced at the worker.dispatched job-capable
 	// payload version (workerDispatchedWorkerJobVersion). A replayed event
 	// whose recorded source version sits below the boundary cannot carry
@@ -1187,6 +1223,13 @@ func foldWorkerCompleted(ctx context.Context, tx *sql.Tx, event Event) error {
 	if err := decodeClosedWorkerPayload(event, &payload); err != nil {
 		return err
 	}
+	// The completion's report identity is owned by the attempt row below:
+	// the dispatch recorded one matched released pair, and a completion whose
+	// claim disagrees with the pair the attempt was dispatched under refuses
+	// closed. There is deliberately no global current-revision check here —
+	// a recorded pre-cutover attempt finishes under the pair it recorded
+	// (retained-report recovery), while no new dispatch can create such a
+	// row, because the live dispatch boundary admits only the current pair.
 	// CD-0205: worker_job was introduced at the worker.completed job-capable
 	// payload version (workerCompletedWorkerJobVersion). A replayed event
 	// whose recorded source version sits below the boundary cannot carry

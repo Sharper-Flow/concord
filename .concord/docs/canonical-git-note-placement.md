@@ -24,7 +24,7 @@ membership semantics, CD-0002 invariants I1 through I6, and the compaction
 design. This record fixes canonical note placement: one eligible git home
 selected deterministically from accepted membership, in-tree markdown notes
 with bounded front matter, a typed five-field locator, and the ordered
-publish protocol with its recovery seam. CD-0041 replaces component with
+publish protocol with its recovery seam. CD-0222 replaces component with
 Domain identifiers in new note front matter.
 ## Contract
 

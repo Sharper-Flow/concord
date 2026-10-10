@@ -1,6 +1,6 @@
 # CD-0214: Repository navigation consumes the Domain graph without launcher copies
 
-- **Status:** Accepted
+- **Status:** Superseded by [CD-0222](CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md)
 - **Date:** 2026-10-09
 - **Scope:** Domain graph consumers, registry participation, and repository navigation adoption.
 - **Approval:** Operator-delegated approval A4 for [Concord (CON) issue 899](https://linear.app/sharper-flow/issue/CON-899).

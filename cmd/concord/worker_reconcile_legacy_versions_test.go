@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -54,53 +55,23 @@ func legacyWorkerDispatchEvent(t *testing.T, eventID string, lane store.LaneDefi
 	}
 }
 
-// seedLegacyWorkerDispatchEvent appends one worker.dispatched event at the
-// raw payload version a binary of that era recorded. The v4 shape carries
-// the lane-actor enrichment that era's boundary derived: the pair is built
-// by the same store helper the live boundary uses, then recorded at the raw
-// version, so the fold projects it while the stored row keeps its
-// historical identity. The v3 shape predates the enrichment and appends
-// through the generic operation route.
+// seedLegacyWorkerDispatchEvent records one worker.dispatched event at the
+// raw payload version and released schema pair a binary of that era
+// recorded. The 2.0 cutover refuses retired pairs on the live boundary, so
+// the historical row is inserted into the domain log exactly as that era's
+// binary wrote it and the projection is rebuilt from the log — the same
+// recorded history a pre-cutover store carries, with the stored row keeping
+// its raw version, payload bytes, and actor.
 func seedLegacyWorkerDispatchEvent(t *testing.T, dbPath, eventID string, lane store.LaneDefinition, readback string, rawVersion int) {
 	t.Helper()
-	ctx := context.Background()
-	s, err := store.Open(ctx, dbPath)
-	if err != nil {
-		t.Fatalf("open store: %v", err)
-	}
-	defer s.Close()
-	event := legacyWorkerDispatchEvent(t, eventID, lane, readback, rawVersion)
-	err = s.Transact(ctx, func(tx *store.Transaction) error {
-		if rawVersion < 4 {
-			_, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{event}})
-			return err
-		}
-		prepared, err := store.PrepareLaneActorDispatch(ctx, tx, event, "principal:operator-1", "client:"+workerEvidenceClientRef)
-		if err != nil {
-			return err
-		}
-		// The enriched dispatch records at the raw version the v4-era
-		// binary stamped; the prepended actor event records unchanged.
-		prepared[len(prepared)-1].PayloadVersion = rawVersion
-		_, err = store.AppendLaneActorDispatchTx(ctx, tx, prepared)
-		return err
-	})
-	if err != nil {
-		t.Fatalf("seed legacy worker.dispatched v%d: %v", rawVersion, err)
-	}
+	seedLegacyWorkerEventRows(t, dbPath, legacyWorkerDispatchEvent(t, eventID, lane, readback, rawVersion))
 }
 
-// seedLegacyWorkerCompletionEvent appends one worker.completed event at the
+// seedLegacyWorkerCompletionEvent records one worker.completed event at the
 // raw v3 payload version, behind a legacy v3 dispatch of the same attempt so
 // the completion folds against the schema identity that era recorded.
 func seedLegacyWorkerCompletionEvent(t *testing.T, dbPath, dispatchEventID, completionEventID string, lane store.LaneDefinition, readback string) {
 	t.Helper()
-	ctx := context.Background()
-	s, err := store.Open(ctx, dbPath)
-	if err != nil {
-		t.Fatalf("open store: %v", err)
-	}
-	defer s.Close()
 	evidence := make([]store.WorkerReportEvidence, 0, len(lane.EvidenceObligations))
 	for _, obligation := range lane.EvidenceObligations {
 		evidence = append(evidence, store.WorkerReportEvidence{Obligation: obligation, Detail: "discharged " + obligation})
@@ -117,15 +88,53 @@ func seedLegacyWorkerCompletionEvent(t *testing.T, dbPath, dispatchEventID, comp
 			Evidence:            evidence,
 		})),
 	}
-	err = s.Transact(ctx, func(tx *store.Transaction) error {
-		if _, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{legacyWorkerDispatchEvent(t, dispatchEventID, lane, readback, 3)}}); err != nil {
-			return err
-		}
-		_, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{completion}})
-		return err
-	})
+	seedLegacyWorkerEventRows(t, dbPath, legacyWorkerDispatchEvent(t, dispatchEventID, lane, readback, 3), completion)
+}
+
+// seedLegacyWorkerEventRows inserts the given events into the domain log and
+// the worker-attempt projection row the dispatch fold maintains, exactly as
+// the era's binary left them: the log row keeps its raw payload version,
+// payload bytes, and actor, and the projection keeps the released pair. The
+// 2.0 cutover refuses retired pairs on the live boundary, so recorded
+// history reaches the store the way a pre-cutover store carries it.
+func seedLegacyWorkerEventRows(t *testing.T, dbPath string, events ...store.Event) {
+	t.Helper()
+	ctx := context.Background()
+	s, err := store.Open(ctx, dbPath)
 	if err != nil {
-		t.Fatalf("seed legacy worker.completed v3: %v", err)
+		t.Fatalf("open store: %v", err)
+	}
+	defer s.Close()
+	db := s.DatabaseForTesting()
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+		t.Fatal(err)
+	}
+	for _, event := range events {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO domain_events (event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES (?,?,?,?,?,?,?,?)`,
+			event.EventID, event.Kind, string(event.SubjectType), event.SubjectID, event.Actor, event.OccurredAt.UTC().Format("2006-01-02T15:04:05.999999999Z07:00"), event.PayloadVersion, string(event.Payload)); err != nil {
+			t.Fatalf("seed legacy event %s: %v", event.EventID, err)
+		}
+		if event.Kind == store.WorkerDispatched {
+			var payload store.WorkerDispatchedPayload
+			if err := json.Unmarshal(event.Payload, &payload); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := tx.ExecContext(ctx, `INSERT INTO worker_attempts (work_id,attempt_id,lane_id,lane_version,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,failure_kind,failure_detail,dispatched_at,completed_at,failed_at) VALUES (?,?,?,?,?,?,?,?,?,'dispatched','','',?,NULL,NULL)`,
+				event.SubjectID, payload.AttemptID, payload.LaneID, payload.LaneVersion, payload.LaneDigest, payload.CapabilityClass, payload.ReadbackModel, payload.PacketSchemaVersion, payload.ReportSchemaVersion, event.OccurredAt.UTC().Format("2006-01-02T15:04:05.999999999Z07:00")); err != nil {
+				t.Fatalf("seed legacy attempt row %s: %v", payload.AttemptID, err)
+			}
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
 	}
 }
 

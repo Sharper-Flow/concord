@@ -689,7 +689,7 @@ func dispatchWorkerPacket(t *testing.T, s *Store, workID, stepID, attemptID stri
 		inputs[member] = value
 	}
 	packet := map[string]any{
-		"schema_version": "1.0",
+		"schema_version": WorkerPacketSchemaVersion,
 		"attempt_id":     attemptID,
 		"lane_id":        "implement",
 		"lane_version":   laneVersion,
@@ -1530,7 +1530,7 @@ func TestDispatchFoldDefensivelyRefusesNonObjectWorkerPacket(t *testing.T) {
 // reaching the fold directly tests the defensive depth.
 func TestDispatchFoldDefensivelyRefusesWorkerPacketMissingIdentity(t *testing.T) {
 	t.Parallel()
-	packetBytes, err := json.Marshal(map[string]any{"schema_version": "1.0", "lane_id": "implement"})
+	packetBytes, err := json.Marshal(map[string]any{"schema_version": WorkerPacketSchemaVersion, "lane_id": "implement"})
 	if err != nil {
 		t.Fatalf("marshal packet: %v", err)
 	}
@@ -1559,7 +1559,7 @@ func TestDispatchFoldDefensivelyReachesTheCanonicalJSONCall(t *testing.T) {
 	attemptID := "attempt-reaches-canonical"
 	laneVersion, laneDigest := implementLaneIdentity()
 	packetBytes, err := json.Marshal(map[string]any{
-		"schema_version": "1.0", "attempt_id": attemptID, "lane_id": "implement", "lane_version": laneVersion, "lane_digest": laneDigest,
+		"schema_version": WorkerPacketSchemaVersion, "attempt_id": attemptID, "lane_id": "implement", "lane_version": laneVersion, "lane_digest": laneDigest,
 		"work_id": "work-fold-defensive", "step_id": "execution",
 		"inputs": map[string]any{"task": "cd0065 dispatch packet", "binding": map[string]any{"objective_source": "work_question", "work_version": 1, "contract_version": nil, "assigned_result": "files_touched"}},
 	})

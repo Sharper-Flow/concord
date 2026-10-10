@@ -165,7 +165,7 @@ class CommittedContentTests(unittest.TestCase):
             ".opencode/agents/concord-implement.md",
             "adapter/opencode/generated-contracts.ts",
             "internal/store/generated_work_kinds.go",
-            ".concord/navigation/domains/example.md",
+            ".concord/docs/agent-lanes-contract.md",
             "cmd/concord/testdata/case.md",
             ".concord/scenarios/example.md",
             "contracts/example.json",

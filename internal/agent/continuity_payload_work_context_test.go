@@ -18,7 +18,7 @@ func TestContinuityPayloadPinsWorkContextWhenPresent(t *testing.T) {
 		SourceEventFrontier: 41,
 		RequiredReading:     []store.WorkContextReading{{DomainID: "child-alpha", Reason: "the reading carries the bounded reason", Source: store.WorkContextReadingSource{Kind: "knowledge", SourceID: "concord_knowledge", LawID: "CD-0001", ContentHash: "sha256:" + strings.Repeat("e", 64)}}},
 		Findings:            []store.WorkContextFindingView{{FindingID: "finding:41:0", Kind: "open_question", Statement: "which Domain owns the reader boundary", SubjectRef: "internal/store/work_context.go", EvidenceRefs: []string{}, DomainID: "child-alpha", Origin: store.WorkContextOriginDeclaration, Status: store.WorkContextFindingStatusReported, SourceEventID: "record_work_context-pinned-1", SourceEventSeq: 41, Ordinal: 0}},
-		DomainGroups:        []store.WorkContextDomainGroup{{DomainID: "child-alpha", RequiredReadingOrdinals: []int{0}, FindingIDs: []string{"finding:41:0"}, DomainCards: []store.WorkContextDomainCard{}}},
+		DomainGroups:        []store.WorkContextDomainGroup{{DomainID: "child-alpha", RequiredReadingOrdinals: []int{0}, FindingIDs: []string{"finding:41:0"}}},
 	}
 	payload := ContinuityPayload(store.ContinuitySnapshot{WorkID: "work-pinned-context", WorkContext: view})
 	pinned, ok := payload["pinned"].(map[string]any)
@@ -32,15 +32,8 @@ func TestContinuityPayloadPinsWorkContextWhenPresent(t *testing.T) {
 	if pinnedView.SourceEventFrontier != 41 || len(pinnedView.Findings) != 1 || pinnedView.Findings[0].FindingID != "finding:41:0" {
 		t.Fatalf("pinned work_context = %+v", pinnedView)
 	}
-	if len(pinnedView.DomainGroups) != 1 || len(pinnedView.DomainGroups[0].DomainCards) != 0 {
-		t.Fatalf("pinned domain groups = %+v, want the reserved empty card slot", pinnedView.DomainGroups)
-	}
-	encoded, err := json.Marshal(pinnedView)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(encoded), `"domain_cards":[]`) {
-		t.Fatalf("pinned view serialized without the reserved empty domain_cards slot: %s", encoded)
+	if len(pinnedView.DomainGroups) != 1 || pinnedView.DomainGroups[0].DomainID != "child-alpha" {
+		t.Fatalf("pinned domain groups = %+v, want the one child group", pinnedView.DomainGroups)
 	}
 }
 
@@ -75,7 +68,7 @@ func TestContinuityPayloadWorkContextValidatesAgainstSchema(t *testing.T) {
 			SourceEventFrontier: 41,
 			RequiredReading:     []store.WorkContextReading{{DomainID: "child-alpha", Reason: "the reading carries the bounded reason", Source: store.WorkContextReadingSource{Kind: "knowledge", SourceID: "concord_knowledge", LawID: "CD-0001", ContentHash: "sha256:" + strings.Repeat("e", 64)}}},
 			Findings:            []store.WorkContextFindingView{{FindingID: "finding:41:0", Kind: "open_question", Statement: "which Domain owns the reader boundary", SubjectRef: "internal/store/work_context.go", EvidenceRefs: []string{}, DomainID: "child-alpha", Origin: store.WorkContextOriginDeclaration, Status: store.WorkContextFindingStatusReported, SourceEventID: "record_work_context-pinned-1", SourceEventSeq: 41, Ordinal: 0}},
-			DomainGroups:        []store.WorkContextDomainGroup{{DomainID: "child-alpha", RequiredReadingOrdinals: []int{0}, FindingIDs: []string{"finding:41:0"}, DomainCards: []store.WorkContextDomainCard{}}},
+			DomainGroups:        []store.WorkContextDomainGroup{{DomainID: "child-alpha", RequiredReadingOrdinals: []int{0}, FindingIDs: []string{"finding:41:0"}}},
 		},
 	}
 	raw, err := json.Marshal(ContinuityPayload(snapshot))

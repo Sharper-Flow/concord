@@ -1,9 +1,14 @@
-import { completeWorkerAttempt, readWorkerSessionBody, readExportSession, readExportOpeningPacket, resolveWorkerReportFromText, validateAgentLanePacket, type AgentResultEnvelope, type WorkerRecoveryContext } from "./dispatch"
+import { completeWorkerAttempt, readWorkerSessionBody, readExportSession, readExportOpeningPacket, resolveWorkerReportFromText, scanReportTexts, validateAgentLanePacket, type AgentResultEnvelope, type WorkerRecoveryContext } from "./dispatch"
 import { canonicalDirectory, serializeLanePacket } from "./dispatch-window"
-import { laneForIdentity } from "./generated-agent-lanes"
+import { agentLanePacketSchema, laneForIdentity } from "./generated-agent-lanes"
 import { readTaskResult } from "./task-result"
 
 const object = (value: unknown): value is Record<string, any> => value !== null && typeof value === "object" && !Array.isArray(value)
+
+// The retained schema identities the released packet contract carries. The
+// recorded pair selects the historical reader; a pair outside the released
+// set is not a schema artifact any reader owns.
+const RETAINED_PACKET_SCHEMA_VERSIONS: readonly string[] = agentLanePacketSchema.properties.schema_version.enum
 
 // All content comes from the original parent's completed host Task. Tool input
 // selects a part; it supplies neither a packet, report, model nor provenance.
@@ -17,6 +22,15 @@ export async function reconcileRetainedWorker(
 ): Promise<AgentResultEnvelope> {
   const lane = laneForIdentity(recovery.dispatch.lane_id, recovery.dispatch.lane_version, recovery.dispatch.lane_digest)
   if (!lane) throw new Error("the original dispatched lane definition is unavailable")
+  // The retained schema artifacts are the recorded pair itself. A
+  // pair no released revision produced, or one whose sides disagree, is a
+  // record no reader owns: refuse typed before any replacement worker,
+  // recomputed digest, or relabeled report can exist.
+  const recordedPacketVersion = recovery.dispatch.packet_schema_version
+  const recordedReportVersion = recovery.dispatch.report_schema_version
+  if (!RETAINED_PACKET_SCHEMA_VERSIONS.includes(recordedPacketVersion) || recordedPacketVersion !== recordedReportVersion) {
+    throw new Error(`the recorded dispatch carries packet/report schema pair ${recordedPacketVersion}/${recordedReportVersion}, which no released revision produced`)
+  }
   const reader = options.sessionReader
   if (!reader) throw new Error("the host session reader is unavailable")
   const parentRead = await readWorkerSessionBody(reader, recovery.coordinator_session, signal)
@@ -35,6 +49,7 @@ export async function reconcileRetainedWorker(
   if (!task || task.state !== "completed") throw new Error("retained host Task has no completed child result")
   let packet: unknown
   try { packet = JSON.parse(part.state.input.prompt) } catch { throw new Error("retained host Task has no original packet") }
+  if (!object(packet) || packet.schema_version !== recordedPacketVersion) throw new Error("retained packet schema identity differs from the schema identity the recorded dispatch carried")
   if (!validateAgentLanePacket(packet) || packet.work_id !== workID || packet.attempt_id !== attemptID || recovery.dispatch.attempt_id !== attemptID || packet.lane_id !== lane.id || packet.lane_version !== lane.version || packet.lane_digest !== recovery.dispatch.lane_digest || serializeLanePacket(packet) !== part.state.input.prompt || part.state.input.subagent_type !== `concord-${lane.id}`) throw new Error("retained host Task packet or executing lane differs from the original attempt")
   const childRead = await readWorkerSessionBody(reader, task.sessionID, signal)
   if (!childRead.ok) throw new Error(childRead.message)
@@ -44,6 +59,17 @@ export async function reconcileRetainedWorker(
   const opening = readExportOpeningPacket(childRead.body, task.sessionID, packet)
   const readback = readExportSession(childRead.body, task.sessionID)
   if (!opening.ok || !readback.ok || readback.metadata.readback_agent !== `concord-${lane.id}`) throw new Error("retained child opening or agent differs from its original dispatch")
+  // The retained report's own schema identity is recorded evidence: the
+  // era's builder stamped the dispatching packet's identity into the report
+  // text, so a report claiming a different revision is not the original
+  // report. Dispatch-owned relabeling stays the live path's behavior; the
+  // recorded path demands the claim match before any evidence can exist.
+  const scan = scanReportTexts([task.text], packet)
+  if (!scan.report) throw new Error(scan.malformed ?? "retained host Task carried no report")
+  const claimedReportVersion = scan.report.schema_version
+  if (typeof claimedReportVersion !== "string" || claimedReportVersion !== recordedPacketVersion) {
+    throw new Error(`retained report claims schema identity ${JSON.stringify(claimedReportVersion) ?? "none"}, but the recorded dispatch carried ${recordedPacketVersion}`)
+  }
   const report = resolveWorkerReportFromText(task.text, packet)
   if ("detail" in report || report.report.status !== "completed" || report.report.readback_model !== readback.metadata.readback_model) throw new Error("retained report is invalid or has a different executing model")
   // The existing completion path rechecks child opening, agent and model. Its

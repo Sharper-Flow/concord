@@ -233,7 +233,7 @@ Set `readback_model` to the `provider/model` identifier you are running as, and
 
 Report contract constraints:
 - Canonical report top-level shape (the adapter adds identity): type=object, additionalProperties=false, required=["schema_version", "readback_model", "status", "evidence"].
-- schema_version: enum=["1.0", "1.1"]; the adapter derives this identity and worker_job binding from the packet; omit both fields from worker-authored content.
+- schema_version: enum=["1.0", "1.1", "2.0"]; the adapter derives this identity and worker_job binding from the packet; omit both fields from worker-authored content.
 - readback_model: type=string, minLength=3, maxLength=128, pattern="^[a-z][a-z0-9_.-]*(/[a-zA-Z0-9][a-zA-Z0-9._-]*)+$".
 - status: enum=["completed", "failed"].
 - evidence: type=array, minItems=1, maxItems=64, items={"$ref": "#/$defs/evidence_entry"}.

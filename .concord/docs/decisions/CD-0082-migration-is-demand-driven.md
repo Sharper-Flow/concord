@@ -53,7 +53,7 @@ its development remain unchanged.
 
 ### D3. Bounded existing relations remain
 
-CD-0041's Domain-overlap execution block and Domain-specific `replaces` relation
+CD-0222's Domain-overlap execution block and Domain-specific `replaces` relation
 remain current. PM4's `supersedes` relation remains the bounded work-item
 operation that atomically changes the predecessor's terminal state.
 

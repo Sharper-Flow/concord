@@ -17,7 +17,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:506d64451b4b78e605343b6a5a41191e2468332eab7adad28e4be57ba77cd44b",
+  "sha256": "sha256:ca98b2743cd7c7f104bc730848640915a4716f98fec168473edeacd13f6a9447",
   "status": "published",
   "summary": "Describes Concord's self-documentation surfaces and its input, output, storage, and memory model.",
   "tags": [

@@ -77,7 +77,7 @@ PM1's `terminal_at` maps to that field for cancelled and superseded work too.
 An older note missing required fields needs bounded verified backfill before any future pruning eligibility.
 Historical edges carry no mutable blocker, readiness, evidence, lifecycle, or per-Project status.
 `successor_work_id` preserves canonical supersession resolution, not a second relation writer.
-CD-0041 and CD-0042 Domain scope and migration remain unchanged.
+CD-0222 and CD-0042 Domain scope and migration remain unchanged.
 
 ### 4. One query population across tiers
 

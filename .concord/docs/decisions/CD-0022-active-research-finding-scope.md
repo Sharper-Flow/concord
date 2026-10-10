@@ -49,7 +49,7 @@ durable vocabulary without mechanically copying its four-table physical layout.
 
 **D3. Validation is structural where Concord has an authority.** Product and Project
 IDs are verified against their canonical projections in the mutation transaction.
-Domain IDs resolve through CD-0041's Git-derived Domain projection. Tag IDs remain
+Domain IDs resolve through CD-0222's Git-derived Domain projection. Tag IDs remain
 bounded, clean, unique declared identifiers because Concord has no canonical tag
 registry; treating tags as known by an empty lookup would be an unvalidated join.
 The `home`-implies-no-IDs invariant is also enforced by a database trigger, not

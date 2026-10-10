@@ -18,7 +18,7 @@
   "law_relations": [
     {
       "kind": "refines",
-      "target_id": "CD-0041"
+      "target_id": "CD-0222"
     }
   ],
   "path": ".concord/docs/decisions/CD-0144-record-reality-reconciliation.md",
@@ -29,7 +29,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:e17cd9f5108a1428d60069571bedfcacfdb8b10ac59412695975045d3ec2d7b5",
+  "sha256": "sha256:394b12b244cded015a61d78cb828a35d259b5868579b5f5e4b0e2d8e24604f33",
   "status": "accepted",
   "summary": "Adds local Git content-risk drift classes that suppress reclaim recommendations and moves Domain exclusivity from contract approval to execution start.",
   "tags": [

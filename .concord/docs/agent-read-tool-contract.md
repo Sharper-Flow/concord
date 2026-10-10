@@ -19,7 +19,7 @@
 TS1's jobs need a bounded read surface. The binding inputs are the accepted
 PM1 Q1 through Q10 and query corpus, TS1 jobs and scenarios, and TS2 budget
 and granularity rules. This record fixes the four always-visible read tools
-and their closed discriminated operation unions. CD-0041 retires component
+and their closed discriminated operation unions. CD-0222 retires component
 identity and CD-0042 replaces component filters with Domain on the
 pre-go-live primary path.
 ## Contract

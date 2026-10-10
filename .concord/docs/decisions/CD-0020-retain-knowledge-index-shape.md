@@ -156,11 +156,9 @@ intelligence remains independently owned and Product-scoped under the current
 vertical-integration direction. Concord does not duplicate a code-symbol graph or
 persist inferred code-to-law edges as authority.
 
-A repository may author navigation links through a validated local companion
-to the Product's Domain registry. The companion binds mechanism and catalog
-identities to exact contract, law-clause, and control references. These links
-state accountability and reference targets. They do not enact law, prove
-behavior, or grant workflow authority. Dedicated code intelligence retains
+Package and module owner notes may link responsibilities to implementation,
+tests, and governing invariants. These links are guidance, not another index,
+law projection, or workflow authority. Dedicated code intelligence retains
 ownership of observed code relationships. Code scans and inferred code-to-law
 links remain advisory under CD-0008 and never become blocking law.
 

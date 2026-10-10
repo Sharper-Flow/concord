@@ -10,7 +10,6 @@ tools:
   concord_work_browse: false
   concord_work_compact: false
   concord_work_define: false
-  concord_work_initiative: false
   concord_work_relate: false
   concord_work_start: false
   concord_work_trace: false

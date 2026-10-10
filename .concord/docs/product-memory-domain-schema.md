@@ -7,8 +7,8 @@
 > **Research basis:** Exa-discovered/public source models (Plane, Bugzilla, Beads, Fossil, Linear public model), official SQLite/Context7 docs, and accepted Concord Product invariants. No benchmark or PoC is part of this decision.
 > **Supersedes narrowly:** CD-0003 D1's generic `entities` materialized spine;
 > CD-0003 D2/D3 and the generic authoritative event log remain binding.
-> **Amended by CD-0041:** `domains` replace `components` as canonical
-> Product-internal architecture; `initiative` is the sole current grouping kind; typed
+> **Amended by CD-0041 and CD-0213:** `domains` replace `components` as canonical
+> Product-internal architecture; business grouping lives in Linear; typed
 > architecture relation families and bounded compatibility upcasters are required.
 
 ## Context
@@ -50,7 +50,7 @@ PM4/PM5/C15 semantics (now settled separately).
 | `products` | first-class typed projection | Q1/Q2 Product root | Product-row fields beyond stable identity/stage (C14) |
 | `projects` | first-class typed projection; repositories are one Project kind/locator | Q1/Q3/Q6 scope | repo/deploy packaging, Project kind details |
 | `domains` | Git-derived first-class Product-owned architecture identity with optional acyclic parent, law ownership, and endpoint-specific architecture relations; SQLite owns separate local stage/Project/resource attachments | Q3/Q9 Domain filter; Product → Domain primary navigation | #193 implements Domain/law homes; #197 directly removes component authority from the current read path |
-| `work_items` | one canonical typed work projection; extensible `kind`; rare metadata JSON; CD-0041 amends CD-0009 so `initiative` and `research` are ordinary kinds | Q2–Q8 | PM4 supplies states/relations; PM5 supplies membership/scope; #196 directly establishes the Initiative runtime forms |
+| `work_items` | one canonical typed managed-work projection; extensible `kind`; rare metadata JSON; independent `research` is ordinary work; CD-0213 permits historical `initiative` reads but no new grouping writes | Q2–Q8 | PM4 supplies states/relations; PM5 supplies membership/scope; business grouping belongs to Linear MCP |
 | Product↔Project membership | typed relational edge | Q1 ownership/ambiguity | PM5: many-to-many, role-only, optional singular primary |
 | Work↔Project membership | typed relational edge; no copied status | Q6 both directions | PM5: role-only, optional singular primary, derived Product scope |
 | `relations` | typed edge structure with real foreign key (FK) endpoints | Q4/Q8 | PM4 supplies kinds, inverses, cycle rules, and supersession semantics |

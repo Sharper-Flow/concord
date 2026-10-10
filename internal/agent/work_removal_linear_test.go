@@ -10,18 +10,11 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 )
 
-func TestDispatchWorkRemovalCommitsWithLinearConfirmation(t *testing.T) {
+func TestDispatchWorkRemovalCommitsWithRecordedLinearIssue(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s, service, grant, privateKey := mutationDispatchFixture(t, []Capability{"work_transition"})
-	if _, err := s.SetProductPlanningMode(ctx, "product-1", store.PlanningModeLinear, "pilot", "human-1", 2); err != nil {
-		t.Fatal(err)
-	}
-	seedAdoptionConnectionResource(t, s)
-	if err := s.RecordLinearLink(ctx, "work-1", "remote-removal-1", "CON-1", "https://linear.app/example/issue/CON-1", "", "", store.LinearLinkPending); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.RecordLinearLink(ctx, "work-1", "remote-removal-1", "CON-1", "https://linear.app/example/issue/CON-1", "", "", store.LinearLinkConfirmed); err != nil {
+	if _, err := s.RecordLinearIssueLink(ctx, store.LinearIssueLink{WorkID: "work-1", RemoteIssueUUID: "remote-removal-1", HumanKey: "CON-1", URL: "https://linear.app/example/issue/CON-1"}); err != nil {
 		t.Fatal(err)
 	}
 

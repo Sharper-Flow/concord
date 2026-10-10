@@ -81,8 +81,8 @@ function workIDSegment(workID: string): string {
   return workID.split(/[-/:]/u).pop() || workID
 }
 
-// The tab carries one stub: the linear_issue_key when the Product is
-// Linear-enabled, otherwise the project stub. The full work state moves to the
+// The tab carries one stub: the recorded linear_issue_key when present,
+// otherwise the project stub. The full work state moves to the
 // pane frame, which spans the pane width and holds what the tab bar cannot.
 export function formatWorkTabName(value: unknown): string | null {
   const pin = workPin(value)

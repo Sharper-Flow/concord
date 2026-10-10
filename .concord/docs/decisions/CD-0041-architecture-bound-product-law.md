@@ -141,7 +141,8 @@ the Product view. It is context for the work, not the default focus. Domains
 remain the canonical home of law (D3), so the law and evidence browse still
 runs through the Domain hierarchy.
 
-Initiatives are optional overlays on that path, never its replacement.
+Business grouping is an optional overlay that lives in Linear under CD-0213,
+never a replacement for that path.
 
 A repository that adopts complete Domain navigation declares one accountable
 Domain for each file in its navigation universe. A mixed file may expose
@@ -216,7 +217,6 @@ family has its own owner, endpoint constraints, metadata, and graph rules.
 | Work | `impacts`, `modifies` | Domain | Closed contract fields; all modified Domains are impacted |
 | Work | `governed_by`, `modifies`, `adds`, `verifies` | Law | Revision-pinned contract fields; modified/added law is operator-mandated |
 | Work | `blocks`, `depends_on`, `raised_from`, `compatible_with`, `merged_into`, `supersedes` | Work | Closed work-pair grammar; overlap resolutions pin both contract versions |
-| Initiative | `includes` | Work | Same Product; ordered entry with explicit requiredness; no architecture authority |
 
 The Work→Work row lists CD-0041's overlap-relevant members. PM4 owns the full
 stored work-relation vocabulary and its migration, including retained
@@ -346,24 +346,19 @@ amendment remains compatible because the operator enacted it as such. New
 architecture overlap created after execution began blocks the affected item's
 next authoritative mutation until resolved; it is not grandfathered.
 
-### D8. Initiative replaces Epic as secondary business context
+### D8. Business grouping lives in Linear
 
-The Product-facing term is **Initiative**. An Initiative is a finite,
-Product-scoped work item with a living narrative and ordered entries whose
-requiredness is explicit. It may span Domains and Projects in its Product.
-Entries retain independent workflow, authorization, recovery, architecture
-binding, and terminal state.
-
-Initiative exists to answer business and outcome questions: why related work is
-being pursued, which outcomes are required, and how progress rolls up. It does
+Concord stores no business grouping. Grouping of related work, its outcome
+narrative, and its progress roll-up live in Linear under CD-0213. Grouping does
 not own Domain identity, law placement, dependency truth, conflict resolution,
-or the primary browse path. Initiative membership never makes two work items
+or the primary browse path. Shared grouping never makes two work items
 architecturally compatible.
 
 CD-0009 D2–D8 remain unchanged: independent research is ordinary research work,
 embedded research stays with its owner, active packs remain retention-bounded
 SQLite context, and durable promotion keeps its accepted destinations. Every
-reference in those clauses to Epic ownership now means Initiative ownership.
+reference in those clauses to Epic ownership now means ownership by the owning
+work item.
 
 ### D9. Migration reaches the clean vocabulary; compatibility is bounded
 
@@ -385,16 +380,14 @@ Implementation uses an explicit major migration rather than permanent aliases:
    through versioned upcasters and rebuild logic. History is not rewritten.
    Legacy active-research and knowledge applicability scopes upcast
    `component` to `domain` with the retained ID.
-4. New writes use `kind=initiative`, `initiative.*`, and the Initiative entry
-   projection.
-5. The agent surface moves from `concord_work_epic` to
-   `concord_work_initiative` at the next major contract version. Old clients
-   receive the existing TS8 deprecation window; no permanent alias or discovery
-   surface is added.
+4. New writes use neither `kind=epic` nor `kind=initiative`. Historical
+   `initiative.*` events replay and refuse new appends under CD-0213 D8.
+5. The agent surface carries no Epic or Initiative tool. Removal ships at a
+   major contract version; no permanent alias or discovery surface is added.
 6. CD-0024's one-time TS9 exception is not reusable. The normal supported-model
    runner and evidence artifact must exist before this model-visible major ships.
 
-The target state contains Domain and Initiative only. Keeping “component” or
+The target state contains Domain only. Keeping “component” or
 “epic” indefinitely in storage while merely changing labels is rejected because
 it preserves two vocabularies and invites future authority drift.
 
@@ -453,10 +446,9 @@ floor item satisfied.
    cross-Product Domain references fail the manifest transactionally.
 6. `depends_on` and `shares_contract_with` Domain relations refuse without a
    current governing law ID; subdomain cycles refuse.
-7. Initiative ordering and requiredness survive migration, while Initiative
-   membership alone never satisfies an architecture overlap.
+7. Shared business grouping never satisfies an architecture overlap.
 8. Legacy component/Epic events and manifests rebuild to the canonical
-   Domain/Initiative projection without event rewriting.
+   Domain projection without event rewriting.
 9. New clients cannot write legacy component/Epic forms after the major cutover,
    and old clients fail closed after the bounded TS8 window.
 10. The accepted ten-process SQLite correctness, latency-population, backup,
@@ -494,7 +486,7 @@ floor item satisfied.
   truth, even when Git reports no textual conflict.
 - Specifications become pruned, owned, browsable Product deliverables rather
   than documents attached to work after the fact.
-- Business initiatives remain useful without becoming architectural authority.
+- Business grouping stays in Linear without becoming architectural authority.
 - SQLite's total local write order is used as a correctness mechanism rather than
   hidden behind a speculative abstraction.
 
@@ -513,8 +505,8 @@ floor item satisfied.
 
 - **CD-0006 D5/D10/R3:** architecture binding and overlap revalidation now join
   law conflict, spec mandate, and cross-workflow impact checks.
-- **CD-0009 D1/D1a:** Initiative replaces Epic and is explicitly secondary to
-  Domain/law authority; D2–D8 remain binding.
+- **CD-0009 D1/D1a:** business grouping replaces Epic, lives in Linear, and is
+  explicitly secondary to Domain/law authority; D2–D8 remain binding.
 - **CD-0015:** law relations remain Git-authored and closed; every law gains one
   Domain home and architecture-bound workflow use.
 - **CD-0024 D1/D2/D4:** the 3.0.0 Epic surface becomes legacy and migrates through

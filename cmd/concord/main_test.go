@@ -9,8 +9,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -25,7 +23,6 @@ import (
 	"github.com/sharper-flow/concord/internal/launcher"
 	"github.com/sharper-flow/concord/internal/launcher/render/bubbletea"
 	"github.com/sharper-flow/concord/internal/launcher/storeport"
-	"github.com/sharper-flow/concord/internal/linearclient"
 	"github.com/sharper-flow/concord/internal/store"
 	"github.com/sharper-flow/concord/internal/store/storetest"
 )
@@ -73,7 +70,39 @@ func TestLinearIssueReferenceAcceptsKeyAndURL(t *testing.T) {
 	}
 }
 
-func TestResolveZLLinearReferenceUsesConfirmedLink(t *testing.T) {
+// seedLinearCLIWork seeds a work item with primary membership in the
+// Product's project so launcher resolution derives exactly one Product.
+func seedLinearCLIWork(t *testing.T, dbPath, workID, projectID, title string) {
+	t.Helper()
+	s, err := store.Open(context.Background(), dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+		t.Fatal(err)
+	}
+	intent, _ := json.Marshal(map[string]any{"title": title, "value_statement": "CLI launcher value statement", "kind": "task", "priority": 0, "urgency": "standard"})
+	if _, err := tx.Exec(`INSERT INTO work_items(id, kind, title, lifecycle, priority, urgency, version, intent_json, created_at, updated_at) VALUES(?, 'task', ?, 'needed', 0, 'standard', 1, ?, '2026-09-09T00:00:00Z', '2026-09-09T00:00:00Z')`, workID, title, string(intent)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(`INSERT INTO work_projects(work_id, project_id, role) VALUES(?, ?, 'primary')`, workID, projectID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(`DELETE FROM fold_guard`); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestResolveZLLinearReferenceUsesRecordedLink(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "concord.db")
 	seedCLIProduct(t, dbPath, "linear-product", "linear-project")
 	seedLinearCLIWork(t, dbPath, "linear-work", "linear-project", "Linear work")
@@ -81,11 +110,7 @@ func TestResolveZLLinearReferenceUsesConfirmedLink(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.RecordLinearLink(context.Background(), "linear-work", "issue-uuid", "CON-30", "https://linear.app/example/issue/CON-30", "", "", store.LinearLinkPending); err != nil {
-		s.Close()
-		t.Fatal(err)
-	}
-	if err := s.RecordLinearLink(context.Background(), "linear-work", "issue-uuid", "CON-30", "https://linear.app/example/issue/CON-30", "", "", store.LinearLinkConfirmed); err != nil {
+	if _, err := s.RecordLinearIssueLink(context.Background(), store.LinearIssueLink{WorkID: "linear-work", RemoteIssueUUID: "issue-uuid", HumanKey: "CON-30", URL: "https://linear.app/example/issue/CON-30"}); err != nil {
 		s.Close()
 		t.Fatal(err)
 	}
@@ -102,48 +127,27 @@ func TestResolveZLLinearReferenceUsesConfirmedLink(t *testing.T) {
 	}
 }
 
-func TestResolveZLLinearReferenceQueuesIssueAdoptionForUnlinkedIssue(t *testing.T) {
+// CD-0213 D7: Concord makes no Linear call, so an issue no work item records
+// resolves nothing and names the record operation instead of adopting.
+func TestResolveZLLinearReferenceRefusesAnUnrecordedIssue(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "concord.db")
-	seedCLIProduct(t, dbPath, "adopt-product", "adopt-project")
-	enableLinearProduct(t, dbPath, "adopt-product")
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"data":{"issue":{"id":"issue-uuid-30","identifier":"CON-30","url":"https://linear.app/example/issue/CON-30","title":"Adopted issue title","description":"Adopted issue description","updatedAt":"2026-09-16T00:00:00Z","state":{"type":"unstarted"},"team":{"id":"team-uuid-1"}}}}`))
-	}))
-	defer server.Close()
+	seedCLIProduct(t, dbPath, "unlinked-product", "unlinked-project")
 	t.Setenv(dbOverrideEnv, dbPath)
-	t.Setenv(selectedProductEnv, "adopt-product")
-	t.Setenv("CONCORD_PRODUCT_ID", "adopt-product")
-	t.Setenv(linearclient.EnvEndpoint, server.URL)
-	t.Setenv(linearclient.EnvAPIKey, "lin_api_test")
-	work, product, err := resolveZLLinearReference("CON-30", "", "", "adopt-product")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if product != "adopt-product" || work == "" {
-		t.Fatalf("resolved work/product = %q/%q", work, product)
+	_, _, err := resolveZLLinearReference("CON-30", "", "", "unlinked-product")
+	if err == nil || !strings.Contains(err.Error(), "concord_work_define.issue_link_record") {
+		t.Fatalf("unrecorded issue err = %v", err)
 	}
 	s, err := store.Open(context.Background(), dbPath)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer s.Close()
-	var adopts, creates int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM linear_outbox WHERE work_id=? AND op_kind=?`, work, store.LinearOpIssueAdopt).Scan(&adopts); err != nil {
+	var works int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM work_items`).Scan(&works); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM linear_outbox WHERE work_id=? AND op_kind=?`, work, store.LinearOpIssueCreate).Scan(&creates); err != nil {
-		t.Fatal(err)
-	}
-	if adopts != 1 || creates != 0 {
-		t.Fatalf("outbox adoption/create counts = %d/%d", adopts, creates)
-	}
-	var title string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT title FROM work_items WHERE id=?`, work).Scan(&title); err != nil {
-		t.Fatal(err)
-	}
-	if title != "Adopted issue title" {
-		t.Fatalf("adopted work title = %q, want %q", title, "Adopted issue title")
+	if works != 0 {
+		t.Fatalf("an unrecorded issue created %d work items", works)
 	}
 }
 
@@ -453,14 +457,6 @@ func TestRunHelpListsExactCommandFormsAndStdinShapes(t *testing.T) {
 		"concord client policy-expand < JSON stdin",
 		"concord product-create < JSON stdin",
 		"concord product create < JSON stdin",
-		"concord linear-connection-update < JSON stdin",
-		"concord linear connection-update < JSON stdin",
-		"concord linear-divergence < JSON stdin",
-		"concord linear divergence < JSON stdin",
-		"concord linear-unlinked-remote-in-progress < JSON stdin",
-		"concord linear unlinked-remote-in-progress < JSON stdin",
-		"concord linear-outbox-disposition < JSON stdin",
-		"concord linear outbox-disposition < JSON stdin",
 		"concord resource-create < JSON stdin",
 		"concord resource create < JSON stdin",
 		"concord resource-share < JSON stdin",
@@ -479,11 +475,14 @@ func TestRunHelpListsExactCommandFormsAndStdinShapes(t *testing.T) {
 		"kind: canonical_path | git_remote",
 		"attachments (replaces the full edge set)",
 		"attachments[].role: primary | secondary",
-		"capabilities: product_read | work_define | work_transition | work_relate | work_compact | work_initiative | cross_scope",
+		"capabilities: product_read | work_define | work_transition | work_relate | work_compact | cross_scope",
 	} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("help output missing %q", want)
 		}
+	}
+	if strings.Contains(out.String(), "work_initiative") {
+		t.Fatal("help still advertises the retired work_initiative capability")
 	}
 	if errOut.Len() != 0 {
 		t.Fatalf("help stderr = %q, want empty", errOut.String())
@@ -634,7 +633,7 @@ func TestCommandHelp(t *testing.T) {
 func TestGroupHelp(t *testing.T) {
 	topLevel := topLevelHelp(t)
 	groups := commandGroups()
-	for _, want := range []string{"client", "product", "linear", "resource", "domain", "project"} {
+	for _, want := range []string{"client", "product", "resource", "domain", "project"} {
 		if !slices.Contains(groups, want) {
 			t.Fatalf("commandGroups() = %v, missing %q", groups, want)
 		}
@@ -823,59 +822,6 @@ func TestProductStageUpdateCLIRecordsPromotion(t *testing.T) {
 		t.Fatal("invalid maturity must exit non-zero")
 	}
 	if !strings.Contains(errOut.String(), "accepted Product stage values") {
-		t.Fatalf("stderr=%q", errOut.String())
-	}
-}
-
-func TestProductModeSetAndLinearHealthCLI(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "concord.db")
-	seedCLIProduct(t, dbPath, "mode-set-product", "mode-set-project")
-	runOperatorJSON(t, dbPath, []string{"product-mode-set"}, map[string]any{
-		"product_id": "mode-set-product", "planning_mode": "linear_enabled",
-		"reason": "CD-0121 operator selected Linear", "expected_version": 2,
-	})
-	s, err := store.Open(context.Background(), dbPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
-	var gotKind, mode string
-	var version int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT e.kind, p.planning_mode, p.version FROM domain_events e JOIN products p ON p.id=e.subject_id WHERE e.kind='product.planning_mode_set' AND e.subject_id='mode-set-product'`).Scan(&gotKind, &mode, &version); err != nil {
-		t.Fatalf("no product.planning_mode_set event: %v", err)
-	}
-	if mode != "linear_enabled" || version != 3 {
-		t.Fatalf("planning mode after CLI set: %s v%d", mode, version)
-	}
-	// The health read reports the enabled mode with missing setup; it never
-	// falls back to local_only (CD-0121 D3).
-	var out, errOut bytes.Buffer
-	t.Setenv(dbOverrideEnv, dbPath)
-	if code := runWithInput([]string{"linear", "health"}, strings.NewReader(`{"product_id":"mode-set-product"}`), &out, &errOut); code != 0 {
-		t.Fatalf("linear health exit=%d stderr=%q", code, errOut.String())
-	}
-	var health struct {
-		OK     bool `json:"ok"`
-		Health struct {
-			PlanningMode    string         `json:"planning_mode"`
-			ConnectionState string         `json:"connection_state"`
-			OutboxDepth     int            `json:"outbox_depth"`
-			LinkCounts      map[string]int `json:"link_counts"`
-		} `json:"health"`
-	}
-	if err := json.Unmarshal(out.Bytes(), &health); err != nil {
-		t.Fatalf("health output %q: %v", out.String(), err)
-	}
-	if !health.OK || health.Health.PlanningMode != "linear_enabled" || health.Health.ConnectionState != "absent" || health.Health.OutboxDepth != 0 || len(health.Health.LinkCounts) != 4 {
-		t.Fatalf("health = %+v", health)
-	}
-	// A refusal stays typed: the closed enum is enforced before an event lands.
-	out.Reset()
-	errOut.Reset()
-	if code := runWithInput([]string{"product-mode-set"}, strings.NewReader(`{"product_id":"mode-set-product","planning_mode":"github","expected_version":3,"reason":"x"}`), &out, &errOut); code == 0 {
-		t.Fatal("invalid planning mode must exit non-zero")
-	}
-	if !strings.Contains(errOut.String(), "planning mode is not recognized") {
 		t.Fatalf("stderr=%q", errOut.String())
 	}
 }
@@ -1167,12 +1113,6 @@ func TestCommandRouterAcceptsCanonicalAndTwoWordFormsWithoutPanicking(t *testing
 		{"project-locator-remove"}, {"project", "locator-remove"},
 		{"project-resolve"}, {"project", "resolve"},
 		{"product-create"}, {"product", "create"},
-		{"linear-connection-update"}, {"linear", "connection-update"},
-		{"linear-divergence"}, {"linear", "divergence"},
-		{"linear-unlinked-remote-in-progress"}, {"linear", "unlinked-remote-in-progress"},
-		{"linear-issue-enqueue"}, {"linear", "issue-enqueue"},
-		{"linear-outbox-drain"}, {"linear", "outbox-drain"},
-		{"linear-outbox-disposition"}, {"linear", "outbox-disposition"},
 		{"resource-create"}, {"resource", "create"},
 		{"resource-share"}, {"resource", "share"},
 		{"domain-project-attachments-replace"}, {"domain", "project-attachments-replace"},
@@ -1195,6 +1135,46 @@ func TestCommandRouterAcceptsCanonicalAndTwoWordFormsWithoutPanicking(t *testing
 				t.Fatalf("accepted command was rejected: stderr=%q", errOut.String())
 			}
 		})
+	}
+}
+
+func TestRetiredPlanningCommandsRefuseBeforeStdinOrStore(t *testing.T) {
+	help := topLevelHelp(t)
+	for _, command := range []string{
+		"product-mode-set",
+		"linear-health",
+		"linear-divergence",
+		"linear-unlinked-remote-in-progress",
+		"linear-issue-enqueue",
+		"linear-outbox-drain",
+		"linear-outbox-disposition",
+		"linear-backfill",
+		"linear-connection-update",
+		"linear-initiative-import",
+	} {
+		for _, args := range [][]string{{command}, strings.SplitN(command, "-", 2)} {
+			t.Run(strings.Join(args, " "), func(t *testing.T) {
+				if strings.Contains(help, "  concord "+strings.Join(args, " ")+" < JSON stdin") {
+					t.Fatal("help still advertises the retired planning command")
+				}
+				dbPath := filepath.Join(t.TempDir(), "concord.db")
+				t.Setenv(dbOverrideEnv, dbPath)
+				stdin := &countingStdin{}
+				var out, errOut bytes.Buffer
+				if code := runWithInput(args, stdin, &out, &errOut); code != 2 {
+					t.Fatalf("retired command exit code = %d, want 2; stderr=%q", code, errOut.String())
+				}
+				if out.Len() != 0 || !strings.Contains(errOut.String(), "unsupported arguments") {
+					t.Fatalf("retired command stdout=%q stderr=%q, want unsupported usage", out.String(), errOut.String())
+				}
+				if stdin.reads != 0 {
+					t.Fatalf("retired command read stdin %d times, want 0", stdin.reads)
+				}
+				if _, err := os.Stat(dbPath); !os.IsNotExist(err) {
+					t.Fatalf("retired command touched the store database at %s", dbPath)
+				}
+			})
+		}
 	}
 }
 

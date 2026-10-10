@@ -10,9 +10,9 @@
 > transport (TS6), shared result/error schema (TS7), surface evolution (TS8),
 > measurement evidence (TS9), workflow-type registration/gate vocabulary, C14, or C15.
 > **Amended direction:** CD-0041 requires typed architecture binding for
-> Product-changing work uses the direct Initiative route.
+> Product-changing work; CD-0213 removes the Initiative route.
 > CD-0042 makes the generated current manifest the only pre-go-live surface
-> identity; this contract does not authorize partial Domain or Initiative writes.
+> identity; this contract does not authorize partial Domain writes or any planning write.
 
 ## Context
 
@@ -22,7 +22,7 @@ budget and granularity, the TS3 read surface, the capability-placement
 native-authority rule, and the Advance postmortem. This record fixes the four
 always-visible mutation tools, their operation tables, the batch boundary,
 and the inline-versus-durable execution rule. CD-0041 requires typed
-architecture binding through the direct Initiative route; CD-0042 makes the
+architecture binding for Product-changing work; CD-0213 removes planning writes; CD-0042 makes the
 generated manifest the only pre-go-live surface identity.
 ## Contract
 

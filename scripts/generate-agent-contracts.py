@@ -1357,19 +1357,19 @@ def validate(manifest: dict) -> str:
     expected_top = {"$schema", "schema_version", "surface", "envelope", "tools", "operations", "schemas", "capabilities", "consequences", "bounds", "generation", "payload_digest", "digest"}
     if set(manifest) != expected_top:
         fail("manifest has unknown or missing top-level sections")
-    if manifest.get("schema_version") != "1.0" or manifest.get("surface", {}).get("tool_count") != 10:
+    if manifest.get("schema_version") != "1.0" or manifest.get("surface", {}).get("tool_count") != 9:
         fail("manifest schema or tool count is invalid")
     capabilities = set(manifest.get("capabilities", []))
     consequences = set(manifest.get("consequences", []))
     tools = manifest.get("tools", [])
-    if len(tools) != 10 or len({t.get("id") for t in tools}) != 10:
-        fail("manifest must contain exactly ten unique tools")
+    if len(tools) != 9 or len({t.get("id") for t in tools}) != 9:
+        fail("manifest must contain exactly nine unique tools")
     for tool in tools:
         if set(tool) != {"id", "description", "operations"} or not tool["operations"]:
             fail(f"tool section is not closed: {tool.get('id')}")
     operations = manifest.get("operations", [])
     # The closed surface includes explicit bounded research retirement.
-    expected_operations = 78
+    expected_operations = 71
     if len(operations) != expected_operations or len({o.get("id") for o in operations}) != expected_operations:
         fail(f"manifest must contain exactly {expected_operations} unique operations")
     tool_ids = {t["id"] for t in tools}
@@ -1562,6 +1562,9 @@ def fixtures_projection(manifest: dict, public_variants: list[dict]) -> str:
             if "sha256:" in pattern: return "sha256:"+"0"*64
             if "[0-9a-f]{40}" in pattern: return "0"*40
             if pattern.startswith("^[a-z][a-z0-9_-]"): return "fence:prod-pause"
+            # Uppercase issue-key patterns (CD-0213 D3 human_key, e.g. "EX-1"):
+            # the generic "id-1" exemplar fails ^[A-Z][A-Z0-9]*-[1-9][0-9]*$.
+            if pattern.startswith("^[A-Z]"): return "EX-1"
             if pattern.startswith("^msg:"): return "msg:" + "0"*32
             if pattern.startswith("^https://"): return "https://example.test/pull/1"
             if "date" in pattern: return "2026-08-08T00:00:00Z"
@@ -1824,6 +1827,22 @@ def go_typed_error_kind_projection(envelope: dict) -> str:
     )
 
 
+def ts_publication_pin_projection() -> str:
+    script = '''import { contractOperations } from "./adapter/opencode/generated-contracts.ts";
+import { publishedRequestSchema } from "./adapter/opencode/concord.ts";
+const tools = [...new Set(contractOperations.map(operation => operation.tool))];
+const total = tools.reduce((sum, tool) => sum + Buffer.byteLength(JSON.stringify(publishedRequestSchema(tool)), "utf8"), 0);
+console.log(JSON.stringify(total));'''
+    measured = subprocess.run(
+        ["bun", "-e", script], cwd=ROOT, text=True,
+        capture_output=True, check=True, timeout=30,
+    )
+    total = json.loads(measured.stdout)
+    if type(total) is not int or total <= 0:
+        fail("published request measurement must be a positive UTF-8 byte count")
+    return f"\nexport const PINNED_PUBLISHED_TOTAL_BYTES = {total};\n"
+
+
 def main() -> int:
     try:
         check = "--check" in sys.argv[1:]
@@ -1868,8 +1887,11 @@ def main() -> int:
             ROOT / "internal/agent/generated_envelope_schema.go": subprocess.run(["gofmt"], input=go_envelope_schema_projection(), text=True, capture_output=True, check=True).stdout,
             ROOT / "internal/store/generated_typed_error_kinds.go": subprocess.run(["gofmt"], input=go_typed_error_kind_projection(envelope), text=True, capture_output=True, check=True).stdout,
         }
+        publication_tests = ROOT / "adapter/opencode/generated-contract-tests.ts"
         if check:
             for path, content in expected.items():
+                if path == publication_tests:
+                    continue
                 if not path.is_file() or path.read_text() != content:
                     fail(f"generated contract drift: {path.relative_to(ROOT)}")
         else:
@@ -1877,9 +1899,15 @@ def main() -> int:
             for path, content in expected.items():
                 path.parent.mkdir(exist_ok=True)
                 path.write_text(content)
+        publication_content = expected[publication_tests] + ts_publication_pin_projection()
+        if check:
+            if publication_tests.read_text() != publication_content:
+                fail("generated contract drift: adapter/opencode/generated-contract-tests.ts")
+        else:
+            publication_tests.write_text(publication_content)
         print(digest)
         return 0
-    except (OSError, json.JSONDecodeError, ValueError) as exc:
+    except (OSError, json.JSONDecodeError, ValueError, subprocess.SubprocessError) as exc:
         print(f"agent contract generation failed: {exc}", file=sys.stderr)
         return 1
 if __name__ == "__main__": raise SystemExit(main())

@@ -6122,7 +6122,93 @@ END;
 `,
 	},
 	{
+		// CD-0213 retires the Concord planning mirror. The Initiative
+		// projections, the Linear outbox, the Project links, and the Product
+		// planning mode leave the schema; the operator archives them with
+		// concord backup before upgrading. Unsent outbox rows are mirror
+		// writes CD-0213 retires, so they are dropped, not migrated.
+		// linear_issue_links keeps one recorded issue identity per work item
+		// (D3): the key, UUID, and URL the agent read from the Linear MCP
+		// server. A row without a key or URL never held a usable identity and
+		// stays only in the backup. The retired Initiative events still fold
+		// to nothing on replay, so the includes relation rows they wrote are
+		// deleted here to match a rebuild from the log.
 		Version:  124,
+		Name:     "planning_mirror_retirement",
+		Breaking: true,
+		SQL: `
+INSERT OR IGNORE INTO fold_guard(active) VALUES (1);
+DROP TRIGGER initiative_projection_initiative_entries_insert;
+DROP TRIGGER initiative_projection_initiative_entries_delete;
+DROP TRIGGER initiative_projection_initiative_entries_update;
+DROP TRIGGER initiative_projection_product_projects_insert;
+DROP TRIGGER initiative_projection_product_projects_delete;
+DROP TRIGGER initiative_projection_product_projects_update;
+DROP TRIGGER initiative_projection_relations_insert;
+DROP TRIGGER initiative_projection_relations_delete;
+DROP TRIGGER initiative_projection_relations_update;
+DROP TRIGGER initiative_projection_work_items_insert;
+DROP TRIGGER initiative_projection_work_items_delete;
+DROP TRIGGER initiative_projection_work_items_update;
+DROP TRIGGER initiative_projection_work_projects_insert;
+DROP TRIGGER initiative_projection_work_projects_delete;
+DROP TRIGGER initiative_projection_work_projects_update;
+DROP VIEW initiative_entry_violation_rows;
+DROP VIEW initiative_scope_violation_rows;
+DROP VIEW initiative_work_scope;
+DROP TABLE initiative_entry_violations;
+DROP TABLE initiative_scope_violations;
+DROP TABLE initiative_entries;
+DROP TABLE linear_outbox_dispositions;
+DROP TABLE linear_outbox;
+DROP TABLE linear_project_links;
+DELETE FROM relations WHERE kind = 'includes';
+CREATE TABLE relations_v124 (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    work_id_from TEXT NOT NULL REFERENCES work_items(id),
+    work_id_to   TEXT NOT NULL REFERENCES work_items(id),
+    kind         TEXT NOT NULL CHECK(kind IN ('parent','blocks','implements','supersedes','forward_link','raised_from','depends_on','compatible_with','merged_into')),
+    created_at   TEXT NOT NULL,
+    resolution_id TEXT,
+    CHECK(work_id_from <> work_id_to),
+    UNIQUE(work_id_from, work_id_to, kind)
+);
+-- Preserve the high-water mark even when the highest relation was retired.
+INSERT INTO sqlite_sequence(name,seq) SELECT 'relations_v124',seq FROM sqlite_sequence WHERE name='relations';
+INSERT INTO relations_v124(id,work_id_from,work_id_to,kind,created_at,resolution_id)
+    SELECT id,work_id_from,work_id_to,kind,created_at,resolution_id FROM relations;
+DROP TABLE relations;
+ALTER TABLE relations_v124 RENAME TO relations;
+CREATE INDEX idx_relations_from_kind ON relations(work_id_from, kind, work_id_to);
+CREATE INDEX idx_relations_to_kind ON relations(work_id_to, kind, work_id_from);
+CREATE UNIQUE INDEX relations_supersedes_target ON relations(work_id_to) WHERE kind = 'supersedes';
+CREATE UNIQUE INDEX relations_merged_into_source ON relations(work_id_from) WHERE kind = 'merged_into';
+CREATE TRIGGER relations_guard_insert BEFORE INSERT ON relations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'relations is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1); END;
+CREATE TRIGGER relations_guard_update BEFORE UPDATE ON relations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'relations is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1); END;
+CREATE TRIGGER relations_guard_delete BEFORE DELETE ON relations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'relations is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1); END;
+ALTER TABLE products DROP COLUMN planning_mode;
+CREATE TABLE linear_issue_links_v124 (
+    work_id            TEXT PRIMARY KEY CHECK(length(work_id) BETWEEN 2 AND 128),
+    remote_issue_uuid  TEXT NOT NULL CHECK(length(remote_issue_uuid) BETWEEN 2 AND 128),
+    human_key          TEXT NOT NULL CHECK(length(human_key) BETWEEN 1 AND 64),
+    url                TEXT NOT NULL CHECK(length(url) BETWEEN 1 AND 2048),
+    created_at         TEXT NOT NULL,
+    updated_at         TEXT NOT NULL
+);
+INSERT INTO linear_issue_links_v124(work_id, remote_issue_uuid, human_key, url, created_at, updated_at)
+SELECT work_id, remote_issue_uuid, human_key, url, created_at, updated_at FROM linear_issue_links
+WHERE human_key <> '' AND url <> '';
+DROP TABLE linear_issue_links;
+ALTER TABLE linear_issue_links_v124 RENAME TO linear_issue_links;
+CREATE UNIQUE INDEX linear_issue_links_remote_uuid ON linear_issue_links(remote_issue_uuid);
+CREATE TRIGGER linear_issue_links_guard_insert BEFORE INSERT ON linear_issue_links FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_issue_links is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER linear_issue_links_guard_update BEFORE UPDATE ON linear_issue_links FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_issue_links is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+CREATE TRIGGER linear_issue_links_guard_delete BEFORE DELETE ON linear_issue_links FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_issue_links is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
+DELETE FROM fold_guard;
+`,
+	},
+	{
+		Version:  125,
 		Name:     "native_oracle_plan_and_streams",
 		Breaking: false,
 		SQL: `

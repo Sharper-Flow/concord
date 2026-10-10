@@ -325,9 +325,8 @@ func CompleteWorkflowTxWithRegistry(ctx context.Context, tx *sql.Tx, registry De
 		return workflowClauseError(err, 7)
 	}
 	// CD-0183 D3: the workflow's terminal state closes the work item
-	// lifecycle in this same transaction, so the lifecycle and the Linear
-	// status follow the workflow instead of stranding in_progress after a
-	// recorded completion. The completion fold has already marked the
+	// lifecycle in this same transaction, so the lifecycle follows the
+	// workflow instead of stranding in_progress after a recorded completion. The completion fold has already marked the
 	// instance terminal, so the terminal-lifecycle close keeps that record:
 	// workflow.completed remains the only fold that may mark an instance
 	// completed. Replay folds the logged transition exactly as it folded

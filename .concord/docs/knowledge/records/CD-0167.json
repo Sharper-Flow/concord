@@ -30,8 +30,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:2112ece9993ec091883a512ae4cb3743f049e7b0faabc3c9845f2eafae13c127",
-  "status": "accepted",
+  "sha256": "sha256:8d39bcd4fedac95fb7371900177601179e45b71aa0d9c0b70e96a05a1964a598",
+  "status": "superseded",
+  "successor": "CD-0213",
   "summary": "Prohibits committing any planning backlog into a git repository. A local-only Product keeps Concord planning authority, and a foreign session records other-Product work under the owning Product's scope instead of the superseded todo.md commit route. GitHub Issues is not a backlog destination.",
   "tags": [
     "authority",

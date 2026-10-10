@@ -7,7 +7,7 @@ File accountability does not change a document's law home or a handler's semanti
 ## Responsibility
 Owns the human-facing plane: the terminal launcher, the CLI verb surface and its operator diagnostics, installation and release packaging, and the navigation path an operator uses to reach Product state.
 
-Mapped files: 170; tests: 91; unresolved candidates: 0.
+Mapped files: 157; tests: 78; unresolved candidates: 0.
 Candidate counts overlap when a file has several candidates; no candidate is an assigned owner.
 
 ## Code and tests
@@ -38,9 +38,7 @@ Advisory semantic ownership; the complete enriched references live in the invent
 These are catalog surface entries, not invariant/control or handler joins.
 - CLI: `invoke`, `worker-dispatch`, `worker-complete`, `worker-fail`, `worker-abandon`
 - CLI: `client-register (client register)`, `client-policy-update (client policy-update)`, `client-policy-expand (client policy-expand)`, `client-key-rotate (client key-rotate)`, `client-revoke (client revoke)`
-- CLI: `product-create (product create)`, `product-mode-set (product mode-set)`, `linear-health (linear health)`, `linear-divergence (linear divergence)`, `linear-unlinked-remote-in-progress (linear unlinked-remote-in-progress)`
-- CLI: `linear-issue-enqueue (linear issue-enqueue)`, `linear-outbox-drain (linear outbox-drain)`, `linear-outbox-disposition (linear outbox-disposition)`, `linear-backfill (linear backfill)`, `linear-connection-update (linear connection-update)`
-- CLI: `linear-initiative-import (linear initiative-import)`, `resource-create (resource create)`, `resource-share (resource share)`, `domain-project-attachments-replace (domain project-attachments-replace)`, `domain-resource-attachments-replace (domain resource-attachments-replace)`
+- CLI: `product-create (product create)`, `resource-create (resource create)`, `resource-share (resource share)`, `domain-project-attachments-replace (domain project-attachments-replace)`, `domain-resource-attachments-replace (domain resource-attachments-replace)`
 - CLI: `project-create (project create)`, `product-project-add (product project-add)`, `product-stage-update (product stage-update)`, `product-knowledge-home-designate (product knowledge-home-designate)`, `product-knowledge-home-clear (product knowledge-home-clear)`
 - CLI: `product-knowledge-source-register (product knowledge-source-register)`, `product-knowledge-source-remove (product knowledge-source-remove)`, `project-locator-add (project locator-add)`, `project-locator-update (project locator-update)`, `project-locator-remove (project locator-remove)`
 - CLI: `project-canonical-path (project canonical-path)`, `cd-reservations (cd reservations)`, `backup`, `worktree-locate`, `claim-landing`
@@ -67,7 +65,7 @@ Bindings and interpretations are advisory joins; navigation does not prove dispa
 - agent operations bound: 5 (`concord_product_view.blocked_sessions`, `concord_product_view.portfolio`, `concord_product_view.resolve`, …)
 - workflow actions bound: 0
 - Interpretation `depends_on` -> `durable-authority` (advisory, not an import allowlist).
-- Observed package imports: 60 distinct paths; package-level only; intra-package edges unmeasured; no symbol graph or execution permission.
+- Observed package imports: 57 distinct paths; package-level only; intra-package edges unmeasured; no symbol graph or execution permission.
 - Observed package edge via `github.com/sharper-flow/concord/internal/agent` -> `agent-surface` (advisory).
 - Observed package edge via `github.com/sharper-flow/concord/internal/gittest` -> `repository-verification` (advisory).
 - Observed package edge via `github.com/sharper-flow/concord/internal/hostlease` -> `durable-authority` (advisory).

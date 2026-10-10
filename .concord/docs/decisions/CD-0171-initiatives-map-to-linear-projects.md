@@ -1,6 +1,6 @@
 # CD-0171: Initiatives map to Linear Projects
 
-- **Status:** Accepted
+- **Status:** Superseded by CD-0213
 - **Date:** 2026-09-23
 - **Scope:** How a Linear-enabled Product maps Concord Initiatives, repository
   Projects, and work items onto Linear, and how pull requests link to Linear

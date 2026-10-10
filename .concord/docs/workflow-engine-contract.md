@@ -460,7 +460,7 @@ Evaluation and completion read the latest accepted row in
 `accept_decision` accepts — and require its decision token inside the approved
 `allowed` set. Contract approval validates the predicate kind and its allowed
 tokens, and validates an inline record only when one is supplied. An unaccepted
-record does not satisfy the predicate or unblock a dependent Initiative.
+record does not satisfy the predicate or unblock a dependent managed work unit.
 
 ## 7. Ordered completion gate
 

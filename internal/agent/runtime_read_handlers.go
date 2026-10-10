@@ -492,37 +492,6 @@ func (r runtime) readTraceProjectRetirement(ctx context.Context, base Envelope, 
 	return r.resultEnvelope(base, store.ResultMeta{QueryID: "CD-0182.R1", ContractVersion: "CD-0182/1.0", ResolvedScope: store.ResolvedScope{WorkID: in.WorkID, ProjectIDs: []string{project}}, Authority: "authoritative", Freshness: store.Freshness{ObservedAt: r.Authority.now().UTC().Format(time.RFC3339Nano)}, OrderingKeys: []string{"retirement:" + in.WorkID}}, r.scope(store.ResultMeta{}), retirement)
 }
 
-func (r runtime) readInitiativeEntries(ctx context.Context, base Envelope, input []byte, queryID string) (Envelope, error) {
-	var in initiativeEntriesInput
-	if err := decodeOperationInput(input, &in); err != nil {
-		return base, err
-	}
-	summary, err := r.Store.ReadWorkItemSummary(ctx, in.InitiativeWorkID)
-	if err != nil {
-		var failure *store.Failure
-		if errors.As(err, &failure) && failure.Kind == store.KindProjectionNotFound {
-			return coreError(base, "unknown_scope", "Initiative does not exist", "reread_entities", false), nil
-		}
-		return failureEnvelope(base, err), nil
-	}
-	if summary.Kind != "initiative" {
-		return coreError(base, "invariant_violation", "entry read target is not an Initiative", "reread_entities", false), nil
-	}
-	products, err := r.Store.ProductsForWorkIDs(ctx, []string{in.InitiativeWorkID})
-	if err != nil {
-		return failureEnvelope(base, err), nil
-	}
-	if len(products[in.InitiativeWorkID]) != 1 {
-		return coreError(base, "invariant_violation", "Initiative does not derive exactly one Product", "reread_entities", false), nil
-	}
-	entries, err := r.Store.ReadInitiativeEntries(ctx, in.InitiativeWorkID)
-	if err != nil {
-		return failureEnvelope(base, err), nil
-	}
-	meta := store.ResultMeta{QueryID: queryID, ContractVersion: "C21/1.0", ResolvedScope: store.ResolvedScope{ProductID: products[in.InitiativeWorkID][0], WorkID: in.InitiativeWorkID}, Authority: "authoritative", Freshness: store.Freshness{ObservedAt: time.Now().UTC().Format(time.RFC3339Nano)}, OrderingKeys: []string{"position", "child_work_id"}}
-	return r.resultEnvelope(base, meta, r.scope(meta), map[string]any{"entries": entries, "narrative": summary.Narrative})
-}
-
 func (r runtime) readKnowledgeSearch(ctx context.Context, base Envelope, input []byte) (Envelope, error) {
 	var in knowledgeSearchInput
 	if err := decodeOperationInput(input, &in); err != nil {

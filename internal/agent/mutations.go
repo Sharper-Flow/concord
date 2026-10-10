@@ -64,64 +64,6 @@ type reviseMutationInput struct {
 	Evidence        []EvidenceRef  `json:"evidence"`
 	Approval        *approvalInput `json:"approval"`
 }
-type initiativeCreateMutationInput struct {
-	Title          string         `json:"title"`
-	ValueStatement string         `json:"value_statement"`
-	ProjectIDs     []string       `json:"project_ids"`
-	Priority       int64          `json:"priority"`
-	Urgency        string         `json:"urgency"`
-	Tags           []string       `json:"tags"`
-	ExternalRef    string         `json:"external_ref"`
-	IdempotencyKey string         `json:"idempotency_key"`
-	Approval       *approvalInput `json:"approval"`
-}
-type initiativeEntryMutationInput struct {
-	InitiativeWorkID string         `json:"initiative_work_id"`
-	ChildWorkID      string         `json:"child_work_id"`
-	ExpectedVersion  int64          `json:"expected_version"`
-	Position         int64          `json:"position"`
-	Required         *bool          `json:"required"`
-	IdempotencyKey   string         `json:"idempotency_key"`
-	Approval         *approvalInput `json:"approval"`
-}
-
-// initiativeReorderEntryInput and initiativeRequirednessInput decode exactly
-// what their per-operation schemas allow. The shared struct above carries the
-// union for add_entry only; reordering carries no requiredness and a
-// requiredness change carries no position, so a shared decoder would accept
-// input the contract refuses.
-type initiativeReorderEntryInput struct {
-	InitiativeWorkID string         `json:"initiative_work_id"`
-	ChildWorkID      string         `json:"child_work_id"`
-	ExpectedVersion  int64          `json:"expected_version"`
-	Position         int64          `json:"position"`
-	IdempotencyKey   string         `json:"idempotency_key"`
-	Approval         *approvalInput `json:"approval"`
-}
-
-type initiativeRequirednessInput struct {
-	InitiativeWorkID string         `json:"initiative_work_id"`
-	ChildWorkID      string         `json:"child_work_id"`
-	ExpectedVersion  int64          `json:"expected_version"`
-	Required         *bool          `json:"required"`
-	IdempotencyKey   string         `json:"idempotency_key"`
-	Approval         *approvalInput `json:"approval"`
-}
-type initiativeRemoveEntryMutationInput struct {
-	InitiativeWorkID string         `json:"initiative_work_id"`
-	ChildWorkID      string         `json:"child_work_id"`
-	ExpectedVersion  int64          `json:"expected_version"`
-	IdempotencyKey   string         `json:"idempotency_key"`
-	Approval         *approvalInput `json:"approval"`
-}
-type initiativeNarrativeMutationInput struct {
-	InitiativeWorkID string         `json:"initiative_work_id"`
-	ExpectedVersion  int64          `json:"expected_version"`
-	Narrative        string         `json:"narrative"`
-	Reason           string         `json:"reason"`
-	IdempotencyKey   string         `json:"idempotency_key"`
-	Approval         *approvalInput `json:"approval"`
-}
 type lifecycleMutationInput struct {
 	WorkID          string         `json:"work_id"`
 	ExpectedVersion int64          `json:"expected_version"`
@@ -360,9 +302,11 @@ type messageWithdrawInput struct {
 	IdempotencyKey  string         `json:"idempotency_key"`
 	Approval        *approvalInput `json:"approval"`
 }
-type issueAdoptInput struct {
+type issueLinkRecordInput struct {
 	WorkID          string         `json:"work_id"`
+	HumanKey        string         `json:"human_key"`
 	RemoteIssueUUID string         `json:"remote_issue_uuid"`
+	URL             string         `json:"url"`
 	IdempotencyKey  string         `json:"idempotency_key"`
 	Approval        *approvalInput `json:"approval"`
 }
@@ -1705,171 +1649,6 @@ func (r runtime) planReviseIntent(_ context.Context, base Envelope, raw []byte, 
 	return Envelope{}, nil, false
 }
 
-// planInitiativeCreate plans concord_work_initiative.create.
-func (r runtime) planInitiativeCreate(ctx context.Context, base Envelope, raw []byte, digest string, _ Authority, _ ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
-	var in initiativeCreateMutationInput
-	if err := decodeOperationInput(raw, &in); err != nil {
-		return base, err, true
-	}
-	if in.Approval != nil {
-		plan.approval = in.Approval.ApprovalRef
-	}
-	if len(in.ProjectIDs) == 0 {
-		return coreError(base, "invalid_input", "Initiative creation requires at least one Project membership", "reread_entities", false), nil, true
-	}
-	plan.scope["project_ids"] = in.ProjectIDs
-	productsByProject, err := r.Store.ProductsForProjectIDs(ctx, in.ProjectIDs)
-	if err != nil {
-		return failureEnvelope(base, err), nil, true
-	}
-	if products := uniqueProducts(productsByProject, in.ProjectIDs); len(products) != 1 {
-		return coreError(base, "invariant_violation", "Initiative creation requires exactly one derived Product", "reread_entities", false), nil, true
-	}
-	workID := "initiative-" + digest[7:31]
-	plan.intents = []NextIntent{{Tool: "concord_work_browse", Operation: "list", QueryID: "PM1.Q3", ReasonCode: "inspect_created_initiative"}}
-	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
-		if products, err := deriveInitiativeProductsTx(ctx, tx, in.ProjectIDs); err != nil {
-			return nil, nil, nil, err
-		} else if len(products) != 1 {
-			return nil, nil, nil, newRuntimeFailure("invariant_violation", "Initiative creation requires exactly one derived Product", "reread_entities", false)
-		}
-		urgency := in.Urgency
-		if urgency == "" {
-			urgency = "standard"
-		}
-		payload, _ := json.Marshal(map[string]any{"work_kind": "initiative", "title": in.Title, "value_statement": in.ValueStatement, "priority": in.Priority, "urgency": urgency, "tags": in.Tags, "external_ref": in.ExternalRef})
-		memberships := make([]storeMembership, len(in.ProjectIDs))
-		for i, project := range in.ProjectIDs {
-			role := "secondary"
-			if i == 0 {
-				role = "primary"
-			}
-			memberships[i] = storeMembership{ProjectID: project, Role: role}
-		}
-		membershipPayload, _ := json.Marshal(map[string]any{"memberships": memberships, "expected_version": 1, "resulting_version": 2})
-		now := r.Authority.now()
-		result, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{
-			{EventID: digest + ":create", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: grant.PrincipalRef, OccurredAt: now, PayloadVersion: 2, Payload: payload},
-			{EventID: digest + ":memberships", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: grant.PrincipalRef, OccurredAt: now, PayloadVersion: 1, Payload: membershipPayload},
-		}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, workID): 0}})
-		if err != nil {
-			return nil, nil, nil, err
-		}
-		changed := []ChangedRef{{EntityKind: "work_item", ID: workID, Version: "2"}}
-		return mutationPayload(changed, plan.intents), result.EventIDs, changed, nil
-	}
-	return Envelope{}, nil, false
-}
-
-// planInitiativeEntry plans concord_work_initiative.add_entry, concord_work_initiative.reorder_entry, concord_work_initiative.change_requiredness.
-func (r runtime) planInitiativeEntry(_ context.Context, base Envelope, raw []byte, digest string, _ Authority, op ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
-	var in initiativeEntryMutationInput
-	switch op.ID {
-	case "concord_work_initiative.reorder_entry":
-		var reorder initiativeReorderEntryInput
-		if err := decodeOperationInput(raw, &reorder); err != nil {
-			return base, err, true
-		}
-		in = initiativeEntryMutationInput{InitiativeWorkID: reorder.InitiativeWorkID, ChildWorkID: reorder.ChildWorkID, ExpectedVersion: reorder.ExpectedVersion, Position: reorder.Position, IdempotencyKey: reorder.IdempotencyKey, Approval: reorder.Approval}
-	case "concord_work_initiative.change_requiredness":
-		var requiredness initiativeRequirednessInput
-		if err := decodeOperationInput(raw, &requiredness); err != nil {
-			return base, err, true
-		}
-		in = initiativeEntryMutationInput{InitiativeWorkID: requiredness.InitiativeWorkID, ChildWorkID: requiredness.ChildWorkID, ExpectedVersion: requiredness.ExpectedVersion, Required: requiredness.Required, IdempotencyKey: requiredness.IdempotencyKey, Approval: requiredness.Approval}
-	default:
-		if err := decodeOperationInput(raw, &in); err != nil {
-			return base, err, true
-		}
-	}
-	if in.Approval != nil {
-		plan.approval = in.Approval.ApprovalRef
-	}
-	plan.versions["initiative"] = in.ExpectedVersion
-	plan.scope["work_ids"] = []string{in.InitiativeWorkID, in.ChildWorkID}
-	kind := "initiative_entry.added"
-	intentReason := "inspect_initiative_entries"
-	if op.ID == "concord_work_initiative.reorder_entry" {
-		kind = "initiative_entry.reordered"
-		intentReason = "inspect_reordered_initiative"
-	} else if op.ID == "concord_work_initiative.change_requiredness" {
-		kind = "initiative_entry.requiredness_changed"
-		intentReason = "inspect_initiative_requiredness"
-	}
-	plan.intents = []NextIntent{{Tool: "concord_work_initiative", Operation: "entries", QueryID: "C21.InitiativeEntries", ReasonCode: intentReason}}
-	required := true
-	if in.Required != nil {
-		required = *in.Required
-	}
-	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
-		event, err := store.InitiativeEntryEvent(digest+":entry", kind, in.InitiativeWorkID, store.InitiativeEntry{InitiativeWorkID: in.InitiativeWorkID, ChildWorkID: in.ChildWorkID, Position: in.Position, Required: required}, grant.PrincipalRef, r.Authority.now(), in.ExpectedVersion)
-		if err != nil {
-			return nil, nil, nil, err
-		}
-		result, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{event}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, in.InitiativeWorkID): in.ExpectedVersion}})
-		if err != nil {
-			return nil, nil, nil, err
-		}
-		changed := []ChangedRef{{EntityKind: "work_item", ID: in.InitiativeWorkID, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
-		return mutationPayload(changed, plan.intents), result.EventIDs, changed, nil
-	}
-	return Envelope{}, nil, false
-}
-
-// planInitiativeRemoveEntry plans concord_work_initiative.remove_entry.
-func (r runtime) planInitiativeRemoveEntry(_ context.Context, base Envelope, raw []byte, digest string, _ Authority, _ ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
-	var in initiativeRemoveEntryMutationInput
-	if err := decodeOperationInput(raw, &in); err != nil {
-		return base, err, true
-	}
-	if in.Approval != nil {
-		plan.approval = in.Approval.ApprovalRef
-	}
-	plan.versions["initiative"] = in.ExpectedVersion
-	plan.scope["work_ids"] = []string{in.InitiativeWorkID, in.ChildWorkID}
-	plan.intents = []NextIntent{{Tool: "concord_work_initiative", Operation: "entries", QueryID: "C21.InitiativeEntries", ReasonCode: "inspect_removed_initiative_entry"}}
-	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
-		event, err := store.InitiativeEntryEvent(digest+":entry", "initiative_entry.removed", in.InitiativeWorkID, store.InitiativeEntry{InitiativeWorkID: in.InitiativeWorkID, ChildWorkID: in.ChildWorkID}, grant.PrincipalRef, r.Authority.now(), in.ExpectedVersion)
-		if err != nil {
-			return nil, nil, nil, err
-		}
-		result, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{event}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, in.InitiativeWorkID): in.ExpectedVersion}})
-		if err != nil {
-			return nil, nil, nil, err
-		}
-		changed := []ChangedRef{{EntityKind: "work_item", ID: in.InitiativeWorkID, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
-		return mutationPayload(changed, plan.intents), result.EventIDs, changed, nil
-	}
-	return Envelope{}, nil, false
-}
-
-// planInitiativeNarrative plans concord_work_initiative.revise_narrative.
-func (r runtime) planInitiativeNarrative(_ context.Context, base Envelope, raw []byte, digest string, _ Authority, _ ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
-	var in initiativeNarrativeMutationInput
-	if err := decodeOperationInput(raw, &in); err != nil {
-		return base, err, true
-	}
-	if in.Approval != nil {
-		plan.approval = in.Approval.ApprovalRef
-	}
-	plan.versions["initiative"] = in.ExpectedVersion
-	plan.scope["work_ids"] = []string{in.InitiativeWorkID}
-	plan.intents = []NextIntent{{Tool: "concord_work_initiative", Operation: "entries", QueryID: "C21.InitiativeEntries", ReasonCode: "refresh_initiative_context"}}
-	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
-		event, err := store.InitiativeNarrativeEvent(digest+":narrative", in.InitiativeWorkID, in.Narrative, in.Reason, grant.PrincipalRef, r.Authority.now(), in.ExpectedVersion)
-		if err != nil {
-			return nil, nil, nil, err
-		}
-		result, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{event}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, in.InitiativeWorkID): in.ExpectedVersion}})
-		if err != nil {
-			return nil, nil, nil, err
-		}
-		changed := []ChangedRef{{EntityKind: "work_item", ID: in.InitiativeWorkID, Version: strconv.FormatInt(in.ExpectedVersion+1, 10)}}
-		return mutationPayload(changed, plan.intents), result.EventIDs, changed, nil
-	}
-	return Envelope{}, nil, false
-}
-
 // planWorkerAbandon records the adapter's durable idempotency receipt after the
 // host has appended the signed worker.failed event. The host owns session
 // observation and worker evidence, so this core operation records no event.
@@ -2565,31 +2344,26 @@ func (r runtime) planObservationRecord(_ context.Context, base Envelope, raw []b
 	return Envelope{}, nil, false
 }
 
-// planLinearIssueAdopt plans concord_work_define.issue_adopt: queue the
-// adoption of one existing Linear issue for an unlinked work item. The drain
-// owns every remote effect; the enqueue itself records no work version.
-func (r runtime) planLinearIssueAdopt(_ context.Context, base Envelope, raw []byte, _ string, _ Authority, _ ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
-	var in issueAdoptInput
+// planIssueLinkRecord plans concord_work_define.issue_link_record: record the
+// Linear issue identity the agent read from the Linear MCP server on one work
+// item. Concord makes no Linear call (CD-0213 D3, D7), and the record bumps no
+// work version.
+func (r runtime) planIssueLinkRecord(_ context.Context, base Envelope, raw []byte, _ string, _ Authority, _ ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
+	var in issueLinkRecordInput
 	if err := decodeOperationInput(raw, &in); err != nil {
 		return base, err, true
 	}
 	if in.Approval != nil {
 		plan.approval = in.Approval.ApprovalRef
 	}
-	if len(in.WorkID) < 2 || len(in.WorkID) > 128 {
-		return coreError(base, "invalid_input", "work id must be 2 to 128 characters", "reread_entities", false), nil, true
-	}
-	if len(in.RemoteIssueUUID) < 2 || len(in.RemoteIssueUUID) > 128 {
-		return coreError(base, "invalid_input", "remote issue uuid must be 2 to 128 characters", "reread_entities", false), nil, true
-	}
 	plan.scope["work_ids"] = []string{in.WorkID}
 	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
-		entry, err := store.EnqueueLinearIssueAdoptionTx(ctx, tx, in.WorkID, in.RemoteIssueUUID)
+		link, err := store.RecordLinearIssueLinkTx(ctx, tx, store.LinearIssueLink{WorkID: in.WorkID, RemoteIssueUUID: in.RemoteIssueUUID, HumanKey: in.HumanKey, URL: in.URL})
 		if err != nil {
 			return nil, nil, nil, err
 		}
-		changed := []ChangedRef{{EntityKind: "linear_outbox_operation", ID: entry.OperationID, Version: "1"}}
-		return mutationPayload(changed, plan.intents), []string{entry.OperationID}, changed, nil
+		changed := []ChangedRef{{EntityKind: "linear_issue_link", ID: link.WorkID, Version: "1"}}
+		return mutationPayload(changed, plan.intents), []string{link.WorkID}, changed, nil
 	}
 	return Envelope{}, nil, false
 }
@@ -4405,14 +4179,6 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Au
 		answer, err, handled = r.planCapture(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_define.revise_intent":
 		answer, err, handled = r.planReviseIntent(ctx, base, raw, digest, grant, op, plan)
-	case "concord_work_initiative.create":
-		answer, err, handled = r.planInitiativeCreate(ctx, base, raw, digest, grant, op, plan)
-	case "concord_work_initiative.add_entry", "concord_work_initiative.reorder_entry", "concord_work_initiative.change_requiredness":
-		answer, err, handled = r.planInitiativeEntry(ctx, base, raw, digest, grant, op, plan)
-	case "concord_work_initiative.remove_entry":
-		answer, err, handled = r.planInitiativeRemoveEntry(ctx, base, raw, digest, grant, op, plan)
-	case "concord_work_initiative.revise_narrative":
-		answer, err, handled = r.planInitiativeNarrative(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_transition.lifecycle":
 		answer, err, handled = r.planLifecycle(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_transition.worker_abandon":
@@ -4443,8 +4209,8 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Au
 		answer, err, handled = r.planMessageWithdraw(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_define.observation_record":
 		answer, err, handled = r.planObservationRecord(ctx, base, raw, digest, grant, op, plan)
-	case "concord_work_define.issue_adopt":
-		answer, err, handled = r.planLinearIssueAdopt(ctx, base, raw, digest, grant, op, plan)
+	case "concord_work_define.issue_link_record":
+		answer, err, handled = r.planIssueLinkRecord(ctx, base, raw, digest, grant, op, plan)
 	case "concord_domain.observation_record":
 		answer, err, handled = r.planDomainObservationRecord(ctx, base, raw, digest, grant, op, plan)
 	case "concord_domain.observation_dismiss":
@@ -4566,29 +4332,6 @@ func (r runtime) deriveMutationProducts(ctx context.Context, scope map[string]an
 	}
 	sort.Strings(result)
 	return result, nil
-}
-
-func uniqueProducts(byProject map[string][]string, projectIDs []string) []string {
-	seen := map[string]bool{}
-	for _, projectID := range projectIDs {
-		for _, productID := range byProject[projectID] {
-			seen[productID] = true
-		}
-	}
-	products := make([]string, 0, len(seen))
-	for productID := range seen {
-		products = append(products, productID)
-	}
-	sort.Strings(products)
-	return products
-}
-
-func deriveInitiativeProductsTx(ctx context.Context, tx *store.Transaction, projectIDs []string) ([]string, error) {
-	byProject, err := store.ProductsForProjectIDsTx(ctx, tx, projectIDs)
-	if err != nil {
-		return nil, err
-	}
-	return uniqueProducts(byProject, projectIDs), nil
 }
 
 func deriveMutationProductsTx(ctx context.Context, tx *store.Transaction, scope map[string]any) ([]string, error) {

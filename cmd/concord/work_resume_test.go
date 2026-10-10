@@ -69,6 +69,81 @@ func TestWorkResumeDerivesActiveEntryFromDefaultCheckout(t *testing.T) {
 	}
 }
 
+func TestWorkResumeReportsRecordedLinearIssue(t *testing.T) {
+	repo := initLocatorRepo(t)
+	s := mustOpenStore(t, filepath.Join(t.TempDir(), "concord.db"))
+	seedLocatorAuthority(t, s, repo)
+	origin, err := s.BootstrapWorktree(context.Background(), bootstrapRequest(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(workResumeInput{ProductID: "product-wl", ProjectID: "project-wl", WorkID: origin.WorkID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(repo)
+	readOutput := func() map[string]json.RawMessage {
+		t.Helper()
+		var out, errOut bytes.Buffer
+		if code := runWorkResume(raw, s, &out, &errOut); code != 0 {
+			t.Fatalf("resume code=%d stderr=%q", code, errOut.String())
+		}
+		var output map[string]json.RawMessage
+		if err := json.Unmarshal(out.Bytes(), &output); err != nil {
+			t.Fatal(err)
+		}
+		if _, present := output["branch_freshness"]; !present {
+			t.Fatal("resume omitted branch freshness")
+		}
+		return output
+	}
+	if output := readOutput(); output["linear_issue"] != nil {
+		t.Fatalf("unlinked resume carried linear_issue: %s", output["linear_issue"])
+	}
+	link := store.LinearIssueLink{
+		WorkID: origin.WorkID, HumanKey: "EX-3", RemoteIssueUUID: "cccccccc-0000-0000-0000-000000000003",
+		URL: "https://linear.app/example/issue/EX-3",
+	}
+	if _, err := s.RecordLinearIssueLink(context.Background(), link); err != nil {
+		t.Fatal(err)
+	}
+	output := readOutput()
+	var issue map[string]string
+	if err := json.Unmarshal(output["linear_issue"], &issue); err != nil {
+		t.Fatal(err)
+	}
+	if len(issue) != 3 || issue["human_key"] != link.HumanKey || issue["remote_issue_uuid"] != link.RemoteIssueUUID || issue["url"] != link.URL {
+		t.Fatalf("recorded issue=%v want key, UUID, and URL from %+v", issue, link)
+	}
+}
+
+func TestWorkResumeRefusesRecordedLinearIssueReadFailure(t *testing.T) {
+	repo := initLocatorRepo(t)
+	s := mustOpenStore(t, filepath.Join(t.TempDir(), "concord.db"))
+	seedLocatorAuthority(t, s, repo)
+	origin, err := s.BootstrapWorktree(context.Background(), bootstrapRequest(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.DatabaseForTesting().Exec(`ALTER TABLE linear_issue_links RENAME TO linear_issue_links_unavailable`); err != nil {
+		t.Fatal(err)
+	}
+	_, readErr := s.ReadLinearLink(context.Background(), origin.WorkID)
+	var failure *store.Failure
+	if !errors.As(readErr, &failure) || failure.Kind != store.KindUnavailable {
+		t.Fatalf("injected link read error=%v, want unavailable", readErr)
+	}
+	raw, err := json.Marshal(workResumeInput{ProductID: "product-wl", ProjectID: "project-wl", WorkID: origin.WorkID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(repo)
+	var out, errOut bytes.Buffer
+	if code := runWorkResume(raw, s, &out, &errOut); code != storeFailureExit(readErr) || out.Len() != 0 || !strings.Contains(errOut.String(), readErr.Error()) {
+		t.Fatalf("link read failure code=%d stdout=%q stderr=%q, want no output and %v", code, out.String(), errOut.String(), readErr)
+	}
+}
+
 // locatorOriginPath reads the local bare repository the fixture's insteadOf
 // mapping hides behind the well-formed remote URL. Git reports the config
 // key's section and name lowercased, so the suffix parse is case-insensitive.

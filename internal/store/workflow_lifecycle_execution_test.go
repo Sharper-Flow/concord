@@ -9,8 +9,8 @@ import (
 )
 
 // CD-0183 D1: the first workflow_action the store applies to a needed item
-// moves it to in_progress and enqueues the Linear issue_update in the same
-// transaction, so the item stops reading ready before any external effect.
+// moves it to in_progress in the same transaction, so the item stops reading
+// ready before any external effect.
 // The action here is a checkpoint on an internal step: no external-effect
 // step has begun, and the lifecycle has still moved.
 func TestFirstWorkflowActionStartsLifecycle(t *testing.T) {
@@ -18,20 +18,8 @@ func TestFirstWorkflowActionStartsLifecycle(t *testing.T) {
 	ctx := context.Background()
 	s := openTemp(t)
 	workID := "first-action-lifecycle"
-	setupLinearProduct(t, s, "product")
-	setupLinearConnectionResource(t, s, "product", map[string]any{"linear": map[string]any{
-		"workspace_url": "https://linear.app/example", "team_id": "team-uuid-1", "auth_mode": "personal_api_key",
-		"status_ids": map[string]string{"needed": "state-needed", "in_progress": "state-in-progress", "completed": "state-completed", "cancelled": "state-cancelled", "superseded": "state-superseded"},
-	}})
-	if _, err := s.SetProductPlanningMode(ctx, "product", PlanningModeLinear, "pilot", "operator", 2); err != nil {
-		t.Fatal(err)
-	}
-	seedLinearWorkItem(t, s, workID, "product-project", "First action lifecycle", "Proves the first action starts the lifecycle")
-	for _, state := range []string{LinearLinkUnpublished, LinearLinkPending, LinearLinkConfirmed} {
-		if err := s.RecordLinearLink(ctx, workID, "remote-first-action", "", "", "", "", state); err != nil {
-			t.Fatal(err)
-		}
-	}
+	setupProductWithProject(t, s, "product", "product-project")
+	seedProjectWorkItem(t, s, workID, "product-project", "First action lifecycle", "Proves the first action starts the lifecycle")
 	actor := WorkflowActor{PrincipalRef: "principal:operator", ClientRef: "client:concord-1", AgentRef: "agent:owner", SessionRef: "session:" + workID, ActorClass: ActorAgent}
 	registered, err := BuiltinWorkflowDefinitionForRef("workflow.break_fix")
 	if err != nil {
@@ -93,13 +81,6 @@ func TestFirstWorkflowActionStartsLifecycle(t *testing.T) {
 	}
 	if lifecycle != "in_progress" {
 		t.Fatalf("first action left lifecycle=%q, want in_progress", lifecycle)
-	}
-	var updateLifecycle, statusID string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.lifecycle'), json_extract(payload,'$.status_id') FROM linear_outbox WHERE work_id=?`, workID).Scan(&updateLifecycle, &statusID); err != nil {
-		t.Fatalf("the first action enqueued no Linear issue_update: %v", err)
-	}
-	if updateLifecycle != "in_progress" || statusID != "state-in-progress" {
-		t.Fatalf("linear update = %s/%s, want in_progress/state-in-progress", updateLifecycle, statusID)
 	}
 	ready, err = s.QueryQ5(ctx, Q5Request{Product: "product", Limit: 50})
 	if err != nil {
@@ -235,4 +216,31 @@ func migration107Backfill(t *testing.T) string {
 	}
 	t.Fatal("migration 107 is missing")
 	return ""
+}
+
+// seedProjectWorkItem seeds a needed task with a title, a value statement, and
+// primary membership in one Project.
+func seedProjectWorkItem(t *testing.T, s *Store, workID, projectID, title, valueStatement string) {
+	t.Helper()
+	ctx := context.Background()
+	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	if err := enterFold(ctx, tx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO work_items(id, kind, title, lifecycle, priority, urgency, version, intent_json, created_at, updated_at) VALUES(?, 'task', ?, 'needed', 0, 'standard', 1, ?, '2026-09-09T00:00:00Z', '2026-09-09T00:00:00Z')`, workID, title, `{"title":"`+title+`","value_statement":"`+valueStatement+`","kind":"task","priority":0,"urgency":"standard"}`); err != nil {
+		t.Fatalf("seed work item %s: %v", workID, err)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO work_projects(work_id, project_id, role) VALUES(?, ?, 'primary')`, workID, projectID); err != nil {
+		t.Fatalf("seed work membership %s: %v", workID, err)
+	}
+	if err := leaveFold(ctx, tx); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
 }

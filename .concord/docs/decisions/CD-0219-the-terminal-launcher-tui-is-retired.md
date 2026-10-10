@@ -109,9 +109,9 @@ and the launcher query family. Operator acceptance of the TUI has no subject
 after deletion and does not become a new acceptance gate for the entry route.
 Coverage for the vacated records carries out-of-scope or unmeasured states
 rather than satisfied ones, and the floor manifest records the retired
-items the same way. `priorities.md` and `design-constraints.md` keep their
-Product-first-surface wording; renaming the operator surface in the
-constitution is a separate decision.
+items the same way. `priorities.md` and `design-constraints.md` own the
+constitutional primary-surface direction. This retirement waives no
+first-usable floor criterion.
 
 ## Verification
 

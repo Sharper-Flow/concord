@@ -300,7 +300,9 @@ def check(root: Path, base_ref: str) -> list[str]:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--root", type=Path, default=ROOT, help="repository root")
-    parser.add_argument("--base-ref", default="HEAD", help="change base; added lines are measured from its merge base with HEAD")
+    parser.add_argument(
+        "--base-ref", required=True, help="change base; added lines are measured from its merge base with HEAD"
+    )
     args = parser.parse_args(argv)
     try:
         findings = check(args.root.resolve(), args.base_ref)

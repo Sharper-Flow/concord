@@ -708,7 +708,7 @@ class CommittedContentRuleTests(unittest.TestCase):
     def owner_paragraph():
         text = (ROOT / ".concord/instructions/change.md").read_text(encoding="utf-8")
         blocks = [" ".join(block.split()) for block in text.split("\n\n")]
-        return next(block for block in blocks if block.startswith("Commit only durable content."))
+        return next(block for block in blocks if block.startswith(generator.COMMITTED_CONTENT_LEAD))
 
     def test_editing_lane_applies_the_owner_paragraph_verbatim(self):
         projection = " ".join(lane_projection(self.lane("implement", self.EDITING)).split())

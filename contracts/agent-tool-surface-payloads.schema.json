@@ -7049,6 +7049,16 @@
       "required": ["dry_run", "candidates"],
       "properties": {
         "dry_run": {"type": "boolean"},
+        "next_valid_intents": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {"$ref": "#/$defs/next_valid_intent"}
+        },
+        "work_pins": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {"$ref": "#/$defs/work_pin"}
+        },
         "candidates": {
           "type": "array",
           "minItems": 1,

@@ -4600,6 +4600,20 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "dry_run": {
           "type": "boolean"
+        },
+        "next_valid_intents": {
+          "items": {
+            "$ref": "#/$defs/next_valid_intent"
+          },
+          "maxItems": 16,
+          "type": "array"
+        },
+        "work_pins": {
+          "items": {
+            "$ref": "#/$defs/work_pin"
+          },
+          "maxItems": 32,
+          "type": "array"
         }
       },
       "required": [

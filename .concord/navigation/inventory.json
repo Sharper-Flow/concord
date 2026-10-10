@@ -3118,7 +3118,7 @@
           "law_refs": [
             {
               "clause_id": "1. Decision",
-              "content_hash": "sha256:355f1bd08532ade1db2b7711e3036f98da2b5146fad3bf7ce5dcb1e130952d9c",
+              "content_hash": "sha256:8febcb794b494b9cbee36df145d48df01c1719c2a989936f439c4851d225334f",
               "law_id": "C14",
               "locator": ".concord/docs/product-row-contract.md"
             },
@@ -8367,7 +8367,7 @@
       "law_refs": [
         {
           "clause_id": "1. Decision",
-          "content_hash": "sha256:355f1bd08532ade1db2b7711e3036f98da2b5146fad3bf7ce5dcb1e130952d9c",
+          "content_hash": "sha256:8febcb794b494b9cbee36df145d48df01c1719c2a989936f439c4851d225334f",
           "law_id": "C14",
           "locator": ".concord/docs/product-row-contract.md"
         },

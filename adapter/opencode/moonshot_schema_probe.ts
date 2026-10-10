@@ -1,5 +1,5 @@
 import { hostToolDescriptions, hostToolSchemas } from "./generated-contracts"
-import { domain, knowledge, product_view, publishWorkStartDefinition, work_browse, work_compact, work_define, work_relate, work_start, work_trace, work_transition } from "./concord"
+import { domain, knowledge, product_view, publishRequestDefinition, publishWorkStartDefinition, work_browse, work_compact, work_define, work_relate, work_start, work_trace, work_transition } from "./concord"
 
 // Live probe: submit every published Concord tool schema to the Moonshot-backed
 // opencode-go provider and fail when its flavored validator refuses any of them.
@@ -30,11 +30,12 @@ function publishedArgsSchema(args: Record<string, unknown>): Record<string, unkn
   return { type: "object", properties, required: Object.keys(properties) }
 }
 
-const tools: Array<{ name: string; description: string; parameters: unknown }> = Object.entries(coreTools).map(([name, exportedTool]) => ({
-  name,
-  description: String(exportedTool.description ?? ""),
-  parameters: publishedArgsSchema(exportedTool.args as Record<string, unknown>),
-}))
+const tools: Array<{ name: string; description: string; parameters: unknown }> = []
+for (const [name, exportedTool] of Object.entries(coreTools)) {
+  const definition = { description: String(exportedTool.description ?? ""), parameters: {}, jsonSchema: publishedArgsSchema(exportedTool.args as Record<string, unknown>) as unknown }
+  await publishRequestDefinition({ toolID: name }, definition)
+  tools.push({ name, description: definition.description, parameters: definition.jsonSchema })
+}
 
 const workStartDefinition = { description: String(work_start.description ?? ""), parameters: {} as unknown, jsonSchema: undefined as unknown }
 await publishWorkStartDefinition({ toolID: "concord_work_start" }, workStartDefinition)

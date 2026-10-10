@@ -38,6 +38,119 @@ DELIVERY_RULE_WAIT_DESCRIPTION = (
     "it raised_from the delivering item."
 )
 
+# The published request document is compact: local #/$defs references and
+# factored object unions (shared property constraints and required fields at
+# the union parent, empty declarations in each closed child, the workflow
+# actions grouped under their operation). Structural inspection needs the
+# legacy-effective view, so the emitted test helper resolves every reference
+# against the passed document and merges each union parent's type, required
+# set, property constraints, and closure back into its branches. This is a
+# plain string so the TypeScript braces never meet the f-string escaping.
+PUBLICATION_EXPANSION_HELPER = '''
+// expandedPublishedRequestSchema resolves the passed document's local
+// references and returns the legacy-effective branch view for structural
+// inspection only: one fully resolved closed branch per operation, and for
+// workflow_action one branch per action variant, with each factored union
+// parent's type, required set, property constraints, and closure merged back
+// into its branches. The argument is the compact published request document,
+// or the final hooked argument root whose root carries the request
+// definitions beside properties.request. Validation never runs on this view:
+// the published compact document and the final hooked root stay the admitted
+// inputs.
+export function expandedPublishedRequestSchema(published: unknown): unknown {
+  const doc: Record<string, any> = published !== null && typeof published === "object" && !Array.isArray(published) ? published : {};
+  const candidate: unknown = (doc.properties ?? {}).request;
+  const request: Record<string, any> = candidate !== null && typeof candidate === "object" && !Array.isArray(candidate) ? candidate : doc;
+  const defs: Record<string, any> = { ...(doc.$defs ?? {}), ...(request.$defs ?? {}) };
+  const resolving = new Set<string>();
+  const resolve = (node: any): any => {
+    if (node === null || typeof node !== "object" || Array.isArray(node)) return node;
+    if (typeof node.$ref !== "string") return node;
+    if (!node.$ref.startsWith("#/$defs/")) throw new Error(`published request carries a non-local reference ${node.$ref}`);
+    const name = node.$ref.slice("#/$defs/".length);
+    if (!Object.hasOwn(defs, name)) throw new Error(`published request reference ${node.$ref} resolves no local definition`);
+    if (resolving.has(name)) throw new Error(`published request references are cyclic at ${node.$ref}`);
+    resolving.add(name);
+    // Keep the name active through its full subtree, not only alias refs.
+    try { return expandValue(resolve(defs[name])); } finally { resolving.delete(name); }
+  };
+  // conjunction merges one factored union parent's object constraints into
+  // one branch: required sets union, a parent property constraint fills the
+  // child's empty declaration, and the child's own keyword wins where both
+  // state one. Only the object keywords publication factors travel here, so
+  // an authored scalar alternation passes through unchanged.
+  const conjunction = (parent: any, child: any): any => {
+    const merged: Record<string, any> = { ...child };
+    if (parent.type !== undefined && merged.type === undefined) merged.type = parent.type;
+    if (parent.additionalProperties !== undefined && merged.additionalProperties === undefined) merged.additionalProperties = parent.additionalProperties;
+    const required = [...new Set([...(Array.isArray(parent.required) ? parent.required : []), ...(Array.isArray(child.required) ? child.required : [])])];
+    if (required.length > 0) merged.required = required;
+    const parentProperties = parent.properties !== null && typeof parent.properties === "object" && !Array.isArray(parent.properties) ? parent.properties : {};
+    const childProperties = child.properties !== null && typeof child.properties === "object" && !Array.isArray(child.properties) ? child.properties : {};
+    const properties: Record<string, any> = { ...parentProperties, ...childProperties };
+    for (const [name, childProperty] of Object.entries(childProperties)) {
+      const parentProperty = parentProperties[name];
+      if (parentProperty !== null && typeof parentProperty === "object" && !Array.isArray(parentProperty) && childProperty !== null && typeof childProperty === "object" && !Array.isArray(childProperty)) {
+        properties[name] = { ...parentProperty, ...childProperty };
+      }
+    }
+    if (Object.keys(properties).length > 0) merged.properties = properties;
+    return merged;
+  };
+  const expandValue = (value: any): any => {
+    if (Array.isArray(value)) return value.map(expandValue);
+    if (value === null || typeof value !== "object") return value;
+    const node = resolve(value);
+    if (node !== null && typeof node === "object" && !Array.isArray(node) && Array.isArray(node.oneOf)) {
+      const expanded: Record<string, any> = {};
+      for (const [key, entry] of Object.entries(node)) {
+        if (key === "oneOf" || key === "$defs") continue;
+        expanded[key] = expandValue(entry);
+      }
+      expanded.oneOf = node.oneOf.map((branch: any) => expandValue(conjunction(node, resolve(branch))));
+      return expanded;
+    }
+    const result: Record<string, any> = {};
+    for (const [key, entry] of Object.entries(node)) {
+      if (key === "$defs") continue;
+      result[key] = expandValue(entry);
+    }
+    return result;
+  };
+  const root: any = resolve(request);
+  if (!Array.isArray(root.oneOf)) return expandValue(root);
+  const branches: any[] = [];
+  for (const member of root.oneOf) {
+    const branch = conjunction(root, resolve(member));
+    const input = resolve(branch.properties?.input);
+    if (branch.properties?.operation?.const === "workflow_action" && input !== null && typeof input === "object" && Array.isArray(input.oneOf)) {
+      // The workflow_action union groups the action variants under one
+      // operation branch; the legacy view flattens it back to one request
+      // branch per action, restoring the branch description the factored
+      // form carries on each grouped variant.
+      for (const variant of input.oneOf) {
+        const mergedInput = expandValue(conjunction(input, resolve(variant)));
+        const flattened: Record<string, any> = { ...branch, properties: { ...branch.properties, input: mergedInput } };
+        if (flattened.description === undefined && typeof mergedInput.description === "string") {
+          flattened.description = mergedInput.description;
+          delete flattened.properties.input.description;
+        }
+        branches.push(flattened);
+      }
+      continue;
+    }
+    branches.push(expandValue(branch));
+  }
+  const body: Record<string, any> = {};
+  for (const [key, entry] of Object.entries(root)) {
+    if (key === "oneOf" || key === "$defs") continue;
+    body[key] = expandValue(entry);
+  }
+  body.oneOf = branches;
+  return body;
+}
+'''
+
 
 ADD_CONDITION_VARIANTS = ("work_transition_action_variant_add_condition", "work_transition_action_public_variant_add_condition")
 
@@ -1260,6 +1373,7 @@ export function payloadFailurePath(name: string, value: unknown): string | null 
 export function envelopeFailurePath(value: unknown): string | null {{
   return validateSchema(envelopeSchema, value, envelopeSchema as Record<string, unknown>).path;
 }}
+{PUBLICATION_EXPANSION_HELPER}
 // advertisedAdmissionTeachingGaps reports every approve_contract rule the
 // published concord_work_transition schema fails to teach a calling agent. An
 // empty list means the advertised schema carries four store admission rules
@@ -1269,11 +1383,14 @@ export function envelopeFailurePath(value: unknown): string | null {{
 // authoring guidance only: the store does not refuse a predicate for it. The
 // store's ValidateOperationPayload stays the closed admission boundary; this
 // checks only what the advertised surface teaches. The published request is
-// one closed branch per operation, and workflow_action publishes one closed
-// branch per registry action variant.
+// one compact branch per operation, with the workflow actions grouped under
+// their operation; the traversal expands the passed document's own local
+// references and factored unions, so every check below reads the
+// legacy-effective branch view of the actual published document.
 export function advertisedAdmissionTeachingGaps(published: unknown): string[] {{
   const gaps: string[] = [];
-  const requestBranches: any[] = Array.isArray((published as any)?.oneOf) ? (published as any).oneOf : [];
+  const expanded: any = expandedPublishedRequestSchema(published);
+  const requestBranches: any[] = Array.isArray(expanded?.oneOf) ? expanded.oneOf : [];
   // workflow_action publishes one closed branch per action variant; the
   // teaching checks read whichever variant carries the taught field.
   const actionInputs: any[] = requestBranches
@@ -1430,6 +1547,22 @@ def go_typed_error_kind_projection(envelope: dict) -> str:
     )
 
 
+def ts_publication_pin_projection() -> str:
+    script = '''import { contractOperations } from "./adapter/opencode/generated-contracts.ts";
+import { publishedRequestSchema } from "./adapter/opencode/concord.ts";
+const tools = [...new Set(contractOperations.map(operation => operation.tool))];
+const total = tools.reduce((sum, tool) => sum + Buffer.byteLength(JSON.stringify(publishedRequestSchema(tool)), "utf8"), 0);
+console.log(JSON.stringify(total));'''
+    measured = subprocess.run(
+        ["bun", "-e", script], cwd=ROOT, text=True,
+        capture_output=True, check=True, timeout=30,
+    )
+    total = json.loads(measured.stdout)
+    if type(total) is not int or total <= 0:
+        fail("published request measurement must be a positive UTF-8 byte count")
+    return f"\nexport const PINNED_PUBLISHED_TOTAL_BYTES = {total};\n"
+
+
 def main() -> int:
     try:
         check = "--check" in sys.argv[1:]
@@ -1474,8 +1607,11 @@ def main() -> int:
             ROOT / "internal/agent/generated_envelope_schema.go": subprocess.run(["gofmt"], input=go_envelope_schema_projection(), text=True, capture_output=True, check=True).stdout,
             ROOT / "internal/store/generated_typed_error_kinds.go": subprocess.run(["gofmt"], input=go_typed_error_kind_projection(envelope), text=True, capture_output=True, check=True).stdout,
         }
+        publication_tests = ROOT / "adapter/opencode/generated-contract-tests.ts"
         if check:
             for path, content in expected.items():
+                if path == publication_tests:
+                    continue
                 if not path.is_file() or path.read_text() != content:
                     fail(f"generated contract drift: {path.relative_to(ROOT)}")
         else:
@@ -1483,9 +1619,15 @@ def main() -> int:
             for path, content in expected.items():
                 path.parent.mkdir(exist_ok=True)
                 path.write_text(content)
+        publication_content = expected[publication_tests] + ts_publication_pin_projection()
+        if check:
+            if publication_tests.read_text() != publication_content:
+                fail("generated contract drift: adapter/opencode/generated-contract-tests.ts")
+        else:
+            publication_tests.write_text(publication_content)
         print(digest)
         return 0
-    except (OSError, json.JSONDecodeError, ValueError) as exc:
+    except (OSError, json.JSONDecodeError, ValueError, subprocess.SubprocessError) as exc:
         print(f"agent contract generation failed: {exc}", file=sys.stderr)
         return 1
 if __name__ == "__main__": raise SystemExit(main())

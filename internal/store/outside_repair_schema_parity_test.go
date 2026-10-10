@@ -31,8 +31,10 @@ import (
 // entry points (publishedRequestSchema, validateAgainstSchema) exist there
 // under the same exported names. The probe resolves whichever publication
 // shape the production publisher of the current tree emits: the per-action
-// closed branches the current publisher emits, or the single shared union
-// input the original publisher emitted, without rebuilding either.
+// closed branches, the compact factored-and-interned document whose
+// references resolve against the document's own $defs table (CON-812), or
+// the single shared union input the original publisher emitted, without
+// rebuilding either.
 //
 // At the base commit every failing assertion below fails BEHAVIORALLY — an
 // admission verdict that differs from the approved behavior, never a missing
@@ -71,17 +73,19 @@ import (
 // outsideRepairProbeScript is the bridge the tests drive: it imports the
 // production host publisher and validator by absolute path, resolves the
 // published work_transition fields node for one action from whichever shape
-// the publisher emits (per-action closed branches, a discriminator-shared
-// union, or allOf if/then conditions), and validates probe values against the
-// resolved published nodes with the host's own validator. Nothing here
-// rebuilds or approximates the publication.
+// the publisher emits (per-action closed branches, the compact factored
+// document with local references and a grouped action union, a
+// discriminator-shared union, or allOf if/then conditions), and validates
+// probe values against the resolved published nodes with the host's own
+// validator. Nothing here rebuilds or approximates the publication.
 func outsideRepairProbeScript(repoRoot string) string {
 	return fmt.Sprintf(`import { publishedRequestSchema } from %q;
 import { payloadSchemas } from %q;
 import { validateAgainstSchema } from %q;
 const schema = publishedRequestSchema("concord_work_transition");
-const operationBranches = (schema.oneOf ?? []).filter((b) => typeof b?.properties?.operation?.const === "string");
-const branches = (schema.oneOf ?? []).filter((b) => b?.properties?.operation?.const === "workflow_action");
+const resolveBranch = (b) => (b && typeof b.$ref === "string") ? schema.$defs?.[b.$ref.replace("#/$defs/", "")] : b;
+const operationBranches = (schema.oneOf ?? []).map(resolveBranch).filter((b) => typeof b?.properties?.operation?.const === "string");
+const branches = (schema.oneOf ?? []).map(resolveBranch).filter((b) => b?.properties?.operation?.const === "workflow_action");
 if (branches.length === 0) throw new Error("published concord_work_transition names no workflow_action operation branch");
 const fieldsFor = (action) => {
   for (const branch of operationBranches) {
@@ -98,6 +102,13 @@ const fieldsFor = (action) => {
   }
   for (const branch of branches) {
     const input = branch?.properties?.input;
+    for (const member of input?.oneOf ?? []) {
+      const variant = resolveBranch(member);
+      if (variant?.properties?.action_id?.const === action && variant?.properties?.fields) return variant.properties.fields;
+    }
+  }
+  for (const branch of branches) {
+    const input = branch?.properties?.input;
     for (const member of input?.allOf ?? []) {
       const trigger = member?.if?.properties?.action_id;
       if ((trigger?.const === action || (Array.isArray(trigger?.enum) && trigger.enum.includes(action))) && member?.then?.properties?.fields) return member.then.properties.fields;
@@ -108,10 +119,14 @@ const fieldsFor = (action) => {
 };
 const propertyNode = (node, name) => {
   if (!node || typeof node !== "object") return null;
+  if (typeof node.$ref === "string") {
+    node = schema.$defs?.[node.$ref.replace("#/$defs/", "")];
+    if (!node || typeof node !== "object") return null;
+  }
   if (node.properties && node.properties[name]) return node.properties[name];
   for (const keyword of ["oneOf", "anyOf"]) {
     for (const branch of node[keyword] ?? []) {
-      const found = propertyNode(branch, name);
+      const found = propertyNode(resolveBranch(branch), name);
       if (found) return found;
     }
   }
@@ -121,6 +136,11 @@ const propertyNode = (node, name) => {
   }
   return null;
 };
+// validateNode validates a resolved published node. The compact publication
+// interning leaves local references inside the node; the document's own
+// $defs table travels with it so the host validator resolves them. On a
+// fully inlined publication the added table is empty and inert.
+const validateNode = (node, value, failures) => validateAgainstSchema({ ...node, $defs: { ...(node.$defs ?? {}), ...(schema.$defs ?? {}) } }, value, failures);
 const probes = await new Response(Bun.stdin).json();
 const results = [];
 for (const probe of probes) {
@@ -137,10 +157,10 @@ for (const probe of probes) {
     if (!node) {
       failures.push("published schema resolves no " + probe.field + " property for " + probe.action);
     } else {
-      admit = validateAgainstSchema(node, probe.value, failures);
+      admit = validateNode(node, probe.value, failures);
     }
   } else {
-    admit = validateAgainstSchema(fields, probe.fields, failures);
+    admit = validateNode(fields, probe.fields, failures);
   }
   results.push({ id: probe.id, admit: !!admit, failures: failures.slice(0, 4) });
 }

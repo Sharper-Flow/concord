@@ -17,6 +17,33 @@ packet_schema = json.loads((ROOT / "contracts/agent-lane-packet.schema.json").re
 envelope_schema = json.loads((ROOT / "contracts/agent-tool-envelope.schema.json").read_text())
 payload_schema = json.loads((ROOT / "contracts/agent-tool-surface-payloads.schema.json").read_text())
 
+class PublicationPinGenerationTests(unittest.TestCase):
+    def test_pin_measures_the_production_publication(self):
+        with unittest.mock.patch.object(generator.subprocess, "run") as run:
+            run.return_value.stdout = "135199\n"
+            projection = generator.ts_publication_pin_projection()
+        self.assertIn("export const PINNED_PUBLISHED_TOTAL_BYTES = 135199;", projection)
+        argv = run.call_args.args[0]
+        self.assertEqual(argv[:2], ["bun", "-e"])
+        self.assertIn("publishedRequestSchema(tool)", argv[2])
+        self.assertIn("Buffer.byteLength", argv[2])
+        self.assertEqual(run.call_args.kwargs["cwd"], ROOT)
+
+    def test_pin_refuses_invalid_measurements(self):
+        for measurement in ["0", "-1", "true", "1.5", '"135199"', "{}", "noise"]:
+            with self.subTest(measurement=measurement):
+                with unittest.mock.patch.object(generator.subprocess, "run") as run:
+                    run.return_value.stdout = measurement
+                    with self.assertRaises(ValueError):
+                        generator.ts_publication_pin_projection()
+
+    def test_measurement_failure_is_not_a_pin(self):
+        with unittest.mock.patch.object(generator.subprocess, "run") as run:
+            run.side_effect = subprocess.CalledProcessError(1, "bun")
+            with self.assertRaises(subprocess.CalledProcessError):
+                generator.ts_publication_pin_projection()
+
+
 class ManifestTamperTests(unittest.TestCase):
     def assert_rejected(self, value):
         with self.assertRaises(ValueError):

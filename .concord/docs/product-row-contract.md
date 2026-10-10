@@ -224,9 +224,6 @@ focus priority; it does not authorize a dashboard dump.
   history behind drill-down (`product-data-model.md` §§6–7).
 - PM1 Q2 provides unique lifecycle/derived counts and bounded previews; Q4/Q5 own
   blocker/ready semantics and deterministic priority (`product-memory-query-contract.md`).
-- Current ZLauncher uses fixed-width concise title/progress rows, and its source notes
-  that a per-project detail preview was removed as low-signal
-  (`dev/zellij-project-launcher/zellij-project-launcher`).
 
 ## 11. Falsifiers
 

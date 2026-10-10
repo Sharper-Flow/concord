@@ -13,8 +13,8 @@ derivable fact drifts from its source and no check catches it.
 
 ## Authority
 
-- Resolve planning authority from the Product's mode under
-  [`.concord/docs/development-authority.md`](.concord/docs/development-authority.md). Pull requests
+- Linear owns planning; read and write it only through the Linear MCP server under
+  [`.concord/docs/managed-development-authority.md`](.concord/docs/managed-development-authority.md). Pull requests
   plus required checks own review and merge evidence.
 - [`.concord/docs/decisions/`](.concord/docs/decisions/) (CD-NNNN records), specifications, and
   constitutional documents own Product law. Ordinary prose cannot acquire that

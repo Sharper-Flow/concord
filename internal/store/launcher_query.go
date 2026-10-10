@@ -119,10 +119,10 @@ func (s *Store) ResolveLauncherLinearIssue(ctx context.Context, humanKey, issueU
 	return LauncherLinearIssue{WorkID: workID, ProductID: productID}, nil
 }
 
-// ResolveLauncherLinearIssueWork resolves only the confirmed link, so a
-// caller can answer "is this issue linked" separately from the landing-Project
-// Product rule. The only unknown-scope refusal it returns is the unlinked
-// case.
+// ResolveLauncherLinearIssueWork resolves the work item that records the
+// Linear issue, so a caller can answer "is this issue recorded" separately
+// from the landing-Project Product rule. The only unknown-scope refusal it
+// returns is the unrecorded case.
 func (s *Store) ResolveLauncherLinearIssueWork(ctx context.Context, humanKey, issueURL string) (string, error) {
 	tx, err := beginRead(ctx, s, "launcher.forward")
 	if err != nil {
@@ -135,7 +135,7 @@ func (s *Store) ResolveLauncherLinearIssueWork(ctx context.Context, humanKey, is
 func launcherLinkedWorkTx(ctx context.Context, tx *sql.Tx, humanKey, issueURL string) (string, error) {
 	var workID string
 	err := tx.QueryRowContext(ctx, `SELECT work_id FROM linear_issue_links
-		WHERE link_state='confirmed' AND (human_key=? OR url=?)
+		WHERE human_key=? OR url=?
 		ORDER BY work_id LIMIT 1`, humanKey, issueURL).Scan(&workID)
 	if err == sql.ErrNoRows {
 		return "", unknownScope("launcher.forward", "Linear issue is not linked to a work")

@@ -187,17 +187,15 @@ references the dependency-driven sequence in [`rollout-plan.md`](./rollout-plan.
 - **Bucket call:** predecessor failure evidence, not a projection implementation
   plan.
 
-### 2.3 Initiative context under the Product entity
+### 2.3 Business grouping in Linear
 - **Today:** predecessor grouping commands provide scope, ordering, and
   requiredness context for initiatives.
-- **Concord:** CD-0041 and CD-0042 use Product-scoped Initiative on the
-  pre-go-live primary path. Narrative, ordering, requiredness, and independent
-  entry lifecycles remain; Initiative is secondary business/outcome context and
-  owns no architecture or law authority. No alias, upcaster, or compatibility
-  branch remains after #196.
-- **Bucket call:** Refactor/Extend — preserve the initiative-framing outcome,
-  discard predecessor hierarchy as architecture, and rebuild entries over
-  Domain-bound work (see §3.1, §3.4, §3.20, §3.21).
+- **Concord:** [CD-0213](./decisions/CD-0213-linear-mcp-is-the-only-planning-authority.md)
+  places business grouping in Linear Projects and Initiatives through the
+  Linear MCP server. Concord keeps managed execution and recorded issue identity,
+  with no Initiative entry, narrative, ordering, or requiredness surface.
+- **Bucket call:** External planning — predecessor grouping is evidence of the
+  planning need, not a Concord runtime capability or transfer plan.
 
 ### 2.4 Ops runbooks decoupled from change
 - **Today:** `adv_ops_run_upsert`, `adv_ops_run_evidence_add`,
@@ -276,16 +274,16 @@ descriptions because they are referenced from elsewhere in the docset.
 | 3.5 | Standalone ops runbook host | Container for ops runs not tied to a change. (Runbook *shape* is Refactor; the *host* is New.) | [`workflows.md`](./workflows.md) §4 |
 | 3.6 | Research trackable (Option B only) | **Rejected by CD-0009:** active packs are outputs/context owned by ordinary work, not a peer entity. | [`workflows.md`](./workflows.md) §4 |
 | 3.7 | Portfolio-review tooling + cadence | "What should I work on across everything" with a periodic portfolio-review cadence, Product-scoped (per-repo `/adv-triage` and `/adv-cleanup` Transfer). | — |
-| 3.8 | Product wishlist | Attach wishlist items directly to a Product entity (distinct from repo-scoped backlog and Initiative context). | [`product-data-model.md`](./product-data-model.md) |
+| 3.8 | Product wishlist | Planning backlog lives in Linear through the Linear MCP server, not in a repository or a Concord planning projection. | [`decisions/CD-0213-linear-mcp-is-the-only-planning-authority.md`](./decisions/CD-0213-linear-mcp-is-the-only-planning-authority.md) |
 | 3.9 | Infra status tracking | Tracked surface over §3.3 signal ingestion; presents azure/cron/health/ops status within a Product. | [`product-data-model.md`](./product-data-model.md) |
 | 3.10 | Admin panel (lightweight grid/table projection) | Optional human-facing projection over the fast read-path; **not** the primary operator surface (the session entry is). The CD-0108 replacement owns the session bootstrap role through the entry route. | [`design-constraints.md`](./design-constraints.md) §5 |
 | 3.11 | Work-type taxonomy / phase-spanning work | First-class handling of idea/bug/optimization/research/ops work spanning phases; each may mature into the 7-gate lifecycle when ready. | [`workflows.md`](./workflows.md) |
 | 3.12 | Spec & document browse surface (self-documentation) | Navigable Product → Domain browse surface over current Product law, evidence, and durable workflow docs. | [`self-documentation.md`](./self-documentation.md) |
 | 3.13 | Workflow-type system (plurality of workflows) | Registry of purpose-built workflow types — implementation change, research/investigation, static-analysis variants, ops runbooks, break-fix, db/config/infra. | [`workflows.md`](./workflows.md) |
-| 3.13a | Architecture spike workflow type | Decide-rather-than-ship Initiative entry that **binds downstream until superseded** via a typed decision record and `supersedes`/`superseded_by` chain. | [`architecture-spike.md`](./architecture-spike.md) |
+| 3.13a | Architecture spike workflow type | Decide-rather-than-ship managed work unit that **binds downstream until superseded** via a typed decision record and `supersedes`/`superseded_by` chain. | [`architecture-spike.md`](./architecture-spike.md) |
 | 3.14 | Capability-placement rubric (optimal shape) | Rubric for placing each capability by shape; **kept dynamic** as tooling evolves. | [`capability-placement.md`](./capability-placement.md) |
 | 3.15 | Cross-project GitHub-issue integration | Native cross-project GH-issue create/update — bugs canonical in GH, not in `target_path` ADV backlog. | [`design-constraints.md`](./design-constraints.md) §13 |
-| 3.16 | One-sentence value statement invariant | Every Initiative and work item carries `If this succeeds, what concrete product capability or risk is changed?` | [`workflows.md`](./workflows.md) §2.1 |
+| 3.16 | One-sentence value statement invariant | Every managed work item carries `If this succeeds, what concrete product capability or risk is changed?` | [`workflows.md`](./workflows.md) §2.1 |
 | 3.16a | Outcome contract (goal bound to delivery) | Three-part premise / required end-state / candidate set, approved at planning and verified at completion; a weaker delivered end-state fails. | [`workflows.md`](./workflows.md) §2.1a; CD-0012 |
 | 3.17 | Lifecycle stage + proportional-rigor governance | Independent `maturity` + user-declared `audience_commitment` bands at Product/Domain/Project/resource; global evidence floor with upward-only local overrides. | [`product-data-model.md`](./product-data-model.md) §8; CD-0006 |
 | 3.18 | Managed-resource inventory with cross-Product linking | First-class declarative identity for shared infra/SaaS — underneath §3.3 (live status) and §3.9 (presented surface). | [`product-data-model.md`](./product-data-model.md) §9 |
@@ -307,13 +305,13 @@ descriptions because they are referenced from elsewhere in the docset.
   cross-project ambient-path mutation.
 
 ### 3.13a Architecture spike workflow type
-- A registered workflow type, peer to the implementation change, for Initiative entries
+- A registered workflow type, peer to the implementation change, for managed work units
   that **decide rather than ship**: frame question → research → options with
   evidence → optional throwaway proof of concept (PoC) → decision record → reviewer → user
   acceptance. Flat (has tasks, no sub-spikes), no timebox, and its proof-of-concept (PoC) code never
   merges to a product repo.
-- The output is a **binding decision record** that constrains downstream Initiative
-  entries **until superseded** — contradiction surfaces as a conflict (reusing the
+- The output is a **binding decision record** that constrains downstream work
+  **until superseded** — contradiction surfaces as a conflict (reusing the
   §2.8 spec-conflict flow), not as silent divergence. Decisions form a
   `supersedes`/`superseded_by` chain that is the Product's architectural history.
 - **Distinct from research/investigation (§2.5/§3.6):** research *may* resolve to
@@ -377,7 +375,7 @@ workflow-evolution, agent-buildable UI) live in
 
 | Capability | Call | Why it's not the other bucket |
 |---|---|---|
-| Initiative context under Product (§2.3) | Refactor/Extend | Preserves narrative/order/requiredness while CD-0041 removes legacy hierarchy from architecture and binds entries to Domains. |
+| Business grouping in Linear (§2.3) | External planning | CD-0213 leaves grouping to Linear MCP; Concord retains managed execution, not a planning mirror. |
 | Product aggregation extension in §2.1 | Refactor (shades New) | Reuses the aggregator; the Product pivot is the New-flavored part. Kept in Refactor to avoid double-counting with §3.1. |
 | Ops runbook shape vs host (§2.4 / §3.5) | Split | Shape = Refactor (reuse primitives); host = New (no precedent). Deliberate split. |
 | Research trackable (§2.5 / §3.6) | Refactor | CD-0009 accepts Option A: ordinary work item plus active pack output; no peer entity. |
@@ -388,9 +386,8 @@ workflow-evolution, agent-buildable UI) live in
 
 ## 6. Open questions specific to this inventory
 
-1. **Initiative shape — resolved by CD-0041 amending CD-0009.** Initiative is a
-   Product-scoped canonical work item and secondary business/outcome view over
-   Domain-bound entries, not another Product or architecture authority.
+1. **Business grouping — resolved by CD-0213.** Linear owns Projects and Initiatives;
+   Concord offers no grouping authoring or membership surface.
 2. **Is the fast read-path inside ADV or a separate tool?** (§3.2, [`clarifications.md`](./clarifications.md) C1 and [`rollout-plan.md`](./rollout-plan.md)) Inside-ADV keeps one source of truth + agent-native mutations;
    separate keeps the orchestrator untouched. Phase 2 design.
 3. **Research trackable — resolved by CD-0009:** Option A.

@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -608,8 +607,8 @@ func TestMigrationInstallsRetirementDeleteGuard(t *testing.T) {
 	if err := db.QueryRowContext(ctx, `SELECT max(version) FROM schema_migrations`).Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 123 {
-		t.Fatalf("schema version=%d, want 123", version)
+	if version != 124 {
+		t.Fatalf("schema version=%d, want 124", version)
 	}
 	for _, m := range migrations {
 		if m.Version == 123 && !m.Breaking {
@@ -1017,178 +1016,8 @@ func TestActiveResearchSchemaEnforcesForeignKeysAndChecks(t *testing.T) {
 	}
 }
 
-func TestInitiativeEntriesFoldAndCompletionGate(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	guarded := openTemp(t)
-	seedResearchWork(t, guarded, "guarded")
-	if _, err := guarded.DatabaseForTesting().Exec(`UPDATE work_items SET kind='initiative' WHERE id='guarded'`); err == nil {
-		t.Fatal("direct work kind mutation bypassed fold-only authority")
-	}
-	// The operation below establishes the Initiative kind through work.created.
-	s := openTemp(t)
-	events := []Event{
-		{EventID: "p", Kind: "product.created", SubjectType: SubjectProduct, SubjectID: "p", Actor: "test", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: 1, Payload: []byte(`{"display_name":"P","stage_maturity":"prototype","stage_audience_commitment":"operator_only"}`)},
-		{EventID: "pr", Kind: "project.created", SubjectType: SubjectProject, SubjectID: "pr", Actor: "test", OccurredAt: time.Unix(1, 1).UTC(), PayloadVersion: 1, Payload: []byte(`{"display_name":"PR"}`)},
-		{EventID: "pp", Kind: "product_project.added", SubjectType: SubjectProduct, SubjectID: "p", Actor: "test", OccurredAt: time.Unix(1, 2).UTC(), PayloadVersion: 1, Payload: []byte(`{"product_id":"p","project_id":"pr","role":"primary","reason":"test","expected_version":1,"resulting_version":2}`)},
-		{EventID: "initiative", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: "initiative", Actor: "test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 2, Payload: mustJSONBytes(map[string]any{"work_kind": "initiative", "title": "Initiative", "priority": 1})},
-		{EventID: "child", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: "child", Actor: "test", OccurredAt: time.Unix(2, 1).UTC(), PayloadVersion: 2, Payload: mustJSONBytes(map[string]any{"work_kind": "task", "title": "Child", "priority": 1})},
-		{EventID: "child2", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: "child2", Actor: "test", OccurredAt: time.Unix(2, 2).UTC(), PayloadVersion: 2, Payload: mustJSONBytes(map[string]any{"work_kind": "task", "title": "Child 2", "priority": 1})},
-		{EventID: "initiative-project", Kind: "work_project.added", SubjectType: SubjectWorkItem, SubjectID: "initiative", Actor: "test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1, Payload: mustJSONBytes(map[string]any{"work_id": "initiative", "project_id": "pr", "role": "primary", "reason": "test", "expected_version": 1, "resulting_version": 2})},
-		{EventID: "child-project", Kind: "work_project.added", SubjectType: SubjectWorkItem, SubjectID: "child", Actor: "test", OccurredAt: time.Unix(3, 1).UTC(), PayloadVersion: 1, Payload: mustJSONBytes(map[string]any{"work_id": "child", "project_id": "pr", "role": "primary", "reason": "test", "expected_version": 1, "resulting_version": 2})},
-		{EventID: "child2-project", Kind: "work_project.added", SubjectType: SubjectWorkItem, SubjectID: "child2", Actor: "test", OccurredAt: time.Unix(3, 2).UTC(), PayloadVersion: 1, Payload: mustJSONBytes(map[string]any{"work_id": "child2", "project_id": "pr", "role": "primary", "reason": "test", "expected_version": 1, "resulting_version": 2})},
-	}
-	if err := ApplyOperation(ctx, s, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProduct, "p"): 0, VersionRef(SubjectProject, "pr"): 0, VersionRef(SubjectWorkItem, "initiative"): 0, VersionRef(SubjectWorkItem, "child"): 0, VersionRef(SubjectWorkItem, "child2"): 0}}); err != nil {
-		t.Fatal(err)
-	}
-	entry, _ := InitiativeEntryEvent("add", "initiative_entry.added", "initiative", InitiativeEntry{ChildWorkID: "child", Position: 0, Required: true}, "test", time.Unix(4, 0).UTC(), 2)
-	if err := ApplyOperation(ctx, s, Operation{Events: []Event{entry}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "initiative"): 2}}); err != nil {
-		t.Fatal(err)
-	}
-	entry2, _ := InitiativeEntryEvent("add-2", "initiative_entry.added", "initiative", InitiativeEntry{ChildWorkID: "child2", Position: 1, Required: false}, "test", time.Unix(4, 0).UTC(), 3)
-	if err := ApplyOperation(ctx, s, Operation{Events: []Event{entry2}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "initiative"): 3}}); err != nil {
-		t.Fatal(err)
-	}
-	entries, err := ReadInitiativeEntries(ctx, s, "initiative")
-	if err != nil || len(entries) != 2 || entries[0].ChildWorkID != "child" || entries[1].ChildWorkID != "child2" {
-		t.Fatalf("entries=%+v err=%v", entries, err)
-	}
-	var includesDirection, reverseDirection int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM relations WHERE kind='includes' AND work_id_from='initiative' AND work_id_to='child2'`).Scan(&includesDirection); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM relations WHERE kind='includes' AND work_id_from='child2' AND work_id_to='initiative'`).Scan(&reverseDirection); err != nil {
-		t.Fatal(err)
-	}
-	if includesDirection != 1 || reverseDirection != 0 {
-		t.Fatalf("Initiative includes direction = %d/%d", includesDirection, reverseDirection)
-	}
-	if err := RebuildFromLog(ctx, s); err != nil {
-		t.Fatal(err)
-	}
-	entries, err = ReadInitiativeEntries(ctx, s, "initiative")
-	if err != nil || len(entries) != 2 || entries[0].Position != 0 || entries[1].Position != 1 {
-		t.Fatalf("rebuilt entries=%+v err=%v", entries, err)
-	}
-	for _, relationKind := range []string{"parent", "includes"} {
-		blockedRelation := operationEventForResearch("generic-"+relationKind, "relation.added", "initiative", map[string]any{"from": "initiative", "to": "child2", "kind": relationKind, "reason": "generic relation must not own membership", "expected_version": 4, "resulting_version": 5})
-		if err := ApplyOperation(ctx, s, Operation{Events: []Event{blockedRelation}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "initiative"): 4}}); err == nil {
-			t.Fatalf("generic %s relation touching Initiative was accepted", relationKind)
-		} else {
-			assertFailureKind(t, err, KindRelationContractViolation)
-		}
-	}
-	blocked := operationEventForResearch("blocked-complete", "work.transitioned", "initiative", map[string]any{"from": "needed", "to": "completed", "reason": "test", "expected_version": 4, "resulting_version": 5})
-	if err := ApplyOperation(ctx, s, Operation{Events: []Event{blocked}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "initiative"): 4}}); err == nil {
-		t.Fatal("Initiative completed with required nonterminal child")
-	} else {
-		assertFailureKind(t, err, KindInitiativeCompletionBlocked)
-	}
-	reorder, _ := InitiativeEntryEvent("reorder", "initiative_entry.reordered", "initiative", InitiativeEntry{ChildWorkID: "child2", Position: 0}, "test", time.Unix(4, 1).UTC(), 4)
-	if err := ApplyOperation(ctx, s, Operation{Events: []Event{reorder}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "initiative"): 4}}); err != nil {
-		t.Fatal(err)
-	}
-	requiredness, _ := InitiativeEntryEvent("optional", "initiative_entry.requiredness_changed", "initiative", InitiativeEntry{ChildWorkID: "child", Required: false}, "test", time.Unix(4, 2).UTC(), 5)
-	if err := ApplyOperation(ctx, s, Operation{Events: []Event{requiredness}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "initiative"): 5}}); err != nil {
-		t.Fatal(err)
-	}
-	complete := operationEventForResearch("complete-initiative", "work.transitioned", "initiative", map[string]any{"from": "needed", "to": "completed", "reason": "test", "expected_version": 6, "resulting_version": 7})
-	if err := ApplyOperation(ctx, s, Operation{Events: []Event{complete}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "initiative"): 6}}); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestReadInitiativeEntriesRejectsOverflow(t *testing.T) {
-	t.Parallel()
-	s := openTemp(t)
-	tx, err := s.DatabaseForTesting().Begin()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := tx.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
-		_ = tx.Rollback()
-		t.Fatal(err)
-	}
-	insertWork := `INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at) VALUES(?, 'task', ?, 'needed', 1, 1, 'now', 'now')`
-	if _, err := tx.Exec(insertWork, "initiative", "Initiative"); err != nil {
-		_ = tx.Rollback()
-		t.Fatal(err)
-	}
-	for i := 0; i <= maxInitiativeEntriesRead; i++ {
-		childID := fmt.Sprintf("child-%04d", i)
-		if _, err := tx.Exec(insertWork, childID, childID); err != nil {
-			_ = tx.Rollback()
-			t.Fatal(err)
-		}
-		if _, err := tx.Exec(`INSERT INTO initiative_entries(initiative_work_id,child_work_id,position,required) VALUES(?,?,?,0)`, "initiative", childID, i); err != nil {
-			_ = tx.Rollback()
-			t.Fatal(err)
-		}
-	}
-	if _, err := tx.Exec(`DELETE FROM fold_guard`); err != nil {
-		_ = tx.Rollback()
-		t.Fatal(err)
-	}
-	if err := tx.Commit(); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := ReadInitiativeEntries(context.Background(), s, "initiative"); err == nil {
-		t.Fatal("Initiative entry read silently truncated overflow")
-	} else {
-		assertFailureKind(t, err, KindInvalidOperation)
-		var failure *Failure
-		if !failureAs(err, &failure) || failure.RetrySafe {
-			t.Fatalf("overflow failure=%v, want non-retryable typed failure", err)
-		}
-	}
-}
-
-func TestInitiativeRejectsNestedAndCrossProductEntries(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s := openTemp(t)
-	events := []Event{
-		{EventID: "p1", Kind: "product.created", SubjectType: SubjectProduct, SubjectID: "p1", Actor: "test", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: 1, Payload: []byte(`{"display_name":"P1","stage_maturity":"prototype","stage_audience_commitment":"operator_only"}`)},
-		{EventID: "pr1", Kind: "project.created", SubjectType: SubjectProject, SubjectID: "pr1", Actor: "test", OccurredAt: time.Unix(1, 1).UTC(), PayloadVersion: 1, Payload: []byte(`{"display_name":"PR1"}`)},
-		{EventID: "p2", Kind: "product.created", SubjectType: SubjectProduct, SubjectID: "p2", Actor: "test", OccurredAt: time.Unix(1, 2).UTC(), PayloadVersion: 1, Payload: []byte(`{"display_name":"P2","stage_maturity":"prototype","stage_audience_commitment":"operator_only"}`)},
-		{EventID: "pr2", Kind: "project.created", SubjectType: SubjectProject, SubjectID: "pr2", Actor: "test", OccurredAt: time.Unix(1, 3).UTC(), PayloadVersion: 1, Payload: []byte(`{"display_name":"PR2"}`)},
-		{EventID: "p1-pr1", Kind: "product_project.added", SubjectType: SubjectProduct, SubjectID: "p1", Actor: "test", OccurredAt: time.Unix(1, 4).UTC(), PayloadVersion: 1, Payload: mustJSONBytes(map[string]any{"product_id": "p1", "project_id": "pr1", "role": "primary", "reason": "test", "expected_version": 1, "resulting_version": 2})},
-		{EventID: "p2-pr2", Kind: "product_project.added", SubjectType: SubjectProduct, SubjectID: "p2", Actor: "test", OccurredAt: time.Unix(1, 5).UTC(), PayloadVersion: 1, Payload: mustJSONBytes(map[string]any{"product_id": "p2", "project_id": "pr2", "role": "primary", "reason": "test", "expected_version": 1, "resulting_version": 2})},
-	}
-	for _, item := range []struct{ id, kind, project string }{{"initiative", "initiative", "pr1"}, {"nested", "initiative", "pr1"}, {"cross", "task", "pr2"}} {
-		events = append(events,
-			Event{EventID: item.id + "-created", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: item.id, Actor: "test", OccurredAt: time.Unix(2, int64(len(events))).UTC(), PayloadVersion: 2, Payload: mustJSONBytes(map[string]any{"work_kind": item.kind, "title": item.id, "priority": 1})},
-			Event{EventID: item.id + "-project", Kind: "work_project.added", SubjectType: SubjectWorkItem, SubjectID: item.id, Actor: "test", OccurredAt: time.Unix(3, int64(len(events))).UTC(), PayloadVersion: 1, Payload: mustJSONBytes(map[string]any{"work_id": item.id, "project_id": item.project, "role": "primary", "reason": "test", "expected_version": 1, "resulting_version": 2})},
-		)
-	}
-	expected := map[SubjectRef]int64{VersionRef(SubjectProduct, "p1"): 0, VersionRef(SubjectProject, "pr1"): 0, VersionRef(SubjectProduct, "p2"): 0, VersionRef(SubjectProject, "pr2"): 0}
-	for _, id := range []string{"initiative", "nested", "cross"} {
-		expected[VersionRef(SubjectWorkItem, id)] = 0
-	}
-	if err := ApplyOperation(ctx, s, Operation{Events: events, ExpectedVersions: expected}); err != nil {
-		t.Fatal(err)
-	}
-	nested, _ := InitiativeEntryEvent("nested-entry", "initiative_entry.added", "initiative", InitiativeEntry{ChildWorkID: "nested", Position: 0}, "test", time.Unix(4, 0).UTC(), 2)
-	if err := ApplyOperation(ctx, s, Operation{Events: []Event{nested}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "initiative"): 2}}); err == nil {
-		t.Fatal("nested Initiative entry succeeded")
-	} else {
-		assertFailureKind(t, err, KindInitiativeScopeViolation)
-	}
-	cross, _ := InitiativeEntryEvent("cross-entry", "initiative_entry.added", "initiative", InitiativeEntry{ChildWorkID: "cross", Position: 0}, "test", time.Unix(4, 1).UTC(), 2)
-	if err := ApplyOperation(ctx, s, Operation{Events: []Event{cross}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "initiative"): 2}}); err == nil {
-		t.Fatal("cross-Product Initiative entry succeeded")
-	} else {
-		assertFailureKind(t, err, KindInitiativeScopeViolation)
-	}
-}
-
 func TestObsoleteEpicEventsAreNotRegistered(t *testing.T) {
 	t.Parallel()
-	if _, err := InitiativeEntryEvent("obsolete", "epic_entry.added", "initiative", InitiativeEntry{ChildWorkID: "child"}, "test", time.Unix(4, 2).UTC(), 2); err == nil {
-		t.Fatal("obsolete Epic event remained registered")
-	} else {
-		assertFailureKind(t, err, KindInvalidOperation)
-	}
 	s := openTemp(t)
 	err := ApplyOperation(context.Background(), s, Operation{Events: []Event{{EventID: "obsolete-work", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: "obsolete-work", Actor: "test", OccurredAt: time.Unix(4, 3).UTC(), PayloadVersion: 2, Payload: mustJSONBytes(map[string]any{"work_kind": "epic", "title": "obsolete", "priority": 1})}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "obsolete-work"): 0}})
 	if err == nil {

@@ -245,20 +245,16 @@ const GeneratedEnvelopeSchemaDocument = `{
           "enum": [
             "",
             "active_work",
-            "add_entry",
             "attachments",
             "blocked",
             "blocked_sessions",
             "capture",
-            "change_requiredness",
             "client_policy_grant_request",
             "continuity",
-            "create",
             "detail",
-            "entries",
             "external_observations",
             "history",
-            "issue_adopt",
+            "issue_link_record",
             "lesson_publish",
             "lifecycle",
             "link",
@@ -275,8 +271,6 @@ const GeneratedEnvelopeSchemaDocument = `{
             "ready",
             "reconcile",
             "relations",
-            "remove_entry",
-            "reorder_entry",
             "research",
             "research_finding_record",
             "research_freshness_set",
@@ -293,7 +287,6 @@ const GeneratedEnvelopeSchemaDocument = `{
             "resources",
             "restore_superseded",
             "revise_intent",
-            "revise_narrative",
             "scope",
             "search",
             "set_memberships",
@@ -349,7 +342,7 @@ const GeneratedEnvelopeSchemaDocument = `{
           "type": "string"
         },
         "query_id": {
-          "pattern": "^(PM1\\.Q(1[0-6]|[1-9])|CD-0030\\.R1|CD-0040\\.R1|CD-0096\\.R1|CD-0182\\.R1|C14\\.ProductRows|C15\\.Resources|C19\\.Continuity|C21\\.InitiativeEntries|C22\\.Domain(List|Detail|ActiveWork|Attachments|Overlaps))$",
+          "pattern": "^(PM1\\.Q(1[0-6]|[1-9])|CD-0030\\.R1|CD-0040\\.R1|CD-0096\\.R1|CD-0182\\.R1|C14\\.ProductRows|C15\\.Resources|C19\\.Continuity|C22\\.Domain(List|Detail|ActiveWork|Attachments|Overlaps))$",
           "type": "string"
         },
         "replayed": {
@@ -448,7 +441,6 @@ const GeneratedEnvelopeSchemaDocument = `{
             "concord_knowledge",
             "concord_work_define",
             "concord_domain",
-            "concord_work_initiative",
             "concord_work_transition",
             "concord_work_relate",
             "concord_work_compact"
@@ -948,20 +940,16 @@ const GeneratedEnvelopeSchemaDocument = `{
         "operation": {
           "enum": [
             "active_work",
-            "add_entry",
             "attachments",
             "blocked",
             "blocked_sessions",
             "capture",
-            "change_requiredness",
             "client_policy_grant_request",
             "continuity",
-            "create",
             "detail",
-            "entries",
             "external_observations",
             "history",
-            "issue_adopt",
+            "issue_link_record",
             "lesson_publish",
             "lifecycle",
             "link",
@@ -978,8 +966,6 @@ const GeneratedEnvelopeSchemaDocument = `{
             "ready",
             "reconcile",
             "relations",
-            "remove_entry",
-            "reorder_entry",
             "research",
             "research_finding_record",
             "research_freshness_set",
@@ -996,7 +982,6 @@ const GeneratedEnvelopeSchemaDocument = `{
             "resources",
             "restore_superseded",
             "revise_intent",
-            "revise_narrative",
             "scope",
             "search",
             "set_memberships",
@@ -1027,7 +1012,7 @@ const GeneratedEnvelopeSchemaDocument = `{
           "type": "string"
         },
         "query_id": {
-          "pattern": "^(PM1\\.Q(1[0-6]|[1-9])|CD-0030\\.R1|CD-0040\\.R1|CD-0096\\.R1|CD-0182\\.R1|C14\\.ProductRows|C15\\.Resources|C19\\.Continuity|C21\\.InitiativeEntries|C22\\.Domain(List|Detail|ActiveWork|Attachments|Overlaps))$",
+          "pattern": "^(PM1\\.Q(1[0-6]|[1-9])|CD-0030\\.R1|CD-0040\\.R1|CD-0096\\.R1|CD-0182\\.R1|C14\\.ProductRows|C15\\.Resources|C19\\.Continuity|C22\\.Domain(List|Detail|ActiveWork|Attachments|Overlaps))$",
           "type": "string"
         },
         "reason_code": {
@@ -1053,7 +1038,6 @@ const GeneratedEnvelopeSchemaDocument = `{
             "concord_knowledge",
             "concord_work_define",
             "concord_domain",
-            "concord_work_initiative",
             "concord_work_transition",
             "concord_work_relate",
             "concord_work_compact"
@@ -1117,7 +1101,7 @@ const GeneratedEnvelopeSchemaDocument = `{
                   "operation": {
                     "enum": [
                       "capture",
-                      "issue_adopt",
+                      "issue_link_record",
                       "observation_record",
                       "research_finding_record",
                       "research_freshness_set",
@@ -1131,43 +1115,6 @@ const GeneratedEnvelopeSchemaDocument = `{
                   },
                   "tool": {
                     "const": "concord_work_define",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "tool",
-                  "operation"
-                ]
-              },
-              "then": {
-                "not": {
-                  "required": [
-                    "items"
-                  ]
-                },
-                "required": [
-                  "result",
-                  "changed_refs",
-                  "next_valid_intents"
-                ]
-              }
-            },
-            {
-              "if": {
-                "properties": {
-                  "operation": {
-                    "enum": [
-                      "add_entry",
-                      "change_requiredness",
-                      "create",
-                      "remove_entry",
-                      "reorder_entry",
-                      "revise_narrative"
-                    ],
-                    "type": "string"
-                  },
-                  "tool": {
-                    "const": "concord_work_initiative",
                     "type": "string"
                   }
                 },
@@ -2079,7 +2026,7 @@ const GeneratedEnvelopeSchemaDocument = `{
                 "research_freshness_set",
                 "research_retire",
                 "observation_record",
-                "issue_adopt"
+                "issue_link_record"
               ],
               "type": "string"
             },
@@ -2090,51 +2037,6 @@ const GeneratedEnvelopeSchemaDocument = `{
           "required": [
             "tool",
             "operation"
-          ]
-        },
-        {
-          "not": {
-            "required": [
-              "query_id"
-            ]
-          },
-          "properties": {
-            "operation": {
-              "enum": [
-                "create",
-                "add_entry",
-                "remove_entry",
-                "reorder_entry",
-                "change_requiredness",
-                "revise_narrative"
-              ],
-              "type": "string"
-            },
-            "tool": {
-              "const": "concord_work_initiative"
-            }
-          },
-          "required": [
-            "tool",
-            "operation"
-          ]
-        },
-        {
-          "properties": {
-            "operation": {
-              "const": "entries"
-            },
-            "query_id": {
-              "const": "C21.InitiativeEntries"
-            },
-            "tool": {
-              "const": "concord_work_initiative"
-            }
-          },
-          "required": [
-            "tool",
-            "operation",
-            "query_id"
           ]
         },
         {

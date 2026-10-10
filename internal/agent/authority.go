@@ -198,7 +198,7 @@ func validPolicyGrants(policy TrustedClientPolicy) bool {
 		// grant can carry either. worker_dispatch is policy-bound because
 		// CD-0059 D3 makes the nested-worker prohibition structural by
 		// denying workers the capability at the policy layer.
-		if !oneOf(string(capability), "product_read", "work_define", "work_transition", "work_relate", "work_compact", "work_initiative", "cross_scope", "research", string(CapabilityWorkerEvidence), string(CapabilityWorkerDispatch)) {
+		if !oneOf(string(capability), "product_read", "work_define", "work_transition", "work_relate", "work_compact", "cross_scope", "research", string(CapabilityWorkerEvidence), string(CapabilityWorkerDispatch)) {
 			return false
 		}
 	}
@@ -278,7 +278,6 @@ var grantRequestCapabilities = map[Capability]struct{}{
 	Capability("work_transition"): {},
 	Capability("work_relate"):     {},
 	Capability("work_compact"):    {},
-	Capability("work_initiative"): {},
 	Capability("cross_scope"):     {},
 	Capability("research"):        {},
 }

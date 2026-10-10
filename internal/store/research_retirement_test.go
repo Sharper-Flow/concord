@@ -2,10 +2,33 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"reflect"
 	"strconv"
 	"testing"
 )
+
+// synthExecPath creates corruption through a foreign connection without
+// foreign keys, while retaining the canonical projection write guards.
+func synthExecPath(t *testing.T, path string, queries ...string) {
+	t.Helper()
+	db, err := sql.Open(driverName, "file:"+path+"?_pragma=foreign_keys(0)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	db.SetMaxOpenConns(1)
+	ctx := context.Background()
+	if _, err := db.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _, _ = db.ExecContext(ctx, `DELETE FROM fold_guard`) }()
+	for _, q := range queries {
+		if _, err := db.ExecContext(ctx, q); err != nil {
+			t.Fatalf("path synthetic query: %v\n%s", err, q)
+		}
+	}
+}
 
 func retireResearchForTest(t *testing.T, s *Store, req RetireResearchPacksRequest) (RetireResearchPacksResult, error) {
 	t.Helper()

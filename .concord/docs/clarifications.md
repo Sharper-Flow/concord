@@ -24,10 +24,11 @@ repo/package is chosen and separately authorized; pre-go-live changes remain sub
 to the deterministic TS9 evidence contract.
 CD-0006 fixes root policy, CD-0007 fixes the repository/public-migration contract, and
 CD-0008 fixes evidence binding, unreadable-record isolation, and the remaining runtime
-mechanics; CD-0009 fixes Initiative/research work identity and active-pack
+mechanics; CD-0009 fixes research work identity and active-pack
 retention as amended by CD-0041. CD-0041 makes Product law and architectural
 concordance Priority 1, replaces opaque component authority with canonical
-Domains, and makes Initiative secondary business/outcome context. Open
+Domains. CD-0213 places planning and business grouping in Linear through the
+Linear MCP server; Concord keeps managed execution and recorded issue identity.
 CD-0042 keeps Concord pre-go-live on one generated, digest-identified agent surface:
 surface versions, compatibility/deprecation paths, supported-model release gates,
 and unreleased replay paths are not current policy. Deterministic PM1/TS1, strict
@@ -114,7 +115,7 @@ re-litigate them silently.
   the Domain view, not the
   top-level browse path.
 - **Why:** enforces locality of behavior (P04) and makes architecture, law, and
-  ownership obvious at a glance. Initiative remains a secondary overlay.
+  ownership obvious at a glance. Business grouping lives in Linear under CD-0213.
 - **Effect:** recorded in `product-data-model.md` §6, `self-documentation.md` §1.1,
   and `workflows.md` §2.5.
 
@@ -285,7 +286,7 @@ re-litigate them silently.
   container to the launcher.
 - **Operator direction (2026-08-09):** the launcher exists to see status and resume
    work in the OpenCode TUI. It performs no durable write. Durable knowledge belongs to
-   its owning Product, Domain, Project, Initiative, or work item rather than to a global browse surface,
+   its owning Product, Domain, Project, or work item rather than to a global browse surface,
    and its section uses the shipped resolver once launcher wiring is implemented.
 - **Accepted by CD-0014 (2026-08-10):** three closed screens (portfolio, Product, work) with
   knowledge as a scoped section rather than a screen; stack navigation; ambient context

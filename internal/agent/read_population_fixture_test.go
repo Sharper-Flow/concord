@@ -30,7 +30,6 @@ const (
 	readPopulationKnowledgeHome = "proj-knowledge"
 	readPopulationWork          = "work-population"
 	readPopulationPeer          = "work-population-2"
-	readPopulationInitiative    = "population-initiative"
 	readPopulationRootDomain    = "product-root:population"
 	readPopulationChildDomain   = "sync"
 	readPopulationConstitution  = "CONST-0001"
@@ -51,12 +50,11 @@ const (
 const readPopulationBlockedSessionRef = "session-population"
 
 type readPopulationFixture struct {
-	store      *store.Store
-	service    *Service
-	grant      Authority
-	workID     string
-	initiative string
-	domainID   string
+	store    *store.Store
+	service  *Service
+	grant    Authority
+	workID   string
+	domainID string
 }
 
 // seedReadPopulationFixture builds the population-scale store. Every step uses
@@ -86,7 +84,7 @@ func seedReadPopulationFixture(t *testing.T) readPopulationFixture {
 	fx.seedResearchPack(t)
 
 	fx.service, _, fx.grant = newAuthorizedService(t, s, "client-1", "human-1",
-		[]Capability{"product_read", "work_define", "work_transition", "work_relate", "work_initiative"},
+		[]Capability{"product_read", "work_define", "work_transition", "work_relate"},
 		[]string{readPopulationProduct}, []string{readPopulationProject},
 		store.ProjectResolution{ProjectID: readPopulationProject})
 	fx.grant.SessionRef = "session-population"
@@ -95,7 +93,6 @@ func seedReadPopulationFixture(t *testing.T) readPopulationFixture {
 	// identity from the relation-creating event count, so the bulk-seeded
 	// blocker edges must land only after the last folded relation, or they
 	// would occupy the identity the fold assigns.
-	fx.initiative = fx.seedInitiative(t)
 	fx.seedWorktreeClaim(t)
 	fx.seedPopulationRows(t)
 	seedApprovalGatedFocus(t, s)
@@ -436,24 +433,6 @@ func (fx readPopulationFixture) seedResearchPack(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("add research finding: %v", err)
 	}
-}
-
-// seedInitiative creates the Initiative through the real dispatch path and
-// adds the focus work as its one entry, so the entries read derives its
-// Product and carries a row.
-func (fx readPopulationFixture) seedInitiative(t *testing.T) string {
-	t.Helper()
-	env := fx.envelope(t)
-	create := dispatchMutation(t, fx.store, fx.service, InvokeRequest{Tool: "concord_work_initiative", Operation: "create", Input: json.RawMessage(`{"title":"Population initiative","value_statement":"Coordinate the population fixture","project_ids":["proj-web"],"idempotency_key":"population-initiative-create"}`)}, env)
-	if create.Outcome != OutcomeOK || create.ChangedRefs == nil || len(*create.ChangedRefs) != 1 {
-		t.Fatalf("initiative create outcome=%s changed=%+v err=%+v", create.Outcome, create.ChangedRefs, create.Error)
-	}
-	initiativeID := (*create.ChangedRefs)[0].ID
-	add := dispatchMutation(t, fx.store, fx.service, InvokeRequest{Tool: "concord_work_initiative", Operation: "add_entry", Input: json.RawMessage(`{"initiative_work_id":"` + initiativeID + `","child_work_id":"` + fx.workID + `","expected_version":2,"position":0,"required":true,"idempotency_key":"population-initiative-add"}`)}, fx.envelope(t))
-	if add.Outcome != OutcomeOK {
-		t.Fatalf("initiative add_entry outcome=%s err=%+v", add.Outcome, add.Error)
-	}
-	return initiativeID
 }
 
 // seedWorktreeClaim registers the focus Project's source repository and claims

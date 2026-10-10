@@ -1,0 +1,22 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestRetiredPlanningEventsReplayWithoutInitiativeState"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestRetiredPlanningEventsRefuseNewAppends"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestDispatchIssueLinkRecordStoresReportedIdentity"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/check-pr-linear-link.py"
+    }
+  ],
+  "id": "CD-0213",
+  "state": "satisfied"
+}

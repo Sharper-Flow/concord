@@ -18,6 +18,24 @@ The adapter does not store keys in a workspace, arguments, logs, or tool output.
 Missing credentials, an incompatible core, malformed stdout, or a failed
 transport returns a typed failure and does not guess an effect.
 
+## Planning and recorded issue identity
+
+Agents use the Linear MCP server for all planning reads and writes. Concord
+owns managed execution, not an issue or Project mirror. Its binary makes no
+Linear API call and holds no Linear credential; the worker credential above
+remains separate.
+
+After the agent creates or finds an issue through Linear MCP, it records the
+issue key, UUID, and URL with `concord_work_define.issue_link_record`.
+Concord stores that reported identity without remote confirmation. One issue
+identity belongs to one work unit; a second claim refuses. Resume reports the
+recorded key and URL. Read current issue state through Linear MCP.
+See [CD-0213](../../.concord/docs/decisions/CD-0213-linear-mcp-is-the-only-planning-authority.md).
+
+Run `concord backup` before upgrading through the planning retirement migration.
+The [upgrade note](../../README.md#planning-retirement-upgrade) describes the
+intentional removal of unsent mirror writes and incomplete issue links.
+
 ## Operator bootstrap CLI
 
 `concord --help` is the bounded operator usage surface. Every listed command
@@ -333,8 +351,8 @@ tab:  CON-42
 pane: Concord | CON-42 | execution | Shorten the zellij tab name
 ```
 
-The tab carries one stub: the `linear_issue_key` when the Product is
-Linear-enabled, for example `CON-304`, and the project stub otherwise, for
+The tab carries one stub: the recorded `linear_issue_key` when present,
+for example `CON-304`, and the project stub otherwise, for
 example `toolbox`. The pane frame carries the full work state: project display
 name, identifier, step, and work title joined with ` | ` and cut at 64 code
 points. Absent fields drop from the pane name.

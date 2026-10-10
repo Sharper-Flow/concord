@@ -7,7 +7,7 @@ File accountability does not change a document's law home or a handler's semanti
 ## Responsibility
 Owns the typed agent plane: the read and mutation tool surface, its budget and evolution constraints, call context, lanes and worker dispatch, the adapter transport contract, and the agent result envelope.
 
-Mapped files: 426; tests: 274; unresolved candidates: 0.
+Mapped files: 424; tests: 272; unresolved candidates: 0.
 Candidate counts overlap when a file has several candidates; no candidate is an assigned owner.
 
 ## Code and tests
@@ -43,8 +43,7 @@ These are catalog surface entries, not invariant/control or handler joins.
 - `concord_product_view`: `blocked_sessions`, `portfolio`, `resolve`, `resources`, `snapshot`
 - `concord_work_browse`: `blocked`, `list`, `messages`, `ready`, `resource_claims`, `scope`, `worktree_audit`, `worktree_inspect`
 - `concord_work_compact`: `lesson_publish`, `publish`, `reconcile`
-- `concord_work_define`: `capture`, `issue_adopt`, `observation_record`, `research_finding_record`, `research_freshness_set`, `research_pack_create`, `research_retire`, `research_revision_append`, `research_source_record`, `revise_intent`
-- `concord_work_initiative`: `add_entry`, `change_requiredness`, `create`, `entries`, `remove_entry`, `reorder_entry`, `revise_narrative`
+- `concord_work_define`: `capture`, `issue_link_record`, `observation_record`, `research_finding_record`, `research_freshness_set`, `research_pack_create`, `research_retire`, `research_revision_append`, `research_source_record`, `revise_intent`
 - `concord_work_relate`: `client_policy_grant_request`, `link`, `message_send`, `message_withdraw`, `product_project_add`, `resolve_overlap`, `resource_claim`, `resource_release`, `restore_superseded`, `set_memberships`, `supersede`, `unlink`
 - `concord_work_trace`: `continuity`, `external_observations`, `history`, `observations`, `project_retirement`, `relations`, `research`
 - `concord_work_transition`: `correct_delivery`, `lifecycle`, `outside_repair`, `outside_repair_reconcile`, `project_handoff_consume`, `project_handoff_record`, `remove`, `session_vacate`, `worker_abandon`, `worker_reconcile`, `workflow_action`, `worktree_audit_reclaim`, `worktree_claim`, `worktree_destroy`, `worktree_reclaim`, `worktree_verify`

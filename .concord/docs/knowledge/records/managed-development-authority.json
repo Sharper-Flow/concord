@@ -1,0 +1,98 @@
+{
+  "authority": {
+    "tier": "derived"
+  },
+  "criterion_bindings": [
+    {
+      "criterion": 1,
+      "exemption": "Policy-only planning authority under CD-0213 D1. The CON-801 deletion slices remove the Concord planning write routes and carry their runtime evidence."
+    },
+    {
+      "criterion": 2,
+      "exemption": "Process-authority assignment for public merge evidence. Repository review and CI retain their existing verification contracts."
+    },
+    {
+      "criterion": 3,
+      "exemption": "Policy-only preservation of branch and worktree isolation. Existing worktree contracts and tests own runtime verification."
+    },
+    {
+      "criterion": 4,
+      "exemption": "Policy-only requirement for explicit law amendment. Knowledge closure and law-relation checks validate declared records."
+    },
+    {
+      "criterion": 5,
+      "exemption": "The pull-request link check owns this criterion and runs per pull request, not as a repository test."
+    },
+    {
+      "criterion": 6,
+      "exemption": "This contract preserves durable workflow authority. Generated agent contracts and store workflow tests own its runtime evidence."
+    },
+    {
+      "criterion": 7,
+      "exemption": "The predecessor-independence boundary is unchanged and has its own repository check."
+    },
+    {
+      "criterion": 8,
+      "exemption": "Policy-only foreign-Product route under CD-0213 D6. Concord has no write path for it, so no Concord runtime evidence applies."
+    },
+    {
+      "criterion": 9,
+      "exemption": "Policy-only outside-work boundary under CD-0122 D1. Host permissions remain authoritative."
+    },
+    {
+      "criterion": 10,
+      "exemption": "Policy-only defect-repair application under CD-0122 D2. Repository isolation and public review evidence remain required."
+    },
+    {
+      "criterion": 11,
+      "exemption": "Policy-only storage prohibition under CD-0213 D6. The store refuses an in-repository database path structurally."
+    }
+  ],
+  "date": "2026-10-09T00:00:00Z",
+  "doc_contract_profile": "current",
+  "evidence": [
+    "scripts/check-public-content.py",
+    "scripts/check-doc-contract.py",
+    "scripts/check-doc-links.py",
+    "scripts/check-knowledge-index.py",
+    "scripts/check-pr-linear-link.py"
+  ],
+  "home_domain_id": "repository-verification",
+  "id": "managed-development-authority",
+  "kind": "spec",
+  "law_relations": [
+    {
+      "kind": "supersedes",
+      "target_id": "development-authority"
+    },
+    {
+      "kind": "subordinate_to",
+      "target_id": "CD-0122"
+    },
+    {
+      "kind": "subordinate_to",
+      "target_id": "CD-0213"
+    }
+  ],
+  "path": ".concord/docs/managed-development-authority.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:f10b8ab00d79994df3d2d23b70c6e9798572304abdc09d372e44465ac168ed24",
+  "status": "accepted",
+  "summary": "Assigns planning to Linear through the Linear MCP server, keeps managed workflow, review, merge, isolation, and law authority in their existing owners, and preserves the outside-work and defect-repair boundaries.",
+  "tags": [
+    "authority",
+    "process",
+    "linear",
+    "cd-0122",
+    "cd-0213",
+    "defect-repair",
+    "coordination"
+  ],
+  "title": "managed development authority"
+}

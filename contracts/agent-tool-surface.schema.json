@@ -37,7 +37,7 @@
           "const": "concord-agent-tool-surface"
         },
         "tool_count": {
-          "const": 10
+          "const": 9
         }
       }
     },
@@ -82,7 +82,7 @@
     "tools": {
       "type": "array",
       "minItems": 9,
-      "maxItems": 10,
+      "maxItems": 9,
       "uniqueItems": true,
       "items": {
         "type": "object",
@@ -158,7 +158,7 @@
               "string",
               "null"
             ],
-            "pattern": "^(PM1\\.Q(1[0-6]|[1-9])|CD-0030\\.R1|CD-0040\\.R1|CD-0096\\.R1|CD-0182\\.R1|C14\\.ProductRows|C15\\.Resources|C19\\.Continuity|C21\\.InitiativeEntries|C22\\.Domain(List|Detail|ActiveWork|Attachments|Overlaps))$"
+            "pattern": "^(PM1\\.Q(1[0-6]|[1-9])|CD-0030\\.R1|CD-0040\\.R1|CD-0096\\.R1|CD-0182\\.R1|C14\\.ProductRows|C15\\.Resources|C19\\.Continuity|C22\\.Domain(List|Detail|ActiveWork|Attachments|Overlaps))$"
           },
           "input_schema": {
             "type": "string",
@@ -175,7 +175,6 @@
               "research",
               "work_compact",
               "work_define",
-              "work_initiative",
               "work_relate",
               "work_transition"
             ],
@@ -233,15 +232,14 @@
           "research",
           "work_compact",
           "work_define",
-          "work_initiative",
           "work_relate",
           "work_transition"
         ],
         "type": "string"
       },
       "uniqueItems": true,
-      "minItems": 8,
-      "maxItems": 8
+      "minItems": 7,
+      "maxItems": 7
     },
     "consequences": {
       "type": "array",

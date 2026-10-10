@@ -17,21 +17,43 @@ var rebuildClearListExemptions = append([]string{
 	"active_research_consumers",
 }, operationalRebuildTables...)
 
-// TestLinearOutboxIsNeverCleared pins the one direct-authority table that has
-// no foreign key at all: a queued row is pending Linear work no event can
-// restore, and nothing blocks its rows, so the rebuild must never clear,
-// snapshot, or otherwise touch it.
-func TestLinearOutboxIsNeverCleared(t *testing.T) {
+// TestRecordedIssueIdentityIsNeverCleared pins the recorded issue identity
+// table at the rebuild boundary. Migration 124 rebuilt linear_issue_links with
+// no foreign key to work_items, so the rebuild neither clears it nor snapshots
+// it: its rows survive a recovery untouched, in place.
+func TestRecordedIssueIdentityIsNeverCleared(t *testing.T) {
 	t.Parallel()
 	for _, table := range replayProjectionClearTables {
-		if table == "linear_outbox" {
-			t.Fatal("linear_outbox is in the clear list: a rebuild would drop queued Linear operations the event log cannot restore")
+		if table == "linear_issue_links" {
+			t.Fatal("linear_issue_links is in the clear list: a rebuild would drop recorded issue identities the event log cannot restore")
 		}
 	}
 	for _, table := range operationalRebuildTables {
-		if table == "linear_outbox" {
-			t.Fatal("linear_outbox is in the snapshot set: it holds no foreign key and must simply stay untouched")
+		if table == "linear_issue_links" {
+			t.Fatal("linear_issue_links is in the snapshot set: with no foreign key it survives the rebuild in place and needs no snapshot")
 		}
+	}
+	s := openTemp(t)
+	db := s.DatabaseForTesting()
+	rows, err := db.Query(`SELECT name FROM pragma_table_info('linear_issue_links')`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	columns := []string{}
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			t.Fatal(err)
+		}
+		columns = append(columns, name)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	rows.Close()
+	want := []string{"work_id", "remote_issue_uuid", "human_key", "url", "created_at", "updated_at"}
+	if strings.Join(columns, ",") != strings.Join(want, ",") {
+		t.Fatalf("linear_issue_links columns = %v, want exactly the retained identity %v", columns, want)
 	}
 }
 

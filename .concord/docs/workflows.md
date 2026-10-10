@@ -81,7 +81,7 @@ A **workflow type** is a purpose-built definition:
 | **Artifacts** | What it produces (a spec delta? a report? a runbook record? nothing durable?). |
 | **Completion criteria** | How it's "done" (a contract satisfied? a report submitted? a signal fired?). |
 | **Work kind** | What shape of work it's for (implementation, operations, database, break-fix, configuration, infrastructure, options research, evidence research, RCA, static-analysis variants, …). |
-| **Value statement** | One sentence stating the Initiative/work value: what it delivers and why it matters. |
+| **Value statement** | One sentence stating the work value: what it delivers and why it matters. |
 | **Outcome contract** | The premise, required end-state, and candidate set the type requires at approval. See §2.1a. |
 | **Product-truth effect** | Closed `changes_product_truth` classification. `true` requires CD-0041's architecture binding; `false` cannot write Domain identity, Domain relations, Product law, or Product behavior. |
 | **Staleness rule** | Whether execution is blocked while the workflow's inputs or upstream state are stale. |
@@ -93,7 +93,7 @@ operator named.
 
 ### 2.1 Value statement invariant
 
-Every Initiative and every work item must carry a **one-sentence value statement**,
+Every work item must carry a **one-sentence value statement**,
 recorded at creation and reviewed at each gate. It is not a marketing blurb; it
 answers:
 
@@ -160,7 +160,7 @@ surfaces.
 ### 2.5 Product → Domain navigation
 
 Workflows are reached primarily by **Product → Domain**, not by a flat list of
-changes or Initiatives.
+changes or external planning groups.
 
 - A Product owns canonical Domains; Projects and resources attach without becoming
   architecture identity.
@@ -168,7 +168,7 @@ changes or Initiatives.
   decisions, resources, and recent changes.
 - A workflow or change is **architecture-bound history** from the Domain view, not the
   top-level browse path.
-- Initiative is a secondary business/outcome overlay across Domain-bound work.
+- Business grouping lives in Linear under CD-0213 and owns no architecture authority.
 
 ---
 
@@ -186,7 +186,7 @@ Concord covers the full spectrum of work a Product accumulates:
 | **Infrastructure** | Ops runbook | Azure jobs, crons, deployed services; signal-aware. |
 | **Options research** | Research / investigation | Compare alternatives; may resolve to "no change." |
 | **Evidence research** | Research / investigation | Gather source evidence for a decision. |
-| **Architectural decision / de-risking** | Architecture spike | Decides, rather than ships. Binding decision record; hard-blocks dependent Initiative entries. See [`architecture-spike.md`](./architecture-spike.md). |
+| **Architectural decision / de-risking** | Architecture spike | Decides, rather than ships. Binding decision record; hard-blocks dependent work. See [`architecture-spike.md`](./architecture-spike.md). |
 | **RCA (root-cause analysis)** | Investigation / static-analysis variant | Defect-driven; produces durable findings. |
 | **Static-analysis variants** | Purpose-built analysis workflows | Architecture-inconsistency, AI-slop, spec/impl drift, etc. |
 
@@ -201,13 +201,12 @@ implementation change.
 
 | Type | Work kind | Shape | Replaces / relates |
 |---|---|---|---|
-| **Initiative** | Product-scoped finite business/outcome context | Frame value/scope → order independent Domain-bound work → maintain shared active context → close only when required entries/conditions are terminal; no nested execution or architecture authority | CD-0041 and CD-0042: #196 establishes Initiative on the pre-go-live primary path; Initiative remains an ordinary work identity. |
 | **Implementation change** | Spec-driven code work | 7 gates, spec deltas, contract | The existing ADV workflow — kept as the heaviest type. |
 | **Research / investigation** | Open-ended; may never become a change | Lightweight; gateless or few steps; ordinary `kind=research` work owning a CD-0009 active research pack; produces findings and may conclude `no change` | Today forced into premature changes or lost. |
 | **Architecture spike** | Architectural decision / de-risking | Frame → research → options → optional throwaway POC → decision record → reviewer → user acceptance; flat (has tasks, no sub-spikes); no timebox | Peer to the implementation change. Distinct from research: research *may* resolve to "no change"; a spike *must* resolve to a decision, and that decision **binds until superseded**. Full model: [`architecture-spike.md`](./architecture-spike.md). |
 | **Static-analysis workflows** | Code-quality / architecture analysis | Coordinates an external analysis run and records its report and verdict | External analysis tools own scanner implementation; Concord owns the tracked workflow. |
 | **Ops runbook** | Operational procedure | Steps (plan/approval/execute/health/rollback/cleanup); evidence | inventory §2.4 / §3.5. |
-| **Break-fix workflow** | Defect / RCA | RCA → fix → verify; the Product's selected planning authority owns the defect | [Product-scoped planning and local-only operation](development-authority.md). |
+| **Break-fix workflow** | Defect / RCA | RCA → fix → verify; Linear owns the defect record | [Managed development authority](managed-development-authority.md). |
 | **Database workflow** | Schema/data migration | Ops-runbook shape with migration-specific rollback | Reuses ops runbook primitives. |
 | **Configuration workflow** | Infra/tooling config | Lightweight change or ops-runbook shape | Reproducible, auditable. |
 

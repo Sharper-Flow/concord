@@ -26,7 +26,7 @@ func TestReadEntryPointsWithWriterNeighbor(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		if _, err := tx.tx.Exec(`INSERT INTO linear_issue_links(work_id,remote_issue_uuid,human_key,url,link_state,created_at,updated_at) VALUES('blocker','neighbor-issue','SYN-1','https://example.invalid/issues/SYN-1','confirmed','2026-08-09','2026-08-09')`); err != nil {
+		if _, err := tx.tx.Exec(`INSERT INTO linear_issue_links(work_id,remote_issue_uuid,human_key,url,created_at,updated_at) VALUES('blocker','neighbor-issue','SYN-1','https://example.invalid/issues/SYN-1','2026-08-09','2026-08-09')`); err != nil {
 			return err
 		}
 		return scope.close(ctx)

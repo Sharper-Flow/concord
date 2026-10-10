@@ -255,6 +255,25 @@ func TestSharedProjectStaysAmbiguousUntilProductSelected(t *testing.T) {
 	}
 }
 
+func TestAmbiguousProductRefusesMutationBeforeEffects(t *testing.T) {
+	ctx := context.Background()
+	s, service, grant, _ := crossProductDispatchFixture(t, []Capability{"work_relate"})
+	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := mutationEnvelope(grant, scopeVersion)
+	env.SelectedProductID = ""
+	before := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM domain_events`)
+	response, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_relate", Operation: "set_memberships", Input: json.RawMessage(`{"work_id":"work-1","expected_version":2,"memberships":[{"project_id":"project-1","role":"primary"}],"idempotency_key":"ambiguous-membership"}`)}, env)
+	if err != nil || response.Error == nil || response.Error.Kind != "ambiguous_scope" {
+		t.Fatalf("ambiguous mutation response=%+v err=%v", response, err)
+	}
+	if after := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM domain_events`); after != before {
+		t.Fatalf("ambiguous mutation wrote domain events: before=%d after=%d", before, after)
+	}
+}
+
 func TestRemovedProjectLosesAuthorityOnNextInvocation(t *testing.T) {
 	ctx := context.Background()
 	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_relate"})

@@ -814,7 +814,7 @@ class WorkflowActionVariantProjectionTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.actions, cls.workflows, cls.teaching = generator.load_workflow_action_contracts()
+        cls.actions, cls.workflows, cls.teaching, cls.schema_refs = generator.load_workflow_action_contracts()
 
     def action(self, action_id):
         return next(action for action in self.actions if action["id"] == action_id)
@@ -957,7 +957,7 @@ class NativeOracleLaneInstructionTests(unittest.TestCase):
 class HostSafeWorkflowFieldUnionTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        actions, workflows, teaching = generator.load_workflow_action_contracts()
+        actions, workflows, teaching, _ = generator.load_workflow_action_contracts()
         cls.projected, _ = generator.project_workflow_action_schema(payload_schema, actions, workflows, teaching)
         cls.actions = actions
 
@@ -993,7 +993,7 @@ class HostSafeWorkflowFieldUnionTests(unittest.TestCase):
         retained = copy.deepcopy(action["variants"][0]["payload"])
         retained["fields"] = [field for field in retained["fields"] if field["name"] == "attempt_id"]
         action["legacy_payloads"] = [retained]
-        _, workflows, teaching = generator.load_workflow_action_contracts()
+        _, workflows, teaching, _ = generator.load_workflow_action_contracts()
         projected, _ = generator.project_workflow_action_schema(payload_schema, actions, workflows, teaching)
         call = {"work_id": "work-1", "expected_version": 1, "action_id": "accept_worker_result",
                 "idempotency_key": "accept-1", "fields": {"attempt_id": "attempt-1"}}
@@ -1030,7 +1030,7 @@ class HostSafeWorkflowFieldUnionTests(unittest.TestCase):
 class NativeOracleRequestProjectionTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        actions, workflows, teaching = generator.load_workflow_action_contracts()
+        actions, workflows, teaching, _ = generator.load_workflow_action_contracts()
         cls.projected, _ = generator.project_workflow_action_schema(payload_schema, actions, workflows, teaching)
 
     def validate(self, value, name):
@@ -1147,7 +1147,7 @@ class NativeOracleRequestProjectionTests(unittest.TestCase):
             self.validate(incomplete, "native_oracle_result")
 
     def test_projection_is_idempotent_and_keeps_navigation_and_report_pins(self):
-        actions, workflows, teaching = generator.load_workflow_action_contracts()
+        actions, workflows, teaching, _ = generator.load_workflow_action_contracts()
         repeated, _ = generator.project_workflow_action_schema(self.projected, actions, workflows, teaching)
         self.assertEqual(repeated, self.projected)
         generator.check_schema_keywords(self.projected)
@@ -1776,7 +1776,7 @@ class WorkflowActionVariantCorpusTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.actions, cls.workflows, cls.teaching = generator.load_workflow_action_contracts()
+        cls.actions, cls.workflows, cls.teaching, cls.schema_refs = generator.load_workflow_action_contracts()
         cls.defs = payload_schema["$defs"]
 
     def _variants(self):

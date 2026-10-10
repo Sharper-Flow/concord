@@ -2524,7 +2524,7 @@
         }
       ],
       "domain_id": "durable-authority",
-      "mapped_count": 75,
+      "mapped_count": 76,
       "mechanism_owner_ids": [
         "mechanism:durable-store"
       ],
@@ -5441,7 +5441,7 @@
         }
       ],
       "domain_id": "workflow-engine",
-      "mapped_count": 198,
+      "mapped_count": 204,
       "mechanism_owner_ids": [
         "mechanism:workflow-actions",
         "mechanism:workflow-definitions"
@@ -5817,7 +5817,7 @@
         ]
       },
       "purpose": "Owns work lifecycle: workflow types and their contracts, workflow actions and transitions, completion predicates and verdicts, evidence binding, architecture overlap resolution, and terminal-state law.",
-      "test_count": 142,
+      "test_count": 146,
       "test_packages": [
         "github.com/sharper-flow/concord/internal/payloadschema",
         "github.com/sharper-flow/concord/internal/store"
@@ -5825,6 +5825,7 @@
       "test_paths": [
         "internal/payloadschema/absent_variant_test.go",
         "internal/payloadschema/composed_variant_description_test.go",
+        "internal/payloadschema/historical_decoder_test.go",
         "internal/payloadschema/historical_validation_test.go",
         "internal/payloadschema/outside_repair_workpin_test.go",
         "internal/payloadschema/refusal_names_the_field_test.go",
@@ -5903,6 +5904,9 @@
         "internal/store/workflow_evidence_ref_test.go",
         "internal/store/workflow_execution_mode_test.go",
         "internal/store/workflow_exploration_contract_test.go",
+        "internal/store/workflow_historical_decoder_test.go",
+        "internal/store/workflow_historical_journal_fixtures_test.go",
+        "internal/store/workflow_historical_journal_replay_test.go",
         "internal/store/workflow_historical_regression_test.go",
         "internal/store/workflow_impact_propagation_test.go",
         "internal/store/workflow_impact_target_test.go",
@@ -7103,6 +7107,7 @@
     "contracts/workflow-definition.schema.json": "workflow-engine",
     "contracts/workflow-engine-scenarios.schema.json": "workflow-engine",
     "contracts/workflow-engine.fixtures.json": "workflow-engine",
+    "contracts/workflow-historical-decoder.schema.json": "workflow-engine",
     "contracts/workflow-outcome.schema.json": "workflow-engine",
     "examples/opencode/README.md": "agent-surface",
     "examples/opencode/agents/concord-0.md": "agent-surface",
@@ -7313,7 +7318,9 @@
     "internal/linearclient/scrub_env_test.go": "work-coordination",
     "internal/payloadschema/absent_variant_test.go": "workflow-engine",
     "internal/payloadschema/composed_variant_description_test.go": "workflow-engine",
+    "internal/payloadschema/generated_historical_schemas.go": "workflow-engine",
     "internal/payloadschema/generated_schemas.go": "workflow-engine",
+    "internal/payloadschema/historical_decoder_test.go": "workflow-engine",
     "internal/payloadschema/historical_validation_test.go": "workflow-engine",
     "internal/payloadschema/outside_repair_workpin_test.go": "workflow-engine",
     "internal/payloadschema/refusal_names_the_field_test.go": "workflow-engine",
@@ -7734,6 +7741,10 @@
     "internal/store/workflow_evidence_ref_test.go": "workflow-engine",
     "internal/store/workflow_execution_mode_test.go": "workflow-engine",
     "internal/store/workflow_exploration_contract_test.go": "workflow-engine",
+    "internal/store/workflow_historical_decoder_test.go": "workflow-engine",
+    "internal/store/workflow_historical_journal_fixtures_test.go": "workflow-engine",
+    "internal/store/workflow_historical_journal_fixtures_test.go.bak": "durable-authority",
+    "internal/store/workflow_historical_journal_replay_test.go": "workflow-engine",
     "internal/store/workflow_historical_regression_test.go": "workflow-engine",
     "internal/store/workflow_impact_propagation_test.go": "workflow-engine",
     "internal/store/workflow_impact_target_test.go": "workflow-engine",
@@ -7989,7 +8000,7 @@
     "skills/README.md": "agent-surface",
     "workflows/README.md": "workflow-engine"
   },
-  "mapped_count": 2017,
+  "mapped_count": 2024,
   "mechanisms": [
     {
       "check_ids": [

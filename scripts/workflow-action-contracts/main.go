@@ -52,11 +52,23 @@ type workflowOutcomeContract struct {
 	DecisionRecordRequired bool     `json:"decision_record_required"`
 }
 
+// schemaRefProjection names the payload schema refs the registry declares,
+// split by decoding owner. Current refs belong to live authoring and resolve
+// through the public authoring document. Historical refs belong to retained
+// registry versions and resolve through the frozen historical decoder
+// document, so a later public authoring change cannot break historical
+// payload validation (CON-902 S0).
+type schemaRefProjection struct {
+	Current    []string `json:"current"`
+	Historical []string `json:"historical"`
+}
+
 type contractProjection struct {
 	SchemaVersion string                         `json:"schema_version"`
 	Actions       []actionContract               `json:"actions"`
 	Workflows     []workflowOutcomeContract      `json:"workflows"`
 	Teaching      store.WorkflowContractTeaching `json:"teaching"`
+	SchemaRefs    schemaRefProjection            `json:"schema_refs"`
 }
 
 // canonicalPayload normalizes a payload for comparison: a nil field list
@@ -182,8 +194,71 @@ func collectActionContracts(current []store.WorkflowDefinition, recovery []store
 	return contracts, nil
 }
 
+// payloadSchemaRefs collects the distinct schema_ref/item_ref names one
+// payload declaration carries, in sorted order.
+func payloadSchemaRefs(payload store.WorkflowPayloadDefinition) []string {
+	refs := map[string]bool{}
+	for _, field := range payload.Fields {
+		if field.SchemaRef != "" {
+			refs[field.SchemaRef] = true
+		}
+		if field.ItemRef != "" {
+			refs[field.ItemRef] = true
+		}
+	}
+	return sortedRefNames(refs)
+}
+
+func sortedRefNames(refs map[string]bool) []string {
+	names := make([]string, 0, len(refs))
+	for name := range refs {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// collectSchemaRefs splits the registry's declared payload schema refs by
+// decoding owner: current definitions and the engine recovery list declare
+// current refs; retained registry versions (every registered version below
+// its family's current head) declare historical refs.
+func collectSchemaRefs(current []store.WorkflowDefinition, recovery []store.WorkflowActionDefinition, history []store.WorkflowDefinition) schemaRefProjection {
+	currentRefs := map[string]bool{}
+	historicalRefs := map[string]bool{}
+	for _, definition := range current {
+		for _, action := range definition.ActionDefinitions {
+			for _, ref := range payloadSchemaRefs(action.Payload) {
+				currentRefs[ref] = true
+			}
+		}
+	}
+	for _, action := range recovery {
+		for _, ref := range payloadSchemaRefs(action.Payload) {
+			currentRefs[ref] = true
+		}
+	}
+	currentPins := map[string]bool{}
+	for _, definition := range current {
+		currentPins[definition.Ref+"/"+fmt.Sprint(definition.Version)] = true
+	}
+	for _, definition := range history {
+		if currentPins[definition.Ref+"/"+fmt.Sprint(definition.Version)] {
+			continue
+		}
+		for _, action := range definition.ActionDefinitions {
+			for _, ref := range payloadSchemaRefs(action.Payload) {
+				historicalRefs[ref] = true
+			}
+		}
+	}
+	return schemaRefProjection{Current: sortedRefNames(currentRefs), Historical: sortedRefNames(historicalRefs)}
+}
+
 func main() {
-	contracts, err := collectActionContracts(store.BuiltinWorkflowDefinitions(), store.BuiltinWorkflowRecoveryActionDefinitions(), store.BuiltinWorkflowDefinitionsWithHistory())
+	definitions := store.BuiltinWorkflowDefinitions()
+	recovery := store.BuiltinWorkflowRecoveryActionDefinitions()
+	history := store.BuiltinWorkflowDefinitionsWithHistory()
+	contracts, err := collectActionContracts(definitions, recovery, history)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
@@ -193,7 +268,6 @@ func main() {
 		ids = append(ids, id)
 	}
 	sort.Strings(ids)
-	definitions := store.BuiltinWorkflowDefinitions()
 	refs := make([]string, 0, len(definitions))
 	byRef := map[string]store.WorkflowDefinition{}
 	for _, definition := range definitions {
@@ -223,7 +297,7 @@ func main() {
 			DecisionRecordRequired: definition.OutcomeSchema.DecisionRecordRequired,
 		})
 	}
-	projection := contractProjection{SchemaVersion: "1.0", Actions: make([]actionContract, 0, len(ids)), Workflows: workflows, Teaching: store.WorkflowContractTeachingRules()}
+	projection := contractProjection{SchemaVersion: "1.0", Actions: make([]actionContract, 0, len(ids)), Workflows: workflows, Teaching: store.WorkflowContractTeachingRules(), SchemaRefs: collectSchemaRefs(definitions, recovery, history)}
 	for _, id := range ids {
 		projection.Actions = append(projection.Actions, contracts[id])
 	}

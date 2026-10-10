@@ -25,24 +25,42 @@ import (
 var (
 	documentOnce    sync.Once
 	documentValue   map[string]any
+	historicalOnce  sync.Once
+	historicalValue map[string]any
 	dateTimePattern = regexp.MustCompile(`^[0-9]{4}-[0-9]{2}-[0-9]{2}T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]([.][0-9]+)?(Z|[+-]([01][0-9]|2[0-3]):[0-5][0-9])$`)
 )
 
-// Document returns the parsed generated schema document.
-func Document() map[string]any {
-	documentOnce.Do(func() {
-		decoder := json.NewDecoder(strings.NewReader(GeneratedPayloadSchemaDocument))
+// loadDocumentOnce parses one generated schema document exactly once.
+func loadDocumentOnce(once *sync.Once, raw string, target *map[string]any, what string) {
+	once.Do(func() {
+		decoder := json.NewDecoder(strings.NewReader(raw))
 		decoder.UseNumber()
-		if err := decoder.Decode(&documentValue); err != nil {
-			panic(fmt.Sprintf("generated payload schema document is not JSON: %v", err))
+		if err := decoder.Decode(target); err != nil {
+			panic(fmt.Sprintf("generated %s document is not JSON: %v", what, err))
 		}
 	})
+}
+
+// Document returns the parsed generated schema document.
+func Document() map[string]any {
+	loadDocumentOnce(&documentOnce, GeneratedPayloadSchemaDocument, &documentValue, "payload schema")
 	return documentValue
 }
 
-// Has reports whether the generated document declares the named schema.
-func Has(name string) bool {
-	defs, ok := Document()["$defs"].(map[string]any)
+// HistoricalDocument returns the parsed frozen historical decoder document.
+// It is the engine's frozen baseline closure over the public authoring
+// document: retained workflow definitions resolve their declared payload
+// schemas against it, so a public authoring change cannot break historical
+// payload validation (CON-902 S0). It is not an authoring surface: a schema
+// only this document carries is not authorable.
+func HistoricalDocument() map[string]any {
+	loadDocumentOnce(&historicalOnce, GeneratedHistoricalSchemaDocument, &historicalValue, "historical decoder")
+	return historicalValue
+}
+
+// HasIn reports whether the given document declares the named schema.
+func HasIn(root map[string]any, name string) bool {
+	defs, ok := root["$defs"].(map[string]any)
 	if !ok {
 		return false
 	}
@@ -50,10 +68,10 @@ func Has(name string) bool {
 	return ok
 }
 
-// DescribesArray reports whether the named schema describes an array value
-// rather than one element of one.
-func DescribesArray(name string) bool {
-	defs, ok := Document()["$defs"].(map[string]any)
+// DescribesArrayIn reports whether the named schema in the given document
+// describes an array value rather than one element of one.
+func DescribesArrayIn(root map[string]any, name string) bool {
+	defs, ok := root["$defs"].(map[string]any)
 	if !ok {
 		return false
 	}
@@ -68,7 +86,14 @@ func DescribesArray(name string) bool {
 // document. An unknown name is an error rather than a silent pass, so a
 // declaration naming a schema that was never generated fails closed.
 func Validate(name string, data []byte) error {
-	root := Document()
+	return ValidateInDocument(Document(), name, data)
+}
+
+// ValidateInDocument checks one JSON value against the named schema in the
+// given document root. An unknown name is an error rather than a silent
+// pass, so a declaration naming a schema the document never carried fails
+// closed.
+func ValidateInDocument(root map[string]any, name string, data []byte) error {
 	defs, ok := root["$defs"].(map[string]any)
 	if !ok {
 		return fmt.Errorf("payload schema definitions missing")

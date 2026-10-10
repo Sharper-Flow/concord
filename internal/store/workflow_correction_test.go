@@ -12,6 +12,17 @@ import (
 	"github.com/sharper-flow/concord/internal/payloadschema"
 )
 
+func TestWorkflowCorrectionFoldAcceptsLegacySchemaNBSPReference(t *testing.T) {
+	t.Parallel()
+	const legacyReference = "evidence:\u00a0legacy"
+	if fault := workflowCorrectionSchemaValuesFaultForReplay(nil, []string{legacyReference}, nil); fault != "" {
+		t.Fatalf("fold rejected a correction reference admitted by the previous schema: %s", fault)
+	}
+	if fault := workflowCorrectionSchemaValuesFaultForAdmission(nil, []string{legacyReference}, nil); fault == "" {
+		t.Fatal("new correction admission accepted a non-breaking-space reference")
+	}
+}
+
 func TestSameWorkflowCorrectionIncludesFailureDetails(t *testing.T) {
 	base := &WorkflowCorrectionContext{
 		Disposition: "failed", AttemptCount: 1, AttemptLimit: 3, Diagnosis: "diagnosis", Strategy: "strategy",

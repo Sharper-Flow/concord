@@ -926,7 +926,7 @@
       "law_refs": [
         {
           "clause_id": "5. Core language and internal boundary (agent adapter resolved by CD-0005)",
-          "content_hash": "sha256:a5f1c13e7c476c8a200cf3def519fccb84c0fb0e770a3fa744136ff034a17375",
+          "content_hash": "sha256:c786f96b56be1189b810ed8dcfab4251b98af94f90d9aba42f38e5ddd86283af",
           "law_id": "CD-0002",
           "locator": ".concord/docs/decisions/CD-0002-concord-state-authority.md"
         }
@@ -942,7 +942,7 @@
       "law_refs": [
         {
           "clause_id": "D11. Public surface for workflow actions stays reserved",
-          "content_hash": "sha256:3773717ceab642e76a0ecee5149a7c117bdc56413a29598d87f2a96c1d54d1fe",
+          "content_hash": "sha256:65e4f493630aea4cec1d2571aa9c5a09616d6895eee61e263ab29a04a4bd6f4c",
           "law_id": "CD-0013",
           "locator": ".concord/docs/decisions/CD-0013-workflow-engine-mechanism.md"
         },
@@ -964,7 +964,7 @@
       "law_refs": [
         {
           "clause_id": "2b. Concurrency model, and the daemon as an upgrade path",
-          "content_hash": "sha256:a5f1c13e7c476c8a200cf3def519fccb84c0fb0e770a3fa744136ff034a17375",
+          "content_hash": "sha256:c786f96b56be1189b810ed8dcfab4251b98af94f90d9aba42f38e5ddd86283af",
           "law_id": "CD-0002",
           "locator": ".concord/docs/decisions/CD-0002-concord-state-authority.md"
         }
@@ -980,13 +980,13 @@
       "law_refs": [
         {
           "clause_id": "Decision",
-          "content_hash": "sha256:2bd83223d72ff841227f1be2de80e6c81302f9369d3207485e5aeb4aa7cbe9bd",
+          "content_hash": "sha256:a338c46d35dc98c943d69c702c97bb14767d8b1a93890e2b838a1425a6104c5f",
           "law_id": "CD-0015",
           "locator": ".concord/docs/decisions/CD-0015-typed-law-relations.md"
         },
         {
           "clause_id": "2d. Structured artifact placement",
-          "content_hash": "sha256:a5f1c13e7c476c8a200cf3def519fccb84c0fb0e770a3fa744136ff034a17375",
+          "content_hash": "sha256:c786f96b56be1189b810ed8dcfab4251b98af94f90d9aba42f38e5ddd86283af",
           "law_id": "CD-0002",
           "locator": ".concord/docs/decisions/CD-0002-concord-state-authority.md"
         }
@@ -1018,7 +1018,7 @@
       "law_refs": [
         {
           "clause_id": "1. The structural invariants (this is the decision's real content)",
-          "content_hash": "sha256:a5f1c13e7c476c8a200cf3def519fccb84c0fb0e770a3fa744136ff034a17375",
+          "content_hash": "sha256:c786f96b56be1189b810ed8dcfab4251b98af94f90d9aba42f38e5ddd86283af",
           "law_id": "CD-0002",
           "locator": ".concord/docs/decisions/CD-0002-concord-state-authority.md"
         }
@@ -1034,13 +1034,13 @@
       "law_refs": [
         {
           "clause_id": "1. The structural invariants (this is the decision's real content)",
-          "content_hash": "sha256:a5f1c13e7c476c8a200cf3def519fccb84c0fb0e770a3fa744136ff034a17375",
+          "content_hash": "sha256:c786f96b56be1189b810ed8dcfab4251b98af94f90d9aba42f38e5ddd86283af",
           "law_id": "CD-0002",
           "locator": ".concord/docs/decisions/CD-0002-concord-state-authority.md"
         },
         {
           "clause_id": "3.1 One generic log remains authoritative",
-          "content_hash": "sha256:46bee2eae2f22755dfa81256a1e6d74cb679b933a63d1136b407720811bb50e9",
+          "content_hash": "sha256:d893d54fb9ac3324d04f40351b388ae1a2988e18786c22f5193e5565224d91a2",
           "law_id": "PM3",
           "locator": ".concord/docs/product-memory-domain-schema.md"
         }
@@ -1339,7 +1339,7 @@
             },
             {
               "clause_id": "D1. The wait is a CLI verb, not a prompt",
-              "content_hash": "sha256:8de08e7eacd7a1620f3a5068be3a985ec04b1adc346a9f8e3710bb1481eb7fd0",
+              "content_hash": "sha256:57e5f0c44afcd75f544cf42a04c0276219453688ac4b207fca7f0c1c1db88b29",
               "law_id": "CD-0160",
               "locator": ".concord/docs/decisions/CD-0160-the-ci-wait-utility-delegates-its-wait-to-a-deterministic-cli-verb.md"
             }
@@ -1700,7 +1700,7 @@
             },
             {
               "clause_id": "D1. Typed dispatch opens one authorization window",
-              "content_hash": "sha256:fdff03e0d74be4c91a41ab737c22290df9c1bd348e2e432821ce0407e485a1a2",
+              "content_hash": "sha256:085c3f0ff4fb635a49d23a95c937f50b9a63dabd356ca78211e4ca94297a0bff",
               "law_id": "CD-0102",
               "locator": ".concord/docs/decisions/CD-0102-lane-dispatch-runs-as-a-native-task.md"
             }
@@ -2551,13 +2551,13 @@
           "law_refs": [
             {
               "clause_id": "1. The structural invariants (this is the decision's real content)",
-              "content_hash": "sha256:a5f1c13e7c476c8a200cf3def519fccb84c0fb0e770a3fa744136ff034a17375",
+              "content_hash": "sha256:c786f96b56be1189b810ed8dcfab4251b98af94f90d9aba42f38e5ddd86283af",
               "law_id": "CD-0002",
               "locator": ".concord/docs/decisions/CD-0002-concord-state-authority.md"
             },
             {
               "clause_id": "3.1 One generic log remains authoritative",
-              "content_hash": "sha256:46bee2eae2f22755dfa81256a1e6d74cb679b933a63d1136b407720811bb50e9",
+              "content_hash": "sha256:d893d54fb9ac3324d04f40351b388ae1a2988e18786c22f5193e5565224d91a2",
               "law_id": "PM3",
               "locator": ".concord/docs/product-memory-domain-schema.md"
             }
@@ -3487,13 +3487,13 @@
           "law_refs": [
             {
               "clause_id": "D2. The installer retains a release a live session references",
-              "content_hash": "sha256:5a31689d5b9547831a555861742367d5ea6c143516019eafd3eb1162b08e2723",
+              "content_hash": "sha256:911441c637c5dafab5b27f2c40f85e0cfd895d5ba3e9e43bdd25ee8b9325e2ea",
               "law_id": "CD-0111",
               "locator": ".concord/docs/decisions/CD-0111-a-release-never-requires-a-session-restart.md"
             },
             {
               "clause_id": "D3. A breaking migration applies only through an explicit upgrade",
-              "content_hash": "sha256:5a31689d5b9547831a555861742367d5ea6c143516019eafd3eb1162b08e2723",
+              "content_hash": "sha256:911441c637c5dafab5b27f2c40f85e0cfd895d5ba3e9e43bdd25ee8b9325e2ea",
               "law_id": "CD-0111",
               "locator": ".concord/docs/decisions/CD-0111-a-release-never-requires-a-session-restart.md"
             }
@@ -3873,7 +3873,7 @@
         }
       ],
       "domain_id": "product-memory",
-      "mapped_count": 890,
+      "mapped_count": 893,
       "mechanism_owner_ids": [
         "mechanism:domain-registry",
         "mechanism:knowledge-index"
@@ -5564,13 +5564,13 @@
           "law_refs": [
             {
               "clause_id": "D2. Workflow state lives on the work-item subject",
-              "content_hash": "sha256:3773717ceab642e76a0ecee5149a7c117bdc56413a29598d87f2a96c1d54d1fe",
+              "content_hash": "sha256:65e4f493630aea4cec1d2571aa9c5a09616d6895eee61e263ab29a04a4bd6f4c",
               "law_id": "CD-0013",
               "locator": ".concord/docs/decisions/CD-0013-workflow-engine-mechanism.md"
             },
             {
               "clause_id": "D12. Staleness is structurally evaluated at consequential boundaries",
-              "content_hash": "sha256:3773717ceab642e76a0ecee5149a7c117bdc56413a29598d87f2a96c1d54d1fe",
+              "content_hash": "sha256:65e4f493630aea4cec1d2571aa9c5a09616d6895eee61e263ab29a04a4bd6f4c",
               "law_id": "CD-0013",
               "locator": ".concord/docs/decisions/CD-0013-workflow-engine-mechanism.md"
             },
@@ -5642,7 +5642,7 @@
           "law_refs": [
             {
               "clause_id": "D1. Workflow definitions are code-defined, not stored authority",
-              "content_hash": "sha256:3773717ceab642e76a0ecee5149a7c117bdc56413a29598d87f2a96c1d54d1fe",
+              "content_hash": "sha256:65e4f493630aea4cec1d2571aa9c5a09616d6895eee61e263ab29a04a4bd6f4c",
               "law_id": "CD-0013",
               "locator": ".concord/docs/decisions/CD-0013-workflow-engine-mechanism.md"
             },
@@ -6123,6 +6123,7 @@
     ".concord/docs/decisions/CD-0215-retained-research-context.md": "product-memory",
     ".concord/docs/decisions/CD-0216-research-surface-and-explicit-retirement.md": "product-memory",
     ".concord/docs/decisions/CD-0217-publication-and-retention-boundaries.md": "product-memory",
+    ".concord/docs/decisions/CD-0221-accepted-law-cites-the-checked-revision.md": "product-memory",
     ".concord/docs/decisions/license-evidence/github.com/aymanbagabas/go-udiff/v0.4.1/LICENSE-BSD": "product-memory",
     ".concord/docs/decisions/license-evidence/github.com/aymanbagabas/go-udiff/v0.4.1/LICENSE-MIT": "product-memory",
     ".concord/docs/decisions/license-evidence/github.com/charmbracelet/x/exp/golden/v0.0.0-20250806222409-83e3a29d542f/LICENSE": "product-memory",
@@ -6342,6 +6343,7 @@
     ".concord/docs/knowledge/coverage/CD-0215.json": "product-memory",
     ".concord/docs/knowledge/coverage/CD-0216.json": "product-memory",
     ".concord/docs/knowledge/coverage/CD-0217.json": "product-memory",
+    ".concord/docs/knowledge/coverage/CD-0221.json": "product-memory",
     ".concord/docs/knowledge/coverage/PM1.json": "product-memory",
     ".concord/docs/knowledge/coverage/PM10.json": "product-memory",
     ".concord/docs/knowledge/coverage/PM2.json": "product-memory",
@@ -6605,6 +6607,7 @@
     ".concord/docs/knowledge/records/CD-0215.json": "product-memory",
     ".concord/docs/knowledge/records/CD-0216.json": "product-memory",
     ".concord/docs/knowledge/records/CD-0217.json": "product-memory",
+    ".concord/docs/knowledge/records/CD-0221.json": "product-memory",
     ".concord/docs/knowledge/records/PM1.json": "product-memory",
     ".concord/docs/knowledge/records/PM10.json": "product-memory",
     ".concord/docs/knowledge/records/PM2.json": "product-memory",
@@ -7886,7 +7889,7 @@
     "skills/README.md": "agent-surface",
     "workflows/README.md": "workflow-engine"
   },
-  "mapped_count": 1987,
+  "mapped_count": 1990,
   "mechanisms": [
     {
       "check_ids": [
@@ -7960,7 +7963,7 @@
         },
         {
           "clause_id": "D1. The wait is a CLI verb, not a prompt",
-          "content_hash": "sha256:8de08e7eacd7a1620f3a5068be3a985ec04b1adc346a9f8e3710bb1481eb7fd0",
+          "content_hash": "sha256:57e5f0c44afcd75f544cf42a04c0276219453688ac4b207fca7f0c1c1db88b29",
           "law_id": "CD-0160",
           "locator": ".concord/docs/decisions/CD-0160-the-ci-wait-utility-delegates-its-wait-to-a-deterministic-cli-verb.md"
         }
@@ -8210,13 +8213,13 @@
       "law_refs": [
         {
           "clause_id": "1. The structural invariants (this is the decision's real content)",
-          "content_hash": "sha256:a5f1c13e7c476c8a200cf3def519fccb84c0fb0e770a3fa744136ff034a17375",
+          "content_hash": "sha256:c786f96b56be1189b810ed8dcfab4251b98af94f90d9aba42f38e5ddd86283af",
           "law_id": "CD-0002",
           "locator": ".concord/docs/decisions/CD-0002-concord-state-authority.md"
         },
         {
           "clause_id": "3.1 One generic log remains authoritative",
-          "content_hash": "sha256:46bee2eae2f22755dfa81256a1e6d74cb679b933a63d1136b407720811bb50e9",
+          "content_hash": "sha256:d893d54fb9ac3324d04f40351b388ae1a2988e18786c22f5193e5565224d91a2",
           "law_id": "PM3",
           "locator": ".concord/docs/product-memory-domain-schema.md"
         }
@@ -8806,13 +8809,13 @@
       "law_refs": [
         {
           "clause_id": "D2. The installer retains a release a live session references",
-          "content_hash": "sha256:5a31689d5b9547831a555861742367d5ea6c143516019eafd3eb1162b08e2723",
+          "content_hash": "sha256:911441c637c5dafab5b27f2c40f85e0cfd895d5ba3e9e43bdd25ee8b9325e2ea",
           "law_id": "CD-0111",
           "locator": ".concord/docs/decisions/CD-0111-a-release-never-requires-a-session-restart.md"
         },
         {
           "clause_id": "D3. A breaking migration applies only through an explicit upgrade",
-          "content_hash": "sha256:5a31689d5b9547831a555861742367d5ea6c143516019eafd3eb1162b08e2723",
+          "content_hash": "sha256:911441c637c5dafab5b27f2c40f85e0cfd895d5ba3e9e43bdd25ee8b9325e2ea",
           "law_id": "CD-0111",
           "locator": ".concord/docs/decisions/CD-0111-a-release-never-requires-a-session-restart.md"
         }
@@ -9393,7 +9396,7 @@
         },
         {
           "clause_id": "D1. Typed dispatch opens one authorization window",
-          "content_hash": "sha256:fdff03e0d74be4c91a41ab737c22290df9c1bd348e2e432821ce0407e485a1a2",
+          "content_hash": "sha256:085c3f0ff4fb635a49d23a95c937f50b9a63dabd356ca78211e4ca94297a0bff",
           "law_id": "CD-0102",
           "locator": ".concord/docs/decisions/CD-0102-lane-dispatch-runs-as-a-native-task.md"
         }
@@ -9585,13 +9588,13 @@
       "law_refs": [
         {
           "clause_id": "D2. Workflow state lives on the work-item subject",
-          "content_hash": "sha256:3773717ceab642e76a0ecee5149a7c117bdc56413a29598d87f2a96c1d54d1fe",
+          "content_hash": "sha256:65e4f493630aea4cec1d2571aa9c5a09616d6895eee61e263ab29a04a4bd6f4c",
           "law_id": "CD-0013",
           "locator": ".concord/docs/decisions/CD-0013-workflow-engine-mechanism.md"
         },
         {
           "clause_id": "D12. Staleness is structurally evaluated at consequential boundaries",
-          "content_hash": "sha256:3773717ceab642e76a0ecee5149a7c117bdc56413a29598d87f2a96c1d54d1fe",
+          "content_hash": "sha256:65e4f493630aea4cec1d2571aa9c5a09616d6895eee61e263ab29a04a4bd6f4c",
           "law_id": "CD-0013",
           "locator": ".concord/docs/decisions/CD-0013-workflow-engine-mechanism.md"
         },
@@ -9663,7 +9666,7 @@
       "law_refs": [
         {
           "clause_id": "D1. Workflow definitions are code-defined, not stored authority",
-          "content_hash": "sha256:3773717ceab642e76a0ecee5149a7c117bdc56413a29598d87f2a96c1d54d1fe",
+          "content_hash": "sha256:65e4f493630aea4cec1d2571aa9c5a09616d6895eee61e263ab29a04a4bd6f4c",
           "law_id": "CD-0013",
           "locator": ".concord/docs/decisions/CD-0013-workflow-engine-mechanism.md"
         },

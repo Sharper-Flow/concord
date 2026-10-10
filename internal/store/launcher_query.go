@@ -490,31 +490,21 @@ type LauncherDomainRow struct {
 	ActiveWorkCount int
 }
 
-// LauncherDomainRelation is one typed architecture relation edge.
-type LauncherDomainRelation struct {
-	Kind           string
-	SourceDomainID string
-	TargetDomainID string
-	State          string
-}
-
 // LauncherDomainsResult is the bounded S2 Domain navigation read: the current
-// Domain hierarchy, its typed architecture relations, and derived unresolved
+// Domain hierarchy with its law and work counts, and derived unresolved
 // overlap — one Product, one registry watermark, no fourth screen.
+// Architecture relation tuples stay in the exact Domain-detail read.
 //
-// The three reads fail independently at their bounds. RegistryIncomplete
-// marks a Domain row page that stopped short of the registry's end;
-// RelationsTruncated and OverlapsTruncated mark their own enumerations. One
-// part's bound never withholds another part's complete answer, so the
-// registry rows and watermark survive a bounded overlap or relation read.
+// The reads fail independently at their bounds. RegistryIncomplete marks a
+// Domain row page that stopped short of the registry's end;
+// OverlapsTruncated marks the overlap enumeration. A bounded overlap read
+// never withholds the registry rows or their watermark.
 type LauncherDomainsResult struct {
 	ResultMeta
 	Registry           *DomainRegistryView
 	Domains            []LauncherDomainRow
-	Relations          []LauncherDomainRelation
 	Overlaps           []DomainOverlapPair
 	RegistryIncomplete bool
-	RelationsTruncated bool
 	OverlapsTruncated  bool
 }
 
@@ -589,25 +579,6 @@ func queryLauncherDomains(ctx context.Context, q queryer, req LauncherProductReq
 		out.Domains[i].CurrentLawCount = lawCounts[out.Domains[i].DomainID]
 		out.Domains[i].ActiveWorkCount = workCounts[out.Domains[i].DomainID]
 	}
-	rows, err := q.QueryContext(ctx, `SELECT kind,source_domain_id,target_domain_id,state FROM domain_architecture_relations WHERE product_id=? ORDER BY kind,source_domain_id,target_domain_id LIMIT ?`, req.Product, domainListMaxLimit+1)
-	if err != nil {
-		return out, wrapFailure(KindUnavailable, "launcher.domains", "cannot read Domain relations", true, "retry once the knowledge projection is readable", err)
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var relation LauncherDomainRelation
-		if err := rows.Scan(&relation.Kind, &relation.SourceDomainID, &relation.TargetDomainID, &relation.State); err != nil {
-			return out, wrapFailure(KindUnavailable, "launcher.domains", "cannot decode Domain relations", true, "retry once the knowledge projection is readable", err)
-		}
-		out.Relations = append(out.Relations, relation)
-	}
-	if err := rows.Err(); err != nil {
-		return out, wrapFailure(KindUnavailable, "launcher.domains", "cannot enumerate Domain relations", true, "retry once the knowledge projection is readable", err)
-	}
-	if len(out.Relations) > domainListMaxLimit {
-		out.Relations = out.Relations[:domainListMaxLimit]
-		out.RelationsTruncated = true
-	}
 	out.Registry = list.Registry
 	out.Overlaps = overlaps.Pairs
 	if overlaps.Truncated {
@@ -618,12 +589,9 @@ func queryLauncherDomains(ctx context.Context, q queryer, req LauncherProductReq
 	}
 	omissions := append([]string{}, list.Omissions...)
 	omissions = append(omissions, overlaps.Omissions...)
-	out.ResultMeta = ResultMeta{QueryID: "C14.DomainNav", ContractVersion: "C14/1.0", ResolvedScope: ResolvedScope{ProductID: req.Product}, Authority: "authoritative", OrderingKeys: []string{"name", "domain_id", "kind", "source_domain_id", "target_domain_id"}, Omissions: omissions}
+	out.ResultMeta = ResultMeta{QueryID: "C14.DomainNav", ContractVersion: "C14/1.0", ResolvedScope: ResolvedScope{ProductID: req.Product}, Authority: "authoritative", OrderingKeys: []string{"name", "domain_id"}, Omissions: omissions}
 	if out.RegistryIncomplete {
 		out.Omissions = append(out.Omissions, "domain_registry_rows_omitted")
-	}
-	if out.RelationsTruncated {
-		out.Omissions = append(out.Omissions, "domain_relations_bounded")
 	}
 	if out.OverlapsTruncated {
 		out.Omissions = append(out.Omissions, "domain_overlaps_bounded")

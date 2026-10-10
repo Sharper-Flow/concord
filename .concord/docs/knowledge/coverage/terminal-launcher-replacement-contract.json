@@ -1,5 +1,5 @@
 {
   "id": "terminal-launcher-replacement-contract",
-  "issue": "CON-22",
-  "state": "outstanding"
+  "reason": "Superseded by terminal-launcher-entry-contract. Its outstanding launcher obligations move to the successor.",
+  "state": "out_of_scope"
 }

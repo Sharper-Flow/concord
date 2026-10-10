@@ -87,9 +87,10 @@ func TestDomainQueryFailureKeepsTheProductWorkList(t *testing.T) {
 	}
 }
 
-// The four content clauses of the Product-detail floor row, read from a store
-// rather than a fabricated snapshot: current law, architecture relations,
-// active Domain-bound work, and unresolved architecture overlap.
+// The content clauses of the Product-detail floor row, read from a store
+// rather than a fabricated snapshot: current law, active Domain-bound work,
+// and unresolved architecture overlap. Architecture relation tuples belong to
+// the exact Domain-detail read, so the section carries none.
 func TestS2DomainSectionReadsLawRelationsWorkAndOverlapFromTheStore(t *testing.T) {
 	snapshot := readDomainSection(t, domainEvidenceStore(t))
 
@@ -127,13 +128,8 @@ func TestS2DomainSectionReadsLawRelationsWorkAndOverlapFromTheStore(t *testing.T
 		t.Fatalf("active Domain-bound work = %d, want the two seeded contracts: %#v", root.ActiveWorkCount, root)
 	}
 
-	// Typed architecture relations. A single-Domain Product has none, and the
-	// section says so without truncating.
-	if len(snapshot.Domains.Relations) != 0 {
-		t.Fatalf("single-Domain Product rendered %d architecture relations: %#v", len(snapshot.Domains.Relations), snapshot.Domains.Relations)
-	}
-	if snapshot.Domains.RelationsTruncated || snapshot.Domains.OverlapsTruncated || snapshot.Domains.RegistryIncomplete {
-		t.Fatal("one Domain and no relations cannot exceed any read bound")
+	if snapshot.Domains.OverlapsTruncated || snapshot.Domains.RegistryIncomplete {
+		t.Fatal("one Domain and two contracts cannot exceed any read bound")
 	}
 
 	// Unresolved architecture overlap between the two Domain-bound contracts,
@@ -170,33 +166,29 @@ func absentRegistryStore(t *testing.T) *store.Store {
 	return s
 }
 
-// The defect this floor row exists for. Architecture relations are legitimately
-// empty for a single-Domain Product, and an unprojected registry also produces
-// zero relations, so relation count cannot tell the two apart. The pair that
-// can is outcome plus section state: an authoritative-empty section states
-// "authoritative" and carries a Git-anchored registry watermark, while an
-// unreadable one states "unavailable" with a typed reason and no watermark at
-// all. Screen coverage follows the work read in both cases; only the Domain
-// section separates the two.
+// A projected registry yields an authoritative section with a Git-anchored
+// watermark. An unprojected registry yields a typed unavailable section with
+// no watermark. Screen coverage follows the work read in both cases, and an
+// unavailable Domain section must not withhold the Product work list.
 func TestS2ArchitectureRelationsAreAuthoritativeEmptyNotUnavailable(t *testing.T) {
 	empty := readDomainSection(t, domainEvidenceStore(t))
 	// Non-vacuity: the same section carries projected law and Domain-bound
-	// work, so its empty relation set is a read of populated state.
+	// work, so its state is a read of populated registry state.
 	if len(empty.Domains.Domains) != 1 || empty.Domains.Domains[0].CurrentLawCount != 1 || empty.Domains.Domains[0].ActiveWorkCount != 2 {
-		t.Fatalf("relation emptiness was read from an unpopulated registry: %#v", empty.Domains.Domains)
+		t.Fatalf("section state was read from an unpopulated registry: %#v", empty.Domains.Domains)
 	}
 
 	absent := readDomainSection(t, absentRegistryStore(t))
 
-	if len(empty.Domains.Relations) != 0 || len(absent.Domains.Relations) != 0 {
-		t.Fatalf("relation counts differ, so this test would not measure the discriminator: empty=%d absent=%d", len(empty.Domains.Relations), len(absent.Domains.Relations))
+	if len(absent.Domains.Overlaps) != 0 {
+		t.Fatalf("unprojected registry produced overlap pairs: %#v", absent.Domains.Overlaps)
 	}
 	if empty.Domains.Read != absent.Domains.Read {
 		t.Fatalf("one section was not read at all: empty=%v absent=%v", empty.Domains.Read, absent.Domains.Read)
 	}
 
 	if empty.Domains.State != "authoritative" || empty.Domains.Reason != "" {
-		t.Fatalf("empty relation set was not stated authoritatively: %#v", empty.Domains)
+		t.Fatalf("projected registry was not stated authoritatively: %#v", empty.Domains)
 	}
 	if absent.Domains.State != "unavailable" || absent.Domains.Reason != string(store.KindDomainRegistryAbsent) {
 		t.Fatalf("unprojected registry was not typed unavailable: %#v", absent.Domains)
@@ -299,7 +291,7 @@ func TestS2DomainSectionBoundedOverlapKeepsRegistryRows(t *testing.T) {
 	if !snapshot.Domains.OverlapsTruncated {
 		t.Fatalf("fixture did not reach the overlap bound: %#v", snapshot.Domains)
 	}
-	if snapshot.Domains.RelationsTruncated || snapshot.Domains.RegistryIncomplete {
+	if snapshot.Domains.RegistryIncomplete {
 		t.Fatalf("fixture bounded a part it should not: %#v", snapshot.Domains)
 	}
 	if len(snapshot.Domains.Overlaps) != 50 {

@@ -1,25 +1,26 @@
-# Terminal launcher replacement — accepted contract
+# Terminal launcher entry contract
 
-**Status:** Superseded by the terminal launcher entry contract
-([`terminal-launcher-entry-contract.md`](./terminal-launcher-entry-contract.md)).
-**Supersedes:** the terminal launcher contract (C18,
-[`terminal-launcher-contract.md`](./terminal-launcher-contract.md)) in full.
-**Amended:** 2026-09-22, operator-approved Product-first correction in work
-work-900ef777e9de86b16f55d269, with the CD-0041 D2 browse-path amendment:
-Product selection opens the Product work list directly, and Domain and law
-context stays reachable without being the default focus.
-**Implementation status:** The replacement build is implemented. Operator
-verification of ZLauncher retirement remains tracked by
-[issue #803](https://github.com/Sharper-Flow/concord/issues/803).
+**Status:** Accepted under [`CD-0108`](./decisions/CD-0108-the-launcher-is-the-zlauncher-replacement.md).
+**Supersedes:** the terminal launcher replacement contract
+([`terminal-launcher-replacement-contract.md`](./terminal-launcher-replacement-contract.md))
+and the terminal launcher contract (C18,
+[`terminal-launcher-contract.md`](./terminal-launcher-contract.md)).
+**Implementation status:** The launcher build is implemented. Operator
+verification remains required before ZLauncher retirement.
 
 ## Context
 
 CD-0108 records the operator direction of 2026-09-03: delete the current
 launcher and remake it as the replacement for zellij-project-launcher
 (ZLauncher), the predecessor session bootstrap layer. This contract is the
-successor specification that CD-0108 names. It replaces C18, which defined
-the read-only, status-only launcher the operator rejected as too far off
+current successor specification that CD-0108 names. C18 defined the
+read-only, status-only launcher the operator rejected as too far off
 expectation.
+
+Product selection opens the Product work list directly. Domain and law
+context stays reachable without being the default focus. The launcher does
+not copy Domain architecture relations. Exact Domain-detail reads keep the
+canonical relation tuples.
 
 The binding inputs are CD-0108, the C14 Product-row contract, the C17
 coordination view, CD-0014 for rendering, and R1's recorded supersession in
@@ -120,8 +121,9 @@ that needs uncached detail. It polls nothing on a timer, matching C18's
 no-poll rule. Reads are Product-scoped and bounded. A read that exceeds its
 bound fails the affected data, not the process. One part's bound never
 withholds a sibling part's complete answer. The S2 Domain read shows its
-registry rows and Git registry watermark when the overlap or relation
-enumeration reaches its bound. It names the bounded part unavailable or
+registry rows and Git registry watermark when the overlap enumeration reaches
+its bound. It does not enumerate a separate architecture-edge display. It names
+the bounded part unavailable or
 incomplete in place. A bounded read never reports an evaluated-clean
 answer, such as "no unresolved overlaps", from an incomplete enumeration.
 CD-0048 keeps evaluated-clean distinct from unevaluated. A missing Domain

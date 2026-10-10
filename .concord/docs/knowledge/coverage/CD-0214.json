@@ -1,0 +1,38 @@
+{
+  "evidence": [
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestQueryLauncherDomainsRelationVolumeNeverBoundsTheSection"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestDomainDetailShowsCurrentLawRelationsAndRefusesUnknown"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/launcher/storeport.TestS2DomainSectionReadsLawRelationsWorkAndOverlapFromTheStore"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/launcher/storeport.TestS2ArchitectureRelationsAreAuthoritativeEmptyNotUnavailable"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/launcher/storeport.TestS2DomainSectionBoundedOverlapKeepsRegistryRows"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/launcher/render/bubbletea.TestDomainContextRendersOnlyWhenAbnormal"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/test-check-domain-registry.py"
+    },
+    {
+      "kind": "validator",
+      "value": "scripts/test-domain-navigation.py"
+    }
+  ],
+  "id": "CD-0214",
+  "state": "satisfied"
+}

@@ -135,10 +135,6 @@ type DomainRow struct {
 	ActiveWorkCount             int
 }
 
-type DomainRelationEdge struct {
-	Kind, Source, Target, State string
-}
-
 type OverlapPair struct {
 	From, To, State string
 	SharedDomains   []string
@@ -146,20 +142,19 @@ type OverlapPair struct {
 
 // DomainSection is the Domain navigation body. Unavailable is typed and
 // distinct from authoritative-empty: an absent registry never renders as an
-// empty Domain list. The registry, relation, and overlap reads fail
-// independently at their bounds, so a bound on overlaps or relations marks
-// only that part and never withholds complete registry rows or their
-// watermark. The renderer shows the section only when it is abnormal.
+// empty Domain list. The registry and overlap reads fail independently at
+// their bounds, so a bound on overlaps marks only that part and never
+// withholds complete registry rows or their watermark. The section carries no
+// architecture relations; the Domain-detail read owns the canonical tuples.
+// The renderer shows the section only when it is abnormal.
 type DomainSection struct {
 	Read               bool
 	State              string
 	Reason             string
 	Registry           string
 	RegistryIncomplete bool
-	RelationsTruncated bool
 	OverlapsTruncated  bool
 	Domains            []DomainRow
-	Relations          []DomainRelationEdge
 	Overlaps           []OverlapPair
 }
 
@@ -420,7 +415,6 @@ func cloneSnapshot(snapshot Snapshot) Snapshot {
 	cloned.Relations.Clusters = cloneStringGroups(snapshot.Relations.Clusters)
 	cloned.Relations.Roots = cloneStrings(snapshot.Relations.Roots)
 	cloned.Domains.Domains = append([]DomainRow(nil), snapshot.Domains.Domains...)
-	cloned.Domains.Relations = append([]DomainRelationEdge(nil), snapshot.Domains.Relations...)
 	cloned.Domains.Overlaps = nil
 	for _, pair := range snapshot.Domains.Overlaps {
 		pair.SharedDomains = cloneStrings(pair.SharedDomains)

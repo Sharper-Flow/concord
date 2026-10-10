@@ -3,11 +3,12 @@ package store
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 )
 
-func TestQueryLauncherDomainsAggregatesHierarchyRelationsAndOverlaps(t *testing.T) {
+func TestQueryLauncherDomainsAggregatesHierarchyAndOverlaps(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s, _ := seedOverlapProjection(t, "nav-left", "nav-right", true)
@@ -45,8 +46,8 @@ func TestQueryLauncherDomainsAggregatesHierarchyRelationsAndOverlaps(t *testing.
 	if len(result.Overlaps) != 1 || result.Overlaps[0].FromWorkID != "nav-left" || result.Overlaps[0].ToWorkID != "nav-right" || result.Overlaps[0].ResolutionState != "absent" {
 		t.Fatalf("unresolved overlap not surfaced: %#v", result.Overlaps)
 	}
-	if result.OverlapsTruncated || result.RelationsTruncated || result.RegistryIncomplete {
-		t.Fatalf("two-contract fixture cannot reach any bound: overlaps=%v relations=%v registry=%v", result.OverlapsTruncated, result.RelationsTruncated, result.RegistryIncomplete)
+	if result.OverlapsTruncated || result.RegistryIncomplete {
+		t.Fatalf("two-contract fixture cannot reach any bound: overlaps=%v registry=%v", result.OverlapsTruncated, result.RegistryIncomplete)
 	}
 
 	absent, err := s.QueryLauncherDomains(ctx, LauncherProductRequest{Product: "missing-product", Limit: 20})
@@ -59,8 +60,8 @@ func TestQueryLauncherDomainsAggregatesHierarchyRelationsAndOverlaps(t *testing.
 // seedBoundedOverlapStore assembles the real-shaped bounded read: a projected
 // registry with eight current Domains, eleven in-progress contracts homed on
 // the child Domain, and therefore C(11,2)=55 overlap pairs — past the
-// 50-pair bound. Relations stay far under their bound and the registry page
-// stays complete, so the fixture isolates the overlap bound.
+// 50-pair bound. The registry page stays complete, so the fixture isolates
+// the overlap bound.
 func seedBoundedOverlapStore(t *testing.T) *Store {
 	t.Helper()
 	ctx := context.Background()
@@ -165,9 +166,6 @@ func TestQueryLauncherDomainsBoundedOverlapsKeepRegistryRows(t *testing.T) {
 	if !result.OverlapsTruncated {
 		t.Fatalf("55-pair enumeration did not report its bound: %#v", result)
 	}
-	if result.RelationsTruncated {
-		t.Fatal("fixture relations cannot reach the relation bound")
-	}
 	if result.RegistryIncomplete {
 		t.Fatal("eight Domain rows cannot exceed the registry page bound")
 	}
@@ -179,11 +177,84 @@ func TestQueryLauncherDomainsBoundedOverlapsKeepRegistryRows(t *testing.T) {
 		if omission == "domain_overlaps_bounded" {
 			named = true
 		}
-		if omission == "domain_relations_bounded" {
-			t.Fatalf("relation bound named for an unbounded relation read: %#v", result.ResultMeta.Omissions)
-		}
 	}
 	if !named {
 		t.Fatalf("bounded overlap enumeration left no named omission: %#v", result.ResultMeta.Omissions)
+	}
+}
+
+// The launcher Domain read carries registry rows, law, work, and unresolved
+// overlap. Architecture relations stay canonical in the Domain-detail read and
+// never enter the launcher read, so a Product with more relation tuples than
+// any launcher bound still yields a complete section whose unresolved overlap
+// stays visible.
+func TestQueryLauncherDomainsRelationVolumeNeverBoundsTheSection(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s, _ := seedOverlapProjection(t, "volume-left", "volume-right", false)
+	var hash string
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT registry_content_hash FROM domains WHERE product_id='product' AND domain_id='child'`).Scan(&hash); err != nil {
+		t.Fatal(err)
+	}
+	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := enterFold(ctx, tx); err != nil {
+		tx.Rollback()
+		t.Fatal(err)
+	}
+	domains := []string{"root", "child"}
+	for i := 1; i <= 9; i++ {
+		id := fmt.Sprintf("volume-%d", i)
+		if _, err := tx.ExecContext(ctx, `INSERT INTO domains(home_project_id,home_locator_id,product_id,domain_id,name,purpose,parent_domain_id,status,registry_content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','product',?,'Volume','Fixture domain','root','current',?,'test')`, id, hash); err != nil {
+			tx.Rollback()
+			t.Fatal(err)
+		}
+		domains = append(domains, id)
+	}
+	for _, source := range domains {
+		for _, target := range domains {
+			if source == target {
+				continue
+			}
+			if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO domain_architecture_relations(home_project_id,home_locator_id,product_id,source_domain_id,kind,target_domain_id,state,registry_content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','product',?,'depends_on',?,'active',?,'test')`, source, target, hash); err != nil {
+				tx.Rollback()
+				t.Fatal(err)
+			}
+		}
+	}
+	if err := leaveFold(ctx, tx); err != nil {
+		tx.Rollback()
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	var stored int
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT count(*) FROM domain_architecture_relations WHERE product_id='product'`).Scan(&stored); err != nil {
+		t.Fatal(err)
+	}
+	if stored <= domainListMaxLimit {
+		t.Fatalf("fixture holds %d relation tuples, want more than the %d-row read bound", stored, domainListMaxLimit)
+	}
+
+	result, err := s.QueryLauncherDomains(ctx, LauncherProductRequest{Product: "product", Limit: 20})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Domains) != len(domains) || result.RegistryIncomplete || result.OverlapsTruncated {
+		t.Fatalf("Domain section incomplete: domains=%d registryIncomplete=%v overlapsTruncated=%v", len(result.Domains), result.RegistryIncomplete, result.OverlapsTruncated)
+	}
+	if len(result.Overlaps) != 1 || result.Overlaps[0].ResolutionState != "absent" {
+		t.Fatalf("unresolved overlap lost under relation volume: %#v", result.Overlaps)
+	}
+	for _, omission := range result.Omissions {
+		if strings.Contains(omission, "relation") {
+			t.Fatalf("relation volume reached the launcher read: %#v", result.Omissions)
+		}
+	}
+	if !slices.Equal(result.OrderingKeys, []string{"name", "domain_id"}) {
+		t.Fatalf("launcher ordering keys = %#v, want name and domain_id only", result.OrderingKeys)
 	}
 }

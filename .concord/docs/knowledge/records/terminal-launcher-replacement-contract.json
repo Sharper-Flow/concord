@@ -11,12 +11,6 @@
   "home_domain_id": "operator-surface",
   "id": "terminal-launcher-replacement-contract",
   "kind": "spec",
-  "law_relations": [
-    {
-      "kind": "supersedes",
-      "target_id": "terminal-launcher-contract"
-    }
-  ],
   "path": ".concord/docs/terminal-launcher-replacement-contract.md",
   "scopes": {
     "domain_ids": [],
@@ -25,8 +19,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:d61219e56ef535bd4e056e0eb9f782f9606c3233eaeec96cbaae1bacc10fff03",
-  "status": "accepted",
+  "sha256": "sha256:7f6cfb9423473bf8a9955c632487d972ec75fb82d9ff07c7b8b177d2f1c778bb",
+  "status": "superseded",
+  "successor": "terminal-launcher-entry-contract",
   "summary": "Defines the launcher remake CD-0108 mandates: Concord-first browse with launch actions through Concord's session bootstrap, resume, and prompt pass-through; dense panes on arrow, Enter, and Tab; store-write-free; the accepted feature set with removed and deferred items; and the ZLauncher retirement acceptance test.",
   "tags": [
     "launcher",

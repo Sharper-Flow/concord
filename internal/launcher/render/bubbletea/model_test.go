@@ -986,9 +986,9 @@ func TestDomainContextRendersOnlyWhenAbnormal(t *testing.T) {
 			want:    "DOMAIN: unavailable: registry unavailable",
 		},
 		{
-			name:    "bounded relation read never answers clean",
-			domains: launcher.DomainSection{Read: true, State: "authoritative", RelationsTruncated: true},
-			want:    "DOMAIN: unavailable: domain_relations_bounded",
+			name:    "bounded overlap read never answers clean",
+			domains: launcher.DomainSection{Read: true, State: "authoritative", OverlapsTruncated: true},
+			want:    "DOMAIN: unavailable: domain_overlaps_bounded",
 			absent:  "no unresolved overlaps",
 		},
 		{

@@ -118,7 +118,7 @@
    "id": "fc1-domain-navigation",
    "condition": "fc1",
    "title": "Product detail opens on active work with Domain context reachable",
-   "requirement": "The launcher opens Product detail on its Product-scoped active work list (CD-0041 D2, amended 2026-09-22), and the bounded Domain hierarchy carries current law, typed architecture relations, active Domain-bound work, and unresolved architecture overlap one reachable step from the Product view.",
+   "requirement": "The launcher opens Product detail on its Product-scoped active work list (CD-0041 D2, amended 2026-09-22), and the bounded Domain hierarchy carries current law, active Domain-bound work, and unresolved architecture overlap one reachable step from the Product view; architecture relation tuples stay in the exact Domain-detail read.",
    "state": "satisfied",
    "evidence": [
     {

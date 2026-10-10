@@ -24,7 +24,7 @@ The checks:
   D5  every relation target resolves, is not the Domain itself, and every
       governing_law_ids entry names a current law record
   D2  the root Domain has no parent and every child parents to the root
-  CD-0158 D2  every Domain in a registry with two or more Domains participates
+  CD-0214 D2  every Domain in a registry with two or more Domains participates
               in at least one relation as a source or target
 
 The subject set comes from the aggregate manifest rather than the registry
@@ -141,7 +141,7 @@ def validate(root: Path, *, base_ref: str = "HEAD") -> tuple[list[str], list[str
     if len(declared) > 1:
         participation_findings.extend(
             f"domain {domain_id}: declared but participates in no architecture relation; "
-            "a registry with multiple Domains must name each Domain as a relation source or target (CD-0158 D2)"
+            "a registry with multiple Domains must name each Domain as a relation source or target (CD-0214 D2)"
             for domain_id in sorted(declared)
             if domain_id not in participating
         )

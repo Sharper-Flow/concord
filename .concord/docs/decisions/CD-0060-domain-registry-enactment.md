@@ -87,7 +87,7 @@ before.
 
 Every relation carries `governing_law_ids`, as the schema requires for
 `depends_on` and `shares_contract_with`. The participation rule remains
-CD-0158 D2, not an outbound-edge count.
+[CD-0214 D2](CD-0214-repository-navigation-consumes-the-domain-graph-without-launcher-copies.md), not an outbound-edge count.
 
 Repository navigation may record an authored dependency interpretation that
 names the relation endpoints and the exact governing clauses. A `depends_on`

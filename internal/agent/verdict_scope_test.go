@@ -98,21 +98,6 @@ func workflowEngineFixture(t *testing.T, premise string) (*store.Store, *Service
 			t.Fatalf("%s at v%d: %v", actionID, version, err)
 		}
 	}
-	record := func(version int64, actionID string, payload map[string]any) {
-		engineAction(version, actionID, payload)
-	}
-	record(4, "record_reproduction", map[string]any{})
-	record(5, "record_alignment", map[string]any{"searched": "The bounded backlog search statement.", "outcome": "none_found"})
-	record(7, "record_root_cause", map[string]any{})
-	contractFields := workflowContractFieldsFixture()
-	contractFields["outcome_predicates"] = []map[string]any{{"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "absent", "outcome_payload": map[string]any{
-		"kind": "absent", "surface": "behavior:defect", "subjects": []string{"work-1"}, "distinguish_from": []string{"disabled"},
-	}}}
-	if premise != "" {
-		contractFields["premise"] = premise
-	}
-	engineAction(8, "approve_contract", contractFields)
-	engineAction(10, "start_repair", map[string]any{})
 	engine := func(actionID string, payload map[string]any) {
 		t.Helper()
 		var version int64
@@ -121,6 +106,24 @@ func workflowEngineFixture(t *testing.T, premise string) (*store.Store, *Service
 		}
 		engineAction(version, actionID, payload)
 	}
+	// The current head folds the three diagnosis records into one typed
+	// record_diagnosis and derives the repair start from the qualifying
+	// checkpoint (CD-0198 D2/D3).
+	engine("record_diagnosis", map[string]any{
+		"reproduction": "The bounded defect reproduction statement.",
+		"searched":     "The bounded backlog search statement.",
+		"outcome":      "none_found",
+		"root_cause":   "The bounded root cause statement.",
+	})
+	contractFields := workflowContractFieldsFixture()
+	contractFields["outcome_predicates"] = []map[string]any{{"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "absent", "outcome_payload": map[string]any{
+		"kind": "absent", "surface": "behavior:defect", "subjects": []string{"work-1"}, "distinguish_from": []string{"disabled"},
+	}}}
+	if premise != "" {
+		contractFields["premise"] = premise
+	}
+	engine("approve_contract", contractFields)
+	engine("checkpoint_repair", map[string]any{})
 	return s, service, keys[0], keys[1], engine
 }
 

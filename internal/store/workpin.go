@@ -369,7 +369,7 @@ func workPinStepIntentsTx(ctx context.Context, tx *sql.Tx, workID string, pin *W
 	// nothing, so its acceptance is the non-delivery accept that binds the
 	// findings and leaves the debt; the pin offers the action and the
 	// delivery assertion stays refused.
-	if stepDeclaresAction(definition, pin.Step, "start_refine") && state.ReadyReviewAttemptID != "" {
+	if stepDeclaresAction(definition, pin.Step, "checkpoint_refine") && state.ReadyReviewAttemptID != "" {
 		if decision := workflowAdmit(definition, state, "accept_worker_result"); decision.FreshReviewRequired {
 			pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workflowActionDefinitionByID(definition, "accept_worker_result"), pin.Version, "post_rejection_review"))
 		}

@@ -21,7 +21,7 @@ func TestBuiltinWorkflowRegistryHasTheSevenContractFamilies(t *testing.T) {
 	registry := NewWorkflowDefinitionRegistry()
 	wantSteps := map[string][]string{
 		"workflow.implementation":     {"proposal", "alignment", "discovery", "design", "planning", "execution", "refine", "delivery", "acceptance", "release"},
-		"workflow.break_fix":          {"reproduce", "alignment", "diagnose", "planning", "repair", "refine", "delivery", "verify", "complete"},
+		"workflow.break_fix":          {"diagnosis", "planning", "repair", "refine", "delivery", "verify", "complete"},
 		"workflow.research":           {"frame", "investigate", "findings", "conclude", "complete"},
 		"workflow.architecture_spike": {"frame", "research", "options", "poc_optional", "decision_record", "review", "acceptance", "complete"},
 		"workflow.ops_runbook":        {"plan", "approval", "execute", "health", "rollback_optional", "cleanup", "complete"},
@@ -29,8 +29,8 @@ func TestBuiltinWorkflowRegistryHasTheSevenContractFamilies(t *testing.T) {
 		"workflow.generic_one_off":    {"define", "execute", "verify", "complete"},
 	}
 	wantActions := map[string][]string{
-		"workflow.implementation":     {"record_proposal", "record_alignment", "record_discovery", "record_design", "approve_contract", "start_execution", "checkpoint_execution", "bind_evidence", "declare_impact", "link_successor", "record_delivery", "start_refine", "checkpoint_refine", "record_verdict", "confirm_premise", "complete", "checkpoint_context", "cross_context_boundary", "accept_worker_result", "record_worker_failure", "dispatch_worker", "request_correction", "accept_worker_evidence", "record_worker_job", "record_work_context"},
-		"workflow.break_fix":          {"record_reproduction", "record_alignment", "record_root_cause", "approve_contract", "start_repair", "checkpoint_repair", "bind_evidence", "link_successor", "record_delivery", "start_refine", "checkpoint_refine", "record_verdict", "confirm_premise", "complete", "checkpoint_context", "cross_context_boundary", "accept_worker_result", "record_worker_failure", "dispatch_worker", "request_correction", "accept_worker_evidence", "record_worker_job", "record_work_context"},
+		"workflow.implementation":     {"record_proposal", "record_alignment", "record_discovery", "record_design", "approve_contract", "start_execution", "checkpoint_execution", "bind_evidence", "declare_impact", "link_successor", "record_delivery", "checkpoint_refine", "record_verdict", "confirm_premise", "complete", "checkpoint_context", "cross_context_boundary", "accept_worker_result", "record_worker_failure", "dispatch_worker", "request_correction", "accept_worker_evidence", "record_worker_job", "record_work_context"},
+		"workflow.break_fix":          {"record_diagnosis", "approve_contract", "checkpoint_repair", "bind_evidence", "link_successor", "record_delivery", "checkpoint_refine", "record_verdict", "confirm_premise", "complete", "checkpoint_context", "cross_context_boundary", "accept_worker_result", "record_worker_failure", "dispatch_worker", "request_correction", "accept_worker_evidence", "record_worker_job", "record_work_context"},
 		"workflow.research":           {"frame_research", "approve_contract", "record_finding", "revise_candidates", "bind_evidence", "record_report", "link_successor", "record_conclusion", "record_verdict", "confirm_premise", "complete", "checkpoint_context", "cross_context_boundary", "accept_worker_result", "record_worker_failure", "dispatch_worker", "accept_worker_evidence", "record_work_context"},
 		"workflow.architecture_spike": {"frame_question", "approve_contract", "record_research", "bind_evidence", "record_option", "start_poc", "checkpoint_poc", "discard_poc", "record_delivery", "record_decision", "record_verdict", "accept_decision", "confirm_premise", "complete", "checkpoint_context", "cross_context_boundary", "accept_worker_result", "record_worker_failure", "dispatch_worker", "accept_worker_evidence", "record_work_context"},
 		"workflow.ops_runbook":        {"approve_contract", "approve_operation", "start_run", "checkpoint_run", "bind_evidence", "add_condition", "resolve_condition", "cancel_condition", "record_delivery", "record_health", "record_verdict", "rollback_run", "cleanup_run", "confirm_premise", "complete", "checkpoint_context", "cross_context_boundary", "accept_worker_result", "record_worker_failure", "dispatch_worker", "accept_worker_evidence", "record_work_context"},
@@ -42,7 +42,7 @@ func TestBuiltinWorkflowRegistryHasTheSevenContractFamilies(t *testing.T) {
 	}
 	wantEdges := map[string][]WorkflowEdge{
 		"workflow.implementation":     {{"proposal", "alignment", WorkflowEdgeForward}, {"alignment", "discovery", WorkflowEdgeForward}, {"discovery", "design", WorkflowEdgeForward}, {"design", "planning", WorkflowEdgeForward}, {"planning", "execution", WorkflowEdgeForward}, {"execution", "refine", WorkflowEdgeForward}, {"refine", "delivery", WorkflowEdgeForward}, {"delivery", "acceptance", WorkflowEdgeForward}, {"acceptance", "release", WorkflowEdgeForward}, {"execution", "execution", WorkflowEdgeRetry}, {"acceptance", "refine", WorkflowEdgeFailure}},
-		"workflow.break_fix":          {{"reproduce", "alignment", WorkflowEdgeForward}, {"alignment", "diagnose", WorkflowEdgeForward}, {"diagnose", "planning", WorkflowEdgeForward}, {"planning", "repair", WorkflowEdgeForward}, {"repair", "refine", WorkflowEdgeForward}, {"refine", "delivery", WorkflowEdgeForward}, {"delivery", "verify", WorkflowEdgeForward}, {"verify", "complete", WorkflowEdgeForward}, {"repair", "repair", WorkflowEdgeRetry}, {"verify", "refine", WorkflowEdgeFailure}},
+		"workflow.break_fix":          {{"diagnosis", "planning", WorkflowEdgeForward}, {"planning", "repair", WorkflowEdgeForward}, {"repair", "refine", WorkflowEdgeForward}, {"refine", "delivery", WorkflowEdgeForward}, {"delivery", "verify", WorkflowEdgeForward}, {"verify", "complete", WorkflowEdgeForward}, {"repair", "repair", WorkflowEdgeRetry}, {"verify", "refine", WorkflowEdgeFailure}},
 		"workflow.research":           {{"frame", "investigate", WorkflowEdgeForward}, {"investigate", "findings", WorkflowEdgeForward}, {"findings", "conclude", WorkflowEdgeForward}, {"conclude", "complete", WorkflowEdgeForward}},
 		"workflow.architecture_spike": {{"frame", "research", WorkflowEdgeForward}, {"research", "options", WorkflowEdgeForward}, {"options", "poc_optional", WorkflowEdgeForward}, {"poc_optional", "decision_record", WorkflowEdgeForward}, {"decision_record", "review", WorkflowEdgeForward}, {"review", "acceptance", WorkflowEdgeForward}, {"acceptance", "complete", WorkflowEdgeForward}, {"options", "decision_record", WorkflowEdgeOptional}, {"poc_optional", "poc_optional", WorkflowEdgeRetry}},
 		"workflow.ops_runbook":        {{"plan", "approval", WorkflowEdgeForward}, {"approval", "execute", WorkflowEdgeForward}, {"execute", "health", WorkflowEdgeForward}, {"health", "rollback_optional", WorkflowEdgeForward}, {"rollback_optional", "cleanup", WorkflowEdgeForward}, {"cleanup", "complete", WorkflowEdgeForward}, {"health", "cleanup", WorkflowEdgeOptional}, {"execute", "execute", WorkflowEdgeRetry}},
@@ -231,7 +231,11 @@ func TestBuiltinWorkflowResolverReturnsTheShippedDefinition(t *testing.T) {
 				}
 			}
 			kindAdmits := step.Kind == WorkflowStepInternalSQLite || step.Kind == WorkflowStepCrossAuthority || step.Kind == WorkflowStepExternalEffect
-			if admitted != (kindAdmits && !terminalStep && !gated && step.ID != "alignment" && step.ID != "delivery") {
+			// The merged break_fix diagnosis step joins the alignment
+			// exemption: its only advance exit is record_diagnosis, so a
+			// dispatched attempt cannot accept its way past the sections
+			// (CD-0198 D2).
+			if admitted != (kindAdmits && !terminalStep && !gated && step.ID != "alignment" && step.ID != "delivery" && step.ID != "diagnosis") {
 				t.Fatalf("%s step %s acceptance declaration=%t for kind %s", latest.Ref, step.ID, admitted, step.Kind)
 			}
 		}

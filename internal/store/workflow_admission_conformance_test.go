@@ -139,6 +139,55 @@ func conformanceArtifactCheckpoint(t *testing.T, s *Store, workID string, defini
 	}
 }
 
+
+// conformanceStepDerives reports whether the step's first qualifying
+// checkpoint will derive the step start: the store's own answer, read from
+// the step's action-start history (CD-0198 D3).
+func conformanceStepDerives(t *testing.T, s *Store, workID, stepID string) bool {
+	t.Helper()
+	definition := mustBuiltinDefinition(t, pinnedDefinitionRef(t, s, workID)).Definition
+	advancing := advancingWorkflowActions(definition)
+	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(advancing)), ",")
+	args := []any{workID, WorkflowActionStarted, stepID, workID, WorkflowActionCompleted, stepID}
+	for _, action := range advancing {
+		args = append(args, action)
+	}
+	var started int
+	err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.step_id')=? AND seq > COALESCE((
+		SELECT MAX(seq) FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.step_id')=? AND json_extract(payload,'$.action_id') IN (`+placeholders+`)
+	),0)`, args...).Scan(&started)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return started == 0
+}
+
+func pinnedDefinitionRef(t *testing.T, s *Store, workID string) string {
+	t.Helper()
+	var ref string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref FROM workflow_instances WHERE work_id=?`, workID).Scan(&ref); err != nil {
+		t.Fatal(err)
+	}
+	return ref
+}
+
+// conformanceStepEntryAction names the action the pinned definition admits
+// for entering the named step: the callable start on released pins, the
+// qualifying checkpoint on CD-0198 D3 derived-start pins.
+func conformanceStepEntryAction(t *testing.T, definition WorkflowDefinition, stepID, startAction string) string {
+	t.Helper()
+	if definitionStepAllows(definition, stepID, startAction) {
+		return startAction
+	}
+	for candidate, step := range workflowDerivedStartCheckpoints {
+		if step == stepID && definitionStepAllows(definition, stepID, candidate) {
+			return candidate
+		}
+	}
+	t.Fatalf("%s declares no entry action at %s", definition.Ref, stepID)
+	return ""
+}
+
 // TestAdmissionConformanceReplayRejectionReviewAndSettlingAccept replays the
 // CON-796 witness path on the current break-fix definition and asserts, at
 // every checkpoint, that the loader's fold equals the abstract successor of
@@ -160,8 +209,10 @@ func TestAdmissionConformanceReplayRejectionReviewAndSettlingAccept(t *testing.T
 	model := admissionModelState{step: "repair", debt: ReviewDebtNone, contracts: 1}
 	conformanceCheckpoint(t, s, workID, def, model, "seeded at repair")
 
+	reentryEntry := conformanceStepEntryAction(t, def, "repair", "start_repair")
+	reentryDerives := conformanceStepDerives(t, s, workID, "repair")
 	reviewGateStartStep(t, s, workID, "repair", "start_repair", fixture.owner)
-	model = admissionSuccessor(def, model, "start_repair")
+	model = admissionDerivedCheckpointSuccessor(def, model, reentryEntry, reentryDerives)
 	conformanceCheckpoint(t, s, workID, def, model, "after start_repair")
 
 	// The first repair pass records a worker-job revision, dispatches the
@@ -222,8 +273,10 @@ func TestAdmissionConformanceReplayRejectionReviewAndSettlingAccept(t *testing.T
 	model = admissionSuccessor(def, model, "record_delivery")
 	conformanceCheckpoint(t, s, workID, def, model, "after repair delivery")
 
+	refineEntry := conformanceStepEntryAction(t, def, "refine", "start_refine")
+	refineDerives := conformanceStepDerives(t, s, workID, "refine")
 	reviewGateStartStep(t, s, workID, "refine", "start_refine", fixture.owner)
-	model = admissionSuccessor(def, model, "start_refine")
+	model = admissionDerivedCheckpointSuccessor(def, model, refineEntry, refineDerives)
 	conformanceCheckpoint(t, s, workID, def, model, "after start_refine")
 
 	// The first review completes and the acceptor rejects it: the rejection
@@ -309,8 +362,10 @@ func TestAdmissionConformanceReplayRejectionReviewAndSettlingAccept(t *testing.T
 
 	// Re-production at the route target: the fenced start, the dispatch,
 	// and the accepted delivery the fold counts as production.
+	retryEntry := conformanceStepEntryAction(t, def, "repair", "start_repair")
+	retryDerives := conformanceStepDerives(t, s, workID, "repair")
 	retryEpoch := reviewGateStartStep(t, s, workID, "repair", "start_repair", fixture.owner)
-	model = admissionSuccessor(def, model, "start_repair")
+	model = admissionDerivedCheckpointSuccessor(def, model, retryEntry, retryDerives)
 	conformanceCheckpoint(t, s, workID, def, model, "producer restarted")
 	reviewGateRunAttempt(t, s, workID, "attempt:"+workID+":repair-2", "repair", retryEpoch, reviewGateLane(t, "implementation"), ownerRef, at)
 	model = admissionSuccessor(def, model, "dispatch_worker")
@@ -329,8 +384,10 @@ func TestAdmissionConformanceReplayRejectionReviewAndSettlingAccept(t *testing.T
 	conformanceArtifactCheckpoint(t, s, workID, def, model, "accepted fresh production")
 	// Acceptance refreshes the artifact before refine's fresh fence. The
 	// following full-state checkpoint also compares that fence and hold.
+	restartRefineEntry := conformanceStepEntryAction(t, def, "refine", "start_refine")
+	restartRefineDerives := conformanceStepDerives(t, s, workID, "refine")
 	refineEpoch := reviewGateStartStep(t, s, workID, "refine", "start_refine", fixture.owner)
-	model = admissionSuccessor(def, model, "start_refine")
+	model = admissionDerivedCheckpointSuccessor(def, model, restartRefineEntry, restartRefineDerives)
 	conformanceCheckpoint(t, s, workID, def, model, "refine restarted")
 	if refineEpoch == 0 {
 		t.Fatal("refine restart returned no epoch")
@@ -381,8 +438,10 @@ func TestAdmissionConformanceLocalJobAcceptHolds(t *testing.T) {
 
 	model := admissionModelState{step: "repair", debt: ReviewDebtNone, contracts: 1}
 	conformanceCheckpoint(t, s, workID, def, model, "seeded at repair")
+	reentryEntry := conformanceStepEntryAction(t, def, "repair", "start_repair")
+	reentryDerives := conformanceStepDerives(t, s, workID, "repair")
 	reviewGateStartStep(t, s, workID, "repair", "start_repair", fixture.owner)
-	model = admissionSuccessor(def, model, "start_repair")
+	model = admissionDerivedCheckpointSuccessor(def, model, reentryEntry, reentryDerives)
 	conformanceCheckpoint(t, s, workID, def, model, "after start_repair")
 
 	job := &WorkerJobBinding{JobID: "job:conformance-repair", Revision: 1}

@@ -7,7 +7,7 @@ File accountability does not change a document's law home or a handler's semanti
 ## Responsibility
 Owns work lifecycle: workflow types and their contracts, workflow actions and transitions, completion predicates and verdicts, evidence binding, architecture overlap resolution, and terminal-state law.
 
-Mapped files: 204; tests: 146; unresolved candidates: 0.
+Mapped files: 205; tests: 147; unresolved candidates: 0.
 Candidate counts overlap when a file has several candidates; no candidate is an assigned owner.
 
 ## Code and tests
@@ -45,7 +45,7 @@ Run the narrow selected command with `bin/oc-test targeted -- <command> [args...
 Bindings and interpretations are advisory joins; navigation does not prove dispatch admission at the current workflow step.
 - CLI entries bound: 0
 - agent operations bound: 5 (`concord_work_relate.resolve_overlap`, `concord_work_transition.correct_delivery`, `concord_work_transition.outside_repair`, …)
-- workflow actions bound: 57 (`accept_decision`, `accept_worker_evidence`, `accept_worker_result`, …)
+- workflow actions bound: 58 (`accept_decision`, `accept_worker_evidence`, `accept_worker_result`, …)
 - Interpretation `depends_on` -> `durable-authority` (advisory, not an import allowlist).
 - Interpretation `depends_on` -> `product-memory` (advisory, not an import allowlist).
 - Interpretation `depends_on` from `agent-surface` (advisory, not an import allowlist).

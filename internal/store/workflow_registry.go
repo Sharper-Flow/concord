@@ -1841,6 +1841,26 @@ var builtinActionPolicies = map[string]builtinActionPolicy{
 	"checkpoint_repair": actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionCheckpoint, ActionEventCheckpoint),
 	"start_refine":      actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionFenced, ActionEventGeneric),
 	"checkpoint_refine": actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionCheckpoint, ActionEventCheckpoint),
+	// CD-0198 D2: the typed diagnosis record. The payload carries one
+	// required section per merged source action: the reproduction record,
+	// the CD-0156 alignment search whose searched/outcome/related_ids
+	// fields and legal input combinations the merged action carries
+	// unchanged, and the root-cause record. The projection fold writes the
+	// same workflow_backlog_alignment rows the alignment action wrote and
+	// creates no relation.
+	"record_diagnosis": actionPolicyWithCombinations(actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventTyped,
+		// The bounds match the searched floor the fold enforces through
+		// workflowString: a schema-valid section cannot be refused by the
+		// fold.
+		WorkflowPayloadField{Name: "reproduction", ValueType: PayloadString, Required: true, NonBlank: true, MinLength: workflowInt(2), MaxLength: workflowInt(4096)},
+		WorkflowPayloadField{Name: "searched", ValueType: PayloadString, Required: true, NonBlank: true, MinLength: workflowInt(2), MaxLength: workflowInt(4096)},
+		actionEnumField("outcome", true, "related_found", "none_found"),
+		actionIDListField("related_ids", false, 1, 64),
+		WorkflowPayloadField{Name: "root_cause", ValueType: PayloadString, Required: true, NonBlank: true, MinLength: workflowInt(2), MaxLength: workflowInt(4096)},
+	),
+		WorkflowPayloadCombination{Field: "outcome", Value: "related_found", Requires: []string{"related_ids"}, Remedy: "name the related work items the search found"},
+		WorkflowPayloadCombination{Field: "outcome", Value: "none_found", Forbids: []string{"related_ids"}, Remedy: "drop related_ids or record outcome related_found"},
+	),
 	"frame_research":    actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventGeneric),
 	"record_finding":    actionPolicy(ActionCrossAuthority, ActionApprovalNone, ActionAdvance, ActionEventGeneric),
 	"revise_candidates": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventTyped,
@@ -2040,6 +2060,19 @@ func currentActionDefinition(id string, payloadContracts bool) WorkflowActionDef
 		publicPayload = policy.PublicPayload
 	}
 	return WorkflowActionDefinition{ID: id, Consequence: policy.Consequence, Approval: policy.Approval, ExecutionMode: policy.ExecutionMode, Payload: payload, PublicPayload: publicPayload}
+}
+
+// BuiltinWorkflowActionPublication names the actions whose engine policy
+// declarations exist for publication. CON-902 S1's retained-publication rule
+// uses it in the contract exporter: an action the registered history still
+// declares but no current head declares stays authorable at this policy
+// payload until the retirement slice narrows the publication deliberately.
+func BuiltinWorkflowActionPublication() map[string]WorkflowActionDefinition {
+	publication := make(map[string]WorkflowActionDefinition, len(builtinActionPolicies))
+	for id := range builtinActionPolicies {
+		publication[id] = currentActionDefinition(id, true)
+	}
+	return publication
 }
 
 func workerFailureRecoveryActionDefinition() WorkflowActionDefinition {

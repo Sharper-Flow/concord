@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-const ManifestDigest = "sha256:17950d52e8130faa60990b19478ad9c7473a6de7afe18247fb350e0e06853efe"
+const ManifestDigest = "sha256:75834129c0c8577086f8b08edf1998eb873c3137b7c2e6c44f3bdbb54a5fbf13"
 
 type OperationKind string
 
@@ -335,6 +335,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"work_transition_action_variant_record_decision":        {Required: []string{"work_id", "expected_version", "action_id", "idempotency_key", "fields"}, Properties: []string{"work_id", "expected_version", "action_id", "idempotency_key", "evidence", "approval", "research_bindings", "requested_budget_seconds", "selected_choice", "decision_context_digest", "fields"}},
 	"work_transition_action_variant_record_delivery":        {Required: []string{"work_id", "expected_version", "action_id", "idempotency_key", "fields"}, Properties: []string{"work_id", "expected_version", "action_id", "idempotency_key", "evidence", "approval", "research_bindings", "requested_budget_seconds", "selected_choice", "decision_context_digest", "fields"}},
 	"work_transition_action_variant_record_design":          {Required: []string{"work_id", "expected_version", "action_id", "idempotency_key", "fields"}, Properties: []string{"work_id", "expected_version", "action_id", "idempotency_key", "evidence", "approval", "research_bindings", "requested_budget_seconds", "selected_choice", "decision_context_digest", "fields"}},
+	"work_transition_action_variant_record_diagnosis":       {Required: []string{"work_id", "expected_version", "action_id", "idempotency_key", "fields"}, Properties: []string{"work_id", "expected_version", "action_id", "idempotency_key", "evidence", "approval", "research_bindings", "requested_budget_seconds", "selected_choice", "decision_context_digest", "fields"}},
 	"work_transition_action_variant_record_discovery":       {Required: []string{"work_id", "expected_version", "action_id", "idempotency_key"}, Properties: []string{"work_id", "expected_version", "action_id", "idempotency_key", "evidence", "approval", "research_bindings", "requested_budget_seconds", "selected_choice", "decision_context_digest", "fields"}},
 	"work_transition_action_variant_record_finding":         {Required: []string{"work_id", "expected_version", "action_id", "idempotency_key"}, Properties: []string{"work_id", "expected_version", "action_id", "idempotency_key", "evidence", "approval", "research_bindings", "requested_budget_seconds", "selected_choice", "decision_context_digest", "fields"}},
 	"work_transition_action_variant_record_health":          {Required: []string{"work_id", "expected_version", "action_id", "idempotency_key", "fields"}, Properties: []string{"work_id", "expected_version", "action_id", "idempotency_key", "evidence", "approval", "research_bindings", "requested_budget_seconds", "selected_choice", "decision_context_digest", "fields"}},

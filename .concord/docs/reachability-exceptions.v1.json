@@ -1,206 +1,207 @@
 {
-  "schema_version": "1.0",
-  "analysis": {
-    "tool": "golang.org/x/tools/cmd/deadcode",
-    "version": "v0.38.0",
-    "args": [
-      "-test=false"
-    ],
-    "entrypoints": [
-      "./cmd/..."
-    ]
-  },
-  "exceptions": [
-    {
-      "id": "workflow-action-surface-reserved",
-      "state": "out_of_scope",
-      "functions": [
-        "internal/store.CancelWorkflowCondition",
-        "internal/store.ClaimStep",
-        "internal/store.CompareOutcomeStrength",
-        "internal/store.CompareWorkflowPredicates",
-        "internal/store.CompleteWorkflow",
-        "internal/store.CompleteWorkflowTx",
-        "internal/store.CompleteWorkflowWithRegistry",
-        "internal/store.DeriveWorkflowReady",
-        "internal/store.DeriveWorkflowReadyWithReader",
-        "internal/store.EvaluateWorkflowOutcome",
-        "internal/store.EvaluateWorkflowOutcomePredicateSet",
-        "internal/store.OperatorTakeover",
-        "internal/store.ReadWorkflow",
-        "internal/store.ReadWorkflowProjection",
-        "internal/store.ReplaceWorkflowCheckTx",
-        "internal/store.ReplaceWorkflowOutcome",
-        "internal/store.ResolveWorkflowCondition",
-        "internal/store.ResolveWorkflowConditionsAtBoundary",
-        "internal/store.ResumeWorkflow",
-        "internal/store.WorkflowProjectionHash",
-        "internal/store.compareSubjectSets",
-        "internal/store.compareTokenSets",
-        "internal/store.evaluateWorkflowOutcomePredicateCore",
-        "internal/store.parkedDeliveryRead",
-        "internal/store.predicateStringSet",
-        "internal/store.projectionColumns",
-        "internal/store.quoteSQLiteIdentifier",
-        "internal/store.setContains",
-        "internal/store.workflowOutcomeDefinition",
-        "internal/store.workflowRecordedStalenessWarnings",
-        "internal/store.writeHashValue"
-      ],
-      "reason": "The shipped command entrypoints do not reach these retained workflow support, projection, outcome-evaluation, completion, and contract-revision mechanisms. Focused tests cover their behavior, and their separate removal needs explicit adjudication of the whole mechanisms."
-    },
-    {
-      "id": "point-in-time-reconstruction-no-operator-verb",
-      "state": "out_of_scope",
-      "functions": [
-        "internal/store.ReconstructSubjectAt",
-        "internal/store.excludedFromReconstructionSnapshot",
-        "internal/store.insertScratchLocator",
-        "internal/store.insertScratchProject",
-        "internal/store.insertScratchWork",
-        "internal/store.insertScratchWorkWithExternalRef",
-        "internal/store.newReconstructionStore",
-        "internal/store.populateReconstructionSnapshot",
-        "internal/store.productsForProject",
-        "internal/store.readSubjectEvents",
-        "internal/store.reconstructionRelations",
-        "internal/store.seedReconstructionEndpoints",
-        "internal/store.upcastEvent"
-      ],
-      "reason": "CD-0008 permits read-only point-in-time reconstruction for audit and diagnosis, CD-0013 D13 defines the mechanism, and .concord/docs/floor-readiness.v1.json cites it as fc5 evidence. The WF36 corpus scenario proves it folds a subject's event prefix without mutating live state. R4 row 12 classifies an operator surface for point-in-time diagnosis as a post-spine tool candidate, so no verb is owed before the floor. ReconstructSubjectAt is the entry point; its private helpers include productsForProject, which populates reconstructed Project membership, and upcastEvent."
-    },
-    {
-      "id": "test-only-registry-assertions",
-      "state": "out_of_scope",
-      "functions": [
-        "internal/store.knownSubjectTypes",
-        "internal/store.validateEventKindRegistry"
-      ],
-      "reason": "Both are assertion helpers for registry conformance tests. knownSubjectTypes enumerates the subject kinds an event may carry, and validateEventKindRegistry rejects an ill-formed event-kind registration. Neither guards a production path: they run where a malformed registration can actually be written, which is in a test that constructs one deliberately. Exposing either to an operator would offer a verb whose only honest answer is that the build already settled the question."
-    },
-    {
-      "id": "registry-injection-test-seam",
-      "state": "out_of_scope",
-      "functions": [
-        "internal/agent.InvokeWithRegistry"
-      ],
-      "reason": "Production never injects a definition registry: cmd/concord enters through Invoke, which dispatches on the builtin registry. This seam exists so the workflow corpus boundary runner can drive a scenario registry through the real byte-oriented boundary instead of reaching past it. Issue #450 removed the divergence it was filed for by routing runInvoke through Invoke; the injection point is the deliberate remainder, not an unreached surface."
-    },
-    {
-      "id": "contract-generator-history-source",
-      "state": "out_of_scope",
-      "functions": [
-        "internal/store.BuiltinWorkflowDefinitionsWithHistory"
-      ],
-      "reason": "BuiltinWorkflowDefinitionsWithHistory is the data source for scripts/workflow-action-contracts, the projector the contract generator runs under `go run` (scripts/generate-agent-contracts.py). The analysis roots ./cmd/... only, so it cannot see a build-time consumption edge that never enters the shipped binary. The edge is not unproven: CI runs generate-agent-contracts.py --check, which fails the build when this function stops projecting the historical payloads. The unexported core builtinWorkflowDefinitionsWithHistory stays runtime-reachable through NewBuiltinWorkflowRegistry, so only the generator-facing export is declared here."
-    },
-    {
-      "id": "contract-generator-cross-field-projection",
-      "state": "out_of_scope",
-      "functions": [
-        "internal/store.WorkflowActionCrossFieldRules",
-        "internal/store.WorkflowContractTeachingRules"
-      ],
-      "reason": "WorkflowActionCrossFieldRules and WorkflowContractTeachingRules export the engine cross-field declarations and the guard-owned teaching to scripts/workflow-action-contracts, the projector the contract generator runs under `go run` (scripts/generate-agent-contracts.py). The analysis roots ./cmd/... only, so it cannot see that build-time edge. CI runs generate-agent-contracts.py --check, which fails the build when either projection drifts from the published schemas. The unexported cores stay runtime-reachable: core preflight reads workflowActionCrossField, and the builtin registry validates the declarations at construction."
-    },
-    {
-      "id": "workflow-admission-inspection-seam",
-      "state": "out_of_scope",
-      "functions": [
-        "internal/store.InspectWorkflowActionAdmission",
-        "internal/store.InspectWorkflowDomainOverlap"
-      ],
-      "reason": "Production reaches workflow admission and Domain overlap through the dispatcher, which already holds the write transaction and calls workflowActionPreflightTx and CheckWorkflowDomainOverlapTx directly. Those two need a transaction the caller owns, so a test in another package cannot reach them, and internal/store/boundary_test.go forbids that caller from opening one through the raw database. The two exported functions open one transaction of their own — admission through the registry preflight's read snapshot, Domain overlap through Transact — and defer to the same implementation, so admission keeps a single set of rules instead of an untransacted second copy."
-    },
-    {
-      "id": "knowledge-manifest-current-tier-bindings",
-      "state": "out_of_scope",
-      "functions": [
-        "internal/store.manifestIneligibleHint",
-        "internal/store.manifestPathIneligible",
-        "internal/store.parseKnowledgeManifest",
-        "internal/store.validateKnowledgeManifest",
-        "internal/store.validateManifestPath"
-      ],
-      "reason": "Current-placement entry points the knowledge-manifest bindings call. The path prefix became a parameter (CD-0194 D5) so history composes under the tier its revision carries, and these zero-argument forms pin the tier authored law uses: TestKnowledgeManifestIneligiblePathsMatchSchema and the vocabulary tests bind them to contracts/concord-knowledge-index.v1.schema.json, so the schema keeps one validated restatement per tier instead of each test restating the prefix."
-    },
-    {
-      "id": "research-pooled-transaction-test-surface",
-      "state": "out_of_scope",
-      "functions": [
-        "internal/store.AppendResearchRevision",
-        "internal/store.BindResearchConsumer",
-        "internal/store.BindResearchFindingSource",
-        "internal/store.CreateResearchPack",
-        "internal/store.PruneResearchRevisions",
-        "internal/store.ResearchFreshnessForPack",
-        "internal/store.SetResearchFreshness",
-        "internal/store.Store.AddResearchFinding",
-        "internal/store.Store.AddResearchSource",
-        "internal/store.Store.AppendResearchRevision",
-        "internal/store.Store.BindResearchConsumer",
-        "internal/store.Store.BindResearchFindingSource",
-        "internal/store.Store.CreateResearchPack",
-        "internal/store.Store.PruneResearchRevisions",
-        "internal/store.Store.RequiredResearchFreshness",
-        "internal/store.Store.ResearchFreshness",
-        "internal/store.Store.SetResearchFreshness",
-        "internal/store.Store.UnbindResearchConsumer",
-        "internal/store.Store.UpdateResearchFinding",
-        "internal/store.Store.UpdateResearchSource",
-        "internal/store.UnbindResearchConsumer",
-        "internal/store.addResearchFinding",
-        "internal/store.addResearchSource",
-        "internal/store.beginResearchMutation",
-        "internal/store.canonicalRequestDigest",
-        "internal/store.finishResearchMutation",
-        "internal/store.readConsumerTx",
-        "internal/store.requiredResearchFreshness",
-        "internal/store.validateResearchIdentity"
-      ],
-      "reason": "CD-0025 governs research-pack lifecycle, consumer binding, and fail-closed freshness. Production mutations use the WithinTx forms; research_test.go, research_retirement_test.go, and agent research_surface_test.go exercise these plain forms and their pooled-transaction idempotent replay. CON-816 (https://linear.app/sharper-flow/issue/CON-816/keep-and-optimize-research-pack-management-fix-lifecycle-and-retention) owns folding them into the WithinTx forms. Retain these tested forms until that owner settles their lifecycle and retention; their runtime unreachability does not authorize deletion of the protected research mechanism."
-    },
-    {
-      "id": "law-boundary-pooled-test-seams",
-      "state": "out_of_scope",
-      "functions": [
-        "internal/store.Store.CheckMandatedLawsAtHome",
-        "internal/store.Store.QueryLawConflictsAtHome",
-        "internal/store.Store.verifyKnowledgeSourceSetFreshness",
-        "internal/store.queryLawConflictsAtHome"
-      ],
-      "reason": "CD-0200 governs mandated-law home and conflict checks. Runtime admission uses the transaction-scoped boundary; the law-boundary tests exercise these pooled-connection entry points, including knowledge source-set freshness. These test seams and their private helpers preserve that boundary's independent assertions without opening a second runtime admission path."
-    },
-    {
-      "id": "store-test-and-durable-introspection-seams",
-      "state": "out_of_scope",
-      "functions": [
-        "internal/store.Store.DatabaseForTesting",
-        "internal/store.Store.DurableCommits"
-      ],
-      "reason": "DatabaseForTesting is the declared raw-handle seam for tests and pm1fixture; boundary_test.go enforces that production callers do not use it. DurableCommits is the test introspection read for the durable commit mechanism CD-0207 governs, exercised by durable_test.go. Neither is an operator mutation surface, and deleting them would remove the surviving assertions rather than retire a runtime feature."
-    },
-    {
-      "id": "work-coordination-test-surface-disposition",
-      "state": "out_of_scope",
-      "functions": [
-        "internal/store.DeriveWorkLiveness",
-        "internal/store.Store.ActiveWorkInProduct",
-        "internal/store.Store.AwaitHealthForWork",
-        "internal/store.Store.ChangeProjectStage",
-        "internal/store.Store.ObservationsForDomain",
-        "internal/store.Store.OverdueAwaitsInProduct",
-        "internal/store.Store.ReadWorkLiveness",
-        "internal/store.Store.ReadWorkRemovalAudit",
-        "internal/store.Store.ReadyWorkerJobRevisions",
-        "internal/store.Store.UnreadMessageCount",
-        "internal/store.Store.WorkerJobRevisions",
-        "internal/store.activeWorkInProduct",
-        "internal/store.awaitHealthForWork",
-        "internal/store.overdueAwaitsInProduct",
-        "internal/store.unreadMessageCount"
-      ],
-      "reason": "The work-message, await-health, removal-audit, liveness, worker-job, Domain-observation, and Project-stage tests exercise these coordination seams and their private helpers. Runtime paths use transaction-scoped or composite forms. CON-902 (https://linear.app/sharper-flow/issue/CON-902/delete-redundant-workflow-ceremony-retain-minimal-authorized-agent) owns their delete-or-keep decision. Retain the tested coordination surface until that owner distinguishes redundant ceremony from required agent-session coordination; this exception grants no runtime authority."
-    }
+ "schema_version": "1.0",
+ "analysis": {
+  "tool": "golang.org/x/tools/cmd/deadcode",
+  "version": "v0.38.0",
+  "args": [
+   "-test=false"
+  ],
+  "entrypoints": [
+   "./cmd/..."
   ]
+ },
+ "exceptions": [
+  {
+   "id": "workflow-action-surface-reserved",
+   "state": "out_of_scope",
+   "functions": [
+    "internal/store.CancelWorkflowCondition",
+    "internal/store.ClaimStep",
+    "internal/store.CompareOutcomeStrength",
+    "internal/store.CompareWorkflowPredicates",
+    "internal/store.CompleteWorkflow",
+    "internal/store.CompleteWorkflowTx",
+    "internal/store.CompleteWorkflowWithRegistry",
+    "internal/store.DeriveWorkflowReady",
+    "internal/store.DeriveWorkflowReadyWithReader",
+    "internal/store.EvaluateWorkflowOutcome",
+    "internal/store.EvaluateWorkflowOutcomePredicateSet",
+    "internal/store.OperatorTakeover",
+    "internal/store.ReadWorkflow",
+    "internal/store.ReadWorkflowProjection",
+    "internal/store.ReplaceWorkflowCheckTx",
+    "internal/store.ReplaceWorkflowOutcome",
+    "internal/store.ResolveWorkflowCondition",
+    "internal/store.ResolveWorkflowConditionsAtBoundary",
+    "internal/store.ResumeWorkflow",
+    "internal/store.WorkflowProjectionHash",
+    "internal/store.compareSubjectSets",
+    "internal/store.compareTokenSets",
+    "internal/store.evaluateWorkflowOutcomePredicateCore",
+    "internal/store.parkedDeliveryRead",
+    "internal/store.predicateStringSet",
+    "internal/store.projectionColumns",
+    "internal/store.quoteSQLiteIdentifier",
+    "internal/store.setContains",
+    "internal/store.workflowOutcomeDefinition",
+    "internal/store.workflowRecordedStalenessWarnings",
+    "internal/store.writeHashValue"
+   ],
+   "reason": "The shipped command entrypoints do not reach these retained workflow support, projection, outcome-evaluation, completion, and contract-revision mechanisms. Focused tests cover their behavior, and their separate removal needs explicit adjudication of the whole mechanisms."
+  },
+  {
+   "id": "point-in-time-reconstruction-no-operator-verb",
+   "state": "out_of_scope",
+   "functions": [
+    "internal/store.ReconstructSubjectAt",
+    "internal/store.excludedFromReconstructionSnapshot",
+    "internal/store.insertScratchLocator",
+    "internal/store.insertScratchProject",
+    "internal/store.insertScratchWork",
+    "internal/store.insertScratchWorkWithExternalRef",
+    "internal/store.newReconstructionStore",
+    "internal/store.populateReconstructionSnapshot",
+    "internal/store.productsForProject",
+    "internal/store.readSubjectEvents",
+    "internal/store.reconstructionRelations",
+    "internal/store.seedReconstructionEndpoints",
+    "internal/store.upcastEvent"
+   ],
+   "reason": "CD-0008 permits read-only point-in-time reconstruction for audit and diagnosis, CD-0013 D13 defines the mechanism, and .concord/docs/floor-readiness.v1.json cites it as fc5 evidence. The WF36 corpus scenario proves it folds a subject's event prefix without mutating live state. R4 row 12 classifies an operator surface for point-in-time diagnosis as a post-spine tool candidate, so no verb is owed before the floor. ReconstructSubjectAt is the entry point; its private helpers include productsForProject, which populates reconstructed Project membership, and upcastEvent."
+  },
+  {
+   "id": "test-only-registry-assertions",
+   "state": "out_of_scope",
+   "functions": [
+    "internal/store.knownSubjectTypes",
+    "internal/store.validateEventKindRegistry"
+   ],
+   "reason": "Both are assertion helpers for registry conformance tests. knownSubjectTypes enumerates the subject kinds an event may carry, and validateEventKindRegistry rejects an ill-formed event-kind registration. Neither guards a production path: they run where a malformed registration can actually be written, which is in a test that constructs one deliberately. Exposing either to an operator would offer a verb whose only honest answer is that the build already settled the question."
+  },
+  {
+   "id": "registry-injection-test-seam",
+   "state": "out_of_scope",
+   "functions": [
+    "internal/agent.InvokeWithRegistry"
+   ],
+   "reason": "Production never injects a definition registry: cmd/concord enters through Invoke, which dispatches on the builtin registry. This seam exists so the workflow corpus boundary runner can drive a scenario registry through the real byte-oriented boundary instead of reaching past it. Issue #450 removed the divergence it was filed for by routing runInvoke through Invoke; the injection point is the deliberate remainder, not an unreached surface."
+  },
+  {
+   "id": "contract-generator-history-source",
+   "state": "out_of_scope",
+   "functions": [
+    "internal/store.BuiltinWorkflowActionPublication",
+    "internal/store.BuiltinWorkflowDefinitionsWithHistory"
+   ],
+   "reason": "BuiltinWorkflowDefinitionsWithHistory and BuiltinWorkflowActionPublication supply scripts/workflow-action-contracts, the projector the contract generator runs under go run (scripts/generate-agent-contracts.py). The exporter uses policy payloads to publish actions absent from current heads but still declared by released pins. The analysis roots ./cmd/... only, so it cannot see these build-time edges. CI runs generate-agent-contracts.py --check, which detects drift in historical payload publication. The unexported core builtinWorkflowDefinitionsWithHistory stays runtime-reachable through NewBuiltinWorkflowRegistry."
+  },
+  {
+   "id": "contract-generator-cross-field-projection",
+   "state": "out_of_scope",
+   "functions": [
+    "internal/store.WorkflowActionCrossFieldRules",
+    "internal/store.WorkflowContractTeachingRules"
+   ],
+   "reason": "WorkflowActionCrossFieldRules and WorkflowContractTeachingRules export the engine cross-field declarations and the guard-owned teaching to scripts/workflow-action-contracts, the projector the contract generator runs under `go run` (scripts/generate-agent-contracts.py). The analysis roots ./cmd/... only, so it cannot see that build-time edge. CI runs generate-agent-contracts.py --check, which fails the build when either projection drifts from the published schemas. The unexported cores stay runtime-reachable: core preflight reads workflowActionCrossField, and the builtin registry validates the declarations at construction."
+  },
+  {
+   "id": "workflow-admission-inspection-seam",
+   "state": "out_of_scope",
+   "functions": [
+    "internal/store.InspectWorkflowActionAdmission",
+    "internal/store.InspectWorkflowDomainOverlap"
+   ],
+   "reason": "Production reaches workflow admission and Domain overlap through the dispatcher, which already holds the write transaction and calls workflowActionPreflightTx and CheckWorkflowDomainOverlapTx directly. Those two need a transaction the caller owns, so a test in another package cannot reach them, and internal/store/boundary_test.go forbids that caller from opening one through the raw database. The two exported functions open one transaction of their own \u2014 admission through the registry preflight's read snapshot, Domain overlap through Transact \u2014 and defer to the same implementation, so admission keeps a single set of rules instead of an untransacted second copy."
+  },
+  {
+   "id": "knowledge-manifest-current-tier-bindings",
+   "state": "out_of_scope",
+   "functions": [
+    "internal/store.manifestIneligibleHint",
+    "internal/store.manifestPathIneligible",
+    "internal/store.parseKnowledgeManifest",
+    "internal/store.validateKnowledgeManifest",
+    "internal/store.validateManifestPath"
+   ],
+   "reason": "Current-placement entry points the knowledge-manifest bindings call. The path prefix became a parameter (CD-0194 D5) so history composes under the tier its revision carries, and these zero-argument forms pin the tier authored law uses: TestKnowledgeManifestIneligiblePathsMatchSchema and the vocabulary tests bind them to contracts/concord-knowledge-index.v1.schema.json, so the schema keeps one validated restatement per tier instead of each test restating the prefix."
+  },
+  {
+   "id": "research-pooled-transaction-test-surface",
+   "state": "out_of_scope",
+   "functions": [
+    "internal/store.AppendResearchRevision",
+    "internal/store.BindResearchConsumer",
+    "internal/store.BindResearchFindingSource",
+    "internal/store.CreateResearchPack",
+    "internal/store.PruneResearchRevisions",
+    "internal/store.ResearchFreshnessForPack",
+    "internal/store.SetResearchFreshness",
+    "internal/store.Store.AddResearchFinding",
+    "internal/store.Store.AddResearchSource",
+    "internal/store.Store.AppendResearchRevision",
+    "internal/store.Store.BindResearchConsumer",
+    "internal/store.Store.BindResearchFindingSource",
+    "internal/store.Store.CreateResearchPack",
+    "internal/store.Store.PruneResearchRevisions",
+    "internal/store.Store.RequiredResearchFreshness",
+    "internal/store.Store.ResearchFreshness",
+    "internal/store.Store.SetResearchFreshness",
+    "internal/store.Store.UnbindResearchConsumer",
+    "internal/store.Store.UpdateResearchFinding",
+    "internal/store.Store.UpdateResearchSource",
+    "internal/store.UnbindResearchConsumer",
+    "internal/store.addResearchFinding",
+    "internal/store.addResearchSource",
+    "internal/store.beginResearchMutation",
+    "internal/store.canonicalRequestDigest",
+    "internal/store.finishResearchMutation",
+    "internal/store.readConsumerTx",
+    "internal/store.requiredResearchFreshness",
+    "internal/store.validateResearchIdentity"
+   ],
+   "reason": "CD-0025 governs research-pack lifecycle, consumer binding, and fail-closed freshness. Production mutations use the WithinTx forms; research_test.go, research_retirement_test.go, and agent research_surface_test.go exercise these plain forms and their pooled-transaction idempotent replay. CON-816 (https://linear.app/sharper-flow/issue/CON-816/keep-and-optimize-research-pack-management-fix-lifecycle-and-retention) owns folding them into the WithinTx forms. Retain these tested forms until that owner settles their lifecycle and retention; their runtime unreachability does not authorize deletion of the protected research mechanism."
+  },
+  {
+   "id": "law-boundary-pooled-test-seams",
+   "state": "out_of_scope",
+   "functions": [
+    "internal/store.Store.CheckMandatedLawsAtHome",
+    "internal/store.Store.QueryLawConflictsAtHome",
+    "internal/store.Store.verifyKnowledgeSourceSetFreshness",
+    "internal/store.queryLawConflictsAtHome"
+   ],
+   "reason": "CD-0200 governs mandated-law home and conflict checks. Runtime admission uses the transaction-scoped boundary; the law-boundary tests exercise these pooled-connection entry points, including knowledge source-set freshness. These test seams and their private helpers preserve that boundary's independent assertions without opening a second runtime admission path."
+  },
+  {
+   "id": "store-test-and-durable-introspection-seams",
+   "state": "out_of_scope",
+   "functions": [
+    "internal/store.Store.DatabaseForTesting",
+    "internal/store.Store.DurableCommits"
+   ],
+   "reason": "DatabaseForTesting is the declared raw-handle seam for tests and pm1fixture; boundary_test.go enforces that production callers do not use it. DurableCommits is the test introspection read for the durable commit mechanism CD-0207 governs, exercised by durable_test.go. Neither is an operator mutation surface, and deleting them would remove the surviving assertions rather than retire a runtime feature."
+  },
+  {
+   "id": "work-coordination-test-surface-disposition",
+   "state": "out_of_scope",
+   "functions": [
+    "internal/store.DeriveWorkLiveness",
+    "internal/store.Store.ActiveWorkInProduct",
+    "internal/store.Store.AwaitHealthForWork",
+    "internal/store.Store.ChangeProjectStage",
+    "internal/store.Store.ObservationsForDomain",
+    "internal/store.Store.OverdueAwaitsInProduct",
+    "internal/store.Store.ReadWorkLiveness",
+    "internal/store.Store.ReadWorkRemovalAudit",
+    "internal/store.Store.ReadyWorkerJobRevisions",
+    "internal/store.Store.UnreadMessageCount",
+    "internal/store.Store.WorkerJobRevisions",
+    "internal/store.activeWorkInProduct",
+    "internal/store.awaitHealthForWork",
+    "internal/store.overdueAwaitsInProduct",
+    "internal/store.unreadMessageCount"
+   ],
+   "reason": "The work-message, await-health, removal-audit, liveness, worker-job, Domain-observation, and Project-stage tests exercise these coordination seams and their private helpers. Runtime paths use transaction-scoped or composite forms. CON-902 (https://linear.app/sharper-flow/issue/CON-902/delete-redundant-workflow-ceremony-retain-minimal-authorized-agent) owns their delete-or-keep decision. Retain the tested coordination surface until that owner distinguishes redundant ceremony from required agent-session coordination; this exception grants no runtime authority."
+  }
+ ]
 }

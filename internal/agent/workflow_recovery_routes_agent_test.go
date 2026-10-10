@@ -332,6 +332,45 @@ func workflowRecoveryRouteTuples() []workflowRecoveryRouteTuple {
 			RecordWorkerJob:  true,
 			WorkflowID:       "implementation-v27-release",
 		},
+		// The CD-0198 heads republish the same recovery tables; their
+		// journeys enter the producer and refinement steps through the
+		// qualifying checkpoints the derived-start pins admit.
+		{
+			Ref: "workflow.implementation", Version: 28,
+			Step: "acceptance", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execution",
+			ProducerStep: "execution", DeliveryStep: "execution", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "start_execution",
+			VerdictStep: "acceptance", BindStep: "execution", BindKind: store.EvidenceArtifact,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
+			RecordWorkerJob:  true,
+			WorkflowID:       "implementation-v28-acceptance",
+		},
+		{
+			Ref: "workflow.implementation", Version: 28,
+			Step: "release", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execution",
+			ProducerStep: "execution", DeliveryStep: "execution", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "start_execution",
+			VerdictStep: "release", BindStep: "execution", BindKind: store.EvidenceArtifact,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
+			RecordWorkerJob:  true,
+			WorkflowID:       "implementation-v28-release",
+		},
+		{
+			Ref: "workflow.break_fix", Version: 25,
+			Step: "verify", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "repair",
+			ProducerStep: "repair", DeliveryStep: "repair", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "checkpoint_repair",
+			VerdictStep: "verify", BindStep: "repair", BindKind: store.EvidenceVerification,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceVerification},
+			RecordWorkerJob:  true,
+			WorkflowID:       "break_fix-v25-verify",
+		},
+		{
+			Ref: "workflow.break_fix", Version: 25,
+			Step: "complete", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "repair",
+			ProducerStep: "repair", DeliveryStep: "repair", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "checkpoint_repair",
+			VerdictStep: "complete", BindStep: "repair", BindKind: store.EvidenceVerification,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceVerification},
+			RecordWorkerJob:  true,
+			WorkflowID:       "break_fix-v25-complete",
+		},
 		{
 			Ref: "workflow.break_fix", Version: 24,
 			Step: "verify", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "repair",
@@ -593,8 +632,8 @@ func workflowRecoveryRouteTuples() []workflowRecoveryRouteTuple {
 // (ref, version) fails the test before the journey runs.
 func TestWorkflowRecoveryRoutesDeclareEveryEvaluatorStep(t *testing.T) {
 	tuples := workflowRecoveryRouteTuples()
-	if len(tuples) != 58 {
-		t.Fatalf("recovery-route journey table carries %d tuples, want 58 (16 authored unhealthy routes + 2 frozen v13 routes + 4 CD-0205 worker-job authors + 16 premise-floor versions + 16 CON-887 context versions + 4 CON-890 oracle versions)", len(tuples))
+	if len(tuples) != 62 {
+		t.Fatalf("recovery-route journey table carries %d tuples, want 62 (58 pre-CD-0198 journeys + 4 CD-0198 derived-start head versions)", len(tuples))
 	}
 	seen := map[string]bool{}
 	for _, tuple := range tuples {
@@ -1369,7 +1408,25 @@ func advanceWorkerRecovery(t *testing.T, tuple workflowRecoveryRouteTuple, s *st
 		if got := stepOf(t, s); got != "refine" {
 			t.Fatalf("repair acceptance reached %s, want refine", got)
 		}
-		action("start_refine", map[string]any{})
+		// CD-0198 D3: the current heads derive the refine start from the
+		// qualifying checkpoint; released pins keep the callable start.
+		refineEntry := "start_refine"
+		var definitionVersion int64
+		if err := s.DatabaseForTesting().QueryRow(`SELECT definition_version FROM workflow_instances WHERE work_id=?`, "work-1").Scan(&definitionVersion); err != nil {
+			t.Fatal(err)
+		}
+		if pinned, ok := store.BuiltinWorkflowRegistry().Lookup(tuple.Ref, definitionVersion); ok {
+			declares := false
+			for _, step := range pinned.Definition.StepGraph.Steps {
+				if slices.Contains(step.Actions, "start_refine") {
+					declares = true
+				}
+			}
+			if !declares {
+				refineEntry = "checkpoint_refine"
+			}
+		}
+		action(refineEntry, map[string]any{})
 		lane := recoveryProducerLane(t, "review")
 		attempt := "attempt:" + tuple.WorkflowID + ":" + suffix + ":review"
 		if tuple.RecordWorkerJob {
@@ -1562,6 +1619,21 @@ func workflowRecoveryRouteSupersedeTuples() []workflowRecoveryRouteSupersedeTupl
 			Step: "complete", Target: "repair",
 			RecordWorkerJob: true,
 			WorkflowID:      "break_fix-v24-complete-supersede",
+		},
+		// The CD-0198 heads republish the same complete-step supersede
+		// routes; their journeys follow the same local-accept +
+		// record_delivery integration the oracle authors do.
+		{
+			Ref: "workflow.implementation", Version: 28,
+			Step: "release", Target: "execution",
+			RecordWorkerJob: true,
+			WorkflowID:      "implementation-v28-release-supersede",
+		},
+		{
+			Ref: "workflow.break_fix", Version: 25,
+			Step: "complete", Target: "repair",
+			RecordWorkerJob: true,
+			WorkflowID:      "break_fix-v25-complete-supersede",
 		},
 		// The CON-887 work-context versions republish the same complete-step
 		// supersede routes; their journeys follow the same local-accept +
@@ -1799,7 +1871,36 @@ func runWorkflowRecoveryRouteSupersede(t *testing.T, tuple workflowRecoveryRoute
 // re-fences the same start the ordinary unhealthy route's correction
 // returns to, so runJourneyDeliveryAndAdvance accepts it through its
 // existing gated-start dispatch path.
-func supersedeStartAction(ref string) string {
+func supersedeStartActionFor(t *testing.T, ref string, s *store.Store) string {
+	t.Helper()
+	testJourneyStore = s
+	return supersedeStartAction(t, ref)
+}
+
+var testJourneyStore *store.Store
+
+func supersedeStartAction(t *testing.T, ref string) string {
+	t.Helper()
+	// CD-0198 D3: the derived-start heads take the producer step through
+	// the qualifying checkpoint; the callable start survives on released
+	// pins only.
+	if ref == "workflow.break_fix" {
+		var definitionVersion int64
+		if err := testJourneyStore.DatabaseForTesting().QueryRow(`SELECT definition_version FROM workflow_instances WHERE work_id=?`, "work-1").Scan(&definitionVersion); err != nil {
+			t.Fatal(err)
+		}
+		if pinned, ok := store.BuiltinWorkflowRegistry().Lookup(ref, definitionVersion); ok {
+			declares := false
+			for _, step := range pinned.Definition.StepGraph.Steps {
+				if slices.Contains(step.Actions, "start_repair") {
+					declares = true
+				}
+			}
+			if !declares {
+				return "checkpoint_repair"
+			}
+		}
+	}
 	switch ref {
 	case "workflow.implementation":
 		return "start_execution"
@@ -1890,7 +1991,7 @@ func runWorkflowRecoveryRouteSupersedeContinuation(t *testing.T, tuple workflowR
 		DeliveryStep:     tuple.Target,
 		ProducerAction:   "dispatch_worker",
 		DeliveryLane:     "implement",
-		DeliveryAction:   supersedeStartAction(tuple.Ref),
+		DeliveryAction:   supersedeStartActionFor(t, tuple.Ref, s),
 		VerdictStep:      supersedeEvaluatorStep(tuple.Ref),
 		BindStep:         bindStep,
 		BindKind:         store.EvidenceVerification,

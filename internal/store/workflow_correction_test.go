@@ -884,6 +884,16 @@ func issue1013RecordWorkerDispatch(t *testing.T, s *Store, workID, attemptID str
 
 func issue1013StartRepair(t *testing.T, s *Store, workID string, owner WorkflowActor, expectedVersion, attemptEpoch int64) {
 	t.Helper()
+	// CD-0198 D3: on a derived-start pin the callable start is gone, and the
+	// following dispatch opens the fresh epoch itself, so no raw start is
+	// crafted here.
+	entry, err := VerifyWorkflowInstanceDefinition(context.Background(), s, BuiltinWorkflowRegistry(), workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if workflowDerivedStepStartActive(entry.Definition) {
+		return
+	}
 	actorRef, err := WorkflowActorRef(owner)
 	if err != nil {
 		t.Fatal(err)
@@ -1116,7 +1126,17 @@ func TestCompleteStepContractCorrectionReturnsBreakFixToRepair(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	issue1013StartRepair(t, s, workID, fixture.owner, readWorkVersion(t, s, workID), latestStepStartEpoch(t, s, workID, "repair")+1)
+	entry, entryErr := VerifyWorkflowInstanceDefinition(ctx, s, BuiltinWorkflowRegistry(), workID)
+	if entryErr != nil {
+		t.Fatal(entryErr)
+	}
+	if workflowDerivedStepStartActive(entry.Definition) {
+		if err := runVerdictActionAs(t, s, workID, "checkpoint_repair", json.RawMessage(`{}`), 0, fixture.owner); err != nil {
+			t.Fatalf("the correction re-entry derives the repair start: %v", err)
+		}
+	} else {
+		issue1013StartRepair(t, s, workID, fixture.owner, readWorkVersion(t, s, workID), latestStepStartEpoch(t, s, workID, "repair")+1)
+	}
 	epoch := latestStepStartEpoch(t, s, workID, "repair")
 	deliverAt := func(stepID string, attemptEpoch int64) {
 		t.Helper()

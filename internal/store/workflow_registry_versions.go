@@ -1439,3 +1439,150 @@ func breakFixOwnerOracleV24() WorkflowDefinition {
 	d.Version = 24
 	return withOwnerOracle(d)
 }
+
+// withDerivedStepStarts publishes the CD-0198 D3 derivation: the callable
+// start_repair/start_refine entries leave the step graphs and the advertised
+// surface, and the fold derives the step start from the first admitted
+// qualifying action instead. The derivation's version gate lives in
+// workflowDerivedStepStartActive; the behavior this version gates is the
+// actions' absence from the definition.
+func withDerivedStepStarts(definition WorkflowDefinition) WorkflowDefinition {
+	definition = cloneWorkflowDefinition(definition)
+	removed := map[string]bool{"start_repair": true, "start_refine": true}
+	available := definition.AvailableActions[:0:0]
+	for _, actionID := range definition.AvailableActions {
+		if removed[actionID] {
+			continue
+		}
+		available = append(available, actionID)
+	}
+	definition.AvailableActions = available
+	actionDefinitions := definition.ActionDefinitions[:0:0]
+	for _, action := range definition.ActionDefinitions {
+		if removed[action.ID] {
+			continue
+		}
+		actionDefinitions = append(actionDefinitions, action)
+	}
+	definition.ActionDefinitions = actionDefinitions
+	for i := range definition.StepGraph.Steps {
+		actions := definition.StepGraph.Steps[i].Actions[:0:0]
+		for _, actionID := range definition.StepGraph.Steps[i].Actions {
+			if removed[actionID] {
+				continue
+			}
+			actions = append(actions, actionID)
+		}
+		definition.StepGraph.Steps[i].Actions = actions
+	}
+	return definition
+}
+
+// withDiagnosisStep publishes the CD-0198 D2 merged diagnosis step: the
+// contiguous reproduce, alignment, and diagnose steps fold into one
+// diagnosis step whose declared advance action is record_diagnosis alone,
+// so its single forward edge cannot be crossed without all three sections
+// recorded. The merged step keeps every other action the three steps
+// declared, exactly once, in step order, except the worker trio the
+// reproduce and diagnose steps carried: an advancing worker acceptance
+// beside the record would cross the forward edge without the sections, so
+// the merged step takes the alignment step's closed shape. The trio stays
+// declared at the repair and refine steps. record_alignment survives on
+// workflow.implementation; this composition only applies where the three
+// steps are contiguous.
+func withDiagnosisStep(definition WorkflowDefinition) WorkflowDefinition {
+	definition = cloneWorkflowDefinition(definition)
+	merged := map[string]bool{"reproduce": true, "alignment": true, "diagnose": true}
+	replaced := map[string]bool{"record_reproduction": true, "record_alignment": true, "record_root_cause": true}
+	offStep := map[string]bool{"accept_worker_result": true, "record_worker_failure": true, "dispatch_worker": true}
+	var mergedActions []string
+	inserted := false
+	for _, step := range definition.StepGraph.Steps {
+		if !merged[step.ID] {
+			continue
+		}
+		for _, actionID := range step.Actions {
+			if replaced[actionID] {
+				if !inserted {
+					mergedActions = append(mergedActions, "record_diagnosis")
+					inserted = true
+				}
+				continue
+			}
+			if offStep[actionID] {
+				continue
+			}
+			if !containsString(mergedActions, actionID) {
+				mergedActions = append(mergedActions, actionID)
+			}
+		}
+	}
+	if !inserted {
+		return definition
+	}
+	steps := make([]WorkflowStep, 0, len(definition.StepGraph.Steps)-2)
+	for _, step := range definition.StepGraph.Steps {
+		if step.ID == "reproduce" {
+			steps = append(steps, WorkflowStep{ID: "diagnosis", Kind: WorkflowStepInternalSQLite, Actions: mergedActions})
+			continue
+		}
+		if merged[step.ID] {
+			continue
+		}
+		steps = append(steps, step)
+	}
+	definition.StepGraph.Steps = steps
+	definition.StepGraph.StartStep = "diagnosis"
+	edges := make([]WorkflowEdge, 0, len(definition.StepGraph.Edges))
+	for _, edge := range definition.StepGraph.Edges {
+		if merged[edge.From] && merged[edge.To] {
+			continue
+		}
+		if merged[edge.From] {
+			edge.From = "diagnosis"
+		}
+		if merged[edge.To] {
+			edge.To = "diagnosis"
+		}
+		edges = append(edges, edge)
+	}
+	definition.StepGraph.Edges = edges
+	available := make([]string, 0, len(definition.AvailableActions)-2)
+	inserted = false
+	for _, actionID := range definition.AvailableActions {
+		if replaced[actionID] {
+			if !inserted {
+				available = append(available, "record_diagnosis")
+				inserted = true
+			}
+			continue
+		}
+		available = append(available, actionID)
+	}
+	definition.AvailableActions = available
+	actionDefinitions := make([]WorkflowActionDefinition, 0, len(definition.ActionDefinitions)-1)
+	for _, action := range definition.ActionDefinitions {
+		if replaced[action.ID] {
+			continue
+		}
+		actionDefinitions = append(actionDefinitions, action)
+	}
+	actionDefinitions = append(actionDefinitions, currentActionDefinition("record_diagnosis", true))
+	definition.ActionDefinitions = actionDefinitions
+	return definition
+}
+
+// Each builder below ships its family's CD-0198 slice at the next version
+// after CON-890's heads: break_fix folds the typed diagnosis step and both
+// families derive their repair/refine starts.
+func implementationDerivedStartsV28() WorkflowDefinition {
+	d := implementationOwnerOracleV27()
+	d.Version = 28
+	return withDerivedStepStarts(d)
+}
+
+func breakFixTypedDiagnosisV25() WorkflowDefinition {
+	d := breakFixOwnerOracleV24()
+	d.Version = 25
+	return withDerivedStepStarts(withDiagnosisStep(d))
+}

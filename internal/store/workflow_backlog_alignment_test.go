@@ -37,14 +37,16 @@ func alignmentAdvanceExits(t *testing.T, definition WorkflowDefinition, stepID s
 
 func TestAlignmentStepHasOnlyRecordAlignmentAsItsAdvanceExit(t *testing.T) {
 	t.Parallel()
+	// CD-0198 D2 narrows the step-shape obligation to
+	// workflow.implementation: break_fix folds the alignment step into the
+	// merged diagnosis step, whose shape the CD-0198 tests hold.
 	cases := []struct {
 		ref         string
 		afterStep   string
 		nextStep    string
 		wantVersion int64
 	}{
-		{"workflow.implementation", "proposal", "discovery", 27},
-		{"workflow.break_fix", "reproduce", "diagnose", 24},
+		{"workflow.implementation", "proposal", "discovery", 28},
 	}
 	for _, testCase := range cases {
 		registered, err := BuiltinWorkflowDefinitionForRef(testCase.ref)

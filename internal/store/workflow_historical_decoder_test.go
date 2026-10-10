@@ -193,9 +193,9 @@ func recoveryDefinitionWithSchemaRefs(t *testing.T) []WorkflowDefinition {
 // record_alignment declares the combinations; implementation v14 first
 // carried it, so a retained pin and the current head run the same corpus.
 func TestHistoricalEngineCrossFieldRulesStayVersionInvariant(t *testing.T) {
-	head, ok := BuiltinWorkflowRegistry().Lookup("workflow.implementation", 27)
+	head, ok := BuiltinWorkflowRegistry().Lookup("workflow.implementation", 28)
 	if !ok {
-		t.Fatal("implementation v27 is not registered")
+		t.Fatal("implementation v28 is not registered")
 	}
 	retained, ok := BuiltinWorkflowRegistry().Lookup("workflow.implementation", 14)
 	if !ok {

@@ -778,6 +778,11 @@
     },
     {
       "catalog": "workflow",
+      "entry_id": "record_diagnosis",
+      "owner_id": "mechanism:workflow-actions"
+    },
+    {
+      "catalog": "workflow",
       "entry_id": "record_discovery",
       "owner_id": "mechanism:workflow-actions"
     },
@@ -910,7 +915,7 @@
   "catalog_sizes": {
     "agent": 71,
     "cli": 51,
-    "workflow": 58
+    "workflow": 59
   },
   "dependency_interpretations": [
     {
@@ -5192,6 +5197,7 @@
           "record_decision",
           "record_delivery",
           "record_design",
+          "record_diagnosis",
           "record_discovery",
           "record_finding",
           "record_health",
@@ -5304,7 +5310,7 @@
         }
       ],
       "domain_id": "workflow-engine",
-      "mapped_count": 204,
+      "mapped_count": 205,
       "mechanism_owner_ids": [
         "mechanism:workflow-actions",
         "mechanism:workflow-definitions"
@@ -5680,7 +5686,7 @@
         ]
       },
       "purpose": "Owns work lifecycle: workflow types and their contracts, workflow actions and transitions, completion predicates and verdicts, evidence binding, architecture overlap resolution, and terminal-state law.",
-      "test_count": 146,
+      "test_count": 147,
       "test_packages": [
         "github.com/sharper-flow/concord/internal/payloadschema",
         "github.com/sharper-flow/concord/internal/store"
@@ -5759,6 +5765,7 @@
         "internal/store/workflow_derived_revision_test.go",
         "internal/store/workflow_design_refine_recovery_test.go",
         "internal/store/workflow_design_test.go",
+        "internal/store/workflow_diagnosis_derived_start_test.go",
         "internal/store/workflow_domain_overlap_test.go",
         "internal/store/workflow_draft_composition_test.go",
         "internal/store/workflow_evaluation_test.go",
@@ -7553,6 +7560,7 @@
     "internal/store/workflow_design.go": "workflow-engine",
     "internal/store/workflow_design_refine_recovery_test.go": "workflow-engine",
     "internal/store/workflow_design_test.go": "workflow-engine",
+    "internal/store/workflow_diagnosis_derived_start_test.go": "workflow-engine",
     "internal/store/workflow_dispatch.go": "workflow-engine",
     "internal/store/workflow_domain_overlap.go": "workflow-engine",
     "internal/store/workflow_domain_overlap_test.go": "workflow-engine",
@@ -7821,7 +7829,7 @@
     "skills/README.md": "agent-surface",
     "workflows/README.md": "workflow-engine"
   },
-  "mapped_count": 1982,
+  "mapped_count": 1983,
   "mechanisms": [
     {
       "check_ids": [

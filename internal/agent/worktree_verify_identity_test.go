@@ -23,7 +23,20 @@ func TestWorktreeVerifyNewRequestRunsAgain(t *testing.T) {
 			s, service, grant, _, _, _ := tiersFixture(t)
 			now := fixedTime().Add(time.Second)
 			service.Now = func() time.Time { return now }
-			seedContinuityWorkflow(t, s, "work-2")
+			// The refine-epoch lease identity seeds on a released pin: the
+			// test's second leg advances the epoch through the callable
+			// start, which the derived-start heads replaced with the
+			// qualifying checkpoint and dispatch pair (CD-0198 D3). The
+			// lease identity contract is identical on both sides.
+			released, releasedErr := store.BuiltinWorkflowRegistry().Lookup("workflow.implementation", 27)
+			if !releasedErr {
+				t.Fatal("workflow.implementation v27 is not registered")
+			}
+			if err := s.Transact(context.Background(), func(tx *store.Transaction) error {
+				return store.InitializeWorkflowTx(context.Background(), tx, store.WorkflowInitializationRequest{WorkID: "work-2", Definition: released, Actor: store.WorkflowActor{PrincipalRef: "human-1", ClientRef: "client-1", AgentRef: "agent-1", SessionRef: "session-1", ActorClass: store.ActorAgent}, Now: fixedTime()})
+			}); err != nil {
+				t.Fatal(err)
+			}
 			if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE workflow_instances SET current_step='refine' WHERE work_id='work-2'; DELETE FROM fold_guard`); err != nil {
 				t.Fatal(err)
 			}

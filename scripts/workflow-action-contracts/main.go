@@ -191,6 +191,40 @@ func collectActionContracts(current []store.WorkflowDefinition, recovery []store
 			contracts[action.ID] = contract
 		}
 	}
+	// Retained publication (CON-902 S1): an action whose engine policy the
+	// registry still declares and whose registered history still declares it
+	// stays authorable at the policy's own payload while no current head
+	// declares it. Released pins remain, so their actions keep their closed
+	// published variants — start_repair, start_refine, record_reproduction,
+	// and record_root_cause after the derived-start and diagnosis pins —
+	// until the retirement slice narrows the publication deliberately. The
+	// policy payload is the exact shape the last declaring current head
+	// shipped, so the retained variant equals the variant that head
+	// published. Current declarations always win: an action this pass could
+	// name but that a current head declares already carries its current
+	// variant above.
+	publication := store.BuiltinWorkflowActionPublication()
+	declaredInHistory := map[string]bool{}
+	for _, definition := range history {
+		for _, action := range definition.ActionDefinitions {
+			declaredInHistory[action.ID] = true
+		}
+	}
+	for id, action := range publication {
+		if _, ok := contracts[id]; ok || !declaredInHistory[id] {
+			continue
+		}
+		public := action.Payload
+		if action.PublicPayload != nil {
+			public = *action.PublicPayload
+		}
+		contracts[id] = actionContract{
+			ID:             id,
+			Variants:       []payloadVariant{{Payload: canonicalPayload(action.Payload), PublicPayload: canonicalPayload(public)}},
+			LegacyPayloads: []store.WorkflowPayloadDefinition{},
+			CrossField:     store.WorkflowActionCrossFieldRules(id),
+		}
+	}
 	return contracts, nil
 }
 

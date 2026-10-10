@@ -103,12 +103,11 @@ test("published byte sizes are pinned in UTF-8 bytes", () => {
   }
 })
 
-// The registered surface is twelve tools, not the ten-document request
-// metric above: the ten request tools publish through the production
-// definition hook (definitions hoisted to the final argument root), and the
-// two flat tools keep their own hooks. Both identified populations must stay
-// below the serving budget (CON-812).
-test("all twelve registered parameter schemas stay below the serving budget", async () => {
+// Registered request tools publish through the production definition hook,
+// with definitions hoisted to the argument root. Work start and CI watch
+// keep their own hooks. Both identified populations must stay below the
+// serving budget (CON-812).
+test("all registered parameter schemas stay below the serving budget", async () => {
   const registered = new Map<string, number>()
   for (const tool of tools) {
     const output = { description: "", parameters: {}, jsonSchema: undefined as unknown }

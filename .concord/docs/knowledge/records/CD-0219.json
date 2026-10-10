@@ -55,7 +55,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:3ed01c3d83ba8251512a1c400c1ea6bb86d7e9ccf51da18d97e1681ee49c4c7e",
+  "sha256": "sha256:048132981b461c5b00410a0028abb9b319ac823a3cc58f32924898ec132591ed",
   "status": "accepted",
   "summary": "The interactive terminal launcher TUI, its verb, its bare-invocation route, the internal/launcher tree, and the charm.land rendering modules are removed; the launcher contracts and portfolio scenario retire with the surface, the ZLauncher replacement continues as the non-interactive session entry route under CD-0108, and the obligations whose subject was the TUI are vacated while every kept launch, resume, and session clause keeps its surviving owner.",
   "tags": [

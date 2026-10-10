@@ -1,0 +1,45 @@
+{
+  "authority": {
+    "tier": "derived"
+  },
+  "date": "2026-10-09T00:00:00Z",
+  "doc_contract_profile": "current",
+  "evidence": [
+    "internal/store/domain_reads_test.go",
+    "internal/store/domain_reads.go",
+    "scripts/check-domain-registry.py",
+    "scripts/test-check-domain-registry.py",
+    "scripts/test-domain-navigation.py"
+  ],
+  "home_domain_id": "product-memory",
+  "id": "CD-0214",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "supersedes",
+      "target_id": "CD-0158"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0060"
+    }
+  ],
+  "path": ".concord/docs/decisions/CD-0214-repository-navigation-consumes-the-domain-graph-without-launcher-copies.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:c8fedf7724926bb1d392437843b545db158283e31df07aeb3e140327b99eb04e",
+  "status": "accepted",
+  "summary": "Repository navigation and exact Domain-detail reads retain the Domain graph. The launcher display obligations have no subject under CD-0219. Registry participation, optional applicability, warning and strict adoption, and navigation completeness obligations remain.",
+  "tags": [
+    "domains",
+    "knowledge",
+    "registry",
+    "validation"
+  ],
+  "title": "Repository navigation consumes the Domain graph without launcher copies"
+}

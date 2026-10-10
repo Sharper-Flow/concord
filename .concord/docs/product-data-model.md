@@ -182,7 +182,8 @@ connections.
 Durable Concord knowledge is navigated primarily by **Product → Domain**, not by
 a flat list of changes or workflows.
 
-- Open a Product and see its Domain hierarchy and typed architecture relations.
+- Open a Product and reach its Domain law and unresolved work overlap.
+- Exact Domain-detail reads retain canonical relation tuples for governed work.
 - Drill into a Domain to see its current law, dependencies, active workflows,
   evidence, decisions, resources, recent changes, and operational
   signals.

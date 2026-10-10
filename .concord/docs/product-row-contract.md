@@ -17,8 +17,7 @@
 
 ## Context
 
-The operator's launcher opens onto a portfolio of Products, and each Product
-must answer one glance question first. The binding inputs are the Product-first
+Each Product must answer one glance question first. The binding inputs are the Product-first
 operating envelope, Product and Domain navigation, active-work visibility,
 PM1 Q1/Q2/Q4/Q5, PM4/PM5 identity semantics, and the accepted TS7
 authority and freshness envelope. This record fixes the default Product row:

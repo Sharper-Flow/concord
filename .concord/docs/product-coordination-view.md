@@ -20,9 +20,8 @@ contract at this layer did not require a new decision record.
 
 **CD-0041 amendment.** These two bounded work projections remain valid, but they
 are no longer the Product's primary architecture view. Product detail opens
-through Product → Domain. Each Domain shows current law, typed Domain relations,
-active architecture-bound work, and unresolved overlap before the work relation
-tree or ranked table. Q8 work relations remain a subordinate coordination view;
+through Product → Domain. Canonical typed relations remain available through
+the bounded Domain-detail read. Q8 work relations remain a subordinate coordination view;
 Business grouping lives in Linear under CD-0213. Runtime support for the
 Domain/overlap layer is outstanding follow-up work and is not claimed by issue
 #51's existing implementation.

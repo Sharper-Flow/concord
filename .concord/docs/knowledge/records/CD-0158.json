@@ -30,8 +30,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:9927ba22e3e9e81bd266407253a04443f7fa4b557c49cee5e644d055ed4974e7",
-  "status": "accepted",
+  "sha256": "sha256:db2a44e073605d371e1ed6ddb39db4a2ec684f2f163c35ea3d08828d8cfb03a7",
+  "status": "superseded",
+  "successor": "CD-0214",
   "summary": "Keeps the Domain graph for the launcher and adopted repository navigation. Requires every Domain in a registry of two or more to participate in at least one relation, leaves applies_to_domain_ids optional, warns before it refuses under a --strict flag, and carries the validator into each Product repository. Navigation adoption is separate: coarse navigation retains named legacy gaps with changed-path advisories; complete navigation requires zero file gaps and resolved source-catalog, contract, law-clause, control, and check references without granting execution authority or behavioral proof.",
   "tags": [
     "domains",

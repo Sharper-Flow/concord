@@ -66,24 +66,19 @@ re-litigate them silently.
   introduced.
 
 ### R1. Primary operator surface and ZLauncher role
-- **Direction:** The **Product-first terminal launcher** is the primary operator
-  surface. A lightweight grid/table admin panel and a web UI are optional
-  projections, not the daily operating surface. **ZLauncher remains the
-  session/project bootstrap layer** and is not a candidate for Concord's primary
-  interface.
+- **Direction:** The primary operator surface follows the operating envelope
+  in [`priorities.md`](./priorities.md). A lightweight grid/table admin panel
+  and a web UI remain optional projections.
 - **Why:** Concord is optimized for a solo dev + many local agents. The terminal
   is the fastest path; optional views are for convenience, not correctness.
 - **Effect:** `design-constraints.md` §6, `workflows.md` §0, `feature-inventory.md`
   §3.10, `self-documentation.md` §1.1, `vertical-integration.md` are aligned to
   this direction.
-- **Clarified by C14/CD-0006:** the launcher is a context-rich navigator with narrow
-  open/start/resume/launch actions. Product-row fields are accepted; substantive
+- **Clarified by C14/CD-0006:** Product-row fields remain accepted; substantive
   decisions happen inside the selected Product/workflow.
-- **Decision (2026-09-03):** CD-0108 supersedes the R1 split. The launcher is
-  remade from zero as the ZLauncher replacement and absorbs the session
-  bootstrap role. ZLauncher is retired when the remake's acceptance holds.
-  The launcher stays store-write-free; launch actions run through Concord's
-  session bootstrap.
+- **Decision:** CD-0108, as amended by CD-0219, keeps the non-interactive
+  session entry route as the ZLauncher replacement. The entry route stays
+  store-write-free and runs launch actions through Concord's session bootstrap.
 
 ### R2. Cross-workflow impact propagation / freshness
 - **Problem:** one workflow may change shared law, a Domain relation, dependency, or
@@ -114,6 +109,9 @@ re-litigate them silently.
   **Product → Domain**. Workflows and changes are architecture-bound history from
   the Domain view, not the
   top-level browse path.
+- **Consumer boundary:** CD-0214 keeps repository navigation and exact
+  Domain-detail reads. The graph grants no execution authority or behavioral
+  proof. The launcher display subject is vacated under CD-0219.
 - **Why:** enforces locality of behavior (P04) and makes architecture, law, and
   ownership obvious at a glance. Business grouping lives in Linear under CD-0213.
 - **Effect:** recorded in `product-data-model.md` §6, `self-documentation.md` §1.1,
@@ -122,8 +120,7 @@ re-litigate them silently.
 ### R5. Minimal active-work visibility
 - **Direction:** Default views show **active gates** and **active problems**
   first; completed history and passive context are available through explicit
-  drill-down. This applies to the terminal launcher, any admin panel, and agent
-  read surfaces.
+  drill-down. This applies to any admin panel and agent read surfaces.
 - **Why:** keeps the operator focused on what blocks execution now, instead of
   drowning them in history.
 - **Effect:** recorded in `product-data-model.md` §7, `self-documentation.md`
@@ -200,10 +197,10 @@ re-litigate them silently.
   deliberately vague.)
 - **Why:** the primary human-facing surface; the medium dictates the tech stack
   and the agent-buildability story.
-- **Direction (2026-07-25):** ✅ resolved by R1. The terminal launcher is the
-  primary surface; any admin panel / web UI is an optional projection. No
-  dedicated thick client required.
-- **Blocks:** none. Build the launcher path first; optional panel later.
+- **Direction:** R1 follows the canonical primary-surface direction in
+  [`priorities.md`](./priorities.md). Any admin panel / web UI remains an
+  optional projection. No dedicated thick client is required.
+- **Blocks:** none.
 
 ### C5. Multi-client: concrete or hypothetical?
 - **Question:** Is there a real second client in mind (web UI? CLI? another agent
@@ -276,38 +273,15 @@ re-litigate them silently.
   workflow execution were never blocked by C17.
 
 ### C18. What is the terminal launcher itself?
-- **Question:** What screens exist, how does the operator move between them, what
-  establishes ambient Product context, what actions may the launcher take, and when
-  does it re-read state?
-- **Why:** the launcher is the primary operator surface and part of the
-  replacement-ready floor, but no accepted document specifies the container. Accepted
-  C14 fixes the Product row and explicitly defers terminal interaction, keybindings,
-  layout toolkit, and the detail screen; C17 proposes a drill-down and defers the
-  container to the launcher.
-- **Operator direction (2026-08-09):** the launcher exists to see status and resume
-   work in the OpenCode TUI. It performs no durable write. Durable knowledge belongs to
-   its owning Product, Domain, Project, or work item rather than to a global browse surface,
-   and its section uses the shipped resolver once launcher wiring is implemented.
-- **Accepted by CD-0014 (2026-08-10):** three closed screens (portfolio, Product, work) with
-  knowledge as a scoped section rather than a screen; stack navigation; ambient context
-  established by Product selection and changed nowhere else; a navigate-and-launch
-  action surface with no writes; a launch handoff carrying identity but never workflow
-  position, so the session resolves state and the launcher holds no second derivation;
-  and a refresh model with no timer or poll, where staleness is displayed and never
-  enforced by the launcher. The C18 contract retired with the launcher TUI under
-  CD-0219; CD-0108 and CD-0163 carry its surviving statements.
-- **Resolved sub-questions:** Bubble Tea v2 is selected behind an isolated adapter;
-  query is Product-only and scoped to the ambient Product. The exact versions,
-  dependency inventory, hard-proof results, no-poll interpretation, and tcell v3
-  fallback are binding in [`CD-0014`](./decisions/CD-0014-terminal-launcher-rendering.md).
-- **Direction:** ✅ accepted. The workflow engine and durable knowledge resolver have
-   shipped; stale sequencing statements that treated them as C18 prerequisites are
-   retired.
-- **Implementation status:** S1 shipped through issue #45 and PR #48. S2 Product
-  coordination including the Domain section, S3 Work detail, scoped
-  search/knowledge, and identity-only OpenCode handoff shipped through issue
-  #51, PR #52, and 5e3b900 (issue #373). The replacement-ready floor is
-  satisfied; see [`floor-readiness.v1.json`](./floor-readiness.v1.json).
+- **Decision:** CD-0219 retires the interactive terminal launcher, its screen
+  and rendering obligations, and its launcher contracts.
+- **Surviving owners:** CD-0108 D4 keeps the store-write-free entry boundary;
+  CD-0031 and CD-0163 keep identity-only handoff. The store query contracts
+  retain their bounded reads. CD-0214 keeps repository navigation and exact
+  Domain-detail reads without a launcher display consumer.
+- **Coverage:** The launcher-rendered floor items are `out_of_scope` in
+  [`floor-readiness.v1.json`](./floor-readiness.v1.json). Kept session-entry
+  proofs remain with the command package and store.
 
 ### C19. Agent context continuity
 - **Question:** What law governs an agent's working context across the point where it
@@ -330,8 +304,9 @@ re-litigate them silently.
   ([`agent-call-context-contract.md`](./agent-call-context-contract.md)) is the per-call
   ambient scope envelope, not the model's working window. TS2 §3
   ([`agent-tool-surface-budget.md`](./agent-tool-surface-budget.md)) bounds tool-schema
-  tokens, not conversation history. The C18 launcher handoff carries identity only. A
-  position here needs a new decision record; no existing record can be amended into one.
+  tokens, not conversation history. CD-0031 and CD-0163 bind the kept session
+  handoff to identity only. A position here needs a new decision record; no
+  existing record can be amended into one.
 - **Why Concord is well placed:** TS5 already states that there is no mutable protocol
   session and no ambient state held by a daemon. If every call is stateless and all
   state is durable, the working context is a **derived projection** that can be rebuilt
@@ -384,7 +359,7 @@ re-litigate them silently.
   owning/swallowing now? (`vertical-integration.md`)
 - **Lean:** product-scoping first; revisit only on measured need.
 - **Direction (2026-07-25):** 🟡 unchanged. See `vertical-integration.md` for
-  the resolved launcher/interface boundary.
+  the native-tool integration boundary.
 - **Scope (2026-08-14):** narrowed to lgrep and vision. Both are general-purpose
   beyond Concord and neither has a recorded integration pain that orchestration
   cannot resolve, so they share one decision trigger. R7 removes episode on its

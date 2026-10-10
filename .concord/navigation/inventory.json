@@ -3118,13 +3118,13 @@
           "law_refs": [
             {
               "clause_id": "1. Decision",
-              "content_hash": "sha256:fe149d7c1eeb565bf895c438f3f4ebc953c322a3961969c9bf74f2db24d87e83",
+              "content_hash": "sha256:355f1bd08532ade1db2b7711e3036f98da2b5146fad3bf7ce5dcb1e130952d9c",
               "law_id": "C14",
               "locator": ".concord/docs/product-row-contract.md"
             },
             {
               "clause_id": "2. Accepted shape",
-              "content_hash": "sha256:fd443f27eaee33ec4a82ec16570151229995246ba3aa3cbba5f91aa3fbab1fd9",
+              "content_hash": "sha256:2458a92683c724e4b62fdd120f440752457255df56eabe738e69002731dfc9dc",
               "law_id": "C17",
               "locator": ".concord/docs/product-coordination-view.md"
             }
@@ -3777,7 +3777,7 @@
         }
       ],
       "domain_id": "product-memory",
-      "mapped_count": 884,
+      "mapped_count": 887,
       "mechanism_owner_ids": [
         "mechanism:domain-registry",
         "mechanism:knowledge-index"
@@ -3793,7 +3793,7 @@
           ],
           "control_law_ids": [
             "CD-0060",
-            "CD-0158"
+            "CD-0214"
           ],
           "controls": [
             {
@@ -3813,15 +3813,19 @@
             {
               "evidence": [
                 {
-                  "kind": "validator",
-                  "value": "scripts/check-domain-registry.py"
+                  "kind": "go_test",
+                  "value": "internal/store.TestDomainDetailShowsCurrentLawRelationsAndRefusesUnknown"
                 },
                 {
                   "kind": "validator",
                   "value": "scripts/test-check-domain-registry.py"
+                },
+                {
+                  "kind": "validator",
+                  "value": "scripts/test-domain-navigation.py"
                 }
               ],
-              "id": "CD-0158",
+              "id": "CD-0214",
               "state": "satisfied"
             }
           ],
@@ -3829,15 +3833,15 @@
           "law_refs": [
             {
               "clause_id": "D4. A declared Domain owns law at enactment",
-              "content_hash": "sha256:2bc7b49fa35f9602891401132b16ee2f7d396f866c8cbe6a8dc6d46c08a76c05",
+              "content_hash": "sha256:37f300cce4a1e30e52b932d503e2b74ce7f8c08fbce9a3ad15e041e930bf9d94",
               "law_id": "CD-0060",
               "locator": ".concord/docs/decisions/CD-0060-domain-registry-enactment.md"
             },
             {
               "clause_id": "D5. Every Product repository carries the validator",
-              "content_hash": "sha256:9927ba22e3e9e81bd266407253a04443f7fa4b557c49cee5e644d055ed4974e7",
-              "law_id": "CD-0158",
-              "locator": ".concord/docs/decisions/CD-0158-the-domain-graph-earns-its-place-through-an-authoring-obligation.md"
+              "content_hash": "sha256:c8fedf7724926bb1d392437843b545db158283e31df07aeb3e140327b99eb04e",
+              "law_id": "CD-0214",
+              "locator": ".concord/docs/decisions/CD-0214-repository-navigation-consumes-the-domain-graph-without-launcher-copies.md"
             }
           ],
           "owner_id": "mechanism:domain-registry",
@@ -4262,7 +4266,7 @@
           "law_refs": [
             {
               "clause_id": "D2. The root Domain keeps only Product-wide constitutional law",
-              "content_hash": "sha256:2bc7b49fa35f9602891401132b16ee2f7d396f866c8cbe6a8dc6d46c08a76c05",
+              "content_hash": "sha256:37f300cce4a1e30e52b932d503e2b74ce7f8c08fbce9a3ad15e041e930bf9d94",
               "law_id": "CD-0060",
               "locator": ".concord/docs/decisions/CD-0060-domain-registry-enactment.md"
             },
@@ -6051,6 +6055,7 @@
     ".concord/docs/decisions/CD-0211-defect-intake-classifies-recurrence-before-fix.md": "product-memory",
     ".concord/docs/decisions/CD-0212-reclaim-gates-the-live-head-and-records-retained-refs.md": "product-memory",
     ".concord/docs/decisions/CD-0213-linear-mcp-is-the-only-planning-authority.md": "product-memory",
+    ".concord/docs/decisions/CD-0214-repository-navigation-consumes-the-domain-graph-without-launcher-copies.md": "product-memory",
     ".concord/docs/decisions/CD-0215-retained-research-context.md": "product-memory",
     ".concord/docs/decisions/CD-0216-research-surface-and-explicit-retirement.md": "product-memory",
     ".concord/docs/decisions/CD-0217-publication-and-retention-boundaries.md": "product-memory",
@@ -6267,6 +6272,7 @@
     ".concord/docs/knowledge/coverage/CD-0211.json": "product-memory",
     ".concord/docs/knowledge/coverage/CD-0212.json": "product-memory",
     ".concord/docs/knowledge/coverage/CD-0213.json": "product-memory",
+    ".concord/docs/knowledge/coverage/CD-0214.json": "product-memory",
     ".concord/docs/knowledge/coverage/CD-0215.json": "product-memory",
     ".concord/docs/knowledge/coverage/CD-0216.json": "product-memory",
     ".concord/docs/knowledge/coverage/CD-0217.json": "product-memory",
@@ -6530,6 +6536,7 @@
     ".concord/docs/knowledge/records/CD-0211.json": "product-memory",
     ".concord/docs/knowledge/records/CD-0212.json": "product-memory",
     ".concord/docs/knowledge/records/CD-0213.json": "product-memory",
+    ".concord/docs/knowledge/records/CD-0214.json": "product-memory",
     ".concord/docs/knowledge/records/CD-0215.json": "product-memory",
     ".concord/docs/knowledge/records/CD-0216.json": "product-memory",
     ".concord/docs/knowledge/records/CD-0217.json": "product-memory",
@@ -7804,7 +7811,7 @@
     "skills/README.md": "agent-surface",
     "workflows/README.md": "workflow-engine"
   },
-  "mapped_count": 1973,
+  "mapped_count": 1976,
   "mechanisms": [
     {
       "check_ids": [
@@ -8031,7 +8038,7 @@
       ],
       "control_law_ids": [
         "CD-0060",
-        "CD-0158"
+        "CD-0214"
       ],
       "controls": [
         {
@@ -8051,15 +8058,19 @@
         {
           "evidence": [
             {
-              "kind": "validator",
-              "value": "scripts/check-domain-registry.py"
+              "kind": "go_test",
+              "value": "internal/store.TestDomainDetailShowsCurrentLawRelationsAndRefusesUnknown"
             },
             {
               "kind": "validator",
               "value": "scripts/test-check-domain-registry.py"
+            },
+            {
+              "kind": "validator",
+              "value": "scripts/test-domain-navigation.py"
             }
           ],
-          "id": "CD-0158",
+          "id": "CD-0214",
           "state": "satisfied"
         }
       ],
@@ -8067,15 +8078,15 @@
       "law_refs": [
         {
           "clause_id": "D4. A declared Domain owns law at enactment",
-          "content_hash": "sha256:2bc7b49fa35f9602891401132b16ee2f7d396f866c8cbe6a8dc6d46c08a76c05",
+          "content_hash": "sha256:37f300cce4a1e30e52b932d503e2b74ce7f8c08fbce9a3ad15e041e930bf9d94",
           "law_id": "CD-0060",
           "locator": ".concord/docs/decisions/CD-0060-domain-registry-enactment.md"
         },
         {
           "clause_id": "D5. Every Product repository carries the validator",
-          "content_hash": "sha256:9927ba22e3e9e81bd266407253a04443f7fa4b557c49cee5e644d055ed4974e7",
-          "law_id": "CD-0158",
-          "locator": ".concord/docs/decisions/CD-0158-the-domain-graph-earns-its-place-through-an-authoring-obligation.md"
+          "content_hash": "sha256:c8fedf7724926bb1d392437843b545db158283e31df07aeb3e140327b99eb04e",
+          "law_id": "CD-0214",
+          "locator": ".concord/docs/decisions/CD-0214-repository-navigation-consumes-the-domain-graph-without-launcher-copies.md"
         }
       ],
       "owner_id": "mechanism:domain-registry",
@@ -8356,13 +8367,13 @@
       "law_refs": [
         {
           "clause_id": "1. Decision",
-          "content_hash": "sha256:fe149d7c1eeb565bf895c438f3f4ebc953c322a3961969c9bf74f2db24d87e83",
+          "content_hash": "sha256:355f1bd08532ade1db2b7711e3036f98da2b5146fad3bf7ce5dcb1e130952d9c",
           "law_id": "C14",
           "locator": ".concord/docs/product-row-contract.md"
         },
         {
           "clause_id": "2. Accepted shape",
-          "content_hash": "sha256:fd443f27eaee33ec4a82ec16570151229995246ba3aa3cbba5f91aa3fbab1fd9",
+          "content_hash": "sha256:2458a92683c724e4b62fdd120f440752457255df56eabe738e69002731dfc9dc",
           "law_id": "C17",
           "locator": ".concord/docs/product-coordination-view.md"
         }
@@ -8671,7 +8682,7 @@
       "law_refs": [
         {
           "clause_id": "D2. The root Domain keeps only Product-wide constitutional law",
-          "content_hash": "sha256:2bc7b49fa35f9602891401132b16ee2f7d396f866c8cbe6a8dc6d46c08a76c05",
+          "content_hash": "sha256:37f300cce4a1e30e52b932d503e2b74ce7f8c08fbce9a3ad15e041e930bf9d94",
           "law_id": "CD-0060",
           "locator": ".concord/docs/decisions/CD-0060-domain-registry-enactment.md"
         },

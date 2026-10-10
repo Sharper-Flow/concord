@@ -49,7 +49,8 @@ renderer ships.
 ### D2. The launcher contracts and scenario retire with the surface
 
 `terminal-launcher-contract.md`, `terminal-launcher-replacement-contract.md`,
-and `.concord/scenarios/launcher-portfolio.v1.json` are deleted. Their
+`terminal-launcher-entry-contract.md`, and
+`.concord/scenarios/launcher-portfolio.v1.json` are deleted. Their
 surviving statements keep their owning records: the identity-only handoff
 (CD-0031, CD-0163), the no-durable-write boundary (CD-0108 D4), and the bounded
 store reads (the store query contracts).

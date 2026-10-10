@@ -127,7 +127,7 @@ type ResearchRevision struct {
 	DoneWhen  string `json:"done_when"`
 	Method    string `json:"method"`
 	CreatedAt string `json:"created_at"`
-	// Freshness is this revision's authoritative state (issue #122).
+	// Freshness is this revision's authoritative state.
 	Freshness ResearchFreshness `json:"freshness"`
 	Findings  []ResearchFinding `json:"findings,omitempty"`
 	Sources   []ResearchSource  `json:"sources,omitempty"`
@@ -204,7 +204,7 @@ type SetResearchFreshnessRequest struct {
 	ExpectedVersion int64                    `json:"expected_version"`
 	Freshness       ResearchFreshness        `json:"freshness"`
 	// Revision targets the pinned revision whose freshness is set; 0 means
-	// the pack's current revision (issue #122).
+	// the pack's current revision.
 	Revision int64 `json:"revision,omitempty"`
 }
 

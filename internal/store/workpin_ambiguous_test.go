@@ -11,9 +11,9 @@ import (
 // action. For an item whose contract projection is ambiguous the pin stops
 // early by design: it reports the item's position and the one recovery route,
 // and stops. The struct it returns must still be a complete pin. The watermark
-// used to be assigned after that early return, so the escape-hatch pin
-// serialized with an empty watermark and every mutation whose result carried
-// the pin failed closed-schema response validation. The recovery the pin
+// is assigned before that early return, so the escape-hatch pin never
+// serializes with an empty watermark and no mutation carrying the
+// pin fails closed-schema response validation. The recovery the pin
 // advertises stayed reachable only because it retires both contracts before
 // its own pin is built; every other mutation touching the item was refused.
 

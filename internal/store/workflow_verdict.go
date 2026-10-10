@@ -56,7 +56,7 @@ func ReadWorkflowVerdict(ctx context.Context, s *Store, workID string) (*Workflo
 // has no workflow instance or no recorded executing actor. Instances whose
 // projection predates selector pinning derive the same identity from the
 // definition-selected event, so one notion of executing identity serves every
-// caller (#970).
+// caller.
 func WorkflowExecutingIdentity(ctx context.Context, s *Store, workID string) (agentRef, sessionRef string, found bool, err error) {
 	if s == nil || s.db == nil {
 		return "", "", false, newFailure(KindUnavailable, "workflow_verdict", "store is not open", false, "open the authority database")

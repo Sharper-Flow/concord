@@ -7,8 +7,8 @@ import (
 	"testing"
 )
 
-// CD-0212 D4 native-admission and observation coverage from the CON-829
-// epoch-9 independent review. The four review findings share the durable
+// CD-0212 D4 native-admission and observation coverage. The four review
+// findings share the durable
 // settlement owner and the checkout-observation boundary in
 // internal/store/worktrees.go: a historical settlement event must never
 // authorize a native effect against a different current durable predecessor,

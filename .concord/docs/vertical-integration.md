@@ -14,7 +14,7 @@ This document is **only** about whether Concord should own, swallow, or
 product-scope lgrep and vision. The operator-surface / admin-panel question
 is resolved in [`clarifications.md`](./clarifications.md) R1:
 
-- The **Product-first session entry** is the primary operator surface.
+- The primary operator surface follows [`priorities.md`](./priorities.md).
 - Per CD-0108 (2026-09-03), Concord absorbs the **ZLauncher replacement**
   role with its own session entry route. The R1 bootstrap
   split is superseded; see [`clarifications.md`](./clarifications.md) R1.
@@ -45,7 +45,7 @@ integration?
 |---|---|
 | **lgrep** | Local code intelligence (semantic + symbol search). The code index. |
 | **vision** | MCP daemon that hosts/proxies MCP servers. The MCP infrastructure layer. |
-| **Session entry** | The Product-first work entry and session bootstrap route under CD-0108. lgrep and vision remain independent integrations. |
+| **Session entry** | The named-work entry and session bootstrap route under CD-0108. lgrep and vision remain independent integrations. |
 
 ## Why the question arises
 

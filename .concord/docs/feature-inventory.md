@@ -7,8 +7,8 @@
 > reworked but not rewritten), or **New** (net-new, no Advance precedent). Each
 > capability is aligned with the canonical Concord priorities without restating
 > the ranked list.
-> **Primary surface:** the Product-first session entry (`concord zl` and the
-> session command it starts); admin panel / web UI are optional projections.
+> **Primary surface:** Defined by [`priorities.md`](./priorities.md); admin
+> panel / web UI are optional projections.
 > **Snapshot evidence for "what existed in the predecessor":** public issue-linked
 > lessons and the predecessor postmortem. Refresh against reachable public sources
 > before implementation or cutover decisions; this inventory does not establish

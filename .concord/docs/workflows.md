@@ -10,9 +10,8 @@
 > research/investigation, architecture spike, ops runbook, static analysis, or
 > generic one-off. Database/configuration/infrastructure map to implementation or
 > ops until a distinct recurring lifecycle proves another type necessary.
-> **Primary surface:** The Product-first session entry (`concord zl` and the
-> session command it starts) is the primary operator surface; an admin panel or
-> web UI is optional and secondary.
+> **Primary surface:** Defined by [`priorities.md`](./priorities.md); an admin
+> panel or web UI is optional and secondary.
 > **Origin:** User direction, 2026-07-25.
 
 ## TL;DR
@@ -23,8 +22,8 @@ work, break-fix, configuration, infrastructure, research, RCA, and static
 analysis through that one shape is wrong. Concord introduces a **full workflow
 coordination engine** with code-defined, versioned purpose-built types plus one
 generic type for true one-offs. Each type is shaped for its work kind.
-The primary operator interacts through the **Product-first session entry**
-(`concord zl` and the session command it starts); optional grid/table views are
+The primary operator interacts through the `concord zl` launcher and its agent
+sessions until the Herdr cutover; optional grid/table views are
 projections, not the primary interface.
 
 The canonical Concord priorities are maintained in [`priorities.md`](./priorities.md); this document
@@ -34,8 +33,8 @@ follows them without restating the ranked list.
 
 ## 0. Audience and primary surface (resolved)
 
-- **Primary operator surface:** a Product-first session entry that starts the
-  named work directly from the shell.
+- **Primary operator surface:** follows [`priorities.md`](./priorities.md).
+  The `concord zl` entry starts named work directly from the shell.
 - **Entry responsibility:** narrow start/resume/launch actions. Substantive
   workflow decisions happen after selection.
 - **Human questions:** provide purpose, relevant context, concrete examples, and
@@ -279,5 +278,4 @@ and [CD-0055 D4](./decisions/CD-0055-repository-check-authority.md#d4-heuristic-
 ---
 
 *One workflow was a start. A plurality of purpose-built workflows is the goal —
-each work kind gets the shape it deserves, entered from the Product-first
-session entry.*
+each work kind gets the shape it deserves, entered through the session entry.*

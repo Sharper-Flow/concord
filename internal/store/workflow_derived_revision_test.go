@@ -73,7 +73,7 @@ func seedGenericOneOffWorkflow(t *testing.T, s *Store, workID string, actor Work
 func TestDerivedLawRevisionOnNonProductChangingContract(t *testing.T) {
 	t.Parallel()
 	actor := WorkflowActor{PrincipalRef: "principal:derived-revision", ClientRef: "client:derived-revision", AgentRef: "agent:derived-revision", SessionRef: "session:derived-revision", ActorClass: ActorAgent}
-	docBytes, err := os.ReadFile("../../.concord/docs/decisions/CD-0041-architecture-bound-product-law.md")
+	docBytes, err := os.ReadFile("../../.concord/docs/decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md")
 	if err != nil {
 		t.Fatal(err)
 	}

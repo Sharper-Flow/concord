@@ -2,6 +2,10 @@
   "evidence": [
     {
       "kind": "go_test",
+      "value": "cmd/concord.TestZLForwardingReadsLeaveAuthorityUnchanged"
+    },
+    {
+      "kind": "go_test",
       "value": "cmd/concord.TestLauncherAndCommandCarryNoMultiplexerKnowledge"
     },
     {

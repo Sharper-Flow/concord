@@ -46,14 +46,14 @@
   }
  ],
  "items": [
-   {
-    "id": "fc1-portfolio-visibility",
-    "condition": "fc1",
-    "title": "Launcher renders portfolio, Product, and Work views",
-    "requirement": "The operator can reach portfolio rows, a Product drill-down, and a single Work item from the terminal launcher without leaving it.",
-    "state": "out_of_scope",
-    "reason": "The launcher-rendered portfolio, Product, and Work views retired with the launcher TUI under CD-0219. The operator entry is the concord zl route and the session command it starts; no browse surface renders these views."
-   },
+  {
+   "id": "fc1-portfolio-visibility",
+   "condition": "fc1",
+   "title": "Launcher renders portfolio, Product, and Work views",
+   "requirement": "The operator can reach portfolio rows, a Product drill-down, and a single Work item from the terminal launcher without leaving it.",
+   "state": "out_of_scope",
+   "reason": "The launcher-rendered portfolio, Product, and Work views retired with the launcher TUI under CD-0219. The operator entry is the concord zl route and the session command it starts; no browse surface renders these views."
+  },
   {
    "id": "fc1-session-handoff",
    "condition": "fc1",
@@ -61,6 +61,10 @@
    "requirement": "The operator can act on a selected Work item by launching an agent session seeded with its identity, without the launcher performing a durable write.",
    "state": "satisfied",
    "evidence": [
+    {
+     "kind": "go_test",
+     "value": "cmd/concord.TestZLForwardingReadsLeaveAuthorityUnchanged"
+    },
     {
      "kind": "go_test",
      "value": "cmd/concord.TestSessionBootPassesCorePacketToOpenCodeBeforeSessionStarts"

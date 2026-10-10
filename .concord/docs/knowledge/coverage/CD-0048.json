@@ -1,5 +1,5 @@
 {
   "id": "CD-0048",
-  "reason": "The S2 surface this record composes retired with the launcher TUI under CD-0219. D3's store-side law stands: last_activity_at is a stored column advanced in the fold, exercised by the internal/store last-activity tests.",
+  "reason": "The S2 surface and its ordering query retired with the launcher TUI under CD-0219. This coverage does not assert a retained last_activity_at column or fold obligation. Surviving store tests preserve updated_at as the versioned-write time and verify that migration 109 keeps last_activity_at absent.",
   "state": "out_of_scope"
 }

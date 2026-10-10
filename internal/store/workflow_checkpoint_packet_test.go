@@ -56,7 +56,7 @@ func checkpointDispatchPacket(t *testing.T, f workContextFixture, attemptID stri
 		inputs["checkpoint"] = checkpoint
 	}
 	return map[string]any{
-		"schema_version": "1.1",
+		"schema_version": WorkerPacketSchemaVersion,
 		"attempt_id":     attemptID,
 		"lane_id":        "implement",
 		"lane_version":   laneVersion,

@@ -1077,10 +1077,11 @@ func retryApprovalFenceTx(ctx context.Context, tx *store.Transaction, registry s
 	return nil
 }
 
-// sourceProofForAction prepares the Git facts each action's SQL boundary
-// consumes. It runs after replay and approval admission, with no transaction
-// open (CD-0195 D2). A non-nil envelope carries the refusal.
-func (r runtime) sourceProofForAction(ctx context.Context, base Envelope, actionID, workID string, raw []byte) (context.Context, *Envelope) {
+// knowledgeSourceProofForAction prepares the federated law source set the
+// approval, supersession, and completion gates verify inside their
+// transaction (CD-0200). It runs after replay and approval admission, with
+// no transaction open (CD-0195 D2). A non-nil envelope carries the refusal.
+func (r runtime) knowledgeSourceProofForAction(ctx context.Context, base Envelope, actionID, workID string) (context.Context, *Envelope) {
 	switch actionID {
 	case "approve_contract", "supersede_contract", "complete":
 		verifiedCtx, proofErr := r.Store.EstablishKnowledgeSourceSetProof(ctx, workID)
@@ -1090,12 +1091,7 @@ func (r runtime) sourceProofForAction(ctx context.Context, base Envelope, action
 		}
 		ctx = verifiedCtx
 	}
-	prepared, err := prepareMutationNavigation(ctx, r.Store, raw)
-	if err != nil {
-		refusal := failureEnvelope(base, err)
-		return ctx, &refusal
-	}
-	return prepared, nil
+	return ctx, nil
 }
 
 func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []byte, grant Authority, op ContractOperation) (Envelope, error) {
@@ -1302,7 +1298,7 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 	// mandated-law boundary inside their transaction, so their registered
 	// source set verifies before the transaction opens (store connection
 	// invariant); the returned context carries the proof.
-	verifiedCtx, proofEnvelope := r.sourceProofForAction(ctx, base, in.ActionID, in.WorkID, raw)
+	verifiedCtx, proofEnvelope := r.knowledgeSourceProofForAction(ctx, base, in.ActionID, in.WorkID)
 	if proofEnvelope != nil {
 		return *proofEnvelope, nil
 	}
@@ -1895,8 +1891,8 @@ func (r runtime) mutateResearchRetire(ctx context.Context, base Envelope, raw []
 		return Envelope{}, err
 	}
 	var response Envelope
-	durable, navigationPrepared := false, false
-	err = r.executeAdmittedMutation(&ctx, raw, &durable, &navigationPrepared, func(tx *store.Transaction) error {
+	durable := false
+	err = r.executeAdmittedMutation(&ctx, &durable, func(tx *store.Transaction) error {
 		inv := Invocation{ClientRef: r.Envelope.ClientRef, PrincipalRef: r.Envelope.PrincipalRef, SessionRef: r.Envelope.SessionRef, AgentRef: r.Envelope.AgentRef, Directory: r.Envelope.Directory, Worktree: r.Envelope.Worktree, ManifestDigest: r.Envelope.ManifestDigest, HostAssertionDigest: r.Envelope.HostAssertionDigest, RequiredCapability: op.Capability, RequiredOperation: r.Operation, ProductID: r.Envelope.SelectedProductID}
 		if inv.HostAssertionDigest == "" {
 			inv.HostAssertionDigest = digest
@@ -4932,9 +4928,8 @@ func (r runtime) mutationResult(base Envelope, payload json.RawMessage, changed 
 }
 
 var errApprovalDurabilityRequired = errors.New("approval authority requires a durable transaction")
-var errNavigationPreparationRequired = errors.New("admitted mutation requires pre-transaction navigation material")
 
-func (r runtime) executeAdmittedMutation(ctx *context.Context, raw []byte, durable, navigationPrepared *bool, mutation func(*store.Transaction) error) error {
+func (r runtime) executeAdmittedMutation(ctx *context.Context, durable *bool, mutation func(*store.Transaction) error) error {
 	transact := r.Store.Transact
 	if *durable {
 		transact = r.Store.TransactDurable
@@ -4944,13 +4939,6 @@ func (r runtime) executeAdmittedMutation(ctx *context.Context, raw []byte, durab
 		*durable = true
 		transact = r.Store.TransactDurable
 		err = transact(*ctx, mutation)
-	}
-	if err == errNavigationPreparationRequired {
-		*ctx, err = prepareMutationNavigation(*ctx, r.Store, raw)
-		if err == nil {
-			*navigationPrepared = true
-			err = transact(*ctx, mutation)
-		}
 	}
 	return err
 }
@@ -4966,7 +4954,6 @@ func mutationApprovalFailure(base Envelope, err error) Envelope {
 func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte, digest string, scope, versions map[string]any, consequence, approval string, requiresApproval bool, governingConflict []string, intents []NextIntent, effect mutationEffect, nativeCleanup func(ctx context.Context, cause error) error, nativeFinalize func(ctx context.Context) error) (Envelope, error) {
 	var response Envelope
 	var resultRejected bool
-	var navigationPrepared bool
 	// A native finalize defers the idempotency record until the committed
 	// event's native work completes, so a failed removal never leaves a
 	// cached success for the same key to replay (CD-0195 D2).
@@ -5015,9 +5002,6 @@ func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte,
 				return storeIdempotencyConflict(r.Operation, key)
 			}
 			if r.Operation != "session_vacate" && r.Operation != "project_handoff_consume" {
-				if !navigationPrepared {
-					return errNavigationPreparationRequired
-				}
 				var replayErr error
 				response, resultRejected, replayErr = r.replayCachedMutationTx(ctx, tx, base, prior, intents, store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: key})
 				return replayErr
@@ -5074,10 +5058,7 @@ func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte,
 			scope["approval_ref"] = consumedApprovalRef
 		}
 		// Admission rolls back before native reads. The execution transaction
-		// repeats these authority checks and consumes approval only at commit.
-		if !navigationPrepared {
-			return errNavigationPreparationRequired
-		}
+		// consumes approval only at commit.
 		payload, eventIDs, changed, err := effect(ctx, tx, grant)
 		if err != nil {
 			return err
@@ -5117,7 +5098,7 @@ func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte,
 		}
 		return store.InsertMutationIdempotencyTx(ctx, tx, insert)
 	}
-	err := r.executeAdmittedMutation(&ctx, raw, &durable, &navigationPrepared, mutation)
+	err := r.executeAdmittedMutation(&ctx, &durable, mutation)
 	transact := r.Store.Transact
 	if durable {
 		transact = r.Store.TransactDurable

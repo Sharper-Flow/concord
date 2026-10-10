@@ -6954,15 +6954,6 @@ const GeneratedPayloadSchemaDocument = `{
     "work_context_domain_group": {
       "additionalProperties": false,
       "properties": {
-        "domain_cards": {
-          "description": "Pinned repository_file references derived by the shared reader. The group supplies the validated Domain identity. Cards also occupy the existing required_reading bound; content is never inlined.",
-          "items": {
-            "$ref": "#/$defs/work_context_reading_source_repository_file"
-          },
-          "maxItems": 32,
-          "minItems": 0,
-          "type": "array"
-        },
         "domain_id": {
           "maxLength": 256,
           "minLength": 1,
@@ -6990,8 +6981,7 @@ const GeneratedPayloadSchemaDocument = `{
       "required": [
         "domain_id",
         "required_reading_ordinals",
-        "finding_ids",
-        "domain_cards"
+        "finding_ids"
       ],
       "type": "object"
     },
@@ -24334,9 +24324,9 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "integer"
         },
         "schema_version": {
+          "description": "The live dispatch_worker surface records only the current card-free packet revision (CON-899). Released 1.0/1.1 histories replay through the versioned lane packet contract, never through this gate; an old host quoting a retired identity is refused typed before the authorization exists.",
           "enum": [
-            "1.0",
-            "1.1"
+            "2.0"
           ],
           "type": "string"
         },
@@ -24793,10 +24783,11 @@ const GeneratedPayloadSchemaDocument = `{
               "type": "string"
             },
             "packet_schema_version": {
-              "description": "The packet identity the original dispatch recorded (CD-0205): \"1.0\" never carried inputs.worker_job; \"1.1\" is the job-capable packet. The core quotes the stored dispatch; the caller supplies no replacement.",
+              "description": "The packet identity the original dispatch recorded (CD-0205, CON-899): \"1.0\" never carried inputs.worker_job, \"1.1\" is the released job-capable packet, and \"2.0\" is the current card-free pair the live producer records. The core quotes the stored dispatch; the caller supplies no replacement.",
               "enum": [
                 "1.0",
-                "1.1"
+                "1.1",
+                "2.0"
               ],
               "type": "string"
             },
@@ -24807,7 +24798,8 @@ const GeneratedPayloadSchemaDocument = `{
               "description": "The report identity the original dispatch recorded, as the matched pair the dispatch carried (CD-0205). The core quotes the stored dispatch; the caller supplies no replacement.",
               "enum": [
                 "1.0",
-                "1.1"
+                "1.1",
+                "2.0"
               ],
               "type": "string"
             },
@@ -24869,6 +24861,23 @@ const GeneratedPayloadSchemaDocument = `{
           "pattern": "^sha256:[0-9a-f]{64}$",
           "type": "string"
         },
+        "packet_schema_version": {
+          "description": "The retained packet schema identity the original dispatch recorded (CON-899): the adapter selects the historical reader by this pair, never by today's current revision.",
+          "enum": [
+            "1.0",
+            "1.1",
+            "2.0"
+          ],
+          "type": "string"
+        },
+        "report_schema_version": {
+          "enum": [
+            "1.0",
+            "1.1",
+            "2.0"
+          ],
+          "type": "string"
+        },
         "terminal_event_id": {
           "$ref": "#/$defs/id"
         },
@@ -24883,6 +24892,8 @@ const GeneratedPayloadSchemaDocument = `{
         "attempt_epoch",
         "dispatch_event_id",
         "lifecycle_state",
+        "packet_schema_version",
+        "report_schema_version",
         "dispatch"
       ],
       "type": "object"

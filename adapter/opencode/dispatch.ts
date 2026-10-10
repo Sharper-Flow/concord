@@ -38,11 +38,12 @@ const MAX_FAILURE_DETAIL_BYTES = 4_096
 const MAX_DIAGNOSTIC_MESSAGE_BYTES = 256
 const MAX_EXPORT_BODY_DIAGNOSTIC_BYTES = 1_024
 const MAX_WORK_RESULT_DIAGNOSTIC_BYTES = 1_536
-// The packet/report schema identities are versioned (CD-0205): "1.0" is the
-// released pre-job identity a stored payload may carry, "1.1" is the
-// job-capable identity a new packet or report records — the last enum entry
-// the generated schema declares. The adapter always records the current
-// identity; the core accepts the released "1.0" pair on replayed evidence.
+// The packet/report schema identities are versioned (CD-0205; the 2.0 cutover):
+// "1.0" is the released pre-job identity, "1.1" the released job-capable
+// identity, and "2.0" the current card-free identity — the last enum entry
+// the generated schema declares, and the only pair a live dispatch records.
+// Retained packets and reports validate through the versioned schema's
+// branches, selected by the recorded identity, never by today's current.
 type AgentLanePacketSchemaVersion = (typeof agentLanePacketSchema.properties.schema_version.enum)[number]
 type AgentLaneReportSchemaVersion = (typeof agentLaneReportSchema.properties.schema_version.enum)[number]
 type AgentLaneReportStatus = (typeof agentLaneReportSchema.properties.status.enum)[number]
@@ -328,12 +329,6 @@ export interface AgentLanePacketWorkContext {
     domain_id: string
     required_reading_ordinals: number[]
     finding_ids: string[]
-    domain_cards: (AgentLanePacketWorkContextReadingSource & {
-      kind: "repository_file"
-      project_id: string
-      path: string
-      commit_oid: string
-    })[]
   }[]
   // The core-qualified verify receipt supplies the raw subject OID. The
   // readiness check compares it with the clean HEAD before authorization;
@@ -1688,8 +1683,14 @@ export interface WorkerRecoveryContext {
   dispatch_event_id: string
   terminal_event_id?: string
   lifecycle_state: "dispatched" | "completed"
+  // The retained packet/report pair the recorded dispatch carried:
+  // the adapter selects the historical reader by this identity, never by
+  // today's current revision.
+  packet_schema_version: string
+  report_schema_version: string
   dispatch: {
     attempt_id: string; lane_id: string; lane_version: number; lane_digest: string
+    packet_schema_version: string; report_schema_version: string
     packet_digest: string; readback_model: string; host_provenance: HostProvenance
   }
 }

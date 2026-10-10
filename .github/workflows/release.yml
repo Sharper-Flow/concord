@@ -61,9 +61,9 @@ jobs:
     uses: ./.github/workflows/ci.yml
 
   # Event-dependent main checks that queue verification cannot prove: CD
-  # allocation against freshly fetched peer refs, and Domain navigation
-  # against this push's before SHA. Only the reuse route needs this job; the
-  # fallback above runs the same assertions in its own main-push context.
+  # allocation against freshly fetched peer refs. Only the reuse route needs
+  # this job; the fallback above runs the same assertion in its own main-push
+  # context.
   refresh-main-checks:
     name: refresh event-dependent main checks
     needs: verify-lookup
@@ -76,20 +76,11 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
-      - name: Set up Go for navigation catalog extraction
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
-        with:
-          go-version-file: go.mod
-          cache: true
-          cache-dependency-path: go.sum
-      - name: Refresh CD allocation and Domain navigation against the main push base
-        env:
-          NAVIGATION_BASE_REF: ${{ github.event.before }}
+      - name: Refresh CD allocation against the main push base
         run: |
           git fetch origin main --quiet
           git fetch origin '+refs/heads/*:refs/remotes/origin/*' --quiet
           python3 scripts/check-cd-allocation.py --no-fetch
-          python3 scripts/check-domain-registry.py --base-ref "$NAVIGATION_BASE_REF" && python3 scripts/generate-domain-navigation.py --check --base-ref "$NAVIGATION_BASE_REF"
 
   # The admission gate. `always()` makes every dependency state explicit:
   # publication requires the lookup to have succeeded AND either

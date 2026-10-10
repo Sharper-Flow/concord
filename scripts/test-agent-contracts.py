@@ -1155,8 +1155,12 @@ class NativeOracleRequestProjectionTests(unittest.TestCase):
         for name in ("work_context_view", "worker_oracle_receipt"):
             self.assertNotIn("candidate_subject", self.projected["$defs"][name]["properties"])
             self.assertIn("subject_commit", self.projected["$defs"][name]["properties"])
-        self.assertEqual(self.projected["$defs"]["work_context_domain_group"]["properties"]["domain_cards"]["items"]["$ref"],
-                         "#/$defs/work_context_reading_source_repository_file")
+        # The card-free live view carries domain groups without the
+        # retired domain_cards member; the released card-bearing shapes stay
+        # in the versioned lane packet contract's branches only.
+        self.assertNotIn("domain_cards", self.projected["$defs"]["work_context_domain_group"]["properties"])
+        self.assertNotIn("domain_cards", self.projected["$defs"]["work_context_domain_group"]["required"])
+        self.assertEqual(self.projected["$defs"]["worker_packet"]["properties"]["schema_version"]["enum"], ["2.0"])
         generator.project_worker_packet_inputs(repeated, packet_schema)
         self.assertEqual(repeated["$defs"]["worker_packet"]["properties"]["inputs"]["properties"]["report_protocol"],
                          packet_schema["properties"]["inputs"]["properties"]["report_protocol"])

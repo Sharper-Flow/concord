@@ -3156,8 +3156,7 @@
       "required": [
         "domain_id",
         "required_reading_ordinals",
-        "finding_ids",
-        "domain_cards"
+        "finding_ids"
       ],
       "properties": {
         "domain_id": {
@@ -3182,15 +3181,6 @@
             "type": "string",
             "pattern": "^finding:[0-9]+:[0-9]+$"
           }
-        },
-        "domain_cards": {
-          "type": "array",
-          "minItems": 0,
-          "maxItems": 32,
-          "items": {
-            "$ref": "#/$defs/work_context_reading_source_repository_file"
-          },
-          "description": "Pinned repository_file references derived by the shared reader. The group supplies the validated Domain identity. Cards also occupy the existing required_reading bound; content is never inlined."
         }
       }
     },
@@ -5061,12 +5051,31 @@
         "attempt_epoch",
         "dispatch_event_id",
         "lifecycle_state",
+        "packet_schema_version",
+        "report_schema_version",
         "dispatch"
       ],
       "properties": {
         "packet_digest": {
           "type": "string",
           "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "packet_schema_version": {
+          "description": "The retained packet schema identity the original dispatch recorded (CON-899): the adapter selects the historical reader by this pair, never by today's current revision.",
+          "type": "string",
+          "enum": [
+            "1.0",
+            "1.1",
+            "2.0"
+          ]
+        },
+        "report_schema_version": {
+          "type": "string",
+          "enum": [
+            "1.0",
+            "1.1",
+            "2.0"
+          ]
         },
         "worker_worktree": {
           "$ref": "#/$defs/absolute_path"
@@ -5128,15 +5137,17 @@
               "type": "string",
               "enum": [
                 "1.0",
-                "1.1"
+                "1.1",
+                "2.0"
               ],
-              "description": "The packet identity the original dispatch recorded (CD-0205): \"1.0\" never carried inputs.worker_job; \"1.1\" is the job-capable packet. The core quotes the stored dispatch; the caller supplies no replacement."
+              "description": "The packet identity the original dispatch recorded (CD-0205, CON-899): \"1.0\" never carried inputs.worker_job, \"1.1\" is the released job-capable packet, and \"2.0\" is the current card-free pair the live producer records. The core quotes the stored dispatch; the caller supplies no replacement."
             },
             "report_schema_version": {
               "type": "string",
               "enum": [
                 "1.0",
-                "1.1"
+                "1.1",
+                "2.0"
               ],
               "description": "The report identity the original dispatch recorded, as the matched pair the dispatch carried (CD-0205). The core quotes the stored dispatch; the caller supplies no replacement."
             },
@@ -9697,10 +9708,10 @@
       ],
       "properties": {
         "schema_version": {
+          "description": "The live dispatch_worker surface records only the current card-free packet revision (CON-899). Released 1.0/1.1 histories replay through the versioned lane packet contract, never through this gate; an old host quoting a retired identity is refused typed before the authorization exists.",
           "type": "string",
           "enum": [
-            "1.0",
-            "1.1"
+            "2.0"
           ]
         },
         "attempt_id": {

@@ -767,20 +767,6 @@ func (s *Store) QueryQ3(ctx context.Context, req Q3Request) (Q3Result, error) {
 	args = append(args, stateArgs...)
 	args = append(args, cursorArgs...)
 	args = append(args, limit+1)
-	if req.Detail == "full" {
-		selected, err := scanWorkItems(ctx, s.db, query, args...)
-		if err != nil {
-			return out, err
-		}
-		request := WorkContextNavigationRequest{}
-		for _, item := range selected {
-			request.WorkIDs = append(request.WorkIDs, item.ID)
-		}
-		ctx, err = s.EstablishWorkContextNavigationProof(ctx, request)
-		if err != nil {
-			return out, err
-		}
-	}
 	tx, err := beginRead(ctx, s, "PM1.Q3")
 	if err != nil {
 		return out, err

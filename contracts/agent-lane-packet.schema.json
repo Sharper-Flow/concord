@@ -18,9 +18,10 @@
     "schema_version": {
       "enum": [
         "1.0",
-        "1.1"
+        "1.1",
+        "2.0"
       ],
-      "description": "The packet identity this packet records. \"1.0\" is the released packet: it never carries inputs.worker_job. \"1.1\" is the job-capable packet (CD-0205): it may carry inputs.worker_job when the dispatcher selected a ready worker-job revision."
+      "description": "The packet identity this packet records. \"1.0\" is the released packet: it never carries inputs.worker_job. \"1.1\" is the released job-capable packet (CD-0205): it may carry inputs.worker_job when the dispatcher selected a ready worker-job revision. \"2.0\" is the current card-free packet (CON-899): the retired domain_cards member is refused, and it is the only identity a live dispatch may record."
     },
     "attempt_id": {
       "type": "string",
@@ -1774,8 +1775,7 @@
       "required": [
         "domain_id",
         "required_reading_ordinals",
-        "finding_ids",
-        "domain_cards"
+        "finding_ids"
       ],
       "properties": {
         "domain_id": {
@@ -1810,7 +1810,7 @@
           "items": {
             "$ref": "#/$defs/lane_work_context_reading_source_repository_file"
           },
-          "description": "Pinned repository_file references derived by the shared reader. The group supplies the validated Domain identity. Cards also occupy the existing required_reading bound; content is never inlined."
+          "description": "Retired member (CON-899), retained only so the released 1.0/1.1 shapes still validate on replay and retained-result recovery: the version branches below require it on those identities and refuse it on the current 2.0. No live reader produces cards and no live producer may record them."
         }
       }
     },
@@ -2263,6 +2263,73 @@
               "required": [
                 "worker_job"
               ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "schema_version": {
+            "enum": [
+              "1.0",
+              "1.1"
+            ]
+          }
+        },
+        "required": [
+          "schema_version"
+        ]
+      },
+      "then": {
+        "properties": {
+          "inputs": {
+            "properties": {
+              "work_context": {
+                "properties": {
+                  "domain_groups": {
+                    "items": {
+                      "required": [
+                        "domain_cards"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "schema_version": {
+            "const": "2.0"
+          }
+        },
+        "required": [
+          "schema_version"
+        ]
+      },
+      "then": {
+        "properties": {
+          "inputs": {
+            "properties": {
+              "work_context": {
+                "properties": {
+                  "domain_groups": {
+                    "items": {
+                      "not": {
+                        "required": [
+                          "domain_cards"
+                        ]
+                      }
+                    }
+                  }
+                }
+              }
             }
           }
         }

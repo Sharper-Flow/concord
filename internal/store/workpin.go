@@ -121,10 +121,6 @@ func ReadWorkPin(ctx context.Context, s *Store, workID string) (WorkPin, error) 
 	if s == nil || s.db == nil {
 		return pin, newFailure(KindUnavailable, "work_pin", "store is not open", false, "open the authority database")
 	}
-	ctx, err := prepareWorkNavigation(ctx, s, workID)
-	if err != nil {
-		return pin, err
-	}
 	tx, err := beginReadTx(ctx, s.db)
 	if err != nil {
 		return pin, wrapFailure(KindUnavailable, "work_pin", "cannot open a consistent work pin snapshot", true, "retry once the database is readable", err)
@@ -140,7 +136,7 @@ func ReadWorkPinTransactionTx(ctx context.Context, transaction *Transaction, wor
 	if err != nil {
 		return WorkPin{}, err
 	}
-	return ReadWorkPinTx(workContextNavigationTransactionContext(ctx, transaction), tx, workID)
+	return ReadWorkPinTx(ctx, tx, workID)
 }
 
 // ReadWorkPinTx derives a pin from the transaction supplied by its caller.

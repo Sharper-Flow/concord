@@ -145,10 +145,10 @@ const build = (script: Record<string, unknown>, overrides: Record<string, unknow
     { context: contextFor(), invoke: scriptedInvoke(script) as any },
   )
 
-test("new packets pin the worker report protocol without changing schema identity", async () => {
+test("new packets pin the worker report protocol and the current card-free revision", async () => {
   const result = await build(defaultScript())
   expect(result.packet).toBeDefined()
-  expect(result.packet?.schema_version).toBe("1.1")
+  expect(result.packet?.schema_version).toBe("2.0")
   expect(result.packet?.inputs.report_protocol).toBe("concord-worker-result-v1")
 })
 
@@ -191,7 +191,7 @@ test("a well-formed build projects mandate, narrative, and obligations into a va
   expect(built.failure).toBeUndefined()
   const packet = built.packet!
   expect(validateAgentLanePacket(packet)).toBe(true)
-  expect(packet.schema_version).toBe("1.1")
+  expect(packet.schema_version).toBe("2.0")
   expect(packet.attempt_id).toBe("attempt-1")
   expect(packet.work_id).toBe(WORK_ID)
   expect(packet.step_id).toBe("step-1")
@@ -354,8 +354,8 @@ const WORK_CONTEXT: AgentLanePacketWorkContext = {
     },
   ],
   domain_groups: [
-    { domain_id: "child-alpha", required_reading_ordinals: [1], finding_ids: ["finding:19:0"], domain_cards: [] },
-    { domain_id: "root", required_reading_ordinals: [0], finding_ids: [], domain_cards: [] },
+    { domain_id: "child-alpha", required_reading_ordinals: [1], finding_ids: ["finding:19:0"] },
+    { domain_id: "root", required_reading_ordinals: [0], finding_ids: [] },
   ],
 }
 
@@ -370,28 +370,46 @@ test("a work context projects verbatim into the packet", async () => {
   expect(validateAgentLanePacket(packet)).toBe(true)
 })
 
-test("pinned Domain cards project unchanged without content", async () => {
+test("a card-bearing work context refuses the current card-free packet", async () => {
+  // Domain cards are retired. The released 1.0/1.1 branches of the
+  // closed packet schema keep their card-bearing shapes for replay, and the
+  // current 2.0 branch refuses the member whole — cards derived by any
+  // reader never enter a packet, with or without inlined content.
   const source = { kind: "repository_file", project_id: "project", path: ".concord/navigation/domains/child-alpha.md", commit_oid: "a1".repeat(20) } as const
-  const work_context: AgentLanePacketWorkContext = {
+  const cardBearing: AgentLanePacketWorkContext = {
     ...WORK_CONTEXT,
     required_reading: [...WORK_CONTEXT.required_reading, { domain_id: "child-alpha", reason: "Read the pinned Domain card.", source }],
     domain_groups: WORK_CONTEXT.domain_groups.map(group => group.domain_id === "child-alpha"
       ? { ...group, required_reading_ordinals: [1, 2], domain_cards: [source] }
       : group),
   }
-  const built = await build({
+  const withCards = await build({
     ...defaultScript(),
-    "concord_work_trace.continuity": continuityEnvelope(pinnedContract(), null, { work_context }),
+    "concord_work_trace.continuity": continuityEnvelope(pinnedContract(), null, { work_context: cardBearing }),
   })
-  expect(built.failure).toBeUndefined()
-  expect(built.packet!.inputs.work_context).toEqual(work_context)
-  expect(validateAgentLanePacket(built.packet!)).toBe(true)
-  const content = { ...work_context, domain_groups: [{ ...work_context.domain_groups[0], domain_cards: [{ ...source, content: "must not enter packet" }] }] }
+  expect(withCards.failure?.kind).toBe("packet_refused")
+  const inlined = { ...cardBearing, domain_groups: [{ ...cardBearing.domain_groups[0], domain_cards: [{ ...source, content: "must not enter packet" }] }] }
   const refused = await build({
     ...defaultScript(),
-    "concord_work_trace.continuity": continuityEnvelope(pinnedContract(), null, { work_context: content }),
+    "concord_work_trace.continuity": continuityEnvelope(pinnedContract(), null, { work_context: inlined }),
   })
   expect(refused.failure?.kind).toBe("packet_refused")
+})
+
+test("retained card-bearing 1.1 packets still validate through their recorded branch", async () => {
+  // The historical reader stays available for replay and retained-result
+  // recovery: a released card-bearing packet validates under its recorded
+  // identity while the same member refuses at the current 2.0 branch.
+  const built = await build(defaultScript())
+  const base = built.packet!
+  const source = { kind: "repository_file", project_id: "project", path: ".concord/navigation/domains/child-alpha.md", commit_oid: "a1".repeat(20) }
+  const retained = {
+    ...base,
+    schema_version: "1.1" as const,
+    inputs: { ...base.inputs, work_context: { ...WORK_CONTEXT, domain_groups: [{ ...WORK_CONTEXT.domain_groups[0], domain_cards: [source] }] } },
+  }
+  expect(validateAgentLanePacket(retained)).toBe(true)
+  expect(validateAgentLanePacket({ ...retained, schema_version: "2.0" as const })).toBe(false)
 })
 
 test("a pin without a work context adds no packet member", async () => {

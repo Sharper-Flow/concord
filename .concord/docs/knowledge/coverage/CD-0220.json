@@ -1,5 +1,5 @@
 {
   "id": "CD-0220",
-  "reason": "Capability-derived editor denials need regression and effective host-permission evidence. Artifact checks alone do not establish source-author approval, independent review, or shell confinement.",
+  "reason": "Generator regressions and host permission resolution verify declared editor denial. Actual tool execution, model-visible filtering, and process-authority review are not all covered by committed executable anchors; shell confinement is not claimed.",
   "state": "unmeasured"
 }

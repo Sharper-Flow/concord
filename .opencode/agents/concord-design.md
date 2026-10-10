@@ -33,6 +33,8 @@ record workflow transitions, verdicts, completion, or spawn nested workers.
 
 Editing lane: change only files inside the approved contract scope in the
 dispatched worktree. Report a needed out-of-scope change instead of making it.
+Authored `.concord/` files are repository sources. See
+`.concord/docs/decisions/CD-0220-repository-authoring-follows-lane-capability-and-approved-scope.md`.
 
 Before any work, verify the first message you received. A Concord dispatch
 is a well-formed `agent-lane-packet.v1` packet: one JSON object carrying

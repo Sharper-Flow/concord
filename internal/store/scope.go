@@ -109,22 +109,9 @@ func productsForProjectIDs(ctx context.Context, q queryer, ids []string) (map[st
 	return out, rows.Err()
 }
 
-func (s *Store) WorkExists(ctx context.Context, id string) (bool, error) {
-	return workExistsCore(ctx, s.db, id)
-}
-
 func workExistsCore(ctx context.Context, q queryer, id string) (bool, error) {
 	var exists bool
 	err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM work_items WHERE id=?)`, id).Scan(&exists)
-	return exists, err
-}
-func (s *Store) KnowledgeExists(ctx context.Context, id string) (bool, error) {
-	return knowledgeExists(ctx, s.db, id)
-}
-
-func knowledgeExists(ctx context.Context, q queryer, id string) (bool, error) {
-	var exists bool
-	err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM archived_work WHERE id=?)`, id).Scan(&exists)
 	return exists, err
 }
 

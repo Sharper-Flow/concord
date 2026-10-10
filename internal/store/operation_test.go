@@ -364,3 +364,86 @@ func insertRawEvent(t *testing.T, s *Store, e Event) int64 {
 	}
 	return seq
 }
+
+// stampedWorkEvent builds a work_item-subject event at an exact time, so a
+// test can place an event where RFC3339Nano's variable-width text order and
+// time order disagree.
+func stampedWorkEvent(t *testing.T, id, kind, subjectID string, payload map[string]any, at time.Time) Event {
+	t.Helper()
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return Event{EventID: id, Kind: kind, SubjectType: SubjectWorkItem, SubjectID: subjectID, Actor: "operator", OccurredAt: at, PayloadVersion: 1, Payload: encoded}
+}
+
+// TestNonVersionedWorkEventsLeaveUpdatedAtOnTheVersionedWrite proves
+// updated_at keeps its versioned-write meaning: a work_item-subject event
+// that performs no versioned write — an observation record, or a removal
+// event an older fold generation appended straight to the log (CD-0111) —
+// leaves updated_at on the created write.
+func TestNonVersionedWorkEventsLeaveUpdatedAtOnTheVersionedWrite(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openTemp(t)
+	defer s.Close()
+	if err := ApplyOperation(ctx, s, Operation{
+		Events: []Event{
+			operationEvent("la-product", "product.created", SubjectProduct, "la-product", map[string]any{
+				"display_name": "Last Activity", "stage_maturity": "prototype", "stage_audience_commitment": "operator_only",
+			}),
+			operationEvent("la-project", "project.created", SubjectProject, "la-project", map[string]any{"display_name": "Last Activity Project"}),
+			operationEvent("la-membership", "product_project.added", SubjectProduct, "la-product", map[string]any{
+				"product_id": "la-product", "project_id": "la-project", "role": "primary", "reason": "fixture", "expected_version": 1, "resulting_version": 2,
+			}),
+		},
+		ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProduct, "la-product"): 0, VersionRef(SubjectProject, "la-project"): 0},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplyOperation(ctx, s, Operation{
+		Events: []Event{
+			workCreatedEvent("work-la", "la-create"),
+			operationEvent("la-work-project", "work_project.added", SubjectWorkItem, "work-la", map[string]any{
+				"work_id": "work-la", "project_id": "la-project", "role": "primary", "reason": "fixture", "expected_version": 1, "resulting_version": 2,
+			}),
+		},
+		ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "work-la"): 0},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	const createdStamp = "2026-08-07T12:00:00.000000000Z"
+	updatedAt := func() string {
+		t.Helper()
+		var stamp string
+		if err := s.DatabaseForTesting().QueryRow(
+			`SELECT updated_at FROM work_items WHERE id='work-la'`).Scan(&stamp); err != nil {
+			t.Fatal(err)
+		}
+		return stamp
+	}
+	if got := updatedAt(); got != createdStamp[:19]+"Z" {
+		t.Fatalf("updated_at = %q, want the created write %q", got, createdStamp[:19]+"Z")
+	}
+
+	// A work_item-subject event that performs no versioned write leaves
+	// updated_at on the created write.
+	observationAt := time.Date(2026, 8, 9, 9, 30, 5, 120000000, time.UTC)
+	if err := ApplyOperation(ctx, s, Operation{Events: []Event{
+		stampedWorkEvent(t, "la-obs", WorkObservationRecorded, "work-la", map[string]any{
+			"observation_id": "obs:0123456789abcdef", "statement": "The fold recorded activity without a versioned write.", "refs": []string{}, "tags": []string{},
+		}, observationAt),
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	if got := updatedAt(); got != createdStamp[:19]+"Z" {
+		t.Fatalf("updated_at = %q, want the unchanged versioned write", got)
+	}
+
+	// A removal event an older fold generation appended to the log moves no
+	// stored column: the log records the moment, the projection write stays.
+	insertRawEvent(t, s, Event{EventID: "la-remove", Kind: WorkRemoved, SubjectType: SubjectWorkItem, SubjectID: "work-la", Actor: "operator", OccurredAt: observationAt.Add(time.Hour), PayloadVersion: 1, Payload: json.RawMessage(`{}`)})
+	if got := updatedAt(); got != createdStamp[:19]+"Z" {
+		t.Fatalf("updated_at = %q, want the raw log append to move no column", got)
+	}
+}

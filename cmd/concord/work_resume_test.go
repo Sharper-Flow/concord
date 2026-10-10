@@ -104,7 +104,10 @@ func TestWorkResumeReportsRecordedLinearIssue(t *testing.T) {
 		WorkID: origin.WorkID, HumanKey: "EX-3", RemoteIssueUUID: "cccccccc-0000-0000-0000-000000000003",
 		URL: "https://linear.app/example/issue/EX-3",
 	}
-	if _, err := s.RecordLinearIssueLink(context.Background(), link); err != nil {
+	if err := s.Transact(context.Background(), func(tx *store.Transaction) error {
+		_, err := store.RecordLinearIssueLinkTx(context.Background(), tx, link)
+		return err
+	}); err != nil {
 		t.Fatal(err)
 	}
 	output := readOutput()

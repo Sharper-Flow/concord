@@ -33,12 +33,6 @@ type ProductMembership struct {
 	Role        string `json:"role"`
 }
 
-// ProductScope is the derived Product set for one canonical work item.
-type ProductScope struct {
-	Products     []ProductMembership
-	CrossProduct bool
-}
-
 func validateMembershipPayload(payload membershipPayload, subjectField, subjectID string) error {
 	if payload.ProjectID == "" || payload.Role == "" || payload.Reason == "" {
 		return newFailure(KindInvalidPayload, "fold_event", "membership payload requires project_id, role, and reason", false,
@@ -393,37 +387,6 @@ func (s *Store) ProjectsForProduct(ctx context.Context, productID string) ([]Pro
 	return projectsForProduct(ctx, s.db, productID)
 }
 
-// ProjectLaunchPath returns the repository path recorded by bootstrap or by a
-// prior Project locator. It is a read-only launch hint, not a new Project fact.
-func (s *Store) ProjectLaunchPath(ctx context.Context, projectID string) (string, error) {
-	if s == nil || s.db == nil {
-		return "", newFailure(KindUnavailable, "project_launch_path", "store is not open", false, "open the authority database")
-	}
-	var path string
-	err := s.db.QueryRowContext(ctx, `SELECT normalized_value FROM project_locators WHERE project_id=? AND kind='canonical_path' ORDER BY locator_id LIMIT 1`, projectID).Scan(&path)
-	if err == nil {
-		return path, nil
-	}
-	if err != sql.ErrNoRows {
-		return "", wrapFailure(KindUnavailable, "project_launch_path", "cannot read Project path", true, "retry once the database is readable", err)
-	}
-	err = s.db.QueryRowContext(ctx, `SELECT repo_path FROM bootstrap_operations WHERE project_id=? AND repo_path <> '' ORDER BY updated_at DESC LIMIT 1`, projectID).Scan(&path)
-	if err == nil {
-		return path, nil
-	}
-	if err != sql.ErrNoRows {
-		return "", wrapFailure(KindUnavailable, "project_launch_path", "cannot read bootstrap path", true, "retry once the database is readable", err)
-	}
-	err = s.db.QueryRowContext(ctx, `SELECT repository_id FROM worktree_claims WHERE project_id=? AND repository_id <> '' ORDER BY updated_at DESC LIMIT 1`, projectID).Scan(&path)
-	if err == sql.ErrNoRows {
-		return "", newFailure(KindUnknownScope, "project_launch_path", "Project has no recorded repository path", false, "bootstrap the Project before launching it")
-	}
-	if err != nil {
-		return "", wrapFailure(KindUnavailable, "project_launch_path", "cannot read worktree repository path", true, "retry once the database is readable", err)
-	}
-	return path, nil
-}
-
 func ProjectsForProductTx(ctx context.Context, transaction *Transaction, productID string) ([]ProjectMembership, error) {
 	tx, err := transactionSQL(transaction, "projects_for_product")
 	if err != nil {
@@ -453,10 +416,6 @@ func projectsForProduct(ctx context.Context, q queryer, productID string) ([]Pro
 		memberships = append(memberships, item)
 	}
 	return memberships, rows.Err()
-}
-
-func (s *Store) ProductsForProject(ctx context.Context, projectID string) ([]ProductMembership, error) {
-	return productsForProject(ctx, s.db, projectID)
 }
 
 func productsForProject(ctx context.Context, q queryer, projectID string) ([]ProductMembership, error) {
@@ -507,38 +466,4 @@ func projectsForWork(ctx context.Context, q queryer, workID string) ([]ProjectMe
 		memberships = append(memberships, item)
 	}
 	return memberships, rows.Err()
-}
-
-func (s *Store) ProductsForWork(ctx context.Context, workID string) (ProductScope, error) {
-	return productsForWork(ctx, s.db, workID)
-}
-
-func productsForWork(ctx context.Context, q queryer, workID string) (ProductScope, error) {
-	rows, err := q.QueryContext(ctx, `
-		SELECT DISTINCT products.id, products.display_name
-		FROM work_projects
-		JOIN product_projects ON product_projects.project_id = work_projects.project_id
-		JOIN products ON products.id = product_projects.product_id
-		WHERE work_projects.work_id = ?
-		ORDER BY products.id`, workID)
-	if err != nil {
-		return ProductScope{}, wrapFailure(KindUnavailable, "products_for_work", "cannot read derived Product scope", true,
-			"retry once the database is readable", err)
-	}
-	defer rows.Close()
-	var scope ProductScope
-	for rows.Next() {
-		var item ProductMembership
-		if err := rows.Scan(&item.ID, &item.DisplayName); err != nil {
-			return ProductScope{}, wrapFailure(KindUnavailable, "products_for_work", "cannot decode derived Product scope", true,
-				"retry once the database is readable", err)
-		}
-		scope.Products = append(scope.Products, item)
-	}
-	if err := rows.Err(); err != nil {
-		return ProductScope{}, wrapFailure(KindUnavailable, "products_for_work", "cannot read derived Product scope", true,
-			"retry once the database is readable", err)
-	}
-	scope.CrossProduct = len(scope.Products) > 1
-	return scope, nil
 }

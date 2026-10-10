@@ -1,10 +1,5 @@
 {
-  "evidence": [
-    {
-      "kind": "go_test",
-      "value": "internal/launcher.TestSpikeDependencyEvidenceUsesRuntimeAndTestClosures"
-    }
-  ],
   "id": "CD-0014",
-  "state": "satisfied"
+  "reason": "The rendering stack this decision chose binds no shipped surface: the terminal launcher TUI retired under CD-0219 and the charm.land modules leave the graph with it.",
+  "state": "out_of_scope"
 }

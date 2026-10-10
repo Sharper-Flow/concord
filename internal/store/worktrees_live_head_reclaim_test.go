@@ -346,7 +346,7 @@ func TestCorrectionCheckoutReclaimsAcrossAllPaths(t *testing.T) {
 		f := con829FixtureNew(t)
 		path, claimBranch, correctionBranch, claimTip := f.correctionScenario("work-destroy")
 		f.completeWork("work-destroy")
-		entry, err := f.s.DestroyWorktree(context.Background(), WorktreeDestroyRequest{
+		entry, err := destroyWorktreeForTest(context.Background(), f.s, WorktreeDestroyRequest{
 			WorkID: "work-destroy", ProjectID: "project-w", DefaultRef: "origin/main",
 			ExpectedVersion: 4, PrincipalRef: "principal-1", RequestID: "con829-destroy", Now: time.Unix(40, 0).UTC(),
 		})

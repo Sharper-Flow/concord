@@ -64,8 +64,11 @@ func TestReadEntryPointsWithWriterNeighbor(t *testing.T) {
 			_, err := WorkflowFailedWorkerRetryBinding(ctx, s, BuiltinWorkflowRegistry(), "neighbor-work")
 			return err
 		}},
-		{"ReadResearchPack", func() error { _, err := ReadResearchPack(ctx, s, pack.PackID, 100); return err }},
-		{"ResearchPacksByOwner", func() error { _, err := ResearchPacksByOwner(ctx, s, "neighbor-research", 100); return err }},
+		{"ReadResearchPack", func() error {
+			_, err := s.ReadResearchPack(ctx, ResearchReadRequest{PackID: pack.PackID, Limit: 100})
+			return err
+		}},
+		{"ResearchPacksByOwner", func() error { _, err := s.ResearchPacksByOwner(ctx, "neighbor-research", 100, ""); return err }},
 		{"ResearchFreshnessForPack", func() error { _, err := ResearchFreshnessForPack(ctx, s, pack.PackID); return err }},
 		{"readAppliedFromDB", func() error { _, _, err := readAppliedFromDB(ctx, s.db, s.Path()); return err }},
 		{"ReconstructSubjectAt", func() error {
@@ -75,17 +78,13 @@ func TestReadEntryPointsWithWriterNeighbor(t *testing.T) {
 		{"QueryProductRows", func() error { _, err := s.QueryProductRows(ctx, ProductRowRequest{}); return err }},
 		{"Resources", func() error { _, err := s.Resources(ctx, ResourcesRequest{ProductID: "prod"}); return err }},
 		{"BlockedSessions", func() error { _, err := s.BlockedSessions(ctx, time.Now(), []string{"prod"}, 100); return err }},
-		{"QueryLauncherSearch", func() error {
-			_, err := s.QueryLauncherSearch(ctx, LauncherSearchRequest{Product: "prod", Query: "blocker"})
-			return err
-		}},
-		{"QueryLauncherProduct", func() error {
-			_, err := s.QueryLauncherProduct(ctx, LauncherProductRequest{Product: "prod"})
-			return err
-		}},
 		{"ResolveLauncherWorkProduct", func() error { _, err := s.ResolveLauncherWorkProduct(ctx, "blocker", "proj", "prod"); return err }},
 		{"ResolveLauncherLinearIssue", func() error {
-			_, err := s.ResolveLauncherLinearIssue(ctx, "SYN-1", "https://example.invalid/issues/SYN-1", "proj", "prod")
+			workID, err := s.ResolveLauncherLinearIssueWork(ctx, "SYN-1", "https://example.invalid/issues/SYN-1")
+			if err != nil {
+				return err
+			}
+			_, err = s.ResolveLauncherWorkProduct(ctx, workID, "proj", "prod")
 			return err
 		}},
 		{"ResolveLauncherLinearIssueWork", func() error {

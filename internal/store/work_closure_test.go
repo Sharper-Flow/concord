@@ -51,7 +51,10 @@ func TestReadWorkClosureCarriesTheClosureFacts(t *testing.T) {
 	if err := applyWorkEvent(t, s, relationAddedEvent("closure-rel-1", "raised_from", firstFollowUp, workID, firstVersion, firstVersion+1), workVersion(firstFollowUp, firstVersion)); err != nil {
 		t.Fatalf("first raised_from refused: %v", err)
 	}
-	if _, err := s.RecordLinearIssueLink(ctx, LinearIssueLink{WorkID: firstFollowUp, RemoteIssueUUID: "remote-closure-1", HumanKey: "CON-777", URL: "https://linear.app/example/issue/CON-777"}); err != nil {
+	if err := s.Transact(ctx, func(tr *Transaction) error {
+		_, err := RecordLinearIssueLinkTx(ctx, tr, LinearIssueLink{WorkID: firstFollowUp, RemoteIssueUUID: "remote-closure-1", HumanKey: "CON-777", URL: "https://linear.app/example/issue/CON-777"})
+		return err
+	}); err != nil {
 		t.Fatalf("link refused: %v", err)
 	}
 

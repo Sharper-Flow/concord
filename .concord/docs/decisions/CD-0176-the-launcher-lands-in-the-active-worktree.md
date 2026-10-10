@@ -2,14 +2,15 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-24
-- **Scope:** Where a launcher-started session for selected work runs when the
-  work holds an active worktree in its primary Project; the session landing
-  directory and everything that directory governs
+- **Scope:** Where a session for selected work runs when the work holds an
+  active worktree in its primary Project; the session landing directory and
+  everything that directory governs
 - **Amends:** CD-0093
 - **Amended:** CD-0182 (2026-09-27) adds the explicit member-Project
   selector to the landing; this record's primary-Project rule is unchanged.
   CD-0189 (2026-09-28) configures the host command; this record's landing
-  rules are unchanged.
+  rules are unchanged. CD-0219 (2026-10-09) retires the interactive launcher
+  TUI; this record's landing rules bind the session entry route unchanged.
 - **Related:** CD-0008, CD-0088, CD-0103
 - **Approval:** The operator approved the objective in the Concord (CON)
   work contract CON-448 (v1). The pull request is the public record.
@@ -23,17 +24,17 @@ That decision predates the native worktree workflow it now serves. When
 Concord claims a worktree for a work item (CD-0008), the work lives in the
 worktree, and the canonical path is the repository's main checkout.
 
-An operator who resumes such a work item through the launcher lands in the
-main checkout. The session must then reach its worktree through a
+An operator who resumes such a work item through the session entry route
+lands in the main checkout. The session must then reach its worktree through a
 `concord_work_start` resume, which moves the session in a later turn (CD-0088
 owns the worktree bootstrap). The move costs a turn and a directory change
 after the host already started.
 
-The launcher holds both facts at start: the selected work and the work's
-active worktree. `worktree_entries` records the folded on-disk state, and the
-unique active claim per work and Project pins one path. Git itself treats a
-linked worktree as a full working tree of the same repository, so the path
-serves as a project root exactly as the canonical path does.
+The session command reads both facts at start: the selected work and the
+work's active worktree. `worktree_entries` records the folded on-disk state,
+and the unique active claim per work and Project pins one path. Git itself
+treats a linked worktree as a full working tree of the same repository, so the
+path serves as a project root exactly as the canonical path does.
 
 The adapter keeps its own landing guard for sessions it starts. That guard is
 unchanged here. Landing a captured work item on the capture turn itself stays
@@ -44,7 +45,7 @@ out of scope under CD-0103.
 ### D1. The session lands in the active worktree when one is usable
 
 When the selected work holds an active worktree in its primary Project, and
-that worktree is a usable directory on the machine the launcher runs on,
+that worktree is a usable directory on the machine the session starts on,
 `concord session` starts the host in the worktree. `concord zl` forwards to
 the session command, so both surfaces land in the worktree.
 
@@ -87,7 +88,7 @@ reads a second directory, a new setting, or the process working directory.
 ## Alternatives considered
 
 - Land in the worktree from the store record alone, without the on-disk
-  check. Rejected: the launcher would start the host in a path the machine
+  check. Rejected: the entry route would start the host in a path the machine
   does not hold, and the session would refuse after the operator chose the
   work.
 - Refuse the launch when the active worktree is missing on disk. Rejected:
@@ -112,7 +113,7 @@ canonical path can read it directly.
 
 A worktree recorded active but deleted out-of-band lands its session in the
 canonical path silently. The next worktree audit or claim retarget owns that
-state, and the launcher does not repair it here. A worktree in a Project
+state, and the entry route does not repair it here. A worktree in a Project
 other than the primary one never lands a session, because the primary Project
 owns the session directory under CD-0093 D1.
 

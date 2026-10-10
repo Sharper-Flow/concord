@@ -93,13 +93,13 @@ This supports Priority 4 (Visibility and continuity).
 
 ## 6. Lightweight, agent-buildable interface
 
-**Requirement.** The primary operator surface is a **Product-first terminal launcher**. Any additional interface (web, TUI, etc.) is optional and must not become the design center.
+**Requirement.** Until the Herdr cutover, the primary operator surface is the **`concord zl` launcher together with the agent sessions it opens**. Herdr replaces this surface at cutover. Any additional interface (web, TUI, etc.) is optional and must not become the design center.
 
-**Implication.** The launcher is the canonical human entry point. Agents interact
+**Implication.** The `concord zl` launcher and its agent sessions are the canonical human entry point until the Herdr cutover. Agents interact
 with the same durable Product memory through the **CD-0005 surface as amended by
 CD-0024** and `concord.ts` adapter. Grid/table views are secondary projections.
 
-**Direction.** Terminal-first, Product-scoped navigation; optional web/TUI grid views later; no IDE-specific integrations. The interface is simple enough that an agent can scaffold or extend views without fighting a heavy frontend stack.
+**Direction.** The entry route is work-oriented through `concord zl` and its agent sessions until the Herdr cutover. Optional web/TUI grid views remain secondary, with no IDE-specific integrations. The interface is simple enough that an agent can scaffold or extend views without fighting a heavy frontend stack.
 
 This supports the operating envelope in [`priorities.md`](./priorities.md) and Priority 4 (Visibility and continuity).
 

@@ -421,7 +421,7 @@ func TestResearchRetireReplayAfterOwnerRemovalFailsClosed(t *testing.T) {
 		ExecutionRelinquished: true, WritesReconciled: true, EffectsReconciled: true,
 		DependenciesResolved: true, ArtifactsVerified: true,
 	}
-	if _, err := s.ShelveWork(context.Background(), req); err != nil {
+	if _, err := s.RemoveWork(context.Background(), req); err != nil {
 		t.Fatalf("owner removal refused: %v", err)
 	}
 	replay := invokeResearchRetire(t, s, service, grant, "product-1", candidates[:1], false, "removal-replay")

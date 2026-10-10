@@ -2,11 +2,13 @@
 
 > **Status:** **Accepted — binding until superseded.**
 > **Accepted by operator:** 2026-08-06.
-> **Decision:** C14; default terminal-launcher Product row and compatible optional
+> **Decision:** C14; the Product-row projection and compatible optional
 > admin-panel projection.
 > **Amended by:** CD-0041 replaces component navigation with Product → Domain;
-> the five Product-row field groups remain unchanged.
-> **Binding inputs:** Product-first operating envelope, Product/Domain navigation,
+> the five Product-row field groups remain unchanged. CD-0219 retires the
+> launcher render surface; the §9 screen-reader/no-color render condition
+> retires with it, and the row projection stands unchanged.
+> **Binding inputs:** The operating envelope in `priorities.md`, Product/Domain navigation,
 > active-work visibility, PM1 Q1/Q2/Q4/Q5, PM4/PM5 identity semantics, and accepted
 > TS7 authority/freshness envelope.
 > **Does not decide:** terminal interaction/keybindings/layout toolkit, Product detail
@@ -15,9 +17,8 @@
 
 ## Context
 
-The operator's launcher opens onto a portfolio of Products, and each Product
-must answer one glance question first. The binding inputs are the Product-first
-operating envelope, Product and Domain navigation, active-work visibility,
+Each Product must answer one glance question first. The binding inputs are the
+operating envelope in `priorities.md`, Product and Domain navigation, active-work visibility,
 PM1 Q1/Q2/Q4/Q5, PM4/PM5 identity semantics, and the accepted TS7
 authority and freshness envelope. This record fixes the default Product row:
 its five field groups, the canonical row object, focus selection, and
@@ -43,10 +44,8 @@ The default Product row contains exactly five field groups:
 5. **Focus item** — one deterministic highest-attention/current/next work summary,
    or an explicit reason no focus item exists.
 
-The row is an orientation/selection projection, not a Product dashboard. The launcher
-supports narrow open/start/resume/launch routing only. Selecting a row opens the
-Product/Domain/workflow detail where architecture overlap, approvals, conflicts,
-editing, history, law, operations, and resources belong (CD-0006 D6; CD-0041).
+The row is an orientation/selection projection, not a Product dashboard
+(CD-0006 D6; CD-0041).
 
 ## 2. Canonical row object
 
@@ -208,9 +207,11 @@ Test at minimum:
   declarations without ranking them;
 - stale-blocked, degraded, and unreachable rows;
 - duplicate display names requiring ID disambiguation;
-- narrow and wide terminals without hidden meaning or horizontal scroll;
-- 20- and 100-Product pages under read latency/output bounds; and
-- screen-reader/no-color textual interpretation.
+- narrow and wide terminals without hidden meaning or horizontal scroll; and
+- 20- and 100-Product pages under read latency/output bounds.
+
+The screen-reader/no-color textual interpretation condition retired with the
+launcher render surface under CD-0219.
 
 Operator test: identify the Product requiring attention, explain why, and select the
 next Product in one glance without opening rows. Failure to do so reopens fields or
@@ -218,8 +219,7 @@ focus priority; it does not authorize a dashboard dump.
 
 ## 10. Evidence basis
 
-- Primary operator surface is Product-first terminal; operator must see ready,
-  blocked, and next work (`priorities.md` §§Operating envelope, 4–5).
+- The operator must see ready, blocked, and next work (`priorities.md` §§4–5).
 - Default Product/Domain view shows active gates/problems first and keeps terminal
   history behind drill-down (`product-data-model.md` §§6–7).
 - PM1 Q2 provides unique lifecycle/derived counts and bounded previews; Q4/Q5 own
@@ -247,7 +247,7 @@ available in storage is not evidence it belongs on the row.
 ## Acceptance criteria
 
 - Given a Product with work in multiple focus tiers
-  When the launcher projects its row
+  When the store projects its row
   Then exactly five field groups render, and focus selection picks the first
   non-empty tier deterministically by priority, time, then stable ID.
 
@@ -272,10 +272,9 @@ available in storage is not evidence it belongs on the row.
 
 ## Verification
 
-The corpus case `active-quiet-duplicate` encodes criterion 3 and
-`focus-priority` encodes criterion 1, but no harness executes the launcher
-corpus yet, so criteria carry typed exemptions naming the Go tests that prove
-the guarantees. `python3 scripts/check-doc-contract.py` validates those
+No harness executes a row-projection corpus, so criteria carry typed
+exemptions naming the Go tests that prove the guarantees.
+`python3 scripts/check-doc-contract.py` validates those
 recorded exemptions.
 
 - Criterion 1 is proved by `TestProductRowsC14FiveTierCompetitionChoosesFirstNonemptyTier`
@@ -283,8 +282,8 @@ recorded exemptions.
   (`internal/store/product_row_test.go`).
 - Criterion 2 is proved by `TestProductRowsC14AuthoritativeEmptyAndTerminalOnly`
   (`internal/store/product_row_test.go`).
-- Criterion 3 is proved by `TestProjectionIsDeterministicAndCarriesAttentionMarkers`
-  (`internal/launcher/model_test.go`), which fixes the stable-suffix rule.
+- Criterion 3 is proved by `TestProductRowsC14DuplicateNamesAndCursorBinding`
+  (`internal/store/product_row_test.go`), which fixes the stable-suffix rule.
 - Criterion 4 is proved by `TestProductRowsC14TerminalWorkCannotEnterAnyFocusTier`
   (`internal/store/product_row_test.go`).
 - Criterion 5 is proved by `TestProductRowsC14FocusTiersStageContextAndCrossProjectDedupe`

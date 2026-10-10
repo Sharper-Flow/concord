@@ -1,34 +1,5 @@
 {
-  "evidence": [
-    {
-      "kind": "go_test",
-      "value": "internal/launcher/storeport.TestS2DomainSectionReadsLawRelationsWorkAndOverlapFromTheStore"
-    },
-    {
-      "kind": "go_test",
-      "value": "internal/launcher/storeport.TestS2ArchitectureRelationsAreAuthoritativeEmptyNotUnavailable"
-    },
-    {
-      "kind": "go_test",
-      "value": "internal/launcher/storeport.TestS2DomainSectionBoundedOverlapKeepsRegistryRows"
-    },
-    {
-      "kind": "go_test",
-      "value": "internal/launcher/render/bubbletea.TestDomainContextRendersOnlyWhenAbnormal"
-    },
-    {
-      "kind": "go_test",
-      "value": "internal/launcher.TestWorkListProjectionCarriesMarkerKeyTitleBlockersAndLive"
-    },
-    {
-      "kind": "go_test",
-      "value": "internal/launcher.TestWorkListProjectionKeepsTheStoreOrder"
-    },
-    {
-      "kind": "go_test",
-      "value": "internal/launcher/render/bubbletea.TestWorkListRedrawIsByteIdentical"
-    }
-  ],
   "id": "CD-0048",
-  "state": "satisfied"
+  "reason": "The S2 surface and its ordering query retired with the launcher TUI under CD-0219. This coverage does not assert a retained last_activity_at column or fold obligation. Surviving store tests preserve updated_at as the versioned-write time and verify that migration 109 keeps last_activity_at absent.",
+  "state": "out_of_scope"
 }

@@ -933,7 +933,7 @@
           "updated_at": "id-1"
         }
       ],
-      "result_schema": "research_pack",
+      "result_schema": "research_read_result",
       "result_valid": {
         "created_at": "id-1",
         "current_revision": 1,
@@ -3608,5 +3608,5 @@
       }
     }
   ],
-  "manifest_digest": "sha256:fa26e4f1209de46c438829b1b674bebd3d672be662a67afa464228f49a16a8c6"
+  "manifest_digest": "sha256:c585fe9bf6757f91696c544acbc63cafcad497433b5e084b62fea731638e13a8"
 }

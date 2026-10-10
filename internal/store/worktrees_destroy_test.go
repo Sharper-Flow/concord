@@ -25,12 +25,47 @@ func seedWorktreeLifecycle(t *testing.T, s *Store) {
 	}
 }
 
+// destroyWorktreeForTest drives the Destroy tier through the live
+// transaction-scoped twin exactly as the store's callers do: the host leases
+// and git probe run before the transaction opens, the reclamation event
+// commits inside it, and the native removal follows the commit (CD-0195 D2).
+func destroyWorktreeForTest(ctx context.Context, s *Store, req WorktreeDestroyRequest) (WorktreeEntry, error) {
+	reclaimReq := WorktreeReclaimRequest{
+		WorkID: req.WorkID, ProjectID: req.ProjectID, DefaultRef: req.DefaultRef,
+		PrincipalRef: req.PrincipalRef, RequestID: req.RequestID,
+		ExpectedVersion: req.ExpectedVersion, Now: req.Now, Runner: req.Runner,
+		RequireTerminal: true, OperatorApprovalRef: req.OperatorApprovalRef, Destructive: req.Destructive,
+		ReleaseOccupancy: req.ReleaseOccupancy,
+	}
+	reclaimReq.HostLeases = s.ReadHostLeases()
+	runner := reclaimReq.Runner
+	if runner == nil {
+		runner = ExecGitRunner{}
+	}
+	probe, err := s.PrepareWorktreeReclaim(ctx, reclaimReq)
+	if err != nil {
+		return WorktreeEntry{}, err
+	}
+	var result WorktreeReclaimResult
+	if err := s.Transact(ctx, func(tx *Transaction) error {
+		var txErr error
+		result, txErr = DestroyWorktreeTx(ctx, tx, reclaimReq, probe)
+		return txErr
+	}); err != nil {
+		return WorktreeEntry{}, err
+	}
+	if err := s.FinishWorktreeNativeRemoval(ctx, runner, result.Removal); err != nil {
+		return result.Entry, err
+	}
+	return result.Entry, nil
+}
+
 func TestDestroyMergedTerminalWorkReclaims(t *testing.T) {
 	t.Parallel()
 	s, worktreePath := realGitTiersFixture(t)
 	seedWorktreeLifecycle(t, s)
 
-	entry, err := s.DestroyWorktree(context.Background(), WorktreeDestroyRequest{
+	entry, err := destroyWorktreeForTest(context.Background(), s, WorktreeDestroyRequest{
 		WorkID: "work-w", ProjectID: "project-w", DefaultRef: "main",
 		ExpectedVersion: 4, PrincipalRef: "principal-1", RequestID: "destroy-1", Now: time.Unix(30, 0).UTC()})
 	if err != nil {
@@ -47,7 +82,7 @@ func TestDestroyMergedTerminalWorkReclaims(t *testing.T) {
 func TestDestroyRefusesNonTerminalWithoutApproval(t *testing.T) {
 	t.Parallel()
 	s, _ := realGitTiersFixture(t)
-	_, err := s.DestroyWorktree(context.Background(), WorktreeDestroyRequest{
+	_, err := destroyWorktreeForTest(context.Background(), s, WorktreeDestroyRequest{
 		WorkID: "work-w", ProjectID: "project-w", DefaultRef: "main",
 		ExpectedVersion: 3, PrincipalRef: "principal-1", RequestID: "destroy-nt", Now: time.Unix(30, 0).UTC()})
 	if err == nil || err.(*Failure).Kind != KindInvalidTransition {
@@ -67,7 +102,7 @@ func TestDestroyNonTerminalWithApprovalKeepsGitGates(t *testing.T) {
 	s, worktreePath := realGitTiersFixture(t)
 	// The approval satisfies the terminal gate; the git gates still run, and
 	// a clean merged tree passes them.
-	entry, err := s.DestroyWorktree(context.Background(), WorktreeDestroyRequest{
+	entry, err := destroyWorktreeForTest(context.Background(), s, WorktreeDestroyRequest{
 		WorkID: "work-w", ProjectID: "project-w", DefaultRef: "main",
 		ExpectedVersion: 3, OperatorApprovalRef: "approval:destroy-nt", PrincipalRef: "principal-1", RequestID: "destroy-nt-2", Now: time.Unix(30, 0).UTC()})
 	if err != nil {
@@ -88,7 +123,7 @@ func TestDestroyRefusesDirtyTreeAndNamesDestructiveRoute(t *testing.T) {
 	if err := writeFile(filepath.Join(worktreePath, "tracked.txt"), "dirty\n"); err != nil {
 		t.Fatal(err)
 	}
-	_, err := s.DestroyWorktree(context.Background(), WorktreeDestroyRequest{
+	_, err := destroyWorktreeForTest(context.Background(), s, WorktreeDestroyRequest{
 		WorkID: "work-w", ProjectID: "project-w", DefaultRef: "main",
 		ExpectedVersion: 4, PrincipalRef: "principal-1", RequestID: "destroy-dirty", Now: time.Unix(30, 0).UTC()})
 	if err == nil || err.(*Failure).Kind != KindInvalidOperation {
@@ -106,7 +141,7 @@ func TestDestroyDestructiveWithApprovalForcesRemoval(t *testing.T) {
 	if err := writeFile(filepath.Join(worktreePath, "tracked.txt"), "dirty\n"); err != nil {
 		t.Fatal(err)
 	}
-	entry, err := s.DestroyWorktree(context.Background(), WorktreeDestroyRequest{
+	entry, err := destroyWorktreeForTest(context.Background(), s, WorktreeDestroyRequest{
 		WorkID: "work-w", ProjectID: "project-w", DefaultRef: "main",
 		ExpectedVersion: 4, OperatorApprovalRef: "approval:destroy-force", Destructive: true,
 		PrincipalRef: "principal-1", RequestID: "destroy-force", Now: time.Unix(30, 0).UTC()})
@@ -125,7 +160,7 @@ func TestDestroyDestructiveWithoutApprovalRefuses(t *testing.T) {
 	t.Parallel()
 	s, _ := realGitTiersFixture(t)
 	seedWorktreeLifecycle(t, s)
-	_, err := s.DestroyWorktree(context.Background(), WorktreeDestroyRequest{
+	_, err := destroyWorktreeForTest(context.Background(), s, WorktreeDestroyRequest{
 		WorkID: "work-w", ProjectID: "project-w", DefaultRef: "main",
 		ExpectedVersion: 4, Destructive: true,
 		PrincipalRef: "principal-1", RequestID: "destroy-unapproved", Now: time.Unix(30, 0).UTC()})
@@ -144,7 +179,7 @@ func TestDestroyRefusesLocalOnlyCommits(t *testing.T) {
 	}
 	gitRunStore(t, worktreePath, "add", "tracked.txt")
 	gitRunStore(t, worktreePath, "commit", "-m", "unmerged")
-	_, err := s.DestroyWorktree(context.Background(), WorktreeDestroyRequest{
+	_, err := destroyWorktreeForTest(context.Background(), s, WorktreeDestroyRequest{
 		WorkID: "work-w", ProjectID: "project-w", DefaultRef: "main",
 		ExpectedVersion: 4, PrincipalRef: "principal-1", RequestID: "destroy-local-only", Now: time.Unix(30, 0).UTC()})
 	if err == nil || !strings.Contains(err.(*Failure).Detail, "not reachable from remote refs") {

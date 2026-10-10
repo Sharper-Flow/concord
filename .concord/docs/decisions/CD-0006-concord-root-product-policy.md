@@ -89,9 +89,7 @@ normally proceeds against settled law.
 
 ### D6. Context-rich navigation, not a control center
 
-The Product-first terminal launcher is a context-rich navigator. It shows enough
-identity, state, focus, attention, and reliance information to choose what to open,
-start, resume, or launch. Substantive approval, conflict resolution, editing,
+Substantive approval, conflict resolution, editing,
 history, resources, and planning happen inside the selected Product/workflow.
 
 Every human question must first provide the purpose, relevant context, concrete
@@ -104,7 +102,7 @@ between unexplained internal labels.
   versions, and active relations.
 - Versioned Product knowledge owns accepted specs/laws, decisions, runbooks, and
   durable completion narratives.
-- Search indexes, launcher rows, summaries, and browse views are rebuildable
+- Search indexes, summaries, and browse views are rebuildable
   projections.
 
 The same fact must never have two authorities.

@@ -300,13 +300,13 @@ func Seed(ctx context.Context, s *store.Store, c Corpus) error {
 		if err := store.ApplyOperation(ctx, s, store.Operation{Events: workEvents, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, w.ID): 0}}); err != nil {
 			return fmt.Errorf("pm1fixture: create %s: %w", w.ID, err)
 		}
-		scope, err := s.ProductsForWork(ctx, w.ID)
+		scope, err := s.ProductsForWorkIDs(ctx, []string{w.ID})
 		if err != nil {
 			return fmt.Errorf("pm1fixture: derive fixture Product scope for %s: %w", w.ID, err)
 		}
 		found := false
-		for _, product := range scope.Products {
-			if product.ID == w.Product {
+		for _, product := range scope[w.ID] {
+			if product == w.Product {
 				found = true
 				break
 			}

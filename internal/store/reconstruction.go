@@ -332,7 +332,7 @@ func populateReconstructionSnapshot(ctx context.Context, s *Store, snapshot *Rec
 			return newFailure(KindProjectionNotFound, "reconstruct_subject", "Project was not created by the requested sequence", false, "choose a later sequence")
 		}
 		snapshot.Project = &project
-		memberships, err := s.ProductsForProject(ctx, snapshot.Subject.ID)
+		memberships, err := productsForProject(ctx, s.db, snapshot.Subject.ID)
 		if err != nil {
 			return err
 		}

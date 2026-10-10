@@ -5335,9 +5335,8 @@ DELETE FROM fold_guard;
 		// digits: equal-width stamps whose text order equals their time
 		// order. A fold generation from before this migration never advances
 		// the column, so under a rolling upgrade (CD-0111) it drifts behind
-		// the log; migration 109 drops the column and the launcher derives
-		// last activity from the log at read time instead
-		// (internal/store/launcher_query.go).
+		// the log; migration 109 drops the column so no fold-maintained
+		// stamp can drift the ordering.
 		Version:  108,
 		Name:     "work_items_carry_last_activity",
 		Breaking: false,

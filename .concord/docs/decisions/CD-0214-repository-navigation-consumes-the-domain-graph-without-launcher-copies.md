@@ -5,20 +5,16 @@
 - **Scope:** Domain graph consumers, registry participation, and repository navigation adoption.
 - **Approval:** Operator-delegated approval A4 for [Concord (CON) issue 899](https://linear.app/sharper-flow/issue/CON-899).
 - **Supersedes:** [CD-0158](CD-0158-the-domain-graph-earns-its-place-through-an-authoring-obligation.md).
-- **Related:** [CD-0060](CD-0060-domain-registry-enactment.md) and [the launcher entry contract](../terminal-launcher-entry-contract.md).
+- **Related:** [CD-0060](CD-0060-domain-registry-enactment.md) and [CD-0219](CD-0219-the-terminal-launcher-tui-is-retired.md).
+- **Amendment approval:** The coordinator (operator-delegated) approved the launcher-subject reconciliation for [Concord (CON) issue 908](https://linear.app/sharper-flow/issue/CON-908) on 2026-10-10 at 08:23 Eastern Daylight Time (EDT).
 
 ## Context
 
-The launcher copies architecture relation tuples into its Domain section without
-an edge-display consumer. The copy has a separate enumeration bound.
-That bound can mark Domain context unavailable although registry rows and
-unresolved overlap remain complete.
+Repository navigation consumes the Domain graph. Exact Domain-detail reads
+expose canonical relation tuples. The interactive launcher subject retired
+under CD-0219; its view obligations do not bind the kept session entry route.
 
-Repository navigation still consumes the Domain graph. Exact Domain-detail reads
-still expose canonical relation tuples. Neither consumer requires a second copy
-in the launcher.
-
-This decision replaces the launcher-consumer obligation. Registry participation,
+Registry participation,
 optional applicability, validator adoption, and repository navigation retain
 their obligations. Global navigation retirement requires its separate cutover;
 this decision does not authorize that retirement.
@@ -28,9 +24,7 @@ this decision does not authorize that retirement.
 ### D1. Repository navigation consumes the Domain graph
 
 The Domain graph serves agent navigation in a repository that adopts a navigation
-companion. The launcher does not copy Domain architecture relations or enumerate
-a separate architecture-edge display. Exact Domain-detail reads retain canonical
-relation tuples.
+companion. Exact Domain-detail reads retain canonical relation tuples.
 
 `concord_domain.detail` remains an advisory read. Navigation shows law-backed
 dependency interpretations separately from observed code relationships.
@@ -38,10 +32,9 @@ The graph grants no workflow execution authority and proves no behavior.
 Navigation validation checks declared references and completeness, not
 architectural execution authority or behavioral conformance.
 
-The launcher retains registry rows, current law and active work counts, unresolved
-overlap, and typed bounds on those reads. A bound on overlap never withholds
-complete registry rows or their watermark. Registry authority stays distinct
-from an unavailable registry.
+The launcher registry-row, law-count, work-count, and overlap-display clauses
+have no subject under CD-0219. The surviving store query contracts keep their
+bounds and authority; this amendment adds no read or display obligation.
 
 ### D2. A Domain must participate in the graph
 
@@ -115,7 +108,8 @@ A passing registry participation check does not claim complete navigation.
 
 ## Consequences
 
-- Relation volume no longer changes launcher Domain-section availability.
+- The retired launcher Domain section imposes no availability obligation on the
+  kept session entry route.
 - Registry participation findings and strict adoption retain their meaning.
 - Repository navigation, completeness checks, and generated artifacts remain.
 - Exact Domain-detail reads retain canonical relations and their governing law.
@@ -127,14 +121,7 @@ A passing registry participation check does not claim complete navigation.
 
 ## Verification
 
-- `TestQueryLauncherDomainsRelationVolumeNeverBoundsTheSection` proves that relation volume beyond
-  the former bound does not affect registry rows or unresolved overlap.
-- `TestS2DomainSectionReadsLawRelationsWorkAndOverlapFromTheStore` proves law and work counts and unresolved overlap.
-- `TestS2ArchitectureRelationsAreAuthoritativeEmptyNotUnavailable` proves registry authority and unavailable-registry isolation.
-- `TestS2DomainSectionBoundedOverlapKeepsRegistryRows` proves bounded overlap retains complete registry rows.
 - `TestDomainDetailShowsCurrentLawRelationsAndRefusesUnknown` proves canonical relations remain in exact Domain-detail reads.
-- `TestDomainContextRendersOnlyWhenAbnormal` proves abnormal Domain
-  context and retained overlap warnings.
 - `python3 scripts/test-check-domain-registry.py` checks participation warnings, strict
   refusal, single-Domain validity, and participation through an inbound relation.
 - `python3 scripts/test-domain-navigation.py` checks complete-navigation catalog and

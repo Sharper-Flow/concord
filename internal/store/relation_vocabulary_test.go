@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"os"
 	"regexp"
 	"testing"
 	"time"
@@ -93,34 +92,6 @@ func TestRelationIdentityIncludesWorkflowRelationEvents(t *testing.T) {
 	}
 	if len(ids) != 2 || ids[0] != 1 || ids[1] != 2 || kinds[0] != "compatible_with" || kinds[1] != "forward_link" {
 		t.Fatalf("relation identities = %v and kinds = %v, want [1 2] and [compatible_with forward_link]", ids, kinds)
-	}
-}
-
-// The launcher reads a deliberate display subset of the relation vocabulary
-// rather than every kind. The subset is a display choice, but each member must
-// still be a real stored kind, or the launcher silently renders nothing for it.
-func TestLauncherRelationSubsetIsDrawnFromVocabulary(t *testing.T) {
-	t.Parallel()
-	source, err := os.ReadFile("launcher_query.go")
-	if err != nil {
-		t.Fatal(err)
-	}
-	match := regexp.MustCompile(`r\.kind IN \(([^)]*)\)`).FindSubmatch(source)
-	if len(match) != 2 {
-		t.Fatal("launcher_query.go has no relation kind filter")
-	}
-	stored := make(map[string]bool, len(relationStoredKinds))
-	for _, kind := range relationStoredKinds {
-		stored[kind] = true
-	}
-	found := regexp.MustCompile(`'([^']*)'`).FindAllSubmatch(match[1], -1)
-	if len(found) == 0 {
-		t.Fatalf("launcher relation filter names no kinds: %s", match[1])
-	}
-	for _, value := range found {
-		if kind := string(value[1]); !stored[kind] {
-			t.Fatalf("launcher renders relation kind %q, which the vocabulary does not declare", kind)
-		}
 	}
 }
 

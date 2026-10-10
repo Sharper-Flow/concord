@@ -38,9 +38,18 @@ func TestWorkRemovalRefusesInFlightAttempt(t *testing.T) {
 		run  func(context.Context, WorkRemovalRequest) (WorkRemovalReceipt, error)
 	}{
 		{"prepare", s.PrepareWorkRemoval},
-		{"shelve", s.ShelveWork},
-		{"cancel", s.CancelWork},
-		{"retry", s.ShelveWork},
+		{"shelve", func(ctx context.Context, req WorkRemovalRequest) (WorkRemovalReceipt, error) {
+			req.Reason = "shelved"
+			return s.RemoveWork(ctx, req)
+		}},
+		{"cancel", func(ctx context.Context, req WorkRemovalRequest) (WorkRemovalReceipt, error) {
+			req.Reason = "cancelled"
+			return s.RemoveWork(ctx, req)
+		}},
+		{"retry", func(ctx context.Context, req WorkRemovalRequest) (WorkRemovalReceipt, error) {
+			req.Reason = "shelved"
+			return s.RemoveWork(ctx, req)
+		}},
 	} {
 		t.Run(operation.name, func(t *testing.T) {
 			_, err := operation.run(ctx, req)
@@ -79,7 +88,8 @@ func TestWorkRemovalAllowsCompletedAttempt(t *testing.T) {
 	}
 	productRowExec(t, s, `DELETE FROM worktree_entries WHERE set_id=?`, WorktreeSetID(req.WorkID))
 	req.ExpectedVersion = readWorkVersion(t, s, req.WorkID)
-	receipt, err := s.ShelveWork(context.Background(), req)
+	req.Reason = "shelved"
+	receipt, err := s.RemoveWork(context.Background(), req)
 	if err != nil {
 		t.Fatal(err)
 	}

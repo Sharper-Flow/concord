@@ -8,8 +8,7 @@
   "doc_contract_profile": "legacy",
   "evidence": [
     ".concord/docs/clarifications.md",
-    ".concord/docs/vertical-integration.md",
-    ".concord/docs/terminal-launcher-contract.md"
+    ".concord/docs/vertical-integration.md"
   ],
   "home_domain_id": "operator-surface",
   "id": "CD-0108",
@@ -22,9 +21,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:2cdf6b437b18427ddfc32c072140fb899ba53687b52c02faaf883ba6d8e1d5e1",
+  "sha256": "sha256:b8101b75f180a6efa7027c45acad7caaa02e5282b2fa3ab97b86da69f4c08c0e",
   "status": "accepted",
-  "summary": "The launcher is remade from zero as the ZLauncher replacement. The core loop is Concord-first browsing with launch actions: a zellij tab on the work's Concord worktree, the OpenCode session started through Concord's session bootstrap, resume, and prompt pass-through as the work directive. The interface is dense panes on arrow, Enter, and Tab keys, still rendered by Bubble Tea v2. The launcher stays store-write-free. ZLauncher is retired when the core loop and the accepted daily extras work on the real store.",
+  "summary": "The session entry route resolves named work and starts or resumes its OpenCode session through Concord's session bootstrap, with prompt pass-through, --resume-last, and --project. The entry route stays store-write-free and remains until the terminal-layer cutover. The interactive TUI is retired under CD-0219; its operator acceptance gate does not transfer to the entry route.",
   "tags": [
     "launcher",
     "remake",

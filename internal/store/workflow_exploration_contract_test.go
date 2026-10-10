@@ -8,19 +8,68 @@ import (
 	"time"
 )
 
-func TestLivenessPathIdentityPreservesOrderAndPayload(t *testing.T) {
-	a := livenessMove{action: "record_verdict", payload: json.RawMessage(`{"verdict_kind":"ok"}`)}
-	b := livenessMove{action: "record_verdict", payload: json.RawMessage(`{"verdict_kind":"outcome_mismatch"}`)}
-	if livenessPathKey([]livenessMove{a, b}) == livenessPathKey([]livenessMove{b, a}) {
-		t.Fatal("order-sensitive verdict histories share a key")
+func TestLivenessReplayPreservesOrderAndPayload(t *testing.T) {
+	entry, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
+	if err != nil {
+		t.Fatal(err)
 	}
-	if livenessPathKey([]livenessMove{a}) == livenessPathKey([]livenessMove{b}) {
-		t.Fatal("different payloads share a key")
+	definition := entry.Definition
+	move := func(actionID string) livenessMove {
+		t.Helper()
+		action, ok := livenessActionDefinition(definition, actionID)
+		if !ok {
+			t.Fatalf("unknown action %s", actionID)
+		}
+		payload, err := livenessPayload(definition, action, map[string]string{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return livenessMove{action: actionID, payload: payload}
 	}
-	original := []livenessMove{a, b}
-	copied := append([]livenessMove(nil), original...)
-	if livenessPathKey(original) != livenessPathKey(copied) {
-		t.Fatal("identical paths have different keys")
+	for _, problem := range []string{"first problem", "another problem", "first problem"} {
+		proposal := move("record_proposal")
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(proposal.payload, &fields); err != nil {
+			t.Fatal(err)
+		}
+		fields["problem"], _ = json.Marshal(problem)
+		proposal.payload, err = json.Marshal(fields)
+		if err != nil {
+			t.Fatal(err)
+		}
+		path := []livenessMove{proposal, move("record_alignment")}
+		s, workID := livenessReplay(t, definition, append([]livenessMove(nil), path...))
+		var gotProblem string
+		if err := s.db.QueryRow(`SELECT problem FROM workflow_proposal_records WHERE work_id=?`, workID).Scan(&gotProblem); err != nil {
+			t.Fatal(err)
+		}
+		if gotProblem != problem {
+			t.Fatalf("replayed problem=%q, want %q", gotProblem, problem)
+		}
+		rows, err := s.db.Query(`SELECT json_extract(payload,'$.action_id') FROM domain_events WHERE subject_id=? AND kind=? ORDER BY seq`, workID, WorkflowActionCompleted)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var actions []string
+		for rows.Next() {
+			var action string
+			if err := rows.Scan(&action); err != nil {
+				t.Fatal(err)
+			}
+			actions = append(actions, action)
+		}
+		if err := rows.Err(); err != nil {
+			t.Fatal(err)
+		}
+		if err := rows.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if got := strings.Join(actions, " "); got != "record_proposal record_alignment" {
+			t.Fatalf("replayed action order=%q", got)
+		}
+		if err := s.Close(); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 
@@ -160,7 +209,7 @@ func TestBuiltinWorkflowCompletionWitnesses(t *testing.T) {
 			if !ok {
 				t.Fatal("builtin has no completion witness")
 			}
-			s, workID := (livenessReplayCache{}).replay(t, definition, nil)
+			s, workID := livenessReplay(t, definition, nil)
 			defer s.Close()
 			ctx := context.Background()
 			ordinal := 0
@@ -220,14 +269,11 @@ func TestBuiltinWorkflowCompletionWitnesses(t *testing.T) {
 	}
 }
 
-func TestLivenessReplayCacheIsolatesBranches(t *testing.T) {
+func TestLivenessReplayIsolatesBranches(t *testing.T) {
 	definition := BuiltinWorkflowDefinitions()[0]
-	cache := livenessReplayCache{}
-	root, workID := cache.replay(t, definition, nil)
-	cache.retain(t, root, nil)
-	first, _ := cache.replay(t, definition, nil)
+	first, workID := livenessReplay(t, definition, nil)
 	defer first.Close()
-	second, _ := cache.replay(t, definition, nil)
+	second, _ := livenessReplay(t, definition, nil)
 	defer second.Close()
 	ctx := context.Background()
 	before, err := livenessWorkVersion(ctx, second, workID)
@@ -255,11 +301,10 @@ func TestLivenessReplayCacheIsolatesBranches(t *testing.T) {
 	if err != nil || before != after {
 		t.Fatalf("branch changed sibling: %d -> %d, %v", before, after, err)
 	}
-	cache.retain(t, first, []livenessMove{proposal})
-	restored, _ := cache.replay(t, definition, []livenessMove{proposal})
+	restored, _ := livenessReplay(t, definition, []livenessMove{proposal})
 	defer restored.Close()
 	step, err = livenessStep(ctx, restored, workID)
 	if err != nil || step != "alignment" {
-		t.Fatalf("prefix did not retain committed state: %s, %v", step, err)
+		t.Fatalf("replay did not restore committed state: %s, %v", step, err)
 	}
 }

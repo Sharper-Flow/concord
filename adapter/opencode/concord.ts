@@ -1545,24 +1545,6 @@ async function writeSessionGoalTitle(sessionID: string, title: string, context: 
 // warning, never a bypass: the core's managed-execution admission gate stays
 // closed until the bind stands.
 
-// Per-session record of the handoff this session consumed after placement.
-// One entry per session; a newer consume replaces the older record. The map
-// is lifecycle-bounded like the armed claims: its exits are a host process
-// restart or resetConsumedProjectHandoffs in tests.
-type ConsumedHandoff = { workID: string; handoffID: string }
-
-const consumedHandoffs = new Map<string, ConsumedHandoff>()
-
-// consumedProjectHandoff answers the consumed handoff record for one session,
-// or null when the session consumed none.
-export function consumedProjectHandoff(sessionID: string): ConsumedHandoff | null {
-  return sessionID ? consumedHandoffs.get(sessionID) ?? null : null
-}
-
-export function resetConsumedProjectHandoffs(): void {
-  consumedHandoffs.clear()
-}
-
 // projectHandoffConsumeKey derives the automatic consume idempotency key from
 // the complete consume identity — work and handoff — through a JSON encoding
 // the digest unambiguously decodes back into exactly one identity pair. Every
@@ -1595,7 +1577,6 @@ export async function consumeAddressedProjectHandoff(workID: string, handoffID: 
   if (envelope.outcome === "ok") {
     const result = envelope.result as { handoff_id?: string } | undefined
     if (typeof result?.handoff_id === "string" && result.handoff_id) {
-      consumedHandoffs.set(context.sessionID, { workID, handoffID: result.handoff_id })
       return { consumed: true, handoffID: result.handoff_id }
     }
     return { consumed: false, handoffID: "", message: "the addressed handoff consume answered ok without a handoff id" }

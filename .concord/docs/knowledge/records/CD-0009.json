@@ -25,8 +25,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:72a04c1a30e11372be93f45b18d95c4111686e1e3929eff4323e1cd2a360c241",
-  "status": "accepted",
+  "sha256": "sha256:2b4984546b297e4009a286850a23550ebe9ced4fd47fc5af1b553b0541a79c0d",
+  "status": "superseded",
+  "successor": "CD-0215",
   "summary": "Defines retention-bounded research context and canonical durable forms.",
   "tags": [
     "research",

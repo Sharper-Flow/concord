@@ -1,10 +1,5 @@
 {
-  "evidence": [
-    {
-      "kind": "go_test",
-      "value": "internal/store.TestActiveResearchRevisionAndIdempotencyBoundary"
-    }
-  ],
   "id": "CD-0009",
-  "state": "satisfied"
+  "reason": "Historical law superseded by CD-0215. Its archive-cleanup guarantees are not current replacement evidence; successor coverage records the retained research obligations.",
+  "state": "out_of_scope"
 }

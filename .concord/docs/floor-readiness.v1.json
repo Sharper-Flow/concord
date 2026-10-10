@@ -106,7 +106,7 @@
     "title": "Product detail opens on active work with Domain context reachable",
     "requirement": "The launcher opens Product detail on its Product-scoped active work list (CD-0041 D2, amended 2026-09-22), and the bounded Domain hierarchy carries current law, typed architecture relations, active Domain-bound work, and unresolved architecture overlap one reachable step from the Product view.",
     "state": "out_of_scope",
-    "reason": "The launcher Product detail retired with the launcher TUI under CD-0219. Domain context remains reachable through the agent Domain read surface and repository navigation, which the fc2 Domain items cover."
+    "reason": "The launcher Product detail retired with the launcher TUI under CD-0219. The fc2 Domain items cover the surviving agent Domain read surface. Package owner notes guide code navigation without a global inventory."
    },
   {
    "id": "fc2-read-tools",

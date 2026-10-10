@@ -7,17 +7,16 @@ File accountability does not change a document's law home or a handler's semanti
 ## Responsibility
 Owns Product knowledge: the knowledge index and its records, the Domain registry as law, law-coverage and conformance records, lessons and research, and compaction and retention policy.
 
-Mapped files: 875; tests: 44; unresolved candidates: 0.
+Mapped files: 870; tests: 44; unresolved candidates: 0.
 Candidate counts overlap when a file has several candidates; no candidate is an assigned owner.
 
 ## Code and tests
 Full paths, unresolved reasons, and shared-test coverage: `.concord/navigation/inventory.json`.
-- Include: `.concord/docs/**`, `.concord/schemas/**`, `.concord/domain-navigation.v1.json`, `.concord/navigation/**`, `internal/store/knowledge*.go`
-- Include: `internal/store/research*.go`, `internal/store/product_knowledge*.go`, `internal/store/law_*.go`, `internal/store/lesson_publish*.go`, `internal/store/git_knowledge*.go`
-- Include: `internal/store/domain_attachments*.go`, `internal/store/domain_observations*.go`, `internal/store/cd_reservations.go`, `internal/store/home_pair_binding*.go`, `internal/store/federated_law_boundary_test.go`
-- Include: `internal/store/boundary_test.go`, `internal/store/unprocessed_knowledge*.go`, `internal/store/nil_store_knowledge*_test.go`, `internal/store/nil_store_domain_test.go`, `internal/store/domain_projection_test.go`
-- Include: `internal/store/federated_correction_test.go`, `contracts/concord-knowledge-index.v1.schema.json`, `contracts/law-coverage.schema.json`, `.concord/scenarios/knowledge-*.json`, `.concord/scenarios/product-memory-query.v1.json`
-- Include: `internal/store/domain_reads*.go`
+- Include: `.concord/docs/**`, `.concord/domain-navigation.v1.json`, `.concord/navigation/**`, `internal/store/knowledge*.go`, `internal/store/research*.go`
+- Include: `internal/store/product_knowledge*.go`, `internal/store/law_*.go`, `internal/store/lesson_publish*.go`, `internal/store/git_knowledge*.go`, `internal/store/domain_attachments*.go`
+- Include: `internal/store/domain_observations*.go`, `internal/store/cd_reservations.go`, `internal/store/home_pair_binding*.go`, `internal/store/federated_law_boundary_test.go`, `internal/store/boundary_test.go`
+- Include: `internal/store/unprocessed_knowledge*.go`, `internal/store/nil_store_knowledge*_test.go`, `internal/store/nil_store_domain_test.go`, `internal/store/domain_projection_test.go`, `internal/store/federated_correction_test.go`
+- Include: `contracts/concord-knowledge-index.v1.schema.json`, `contracts/law-coverage.schema.json`, `.concord/scenarios/product-memory-query.v1.json`, `internal/store/domain_reads*.go`
 - Exclude: `internal/store/research_rebuild.go`
 - Go test package: `github.com/sharper-flow/concord/internal/store`
 

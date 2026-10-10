@@ -453,7 +453,7 @@ func TestSingleSourceProductQ9OutputUnchanged(t *testing.T) {
 	if err := s.RebuildKnowledgeIndex(ctx, home); err != nil {
 		t.Fatal(err)
 	}
-	result, err := s.QueryQ9(ctx, Q9Request{Product: "solo-product", Text: "rule", Limit: 10})
+	result, err := s.QueryQ9(ctx, Q9Request{Product: "solo-product", Text: "rule", Limit: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -465,6 +465,27 @@ func TestSingleSourceProductQ9OutputUnchanged(t *testing.T) {
 	}
 	if result.ResultMeta.Authority != "authoritative" {
 		t.Fatalf("single-source authority = %q", result.ResultMeta.Authority)
+	}
+	if result.NextCursor == nil {
+		t.Fatal("single-source query returned no cursor")
+	}
+	cursor, err := decodeFederatedKnowledgeCursor(*result.NextCursor, Q9Request{Product: "solo-product", Text: "rule"}, nil, nil, knowledgeSourceSetDigest([]KnowledgeHome{home}))
+	if err != nil || cursor.Version != 3 {
+		t.Fatalf("single-source cursor = %+v, err %v", cursor, err)
+	}
+	last, err := s.QueryQ9(ctx, Q9Request{Product: "solo-product", Text: "rule", Limit: 1, Cursor: *result.NextCursor})
+	if err != nil || len(last.Items) != 0 || last.NextCursor != nil || last.Authority != "authoritative" {
+		t.Fatalf("single-source final page = %+v, err %v", last, err)
+	}
+	_, err = s.QueryQ9(ctx, Q9Request{Project: home.HomeProjectID, Text: "rule", Cursor: *result.NextCursor})
+	assertFailureKind(t, err, KindInvalidCursor)
+	projectPage, err := s.QueryQ9(ctx, Q9Request{Project: home.HomeProjectID, Text: "rule", Limit: 1})
+	if err != nil || len(projectPage.Items) != 1 || projectPage.SourceWatermarks != nil || projectPage.NextCursor == nil {
+		t.Fatalf("Project page = %+v, err %v", projectPage, err)
+	}
+	projectLast, err := s.QueryQ9(ctx, Q9Request{Project: home.HomeProjectID, Text: "rule", Limit: 1, Cursor: *projectPage.NextCursor})
+	if err != nil || len(projectLast.Items) != 0 || projectLast.NextCursor != nil {
+		t.Fatalf("Project final page = %+v, err %v", projectLast, err)
 	}
 	_, err = s.RegisterProductKnowledgeSource(ctx, ProductKnowledgeSourceRegistration{
 		ProductID: "solo-product", ProjectID: "solo-home", LocatorID: "solo-home-loc", Reason: "home is a source", ExpectedVersion: 1,

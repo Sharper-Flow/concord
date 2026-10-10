@@ -250,8 +250,8 @@ func productKnowledgeSourceRegistrations(ctx context.Context, q queryer, product
 
 // resolveKnowledgeQuerySources resolves the Product's full source set: the
 // designated home first, then registered sources ordered by Project and
-// locator. A Product with no registration takes a one-element set, which is
-// the identical single-home path (CD-0200 single-source rule).
+// locator. A Product with no registration resolves a one-element set with
+// single-source output (CD-0200 D3).
 func resolveKnowledgeQuerySources(ctx context.Context, q queryer, productID string, op string) ([]KnowledgeHome, error) {
 	candidates, err := productKnowledgeHomeCandidates(ctx, q, productID)
 	if err != nil {

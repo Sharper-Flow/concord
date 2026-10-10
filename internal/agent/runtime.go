@@ -221,6 +221,13 @@ type researchReadInput struct {
 	WorkID    string    `json:"work_id"`
 	Page      pageInput `json:"page"`
 	Limit     int       `json:"limit,omitempty"`
+	// ResultVersion selects the result contract: 0 and 1 keep the legacy full
+	// research_pack result; 2 is the canonical read (exact revision and
+	// finding selection, or the owner descriptor page). The runtime, not the
+	// schema, refuses the combinations the flat input cannot express.
+	ResultVersion int      `json:"result_version,omitempty"`
+	Revision      int64    `json:"revision,omitempty"`
+	FindingIDs    []string `json:"finding_ids,omitempty"`
 }
 
 type historyInput struct {

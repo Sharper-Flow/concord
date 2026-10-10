@@ -5,11 +5,11 @@ import (
 	"testing"
 )
 
-// The persisted work task (CON-271) rides the single-record scope read the
-// adapter's lane packet projects from. readOneWork read the narrative but not
-// the task, so concord_work_browse.scope never returned the field its own
-// work_summary schema declares and a dispatched worker could not receive the
-// recorded instruction.
+// The persisted work task rides the single-record scope read the
+// adapter's lane packet projects from. readOneWork returns the narrative and
+// the task, so concord_work_browse.scope returns the field its own
+// work_summary schema declares and a dispatched worker receives the recorded
+// instruction.
 func TestScopeReadCarriesThePersistedWorkTask(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

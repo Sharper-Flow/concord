@@ -90,7 +90,7 @@ type WorkflowReadCondition struct {
 	ResolutionAuthority string `json:"resolution_authority"`
 	State               string `json:"state"`
 	// ExpectedWithinSeconds is the declared wait bound (0 = none declared).
-	// Overdue/Health are derived at read time against that bound (issue #87):
+	// Overdue/Health are derived at read time against that bound:
 	// an await beyond its bound reads overdue — unverified, never resolved.
 	ExpectedWithinSeconds int64  `json:"expected_within_seconds"`
 	AgeSeconds            int64  `json:"age_seconds"`
@@ -308,7 +308,7 @@ func ReadWorkflowProjection(ctx context.Context, s *Store, request WorkflowReadR
 		out.Conditions = append(out.Conditions, condition)
 		if condition.State == "open" {
 			out.UnresolvedConditions = append(out.UnresolvedConditions, condition.ID)
-			// Read-time health derivation (issue #87): compare the wait's
+			// Read-time health derivation: compare the wait's
 			// age to the declared bound. No state change, no timer.
 			if recorded, parseErr := time.Parse(time.RFC3339Nano, waitingSince); parseErr == nil {
 				clock := request.Now

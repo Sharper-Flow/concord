@@ -7,7 +7,7 @@
 // keeps reasoning from the previous agent's limits and refuses work the new
 // agent allows. The Concord intake posture deliberately carries a restricted
 // permission set that the shaping and driving postures share, so a posture
-// switch the model cannot see defeats that separation (issue #677).
+// switch the model cannot see defeats that separation.
 //
 // `experimental.chat.system.transform` carries only `sessionID` and `model`,
 // so the agent name comes from `chat.message` and is correlated by session.
@@ -19,7 +19,7 @@
 //
 // The SENTINEL is byte-identical to the host-level opencode-agent-switch
 // plugin so that whichever emitter runs first wins and the other skips, until
-// that plugin is retired (issue #677).
+// that plugin is retired.
 
 const SENTINEL = "\n\n--- ACTIVE AGENT CHANGED ---\n"
 

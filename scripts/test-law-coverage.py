@@ -501,7 +501,7 @@ def test_outstanding_linear_pointer_must_be_live() -> None:
 
 
 def test_outstanding_issue_pointer_must_be_live() -> None:
-    """An outstanding record dies with its issue: closed and absent pointers fail (issue #324)."""
+    """An outstanding record dies with its issue: closed and absent pointers fail."""
     shard = ROOT / ".concord/docs/knowledge/coverage/CD-0006.json"
     snapshot = ROOT / ".concord/docs/issue-state.v1.json"
     originals = (

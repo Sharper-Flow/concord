@@ -11,7 +11,7 @@ import (
 	"github.com/sharper-flow/concord/internal/version"
 )
 
-// The promoted foreign-upgrade probe (CON-807): a maintenance boundary an
+// The promoted foreign-upgrade probe: a maintenance boundary an
 // operator or another operation left behind — present on disk, maybe even
 // carrying a fence id — is not this binary's upgrade boundary. The native
 // migration validates the boundary's owner before any migration runs while
@@ -44,7 +44,7 @@ func TestUpgradeRefusesAnUnattributedForeignBoundary(t *testing.T) {
 	}
 }
 
-// Two migrating runs never overlap (CON-807). A run that adopted another
+// Two migrating runs never overlap. A run that adopted another
 // run's boundary could commit the breaking tail while the opener, seeing
 // nothing left to apply, closes the boundary before activation. The second
 // run refuses before it reads the store, opens no fence, and commits nothing.

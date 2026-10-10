@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url"
 
 import { manifestDigest } from "./generated-contracts"
 
-// The adapter's contract manifest pin (issue #885).
+// The adapter's contract manifest pin.
 //
 // `generated-contracts.ts` stamps one digest per release. A release that
 // lands while a session runs leaves that session's module holding the

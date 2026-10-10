@@ -65,7 +65,7 @@ func initLocatorRepo(t *testing.T) string {
 	return repo
 }
 
-// The acceptance criterion of #316: whatever owns the locator produces input
+// The acceptance criterion: whatever owns the locator produces input
 // that worktree_claim accepts on the first attempt, proven by executing the
 // claim — not by inspection. The located intent drives one real claim against
 // a real git repository through the real git runner.

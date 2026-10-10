@@ -30,7 +30,7 @@ func TestContinuityFortyObservationsWindowAndContinuation(t *testing.T) {
 	})
 	// 40 * (512 + 256 + 32 + 16) = 32,640 bytes of statement/refs/tags.
 	// HTML escaping makes a legal population with these text sizes exceed the
-	// envelope when continuity embeds its old 16-item fixed window.
+	// envelope when the window bounds the observations continuity embeds.
 	for i := range 40 {
 		payload, _ := json.Marshal(map[string]any{
 			"observation_id": fmt.Sprintf("obs:%016x", i), "statement": strings.Repeat("&", 512),

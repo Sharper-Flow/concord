@@ -13,8 +13,7 @@ import (
 
 // A breaking-migration outage must name the terminals that hold the older
 // releases, with their directories, so the operator ends the right sessions
-// without correlating pids by hand (CD-0111 D3's refusal stays; only the
-// hunt is removed).
+// without correlating pids by hand (CD-0111 D3).
 func TestActionableUpgradeRefusalNamesOlderHoldingSessions(t *testing.T) {
 	refusal := &store.Failure{Kind: store.KindUpgradeRequired, Op: "open",
 		Detail: "the database stops before breaking migration 93 (example); this binary defines schema version 94 and never applies a breaking migration at open"}

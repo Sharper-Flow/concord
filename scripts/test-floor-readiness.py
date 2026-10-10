@@ -101,7 +101,7 @@ def test_duplicate_keys_at_every_level() -> None:
 
 
 def test_evidence_as_bare_path_string_is_rejected() -> None:
-    # Issue #187: "it cannot become satisfied from a cited path alone".
+    # "it cannot become satisfied from a cited path alone".
     value = fixture()
     value["items"][0]["evidence"] = [".concord/docs/priorities.md"]
     assert_rejected(value, "evidence must be typed anchors, not paths")

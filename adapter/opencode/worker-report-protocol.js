@@ -1,6 +1,6 @@
-// Shared worker report-protocol selector for CON-882/CON-891 (design section
-// 3). One plain-JavaScript ES module so the Bun adapter and Node ESM
-// deterministic lane-report assertions import the same selector directly.
+// One plain-JavaScript ES module owns the worker report-protocol selector.
+// The Bun adapter and Node ESM deterministic lane-report assertions import
+// the same selector directly.
 //
 // Grammar. `concord-worker-result-v1` is the single reserved Markdown fence
 // info string. Designated framing is exact: an opening fence of exactly three

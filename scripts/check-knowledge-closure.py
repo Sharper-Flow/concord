@@ -4,8 +4,8 @@
 scripts/check-knowledge-index.py proves that every record in the manifest points
 at a real, unmodified file. That is records-to-files; it does not detect files
 that have no record at all. A document the manifest does not acknowledge is
-not law for this Product regardless of how much it reads like a spec (issue
-#295 knowledge-closure contract): an agent working the repo must never
+not law for this Product regardless of how much it reads like a spec: an
+agent working the repo must never
 conflate an unprocessed document with Product law. The structural answer is
 files-to-records coverage, surfaced both as a per-file listing and as a count,
 so a migration can declare itself closed only when the empty-set difference is

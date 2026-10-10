@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// CON-835 regression. The single-work scope read and the full-detail list
+// The single-work scope read and the full-detail list
 // read are the authoritative intent reads: they must project every revisable
 // value the stored intent holds (task, value statement, tags, and workflow
 // type reference, beside the urgency and priority columns) so a coordinator

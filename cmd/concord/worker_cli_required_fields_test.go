@@ -11,7 +11,7 @@ import (
 // adapter/opencode/worker-cli-required-fields.json, and this test holds that
 // file to commandSpecs. A verb whose required set moves on one side without
 // the other is a request the CLI refuses at the boundary and no stubbed
-// adapter test can see (issue #789).
+// adapter test can see.
 func TestWorkerCLIRequiredFieldsMatchTheSharedFile(t *testing.T) {
 	raw, err := os.ReadFile("../../adapter/opencode/worker-cli-required-fields.json")
 	if err != nil {

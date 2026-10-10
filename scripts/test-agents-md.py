@@ -12,7 +12,7 @@ from pathlib import Path
 
 import git_environment
 
-# CON-896: this suite's checker resolves repository files through Git, so a
+# This suite's checker resolves repository files through Git, so a
 # hook that launched it must not redirect those reads into another
 # repository. The scrub runs before the in-process checker loads.
 git_environment.scrub_inherited()
@@ -177,7 +177,7 @@ def test_real_ci_workflow_yields_commands() -> None:
 
 
 def test_hook_inherited_git_dir_cannot_redirect_repository_reads() -> None:
-    """CON-896 regression: the transitive checker under a hook's GIT_DIR.
+    """The transitive checker under a hook's GIT_DIR.
 
     check_agents_md resolves repository files with `git ls-files`. This test
     runs the whole suite as a child process with GIT_DIR pointing at a

@@ -4026,7 +4026,7 @@
         }
       ],
       "domain_id": "product-memory",
-      "mapped_count": 889,
+      "mapped_count": 884,
       "mechanism_owner_ids": [
         "mechanism:domain-registry",
         "mechanism:knowledge-index"
@@ -4214,7 +4214,6 @@
         ],
         "include": [
           ".concord/docs/**",
-          ".concord/schemas/**",
           ".concord/domain-navigation.v1.json",
           ".concord/navigation/**",
           "internal/store/knowledge*.go",
@@ -4236,7 +4235,6 @@
           "internal/store/federated_correction_test.go",
           "contracts/concord-knowledge-index.v1.schema.json",
           "contracts/law-coverage.schema.json",
-          ".concord/scenarios/knowledge-*.json",
           ".concord/scenarios/product-memory-query.v1.json",
           "internal/store/domain_reads*.go"
         ]
@@ -4647,7 +4645,7 @@
       ],
       "dependency_interpretations_to": [],
       "domain_id": "repository-verification",
-      "mapped_count": 192,
+      "mapped_count": 190,
       "mechanism_owner_ids": [
         "mechanism:repo-validators",
         "mechanism:test-infrastructure"
@@ -4857,7 +4855,7 @@
         ]
       },
       "purpose": "Owns the authority a repository check may hold: what a validator may assert, what it may block, how required checks bind to declared coverage, and the boundary between a check's finding and accepted Product law.",
-      "test_count": 87,
+      "test_count": 86,
       "test_packages": [
         "github.com/sharper-flow/concord/internal/gittest",
         "github.com/sharper-flow/concord/internal/pm1fixture",
@@ -4951,7 +4949,6 @@
         "scripts/test-script-tests.py",
         "scripts/test-shard-format.py",
         "scripts/test-test-file-naming.py",
-        "scripts/test-typed-knowledge.py",
         "scripts/test-vocabulary-authority.py",
         "scripts/test-work-kinds.py",
         "scripts/test-workflow-history.py"
@@ -6899,7 +6896,6 @@
     ".concord/docs/storage-spine-slice.md": "product-memory",
     ".concord/docs/terminal-launcher-contract.md": "product-memory",
     ".concord/docs/terminal-launcher-replacement-contract.md": "product-memory",
-    ".concord/docs/typed-knowledge-storage-retrieval.md": "product-memory",
     ".concord/docs/vertical-integration.md": "product-memory",
     ".concord/docs/workflow-engine-contract.md": "product-memory",
     ".concord/docs/workflows.md": "product-memory",
@@ -6924,13 +6920,9 @@
     ".concord/scenarios/README.md": "repository-verification",
     ".concord/scenarios/adapter-continuity.v1.json": "agent-surface",
     ".concord/scenarios/agent-jobs.v1.json": "agent-surface",
-    ".concord/scenarios/knowledge-record-fixtures.v1.json": "product-memory",
-    ".concord/scenarios/knowledge-retrieval-evaluation.v1.json": "product-memory",
     ".concord/scenarios/launcher-portfolio.v1.json": "operator-surface",
     ".concord/scenarios/product-memory-query.v1.json": "product-memory",
     ".concord/scenarios/workflow-engine.v1.json": "workflow-engine",
-    ".concord/schemas/knowledge-record.v1.schema.json": "product-memory",
-    ".concord/schemas/knowledge-retrieval-evaluation.v1.schema.json": "product-memory",
     ".concord/tooling.v1.json": "repository-verification",
     ".editorconfig": "repository-verification",
     ".gitattributes": "repository-verification",
@@ -8031,7 +8023,6 @@
     "scripts/check-rigor-class.py": "repository-verification",
     "scripts/check-script-tests.py": "repository-verification",
     "scripts/check-test-file-naming.py": "repository-verification",
-    "scripts/check-typed-knowledge.py": "repository-verification",
     "scripts/check-vocabulary-authority.py": "repository-verification",
     "scripts/check-work-kinds.py": "repository-verification",
     "scripts/check-worker-scope-contract.py": "repository-verification",
@@ -8117,7 +8108,6 @@
     "scripts/test-script-tests.py": "repository-verification",
     "scripts/test-shard-format.py": "repository-verification",
     "scripts/test-test-file-naming.py": "repository-verification",
-    "scripts/test-typed-knowledge.py": "repository-verification",
     "scripts/test-vocabulary-authority.py": "repository-verification",
     "scripts/test-work-kinds.py": "repository-verification",
     "scripts/test-workflow-history.py": "repository-verification",
@@ -8127,7 +8117,7 @@
     "skills/README.md": "agent-surface",
     "workflows/README.md": "workflow-engine"
   },
-  "mapped_count": 2028,
+  "mapped_count": 2021,
   "mechanisms": [
     {
       "check_ids": [

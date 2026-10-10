@@ -553,10 +553,15 @@ def repository_edit_boundary(lane: dict) -> str:
     else:
         text = (
             "Non-editing lane: do not create, change, or delete repository source files and "
-            "do not commit. Running the tests and validators the role allows is permitted, and "
-            "files those commands produce are not source edits. Report a needed source change "
+            "do not commit. Running the tests and validators the role allows is permitted. "
+            "Normal test artifacts and regenerated projections are not source edits. "
+            "Report a needed source change "
             "as evidence."
         )
+    text += (
+        " Authored `.concord/` files are repository sources. See "
+        "`.concord/docs/decisions/CD-0220-repository-authoring-follows-lane-capability-and-approved-scope.md`."
+    )
     return textwrap.fill(text, width=80, break_on_hyphens=False, break_long_words=False)
 
 
@@ -863,6 +868,7 @@ def agent_projection(lane: dict, report_schema: dict, packet_schema: dict, premi
     report_statuses = ", ".join(f"`{item}`" for item in report_properties["status"]["enum"])
     report_constraints = "\n".join(f"- {item}" for item in report_projection_constraints(report_schema, lane))
     concord_denies = "\n".join(f"  {tool_id}: false" for tool_id in concord_tool_ids())
+    edit_denies = "" if edits_scoped_files(lane) else "  edit: deny\n  morph_edit: deny\n"
     if discharged:
         obligation_rule = (
             "A successful report must carry at least one entry for every obligation below "
@@ -904,7 +910,7 @@ tools:
   task: false
 {concord_denies}
 permission:
-  task:
+{edit_denies}  task:
     "*": deny
     "general": deny
     "explore": deny

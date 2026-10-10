@@ -610,6 +610,42 @@ class RepositoryEditBoundaryTests(unittest.TestCase):
         # The generator wraps prose at 80 columns; assert on normalized text.
         return " ".join(generator.repository_edit_boundary(lane).split())
 
+    def test_generated_permissions_cover_every_registered_lane(self):
+        manifest = json.loads((ROOT / "contracts/agent-lanes.v1.json").read_text(encoding="utf-8"))
+        for lane in manifest["lanes"]:
+            with self.subTest(lane=lane["id"]):
+                frontmatter = lane_projection(lane).split("\n---\n", 1)[0]
+                permissions = frontmatter.split("\npermission:\n", 1)[1]
+                for editor in ("edit", "morph_edit"):
+                    denial = f"  {editor}: deny\n"
+                    if "edit_scoped_files" in lane["capabilities"]:
+                        self.assertNotIn(denial, permissions)
+                    else:
+                        self.assertIn(denial, permissions)
+
+    def test_generated_editor_permissions_follow_capability_not_lane_name(self):
+        for lane_id in ("review", "implement", "synthetic"):
+            for capabilities in (self.NON_EDITING, self.EDITING, []):
+                with self.subTest(lane=lane_id, capabilities=capabilities):
+                    lane = self.lane(id=lane_id, capabilities=capabilities)
+                    frontmatter = lane_projection(lane).split("\n---\n", 1)[0]
+                    permissions = frontmatter.split("\npermission:\n", 1)[1]
+                    for editor in ("edit", "morph_edit"):
+                        self.assertEqual(
+                            f"  {editor}: deny\n" in permissions,
+                            "edit_scoped_files" not in capabilities,
+                        )
+
+    def test_boundary_includes_authored_concord_sources_and_law_reference(self):
+        for capabilities in (self.NON_EDITING, self.EDITING):
+            with self.subTest(capabilities=capabilities):
+                boundary = self.boundary(self.lane(capabilities=capabilities))
+                self.assertIn("Authored `.concord/` files are repository sources", boundary)
+                self.assertIn(
+                    ".concord/docs/decisions/CD-0220-repository-authoring-follows-lane-capability-and-approved-scope.md",
+                    boundary,
+                )
+
     def test_editing_capability_yields_the_scoped_edit_boundary(self):
         boundary = self.boundary(self.lane(capabilities=self.EDITING))
         self.assertIn("change only files inside the approved contract scope", boundary)
@@ -629,7 +665,7 @@ class RepositoryEditBoundaryTests(unittest.TestCase):
         # source edits.
         boundary = self.boundary(self.lane())
         self.assertIn("Running the tests and validators the role allows is permitted", boundary)
-        self.assertIn("files those commands produce are not source edits", boundary)
+        self.assertIn("Normal test artifacts and regenerated projections are not source edits", boundary)
         self.assertIn("Report a needed source change as evidence", boundary)
 
     def test_flipping_the_capability_flips_the_boundary_not_the_lane_name(self):

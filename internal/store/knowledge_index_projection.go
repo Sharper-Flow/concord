@@ -1077,8 +1077,8 @@ func (s *Store) EnsureKnowledgeIndexFresh(ctx context.Context, home KnowledgeHom
 	return s.RebuildKnowledgeIndex(ctx, home)
 }
 
-// knowledgeCoverageOmissions takes a queryer so the launcher search can pass
-// its own open read transaction rather than reaching back through the pool.
+// knowledgeCoverageOmissions takes a queryer so a caller holding an open
+// read transaction passes it rather than reaching back through the pool.
 func knowledgeCoverageOmissions(ctx context.Context, db queryer, home KnowledgeHome, commit string) []string {
 	rows, err := db.QueryContext(ctx, `SELECT kind FROM knowledge_kind_coverage WHERE home_project_id=? AND home_locator_id=? AND head_ref=? AND scanned_commit_oid=? AND coverage='supported_not_indexed' ORDER BY kind`, home.HomeProjectID, home.HomeLocatorID, home.HeadRef, commit)
 	if err != nil {

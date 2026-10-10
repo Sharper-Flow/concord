@@ -141,10 +141,10 @@ type ProductRowResult struct {
 	Rows       []ProductRow `json:"rows"`
 }
 
-// ProductRowPagePayload is the one wire projection for C14 rows. The agent
-// envelope and the launcher adapter both consume the same ProductRowResult;
-// keeping this payload constructor here prevents either boundary from
-// re-deriving or reshaping the row data independently.
+// ProductRowPagePayload is the one wire projection for C14 rows. Every
+// Product-portfolio consumer encodes the same ProductRowResult through this
+// constructor, so no boundary re-derives or reshapes the row data
+// independently.
 func ProductRowPagePayload(result ProductRowResult) ([]byte, error) {
 	rows := result.Rows
 	if rows == nil {

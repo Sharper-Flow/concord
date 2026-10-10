@@ -1,12 +1,10 @@
 Usage:
   concord --help
   concord --version
-  concord launcher   # interactive TTY; does not read JSON stdin
-  concord launcher --list   # bounded candidate JSON
-  concord zl <work> -- <prompt>   # start or resume without the UI
+  concord zl <work> -- <prompt>   # start or resume a session
   concord zl <work> --project <project>   # land in that member Project of the work
   concord zl --resume-last   # resume the last workspace
-  concord session    # internal TTY bootstrap; launcher identity env required
+  concord session    # internal TTY bootstrap; session identity env required
   concord continuity-block <directory>   # read-only continuity packet for the session directory
   concord host-lease < JSON stdin      # record this host session's release lease (adapter-invoked)
   concord host-leases                  # print live release leases; prunes stale ones

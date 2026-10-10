@@ -468,11 +468,6 @@
     },
     {
       "catalog": "cli",
-      "entry_id": "launcher",
-      "owner_id": "mechanism:launcher-terminal"
-    },
-    {
-      "catalog": "cli",
       "entry_id": "linear-backfill",
       "owner_id": "mechanism:external-planning"
     },
@@ -519,7 +514,7 @@
     {
       "catalog": "cli",
       "entry_id": "outside-repair",
-      "owner_id": "mechanism:launcher-terminal"
+      "owner_id": "mechanism:session-entry"
     },
     {
       "catalog": "cli",
@@ -634,12 +629,12 @@
     {
       "catalog": "cli",
       "entry_id": "session",
-      "owner_id": "mechanism:launcher-terminal"
+      "owner_id": "mechanism:session-entry"
     },
     {
       "catalog": "cli",
       "entry_id": "session-prepare",
-      "owner_id": "mechanism:launcher-terminal"
+      "owner_id": "mechanism:session-entry"
     },
     {
       "catalog": "cli",
@@ -699,7 +694,7 @@
     {
       "catalog": "cli",
       "entry_id": "zl",
-      "owner_id": "mechanism:launcher-terminal"
+      "owner_id": "mechanism:session-entry"
     },
     {
       "catalog": "workflow",
@@ -994,7 +989,7 @@
   ],
   "catalog_sizes": {
     "agent": 77,
-    "cli": 62,
+    "cli": 61,
     "workflow": 58
   },
   "dependency_interpretations": [
@@ -2027,8 +2022,6 @@
         "fmt",
         "github.com/sharper-flow/concord/internal/gittest",
         "github.com/sharper-flow/concord/internal/hostlease",
-        "github.com/sharper-flow/concord/internal/launcher",
-        "github.com/sharper-flow/concord/internal/launcher/storeport",
         "github.com/sharper-flow/concord/internal/payloadschema",
         "github.com/sharper-flow/concord/internal/pm1fixture",
         "github.com/sharper-flow/concord/internal/portfolio",
@@ -2071,18 +2064,6 @@
           "import_path": "github.com/sharper-flow/concord/internal/hostlease",
           "target_domain_ids": [
             "durable-authority"
-          ]
-        },
-        {
-          "import_path": "github.com/sharper-flow/concord/internal/launcher",
-          "target_domain_ids": [
-            "operator-surface"
-          ]
-        },
-        {
-          "import_path": "github.com/sharper-flow/concord/internal/launcher/storeport",
-          "target_domain_ids": [
-            "operator-surface"
           ]
         },
         {
@@ -2859,7 +2840,6 @@
         "cli": [
           "host-lease",
           "host-leases",
-          "launcher",
           "outside-repair",
           "predecessor-import",
           "predecessor-inventory",
@@ -2949,7 +2929,6 @@
         "continuity-block",
         "host-lease",
         "host-leases",
-        "launcher",
         "recover-fold-guard",
         "repair",
         "session",
@@ -3191,12 +3170,12 @@
       ],
       "dependency_interpretations_to": [],
       "domain_id": "operator-surface",
-      "mapped_count": 170,
+      "mapped_count": 143,
       "mechanism_owner_ids": [
-        "mechanism:launcher-terminal",
         "mechanism:portfolio-view",
         "mechanism:predecessor-import",
-        "mechanism:release-installer"
+        "mechanism:release-installer",
+        "mechanism:session-entry"
       ],
       "mechanisms": [
         {
@@ -3204,12 +3183,176 @@
             "go-test-race"
           ],
           "contract_refs": [
-            ".concord/docs/terminal-launcher-contract.md"
+            ".concord/docs/product-coordination-view.md",
+            ".concord/docs/product-row-contract.md"
+          ],
+          "control_law_ids": [
+            "C14",
+            "C17"
+          ],
+          "controls": [
+            {
+              "evidence": [
+                {
+                  "kind": "go_test",
+                  "value": "internal/store.TestProductRowsC14ReturnsFiveGroups"
+                },
+                {
+                  "kind": "go_test",
+                  "value": "internal/store.TestProductRowsC14FiveTierCompetitionChoosesFirstNonemptyTier"
+                },
+                {
+                  "kind": "go_test",
+                  "value": "internal/store.TestProductRowsC14UnavailableRequiredSourceNeverBecomesZero"
+                },
+                {
+                  "kind": "go_test",
+                  "value": "internal/store.TestProductRowsC14DuplicateNamesAndCursorBinding"
+                }
+              ],
+              "id": "C14",
+              "state": "satisfied"
+            },
+            {
+              "id": "C17",
+              "reason": "The coordination view retired with the launcher TUI under CD-0219; the relation-tree proofs it cited lived in the deleted storeport tests. The ranked-query half continues under the product-memory query contract and its corpus.",
+              "state": "out_of_scope"
+            }
+          ],
+          "domain_id": "operator-surface",
+          "law_refs": [
+            {
+              "clause_id": "1. Decision",
+              "content_hash": "sha256:868a6d6b2968afe80ccfff7921f24441b03300eb7b9d51e2b9d66797b422455d",
+              "law_id": "C14",
+              "locator": ".concord/docs/product-row-contract.md"
+            },
+            {
+              "clause_id": "2. Accepted shape",
+              "content_hash": "sha256:3efde9e573dcbf1304512406c25d886eda851f0f32609f8eff4e8ed47aec475e",
+              "law_id": "C17",
+              "locator": ".concord/docs/product-coordination-view.md"
+            }
+          ],
+          "owner_id": "mechanism:portfolio-view",
+          "responsibility": "The operator's Product and project plane: product rows and stage, portfolio snapshot and resolve, the blocked-session attention projection, project locators and canonical paths, and the closure receipt read.",
+          "source_paths": [
+            "cmd/concord/project_resolve.go",
+            "internal/portfolio/read.go",
+            "internal/store/blocked_sessions.go",
+            "internal/store/operator.go",
+            "internal/store/product_row.go",
+            "internal/store/product_stage.go",
+            "internal/store/project_locator.go",
+            "internal/store/work_closure.go"
+          ]
+        },
+        {
+          "check_ids": [
+            "go-test-race"
+          ],
+          "contract_refs": [
+            "contracts/predecessor-snapshot.schema.json"
+          ],
+          "control_law_ids": [
+            "CD-0097"
+          ],
+          "controls": [
+            {
+              "id": "CD-0097",
+              "issue": "CON-34",
+              "state": "outstanding"
+            }
+          ],
+          "domain_id": "operator-surface",
+          "law_refs": [
+            {
+              "clause_id": "D4. Replay is idempotent, and conflicts refuse typed",
+              "content_hash": "sha256:998b635d54e703e0fb8c1d08ba2aaacacfb3a44f654ed0e353e7ae24192d016b",
+              "law_id": "CD-0097",
+              "locator": ".concord/docs/decisions/CD-0097-bounded-parallel-predecessor-migration.md"
+            }
+          ],
+          "owner_id": "mechanism:predecessor-import",
+          "responsibility": "Predecessor migration: snapshot inventory and import into Product state, idempotent replay with typed conflicts, and provenance reads against event history.",
+          "source_paths": [
+            "cmd/concord/predecessor_import.go",
+            "internal/predecessor/inventory.go",
+            "internal/predecessor/snapshot.go",
+            "internal/predecessor/surfaces.go",
+            "internal/store/predecessor_import.go"
+          ]
+        },
+        {
+          "check_ids": [
+            "go-test-race"
+          ],
+          "contract_refs": [
+            ".github/workflows/release.yml"
+          ],
+          "control_law_ids": [
+            "CD-0111"
+          ],
+          "controls": [
+            {
+              "evidence": [
+                {
+                  "kind": "adapter_test",
+                  "value": "adapter/opencode/concord.test.ts#core_binary_is_the_stamped_release_constant"
+                },
+                {
+                  "kind": "adapter_test",
+                  "value": "adapter/opencode/concord.test.ts#a session without a host lease refuses every core operation"
+                },
+                {
+                  "kind": "go_test",
+                  "value": "internal/store.TestOpenStopsBeforeAPendingBreakingMigration"
+                },
+                {
+                  "kind": "go_test",
+                  "value": "internal/store.TestUpgradeRefusesWhileALiveLeaseHoldsAnOlderSchema"
+                }
+              ],
+              "id": "CD-0111",
+              "state": "satisfied"
+            }
+          ],
+          "domain_id": "operator-surface",
+          "law_refs": [
+            {
+              "clause_id": "D2. The installer retains a release a live session references",
+              "content_hash": "sha256:5a31689d5b9547831a555861742367d5ea6c143516019eafd3eb1162b08e2723",
+              "law_id": "CD-0111",
+              "locator": ".concord/docs/decisions/CD-0111-a-release-never-requires-a-session-restart.md"
+            },
+            {
+              "clause_id": "D3. A breaking migration applies only through an explicit upgrade",
+              "content_hash": "sha256:5a31689d5b9547831a555861742367d5ea6c143516019eafd3eb1162b08e2723",
+              "law_id": "CD-0111",
+              "locator": ".concord/docs/decisions/CD-0111-a-release-never-requires-a-session-restart.md"
+            }
+          ],
+          "owner_id": "mechanism:release-installer",
+          "responsibility": "Release and installation currency: host leases pinning live sessions to releases, the explicit upgrade fence for breaking migrations, repair routing during an outage, and the automated release workflow.",
+          "source_paths": [
+            ".github/workflows/release.yml",
+            "cmd/concord/release.go",
+            "cmd/concord/repair.go",
+            "internal/hostlease/hostlease.go",
+            "internal/receipt/receipt.go",
+            "internal/version/version.go"
+          ]
+        },
+        {
+          "check_ids": [
+            "go-test-race"
+          ],
+          "contract_refs": [
+            ".concord/docs/decisions/CD-0108-the-launcher-is-the-zlauncher-replacement.md"
           ],
           "control_law_ids": [
             "CD-0061",
-            "CD-0210",
-            "terminal-launcher-contract"
+            "CD-0210"
           ],
           "controls": [
             {
@@ -3387,37 +3530,15 @@
               ],
               "id": "CD-0210",
               "state": "satisfied"
-            },
-            {
-              "evidence": [
-                {
-                  "kind": "go_test",
-                  "value": "cmd/concord.TestFullLauncherSessionAppendsNothingToTheEventLog"
-                },
-                {
-                  "kind": "go_test",
-                  "value": "internal/launcher/render/bubbletea.TestDefaultSessionLauncherHandsOnlyIdentityToCoreBootstrap"
-                },
-                {
-                  "kind": "go_test",
-                  "value": "internal/launcher/storeport.TestS2DomainSectionReadsLawRelationsWorkAndOverlapFromTheStore"
-                },
-                {
-                  "kind": "go_test",
-                  "value": "internal/launcher.TestTwoInstancesHoldDifferentAmbientProductsWithoutObservingEachOther"
-                }
-              ],
-              "id": "terminal-launcher-contract",
-              "state": "satisfied"
             }
           ],
           "domain_id": "operator-surface",
           "law_refs": [
             {
-              "clause_id": "2. The launcher's job",
-              "content_hash": "sha256:50579567ff7924dfb8ffd0ff1aeadb4a9ceec75246d3b3790b9062dc6fb38d55",
-              "law_id": "terminal-launcher-contract",
-              "locator": ".concord/docs/terminal-launcher-contract.md"
+              "clause_id": "D1. The launch action starts a session, and the operator owns the terminal",
+              "content_hash": "sha256:1118e655f7aacf1881c1fd9d1646caa3a262b6396b08a734cee5cb03023b44da",
+              "law_id": "CD-0163",
+              "locator": ".concord/docs/decisions/CD-0163-the-launcher-carries-no-terminal-placement.md"
             },
             {
               "clause_id": "D4. A session assertion is recorded as a domain event",
@@ -3432,206 +3553,14 @@
               "locator": ".concord/docs/decisions/CD-0210-outside-repair-route-narrows-CD-0183-D-4.md"
             }
           ],
-          "owner_id": "mechanism:launcher-terminal",
-          "responsibility": "The human-facing terminal: the Bubble Tea launcher and zl forwarding, session boot that derives continuity before the first prompt, and the orchestrator identity assertion a launcher-started session records.",
+          "owner_id": "mechanism:session-entry",
+          "responsibility": "The operator's session entry route: zl forwarding that starts or resumes a session for selected work, session boot that derives continuity before the first prompt, the identity-only session handoff, and the orchestrator identity assertion a started session records.",
           "source_paths": [
             "cmd/concord/outside_repair_launch.go",
             "cmd/concord/session.go",
-            "internal/launcher/model.go",
-            "internal/launcher/projection.go",
-            "internal/launcher/surface.go",
+            "cmd/concord/session_handoff.go",
             "internal/sessionboot/sessionboot.go",
             "internal/store/session_identity.go"
-          ]
-        },
-        {
-          "check_ids": [
-            "go-test-race"
-          ],
-          "contract_refs": [
-            ".concord/docs/product-coordination-view.md",
-            ".concord/docs/product-row-contract.md"
-          ],
-          "control_law_ids": [
-            "C14",
-            "C17"
-          ],
-          "controls": [
-            {
-              "evidence": [
-                {
-                  "kind": "go_test",
-                  "value": "internal/store.TestProductRowsC14ReturnsFiveGroups"
-                },
-                {
-                  "kind": "go_test",
-                  "value": "internal/store.TestProductRowsC14FiveTierCompetitionChoosesFirstNonemptyTier"
-                },
-                {
-                  "kind": "go_test",
-                  "value": "internal/store.TestProductRowsC14UnavailableRequiredSourceNeverBecomesZero"
-                },
-                {
-                  "kind": "go_test",
-                  "value": "internal/launcher.TestProjectionIsDeterministicAndCarriesAttentionMarkers"
-                },
-                {
-                  "kind": "go_test",
-                  "value": "internal/launcher/render/bubbletea.TestNoColorOutputIsPlainTextAndKeepsAllSemanticMarkers"
-                },
-                {
-                  "kind": "go_test",
-                  "value": "internal/launcher/render/bubbletea.TestRenderIsStableNoColorAndResizeDoesNotRead"
-                }
-              ],
-              "id": "C14",
-              "state": "satisfied"
-            },
-            {
-              "evidence": [
-                {
-                  "kind": "go_test",
-                  "value": "internal/launcher/storeport.TestRelationTreeKeepsStructuralComponentAndInverseOutOfCycleOracle"
-                },
-                {
-                  "kind": "go_test",
-                  "value": "internal/launcher/storeport.TestRelationTreeSurfacesCycles"
-                },
-                {
-                  "kind": "go_test",
-                  "value": "internal/launcher/storeport.TestRelationTreeResolvesSupersessionChainOnce"
-                },
-                {
-                  "kind": "go_test",
-                  "value": "internal/launcher/storeport.TestRelationTreeMarksDepthTruncationUnavailable"
-                }
-              ],
-              "id": "C17",
-              "state": "satisfied"
-            }
-          ],
-          "domain_id": "operator-surface",
-          "law_refs": [
-            {
-              "clause_id": "1. Decision",
-              "content_hash": "sha256:868a6d6b2968afe80ccfff7921f24441b03300eb7b9d51e2b9d66797b422455d",
-              "law_id": "C14",
-              "locator": ".concord/docs/product-row-contract.md"
-            },
-            {
-              "clause_id": "2. Accepted shape",
-              "content_hash": "sha256:3efde9e573dcbf1304512406c25d886eda851f0f32609f8eff4e8ed47aec475e",
-              "law_id": "C17",
-              "locator": ".concord/docs/product-coordination-view.md"
-            }
-          ],
-          "owner_id": "mechanism:portfolio-view",
-          "responsibility": "The operator's Product and project plane: product rows and stage, portfolio snapshot and resolve, the blocked-session attention projection, project locators and canonical paths, and the closure receipt read.",
-          "source_paths": [
-            "cmd/concord/project_resolve.go",
-            "internal/portfolio/read.go",
-            "internal/store/blocked_sessions.go",
-            "internal/store/operator.go",
-            "internal/store/product_row.go",
-            "internal/store/product_stage.go",
-            "internal/store/project_locator.go",
-            "internal/store/work_closure.go"
-          ]
-        },
-        {
-          "check_ids": [
-            "go-test-race"
-          ],
-          "contract_refs": [
-            "contracts/predecessor-snapshot.schema.json"
-          ],
-          "control_law_ids": [
-            "CD-0097"
-          ],
-          "controls": [
-            {
-              "id": "CD-0097",
-              "issue": "CON-34",
-              "state": "outstanding"
-            }
-          ],
-          "domain_id": "operator-surface",
-          "law_refs": [
-            {
-              "clause_id": "D4. Replay is idempotent, and conflicts refuse typed",
-              "content_hash": "sha256:998b635d54e703e0fb8c1d08ba2aaacacfb3a44f654ed0e353e7ae24192d016b",
-              "law_id": "CD-0097",
-              "locator": ".concord/docs/decisions/CD-0097-bounded-parallel-predecessor-migration.md"
-            }
-          ],
-          "owner_id": "mechanism:predecessor-import",
-          "responsibility": "Predecessor migration: snapshot inventory and import into Product state, idempotent replay with typed conflicts, and provenance reads against event history.",
-          "source_paths": [
-            "cmd/concord/predecessor_import.go",
-            "internal/predecessor/inventory.go",
-            "internal/predecessor/snapshot.go",
-            "internal/predecessor/surfaces.go",
-            "internal/store/predecessor_import.go"
-          ]
-        },
-        {
-          "check_ids": [
-            "go-test-race"
-          ],
-          "contract_refs": [
-            ".github/workflows/release.yml"
-          ],
-          "control_law_ids": [
-            "CD-0111"
-          ],
-          "controls": [
-            {
-              "evidence": [
-                {
-                  "kind": "adapter_test",
-                  "value": "adapter/opencode/concord.test.ts#core_binary_is_the_stamped_release_constant"
-                },
-                {
-                  "kind": "adapter_test",
-                  "value": "adapter/opencode/concord.test.ts#a session without a host lease refuses every core operation"
-                },
-                {
-                  "kind": "go_test",
-                  "value": "internal/store.TestOpenStopsBeforeAPendingBreakingMigration"
-                },
-                {
-                  "kind": "go_test",
-                  "value": "internal/store.TestUpgradeRefusesWhileALiveLeaseHoldsAnOlderSchema"
-                }
-              ],
-              "id": "CD-0111",
-              "state": "satisfied"
-            }
-          ],
-          "domain_id": "operator-surface",
-          "law_refs": [
-            {
-              "clause_id": "D2. The installer retains a release a live session references",
-              "content_hash": "sha256:5a31689d5b9547831a555861742367d5ea6c143516019eafd3eb1162b08e2723",
-              "law_id": "CD-0111",
-              "locator": ".concord/docs/decisions/CD-0111-a-release-never-requires-a-session-restart.md"
-            },
-            {
-              "clause_id": "D3. A breaking migration applies only through an explicit upgrade",
-              "content_hash": "sha256:5a31689d5b9547831a555861742367d5ea6c143516019eafd3eb1162b08e2723",
-              "law_id": "CD-0111",
-              "locator": ".concord/docs/decisions/CD-0111-a-release-never-requires-a-session-restart.md"
-            }
-          ],
-          "owner_id": "mechanism:release-installer",
-          "responsibility": "Release and installation currency: host leases pinning live sessions to releases, the explicit upgrade fence for breaking migrations, repair routing during an outage, and the automated release workflow.",
-          "source_paths": [
-            ".github/workflows/release.yml",
-            "cmd/concord/release.go",
-            "cmd/concord/repair.go",
-            "internal/hostlease/hostlease.go",
-            "internal/receipt/receipt.go",
-            "internal/version/version.go"
           ]
         }
       ],
@@ -3639,12 +3568,6 @@
       "observed_imports": [
         "bufio",
         "bytes",
-        "charm.land/bubbles/v2/help",
-        "charm.land/bubbles/v2/key",
-        "charm.land/bubbles/v2/textinput",
-        "charm.land/bubbletea/v2",
-        "charm.land/lipgloss/v2",
-        "charm.land/lipgloss/v2/table",
         "context",
         "crypto/ed25519",
         "crypto/rand",
@@ -3658,13 +3581,8 @@
         "github.com/sharper-flow/concord/internal/agent",
         "github.com/sharper-flow/concord/internal/gittest",
         "github.com/sharper-flow/concord/internal/hostlease",
-        "github.com/sharper-flow/concord/internal/launcher",
-        "github.com/sharper-flow/concord/internal/launcher/render/bubbletea",
-        "github.com/sharper-flow/concord/internal/launcher/storeport",
         "github.com/sharper-flow/concord/internal/linearclient",
         "github.com/sharper-flow/concord/internal/payloadschema",
-        "github.com/sharper-flow/concord/internal/pm1fixture",
-        "github.com/sharper-flow/concord/internal/portfolio",
         "github.com/sharper-flow/concord/internal/predecessor",
         "github.com/sharper-flow/concord/internal/receipt",
         "github.com/sharper-flow/concord/internal/sessionboot",
@@ -3672,10 +3590,7 @@
         "github.com/sharper-flow/concord/internal/store/storetest",
         "github.com/sharper-flow/concord/internal/testenv",
         "github.com/sharper-flow/concord/internal/version",
-        "go/parser",
-        "go/token",
         "io",
-        "io/fs",
         "modernc.org/sqlite",
         "net/http",
         "net/http/httptest",
@@ -3730,12 +3645,6 @@
           ]
         },
         {
-          "import_path": "github.com/sharper-flow/concord/internal/pm1fixture",
-          "target_domain_ids": [
-            "repository-verification"
-          ]
-        },
-        {
           "import_path": "github.com/sharper-flow/concord/internal/store",
           "target_domain_ids": [
             "agent-surface",
@@ -3767,7 +3676,6 @@
         "include": [
           "cmd/**",
           "brand/**",
-          "internal/launcher/**",
           "internal/portfolio/**",
           "internal/predecessor/**",
           "internal/receipt/**",
@@ -3782,7 +3690,6 @@
           "internal/store/display_name_bound_test.go",
           "internal/store/nil_store_launcher_test.go",
           "contracts/predecessor-snapshot.schema.json",
-          ".concord/scenarios/launcher-portfolio.v1.json",
           "internal/store/work_closure*.go",
           "internal/store/session_identity.go",
           "internal/store/blocked_sessions*.go",
@@ -3795,12 +3702,9 @@
         ]
       },
       "purpose": "Owns the human-facing plane: the terminal launcher, the CLI verb surface and its operator diagnostics, installation and release packaging, and the navigation path an operator uses to reach Product state.",
-      "test_count": 91,
+      "test_count": 71,
       "test_packages": [
         "github.com/sharper-flow/concord/cmd/concord",
-        "github.com/sharper-flow/concord/internal/launcher",
-        "github.com/sharper-flow/concord/internal/launcher/render/bubbletea",
-        "github.com/sharper-flow/concord/internal/launcher/storeport",
         "github.com/sharper-flow/concord/internal/predecessor",
         "github.com/sharper-flow/concord/internal/receipt",
         "github.com/sharper-flow/concord/internal/sessionboot",
@@ -3809,16 +3713,15 @@
       "test_paths": [
         "cmd/concord/agent_identity_test.go",
         "cmd/concord/agent_registry_test.go",
+        "cmd/concord/bare_invocation_test.go",
         "cmd/concord/binary_compatibility_cli_test.go",
         "cmd/concord/cd_reservations_test.go",
         "cmd/concord/ci_wait_runid_test.go",
         "cmd/concord/ci_wait_state_test.go",
         "cmd/concord/ci_wait_test.go",
+        "cmd/concord/host_boundary_test.go",
         "cmd/concord/host_command_test.go",
         "cmd/concord/knowledge_home_cli_test.go",
-        "cmd/concord/launcher_bare_test.go",
-        "cmd/concord/launcher_portfolio_corpus_test.go",
-        "cmd/concord/launcher_work_row_long_identity_test.go",
         "cmd/concord/linear_adopt_test.go",
         "cmd/concord/linear_audit_comment_test.go",
         "cmd/concord/linear_backfill_test.go",
@@ -3842,6 +3745,7 @@
         "cmd/concord/required_fields_test.go",
         "cmd/concord/scrub_env_test.go",
         "cmd/concord/session_directory_test.go",
+        "cmd/concord/session_handoff_test.go",
         "cmd/concord/session_prepare_contention_test.go",
         "cmd/concord/session_prepare_failure_test.go",
         "cmd/concord/session_prepare_multi_project_test.go",
@@ -3860,24 +3764,6 @@
         "cmd/concord/worker_reconcile_test.go",
         "cmd/concord/worktree_locate_test.go",
         "cmd/concord/zl_forward_test.go",
-        "internal/launcher/dependency_inventory_test.go",
-        "internal/launcher/host_boundary_test.go",
-        "internal/launcher/import_boundary_test.go",
-        "internal/launcher/model_test.go",
-        "internal/launcher/projection_test.go",
-        "internal/launcher/render/bubbletea/acceptance_screens_test.go",
-        "internal/launcher/render/bubbletea/frame_test.go",
-        "internal/launcher/render/bubbletea/model_test.go",
-        "internal/launcher/render/bubbletea/portfolio_display_test.go",
-        "internal/launcher/render/bubbletea/refresh_selection_test.go",
-        "internal/launcher/render/bubbletea/scrub_env_test.go",
-        "internal/launcher/replacement_test.go",
-        "internal/launcher/scrub_env_test.go",
-        "internal/launcher/storeport/acceptance_store_test.go",
-        "internal/launcher/storeport/domain_evidence_test.go",
-        "internal/launcher/storeport/overflow_drain_test.go",
-        "internal/launcher/storeport/port_test.go",
-        "internal/launcher/storeport/scrub_env_test.go",
         "internal/predecessor/inventory_test.go",
         "internal/predecessor/scrub_env_test.go",
         "internal/predecessor/snapshot_test.go",
@@ -3887,9 +3773,7 @@
         "internal/sessionboot/sessionboot_test.go",
         "internal/store/blocked_sessions_test.go",
         "internal/store/display_name_bound_test.go",
-        "internal/store/launcher_domains_test.go",
         "internal/store/launcher_forward_test.go",
-        "internal/store/launcher_last_activity_test.go",
         "internal/store/nil_store_launcher_test.go",
         "internal/store/predecessor_conflict_read_test.go",
         "internal/store/predecessor_import_test.go",
@@ -4019,7 +3903,7 @@
         }
       ],
       "domain_id": "product-memory",
-      "mapped_count": 870,
+      "mapped_count": 861,
       "mechanism_owner_ids": [
         "mechanism:domain-registry",
         "mechanism:knowledge-index"
@@ -4077,7 +3961,7 @@
             },
             {
               "clause_id": "D5. Every Product repository carries the validator",
-              "content_hash": "sha256:70697dcbb12e8af40c58d588255dfc4f64cf8ae4e7b06db43971f525f5a74db4",
+              "content_hash": "sha256:9927ba22e3e9e81bd266407253a04443f7fa4b557c49cee5e644d055ed4974e7",
               "law_id": "CD-0158",
               "locator": ".concord/docs/decisions/CD-0158-the-domain-graph-earns-its-place-through-an-authoring-obligation.md"
             }
@@ -4125,13 +4009,13 @@
           "law_refs": [
             {
               "clause_id": "D1. Retain the current manifest-primary hybrid",
-              "content_hash": "sha256:5ef9f24f24727c60cd3b9cdbc4313ecc782ddd483392ca703772c32c310a716d",
+              "content_hash": "sha256:269ab34981311409370ee5ac45754e01af58bc83edf902c4cab202e2ad9a773c",
               "law_id": "CD-0020",
               "locator": ".concord/docs/decisions/CD-0020-retain-knowledge-index-shape.md"
             },
             {
               "clause_id": "D2. Retain PM1.Q9 and Q10 as the knowledge-query boundary",
-              "content_hash": "sha256:5ef9f24f24727c60cd3b9cdbc4313ecc782ddd483392ca703772c32c310a716d",
+              "content_hash": "sha256:269ab34981311409370ee5ac45754e01af58bc83edf902c4cab202e2ad9a773c",
               "law_id": "CD-0020",
               "locator": ".concord/docs/decisions/CD-0020-retain-knowledge-index-shape.md"
             }
@@ -4637,7 +4521,7 @@
       ],
       "dependency_interpretations_to": [],
       "domain_id": "repository-verification",
-      "mapped_count": 190,
+      "mapped_count": 188,
       "mechanism_owner_ids": [
         "mechanism:repo-validators",
         "mechanism:test-infrastructure"
@@ -4847,7 +4731,7 @@
         ]
       },
       "purpose": "Owns the authority a repository check may hold: what a validator may assert, what it may block, how required checks bind to declared coverage, and the boundary between a check's finding and accepted Product law.",
-      "test_count": 86,
+      "test_count": 85,
       "test_packages": [
         "github.com/sharper-flow/concord/internal/gittest",
         "github.com/sharper-flow/concord/internal/pm1fixture",
@@ -4910,7 +4794,6 @@
         "scripts/test-evidence-anchors.py",
         "scripts/test-floor-readiness.py",
         "scripts/test-generate-agent-lanes.py",
-        "scripts/test-generate-dependency-inventory.py",
         "scripts/test-generate-knowledge-index.py",
         "scripts/test-generate-law-coverage.py",
         "scripts/test-go-test-shard.py",
@@ -6120,7 +6003,6 @@
     ".concord/docs/decisions/CD-0011-retain-sqlite-after-conformance.md": "product-memory",
     ".concord/docs/decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md": "product-memory",
     ".concord/docs/decisions/CD-0013-workflow-engine-mechanism.md": "product-memory",
-    ".concord/docs/decisions/CD-0014-terminal-launcher-dependencies.v1.json": "product-memory",
     ".concord/docs/decisions/CD-0014-terminal-launcher-rendering.md": "product-memory",
     ".concord/docs/decisions/CD-0015-typed-law-relations.md": "product-memory",
     ".concord/docs/decisions/CD-0016-context-continuity.md": "product-memory",
@@ -6307,11 +6189,7 @@
     ".concord/docs/decisions/CD-0210-outside-repair-route-narrows-CD-0183-D-4.md": "product-memory",
     ".concord/docs/decisions/CD-0211-defect-intake-classifies-recurrence-before-fix.md": "product-memory",
     ".concord/docs/decisions/CD-0212-reclaim-gates-the-live-head-and-records-retained-refs.md": "product-memory",
-    ".concord/docs/decisions/license-evidence/github.com/aymanbagabas/go-udiff/v0.4.1/LICENSE-BSD": "product-memory",
-    ".concord/docs/decisions/license-evidence/github.com/aymanbagabas/go-udiff/v0.4.1/LICENSE-MIT": "product-memory",
-    ".concord/docs/decisions/license-evidence/github.com/charmbracelet/x/exp/golden/v0.0.0-20250806222409-83e3a29d542f/LICENSE": "product-memory",
-    ".concord/docs/decisions/license-evidence/github.com/dustin/go-humanize/v1.0.1/LICENSE": "product-memory",
-    ".concord/docs/decisions/license-evidence/golang.org/x/exp/v0.0.0-20231006140011-7918f672742d/LICENSE": "product-memory",
+    ".concord/docs/decisions/CD-0219-the-terminal-launcher-tui-is-retired.md": "product-memory",
     ".concord/docs/design-constraints.md": "product-memory",
     ".concord/docs/development-authority.md": "product-memory",
     ".concord/docs/durable-tier-budget.v1.json": "product-memory",
@@ -6522,6 +6400,7 @@
     ".concord/docs/knowledge/coverage/CD-0210.json": "product-memory",
     ".concord/docs/knowledge/coverage/CD-0211.json": "product-memory",
     ".concord/docs/knowledge/coverage/CD-0212.json": "product-memory",
+    ".concord/docs/knowledge/coverage/CD-0219.json": "product-memory",
     ".concord/docs/knowledge/coverage/PM1.json": "product-memory",
     ".concord/docs/knowledge/coverage/PM10.json": "product-memory",
     ".concord/docs/knowledge/coverage/PM2.json": "product-memory",
@@ -6572,8 +6451,6 @@
     ".concord/docs/knowledge/coverage/self-documentation.json": "product-memory",
     ".concord/docs/knowledge/coverage/specs-as-laws.json": "product-memory",
     ".concord/docs/knowledge/coverage/storage-spine-slice.json": "product-memory",
-    ".concord/docs/knowledge/coverage/terminal-launcher-contract.json": "product-memory",
-    ".concord/docs/knowledge/coverage/terminal-launcher-replacement-contract.json": "product-memory",
     ".concord/docs/knowledge/coverage/vertical-integration.json": "product-memory",
     ".concord/docs/knowledge/coverage/workflow-engine-contract.json": "product-memory",
     ".concord/docs/knowledge/coverage/workflows.json": "product-memory",
@@ -6779,6 +6656,7 @@
     ".concord/docs/knowledge/records/CD-0210.json": "product-memory",
     ".concord/docs/knowledge/records/CD-0211.json": "product-memory",
     ".concord/docs/knowledge/records/CD-0212.json": "product-memory",
+    ".concord/docs/knowledge/records/CD-0219.json": "product-memory",
     ".concord/docs/knowledge/records/PM1.json": "product-memory",
     ".concord/docs/knowledge/records/PM10.json": "product-memory",
     ".concord/docs/knowledge/records/PM2.json": "product-memory",
@@ -6829,8 +6707,6 @@
     ".concord/docs/knowledge/records/self-documentation.json": "product-memory",
     ".concord/docs/knowledge/records/specs-as-laws.json": "product-memory",
     ".concord/docs/knowledge/records/storage-spine-slice.json": "product-memory",
-    ".concord/docs/knowledge/records/terminal-launcher-contract.json": "product-memory",
-    ".concord/docs/knowledge/records/terminal-launcher-replacement-contract.json": "product-memory",
     ".concord/docs/knowledge/records/vertical-integration.json": "product-memory",
     ".concord/docs/knowledge/records/workflow-engine-contract.json": "product-memory",
     ".concord/docs/knowledge/records/workflows.json": "product-memory",
@@ -6874,8 +6750,6 @@
     ".concord/docs/self-documentation.md": "product-memory",
     ".concord/docs/specs-as-laws.md": "product-memory",
     ".concord/docs/storage-spine-slice.md": "product-memory",
-    ".concord/docs/terminal-launcher-contract.md": "product-memory",
-    ".concord/docs/terminal-launcher-replacement-contract.md": "product-memory",
     ".concord/docs/vertical-integration.md": "product-memory",
     ".concord/docs/workflow-engine-contract.md": "product-memory",
     ".concord/docs/workflows.md": "product-memory",
@@ -6900,7 +6774,6 @@
     ".concord/scenarios/README.md": "repository-verification",
     ".concord/scenarios/adapter-continuity.v1.json": "agent-surface",
     ".concord/scenarios/agent-jobs.v1.json": "agent-surface",
-    ".concord/scenarios/launcher-portfolio.v1.json": "operator-surface",
     ".concord/scenarios/product-memory-query.v1.json": "product-memory",
     ".concord/scenarios/workflow-engine.v1.json": "workflow-engine",
     ".concord/tooling.v1.json": "repository-verification",
@@ -7082,6 +6955,7 @@
     "cmd/concord/agent_identity_test.go": "operator-surface",
     "cmd/concord/agent_registry.go": "operator-surface",
     "cmd/concord/agent_registry_test.go": "operator-surface",
+    "cmd/concord/bare_invocation_test.go": "operator-surface",
     "cmd/concord/binary_compatibility_cli_test.go": "operator-surface",
     "cmd/concord/cd_reservations.go": "operator-surface",
     "cmd/concord/cd_reservations_test.go": "operator-surface",
@@ -7090,13 +6964,11 @@
     "cmd/concord/ci_wait_state_test.go": "operator-surface",
     "cmd/concord/ci_wait_test.go": "operator-surface",
     "cmd/concord/fold_guard_recovery.go": "operator-surface",
+    "cmd/concord/host_boundary_test.go": "operator-surface",
     "cmd/concord/host_command.go": "operator-surface",
     "cmd/concord/host_command_test.go": "operator-surface",
     "cmd/concord/knowledge_home_cli_test.go": "operator-surface",
     "cmd/concord/landing_verb.go": "operator-surface",
-    "cmd/concord/launcher_bare_test.go": "operator-surface",
-    "cmd/concord/launcher_portfolio_corpus_test.go": "operator-surface",
-    "cmd/concord/launcher_work_row_long_identity_test.go": "operator-surface",
     "cmd/concord/linear_adopt_test.go": "operator-surface",
     "cmd/concord/linear_audit_comment_test.go": "operator-surface",
     "cmd/concord/linear_backfill_test.go": "operator-surface",
@@ -7128,6 +7000,8 @@
     "cmd/concord/scrub_env_test.go": "operator-surface",
     "cmd/concord/session.go": "operator-surface",
     "cmd/concord/session_directory_test.go": "operator-surface",
+    "cmd/concord/session_handoff.go": "operator-surface",
+    "cmd/concord/session_handoff_test.go": "operator-surface",
     "cmd/concord/session_prepare_contention_test.go": "operator-surface",
     "cmd/concord/session_prepare_failure_test.go": "operator-surface",
     "cmd/concord/session_prepare_multi_project_test.go": "operator-surface",
@@ -7384,31 +7258,6 @@
     "internal/hostlease/hostlease.go": "durable-authority",
     "internal/hostlease/hostlease_test.go": "durable-authority",
     "internal/hostlease/scrub_env_test.go": "durable-authority",
-    "internal/launcher/dependency_inventory_test.go": "operator-surface",
-    "internal/launcher/host_boundary_test.go": "operator-surface",
-    "internal/launcher/import_boundary_test.go": "operator-surface",
-    "internal/launcher/model.go": "operator-surface",
-    "internal/launcher/model_test.go": "operator-surface",
-    "internal/launcher/projection.go": "operator-surface",
-    "internal/launcher/projection_test.go": "operator-surface",
-    "internal/launcher/render/bubbletea/acceptance_screens_test.go": "operator-surface",
-    "internal/launcher/render/bubbletea/frame_test.go": "operator-surface",
-    "internal/launcher/render/bubbletea/model.go": "operator-surface",
-    "internal/launcher/render/bubbletea/model_test.go": "operator-surface",
-    "internal/launcher/render/bubbletea/portfolio_display_test.go": "operator-surface",
-    "internal/launcher/render/bubbletea/refresh_selection_test.go": "operator-surface",
-    "internal/launcher/render/bubbletea/scrub_env_test.go": "operator-surface",
-    "internal/launcher/render/bubbletea/testdata/frame-120x40.golden": "operator-surface",
-    "internal/launcher/render/bubbletea/testdata/frame-80x24.golden": "operator-surface",
-    "internal/launcher/replacement_test.go": "operator-surface",
-    "internal/launcher/scrub_env_test.go": "operator-surface",
-    "internal/launcher/storeport/acceptance_store_test.go": "operator-surface",
-    "internal/launcher/storeport/domain_evidence_test.go": "operator-surface",
-    "internal/launcher/storeport/overflow_drain_test.go": "operator-surface",
-    "internal/launcher/storeport/port.go": "operator-surface",
-    "internal/launcher/storeport/port_test.go": "operator-surface",
-    "internal/launcher/storeport/scrub_env_test.go": "operator-surface",
-    "internal/launcher/surface.go": "operator-surface",
     "internal/linearclient/client.go": "work-coordination",
     "internal/linearclient/client_test.go": "work-coordination",
     "internal/linearclient/scrub_env_test.go": "work-coordination",
@@ -7580,9 +7429,7 @@
     "internal/store/landing.go": "agent-surface",
     "internal/store/lane_step_dispatch_test.go": "agent-surface",
     "internal/store/laneless_research_test.go": "workflow-engine",
-    "internal/store/launcher_domains_test.go": "operator-surface",
     "internal/store/launcher_forward_test.go": "operator-surface",
-    "internal/store/launcher_last_activity_test.go": "operator-surface",
     "internal/store/launcher_query.go": "operator-surface",
     "internal/store/law_boundary.go": "product-memory",
     "internal/store/law_boundary_test.go": "product-memory",
@@ -8013,7 +7860,6 @@
     "scripts/generate-agent-contracts.py": "repository-verification",
     "scripts/generate-agent-lanes.py": "repository-verification",
     "scripts/generate-branch-freshness.py": "repository-verification",
-    "scripts/generate-dependency-inventory.py": "repository-verification",
     "scripts/generate-domain-navigation.py": "repository-verification",
     "scripts/generate-durable-tier-budget.py": "repository-verification",
     "scripts/generate-knowledge-index.py": "repository-verification",
@@ -8055,7 +7901,6 @@
     "scripts/test-evidence-anchors.py": "repository-verification",
     "scripts/test-floor-readiness.py": "repository-verification",
     "scripts/test-generate-agent-lanes.py": "repository-verification",
-    "scripts/test-generate-dependency-inventory.py": "repository-verification",
     "scripts/test-generate-knowledge-index.py": "repository-verification",
     "scripts/test-generate-law-coverage.py": "repository-verification",
     "scripts/test-go-test-shard.py": "repository-verification",
@@ -8095,7 +7940,7 @@
     "skills/README.md": "agent-surface",
     "workflows/README.md": "workflow-engine"
   },
-  "mapped_count": 2007,
+  "mapped_count": 1969,
   "mechanisms": [
     {
       "check_ids": [
@@ -8364,7 +8209,7 @@
         },
         {
           "clause_id": "D5. Every Product repository carries the validator",
-          "content_hash": "sha256:70697dcbb12e8af40c58d588255dfc4f64cf8ae4e7b06db43971f525f5a74db4",
+          "content_hash": "sha256:9927ba22e3e9e81bd266407253a04443f7fa4b557c49cee5e644d055ed4974e7",
           "law_id": "CD-0158",
           "locator": ".concord/docs/decisions/CD-0158-the-domain-graph-earns-its-place-through-an-authoring-obligation.md"
         }
@@ -8510,13 +8355,13 @@
       "law_refs": [
         {
           "clause_id": "D1. Retain the current manifest-primary hybrid",
-          "content_hash": "sha256:5ef9f24f24727c60cd3b9cdbc4313ecc782ddd483392ca703772c32c310a716d",
+          "content_hash": "sha256:269ab34981311409370ee5ac45754e01af58bc83edf902c4cab202e2ad9a773c",
           "law_id": "CD-0020",
           "locator": ".concord/docs/decisions/CD-0020-retain-knowledge-index-shape.md"
         },
         {
           "clause_id": "D2. Retain PM1.Q9 and Q10 as the knowledge-query boundary",
-          "content_hash": "sha256:5ef9f24f24727c60cd3b9cdbc4313ecc782ddd483392ca703772c32c310a716d",
+          "content_hash": "sha256:269ab34981311409370ee5ac45754e01af58bc83edf902c4cab202e2ad9a773c",
           "law_id": "CD-0020",
           "locator": ".concord/docs/decisions/CD-0020-retain-knowledge-index-shape.md"
         }
@@ -8538,251 +8383,6 @@
         "internal/store/research_reads.go",
         "internal/store/research_types.go",
         "internal/store/unprocessed_knowledge.go"
-      ]
-    },
-    {
-      "check_ids": [
-        "go-test-race"
-      ],
-      "contract_refs": [
-        ".concord/docs/terminal-launcher-contract.md"
-      ],
-      "control_law_ids": [
-        "CD-0061",
-        "CD-0210",
-        "terminal-launcher-contract"
-      ],
-      "controls": [
-        {
-          "evidence": [
-            {
-              "kind": "go_test",
-              "value": "internal/store.TestMigrateV45ToV46DropsOrchestratorReservationAndNarrowsBoundaryKind"
-            },
-            {
-              "kind": "go_test",
-              "value": "internal/store.TestMigrationReplayFromScratchReachesHead"
-            },
-            {
-              "kind": "go_test",
-              "value": "cmd/concord.TestSessionRefusesWhenOrchestratorIdentityIsAbsent"
-            },
-            {
-              "kind": "go_test",
-              "value": "cmd/concord.TestSessionRecordsExactlyOneOrchestratorIdentityEvent"
-            },
-            {
-              "kind": "go_test",
-              "value": "cmd/concord.TestOrchestratorIdentityDigestRecomputesAndChangesWithArtifact"
-            },
-            {
-              "kind": "go_test",
-              "value": "cmd/concord.TestOrchestratorIdentityResolvesFromEitherSearchedDirectory"
-            },
-            {
-              "kind": "go_test",
-              "value": "cmd/concord.TestOrchestratorIdentityNamesAbsentDefinitionAndSearchedDirectories"
-            },
-            {
-              "kind": "go_test",
-              "value": "cmd/concord.TestOrchestratorIdentityDigestIsStableAcrossInvocations"
-            },
-            {
-              "kind": "go_test",
-              "value": "cmd/concord.TestOrchestratorIdentityDigestChangesWhenArtifactChanges"
-            }
-          ],
-          "id": "CD-0061",
-          "state": "satisfied"
-        },
-        {
-          "evidence": [
-            {
-              "kind": "go_test",
-              "value": "internal/store.TestOutsideRepairTypedHoldBaseReproduction"
-            },
-            {
-              "kind": "go_test",
-              "value": "internal/store.TestOutsideRepairHoldRequiresApprovalNotCompletionEvidence"
-            },
-            {
-              "kind": "go_test",
-              "value": "internal/store.TestOutsideRepairCentralAdmissionSuppressesAllActionsAndLifecycleBypasses"
-            },
-            {
-              "kind": "go_test",
-              "value": "internal/store.TestOutsideRepairReconcileBothLiveLifecyclesAndReplay"
-            },
-            {
-              "kind": "go_test",
-              "value": "internal/store.TestOutsideRepairResumePreservesStateAndAllowsAnotherHold"
-            },
-            {
-              "kind": "go_test",
-              "value": "internal/store.TestOutsideRepairRefusesInactiveDuplicateTerminalAndStaleMutations"
-            },
-            {
-              "kind": "go_test",
-              "value": "internal/store.TestOutsideRepairReconciliationEvidenceRefusesInvalidReceipts"
-            },
-            {
-              "kind": "go_test",
-              "value": "internal/store.TestOutsideRepairGenericAppendCannotAcquireAuthority"
-            },
-            {
-              "kind": "go_test",
-              "value": "internal/store.TestOutsideRepairFoldRejectsFabricatedApprovalAndEvidence"
-            },
-            {
-              "kind": "go_test",
-              "value": "internal/store.TestOutsideRepairDoesNotChangeOrdinaryCompletion"
-            },
-            {
-              "kind": "go_test",
-              "value": "internal/store.TestWorkflowCompletedRefusesWhileOutsideRepairActive"
-            },
-            {
-              "kind": "go_test",
-              "value": "internal/store.TestOutsideRepairMigrationPreservesPopulatedWorkflowInstance"
-            },
-            {
-              "kind": "go_test",
-              "value": "internal/agent.TestOutsideRepairHoldRequiresApprovalAndRecordsHold"
-            },
-            {
-              "kind": "go_test",
-              "value": "internal/agent.TestOutsideRepairReconcileCompletedClosesFromBoundaryEvidence"
-            },
-            {
-              "kind": "go_test",
-              "value": "internal/agent.TestOutsideRepairReconcileAnnotatedTagResolvesToCommit"
-            },
-            {
-              "kind": "go_test",
-              "value": "internal/agent.TestOutsideRepairReconcileResumeClearsHoldWithoutFetch"
-            },
-            {
-              "kind": "go_test",
-              "value": "internal/agent.TestOutsideRepairReconcileWithoutHoldRefuses"
-            },
-            {
-              "kind": "go_test",
-              "value": "internal/agent.TestOutsideRepairReconcileNonAncestorMergeRefuses"
-            },
-            {
-              "kind": "go_test",
-              "value": "internal/agent.TestOutsideRepairReconcileDraftReleaseRefuses"
-            },
-            {
-              "kind": "go_test",
-              "value": "internal/agent.TestOutsideRepairReconcilePRBodyWithoutLinearRefRefuses"
-            },
-            {
-              "kind": "go_test",
-              "value": "internal/agent.TestOutsideRepairApprovalBindsExactOperation"
-            },
-            {
-              "kind": "go_test",
-              "value": "internal/agent.TestOutsideRepairIdempotentReplayReplaysRecordedResult"
-            },
-            {
-              "kind": "validator",
-              "value": "scripts/check-cd-allocation.py"
-            },
-            {
-              "kind": "go_test",
-              "value": "cmd/concord.TestOutsideRepairActualChildInFreshBranch"
-            },
-            {
-              "kind": "go_test",
-              "value": "cmd/concord.TestOutsideRepairTerminalAfterJSONPipe"
-            },
-            {
-              "kind": "go_test",
-              "value": "cmd/concord.TestDistinctReleasedCoresCoexistOnOneStore"
-            },
-            {
-              "kind": "validator",
-              "value": "scripts/check-doc-contract.py"
-            },
-            {
-              "kind": "validator",
-              "value": "scripts/check-knowledge-index.py"
-            },
-            {
-              "kind": "validator",
-              "value": "scripts/check-knowledge-closure.py"
-            },
-            {
-              "kind": "validator",
-              "value": "scripts/check-knowledge-vocabulary.py"
-            },
-            {
-              "kind": "validator",
-              "value": "scripts/check-law-coverage.py"
-            },
-            {
-              "kind": "validator",
-              "value": "scripts/check-migration-compatibility.py"
-            }
-          ],
-          "id": "CD-0210",
-          "state": "satisfied"
-        },
-        {
-          "evidence": [
-            {
-              "kind": "go_test",
-              "value": "cmd/concord.TestFullLauncherSessionAppendsNothingToTheEventLog"
-            },
-            {
-              "kind": "go_test",
-              "value": "internal/launcher/render/bubbletea.TestDefaultSessionLauncherHandsOnlyIdentityToCoreBootstrap"
-            },
-            {
-              "kind": "go_test",
-              "value": "internal/launcher/storeport.TestS2DomainSectionReadsLawRelationsWorkAndOverlapFromTheStore"
-            },
-            {
-              "kind": "go_test",
-              "value": "internal/launcher.TestTwoInstancesHoldDifferentAmbientProductsWithoutObservingEachOther"
-            }
-          ],
-          "id": "terminal-launcher-contract",
-          "state": "satisfied"
-        }
-      ],
-      "domain_id": "operator-surface",
-      "law_refs": [
-        {
-          "clause_id": "2. The launcher's job",
-          "content_hash": "sha256:50579567ff7924dfb8ffd0ff1aeadb4a9ceec75246d3b3790b9062dc6fb38d55",
-          "law_id": "terminal-launcher-contract",
-          "locator": ".concord/docs/terminal-launcher-contract.md"
-        },
-        {
-          "clause_id": "D4. A session assertion is recorded as a domain event",
-          "content_hash": "sha256:0e3ffbadf8d5f32abb4d83bd18bf9e17800a3f667c72ad15a3b072a6683845bd",
-          "law_id": "CD-0061",
-          "locator": ".concord/docs/decisions/CD-0061-orchestrator-identity-recording.md"
-        },
-        {
-          "clause_id": "D3. The operator opens an unpinned repair session in an ad-hoc worktree",
-          "content_hash": "sha256:10e28d86aef06ea94555aa7a434933b43a7313509bd41f0657e4d38574b6d9e3",
-          "law_id": "CD-0210",
-          "locator": ".concord/docs/decisions/CD-0210-outside-repair-route-narrows-CD-0183-D-4.md"
-        }
-      ],
-      "owner_id": "mechanism:launcher-terminal",
-      "responsibility": "The human-facing terminal: the Bubble Tea launcher and zl forwarding, session boot that derives continuity before the first prompt, and the orchestrator identity assertion a launcher-started session records.",
-      "source_paths": [
-        "cmd/concord/outside_repair_launch.go",
-        "cmd/concord/session.go",
-        "internal/launcher/model.go",
-        "internal/launcher/projection.go",
-        "internal/launcher/surface.go",
-        "internal/sessionboot/sessionboot.go",
-        "internal/store/session_identity.go"
       ]
     },
     {
@@ -8861,41 +8461,16 @@
             },
             {
               "kind": "go_test",
-              "value": "internal/launcher.TestProjectionIsDeterministicAndCarriesAttentionMarkers"
-            },
-            {
-              "kind": "go_test",
-              "value": "internal/launcher/render/bubbletea.TestNoColorOutputIsPlainTextAndKeepsAllSemanticMarkers"
-            },
-            {
-              "kind": "go_test",
-              "value": "internal/launcher/render/bubbletea.TestRenderIsStableNoColorAndResizeDoesNotRead"
+              "value": "internal/store.TestProductRowsC14DuplicateNamesAndCursorBinding"
             }
           ],
           "id": "C14",
           "state": "satisfied"
         },
         {
-          "evidence": [
-            {
-              "kind": "go_test",
-              "value": "internal/launcher/storeport.TestRelationTreeKeepsStructuralComponentAndInverseOutOfCycleOracle"
-            },
-            {
-              "kind": "go_test",
-              "value": "internal/launcher/storeport.TestRelationTreeSurfacesCycles"
-            },
-            {
-              "kind": "go_test",
-              "value": "internal/launcher/storeport.TestRelationTreeResolvesSupersessionChainOnce"
-            },
-            {
-              "kind": "go_test",
-              "value": "internal/launcher/storeport.TestRelationTreeMarksDepthTruncationUnavailable"
-            }
-          ],
           "id": "C17",
-          "state": "satisfied"
+          "reason": "The coordination view retired with the launcher TUI under CD-0219; the relation-tree proofs it cited lived in the deleted storeport tests. The ranked-query half continues under the product-memory query contract and its corpus.",
+          "state": "out_of_scope"
         }
       ],
       "domain_id": "operator-surface",
@@ -9241,6 +8816,226 @@
         "SECURITY.md",
         "go.mod",
         "go.sum"
+      ]
+    },
+    {
+      "check_ids": [
+        "go-test-race"
+      ],
+      "contract_refs": [
+        ".concord/docs/decisions/CD-0108-the-launcher-is-the-zlauncher-replacement.md"
+      ],
+      "control_law_ids": [
+        "CD-0061",
+        "CD-0210"
+      ],
+      "controls": [
+        {
+          "evidence": [
+            {
+              "kind": "go_test",
+              "value": "internal/store.TestMigrateV45ToV46DropsOrchestratorReservationAndNarrowsBoundaryKind"
+            },
+            {
+              "kind": "go_test",
+              "value": "internal/store.TestMigrationReplayFromScratchReachesHead"
+            },
+            {
+              "kind": "go_test",
+              "value": "cmd/concord.TestSessionRefusesWhenOrchestratorIdentityIsAbsent"
+            },
+            {
+              "kind": "go_test",
+              "value": "cmd/concord.TestSessionRecordsExactlyOneOrchestratorIdentityEvent"
+            },
+            {
+              "kind": "go_test",
+              "value": "cmd/concord.TestOrchestratorIdentityDigestRecomputesAndChangesWithArtifact"
+            },
+            {
+              "kind": "go_test",
+              "value": "cmd/concord.TestOrchestratorIdentityResolvesFromEitherSearchedDirectory"
+            },
+            {
+              "kind": "go_test",
+              "value": "cmd/concord.TestOrchestratorIdentityNamesAbsentDefinitionAndSearchedDirectories"
+            },
+            {
+              "kind": "go_test",
+              "value": "cmd/concord.TestOrchestratorIdentityDigestIsStableAcrossInvocations"
+            },
+            {
+              "kind": "go_test",
+              "value": "cmd/concord.TestOrchestratorIdentityDigestChangesWhenArtifactChanges"
+            }
+          ],
+          "id": "CD-0061",
+          "state": "satisfied"
+        },
+        {
+          "evidence": [
+            {
+              "kind": "go_test",
+              "value": "internal/store.TestOutsideRepairTypedHoldBaseReproduction"
+            },
+            {
+              "kind": "go_test",
+              "value": "internal/store.TestOutsideRepairHoldRequiresApprovalNotCompletionEvidence"
+            },
+            {
+              "kind": "go_test",
+              "value": "internal/store.TestOutsideRepairCentralAdmissionSuppressesAllActionsAndLifecycleBypasses"
+            },
+            {
+              "kind": "go_test",
+              "value": "internal/store.TestOutsideRepairReconcileBothLiveLifecyclesAndReplay"
+            },
+            {
+              "kind": "go_test",
+              "value": "internal/store.TestOutsideRepairResumePreservesStateAndAllowsAnotherHold"
+            },
+            {
+              "kind": "go_test",
+              "value": "internal/store.TestOutsideRepairRefusesInactiveDuplicateTerminalAndStaleMutations"
+            },
+            {
+              "kind": "go_test",
+              "value": "internal/store.TestOutsideRepairReconciliationEvidenceRefusesInvalidReceipts"
+            },
+            {
+              "kind": "go_test",
+              "value": "internal/store.TestOutsideRepairGenericAppendCannotAcquireAuthority"
+            },
+            {
+              "kind": "go_test",
+              "value": "internal/store.TestOutsideRepairFoldRejectsFabricatedApprovalAndEvidence"
+            },
+            {
+              "kind": "go_test",
+              "value": "internal/store.TestOutsideRepairDoesNotChangeOrdinaryCompletion"
+            },
+            {
+              "kind": "go_test",
+              "value": "internal/store.TestWorkflowCompletedRefusesWhileOutsideRepairActive"
+            },
+            {
+              "kind": "go_test",
+              "value": "internal/store.TestOutsideRepairMigrationPreservesPopulatedWorkflowInstance"
+            },
+            {
+              "kind": "go_test",
+              "value": "internal/agent.TestOutsideRepairHoldRequiresApprovalAndRecordsHold"
+            },
+            {
+              "kind": "go_test",
+              "value": "internal/agent.TestOutsideRepairReconcileCompletedClosesFromBoundaryEvidence"
+            },
+            {
+              "kind": "go_test",
+              "value": "internal/agent.TestOutsideRepairReconcileAnnotatedTagResolvesToCommit"
+            },
+            {
+              "kind": "go_test",
+              "value": "internal/agent.TestOutsideRepairReconcileResumeClearsHoldWithoutFetch"
+            },
+            {
+              "kind": "go_test",
+              "value": "internal/agent.TestOutsideRepairReconcileWithoutHoldRefuses"
+            },
+            {
+              "kind": "go_test",
+              "value": "internal/agent.TestOutsideRepairReconcileNonAncestorMergeRefuses"
+            },
+            {
+              "kind": "go_test",
+              "value": "internal/agent.TestOutsideRepairReconcileDraftReleaseRefuses"
+            },
+            {
+              "kind": "go_test",
+              "value": "internal/agent.TestOutsideRepairReconcilePRBodyWithoutLinearRefRefuses"
+            },
+            {
+              "kind": "go_test",
+              "value": "internal/agent.TestOutsideRepairApprovalBindsExactOperation"
+            },
+            {
+              "kind": "go_test",
+              "value": "internal/agent.TestOutsideRepairIdempotentReplayReplaysRecordedResult"
+            },
+            {
+              "kind": "validator",
+              "value": "scripts/check-cd-allocation.py"
+            },
+            {
+              "kind": "go_test",
+              "value": "cmd/concord.TestOutsideRepairActualChildInFreshBranch"
+            },
+            {
+              "kind": "go_test",
+              "value": "cmd/concord.TestOutsideRepairTerminalAfterJSONPipe"
+            },
+            {
+              "kind": "go_test",
+              "value": "cmd/concord.TestDistinctReleasedCoresCoexistOnOneStore"
+            },
+            {
+              "kind": "validator",
+              "value": "scripts/check-doc-contract.py"
+            },
+            {
+              "kind": "validator",
+              "value": "scripts/check-knowledge-index.py"
+            },
+            {
+              "kind": "validator",
+              "value": "scripts/check-knowledge-closure.py"
+            },
+            {
+              "kind": "validator",
+              "value": "scripts/check-knowledge-vocabulary.py"
+            },
+            {
+              "kind": "validator",
+              "value": "scripts/check-law-coverage.py"
+            },
+            {
+              "kind": "validator",
+              "value": "scripts/check-migration-compatibility.py"
+            }
+          ],
+          "id": "CD-0210",
+          "state": "satisfied"
+        }
+      ],
+      "domain_id": "operator-surface",
+      "law_refs": [
+        {
+          "clause_id": "D1. The launch action starts a session, and the operator owns the terminal",
+          "content_hash": "sha256:1118e655f7aacf1881c1fd9d1646caa3a262b6396b08a734cee5cb03023b44da",
+          "law_id": "CD-0163",
+          "locator": ".concord/docs/decisions/CD-0163-the-launcher-carries-no-terminal-placement.md"
+        },
+        {
+          "clause_id": "D4. A session assertion is recorded as a domain event",
+          "content_hash": "sha256:0e3ffbadf8d5f32abb4d83bd18bf9e17800a3f667c72ad15a3b072a6683845bd",
+          "law_id": "CD-0061",
+          "locator": ".concord/docs/decisions/CD-0061-orchestrator-identity-recording.md"
+        },
+        {
+          "clause_id": "D3. The operator opens an unpinned repair session in an ad-hoc worktree",
+          "content_hash": "sha256:10e28d86aef06ea94555aa7a434933b43a7313509bd41f0657e4d38574b6d9e3",
+          "law_id": "CD-0210",
+          "locator": ".concord/docs/decisions/CD-0210-outside-repair-route-narrows-CD-0183-D-4.md"
+        }
+      ],
+      "owner_id": "mechanism:session-entry",
+      "responsibility": "The operator's session entry route: zl forwarding that starts or resumes a session for selected work, session boot that derives continuity before the first prompt, the identity-only session handoff, and the orchestrator identity assertion a started session records.",
+      "source_paths": [
+        "cmd/concord/outside_repair_launch.go",
+        "cmd/concord/session.go",
+        "cmd/concord/session_handoff.go",
+        "internal/sessionboot/sessionboot.go",
+        "internal/store/session_identity.go"
       ]
     },
     {

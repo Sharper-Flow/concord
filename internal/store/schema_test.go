@@ -1221,6 +1221,24 @@ func TestMigrationsAreOrderedAndUnique(t *testing.T) {
 	}
 }
 
+// TestWorkItemsCarryNoFoldMaintainedLastActivity pins migration 109: the
+// work_items.last_activity_at column stays dropped. A fold-advanced stamp
+// drifts behind the log under a rolling upgrade with no convergence
+// (CD-0111), so no release's writes may re-introduce one.
+func TestWorkItemsCarryNoFoldMaintainedLastActivity(t *testing.T) {
+	t.Parallel()
+	s := openTemp(t)
+	defer s.Close()
+	var columns int
+	if err := s.DatabaseForTesting().QueryRow(
+		`SELECT count(*) FROM pragma_table_info('work_items') WHERE name='last_activity_at'`).Scan(&columns); err != nil {
+		t.Fatal(err)
+	}
+	if columns != 0 {
+		t.Fatal("work_items still carries last_activity_at; the stored marker must stay gone so no fold-maintained copy can drift")
+	}
+}
+
 func TestMigration58MatchesIssuedBootstrapLedger(t *testing.T) {
 	t.Parallel()
 	var migration58 migration

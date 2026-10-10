@@ -80,12 +80,12 @@ before you use adapter tools:
 
 Concord does not invent these records or their keys. The bootstrap commands
 listed in the adapter guide read one strict JSON object from stdin and write one
-bounded JSON result. The launcher uses an interactive TTY instead.
+bounded JSON result.
 
 ```sh
 concord --version
 concord --help
-concord launcher
+concord zl <work>
 ```
 
 ## Build and verify from source

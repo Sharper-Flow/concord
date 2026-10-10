@@ -397,7 +397,8 @@ title through the control plane. When the title starts with `Goal: `, the hook
 pushes that one line onto the compaction context, and the host joins it into
 the compaction prompt so the anchored summary restates the goal. The hook is
 required because the title alone never reaches the model and the continuity
-block injects only when the launcher exported the selected Product and work.
+block injects only when the session entry route exported the selected Product
+and work.
 
 Every title write stays best effort: an absent route, an empty title, or a
 failed call warns and never changes a recorded outcome.

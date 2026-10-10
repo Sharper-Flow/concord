@@ -27,6 +27,7 @@ import {
   work_compact,
   work_start,
   publishWorkStartDefinition,
+  publishRequestDefinition,
   takeWorkNotices,
   configureSessionOpener,
 } from "./concord"
@@ -138,6 +139,7 @@ export default async function ConcordAdapterPlugin(input?: Partial<PluginInput>,
       definitionInput: { toolID: string },
       output: { description: string; parameters: unknown; jsonSchema?: unknown },
     ) => {
+      await publishRequestDefinition(definitionInput, output)
       await publishWorkStartDefinition(definitionInput, output)
       await publishCiWatchDefinition(definitionInput, output)
     },

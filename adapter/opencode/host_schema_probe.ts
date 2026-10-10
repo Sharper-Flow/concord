@@ -1,6 +1,7 @@
 import { contractOperations, hostToolSchemas, workflowActionPublicVariants } from "./generated-contracts"
+import { expandedPublishedRequestSchema } from "./generated-contract-tests"
 import { ciWatchTool, publishCiWatchDefinition } from "./ci-watch"
-import { domain, knowledge, product_view, publishWorkStartDefinition, work_browse, work_compact, work_define, work_initiative, work_relate, work_start, work_trace, work_transition } from "./concord"
+import { domain, knowledge, product_view, publishRequestDefinition, publishWorkStartDefinition, work_browse, work_compact, work_define, work_initiative, work_relate, work_start, work_trace, work_transition } from "./concord"
 
 const concord_ci_watch = ciWatchTool()
 
@@ -64,7 +65,15 @@ function inspect(value: unknown, path = "$", seen = new Set<unknown>(), insideNo
   }
   for (const [key, item] of Object.entries(value)) {
     if (key === "~standard" || key === "def") fail(`published schema contains Zod implementation key ${path}.${key}`)
-    if (key === "$ref" || key === "definitions" || key === "allOf") fail(`published schema contains host-unsafe ${key} at ${path}`)
+    if (key === "definitions") fail(`published schema contains host-unsafe definitions at ${path}`)
+    if (key === "allOf") fail(`published schema contains host-unsafe ${key} at ${path}`)
+    // CON-812: publication factors shared structure into local references.
+    // Only the local form is admitted here; each final registered root
+    // proves below that every reference it carries resolves acyclically
+    // inside its own definitions table.
+    if (key === "$ref" && (typeof item !== "string" || !item.startsWith("#/$defs/"))) {
+      fail(`published schema carries a non-local reference at ${path}`)
+    }
     // anyOf survives only as an authored cross-field exclusion nested inside
     // not (the action variants' selected_choice/decision_context_digest rule).
     // A bare anyOf anywhere else is still a merge fault.
@@ -74,9 +83,9 @@ function inspect(value: unknown, path = "$", seen = new Set<unknown>(), insideNo
       // contracts use oneOf in every documented form: bounded closed-object
       // variant unions (outcome_payload), legal-combination condition
       // members (the resolve product/project selector), scalar type
-      // alternations (lesson issue identifiers), and inlined refs. Each
+      // alternations (lesson issue identifiers), and local references. Each
       // member must be a schema object; the closed-branch convention applies
-      // to the per-operation request unions this probe checks separately.
+      // to the per-operation request unions the expanded view checks below.
       if (!Array.isArray(item)) fail(`published schema contains a non-list oneOf at ${path}`)
       for (const [index, branch] of item.entries()) {
         if (typeof branch !== "object" || branch === null || Array.isArray(branch)) fail(`published schema oneOf branch ${path}[${index}] is not an object`)
@@ -86,29 +95,87 @@ function inspect(value: unknown, path = "$", seen = new Set<unknown>(), insideNo
   }
 }
 
+// checkLocalRefs proves one final registered root self-contained: every
+// reference it carries is local, resolves inside its own definitions table,
+// and no chain cycles. The probe never reconstructs definitions; it reads
+// the root the production hook published.
+function checkLocalRefs(rootValue: unknown, label: string): void {
+  const root = object(rootValue, label)
+  const defs = root.$defs
+  if (defs === null || typeof defs !== "object" || Array.isArray(defs)) fail(`${label} publishes no definitions table for its references`)
+  const names = new Set(Object.keys(defs))
+  const state = new Map<string, "visiting" | "done">()
+  const resolve = (name: string): void => {
+    const mark = state.get(name)
+    if (mark === "done") return
+    if (mark === "visiting") fail(`${label} carries a cyclic reference chain through #/$defs/${name}`)
+    if (!names.has(name)) fail(`${label} carries the unresolvable reference #/$defs/${name}`)
+    state.set(name, "visiting")
+    walk(defs[name])
+    state.set(name, "done")
+  }
+  const walk = (value: unknown): void => {
+    if (Array.isArray(value)) {
+      value.forEach(walk)
+      return
+    }
+    if (value === null || typeof value !== "object") return
+    for (const [key, child] of Object.entries(value)) {
+      if (key === "$ref") {
+        if (typeof child !== "string" || !child.startsWith("#/$defs/")) fail(`${label} carries the non-local reference ${JSON.stringify(child)}`)
+        resolve(child.slice("#/$defs/".length))
+        continue
+      }
+      walk(child)
+    }
+  }
+  walk(root)
+}
+
 for (const [toolName, exportedTool] of Object.entries(tools)) {
-  const root = publishedArgsSchema(exportedTool.args, `${toolName} schema`)
+  // The registration map keeps one request argument per request tool: the
+  // compact publication changes schema bytes, never the registered argument
+  // names. The final registered root comes from the production definition
+  // hook, which hoists the request definitions onto the argument root.
+  const registration = publishedArgsSchema(exportedTool.args, `${toolName} registration schema`)
+  inspect(registration)
+  if (registration.type !== "object") fail(`${toolName} registration schema root is not an object`)
+  if (JSON.stringify(registration.required) !== JSON.stringify(["request"])) fail(`${toolName} schema does not require only request`)
+  const registrationProperties = object(registration.properties, `${toolName} properties`)
+  if (JSON.stringify(Object.keys(registrationProperties)) !== JSON.stringify(["request"])) fail(`${toolName} schema exposes fields outside request`)
+
+  const definition = { description: exportedTool.description, parameters: {}, jsonSchema: registration }
+  await publishRequestDefinition({ toolID: toolName }, definition)
+  const root = object(definition.jsonSchema, `${toolName} published root`)
   inspect(root)
+  checkLocalRefs(root, toolName)
   if (root.type !== "object") fail(`${toolName} schema root is not an object`)
   for (const keyword of ["oneOf", "anyOf", "allOf"]) {
     if (Object.hasOwn(root, keyword)) fail(`${toolName} carries provider-unsafe root ${keyword}`)
   }
-  if (JSON.stringify(root.required) !== JSON.stringify(["request"])) fail(`${toolName} schema does not require only request`)
-  const properties = object(root.properties, `${toolName} properties`)
-  if (JSON.stringify(Object.keys(properties)) !== JSON.stringify(["request"])) fail(`${toolName} schema exposes fields outside request`)
-  const request = object(properties.request, `${toolName} request`)
+  if (JSON.stringify(root.required) !== JSON.stringify(["request"])) fail(`${toolName} published root does not require only request`)
+  const rootProperties = object(root.properties, `${toolName} published properties`)
+  if (JSON.stringify(Object.keys(rootProperties)) !== JSON.stringify(["request"])) fail(`${toolName} published root exposes fields outside request`)
+  if (Object.hasOwn(rootProperties.request, "$defs")) fail(`${toolName} keeps its definitions inside the request instead of the argument root`)
+  const request = object(rootProperties.request, `${toolName} request`)
   const expected = contractOperations.filter((operation: any) => operation.tool === toolName)
   if (JSON.stringify(request.required) !== JSON.stringify(["operation", "input"])) fail(`${toolName} request fields are not required`)
   const operation = object(request.properties.operation, `${toolName} operation`)
   if (JSON.stringify(operation.enum) !== JSON.stringify(expected.map((candidate: any) => candidate.id.slice(candidate.id.indexOf(".") + 1)))) fail(`${toolName} operation enum differs from the generated contract`)
-  // The published request is one closed branch per operation — and for
-  // workflow_action, one closed branch per registry action variant: the
-  // branch names the operation (and action) with a const, and its input
-  // states the required set and the admitted fields the core enforces. The
-  // const keeps branches mutually exclusive, and no branch admits a field a
-  // sibling operation or action owns.
-  const requestBranches = request.oneOf
-  if (!Array.isArray(requestBranches)) fail(`${toolName} request carries no per-operation branches`)
+  // The compact request carries one branch per operation, workflow_action
+  // included; the grouped action variants live under that branch's input.
+  const compactBranches = request.oneOf
+  if (!Array.isArray(compactBranches)) fail(`${toolName} request carries no per-operation branches`)
+  if (compactBranches.length !== expected.length) fail(`${toolName} publishes ${compactBranches.length} compact branches for ${expected.length} operations`)
+  // The effective view resolves the references and inherits each factored
+  // union parent's constraints, so the obligations below keep reading the
+  // legacy branch list: one closed branch per operation, and for
+  // workflow_action one closed branch per registry action variant, in
+  // registry order. No branch admits a field a sibling operation or action
+  // owns.
+  const expanded: any = expandedPublishedRequestSchema(root)
+  const requestBranches = expanded.oneOf
+  if (!Array.isArray(requestBranches)) fail(`${toolName} request expands to no per-operation branches`)
   const variantExtra = toolName === "concord_work_transition" ? workflowActionPublicVariants.length - 1 : 0
   if (requestBranches.length !== expected.length + variantExtra) fail(`${toolName} publishes ${requestBranches.length} request branches for ${expected.length + variantExtra} closed shapes`)
   const operationEnum = operation.enum as string[]
@@ -154,20 +221,24 @@ for (const [toolName, exportedTool] of Object.entries(tools)) {
   if (operationIndex !== operationEnum.length - 1) fail(`${toolName} publishes branches for only ${operationIndex + 1} of ${operationEnum.length} operations`)
 }
 
-const workDefineRoot = publishedArgsSchema(work_define.args, "work define schema")
-const workDefineRequest = object(object(workDefineRoot.properties, "work define properties").request, "work define request")
-const captureInput = object(object(object(object(workDefineRequest.oneOf[0], "capture request branch").properties, "capture request properties").input, "capture input"), "capture input")
+const workDefineDefinition = { description: work_define.description, parameters: {}, jsonSchema: publishedArgsSchema(work_define.args, "work define schema") }
+await publishRequestDefinition({ toolID: "concord_work_define" }, workDefineDefinition)
+const workDefineExpanded: any = expandedPublishedRequestSchema(workDefineDefinition.jsonSchema)
+const captureBranch = workDefineExpanded.oneOf.find((candidate: any) => candidate.properties?.operation?.const === "capture")
+if (captureBranch === undefined) fail("work define publishes no capture branch")
+const captureInput = object(captureBranch.properties.input, "capture input")
 if (JSON.stringify(captureInput.required) !== JSON.stringify(["title", "value_statement", "kind", "project_ids", "idempotency_key"])) fail("capture required set does not match the generated contract")
 const urgency = object(object(captureInput.properties, "capture input properties").urgency, "capture urgency")
 if (JSON.stringify(urgency.enum) !== JSON.stringify(["standard", "expedite"])) fail("capture urgency enum is not published")
 
 // Every workflow action variant branch must name the fields the core admits
 // for that action, including the conditional ones, and each action the
-// registry declares must have exactly one branch.
-const transitionRoot = publishedArgsSchema(work_transition.args, "work transition schema")
-const transitionRequest = object(object(transitionRoot.properties, "work transition properties").request, "work transition request")
-if (!Array.isArray(transitionRequest.oneOf)) fail("work transition request carries no branch list")
-const transitionBranches = (transitionRequest.oneOf as unknown[]).map((branch) => object(branch, "action request branch"))
+// registry declares must have exactly one branch, in registry order.
+const transitionDefinition = { description: work_transition.description, parameters: {}, jsonSchema: publishedArgsSchema(work_transition.args, "work transition schema") }
+await publishRequestDefinition({ toolID: "concord_work_transition" }, transitionDefinition)
+const transitionExpanded: any = expandedPublishedRequestSchema(transitionDefinition.jsonSchema)
+if (!Array.isArray(transitionExpanded.oneOf)) fail("work transition request carries no branch list")
+const transitionBranches = (transitionExpanded.oneOf as unknown[]).map((branch) => object(branch, "action request branch"))
 const publishedActionIds = transitionBranches
   .filter((branch) => object(branch.properties, "action request properties").operation.const === "workflow_action")
   .map((branch) => object(object(branch.properties, "action request properties").input, "action input").properties.action_id.const)
@@ -213,4 +284,4 @@ function publishedArgsSchema(args: Record<string, unknown>, label: string, requi
   return object({ type: "object", properties, required }, label)
 }
 
-console.log(`host schema probe passed (${Object.keys(tools).length + 1} tools, ${contractOperations.length} operations)`)
+console.log(`host schema probe passed (${Object.keys(tools).length + 2} tools, ${contractOperations.length} operations)`)

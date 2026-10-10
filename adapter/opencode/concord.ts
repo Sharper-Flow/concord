@@ -185,15 +185,8 @@ function schemaName(ref: string): string {
   return name
 }
 
-// publishClosedSchema projects one authored closed schema into the published
-// view by inlining every $ref against the generated payload definitions and
-// otherwise preserving the authored structure exactly: required sets, const
-// and enum discriminators, bounds, and legal input combinations (oneOf/anyOf/
-// allOf/if/then/not) all survive. The previous flattenHostSchema merged
-// combinator branches into one union object, which dropped each workflow
-// action's conditional requireds and cross-field exclusions; publication now
-// emits one closed branch per operation and per action variant, so no merge
-// step exists to lose them (CON-412).
+// Resolve authored references before projection. Required sets, selectors,
+// bounds, exclusions, and annotations remain constraints of the published view.
 function publishClosedSchema(value: unknown, resolving = new Set<string>()): JSONSchema {
   if (Array.isArray(value) || typeof value !== "object" || value === null) return {}
   const schema = value as JSONSchema
@@ -240,40 +233,116 @@ function publishClosedSchema(value: unknown, resolving = new Set<string>()): JSO
   return result as JSONSchema
 }
 
+// Only schema-valued positions are traversed. Property maps and annotation
+// objects cannot become references: their keys are not schema keywords.
+function mapPublicationChildren(schema: JSONSchema, visit: (child: JSONSchema) => JSONSchema): JSONSchema {
+  const result = { ...schema }
+  for (const key of ["properties", "patternProperties"]) {
+    const value = schema[key]
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      result[key] = Object.fromEntries(Object.entries(value).map(([name, child]) => [name, visit(child as JSONSchema)]))
+    }
+  }
+  for (const key of ["items", "if", "then", "else", "not", "additionalProperties", "propertyNames", "contains"]) {
+    const value = schema[key]
+    if (value && typeof value === "object") result[key] = Array.isArray(value) ? value.map((child) => visit(child as JSONSchema)) : visit(value as JSONSchema)
+  }
+  for (const key of ["allOf", "anyOf", "oneOf", "prefixItems"]) {
+    if (Array.isArray(schema[key])) result[key] = (schema[key] as JSONSchema[]).map(visit)
+  }
+  return result
+}
+
+// A containing object and a selected oneOf member both apply. Identical
+// properties and common requireds therefore need only one constraint owner.
+// Closed children still declare shared property names with empty schemas,
+// because additionalProperties does not inherit names from its parent.
+function factorPublication(schema: JSONSchema): JSONSchema {
+  const node = mapPublicationChildren(schema, factorPublication)
+  const branches = node.oneOf as JSONSchema[] | undefined
+  if (!Array.isArray(branches) || branches.length < 2 || !branches.every((branch) => branch.type === "object" && branch.properties)) return node
+  const properties = node.properties as Record<string, JSONSchema> | undefined
+  const shared: Record<string, JSONSchema> = {}
+  const firstProperties = branches[0].properties as Record<string, JSONSchema>
+  for (const [key, value] of Object.entries(firstProperties)) {
+    if (branches.every((branch) => JSON.stringify((branch.properties as Record<string, JSONSchema>)[key]) === JSON.stringify(value)) &&
+        (!properties?.[key] || JSON.stringify(properties[key]) === "{}" || JSON.stringify(properties[key]) === JSON.stringify(value))) shared[key] = value
+  }
+  const commonRequired = ((branches[0].required as string[] | undefined) ?? []).filter((key) => branches.every((branch) => (branch.required as string[] | undefined)?.includes(key)))
+  const required = [...new Set([...((node.required as string[] | undefined) ?? []), ...commonRequired])]
+  const parent: JSONSchema = { ...node, type: "object", properties: { ...properties, ...shared }, ...(required.length ? { required } : {}) }
+  parent.oneOf = branches.map((branch) => {
+    const child: JSONSchema = { ...branch, properties: { ...(branch.properties as Record<string, JSONSchema>), ...Object.fromEntries(Object.keys(shared).map((key) => [key, {}])) } }
+    delete child.type
+    if (Array.isArray(child.required)) {
+      const remaining = (child.required as string[]).filter((key) => !required.includes(key))
+      if (remaining.length) child.required = remaining
+      else delete child.required
+    }
+    if (parent.additionalProperties === false && JSON.stringify(Object.keys(parent.properties as object).sort()) === JSON.stringify(Object.keys(child.properties as object).sort())) delete child.additionalProperties
+    return child
+  })
+  return parent
+}
+
+// Each publication owns its definition table. Only identical repeated schema
+// nodes large enough to outweigh a local pointer/table entry are interned.
+// Children are interned first, so definition dependencies form an acyclic DAG.
+function internPublication(schema: JSONSchema): JSONSchema {
+  const counts = new Map<string, number>()
+  const count = (node: JSONSchema): JSONSchema => {
+    const key = JSON.stringify(node)
+    counts.set(key, (counts.get(key) ?? 0) + 1)
+    mapPublicationChildren(node, count)
+    return node
+  }
+  count(schema)
+  const names = new Map<string, string>()
+  const definitions: Record<string, JSONSchema> = {}
+  const intern = (node: JSONSchema): JSONSchema => {
+    const key = JSON.stringify(node)
+    if (names.has(key)) return { $ref: `#/$defs/${names.get(key)}` }
+    const body = mapPublicationChildren(node, intern)
+    // Provider validators require reference targets to carry a concrete
+    // schema, not a bare combinator. Keep those unions inline.
+    if (Object.keys(body).every((keyword) => ["oneOf", "anyOf", "allOf"].includes(keyword))) return body
+    const name = `d${names.size}`
+    const pointer = { $ref: `#/$defs/${name}` }
+    const occurrences = counts.get(key) ?? 0
+    const bytes = Buffer.byteLength(JSON.stringify(body), "utf8")
+    const pointerBytes = Buffer.byteLength(JSON.stringify(pointer), "utf8")
+    const entryBytes = Buffer.byteLength(JSON.stringify(name), "utf8") + 2
+    if (occurrences * bytes <= bytes + occurrences * pointerBytes + entryBytes) return body
+    names.set(key, name)
+    definitions[name] = body
+    return pointer
+  }
+  const result = intern(schema)
+  return Object.keys(definitions).length ? { ...result, $defs: definitions } : result
+}
+
 export function publishedRequestSchema(toolName: string): JSONSchema {
   const operations = contractOperations.filter((operation: any) => operation.tool === toolName)
   if (operations.length === 0) throw new Error(`tool ${toolName} has no generated operations`)
-  // The host receives one closed branch per operation — and for
-  // workflow_action, one closed branch per action variant from the generated
-  // registry projection. Each branch names its discriminator with a const and
-  // states the required set and the admitted fields exactly as the core's
-  // admission enforces them. Never a merged union: a caller reads what the
-  // chosen operation or action requires and refuses instead of what a sibling
-  // owns, and the discriminators keep every branch mutually exclusive.
-  const branchFor = (operationName: string, inputSchemaName: string): JSONSchema => ({
+  const branchFor = (operationName: string, input: JSONSchema): JSONSchema => ({
     type: "object",
     additionalProperties: false,
     required: ["operation", "input"],
     properties: {
       operation: { type: "string", const: operationName },
-      input: publishClosedSchema((payloadSchemas as Record<string, unknown>)[inputSchemaName]),
+      input,
     },
   })
-  const branches: JSONSchema[] = []
-  for (const operation of operations as any[]) {
+  const branches = operations.map((operation: any) => {
     const operationName = operation.id.slice(operation.id.indexOf(".") + 1)
-    if (operation.id === "concord_work_transition.workflow_action") {
-      for (const variant of workflowActionPublicVariants) {
-        branches.push({
-          ...branchFor(operationName, variant.schema),
-          description: `workflow_action action ${variant.action_id}: closed action-discriminated variant`,
-        })
-      }
-    } else {
-      branches.push(branchFor(operationName, schemaName(operation.input_schema)))
-    }
-  }
-  return {
+    if (operation.id !== "concord_work_transition.workflow_action") return branchFor(operationName, publishClosedSchema((payloadSchemas as Record<string, unknown>)[schemaName(operation.input_schema)]))
+    const variants = workflowActionPublicVariants.map((variant) => {
+      const input = publishClosedSchema((payloadSchemas as Record<string, unknown>)[variant.schema])
+      return { ...input, description: [input.description, `workflow_action action ${variant.action_id}: closed action-discriminated variant`].filter(Boolean).join("\n") }
+    })
+    return branchFor(operationName, { type: "object", oneOf: variants })
+  })
+  return internPublication(factorPublication({
     type: "object",
     additionalProperties: false,
     required: ["operation", "input"],
@@ -282,7 +351,19 @@ export function publishedRequestSchema(toolName: string): JSONSchema {
       input: { type: "object" },
     },
     oneOf: branches,
-  }
+  }))
+}
+
+// OpenCode wraps plain argument entries in properties. JSON pointers resolve
+// against that complete argument root, not the nested request document, so the
+// definition hook moves its table to the root without changing runtime args.
+export async function publishRequestDefinition(
+  input: { toolID: string },
+  output: { description: string; parameters: unknown; jsonSchema?: unknown },
+): Promise<void> {
+  if (!contractOperations.some((operation) => operation.tool === input.toolID)) return
+  const { $defs, ...request } = publishedRequestSchema(input.toolID)
+  output.jsonSchema = { type: "object", properties: { request }, required: ["request"], ...($defs ? { $defs } : {}) }
 }
 
 function argsSchema(toolName: string): any {

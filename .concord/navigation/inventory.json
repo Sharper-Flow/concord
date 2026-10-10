@@ -1344,7 +1344,7 @@
       ],
       "dependency_interpretations_to": [],
       "domain_id": "agent-surface",
-      "mapped_count": 440,
+      "mapped_count": 439,
       "mechanism_owner_ids": [
         "mechanism:adapter-transport",
         "mechanism:agent-tools",
@@ -6929,7 +6929,6 @@
     ".concord/docs/workflow-engine-contract.md": "product-memory",
     ".concord/docs/workflows.md": "product-memory",
     ".concord/domain-navigation.v1.json": "product-memory",
-    ".concord/instructions/README.md": "agent-surface",
     ".concord/instructions/asking.md": "agent-surface",
     ".concord/instructions/change.md": "agent-surface",
     ".concord/instructions/completion.md": "agent-surface",
@@ -8165,7 +8164,7 @@
     "skills/README.md": "agent-surface",
     "workflows/README.md": "workflow-engine"
   },
-  "mapped_count": 2028,
+  "mapped_count": 2027,
   "mechanisms": [
     {
       "check_ids": [

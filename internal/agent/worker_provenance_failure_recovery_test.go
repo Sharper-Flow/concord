@@ -64,7 +64,12 @@ func TestRefusedWorkerProvenanceRecoversWithoutAcceptedEvidence(t *testing.T) {
 			if err != nil || after.Version != before.Version || countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM domain_events`) != beforeEvents {
 				t.Fatalf("refused dispatch changed durable state: before=%d after=%d error=%v", before.Version, after.Version, err)
 			}
-			attempt, err := s.WorkerAttemptByID(ctx, failedID)
+			var attempt store.WorkerAttempt
+			err = s.Transact(ctx, func(tx *store.Transaction) error {
+				var txErr error
+				attempt, txErr = store.WorkerAttemptByIDTx(ctx, tx, failedID)
+				return txErr
+			})
 			if err != nil || attempt.LifecycleState != "in_flight" || attempt.ReadbackModel != "" {
 				t.Fatalf("refused dispatch admitted readback: attempt=%#v error=%v", attempt, err)
 			}
@@ -110,7 +115,11 @@ func TestRefusedWorkerProvenanceRecoversWithoutAcceptedEvidence(t *testing.T) {
 			if disposition.Outcome != OutcomeOK {
 				t.Fatalf("failure disposition without dispatch evidence: %+v", disposition.Error)
 			}
-			attempt, err = s.WorkerAttemptByID(ctx, failedID)
+			err = s.Transact(ctx, func(tx *store.Transaction) error {
+				var txErr error
+				attempt, txErr = store.WorkerAttemptByIDTx(ctx, tx, failedID)
+				return txErr
+			})
 			if err != nil || attempt.LifecycleState != "failed" || attempt.FailureKind != store.WorkerFailureAbandoned || attempt.ReadbackModel != "" {
 				t.Fatalf("failure disposition changed the honest closure: attempt=%#v error=%v", attempt, err)
 			}

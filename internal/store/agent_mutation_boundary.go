@@ -102,12 +102,6 @@ func lookupMutationIdempotency(ctx context.Context, q queryer, key MutationIdemp
 	return record, true, nil
 }
 
-func (s *Store) TouchMutationIdempotency(ctx context.Context, key MutationIdempotencyKey, observed time.Time) error {
-	return s.Transact(ctx, func(transaction *Transaction) error {
-		return TouchMutationIdempotencyTx(ctx, transaction, key, observed)
-	})
-}
-
 func TouchMutationIdempotencyTx(ctx context.Context, transaction *Transaction, key MutationIdempotencyKey, observed time.Time) error {
 	tx, err := transactionSQL(transaction, "mutation_idempotency")
 	if err != nil {
@@ -118,12 +112,6 @@ func TouchMutationIdempotencyTx(ctx context.Context, transaction *Transaction, k
 		return wrapFailure(KindUnavailable, "mutation_idempotency", "cannot update idempotency replay count", true, "retry once the database is writable", err)
 	}
 	return nil
-}
-
-func (s *Store) InsertMutationIdempotency(ctx context.Context, input MutationIdempotencyInsert) error {
-	return s.Transact(ctx, func(transaction *Transaction) error {
-		return InsertMutationIdempotencyTx(ctx, transaction, input)
-	})
 }
 
 func InsertMutationIdempotencyTx(ctx context.Context, transaction *Transaction, input MutationIdempotencyInsert) error {
@@ -140,12 +128,6 @@ func InsertMutationIdempotencyTx(ctx context.Context, transaction *Transaction, 
 		return wrapFailure(KindUnavailable, "mutation_idempotency", "cannot persist idempotency record", true, "retry once the database is writable", err)
 	}
 	return nil
-}
-
-func (s *Store) UpdateMutationResult(ctx context.Context, input MutationResultUpdate) error {
-	return s.Transact(ctx, func(transaction *Transaction) error {
-		return UpdateMutationResultTx(ctx, transaction, input)
-	})
 }
 
 func UpdateMutationResultTx(ctx context.Context, transaction *Transaction, input MutationResultUpdate) error {

@@ -77,7 +77,11 @@ func TestReadEntryPointsWithWriterNeighbor(t *testing.T) {
 		{"BlockedSessions", func() error { _, err := s.BlockedSessions(ctx, time.Now(), []string{"prod"}, 100); return err }},
 		{"ResolveLauncherWorkProduct", func() error { _, err := s.ResolveLauncherWorkProduct(ctx, "blocker", "proj", "prod"); return err }},
 		{"ResolveLauncherLinearIssue", func() error {
-			_, err := s.ResolveLauncherLinearIssue(ctx, "SYN-1", "https://example.invalid/issues/SYN-1", "proj", "prod")
+			workID, err := s.ResolveLauncherLinearIssueWork(ctx, "SYN-1", "https://example.invalid/issues/SYN-1")
+			if err != nil {
+				return err
+			}
+			_, err = s.ResolveLauncherWorkProduct(ctx, workID, "proj", "prod")
 			return err
 		}},
 		{"ResolveLauncherLinearIssueWork", func() error {

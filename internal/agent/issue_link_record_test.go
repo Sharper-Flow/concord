@@ -87,7 +87,10 @@ func TestDispatchIssueLinkRecordRefusesSecondAndForeignIdentity(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s, service, env := issueLinkRecordFixture(t, "link-held-work", "link-probe-work")
-	if _, err := s.RecordLinearIssueLink(ctx, store.LinearIssueLink{WorkID: "link-held-work", RemoteIssueUUID: "aaaaaaaa-0000-0000-0000-000000000001", HumanKey: "EX-1", URL: "https://linear.app/example/issue/EX-1"}); err != nil {
+	if err := s.Transact(ctx, func(tx *store.Transaction) error {
+		_, err := store.RecordLinearIssueLinkTx(ctx, tx, store.LinearIssueLink{WorkID: "link-held-work", RemoteIssueUUID: "aaaaaaaa-0000-0000-0000-000000000001", HumanKey: "EX-1", URL: "https://linear.app/example/issue/EX-1"})
+		return err
+	}); err != nil {
 		t.Fatal(err)
 	}
 

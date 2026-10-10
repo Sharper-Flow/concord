@@ -31,7 +31,10 @@ func TestWorkRemovalLinearHandoffRequiresRecordedIdentity(t *testing.T) {
 	if !strings.Contains(err.Error(), "no recorded Linear issue identity") {
 		t.Fatalf("unrecorded handoff refusal=%v", err)
 	}
-	if _, err := s.RecordLinearIssueLink(ctx, LinearIssueLink{WorkID: req.WorkID, RemoteIssueUUID: "recorded-issue", HumanKey: "EX-1", URL: "https://linear.app/example/issue/EX-1"}); err != nil {
+	if err := s.Transact(ctx, func(tr *Transaction) error {
+		_, err := RecordLinearIssueLinkTx(ctx, tr, LinearIssueLink{WorkID: req.WorkID, RemoteIssueUUID: "recorded-issue", HumanKey: "EX-1", URL: "https://linear.app/example/issue/EX-1"})
+		return err
+	}); err != nil {
 		t.Fatal(err)
 	}
 	assertFailureKind(t, validateRemovalDestinationQ(ctx, s.DatabaseForTesting(), req), KindInvalidRelation)
@@ -48,7 +51,9 @@ func TestWorkRemovalDeletesExecutionAndReplaysAbsence(t *testing.T) {
 	s := openTemp(t)
 	ctx := context.Background()
 	seedWork(t, s, "remove-work-1")
-	receipt, err := s.ShelveWork(ctx, removalTestRequest())
+	req := removalTestRequest()
+	req.Reason = "shelved"
+	receipt, err := s.RemoveWork(ctx, req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +83,9 @@ func TestWorkRemovalDeletesExecutionAndReplaysAbsence(t *testing.T) {
 	if audit.Reason != "shelved" || audit.State != "committed" {
 		t.Fatalf("audit = %+v", audit)
 	}
-	second, err := s.ShelveWork(ctx, removalTestRequest())
+	shelveReq := removalTestRequest()
+	shelveReq.Reason = "shelved"
+	second, err := s.RemoveWork(ctx, shelveReq)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,8 +96,9 @@ func TestWorkRemovalDeletesExecutionAndReplaysAbsence(t *testing.T) {
 
 func TestWorkRemovalRefusesMissingSafetyEvidence(t *testing.T) {
 	req := removalTestRequest()
+	req.Reason = "shelved"
 	req.ArtifactsVerified = false
-	if _, err := (&Store{}).ShelveWork(context.Background(), req); err == nil {
+	if _, err := (&Store{}).RemoveWork(context.Background(), req); err == nil {
 		t.Fatal("missing safety evidence was accepted")
 	}
 }
@@ -102,7 +110,8 @@ func TestWorkRemovalCancellationKeepsReasonDistinct(t *testing.T) {
 	req.OperationID = "cancel-op-1"
 	req.IdempotencyKey = "cancel-key-1"
 	req.WorkID = "cancelled-removal-work"
-	receipt, err := s.CancelWork(context.Background(), req)
+	req.Reason = "cancelled"
+	receipt, err := s.RemoveWork(context.Background(), req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -160,11 +169,13 @@ func TestWorkRemovalRefusesRequiredResearchConsumer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.ShelveWork(ctx, func() WorkRemovalRequest {
+	refuseReq := func() WorkRemovalRequest {
 		req := removalTestRequest()
 		req.WorkID = "research-owner"
 		return req
-	}()); err == nil || !strings.Contains(err.Error(), "required research consumer") {
+	}()
+	refuseReq.Reason = "shelved"
+	if _, err := s.RemoveWork(ctx, refuseReq); err == nil || !strings.Contains(err.Error(), "required research consumer") {
 		t.Fatalf("required consumer removal error = %v", err)
 	}
 }

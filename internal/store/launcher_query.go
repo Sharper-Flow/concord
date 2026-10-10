@@ -90,35 +90,6 @@ func landingProjectProductsTx(ctx context.Context, tx *sql.Tx, projectID string)
 	return products, nil
 }
 
-// LauncherLinearIssue resolves a confirmed Linear issue link without a remote
-// read. The session scope follows the same landing-Project Product rule as
-// direct work forwarding.
-type LauncherLinearIssue struct {
-	WorkID    string
-	ProductID string
-}
-
-// ResolveLauncherLinearIssue resolves a confirmed Linear issue link and its
-// Product in one read transaction. projectID names the landing Project
-// (empty means the work's primary Project); preferredProduct is honored only
-// when it is one of the landing Project's Products.
-func (s *Store) ResolveLauncherLinearIssue(ctx context.Context, humanKey, issueURL, projectID, preferredProduct string) (LauncherLinearIssue, error) {
-	tx, err := beginRead(ctx, s, "launcher.forward")
-	if err != nil {
-		return LauncherLinearIssue{}, err
-	}
-	defer tx.Rollback()
-	workID, err := launcherLinkedWorkTx(ctx, tx, humanKey, issueURL)
-	if err != nil {
-		return LauncherLinearIssue{}, err
-	}
-	productID, err := resolveLandingProjectProductTx(ctx, tx, workID, projectID, preferredProduct)
-	if err != nil {
-		return LauncherLinearIssue{}, err
-	}
-	return LauncherLinearIssue{WorkID: workID, ProductID: productID}, nil
-}
-
 // ResolveLauncherLinearIssueWork resolves the work item that records the
 // Linear issue, so a caller can answer "is this issue recorded" separately
 // from the landing-Project Product rule. The only unknown-scope refusal it

@@ -107,7 +107,10 @@ func TestResolveZLLinearReferenceUsesRecordedLink(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.RecordLinearIssueLink(context.Background(), store.LinearIssueLink{WorkID: "linear-work", RemoteIssueUUID: "issue-uuid", HumanKey: "CON-30", URL: "https://linear.app/example/issue/CON-30"}); err != nil {
+	if err := s.Transact(context.Background(), func(tx *store.Transaction) error {
+		_, err := store.RecordLinearIssueLinkTx(context.Background(), tx, store.LinearIssueLink{WorkID: "linear-work", RemoteIssueUUID: "issue-uuid", HumanKey: "CON-30", URL: "https://linear.app/example/issue/CON-30"})
+		return err
+	}); err != nil {
 		s.Close()
 		t.Fatal(err)
 	}

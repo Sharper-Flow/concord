@@ -60,8 +60,8 @@ watermark, merges items under the accepted ordering, returns per-source
 watermarks, and binds its cursor to a digest of the source set. A source
 that is unreachable or stale refuses the answer unless the caller allows
 degradation; a degraded answer carries one omission per missing source and
-never reads as an authoritative negative. A one-element source set takes
-the identical single-home code path with unchanged output.
+never reads as an authoritative negative. Every source set uses one query
+path. A one-element set retains single-source output and uses a v3 cursor.
 
 ### D4. Law identity is source-qualified
 

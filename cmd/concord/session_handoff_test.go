@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -180,7 +182,17 @@ func hostPromptRecord(t *testing.T, recordDir string) string {
 // requireOrchestratorAssertion proves the session child recorded the
 // orchestrator identity assertion in the isolated authority. The write
 // happened inside the real session command, not in this test process.
-func requireOrchestratorAssertion(t *testing.T, dbPath string) {
+func sessionDurableCounts(t *testing.T, dbPath string) map[string]int {
+	t.Helper()
+	s, err := store.Open(context.Background(), dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	return durableCounts(t, s)
+}
+
+func requireOrchestratorAssertion(t *testing.T, dbPath string, before map[string]int) {
 	t.Helper()
 	s, err := store.Open(context.Background(), dbPath)
 	if err != nil {
@@ -197,6 +209,15 @@ func requireOrchestratorAssertion(t *testing.T, dbPath string) {
 	if recorded < 1 {
 		t.Fatalf("orchestrator identity assertions = %d, want the session child's recorded event", recorded)
 	}
+	for table, count := range durableCounts(t, s) {
+		want := before[table]
+		if table == "domain_events" {
+			want++ // The session child records one identity event, not a parent write.
+		}
+		if count != want {
+			t.Fatalf("%s count=%d, want %d; forwarding added an unexpected durable effect", table, count, want)
+		}
+	}
 }
 
 // stageWitnessFixture places the host artifacts in projectDir and seeds one
@@ -207,6 +228,45 @@ func stageWitnessFixture(t *testing.T, projectDir string) string {
 	t.Helper()
 	writeProjectHostArtifacts(t, projectDir)
 	return seedSessionProject(t, projectDir)
+}
+
+// The child owns session effects. This test isolates the forwarding read from
+// that process boundary and proves CD-0108 D4 before any child can write.
+func TestZLForwardingReadsLeaveAuthorityUnchanged(t *testing.T) {
+	dbPath := seedSessionProject(t, t.TempDir())
+	t.Setenv(dbOverrideEnv, dbPath)
+	s, err := store.Open(context.Background(), dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	before := durableCounts(t, s)
+	beforeLog := eventLogState(t, s)
+	original := forwardSession
+	defer func() { forwardSession = original }()
+	starts := 0
+	forwardSession = func(product, work, prompt, project string, _ io.Reader, _, _ io.Writer) int {
+		starts++
+		if product != "product-1" || work != "work-1" || prompt != "" {
+			t.Fatalf("forwarded identity=%q/%q prompt=%q", product, work, prompt)
+		}
+		if after := durableCounts(t, s); !reflect.DeepEqual(before, after) || eventLogState(t, s) != beforeLog {
+			t.Fatalf("forwarding wrote authority before child start: before=%v after=%v", before, after)
+		}
+		return 0
+	}
+	for _, args := range [][]string{{"zl", "work-1"}, {"zl", "work-1", "--project", "product-1-project"}} {
+		var out, diagnostic bytes.Buffer
+		if code := runWithInput(args, strings.NewReader(""), &out, &diagnostic); code != 0 {
+			t.Fatalf("%v exit=%d stderr=%q", args, code, diagnostic.String())
+		}
+	}
+	if starts != 2 {
+		t.Fatalf("forwarded child starts=%d, want 2", starts)
+	}
+	if after := durableCounts(t, s); !reflect.DeepEqual(before, after) || eventLogState(t, s) != beforeLog {
+		t.Fatalf("forwarding wrote authority after child start: before=%v after=%v", before, after)
+	}
 }
 
 // TestZLForwardingStartsASessionThroughTheRealSessionChild is the
@@ -226,6 +286,7 @@ func TestZLForwardingStartsASessionThroughTheRealSessionChild(t *testing.T) {
 	t.Chdir(t.TempDir())
 
 	t.Run("work selection lands and boots through the real child", func(t *testing.T) {
+		before := sessionDurableCounts(t, dbPath)
 		recordDir := t.TempDir()
 		installFakeCommand(t, recordDir, "opencode", recordingHostScript)
 		var out, errOut bytes.Buffer
@@ -253,10 +314,11 @@ func TestZLForwardingStartsASessionThroughTheRealSessionChild(t *testing.T) {
 		if !strings.Contains(prompt, `"product_id":"product-1","work_id":"work-1"`) {
 			t.Fatalf("host prompt %q lacks the core-derived continuity identity", prompt)
 		}
-		requireOrchestratorAssertion(t, dbPath)
+		requireOrchestratorAssertion(t, dbPath, before)
 	})
 
 	t.Run("project selection lands the member project", func(t *testing.T) {
+		before := sessionDurableCounts(t, dbPath)
 		recordDir := t.TempDir()
 		installFakeCommand(t, recordDir, "opencode", recordingHostScript)
 		var out, errOut bytes.Buffer
@@ -275,10 +337,11 @@ func TestZLForwardingStartsASessionThroughTheRealSessionChild(t *testing.T) {
 		if !strings.Contains(prompt, `"product_id":"product-1","work_id":"work-1"`) {
 			t.Fatalf("host prompt %q lacks the core-derived continuity identity", prompt)
 		}
-		requireOrchestratorAssertion(t, dbPath)
+		requireOrchestratorAssertion(t, dbPath, before)
 	})
 
 	t.Run("resume last relaunches the recorded work", func(t *testing.T) {
+		before := sessionDurableCounts(t, dbPath)
 		recordDir := t.TempDir()
 		installFakeCommand(t, recordDir, "opencode", recordingHostScript)
 		t.Setenv("CONCORD_LAST_WORK_ID", "work-1")
@@ -298,6 +361,6 @@ func TestZLForwardingStartsASessionThroughTheRealSessionChild(t *testing.T) {
 		if !strings.Contains(prompt, `"product_id":"product-1","work_id":"work-1"`) {
 			t.Fatalf("host prompt %q lacks the core-derived continuity identity", prompt)
 		}
-		requireOrchestratorAssertion(t, dbPath)
+		requireOrchestratorAssertion(t, dbPath, before)
 	})
 }

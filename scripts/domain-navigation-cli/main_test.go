@@ -60,7 +60,7 @@ func TestEarlyDispatchSurfaceOfConcordMain(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"ci-wait", "continuity-block", "host-lease", "host-leases", "launcher",
+	want := []string{"ci-wait", "continuity-block", "host-lease", "host-leases",
 		"recover-fold-guard", "repair", "session", "upgrade", "zl"}
 	if len(got) != len(want) {
 		t.Fatalf("early dispatch surface = %+v, want %+v", got, want)

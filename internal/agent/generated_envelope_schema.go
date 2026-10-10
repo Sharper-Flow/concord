@@ -746,8 +746,7 @@ const GeneratedEnvelopeSchemaDocument = `{
                 "properties": {
                   "adapter_reason": {
                     "enum": [
-                      "manifest_mismatch",
-                      "grant_bootstrap_failed"
+                      "manifest_mismatch"
                     ],
                     "type": "string"
                   }
@@ -2567,9 +2566,7 @@ const GeneratedEnvelopeSchemaDocument = `{
             "timeout_no_effect",
             "cancelled_no_effect",
             "manifest_mismatch",
-            "grant_bootstrap_failed",
             "unknown_effect",
-            "session_occupancy_unreadable",
             "session_directory_unreadable",
             "worker_abandon_refused",
             "worker_abandon_receipt_failed",

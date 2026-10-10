@@ -79,6 +79,16 @@ overflow refuse before dispatch. The reader never substitutes changed checkout
 bytes or silently drops a required source. Older unadopted reading sets remain
 readable under their recorded format. Worker tool access remains unchanged.
 
+On an oracle-bound dispatch, `inputs.worker_job.acceptance_oracle` is the
+one immutable oracle copy for every admitted lane. The shared work-context
+reader projects canonical ranked findings and prior receipt references;
+current blockers cannot disappear through context selection. Lanes read the
+oracle and pinned sources, inspect its owners, and execute declared controls
+within their permissions. Independent review can report a legitimate omitted
+path as `uncovered_case`. Earlier receipts remain regression baselines, not
+current-subject acceptance. Missing context still uses the report boundary,
+never worker Concord access.
+
 ## Alternatives considered
 
 - Frontmatter denial alone. A denied utility lane still made Concord calls
@@ -127,3 +137,4 @@ readable under their recorded format. Worker tool access remains unchanged.
   registered sources, typed refusals, and the existing reading bound.
 - `bun test adapter/opencode/packet.test.ts` checks that packets preserve pinned
   card references without card content.
+- `TestOwnerOracleImmutableProjection` and `TestOwnerOracleRepairFamily` cover the shared oracle and retained blockers and receipts.

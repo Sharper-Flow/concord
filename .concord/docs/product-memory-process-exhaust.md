@@ -36,11 +36,18 @@ the only receipt needed:
 3. PM6's verified compaction-link event records the canonical note locator/proof; and
 4. PM7's optional prune event records the later projection boundary.
 
-Process exhaust—sub-agent reports, briefing digests, tool logs, retry traces,
-intermediate snapshots, WIP test output, and screenshots—remains producer-owned and
-outside Concord. It may be discarded by that producer after the PM6 durable sequence
-commits. Concord does not discover, copy, enumerate, attest to, retain, or prove
-deletion of those bytes.
+External process exhaust—sub-agent reports, briefing digests, tool logs, retry
+traces, intermediate snapshots, WIP test output, and screenshots—remains
+producer-owned outside Concord. Its producer may discard it after the PM6
+sequence commits. Concord neither imports those bytes nor proves their deletion.
+
+Native oracle streams are core-owned verification observations under CD-0096 D3,
+not imported external process exhaust. The existing verify lease retains one
+bounded raw stdout `BLOB` and one raw stderr `BLOB` until lease/work deletion.
+These bytes grant no knowledge, independent evidence, or acceptance authority.
+They enter no generic metadata, concise note, or separate process-exhaust store.
+This narrow native retention changes neither the PM6 receipt sequence nor the
+salvage obligation for external reports and traces. PM7 owns its deletion boundary.
 
 ### Required acceptance synchronization
 

@@ -12,6 +12,7 @@ import { armedClaimedWorktree, unlandedClaimedWorktree } from "./claimed-worktre
 import { hostControlPlane, type RouteResult, type SessionReader } from "./move-session"
 import { readTaskResult } from "./task-result"
 import { dispatchRequiresNextTurn, TURN_MOVE_DISPATCH_REFUSAL } from "./turn-move-boundary"
+import { verifyPacketOracleReadiness } from "./oracle-readiness"
 
 export const MAX_OUTPUT_BYTES = 65_536
 // MAX_OUTPUT_BYTES bounds the worker result body the adapter keeps as
@@ -138,6 +139,61 @@ export interface AgentLanePacketWorkerJob {
   prerequisites: { job_id: string; revision: number; result_ref?: string }[]
   unresolved_refs: string[]
   reserved_integration: string
+  // The owner-level acceptance oracle of this immutable revision,
+  // carried verbatim from the recorded job. Optional and omitted on every
+  // revision a pre-oracle definition recorded; required by oracle-capable
+  // definition versions. The same copy reaches every admitted lane.
+  acceptance_oracle?: AgentLaneAcceptanceOracle
+}
+
+// The acceptance-oracle members mirror internal/store worker_oracle.go
+// exactly; the closed packet schema owns every bound.
+export interface AgentLaneOracleMechanism {
+  project_id: string
+  path: string
+  entry_point: string
+}
+
+export interface AgentLaneOracleLawBinding {
+  source: AgentLanePacketWorkContextReadingSource
+  clause: string
+}
+
+export interface AgentLaneOracleOwner {
+  owner_id: string
+  domain_id: string
+  mechanism: AgentLaneOracleMechanism
+  obligation: string
+  predicate_ids: string[]
+  law_bindings?: AgentLaneOracleLawBinding[]
+}
+
+export interface AgentLaneOracleCase {
+  case_id: string
+  owner_id: string
+  entry_point: string
+  input_class: string
+  expected_state: string
+  control_ids: string[]
+}
+
+export interface AgentLaneOracleControl {
+  control_id: string
+  owner_id: string
+  predicate_ids: string[]
+  case_ids: string[]
+  recipe_source: AgentLanePacketWorkContextReadingSource
+  argv: string[]
+  cwd: string
+  expected_result: "pass"
+  required_evidence_role: "reported" | "independently_executed"
+  readiness_evidence_refs: string[]
+}
+
+export interface AgentLaneAcceptanceOracle {
+  owners: AgentLaneOracleOwner[]
+  cases: AgentLaneOracleCase[]
+  controls: AgentLaneOracleControl[]
 }
 
 // AgentLaneReportWorkerJob mirrors the report's worker_job binding: the
@@ -227,6 +283,43 @@ export interface AgentLanePacketWorkContextFindingView {
   ordinal: number
 }
 
+export interface NativeOracleStream {
+  stream: "stdout" | "stderr"
+  length: number
+  sha256: string
+  complete: boolean
+  ref: string
+}
+
+// The store selects these immutable records by the job's preparation refs.
+// This type carries metadata only, never the retained stdout/stderr bytes.
+export interface NativeOraclePreparation {
+  protocol: "native_oracle_v2"
+  phase: "prepare"
+  qualification: "ready" | "unavailable"
+  run_ref: string
+  work_id: string
+  project_id: string
+  contract_version: number
+  subject_commit: string
+  bundle_digest: string
+  logical_argv_digest: string
+  logical_cwd: string
+  recipe_source: AgentLanePacketWorkContextReadingSource
+  manifest_blob: string
+  manifest_digest: string
+  files: { path: string; blob_oid: string; sha256: string }[]
+  toolchain_identity: string
+  build_environment_digest: string
+  selected_test_names: string[]
+  case_to_test_map: Record<string, string[]>
+  selected_distinct_count: number
+  native_plan_sha256: string
+  stdout: NativeOracleStream
+  stderr: NativeOracleStream
+  streams_complete: boolean
+}
+
 export interface AgentLanePacketWorkContext {
   source_event_frontier: number
   required_reading: AgentLanePacketWorkContextReading[]
@@ -242,6 +335,12 @@ export interface AgentLanePacketWorkContext {
       commit_oid: string
     })[]
   }[]
+  // The core-qualified verify receipt supplies the raw subject OID. The
+  // readiness check compares it with the clean HEAD before authorization;
+  // worker reports and harness pins cannot supply a substitute.
+  subject_commit?: string
+  oracle_preparations?: NativeOraclePreparation[]
+  oracle_receipts?: AgentLaneReportOracleReceipt[]
 }
 
 // AgentLanePacketCheckpoint mirrors inputs.checkpoint of
@@ -280,6 +379,10 @@ export interface AgentLaneReportEvidence {
   // store fold refuses a tie to a predicate the dispatched packet did not
   // declare; each predicate's verdict, not the report, owns its discharge.
   predicate_ids?: string[]
+  // The optional typed control-execution receipt this entry
+  // carries. Reported evidence only: a signed worker report is a claim, and
+  // admission rebinds its candidate subject to the packet's observed one.
+  oracle_receipt?: AgentLaneReportOracleReceipt
 }
 
 // AgentLaneReportBaseComparisonCheck is one verification command's result as
@@ -301,20 +404,65 @@ export interface AgentLaneReportBaseComparison {
 
 // AgentLaneReportReviewFinding is one typed review finding as the schema
 // closes it (CD-0197): a severity from the P0-P3 scale, a confidence from the
-// closed low/medium/high scale, and the bounded detail.
+// closed low/medium/high scale, and the bounded detail. The optional oracle
+// member adds the closed classification and the owner, predicate,
+// law, case, and control references that bind the finding to the job's
+// acceptance oracle; it records no acceptance.
 export interface AgentLaneReportReviewFinding {
   severity: "P0" | "P1" | "P2" | "P3"
   confidence: "low" | "medium" | "high"
   detail: string
+  oracle?: AgentLaneReportOracleFinding
+}
+
+// AgentLaneReportOracleFinding mirrors $defs/oracle_finding of
+// contracts/agent-lane-report.schema.json.
+export interface AgentLaneReportOracleFinding {
+  classification: "delivery_blocker" | "uncovered_case" | "follow_up" | "oracle_defect"
+  owner_id?: string
+  failure_family?: string
+  predicate_ids?: string[]
+  law_bindings?: { source: AgentLanePacketWorkContextReadingSource; clause: string }[]
+  case_ids?: string[]
+  control_ids?: string[]
+  evidence_refs?: string[]
+  entry_point?: string
+  continues_finding_id?: string
+  variant_of?: string
+}
+
+// AgentLaneReportResolvedFinding is one evidenced closure claim of a ranked
+// finding the lineage holds open: the finding identity plus the
+// current-subject evidence the closure names.
+export interface AgentLaneReportResolvedFinding {
+  finding_id: string
+  evidence_refs: string[]
+}
+
+// AgentLaneReportOracleReceipt is one typed control-execution receipt:
+// reported evidence, never native-run authority. The adapter
+// strips any worker-echoed subject_commit and injects the observed raw OID
+// subject from the dispatch packet before the canonical report forms.
+export interface AgentLaneReportOracleReceipt {
+  control_ids: string[]
+  case_ids: string[]
+  subject_commit?: string
+  recipe_source: AgentLanePacketWorkContextReadingSource
+  result: "pass" | "fail" | "unavailable" | "not_run"
+  exit_code?: number
+  run_ref: string
+  evidence_refs: string[]
 }
 
 // AgentLaneReportReview mirrors the optional top-level review object of
-// contracts/agent-lane-report.schema.json: the lane's explicit verdict and
-// its findings. The verdict is report content only (CD-0197): it maps to no
-// workflow field and records no transition.
+// contracts/agent-lane-report.schema.json: the lane's explicit verdict, its
+// findings, and the optional evidenced closure claims. The verdict
+// is report content only (CD-0197): it maps to no workflow field and records
+// no transition.
 export interface AgentLaneReportReview {
   verdict: "ship" | "no_ship"
   findings: AgentLaneReportReviewFinding[]
+  resolved_findings?: AgentLaneReportResolvedFinding[]
 }
 
 // AgentLaneReportContextFinding mirrors one entry of the optional top-level
@@ -702,11 +850,20 @@ function validateSchema(schema: any, value: unknown, root: any, path = "", failu
   }
   if (isRecord(value)) {
     const properties = schema.properties ?? {}
+    const patterns = Object.entries(schema.patternProperties ?? {}).map(([pattern, child]) => ({ pattern: new RegExp(pattern), child }))
+    const count = Object.keys(value).length
+    if (schema.minProperties !== undefined && count < schema.minProperties) return fail(`carries ${count} properties against a minimum of ${schema.minProperties}`)
+    if (schema.maxProperties !== undefined && count > schema.maxProperties) return fail(`carries ${count} properties against a limit of ${schema.maxProperties}`)
     const missing = (schema.required ?? []).filter((key: string) => !Object.hasOwn(value, key))
     if (missing.length > 0) return fail(`is missing required propert${missing.length === 1 ? "y" : "ies"} ${missing.join(", ")}`)
     for (const [key, child] of Object.entries(properties)) if (Object.hasOwn(value, key) && !validateSchema(child, value[key], root, path ? `${path}.${key}` : key, failures)) return false
+    for (const { pattern, child } of patterns) {
+      for (const [key, entry] of Object.entries(value)) {
+        if (pattern.test(key) && !validateSchema(child, entry, root, path ? `${path}.${key}` : key, failures)) return false
+      }
+    }
     if (schema.additionalProperties === false) {
-      const extra = Object.keys(value).filter((key) => !Object.hasOwn(properties, key))
+      const extra = Object.keys(value).filter((key) => !Object.hasOwn(properties, key) && !patterns.some(({ pattern }) => pattern.test(key)))
       if (extra.length > 0) return fail(`carries undeclared propert${extra.length === 1 ? "y" : "ies"} ${extra.join(", ")}`)
     }
   }
@@ -1054,12 +1211,14 @@ function normalizeWorkerReport(report: Record<string, unknown>): Record<string, 
   return normalized
 }
 
-// Legacy candidate selection and admission use the same dispatch-derived shape.
+// Legacy candidate selection and admission use the same dispatch-derived shape,
+// including oracle receipt subjects rebound before the closed schema sees them.
 function workerContent(report: Record<string, unknown>, packet?: AgentLanePacket): Record<string, unknown> {
   const stripped = { ...report }
   for (const field of DISPATCH_OWNED_REPORT_FIELDS) delete stripped[field]
+  const rebound = packet ? rebindOracleReceiptSubjects(stripped, packet) : stripped
   return normalizeWorkerReport({
-    ...stripped,
+    ...rebound,
     schema_version: packet?.schema_version ?? report.schema_version,
     ...(packet ? packetWorkerJobBinding(packet) : {}),
   })
@@ -1087,6 +1246,50 @@ function boundDetails(entries: unknown, schema: { "x-maxBytes"?: number }): unkn
 // the member: until regeneration the closed schema refuses the undeclared
 // property first, so the zero fallback never governs an admitted report.
 const CONTEXT_FINDINGS_MAX_ARRAY_BYTES = ((agentLaneReportSchema.properties as Record<string, { "x-maxArrayBytes"?: number }>).context_findings)?.["x-maxArrayBytes"] ?? 0
+// The resolved_findings aggregate bound follows the same pattern:
+// the claim array lives inside the review block, and an over-bound array is
+// refused whole rather than truncated to fit.
+const RESOLVED_FINDINGS_MAX_ARRAY_BYTES = ((agentLaneReportSchema.$defs.review_block as { properties?: { resolved_findings?: { "x-maxArrayBytes"?: number } } }).properties?.resolved_findings)?.["x-maxArrayBytes"] ?? 0
+
+// resolvedFindingsAggregateRefusal mirrors contextFindingsAggregateRefusal
+// for the review block's closure claims.
+export function resolvedFindingsAggregateRefusal(review: unknown, maxArrayBytes: number): string | null {
+  if (maxArrayBytes <= 0 || review === undefined || review === null) return null
+  const resolved = isRecord(review) ? review.resolved_findings : undefined
+  if (resolved === undefined || resolved === null) return null
+  const bytes = Buffer.byteLength(JSON.stringify(resolved), "utf8")
+  if (bytes <= maxArrayBytes) return null
+  return `worker report failed the closed agent-lane-report.v1 schema: review.resolved_findings: serialize to ${bytes} UTF-8 bytes against a limit of ${maxArrayBytes}; the claims are refused, never truncated`
+}
+
+// rebindOracleReceiptSubjects composes the dispatch-owned subject-commit
+// identity of every oracle receipt. A worker-echoed
+// subject_commit is stripped exactly like the other dispatch-owned report
+// fields: the model never authors subject identity. The observed subject is
+// injected from the packet's work context when the core supplied one; absent
+// it, the receipt rides without a candidate subject rather than inventing
+// one, and the store's reference/subject joins stay the authority.
+function rebindOracleReceiptSubjects(report: Record<string, unknown>, packet: AgentLanePacket): Record<string, unknown> {
+  const observed = packet.inputs?.work_context?.subject_commit
+  const observedSubject = typeof observed === "string" && /^[0-9a-f]{40}([0-9a-f]{24})?$/.test(observed) ? observed : undefined
+  if (!Array.isArray(report.evidence)) return report
+  let changed = false
+  const evidence = report.evidence.map((entry) => {
+    if (!isRecord(entry) || !isRecord(entry.oracle_receipt)) return entry
+    const receipt = entry.oracle_receipt as Record<string, unknown>
+    const rebound = omitMember(receipt, "subject_commit")
+    if (observedSubject !== undefined) rebound.subject_commit = observedSubject
+    changed = true
+    return { ...entry, oracle_receipt: rebound }
+  })
+  return changed ? { ...report, evidence } : report
+}
+
+function omitMember(value: Record<string, unknown>, member: string): Record<string, unknown> {
+  const omitted = { ...value }
+  delete omitted[member]
+  return omitted
+}
 
 // contextFindingsAggregateRefusal measures the compact JSON serialization of
 // a context_findings array in UTF-8 bytes against the contract's aggregate
@@ -1124,6 +1327,10 @@ function admitWorkerReport(scan: WorkerReportScan, packet: AgentLanePacket): { r
   // so its findings never reach a terminal record in a smaller shape.
   const aggregateRefusal = contextFindingsAggregateRefusal(normalized.context_findings, CONTEXT_FINDINGS_MAX_ARRAY_BYTES)
   if (aggregateRefusal !== null) return { detail: aggregateRefusal }
+  // The review block's closure-claim array carries the same aggregate rule:
+  // an over-bound claim set is refused whole, never truncated.
+  const resolvedRefusal = resolvedFindingsAggregateRefusal(normalized.review, RESOLVED_FINDINGS_MAX_ARRAY_BYTES)
+  if (resolvedRefusal !== null) return { detail: resolvedRefusal }
   const admitted = normalized
   const lane = laneForPacket(packet)
   if (!lane) return { detail: "worker report packet names an unregistered lane identity or digest" }
@@ -1871,6 +2078,24 @@ export async function dispatchWorker(packet: unknown,   options: { signal?: Abor
     // authorization: a mismatched context persists no authorized attempt.
     const contextRefusal = contextPreflightRefusal(lane, packet as Partial<AgentLanePacket>, liveWorkerDirectory, options.contextDirectory)
     if (contextRefusal) return contextRefusal
+  }
+
+  // The packet's acceptance oracle must be dispatch-ready before
+  // the authorization call persists an attempt. The pinned harness sources
+  // resolve as exact Git objects and paths in the repository this dispatch
+  // can reach, and every control carries its retained readiness evidence.
+  // The check runs read-only git plumbing through the dispatch runner; it
+  // never executes the oracle's own argv and never calls the core. A packet
+  // without an oracle (every pre-oracle definition revision) skips it.
+  if (packet.inputs.worker_job?.acceptance_oracle !== undefined) {
+    const oracleRefusal = await verifyPacketOracleReadiness(packet, {
+      runner: options.runner ?? defaultRunner,
+      directory: options.authorizedWorktree ?? canonicalWorkerDirectory,
+      signal,
+    })
+    if (oracleRefusal !== null) {
+      return errorEnvelope(lane, packet as Partial<AgentLanePacket>, "error", "invalid_input", oracleRefusal.message, "retry_same_request")
+    }
   }
 
   // Bind the manifest before the core dispatch_worker action persists an

@@ -2,6 +2,22 @@
   "evidence": [
     {
       "kind": "go_test",
+      "value": "internal/store.TestOwnerOracleRequiredOnOracleCapablePin"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestOwnerOracleReceipt"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestOwnerOracleConvergence"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestOwnerOracleLegacyDigestUnchanged"
+    },
+    {
+      "kind": "go_test",
       "value": "internal/store.TestWorkflowScenarioCorpusExecutesExactProductionActions"
     }
   ],

@@ -6099,15 +6099,8 @@ CREATE TRIGGER worktree_ref_outcomes_guard_delete BEFORE DELETE ON worktree_ref_
 `,
 	},
 	{
-		// The retirement delete guard re-derives retire eligibility inside
-		// the deleting transaction: a pack leaves only while its owner work
-		// is terminal and no consumer pin (required or optional) is active,
-		// the same eligibility the research_retire batch classifies. A
-		// missing owner work row is an unmet eligibility, so the guard fails
-		// closed and refuses the delete at the schema. Projection rebuild
-		// drops this trigger before staging and recreates it after the
-		// restore, as the migration 52 locator guard does. The guard rejects
-		// an older binary's writes, so the step is breaking.
+		// The schema refuses deletes while the owner or a consumer is active.
+		// Rebuild drops this guard during staging and restores it afterward.
 		Version:  123,
 		Name:     "research_retirement_delete_guard",
 		Breaking: true,
@@ -6212,6 +6205,22 @@ CREATE TRIGGER linear_issue_links_guard_insert BEFORE INSERT ON linear_issue_lin
 CREATE TRIGGER linear_issue_links_guard_update BEFORE UPDATE ON linear_issue_links FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_issue_links is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
 CREATE TRIGGER linear_issue_links_guard_delete BEFORE DELETE ON linear_issue_links FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_issue_links is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
 DELETE FROM fold_guard;
+`,
+	},
+	{
+		Version:  125,
+		Name:     "native_oracle_plan_and_streams",
+		Breaking: true,
+		// Operational leases pin plans at acquire and streams at release, once
+		// per lease. Rebuild preserves these rows through its operational snapshot.
+		FoldMaintained: "origin",
+		SQL: `
+ALTER TABLE worktree_verify_leases ADD COLUMN native_plan_json TEXT CHECK(native_plan_json IS NULL OR (json_valid(native_plan_json) AND length(CAST(native_plan_json AS BLOB))<=65536));
+ALTER TABLE worktree_verify_leases ADD COLUMN native_plan_sha256 TEXT CHECK(native_plan_sha256 IS NULL OR length(native_plan_sha256)=71);
+ALTER TABLE worktree_verify_leases ADD COLUMN stdout_blob BLOB CHECK(stdout_blob IS NULL OR (typeof(stdout_blob)='blob' AND length(stdout_blob)<=2097152));
+ALTER TABLE worktree_verify_leases ADD COLUMN stderr_blob BLOB CHECK(stderr_blob IS NULL OR (typeof(stderr_blob)='blob' AND length(stderr_blob)<=2097152));
+CREATE TRIGGER native_oracle_plan_pair_insert BEFORE INSERT ON worktree_verify_leases WHEN (NEW.native_plan_json IS NULL) != (NEW.native_plan_sha256 IS NULL) BEGIN SELECT RAISE(ABORT,'native oracle plan columns must be paired'); END;
+CREATE TRIGGER native_oracle_plan_pair_update BEFORE UPDATE ON worktree_verify_leases WHEN (NEW.native_plan_json IS NULL) != (NEW.native_plan_sha256 IS NULL) BEGIN SELECT RAISE(ABORT,'native oracle plan columns must be paired'); END;
 `,
 	},
 }

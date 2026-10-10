@@ -55,9 +55,14 @@ const (
 const (
 	WorkContextOriginDeclaration  = "declaration"
 	WorkContextOriginWorkerReport = "worker_report"
-	// WorkContextFindingStatusReported is the only finding status this
-	// foundation records: a finding is a reported claim, never acceptance.
+	// WorkContextFindingStatusReported is the finding status generic
+	// findings carry: a finding is a reported claim, never acceptance.
 	WorkContextFindingStatusReported = "reported"
+	// WorkContextFindingStatusOpen is the status of a ranked review
+	// finding the lineage currently holds open: an open blocker
+	// is still a reported claim, and the status names its openness, never
+	// acceptance.
+	WorkContextFindingStatusOpen = "open"
 )
 
 // WorkContextReadingSource is the closed source union of one reading. The
@@ -85,7 +90,9 @@ type WorkContextReading struct {
 
 // WorkContextFindingView is one assembled finding of the current view. The
 // finding wire is the shared WorkerContextFinding; the identity fields are
-// core-derived from the source event, never authored.
+// core-derived from the source event, never authored. SourceKind is empty
+// for a generic context finding and review_finding for a ranked review
+// finding, whose Oracle tie and lifecycle the lineage owns.
 type WorkContextFindingView struct {
 	FindingID            string   `json:"finding_id"`
 	Kind                 string   `json:"kind"`
@@ -99,6 +106,12 @@ type WorkContextFindingView struct {
 	SourceEventID        string   `json:"source_event_id"`
 	SourceEventSeq       int64    `json:"source_event_seq"`
 	Ordinal              int      `json:"ordinal"`
+	// SourceKind separates the ranked review findings from the
+	// generic worker-claim notebook: a ranked entry carries
+	// review_finding here, its Oracle tie below, and generic claim fields
+	// projected from the finding.
+	SourceKind string               `json:"source_kind,omitempty"`
+	Oracle     *WorkerOracleFinding `json:"oracle,omitempty"`
 }
 
 // WorkContextDomainCard reuses the repository_file source identity. Its
@@ -124,10 +137,17 @@ type WorkContextDomainGroup struct {
 // from this view goes stale exactly when a context source changes, and
 // unrelated work events do not invalidate it.
 type WorkContextView struct {
-	SourceEventFrontier int64                    `json:"source_event_frontier"`
-	RequiredReading     []WorkContextReading     `json:"required_reading"`
-	Findings            []WorkContextFindingView `json:"findings"`
-	DomainGroups        []WorkContextDomainGroup `json:"domain_groups"`
+	SubjectCommit       string                    `json:"subject_commit,omitempty"`
+	OraclePreparations  []NativeOraclePreparation `json:"oracle_preparations,omitempty"`
+	SourceEventFrontier int64                     `json:"source_event_frontier"`
+	RequiredReading     []WorkContextReading      `json:"required_reading"`
+	Findings            []WorkContextFindingView  `json:"findings"`
+	DomainGroups        []WorkContextDomainGroup  `json:"domain_groups"`
+	// OracleReceipts are the prior typed control-execution receipts this
+	// work retained, in log order: reported evidence a later
+	// lane receives as regression baselines with their exact identities,
+	// never as current-subject acceptance.
+	OracleReceipts []WorkerOracleReceipt `json:"oracle_receipts,omitempty"`
 }
 
 // workflowWorkContextRecordedPayload is the durable declaration event. The
@@ -446,11 +466,11 @@ func validateWorkContextFindingRefs(ctx context.Context, tx *sql.Tx, workID stri
 			}
 			return wrapFailure(KindUnavailable, "work_context", "cannot resolve a finding reference", true, "retry once the event log is readable", err)
 		}
-		findings, decodes := workContextFindingsAtEvent(event)
+		findings, ranked, decodes := workContextTerminalFindingsAtEvent(event)
 		if !decodes {
 			return workContextFailure(KindInvalidPayload, "work_context", "finding ref "+ref+" names an event kind that holds no findings", "select findings from declarations or terminal worker reports")
 		}
-		if ordinal >= len(findings) {
+		if ordinal >= len(findings)+len(ranked) {
 			return workContextFailure(KindInvalidPayload, "work_context", "finding ref "+ref+" names an ordinal the event does not hold", "select earlier findings by their exact ids")
 		}
 	}
@@ -602,6 +622,16 @@ func workContextOriginForKind(kind string) string {
 // supply required cards. A work item without any required context reads as nil.
 func readWorkContextView(ctx context.Context, q queryer, workID string) (*WorkContextView, error) {
 	view := WorkContextView{RequiredReading: []WorkContextReading{}, Findings: []WorkContextFindingView{}, DomainGroups: []WorkContextDomainGroup{}}
+	subject, subjectErr := readCurrentOracleSubject(ctx, q, workID)
+	if subjectErr != nil {
+		return nil, subjectErr
+	}
+	view.SubjectCommit = subject
+	preparations, prepareErr := readSelectedOraclePreparations(ctx, q, workID)
+	if prepareErr != nil {
+		return nil, prepareErr
+	}
+	view.OraclePreparations = preparations
 	if err := q.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind IN (?,?,?)`, workID, WorkflowWorkContextRecorded, WorkerCompleted, WorkerFailed).Scan(&view.SourceEventFrontier); err != nil {
 		return nil, wrapFailure(KindUnavailable, "work_context_read", "cannot read the work context source frontier", true, "retry once the event log is readable", err)
 	}
@@ -610,6 +640,13 @@ func readWorkContextView(ctx context.Context, q queryer, workID string) (*WorkCo
 	anchorErr := q.QueryRowContext(ctx, `SELECT seq,event_id,kind,subject_type,subject_id,actor,payload FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? ORDER BY seq DESC LIMIT 1`, workID, WorkflowWorkContextRecorded).Scan(&anchorSeq, &anchor.EventID, &anchor.Kind, &anchor.SubjectType, &anchor.SubjectID, &anchor.Actor, &anchor.Payload)
 	if anchorErr != nil && anchorErr != sql.ErrNoRows {
 		return nil, wrapFailure(KindUnavailable, "work_context_read", "cannot read the latest work context declaration", true, "retry once the event log is readable", anchorErr)
+	}
+	// One lineage read feeds the whole assembly — the ranked
+	// ordinals a declaration may select, the open findings the view can
+	// never drop, and the retained receipts a later lane receives.
+	lineage, lineageErr := readWorkerOracleFindingLineageTx(ctx, q, workID)
+	if lineageErr != nil {
+		return nil, lineageErr
 	}
 	byID := make(map[string]WorkContextFindingView)
 	order := make([]string, 0, WorkContextViewFindingsMax+1)
@@ -643,11 +680,20 @@ func readWorkContextView(ctx context.Context, q queryer, workID string) (*WorkCo
 				}
 				return nil, wrapFailure(KindUnavailable, "work_context_read", "cannot resolve a selected finding", true, "retry once the event log is readable", err)
 			}
-			findings, decodes := workContextFindingsAtEvent(event)
-			if !decodes || ordinal >= len(findings) {
+			generic, ranked, decodes := workContextTerminalFindingsAtEvent(event)
+			if !decodes {
+				return nil, workContextFailure(KindInvariantViolation, "work_context_read", "the stored declaration selects finding "+ref+" whose source event holds no findings", "rebuild the projection from the event log")
+			}
+			switch {
+			case ordinal < len(generic):
+				addFinding(workContextFindingView(generic[ordinal], workContextOriginForKind(event.Kind), event.EventID, seq, ordinal))
+			case ordinal < len(generic)+len(ranked):
+				// A selected ranked finding projects with its tie and
+				// source kind, never into the generic claim notebook.
+				addFinding(rankedFindingView(ranked[ordinal-len(generic)], event.EventID, seq, ordinal, lineage))
+			default:
 				return nil, workContextFailure(KindInvariantViolation, "work_context_read", "the stored declaration selects finding "+ref+" the source event does not hold", "rebuild the projection from the event log")
 			}
-			addFinding(workContextFindingView(findings[ordinal], workContextOriginForKind(event.Kind), event.EventID, seq, ordinal))
 		}
 	}
 	// Terminal-report findings recorded after the anchor ride the current
@@ -688,6 +734,19 @@ func readWorkContextView(ctx context.Context, q queryer, workID string) (*WorkCo
 			addFinding(workContextFindingView(finding, WorkContextOriginWorkerReport, row.event.EventID, row.seq, ordinal))
 		}
 	}
+	// The ranked oracle findings and the retained receipts project
+	// from the same one lineage the correction and convergence surfaces
+	// read. Open ranked findings ride the view unconditionally: a
+	// coordinator's context selection can drop generic claims, never an
+	// open oracle blocker. Closed findings ride only through an explicit
+	// selection above.
+	projectWorkerOracleOpenFindings(lineage, addFinding)
+	if len(lineage.retainedReceipts) > oracleRetainedReceiptsMax {
+		return nil, oracleFindingFailure(KindLimitExceeded, fmt.Sprintf("the work retains %d oracle receipts above the %d view bound; the read refuses instead of truncating", len(lineage.retainedReceipts), oracleRetainedReceiptsMax), "supersede the active contract through its approved recovery route or stop the work; predecessor receipts remain in the event log")
+	}
+	if len(lineage.retainedReceipts) > 0 {
+		view.OracleReceipts = lineage.retainedReceipts
+	}
 	if len(order) > WorkContextViewFindingsMax {
 		return nil, workContextFailure(KindLimitExceeded, "work_context_read", fmt.Sprintf("the current work context holds %d findings; the view bound is %d and the read refuses instead of truncating", len(order), WorkContextViewFindingsMax), "supersede or drop findings through a later declaration before reading the current context")
 	}
@@ -704,7 +763,7 @@ func readWorkContextView(ctx context.Context, q queryer, workID string) (*WorkCo
 	if err := assembleWorkContextDomainGroups(ctx, q, workID, &view); err != nil {
 		return nil, err
 	}
-	if anchorErr == sql.ErrNoRows && len(order) == 0 && len(view.RequiredReading) == 0 {
+	if anchorErr == sql.ErrNoRows && len(order) == 0 && len(view.RequiredReading) == 0 && len(view.OracleReceipts) == 0 && len(view.OraclePreparations) == 0 && view.SubjectCommit == "" {
 		return nil, nil
 	}
 	return &view, nil
@@ -785,48 +844,39 @@ func assembleWorkContextDomainGroups(ctx context.Context, q queryer, workID stri
 	return nil
 }
 
-// validateWorkerPacketWorkContext refuses a dispatch whose packet does not
-// consume the current work-context view (CON-887), mirroring the correction
-// admission one guard above it. The current view is re-read inside the
-// dispatch transaction through the same tx-scoped reader the work pin used,
-// so the comparison is against the state the spawn will land on. A nil
-// current view refuses a packet that carries inputs.work_context; a present
-// view requires the member, decoded closed and equal byte-for-byte to the
-// reader's canonical serialization. A view past its bounds propagates the
-// reader's own limit_exceeded refusal rather than truncating.
-func validateWorkerPacketWorkContext(ctx context.Context, q queryer, workID string, packetRaw json.RawMessage) error {
+func admittedWorkerPacketWorkContext(ctx context.Context, q queryer, workID string, packetRaw json.RawMessage) (*WorkContextView, error) {
 	var packet struct {
 		Inputs struct {
 			WorkContext json.RawMessage `json:"work_context"`
 		} `json:"inputs"`
 	}
 	if err := json.Unmarshal(packetRaw, &packet); err != nil {
-		return newFailure(KindInvalidPayload, "workflow_action", "dispatch_worker worker_packet is malformed", false, "supply the lane packet bound to this work item and attempt")
+		return nil, newFailure(KindInvalidPayload, "workflow_action", "dispatch_worker worker_packet is malformed", false, "supply the lane packet bound to this work item and attempt")
 	}
 	current, err := readWorkContextView(ctx, q, workID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	present := len(packet.Inputs.WorkContext) != 0 && string(packet.Inputs.WorkContext) != "null"
 	if current == nil {
 		if present {
-			return newFailure(KindInvalidPayload, "workflow_action", "worker packet carries work context without a current work context view", false, "build the packet from the current work pin")
+			return nil, newFailure(KindInvalidPayload, "workflow_action", "worker packet carries work context without a current work context view", false, "build the packet from the current work pin")
 		}
-		return nil
+		return nil, nil
 	}
 	if !present {
-		return newFailure(KindInvalidPayload, "workflow_action", "worker packet does not consume the current work context", false, "build a fresh packet from the current work pin")
+		return nil, newFailure(KindInvalidPayload, "workflow_action", "worker packet does not consume the current work context", false, "build a fresh packet from the current work pin")
 	}
 	decoder := json.NewDecoder(strings.NewReader(string(packet.Inputs.WorkContext)))
 	decoder.DisallowUnknownFields()
 	var claimed WorkContextView
 	if err := decoder.Decode(&claimed); err != nil {
-		return newFailure(KindInvalidPayload, "workflow_action", "worker packet inputs.work_context is not one closed work-context view", false, "build a fresh packet from the current work pin")
+		return nil, newFailure(KindInvalidPayload, "workflow_action", "worker packet inputs.work_context is not one closed work-context view", false, "build a fresh packet from the current work pin")
 	}
 	claimedJSON, claimedErr := json.Marshal(claimed)
 	currentJSON, currentErr := json.Marshal(current)
 	if claimedErr != nil || currentErr != nil || !bytes.Equal(claimedJSON, currentJSON) {
-		return newFailure(KindInvalidPayload, "workflow_action", "worker packet does not consume the current work context", false, "build a fresh packet from the current work pin")
+		return nil, newFailure(KindInvalidPayload, "workflow_action", "worker packet does not consume the current work context", false, "build a fresh packet from the current work pin")
 	}
-	return nil
+	return current, nil
 }

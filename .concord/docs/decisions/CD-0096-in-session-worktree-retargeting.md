@@ -89,11 +89,25 @@ tiers. Each tier is a typed authority, and no tier implies the one above it.
 **Inspect.** Reading files, Git status, and diffs is allowed against any active
 worktree in the same Project. Inspection is read-only and never changes the
 persistent effective target.
+The `oracle_output` mode reads retained native-verify output for the same work
+and ambient Project through its producer run reference, without an active tree.
+It starts no process, creates no lease, and records no mutation or page bytes.
+Each page contains at most 16 KiB of raw bytes within the existing envelope.
 
 **Verify.** Tests, validators, builds, and reproductions run against a
 same-Project worktree under an exclusive lease. Tracked files must remain
 unchanged. Completion refuses when they changed, because a verifier that edits
 its subject verifies nothing.
+Native oracle preparation and execution use this same lease and operation.
+Preparation compiles the pinned harness without launching a test program.
+Execution requires the exact persisted dispatch authorization described in
+CD-0205 D2 and uses the pinned harness against the authorized candidate.
+The producer stages private snapshots without changing the claimed worktree.
+The lease retains one immutable canonical producer plan and its digest.
+It stores one raw stdout `BLOB` and one raw stderr `BLOB`, each at most 2 MiB.
+Bounded result metadata contains descriptors, not raw stream bodies.
+No separate output store, dispatch authority, or evidence kind is created.
+Existing scope, budget, lease, and mutation-refusal gates remain mandatory.
 
 **Take over.** *Amended by CD-0104 D5.* There is no typed transfer, because
 there is no stored holder to transfer from. A session that needs to edit

@@ -146,7 +146,7 @@ func (g *fakeWorktreeGit) Run(_ context.Context, dir string, args ...string) ([]
 			return nil, fmt.Errorf("not a worktree")
 		}
 		return []byte(branch + "\n"), nil
-	case join == "rev-parse HEAD":
+	case join == "rev-parse HEAD" || join == "rev-parse --verify HEAD^{commit}":
 		branch, ok := g.worktrees[dir]
 		if !ok {
 			return nil, fmt.Errorf("not a worktree")
@@ -330,7 +330,7 @@ func (g *fakeWorktreeGit) Run(_ context.Context, dir string, args ...string) ([]
 		}
 		delete(g.worktrees, path)
 		return nil, nil
-	case join == "status --porcelain":
+	case join == "status --porcelain" || join == "status --porcelain=v1 -z --untracked-files=all":
 		if g.dirty[dir] {
 			return []byte("M file\n"), nil
 		}

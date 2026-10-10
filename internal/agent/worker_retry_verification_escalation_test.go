@@ -12,33 +12,30 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 )
 
-// TestEscalatedVerificationCorrectionWallGatesOnFindingsConvergence pins the
-// CON885 convergence gate on an escalated verification correction. Four
-// recorded verification correction requests arm the wall (CD-0164 D4 keeps
-// the comparator strict, so the first three stay below it, approval-free).
-// At the wall the dispatch refuses with missing_evidence and mints no
-// approval challenge, a supplied operator approval bound to the correction's
-// attempt count — the exact shape the pre-CON885 wall consumed — has no
-// effect, and WorkflowFailedWorkerRetryBinding returns nil. The only store
-// route through the wall is a findings basis: when the latest correction
-// request carries a strictly smaller predicate set than the previous
-// comparable request, the store derives findings_shrinking and admits
-// exactly one fresh fenced attempt with no approval. The admitted dispatch
-// consumes the basis, and its recorded failure closes the findings route:
-// the correction record flips to the failed disposition, but the wall the
-// converging retry crossed stays armed, so the next dispatch refuses again.
+// Four verification corrections arm the convergence wall. Oracle-free pins
+// compare requested predicates; oracle pins require a proven smaller finding
+// set. Approval never substitutes for either basis or permits its reuse.
 func TestEscalatedVerificationCorrectionWallGatesOnFindingsConvergence(t *testing.T) {
+	runVerificationCorrectionWall(t, 26)
+}
+
+func TestWorkerRetryVerificationOracleRequiresFindingClosure(t *testing.T) {
+	runVerificationCorrectionWall(t, 27)
+}
+
+func runVerificationCorrectionWall(t *testing.T, definitionVersion int64) {
+	t.Helper()
 	for _, tc := range []struct {
 		name           string
 		finalPredicate []string
 		admit          bool
 	}{
 		{"unchanged request predicates keep the wall closed", []string{"predicate:primary", "predicate:secondary"}, false},
-		{"shrinking request predicates admit one fenced retry", []string{"predicate:primary"}, true},
+		{"shrinking request predicates require a comparable basis", []string{"predicate:primary"}, definitionVersion == 26},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s, service, grant, privateKey := mutationDispatchFixture(t, []Capability{"work_transition", "worker_dispatch"})
-			version, worktree := seedEscalatedVerificationWorkerMutation(t, s, service, grant, tc.finalPredicate)
+			version, worktree := seedEscalatedVerificationWorkerMutation(t, s, service, grant, definitionVersion, tc.finalPredicate)
 			grant.Worktree = worktree
 			scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
 			if err != nil {
@@ -96,10 +93,7 @@ func TestEscalatedVerificationCorrectionWallGatesOnFindingsConvergence(t *testin
 					t.Fatalf("refused verification retry changed the work version %d -> %d", version, after)
 				}
 
-				// A supplied operator approval bound to the correction's
-				// attempt count — the exact identity the pre-CON885 wall
-				// minted its challenge for — has no effect: no challenge
-				// exists to consume, and the fold still refuses.
+				// No approval challenge exists behind the convergence wall.
 				approvedInput := cloneWithApproval(t, input, strings.Repeat("e", 64))
 				approvedRaw, err := json.Marshal(approvedInput)
 				if err != nil {
@@ -203,20 +197,23 @@ func TestEscalatedVerificationCorrectionWallGatesOnFindingsConvergence(t *testin
 	}
 }
 
-// seedEscalatedVerificationWorkerMutation drives four full verification
-// correction cycles through the boundary, every verdict and every correction
-// request recording through its declared action. The contract carries two
-// predicates and every cycle's verdicts are non-ok, so no healthy verdict
-// set resets the correction window: all four request_correction records are
-// comparable. Cycles one through three request both predicates and stay
-// below the wall (CD-0164 D4: the dispatch comparator is strict, and each
-// cycle's dispatch runs approval-free); the fourth request carries
-// finalPredicates, so a strictly smaller set than the previous request
-// derives the findings_shrinking basis while an unchanged set leaves the
-// wall closed.
-func seedEscalatedVerificationWorkerMutation(t *testing.T, s *store.Store, service *Service, grant Authority, finalPredicates []string) (int64, string) {
+// seedEscalatedVerificationWorkerMutation records four correction cycles
+// under the selected definition. No healthy verdict resets the window; the
+// fourth request selects predicates without claiming any finding closure.
+func seedEscalatedVerificationWorkerMutation(t *testing.T, s *store.Store, service *Service, grant Authority, definitionVersion int64, finalPredicates []string) (int64, string) {
 	t.Helper()
-	if got := seedAgentWorkflow(t, s, grant); got != 4 {
+	seedCurrentWorkflowDomainFixture(t, s)
+	definition, ok := store.BuiltinWorkflowRegistry().Lookup("workflow.implementation", definitionVersion)
+	if !ok {
+		t.Fatalf("implementation definition %d is not registered", definitionVersion)
+	}
+	owner := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
+	if err := s.Transact(context.Background(), func(tx *store.Transaction) error {
+		return store.InitializeWorkflowTx(context.Background(), tx, store.WorkflowInitializationRequest{WorkID: "work-1", Definition: definition, Actor: owner, Now: fixedTime()})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got := workVersion(t, s, "work-1"); got != 4 {
 		t.Fatalf("workflow seed version=%d, want 4", got)
 	}
 	// The refine exit resolves the Project's tooling manifest from the
@@ -227,7 +224,6 @@ func seedEscalatedVerificationWorkerMutation(t *testing.T, s *store.Store, servi
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE project_locators SET locator_value=?1, normalized_value=?1 WHERE project_id='project-1' AND kind='canonical_path'; DELETE FROM fold_guard`, repo); err != nil {
 		t.Fatalf("point the fixture locator at the repository: %v", err)
 	}
-	owner := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
 	ownerRef, err := store.WorkflowActorRef(owner)
 	if err != nil {
 		t.Fatal(err)

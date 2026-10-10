@@ -3873,7 +3873,7 @@
         }
       ],
       "domain_id": "product-memory",
-      "mapped_count": 893,
+      "mapped_count": 896,
       "mechanism_owner_ids": [
         "mechanism:domain-registry",
         "mechanism:knowledge-index"
@@ -6123,6 +6123,7 @@
     ".concord/docs/decisions/CD-0215-retained-research-context.md": "product-memory",
     ".concord/docs/decisions/CD-0216-research-surface-and-explicit-retirement.md": "product-memory",
     ".concord/docs/decisions/CD-0217-publication-and-retention-boundaries.md": "product-memory",
+    ".concord/docs/decisions/CD-0220-repository-authoring-follows-lane-capability-and-approved-scope.md": "product-memory",
     ".concord/docs/decisions/CD-0221-accepted-law-cites-the-checked-revision.md": "product-memory",
     ".concord/docs/decisions/license-evidence/github.com/aymanbagabas/go-udiff/v0.4.1/LICENSE-BSD": "product-memory",
     ".concord/docs/decisions/license-evidence/github.com/aymanbagabas/go-udiff/v0.4.1/LICENSE-MIT": "product-memory",
@@ -6343,6 +6344,7 @@
     ".concord/docs/knowledge/coverage/CD-0215.json": "product-memory",
     ".concord/docs/knowledge/coverage/CD-0216.json": "product-memory",
     ".concord/docs/knowledge/coverage/CD-0217.json": "product-memory",
+    ".concord/docs/knowledge/coverage/CD-0220.json": "product-memory",
     ".concord/docs/knowledge/coverage/CD-0221.json": "product-memory",
     ".concord/docs/knowledge/coverage/PM1.json": "product-memory",
     ".concord/docs/knowledge/coverage/PM10.json": "product-memory",
@@ -6607,6 +6609,7 @@
     ".concord/docs/knowledge/records/CD-0215.json": "product-memory",
     ".concord/docs/knowledge/records/CD-0216.json": "product-memory",
     ".concord/docs/knowledge/records/CD-0217.json": "product-memory",
+    ".concord/docs/knowledge/records/CD-0220.json": "product-memory",
     ".concord/docs/knowledge/records/CD-0221.json": "product-memory",
     ".concord/docs/knowledge/records/PM1.json": "product-memory",
     ".concord/docs/knowledge/records/PM10.json": "product-memory",
@@ -7889,7 +7892,7 @@
     "skills/README.md": "agent-surface",
     "workflows/README.md": "workflow-engine"
   },
-  "mapped_count": 1990,
+  "mapped_count": 1993,
   "mechanisms": [
     {
       "check_ids": [

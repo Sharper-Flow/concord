@@ -2,6 +2,18 @@
   "evidence": [
     {
       "kind": "go_test",
+      "value": "internal/store.TestOwnerOracleReceipt"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestOwnerOracleReceiptShapeCoupling"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestOwnerOracleRepairFamily"
+    },
+    {
+      "kind": "go_test",
       "value": "internal/store.TestWorkerCompletionCoveringLaneObligationsFoldsAndRetainsEvidence"
     },
     {

@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"fmt"
 )
 
 // WorkflowReviewDebt names the unresolved refinement review state the admission
@@ -138,6 +139,14 @@ type WorkflowAdmissionState struct {
 	// FailedRetryApproved carries the exact approval for an ordinary failed
 	// retry. An escalated retry instead needs RetryConvergence.
 	FailedRetryApproved bool
+	// OracleOpenFindings is the count of the derived open ranked findings
+	// of an oracle-capable pin: the folded admission state stays
+	// a comparable value, so it carries the bound the dispatch refusal
+	// reads while the identity set itself is derived per surface from the
+	// one lineage reader. Zero on every pin that predates the acceptance
+	// oracle; dispatch refuses while the count exceeds
+	// WorkflowOpenOracleFindingsLimit instead of truncating blockers.
+	OracleOpenFindings int
 	// DispatchHold reports a dispatched worker holding the step's advance.
 	DispatchHold bool
 	// EvidenceRecoveryRoute reports an outstanding contract evidence
@@ -383,6 +392,9 @@ func loadWorkflowAdmissionStateTx(ctx context.Context, q queryer, workID string,
 		return WorkflowAdmissionState{}, nil, nil, wallErr
 	}
 	state.NonProgressAttempts = nonProgress
+	if err := loadWorkflowOracleAdmissionTx(ctx, q, workID, definition, &state); err != nil {
+		return WorkflowAdmissionState{}, nil, nil, err
+	}
 	if !state.CorrectionEscalated {
 		continued, continuedErr := workflowCorrectionWindowContinued(ctx, q, workID, subject)
 		if continuedErr != nil {
@@ -527,6 +539,14 @@ func workflowAdmit(definition WorkflowDefinition, state WorkflowAdmissionState, 
 	if actionID == "dispatch_worker" {
 		if state.DesignStale {
 			decision.Failure = newFailure(KindMissingEvidence, "worker_dispatch", "contract correction invalidated the recorded design", false, "use supersede_contract with design_record before worker dispatch")
+			return decision
+		}
+		// More than 32 genuine open oracle blockers is an
+		// explicit no-dispatch bound refusal. Blockers are never silently
+		// omitted to satisfy the bound; recovery is an approved scope or
+		// contract revision, or stopping the work.
+		if state.OracleOpenFindings > WorkflowOpenOracleFindingsLimit {
+			decision.Failure = newFailure(KindLimitExceeded, "worker_dispatch", fmt.Sprintf("the work holds %d open oracle blockers above the %d-ID bound; dispatch is refused rather than truncating the set", state.OracleOpenFindings, WorkflowOpenOracleFindingsLimit), false, "close findings through supported closures or an approved scope/contract revision, or stop the work")
 			return decision
 		}
 		if state.retryEscalated() && !state.RetryConvergence.valid() {

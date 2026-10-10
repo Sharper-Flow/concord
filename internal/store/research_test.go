@@ -607,8 +607,8 @@ func TestMigrationInstallsRetirementDeleteGuard(t *testing.T) {
 	if err := db.QueryRowContext(ctx, `SELECT max(version) FROM schema_migrations`).Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 124 {
-		t.Fatalf("schema version=%d, want 124", version)
+	if version != CurrentSchemaVersion() {
+		t.Fatalf("schema version=%d, want %d", version, CurrentSchemaVersion())
 	}
 	for _, m := range migrations {
 		if m.Version == 123 && !m.Breaking {

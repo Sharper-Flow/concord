@@ -42,9 +42,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:662bb1edf4cdd6edc2a59941906d2684a0761361d70797b9b7820108976f825c",
+  "sha256": "sha256:f99c75431e19cb707b52149fe2203d7cc28135863263e0f7fe1bf511e620b367",
   "status": "accepted",
-  "summary": "Failed worker retries below the escalation wall require exact operator approval and a fresh fenced attempt. Escalated retries require a store-derived convergence basis; approval cannot substitute for it. Each basis admits one dispatch and is durably recorded with its source event sequences.",
+  "summary": "Failed retries below the three-attempt wall require exact approval and fresh fencing; escalated retries require one single-use store-derived findings_shrinking or approach_changed basis. Oracle histories compare exact canonical ranked-finding sets with retained contract, job, owner, and byte-identical old control obligations plus supported closure evidence. Predicate IDs are not finding IDs. Oracle-defect closures, replacement findings, and recipe re-pins cannot mint shrink credit; accepted no_ship remains nonproductive. Historical comparison and operator authority remain unchanged.",
   "tags": [
     "worker",
     "retry",

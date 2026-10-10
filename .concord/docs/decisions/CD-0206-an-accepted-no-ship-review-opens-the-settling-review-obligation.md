@@ -54,6 +54,14 @@ later accepted review with a ship or absent verdict settles it, and its
 dispatch must follow the obligation and the result's latest refinement
 activity. A report alone, without the acceptance, opens nothing.
 
+On oracle-bound histories the shared context retains canonical ranked-finding
+IDs, their oracle bindings, and receipt references. Accepted `no_ship`
+evidence leaves the settling debt outstanding and is not productive
+acceptance. It creates no convergence basis family. A later correction
+record uses the exact derived open set through the existing correction
+route; an unrelated P0 follow-up remains visible to the decision owner
+without becoming a repair obligation.
+
 ### D3. Only the newest completed review can bind
 
 A completed review that a newer completed review has superseded is stale.
@@ -121,3 +129,4 @@ Scenario: A settling review preserves ordinary delivery
 - `go test ./internal/store/ -run 'TestInitialSettlingReviewDoesNotOpenHistoricalDeliveryCorrection|TestAcceptedNonReviewReportDoesNotOpenReviewObligation'` proves the fourth scenario and the boundary refusals.
 - `python3 scripts/check-doc-contract.py` proves this record carries the current decision outline and passes the writing rules.
 - `python3 scripts/check-cd-allocation.py --no-fetch` proves the CD-0206 identifier allocates once.
+- `TestOwnerOracleFinding` and `TestOwnerOracleRepairFamily` cover retained findings and receipts without converting follow-ups into repair obligations.

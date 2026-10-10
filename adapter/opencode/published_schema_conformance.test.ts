@@ -119,8 +119,18 @@ test("the published workflow_action variants state each action's exact required 
     for (const field of ["work_id", "expected_version", "action_id", "idempotency_key"]) {
       expect(input.required, `${input.properties.action_id.const} must require ${field}`).toContain(field)
     }
-    for (const field of ["selected_choice", "decision_context_digest", "requested_budget_seconds"]) {
+    for (const field of ["requested_budget_seconds"]) {
       expect(input.properties[field], `${input.properties.action_id.const} names ${field}`).toBeObject()
+    }
+    for (const field of ["selected_choice", "decision_context_digest"]) {
+      if (input.properties.action_id.const === "confirm_premise") {
+        expect(input.properties[field]).toBeObject()
+        expect(input.required).toContain(field)
+      } else {
+        expect(input.properties[field]).toBeObject()
+        expect(input.required).not.toContain(field)
+        expect(input.not.anyOf).toContainEqual({ required: [field] })
+      }
     }
   }
   // The registry declares approve_contract's fields required: the variant
@@ -394,18 +404,25 @@ function sample(schemaNode: any): unknown {
   if (kind === "object") {
     const result: Record<string, unknown> = {}
     for (const key of schema.required ?? []) result[key] = sample(schema.properties?.[key] ?? {})
+    if ((schema.minProperties ?? 0) > Object.keys(result).length) {
+      for (const [pattern, value] of Object.entries(schema.patternProperties ?? {})) {
+        result[sample({ type: "string", pattern }) as string] = sample(value)
+      }
+    }
     return result
   }
   if (kind === "array") return (schema.minItems ?? 0) > 0 ? [sample(schema.items ?? {})] : []
   if (kind === "string") {
     if (schema.format === "date-time") return "2026-08-08T00:00:00Z"
     const pattern: string = schema.pattern ?? ""
-    if (pattern.includes("sha256:")) return "sha256:" + "0".repeat(64)
-    if (pattern.includes("[0-9a-f]{40}")) return "0".repeat(40)
-    if (pattern.startsWith("^[a-z][a-z0-9_-]")) return "fence:prod-pause"
-    if (pattern.startsWith("^msg:")) return "msg:" + "0".repeat(32)
-    if (pattern.startsWith("^https://")) return "https://example.test/pull/1"
-    if (pattern.includes("date")) return "2026-08-08T00:00:00Z"
+    if (pattern) {
+      const candidates = ["sha256:" + "0".repeat(64), "0".repeat(40), "fence:prod-pause", "msg:" + "0".repeat(32),
+        "https://example.test/pull/1", "2026-08-08T00:00:00Z", "owner:fixture", "case:fixture", "control:fixture",
+        "predicate:fixture", "finding:1:0", "TestFixture", "id-1"]
+      const value = candidates.find((candidate) => new RegExp(pattern).test(candidate))
+      if (value === undefined) throw new Error(`no sample candidate satisfies ${pattern}`)
+      return value
+    }
     return "id-1"
   }
   if (kind === "integer" || kind === "number") return schema.minimum ?? 1

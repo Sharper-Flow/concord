@@ -77,7 +77,7 @@ managed paths, repair, upgrade, uninstall, and first-use requirements.
 
 ### Planning retirement upgrade
 
-Run `concord backup` before upgrading. Migration 123 intentionally drops unsent
+Run `concord backup` before upgrading. Migration 124 intentionally drops unsent
 planning-mirror writes, Initiative projections, Linear Project links, and the
 Product planning-mode column. It retains recorded issue identities only when
 both the issue key and URL are non-empty; incomplete links remain only in the

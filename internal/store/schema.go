@@ -6110,7 +6110,7 @@ CREATE TRIGGER worktree_ref_outcomes_guard_delete BEFORE DELETE ON worktree_ref_
 		// stays only in the backup. The retired Initiative events still fold
 		// to nothing on replay, so the includes relation rows they wrote are
 		// deleted here to match a rebuild from the log.
-		Version:  123,
+		Version:  124,
 		Name:     "planning_mirror_retirement",
 		Breaking: true,
 		SQL: `
@@ -6140,7 +6140,7 @@ DROP TABLE linear_outbox_dispositions;
 DROP TABLE linear_outbox;
 DROP TABLE linear_project_links;
 DELETE FROM relations WHERE kind = 'includes';
-CREATE TABLE relations_v123 (
+CREATE TABLE relations_v124 (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     work_id_from TEXT NOT NULL REFERENCES work_items(id),
     work_id_to   TEXT NOT NULL REFERENCES work_items(id),
@@ -6151,11 +6151,11 @@ CREATE TABLE relations_v123 (
     UNIQUE(work_id_from, work_id_to, kind)
 );
 -- Preserve the high-water mark even when the highest relation was retired.
-INSERT INTO sqlite_sequence(name,seq) SELECT 'relations_v123',seq FROM sqlite_sequence WHERE name='relations';
-INSERT INTO relations_v123(id,work_id_from,work_id_to,kind,created_at,resolution_id)
+INSERT INTO sqlite_sequence(name,seq) SELECT 'relations_v124',seq FROM sqlite_sequence WHERE name='relations';
+INSERT INTO relations_v124(id,work_id_from,work_id_to,kind,created_at,resolution_id)
     SELECT id,work_id_from,work_id_to,kind,created_at,resolution_id FROM relations;
 DROP TABLE relations;
-ALTER TABLE relations_v123 RENAME TO relations;
+ALTER TABLE relations_v124 RENAME TO relations;
 CREATE INDEX idx_relations_from_kind ON relations(work_id_from, kind, work_id_to);
 CREATE INDEX idx_relations_to_kind ON relations(work_id_to, kind, work_id_from);
 CREATE UNIQUE INDEX relations_supersedes_target ON relations(work_id_to) WHERE kind = 'supersedes';
@@ -6164,7 +6164,7 @@ CREATE TRIGGER relations_guard_insert BEFORE INSERT ON relations FOR EACH ROW BE
 CREATE TRIGGER relations_guard_update BEFORE UPDATE ON relations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'relations is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1); END;
 CREATE TRIGGER relations_guard_delete BEFORE DELETE ON relations FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'relations is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active = 1); END;
 ALTER TABLE products DROP COLUMN planning_mode;
-CREATE TABLE linear_issue_links_v123 (
+CREATE TABLE linear_issue_links_v124 (
     work_id            TEXT PRIMARY KEY CHECK(length(work_id) BETWEEN 2 AND 128),
     remote_issue_uuid  TEXT NOT NULL CHECK(length(remote_issue_uuid) BETWEEN 2 AND 128),
     human_key          TEXT NOT NULL CHECK(length(human_key) BETWEEN 1 AND 64),
@@ -6172,11 +6172,11 @@ CREATE TABLE linear_issue_links_v123 (
     created_at         TEXT NOT NULL,
     updated_at         TEXT NOT NULL
 );
-INSERT INTO linear_issue_links_v123(work_id, remote_issue_uuid, human_key, url, created_at, updated_at)
+INSERT INTO linear_issue_links_v124(work_id, remote_issue_uuid, human_key, url, created_at, updated_at)
 SELECT work_id, remote_issue_uuid, human_key, url, created_at, updated_at FROM linear_issue_links
 WHERE human_key <> '' AND url <> '';
 DROP TABLE linear_issue_links;
-ALTER TABLE linear_issue_links_v123 RENAME TO linear_issue_links;
+ALTER TABLE linear_issue_links_v124 RENAME TO linear_issue_links;
 CREATE UNIQUE INDEX linear_issue_links_remote_uuid ON linear_issue_links(remote_issue_uuid);
 CREATE TRIGGER linear_issue_links_guard_insert BEFORE INSERT ON linear_issue_links FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_issue_links is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
 CREATE TRIGGER linear_issue_links_guard_update BEFORE UPDATE ON linear_issue_links FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_issue_links is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;

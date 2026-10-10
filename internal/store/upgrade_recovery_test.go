@@ -116,12 +116,12 @@ func TestUpgradeResumesAfterTheCollisionIsRepaired(t *testing.T) {
 	// duplicate column, so dropMigration121Objects restores the pre-step
 	// workflow_instances shape beside dropping its tables. The guarded
 	// worktree_ref_outcomes projection is a plain CREATE TABLE, so its
-	// object drops with the rest through its own helper. Migration 123 drops
-	// the planning mirror, so undoMigration123 restores the pre-step schema
-	// first: it recreates every pre-123 object the store lacks, so it must
+	// object drops with the rest through its own helper. Migration 124 drops
+	// the planning mirror, so undoMigration124 restores the pre-step schema
+	// first: it recreates every pre-124 object the store lacks, so it must
 	// run before the earlier steps' objects drop.
-	if err := undoMigration123(t, context.Background(), db); err != nil {
-		t.Fatalf("cannot restore the pre-123 schema: %v", err)
+	if err := undoMigration124(t, context.Background(), db); err != nil {
+		t.Fatalf("cannot restore the pre-124 schema: %v", err)
 	}
 	if _, err := db.ExecContext(context.Background(), `DROP TABLE project_handoffs; DROP TABLE durability_commits; DROP TABLE runtime_state_writers; DROP TABLE worker_job_revisions;`); err != nil {
 		t.Fatalf("cannot drop the colliding table: %v", err)

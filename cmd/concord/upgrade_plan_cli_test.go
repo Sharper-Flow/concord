@@ -293,12 +293,12 @@ CREATE TRIGGER workflow_instances_guard_delete BEFORE DELETE ON workflow_instanc
 			`DROP VIEW IF EXISTS initiative_work_scope`,
 			`DROP TABLE IF EXISTS initiative_entry_violations`,
 			`DROP TABLE IF EXISTS initiative_scope_violations`,
-			// Migration 123's retirement dropped the planning mirror objects
+			// Migration 124's retirement dropped the planning mirror objects
 			// that the re-applied tail reads and drops again: migration 120
 			// attaches its maintenance triggers to initiative_entries, and
-			// migration 123 drops the mirror tables, the products planning
+			// migration 124 drops the mirror tables, the products planning
 			// mode, and the phase-0 issue-link shape it rebuilds. Restore
-			// each object's pre-123 shape from the migration that last
+			// each object's pre-124 shape from the migration that last
 			// created it (8, 76, 102), carrying any current rows forward.
 			`CREATE TABLE initiative_entries (
     initiative_work_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE RESTRICT,
@@ -312,7 +312,7 @@ CREATE TRIGGER workflow_instances_guard_delete BEFORE DELETE ON workflow_instanc
 			`CREATE INDEX initiative_entries_by_child ON initiative_entries(child_work_id, initiative_work_id)`,
 			`ALTER TABLE products ADD COLUMN planning_mode TEXT NOT NULL DEFAULT 'local_only'
     CHECK (planning_mode IN ('local_only','linear_enabled'))`,
-			`ALTER TABLE linear_issue_links RENAME TO linear_issue_links_v123_stage`,
+			`ALTER TABLE linear_issue_links RENAME TO linear_issue_links_v124_stage`,
 			`CREATE TABLE linear_issue_links (
     work_id            TEXT PRIMARY KEY CHECK(length(work_id) BETWEEN 2 AND 128),
     remote_issue_uuid  TEXT NOT NULL CHECK(length(remote_issue_uuid) BETWEEN 2 AND 128),
@@ -326,8 +326,8 @@ CREATE TRIGGER workflow_instances_guard_delete BEFORE DELETE ON workflow_instanc
 )`,
 			`INSERT INTO linear_issue_links
     (work_id, remote_issue_uuid, human_key, url, created_at, updated_at)
-    SELECT work_id, remote_issue_uuid, human_key, url, created_at, updated_at FROM linear_issue_links_v123_stage`,
-			`DROP TABLE linear_issue_links_v123_stage`,
+    SELECT work_id, remote_issue_uuid, human_key, url, created_at, updated_at FROM linear_issue_links_v124_stage`,
+			`DROP TABLE linear_issue_links_v124_stage`,
 			`CREATE INDEX linear_issue_links_state ON linear_issue_links(link_state)`,
 			`CREATE TRIGGER linear_issue_links_guard_insert BEFORE INSERT ON linear_issue_links FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_issue_links is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
 CREATE TRIGGER linear_issue_links_guard_update BEFORE UPDATE ON linear_issue_links FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'linear_issue_links is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
@@ -507,7 +507,7 @@ func TestUpgradeKeepsTheFenceWhenFinishOpenFailsAfterACommit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The strand must survive the migration itself: migration 123 ends by
+	// The strand must survive the migration itself: migration 124 ends by
 	// clearing fold_guard, so a work item without its required membership
 	// strands finishOpen instead — no tail step repairs a membership
 	// invariant, and the committed store still refuses every open. The

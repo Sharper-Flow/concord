@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-// planningRetirementMigrationIndex is the position of migration 123, which
+// planningRetirementMigrationIndex is the position of migration 124, which
 // retires the planning mirror (CD-0213).
 func planningRetirementMigrationIndex(t *testing.T) int {
 	t.Helper()
@@ -25,14 +25,14 @@ type schemaObject struct {
 	kind, name, sql string
 }
 
-// undoMigration123 restores the pre-123 schema shape on a store migrated
-// through 123, so a test whose manifest tail was removed can re-apply the
-// step. The pre-123 objects are read from a fresh store migrated through 122,
+// undoMigration124 restores the pre-124 schema shape on a store migrated
+// through 124, so a test whose manifest tail was removed can re-apply the
+// step. The pre-124 objects are read from a fresh store migrated through 123,
 // never hand-copied, so the restored shape cannot drift from the migrations
 // that built it.
-func undoMigration123(t *testing.T, ctx context.Context, db *sql.DB) error {
+func undoMigration124(t *testing.T, ctx context.Context, db *sql.DB) error {
 	t.Helper()
-	pre := openMigratedTo(t, filepath.Join(t.TempDir(), "pre-123.db"), planningRetirementMigrationIndex(t))
+	pre := openMigratedTo(t, filepath.Join(t.TempDir(), "pre-124.db"), planningRetirementMigrationIndex(t))
 	rows, err := pre.QueryContext(ctx, `SELECT type, name, sql FROM sqlite_master WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%' ORDER BY rowid`)
 	if err != nil {
 		return err
@@ -66,14 +66,14 @@ func undoMigration123(t *testing.T, ctx context.Context, db *sql.DB) error {
 		if object.kind != "table" || object.name != "relations" {
 			continue
 		}
-		ddl := strings.Replace(object.sql, "CREATE TABLE relations", "CREATE TABLE relations_pre123", 1)
+		ddl := strings.Replace(object.sql, "CREATE TABLE relations", "CREATE TABLE relations_pre124", 1)
 		if _, err := tx.ExecContext(ctx, ddl); err != nil {
 			return err
 		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO sqlite_sequence(name,seq) SELECT 'relations_pre123',seq FROM sqlite_sequence WHERE name='relations';
-INSERT INTO relations_pre123 SELECT * FROM relations;
+		if _, err := tx.ExecContext(ctx, `INSERT INTO sqlite_sequence(name,seq) SELECT 'relations_pre124',seq FROM sqlite_sequence WHERE name='relations';
+INSERT INTO relations_pre124 SELECT * FROM relations;
 DROP TABLE relations;
-ALTER TABLE relations_pre123 RENAME TO relations;`); err != nil {
+ALTER TABLE relations_pre124 RENAME TO relations;`); err != nil {
 			return err
 		}
 	}
@@ -152,15 +152,15 @@ func dropMigration120Objects(ctx context.Context, db *sql.DB) error {
 	return nil
 }
 
-// Migration 123 retires the planning mirror: the planning tables and the
+// Migration 124 retires the planning mirror: the planning tables and the
 // Product planning mode leave the schema, the includes relations the retired
 // Initiative events wrote are deleted, and linear_issue_links keeps exactly the
 // usable recorded identities in the retained columns.
-func TestMigration123RetiresThePlanningMirror(t *testing.T) {
+func TestMigration124RetiresThePlanningMirror(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	index := planningRetirementMigrationIndex(t)
-	db := openMigratedTo(t, filepath.Join(t.TempDir(), "pre-123.db"), index)
+	db := openMigratedTo(t, filepath.Join(t.TempDir(), "pre-124.db"), index)
 	if _, err := db.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1);
 INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at,intent_json,narrative,urgency)
 VALUES('initiative-a','initiative','Initiative','needed',0,1,'t','t','{}','','standard'),
@@ -173,7 +173,7 @@ DELETE FROM fold_guard;`); err != nil {
 		t.Fatal(err)
 	}
 	if err := applyMigration(ctx, db, migrations[index]); err != nil {
-		t.Fatalf("migration 123: %v", err)
+		t.Fatalf("migration 124: %v", err)
 	}
 	for _, name := range []string{"initiative_entries", "initiative_scope_violations", "initiative_entry_violations", "initiative_work_scope", "linear_outbox", "linear_outbox_dispositions", "linear_project_links"} {
 		var count int

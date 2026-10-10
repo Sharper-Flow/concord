@@ -18,7 +18,7 @@ var rebuildClearListExemptions = append([]string{
 }, operationalRebuildTables...)
 
 // TestRecordedIssueIdentityIsNeverCleared pins the recorded issue identity
-// table at the rebuild boundary. Migration 123 rebuilt linear_issue_links with
+// table at the rebuild boundary. Migration 124 rebuilt linear_issue_links with
 // no foreign key to work_items, so the rebuild neither clears it nor snapshots
 // it: its rows survive a recovery untouched, in place.
 func TestRecordedIssueIdentityIsNeverCleared(t *testing.T) {

@@ -51,9 +51,8 @@ renderer ships.
 `terminal-launcher-contract.md`, `terminal-launcher-replacement-contract.md`,
 and `.concord/scenarios/launcher-portfolio.v1.json` are deleted. Their
 surviving statements keep their owning records: the identity-only handoff
-(CD-0031, CD-0163), the no-durable-write boundary (CD-0108 D4), the bounded
-store reads (the store query contracts), and the ZLauncher retirement
-acceptance (CD-0108 D1).
+(CD-0031, CD-0163), the no-durable-write boundary (CD-0108 D4), and the bounded
+store reads (the store query contracts).
 
 ### D3. Obligations whose subject was the TUI are vacated
 
@@ -105,8 +104,8 @@ And no record claims satisfaction that the surviving surface does not prove
 ## Consequences
 
 The released binary sheds the Charm dependency surface, the launcher tests,
-and the launcher query family. The ZLauncher retirement acceptance
-(CD-0108 D1, issue #803, CON-22) now judges the non-interactive entry route.
+and the launcher query family. Operator acceptance of the TUI has no subject
+after deletion and does not become a new acceptance gate for the entry route.
 Coverage for the vacated records carries out-of-scope or unmeasured states
 rather than satisfied ones, and the floor manifest records the retired
 items the same way. `priorities.md` and `design-constraints.md` keep their

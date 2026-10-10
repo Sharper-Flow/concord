@@ -45,8 +45,8 @@ and passes any queued prompt as that work's directive. `--resume-last` resumes
 the most recently entered work. `--project` selects a member Project for the
 landing under CD-0182.
 
-ZLauncher is retired when the entry route and the accepted daily extras work on
-the operator's real store. Retirement is the acceptance test.
+The entry verbs remain until the terminal-layer cutover. Removing the TUI
+does not establish acceptance of a replacement terminal layer.
 
 ### D2. The entry route places nothing and derives nothing
 
@@ -81,9 +81,9 @@ does not.
 - `vertical-integration.md` cites this record for the interface direction.
 - The C18 contract and the successor launcher contract retired with the TUI
   under CD-0219; this record and CD-0163 carry their surviving statements.
-- Issue #803 owns the ZLauncher retirement check; Concord (CON) issue 908
-  owns the TUI deletion that shrinks the acceptance subject to the entry
-  route.
+- Operator acceptance of the deleted TUI has no subject. The surviving
+  entry-route tests prove forwarding and bootstrap behavior, not acceptance
+  of a replacement terminal layer.
 - Documents that restate the R1 split (`design-constraints.md` §6,
   `workflows.md` §0, `feature-inventory.md` §3.10,
   `self-documentation.md` §1.1) align to this record during the build.

@@ -21,7 +21,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:d414ee6ca947f45a81605e957673568fa07d877a5e04f2d77cfedca04e863b1a",
+  "sha256": "sha256:b8101b75f180a6efa7027c45acad7caaa02e5282b2fa3ab97b86da69f4c08c0e",
   "status": "accepted",
   "summary": "The ZLauncher replacement is the session entry route: concord zl (and the zl argv[0] forwarding) resolves the named work and starts or resumes its OpenCode session through Concord's session bootstrap, with prompt pass-through, --resume-last, and --project; the interactive launcher TUI is retired under CD-0219, and the entry route stays store-write-free. ZLauncher is retired when the entry route and the accepted daily extras work on the real store.",
   "tags": [

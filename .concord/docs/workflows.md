@@ -42,9 +42,9 @@ follows them without restating the ranked list.
   consequences before asking one decision at a time.
 - **Web / admin panel:** optional; a grid/table projection for humans, not the
   daily operating surface.
-- **Session entry:** the CD-0108 replacement owns the daily session bootstrap
-  role. The interactive launcher TUI retired under CD-0219; ZLauncher retires
-  when the replacement acceptance test passes on the entry route.
+- **Session entry:** CD-0108 owns session bootstrap until the terminal-layer
+  cutover. CD-0219 retires the interactive launcher TUI without transferring
+  its operator acceptance gate to the entry route.
 - **Agent surface:** CD-0005's eight scenario-validated tools through the accepted
   `concord.ts` custom-tool adapter and short-lived Go CLI. No plugin/MCP v1 and no
   separate human-only GUI required for correctness.

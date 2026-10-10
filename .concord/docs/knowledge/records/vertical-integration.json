@@ -17,7 +17,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:602774b0c7659d2e2c37b342ff583b6164f7caa5bf439f1100472a6f45a9a875",
+  "sha256": "sha256:1f4f4335fcb56982dbef890735044b690fd52e12842b954165dd2655a10ffbd6",
   "status": "published",
   "summary": "Tracks the ownership lean for lgrep and vision under C8; episode is removed by CD-0106.",
   "tags": [

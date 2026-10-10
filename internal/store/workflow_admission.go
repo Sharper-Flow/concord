@@ -777,7 +777,7 @@ func workflowAdmitSupersede(definition WorkflowDefinition, state WorkflowAdmissi
 
 // stalenessRefusal returns the staleness boundary's refusal for one action's
 // stale-pin admission class, or nil when the action's class admits. The
-// attempt-disposition actions admit the subject's own stale pin (CD-0041 D7).
+// attempt-disposition actions admit the subject's own stale pin (CD-0222 D7).
 func (s WorkflowAdmissionState) stalenessRefusal(actionID string) error {
 	if workflowActionStalePinAdmission(actionID) != workflowStalePinAdmitNone {
 		return s.LawPinSelfError

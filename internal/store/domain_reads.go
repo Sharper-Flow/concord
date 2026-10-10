@@ -199,7 +199,7 @@ func NewDomainActiveWorkPayload(result DomainActiveWorkResult) DomainActiveWorkP
 }
 
 // DomainResourceAttachmentPayload is the read projection of a resource
-// attachment edge. CD-0041 D4 gives the Domain-to-resource relation bounded
+// attachment edge. CD-0222 D4 gives the Domain-to-resource relation bounded
 // purpose and environment metadata, so the read declares all three fields. It
 // stays a distinct type from the write element so the two surfaces can diverge
 // without one silently redefining the other.

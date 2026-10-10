@@ -32,7 +32,7 @@ func supersedeCompactionMandatedLaw(t *testing.T, s *store.Store, home store.Kno
 	}
 }
 
-// TestCompactionPublishClaimRefusesStaleLawRevision covers the CD-0041 D7 claim
+// TestCompactionPublishClaimRefusesStaleLawRevision covers the CD-0222 D7 claim
 // boundary for compaction publication. The refusal must land at the claim, so
 // no canonical note reaches the git knowledge home and no durable operation is
 // recorded.

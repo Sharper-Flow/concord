@@ -22,7 +22,7 @@ Each step prints one bounded line ``PASS <name>`` or ``FAIL <name>: <detail>``.
 A failure exits 1 after every attempted step has been reported; the partial
 sequence gives CI a fast signal that pinpoints the broken step.
 
-Opt-in neighbor mode (CON-847 scope 3): with ``--neighbors N`` the harness
+Opt-in neighbor mode: with ``--neighbors N`` the harness
 also runs N background reader processes and N ordinary writer processes
 against the same temporary store while the suite steps run. The neighbors
 speak only the real ``concord`` CLI; they never open the SQLite file. After
@@ -786,7 +786,7 @@ def step_i_upgrade(binary: Path, env: dict, work: Path, repo: Path, seed: bytes,
 
 
 # ---------------------------------------------------------------------------
-# Opt-in neighbor mode (CON-847 scope 3). N background reader processes and N
+# Opt-in neighbor mode. N background reader processes and N
 # ordinary writer processes run real ``concord`` CLI invocations against the
 # same temporary store while the suite steps run. The mode is off unless
 # --neighbors is given. Neighbors never open the SQLite file; every check is
@@ -1028,6 +1028,8 @@ def _aggregate_neighbor_entries(labelled: list[tuple[str, list[dict]]]) -> dict:
 
 def _neighbor_mode_verdict(aggregate: dict, neighbors: int, writes: int) -> str | None:
     """None when the neighbor mode passed; the failure detail otherwise."""
+    if aggregate.get('problems'):
+        return '; '.join(aggregate['problems'])
     if aggregate['busy']:
         return f"{aggregate['busy']} busy response(s) under concurrency"
     if aggregate['errors']:
@@ -1129,6 +1131,8 @@ class NeighborMode:
         if self._started:
             raise HarnessError("neighbor mode started twice")
         self._dir.mkdir(parents=True, exist_ok=False)
+        self._started = True
+        print(f"NEIGHBOR workload readers={self._neighbors} writers={self._neighbors} writes_per_writer={self._writes}", flush=True)
         for index in range(self._neighbors):
             self._spawn_worker(role='reader', index=index,
                                session_ref=f'harness-neighbor-r{index:02d}',
@@ -1137,7 +1141,6 @@ class NeighborMode:
             self._spawn_worker(role='writer', index=index,
                                session_ref=f'harness-neighbor-w{index:02d}',
                                writes=self._writes, context=context)
-        self._started = True
 
     def _spawn_worker(self, role: str, index: int, session_ref: str, writes: int,
                       context: dict) -> None:
@@ -1199,7 +1202,7 @@ class NeighborMode:
 def step_j_neighbor_concurrency(binary: Path, env: dict, repo: Path, context: dict,
                                 manifest_digest: str, neighbors: NeighborMode,
                                 neighbors_count: int, writes: int) -> None:
-    """CON-847 scope 3: the neighbors ran beside the suite; assert zero busy
+    """The neighbors run beside the suite; assert zero busy
     and error responses, real reader progress, and writer effects with no
     lost and no duplicated work items, all through the real CLI."""
     aggregate = neighbors.stop_and_collect()

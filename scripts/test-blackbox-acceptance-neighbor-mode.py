@@ -14,6 +14,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest.mock import Mock, patch
 from pathlib import Path
 
 _HARNESS_PATH = Path(__file__).resolve().parent / "test-blackbox-acceptance.py"
@@ -201,6 +202,29 @@ class SymmetricWorkerRoundTrip(WorkerRoundTripTests):
         self.assertEqual(aggregate["writer_ok"].get("writer-01", 0), 2)
         self.assertEqual(aggregate["expected_ids"], ["work-stub-1"] * 4)
         self.assertIsNone(_bb._neighbor_mode_verdict(aggregate, 2, 2))
+
+
+class WorkerCleanupTests(unittest.TestCase):
+    def test_partial_start_is_cleanup_eligible(self):
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            mode = _bb.NeighborMode(root / "concord", {}, root, "digest", root, 2, 1)
+            child = Mock(returncode=0)
+            with patch.object(_bb.subprocess, "Popen", side_effect=[child, OSError("spawn failed")]):
+                with self.assertRaises(OSError):
+                    mode.start({"project_id": "project", "scope_version": 1})
+            self.assertTrue(mode.started, "partial startup must reach the parent's cleanup")
+            mode.stop_and_collect()
+            child.wait.assert_called_once()
+            self.assertTrue(mode.stop_path.exists())
+
+    def test_cleanup_failures_fail_the_verdict(self):
+        aggregate = {
+            "busy": 0, "errors": 0,
+            "reader_ok": {"reader-00": 1}, "writer_ok": {"writer-00": 1},
+            "problems": ["child exited 1"],
+        }
+        self.assertIsNotNone(_bb._neighbor_mode_verdict(aggregate, 1, 1))
 
 
 if __name__ == "__main__":

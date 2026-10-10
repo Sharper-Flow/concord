@@ -384,7 +384,7 @@ func (s *Store) nativeOracleAdmission(ctx context.Context, req WorktreeVerifyReq
 	var b NativeOracleControlBundle
 	var version int64
 	var auth nativeOracleAuthorization
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := beginOrdinaryTx(ctx, s.db)
 	if err != nil {
 		return b, version, auth, err
 	}
@@ -733,7 +733,7 @@ func (s *Store) releaseNativeOracle(ctx context.Context, req WorktreeVerifyReque
 		return result, err
 	}
 	valid = valid && checked == stamp
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := beginOrdinaryTx(ctx, s.db)
 	if err != nil {
 		return result, err
 	}

@@ -1497,7 +1497,7 @@ func (s *Store) DestroyWorktree(ctx context.Context, req WorktreeDestroyRequest)
 	if err != nil {
 		return WorktreeEntry{}, err
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := beginOrdinaryTx(ctx, s.db)
 	if err != nil {
 		return WorktreeEntry{}, wrapFailure(KindUnavailable, "worktree_destroy", "cannot begin destroy", true, "retry once the database is writable", err)
 	}
@@ -1558,7 +1558,7 @@ func (s *Store) ReclaimWorktree(ctx context.Context, req WorktreeReclaimRequest)
 	if err != nil {
 		return WorktreeEntry{}, err
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := beginOrdinaryTx(ctx, s.db)
 	if err != nil {
 		return WorktreeEntry{}, wrapFailure(KindUnavailable, "worktree_reclaim", "cannot begin reclaim", true, "retry once the database is writable", err)
 	}
@@ -1597,7 +1597,7 @@ func (s *Store) FinishWorktreeNativeRemoval(ctx context.Context, runner GitRunne
 	// idempotent owner, converging anything a failed inline record left.
 	if removal != nil {
 		removal.persistPhase = func(outcome WorktreeNativeOutcome) error {
-			tx, err := s.db.BeginTx(ctx, nil)
+			tx, err := beginOrdinaryTx(ctx, s.db)
 			if err != nil {
 				return wrapFailure(KindUnavailable, "worktree_native_removal", "cannot begin removal phase record", true, "retry the same operation", err)
 			}
@@ -1635,7 +1635,7 @@ func (s *Store) settleWorktreeNativeOutcomes(ctx context.Context, removal *Workt
 		if !validWorktreeRefPhase(outcome.Phase) {
 			continue
 		}
-		tx, err := s.db.BeginTx(ctx, nil)
+		tx, err := beginOrdinaryTx(ctx, s.db)
 		if err != nil {
 			return wrapFailure(KindUnavailable, "worktree_native_removal", "cannot begin removal settlement", true, "retry the same operation", err)
 		}
@@ -5409,7 +5409,7 @@ func (s *Store) VerifyWorktree(ctx context.Context, req WorktreeVerifyRequest) (
 	if err != nil {
 		return WorktreeVerifyResult{}, err
 	}
-	acquireTx, err := s.db.BeginTx(ctx, nil)
+	acquireTx, err := beginOrdinaryTx(ctx, s.db)
 	if err != nil {
 		return WorktreeVerifyResult{}, wrapFailure(KindUnavailable, "worktree_verify", "cannot begin verify", true, "retry the same operation with the same lease id", err)
 	}
@@ -5471,7 +5471,7 @@ func (s *Store) VerifyWorktree(ctx context.Context, req WorktreeVerifyRequest) (
 	if err != nil {
 		return WorktreeVerifyResult{}, annotateCommittedEffect(err, leaseRef)
 	}
-	releaseTx, err := s.db.BeginTx(finalizeCtx, nil)
+	releaseTx, err := beginOrdinaryTx(finalizeCtx, s.db)
 	if err != nil {
 		return WorktreeVerifyResult{}, annotateCommittedEffect(wrapFailure(KindUnavailable, "worktree_verify", "cannot begin verify release", true, "retry the same operation with the same lease id", err), leaseRef)
 	}
@@ -5538,7 +5538,7 @@ func releaseAbandonedVerifyLease(s *Store, ctx context.Context, leaseID string, 
 	}
 	releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), worktreeVerifyFinalizeTimeout)
 	defer cancel()
-	tx, err := s.db.BeginTx(releaseCtx, nil)
+	tx, err := beginOrdinaryTx(releaseCtx, s.db)
 	if err != nil {
 		return
 	}

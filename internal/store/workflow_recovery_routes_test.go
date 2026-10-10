@@ -167,7 +167,7 @@ func TestReleasedDigestsIgnoreRecoveryRouteField(t *testing.T) {
 		t.Fatal("no released definitions found")
 	}
 	for _, definition := range released {
-		registered, ok := builtinWorkflowRegistry.Lookup(definition.Ref, definition.Version)
+		registered, ok := BuiltinWorkflowRegistry().Lookup(definition.Ref, definition.Version)
 		if !ok {
 			t.Fatalf("%s v%d is not registered", definition.Ref, definition.Version)
 		}

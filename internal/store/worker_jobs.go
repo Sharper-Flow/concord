@@ -648,7 +648,7 @@ func requireWorkerJobRevisionStateReadyTx(ctx context.Context, q queryer, workID
 // registry. Every registered worker executes a bounded job on a job-capable
 // pin; the lane-step dispatch join separately confines where it may dispatch.
 func workerJobCapabilityClass(class string) bool {
-	for _, lane := range builtinLaneRegistry.entries {
+	for _, lane := range builtinLaneRegistry().entries {
 		if lane.CapabilityClass == class {
 			return true
 		}

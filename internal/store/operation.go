@@ -82,7 +82,7 @@ type operationObserver struct {
 
 func beginObservedTx(ctx context.Context, s *Store, durable bool, observer *operationObserver) (*writeTx, error) {
 	started := time.Now()
-	tx, err := beginWriteTx(ctx, s, durable)
+	tx, err := s.beginStoreWriteTx(ctx, durable)
 	if observer != nil {
 		observer.beginWait = time.Since(started)
 	}
@@ -478,6 +478,9 @@ func applyOperationTx(ctx context.Context, tx *sql.Tx, operation Operation, scop
 		if err := validateRegisteredEvent(event); err != nil {
 			return output, attributeFailure(err, event, "upcast")
 		}
+		if err := validateWorkflowSelfRepairEventAdmission(event); err != nil {
+			return output, err
+		}
 		ref := VersionRef(event.SubjectType, event.SubjectID)
 		if expected, hasExpected := operation.ExpectedVersions[ref]; hasExpected && !checked[ref] {
 			got, exists, err := projectionVersion(ctx, tx, event.SubjectType, event.SubjectID)
@@ -694,7 +697,7 @@ func RebuildFromLog(ctx context.Context, s *Store) error {
 		return newFailure(KindUnavailable, "rebuild_from_log", "store is not open", false,
 			"open a store before rebuilding projections")
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := beginOrdinaryTx(ctx, s.db)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "rebuild_from_log", "cannot begin projection rebuild", true,
 			"retry once the database is writable", err)

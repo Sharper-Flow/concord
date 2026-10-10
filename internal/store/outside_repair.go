@@ -180,14 +180,22 @@ func outsideRepairURL(value, repository, suffix string) bool {
 }
 
 func validateOutsideRepairEvidenceShape(e OutsideRepairEvidence) error {
+	return validateOutsideRepairEvidenceShapeWithReference(e, ValidReference)
+}
+
+func validateOutsideRepairEvidenceShapeForReplay(e OutsideRepairEvidence) error {
+	return validateOutsideRepairEvidenceShapeWithReference(e, replayValidReference)
+}
+
+func validateOutsideRepairEvidenceShapeWithReference(e OutsideRepairEvidence, validReference func(string) bool) error {
 	invalid := func(detail string) error {
 		return newFailure(KindInvalidPayload, "outside_repair", detail, false, "supply the authenticated merged PR, required checks and published release receipt")
 	}
 	parts := strings.Split(e.Repository, "/")
-	if len(parts) != 2 || !workflowString(e.Repository, 256) || !ValidReference(parts[0]) || !ValidReference(parts[1]) || strings.ContainsAny(e.Repository, "?#%\\ ") {
+	if len(parts) != 2 || !workflowString(e.Repository, 256) || !validReference(parts[0]) || !validReference(parts[1]) || strings.ContainsAny(e.Repository, "?#%\\ ") {
 		return invalid("outside repair repository must be owner/repo")
 	}
-	if !ValidReference(e.AuthorityRef) || e.ObservedAt.IsZero() || e.PublishedAt.IsZero() || e.ObservedAt.Before(e.PublishedAt) {
+	if !validReference(e.AuthorityRef) || e.ObservedAt.IsZero() || e.PublishedAt.IsZero() || e.ObservedAt.Before(e.PublishedAt) {
 		return invalid("outside repair requires an authenticated authority and publication/observation timestamps")
 	}
 	if !workflowString(e.ReleaseTag, 128) || !outsideRepairGitSHA(e.ReleaseSHA) || !outsideRepairURL(e.ReleaseURL, e.Repository, "/releases/tag/"+e.ReleaseTag) {
@@ -303,7 +311,7 @@ func foldOutsideRepairReconciled(ctx context.Context, tx *sql.Tx, event Event, s
 	if p.EvidenceSource != OutsideRepairEvidenceSource {
 		return newFailure(KindInvalidPayload, "outside_repair", "reconciliation requires boundary-authenticated provenance", false, "authenticate external evidence at the owning boundary")
 	}
-	if err := validateOutsideRepairEvidenceShape(p.Evidence); err != nil {
+	if err := validateOutsideRepairEvidenceShapeForReplay(p.Evidence); err != nil {
 		return err
 	}
 	if err := requireOutsideRepairActiveTx(ctx, tx, event.SubjectID); err != nil {

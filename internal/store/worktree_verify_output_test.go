@@ -394,6 +394,9 @@ func TestNativeOracleReleaseSQLOnly(t *testing.T) {
 			if method, ok := call.Fun.(*ast.SelectorExpr); ok && method.Sel.Name == "BeginTx" {
 				begin = call.Pos()
 			}
+			if name, ok := call.Fun.(*ast.Ident); ok && name.Name == "beginOrdinaryTx" {
+				begin = call.Pos()
+			}
 			if name, ok := call.Fun.(*ast.Ident); ok && begin.IsValid() && call.Pos() > begin {
 				switch name.Name {
 				case "readNativeOracleAuthorizationTx", "nativeDigest", "nativeBundleDigest", "workflowJSON", "marshalNativeVerifyRecord", "readCurrentOracleSubject":

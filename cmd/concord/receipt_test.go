@@ -17,8 +17,8 @@ import (
 func TestReceiptRefusesAMissingWorkID(t *testing.T) {
 	t.Setenv(dbOverrideEnv, filepath.Join(t.TempDir(), "concord.db"))
 	var out, errOut bytes.Buffer
-	if code := runWithInput([]string{"receipt"}, strings.NewReader(`{}`), &out, &errOut); code != 1 {
-		t.Fatalf("receipt without work_id exited %d, want 1", code)
+	if code := runWithInput([]string{"receipt"}, strings.NewReader(`{}`), &out, &errOut); code != 64 {
+		t.Fatalf("receipt without work_id exited %d, want 64", code)
 	}
 	if !strings.Contains(errOut.String(), "work_id") {
 		t.Fatalf("diagnostic = %q, want a work_id field refusal", errOut.String())

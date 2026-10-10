@@ -125,7 +125,7 @@ func ReadWorkPin(ctx context.Context, s *Store, workID string) (WorkPin, error) 
 	if err != nil {
 		return pin, err
 	}
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	tx, err := beginReadTx(ctx, s.db)
 	if err != nil {
 		return pin, wrapFailure(KindUnavailable, "work_pin", "cannot open a consistent work pin snapshot", true, "retry once the database is readable", err)
 	}

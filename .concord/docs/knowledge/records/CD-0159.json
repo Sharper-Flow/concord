@@ -10,7 +10,6 @@
   "date": "2026-09-20T00:00:00Z",
   "doc_contract_profile": "legacy",
   "evidence": [
-    ".concord/schemas/knowledge-record.v1.schema.json",
     ".concord/docs/decisions/CD-0006-concord-root-product-policy.md",
     ".concord/docs/decisions/CD-0041-architecture-bound-product-law.md",
     ".concord/docs/specs-as-laws.md",
@@ -37,7 +36,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:d567e8e25bc8d0d4703dd7aa98382bd63596544f0045059f34c314853c48dc06",
+  "sha256": "sha256:c6ffcfbbb5051e58c6f2afd3eb321380d47a2e1f812579d4fa2c48a53146f5fd",
   "status": "accepted",
   "summary": "Gives each Product law record an authority tier of legislated or derived, fixed at write time. A law is legislated only when an operator-approved contract names it in an outcome predicate; law named only in law_additions is derived. A conflict with derived law is revised inside the contract with no separate approval turn, while legislated law keeps the legislative moment. Sets kind defaults for the existing records and lands every predecessor spec import as derived.",
   "tags": [

@@ -19,7 +19,7 @@ const routeDeclaration =
     ? test
     : test.skip
 
-routeDeclaration("dispatches a real store route through Task completion and workflow gates", async () => {
+routeDeclaration("composes implementation and independent review through one ordinary workflow completion", async () => {
   const result = await runOwnedSuite(join(import.meta.dir, "dispatch_route_end_to_end.case.ts"))
   expect(result.exitCode, `owned dispatch-route suite failed:\n${result.stdout}\n${result.stderr}`).toBe(0)
 }, 600_000)

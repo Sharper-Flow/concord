@@ -2,8 +2,55 @@ package store
 
 import (
 	"encoding/json"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"path/filepath"
+	"strings"
 	"testing"
 )
+
+func TestBuiltinRegistriesAreLazy(t *testing.T) {
+	fset := token.NewFileSet()
+	names, err := filepath.Glob("*.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	check := func(node ast.Node) {
+		ast.Inspect(node, func(node ast.Node) bool {
+			call, ok := node.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			name, ok := call.Fun.(*ast.Ident)
+			if ok && (name.Name == "NewBuiltinWorkflowRegistry" || name.Name == "BuiltinWorkflowRegistry" || name.Name == "NewBuiltinLaneRegistry" || name.Name == "builtinLaneRegistry") {
+				t.Errorf("%s: %s builds a registry during package initialization", fset.Position(call.Pos()), name.Name)
+			}
+			return true
+		})
+	}
+	for _, name := range names {
+		if strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		file, err := parser.ParseFile(fset, name, nil, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, declaration := range file.Decls {
+			switch declaration := declaration.(type) {
+			case *ast.GenDecl:
+				if declaration.Tok == token.VAR {
+					check(declaration)
+				}
+			case *ast.FuncDecl:
+				if declaration.Name.Name == "init" {
+					check(declaration.Body)
+				}
+			}
+		}
+	}
+}
 
 func workflowProductTruth(value bool) *bool { return &value }
 
@@ -69,6 +116,28 @@ func TestBuiltinWorkflowProductTruthClassification(t *testing.T) {
 		if !ok || registered.Definition.ChangesProductTruth == nil || *registered.Definition.ChangesProductTruth != want[definition.WorkKind] {
 			t.Fatalf("registered %s product truth=%v, want %t", definition.Ref, registered.Definition.ChangesProductTruth, want[definition.WorkKind])
 		}
+	}
+}
+
+func TestWorkflowDefinitionVerificationReplaysLegacyInputReferences(t *testing.T) {
+	t.Parallel()
+	definition := builtinGenericOneOff(true)
+	definition.StalenessRules = []WorkflowStalenessRule{{ID: "staleness.legacy", InputRef: "input:a\fb", Severity: "warning"}}
+	if err := validateWorkflowDefinitionWithReference(definition, replayValidReference); err != nil {
+		t.Fatalf("legacy pinned definition failed replay validation: %v", err)
+	}
+	if err := ValidateWorkflowDefinition(definition); err == nil {
+		t.Fatal("new definition admission accepted a form-feed reference")
+	}
+	digest, err := workflowDefinitionDigestWithReference(definition, replayValidReference)
+	if err != nil {
+		t.Fatalf("legacy pinned definition could not be digested for replay: %v", err)
+	}
+	registry := &workflowDefinitionRegistry{entries: map[string]RegisteredDefinition{
+		registryKey(definition.Ref, definition.Version): {Definition: definition, Digest: digest},
+	}}
+	if err := registry.Verify(definition.Ref, definition.Version, digest); err != nil {
+		t.Fatalf("legacy pinned definition failed digest verification: %v", err)
 	}
 }
 

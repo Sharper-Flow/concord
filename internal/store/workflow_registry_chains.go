@@ -49,6 +49,31 @@ func retainedAtDeliveryContract(definition WorkflowDefinition) WorkflowDefinitio
 	return withCurrentDeliveryPayload(definition)
 }
 
+// builtinWorkflowCurrentVersions names each family's current version. Every
+// family registers each version from 1 through its current one
+// (validateBuiltinWorkflowVersionContinuity), so this table answers "is this
+// pin registered?" without building the chains. Store open asks that question
+// on every process start, and building the chains costs about half a second
+// of CPU and 115 MB of allocation (CON-905). Appending a promotion to a chain
+// raises that family's entry here; TestBuiltinWorkflowCurrentVersionsMatchChains
+// fails until it does.
+var builtinWorkflowCurrentVersions = map[string]int64{
+	"workflow.architecture_spike": 17,
+	"workflow.break_fix":          24,
+	"workflow.generic_one_off":    16,
+	"workflow.implementation":     27,
+	"workflow.ops_runbook":        18,
+	"workflow.research":           16,
+	"workflow.static_analysis":    15,
+}
+
+// builtinWorkflowVersionRegistered reports whether the built-in registry
+// holds ref at version, without building the registry.
+func builtinWorkflowVersionRegistered(ref string, version int64) bool {
+	current, ok := builtinWorkflowCurrentVersions[ref]
+	return ok && version >= 1 && version <= current
+}
+
 func workflowDefinitionChains() [][]WorkflowDefinition {
 	return [][]WorkflowDefinition{
 		implementationVersionChain(),

@@ -282,18 +282,21 @@ The JSON corpus is executable through a candidate adapter implementing
 
 - **Intent:** "Have we solved this before; what decisions/specs/lessons govern it?"
 - **Input:** Product; optional Project/Domain; knowledge kinds (`work_note`,
-  `lesson`, `decision`, `spec`); tags; bounded text; time window; cursor/limit.
+  `lesson`, `decision`, `spec`); tags; bounded text matched per whitespace token across ID,
+  title, summary, tags, and Git-stored body; cursor/limit.
 - **Output:** summaries with title, kind, date, tags, related work/Domain,
   canonical note/decision/spec reference, commit/hash, and index watermark.
-- **Text admission and order:** when bounded `text` is present, admit records
-  whose stable ID, title, tag, or Domain equals `text`, whose title/summary
-  contains `text`, or whose projected law body contains `text`. Case-insensitive
-  exact structured matches rank first, title/summary substring-only matches
-  rank second, and law-body substring-only matches rank third. Each class then
-  uses date descending and stable ID. Product, Project, Domain, kind, tag, and
-  time inputs remain conjunctive filters. Without `text`, order is date
-  descending and stable ID. Body discovery is non-authoritative and does not
-  change Q10's typed negative.
+- **Text admission and order:** when bounded `text` is present, Q9 splits it
+  on whitespace into case-insensitive tokens. Q9 admits a record whose stable ID,
+  title, tag, or Domain equals `text`. Q9 also admits a record when every token
+  occurs in its ID, title, summary, a tag, or its projected law body. Token
+  order and adjacency do not matter, and tokens may match in different fields.
+  Case-insensitive exact structured matches rank first. Records whose ID,
+  title, summary, or tags hold every token rank second. Records that need law
+  body evidence for a token rank third. Each class then uses date descending
+  and stable ID. Product, Project, Domain, kind, and tag inputs remain
+  conjunctive filters. Without `text`, order is date descending and stable ID.
+  Body discovery is non-authoritative and does not change Q10's typed negative.
 - **Oracle:** knowledge is found through one bounded domain query, not repeated
   list→show→search choreography; index lag is explicit.
 - **Authority note:** an indexed answer is `authoritative` only when its watermark
@@ -306,8 +309,8 @@ The JSON corpus is executable through a candidate adapter implementing
   watermarks, and binds the cursor to a source-set digest. A source that is
   unreachable or stale refuses the answer unless the request allows degradation;
   a degraded answer carries one omission per missing source and never reads as
-  an authoritative negative. A one-element source set takes the identical
-  single-home path with unchanged output.
+  an authoritative negative. Every source set uses one query path. A one-element
+  set retains single-source output and uses a v3 cursor.
 
 ### Q10. Resolve canonical durable note
 

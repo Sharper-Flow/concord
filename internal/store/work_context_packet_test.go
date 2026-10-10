@@ -37,6 +37,7 @@ func workContextDispatchPacket(t *testing.T, f workContextFixture, attemptID str
 	for member, value := range recordedPacketRecords(t, f.store, f.workID) {
 		inputs[member] = value
 	}
+	delete(inputs, "work_context")
 	if view != nil {
 		inputs["work_context"] = view
 	}

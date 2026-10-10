@@ -77,11 +77,16 @@ import (
 // rebuilds or approximates the publication.
 func outsideRepairProbeScript(repoRoot string) string {
 	return fmt.Sprintf(`import { publishedRequestSchema } from %q;
+import { payloadSchemas } from %q;
 import { validateAgainstSchema } from %q;
 const schema = publishedRequestSchema("concord_work_transition");
+const operationBranches = (schema.oneOf ?? []).filter((b) => typeof b?.properties?.operation?.const === "string");
 const branches = (schema.oneOf ?? []).filter((b) => b?.properties?.operation?.const === "workflow_action");
 if (branches.length === 0) throw new Error("published concord_work_transition names no workflow_action operation branch");
 const fieldsFor = (action) => {
+  for (const branch of operationBranches) {
+    if (branch.properties.operation.const === action && branch.properties.input?.properties) return branch.properties.input;
+  }
   for (const branch of branches) {
     const input = branch?.properties?.input;
     if (input?.properties?.action_id?.const === action && input?.properties?.fields) return input.properties.fields;
@@ -122,7 +127,10 @@ for (const probe of probes) {
   const failures = [];
   const fields = fieldsFor(probe.action);
   let admit = false;
-  if (!fields) {
+  if (probe.mode === "definition") {
+    const document = { $defs: payloadSchemas, $ref: "#/$defs/" + probe.definition };
+    admit = validateAgainstSchema(document, probe.value, failures);
+  } else if (!fields) {
     failures.push("published schema resolves no fields node for " + probe.action);
   } else if (probe.mode === "field") {
     const node = propertyNode(fields, probe.field);
@@ -137,7 +145,7 @@ for (const probe of probes) {
   results.push({ id: probe.id, admit: !!admit, failures: failures.slice(0, 4) });
 }
 console.log(JSON.stringify({ results }));
-`, filepath.Join(repoRoot, "adapter", "opencode", "concord.ts"), filepath.Join(repoRoot, "adapter", "opencode", "dispatch.ts"))
+`, filepath.Join(repoRoot, "adapter", "opencode", "concord.ts"), filepath.Join(repoRoot, "adapter", "opencode", "generated-contracts.ts"), filepath.Join(repoRoot, "adapter", "opencode", "dispatch.ts"))
 }
 
 // outsideRepairPublication is one published-boundary verdict: whether the

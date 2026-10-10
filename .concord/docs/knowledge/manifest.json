@@ -66,8 +66,7 @@
   "exclusions": [
     ".concord/docs/agent-lanes-contract.md",
     ".concord/docs/generated-agent-tool-surface.md",
-    ".concord/docs/research/",
-    ".concord/docs/typed-knowledge-storage-retrieval.md"
+    ".concord/docs/research/"
   ],
   "indexed_kinds": [
     "work_note",

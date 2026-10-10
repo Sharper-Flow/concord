@@ -49,7 +49,7 @@ func VerifyWorkflowDefinitionPin(registry DefinitionRegistry, pin WorkflowDefini
 	if !ok {
 		return RegisteredDefinition{}, workflowPinFailure("pinned workflow definition is unavailable")
 	}
-	computed, err := WorkflowDefinitionDigest(entry.Definition)
+	computed, err := workflowDefinitionDigestWithReference(entry.Definition, replayValidReference)
 	if err != nil {
 		return RegisteredDefinition{}, err
 	}
@@ -122,7 +122,7 @@ func WorkflowActionPreflightWithRegistry(ctx context.Context, s *Store, registry
 	if err != nil {
 		return err
 	}
-	readTx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	readTx, err := beginReadTx(ctx, s.db)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "workflow_action_preflight", "cannot begin workflow admission read snapshot", true, "retry once the database is readable", err)
 	}
@@ -469,6 +469,14 @@ func validateWorkflowActionEnvelopePayload(definition WorkflowDefinition, reques
 }
 
 func validateWorkflowActionPayload(definition WorkflowDefinition, actionID string, payload json.RawMessage) error {
+	return validateWorkflowActionPayloadWithReference(definition, actionID, payload, ValidReference)
+}
+
+func validateWorkflowActionPayloadForReplay(definition WorkflowDefinition, actionID string, payload json.RawMessage) error {
+	return validateWorkflowActionPayloadWithReference(definition, actionID, payload, replayValidReference)
+}
+
+func validateWorkflowActionPayloadWithReference(definition WorkflowDefinition, actionID string, payload json.RawMessage, validReference func(string) bool) error {
 	if len(payload) == 0 {
 		payload = json.RawMessage(`{}`)
 	}
@@ -476,7 +484,7 @@ func validateWorkflowActionPayload(definition WorkflowDefinition, actionID strin
 	if err := decodePredicateStrict(payload, &fields); err != nil {
 		return newFailure(KindInvalidPayload, "workflow_action_preflight", "workflow action payload is not one strict JSON object", false, "supply the registered action payload")
 	}
-	if err := validateEvidenceBindingReferences(actionID, fields); err != nil {
+	if err := validateEvidenceBindingReferencesWithReference(actionID, fields, validReference); err != nil {
 		return err
 	}
 	var payloadDefinition WorkflowPayloadDefinition
@@ -560,7 +568,7 @@ func validateWorkflowActionPayload(definition WorkflowDefinition, actionID strin
 	// the structural refusal.
 	for _, name := range slices.Sorted(maps.Keys(fields)) {
 		field := allowed[name]
-		if !validateWorkflowPayloadValue(field, fields[name]) {
+		if !validateWorkflowPayloadValueWithReference(field, fields[name], validReference) {
 			return newFailure(KindInvalidPayload, "workflow_action_preflight", fmt.Sprintf("workflow action payload field %q has the wrong registered type or bounds for rule %s", name, workflowPayloadFieldRule(field)), false, "supply the declared action field type and bounds")
 		}
 		if err := validateWorkflowPayloadSchema(field, fields[name]); err != nil {
@@ -755,7 +763,7 @@ func workflowPayloadKindMatchRefusal(actionID string, match WorkflowPayloadKindM
 	return newFailure(KindInvalidPayload, "workflow_action_preflight", fmt.Sprintf("%s field %q is %q but field %q carries %s %q", actionID, match.Field, fieldKind, match.Object, match.Discriminator, objectKind), false, remedy)
 }
 
-func validateEvidenceBindingReferences(actionID string, fields map[string]json.RawMessage) error {
+func validateEvidenceBindingReferencesWithReference(actionID string, fields map[string]json.RawMessage, validReference func(string) bool) error {
 	if actionID != "bind_evidence" {
 		return nil
 	}
@@ -765,8 +773,8 @@ func validateEvidenceBindingReferences(actionID string, fields map[string]json.R
 			continue
 		}
 		var value string
-		if json.Unmarshal(raw, &value) != nil || !ValidReference(value) {
-			return newFailure(KindInvalidPayload, "workflow_action_preflight", fmt.Sprintf("workflow action payload field %q must satisfy the reference rule: 2 to 128 bytes with no whitespace", name), false, "supply a whitespace-free reference no longer than 128 bytes")
+		if json.Unmarshal(raw, &value) != nil || !validReference(value) {
+			return newFailure(KindInvalidPayload, "workflow_action_preflight", fmt.Sprintf("workflow action payload field %q must satisfy the reference rule: 2 to 128 bytes with no Unicode White_Space", name), false, "supply a bounded reference with no Unicode White_Space")
 		}
 	}
 	return nil
@@ -868,6 +876,10 @@ func workflowPayloadFieldRule(field WorkflowPayloadField) string {
 }
 
 func validateWorkflowPayloadValue(field WorkflowPayloadField, raw json.RawMessage) bool {
+	return validateWorkflowPayloadValueWithReference(field, raw, ValidReference)
+}
+
+func validateWorkflowPayloadValueWithReference(field WorkflowPayloadField, raw json.RawMessage, validReference func(string) bool) bool {
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.UseNumber()
 	var value any
@@ -884,7 +896,7 @@ func validateWorkflowPayloadValue(field WorkflowPayloadField, raw json.RawMessag
 		if !ok {
 			return false
 		}
-		if field.ValueType == PayloadRef && !ValidReference(text) {
+		if field.ValueType == PayloadRef && !validReference(text) {
 			return false
 		}
 		if field.ValueType == PayloadDigest && !workflowDigestPattern.MatchString(text) {
@@ -918,7 +930,7 @@ func validateWorkflowPayloadValue(field WorkflowPayloadField, raw json.RawMessag
 		seen := make(map[string]struct{}, len(values))
 		for _, item := range values {
 			text, ok := item.(string)
-			if !ok || !validWorkflowPayloadListItem(field.ItemRef, text) || len(field.Enum) != 0 && !containsString(field.Enum, text) {
+			if !ok || !validWorkflowPayloadListItemWithReference(field.ItemRef, text, validReference) || len(field.Enum) != 0 && !containsString(field.Enum, text) {
 				return false
 			}
 			if _, exists := seen[text]; exists {
@@ -964,7 +976,7 @@ func validateWorkflowPayloadValue(field WorkflowPayloadField, raw json.RawMessag
 	}
 }
 
-func validWorkflowPayloadListItem(itemRef, value string) bool {
+func validWorkflowPayloadListItemWithReference(itemRef, value string, validReference func(string) bool) bool {
 	switch itemRef {
 	case "law_id":
 		runes := []rune(value)
@@ -974,7 +986,7 @@ func validWorkflowPayloadListItem(itemRef, value string) bool {
 	case "proposal_text":
 		return validWorkflowProseItem(value, 512)
 	case "", "reference":
-		return ValidReference(value)
+		return validReference(value)
 	default:
 		if !payloadschema.Has(itemRef) {
 			return false

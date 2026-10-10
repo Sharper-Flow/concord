@@ -273,8 +273,6 @@ type knowledgeSearchInput struct {
 	Kinds     []string `json:"kinds"`
 	Tags      []string `json:"tags"`
 	Text      string   `json:"text"`
-	Since     *string  `json:"since"`
-	Until     *string  `json:"until"`
 	// AllowDegraded opts the caller in to CD-0008 D3 degraded enumeration: a
 	// knowledge index behind the git head answers with authority "degraded" plus
 	// omissions instead of failing closed. Default false keeps the fail-closed

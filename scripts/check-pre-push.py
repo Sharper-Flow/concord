@@ -153,8 +153,8 @@ def check(*, root: Path = ROOT) -> list[str]:
     if not isinstance(pre_push, dict) or not isinstance(commands, dict):
         findings.append("hook-config: pre-push.commands must be a mapping of gates")
         return findings
-    if pre_push.get("parallel") is not True:
-        findings.append("hook-config: pre-push.parallel must be true so the cheap gates overlap")
+    if pre_push.get("parallel") is not False:
+        findings.append("hook-config: pre-push.parallel must be false so concurrent pushes do not multiply whole-repository Go gates on a shared host")
 
     try:
         ci_document = yaml.safe_load((root / CI_WORKFLOW).read_text(encoding="utf-8"))

@@ -505,49 +505,48 @@ func payloadSchemaDefs(t *testing.T) map[string]map[string]any {
 	return defs
 }
 
-var fixturePatternValues = []struct {
-	pattern *regexp.Regexp
-	value   string
-}{
-	{regexp.MustCompile(`sha256`), "sha256:" + strings.Repeat("0", 64)},
-	{regexp.MustCompile(`\^check:`), "check:mutation.result.conformance"},
-	{regexp.MustCompile(`\^approval:`), "approval:conformance"},
-	{regexp.MustCompile(`\^actor:`), "actor:" + strings.Repeat("0", 64)},
-	{regexp.MustCompile(`\^\[0-9a-f\]\{40(,64)?\}`), "7b83cbf41af2f9fa7990294a41a50cb75a1d6d1e"},
-	{regexp.MustCompile(`\^finding:`), "finding:1:0"},
-	// CON-890: the oracle receipt and finding ties carry the closed typed
-	// reference vocabularies (case, control, owner, predicate) the mirrored
-	// report contract pins.
-	{regexp.MustCompile(`\^case:`), "case:conformance"},
-	{regexp.MustCompile(`\^control:`), "control:conformance"},
-	{regexp.MustCompile(`\^owner:`), "owner:conformance"},
-	{regexp.MustCompile(`\^predicate:`), "predicate:conformance"},
-	{regexp.MustCompile(`\[A-Za-z0-9._-\]\+/\[A-Za-z0-9._-\]\+\$`), "conformance/examples"},
-	{regexp.MustCompile(`\\S\+\$`), "ref-1"},
+// fixtureStringCandidates is the finite catalog of string values the fixture
+// builder can offer. Selection matches each candidate against the schema's
+// own pattern; the catalog carries no opinion about what a pattern's text
+// looks like.
+var fixtureStringCandidates = []string{
+	"sha256:" + strings.Repeat("0", 64),
+	"check:mutation.result.conformance",
+	"approval:conformance",
+	"actor:" + strings.Repeat("0", 64),
+	"7b83cbf41af2f9fa7990294a41a50cb75a1d6d1e",
+	"finding:1:0",
+	"case:conformance",
+	"control:conformance",
+	"owner:conformance",
+	"predicate:conformance",
+	"conformance/examples",
+	"ref-1",
+	"conformance",
+	"TestConformance",
 }
 
 // fixtureString answers one string value that satisfies the schema node's
-// pattern, format, and bounds. A pattern the table cannot satisfy fails the
-// test loudly: a fixture the builder cannot build must never masquerade as a
-// passing conformance check.
+// pattern, format, and bounds. A pattern no catalog candidate satisfies fails
+// the test loudly: a fixture the builder cannot build must never masquerade as
+// a passing conformance check.
 func fixtureString(t *testing.T, schema map[string]any) string {
 	t.Helper()
 	value := "conformance"
 	if pattern, ok := schema["pattern"].(string); ok {
+		compiled, err := regexp.Compile(pattern)
+		if err != nil {
+			t.Fatalf("schema pattern %q does not compile: %v", pattern, err)
+		}
 		value = ""
-		for _, entry := range fixturePatternValues {
-			if entry.pattern.MatchString(pattern) {
-				value = entry.value
+		for _, candidate := range fixtureStringCandidates {
+			if compiled.MatchString(candidate) {
+				value = candidate
 				break
 			}
 		}
 		if value == "" {
-			// A patternless default the common identifier patterns accept.
-			value = "conformance"
-		}
-		matched, err := regexp.MatchString(pattern, value)
-		if err != nil || !matched {
-			t.Fatalf("fixture value %q does not satisfy schema pattern %q", value, pattern)
+			t.Fatalf("no fixture candidate satisfies schema pattern %q", pattern)
 		}
 	}
 	if schema["format"] == "date-time" {

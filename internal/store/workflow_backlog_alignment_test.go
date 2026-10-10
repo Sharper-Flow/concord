@@ -43,8 +43,8 @@ func TestAlignmentStepHasOnlyRecordAlignmentAsItsAdvanceExit(t *testing.T) {
 		nextStep    string
 		wantVersion int64
 	}{
-		{"workflow.implementation", "proposal", "discovery", 26},
-		{"workflow.break_fix", "reproduce", "diagnose", 23},
+		{"workflow.implementation", "proposal", "discovery", 27},
+		{"workflow.break_fix", "reproduce", "diagnose", 24},
 	}
 	for _, testCase := range cases {
 		registered, err := BuiltinWorkflowDefinitionForRef(testCase.ref)
@@ -235,11 +235,11 @@ func TestPriorPinnedDefinitionVersionsReplayUnchanged(t *testing.T) {
 	}
 	for pin, digest := range workflowDefinitionVersionPins {
 		ref, version := pin[0], pin[1]
-		entry, ok := builtinWorkflowRegistry.Lookup(ref, pinVersion(t, version))
+		entry, ok := BuiltinWorkflowRegistry().Lookup(ref, pinVersion(t, version))
 		if !ok {
 			t.Fatalf("%s version %s is not registered", ref, version)
 		}
-		if err := builtinWorkflowRegistry.Verify(ref, pinVersion(t, version), digest); err != nil {
+		if err := BuiltinWorkflowRegistry().Verify(ref, pinVersion(t, version), digest); err != nil {
 			t.Fatalf("%s version %s pin does not verify: %v", ref, version, err)
 		}
 		if pinVersion(t, version) >= current[ref] {
@@ -268,7 +268,7 @@ func TestPriorPinnedDefinitionVersionsReplayUnchanged(t *testing.T) {
 		if !held {
 			t.Fatalf("%s version %d is a CD-0156 predecessor without a digest pin", ref, definition.Version)
 		}
-		if err := builtinWorkflowRegistry.Verify(ref, definition.Version, digest); err != nil {
+		if err := BuiltinWorkflowRegistry().Verify(ref, definition.Version, digest); err != nil {
 			t.Fatalf("%s version %d does not verify: %v", ref, definition.Version, err)
 		}
 	}

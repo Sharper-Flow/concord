@@ -8,7 +8,7 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 )
 
-// CD-0041 D7 names the consequential action classes the architecture preflight
+// CD-0222 D7 names the consequential action classes the architecture preflight
 // guards, and states that read-only inspection remains available. An operation
 // outside those classes must stay reachable while an unresolved Domain overlap
 // stands, or a blocked item cannot record why it is blocked.
@@ -37,7 +37,7 @@ func dispatchUnderOverlap(t *testing.T, tool, operation string, input map[string
 }
 
 // TestOverlapGuardAdmitsOperationsOutsideD7Classes proves the guard refuses
-// only the operations CD-0041 D7 names. Each call may still fail a later
+// only the operations CD-0222 D7 names. Each call may still fail a later
 // gate; what it must not return is domain_overlap.
 func TestOverlapGuardAdmitsOperationsOutsideD7Classes(t *testing.T) {
 	for _, probe := range []struct {

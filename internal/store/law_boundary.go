@@ -576,9 +576,8 @@ func stringArgs(values []string) []any {
 }
 
 // validateDerivedLawModification holds the tier-scoped half of the
-// Product-truth boundary that CD-0041 D5 states and the CON-336 decision
-// (obs:fb9642cbd1700ec6) resolved: a contract that does not change Product
-// truth may revise derived law in-contract, and nothing else. It reads each
+// Product-truth boundary that CD-0222 D5 states: a contract that does not change
+// Product truth may revise derived law in-contract, and nothing else. It reads each
 // modified law's authority_tier from the accepted Git law projection through
 // the work's canonical law home, so the approve path and the fold answer with
 // one query and cannot drift. Over a registered source set the modified

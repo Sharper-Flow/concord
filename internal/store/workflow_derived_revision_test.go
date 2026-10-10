@@ -65,7 +65,7 @@ func seedGenericOneOffWorkflow(t *testing.T, s *Store, workID string, actor Work
 }
 
 // TestDerivedLawRevisionOnNonProductChangingContract holds the carve-out
-// CD-0041 D5 states and the CON-336 decision enacted: a contract that does
+// CD-0222 D5 states: a contract that does
 // not change Product truth may carry law_modifies naming only derived
 // records, the modification stays visible on the approved contract, and a
 // legislated name is still refused. The architecture binding refusal is

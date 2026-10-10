@@ -411,6 +411,25 @@ test("retained card-bearing 1.1 packets still validate through their recorded br
   expect(validateAgentLanePacket(retained)).toBe(true)
   expect(validateAgentLanePacket({ ...retained, schema_version: "2.0" as const })).toBe(false)
 })
+test("released 1.0 branch keeps its released semantic fields, not merely its enum entry", async () => {
+  // The historical reader is the schema document's version branches, not the
+  // current merged enum: a retained 1.0 packet keeps the released prohibition
+  // (inputs.worker_job refused) and the released card-bearing shape, so the
+  // branch behavior is the original artifact and the 2.0 entry is a widening.
+  const built = await build(defaultScript())
+  const base = built.packet!
+  const jobbed = {
+    ...base,
+    schema_version: "1.0" as const,
+    inputs: { ...base.inputs, worker_job: { job_id: "job:retained", revision: 1, digest: "sha256:" + "1".repeat(64), objective: "o", stopping_condition: "s", project_scope: "project", path_scope: [], predicate_ids: [], checks: [], prerequisites: [], unresolved_refs: [], reserved_integration: "" } },
+  }
+  expect(validateAgentLanePacket(jobbed)).toBe(false)
+  const joblessInputs = { ...jobbed.inputs }
+  delete (joblessInputs as Record<string, unknown>).worker_job
+  const jobless = { ...jobbed, inputs: joblessInputs }
+  expect(Object.hasOwn(jobless.inputs, "worker_job")).toBe(false)
+  expect(validateAgentLanePacket(jobless)).toBe(true)
+})
 
 test("a pin without a work context adds no packet member", async () => {
   const built = await build(defaultScript())

@@ -4492,7 +4492,7 @@
       ],
       "dependency_interpretations_to": [],
       "domain_id": "repository-verification",
-      "mapped_count": 192,
+      "mapped_count": 193,
       "mechanism_owner_ids": [
         "mechanism:repo-validators",
         "mechanism:test-infrastructure"
@@ -7824,6 +7824,7 @@
     "scripts/install.py": "repository-verification",
     "scripts/knowledge_index.py": "repository-verification",
     "scripts/linear-issue-state/main.go": "repository-verification",
+    "scripts/markdown_references.py": "repository-verification",
     "scripts/predecessor-harvest.py": "repository-verification",
     "scripts/probe-adapter-host-result.py": "repository-verification",
     "scripts/release-evidence.py": "repository-verification",
@@ -7892,7 +7893,7 @@
     "skills/README.md": "agent-surface",
     "workflows/README.md": "workflow-engine"
   },
-  "mapped_count": 1993,
+  "mapped_count": 1994,
   "mechanisms": [
     {
       "check_ids": [

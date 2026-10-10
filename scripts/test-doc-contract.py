@@ -2743,6 +2743,26 @@ def test_current_citation_ignores_command_selector_values() -> None:
     assert code == 0, (code, output, error)
 
 
+def test_current_citation_ignores_command_file_option_values() -> None:
+    for option in (
+        "go test -exec ./missing/runner.sh",
+        "go test -test.cpuprofile missing/profile.out",
+        "go test -pgo missing/profile.pgo",
+        "bun test --preload missing/setup.ts",
+        "bun test --coverage-dir missing/coverage",
+        "bun test --reporter-outfile missing/report.xml",
+    ):
+        target = "./internal/store" if option.startswith("go") else "adapter/opencode/concord.test.ts"
+        root, manifest = citation_fixture(f"The check is `{option} {target}`.")
+        code, output, error = run_checker(root, manifest)
+        assert code == 0, (option, code, output, error)
+        root, manifest = citation_fixture(f"The check is `{option} missing/proof`.")
+        code, output, error = run_checker(root, manifest)
+        assert code == 1, (option, code, output, error)
+        assert "missing candidate target: missing/proof" in output, output
+        assert "missing candidate target: missing/" not in output.replace("missing candidate target: missing/proof", ""), output
+
+
 def test_current_citation_resolves_paths_directories_and_line_suffixes() -> None:
     root, manifest = citation_fixture(
         "The owners are `internal/store/citation_fixture_test.go:1-3`, "
@@ -2791,6 +2811,47 @@ def test_current_citation_excludes_templates_fences_links_and_comments() -> None
     )
     code, output, error = run_checker(root, manifest)
     assert code == 0, (code, output, error)
+
+
+def test_current_citation_excludes_defined_reference_link_labels() -> None:
+    for label in (
+        "[`foreign/owner.go`][source]",
+        "[`foreign/owner.go`][]",
+        "[`foreign/owner.go`]",
+        "[`foreign/owner.go`][undefined]",
+    ):
+        key = "source" if label.endswith("[source]") else "`foreign/owner.go`"
+        root, manifest = citation_fixture(
+            f"The external owner is {label}.\n\n[{key}]: https://example.com/source"
+        )
+        code, output, error = run_checker(root, manifest)
+        assert code == 0, (label, code, output, error)
+
+
+def test_current_citation_keeps_undefined_reference_labels_as_citations() -> None:
+    root, manifest = citation_fixture(
+        "The owner is [`retired/owner.go`][source].\n\n"
+        "```md\n[source]: https://example.com/source\n```"
+    )
+    code, output, error = run_checker(root, manifest)
+    assert code == 1, (code, output, error)
+    assert "missing candidate target: retired/owner.go" in output, output
+
+
+def test_reference_link_target_stays_with_markdown_link_checker() -> None:
+    spec = importlib.util.spec_from_file_location("doc_links", SCRIPT.with_name("check-doc-links.py"))
+    assert spec and spec.loader
+    links = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(links)
+    root, _ = citation_fixture(
+        "The owner is [`other/owner.go`][SoUrCe].\n\n"
+        "[source]: ../retired/proof.go"
+    )
+    output, error = StringIO(), StringIO()
+    with mock.patch.object(links, "ROOT", root), mock.patch.object(sys, "stdout", output), mock.patch.object(sys, "stderr", error):
+        code = links.main()
+    assert code == 1, (code, output.getvalue(), error.getvalue())
+    assert "docs/citation.md:3: missing link target: ../retired/proof.go" in output.getvalue(), output.getvalue()
 
 
 def test_current_citation_selects_all_accepted_law_kinds_without_outline_exemption() -> None:

@@ -65,7 +65,7 @@ existing corpus can dogfood the rule before it blocks CI.
                 content, because a stored copy ages and no rule marks it
                 stale (CD-0106 D4). A fenced block in a data or schema
                 language is the channel that would carry such a copy, so it
-                 is refused in a resource-tagged record.
+                is refused in a resource-tagged record.
   law references
                 accepted law resolves concrete repository paths and qualified
                 Go tests in the candidate tree; outline profiles do not exempt
@@ -94,6 +94,7 @@ from evidence_anchors import scenario_exists  # noqa: E402
 import knowledge_index  # noqa: E402
 import evidence_anchors  # noqa: E402
 import git_environment  # noqa: E402
+import markdown_references  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 MAX_FINDINGS = 1000
@@ -1137,6 +1138,13 @@ GO_TEST_VALUE_FLAGS = frozenset((
     "-coverprofile", "-cpuprofile", "-memprofile", "-memprofilerate", "-mutexprofile",
     "-mutexprofilefraction", "-trace", "-p", "-tags", "-mod", "-modfile", "-overlay",
     "-ldflags", "-gcflags", "-asmflags", "-toolexec", "-pkgdir", "-o", "-C",
+    "-exec", "-pgo", "-buildmode", "-compiler", "-gccgoflags", "-installsuffix",
+))
+BUN_TEST_VALUE_FLAGS = frozenset((
+    "-t", "--test-name-pattern", "--preload", "--timeout", "--rerun-each",
+    "--retry", "--seed", "--coverage-reporter", "--coverage-dir", "--reporter",
+    "--reporter-outfile", "--max-concurrency", "--path-ignore-patterns",
+    "--parallel-delay", "--shard", "--timings",
 ))
 
 
@@ -1216,7 +1224,7 @@ class LawReferences:
             self.check_test(token, source, line, findings)
             return
         path = LAW_LINE_SUFFIX_RE.sub("", token)
-        if token.endswith("/..."):
+        if path.endswith("/..."):
             return
         if "/" in path and LAW_PATH_RE.fullmatch(path):
             self.check_path(token, source, line, findings)
@@ -1236,11 +1244,16 @@ class LawReferences:
             # options, variables, and shell programs are not interpreted.
             arguments = []
             operands = iter(argv[2:])
-            value_flags = GO_TEST_VALUE_FLAGS if argv[0] == "go" else {"-t", "--test-name-pattern"}
+            value_flags = GO_TEST_VALUE_FLAGS if argv[0] == "go" else BUN_TEST_VALUE_FLAGS
             for argument in operands:
-                if argument == "-args":
+                flag = argument
+                if argv[0] == "go":
+                    flag = "-" + argument.lstrip("-") if argument.startswith("-") else argument
+                    if flag.startswith("-test."):
+                        flag = "-" + flag.removeprefix("-test.")
+                if argv[0] == "go" and flag == "-args":
                     break
-                if argument in value_flags:
+                if flag in value_flags:
                     next(operands, None)
                 elif not argument.startswith("-"):
                     arguments.append(argument)
@@ -1253,8 +1266,10 @@ class LawReferences:
     def check(self, record: dict, source: Path, lines: list[str], findings: list[str]) -> None:
         if record.get("status") != "accepted" or record.get("kind") not in ("constitution", "decision", "spec"):
             return
+        lines = strip_html_comments(lines)
+        definitions = markdown_references.reference_definitions(lines)
         fence: tuple[str, int] | None = None
-        for number, line in enumerate(strip_html_comments(lines), 1):
+        for number, line in enumerate(lines, 1):
             match = LAW_FENCE_RE.match(line)
             if match:
                 delimiter, rest = match.groups()
@@ -1265,7 +1280,11 @@ class LawReferences:
                 continue
             if fence is not None:
                 continue
+            if markdown_references.DEFINITION_RE.match(line):
+                continue
             line = MD_LINK_RE.sub("", line)
+            for (start, end), _ in reversed(list(markdown_references.reference_links(line, definitions))):
+                line = line[:start] + line[end:]
             for span in INLINE_CODE_RE.findall(line):
                 self.check_span(span.strip("`").strip(), source, number, findings)
 

@@ -25,7 +25,7 @@ to the deterministic TS9 evidence contract.
 CD-0006 fixes root policy, CD-0007 fixes the repository/public-migration contract, and
 CD-0008 fixes evidence binding, unreadable-record isolation, and the remaining runtime
 mechanics; CD-0009 fixes research work identity and active-pack
-retention as amended by CD-0041. CD-0041 makes Product law and architectural
+retention as amended by CD-0041. CD-0222 makes Product law and architectural
 concordance Priority 1, replaces opaque component authority with canonical
 Domains. CD-0213 places planning and business grouping in Linear through the
 Linear MCP server; Concord keeps managed execution and recorded issue identity.

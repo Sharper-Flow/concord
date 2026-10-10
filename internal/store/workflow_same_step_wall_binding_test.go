@@ -87,7 +87,7 @@ func TestSameStepWallHasNoApprovalBindingAfterACompletedAttempt(t *testing.T) {
 	// consumed basis, and no approval binding exists to challenge for.
 	reviewVersion, reviewDigest := registeredLaneIdentity(t, "review")
 	packetPayload, err := json.Marshal(bindPacketToRecordedState(t, s, map[string]any{
-		"schema_version": "1.0", "attempt_id": "attempt:" + workID + ":same:5",
+		"schema_version": WorkerPacketSchemaVersion, "attempt_id": "attempt:" + workID + ":same:5",
 		"lane_id": "review", "lane_version": reviewVersion, "lane_digest": reviewDigest,
 		"work_id": workID, "step_id": "repair",
 		"inputs": map[string]any{"task": "review the bounded change", "constraints": []string{"preserve the approved contract"}},

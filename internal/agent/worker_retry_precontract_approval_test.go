@@ -181,7 +181,7 @@ func preContractRetryPacket(t *testing.T, s *store.Store, workID, stepID, attemp
 	if correction != nil {
 		inputs["correction"] = correction
 	}
-	return bindPacketToRecordedState(t, s, map[string]any{"schema_version": "1.0", "attempt_id": attemptID, "lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest, "work_id": workID, "step_id": stepID, "inputs": inputs})
+	return bindPacketToRecordedState(t, s, map[string]any{"schema_version": store.WorkerPacketSchemaVersion, "attempt_id": attemptID, "lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest, "work_id": workID, "step_id": stepID, "inputs": inputs})
 }
 
 func preContractResearchLane(t *testing.T) store.LaneDefinition {

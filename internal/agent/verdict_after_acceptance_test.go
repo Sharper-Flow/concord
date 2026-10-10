@@ -227,7 +227,7 @@ func testVerdictAfterAcceptance(t *testing.T, operatorApproval, otherAcceptor bo
 	dispatched := action("dispatch_worker", map[string]any{
 		"attempt_id": attemptID,
 		"worker_packet": bindPacketToRecordedState(t, s, map[string]any{
-			"schema_version": "1.0", "attempt_id": attemptID, "lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest,
+			"schema_version": store.WorkerPacketSchemaVersion, "attempt_id": attemptID, "lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest,
 			"work_id": workID, "step_id": "execute", "inputs": map[string]any{"task": "prove the acceptance binds evidence"},
 		}),
 	}, "accept-e2e-dispatch")

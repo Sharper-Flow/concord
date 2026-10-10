@@ -96,7 +96,7 @@ the old catalog only so evidence remains traceable.
   `adv_delta_retract`, `adv_delta_show`.
 - Archive remains the sole global-spec writer.
 - **Why preserve the outcome:** accepted Product law is Concord's primary
-  deliverable. CD-0041 redesigns it around canonical Domain ownership,
+  deliverable. CD-0222 redesigns it around canonical Domain ownership,
   architecture-bound work, concurrent-overlap resolution, and Git-only law
   authority; predecessor tool identity does not transfer.
 
@@ -287,8 +287,8 @@ descriptions because they are referenced from elsewhere in the docset.
 | 3.16a | Outcome contract (goal bound to delivery) | Three-part premise / required end-state / candidate set, approved at planning and verified at completion; a weaker delivered end-state fails. | [`workflows.md`](./workflows.md) §2.1a; CD-0012 |
 | 3.17 | Lifecycle stage + proportional-rigor governance | Independent `maturity` + user-declared `audience_commitment` bands at Product/Domain/Project/resource; global evidence floor with upward-only local overrides. | [`product-data-model.md`](./product-data-model.md) §8; CD-0006 |
 | 3.18 | Managed-resource inventory with cross-Product linking | First-class declarative identity for shared infra/SaaS — underneath §3.3 (live status) and §3.9 (presented surface). | [`product-data-model.md`](./product-data-model.md) §9 |
-| 3.19 | Canonical Domain architecture | Stable Product-internal Domain identity, hierarchy, law ownership, and endpoint-specific `depends_on` / shared-contract / `replaces` relations. | [`decisions/CD-0041-architecture-bound-product-law.md`](./decisions/CD-0041-architecture-bound-product-law.md) D2–D4 |
-| 3.20 | Concurrent architecture-overlap control | Product-changing contracts declare Domain/law footprints; unresolved overlap blocks consequential authority until a version-pinned operator resolution exists. | [`decisions/CD-0041-architecture-bound-product-law.md`](./decisions/CD-0041-architecture-bound-product-law.md) D5–D7 |
+| 3.19 | Canonical Domain architecture | Stable Product-internal Domain identity, hierarchy, law ownership, and endpoint-specific `depends_on` / shared-contract / `replaces` relations. | [`decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md`](./decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md) D2–D4 |
+| 3.20 | Concurrent architecture-overlap control | Product-changing contracts declare Domain/law footprints; unresolved overlap blocks consequential authority until a version-pinned operator resolution exists. | [`decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md`](./decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md) D5–D7 |
 
 ### 3.1 Product entity (first-class) + ownership data model
 - A durable `Product` type that **declaratively owns its members**: repositories,
@@ -335,12 +335,12 @@ descriptions because they are referenced from elsewhere in the docset.
 ### 3.19 Canonical Domain architecture
 - A stable Product-internal Domain identity, hierarchy, law ownership, and
   endpoint-specific `depends_on` / shared-contract / `replaces` relations.
-  See [`decisions/CD-0041-architecture-bound-product-law.md`](./decisions/CD-0041-architecture-bound-product-law.md).
+  See [`decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md`](./decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md).
 
 ### 3.20 Concurrent architecture-overlap control
 - Product-changing contracts declare Domain/law footprints; unresolved overlap
   blocks consequential authority until a version-pinned operator resolution exists.
-  See [`decisions/CD-0041-architecture-bound-product-law.md`](./decisions/CD-0041-architecture-bound-product-law.md).
+  See [`decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md`](./decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md).
 
 ---
 

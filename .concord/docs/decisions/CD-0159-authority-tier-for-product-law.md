@@ -20,7 +20,7 @@ agent wrote while it delivered a change. Both cost one operator approval turn to
 revise. A layout note from a past change therefore obstructs the next request at
 the price of a real commitment.
 
-CD-0041 names the deliverable a pruned statement of what the Product must keep
+CD-0222 names the deliverable a pruned statement of what the Product must keep
 true. No rule states what may enter that statement, and no field records how it
 got there.
 
@@ -33,7 +33,7 @@ default tab of a strip. Each records what one change built. Each now binds every
 later change.
 
 Concord enforces harder than the predecessor did. CD-0036 pins each law by
-content hash. CD-0041 binds it to a home Domain. The checks rerun in a
+content hash. CD-0222 binds it to a home Domain. The checks rerun in a
 transaction at every consequential action. Admitting a build transcript as law
 therefore costs more under Concord than under the predecessor.
 
@@ -54,7 +54,7 @@ Each law record carries one of two tier values.
 
 The tier is a recorded fact about the write. It is not a judgement about the
 content. An admission test that asks whether a statement is a genuine Product
-obligation is a heuristic, and CD-0041 with `docs/specs-as-laws.md` refuses a
+obligation is a heuristic, and CD-0222 with `docs/specs-as-laws.md` refuses a
 heuristic as sole authority for correctness.
 
 ### D2. The deliverable sets the tier, not the presence of an approval

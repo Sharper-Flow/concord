@@ -46,7 +46,6 @@ EXEMPT: dict[str, tuple[str, ...]] = {
         ".opencode/agents/*",
         "adapter/opencode/generated-*",
         "internal/*/generated_*.go",
-        ".concord/navigation/*",
         ".concord/docs/agent-lanes-contract.md",
         ".concord/docs/generated-agent-tool-surface.md",
     ),

@@ -20,7 +20,7 @@ Publication must not destroy content that another work item still uses.
 An optional pin protects stored content without creating a workflow blocker.
 
 This record replaces the complete research obligations of CD-0009.
-CD-0041 remains the authority for Initiative identity, narrative, entries, architecture, and migration.
+CD-0222 remains the authority for Initiative identity, narrative, entries, architecture, and migration.
 This replacement does not restore Epic identity or alter unrelated Initiative obligations.
 
 ## Decision
@@ -31,7 +31,7 @@ An Initiative is finite and Product-scoped, with a living narrative and ordered 
 It may span Projects and Domains in its Product.
 Entries retain independent workflow, authorization, recovery, architecture binding, and terminal state.
 Initiative membership does not own architectural compatibility, dependency truth, law placement, or the primary browse path.
-CD-0041 D8 and D9 govern its shape and bounded migration.
+CD-0222 D8 and D9 govern its shape and bounded migration.
 
 ### D2. Research resolves to ordinary work
 
@@ -104,7 +104,7 @@ active_research_consumers
 
 Enums are closed and schema-validated.
 Finding/source links use composite foreign keys.
-CD-0022 and CD-0041 govern finding applicability: `home` has no explicit scopes; `explicit` declares Product, Project, Domain, or tag scopes.
+CD-0022 and CD-0222 govern finding applicability: `home` has no explicit scopes; `explicit` declares Product, Project, Domain, or tag scopes.
 Pack and revision identities are never intentionally reused.
 Deletion creates no permanent tombstone or deleted-ID registry.
 
@@ -219,7 +219,7 @@ Required witnesses cover active-session restart, conflict fences, distinct exact
 They also cover terminal read-only reuse, publication without deletion, optional-pin protection, bounded dry runs, deletion atomicity, and crash/replay.
 All terminal routes, reopen, owner removal, rebuild, upgrade, restore, authorization denial, and pin/retire races require evidence.
 Deleted text must remain absent from Git, retained events, historical pack indexes, and knowledge search.
-Architecture-spike decision requirements and CD-0041 Initiative entry, narrative, and scope witnesses remain mandatory.
+Architecture-spike decision requirements and CD-0222 Initiative entry, narrative, and scope witnesses remain mandatory.
 `internal/store.TestResearchRetirementActivePinsProtectAndTerminalReleaseFences` is a candidate anchor for pin protection, not all these obligations.
 
 Candidate anchors include `internal/store.TestResearchRetirementActivePinsProtectAndTerminalReleaseFences`,

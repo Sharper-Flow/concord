@@ -116,7 +116,7 @@ guesses. CD-0006 R3's declared edges, completion notices, boundary verdicts, and
 version stamps are authoritative; browse views must not invent or silently clear
 impact state.
 
-CD-0041 adds the active architecture footprint: affected Domains, exact law pins,
+CD-0222 adds the active architecture footprint: affected Domains, exact law pins,
 write overlaps, and the current version-pinned resolution. The default Domain
 view surfaces unresolved overlap as a blocking problem. Business grouping lives
 in Linear through the Linear MCP server under CD-0213 and never clears that state.

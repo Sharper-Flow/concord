@@ -900,7 +900,7 @@ func runWorkerRecoveryJourney(t *testing.T, tuple workflowRecoveryRouteTuple, s 
 			inputs["correction"] = pin.Correction
 		}
 		packet := bindPacketToRecordedState(t, s, map[string]any{
-			"schema_version": "1.0", "attempt_id": freshEvidence, "lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest,
+			"schema_version": store.WorkerPacketSchemaVersion, "attempt_id": freshEvidence, "lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest,
 			"work_id": "work-1", "step_id": "review", "inputs": inputs,
 		})
 		requireRecoveryOK(t, "dispatch decision review", invoke(map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "dispatch_worker", "fields": map[string]any{"attempt_id": freshEvidence, "worker_packet": packet}, "idempotency_key": tuple.WorkflowID + "-dispatch-decision-review"}))
@@ -1207,7 +1207,7 @@ func runJourneyDeliveryAndAdvance(t *testing.T, tuple workflowRecoveryRouteTuple
 			"fields": map[string]any{
 				"attempt_id": attemptID,
 				"worker_packet": bindPacketToRecordedState(t, s, map[string]any{
-					"schema_version": "1.0", "attempt_id": attemptID, "lane_id": deliveryLane.ID, "lane_version": deliveryLane.Version, "lane_digest": deliveryLane.Digest,
+					"schema_version": store.WorkerPacketSchemaVersion, "attempt_id": attemptID, "lane_id": deliveryLane.ID, "lane_version": deliveryLane.Version, "lane_digest": deliveryLane.Digest,
 					"work_id": "work-1", "step_id": deliveryStep, "inputs": inputs,
 				}),
 			},
@@ -1376,7 +1376,7 @@ func advanceWorkerRecovery(t *testing.T, tuple workflowRecoveryRouteTuple, s *st
 			recordRecoveryWorkerJob(t, s, service, env, "job:"+tuple.WorkflowID+":"+suffix+":review")
 		}
 		action("dispatch_worker", map[string]any{"attempt_id": attempt, "worker_packet": bindPacketToRecordedState(t, s, map[string]any{
-			"schema_version": "1.0", "attempt_id": attempt, "lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest,
+			"schema_version": store.WorkerPacketSchemaVersion, "attempt_id": attempt, "lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest,
 			"work_id": "work-1", "step_id": "refine", "inputs": map[string]any{"task": "Review the fresh repaired result"},
 		})})
 		appendLaneCompletion(t, s, grant, lane, attempt, suffix+"-review")

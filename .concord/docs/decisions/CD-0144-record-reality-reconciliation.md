@@ -25,7 +25,7 @@ content at risk. A present worktree with uncommitted changes or local-only
 commits can appear as terminal drift, so the audit can recommend a reclaim that
 would discard the only copy of work.
 
-CD-0041 D6 also derives a work item's architecture footprint from its approved
+CD-0222 D6 also derives a work item's architecture footprint from its approved
 contract. Approval records intent, but execution is the boundary that starts
 the Product-changing action. A contract that has not started execution must not
 hold a Domain against a peer.

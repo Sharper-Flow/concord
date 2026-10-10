@@ -1077,10 +1077,11 @@ func retryApprovalFenceTx(ctx context.Context, tx *store.Transaction, registry s
 	return nil
 }
 
-// sourceProofForAction prepares the Git facts each action's SQL boundary
-// consumes. It runs after replay and approval admission, with no transaction
-// open (CD-0195 D2). A non-nil envelope carries the refusal.
-func (r runtime) sourceProofForAction(ctx context.Context, base Envelope, actionID, workID string, raw []byte) (context.Context, *Envelope) {
+// knowledgeSourceProofForAction prepares the federated law source set the
+// approval, supersession, and completion gates verify inside their
+// transaction (CD-0200). It runs after replay and approval admission, with
+// no transaction open (CD-0195 D2). A non-nil envelope carries the refusal.
+func (r runtime) knowledgeSourceProofForAction(ctx context.Context, base Envelope, actionID, workID string) (context.Context, *Envelope) {
 	switch actionID {
 	case "approve_contract", "supersede_contract", "complete":
 		verifiedCtx, proofErr := r.Store.EstablishKnowledgeSourceSetProof(ctx, workID)
@@ -1090,12 +1091,7 @@ func (r runtime) sourceProofForAction(ctx context.Context, base Envelope, action
 		}
 		ctx = verifiedCtx
 	}
-	prepared, err := prepareMutationNavigation(ctx, r.Store, raw)
-	if err != nil {
-		refusal := failureEnvelope(base, err)
-		return ctx, &refusal
-	}
-	return prepared, nil
+	return ctx, nil
 }
 
 func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []byte, grant Authority, op ContractOperation) (Envelope, error) {
@@ -1302,7 +1298,7 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 	// mandated-law boundary inside their transaction, so their registered
 	// source set verifies before the transaction opens (store connection
 	// invariant); the returned context carries the proof.
-	verifiedCtx, proofEnvelope := r.sourceProofForAction(ctx, base, in.ActionID, in.WorkID, raw)
+	verifiedCtx, proofEnvelope := r.knowledgeSourceProofForAction(ctx, base, in.ActionID, in.WorkID)
 	if proofEnvelope != nil {
 		return *proofEnvelope, nil
 	}
@@ -1895,8 +1891,8 @@ func (r runtime) mutateResearchRetire(ctx context.Context, base Envelope, raw []
 		return Envelope{}, err
 	}
 	var response Envelope
-	durable, navigationPrepared := false, false
-	err = r.executeAdmittedMutation(&ctx, raw, &durable, &navigationPrepared, func(tx *store.Transaction) error {
+	durable := false
+	err = r.executeAdmittedMutation(&ctx, &durable, func(tx *store.Transaction) error {
 		inv := Invocation{ClientRef: r.Envelope.ClientRef, PrincipalRef: r.Envelope.PrincipalRef, SessionRef: r.Envelope.SessionRef, AgentRef: r.Envelope.AgentRef, Directory: r.Envelope.Directory, Worktree: r.Envelope.Worktree, ManifestDigest: r.Envelope.ManifestDigest, HostAssertionDigest: r.Envelope.HostAssertionDigest, RequiredCapability: op.Capability, RequiredOperation: r.Operation, ProductID: r.Envelope.SelectedProductID}
 		if inv.HostAssertionDigest == "" {
 			inv.HostAssertionDigest = digest
@@ -4450,7 +4446,7 @@ func (r runtime) mutateCompaction(ctx context.Context, base Envelope, raw []byte
 		}
 		claimReq := store.ClaimRequest{OpID: opID, WorkID: workID, WorkflowTypeRef: "concord.pm6.compaction", WorkflowTypeVersion: 1, StepID: "git_proof", StepKind: store.StepCrossAuthority, AcceptedInputsDigest: digest, AcceptedScopeSnapshot: string(acceptedScope), PrincipalRef: grant.PrincipalRef, Tool: r.Tool, IdempotencyKey: key, RequestID: r.Envelope.RequestID, ObservedAt: r.Authority.now(), ApprovalRef: publish.Approval.ApprovalRef, ContractDigest: ManifestDigest}
 		claim, claimErr := store.ClaimStepAuthorized(ctx, r.Store, claimReq, func(tx *store.Transaction) error {
-			// CD-0041 D7: publication is consequential, so the claim refuses
+			// CD-0222 D7: publication is consequential, so the claim refuses
 			// before any git note is written when the contract's law revision
 			// pins or its active Domain overlaps no longer validate.
 			if err := store.CheckWorkflowConsequentialBoundaryTx(ctx, tx, workID); err != nil {
@@ -4593,7 +4589,7 @@ func (r runtime) mutateCompaction(ctx context.Context, base Envelope, raw []byte
 	payload := mutationPayload(changed, nil)
 	base.ResolvedScope = &Scope{ProductID: r.Envelope.SelectedProductID, ProjectIDs: []string{r.Envelope.AmbientProjectID}, WorkIDs: []string{reconcile.WorkID}, ScopeVersion: r.Envelope.ScopeVersion}
 	// Reconcile is the closed recovery choice for an orphaned note, so its link
-	// is exempt from the CD-0041 D7 boundary check. Guarding it would refuse the
+	// is exempt from the CD-0222 D7 boundary check. Guarding it would refuse the
 	// only way out of a pending compaction.
 	if linkErr := store.PublishCompactionLink(ctx, r.Store, store.CompactionLinkRequest{EventID: reconcile.OperationID + ":reconcile-link", WorkID: reconcile.WorkID, ExpectedVersion: workVersion, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), Home: home, CommitOID: note.CommitOID, NotePath: note.NotePath, ExpectedHash: proofDigest, Reason: "reconcile verified orphan note", Boundary: store.CompactionBoundaryRecoveryExempt}); linkErr != nil {
 		return pendingCompaction(base, reconcile.WorkID, step, "sqlite_link", []string{"operation_claimed", "git_proof"}, linkErr), nil
@@ -4932,9 +4928,8 @@ func (r runtime) mutationResult(base Envelope, payload json.RawMessage, changed 
 }
 
 var errApprovalDurabilityRequired = errors.New("approval authority requires a durable transaction")
-var errNavigationPreparationRequired = errors.New("admitted mutation requires pre-transaction navigation material")
 
-func (r runtime) executeAdmittedMutation(ctx *context.Context, raw []byte, durable, navigationPrepared *bool, mutation func(*store.Transaction) error) error {
+func (r runtime) executeAdmittedMutation(ctx *context.Context, durable *bool, mutation func(*store.Transaction) error) error {
 	transact := r.Store.Transact
 	if *durable {
 		transact = r.Store.TransactDurable
@@ -4944,13 +4939,6 @@ func (r runtime) executeAdmittedMutation(ctx *context.Context, raw []byte, durab
 		*durable = true
 		transact = r.Store.TransactDurable
 		err = transact(*ctx, mutation)
-	}
-	if err == errNavigationPreparationRequired {
-		*ctx, err = prepareMutationNavigation(*ctx, r.Store, raw)
-		if err == nil {
-			*navigationPrepared = true
-			err = transact(*ctx, mutation)
-		}
 	}
 	return err
 }
@@ -4966,7 +4954,6 @@ func mutationApprovalFailure(base Envelope, err error) Envelope {
 func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte, digest string, scope, versions map[string]any, consequence, approval string, requiresApproval bool, governingConflict []string, intents []NextIntent, effect mutationEffect, nativeCleanup func(ctx context.Context, cause error) error, nativeFinalize func(ctx context.Context) error) (Envelope, error) {
 	var response Envelope
 	var resultRejected bool
-	var navigationPrepared bool
 	// A native finalize defers the idempotency record until the committed
 	// event's native work completes, so a failed removal never leaves a
 	// cached success for the same key to replay (CD-0195 D2).
@@ -5015,9 +5002,6 @@ func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte,
 				return storeIdempotencyConflict(r.Operation, key)
 			}
 			if r.Operation != "session_vacate" && r.Operation != "project_handoff_consume" {
-				if !navigationPrepared {
-					return errNavigationPreparationRequired
-				}
 				var replayErr error
 				response, resultRejected, replayErr = r.replayCachedMutationTx(ctx, tx, base, prior, intents, store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: key})
 				return replayErr
@@ -5031,7 +5015,7 @@ func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte,
 			// tail touches instead of inserting.
 			replay = true
 		}
-		// CD-0041 D7: every consequential boundary validates the contract's law
+		// CD-0222 D7: every consequential boundary validates the contract's law
 		// revision pins and its active Domain overlaps. The guarded set is the
 		// action classes D7 names, and no wider: D7 also holds that read-only
 		// inspection remains available, and an operation that records no
@@ -5074,10 +5058,7 @@ func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte,
 			scope["approval_ref"] = consumedApprovalRef
 		}
 		// Admission rolls back before native reads. The execution transaction
-		// repeats these authority checks and consumes approval only at commit.
-		if !navigationPrepared {
-			return errNavigationPreparationRequired
-		}
+		// consumes approval only at commit.
 		payload, eventIDs, changed, err := effect(ctx, tx, grant)
 		if err != nil {
 			return err
@@ -5117,7 +5098,7 @@ func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte,
 		}
 		return store.InsertMutationIdempotencyTx(ctx, tx, insert)
 	}
-	err := r.executeAdmittedMutation(&ctx, raw, &durable, &navigationPrepared, mutation)
+	err := r.executeAdmittedMutation(&ctx, &durable, mutation)
 	transact := r.Store.Transact
 	if durable {
 		transact = r.Store.TransactDurable
@@ -5261,7 +5242,7 @@ func mutationScopeWorkIDs(scope map[string]any) []string {
 }
 
 // mutationRequiresConsequentialBoundary answers whether one mutation belongs to
-// an action class CD-0041 D7 names. The generated operation manifest already
+// an action class CD-0222 D7 names. The generated operation manifest already
 // classifies every operation's consequence, so the answer derives from that
 // declaration rather than from a second list beside it that can drift.
 //
@@ -5336,7 +5317,7 @@ func mutationIsOverlapRecovery(tool, operation string, raw []byte) bool {
 	// changing what the contract modifies. Guarding it leaves a blocking pair
 	// resolvable only by the other party, so the gate refuses the escape it
 	// names. No other workflow action is exempt: the rest advance the pinned
-	// workflow, which is what CD-0041 D7 holds behind the boundary.
+	// workflow, which is what CD-0222 D7 holds behind the boundary.
 	if tool == "concord_work_transition" && operation == "workflow_action" {
 		var input struct {
 			ActionID string `json:"action_id"`

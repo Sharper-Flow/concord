@@ -8,6 +8,9 @@ by a required workflow. Without a single source of truth the two validators
 would drift and a record that one validator accepted would be a finding to the
 other — the same defect restated in two syntaxes (CD-0047 D3).
 
+Document-contract citations reuse native Go declaration presence without
+claiming the stronger coverage assertion verdict.
+
 What an anchor is:
 - `go_test`: a Go test identified as `<package>.<TestName>`; resolves when the
   test is declared in that package and its body, or a same-package helper it
@@ -64,11 +67,15 @@ REQUIRED_WORKFLOWS = (
 )
 
 GO_TEST_PROJECTOR = ROOT / "scripts/go-test-assertions/main.go"
-_GO_TEST_SIGNATURE: tuple[tuple[str, int, int], ...] | None = None
+_GO_TEST_SIGNATURE: tuple[str, tuple[tuple[str, int, int], ...], tuple[str, ...] | None] | None = None
 _GO_TEST_FACTS: dict[str, dict[str, bool]] = {}
 
 
-def _go_test_source_signature() -> tuple[tuple[str, int, int], ...]:
+class GoTestProjectionError(RuntimeError):
+    """The native projector supplied no valid test-declaration facts."""
+
+
+def _go_test_source_signature(root: Path | None = None) -> tuple[tuple[str, int, int], ...]:
     """Source freshness is decided per call: every resolution rescans.
 
     The walk mirrors what an ``rglob("*.go")`` of ROOT observed: a name check
@@ -80,10 +87,11 @@ def _go_test_source_signature() -> tuple[tuple[str, int, int], ...]:
     never scanning them; an excluded component in ROOT's own path empties the
     signature just as it filtered out every result before.
     """
-    if ".git" in ROOT.parts or "vendor" in ROOT.parts:
+    root = ROOT if root is None else root
+    if ".git" in root.parts or "vendor" in root.parts:
         return ()
     files: list[tuple[str, int, int]] = []
-    stack: list[tuple[str, str]] = [("", str(ROOT))]
+    stack: list[tuple[str, str]] = [("", str(root))]
     while stack:
         prefix, directory = stack.pop()
         try:
@@ -110,26 +118,55 @@ def _go_test_source_signature() -> tuple[tuple[str, int, int], ...]:
     return tuple(sorted(files))
 
 
-def _load_go_test_facts() -> dict[str, dict[str, bool]]:
+def _load_go_test_facts(root: Path | None = None, candidates: set[str] | None = None) -> dict[str, dict[str, bool]]:
     global _GO_TEST_SIGNATURE, _GO_TEST_FACTS
-    signature = _go_test_source_signature()
+    root = ROOT if root is None else root
+    go_paths = tuple(sorted(name for name in candidates if name.endswith(".go"))) if candidates is not None else None
+    signature = (str(root.resolve()), _go_test_source_signature(root), go_paths)
     if signature == _GO_TEST_SIGNATURE:
         return _GO_TEST_FACTS
     try:
+        command = ["go", "run", str(GO_TEST_PROJECTOR)]
+        if go_paths is not None:
+            command.append("-files-stdin")
+        command.append(str(root))
         result = subprocess.run(
-            ["go", "run", str(GO_TEST_PROJECTOR), str(ROOT)],
+            command,
             cwd=ROOT,
             capture_output=True,
             text=True,
             check=False,
+            timeout=120,
+            input=json.dumps(go_paths) if go_paths is not None else None,
         )
-        document = json.loads(result.stdout) if result.returncode == 0 else {}
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
-        document = {}
+        if result.returncode:
+            raise GoTestProjectionError(
+                f"Go test projector exited {result.returncode}: {result.stderr.strip()}"
+            )
+        document = json.loads(result.stdout)
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, subprocess.TimeoutExpired) as exc:
+        raise GoTestProjectionError(f"Go test projector failed: {exc}") from exc
     packages = document.get("packages") if isinstance(document, dict) else None
-    _GO_TEST_FACTS = packages if isinstance(packages, dict) else {}
+    if (
+        not isinstance(document, dict)
+        or document.get("schema_version") != "1.0"
+        or not isinstance(packages, dict)
+        or any(
+            not isinstance(package, str)
+            or not isinstance(tests, dict)
+            or any(not isinstance(name, str) or not isinstance(asserts, bool) for name, asserts in tests.items())
+            for package, tests in packages.items()
+        )
+    ):
+        raise GoTestProjectionError("Go test projector returned an invalid declaration map")
+    _GO_TEST_FACTS = packages
     _GO_TEST_SIGNATURE = signature
     return _GO_TEST_FACTS
+
+
+def go_test_exists(package: str, test: str, root: Path | None = None, candidates: set[str] | None = None) -> bool:
+    """Citation presence is map membership, not the coverage assertion verdict."""
+    return test in _load_go_test_facts(root, candidates).get(package, {})
 
 
 def go_test_asserts(package: str, test: str) -> bool:

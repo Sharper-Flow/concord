@@ -65,7 +65,11 @@ existing corpus can dogfood the rule before it blocks CI.
                 content, because a stored copy ages and no rule marks it
                 stale (CD-0106 D4). A fenced block in a data or schema
                 language is the channel that would carry such a copy, so it
-                is refused in a resource-tagged record.
+                 is refused in a resource-tagged record.
+  law references
+                accepted law resolves concrete repository paths and qualified
+                Go tests in the candidate tree; outline profiles do not exempt
+                citations, and source links or placeholders identify other operands
 
 A doc's failure to satisfy these layers is a *finding*; the policy decision
 of whether a finding is a hard fail is the `doc_contract.enforced` manifest
@@ -77,7 +81,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
+import shlex
+import subprocess
 import sys
 from functools import lru_cache
 from pathlib import Path
@@ -85,6 +92,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from evidence_anchors import scenario_exists  # noqa: E402
 import knowledge_index  # noqa: E402
+import evidence_anchors  # noqa: E402
+import git_environment  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 MAX_FINDINGS = 1000
@@ -1118,15 +1127,160 @@ def check_vendor_content(
             )
 
 
+LAW_PATH_RE = re.compile(r"[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*/?")
+LAW_LINE_SUFFIX_RE = re.compile(r":\d+(?:-\d+)?$")
+LAW_FENCE_RE = re.compile(r"^\s{0,3}(`{3,}|~{3,})(.*)$")
+GO_TEST_VALUE_FLAGS = frozenset((
+    "-bench", "-benchtime", "-count", "-covermode", "-coverpkg", "-cpu", "-fuzz",
+    "-fuzztime", "-fuzzminimizetime", "-list", "-outputdir", "-parallel", "-run",
+    "-shuffle", "-skip", "-timeout", "-vet", "-blockprofile", "-blockprofilerate",
+    "-coverprofile", "-cpuprofile", "-memprofile", "-memprofilerate", "-mutexprofile",
+    "-mutexprofilefraction", "-trace", "-p", "-tags", "-mod", "-modfile", "-overlay",
+    "-ldflags", "-gcflags", "-asmflags", "-toolexec", "-pkgdir", "-o", "-C",
+))
+
+
+class LawReferences:
+    """Resolve declared citations in one candidate tree, not surrounding prose."""
+
+    def __init__(self, root: Path):
+        self.root = root.resolve()
+        self.files: set[str] | None = None
+        self.path_error: str | None = None
+        self.test_error: str | None = None
+
+    def candidate_files(self) -> set[str]:
+        if self.files is None:
+            result = subprocess.run(
+                ["git", "ls-files", "-co", "--exclude-standard", "-z"],
+                cwd=self.root,
+                env=git_environment.sanitized_environment(),
+                capture_output=True, text=True, check=True, timeout=30,
+            )
+            self.files = {
+                name for name in result.stdout.split("\0")
+                if name and (self.root / name).is_file()
+            }
+        return self.files
+
+    def check_path(self, token: str, source: Path, line: int, findings: list[str]) -> None:
+        prefix = f"{source.relative_to(self.root)}:{line}"
+        path = LAW_LINE_SUFFIX_RE.sub("", token)
+        base = source.parent if path.startswith("../") else self.root
+        target = base / path
+        try:
+            resolved = target.resolve().relative_to(self.root).as_posix()
+            relative = Path(os.path.abspath(target)).relative_to(self.root).as_posix()
+        except (ValueError, OSError, RuntimeError):
+            findings.append(f"law-reference-path: {prefix}: citation escapes repository: {token}")
+            return
+        if self.path_error is not None:
+            return
+        try:
+            files = self.candidate_files()
+        except (OSError, subprocess.SubprocessError, git_environment.GitEnvironmentError) as exc:
+            self.path_error = str(exc)
+            findings.append(f"law-reference-tool: {prefix}: candidate inventory failed: {exc}")
+            return
+        directory = target.is_dir()
+        if directory:
+            present = bool(files) if relative == "." else any(
+                name.startswith(relative + "/") for name in files
+            )
+        else:
+            present = relative in files and resolved in files
+        if not present or (path.endswith("/") and not directory):
+            findings.append(f"law-reference-path: {prefix}: missing candidate target: {token}")
+
+    def check_test(self, token: str, source: Path, line: int, findings: list[str]) -> None:
+        if self.test_error is not None or self.path_error is not None:
+            return
+        package, test = token.rsplit(".", 1)
+        try:
+            present = evidence_anchors.go_test_exists(package, test, self.root, self.candidate_files())
+        except (OSError, subprocess.SubprocessError, git_environment.GitEnvironmentError) as exc:
+            self.path_error = str(exc)
+            findings.append(f"law-reference-tool: {source.relative_to(self.root)}:{line}: candidate inventory failed: {exc}")
+            return
+        except evidence_anchors.GoTestProjectionError as exc:
+            self.test_error = str(exc)
+            findings.append(f"law-reference-tool: {source.relative_to(self.root)}:{line}: {exc}")
+            return
+        if not present:
+            findings.append(f"law-reference-test: {source.relative_to(self.root)}:{line}: missing Go test: {token}")
+
+    def check_span(self, token: str, source: Path, line: int, findings: list[str]) -> None:
+        if any(mark in token for mark in ("<", ">", "*", "?", "[", "]", "{", "}")):
+            return
+        if "." in token and GO_TEST_SYMBOL_RE.fullmatch(token):
+            self.check_test(token, source, line, findings)
+            return
+        path = LAW_LINE_SUFFIX_RE.sub("", token)
+        if token.endswith("/..."):
+            return
+        if "/" in path and LAW_PATH_RE.fullmatch(path):
+            self.check_path(token, source, line, findings)
+            return
+        if not token.startswith(("python3 ", "bun test ", "go test ")):
+            return
+        try:
+            argv = shlex.split(token)
+        except ValueError:
+            return
+        if any(argument in ("&&", "||", ";", "|", ">", "<") for argument in argv):
+            return
+        if argv[:1] == ["python3"]:
+            arguments = argv[1:2] if len(argv) > 1 and argv[1].startswith("scripts/") else []
+        else:
+            # Only positional concrete path operands are citations. Selectors,
+            # options, variables, and shell programs are not interpreted.
+            arguments = []
+            operands = iter(argv[2:])
+            value_flags = GO_TEST_VALUE_FLAGS if argv[0] == "go" else {"-t", "--test-name-pattern"}
+            for argument in operands:
+                if argument == "-args":
+                    break
+                if argument in value_flags:
+                    next(operands, None)
+                elif not argument.startswith("-"):
+                    arguments.append(argument)
+        for argument in arguments:
+            if any(mark in argument for mark in ("*", "?", "[", "]", "{", "}")) or argument.endswith("/..."):
+                continue
+            if ("/" in argument or argv[0] == "bun" and "." in argument) and LAW_PATH_RE.fullmatch(argument):
+                self.check_path(argument, source, line, findings)
+
+    def check(self, record: dict, source: Path, lines: list[str], findings: list[str]) -> None:
+        if record.get("status") != "accepted" or record.get("kind") not in ("constitution", "decision", "spec"):
+            return
+        fence: tuple[str, int] | None = None
+        for number, line in enumerate(strip_html_comments(lines), 1):
+            match = LAW_FENCE_RE.match(line)
+            if match:
+                delimiter, rest = match.groups()
+                if fence is None:
+                    fence = (delimiter[0], len(delimiter))
+                elif delimiter[0] == fence[0] and len(delimiter) >= fence[1] and not rest.strip():
+                    fence = None
+                continue
+            if fence is not None:
+                continue
+            line = MD_LINK_RE.sub("", line)
+            for span in INLINE_CODE_RE.findall(line):
+                self.check_span(span.strip("`").strip(), source, number, findings)
+
+
 def check_record(
     record: dict,
     contract: dict,
     abbreviations: frozenset[str],
     banned: tuple[str, ...],
     findings: list[str],
+    references: LawReferences | None = None,
 ) -> None:
     kind = record.get("kind")
-    if kind not in DOC_CONTRACT_KINDS or kind not in contract:
+    accepted_law = record.get("status") == "accepted" and kind in ("constitution", "decision", "spec")
+    if kind not in DOC_CONTRACT_KINDS or (kind not in contract and not accepted_law):
         return
     path_value = record.get("path")
     if not isinstance(path_value, str) or not path_value.endswith(".md"):
@@ -1138,6 +1292,10 @@ def check_record(
         return
     lines = read_file(absolute, findings)
     if lines is None:
+        return
+    if references is not None:
+        references.check(record, absolute, lines, findings)
+    if kind not in contract:
         return
 
     spec = contract[kind]
@@ -1301,10 +1459,11 @@ def main(argv: list[str]) -> int:
     abbreviations = DEFAULT_ABBREVIATION_ALLOWLIST
 
     records = manifest.get("records") or []
+    references = LawReferences(ROOT)
     for record in records:
         if not isinstance(record, dict):
             continue
-        check_record(record, contract, abbreviations, banned, findings)
+        check_record(record, contract, abbreviations, banned, findings, references)
 
     if report_only_mode:
         return report_only(findings, "doc contract")

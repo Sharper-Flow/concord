@@ -253,10 +253,7 @@ describe("session_vacate moves only to the core-derived checkout", () => {
   // Project. The pre-move decides from the host readback, so the retry moves
   // the host session to the remembered destination, the core call resolves
   // its Project there, the replay appends nothing, and the verified landing
-  // releases the row. Under the previous tool-context gate the move was
-  // skipped, Project resolution refused before the replay could run with a
-  // no-effect classification, and no retry could ever reach the replay
-  // (CD-0190 D3).
+  // releases the row (CD-0190 D3).
   test("reaches the replay when a stale tool context names the destination and the readback sits outside every Project", async () => {
     let sitting = "/outside"
     const moves: string[] = []

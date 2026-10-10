@@ -1735,7 +1735,7 @@ func TestWorkerCompletedRefusesMixedReportSchemaPair(t *testing.T) {
 	if err := ApplyOperation(context.Background(), s2, Operation{Events: []Event{completedLegacy}}); err == nil {
 		t.Fatalf("worker.completed with report_schema_version %q accepted against an attempt row at %q; want refusal",
 			WorkerReportSchemaVersionLegacy, WorkerReportSchemaVersion)
-	} else if !strings.Contains(err.Error(), "report_schema_version") && !strings.Contains(err.Error(), "report schema") {
+	} else if !strings.Contains(err.Error(), "report_schema_version") {
 		t.Fatalf("refusal detail = %v, want the matched-pair detail", err)
 	}
 }

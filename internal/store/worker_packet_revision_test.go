@@ -136,9 +136,9 @@ func TestWorkerDispatchedRefusesRetiredSchemaPairLive(t *testing.T) {
 	}
 }
 
-// The live completion boundary refuses every retired report identity, while a
-// recorded 1.1 job-capable history (dispatch plus its completion) rebuilds
-// unchanged and keeps the recorded job binding.
+// Completion must match the schema identity recorded by its own attempt.
+// A retired report cannot complete a current attempt; retained attempts
+// keep their recorded identity when their original results arrive.
 func TestWorkerCompletedRefusesRetiredReportVersionLive(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)

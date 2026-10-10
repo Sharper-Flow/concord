@@ -15,16 +15,16 @@ import (
 // the adapter selects the historical reader by this identity, never by
 // today's current revision.
 type WorkerRecoveryContext struct {
-	PacketDigest         string                  `json:"packet_digest"`
-	Worktree             string                  `json:"worker_worktree"`
-	CoordinatorSession   string                  `json:"coordinator_session"`
-	AttemptEpoch         int64                   `json:"attempt_epoch"`
-	DispatchEventID      string                  `json:"dispatch_event_id"`
-	TerminalEventID      string                  `json:"terminal_event_id,omitempty"`
-	LifecycleState       string                  `json:"lifecycle_state"`
-	PacketSchemaVersion  string                  `json:"packet_schema_version"`
-	ReportSchemaVersion  string                  `json:"report_schema_version"`
-	Dispatch             WorkerDispatchedPayload `json:"dispatch"`
+	PacketDigest        string                  `json:"packet_digest"`
+	Worktree            string                  `json:"worker_worktree"`
+	CoordinatorSession  string                  `json:"coordinator_session"`
+	AttemptEpoch        int64                   `json:"attempt_epoch"`
+	DispatchEventID     string                  `json:"dispatch_event_id"`
+	TerminalEventID     string                  `json:"terminal_event_id,omitempty"`
+	LifecycleState      string                  `json:"lifecycle_state"`
+	PacketSchemaVersion string                  `json:"packet_schema_version"`
+	ReportSchemaVersion string                  `json:"report_schema_version"`
+	Dispatch            WorkerDispatchedPayload `json:"dispatch"`
 }
 
 // ValidateWorkerEvidenceReplayWindow checks the original window's identity and

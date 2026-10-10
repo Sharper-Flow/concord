@@ -191,14 +191,14 @@ func retainedCardBearingPacket(t *testing.T, workID, attemptID string, lane stor
 		"lane_id":        lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest,
 		"work_id": workID, "step_id": "execution",
 		"inputs": map[string]any{
-			"task": "verify the retained change",
+			"task":    "verify the retained change",
 			"binding": map[string]any{"objective_source": "contract_premise", "work_version": 2, "contract_version": 1, "assigned_result": lane.EvidenceObligations[0]},
 			"work_context": map[string]any{
 				"source_event_frontier": 7, "required_reading": []any{}, "findings": []any{},
 				"domain_groups": []any{map[string]any{
-					"domain_id":                "domain:retained",
+					"domain_id":                 "domain:retained",
 					"required_reading_ordinals": []any{},
-					"finding_ids":              []any{},
+					"finding_ids":               []any{},
 					"domain_cards": []any{map[string]any{
 						"kind": "repository_file", "project_id": "project-1",
 						"path": "internal/store/worker_lanes.go", "commit_oid": strings.Repeat("a", 40),
@@ -220,7 +220,7 @@ func retainedJobBoundPacket(t *testing.T, workID, attemptID string, lane store.L
 		"lane_id":        lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest,
 		"work_id": workID, "step_id": "execution",
 		"inputs": map[string]any{
-			"task": "repair the retained change",
+			"task":    "repair the retained change",
 			"binding": map[string]any{"objective_source": "contract_premise", "work_version": 2, "contract_version": 1, "assigned_result": lane.EvidenceObligations[0]},
 			"worker_job": map[string]any{
 				"job_id": job.JobID, "revision": job.Revision, "digest": job.Digest,

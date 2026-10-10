@@ -56,8 +56,8 @@ func TestWorkerCompletedPayloadBindsJobToRecordedJobCapableVersion(t *testing.T)
 	t.Parallel()
 	base := WorkerCompletedPayload{AttemptID: "attempt-schema-revision", ReadbackModel: "openai/test-model", EvidenceOrigin: WorkerEvidenceLegacyUnavailable}
 	cases := []struct {
-		report   string
-		jobBound bool
+		report      string
+		jobBound    bool
 		wantRefusal bool
 	}{
 		{report: "1.0", jobBound: false},

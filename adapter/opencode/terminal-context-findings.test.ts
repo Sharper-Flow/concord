@@ -2,8 +2,7 @@ import { test, expect } from "bun:test"
 import { readFileSync } from "node:fs"
 import { contextFindingsAggregateRefusal, validateAgainstSchema } from "./dispatch"
 
-// CON-887 terminal-report content foundation. The report contract file is the
-// owned source of truth for the optional context_findings member, so this
+// The report contract file owns the optional context_findings member, so this
 // suite reads contracts/agent-lane-report.schema.json from disk and validates
 // against it directly: the bounds prove out the moment the contract changes,
 // before the generated schema embed catches up. The embedded-schema admission
@@ -57,7 +56,7 @@ test("the contract declares context_findings as an optional bounded member witho
   // field, and the report object stays closed.
   expect(schema.required).toEqual(["schema_version", "readback_model", "status", "evidence"])
   expect(schema.additionalProperties).toBe(false)
-  expect(schema.properties.schema_version.enum).toEqual(["1.0", "1.1"])
+  expect(schema.properties.schema_version.enum).toEqual(["1.0", "1.1", "2.0"])
   refuses(report({ context_findings: [finding()], unexpected: true }), "unknown sibling of context_findings")
 })
 
@@ -91,7 +90,7 @@ test("the contract closes the context_finding entry on five required fields and 
   expect(rationale["x-maxBytes"]).toBe(512)
 })
 
-test("the contract admits absent, empty, every-kind, and at-bound findings on both identities", () => {
+test("the contract admits absent, empty, every-kind, and at-bound findings on every released identity", () => {
   admits(report(), "absent findings")
   admits(report({ context_findings: [] }), "empty findings")
   admits(report({ context_findings: kinds.map((kind) => finding({ kind })) }), "every kind")
@@ -103,7 +102,7 @@ test("the contract admits absent, empty, every-kind, and at-bound findings on bo
   admits(report({ context_findings: [finding({ evidence_refs: Array.from({ length: 8 }, () => "r".repeat(256)) })] }), "eight 256-byte refs")
   admits(report({ context_findings: [finding({ domain_id: "d".repeat(256) })] }), "256-byte domain_id")
   admits(report({ context_findings: [finding({ product_wide_rationale: "r".repeat(512) })] }), "512-byte product-wide rationale")
-  for (const schema_version of ["1.0", "1.1"] as const) {
+  for (const schema_version of ["1.0", "1.1", "2.0"] as const) {
     admits(report({ schema_version, context_findings: [finding()] }), `identity ${schema_version}`)
   }
 })

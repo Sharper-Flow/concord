@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Tests for the changed-file script suite selector (CON-893 preflight).
+"""Tests for the changed-file script suite selector.
 
-The selector spawns suites with the hook-inherited Git environment cleared
-(CON-896); scripts/git_environment.py owns that namespace and is tested
+The selector spawns suites with the hook-inherited Git environment cleared;
+scripts/git_environment.py owns that namespace and is tested
 here alongside the selector boundary that uses it.
 """
 
@@ -20,7 +20,7 @@ import unittest
 
 import git_environment
 
-# CON-896: this suite builds Git repositories itself, so a hook that
+# This suite builds Git repositories itself, so a hook that
 # launched it must not keep a redirecting Git namespace in place.
 git_environment.scrub_inherited()
 
@@ -116,8 +116,8 @@ class BatteryDerivationTest(unittest.TestCase):
             )
 
     def test_battery_derivation_uses_the_real_yaml_parser(self) -> None:
-        # Four-space step indentation is valid YAML but not the historical
-        # six/eight/ten indent grammar; a real parser must still read it.
+        # Four-space step indentation is valid YAML but not a fixed indent
+        # grammar; a real parser must still read it.
         indented = (
             "jobs:\n"
             "    verify-tooling:\n"
@@ -441,7 +441,7 @@ if __name__ == "__main__":
 
 
 class GitEnvironmentTest(unittest.TestCase):
-    """The shared sanitization helper (scripts/git_environment.py, CON-896)."""
+    """The shared sanitization helper (scripts/git_environment.py)."""
 
     def _discovery_cross_check(self) -> set[str]:
         """An independent execution of Git's own namespace query."""
@@ -528,7 +528,7 @@ class GitEnvironmentTest(unittest.TestCase):
 
 
 class HookEnvironmentLeakTest(unittest.TestCase):
-    """CON-896: suite children must not inherit a hook's Git environment.
+    """Suite children must not inherit a hook's Git environment.
 
     A hook invokes the real selector runner with Git's local environment
     variables set for the outer repository. The runner executes selected

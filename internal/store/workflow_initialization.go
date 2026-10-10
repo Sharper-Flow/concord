@@ -25,7 +25,7 @@ type WorkflowInitializationRequest struct {
 // DefaultWorkflowRefForKind names the workflow a captured work item pins when
 // the capture names none. Session-prepare reads C19 continuity
 // unconditionally, so a capture pins the kind-driven default instead of
-// skipping initialization (#650). Imported work items are the one shape that
+// skipping initialization. Imported work items are the one shape that
 // holds no instance; continuity answers for them with typed absence.
 func DefaultWorkflowRefForKind(kind string) string {
 	switch kind {

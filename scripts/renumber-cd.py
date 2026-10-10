@@ -4,8 +4,8 @@
 A CD number lives in several places that must move together: the decision
 document filename, the document body, the record shard's ``id`` and ``path``,
 the coverage shard's ``id``, the record's ``sha256``, the generated aggregates,
-and every in-repository reference. Moving them by hand produced #392, a manifest
-that validated while pointing at the wrong document.
+and every in-repository reference. Moving them by hand can leave a manifest
+that validates while pointing at the wrong document.
 
 This tool moves all of them, then proves the move by refusing to finish while
 the old identifier survives anywhere in the tree.
@@ -247,7 +247,7 @@ def plan(
     )
 
     # The target must be entirely free. A partially occupied number produces a
-    # manifest that still validates, which is the failure mode in #392.
+    # manifest that still validates while pointing at the wrong document.
     if (root / RECORDS / f"{new}.json").exists() or (root / COVERAGE / f"{new}.json").exists():
         findings.append(f"{new} already has a shard; choose a free number")
     if sorted((root / DECISIONS).glob(f"{new}-*.md")):

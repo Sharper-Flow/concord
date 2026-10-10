@@ -62,8 +62,7 @@ func auditReclaimEnvelopeFixture(t *testing.T, terminal, orphans int) (*store.St
 // still report ok: every committed attempt stays reported with its outcome
 // and version, the report-only classification pages through the audit read
 // under an explicit count (CD-0185), and the delivered envelope fits the cap
-// the producer is held to. Before the bound, this pass committed its rows and
-// then returned limit_exceeded with effect_state possible.
+// the producer is held to.
 func TestAuditReclaimPageSizeExceedingEnvelopeReportsOkWithPagedReport(t *testing.T) {
 	t.Parallel()
 	const terminal, orphans = 5, 300
@@ -150,8 +149,7 @@ func TestAuditReclaimReplayReturnsSameBoundedResult(t *testing.T) {
 
 // The audit read pages the complete classification: every page carries a
 // signed cursor until the classification is exhausted, and walking the pages
-// yields each classified row exactly once (CD-0185). Before the cursor, the
-// read stopped at its limit and the remainder was unreachable.
+// yields each classified row exactly once (CD-0185).
 func TestWorktreeAuditReadPagesCompleteClassification(t *testing.T) {
 	t.Parallel()
 	const orphans = 130

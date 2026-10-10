@@ -336,8 +336,6 @@ func TestSessionRecordsExactlyOneOrchestratorIdentityEvent(t *testing.T) {
 	// is the property CD-0061 D4 requires.
 	_ = bootstrapCalls
 	_ = runs
-	// Open the temp store and assert exactly one session-orchestrator event
-	// was recorded, carrying type, version, and digest.
 	s, err := store.Open(context.Background(), dbPath)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
@@ -587,7 +585,7 @@ func defaultHostResolution() hostCommandResolution {
 	return hostCommandResolution{Command: append([]string(nil), defaultHostCommand...)}
 }
 
-// TestSessionRefusesWhenTheHostDoesNotRegisterTheHandle covers issue #430: a
+// TestSessionRefusesWhenTheHostDoesNotRegisterTheHandle: a
 // definition that resolves on disk is not proof the host will start it. The
 // registry is checked before the store is touched and before the host starts,
 // so a session that cannot run as the agent it asserts records no evidence and
@@ -690,8 +688,7 @@ var _ = time.RFC3339Nano
 // The active agent may be a definition whose frontmatter `name:` restates
 // its file stem. The host registers the definition under that name, and the
 // session must select it: selecting any other string starts the operator's
-// default agent while the assertion described the named definition
-// (issue #428's probe).
+// default agent while the assertion described the named definition.
 func TestSessionSelectsTheFrontmatterNameARenamedDefinitionRegisters(t *testing.T) {
 	home, cwd := t.TempDir(), t.TempDir()
 	for _, lane := range store.BuiltinLaneDefinitions() {

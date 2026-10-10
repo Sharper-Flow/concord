@@ -10,16 +10,15 @@ The failure this guard closes is silent rather than loud. release.parse_commit
 maps an unparseable subject to commit_type=None and bump=None, and it maps an
 unrecognised type the same way. A feature merged as "Add worker evidence", or
 as "feature: add worker evidence", therefore contributes no minor bump and no
-changelog entry, and the release still succeeds — at the wrong version. Nothing
-in CI observes the difference. `Update priorities (#61)` reached main that way.
+changelog entry, and the release still succeeds — at the wrong version.
 
 The parser is imported from scripts/release.py rather than restated here. A
 second regex would be a second vocabulary, and the two would drift; the point
 of the guard is that what CI accepts and what the release reads are the same
 grammar by construction.
 
-The type vocabulary is the one already in use on main (feat, fix, docs, test,
-refactor, ci) plus the remaining standard Conventional Commit types. It is
+The type vocabulary is the Conventional Commit set (feat, fix, docs, test,
+refactor, ci, plus every other standard Conventional Commit type). It is
 closed on purpose: release.py's header regex accepts any identifier as a type,
 so an unclosed vocabulary would let "feature:" and "fixes:" pass here and still
 bump nothing downstream.
@@ -27,7 +26,7 @@ bump nothing downstream.
 Usage:
     check-commit-title.py "feat(store): add worker evidence"
     check-commit-title.py --stdin < title.txt
-    check-commit-title.py --landed-subject "feat: add worker evidence (#123)"
+    check-commit-title.py --landed-subject "feat: add worker evidence 123"
 """
 import os
 import sys
@@ -58,9 +57,9 @@ NON_RELEASING_TYPES = {
 
 ALLOWED_TYPES = set(RELEASING_TYPES) | NON_RELEASING_TYPES
 
-# GitHub appends " (#123)" to the squashed subject, so the title checked here
-# is shorter than the subject that lands on main. Reserve room for a five-digit
-# reference rather than measuring a length that is not the one git will store.
+# GitHub appends a parenthesized reference to the squashed subject, so the
+# title checked here is shorter than the subject that lands on main. Reserve
+# room for a five-digit reference rather than a length git will not store.
 MAX_SUBJECT_BYTES = 100
 SQUASH_REFERENCE_RESERVE = len(" (#99999)")
 MAX_TITLE_BYTES = MAX_SUBJECT_BYTES - SQUASH_REFERENCE_RESERVE

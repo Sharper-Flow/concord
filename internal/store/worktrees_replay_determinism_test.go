@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-// CD-0212 D4 replay-determinism coverage from the CON-829 salvage review.
+// CD-0212 D4 replay-determinism coverage.
 // The durable per-ref outcome rows are fold projections of the settlement
 // event log: a live settlement may never mutate a row's phase, tip, reason,
 // or recorded time under an old historical event, because RebuildFromLog

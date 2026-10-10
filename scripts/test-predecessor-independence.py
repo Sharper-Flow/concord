@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Tests for scripts/check-predecessor-independence.py.
 
-The acceptance bar for issue #318: the check is proven to FAIL on each
+Acceptance bar: the check is proven to FAIL on each
 prohibited shape, not assumed to. Every rejected class is planted in a
 sandbox repository copy and must produce a finding; the clean baseline and
 the permitted-citation boundary are asserted on the real repository.

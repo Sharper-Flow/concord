@@ -11,9 +11,8 @@ import (
 //
 // A terminal lifecycle closes the workflow instance in the same fold that ends
 // the item, and the workflow action preflight then refuses every workflow action
-// against that instance. The pin built its intents from the current step alone,
-// so it kept advertising the step's actions after the item ended. A caller that
-// trusted the pin was sent at a route the core had already closed.
+// against that instance. The pin derives its intents from the current step,
+// so it advertises no step action after the item ends.
 
 // TestTerminalWorkOffersNoWorkflowIntent is the reproduction. It reads the pin
 // before and after the item ends, and holds the pin to the same answer the

@@ -3,22 +3,47 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/base64"
+	"encoding/json"
+	"sort"
 )
 
-func ReadResearchPack(ctx context.Context, s *Store, packID string, limit int) (ResearchPack, error) {
+func (s *Store) ReadResearchPack(ctx context.Context, req ResearchReadRequest) (ResearchPack, error) {
 	if s == nil || s.db == nil {
 		return ResearchPack{}, researchUnavailable("store is not open", nil)
 	}
-	if packID == "" {
-		return ResearchPack{}, researchInvalid("pack_id is required")
+	if req.PackID == "" || req.Revision < 0 || len(req.FindingIDs) > 32 || len(req.FindingIDs) > 0 && req.Revision == 0 {
+		return ResearchPack{}, researchInvalid("pack_id and an exact revision for selected findings are required")
 	}
-	if limit <= 0 || limit > 1000 {
-		limit = 1000
+	ids := append([]string(nil), req.FindingIDs...)
+	sort.Strings(ids)
+	for i, id := range ids {
+		if !ValidReference(id) || i > 0 && id == ids[i-1] {
+			return ResearchPack{}, researchInvalid("finding_ids must contain distinct valid references")
+		}
 	}
-	return readResearchPack(ctx, s, packID, limit)
-}
-func GetResearchPack(ctx context.Context, s *Store, packID string, limit int) (ResearchPack, error) {
-	return ReadResearchPack(ctx, s, packID, limit)
+	req.FindingIDs = ids
+	if req.Limit <= 0 || req.Limit > 1000 {
+		req.Limit = 1000
+	}
+	tx, err := beginReadTx(ctx, s.db)
+	if err != nil {
+		return ResearchPack{}, researchUnavailable("cannot begin research read", err)
+	}
+	defer tx.Rollback()
+	var pack ResearchPack
+	if req.Revision == 0 {
+		pack, err = readResearchPackTx(ctx, tx, req.PackID, req.Limit)
+	} else {
+		pack, err = readResearchSelectionTx(ctx, tx, req)
+	}
+	if err != nil {
+		return ResearchPack{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return ResearchPack{}, researchUnavailable("cannot commit research read", err)
+	}
+	return pack, nil
 }
 
 func (s *Store) ResearchFreshness(ctx context.Context, packID string) (ResearchFreshnessResult, error) {
@@ -37,19 +62,7 @@ func ResearchFreshnessForPack(ctx context.Context, s *Store, packID string) (Res
 	}
 	out.Status = ResearchFreshness(freshness)
 	var id, status string
-	err := s.db.QueryRowContext(ctx, `SELECT consumer_work_id, status FROM (
-		SELECT c.consumer_work_id,
-			CASE
-				WHEN r.freshness IS NULL THEN 'unknown'
-				WHEN r.freshness='stale' THEN 'stale'
-				WHEN r.freshness='unknown' THEN 'unknown'
-				ELSE 'current'
-			END AS status
-		FROM active_research_consumers c
-		LEFT JOIN active_research_revisions r ON r.pack_id=c.pack_id AND r.revision=c.revision
-		JOIN work_items w ON w.id=c.consumer_work_id
-		WHERE c.pack_id=? AND c.required=1 AND w.lifecycle NOT IN ('completed','cancelled','superseded')
-	) WHERE status <> 'current' ORDER BY consumer_work_id LIMIT 1`, packID).Scan(&id, &status)
+	err := s.db.QueryRowContext(ctx, `SELECT consumer_work_id,status FROM (`+researchConsumerFreshnessSQL+`) WHERE pack_id=? AND required=1 AND status<>'current' ORDER BY consumer_work_id LIMIT 1`, packID).Scan(&id, &status)
 	if err == sql.ErrNoRows {
 		return out, nil
 	}
@@ -61,52 +74,76 @@ func ResearchFreshnessForPack(ctx context.Context, s *Store, packID string) (Res
 	return out, nil
 }
 
-// ResearchPacksByOwner lists the active packs owned by one work item, newest
-// update first, bounded by limit. It backs the agent read surface where a
-// consumer resolves a pack by its owning work item.
-func ResearchPacksByOwner(ctx context.Context, s *Store, ownerWorkID string, limit int) ([]ResearchPack, error) {
+// ResearchPacksByOwner reads only descriptors, ordered by updated_at DESC and
+// pack_id ASC. The continuation belongs to this owner and that keyset.
+func (s *Store) ResearchPacksByOwner(ctx context.Context, ownerWorkID string, limit int, cursor string) (ResearchPackPage, error) {
+	out := ResearchPackPage{Packs: []ResearchPackDescriptor{}}
 	if s == nil || s.db == nil {
-		return nil, researchUnavailable("store is not open", nil)
+		return out, researchUnavailable("store is not open", nil)
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT pack_id FROM active_research_packs WHERE owner_work_id=? ORDER BY updated_at DESC, pack_id LIMIT ?`, ownerWorkID, limit)
-	if err != nil {
-		return nil, researchUnavailable("cannot list research packs by owner", err)
+	if ownerWorkID == "" {
+		return out, researchInvalid("owner work id is required")
 	}
-	var ids []string
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			rows.Close()
-			return nil, researchUnavailable("cannot decode research pack id", err)
+	if limit <= 0 || limit > 1000 {
+		limit = 1000
+	}
+	var after struct {
+		Owner     string `json:"owner"`
+		UpdatedAt string `json:"updated_at"`
+		PackID    string `json:"pack_id"`
+	}
+	if cursor != "" {
+		data, err := base64.RawURLEncoding.DecodeString(cursor)
+		if err != nil || decodeCursorFields(data, &after) != nil || after.Owner != ownerWorkID || after.UpdatedAt == "" || after.PackID == "" {
+			return out, newFailure(KindInvalidCursor, "research_read", "research owner cursor does not match the query", false, "restart the owner query without the cursor")
 		}
-		ids = append(ids, id)
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT pack_id,owner_work_id,current_revision,freshness,expected_version,created_at,updated_at FROM active_research_packs WHERE owner_work_id=? AND (?='' OR updated_at<? OR (updated_at=? AND pack_id>?)) ORDER BY updated_at DESC, pack_id ASC LIMIT ?`, ownerWorkID, cursor, after.UpdatedAt, after.UpdatedAt, after.PackID, limit+1)
+	if err != nil {
+		return out, researchUnavailable("cannot list research pack descriptors", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var p ResearchPackDescriptor
+		if err := rows.Scan(&p.PackID, &p.OwnerWorkID, &p.CurrentRevision, &p.Freshness, &p.ExpectedVersion, &p.CreatedAt, &p.UpdatedAt); err != nil {
+			return out, researchUnavailable("cannot decode research descriptor", err)
+		}
+		out.Packs = append(out.Packs, p)
 	}
 	if err := rows.Err(); err != nil {
-		rows.Close()
-		return nil, researchUnavailable("cannot read research pack ids", err)
+		return out, researchUnavailable("cannot read research descriptors", err)
 	}
-	rows.Close()
-	packs := make([]ResearchPack, 0, len(ids))
-	for _, id := range ids {
-		pack, err := readResearchPack(ctx, s, id, limit)
+	if len(out.Packs) > limit {
+		out.Packs = out.Packs[:limit]
+		last := out.Packs[limit-1]
+		after.Owner, after.UpdatedAt, after.PackID = ownerWorkID, last.UpdatedAt, last.PackID
+		data, err := json.Marshal(after)
 		if err != nil {
-			return nil, err
+			return out, researchUnavailable("cannot encode research continuation", err)
 		}
-		packs = append(packs, pack)
+		next := base64.RawURLEncoding.EncodeToString(data)
+		out.NextCursor = &next
 	}
-	return packs, nil
+	return out, nil
 }
 
 func (s *Store) RequiredResearchFreshness(ctx context.Context, packID, consumerWorkID string) (ResearchFreshness, error) {
 	return requiredResearchFreshness(ctx, s.db, packID, consumerWorkID)
 }
 
+const researchConsumerFreshnessSQL = `SELECT c.pack_id,c.consumer_work_id,c.required,
+	CASE WHEN c.required=0 THEN 'current'
+		WHEN r.freshness IS NULL THEN 'unknown'
+		ELSE r.freshness END AS status
+	FROM active_research_consumers c
+	LEFT JOIN active_research_revisions r ON r.pack_id=c.pack_id AND r.revision=c.revision
+	JOIN work_items w ON w.id=c.consumer_work_id
+	WHERE w.lifecycle NOT IN ('completed','cancelled','superseded')`
+
 func requiredResearchFreshness(ctx context.Context, q queryer, packID, consumerWorkID string) (ResearchFreshness, error) {
 	var status string
-	// The freshness verdict is the pinned revision's, not the pack summary
-	// (issue #122): pack-level churn must not clear or poison a consumer's
-	// check for content it never changed.
-	err := q.QueryRowContext(ctx, `SELECT CASE WHEN c.required=0 THEN 'current' WHEN r.freshness IS NULL THEN 'unknown' WHEN r.freshness='stale' THEN 'stale' WHEN r.freshness='unknown' THEN 'unknown' ELSE 'current' END FROM active_research_consumers c LEFT JOIN active_research_revisions r ON r.pack_id=c.pack_id AND r.revision=c.revision JOIN work_items w ON w.id=c.consumer_work_id WHERE c.pack_id=? AND c.consumer_work_id=? AND w.lifecycle NOT IN ('completed','cancelled','superseded')`, packID, consumerWorkID).Scan(&status)
+	// Required freshness belongs to the pinned revision, not the pack summary.
+	err := q.QueryRowContext(ctx, `SELECT status FROM (`+researchConsumerFreshnessSQL+`) WHERE pack_id=? AND consumer_work_id=?`, packID, consumerWorkID).Scan(&status)
 	if err == sql.ErrNoRows {
 		return ResearchUnknown, researchNotFound("active research consumer binding does not exist")
 	}
@@ -118,7 +155,7 @@ func requiredResearchFreshness(ctx context.Context, q queryer, packID, consumerW
 
 func readResearchPackRow(ctx context.Context, q interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
-}, packID string, _ int) (ResearchPack, error) {
+}, packID string) (ResearchPack, error) {
 	var p ResearchPack
 	err := q.QueryRowContext(ctx, `SELECT pack_id,owner_work_id,current_revision,freshness,expected_version,created_at,updated_at FROM active_research_packs WHERE pack_id=?`, packID).Scan(&p.PackID, &p.OwnerWorkID, &p.CurrentRevision, &p.Freshness, &p.ExpectedVersion, &p.CreatedAt, &p.UpdatedAt)
 	if err == sql.ErrNoRows {
@@ -131,11 +168,11 @@ func readResearchPackRow(ctx context.Context, q interface {
 }
 
 func readResearchPackTx(ctx context.Context, tx *sql.Tx, packID string, limit int) (ResearchPack, error) {
-	p, err := readResearchPackRow(ctx, tx, packID, limit)
+	p, err := readResearchPackRow(ctx, tx, packID)
 	if err != nil {
 		return p, err
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT revision,question,scope_in_json,scope_out_json,done_when_json,method,created_at,freshness FROM active_research_revisions WHERE pack_id=? ORDER BY revision LIMIT ?`, packID, limit)
+	rows, err := tx.QueryContext(ctx, `SELECT revision,question,scope_in_json,scope_out_json,done_when_json,method,created_at,freshness FROM active_research_revisions WHERE pack_id=? ORDER BY revision LIMIT ?`, packID, limit+1)
 	if err != nil {
 		return p, researchUnavailable("cannot read research revisions", err)
 	}
@@ -154,6 +191,9 @@ func readResearchPackTx(ctx context.Context, tx *sql.Tx, packID string, limit in
 		return p, researchUnavailable("cannot read research revisions", err)
 	}
 	_ = rows.Close()
+	if len(revisions) > limit {
+		return ResearchPack{}, researchReadBounded("research revisions exceed the bounded read limit")
+	}
 	for _, r := range revisions {
 		r.Findings, err = readFindingsTx(ctx, tx, packID, r.Revision, limit)
 		if err != nil {
@@ -165,7 +205,7 @@ func readResearchPackTx(ctx context.Context, tx *sql.Tx, packID string, limit in
 		}
 		p.Revisions = append(p.Revisions, r)
 	}
-	rows, err = tx.QueryContext(ctx, `SELECT pack_id,revision,consumer_work_id,use_role,required,accepted_at FROM active_research_consumers WHERE pack_id=? ORDER BY revision,consumer_work_id LIMIT ?`, packID, limit)
+	rows, err = tx.QueryContext(ctx, `SELECT pack_id,revision,consumer_work_id,use_role,required,accepted_at FROM active_research_consumers WHERE pack_id=? ORDER BY revision,consumer_work_id LIMIT ?`, packID, limit+1)
 	if err != nil {
 		return p, researchUnavailable("cannot read research consumers", err)
 	}
@@ -184,36 +224,105 @@ func readResearchPackTx(ctx context.Context, tx *sql.Tx, packID string, limit in
 		return p, researchUnavailable("cannot read research consumers", err)
 	}
 	_ = rows.Close()
+	if len(p.Consumers) > limit {
+		return ResearchPack{}, researchReadBounded("research consumers exceed the bounded read limit")
+	}
 	return p, nil
 }
 
-func readResearchPack(ctx context.Context, s *Store, packID string, limit int) (ResearchPack, error) {
-	tx, err := beginReadTx(ctx, s.db)
+func readRevisionRowTx(ctx context.Context, tx *sql.Tx, pack string, revision int64) (ResearchRevision, error) {
+	r := ResearchRevision{PackID: pack, Revision: revision}
+	err := tx.QueryRowContext(ctx, `SELECT question,scope_in_json,scope_out_json,done_when_json,method,created_at,freshness FROM active_research_revisions WHERE pack_id=? AND revision=?`, pack, revision).Scan(&r.Question, &r.ScopeIn, &r.ScopeOut, &r.DoneWhen, &r.Method, &r.CreatedAt, &r.Freshness)
+	if err == sql.ErrNoRows {
+		return r, researchNotFound("research revision does not exist")
+	}
 	if err != nil {
-		return ResearchPack{}, researchUnavailable("cannot begin research read", err)
+		return r, researchUnavailable("cannot read research revision", err)
 	}
-	pack, err := readResearchPackTx(ctx, tx, packID, limit)
+	return r, nil
+}
+
+func readResearchSelectionTx(ctx context.Context, tx *sql.Tx, req ResearchReadRequest) (ResearchPack, error) {
+	p, err := readResearchPackRow(ctx, tx, req.PackID)
 	if err != nil {
-		_ = tx.Rollback()
-		return pack, err
+		return ResearchPack{}, err
 	}
-	if err := tx.Commit(); err != nil {
-		return ResearchPack{}, researchUnavailable("cannot commit research read", err)
+	r, err := readRevisionRowTx(ctx, tx, req.PackID, req.Revision)
+	if err != nil {
+		return ResearchPack{}, err
 	}
-	return pack, nil
+	if len(req.FindingIDs) == 0 {
+		r.Findings, err = readFindingsTx(ctx, tx, req.PackID, req.Revision, req.Limit)
+		if err == nil {
+			r.Sources, err = readSourcesTx(ctx, tx, req.PackID, req.Revision, req.Limit)
+		}
+	} else {
+		if len(req.FindingIDs) > req.Limit {
+			return ResearchPack{}, researchReadBounded("selected findings exceed the bounded read limit")
+		}
+		sourceIDs := map[string]bool{}
+		linkCount := 0
+		for _, id := range req.FindingIDs {
+			f, readErr := readFindingTx(ctx, tx, req.PackID, req.Revision, id)
+			if readErr != nil {
+				return ResearchPack{}, readErr
+			}
+			rows, readErr := tx.QueryContext(ctx, `SELECT source_id FROM active_research_finding_sources WHERE pack_id=? AND revision=? AND finding_id=? ORDER BY source_id LIMIT ?`, req.PackID, req.Revision, id, req.Limit-linkCount+1)
+			if readErr != nil {
+				return ResearchPack{}, researchUnavailable("cannot read selected provenance", readErr)
+			}
+			for rows.Next() {
+				var sourceID string
+				if err := rows.Scan(&sourceID); err != nil {
+					rows.Close()
+					return ResearchPack{}, researchUnavailable("cannot decode selected provenance", err)
+				}
+				linkCount++
+				if linkCount > req.Limit {
+					rows.Close()
+					return ResearchPack{}, researchReadBounded("selected finding-source links exceed the bounded read limit")
+				}
+				f.SourceIDs = append(f.SourceIDs, sourceID)
+				sourceIDs[sourceID] = true
+			}
+			readErr = rows.Err()
+			rows.Close()
+			if readErr != nil {
+				return ResearchPack{}, researchUnavailable("cannot read selected provenance", readErr)
+			}
+			r.Findings = append(r.Findings, f)
+		}
+		ids := make([]string, 0, len(sourceIDs))
+		for id := range sourceIDs {
+			ids = append(ids, id)
+		}
+		sort.Strings(ids)
+		for _, id := range ids {
+			source, readErr := readSourceTx(ctx, tx, req.PackID, req.Revision, id)
+			if readErr != nil {
+				return ResearchPack{}, readErr
+			}
+			r.Sources = append(r.Sources, source)
+		}
+	}
+	if err != nil {
+		return ResearchPack{}, err
+	}
+	p.Revisions = []ResearchRevision{r}
+	return p, nil
 }
 
 func readRevisionTx(ctx context.Context, tx *sql.Tx, pack string, revision int64) (ResearchRevision, error) {
-	p, err := readResearchPackTx(ctx, tx, pack, 1000)
+	r, err := readRevisionRowTx(ctx, tx, pack, revision)
 	if err != nil {
-		return ResearchRevision{}, err
+		return r, err
 	}
-	for _, r := range p.Revisions {
-		if r.Revision == revision {
-			return r, nil
-		}
+	r.Findings, err = readFindingsTx(ctx, tx, pack, revision, 1000)
+	if err != nil {
+		return r, err
 	}
-	return ResearchRevision{}, researchNotFound("research revision does not exist")
+	r.Sources, err = readSourcesTx(ctx, tx, pack, revision, 1000)
+	return r, err
 }
 
 func readFindingTx(ctx context.Context, tx *sql.Tx, pack string, revision int64, id string) (ResearchFinding, error) {

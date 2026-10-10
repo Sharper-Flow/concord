@@ -64,8 +64,11 @@ func TestReadEntryPointsWithWriterNeighbor(t *testing.T) {
 			_, err := WorkflowFailedWorkerRetryBinding(ctx, s, BuiltinWorkflowRegistry(), "neighbor-work")
 			return err
 		}},
-		{"ReadResearchPack", func() error { _, err := ReadResearchPack(ctx, s, pack.PackID, 100); return err }},
-		{"ResearchPacksByOwner", func() error { _, err := ResearchPacksByOwner(ctx, s, "neighbor-research", 100); return err }},
+		{"ReadResearchPack", func() error {
+			_, err := s.ReadResearchPack(ctx, ResearchReadRequest{PackID: pack.PackID, Limit: 100})
+			return err
+		}},
+		{"ResearchPacksByOwner", func() error { _, err := s.ResearchPacksByOwner(ctx, "neighbor-research", 100, ""); return err }},
 		{"ResearchFreshnessForPack", func() error { _, err := ResearchFreshnessForPack(ctx, s, pack.PackID); return err }},
 		{"readAppliedFromDB", func() error { _, _, err := readAppliedFromDB(ctx, s.db, s.Path()); return err }},
 		{"ReconstructSubjectAt", func() error {

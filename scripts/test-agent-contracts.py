@@ -66,6 +66,41 @@ class ManifestTamperTests(unittest.TestCase):
         value=copy.deepcopy(manifest); value["tools"][0]["operations"].append("concord_product_view.missing")
         with self.assertRaises(ValueError): generator.validate(value)
 
+class ResultRequirednessTests(unittest.TestCase):
+    def validate_result(self, result):
+        payload = copy.deepcopy(payload_schema)
+        payload["$defs"]["research_read_result"] = result
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "payload.json"
+            path.write_text(json.dumps(payload))
+            with unittest.mock.patch.object(generator, "PAYLOAD", path):
+                return generator.validate(manifest)
+
+    def test_versioned_branches_without_a_common_field_are_required(self):
+        self.validate_result(payload_schema["$defs"]["research_read_result"])
+
+    def test_one_branch_without_required_fields_is_refused(self):
+        result = copy.deepcopy(payload_schema["$defs"]["research_read_result"])
+        result["oneOf"][1].pop("required")
+        with self.assertRaisesRegex(ValueError, "result schema lacks required fields"):
+            self.validate_result(result)
+
+    def test_root_without_required_fields_or_branches_is_refused(self):
+        result = copy.deepcopy(payload_schema["$defs"]["research_read_result"])
+        result.pop("oneOf")
+        with self.assertRaisesRegex(ValueError, "result schema lacks required fields"):
+            self.validate_result(result)
+
+    def test_branch_reference_must_resolve_to_a_closed_required_object(self):
+        for branch in [{}, {"$ref": "#/$defs/missing"}, {"type": "string"},
+                       {"type": "object", "required": ["id"]},
+                       {"type": "object", "additionalProperties": False}]:
+            with self.subTest(branch=branch):
+                self.assertFalse(generator.union_result_branch_requires(branch, payload_schema["$defs"]))
+        self.assertTrue(generator.union_result_branch_requires(
+            {"$ref": "#/$defs/research_pack"}, payload_schema["$defs"]))
+
+
 class EvidenceFixedBudgetCeilingTests(unittest.TestCase):
     """CD-0038 D2: the surface ceiling is uniform except where accepted
     evidence fixes a different value. The generator admits only the

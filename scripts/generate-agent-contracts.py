@@ -1353,6 +1353,19 @@ def require_mutation_approval_property(operation: dict, input_schema: dict) -> N
     if approval_schema != {"$ref": "#/$defs/approval"} or "approval" in input_schema.get("required", []):
         fail(f"mutation must expose an optional typed approval property: {operation['id']}")
 
+
+def union_result_branch_requires(branch: object, defs: dict) -> bool:
+    """Check requiredness on a closed object branch, resolving one local ref."""
+    target = branch
+    if isinstance(branch, dict):
+        ref = branch.get("$ref")
+        if isinstance(ref, str) and ref.startswith("#/$defs/"):
+            target = defs.get(ref.split("/")[-1], {})
+    return (isinstance(target, dict) and target.get("type") == "object"
+            and target.get("additionalProperties") is False
+            and isinstance(target.get("required"), list) and bool(target["required"]))
+
+
 def validate(manifest: dict) -> str:
     expected_top = {"$schema", "schema_version", "surface", "envelope", "tools", "operations", "schemas", "capabilities", "consequences", "bounds", "generation", "payload_digest", "digest"}
     if set(manifest) != expected_top:
@@ -1440,7 +1453,12 @@ def validate(manifest: dict) -> str:
         if op["kind"] == "mutation" and not has_idempotency: fail(f"mutation lacks idempotency identity: {op['id']}")
         if op["kind"] == "mutation":
             require_mutation_approval_property(op, input_schema)
-        if not result_schema.get("required"): fail(f"result schema lacks required fields: {op['id']}")
+        if not result_schema.get("required"):
+            # Disjoint result shapes can have no common required root field.
+            # Each closed union branch must still require its own identity.
+            branches = result_schema.get("oneOf", [])
+            if not isinstance(branches, list) or not branches or any(not union_result_branch_requires(branch, defs) for branch in branches):
+                fail(f"result schema lacks required fields: {op['id']}")
     unsigned = dict(manifest); unsigned.pop("digest", None)
     return "sha256:" + hashlib.sha256(canonical(unsigned)).hexdigest()
 

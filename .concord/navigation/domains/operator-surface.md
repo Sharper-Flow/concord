@@ -7,7 +7,7 @@ File accountability does not change a document's law home or a handler's semanti
 ## Responsibility
 Owns the human-facing plane: the terminal launcher, the CLI verb surface and its operator diagnostics, installation and release packaging, and the navigation path an operator uses to reach Product state.
 
-Mapped files: 130; tests: 58; unresolved candidates: 0.
+Mapped files: 131; tests: 59; unresolved candidates: 0.
 Candidate counts overlap when a file has several candidates; no candidate is an assigned owner.
 
 ## Code and tests
@@ -61,7 +61,7 @@ Bindings and interpretations are advisory joins; navigation does not prove dispa
 - agent operations bound: 5 (`concord_product_view.blocked_sessions`, `concord_product_view.portfolio`, `concord_product_view.resolve`, …)
 - workflow actions bound: 0
 - Interpretation `depends_on` -> `durable-authority` (advisory, not an import allowlist).
-- Observed package imports: 43 distinct paths; package-level only; intra-package edges unmeasured; no symbol graph or execution permission.
+- Observed package imports: 44 distinct paths; package-level only; intra-package edges unmeasured; no symbol graph or execution permission.
 - Observed package edge via `github.com/sharper-flow/concord/internal/agent` -> `agent-surface` (advisory).
 - Observed package edge via `github.com/sharper-flow/concord/internal/gittest` -> `repository-verification` (advisory).
 - Observed package edge via `github.com/sharper-flow/concord/internal/hostlease` -> `durable-authority` (advisory).

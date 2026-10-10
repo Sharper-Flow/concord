@@ -146,7 +146,7 @@ func domainRelationTupleKey(value WorkflowDomainRelationTuple) string {
 // about to take, not the empty one it holds while it waits. Which footprints
 // count as live claims is decided where peers are enumerated (CD-0144, as
 // amended by CD-0183).
-func readWorkflowOverlapFootprintTx(ctx context.Context, tx *sql.Tx, workID string) (workflowOverlapFootprint, error) {
+func readWorkflowOverlapFootprintTx(ctx context.Context, q queryer, workID string) (workflowOverlapFootprint, error) {
 	var footprint workflowOverlapFootprint
 	footprint.WorkID = workID
 	// A footprint is the Domain claim one approved contract carries. An item
@@ -158,7 +158,7 @@ func readWorkflowOverlapFootprintTx(ctx context.Context, tx *sql.Tx, workID stri
 	// This read runs for the subject and for every peer. Refusing here on an
 	// ambiguous peer would let one unrepaired item block every claim in the
 	// Product, including the claim its own operator recovery needs.
-	activeVersions, activeErr := activeWorkflowContractVersions(ctx, tx, workID)
+	activeVersions, activeErr := activeWorkflowContractVersions(ctx, q, workID)
 	if activeErr != nil {
 		return footprint, activeErr
 	}
@@ -166,7 +166,7 @@ func readWorkflowOverlapFootprintTx(ctx context.Context, tx *sql.Tx, workID stri
 		return footprint, nil
 	}
 	activeVersion := activeVersions[0]
-	err := tx.QueryRowContext(ctx, `
+	err := q.QueryRowContext(ctx, `
 		SELECT b.product_id,b.domain_registry_content_hash,c.contract_version
 		FROM workflow_contracts c
 		JOIN workflow_architecture_bindings b ON b.work_id=c.work_id AND b.contract_version=c.contract_version
@@ -180,22 +180,22 @@ func readWorkflowOverlapFootprintTx(ctx context.Context, tx *sql.Tx, workID stri
 	if err != nil {
 		return footprint, wrapFailure(KindUnavailable, "workflow_domain_overlap", "cannot read active workflow Domain footprint", true, "retry once the workflow projection is readable", err)
 	}
-	if err := readOverlapStringListTx(ctx, tx, `SELECT domain_id FROM workflow_contract_affected_domains WHERE work_id=? AND contract_version=? ORDER BY domain_id`, &footprint.AffectedDomains, workID, footprint.ContractVersion); err != nil {
+	if err := readOverlapStringListTx(ctx, q, `SELECT domain_id FROM workflow_contract_affected_domains WHERE work_id=? AND contract_version=? ORDER BY domain_id`, &footprint.AffectedDomains, workID, footprint.ContractVersion); err != nil {
 		return footprint, err
 	}
-	if err := readOverlapStringListTx(ctx, tx, `SELECT law_id FROM workflow_contract_law_additions WHERE work_id=? AND contract_version=? ORDER BY law_id`, &footprint.LawWrites, workID, footprint.ContractVersion); err != nil {
+	if err := readOverlapStringListTx(ctx, q, `SELECT law_id FROM workflow_contract_law_additions WHERE work_id=? AND contract_version=? ORDER BY law_id`, &footprint.LawWrites, workID, footprint.ContractVersion); err != nil {
 		return footprint, err
 	}
 	var modifications []string
-	if err := readOverlapStringListTx(ctx, tx, `SELECT law_id FROM workflow_contract_law_modifications WHERE work_id=? AND contract_version=? ORDER BY law_id`, &modifications, workID, footprint.ContractVersion); err != nil {
+	if err := readOverlapStringListTx(ctx, q, `SELECT law_id FROM workflow_contract_law_modifications WHERE work_id=? AND contract_version=? ORDER BY law_id`, &modifications, workID, footprint.ContractVersion); err != nil {
 		return footprint, err
 	}
 	footprint.LawWrites = append(footprint.LawWrites, modifications...)
 	footprint.LawWrites = sortedStrings(uniqueStringsStable(footprint.LawWrites))
-	if err := readOverlapStringListTx(ctx, tx, `SELECT domain_id FROM workflow_contract_domain_modifications WHERE work_id=? AND contract_version=? ORDER BY domain_id`, &footprint.DomainModifications, workID, footprint.ContractVersion); err != nil {
+	if err := readOverlapStringListTx(ctx, q, `SELECT domain_id FROM workflow_contract_domain_modifications WHERE work_id=? AND contract_version=? ORDER BY domain_id`, &footprint.DomainModifications, workID, footprint.ContractVersion); err != nil {
 		return footprint, err
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT source_domain_id,kind,target_domain_id FROM workflow_contract_domain_relation_modifications WHERE work_id=? AND contract_version=? ORDER BY source_domain_id,kind,target_domain_id`, workID, footprint.ContractVersion)
+	rows, err := q.QueryContext(ctx, `SELECT source_domain_id,kind,target_domain_id FROM workflow_contract_domain_relation_modifications WHERE work_id=? AND contract_version=? ORDER BY source_domain_id,kind,target_domain_id`, workID, footprint.ContractVersion)
 	if err != nil {
 		return footprint, wrapFailure(KindUnavailable, "workflow_domain_overlap", "cannot read Domain relation footprint", true, "retry once the workflow projection is readable", err)
 	}
@@ -221,12 +221,12 @@ func readWorkflowOverlapFootprintTx(ctx context.Context, tx *sql.Tx, workID stri
 // execution-start fact the fold that begins an external-effect step sets. An
 // in_progress item that has not started execution claims nothing and blocks
 // nobody.
-func readWorkflowDomainOverlapCandidatesTx(ctx context.Context, tx *sql.Tx, workID string) (workflowOverlapFootprint, []workflowOverlapFootprint, error) {
-	self, err := readWorkflowOverlapFootprintTx(ctx, tx, workID)
+func readWorkflowDomainOverlapCandidatesTx(ctx context.Context, q queryer, workID string) (workflowOverlapFootprint, []workflowOverlapFootprint, error) {
+	self, err := readWorkflowOverlapFootprintTx(ctx, q, workID)
 	if err != nil || self.ProductID == "" {
 		return self, []workflowOverlapFootprint{}, err
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT DISTINCT c.work_id FROM workflow_contracts c JOIN workflow_architecture_bindings b ON b.work_id=c.work_id AND b.contract_version=c.contract_version JOIN workflow_instances i ON i.work_id=c.work_id JOIN work_items w ON w.id=c.work_id WHERE c.superseded_by IS NULL AND i.execution_started_at IS NOT NULL AND w.lifecycle NOT IN ('completed','cancelled','superseded') AND b.product_id=? AND c.work_id<>? ORDER BY c.work_id`, self.ProductID, workID)
+	rows, err := q.QueryContext(ctx, `SELECT DISTINCT c.work_id FROM workflow_contracts c JOIN workflow_architecture_bindings b ON b.work_id=c.work_id AND b.contract_version=c.contract_version JOIN workflow_instances i ON i.work_id=c.work_id JOIN work_items w ON w.id=c.work_id WHERE c.superseded_by IS NULL AND i.execution_started_at IS NOT NULL AND w.lifecycle NOT IN ('completed','cancelled','superseded') AND b.product_id=? AND c.work_id<>? ORDER BY c.work_id`, self.ProductID, workID)
 	if err != nil {
 		return self, nil, wrapFailure(KindUnavailable, "workflow_domain_overlap", "cannot enumerate active Product-changing workflows", true, "retry once the workflow projection is readable", err)
 	}
@@ -247,7 +247,7 @@ func readWorkflowDomainOverlapCandidatesTx(ctx context.Context, tx *sql.Tx, work
 	}
 	others := []workflowOverlapFootprint{}
 	for _, otherID := range otherIDs {
-		other, err := readWorkflowOverlapFootprintTx(ctx, tx, otherID)
+		other, err := readWorkflowOverlapFootprintTx(ctx, q, otherID)
 		if err != nil {
 			return self, nil, err
 		}
@@ -280,8 +280,8 @@ func readWorkflowUnresolvedDomainOverlapsTx(ctx context.Context, tx *sql.Tx, wor
 	return failure.Overlaps, nil
 }
 
-func readOverlapStringListTx(ctx context.Context, tx *sql.Tx, query string, target *[]string, args ...any) error {
-	rows, err := tx.QueryContext(ctx, query, args...)
+func readOverlapStringListTx(ctx context.Context, q queryer, query string, target *[]string, args ...any) error {
+	rows, err := q.QueryContext(ctx, query, args...)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "workflow_domain_overlap", "cannot read workflow footprint", true, "retry once the workflow projection is readable", err)
 	}
@@ -299,9 +299,9 @@ func readOverlapStringListTx(ctx context.Context, tx *sql.Tx, query string, targ
 	return nil
 }
 
-func currentWorkflowOverlapResolutionTx(ctx context.Context, tx *sql.Tx, overlap WorkflowDomainOverlap) (string, string, error) {
+func currentWorkflowOverlapResolutionTx(ctx context.Context, q queryer, overlap WorkflowDomainOverlap) (string, string, error) {
 	var state, kind string
-	err := tx.QueryRowContext(ctx, `SELECT CASE WHEN resolution_kind IN ('depends_on','blocks') THEN 'sequenced' ELSE 'current' END,resolution_kind FROM workflow_overlap_resolutions WHERE product_id=? AND from_work_id=? AND to_work_id=? AND from_contract_version=? AND to_contract_version=? AND invalidated_seq IS NULL ORDER BY event_seq DESC LIMIT 1`, overlap.ProductID, overlap.FromWorkID, overlap.ToWorkID, overlap.FromContractVersion, overlap.ToContractVersion).Scan(&state, &kind)
+	err := q.QueryRowContext(ctx, `SELECT CASE WHEN resolution_kind IN ('depends_on','blocks') THEN 'sequenced' ELSE 'current' END,resolution_kind FROM workflow_overlap_resolutions WHERE product_id=? AND from_work_id=? AND to_work_id=? AND from_contract_version=? AND to_contract_version=? AND invalidated_seq IS NULL ORDER BY event_seq DESC LIMIT 1`, overlap.ProductID, overlap.FromWorkID, overlap.ToWorkID, overlap.FromContractVersion, overlap.ToContractVersion).Scan(&state, &kind)
 	if err == nil {
 		return state, kind, nil
 	}
@@ -311,7 +311,7 @@ func currentWorkflowOverlapResolutionTx(ctx context.Context, tx *sql.Tx, overlap
 	// Directed sequence resolutions are stored in their operator-supplied
 	// direction. Read the reverse orientation as the equivalent canonical kind
 	// for the pairwise check.
-	err = tx.QueryRowContext(ctx, `SELECT CASE WHEN resolution_kind IN ('depends_on','blocks') THEN 'sequenced' ELSE 'current' END,resolution_kind FROM workflow_overlap_resolutions WHERE product_id=? AND from_work_id=? AND to_work_id=? AND from_contract_version=? AND to_contract_version=? AND invalidated_seq IS NULL ORDER BY event_seq DESC LIMIT 1`, overlap.ProductID, overlap.ToWorkID, overlap.FromWorkID, overlap.ToContractVersion, overlap.FromContractVersion).Scan(&state, &kind)
+	err = q.QueryRowContext(ctx, `SELECT CASE WHEN resolution_kind IN ('depends_on','blocks') THEN 'sequenced' ELSE 'current' END,resolution_kind FROM workflow_overlap_resolutions WHERE product_id=? AND from_work_id=? AND to_work_id=? AND from_contract_version=? AND to_contract_version=? AND invalidated_seq IS NULL ORDER BY event_seq DESC LIMIT 1`, overlap.ProductID, overlap.ToWorkID, overlap.FromWorkID, overlap.ToContractVersion, overlap.FromContractVersion).Scan(&state, &kind)
 	if err == nil {
 		if kind == ResolutionDependsOn {
 			kind = ResolutionBlocks
@@ -324,7 +324,7 @@ func currentWorkflowOverlapResolutionTx(ctx context.Context, tx *sql.Tx, overlap
 		return "", "", wrapFailure(KindUnavailable, "workflow_domain_overlap", "cannot read reverse overlap resolution", true, "retry once the overlap projection is readable", err)
 	}
 	var stale int
-	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM workflow_overlap_resolutions WHERE product_id=? AND ((from_work_id=? AND to_work_id=?) OR (from_work_id=? AND to_work_id=?))`, overlap.ProductID, overlap.FromWorkID, overlap.ToWorkID, overlap.ToWorkID, overlap.FromWorkID).Scan(&stale); err != nil {
+	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM workflow_overlap_resolutions WHERE product_id=? AND ((from_work_id=? AND to_work_id=?) OR (from_work_id=? AND to_work_id=?))`, overlap.ProductID, overlap.FromWorkID, overlap.ToWorkID, overlap.ToWorkID, overlap.FromWorkID).Scan(&stale); err != nil {
 		return "", "", wrapFailure(KindUnavailable, "workflow_domain_overlap", "cannot inspect overlap resolution history", true, "retry once the overlap projection is readable", err)
 	}
 	if stale > 0 {
@@ -431,9 +431,9 @@ func workflowActionStalePinAdmission(actionID string) workflowStalePinAdmission 
 	}
 }
 
-func currentWorkflowDomainRegistryCheckTx(ctx context.Context, tx *sql.Tx, footprint workflowOverlapFootprint) error {
+func currentWorkflowDomainRegistryCheckTx(ctx context.Context, q queryer, footprint workflowOverlapFootprint) error {
 	var registryHash string
-	if err := tx.QueryRowContext(ctx, `SELECT content_hash FROM domain_registries WHERE product_id=?`, footprint.ProductID).Scan(&registryHash); err != nil {
+	if err := q.QueryRowContext(ctx, `SELECT content_hash FROM domain_registries WHERE product_id=?`, footprint.ProductID).Scan(&registryHash); err != nil {
 		if err == sql.ErrNoRows {
 			return newFailure(KindUnknownScope, "workflow_domain_overlap", "Product has no current Domain registry", false, "rebuild the current Product Domain registry")
 		}
@@ -444,7 +444,7 @@ func currentWorkflowDomainRegistryCheckTx(ctx context.Context, tx *sql.Tx, footp
 	}
 	for _, domainID := range footprint.AffectedDomains {
 		var status, hash string
-		if err := tx.QueryRowContext(ctx, `SELECT status,registry_content_hash FROM domains WHERE product_id=? AND domain_id=?`, footprint.ProductID, domainID).Scan(&status, &hash); err != nil {
+		if err := q.QueryRowContext(ctx, `SELECT status,registry_content_hash FROM domains WHERE product_id=? AND domain_id=?`, footprint.ProductID, domainID).Scan(&status, &hash); err != nil {
 			if err == sql.ErrNoRows {
 				return newFailure(KindUnknownScope, "workflow_domain_overlap", "workflow names an unknown Domain: "+domainID, false, "rebuild the current Product Domain registry")
 			}
@@ -458,19 +458,18 @@ func currentWorkflowDomainRegistryCheckTx(ctx context.Context, tx *sql.Tx, footp
 }
 
 // checkWorkflowDomainOverlapTxAdmitting is the consequential mutation boundary
-// check. It derives active overlap from current projections in the caller's
-// write transaction and never treats a heuristic or ordinary relation as
-// authority. The admission names the stale-pin refusals this call passes;
-// every production caller holds the default full refusal.
-func checkWorkflowDomainOverlapTxAdmitting(ctx context.Context, tx *sql.Tx, workID string, admission workflowStalePinAdmission) error {
-	if tx == nil {
-		return newFailure(KindUnavailable, "workflow_domain_overlap", "transaction is not open", false, "open a mutation transaction")
-	}
-	self, others, err := readWorkflowDomainOverlapCandidatesTx(ctx, tx, workID)
+// check. It derives active overlap from current projections through the
+// caller's queryer: a mutation caller passes its write transaction, and the
+// read-only inspection passes a read snapshot's queryer. It never treats a
+// heuristic or ordinary relation as authority. The admission names the
+// stale-pin refusals this call passes; every production caller holds the
+// default full refusal.
+func checkWorkflowDomainOverlapTxAdmitting(ctx context.Context, q queryer, workID string, admission workflowStalePinAdmission) error {
+	self, others, err := readWorkflowDomainOverlapCandidatesTx(ctx, q, workID)
 	if err != nil || self.WorkID == "" || self.ProductID == "" {
 		return err
 	}
-	if err := currentWorkflowDomainRegistryCheckTx(ctx, tx, self); err != nil {
+	if err := currentWorkflowDomainRegistryCheckTx(ctx, q, self); err != nil {
 		// Admission under a stale pin belongs to the marker's named subject
 		// only. The check names the subject it read, so the admitting class
 		// passes a refusal whose marker names workID itself, and a peer's
@@ -479,7 +478,7 @@ func checkWorkflowDomainOverlapTxAdmitting(ctx context.Context, tx *sql.Tx, work
 			return err
 		}
 	}
-	exempt, err := workflowSelfRepairExemptTx(ctx, tx, workID)
+	exempt, err := workflowSelfRepairExemptTx(ctx, q, workID)
 	if err != nil {
 		return err
 	}
@@ -495,7 +494,7 @@ func checkWorkflowDomainOverlapTxAdmitting(ctx context.Context, tx *sql.Tx, work
 		// A recorded resolution is evaluated before the peer pin check, so a
 		// resolved overlap never vetoes the subject's admission, whatever
 		// hash the peer's own contract still pins.
-		overlap.ResolutionState, overlap.ResolutionKind, err = currentWorkflowOverlapResolutionTx(ctx, tx, overlap)
+		overlap.ResolutionState, overlap.ResolutionKind, err = currentWorkflowOverlapResolutionTx(ctx, q, overlap)
 		if err != nil {
 			return err
 		}
@@ -509,7 +508,7 @@ func checkWorkflowDomainOverlapTxAdmitting(ctx context.Context, tx *sql.Tx, work
 		// closed recovery routes instead. A peer footprint naming an unknown
 		// Domain or an unreadable projection is no pin state and still
 		// refuses here.
-		if err := currentWorkflowDomainRegistryCheckTx(ctx, tx, other); err != nil && !staleRegistryPinRefusalNamesWork(err, other.WorkID) {
+		if err := currentWorkflowDomainRegistryCheckTx(ctx, q, other); err != nil && !staleRegistryPinRefusalNamesWork(err, other.WorkID) {
 			return err
 		}
 		failures = append(failures, overlap)
@@ -958,13 +957,13 @@ func recordWorkflowOverlapResolutionTx(ctx context.Context, tx *sql.Tx, event Ev
 }
 
 // InspectWorkflowDomainOverlap reports an unresolved Domain overlap for one
-// work item. It opens the transaction the boundary check requires, so a
-// caller outside this package observes the same derivation a mutation
-// boundary applies rather than a separate untransacted one. Inspection holds
-// the default admission: a stale pin refuses whatever it would refuse for a
-// caller, whoever the marker names.
+// work item. It opens a read snapshot, so a caller outside this package
+// observes the same derivation a mutation boundary applies rather than a
+// separate untransacted one. Inspection holds the default admission: a stale
+// pin refuses whatever it would refuse for a caller, whoever the marker
+// names.
 func InspectWorkflowDomainOverlap(ctx context.Context, s *Store, workID string) error {
-	return s.Transact(ctx, func(transaction *Transaction) error {
-		return checkWorkflowDomainOverlapTxAdmitting(ctx, transaction.tx, workID, workflowStalePinAdmitNone)
+	return s.readSnapshot(ctx, func(q queryer) error {
+		return checkWorkflowDomainOverlapTxAdmitting(ctx, q, workID, workflowStalePinAdmitNone)
 	})
 }

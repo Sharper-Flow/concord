@@ -486,9 +486,9 @@ func sessionVacateReplayOccupiedFailure(ctx context.Context, transaction *Transa
 // A landing recorded after a vacate request is the landing that completed it,
 // so the request is no longer pending. It runs inside the caller's
 // transaction so the read observes the caller's own uncommitted events.
-func sessionVacateLandedAfterTx(ctx context.Context, tx *sql.Tx, workID, sessionRef string, afterSeq int) (bool, error) {
+func sessionVacateLandedAfterTx(ctx context.Context, q queryer, workID, sessionRef string, afterSeq int) (bool, error) {
 	var landed int
-	err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM domain_events WHERE kind='work.session_vacate_landed' AND subject_id=? AND json_extract(payload,'$.session_ref')=? AND seq>?)`, workID, sessionRef, afterSeq).Scan(&landed)
+	err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM domain_events WHERE kind='work.session_vacate_landed' AND subject_id=? AND json_extract(payload,'$.session_ref')=? AND seq>?)`, workID, sessionRef, afterSeq).Scan(&landed)
 	if err != nil {
 		return false, wrapFailure(KindUnavailable, "session_vacate", "cannot read the recorded landing events", true, "retry once the database is readable", err)
 	}
@@ -501,11 +501,11 @@ func sessionVacateLandedAfterTx(ctx context.Context, tx *sql.Tx, workID, session
 // the version separates a pending relocation request from a request that
 // already released on fold. It runs inside the caller's transaction so the
 // read observes the caller's own uncommitted events.
-func latestSessionVacateRequestTx(ctx context.Context, tx *sql.Tx, workID, sessionRef string) (sessionVacatedPayload, int, int, error) {
+func latestSessionVacateRequestTx(ctx context.Context, q queryer, workID, sessionRef string) (sessionVacatedPayload, int, int, error) {
 	var raw string
 	var seq, payloadVersion int
 	var p sessionVacatedPayload
-	err := tx.QueryRowContext(ctx, `SELECT seq, payload_version, payload FROM domain_events WHERE kind='work.session_vacated' AND subject_id=? AND json_extract(payload,'$.session_ref')=? ORDER BY seq DESC LIMIT 1`, workID, sessionRef).Scan(&seq, &payloadVersion, &raw)
+	err := q.QueryRowContext(ctx, `SELECT seq, payload_version, payload FROM domain_events WHERE kind='work.session_vacated' AND subject_id=? AND json_extract(payload,'$.session_ref')=? ORDER BY seq DESC LIMIT 1`, workID, sessionRef).Scan(&seq, &payloadVersion, &raw)
 	if err == sql.ErrNoRows {
 		return p, 0, 0, newFailure(KindProjectionNotFound, "vacate-landing", "no committed session vacate names this work item and session", false, "run session_vacate from the linked worktree before recording its landing")
 	}

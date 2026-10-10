@@ -1,0 +1,5 @@
+{
+  "id": "CD-0220",
+  "reason": "Capability-derived editor denials need regression and effective host-permission evidence. Artifact checks alone do not establish source-author approval, independent review, or shell confinement.",
+  "state": "unmeasured"
+}

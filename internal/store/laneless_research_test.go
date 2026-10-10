@@ -8,12 +8,8 @@ import (
 	"time"
 )
 
-// A lane-less workflow never runs a fenced action, so no start or
-// dispatch ever assigned an executing actor. Every record_verdict fold then
-// failed the distinctness JOIN with "executing actor tuple is incomplete",
-// stranding research items that reached conclude with all content recorded.
-//
-// The definition-selected fold now pins the selecting session as the
+// A lane-less workflow never runs a fenced action. The definition-selected
+// fold pins the selecting session as the
 // executing actor, and instances whose projection predates that pin derive
 // the same identity from the immutable definition event.
 

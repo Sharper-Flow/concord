@@ -7,10 +7,9 @@ import (
 )
 
 // The store details bound and the adapter detail bound must name the same
-// rule. The store counts UTF-8 bytes (len) but the refusal said "characters",
-// so a lane author diagnosing a refusal read the wrong rule into the guard and
-// reproduced the adapter-vs-store split. The bound at
-// internal/store/worker_lanes.go counts bytes; the refusal must say bytes.
+// rule. The bound at internal/store/worker_lanes.go counts UTF-8 bytes (len),
+// so the refusal must say bytes rather than characters. This distinction
+// prevents a lane author from confusing the adapter and store limits.
 
 func TestWorkerDetailRefusalNamesUTF8Bytes(t *testing.T) {
 	s := openTemp(t)

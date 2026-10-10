@@ -24,7 +24,7 @@ half is that the issue is still open, because a record's accountability dies
 with its owning issue, and a pointer at a closed one tracks nothing while
 reading as though it tracks something. That liveness rule belongs to the
 vocabulary rather than to any single plane, so it lives here beside the
-obligation it completes.
+obligation it completes (CD-0047 D3).
 
 CI has no network guarantee, so the deterministic form reads a committed
 snapshot, and scripts/update-issue-state.py is the authoritative online form

@@ -91,6 +91,45 @@ test("renames the tab and pane frame mapped from the session pane", async () => 
   ])
 })
 
+test("a multi-pin report shares one fresh terminal mapping read", async () => {
+  process.env.ZELLIJ_PANE_ID = "42"
+  const envelope = { outcome: "ok", result: { work_pins: [pin, { ...pin, work_id: "work-2" }, { ...pin, work_id: "work-3" }] } }
+  for (const reuse of [true, false]) {
+    const calls: string[][] = []
+    let clock = 0
+    const reporter = createWorkStateReporter({
+      runner: reporterRunner({ receipt: "", calls }),
+      binary: "concord-test",
+      now: () => reuse ? 0 : (clock += 10_000),
+    })
+    await reporter.report(envelope, { sessionID: "session-multi-pin", abort: new AbortController().signal })
+    const reads = calls.filter((argv) => argv[2] === "list-panes").length
+    expect(reads).toBe(reuse ? 1 : 3)
+    expect(calls.filter((argv) => argv[2] === "rename-tab-by-id")).toHaveLength(3)
+    expect(calls.filter((argv) => argv[2] === "rename-pane")).toHaveLength(3)
+    console.info(`terminal mapping measurement: pins=3 reuse=${reuse} reads=${reads}`)
+  }
+})
+
+test("terminal mappings evict the oldest session after 512 entries", async () => {
+  process.env.ZELLIJ_PANE_ID = "42"
+  const calls: string[][] = []
+  const reporter = createWorkStateReporter({ runner: reporterRunner({ receipt: "", calls }), binary: "concord-test", now: () => 0 })
+  const envelope = { outcome: "ok", result: { work_pins: [pin] } }
+  const report = (session: number) => reporter.report(envelope, { sessionID: `session-${session}`, abort: new AbortController().signal })
+  const reads = () => calls.filter((argv) => argv[2] === "list-panes").length
+  for (let session = 0; session < 512; session++) await report(session)
+  expect(reads()).toBe(512)
+  await report(0)
+  expect(reads()).toBe(512)
+  await report(512)
+  expect(reads()).toBe(513)
+  await report(1)
+  expect(reads()).toBe(513)
+  await report(0)
+  expect(reads()).toBe(514)
+})
+
 test("the reporter refreshes the session goal title from the pin", async () => {
   process.env.ZELLIJ_PANE_ID = "42"
   const titles: Array<{ url: string; path?: Record<string, unknown>; body?: unknown; signal?: unknown }> = []
@@ -188,6 +227,60 @@ test("the closure notice emits once per session, work, and terminal lifecycle", 
   expect(reporter.takeNotices("session-other")[0]).toBe("🛫 work-1 Complete")
   const receiptCalls = calls.filter((argv) => argv[0] === "concord-test")
   expect(receiptCalls).toHaveLength(4)
+})
+
+test("closure deduplication evicts the oldest session after 512 entries", async () => {
+  const receipt = "closure notice"
+  const reporter = createWorkStateReporter({ runner: reporterRunner({ receipt }), binary: "concord-test" })
+  const envelope = { outcome: "ok", result: { work_pins: [{ ...pin, lifecycle: "completed" }] } }
+  const report = (session: number) => reporter.report(envelope, { sessionID: `session-${session}`, abort: new AbortController().signal })
+  for (let session = 0; session < 512; session++) {
+    await report(session)
+    expect(reporter.takeNotices(`session-${session}`)).toEqual([receipt])
+  }
+  await report(0)
+  expect(reporter.takeNotices("session-0")).toEqual([])
+  await report(512)
+  expect(reporter.takeNotices("session-512")).toEqual([receipt])
+  await report(1)
+  expect(reporter.takeNotices("session-1")).toEqual([])
+  await report(0)
+  expect(reporter.takeNotices("session-0")).toEqual([receipt])
+})
+
+test("closure deduplication retains only 64 inserted keys per session", async () => {
+  const receipt = "closure notice"
+  const reporter = createWorkStateReporter({ runner: reporterRunner({ receipt }), binary: "concord-test" })
+  const context = { sessionID: "session-keys", abort: new AbortController().signal }
+  const report = (work: number) => reporter.report({ outcome: "ok", result: { work_pins: [{ ...pin, work_id: `work-${work}`, lifecycle: "completed" }] } }, context)
+  for (let work = 0; work < 64; work++) {
+    await report(work)
+    expect(reporter.takeNotices(context.sessionID)).toEqual([receipt])
+  }
+  await report(0)
+  expect(reporter.takeNotices(context.sessionID)).toEqual([])
+  await report(64)
+  expect(reporter.takeNotices(context.sessionID)).toEqual([receipt])
+  await report(1)
+  expect(reporter.takeNotices(context.sessionID)).toEqual([])
+  await report(0)
+  expect(reporter.takeNotices(context.sessionID)).toEqual([receipt])
+})
+
+test("eviction preserves queued first banners and emits the first banner for each new key", async () => {
+  const receipt = "closure notice"
+  const reporter = createWorkStateReporter({ runner: reporterRunner({ receipt }), binary: "concord-test" })
+  const context = { sessionID: "session-pending", abort: new AbortController().signal }
+  const completed = { ...pin, lifecycle: "completed" }
+  await reporter.report({ outcome: "ok", result: { work_pins: Array.from({ length: 65 }, (_, work) => ({ ...completed, work_id: `work-${work}` })) } }, context)
+  for (let session = 0; session < 512; session++) {
+    const sessionID = `session-other-${session}`
+    await reporter.report({ outcome: "ok", result: { work_pins: [completed] } }, { ...context, sessionID })
+    expect(reporter.takeNotices(sessionID)).toEqual([receipt])
+  }
+  await reporter.report({ outcome: "ok", result: { work_pins: [{ ...completed, work_id: "work-new" }] } }, context)
+  expect(reporter.takeNotices(context.sessionID)).toEqual(Array(66).fill(receipt))
+  expect(reporter.takeNotices(context.sessionID)).toEqual([])
 })
 
 test("a refused envelope emits no closure notice", async () => {

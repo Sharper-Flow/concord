@@ -952,54 +952,21 @@ func livenessFailureKind(err error) string {
 	return "untyped"
 }
 
-// livenessReplay rebuilds a state by committing the given path into a fresh
-// store. Replaying is slower than snapshotting the database file, but it keeps
-// the explored state exactly what the engine produces.
-type livenessReplayCache map[string]string
-
-// Cache only closed, checkpointed images of exact ordered prefixes. A branch
-// gets its own copy and still runs every remaining action through the engine.
-func (cache livenessReplayCache) replay(t *testing.T, definition WorkflowDefinition, path []livenessMove) (*Store, string) {
+// livenessReplay commits the ordered path into an independently seeded store.
+func livenessReplay(t *testing.T, definition WorkflowDefinition, path []livenessMove) (*Store, string) {
 	t.Helper()
 	ctx := context.Background()
-	var s *Store
-	start := 0
 	workID := livenessWorkID
-	for prefix := len(path); prefix >= 0; prefix-- {
-		if image, ok := cache[livenessPathKey(path[:prefix])]; ok {
-			s = openTempAtPath(t, copyClosedTestDatabase(t, image))
-			start = prefix
-			break
-		}
-	}
-	if s == nil {
-		s = openTemp(t)
-		seedStepWork(t, s, workID)
-		livenessSeedInvestigation(t, s, workID)
-		livenessInitialize(t, s, workID, definition)
-	}
-	for index := start; index < len(path); index++ {
-		move := path[index]
+	s := openTemp(t)
+	seedStepWork(t, s, workID)
+	livenessSeedInvestigation(t, s, workID)
+	livenessInitialize(t, s, workID, definition)
+	for index, move := range path {
 		if err := livenessApply(ctx, s, workID, move, index); err != nil {
 			t.Fatalf("%s replay of %s at index %d failed: %v", definition.Ref, move.String(), index, err)
 		}
 	}
 	return s, workID
-}
-
-func (cache livenessReplayCache) retain(t *testing.T, s *Store, path []livenessMove) {
-	t.Helper()
-	var busy, pages, checkpointed int
-	if err := s.db.QueryRow("PRAGMA wal_checkpoint(TRUNCATE)").Scan(&busy, &pages, &checkpointed); err != nil {
-		t.Fatal(err)
-	}
-	if busy != 0 {
-		t.Fatal("exploration snapshot has an active WAL reader")
-	}
-	if err := s.Close(); err != nil {
-		t.Fatal(err)
-	}
-	cache[livenessPathKey(path)] = s.Path()
 }
 
 // livenessSeedInvestigation records the observation that opens an operator
@@ -1123,23 +1090,4 @@ func livenessDeclaredActions(definition WorkflowDefinition, stepID string) []str
 	}
 	sort.Strings(actions)
 	return actions
-}
-
-// Paths are replayed from the same fixture. Only identical ordered inputs may
-// be deduplicated; selecting tables by a column name is not state equivalence.
-func livenessPathKey(path []livenessMove) string {
-	type input struct {
-		Action  string
-		Variant string
-		Payload json.RawMessage
-	}
-	inputs := make([]input, len(path))
-	for i, move := range path {
-		inputs[i] = input{move.action, move.variant, move.payload}
-	}
-	encoded, err := json.Marshal(inputs)
-	if err != nil {
-		panic(err)
-	}
-	return fmt.Sprintf("%x", sha256.Sum256(encoded))
 }

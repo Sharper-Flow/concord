@@ -28,6 +28,8 @@ type VerifiedCriterion = {
 type MutationEnvelope = { outcome?: unknown; result?: unknown }
 
 const TAB_MAPPING_TTL_MS = 10_000
+const MAX_CACHED_SESSIONS = 512
+const MAX_CLOSURE_KEYS = 64
 const MAX_NAME_CODE_POINTS = 64
 const IDENTIFIER_CODE_POINTS = 8
 
@@ -152,6 +154,15 @@ function workPins(envelope: unknown): WorkPin[] {
 type TabMapping = { attemptedAt: number; tabID?: string }
 type WorkStateReporterOptions = { runner?: DispatchRunner; now?: () => number; binary?: string }
 
+function rememberSession<T>(entries: Map<string, T>, sessionID: string, value: T): void {
+  while (!entries.has(sessionID) && entries.size >= MAX_CACHED_SESSIONS) {
+    const oldest = entries.keys().next()
+    if (oldest.done) break
+    entries.delete(oldest.value)
+  }
+  entries.set(sessionID, value)
+}
+
 async function renameZellijTab(pin: WorkPin, context: WorkflowStatusContext, runner: DispatchRunner, now: () => number, mappings: Map<string, TabMapping>, warnings: string[]): Promise<void> {
   const paneID = process.env.ZELLIJ_PANE_ID
   if (!paneID) return
@@ -168,7 +179,7 @@ async function renameZellijTab(pin: WorkPin, context: WorkflowStatusContext, run
       const pane = Array.isArray(panes) ? panes.find((candidate) => record(candidate) && String(candidate.id) === paneID && candidate.is_plugin === false) : undefined
       if (!record(pane) || (typeof pane.tab_id !== "string" && typeof pane.tab_id !== "number") || String(pane.tab_id) === "") throw new Error("the pane is absent from the zellij listing")
       tabID = String(pane.tab_id)
-      mappings.set(context.sessionID, { attemptedAt: now(), tabID })
+      rememberSession(mappings, context.sessionID, { attemptedAt: now(), tabID })
     }
     const result = await runner.run(["zellij", "action", "rename-tab-by-id", tabID, name], "", context.abort)
     if (result.exitCode !== 0) throw new Error(`rename-tab-by-id exited ${result.exitCode}`)
@@ -178,7 +189,7 @@ async function renameZellijTab(pin: WorkPin, context: WorkflowStatusContext, run
       if (paneResult.exitCode !== 0) throw new Error(`rename-pane exited ${paneResult.exitCode}`)
     }
   } catch (error) {
-    mappings.set(context.sessionID, { attemptedAt: now(), ...(tabID ? { tabID } : {}) })
+    rememberSession(mappings, context.sessionID, { attemptedAt: now(), ...(tabID ? { tabID } : {}) })
     warnings.push(`Concord could not rename the work tab or pane frame: ${error instanceof Error ? error.message : String(error)}.`)
   }
 }
@@ -198,9 +209,8 @@ export function createWorkStateReporter(options: WorkStateReporterOptions = {}) 
   const now = options.now ?? Date.now
   const binary = options.binary
   const mappings = new Map<string, TabMapping>()
-  // A terminal pin reappears in the pins of any later mutation that touches
-  // the same item, so the closure banner is emitted once per sessionID,
-  // work_id, and terminal lifecycle triple.
+  // Closure notices are informational: an evicted identity may emit again.
+  // Eviction changes only deduplication, never the pending notice queue.
   const emittedClosures = new Map<string, Set<string>>()
   // The text-part channel. The plugin's experimental.text.complete hook
   // drains these blocks into the assistant's own message, so they reach the
@@ -211,9 +221,14 @@ export function createWorkStateReporter(options: WorkStateReporterOptions = {}) 
     let seen = emittedClosures.get(sessionID)
     if (!seen) {
       seen = new Set()
-      emittedClosures.set(sessionID, seen)
+      rememberSession(emittedClosures, sessionID, seen)
     }
     if (seen.has(key)) return false
+    while (seen.size >= MAX_CLOSURE_KEYS) {
+      const oldest = seen.values().next()
+      if (oldest.done) break
+      seen.delete(oldest.value)
+    }
     seen.add(key)
     return true
   }

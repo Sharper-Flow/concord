@@ -16,13 +16,10 @@ func compactionClaimRequest(workID string) ClaimRequest {
 
 // A completed work item keeps its workflow instance pinned to its item
 // workflow (workflow.break_fix). The compaction publish claim names its own
-// auxiliary workflow (concord.pm6.compaction), and the claim preflight used to
-// demand the two match, so no work item that carried a workflow could publish
-// its compact at all: the claim refused with "workflow claim identity does not
-// match the stored definition pin" (#204 replaced the auxiliary-claim skip
-// with an item-has-workflow guard and dragged compaction claims into the item
-// pin comparison). The item's own pin still verifies; the auxiliary claim is
-// not a step of the item workflow and must not be compared against it.
+// auxiliary workflow (concord.pm6.compaction), and the claim preflight demands
+// the item-has-workflow guard. The item's own pin still verifies; the
+// auxiliary claim is not a step of the item workflow and must not be compared
+// against it.
 func TestCompactionClaimOnAWorkflowBearingWorkItemIsAdmitted(t *testing.T) {
 	t.Parallel()
 	const workID = "compact-publish-claim"

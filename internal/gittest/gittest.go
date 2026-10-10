@@ -15,7 +15,7 @@ import (
 // `git gc --auto` at exit, and a detached gc still writing into
 // `.git/objects/pack` while `t.TempDir` cleanup walks the tree fails with
 // `unlinkat .../.git/objects/pack: directory not empty` — the test body has
-// already passed (issue #542).
+// already passed.
 //
 // The configuration travels through git's environment variables rather than
 // per-repo `git config` calls, so it covers every fixture, present and future,

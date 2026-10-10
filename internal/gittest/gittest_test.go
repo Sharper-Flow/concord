@@ -8,7 +8,7 @@ import (
 
 // TestConfigReachesGit proves the environment guard actually reaches git: a
 // fixture repository created inside the guard reports gc.auto as disabled.
-// A guard that silently fails to apply would leave the #542 race open with no
+// A guard that silently fails to apply would leave the race open with no
 // signal, so the mechanism carries its own probe.
 func TestConfigReachesGit(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {

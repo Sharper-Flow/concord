@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fixture tests for scripts/check-lane-eval-baseline.py (issue #212)."""
+"""Fixture tests for scripts/check-lane-eval-baseline.py."""
 
 from __future__ import annotations
 

@@ -12,7 +12,7 @@ from pathlib import Path
 
 import git_environment
 
-# CON-896: this suite builds temporary Git repositories, so a hook that
+# This suite builds temporary Git repositories, so a hook that
 # launched it must not keep a redirecting Git namespace in place. The scrub
 # runs before the in-process Git helpers below load.
 git_environment.scrub_inherited()
@@ -505,7 +505,7 @@ class ReleaseTests(unittest.TestCase):
         self.assertIsNone(result["version"])
 
     def test_hook_inherited_git_dir_cannot_reach_an_outer_repository(self) -> None:
-        """CON-896 regression: this real suite under a hook's inherited GIT_DIR.
+        """This real suite under a hook's inherited GIT_DIR.
 
         The suite runs again as a child process with GIT_DIR pointing at a
         scratch outer repository. Without startup sanitization every scratch

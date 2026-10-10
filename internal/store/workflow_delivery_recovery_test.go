@@ -13,7 +13,7 @@ import (
 // released definition content and the recorded event history stay untouched;
 // the evidence-bearing corrective return is the only route off the gate.
 
-// reviewGateSeedAcceptAtRefine replays the CON-421 crossing: it records an
+// reviewGateSeedAcceptAtRefine replays the refine-crossing route: it records an
 // accepted implement repair whose accept advances the refinement step into
 // the delivery gate with the post-rejection review debt outstanding.
 func reviewGateSeedAcceptAtRefine(t *testing.T, s *Store, workID, attemptID string, epoch int64, acceptor WorkflowActor) {

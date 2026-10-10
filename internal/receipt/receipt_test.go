@@ -72,7 +72,7 @@ func TestRenderPinsTheClosureReceiptBytes(t *testing.T) {
 }
 
 // A closure that carries none of the CD-0202 facts renders exactly the
-// bytes the pin alone produced before the sections existed.
+// bytes the pin alone produces.
 func TestRenderKeepsThePinBytesWithoutClosureFacts(t *testing.T) {
 	t.Parallel()
 	value := closure(store.WorkPin{

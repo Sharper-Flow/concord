@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Keep a hook's Git environment out of child Git repositories (CON-896).
+"""Keep a hook's Git environment out of child Git repositories.
 
 A Git hook runs its children with the repository-local environment
 (`git rev-parse --local-env-vars`, plus the pre-receive quarantine variable)

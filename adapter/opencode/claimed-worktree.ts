@@ -7,7 +7,7 @@
 // confirmed landing, which the host's answer must still agree with when a
 // dispatch opens its authorization window.
 //
-// A metadata-only work_start move (issue #1322) never reaches that confirmed
+// A metadata-only work_start move never reaches that confirmed
 // landing: the host accepted the retarget but the session's tool context still
 // runs in the pre-move directory, so the declared refusal arms nothing. The
 // unlanded claim records that refused move so the dispatch gate fails closed
@@ -106,8 +106,8 @@ export function resetClaimedWorktrees(): void {
 }
 
 // armedClaimedWorktree answers the armed directory for one session, or null
-// when nothing is armed. Null dispatches exactly as before the record existed,
-// which is also the state after a host process restart.
+// when nothing is armed. A null answer is also the state after a host
+// process restart.
 export function armedClaimedWorktree(sessionID: string): string | null {
   return sessionID ? armedClaims.get(sessionID) ?? null : null
 }

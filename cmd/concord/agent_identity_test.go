@@ -233,7 +233,7 @@ func TestOrchestratorIdentityDigestChangesWhenArtifactChanges(t *testing.T) {
 // Frontmatter `name:` renames the handle rather than adding an alias, so the
 // handle must come from the resolved file, not from the file stem: selecting
 // the stem of a renamed definition silently starts the operator's default
-// agent (issue #428's probe).
+// agent.
 func TestOrchestratorInvocationHandleFollowsFrontmatterName(t *testing.T) {
 	const stem = "concord-1"
 	cases := []struct {

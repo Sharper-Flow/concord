@@ -45,7 +45,7 @@ func selfRelease() (root string, binary string, err error) {
 }
 
 // writeCoreDescriptor reports the side-effect-free capability descriptor the
-// installer reads while staging a release tree (CON-807): the release
+// installer reads while staging a release tree: the release
 // identity, the schema this core defines, the maintenance-fence protocol it
 // speaks, and the pinned adapter manifest digest. The route prints and exits;
 // it touches no store, no lease directory, and no fence, so probing it can
@@ -236,7 +236,7 @@ func actionableUpgradeRefusal(err error, leases []hostlease.Lease, current int) 
 }
 
 // upgradeInput is the JSON-stdin surface of the upgrade verb. plan asks for
-// the read-only readiness report instead of applying anything (CON-807).
+// the read-only readiness report instead of applying anything.
 // confirm_sessions_stopped is the operator's statement that no session runs on
 // an installed release tree the maintenance fence cannot exclude; without it
 // such a tree refuses the incompatible migration.
@@ -302,7 +302,7 @@ func runUpgradeCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 	// A migrating run holds the maintenance lock from before it reads the
 	// store until it exits. Its boundary-closing decision below rests on
 	// what this run committed, so no other run may migrate under the same
-	// boundary meanwhile (CON-807). The read-only plan takes no lock.
+	// boundary meanwhile. The read-only plan takes no lock.
 	if !request.Plan {
 		release, err := hostlease.AcquireMaintenance(dataRoot)
 		if err != nil {
@@ -319,7 +319,7 @@ func runUpgradeCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 		return 1
 	}
 	// Readiness is established by reading before anything is applied or
-	// fenced: an unknown store never reaches the migration path (CON-807).
+	// fenced: an unknown store never reaches the migration path.
 	plan, err := store.PlanUpgradeReadiness(context.Background(), path)
 	if err != nil {
 		writeOperatorDiagnostic(errOut, "upgrade", err.Error())
@@ -344,7 +344,7 @@ func runUpgradeCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 	// read at entry, or opened by a concurrent operation before EnsureFence
 	// took the admission lock — is adopted with its own identity and is
 	// never this run's to remove; removal is identity-checked so a no-op or
-	// failed run cannot delete another operation's exclusion (CON-807).
+	// failed run cannot delete another operation's exclusion.
 	openedFenceID := ""
 	fenceIsOurs := false
 	if len(plan.PendingBreaking) > 0 {
@@ -380,7 +380,7 @@ func runUpgradeCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 			// recovery tie. Anything else — no operation, a foreign
 			// operation, another release's identity, or an uncertain
 			// hand-written record — stays untouched on disk and moves no
-			// migration (CON-807).
+			// migration.
 			if !ensured.AuthorizesNativeMigration(root, binary, store.CurrentSchemaVersion()) {
 				writeOperatorDiagnostic(errOut, "upgrade",
 					fmt.Sprintf("an open maintenance boundary at %s is not this binary's own upgrade boundary (operation %q, release root %q, core binary %q, schema %d); an unattributed or foreign boundary authorizes no migration and stays unchanged. Close it through the operator-owned offline bootstrap when no migration is in progress",
@@ -410,7 +410,7 @@ func runUpgradeCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 	// A legacy lease names a core that admits sessions without reading the
 	// fence, so the boundary cannot exclude it: an unfenceable participant.
 	// The boundary fails closed on one, because a session it admitted after
-	// the final check would strand on the migrated store (CON-807).
+	// the final check would strand on the migrated store.
 	if len(plan.PendingBreaking) > 0 {
 		var legacy []string
 		for _, lease := range live {
@@ -439,7 +439,7 @@ func runUpgradeCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 	// final lease check, and its session would strand on the migrated store.
 	// The fence cannot exclude it, so the operator decides: the command names
 	// every such tree and proceeds only when the operator confirms no session
-	// runs on one (CON-807).
+	// runs on one.
 	if len(plan.PendingBreaking) > 0 {
 		selfRoot, _, err := selfRelease()
 		if err != nil {

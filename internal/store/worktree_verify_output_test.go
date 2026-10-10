@@ -3,6 +3,7 @@ package store
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"go/ast"
@@ -14,6 +15,20 @@ import (
 	"strings"
 	"testing"
 )
+
+// dropMigration125Objects restores the pre-oracle lease shape for migration
+// reapplication fixtures. Pair triggers must leave before their columns.
+func dropMigration125Objects(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `
+DROP TRIGGER native_oracle_plan_pair_insert;
+DROP TRIGGER native_oracle_plan_pair_update;
+ALTER TABLE worktree_verify_leases DROP COLUMN native_plan_json;
+ALTER TABLE worktree_verify_leases DROP COLUMN native_plan_sha256;
+ALTER TABLE worktree_verify_leases DROP COLUMN stdout_blob;
+ALTER TABLE worktree_verify_leases DROP COLUMN stderr_blob;
+`)
+	return err
+}
 
 func TestNativeOracleStreamBudgetBoundary(t *testing.T) {
 	for _, size := range []int{nativeOracleStreamLimit, nativeOracleStreamLimit + 1} {

@@ -250,7 +250,7 @@ func oracleFixtureActiveClaim(t *testing.T, s *store.Store) (string, string) {
 // seedOracleVerifySubjectFixture qualifies the fixture subject once: a green
 // worktree-verify receipt and its completed producer operation, joined the
 // way the store's current-subject read joins them. Later calls reuse it.
-func seedOracleVerifySubjectFixture(t *testing.T, s *store.Store) string {
+func seedOracleVerifySubjectFixture(t *testing.T, s *store.Store) {
 	t.Helper()
 	db := s.DatabaseForTesting()
 	const leaseID = "fixture-subject-verify-" + oracleFixtureWork
@@ -259,7 +259,7 @@ func seedOracleVerifySubjectFixture(t *testing.T, s *store.Store) string {
 		t.Fatal(err)
 	}
 	if existing == 1 {
-		return oracleFixtureSubject
+		return
 	}
 	path, branch := oracleFixtureActiveClaim(t, s)
 	command := []string{"git", "rev-parse", "--verify", "HEAD^{commit}"}
@@ -281,7 +281,6 @@ func seedOracleVerifySubjectFixture(t *testing.T, s *store.Store) string {
 		"worktree_verify:"+leaseID, oracleFixtureWork, string(raw)); err != nil {
 		t.Fatalf("seed oracle verify subject producer: %v", err)
 	}
-	return oracleFixtureSubject
 }
 
 // seedOraclePreparationReceiptFixture records one exact native preparation
@@ -428,7 +427,7 @@ func agentOracleFieldsForTest(t *testing.T, s *store.Store) map[string]any {
 	if err := db.QueryRow(`SELECT root_domain_id FROM domain_registries WHERE product_id=?`, product).Scan(&rootDomain); err != nil {
 		t.Fatalf("read the fixture Domain registry for %s: %v", product, err)
 	}
-	subject := seedOracleVerifySubjectFixture(t, s)
+	seedOracleVerifySubjectFixture(t, s)
 	graph := store.AcceptanceOracle{
 		Owners: []store.OracleOwner{{
 			OwnerID: oracleFixtureOwnerID, DomainID: rootDomain,
@@ -460,7 +459,7 @@ func agentOracleFieldsForTest(t *testing.T, s *store.Store) map[string]any {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ref := seedOraclePreparationReceiptFixture(t, s, contractVersion, subject, graph.Controls[0], bundle, oracleFixtureDigest(bundleJSON))
+	ref := seedOraclePreparationReceiptFixture(t, s, contractVersion, oracleFixtureSubject, graph.Controls[0], bundle, oracleFixtureDigest(bundleJSON))
 	graph.Controls[0].ReadinessEvidenceRefs = []string{ref}
 	raw, err := json.Marshal(graph)
 	if err != nil {

@@ -1,0 +1,67 @@
+{
+  "authority": {
+    "contract_version": 1,
+    "legislated_by": "CON-908",
+    "tier": "legislated"
+  },
+  "date": "2026-10-09T00:00:00Z",
+  "doc_contract_profile": "current",
+  "home_domain_id": "operator-surface",
+  "id": "CD-0219",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "refines",
+      "target_id": "CD-0014"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0048"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0083"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0108"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0158"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0163"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0176"
+    },
+    {
+      "kind": "refines",
+      "target_id": "C14"
+    },
+    {
+      "kind": "refines",
+      "target_id": "C17"
+    }
+  ],
+  "path": ".concord/docs/decisions/CD-0219-the-terminal-launcher-tui-is-retired.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:eb11ccd9553c29f5775c05564e1097f97c06b06df068631865f0b49686f0bb5b",
+  "status": "accepted",
+  "summary": "The interactive terminal launcher TUI, its verb, its bare-invocation route, the internal/launcher tree, and the charm.land rendering modules are removed; the launcher contracts and portfolio scenario retire with the surface, the ZLauncher replacement continues as the non-interactive session entry route under CD-0108, and the obligations whose subject was the TUI are vacated while every kept launch, resume, and session clause keeps its surviving owner.",
+  "tags": [
+    "launcher",
+    "retirement",
+    "session-boot"
+  ],
+  "title": "The interactive terminal launcher is retired"
+}

@@ -9,7 +9,6 @@
   "evidence": [
     "scripts/check-domain-registry.py",
     ".concord/docs/knowledge/domain-registry.json",
-    "internal/launcher/render/bubbletea/model.go",
     "internal/store/domain_reads.go",
     "scripts/test-domain-navigation.py",
     "scripts/generate-domain-navigation.py"
@@ -31,7 +30,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:70697dcbb12e8af40c58d588255dfc4f64cf8ae4e7b06db43971f525f5a74db4",
+  "sha256": "sha256:9927ba22e3e9e81bd266407253a04443f7fa4b557c49cee5e644d055ed4974e7",
   "status": "accepted",
   "summary": "Keeps the Domain graph for the launcher and adopted repository navigation. Requires every Domain in a registry of two or more to participate in at least one relation, leaves applies_to_domain_ids optional, warns before it refuses under a --strict flag, and carries the validator into each Product repository. Navigation adoption is separate: coarse navigation retains named legacy gaps with changed-path advisories; complete navigation requires zero file gaps and resolved source-catalog, contract, law-clause, control, and check references without granting execution authority or behavioral proof.",
   "tags": [

@@ -7,9 +7,8 @@
   "date": "2026-08-26T00:00:00Z",
   "doc_contract_profile": "legacy",
   "evidence": [
-    "internal/launcher/host_boundary_test.go",
-    "internal/launcher/render/bubbletea/model.go",
-    "internal/launcher/render/bubbletea/model_test.go"
+    "cmd/concord/session.go",
+    "cmd/concord/session_test.go"
   ],
   "home_domain_id": "operator-surface",
   "id": "CD-0078",

@@ -17,9 +17,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:46c9dbce2931e1084a42da2c3abdd7fa52dd6bdd5cac340c5bfe11c22fa71eb1",
+  "sha256": "sha256:6426795af4f9a445399111f6be4aa91536cd23f3d9242b158b03af8166c12e89",
   "status": "accepted",
-  "summary": "Chooses Bubble Tea v2 behind an isolated adapter and fixes Product-only launcher query scope.",
+  "summary": "Chose Bubble Tea v2 behind an isolated adapter for the terminal launcher and fixed Product-only launcher query scope; the rendering stack retires with the launcher TUI under CD-0219.",
   "tags": [
     "launcher",
     "bubbletea",

@@ -10,8 +10,8 @@
   "date": "2026-08-14T00:00:00Z",
   "doc_contract_profile": "legacy",
   "evidence": [
-    "internal/launcher/model.go",
-    ".concord/docs/terminal-launcher-contract.md"
+    "scripts/check-floor-readiness.py",
+    ".concord/docs/floor-readiness.v1.json"
   ],
   "home_domain_id": "operator-surface",
   "id": "CD-0021",
@@ -24,7 +24,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:bc794d638006cdfb71da9ba05884c51aab521a254df16f888fd2c638d46d0d66",
+  "sha256": "sha256:57fe2936e6f8fcbd496ff09b832bd666a6f819a8c491a1e96063babce6ce037c",
   "status": "accepted",
   "summary": "Floor condition 1 is claimable without an operator authoring surface: planning happens through an agent session, and full Product scope means every Product is reachable from the launcher rather than a result set spanning Products.",
   "tags": [

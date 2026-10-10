@@ -293,8 +293,8 @@ re-litigate them silently.
   action surface with no writes; a launch handoff carrying identity but never workflow
   position, so the session resolves state and the launcher holds no second derivation;
   and a refresh model with no timer or poll, where staleness is displayed and never
-  enforced by the launcher. See
-  [`terminal-launcher-contract.md`](./terminal-launcher-contract.md).
+  enforced by the launcher. The C18 contract retired with the launcher TUI under
+  CD-0219; CD-0108 and CD-0163 carry its surviving statements.
 - **Resolved sub-questions:** Bubble Tea v2 is selected behind an isolated adapter;
   query is Product-only and scoped to the ambient Product. The exact versions,
   dependency inventory, hard-proof results, no-poll interpretation, and tcell v3

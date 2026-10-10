@@ -7,7 +7,6 @@
   "date": "2026-08-20T00:00:00Z",
   "doc_contract_profile": "legacy",
   "evidence": [
-    ".concord/docs/terminal-launcher-contract.md",
     "internal/store/product_row.go",
     "internal/store/domain_reads.go",
     "internal/store/launcher_query.go",
@@ -24,7 +23,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:0933313042c1621a01f6549715a1056afef6bbd893eaa639c757648d84690e44",
+  "sha256": "sha256:7e67a5bf38e287ab2ca060f385dfd4b8598f580568bee13641be8b0240f1e942",
   "status": "accepted",
   "summary": "S2 renders as a panel stack in the terminal-launcher contract's job order — governing Domain with overlap state, blocked and blockers, next work; collapsed panels carry store-materialized answers and their reasons; ordering stays on the stored rank and deterministic store tiers, the closed screen set and widget floor are unchanged, and the Tab key becomes panel-focus cycling.",
   "tags": [

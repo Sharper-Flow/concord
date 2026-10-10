@@ -10,8 +10,8 @@
   The operator approved the single-surface amendment on 2026-09-26
   ([Concord (CON) issue 472](https://linear.app/sharper-flow/issue/CON-472/tui-layout-cleanup-survey-driven-per-view-redesign));
   D1, D2, and D4 below carry it.
-- **Related:** CD-0014, CD-0016, CD-0041,
-  [`terminal-launcher-contract.md`](../terminal-launcher-contract.md) §3, §5,
+- **Related:** CD-0014, CD-0016, CD-0041, CD-0219,
+  `terminal-launcher-contract.md` §3, §5,
   §8, §11, §12, §13
 - **Preserves:** the closed three-screen set; the §11 widget floor; §12
   anti-requirements 6 and 8; the read-only action surface; the §8 rendering

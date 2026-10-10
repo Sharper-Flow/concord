@@ -5,7 +5,7 @@
   "criterion_bindings": [
     {
       "criterion": 1,
-      "exemption": "The corpus case focus-priority encodes tier competition, but no harness executes the launcher corpus yet. The guarantee is proved by TestProductRowsC14FiveTierCompetitionChoosesFirstNonemptyTier and TestProductRowsC14ReturnsFiveGroups (internal/store/product_row_test.go)."
+      "exemption": "The guarantee is proved by TestProductRowsC14FiveTierCompetitionChoosesFirstNonemptyTier and TestProductRowsC14ReturnsFiveGroups (internal/store/product_row_test.go)."
     },
     {
       "criterion": 2,
@@ -13,7 +13,7 @@
     },
     {
       "criterion": 3,
-      "exemption": "The corpus case active-quiet-duplicate encodes the stable suffix, but no harness executes the launcher corpus yet. The guarantee is proved by TestProjectionIsDeterministicAndCarriesC14Meaning (internal/launcher/model_test.go)."
+      "exemption": "The stable suffix is proved by TestProductRowsC14DuplicateNamesAndCursorBinding (internal/store/product_row_test.go)."
     },
     {
       "criterion": 4,
@@ -26,9 +26,7 @@
   ],
   "date": "2026-08-06T00:00:00Z",
   "evidence": [
-    "internal/store/product_row_test.go",
-    "internal/launcher/model_test.go",
-    ".concord/scenarios/launcher-portfolio.v1.json"
+    "internal/store/product_row_test.go"
   ],
   "home_domain_id": "operator-surface",
   "id": "C14",

@@ -1,22 +1,5 @@
 {
-  "evidence": [
-    {
-      "kind": "go_test",
-      "value": "internal/launcher/storeport.TestRelationTreeKeepsStructuralComponentAndInverseOutOfCycleOracle"
-    },
-    {
-      "kind": "go_test",
-      "value": "internal/launcher/storeport.TestRelationTreeSurfacesCycles"
-    },
-    {
-      "kind": "go_test",
-      "value": "internal/launcher/storeport.TestRelationTreeResolvesSupersessionChainOnce"
-    },
-    {
-      "kind": "go_test",
-      "value": "internal/launcher/storeport.TestRelationTreeMarksDepthTruncationUnavailable"
-    }
-  ],
   "id": "C17",
-  "state": "satisfied"
+  "reason": "The coordination view retired with the launcher TUI under CD-0219; the relation-tree proofs it cited lived in the deleted storeport tests. The ranked-query half continues under the product-memory query contract and its corpus.",
+  "state": "out_of_scope"
 }

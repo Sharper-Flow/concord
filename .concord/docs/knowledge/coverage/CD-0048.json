@@ -1,34 +1,5 @@
 {
-  "evidence": [
-    {
-      "kind": "go_test",
-      "value": "internal/launcher/storeport.TestS2DomainSectionReadsLawRelationsWorkAndOverlapFromTheStore"
-    },
-    {
-      "kind": "go_test",
-      "value": "internal/launcher/storeport.TestS2ArchitectureRelationsAreAuthoritativeEmptyNotUnavailable"
-    },
-    {
-      "kind": "go_test",
-      "value": "internal/launcher/storeport.TestS2DomainSectionBoundedOverlapKeepsRegistryRows"
-    },
-    {
-      "kind": "go_test",
-      "value": "internal/launcher/render/bubbletea.TestDomainContextRendersOnlyWhenAbnormal"
-    },
-    {
-      "kind": "go_test",
-      "value": "internal/launcher.TestWorkListProjectionCarriesMarkerKeyTitleBlockersAndLive"
-    },
-    {
-      "kind": "go_test",
-      "value": "internal/launcher.TestWorkListProjectionKeepsTheStoreOrder"
-    },
-    {
-      "kind": "go_test",
-      "value": "internal/launcher/render/bubbletea.TestWorkListRedrawIsByteIdentical"
-    }
-  ],
   "id": "CD-0048",
-  "state": "satisfied"
+  "reason": "The S2 surface this record composes retired with the launcher TUI under CD-0219. D3's store-side law stands: last_activity_at is a stored column advanced in the fold, exercised by the internal/store last-activity tests.",
+  "state": "out_of_scope"
 }

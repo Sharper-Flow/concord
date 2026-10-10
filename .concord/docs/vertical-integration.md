@@ -11,12 +11,12 @@
 ## Resolved direction (interface/audience boundary)
 
 This document is **only** about whether Concord should own, swallow, or
-product-scope lgrep and vision. The terminal-launcher / admin-panel question
+product-scope lgrep and vision. The operator-surface / admin-panel question
 is resolved in [`clarifications.md`](./clarifications.md) R1:
 
-- The **Product-first terminal launcher** is the primary operator surface.
-- Per CD-0108 (2026-09-03), the launcher is remade as the **ZLauncher
-  replacement** and absorbs the session bootstrap role. The R1 bootstrap
+- The **Product-first session entry** is the primary operator surface.
+- Per CD-0108 (2026-09-03), Concord absorbs the **ZLauncher replacement**
+  role with its own session entry route. The R1 bootstrap
   split is superseded; see [`clarifications.md`](./clarifications.md) R1.
 - Any **admin panel** or web UI is an optional projection, not the operating center.
 
@@ -45,7 +45,7 @@ integration?
 |---|---|
 | **lgrep** | Local code intelligence (semantic + symbol search). The code index. |
 | **vision** | MCP daemon that hosts/proxies MCP servers. The MCP infrastructure layer. |
-| **Terminal launcher** | Product browse and session bootstrap layer under CD-0108. lgrep and vision remain independent integrations. |
+| **Session entry** | The Product-first work entry and session bootstrap route under CD-0108. lgrep and vision remain independent integrations. |
 
 ## Why the question arises
 
@@ -129,7 +129,7 @@ tool does not move the boundary for the other.
 |---|---|
 | [`clarifications.md`](./clarifications.md) C8 | Open question about lgrep / vision ownership, scoped separately from the launcher/interface decision (R1). |
 | [`clarifications.md`](./clarifications.md) R7 | episode is removed under CD-0106; the knowledge ladder is observation, lesson, decision. |
-| [`decisions/CD-0108-the-launcher-is-the-zlauncher-replacement.md`](./decisions/CD-0108-the-launcher-is-the-zlauncher-replacement.md) | The terminal launcher is primary and owns the session bootstrap role; ZLauncher retirement awaits operator acceptance. |
+| [`decisions/CD-0108-the-launcher-is-the-zlauncher-replacement.md`](./decisions/CD-0108-the-launcher-is-the-zlauncher-replacement.md) | The session entry route is primary and owns the session bootstrap role; the interactive launcher TUI retired under CD-0219, and ZLauncher retirement awaits operator acceptance. |
 | `product-data-model.md` §3 | Product-scoped instances are a locality mechanism. |
 | [`priorities.md`](./priorities.md) Operating envelope | The guardrail against premature swallowing. |
 

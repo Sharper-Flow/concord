@@ -430,6 +430,24 @@ func (r runtime) readTraceContinuity(ctx context.Context, base Envelope, input [
 	return response, nil
 }
 
+// researchPackReadV2 is the version 2 pack read result: the full pack when no
+// selector was sent, or only the chosen revision and its selected findings and
+// provenance when one was.
+type researchPackReadV2 struct {
+	ResultVersion int                `json:"result_version"`
+	Pack          store.ResearchPack `json:"pack"`
+}
+
+// researchOwnerReadV2 is the version 2 owner read: bounded pack descriptors in
+// the store's stable order. The authenticated continuation rides the envelope,
+// never the payload.
+type researchOwnerReadV2 struct {
+	ResultVersion int                            `json:"result_version"`
+	Packs         []store.ResearchPackDescriptor `json:"packs"`
+}
+
+// readTraceResearch returns bare full packs at version 1. Exact selections and
+// owner descriptor pages require an explicit version 2 result.
 func (r runtime) readTraceResearch(ctx context.Context, base Envelope, input []byte) (Envelope, error) {
 	var in researchReadInput
 	if err := decodeOperationInput(input, &in); err != nil {
@@ -438,24 +456,66 @@ func (r runtime) readTraceResearch(ctx context.Context, base Envelope, input []b
 	if (in.PackID == "") == (in.WorkID == "") {
 		return coreError(base, "invalid_input", "research read requires exactly one of pack_id or work_id", "resolve_ambiguity", false), nil
 	}
-	var pack store.ResearchPack
-	var readErr error
+	if in.PackID != "" && cursorValue(in.Page) != "" {
+		return coreError(base, "invalid_input", "research pack reads take no continuation cursor", "restart_query", false), nil
+	}
+	version := in.ResultVersion
+	if version == 0 {
+		version = 1
+	}
+	if in.WorkID != "" && version != 2 {
+		return coreError(base, "invalid_input", "research owner descriptor pages require result_version 2", "resolve_ambiguity", false), nil
+	}
+	if (in.Revision != 0 || len(in.FindingIDs) > 0) && (in.PackID == "" || version != 2) {
+		return coreError(base, "invalid_input", "revision and finding_ids selectors require pack_id with result_version 2", "resolve_ambiguity", false), nil
+	}
+	if len(in.FindingIDs) > 0 && in.Revision <= 0 {
+		return coreError(base, "invalid_input", "finding_ids require an explicit positive revision", "resolve_ambiguity", false), nil
+	}
+	limit := effectiveLimit(in.Limit, in.Page)
 	if in.PackID != "" {
-		pack, readErr = store.GetResearchPack(ctx, r.Store, in.PackID, effectiveLimit(in.Limit, in.Page))
-	} else {
-		packs, listErr := store.ResearchPacksByOwner(ctx, r.Store, in.WorkID, effectiveLimit(in.Limit, in.Page))
-		if listErr != nil {
-			return failureEnvelope(base, listErr), nil
+		pack, readErr := r.Store.ReadResearchPack(ctx, store.ResearchReadRequest{PackID: in.PackID, Revision: in.Revision, FindingIDs: in.FindingIDs, Limit: limit})
+		if readErr != nil {
+			return failureEnvelope(base, readErr), nil
 		}
-		if len(packs) == 0 {
-			return coreError(base, "unknown_scope", "no active research pack for that work item", "reread_entities", false), nil
+		meta := store.ResultMeta{QueryID: "PM1.Q11", ContractVersion: "PM1/1.0", ResolvedScope: store.ResolvedScope{WorkID: pack.OwnerWorkID}, SourceVersionWatermark: pack.CurrentRevision, Authority: "authoritative", Freshness: store.Freshness{ObservedAt: pack.UpdatedAt}, OrderingKeys: []string{"pack:" + pack.PackID}}
+		if version == 1 {
+			return r.resultEnvelope(base, meta, r.scope(store.ResultMeta{}), pack)
 		}
-		pack = packs[0]
+		return r.resultEnvelope(base, meta, r.scope(store.ResultMeta{}), researchPackReadV2{ResultVersion: 2, Pack: pack})
 	}
-	if readErr != nil {
-		return failureEnvelope(base, readErr), nil
+	bindingInput := in
+	bindingInput.Page.Cursor = nil
+	binding, _ := json.Marshal(bindingInput)
+	inner, err := r.unwrapCursor(ctx, cursorValue(in.Page), string(binding), "research_owner")
+	if err != nil {
+		return failureEnvelope(base, err), nil
 	}
-	return r.resultEnvelope(base, store.ResultMeta{QueryID: "PM1.Q11", ContractVersion: "PM1/1.0", ResolvedScope: store.ResolvedScope{WorkID: pack.OwnerWorkID}, SourceVersionWatermark: pack.CurrentRevision, Authority: "authoritative", Freshness: store.Freshness{ObservedAt: pack.UpdatedAt}, OrderingKeys: []string{"pack:" + pack.PackID}}, r.scope(store.ResultMeta{}), pack)
+	// The watermark travels in the result meta so wrapCursor and unwrapCursor
+	// bind to the same domain sequence. Research mutations do not advance it,
+	// so a list that changes between pages stays readable through the
+	// store's owner-bounded inner cursor.
+	watermark, err := r.Store.DomainEventWatermark(ctx)
+	if err != nil {
+		return failureEnvelope(base, err), nil
+	}
+	page, listErr := r.Store.ResearchPacksByOwner(ctx, in.WorkID, limit, inner)
+	if listErr != nil {
+		return failureEnvelope(base, listErr), nil
+	}
+	packs := page.Packs
+	if packs == nil {
+		packs = []store.ResearchPackDescriptor{}
+	}
+	meta := store.ResultMeta{QueryID: "PM1.Q11", ContractVersion: "PM1/1.0", ResolvedScope: store.ResolvedScope{WorkID: in.WorkID}, Authority: "authoritative", Freshness: store.Freshness{ObservedAt: r.Authority.now().UTC().Format(time.RFC3339Nano)}, OrderingKeys: []string{"updated_at DESC, pack_id ASC"}, SourceVersionWatermark: watermark}
+	if page.NextCursor != nil {
+		meta.NextCursor = page.NextCursor
+	}
+	response, err := r.resultEnvelope(base, meta, r.scope(meta), researchOwnerReadV2{ResultVersion: 2, Packs: packs})
+	if err != nil {
+		return failureEnvelope(base, err), nil
+	}
+	return r.wrapCursor(ctx, response, string(binding), "research_owner")
 }
 
 func (r runtime) readTraceRelations(ctx context.Context, base Envelope, input []byte) (Envelope, error) {

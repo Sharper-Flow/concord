@@ -638,7 +638,7 @@ func (h *workflowCorrectionHistory) fail(attempt string) string {
 // workflowJobObligationState is one recorded revision's corrective
 // obligation: the base obligation key over objective, scope, predicates, and
 // checks, plus the recorded acceptance oracle. The oracle participates in
-// obligation identity (CON-890): a renamed or rewritten oracle does not
+// obligation identity: a renamed or rewritten oracle does not
 // reset earlier debt, and a newer revision satisfies an earlier revision's
 // unresolved debt only when the base obligation is unchanged and every
 // previous owner, case, and control is retained byte-identically under the

@@ -59,7 +59,7 @@ const (
 	// findings carry: a finding is a reported claim, never acceptance.
 	WorkContextFindingStatusReported = "reported"
 	// WorkContextFindingStatusOpen is the status of a ranked review
-	// finding the lineage currently holds open (CON-890): an open blocker
+	// finding the lineage currently holds open: an open blocker
 	// is still a reported claim, and the status names its openness, never
 	// acceptance.
 	WorkContextFindingStatusOpen = "open"
@@ -92,7 +92,7 @@ type WorkContextReading struct {
 // finding wire is the shared WorkerContextFinding; the identity fields are
 // core-derived from the source event, never authored. SourceKind is empty
 // for a generic context finding and review_finding for a ranked review
-// finding (CON-890), whose Oracle tie and lifecycle the lineage owns.
+// finding, whose Oracle tie and lifecycle the lineage owns.
 type WorkContextFindingView struct {
 	FindingID            string   `json:"finding_id"`
 	Kind                 string   `json:"kind"`
@@ -106,7 +106,7 @@ type WorkContextFindingView struct {
 	SourceEventID        string   `json:"source_event_id"`
 	SourceEventSeq       int64    `json:"source_event_seq"`
 	Ordinal              int      `json:"ordinal"`
-	// SourceKind separates the ranked review findings (CON-890) from the
+	// SourceKind separates the ranked review findings from the
 	// generic worker-claim notebook: a ranked entry carries
 	// review_finding here, its Oracle tie below, and generic claim fields
 	// projected from the finding.
@@ -144,7 +144,7 @@ type WorkContextView struct {
 	Findings            []WorkContextFindingView  `json:"findings"`
 	DomainGroups        []WorkContextDomainGroup  `json:"domain_groups"`
 	// OracleReceipts are the prior typed control-execution receipts this
-	// work retained (CON-890), in log order: reported evidence a later
+	// work retained, in log order: reported evidence a later
 	// lane receives as regression baselines with their exact identities,
 	// never as current-subject acceptance.
 	OracleReceipts []WorkerOracleReceipt `json:"oracle_receipts,omitempty"`
@@ -641,7 +641,7 @@ func readWorkContextView(ctx context.Context, q queryer, workID string) (*WorkCo
 	if anchorErr != nil && anchorErr != sql.ErrNoRows {
 		return nil, wrapFailure(KindUnavailable, "work_context_read", "cannot read the latest work context declaration", true, "retry once the event log is readable", anchorErr)
 	}
-	// CON-890: one lineage read feeds the whole assembly — the ranked
+	// One lineage read feeds the whole assembly — the ranked
 	// ordinals a declaration may select, the open findings the view can
 	// never drop, and the retained receipts a later lane receives.
 	lineage, lineageErr := readWorkerOracleFindingLineageTx(ctx, q, workID)
@@ -734,7 +734,7 @@ func readWorkContextView(ctx context.Context, q queryer, workID string) (*WorkCo
 			addFinding(workContextFindingView(finding, WorkContextOriginWorkerReport, row.event.EventID, row.seq, ordinal))
 		}
 	}
-	// CON-890: the ranked oracle findings and the retained receipts project
+	// The ranked oracle findings and the retained receipts project
 	// from the same one lineage the correction and convergence surfaces
 	// read. Open ranked findings ride the view unconditionally: a
 	// coordinator's context selection can drop generic claims, never an

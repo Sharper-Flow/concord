@@ -83,14 +83,14 @@ func guardRejectWorkerResultRecovery(g *workflowActionGuardContext) error {
 	if !g.correctionRecovery {
 		return newFailure(KindInvalidOperation, "workflow_action", "worker result rejection is unavailable without a completed result", false, "accept or reject the completed worker result")
 	}
-	// CON-890: on an oracle-capable history the rejection's open finding
+	// On an oracle-capable history the rejection's open finding
 	// set must exactly equal the derived open set — omission never closes
 	// a finding. Oracle-free histories keep the legacy optional field.
 	return g.validateCorrectionOpenFindings()
 }
 
 // validateCorrectionOpenFindings is the derived-set equality both correction
-// surfaces share (CON-890): the payload's open_finding_ids must equal the
+// surfaces share: the payload's open_finding_ids must equal the
 // lineage's derived open set whenever the work's history ever dispatched
 // under an oracle-bearing job revision.
 func (g *workflowActionGuardContext) validateCorrectionOpenFindings() error {
@@ -119,7 +119,7 @@ func guardRequestCorrectionRecovery(g *workflowActionGuardContext) error {
 	if err := validateCorrectionRequestPayload(g.ctx, g.tx, g.request.WorkID, g.request.Payload, "workflow_action", state.CorrectionRequestContext); err != nil {
 		return err
 	}
-	// CON-890: a correction request on an oracle-capable history carries
+	// A correction request on an oracle-capable history carries
 	// the same derived open finding set a rejection does, and the folded
 	// convergence comparison prefers it over the legacy predicate list.
 	return g.validateCorrectionOpenFindings()
@@ -1636,7 +1636,7 @@ func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoc
 		completionValues["correction_predicate_ids"] = workflowFieldStrings(fields, "predicate_ids")
 		completionValues["correction_evidence_refs"] = workflowFieldStrings(fields, "evidence_refs")
 	}
-	// CON-890: the derived open finding set serializes onto the correction
+	// The derived open finding set serializes onto the correction
 	// record of both surfaces. A rejection carries it directly; a
 	// correction request carries it beside the predicate list the legacy
 	// comparison reads, and the folded convergence comparison prefers it

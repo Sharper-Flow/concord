@@ -388,7 +388,7 @@ func TestOwnerOracleFindingLawBindingIdentity(t *testing.T) {
 	}
 }
 
-// CON-890 slice A findings tests: typed report semantics, ranked identity
+// These tests cover typed report semantics, ranked identity
 // lineage, receipt joins, the two-entry repair chain, the derived-set
 // equality and convergence wall, oracle-bound job debt, replay boundaries,
 // and the over-bound recovery refusal. Every fixture runs on the newest

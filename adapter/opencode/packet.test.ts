@@ -1306,7 +1306,7 @@ test("the legacy packet schema forbids job fields while the current identity bin
   expect(validateAgentLanePacket({ ...built.packet!, schema_version: "1.0" })).toBe(false)
 })
 
-// CON-890: the owner-level acceptance oracle is typed immutable job content.
+// The owner-level acceptance oracle is typed immutable job content.
 // The builder rides the recorded revision verbatim, so the oracle rides with
 // it byte-for-byte inside inputs.worker_job — the same copy every admitted
 // lane receives — and the closed packet schema owns the oracle bounds.

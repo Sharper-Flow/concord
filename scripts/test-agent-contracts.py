@@ -805,7 +805,7 @@ def _fields_object(branch):
 
 
 class WorkflowActionVariantProjectionTests(unittest.TestCase):
-    """CON-890: an action whose current families declare different closed
+    """An action whose current families declare different closed
     fieldsets projects as the union of those exact closed alternatives, not
     one merged shape. The store keeps validating each call against the
     pinned definition version; these tests hold the authoring surface to

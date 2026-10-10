@@ -311,7 +311,7 @@ func workflowRecoveryRouteTuples() []workflowRecoveryRouteTuple {
 			RecordWorkerJob:  true,
 			WorkflowID:       "break_fix-v22-complete",
 		},
-		// The CON-890 oracle-capable versions republish the same recovery
+		// The oracle-capable versions republish the same recovery
 		// tables the work-context versions pinned; their journeys record the
 		// oracle-bearing worker jobs the definitions require.
 		{
@@ -1548,7 +1548,7 @@ func workflowRecoveryRouteSupersedeTuples() []workflowRecoveryRouteSupersedeTupl
 			RecordWorkerJob: true,
 			WorkflowID:      "break_fix-v22-complete-supersede",
 		},
-		// The CON-890 oracle-capable versions republish the same complete-step
+		// The oracle-capable versions republish the same complete-step
 		// supersede routes; their journeys follow the same local-accept +
 		// record_delivery integration the context authors do.
 		{

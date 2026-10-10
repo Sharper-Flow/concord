@@ -139,14 +139,14 @@ export interface AgentLanePacketWorkerJob {
   prerequisites: { job_id: string; revision: number; result_ref?: string }[]
   unresolved_refs: string[]
   reserved_integration: string
-  // CON-890: the owner-level acceptance oracle of this immutable revision,
+  // The owner-level acceptance oracle of this immutable revision,
   // carried verbatim from the recorded job. Optional and omitted on every
   // revision a pre-oracle definition recorded; required by oracle-capable
   // definition versions. The same copy reaches every admitted lane.
   acceptance_oracle?: AgentLaneAcceptanceOracle
 }
 
-// The CON-890 acceptance-oracle members mirror internal/store worker_oracle.go
+// The acceptance-oracle members mirror internal/store worker_oracle.go
 // exactly; the closed packet schema owns every bound.
 export interface AgentLaneOracleMechanism {
   project_id: string
@@ -379,7 +379,7 @@ export interface AgentLaneReportEvidence {
   // store fold refuses a tie to a predicate the dispatched packet did not
   // declare; each predicate's verdict, not the report, owns its discharge.
   predicate_ids?: string[]
-  // CON-890: the optional typed control-execution receipt this entry
+  // The optional typed control-execution receipt this entry
   // carries. Reported evidence only: a signed worker report is a claim, and
   // admission rebinds its candidate subject to the packet's observed one.
   oracle_receipt?: AgentLaneReportOracleReceipt
@@ -405,7 +405,7 @@ export interface AgentLaneReportBaseComparison {
 // AgentLaneReportReviewFinding is one typed review finding as the schema
 // closes it (CD-0197): a severity from the P0-P3 scale, a confidence from the
 // closed low/medium/high scale, and the bounded detail. The optional oracle
-// member (CON-890) adds the closed classification and the owner, predicate,
+// member adds the closed classification and the owner, predicate,
 // law, case, and control references that bind the finding to the job's
 // acceptance oracle; it records no acceptance.
 export interface AgentLaneReportReviewFinding {
@@ -416,7 +416,7 @@ export interface AgentLaneReportReviewFinding {
 }
 
 // AgentLaneReportOracleFinding mirrors $defs/oracle_finding of
-// contracts/agent-lane-report.schema.json (CON-890).
+// contracts/agent-lane-report.schema.json.
 export interface AgentLaneReportOracleFinding {
   classification: "delivery_blocker" | "uncovered_case" | "follow_up" | "oracle_defect"
   owner_id?: string
@@ -431,16 +431,16 @@ export interface AgentLaneReportOracleFinding {
   variant_of?: string
 }
 
-// AgentLaneReportResolvedFinding is one evidenced closure claim of a
-// previously open ranked finding (CON-890): the finding identity plus the
+// AgentLaneReportResolvedFinding is one evidenced closure claim of a ranked
+// finding the lineage holds open: the finding identity plus the
 // current-subject evidence the closure names.
 export interface AgentLaneReportResolvedFinding {
   finding_id: string
   evidence_refs: string[]
 }
 
-// AgentLaneReportOracleReceipt is one typed control-execution receipt
-// (CON-890): reported evidence, never native-run authority. The adapter
+// AgentLaneReportOracleReceipt is one typed control-execution receipt:
+// reported evidence, never native-run authority. The adapter
 // strips any worker-echoed subject_commit and injects the observed raw OID
 // subject from the dispatch packet before the canonical report forms.
 export interface AgentLaneReportOracleReceipt {
@@ -456,7 +456,7 @@ export interface AgentLaneReportOracleReceipt {
 
 // AgentLaneReportReview mirrors the optional top-level review object of
 // contracts/agent-lane-report.schema.json: the lane's explicit verdict, its
-// findings, and the optional evidenced closure claims (CON-890). The verdict
+// findings, and the optional evidenced closure claims. The verdict
 // is report content only (CD-0197): it maps to no workflow field and records
 // no transition.
 export interface AgentLaneReportReview {
@@ -1246,13 +1246,13 @@ function boundDetails(entries: unknown, schema: { "x-maxBytes"?: number }): unkn
 // the member: until regeneration the closed schema refuses the undeclared
 // property first, so the zero fallback never governs an admitted report.
 const CONTEXT_FINDINGS_MAX_ARRAY_BYTES = ((agentLaneReportSchema.properties as Record<string, { "x-maxArrayBytes"?: number }>).context_findings)?.["x-maxArrayBytes"] ?? 0
-// The resolved_findings aggregate bound (CON-890) follows the same pattern:
+// The resolved_findings aggregate bound follows the same pattern:
 // the claim array lives inside the review block, and an over-bound array is
 // refused whole rather than truncated to fit.
 const RESOLVED_FINDINGS_MAX_ARRAY_BYTES = ((agentLaneReportSchema.$defs.review_block as { properties?: { resolved_findings?: { "x-maxArrayBytes"?: number } } }).properties?.resolved_findings)?.["x-maxArrayBytes"] ?? 0
 
 // resolvedFindingsAggregateRefusal mirrors contextFindingsAggregateRefusal
-// for the review block's closure claims (CON-890).
+// for the review block's closure claims.
 export function resolvedFindingsAggregateRefusal(review: unknown, maxArrayBytes: number): string | null {
   if (maxArrayBytes <= 0 || review === undefined || review === null) return null
   const resolved = isRecord(review) ? review.resolved_findings : undefined
@@ -1263,7 +1263,7 @@ export function resolvedFindingsAggregateRefusal(review: unknown, maxArrayBytes:
 }
 
 // rebindOracleReceiptSubjects composes the dispatch-owned subject-commit
-// identity of every oracle receipt (CON-890). A worker-echoed
+// identity of every oracle receipt. A worker-echoed
 // subject_commit is stripped exactly like the other dispatch-owned report
 // fields: the model never authors subject identity. The observed subject is
 // injected from the packet's work context when the core supplied one; absent
@@ -1327,8 +1327,8 @@ function admitWorkerReport(scan: WorkerReportScan, packet: AgentLanePacket): { r
   // so its findings never reach a terminal record in a smaller shape.
   const aggregateRefusal = contextFindingsAggregateRefusal(normalized.context_findings, CONTEXT_FINDINGS_MAX_ARRAY_BYTES)
   if (aggregateRefusal !== null) return { detail: aggregateRefusal }
-  // The review block's closure-claim array carries the same aggregate rule
-  // (CON-890): an over-bound claim set is refused whole, never truncated.
+  // The review block's closure-claim array carries the same aggregate rule:
+  // an over-bound claim set is refused whole, never truncated.
   const resolvedRefusal = resolvedFindingsAggregateRefusal(normalized.review, RESOLVED_FINDINGS_MAX_ARRAY_BYTES)
   if (resolvedRefusal !== null) return { detail: resolvedRefusal }
   const admitted = normalized
@@ -2080,7 +2080,7 @@ export async function dispatchWorker(packet: unknown,   options: { signal?: Abor
     if (contextRefusal) return contextRefusal
   }
 
-  // CON-890: the packet's acceptance oracle must be dispatch-ready before
+  // The packet's acceptance oracle must be dispatch-ready before
   // the authorization call persists an attempt. The pinned harness sources
   // resolve as exact Git objects and paths in the repository this dispatch
   // can reach, and every control carries its retained readiness evidence.

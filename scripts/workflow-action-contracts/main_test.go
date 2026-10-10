@@ -35,7 +35,7 @@ func action(id string, payload store.WorkflowPayloadDefinition) store.WorkflowAc
 	return store.WorkflowActionDefinition{ID: id, Payload: payload}
 }
 
-// TestCurrentFieldsetAdditionProjectsVariants holds the CON-890 shape: two
+// TestCurrentFieldsetAdditionProjectsVariants holds the variant shape: two
 // current families declare the same action, one with an appended optional
 // field, and the projection answers two exact closed variants instead of
 // refusing the pair.

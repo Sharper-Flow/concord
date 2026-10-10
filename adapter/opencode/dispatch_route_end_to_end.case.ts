@@ -720,6 +720,7 @@ routeDeclaration("composes implementation and independent review through one ord
       checks: ["git status --short"],
       ready: true,
       readiness_evidence: ["evidence:route-e2e-no-ship-ready"],
+      acceptance_oracle: packet.inputs.worker_job.acceptance_oracle,
     })
     expect(response.outcome, JSON.stringify(response)).toBe("ok")
     const failedReviewDispatch = await dispatchRouteTask(reviewLane, workID, worktree, dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number, "e2e-failed-review-dispatch", "e2e-failed-review-call", context, invoke, realRunner,
@@ -736,9 +737,13 @@ routeDeclaration("composes implementation and independent review through one ord
       (reviewPacket, agent) => { boundPacket = reviewPacket; activeWorkerAgent = agent })
     const noShipReceipt = await completeRouteTask(noShipReview, routeWorkerReport(reviewLane, noShipReview.packet, subjectCommit, {
       verdict: "no_ship",
-      findings: [{ severity: "P1", confidence: "high", detail: "Synthetic review blocks delivery on the pinned subject." }],
+      findings: [{ severity: "P1", confidence: "high", detail: "Synthetic review blocks delivery on the pinned subject.", oracle: {
+        classification: "delivery_blocker", owner_id: "owner:route-e2e", failure_family: "synthetic-route-readiness",
+        predicate_ids: [predicate.predicate_id], control_ids: ["control:route-e2e"], case_ids: ["case:route-e2e"],
+        evidence_refs: ["evidence:route-e2e-no-ship"],
+      } }],
     }), realRunner, binary)
-    expect(noShipReceipt.outcome).toBe("ok")
+    expect(noShipReceipt.outcome, JSON.stringify(noShipReceipt)).toBe("ok")
     expect(noShipReceipt.review.verdict).toBe("no_ship")
     expect(noShipReview.packet.work_id).toBe(workID)
     expect(noShipReview.packet.attempt_id).not.toBe(packet.attempt_id)
@@ -774,15 +779,35 @@ routeDeclaration("composes implementation and independent review through one ord
       checks: ["git status --short"],
       ready: true,
       readiness_evidence: ["evidence:route-e2e-settling-ready"],
+      acceptance_oracle: packet.inputs.worker_job.acceptance_oracle,
     })
     expect(response.outcome, JSON.stringify(response)).toBe("ok")
     const settlingReviewVersion = dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number
     const settlingReview = await dispatchRouteTask(reviewLane, workID, worktree, settlingReviewVersion, "e2e-settling-review-dispatch", "e2e-settling-review-call", context, invoke, realRunner,
       (reviewPacket, agent) => { boundPacket = reviewPacket; activeWorkerAgent = agent })
-    const settlingReceipt = await completeRouteTask(settlingReview, routeWorkerReport(reviewLane, settlingReview.packet, subjectCommit, { verdict: "ship", findings: [] }), realRunner, binary)
-    expect(settlingReceipt.outcome).toBe("ok")
-    expect(settlingReceipt.review.verdict).toBe("ship")
+    const settlingJob = settlingReview.packet.inputs.worker_job
+    const settlingControl = settlingJob.acceptance_oracle.controls[0]
     const settlingEpoch = dbValue(dbPath, `SELECT json_extract(payload,'$.attempt_epoch') AS epoch FROM domain_events WHERE subject_id='${workID}' AND kind='workflow.action_started' AND json_extract(payload,'$.action_id')='dispatch_worker' ORDER BY seq DESC LIMIT 1`).epoch as number
+    const openFinding = settlingReview.packet.inputs.work_context.findings.find((finding: JSONRecord) => finding.status === "open" && finding.oracle?.classification === "delivery_blocker")
+    expect(openFinding).toBeDefined()
+    response = await invoke("concord_work_transition", { operation: "worktree_verify", input: {
+      work_id: workID, idempotency_key: "e2e-settling-oracle-execute", requested_budget_seconds: 300,
+      oracle: { phase: "execute", attempt_id: settlingReview.packet.attempt_id, attempt_epoch: settlingEpoch,
+        worker_packet_digest: settlingReview.windows.inFlightAttempt(SESSION_ID)?.packetDigest, worker_job_binding: reportWorkerJob(settlingReview.packet),
+        control_id: settlingControl.control_id, preparation_run_ref: settlingControl.readiness_evidence_refs[0] },
+    } }, context)
+    expect(response.outcome, JSON.stringify(response)).toBe("ok")
+    expect(response.result.oracle.qualification).toBe("pass")
+    const settlingReport = routeWorkerReport(reviewLane, settlingReview.packet, subjectCommit, {
+      verdict: "ship", findings: [], resolved_findings: [{ finding_id: openFinding.finding_id, evidence_refs: [response.result.operation_ref] }],
+    })
+    settlingReport.evidence[0].oracle_receipt = {
+      control_ids: [settlingControl.control_id], case_ids: settlingControl.case_ids, recipe_source: settlingControl.recipe_source,
+      result: "pass", exit_code: response.result.exit_code, run_ref: response.result.operation_ref, evidence_refs: [],
+    }
+    const settlingReceipt = await completeRouteTask(settlingReview, settlingReport, realRunner, binary)
+    expect(settlingReceipt.outcome, JSON.stringify(settlingReceipt)).toBe("ok")
+    expect(settlingReceipt.review.verdict).toBe("ship")
     const settlingAcceptVersion = dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number
     response = await transition(settlingAcceptVersion, "accept_worker_result", "e2e-accept-settling-review", { attempt_id: settlingReview.packet.attempt_id, attempt_epoch: settlingEpoch })
     expect(response.outcome, JSON.stringify(response)).toBe("ok")

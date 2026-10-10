@@ -60,7 +60,7 @@ const (
 )
 
 // workerCompletedOracleReportVersion is the payload version at which
-// worker.completed may first carry the CON-890 typed oracle members: a
+// worker.completed may first carry the typed oracle members: a
 // receipt on one evidence entry, an oracle tie on one review finding, or a
 // closure claim in resolved_findings. A stored or supplied event whose
 // recorded source version sits below the boundary cannot carry oracle
@@ -215,7 +215,7 @@ func workflowDispatchedJobForAttempt(ctx context.Context, q queryer, workID, att
 // summarized, scored, or rewritten. PredicateIDs is the optional per-predicate
 // tie: the predicate_id of each typed inputs.outcome_predicates entry this
 // entry's evidence discharges. OracleReceipt is the optional typed
-// control-execution receipt (CON-890): reported evidence only, never
+// control-execution receipt: reported evidence only, never
 // native-run authority, and bound to the dispatched job's oracle by the fold.
 type WorkerReportEvidence struct {
 	Obligation    string               `json:"obligation"`
@@ -246,7 +246,7 @@ type WorkerBaseComparison struct {
 // WorkerReviewFinding is one typed review finding as the worker reported it
 // (CD-0197): a severity from the closed P0-P3 scale, a confidence from the
 // closed low/medium/high scale, and the bounded detail. Recorded as reported
-// and never rescored. Oracle is the optional typed oracle tie (CON-890):
+// and never rescored. Oracle is the optional typed oracle tie:
 // required on every finding of an oracle-bound dispatch, where its
 // classification is a dimension beside severity, never a replacement for it.
 type WorkerReviewFinding struct {
@@ -258,7 +258,7 @@ type WorkerReviewFinding struct {
 
 // WorkerReviewBlock is the typed review block of agent-lane-report.v1: the
 // lane's explicit ship or no_ship verdict, its findings, and the optional
-// evidenced closure claims of previously open ranked findings (CON-890). It
+// evidenced closure claims of ranked findings the lineage holds open. It
 // is report content only (CD-0197): it maps to no workflow field and records
 // no transition, and the coordinator records the workflow verdict through
 // record_verdict.
@@ -495,7 +495,7 @@ func validateWorkerReviewBlock(review *WorkerReviewBlock) error {
 			}
 		}
 	}
-	// CON-890: severity and classification are different dimensions, and
+	// Severity and classification are different dimensions, and
 	// both couplings hold on any report whose findings carry oracle ties —
 	// exactly the oracle-bound dispatches, where every finding must. A ship
 	// never carries a classified blocker; a no_ship justified only by
@@ -1205,7 +1205,7 @@ func foldWorkerCompleted(ctx context.Context, tx *sql.Tx, event Event) error {
 	if payload.ContextFindings != nil && event.replaySourcePayloadVersion != 0 && event.replaySourcePayloadVersion < workerCompletedContextFindingsVersion {
 		return newFailure(KindInvalidPayload, "fold_event", "worker.completed context_findings are reserved for payload version >= 5", false, "record the context_findings on the current completion payload")
 	}
-	// CON-890: the typed oracle report members were introduced at the
+	// The typed oracle report members are reserved for the
 	// oracle-capable payload version. A replayed event whose recorded
 	// source version sits below the boundary cannot carry oracle report
 	// bytes: any bytes that name them are fabricated ties no store ever
@@ -1255,7 +1255,7 @@ func foldWorkerCompleted(ctx context.Context, tx *sql.Tx, event Event) error {
 	if !sameWorkerJob(dispatchedJob, payload.WorkerJob) {
 		return newFailure(KindInvalidPayload, "fold_event", "worker.completed worker_job does not name the worker-job revision the attempt was dispatched under", false, "report the worker_job the dispatch packet carried, or none when it carried none")
 	}
-	// CON-890: the live oracle join. The dispatched immutable job is the
+	// The live oracle join. The dispatched immutable job is the
 	// one authority: a report carrying oracle content must have been
 	// dispatched under an oracle-bearing revision, every review finding of
 	// an oracle-bound dispatch carries a classification, and every
@@ -1790,7 +1790,7 @@ func upcastWorkerCompletedV4(event Event) (Event, error) {
 }
 
 // upcastWorkerCompletedV5 carries a v5 completion into the v6 payload that
-// may carry the typed oracle report members (CON-890). v5 payloads never
+// may carry the typed oracle report members. v5 payloads never
 // carried any, so the upcast is the bytes unchanged at the new version: a
 // replayed completion stays a report without oracle ties, exactly as the
 // worker returned it, and no upcaster fabricates a receipt, a tie, or a

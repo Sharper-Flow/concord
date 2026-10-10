@@ -89,8 +89,8 @@ func workflowRetryConvergence(ctx context.Context, q queryer, workID, stepID str
 }
 
 // workflowOracleConvergenceComparableTx decides whether two correction
-// records with a shrinking open-set comparison are comparable at all
-// (CON-890). An oracle-free history keeps the legacy comparison. An
+// records with a shrinking open-set comparison are comparable at all.
+// An oracle-free history keeps the legacy comparison. An
 // oracle-capable history compares only under the wall's strengthened
 // comparability: same recorded contract and job identity, every earlier owner,
 // case, and control retained byte-identically including the pinned harness,
@@ -152,7 +152,7 @@ func readOracleJobContractVersion(ctx context.Context, q queryer, workID string,
 
 func (f workflowCorrectionCompletionFields) openFindings() []string {
 	if f.ActionID == "request_correction" {
-		// CON-890: on an oracle-capable history the recorded request
+		// On an oracle-capable history the recorded request
 		// carries the derived open finding set; the legacy request keeps
 		// comparing predicate ids, which were never finding ids.
 		if f.OpenFindingIDs != nil {

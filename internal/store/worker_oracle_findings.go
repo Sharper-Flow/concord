@@ -10,7 +10,7 @@ import (
 	"strings"
 )
 
-// CON-890 slice A, findings half: the typed report structs, the ranked
+// The typed report structs, the ranked
 // finding identity, the eventwise open-set lineage, and the joins that bind
 // receipts, findings, and closures to the dispatched immutable job's oracle.
 //
@@ -62,7 +62,7 @@ const (
 	oracleResolutionsMax            = 32
 	oracleResolutionsArrayMaxBytes  = 8192
 	oracleRetainedReceiptsMax       = 64
-	// WorkflowOpenOracleFindingsLimit is the CON-885-carried bound of one
+	// WorkflowOpenOracleFindingsLimit is the bound of one
 	// active open set: at most 32 open oracle findings. A work past the
 	// bound refuses dispatch explicitly; blockers are never silently
 	// omitted to satisfy the bound.
@@ -104,7 +104,7 @@ type WorkerOracleRecipeSource struct {
 	CommitOID string `json:"commit_oid"`
 }
 
-// WorkerOracleReceipt is one typed control-execution receipt (CON-890):
+// WorkerOracleReceipt is one typed control-execution receipt:
 // optional reported evidence on one evidence entry, never native-run
 // authority. SubjectCommit is the raw commit OID of the core-derived observed
 // subject: dispatch-owned, stripped of any worker echo before the canonical report.

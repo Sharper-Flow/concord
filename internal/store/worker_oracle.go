@@ -65,7 +65,7 @@ type OracleMechanism struct {
 }
 
 // OracleLawBinding ties an owner obligation to one pinned law revision. The
-// source is the CON-887 knowledge reading arm — source_id, law_id, and the
+// source is the work-context knowledge reading arm — source_id, law_id, and the
 // pinned content hash — plus the clause or criterion the obligation serves.
 type OracleLawBinding struct {
 	Source WorkContextReadingSource `json:"source"`
@@ -817,7 +817,7 @@ func readWorkerJobOracle(ctx context.Context, q queryer, workID string, binding 
 }
 
 // workflowOwnerOracleActive reports whether a pinned definition carries the
-// CON-890 acceptance oracle: the record_worker_job action's declared
+// acceptance oracle: the record_worker_job action's declared
 // payload names the acceptance_oracle member. Capability is derived from
 // the declared action member — historical definitions keep the payload they
 // were pinned under, so no version switch or mutable behavior flag exists

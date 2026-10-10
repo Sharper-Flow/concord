@@ -19,6 +19,10 @@ REPORT_SCHEMA = ROOT / "contracts/agent-lane-report.schema.json"
 PAYLOAD_SCHEMA = ROOT / "contracts/agent-tool-surface-payloads.schema.json"
 WORKER_SCOPE = ROOT / "contracts/worker-scope.v1.json"
 EVAL_PACKETS = ROOT / "adapter/opencode/evals/packets"
+# The shipped conduct corpus owns the committed-content rule; lane bodies
+# quote its paragraph, so the rule has one statement.
+CONDUCT_CHANGE = ROOT / ".concord/instructions/change.md"
+COMMITTED_CONTENT_LEAD = "Commit only durable content."
 
 spec = importlib.util.spec_from_file_location("agent_contract_generator", ROOT / "scripts/generate-agent-contracts.py")
 if spec is None or spec.loader is None:
@@ -556,6 +560,38 @@ def repository_edit_boundary(lane: dict) -> str:
     return textwrap.fill(text, width=80, break_on_hyphens=False, break_long_words=False)
 
 
+def committed_content_rule() -> str:
+    """The conduct paragraph that opens with COMMITTED_CONTENT_LEAD, whitespace-normalized."""
+    blocks = [" ".join(block.split()) for block in CONDUCT_CHANGE.read_text(encoding="utf-8").split("\n\n")]
+    matches = [block for block in blocks if block.startswith(COMMITTED_CONTENT_LEAD)]
+    if len(matches) != 1:
+        raise ValueError(
+            f"{CONDUCT_CHANGE} must hold exactly one paragraph that opens with "
+            f"{COMMITTED_CONTENT_LEAD!r}; found {len(matches)}"
+        )
+    return matches[0]
+
+
+def committed_content_instructions(lane: dict) -> str:
+    # Derived from capabilities like the edit boundary: a lane that writes
+    # repository files applies the rule, and the diff-inspecting lane reviews
+    # against it. The review lane names the rule in each finding so its report
+    # carries the obligation without a new evidence kind.
+    capabilities = lane.get("capabilities", [])
+    if edits_scoped_files(lane):
+        lead = "Apply this rule to every comment and document you add or change:"
+    elif "inspect_diff" in capabilities:
+        lead = (
+            "Review every added comment and committed document against this rule. Report "
+            "each violation as a review finding whose `detail` starts with `committed-content:`."
+        )
+    else:
+        return ""
+    wrap = {"width": 80, "break_on_hyphens": False, "break_long_words": False}
+    quoted = textwrap.fill(committed_content_rule(), initial_indent="> ", subsequent_indent="> ", **wrap)
+    return f"## Committed content\n\n{textwrap.fill(lead, **wrap)}\n\n{quoted}\n\n"
+
+
 def law_conformance_instructions(lane: dict) -> str:
     # The dispatched packet carries the approved contract's bound law and
     # Domains as the typed inputs.law_context member. Its meaning and the
@@ -702,7 +738,7 @@ checkpoint.
 
 
 def acceptance_oracle_instructions(packet_schema: dict) -> str:
-    # CON-890: when the packet's worker job carries the acceptance oracle,
+    # When the packet's worker job carries the acceptance oracle,
     # every lane reads the same recorded copy. The block teaches the shared
     # oracle without adding acceptance criteria: consume host-produced native
     # receipts, never substitute a preferred test, report a missing case as a
@@ -886,7 +922,7 @@ record workflow transitions, verdicts, completion, or spawn nested workers.
 
 {repository_edit_boundary(lane)}
 
-{packet_refusal_instructions()}
+{committed_content_instructions(lane)}{packet_refusal_instructions()}
 {law_conformance_instructions(lane)}
 {recorded_work_instructions()}
 {work_context_instructions(packet_schema)}

@@ -64,11 +64,11 @@ import (
 // optional recovery_routes table. The omitempty field keeps every released
 // manifest above byte-identical; the released versions resolve the same
 // routes through workflowReleasedRecoveryRoutes until instances pin these.
-// CON-887 ships the work-context action: implementation 26, break_fix 23,
+// The work-context action ships one new version per family: implementation 26, break_fix 23,
 // research 16, architecture_spike 17, ops_runbook 18, static_analysis 15,
 // and generic_one_off 16 add record_work_context to every step except the
 // closed delivery gates, whose four-action shape the gate reader pins.
-// CON-890 ships the owner-level acceptance oracle on the two job-capable
+// The owner-level acceptance oracle ships on the two job-capable
 // repair families: implementation 27 and break_fix 24 declare the required
 // acceptance_oracle member on record_worker_job's payload. Every released
 // version below keeps the payload it was pinned under, so oracle capability

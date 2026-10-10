@@ -140,7 +140,7 @@ type WorkflowAdmissionState struct {
 	// retry. An escalated retry instead needs RetryConvergence.
 	FailedRetryApproved bool
 	// OracleOpenFindings is the count of the derived open ranked findings
-	// of an oracle-capable pin (CON-890): the folded admission state stays
+	// of an oracle-capable pin: the folded admission state stays
 	// a comparable value, so it carries the bound the dispatch refusal
 	// reads while the identity set itself is derived per surface from the
 	// one lineage reader. Zero on every pin that predates the acceptance
@@ -541,7 +541,7 @@ func workflowAdmit(definition WorkflowDefinition, state WorkflowAdmissionState, 
 			decision.Failure = newFailure(KindMissingEvidence, "worker_dispatch", "contract correction invalidated the recorded design", false, "use supersede_contract with design_record before worker dispatch")
 			return decision
 		}
-		// CON-890: more than 32 genuine open oracle blockers is an
+		// More than 32 genuine open oracle blockers is an
 		// explicit no-dispatch bound refusal. Blockers are never silently
 		// omitted to satisfy the bound; recovery is an approved scope or
 		// contract revision, or stopping the work.

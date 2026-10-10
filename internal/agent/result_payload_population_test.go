@@ -688,7 +688,7 @@ func schemaFixtureValue(t *testing.T, schema map[string]any, defs map[string]map
 			if member == "boolean" {
 				return true
 			}
-			// CON-890: a nullable array member (the ranked finding view's
+			// A nullable array member (the ranked finding view's
 			// evidence_refs) fixtures as its array arm; null is the absent
 			// arm and the object walker only builds populated shapes.
 			if member == "array" {

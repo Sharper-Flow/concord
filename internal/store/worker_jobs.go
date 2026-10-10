@@ -73,7 +73,7 @@ type WorkerJobRecordedPayload struct {
 	UnresolvedRefs      []string                `json:"unresolved_refs"`
 	ReservedIntegration string                  `json:"reserved_integration,omitempty"`
 	Readiness           *WorkerJobReadiness     `json:"readiness,omitempty"`
-	// AcceptanceOracle is the CON-890 owner-level acceptance oracle: typed
+	// AcceptanceOracle is the owner-level acceptance oracle: typed
 	// immutable job content, optional on every revision a pre-oracle
 	// definition recorded and required only by oracle-capable definition
 	// versions. It enters the content digest, so a revision's oracle is as
@@ -353,7 +353,7 @@ func workflowRecordWorkerJobEvents(ctx context.Context, tx *sql.Tx, request Work
 	if ready && len(readinessEvidence) == 0 {
 		return nil, newFailure(KindInvalidPayload, "workflow_action", "record_worker_job readiness requires evidence", false, "bind the evidence that makes the job ready in readiness_evidence")
 	}
-	// The CON-890 acceptance oracle is authored through the pinned
+	// The acceptance oracle is authored through the pinned
 	// definition's declared action member: an oracle-capable version
 	// requires one, and every earlier version refuses the member, so
 	// capability travels with the pin instead of a behavior flag. The
@@ -673,8 +673,8 @@ type WorkerPacketJob struct {
 	Prerequisites       []WorkerJobPrerequisite `json:"prerequisites"`
 	UnresolvedRefs      []string                `json:"unresolved_refs"`
 	ReservedIntegration string                  `json:"reserved_integration"`
-	// AcceptanceOracle is the one oracle copy every admitted lane receives
-	// (CON-890): the same recorded job content and digest the implement,
+	// AcceptanceOracle is the one oracle copy every admitted lane receives:
+	// the same recorded job content and digest the implement,
 	// review, and verify packets bind. Optional and omitted on every
 	// revision a pre-oracle definition recorded.
 	AcceptanceOracle *AcceptanceOracle `json:"acceptance_oracle,omitempty"`

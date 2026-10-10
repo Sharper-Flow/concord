@@ -4,7 +4,7 @@ import (
 	"testing"
 )
 
-// The newest registered break-fix definition declares the CON-890 acceptance
+// The newest registered break-fix definition declares the acceptance
 // oracle on record_worker_job, so the authoring route refuses an oracle-free
 // job on that pin. Historical pins keep accepting oracle-free jobs; the
 // oracle-capability boundary is the declared action member, never a mutable

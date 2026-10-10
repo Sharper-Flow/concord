@@ -570,6 +570,11 @@ type compactReconcileInput struct {
 type mutationEffect func(context.Context, *store.Transaction, Authority) (json.RawMessage, []string, []ChangedRef, error)
 
 func (r runtime) replayMutationBeforeScope(ctx context.Context, base Envelope, raw []byte, grant Authority, op ContractOperation) (Envelope, bool, error) {
+	// Retirement re-authorizes every retained owner inside its transaction;
+	// a cached Product snapshot cannot establish the owner's current scope.
+	if op.ID == "concord_work_define.research_retire" {
+		return Envelope{}, false, nil
+	}
 	// session_vacate and project_handoff_consume replay state-driven: their
 	// recorded successes go stale — the vacate the moment a later claim's
 	// occupancy rows stand (CD-0190 D2/D3), the consume the moment its bind
@@ -2094,6 +2099,163 @@ func (r runtime) planResearchFreshnessSet(_ context.Context, base Envelope, raw 
 		return mutationPayload(changed, plan.intents), []string{in.PackID}, changed, nil
 	}
 	return Envelope{}, nil, false
+}
+
+// mutateResearchRetire keeps batch authorization, deletion, and the replay
+// receipt in one transaction. Dry runs classify without a receipt. Replays
+// authorize the retained owners from the cached result, not deleted packs.
+func (r runtime) mutateResearchRetire(ctx context.Context, base Envelope, raw []byte, op ContractOperation) (Envelope, error) {
+	var in researchRetireMutation
+	if err := decodeOperationInput(raw, &in); err != nil {
+		return base, err
+	}
+	digest := mutationDigest(r.Tool, r.Operation, r.Envelope, raw)
+	host, err := r.probeInvocationHost(ctx)
+	if err != nil {
+		return Envelope{}, err
+	}
+	var response Envelope
+	durable, navigationPrepared := false, false
+	err = r.executeAdmittedMutation(&ctx, raw, &durable, &navigationPrepared, func(tx *store.Transaction) error {
+		inv := Invocation{ClientRef: r.Envelope.ClientRef, PrincipalRef: r.Envelope.PrincipalRef, SessionRef: r.Envelope.SessionRef, AgentRef: r.Envelope.AgentRef, Directory: r.Envelope.Directory, Worktree: r.Envelope.Worktree, ManifestDigest: r.Envelope.ManifestDigest, HostAssertionDigest: r.Envelope.HostAssertionDigest, RequiredCapability: op.Capability, RequiredOperation: r.Operation, ProductID: r.Envelope.SelectedProductID}
+		if inv.HostAssertionDigest == "" {
+			inv.HostAssertionDigest = digest
+		}
+		grant, err := r.Authority.AuthorizeTx(ctx, tx, host, inv)
+		if err != nil {
+			return err
+		}
+		if !contains(grant.ProductScope, in.ProductID) {
+			return newRuntimeFailure("unauthorized", "research retirement Product is outside grant scope", "contact_operator", false)
+		}
+		key := store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: in.IdempotencyKey}
+		prior, found, err := store.LookupMutationIdempotencyTx(ctx, tx, key)
+		if err != nil {
+			return err
+		}
+		if found && prior.CanonicalDigest != digest {
+			return storeIdempotencyConflict(r.Operation, in.IdempotencyKey)
+		}
+		var result store.RetireResearchPacksResult
+		if found {
+			if err := json.Unmarshal([]byte(prior.ResultPayload), &result); err != nil {
+				return err
+			}
+		} else {
+			result, err = store.RetireResearchPacksWithinTx(ctx, tx, store.RetireResearchPacksRequest{ProductID: in.ProductID, Candidates: in.Candidates, DryRun: true})
+			if err != nil {
+				return err
+			}
+		}
+		owners := make([]string, 0, len(result.Candidates))
+		for _, candidate := range result.Candidates {
+			owners = append(owners, candidate.OwnerWorkID)
+		}
+		scope := map[string]any{"product_id": in.ProductID, "work_ids": normalizeScopeList(owners)}
+		byOwner, err := store.ProductsForWorkIDsTx(ctx, tx, owners)
+		if err != nil {
+			return err
+		}
+		for _, owner := range owners {
+			if !contains(byOwner[owner], in.ProductID) {
+				return newRuntimeFailure("unauthorized", "research retirement owner is outside the requested Product", "contact_operator", false)
+			}
+		}
+		crossProduct, err := r.deriveAuthorizedProductsTx(ctx, tx, scope, grant)
+		if err != nil {
+			return err
+		}
+		base.ResolvedScope = scopeFromMap(scope)
+		if found {
+			originalScope, err := authorizedScopeFromSnapshot(prior.AuthorizedScopeSnapshot)
+			if err != nil {
+				return err
+			}
+			if !scopeWithinAuthority(originalScope, grant) {
+				return newRuntimeFailure("unauthorized", "original research retirement scope is no longer authorized", "contact_operator", false)
+			}
+			originalDurable, _ := originalScope["durable_commit"].(bool)
+			if (crossProduct || originalDurable) && !durable {
+				return errApprovalDurabilityRequired
+			}
+			var changed []ChangedRef
+			if err := json.Unmarshal([]byte(prior.ChangedRefs), &changed); err != nil {
+				return err
+			}
+			changed, omission := boundResultChangedRefs(changed)
+			if omission != nil {
+				base.Omissions = append(base.Omissions, *omission)
+			}
+			base.Replayed = true
+			response = r.mutationResult(base, json.RawMessage(prior.ResultPayload), changed, nil)
+			if response.Outcome == OutcomeError {
+				return errors.New("research retirement replay result rejected")
+			}
+			return store.TouchMutationIdempotencyTx(ctx, tx, key, r.Authority.now())
+		}
+		if r.Budget.CeilingRefused {
+			response = r.budgetRefusal(base, fmt.Sprintf("requested_budget_seconds %d exceeds supported %d", r.Budget.RequestedSeconds, r.Budget.SupportedSeconds))
+			return nil
+		}
+		if crossProduct && !in.DryRun {
+			if !durable {
+				return errApprovalDurabilityRequired
+			}
+			// The canonical digest binds every candidate's version fence.
+			// Approval version bindings admit Work and operation roles, not packs.
+			versions := map[string]any{}
+			if in.Approval == nil {
+				response, err = r.approvalChallengeEnvelopeTx(ctx, tx, host, inv, base, digest, scope, versions, string(op.Consequence), nil)
+				return err
+			}
+			_, _, err := r.consumeApprovalTx(ctx, tx, host, inv, grant, ApprovalCheck{ApprovalRef: in.Approval.ApprovalRef, OperationDigest: digest, Scope: boundedApprovalScope(scope), Versions: versions, Consequence: string(op.Consequence), ClientRef: grant.ClientRef, SessionRef: grant.SessionRef})
+			if err != nil {
+				response = mutationApprovalFailure(base, err)
+				return err
+			}
+		}
+		if !in.DryRun {
+			result, err = store.RetireResearchPacksWithinTx(ctx, tx, store.RetireResearchPacksRequest{ProductID: in.ProductID, Candidates: in.Candidates})
+			if err != nil {
+				return err
+			}
+		}
+		changed := []ChangedRef{}
+		for _, candidate := range result.Candidates {
+			if candidate.Classification == store.ResearchRetirementRetired {
+				changed = append(changed, ChangedRef{EntityKind: "research_pack", ID: candidate.PackID, Version: strconv.FormatInt(candidate.CurrentVersion, 10)})
+			}
+		}
+		payload, err := json.Marshal(result)
+		if err != nil {
+			return err
+		}
+		// The payload reports every candidate. The envelope's auxiliary
+		// changed-reference list has a smaller capacity than a retirement batch.
+		boundedChanged, omission := boundResultChangedRefs(changed)
+		if omission != nil {
+			base.Omissions = append(base.Omissions, *omission)
+		}
+		response = r.mutationResult(base, payload, boundedChanged, nil)
+		if response.Outcome == OutcomeError {
+			return errors.New("research retirement result rejected")
+		}
+		if in.DryRun {
+			return nil
+		}
+		changedJSON, _ := json.Marshal(changed)
+		authorizedSnapshot := boundedApprovalScope(scope)
+		authorizedSnapshot["durable_commit"] = durable
+		authorizedScope, _ := json.Marshal(authorizedSnapshot)
+		return store.InsertMutationIdempotencyTx(ctx, tx, store.MutationIdempotencyInsert{Key: key, CanonicalDigest: digest, OperationID: "mutation-" + digest[7:31], ResultEventIDs: "[]", ResultPayload: string(payload), ChangedRefs: string(changedJSON), AuthorizedScopeSnapshot: string(authorizedScope), ObservedAt: r.Authority.now()})
+	})
+	if err != nil {
+		if response.Outcome == OutcomeError {
+			return response, nil
+		}
+		return failureEnvelope(base, err), nil
+	}
+	return response, nil
 }
 
 // planLessonPublish plans concord_work_compact.lesson_publish.
@@ -4201,6 +4363,9 @@ func (r runtime) planRestoreSuperseded(_ context.Context, base Envelope, raw []b
 // execute it (handled false). This is the dispatch shape (runtime).read
 // established: arms delegate rather than inline.
 func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Authority, op ContractOperation) (Envelope, error) {
+	if op.ID == "concord_work_define.research_retire" {
+		return r.mutateResearchRetire(ctx, base, raw, op)
+	}
 	if op.ID == "concord_work_transition.workflow_action" {
 		return r.mutateWorkflowAction(ctx, base, raw, grant, op)
 	}
@@ -5587,6 +5752,14 @@ type researchFreshnessMutation struct {
 	Revision        int64          `json:"revision"`
 	IdempotencyKey  string         `json:"idempotency_key"`
 	Approval        *approvalInput `json:"approval"`
+}
+
+type researchRetireMutation struct {
+	ProductID      string                              `json:"product_id"`
+	Candidates     []store.ResearchRetirementCandidate `json:"candidates"`
+	DryRun         bool                                `json:"dry_run"`
+	IdempotencyKey string                              `json:"idempotency_key"`
+	Approval       *approvalInput                      `json:"approval"`
 }
 
 func rawJSON(v any) json.RawMessage {

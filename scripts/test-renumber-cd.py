@@ -240,6 +240,23 @@ class RenumberTests(unittest.TestCase):
         self.assertIn("CD-00610", (self.root / ".concord/docs/priorities.md").read_text())
         self.assertIn("CD-0062 differs", (self.root / ".concord/docs/priorities.md").read_text())
 
+    def test_navigation_outputs_are_left_to_their_generator(self) -> None:
+        paths = [
+            ".concord/navigation/inventory.json",
+            ".concord/navigation/domains/product-memory.md",
+        ]
+        for path in paths:
+            self.write(path, "DO NOT EDIT\nCD-0061\n")
+        self.commit()
+        findings, prepared = renumber.plan(
+            self.root, "CD-0061", "CD-0062", against="missing-ref"
+        )
+        self.assertEqual(findings, [])
+        assert prepared is not None
+        for path in paths:
+            self.assertNotIn(Path(path), prepared.edits)
+        self.assertIn(("scripts/generate-domain-navigation.py",), renumber.GENERATORS)
+
     def test_refuses_to_move_a_landed_cd(self) -> None:
         git(self.root, "branch", "landed")
 

@@ -15,9 +15,6 @@ func ReadResearchPack(ctx context.Context, s *Store, packID string, limit int) (
 	if packID == "" {
 		return ResearchPack{}, researchInvalid("pack_id is required")
 	}
-	if err := reconcileTerminalResearchOwners(ctx, s); err != nil {
-		return ResearchPack{}, err
-	}
 	if limit <= 0 || limit > 1000 {
 		limit = 1000
 	}

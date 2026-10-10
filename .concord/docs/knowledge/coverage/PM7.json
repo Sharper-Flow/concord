@@ -1,22 +1,5 @@
 {
-  "evidence": [
-    {
-      "kind": "go_test",
-      "value": "internal/store.TestCompactionLinkBoundaryRefusesStaleLawRevisionAfterClaim"
-    },
-    {
-      "kind": "go_test",
-      "value": "internal/store.TestPublishCompactionLinkPreflightsRequiredResearchConsumer"
-    },
-    {
-      "kind": "go_test",
-      "value": "internal/store.TestTerminalResearchCleanupRefusesRequiredCompaction"
-    },
-    {
-      "kind": "go_test",
-      "value": "internal/store.TestQ10OrphanWorkNoteRemainsNotCompacted"
-    }
-  ],
   "id": "PM7",
-  "state": "satisfied"
+  "reason": "Historical specification superseded by compaction-retention-policy. Proof-backed archive cleanup is no longer a current research guarantee; complete successor coverage does not inherit those cleanup anchors.",
+  "state": "out_of_scope"
 }

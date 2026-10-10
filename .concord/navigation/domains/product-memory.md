@@ -7,7 +7,7 @@ File accountability does not change a document's law home or a handler's semanti
 ## Responsibility
 Owns Product knowledge: the knowledge index and its records, the Domain registry as law, law-coverage and conformance records, lessons and research, and compaction and retention policy.
 
-Mapped files: 861; tests: 44; unresolved candidates: 0.
+Mapped files: 875; tests: 45; unresolved candidates: 0.
 Candidate counts overlap when a file has several candidates; no candidate is an assigned owner.
 
 ## Code and tests
@@ -43,7 +43,7 @@ Run the narrow selected command with `bin/oc-test targeted -- <command> [args...
 ## Allowed and observed references
 Bindings and interpretations are advisory joins; navigation does not prove dispatch admission at the current workflow step.
 - CLI entries bound: 7 (`cd-reservations`, `domain-project-attachments-replace`, `domain-resource-attachments-replace`, …)
-- agent operations bound: 17 (`concord_domain.active_work`, `concord_domain.attachments`, `concord_domain.detail`, …)
+- agent operations bound: 18 (`concord_domain.active_work`, `concord_domain.attachments`, `concord_domain.detail`, …)
 - workflow actions bound: 0
 - Interpretation `depends_on` -> `durable-authority` (advisory, not an import allowlist).
 - Interpretation `depends_on` from `repository-verification` (advisory, not an import allowlist).

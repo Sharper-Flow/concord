@@ -21,7 +21,7 @@ It was 9 within hours. CD-0059 was authored while the registry still held only
 landed after the classification that produced the partition had run. Nothing
 was wrong with that change. The record had nowhere else to go.
 
-That is the general shape. CD-0041 D2 makes the root correct for Product-wide
+That is the general shape. CD-0222 D2 makes the root correct for Product-wide
 law and simultaneously the only home an author reaches by deciding nothing. A
 record that defaulted to the root and a record that belongs there are
 indistinguishable once written. The corpus drifts back toward a catch-all one

@@ -1,6 +1,6 @@
 # CD-0041: Architecture-bound Product law is Concord's primary coordination model
 
-- **Status:** Accepted
+- **Status:** Superseded by [CD-0222](CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md)
 - **Date:** 2026-08-18
 - **Scope:** Product priorities, architectural identity, law placement, concurrent-work
   contradiction control, Initiative shape, and storage boundary; issue #192

@@ -18,7 +18,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:012cee5a824329a894064bcabe9551c61bca76f938a27c0696b547f2bcc9e4cb",
+  "sha256": "sha256:dc16f89af45508b834d97332bc32be2b25fcaa5d771b2883033bfec48e3d6a51",
   "status": "accepted",
   "summary": "Migration and correction are demand-driven and ad hoc. Replacement readiness remains an evidence claim. CD-0006 D1-D2 and CD-0053 D4 cutover framing are amended, while Domain, PM4, and data-integrity controls remain bounded and current.",
   "tags": [

@@ -22,7 +22,7 @@ operating envelope in `priorities.md`, Product and Domain navigation, active-wor
 PM1 Q1/Q2/Q4/Q5, PM4/PM5 identity semantics, and the accepted TS7
 authority and freshness envelope. This record fixes the default Product row:
 its five field groups, the canonical row object, focus selection, and
-rendering rules. CD-0041 replaces component navigation with Product to
+rendering rules. CD-0222 replaces component navigation with Product to
 Domain; the five field groups are unchanged.
 ## Contract
 
@@ -45,7 +45,7 @@ The default Product row contains exactly five field groups:
    or an explicit reason no focus item exists.
 
 The row is an orientation/selection projection, not a Product dashboard
-(CD-0006 D6; CD-0041).
+(CD-0006 D6; CD-0222).
 
 ## 2. Canonical row object
 

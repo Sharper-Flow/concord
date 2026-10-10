@@ -84,7 +84,7 @@ accepted law.
 - Semantic analysis may suggest duplicate or conflicting law for operator review;
   it never owns persistence, supersession, or blocking.
 
-See [`decisions/CD-0041-architecture-bound-product-law.md`](./decisions/CD-0041-architecture-bound-product-law.md),
+See [`decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md`](./decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md),
 [`specs-as-laws.md`](./specs-as-laws.md), and
 [`product-data-model.md`](./product-data-model.md).
 
@@ -225,7 +225,7 @@ It becomes usable when:
 1. The operator can see, plan, and act across the full Product scope from the launcher through Product → Domain context. Per CD-0021, "across the full Product scope" means every Product is reachable from the launcher, not that a result set spans Products. Per the same decision, "plan" is satisfied by reaching work and opening a session that authors it. The launcher is read-only by C18, so work creation keeps one write authority.
 2. Agents can read, write, and execute within that Product and Domain context through tools.
 3. Every supported work kind (implementation, research, ops, etc.) has a defined workflow type and completion evidence.
-4. Required authority/freshness is explicit, CD-0006 R3's accepted cross-workflow impact policy is enforced, and CD-0041's architecture-overlap policy prevents unresolved concurrent Product-changing work from holding execution authority.
+4. Required authority/freshness is explicit, CD-0006 R3's accepted cross-workflow impact policy is enforced, and CD-0222's architecture-overlap policy prevents unresolved concurrent Product-changing work from holding execution authority.
 5. Concord-owned data and workflow boundaries satisfy Priority 2 (bounded writer admission, no hand-repair, safe evolution).
 6. The Advance surfaces that Concord consumes are stable enough to serve as evidence, and Concord can replace them without losing operational coverage.
 
@@ -238,7 +238,7 @@ operations need their own demand, local scope, and evidence.
 
 | Question | Why it matters | Current direction, if any |
 |---|---|---|
-| **Storage model for Concord-owned state** | Foundation for Priority 2 and the derived projections serving Priority 1. | **Resolved** — CD-0002 + accepted PM2/PM3 (2026-08-05) establish one global local SQLite DB, append-only `domain_events` authority, and explicit typed projections updated in one transaction. Accepted PM6/PM7 (2026-08-05/06) add git-proof-backed durable notes plus bounded lazy projection pruning without event deletion. CD-0041 retains this authority under CD-0011's falsifiers. |
+| **Storage model for Concord-owned state** | Foundation for Priority 2 and the derived projections serving Priority 1. | **Resolved** — CD-0002 + accepted PM2/PM3 (2026-08-05) establish one global local SQLite DB, append-only `domain_events` authority, and explicit typed projections updated in one transaction. Accepted PM6/PM7 (2026-08-05/06) add git-proof-backed durable notes plus bounded lazy projection pruning without event deletion. CD-0222 retains this authority under CD-0011's falsifiers. |
 | **Workflow evolution semantics** | Affects Priority 2, 3, and 6. | **Resolved by CD-0006:** Concord owns full coordination; purpose-built types are code-defined and versioned, with one generic one-off type. Work composes through forward-linked successors with independent authority/recovery. |
 | **Read-path implementation language** | Affects Priority 4. | **Go** — the Concord core is Go from day one. See [`core-architecture.md`](./core-architecture.md). Latency target (sub-100ms) remains; language is no longer conditional. |
 | **Where the Product entity lives** | Affects architecture and storage. | **Resolved by CD-0007:** standalone `Sharper-Flow/concord` Product/repository, Go module `github.com/sharper-flow/concord`; implementation authority moves there after the audited public bootstrap. |
@@ -250,7 +250,7 @@ operations need their own demand, local scope, and evidence.
 | **Cross-workflow impact/freshness** | Prevents one workflow from acting after related work invalidates its assumptions. | **Resolved by CD-0006 R3 and amended by CD-0041:** declared edges, completion notices, bounded consequential-boundary checks, hard-edge-plus-breaking blocking, deterministic version fallback, and explicit version-pinned resolution for concurrent work whose affected Domains overlap. |
 | **Goal-to-outcome binding** | Affects Priority 3. *Intent fidelity* and *no silent drift* stay inert until a stated goal is checkable against what was actually delivered. | **Resolved by CD-0012 (2026-08-08):** three-part outcome contract (premise, required end-state, candidate set) approved at planning beside the CD-0006 D10 spec mandate; a weaker delivered end-state fails; mid-execution discoveries forward-link rather than substitute. See [`decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md`](./decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md). |
 | **Agent context continuity** | A lossy working-window boundary must not silently drop law, approvals, workflow position, or evidence. | **Resolved by CD-0016 (2026-08-11):** durable bounded checkpoints and monotonic boundaries; pinned state is re-derived on every call; summaries are advisory and typed restart is unimplemented pending issue #120. |
-| **Replacement relation home** | Affects Priority 1 and 2. | **Bounded by CD-0041 and PM4:** Domain `replaces` and work-item `supersedes` remain current. No generic Product, Project, resource, or workflow replacement home is implied. |
+| **Replacement relation home** | Affects Priority 1 and 2. | **Bounded by CD-0222 and PM4:** Domain `replaces` and work-item `supersedes` remain current. No generic Product, Project, resource, or workflow replacement home is implied. |
 
 ---
 

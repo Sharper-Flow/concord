@@ -1,0 +1,43 @@
+{
+  "authority": {
+    "tier": "derived"
+  },
+  "date": "2026-10-10T00:00:00Z",
+  "doc_contract_profile": "current",
+  "evidence": [
+    "adapter/opencode/dispatch.ts",
+    "internal/store/worker_packet_binding.go",
+    "scripts/generate-agent-lanes.py"
+  ],
+  "home_domain_id": "agent-surface",
+  "id": "CD-0223",
+  "kind": "decision",
+  "law_relations": [
+    {
+      "kind": "supersedes",
+      "target_id": "CD-0196"
+    },
+    {
+      "kind": "refines",
+      "target_id": "CD-0017"
+    }
+  ],
+  "path": ".concord/docs/decisions/CD-0223-worker-lanes-hold-no-concord-tool-access-and-the-dispatch-packet-carries-only-declared-context.md",
+  "scopes": {
+    "domain_ids": [],
+    "mode": "home",
+    "product_ids": [],
+    "project_ids": [],
+    "tag_ids": []
+  },
+  "sha256": "sha256:64bfe37c07395c909963d4667cde4b31be7e5990d02bf87cf46440944869d910",
+  "status": "accepted",
+  "summary": "A dispatched worker lane holds no Concord read or write tool access. Generated denial and the adapter parent boundary hold independently, and the packet is the complete declared context: immutable readings, registry_path, typed prior state, and the one job oracle. No global inventory inserts derived cards, and recorded packets and reading sets stay readable under their recorded formats as history. Missing context uses the report boundary, never worker Concord access.",
+  "tags": [
+    "agent-surface",
+    "worker-attempts",
+    "law",
+    "adapter"
+  ],
+  "title": "Worker lanes hold no Concord tool access, and the dispatch packet carries only declared context"
+}

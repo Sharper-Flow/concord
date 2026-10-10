@@ -23,7 +23,7 @@
   {
    "id": "fc4",
    "ordinal": 4,
-   "title": "Required authority/freshness is explicit, CD-0006 R3's accepted cross-workflow impact policy is enforced, and CD-0041's architecture-overlap policy prevents unresolved concurrent Product-changing work from holding execution authority."
+   "title": "Required authority/freshness is explicit, CD-0006 R3's accepted cross-workflow impact policy is enforced, and CD-0222's architecture-overlap policy prevents unresolved concurrent Product-changing work from holding execution authority."
   },
   {
    "id": "fc5",

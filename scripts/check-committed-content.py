@@ -151,8 +151,19 @@ def added_lines(root: Path, base: str) -> dict[str, set[int]]:
     path: str | None = None
     in_header = False
     number = 0
+    # Explicit prefixes keep the headers parseable under diff.noprefix and diff.mnemonicPrefix.
     diff = git(
-        root, "diff", "--no-color", "--no-ext-diff", "--unified=0", "--find-renames", "--diff-filter=AMR", base, "--"
+        root,
+        "diff",
+        "--no-color",
+        "--no-ext-diff",
+        "--src-prefix=a/",
+        "--dst-prefix=b/",
+        "--unified=0",
+        "--find-renames",
+        "--diff-filter=AMR",
+        base,
+        "--",
     )
     for line in diff.split("\n"):
         if line.startswith("diff --git "):

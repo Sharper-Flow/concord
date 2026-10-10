@@ -213,6 +213,16 @@ class CommittedContentTests(unittest.TestCase):
         self.assertFlags('docs/say "hi".md', 2, "planning-identifier", findings)
         self.assertEqual(len(findings), 2, findings)
 
+    def test_a_no_prefix_git_config_does_not_hide_added_lines(self):
+        git(self.root, "config", "diff.noprefix", "true")
+        git(self.root, "switch", "--quiet", "main")
+        self.write("docs/guide.md", "Intro.\n")
+        self.commit("existing guide")
+        git(self.root, "switch", "--quiet", "feature")
+        git(self.root, "merge", "--quiet", "main")
+        self.write("docs/guide.md", f"Intro.\nTracked by {KEY}.\n")
+        self.assertFlags("docs/guide.md", 2, "planning-identifier", self.findings())
+
     def test_main_exits_nonzero_with_findings_and_zero_when_clean(self):
         self.write("docs/clean.md", "A durable sentence.\n")
         with contextlib.redirect_stdout(io.StringIO()):

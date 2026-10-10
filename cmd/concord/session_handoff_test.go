@@ -179,9 +179,6 @@ func hostPromptRecord(t *testing.T, recordDir string) string {
 	return string(data)
 }
 
-// requireOrchestratorAssertion proves the session child recorded the
-// orchestrator identity assertion in the isolated authority. The write
-// happened inside the real session command, not in this test process.
 func sessionDurableCounts(t *testing.T, dbPath string) map[string]int {
 	t.Helper()
 	s, err := store.Open(context.Background(), dbPath)
@@ -192,6 +189,7 @@ func sessionDurableCounts(t *testing.T, dbPath string) map[string]int {
 	return durableCounts(t, s)
 }
 
+// The session child records its identity, with no other durable effects.
 func requireOrchestratorAssertion(t *testing.T, dbPath string, before map[string]int) {
 	t.Helper()
 	s, err := store.Open(context.Background(), dbPath)

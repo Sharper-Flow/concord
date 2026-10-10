@@ -775,7 +775,7 @@ func recordResearchFindingWithinRawTx(ctx context.Context, tx *sql.Tx, req Resea
 	return out, nil
 }
 
-// AddResearchSourceWithinTx runs the AddResearchSource core on the caller's transaction. The
+// addResearchSourceWithinTx runs the AddResearchSource core on the caller's transaction. The
 // caller owns idempotency; the research idempotency table is skipped, and
 // this function never rolls back or commits the caller's transaction.
 func addResearchSourceWithinTx(ctx context.Context, tx *sql.Tx, req ResearchSourceRequest, update bool, observedAt time.Time) (ResearchSource, error) {

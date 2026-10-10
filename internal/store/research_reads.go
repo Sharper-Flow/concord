@@ -155,7 +155,7 @@ func requiredResearchFreshness(ctx context.Context, q queryer, packID, consumerW
 
 func readResearchPackRow(ctx context.Context, q interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
-}, packID string, _ int) (ResearchPack, error) {
+}, packID string) (ResearchPack, error) {
 	var p ResearchPack
 	err := q.QueryRowContext(ctx, `SELECT pack_id,owner_work_id,current_revision,freshness,expected_version,created_at,updated_at FROM active_research_packs WHERE pack_id=?`, packID).Scan(&p.PackID, &p.OwnerWorkID, &p.CurrentRevision, &p.Freshness, &p.ExpectedVersion, &p.CreatedAt, &p.UpdatedAt)
 	if err == sql.ErrNoRows {
@@ -168,7 +168,7 @@ func readResearchPackRow(ctx context.Context, q interface {
 }
 
 func readResearchPackTx(ctx context.Context, tx *sql.Tx, packID string, limit int) (ResearchPack, error) {
-	p, err := readResearchPackRow(ctx, tx, packID, limit)
+	p, err := readResearchPackRow(ctx, tx, packID)
 	if err != nil {
 		return p, err
 	}
@@ -243,7 +243,7 @@ func readRevisionRowTx(ctx context.Context, tx *sql.Tx, pack string, revision in
 }
 
 func readResearchSelectionTx(ctx context.Context, tx *sql.Tx, req ResearchReadRequest) (ResearchPack, error) {
-	p, err := readResearchPackRow(ctx, tx, req.PackID, req.Limit)
+	p, err := readResearchPackRow(ctx, tx, req.PackID)
 	if err != nil {
 		return ResearchPack{}, err
 	}

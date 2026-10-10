@@ -78,7 +78,7 @@ func TestDerivedLawRevisionOnNonProductChangingContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !strings.Contains(string(docBytes), "revise `derived` law in-contract") {
-		t.Fatal("CD-0041 D5 does not state the derived carve-out")
+		t.Fatal("CD-0222 D5 does not state the derived carve-out")
 	}
 
 	t.Run("derived only modification is admitted and recorded", func(t *testing.T) {

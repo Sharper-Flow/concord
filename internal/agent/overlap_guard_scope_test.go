@@ -71,7 +71,7 @@ func TestOverlapGuardAdmitsOperationsOutsideD7Classes(t *testing.T) {
 	} {
 		t.Run(probe.name, func(t *testing.T) {
 			if kind := dispatchUnderOverlap(t, probe.tool, probe.operation, probe.input); kind == "domain_overlap" {
-				t.Fatalf("%s.%s refused with domain_overlap, but CD-0041 D7 names no class that covers it", probe.tool, probe.operation)
+				t.Fatalf("%s.%s refused with domain_overlap, but CD-0222 D7 names no class that covers it", probe.tool, probe.operation)
 			}
 		})
 	}
@@ -100,6 +100,6 @@ func TestOverlapGuardStillRefusesNamedD7Classes(t *testing.T) {
 		},
 	}
 	if kind := dispatchUnderOverlap(t, "concord_work_define", "observation_record", external); kind != "domain_overlap" {
-		t.Fatalf("external observation refusal kind=%q, want domain_overlap: it accepts a merge or ship result, which CD-0041 D7 names", kind)
+		t.Fatalf("external observation refusal kind=%q, want domain_overlap: it accepts a merge or ship result, which CD-0222 D7 names", kind)
 	}
 }

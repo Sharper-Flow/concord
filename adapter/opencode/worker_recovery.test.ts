@@ -167,6 +167,12 @@ test("a recorded card-bearing 1.1 recovery replays through its recorded branch",
   const transcript = host()
   transcript.parent.messages[0].parts[0].state.input.prompt = serializeLanePacket(cardBearing)
   transcript.child.messages[0].parts[0].text = serializeLanePacket(cardBearing)
+  // The era's builder stamped the dispatching packet's identity into the
+  // retained report text, so the 1.1 recovery retains a 1.1-claiming report.
+  const retainedReport = { ...report, schema_version: "1.1" }
+  const retainedWrap = `<task id="child-recovery" state="completed">\n<task_result>\n${JSON.stringify(retainedReport)}\n</task_result>\n</task>`
+  transcript.parent.messages[0].parts[0].state.output = retainedWrap
+  transcript.child.messages[transcript.child.messages.length - 1].parts = [{ type: "text", text: JSON.stringify(retainedReport) }]
   const { reader } = transcript
   const calls: any[] = []
   const result = await reconcileRetainedWorker({ ...recovery, packet_schema_version: "1.1", report_schema_version: "1.1", dispatch: { ...recovery.dispatch, packet_schema_version: "1.1", report_schema_version: "1.1" } }, cardBearing.work_id, cardBearing.attempt_id, "retained-part", {
@@ -205,5 +211,23 @@ test("recovery refuses a retained packet whose schema identity differs from the 
     sessionReader: parent.reader, credentials, concordBinary: "concord-test", workerDirectory: process.cwd(),
     evidenceRunner: { async run(argv: string[]) { calls.push(argv[1]); return { exitCode: 0, stdout: "", stderr: "" } } },
   }, new AbortController().signal)).rejects.toThrow(/schema identity differs/)
+  expect(calls).toEqual([])
+})
+
+// The retained report's own schema identity is recorded evidence: the era's
+// builder stamped the dispatching packet's identity into the report text, so
+// a retained Task whose report claims a different revision than the recorded
+// dispatch pair is not the original report and refuses before any evidence.
+test("recovery refuses a retained report whose claimed schema identity differs from the recorded pair", async () => {
+  const relabeledPacket: AgentLanePacket = { ...packet, schema_version: "1.1" }
+  const mismatchTranscript = host()
+  mismatchTranscript.parent.messages[0].parts[0].state.input.prompt = serializeLanePacket(relabeledPacket)
+  mismatchTranscript.child.messages[0].parts[0].text = serializeLanePacket(relabeledPacket)
+  const { reader } = mismatchTranscript
+  const calls: string[] = []
+  await expect(reconcileRetainedWorker({ ...recovery, packet_schema_version: "1.1", report_schema_version: "1.1", dispatch: { ...recovery.dispatch, packet_schema_version: "1.1", report_schema_version: "1.1" } }, packet.work_id, packet.attempt_id, "retained-part", {
+    sessionReader: reader, credentials, concordBinary: "concord-test", workerDirectory: process.cwd(),
+    evidenceRunner: { async run(argv: string[]) { calls.push(argv[1]); return { exitCode: 0, stdout: "", stderr: "" } } },
+  }, new AbortController().signal)).rejects.toThrow(/retained report claims schema identity "1\.0"/)
   expect(calls).toEqual([])
 })

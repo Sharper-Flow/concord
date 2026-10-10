@@ -149,6 +149,9 @@ func TestWorkerCompletedRefusesRetiredReportVersionLive(t *testing.T) {
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{workerDispatchEvent("worker-completion-revision", "dispatch-completion-revision", lane, nil)}}); err != nil {
 		t.Fatal(err)
 	}
+	// The completion fold owns the report identity through the attempt row:
+	// a retired 1.1 claim against an attempt recorded at the current pair
+	// refuses closed, so no global current-revision gate is needed here.
 	retired := workerCompleteEvent("worker-completion-revision", "complete-completion-revision", "dispatch-completion-revision", preferredModelForLane(lane))
 	retiredPayload := mustJSONValue(map[string]any{"attempt_id": "dispatch-completion-revision", "readback_model": preferredModelForLane(lane), "report_schema_version": "1.1", "evidence_origin": WorkerEvidenceLegacyUnavailable})
 	retired.Payload = retiredPayload

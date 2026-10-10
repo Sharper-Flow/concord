@@ -1223,15 +1223,13 @@ func foldWorkerCompleted(ctx context.Context, tx *sql.Tx, event Event) error {
 	if err := decodeClosedWorkerPayload(event, &payload); err != nil {
 		return err
 	}
-	// The live completion boundary records only the current report
-	// identity. An old host that stamps a released 1.0 or 1.1 identity is
-	// refused typed before the completion can land; recorded history with
-	// those identities folds unchanged on replay.
-	if !isWorkflowReplay(ctx) && payload.ReportSchemaVersion != WorkerReportSchemaVersion {
-		return newFailure(KindInvalidPayload, "fold_event",
-			"worker.completed must record the current report schema "+WorkerReportSchemaVersion+", not the retired "+payload.ReportSchemaVersion,
-			false, "complete from a host that records the current lane report revision")
-	}
+	// The completion's report identity is owned by the attempt row below:
+	// the dispatch recorded one matched released pair, and a completion whose
+	// claim disagrees with the pair the attempt was dispatched under refuses
+	// closed. There is deliberately no global current-revision check here —
+	// a recorded pre-cutover attempt finishes under the pair it recorded
+	// (retained-report recovery), while no new dispatch can create such a
+	// row, because the live dispatch boundary admits only the current pair.
 	// CD-0205: worker_job was introduced at the worker.completed job-capable
 	// payload version (workerCompletedWorkerJobVersion). A replayed event
 	// whose recorded source version sits below the boundary cannot carry

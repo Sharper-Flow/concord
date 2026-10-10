@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import importlib.util
+import re
+import shutil
 import sys
 import tempfile
 import unittest
@@ -66,6 +68,42 @@ class DomainRegistryReferentialTests(unittest.TestCase):
         self.assertEqual(findings, [])
         self.assertEqual(self.run_main(self.manifest(["root", "child"], {"root": ["child"]})), 0)
 
+    def test_domains_need_no_relation_for_navigation(self) -> None:
+        self.assertEqual(self.check(self.manifest(["root", "child"])), [])
+
+    def test_package_guidance_reaches_an_entry_invariant_and_tests(self) -> None:
+        instructions = (ROOT / "AGENTS.md").read_text()
+        pointer = next(line for line in instructions.splitlines() if "Package and seam ownership" in line)
+        self.assertIn(".concord/docs/core-architecture.md", pointer)
+        architecture = (ROOT / ".concord/docs/core-architecture.md").read_text()
+        section = architecture.split("## 4. Entry points by responsibility\n", 1)[1].split("\n## 5.", 1)[0]
+        rows = [line for line in section.splitlines() if line.startswith("| ")]
+        self.assertLessEqual(len(rows) - 1, 12)
+        task = "SQLite and event authority"
+        owner = next(line for line in rows if line.startswith(f"| {task} |"))
+        columns = owner.split("|")
+        for entry in re.findall(r"`([^`]+)`", columns[2]):
+            self.assertTrue((ROOT / entry).is_file(), entry)
+        note = (ROOT / "internal/store/doc.go").read_text()
+        self.assertIn("SetMaxOpenConns(1)", note)
+        self.assertIn("tx-scoped core", note)
+        self.assertLessEqual(len(note.splitlines()), 60)
+        for test_file in re.findall(r"`([^`]+)`", columns[3]):
+            self.assertTrue((ROOT / "internal/store" / test_file).is_file(), test_file)
+
+    def test_a_new_package_file_needs_no_global_catalog_update(self) -> None:
+        knowledge = self.root / ".concord/docs/knowledge"
+        shutil.copytree(ROOT / ".concord/docs/knowledge", knowledge)
+        before = checker.knowledge_index.compose_manifest(self.root)
+        self.assertEqual(checker.validate(self.root), [])
+        package = self.root / "internal/store"
+        package.mkdir(parents=True)
+        (package / "synthetic_owner.go").write_text("package store\n")
+        self.assertEqual(checker.knowledge_index.compose_manifest(self.root), before)
+        self.assertEqual(checker.validate(self.root), [])
+        self.assertFalse((self.root / ".concord/domain-navigation.v1.json").exists())
+        self.assertFalse((self.root / ".concord/navigation").exists())
+
     def test_a_domain_that_owns_no_law_record_fails(self) -> None:
         manifest = self.manifest(["root", "child"])
         manifest["records"] = [record for record in manifest["records"] if record["id"] != "law-child"]
@@ -101,7 +139,7 @@ class DomainRegistryReferentialTests(unittest.TestCase):
 
         self.assertEqual(len(findings), 1, findings)
         self.assertIn("restates its home 'root'", findings[0])
-        self.assertIn("CD-0041 D3", findings[0])
+        self.assertIn("CD-0222 D3", findings[0])
 
     def test_a_relation_to_an_undeclared_domain_fails(self) -> None:
         findings = self.check(self.manifest(["root"], {"root": ["ghost"]}))

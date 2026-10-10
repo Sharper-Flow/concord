@@ -95,7 +95,7 @@ def validate(root: Path) -> list[str]:
             if domain_id == home:
                 findings.append(
                     f"record {record_id}: applies_to_domain_ids restates its home {home!r}; "
-                    "applicability does not create another owner (CD-0041 D3)"
+                    "applicability does not create another owner (CD-0222 D3)"
                 )
 
     for domain in domains:

@@ -6227,13 +6227,10 @@ CREATE TRIGGER native_oracle_plan_pair_update BEFORE UPDATE ON worktree_verify_l
 		Name:     "worker_attempt_card_free_schema_revision",
 		Breaking: true,
 		SQL: `
--- CON-899's packet/report revision cutover: the card-free "2.0" identities
--- join the released "1.0"/"1.1" ones a worker attempt may record. The live
--- dispatch and completion boundaries admit only the current 2.0 pair;
--- recorded 1.0/1.1 rows keep their released meaning. Widening a CHECK has
--- only SQLite's rebuild shape — rename, recreate, copy, drop — and the
--- rename and drop name schema objects an older binary may reference, so the
--- step declares Breaking exactly as the v119 rebuild before it.
+-- Worker attempts retain their recorded packet/report revision. New
+-- dispatches use 2.0; original retained results may finish 1.0/1.1 attempts.
+-- The CHECK rebuild replaces schema objects an older binary may reference,
+-- so this migration requires the breaking-upgrade boundary.
 DROP TRIGGER IF EXISTS worker_attempts_guard_insert;
 DROP TRIGGER IF EXISTS worker_attempts_guard_update;
 DROP TRIGGER IF EXISTS worker_attempts_guard_delete;

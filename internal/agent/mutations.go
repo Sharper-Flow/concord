@@ -4446,7 +4446,7 @@ func (r runtime) mutateCompaction(ctx context.Context, base Envelope, raw []byte
 		}
 		claimReq := store.ClaimRequest{OpID: opID, WorkID: workID, WorkflowTypeRef: "concord.pm6.compaction", WorkflowTypeVersion: 1, StepID: "git_proof", StepKind: store.StepCrossAuthority, AcceptedInputsDigest: digest, AcceptedScopeSnapshot: string(acceptedScope), PrincipalRef: grant.PrincipalRef, Tool: r.Tool, IdempotencyKey: key, RequestID: r.Envelope.RequestID, ObservedAt: r.Authority.now(), ApprovalRef: publish.Approval.ApprovalRef, ContractDigest: ManifestDigest}
 		claim, claimErr := store.ClaimStepAuthorized(ctx, r.Store, claimReq, func(tx *store.Transaction) error {
-			// CD-0041 D7: publication is consequential, so the claim refuses
+			// CD-0222 D7: publication is consequential, so the claim refuses
 			// before any git note is written when the contract's law revision
 			// pins or its active Domain overlaps no longer validate.
 			if err := store.CheckWorkflowConsequentialBoundaryTx(ctx, tx, workID); err != nil {
@@ -4589,7 +4589,7 @@ func (r runtime) mutateCompaction(ctx context.Context, base Envelope, raw []byte
 	payload := mutationPayload(changed, nil)
 	base.ResolvedScope = &Scope{ProductID: r.Envelope.SelectedProductID, ProjectIDs: []string{r.Envelope.AmbientProjectID}, WorkIDs: []string{reconcile.WorkID}, ScopeVersion: r.Envelope.ScopeVersion}
 	// Reconcile is the closed recovery choice for an orphaned note, so its link
-	// is exempt from the CD-0041 D7 boundary check. Guarding it would refuse the
+	// is exempt from the CD-0222 D7 boundary check. Guarding it would refuse the
 	// only way out of a pending compaction.
 	if linkErr := store.PublishCompactionLink(ctx, r.Store, store.CompactionLinkRequest{EventID: reconcile.OperationID + ":reconcile-link", WorkID: reconcile.WorkID, ExpectedVersion: workVersion, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), Home: home, CommitOID: note.CommitOID, NotePath: note.NotePath, ExpectedHash: proofDigest, Reason: "reconcile verified orphan note", Boundary: store.CompactionBoundaryRecoveryExempt}); linkErr != nil {
 		return pendingCompaction(base, reconcile.WorkID, step, "sqlite_link", []string{"operation_claimed", "git_proof"}, linkErr), nil
@@ -5015,7 +5015,7 @@ func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte,
 			// tail touches instead of inserting.
 			replay = true
 		}
-		// CD-0041 D7: every consequential boundary validates the contract's law
+		// CD-0222 D7: every consequential boundary validates the contract's law
 		// revision pins and its active Domain overlaps. The guarded set is the
 		// action classes D7 names, and no wider: D7 also holds that read-only
 		// inspection remains available, and an operation that records no
@@ -5242,7 +5242,7 @@ func mutationScopeWorkIDs(scope map[string]any) []string {
 }
 
 // mutationRequiresConsequentialBoundary answers whether one mutation belongs to
-// an action class CD-0041 D7 names. The generated operation manifest already
+// an action class CD-0222 D7 names. The generated operation manifest already
 // classifies every operation's consequence, so the answer derives from that
 // declaration rather than from a second list beside it that can drift.
 //
@@ -5317,7 +5317,7 @@ func mutationIsOverlapRecovery(tool, operation string, raw []byte) bool {
 	// changing what the contract modifies. Guarding it leaves a blocking pair
 	// resolvable only by the other party, so the gate refuses the escape it
 	// names. No other workflow action is exempt: the rest advance the pinned
-	// workflow, which is what CD-0041 D7 holds behind the boundary.
+	// workflow, which is what CD-0222 D7 holds behind the boundary.
 	if tool == "concord_work_transition" && operation == "workflow_action" {
 		var input struct {
 			ActionID string `json:"action_id"`

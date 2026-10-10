@@ -146,6 +146,11 @@ func TestQueryQ9TokenSearchStaleWatermarkOmitsAuthority(t *testing.T) {
 	if len(result.Items) != 0 || result.Authority != "degraded" || !slices.Contains(result.Omissions, "knowledge_index_lagging_or_unreachable") {
 		t.Fatalf("stale token search = %+v", result)
 	}
+	req.Text = "law revision"
+	result, err = s.QueryQ9(context.Background(), req)
+	if err != nil || len(result.Items) != 1 || result.Authority != "degraded" || result.SourceWatermarks != nil || !slices.Equal(result.Omissions, []string{"knowledge_index_lagging_or_unreachable"}) {
+		t.Fatalf("single-source stale rows = %+v, err %v", result, err)
+	}
 }
 
 func TestQueryQ9TokenSearchFederatedPaging(t *testing.T) {

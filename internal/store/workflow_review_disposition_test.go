@@ -350,6 +350,16 @@ func TestRefineReviewEvidenceCorrectionClosesOnFencedDispatch(t *testing.T) {
 			reviewID := "attempt:" + workID + ":review"
 			epoch := dispatchCheckpointReviewAttempt(t, fixture, workID, "refine", reviewID)
 			completion := reviewLaneVerdictCompleteEvent(workID, "fenced-review-completion-"+workID, reviewID, reviewGateLane(t, "review"), "ship", time.Unix(100, 0).UTC())
+			var payload WorkerCompletedPayload
+			if err := json.Unmarshal(completion.Payload, &payload); err != nil {
+				t.Fatal(err)
+			}
+			if payload.Review == nil || len(payload.Review.Findings) != 1 {
+				t.Fatal("the ship review fixture must contain exactly one advisory finding")
+			}
+			// The ship review's only finding is advisory, never a blocker.
+			payload.Review.Findings[0].Oracle = &WorkerOracleFinding{Classification: OracleClassificationFollowUp}
+			completion.Payload = mustJSONValue(payload)
 			jobBoundReviewCompletion(t, &completion, reviewID, s)
 			if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{completion}}); err != nil {
 				t.Fatal(err)

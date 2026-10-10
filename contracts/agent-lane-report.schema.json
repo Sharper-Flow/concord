@@ -126,6 +126,334 @@
             "maxLength": 128,
             "pattern": "^predicate:[A-Za-z0-9][A-Za-z0-9._:-]*$"
           }
+        },
+        "oracle_receipt": {
+          "$ref": "#/$defs/oracle_receipt"
+        }
+      }
+    },
+    "oracle_recipe_source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "project_id",
+        "path",
+        "commit_oid"
+      ],
+      "description": "The exact pinned harness identity a receipt executed (CON-890): a repository file at an exact commit. A receipt must name the recipe the control pinned, never the candidate's modified copy of the harness.",
+      "properties": {
+        "kind": {
+          "const": "repository_file"
+        },
+        "project_id": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 128
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "commit_oid": {
+          "type": "string",
+          "minLength": 40,
+          "maxLength": 64,
+          "pattern": "^[0-9a-f]{40,64}$"
+        }
+      }
+    },
+    "oracle_receipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "control_ids",
+        "case_ids",
+        "recipe_source",
+        "result",
+        "run_ref",
+        "evidence_refs"
+      ],
+      "description": "One typed control-execution receipt (CON-890): reported evidence, never native-run authority. A signed worker report is a claim; the producing host's immutable native-run or artifact locator is the retrievable proof. subject_commit is the dispatch-owned raw commit OID: the adapter strips any worker echo and injects the admitted subject from the dispatch packet. A timeout is unavailable evidence, not a measured failure.",
+      "properties": {
+        "control_ids": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 9,
+            "maxLength": 128,
+            "pattern": "^control:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$"
+          }
+        },
+        "case_ids": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 6,
+            "maxLength": 128,
+            "pattern": "^case:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$"
+          }
+        },
+        "subject_commit": {
+          "type": "string",
+          "minLength": 40,
+          "maxLength": 64,
+          "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
+          "description": "The admitted raw commit OID. Dispatch-owned: a worker-authored value is stripped before the canonical report and filled only from the packet's core subject_commit."
+        },
+        "recipe_source": {
+          "$ref": "#/$defs/oracle_recipe_source"
+        },
+        "result": {
+          "type": "string",
+          "enum": [
+            "pass",
+            "fail",
+            "unavailable",
+            "not_run"
+          ]
+        },
+        "exit_code": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 255,
+          "description": "Required exactly when result is pass or fail: the control's exit status."
+        },
+        "run_ref": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 512,
+          "description": "The immutable native-run or artifact locator of the execution. Nonempty exactly when result is pass or fail; a not_run or unavailable result carries the empty string and names its explanation in evidence_refs. Never invent a locator: when no producing route issued one, result is unavailable and run_ref stays empty."
+        },
+        "evidence_refs": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 8,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "x-maxBytes": 256
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "result": {
+                "enum": [
+                  "pass",
+                  "fail"
+                ]
+              }
+            },
+            "required": [
+              "result"
+            ]
+          },
+          "then": {
+            "required": [
+              "exit_code"
+            ],
+            "properties": {
+              "run_ref": {
+                "minLength": 1
+              }
+            }
+          }
+        }
+      ]
+    },
+    "oracle_law_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source",
+        "clause"
+      ],
+      "properties": {
+        "source": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "source_id",
+            "law_id",
+            "content_hash"
+          ],
+          "properties": {
+            "kind": {
+              "const": "knowledge"
+            },
+            "source_id": {
+              "type": "string",
+              "minLength": 2,
+              "maxLength": 128
+            },
+            "law_id": {
+              "type": "string",
+              "minLength": 2,
+              "maxLength": 256
+            },
+            "content_hash": {
+              "type": "string",
+              "minLength": 71,
+              "maxLength": 71,
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            }
+          }
+        },
+        "clause": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "x-maxBytes": 512
+        }
+      }
+    },
+    "oracle_finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "classification"
+      ],
+      "description": "The typed oracle tie of one review finding (CON-890): a closed classification plus the owner, predicate/law, case, and control references that bind it. Classification and severity are different dimensions; the tie records no acceptance.",
+      "properties": {
+        "classification": {
+          "type": "string",
+          "enum": [
+            "delivery_blocker",
+            "uncovered_case",
+            "follow_up",
+            "oracle_defect"
+          ],
+          "description": "delivery_blocker: a failed obligation of a declared owner. uncovered_case: a legitimate new entry path the inventory omitted — a real blocker, not a rejection. follow_up: outside the approved owner/contract; never an open repair criterion. oracle_defect: the harness itself is obsolete, inconsistent, or unsound; it blocks readiness, not a fabricated repair."
+        },
+        "owner_id": {
+          "type": "string",
+          "minLength": 7,
+          "maxLength": 128,
+          "pattern": "^owner:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$"
+        },
+        "failure_family": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "predicate_ids": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 8,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 11,
+            "maxLength": 128,
+            "pattern": "^predicate:[A-Za-z0-9][A-Za-z0-9._:-]*$"
+          }
+        },
+        "law_bindings": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 8,
+          "items": {
+            "$ref": "#/$defs/oracle_law_binding"
+          }
+        },
+        "case_ids": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 8,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 6,
+            "maxLength": 128,
+            "pattern": "^case:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$"
+          }
+        },
+        "control_ids": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 8,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 9,
+            "maxLength": 128,
+            "pattern": "^control:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$"
+          }
+        },
+        "evidence_refs": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 8,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "x-maxBytes": 256
+          },
+          "description": "The reproducible evidence that supports the finding. A known control failure names that control's receipt."
+        },
+        "entry_point": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "x-maxBytes": 512,
+          "description": "For an uncovered_case: the explicit new entry path or transition the inventory omitted."
+        },
+        "continues_finding_id": {
+          "type": "string",
+          "minLength": 11,
+          "maxLength": 64,
+          "pattern": "^finding:[0-9]+:[0-9]+$",
+          "description": "The earlier ranked finding of this work that this finding continues. Same failure, same canonical open identity; an uncertain join becomes a new finding and earns no shrink credit."
+        },
+        "variant_of": {
+          "type": "string",
+          "minLength": 11,
+          "maxLength": 64,
+          "pattern": "^finding:[0-9]+:[0-9]+$",
+          "description": "The owner-family finding this newly reproduced alternate entry path is a variant of. A variant is a new identity, not the same open finding."
+        }
+      }
+    },
+    "resolved_finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "finding_id",
+        "evidence_refs"
+      ],
+      "description": "One evidenced closure claim of a previously open ranked finding (CON-890). A finding closes only through supported closure; omission, relabeling, or a confidence change never closes it.",
+      "properties": {
+        "finding_id": {
+          "type": "string",
+          "minLength": 11,
+          "maxLength": 64,
+          "pattern": "^finding:[0-9]+:[0-9]+$"
+        },
+        "evidence_refs": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "x-maxBytes": 256
+          },
+          "description": "The independent current-subject evidence the closure names, as the control requires."
         }
       }
     },
@@ -259,6 +587,16 @@
           "items": {
             "$ref": "#/$defs/review_finding"
           }
+        },
+        "resolved_findings": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 32,
+          "x-maxArrayBytes": 8192,
+          "description": "Optional evidenced closure claims of previously open ranked findings (CON-890), reported on any verdict. A claim is a claim: the store checks each identity against this work's earlier ranked findings and the evidence each control requires. x-maxArrayBytes bounds the compact JSON serialization of the whole array in UTF-8 bytes; the adapter enforces that aggregate and refuses the report rather than truncating a claim.",
+          "items": {
+            "$ref": "#/$defs/resolved_finding"
+          }
         }
       },
       "allOf": [
@@ -347,6 +685,9 @@
           "minLength": 1,
           "maxLength": 512,
           "x-maxBytes": 512
+        },
+        "oracle": {
+          "$ref": "#/$defs/oracle_finding"
         }
       }
     }

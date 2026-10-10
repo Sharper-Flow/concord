@@ -35,6 +35,12 @@ that no record backs. The core refuses the prose `inputs.context` member on
 dispatch. The lane packet schema keeps that member only so that recovery can
 validate a packet that an earlier adapter sent.
 
+The packet also carries the pinned work-context view of CD-0016 as
+`inputs.work_context` and the latest context checkpoint as `inputs.checkpoint`.
+The adapter copies both verbatim. The dispatch transaction re-reads both and
+refuses a packet whose member differs from the current state, omits a present
+member, or carries a member that no record backs.
+
 The record describes the change's decisions. It does not describe lane procedure, review method, or verification method. Research inputs use the existing `research_bindings` field with `use_role=design_input`.
 
 The forward-only graph places the initial design before planning and execution.

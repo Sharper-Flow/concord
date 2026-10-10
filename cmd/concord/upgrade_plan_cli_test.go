@@ -230,6 +230,12 @@ func pendingBreakingStore(t *testing.T, path string, unpoison bool) {
 	}
 	if unpoison {
 		for _, statement := range []string{
+			`DROP TRIGGER native_oracle_plan_pair_insert`,
+			`DROP TRIGGER native_oracle_plan_pair_update`,
+			`ALTER TABLE worktree_verify_leases DROP COLUMN native_plan_json`,
+			`ALTER TABLE worktree_verify_leases DROP COLUMN native_plan_sha256`,
+			`ALTER TABLE worktree_verify_leases DROP COLUMN stdout_blob`,
+			`ALTER TABLE worktree_verify_leases DROP COLUMN stderr_blob`,
 			`DROP TABLE outside_repair_reconciliations`,
 			`DROP TABLE outside_repair_dispositions`,
 			// Restore the pre-117 column set and CHECK while retaining every row.

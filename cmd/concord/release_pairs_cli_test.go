@@ -357,7 +357,7 @@ func TestDistinctReleasedCoresCoexistOnOneStore(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if readiness.SchemaVersion != compatiblePairSchema || readiness.CompatibilityFloor != 111 || !readiness.ActivationBlocked || len(readiness.PendingBreaking) != 5 || readiness.PendingBreaking[0].Version != 119 || readiness.PendingBreaking[1].Version != 120 || readiness.PendingBreaking[2].Version != 121 || readiness.PendingBreaking[3].Version != 123 || readiness.PendingBreaking[4].Version != 124 {
+		if readiness.SchemaVersion != compatiblePairSchema || readiness.CompatibilityFloor != 111 || !readiness.ActivationBlocked || len(readiness.PendingBreaking) != 6 || readiness.PendingBreaking[0].Version != 119 || readiness.PendingBreaking[1].Version != 120 || readiness.PendingBreaking[2].Version != 121 || readiness.PendingBreaking[3].Version != 123 || readiness.PendingBreaking[4].Version != 124 || readiness.PendingBreaking[5].Version != 125 {
 			t.Fatalf("refusal must leave the compatible store and breaking floor pending: %+v", readiness)
 		}
 		if fence, err := hostlease.ReadFence(dataRoot); err != nil || fence != nil {
@@ -397,12 +397,17 @@ func TestDistinctReleasedCoresCoexistOnOneStore(t *testing.T) {
 		if err := json.Unmarshal([]byte(out), &upgrade); err != nil {
 			t.Fatal(err)
 		}
-		if upgrade.SchemaVersion != store.CurrentSchemaVersion() || len(upgrade.Applied) != 8 || upgrade.Applied[0] != 117 || upgrade.Applied[1] != 118 || upgrade.Applied[2] != 119 || upgrade.Applied[3] != 120 || upgrade.Applied[4] != 121 || upgrade.Applied[5] != 122 || upgrade.Applied[6] != 123 || upgrade.Applied[7] != 124 {
-			t.Fatalf("the candidate must commit the actual breaking tail: %+v", upgrade)
+		if upgrade.SchemaVersion != store.CurrentSchemaVersion() || len(upgrade.Applied) != store.CurrentSchemaVersion()-compatiblePairSchema {
+			t.Fatalf("the candidate must commit the complete pending tail: %+v", upgrade)
+		}
+		for i, applied := range upgrade.Applied {
+			if applied != compatiblePairSchema+i+1 {
+				t.Fatalf("the candidate must apply every pending step in order: %+v", upgrade)
+			}
 		}
 		readiness, err := store.PlanUpgradeReadiness(context.Background(), path)
-		if err != nil || readiness.CompatibilityFloor != 124 || len(readiness.PendingBreaking) != 0 || readiness.ActivationBlocked {
-			t.Fatalf("the committed store must require floor 124: %+v %v", readiness, err)
+		if err != nil || readiness.CompatibilityFloor != 125 || len(readiness.PendingBreaking) != 0 || readiness.ActivationBlocked {
+			t.Fatalf("the committed store must require floor 125: %+v %v", readiness, err)
 		}
 		fence, err := hostlease.ReadFence(dataRoot)
 		if err != nil || fence == nil || fence.ReleaseRoot != candidateRoot || fence.CoreBinary != candidateBinary {
@@ -410,7 +415,7 @@ func TestDistinctReleasedCoresCoexistOnOneStore(t *testing.T) {
 		}
 		for _, binary := range []string{oldBinary, newBinary} {
 			code, _, errText := runRelease(t, binary, path, "upgrade", `{}`)
-			if code != 1 || !strings.Contains(errText, "schema_unsupported") || !strings.Contains(errText, "schema version 124") {
+			if code != 1 || !strings.Contains(errText, "schema_unsupported") || !strings.Contains(errText, "schema version 125") {
 				t.Fatalf("the real older core %s must refuse the incompatible floor: %d %s", binary, code, errText)
 			}
 		}
@@ -500,11 +505,12 @@ func TestDistinctReleasedCoreBreakingUpgradeRequiresStoppedSessions(t *testing.T
 		t.Fatal(err)
 	}
 	if before.SchemaVersion != releasedPairSchema || before.CompatibilityFloor >= releasedPairSchema ||
-		len(before.PendingBreaking) != 5 || before.PendingBreaking[0].Version != 119 || !before.PendingBreaking[0].Breaking ||
+		len(before.PendingBreaking) != 6 || before.PendingBreaking[0].Version != 119 || !before.PendingBreaking[0].Breaking ||
 		before.PendingBreaking[1].Version != 120 || !before.PendingBreaking[1].Breaking ||
 		before.PendingBreaking[2].Version != 121 || !before.PendingBreaking[2].Breaking ||
 		before.PendingBreaking[3].Version != 123 || !before.PendingBreaking[3].Breaking ||
-		before.PendingBreaking[4].Version != 124 || !before.PendingBreaking[4].Breaking {
+		before.PendingBreaking[4].Version != 124 || !before.PendingBreaking[4].Breaking ||
+		before.PendingBreaking[5].Version != 125 || !before.PendingBreaking[5].Breaking {
 		t.Fatalf("the released store must await the breaking worker-attempt migration first: %+v", before)
 	}
 	snapshot := releaseMigrationSnapshot(t, path)
@@ -562,13 +568,8 @@ func TestDistinctReleasedCoreBreakingUpgradeRequiresStoppedSessions(t *testing.T
 		}
 	}
 	after, err := store.PlanUpgradeReadiness(context.Background(), path)
-	// The floor is the highest breaking version applied: the planning
-	// mirror retirement (124) raises it past the research retirement guard
-	// (123), the outside-repair disposition
-	// step (121), the initiative violation projection step (120), and the
-	// v119 rebuild.
-	if err != nil || after.SchemaVersion != report.SchemaVersion || after.CompatibilityFloor != 124 || len(after.PendingBreaking) != 0 {
-		t.Fatalf("the breaking upgrade must raise the floor to 124: %+v %v", after, err)
+	if err != nil || after.SchemaVersion != report.SchemaVersion || after.CompatibilityFloor != 125 || len(after.PendingBreaking) != 0 {
+		t.Fatalf("the breaking upgrade must raise the floor to 125: %+v %v", after, err)
 	}
 	fence, err := hostlease.ReadFence(dataRoot)
 	if err != nil || fence == nil || !fence.AuthorizesNativeMigration(currentRoot, currentBinary, report.SchemaVersion) {
@@ -586,7 +587,7 @@ func TestDistinctReleasedCoreBreakingUpgradeRequiresStoppedSessions(t *testing.T
 	upgradedSnapshot := releaseMigrationSnapshot(t, path)
 	code, out, errText = runRelease(t, oldBinary, path, "upgrade", `{}`)
 	if code != 1 || out != "" || !strings.Contains(errText, "schema_unsupported") ||
-		!strings.Contains(errText, "defines schema version 124") ||
+		!strings.Contains(errText, "defines schema version 125") ||
 		!strings.Contains(errText, fmt.Sprintf("this binary defines %d", releasedPairSchema)) {
 		t.Fatalf("the old core must refuse the breaking floor, not the maintenance fence: %d %s %s", code, out, errText)
 	}

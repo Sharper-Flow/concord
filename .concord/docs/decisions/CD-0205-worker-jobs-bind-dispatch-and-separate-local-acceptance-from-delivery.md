@@ -44,6 +44,18 @@ scope, the relevant predicates, the checks, the prerequisites, the unresolved
 references, and the reserved integration work. The caller also states
 readiness and binds its evidence.
 
+An oracle-capable revision carries `acceptance_oracle` as immutable job
+content in the same digest. Its closed graph names behavioral owners and
+obligations, finite cases, and executable controls. Each job predicate has
+an owner and a control; case/control references are reciprocal and resolve.
+Owners name member Projects, contained source paths, entry points, approved
+affected Domains, and any governing law at the contract's pinned hash.
+Controls pin repository-file recipes, exact argument vectors, contained
+working directories, the expected `pass` result, evidence roles, and retained
+readiness references. The source union is the existing work-context union.
+The store validates structure and authority joins, not semantic completeness.
+An oracle beyond 32 KiB refuses whole; packet and result bounds do not change.
+
 The core derives the parent contract version, the primary Project scope, the
 next revision number, and the digest. A recording can name only predicates
 that the active approved contract approved. A recorded revision never changes.
@@ -52,10 +64,22 @@ A revision is ready for dispatch when it is the latest revision of its job,
 is not satisfied, has readiness evidence, has no unresolved references, and
 each prerequisite revision is satisfied.
 
+Oracle readiness references support harness availability and a nonempty
+selector. Native preparation resolves the exact pinned recipe, cwd, declared
+case witnesses, and build environment, then compiles without test execution.
+Its qualified lease record is readiness only, never verification authority.
+Preparation precedes the ready job record; the native owner derives a digest
+over the exact owner, case, and control bundle except its readiness references.
+The recorded job must match that bundle and parent authority exactly.
+Dispatch requires preparation for the same candidate and build environment.
+A readiness refusal creates no attempt and spends no dispatch budget.
+Unsupported recipes or unavailable inputs require explicit preparation recovery,
+not an invented reference, automatic execution, or a readiness exception.
+
 ### D2. A job-capable dispatch binds one ready revision end to end
 
-The worker-job lifecycle applies to `workflow.implementation` version 24 and
-`workflow.break_fix` version 21. These versions retain the declared recovery
+The worker-job lifecycle applies from `workflow.implementation` version 24 and
+`workflow.break_fix` version 21. Job-capable versions retain the declared recovery
 routes and declare `record_worker_job` at each dispatch step that accepts
 worker results and declares `record_delivery` as its explicit phase exit.
 
@@ -68,12 +92,44 @@ The `dispatch_worker` completion records the binding. The dispatch evidence
 must carry exactly that binding. The report must claim exactly that revision.
 A satisfied revision refuses a new dispatch, on resume and on the first ask.
 
+Native oracle execution joins that completion to its exact `worker_attempts`
+row, preceding action start and epoch, canonical packet digest, and recorded
+job revision under its digest. The selected control must belong to that job.
+Only `in_flight` and `dispatched` attempts admit a new oracle execution.
+Missing, `completed`, or `failed` attempts refuse before test-program launch.
+The completion records `worker_subject_commit` from the same tx-scoped
+`subject_commit` view admitted with the packet (CD-0067 D2).
+The integrated current view has one subject field, `subject_commit`, not a
+second `candidate_subject` field or independently derived candidate owner.
+Execution requires current clean `HEAD`, current core `subject_commit`, and
+the recorded dispatch commit to be nonempty and equal.
+A missing or mismatched value refuses with zero test-program launches.
+A path identity, caller assertion, or current context cannot replace the
+recorded commit. Historical completions without the field refuse execution;
+no upcast, packet-body copy, or candidate inference fills the absence.
+The producer rechecks applicability at lease acquisition, before test launch,
+and at release; changed authorization cannot produce qualified pass evidence.
+A finalized native replay returns retained evidence without another launch.
+Managed lanes gain no Concord tools; the authenticated native host owns this
+execution through the existing verify operation and its capability grant.
+This observation grants neither semantic acceptance nor independent authority.
+No new dispatch window, authorization row, or retry budget is implied.
+
 An earlier definition version refuses `inputs.worker_job`. A step without
 `record_worker_job` also refuses it. The lane-step join keeps its existing
 capability limits. Verification requires nonempty recorded checks. The worker
 receives that job's objective, checks, and stopping condition, not an instruction
 to execute the complete parent premise. The dispatch binds the job to its exact
 attempt and lane. Review and verification remain nonproducing capabilities.
+
+Every admitted lane receives the same recorded oracle in `inputs.worker_job`.
+Typed `oracle_receipt` members of reported evidence bind controls and cases
+to the exact candidate subject, pinned recipe, result, and retained execution
+references (CD-0056). The recipe identifies the harness, not the candidate;
+the candidate's changed harness does not replace the pinned recipe. Earlier
+receipts remain visible as regression baselines, not current-subject proof.
+Independent evidence, per-predicate verdicts, and operator authority remain
+required by their existing owners.
 
 ### D3. Local acceptance holds the step and asserts no delivery
 
@@ -126,7 +182,12 @@ revision does not reset the count. An acceptance satisfies an unresolved
 revision only when it discharges the recorded obligation itself: the accepted
 revision must carry the same objective, stopping condition, scope, predicates,
 checks, prerequisites, unresolved references, and reserved integration work as
-the unresolved revision. Job identity alone is not satisfaction — a rewritten
+the unresolved revision. Its oracle must retain every previously required
+control byte-identically, including recipe pin, arguments, expected result,
+and evidence role. Added cases and controls can strengthen coverage; deletion
+or recipe re-pinning cannot discharge the earlier obligation. Acceptance
+still requires the dispatched revision's result and existing independent
+authority. Job identity alone is not satisfaction — a rewritten
 revision with an unrelated objective carries a different obligation and leaves
 the failed revision's window open. The satisfying routes are to retry the
 unresolved revision itself under the CD-0148 exact approval, or to re-record
@@ -159,6 +220,11 @@ string or from checkpoint prose. A history without a job binding folds and
 counts as it did before. The packet, the report, the dispatch evidence, and
 the completion carry the binding as an optional member, and every reader
 treats its absence as no job.
+
+`workflow.implementation` version 27 and `workflow.break_fix` version 24
+require the oracle through the declared `record_worker_job` payload.
+Released pins retain their oracle-free shape and behavior. Replay never
+invents an oracle or uses today's registry to reinterpret historical content.
 
 ## Alternatives considered
 
@@ -201,6 +267,30 @@ Scenario: Local acceptance holds the step without delivery
   And the step does not change
   And no delivery is asserted
 
+Scenario: Forged oracle execution cannot launch a test program
+  Given two persisted job authorizations with distinct attempts and packet digests
+  When execution supplies an invented attempt or another job's packet digest
+  Then execution refuses and the test-program launch count is zero
+  And no init or test marker exists
+
+Scenario: Missing candidate authorization refuses oracle execution
+  Given a live job authorization without a provable dispatch-time candidate binding
+  When the host requests oracle execution
+  Then execution refuses and the test-program launch count is zero
+  And no candidate identity is fabricated
+
+Scenario: A dispatch for an older candidate cannot execute the current `HEAD`
+  Given attempt A bound to a recorded commit different from current clean `HEAD`
+  When the host requests execution with attempt A's valid job and packet digest
+  Then execution refuses and the test-program launch count is zero
+  And no init or test marker exists
+
+Scenario: Current core candidate must agree with the dispatch and `HEAD`
+  Given current clean `HEAD` equals the recorded dispatch commit
+  And the current core subject_commit names a different commit
+  When the host requests native oracle execution
+  Then execution refuses and the test-program launch count is zero
+
 Scenario: An unrelated accepted job keeps the failed job's window
   Given a job-bound attempt that failed or whose result was rejected
   When the coordinator accepts a different job, or a rewritten revision of the same job
@@ -228,3 +318,5 @@ Scenario: Every reachable state stays live on the new versions
 - `go test ./internal/store/ -run 'TestWitnessUnrelatedLocalAcceptHoldsSameStepWall|TestWitnessRewrittenJobKeepsExactRetryBinding|TestWitnessCombinedAcceptRejectsPreResultIntegration'` proves the exact retry-binding half the review probes established: a held local acceptance resets no same-step wall, a rewritten revision consumes no correction authority, and a combined acceptance refuses integration evidence acquired before the final job completed.
 - `go test ./internal/store/ -run 'TestReachableAdmissionStateReachesTerminal|TestWellFormedAdmissionStateHasNonContinuityExit|TestAdmissionConformanceLocalJobAcceptHolds'` proves the liveness scenario. The model folds the worker-job readiness, satisfaction, unresolved-obligation and integration dimensions, and the conformance replay exercises the real delivery admission from the held state: `record_delivery` refuses without integration evidence and admits behind it.
 - `bun test adapter/opencode/packet.test.ts adapter/opencode/dispatch_route_end_to_end.test.ts` proves the adapter selects the one ready revision and that the real route holds the step until delivery.
+- `TestOwnerOracleGraph`, `TestOwnerOracleAuthorAuthorityJoins`, and `TestOwnerOracleImmutableRevisionAndReplay` cover oracle structure, authority, and immutable replay.
+- `TestOwnerOracleRequiredOnOracleCapablePin`, `TestOwnerOracleLegacyPinStaysOracleFree`, and `TestOwnerOracleJobDebt` cover version enforcement and retained obligations.

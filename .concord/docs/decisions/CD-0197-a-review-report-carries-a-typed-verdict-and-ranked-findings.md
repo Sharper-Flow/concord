@@ -35,8 +35,8 @@ deserves a typed shape, the way `base_comparison` typed its checks in place.
 ### D1. The report gains an optional typed review block
 
 `agent-lane-report.v1` gains an optional top-level `review` object.
-`schema_version` stays `1.0`; the `base_comparison` precedent
-(CD-0043 D1) holds. The block carries:
+The dispatch pins the report schema identity: `1.0` for pre-job reports,
+`1.1` for job-capable reports. The block carries:
 
 - `verdict`: `ship` or `no_ship`.
 - `findings`: an array of 0 to 64 findings.
@@ -46,6 +46,24 @@ deserves a typed shape, the way `base_comparison` typed its checks in place.
 
 The scales are closed because closed tokens are checkable by schema and by
 store. A numeric confidence invites a precision no reviewer can defend.
+
+On an oracle-bound dispatch each ranked finding also carries a closed
+`oracle` tie: `delivery_blocker`, `uncovered_case`, `follow_up`, or
+`oracle_defect`. A delivery blocker binds a declared owner, a predicate,
+pinned law, or control, and reproduction evidence. An uncovered case names
+the declared owner, an omitted entry path or transition, and reproduction
+evidence. It remains a legitimate blocker without an inventoried control.
+An oracle defect names the defective case or control and evidence of that
+defect. A follow-up does not become an unrelated repair obligation.
+
+The core derives `finding:<event_seq>:<ordinal>` identities. Context findings
+keep their zero-based ordinals; ranked findings follow at the context count
+offset, with source kind `review_finding`. A supported `continues_finding_id`
+retains the earlier owner, predicate/law binding, failure family, and canonical
+open identity. A `variant_of` names an earlier finding of the same owner but
+mints a new identity. Prose similarity never owns identity or shrink credit.
+`resolved_findings` carries at most 32 closed claims within 8 KiB, each naming
+one canonical finding and 1 to 8 unique evidence references (CD-0056).
 
 ### D2. The lane manifest declares the requirement per lane, and the digest pins it
 
@@ -75,6 +93,10 @@ The requirement binds completed reports only. A review that failed may have
 ranked nothing, and demanding a block it does not have would push it toward
 manufacturing one.
 
+Oracle enforcement joins the attempt's dispatched job revision, not the
+current definition. Historical reports retain their recorded content and
+requirements; upcasting fabricates no tie, receipt, or closure.
+
 ### D4. The verdict couplings are structural
 
 The adapter and the store refuse a review block with a `ship` verdict and any
@@ -83,17 +105,25 @@ by definition a ship blocker. A `no_ship` with no finding is an unexplained
 verdict. Nothing else is ranked or judged: the content of a finding stays a
 review question, not a validator question.
 
-### D5. `worker.completed` moves to payload version 3
+An oracle-bound report also refuses `ship` with any delivery blocker,
+uncovered case, or oracle defect. A `no_ship` justified only by follow-ups
+below P0 refuses. An out-of-scope P0 follow-up remains a valid retained
+`no_ship` for the existing decision owner, without entering the repair open
+set. Severity stays independent of classification; P1 is not automatically
+blocking, and validators do not decide semantic scope.
 
-The v3 payload may carry the review block. Stored v1 and v2 completions
-replay unchanged through an upcast (CD-0056 D6 pattern): the v2 upcast is the
-bytes at the new version, and the fold forgives a missing block on replay.
-No stored completion can satisfy a requirement that did not exist when it was
-recorded, so the gate is live-only.
+### D5. Terminal payload versions preserve recorded content
+
+`worker.completed` version 6 carries typed oracle receipts, finding ties,
+and closures. The recorded source-version boundaries remain: review at v3,
+job binding at v4, and context findings at v5. Upcasts preserve old content
+without invented findings or success. Replay forgives requirements absent
+when the event was recorded. `worker.failed` stays at version 2 with context
+findings; it gains no oracle review or closure members.
 
 A dispatch recorded under the pre-CD-0197 review digest still resolves: the
-digest joins the lane's legacy set, and the completion answers to the
-requirement the current definition carries.
+digest joins the lane's legacy set, and the completion answers to its
+recorded dispatch requirements.
 
 ### D6. The lane verdict is report content only
 
@@ -103,6 +133,10 @@ attempt summary, and records the workflow verdict through `record_verdict`
 as today (CD-0056 D8; CD-0017 D4). An automatic mapping would hand a lane
 workflow authority, and reusing the `verdict_kind` vocabulary in the report
 would conflate two authorities.
+
+The shared work-context reader exposes canonical ranked IDs, bindings,
+openness, and prior receipts. These remain reported content, not native-run
+proof, criterion discharge, or automatic workflow acceptance.
 
 ## Alternatives considered
 
@@ -133,8 +167,7 @@ workflow verdict, so a ship verdict and a `verdict_kind` can disagree without
 either surface recording the other.
 
 Stored completions replay unchanged, and a full rebuild succeeds. An
-in-flight attempt dispatched before this change completes under the
-requirement the current registry carries.
+in-flight attempt completes under its recorded dispatch requirements.
 
 ## Verification
 
@@ -180,3 +213,4 @@ Scenario: The adapter refuses at admission and the summary carries typed counts
 - `python3 scripts/generate-agent-lanes.py --check` proves the generated Go, TypeScript, docs, and lane prompts carry the requirement.
 - `python3 scripts/check-doc-contract.py` proves this record carries the current decision outline and passes the writing rules.
 - `python3 scripts/check-cd-allocation.py --no-fetch` proves the CD-0197 identifier allocates once.
+- `TestOwnerOracleFinding`, `TestOwnerOracleLineage`, and `TestOwnerOracleReplay` cover classified verdicts, canonical lineage, and historical replay.

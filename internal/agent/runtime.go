@@ -208,7 +208,11 @@ type worktreeInspectInput struct {
 	Mode   string `json:"mode"`
 	// Path is the relative file selector for file mode. It selects inside
 	// the identity-derived worktree (CD-0096 D2), never a worktree path.
-	Path string `json:"path"`
+	Path   string `json:"path"`
+	RunRef string `json:"run_ref"`
+	Stream string `json:"stream"`
+	Offset int64  `json:"offset"`
+	Length int64  `json:"length"`
 }
 
 type researchReadInput struct {

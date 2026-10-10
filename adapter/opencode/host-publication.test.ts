@@ -63,11 +63,12 @@ test("published request schemas are compact and safe for host publication", () =
       : 0
     expect(expanded.oneOf, toolName).toHaveLength(toolOperations.length + actionBranchExtra)
     for (const branch of expanded.oneOf) {
-      expect(branch.type, toolName).toBe("object")
-      expect(branch.additionalProperties, toolName).toBe(false)
+      expect(branch, toolName).toMatchObject({
+        type: "object",
+        additionalProperties: false,
+        properties: { input: { type: "object", additionalProperties: false } },
+      })
       expect(Array.isArray(branch.required), toolName).toBe(true)
-      expect(branch.properties.input.type, toolName).toBe("object")
-      expect(branch.properties.input.additionalProperties, toolName).toBe(false)
     }
   }
 })
@@ -166,7 +167,7 @@ test("the request definition hook publishes an isolated root per tool and hoists
   const outputFor = async (toolID: string) => {
     const output = { description: "kept", parameters: { kept: true } as Record<string, unknown>, jsonSchema: undefined as unknown }
     await adapter.publishRequestDefinition({ toolID }, output)
-    return output
+    return { ...output, jsonSchema: output.jsonSchema as { $defs: Record<string, unknown> } }
   }
   const untouched = { description: "d", parameters: {}, jsonSchema: { type: "object" } as unknown }
   await adapter.publishRequestDefinition({ toolID: "bash" }, untouched)

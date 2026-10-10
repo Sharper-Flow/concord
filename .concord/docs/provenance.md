@@ -33,7 +33,7 @@ placeholder for imported private history.
 The public Concord repository is:
 
 - Remote: [`Sharper-Flow/concord`](https://github.com/Sharper-Flow/concord)
-- Go module: `github.com/sharper-flow/concord`
+- Go module: [`github.com/sharper-flow/concord`](https://github.com/Sharper-Flow/concord)
 - Default branch: `main`
 - Constitutional authority start: annotated tag `constitutional-bootstrap`
 

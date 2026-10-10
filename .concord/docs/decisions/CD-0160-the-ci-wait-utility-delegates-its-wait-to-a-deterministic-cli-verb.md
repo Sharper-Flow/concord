@@ -134,7 +134,7 @@ own words, never a success.
 
 - `python3 scripts/generate-agent-lanes.py --check` proves every generated
   projection matches the manifest and templates.
-- `python3 scripts/test_ci_wait_wait_contract.py` proves the CLI verb, its
+- `python3 scripts/test-ci-wait-contract.py` proves the CLI verb, its
   refusal paths, its deadline behavior, and the generated body's delegation.
 - The Go tests in `cmd/concord/ci_wait_test.go` prove terminal outcomes for
   passing, failing, cancelled, skipped, pending, and empty check sets; the

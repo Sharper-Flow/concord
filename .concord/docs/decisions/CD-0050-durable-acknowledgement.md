@@ -167,4 +167,5 @@ layer that acknowledges.
 - `gofmt -l .`, `go vet ./...`, `bin/oc-test targeted -- ./internal/store`,
   `./internal/agent`, `./cmd/concord`, `check-store-boundary.py`,
   `check-json.py`, `check-public-content.py` pass.
-- `.concord/docs/concord-knowledge-index.v1.json` records CD-0050 once.
+- The record shard `.concord/docs/knowledge/records/CD-0050.json` records CD-0050 once,
+  composed by `scripts/knowledge_index.py`.

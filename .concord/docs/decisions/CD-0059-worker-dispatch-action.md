@@ -49,7 +49,7 @@ authorize, spawn, append evidence, in that order. The core authorizes before
 any process starts, replacing an arrangement where `worker-dispatch` records an
 attempt that already happened.
 
-This is the placement `docs/capability-placement.md` §4 selects: a capability
+This is the placement `.concord/docs/capability-placement.md` §4 selects: a capability
 that mutates durable state and needs validation, authorization, and approval is
 a core domain operation, exposed only through the accepted adapter. CD-0017 D2
 places the same boundary from the other side — the adapter validates envelopes

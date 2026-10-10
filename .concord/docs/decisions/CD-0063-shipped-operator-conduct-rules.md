@@ -161,7 +161,8 @@ private predecessor history and host tool coupling into a public release.
 ## Verification
 
 - `.concord/docs/decisions/CD-0063-shipped-operator-conduct-rules.md` exists and is
-  indexed exactly once in `.concord/docs/concord-knowledge-index.v1.json`.
+  indexed exactly once as the record shard
+  `.concord/docs/knowledge/records/CD-0063.json`, composed by `scripts/knowledge_index.py`.
 - `skills/` still contains only `README.md`.
 - `contracts/agent-lanes.v1.json` keeps its version and
   `contracts/agent-lanes.digest` is unchanged.

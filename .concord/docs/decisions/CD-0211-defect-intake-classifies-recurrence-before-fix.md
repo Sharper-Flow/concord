@@ -41,7 +41,7 @@ CON-721, CON-728, CON-731, CON-748, CON-757, CON-764, CON-770, CON-788,
 CON-791, CON-794, CON-795, and CON-796. This list is the population below.
 It establishes a recurring symptom, not one causal mechanism for all 17.
 
-The baseline for this analysis is `84ee7613` on `origin/main`. It contains
+The baseline for this analysis is `84ee7613` on [`origin/main`](https://git-scm.com/docs/git-symbolic-ref). It contains
 [CON-861 / pull request 1576](https://github.com/Sharper-Flow/concord/pull/1576),
 merged as `53332b05095dc9ee0c5f74ab75e007ace12b06ca`.
 

@@ -111,4 +111,4 @@ version number.
   Procedure: run one orchestrator session for at least five turns without a
   state change, then run `cache-stats summary`; pass when `cache_creation`
   equals the baseline after turn one.
-- Scenario corpus: post-boundary re-pin entry under `scenarios/`.
+- Scenario corpus: post-boundary re-pin entry under `.concord/scenarios/`.

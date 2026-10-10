@@ -6,7 +6,7 @@
   revising one
 - **Approval:** The operator approved the contract for `work-c089308b507cfac61f7dd228`
   on 2026-09-20, then accepted D1 to D5 below on the same date.
-- **Related:** CD-0006, CD-0036, CD-0041, and `docs/specs-as-laws.md`
+- **Related:** CD-0006, CD-0036, CD-0041, and `.concord/docs/specs-as-laws.md`
 - **Amends:** CD-0006's rule that human approval is always required to enact a
   law change
 - **Preserves:** CD-0006's ban on a silent scope cut, CD-0012's rule against
@@ -54,7 +54,7 @@ Each law record carries one of two tier values.
 
 The tier is a recorded fact about the write. It is not a judgement about the
 content. An admission test that asks whether a statement is a genuine Product
-obligation is a heuristic, and CD-0041 with `docs/specs-as-laws.md` refuses a
+obligation is a heuristic, and CD-0041 with `.concord/docs/specs-as-laws.md` refuses a
 heuristic as sole authority for correctness.
 
 ### D2. The deliverable sets the tier, not the presence of an approval
@@ -89,7 +89,7 @@ Standing and source are separate facts, so they take separate objects.
 ### D4. A conflict with `derived` law is revised inside the contract
 
 A conflict with `legislated` law keeps the legislative moment that CD-0006 and
-`docs/specs-as-laws.md` define. The operator chooses to clarify intent, to evolve
+`.concord/docs/specs-as-laws.md` define. The operator chooses to clarify intent, to evolve
 the law, or to accept a scope reduction.
 
 A conflict with `derived` law is revised inside the work contract and recorded

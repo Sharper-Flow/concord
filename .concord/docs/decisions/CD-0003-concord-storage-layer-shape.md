@@ -14,7 +14,7 @@
 |---|---|---|
 | **D1** | Entity shape | **Generic spine + typed facet tables only where genuinely relational.** |
 | **D2** | Invocation boundary | **Short-lived CLI invocation.** No persistent server. |
-| **D3** | SQLite binding (Go core) | **`modernc.org/sqlite`** (pure Go, no CGO). |
+| **D3** | SQLite binding (Go core) | **[`modernc.org/sqlite`](https://pkg.go.dev/modernc.org/sqlite)** (pure Go, no CGO). |
 
 Each is decided below with reasoning. None violates CD-0002 invariants I1–I6.
 
@@ -82,18 +82,18 @@ decides which commands, if any, become agent tools.
 
 ---
 
-## D3. SQLite binding — `modernc.org/sqlite`
+## D3. SQLite binding — [`modernc.org/sqlite`](https://pkg.go.dev/modernc.org/sqlite)
 
 ### Decision
-The Go core uses **`modernc.org/sqlite`** — a pure-Go (transpiled-from-C) SQLite driver, accessed through `database/sql`. No CGO.
+The Go core uses **[`modernc.org/sqlite`](https://pkg.go.dev/modernc.org/sqlite)** — a pure-Go (transpiled-from-C) SQLite driver, accessed through [`database/sql`](https://pkg.go.dev/database/sql). No CGO.
 
 ### Reasoning
-- **Performance is a non-factor at the measured load** (<0.1 writes/sec; ~8 true concurrent writers). The CGO speed advantage of `mattn/go-sqlite3` is irrelevant here.
+- **Performance is a non-factor at the measured load** (<0.1 writes/sec; ~8 true concurrent writers). The CGO speed advantage of [`mattn/go-sqlite3`](https://pkg.go.dev/github.com/mattn/go-sqlite3) is irrelevant here.
 - **Distribution simplicity wins:** pure Go means a single static binary, no C toolchain requirement, trivial cross-compilation — exactly the "much simpler implementation" mandate. CGO would force a build dependency (and cross-compile complexity) for no measurable benefit.
 - modernc.org/sqlite is a mature, fully-featured port (it passes SQLite's own test suite); the PRAGMAs CD-0002 relies on (WAL, synchronous, busy_timeout) are all supported.
 
 ### Constraints
-- `mattn/go-sqlite3` (CGO) remains the documented fallback **iff** a measured hot path shows modernc is the bottleneck — which, at the CD-0002 §2a load, is not expected. Switching is a driver swap, not an architecture change.
+- [`mattn/go-sqlite3`](https://pkg.go.dev/github.com/mattn/go-sqlite3) (CGO) remains the documented fallback **iff** a measured hot path shows modernc is the bottleneck — which, at the CD-0002 §2a load, is not expected. Switching is a driver swap, not an architecture change.
 - Measure modernc-specific latency as implementation acceptance evidence (part of
   the §2e day-one instrumentation), not as an architecture-decision prerequisite.
 

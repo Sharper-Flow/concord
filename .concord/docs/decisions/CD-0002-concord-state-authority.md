@@ -302,7 +302,7 @@ global `concord.ts` custom-tool adapter; the internal CLI still does not define 
 
 - **Go core** holds the SQLite authority, the transition logic, the recovery fold,
   and (eventually) the standalone CLI and admin-panel backend. SQLite access via a
-  pure-Go binding (`modernc.org/sqlite`) — no CGO, single static binary, trivial
+  pure-Go binding ([`modernc.org/sqlite`](https://pkg.go.dev/modernc.org/sqlite)) — no CGO, single static binary, trivial
   cross-compilation; performance is ample at ~50 state machines.
 - **Accepted TypeScript adapter** registers the eight CD-0005 tools and calls the
   CLI. It is not a plugin and holds no domain logic or authoritative state.
@@ -319,7 +319,7 @@ daemon that §2b demoted.
 
 **Resolved by [`CD-0003-concord-storage-layer-shape.md`](./CD-0003-concord-storage-layer-shape.md) (2026-08-05):**
 1. **Invocation boundary** — **short-lived CLI invocation** (D2). No persistent server.
-2. **Binding** — **`modernc.org/sqlite`**, pure Go (D3). `mattn` is the documented fallback.
+2. **Binding** — **[`modernc.org/sqlite`](https://pkg.go.dev/modernc.org/sqlite)**, pure Go (D3). `mattn` is the documented fallback.
 3. **Entity shape** — PM3 narrowly supersedes CD-0003 D1's generic materialized
    spine with **explicit typed Product-memory projections**, while retaining one
    generic authoritative event log and typed-edge integrity.
@@ -349,7 +349,7 @@ and membership scope. PM1–PM5 now authorize storage/core implementation.
   falsifier.
 
 **Now closed by CD-0003 + PM3 (2026-08-05):** invocation boundary (short-lived
-CLI), SQLite binding (`modernc.org/sqlite`), generic event authority, and explicit
+CLI), SQLite binding ([`modernc.org/sqlite`](https://pkg.go.dev/modernc.org/sqlite)), generic event authority, and explicit
 typed Product-memory projection shape. See
 [`CD-0003-concord-storage-layer-shape.md`](./CD-0003-concord-storage-layer-shape.md)
 and [`../product-memory-domain-schema.md`](../product-memory-domain-schema.md).

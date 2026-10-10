@@ -570,7 +570,7 @@ obligations that remain unproven:
 
 This decision produces:
 
-- `docs/workflow-engine-contract.md` — implementation contract binding this
+- `.concord/docs/workflow-engine-contract.md` — implementation contract binding this
   decision to concrete Go/storage/agent/CLI behavior;
 - `contracts/workflow-definition.schema.json` — closed definition schema for
   generated manifests;
@@ -667,8 +667,8 @@ stays fail-closed until the latest approved predicates are healthy.
 | `.concord/docs/decisions/CD-0009-active-research-context.md` | Aligns research with the new outcome predicate form. |
 | `.concord/docs/decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md` | Collapses deferred items 1–4; preserves the contract, evaluator distinctness, and strengthening-only comparison. |
 | `.concord/docs/decisions/CD-0005-concord-agent-tool-surface.md` | Keeps `workflow_action` reserved; promotes `WorkflowActionAvailable` to registered-engine check. |
-| `docs/workflows.md` | Resolves the seven-family shape with a single machine contract. |
-| `docs/architecture-spike.md` | Anchors the architecture-spike family to `outcome` predicate and the decision record schema. |
-| `docs/priorities.md` | New decision-tracker row; no priority reordering. |
-| `docs/rollout-plan.md` | New entry condition: workflow engine shipped before any non-trivial advancement through `workflow_action`. |
-| `docs/README.md` | Companion-table row; status prose adjusted. |
+| `.concord/docs/workflows.md` | Resolves the seven-family shape with a single machine contract. |
+| `.concord/docs/architecture-spike.md` | Anchors the architecture-spike family to `outcome` predicate and the decision record schema. |
+| `.concord/docs/priorities.md` | New decision-tracker row; no priority reordering. |
+| `.concord/docs/rollout-plan.md` | New entry condition: workflow engine shipped before any non-trivial advancement through `workflow_action`. |
+| `.concord/docs/README.md` | Companion-table row; status prose adjusted. |

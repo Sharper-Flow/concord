@@ -1,5 +1,5 @@
 {
   "id": "CD-0221",
-  "reason": "The citation contract is approved; checker enforcement and regression evidence are not implemented yet.",
+  "reason": "Focused enforcement regressions pass; full-corpus verification awaits approved law dispositions for the remaining citations.",
   "state": "unmeasured"
 }

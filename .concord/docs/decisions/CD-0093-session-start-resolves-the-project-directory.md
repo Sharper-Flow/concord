@@ -44,7 +44,7 @@ adjacent placement question and this record answers the remaining two.
 The working directory governs more than where files land. `concord session`
 binds three things to `os.Getwd()` and states nowhere that they must agree:
 
-1. Agent definition resolution searches `cwd/.opencode/agents` nearest-last
+1. Agent definition resolution searches `<cwd>/.opencode/agents` nearest-last
    (`cmd/concord/agent_identity.go:111-119`), so a directory can override which
    definition a handle resolves to.
 2. The host registry probe runs `opencode debug config` with `cmd.Dir = cwd`

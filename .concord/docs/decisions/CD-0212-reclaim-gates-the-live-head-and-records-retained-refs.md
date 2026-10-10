@@ -46,7 +46,7 @@ debt on retry, because the converged probe answered with no removal at all.
 Independent review found five replay defects in the first repair. A retry
 repinned the live `HEAD`, so a detached checkout holding new unique content
 was removed. A pinned deletion dereferenced a symbolic ref and deleted its
-foreign target. A merge target spelled `refs/heads/main` bypassed the default
+foreign target. A merge target spelled [`refs/heads/main`](https://git-scm.com/docs/git-symbolic-ref) bypassed the default
 guard, and the guard trusted the caller instead of the repository. A forced
 removal lost its recorded force on retry. A changed-tip protection vanished
 from a fresh audit, because the committed facts still carried the ref as a
@@ -56,7 +56,7 @@ A second independent review found four boundary defects in the second
 repair's ref deletion. The default ownership was not re-derived at the
 deletion, so a default that moved onto a planned branch after the plan
 committed was deleted. An empty protected set nothing established counted
-as established, so a repository with no caller default, no `origin/HEAD`,
+as established, so a repository with no caller default, no [`origin/HEAD`](https://git-scm.com/docs/git-symbolic-ref),
 and a detached `HEAD` deleted its main branch. The checkout guard ran only
 before the pinned transaction, which enforces no checkout guard of its own,
 so a worktree gaining the branch at the boundary kept an unborn `HEAD`. And
@@ -137,10 +137,10 @@ The default ref is never deleted, whatever the claim row says, and that
 ownership guard runs before every deletion candidate, including the
 checked-out claim branch itself. The guard establishes the protected default
 independently of the caller's merge target: the normalized caller ref, the
-repository's `origin/HEAD` target, and the repository's own checked-out
+repository's [`origin/HEAD`](https://git-scm.com/docs/git-symbolic-ref) target, and the repository's own checked-out
 `HEAD` each contribute a short name, and accepted spellings normalize before
 comparison. Absence is not establishment: a set no observation contributed
-to — no caller ref, a missing `origin/HEAD`, a detached repository `HEAD` —
+to — no caller ref, a missing [`origin/HEAD`](https://git-scm.com/docs/git-symbolic-ref), a detached repository `HEAD` —
 is unestablished, not empty-and-known, and when the set cannot be
 established deletion permission fails closed: candidate refs are retained
 with the reason recorded, and a proven-durable live removal is never blocked
@@ -196,7 +196,7 @@ subject. No wrapper, hook, or concurrent actor can interpose between the
 old-value check and the deletion the way a name-addressed `branch -D`
 invites. This check does not exclude concurrent checkout changes. A ref that
 became symbolic can never redirect the deletion onto its target.
-Refs resolve by their exact `refs/heads` path, so a tag that shadows a
+Refs resolve by their exact [`refs/heads`](https://git-scm.com/docs/git-symbolic-ref) path, so a tag that shadows a
 branch name cannot bend the pin. `update-ref` enforces no checkout guard of
 its own. The native protocol therefore observes the
 complete porcelain worktree inventory — every entry validated whole, with

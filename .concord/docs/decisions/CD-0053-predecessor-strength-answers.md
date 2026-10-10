@@ -166,9 +166,9 @@ Answering after shadow would mean shadow evaluated an unspecified system.
   workflow-registry approval-route tests (go_test anchors),
   `WF02`/`WF03`/`WF04`/`WF11` (scenario anchors), lesson publication and
   manifest rebuild tests (go_test anchors) — all already bound in
-  `.concord/docs/floor-readiness.v1.json` and `.concord/docs/law-coverage.v1.json`.
-- `.concord/docs/concord-knowledge-index.v1.json` records CD-0053 once;
-  `.concord/docs/law-coverage.v1.json` (generated from shards under `.concord/docs/knowledge/coverage/`)
-  declares its coverage.
+  `.concord/docs/floor-readiness.v1.json` and the coverage shards under
+  `.concord/docs/knowledge/coverage/`, composed by `scripts/knowledge_index.py`.
+- The record shard `.concord/docs/knowledge/records/CD-0053.json` records CD-0053 once;
+  the coverage shard `.concord/docs/knowledge/coverage/CD-0053.json` declares its coverage.
 - `python3 scripts/check-json.py`, `check-doc-links.py`,
   `check-knowledge-index.py`, `check-floor-readiness.py` pass.

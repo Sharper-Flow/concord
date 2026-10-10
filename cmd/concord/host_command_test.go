@@ -54,8 +54,7 @@ func concordTuple(t *testing.T, options map[string]any) string {
 }
 
 // Without the option, the host command is the bare default, the bare
-// document is the registry, and exactly one probe runs. This is the behavior
-// every release before the option shipped.
+// document is the registry, and exactly one probe runs.
 func TestResolveHostCommandDefaultsToTheBareHost(t *testing.T) {
 	document := `{"agent":{"concord-1":{"mode":"primary"}}}`
 	probe := &probeStub{documents: map[string]string{"opencode": document}}

@@ -630,7 +630,6 @@ func TestWorkflowActionVariantCorpusParity(t *testing.T) {
 	if len(variantNames) < 30 {
 		t.Fatalf("corpus found only %d action variants", len(variantNames))
 	}
-	legacyActions := corpusLegacyActionIDs(defs)
 	for _, variantName := range variantNames {
 		// The public variant replaces the core payload only at the agent
 		// boundary, so its shape is sampled and proved on its own, against
@@ -673,13 +672,11 @@ func TestWorkflowActionVariantCorpusParity(t *testing.T) {
 				for _, schemaName := range schemaNames {
 					err := Validate(schemaName, encoded)
 					if err == nil {
-						// One exception is by design: the core input keeps
-						// admitting recorded historical payload layouts, so
-						// an action with legacy layouts accepts a payload
-						// whose fields object is absent or empty. Anything
-						// else the published variant refuses, the core must
-						// refuse too.
-						if unionName == "work_transition_action_input" && legacyActions[actionIDOfVariant(shapeName)] && corpusFieldsVacant(mutant.value) {
+						// The core also admits the registry's retained historical
+						// layouts. Their exact closed schema, not an empty-fields
+						// heuristic, decides whether a current-shape mutant is a
+						// valid historical call. Published variants stay strict.
+						if schemaName == "work_transition_action_input" && Validate("work_transition_action_legacy_input", encoded) == nil {
 							continue
 						}
 						t.Fatalf("%s mutant %q admitted by %s", shapeName, mutant.label, schemaName)
@@ -690,43 +687,23 @@ func TestWorkflowActionVariantCorpusParity(t *testing.T) {
 	}
 }
 
-// corpusLegacyActionIDs reads the action ids the never-published legacy
-// input names, straight from its own if/then conditions.
-func corpusLegacyActionIDs(defs map[string]any) map[string]bool {
-	legacy := map[string]bool{}
-	legacyInput, _ := defs["work_transition_action_legacy_input"].(map[string]any)
-	if legacyInput == nil {
-		return legacy
+func TestWorkerJobLegacyOracleAbsenceStaysOffPublishedInput(t *testing.T) {
+	sample := corpusSample(Document(), map[string]any{"$ref": "#/$defs/work_transition_action_variant_record_worker_job"}).(map[string]any)
+	delete(sample["fields"].(map[string]any), "acceptance_oracle")
+	raw, err := json.Marshal(sample)
+	if err != nil {
+		t.Fatal(err)
 	}
-	conditions, _ := legacyInput["allOf"].([]any)
-	for _, raw := range conditions {
-		condition, ok := raw.(map[string]any)
-		if !ok {
-			continue
-		}
-		trigger, _ := condition["if"].(map[string]any)
-		properties, _ := trigger["properties"].(map[string]any)
-		actionID, _ := properties["action_id"].(map[string]any)
-		if id, ok := actionID["const"].(string); ok {
-			legacy[id] = true
+	for _, name := range []string{"work_transition_action_legacy_input", "work_transition_action_input"} {
+		if err := Validate(name, raw); err != nil {
+			t.Fatalf("retained oracle-free job refused by %s: %v", name, err)
 		}
 	}
-	return legacy
-}
-
-func actionIDOfVariant(variantName string) string {
-	return strings.TrimPrefix(variantName, "work_transition_action_variant_")
-}
-
-// corpusFieldsVacant reports whether the payload carries no fields content:
-// the exact historical layout a recorded legacy payload declares.
-func corpusFieldsVacant(value map[string]any) bool {
-	fields, carried := value["fields"]
-	if !carried {
-		return true
+	for _, name := range []string{"work_transition_action_variant_record_worker_job", "work_transition_action_public_input"} {
+		if err := Validate(name, raw); err == nil {
+			t.Fatalf("current public job admitted without its required oracle through %s", name)
+		}
 	}
-	object, ok := fields.(map[string]any)
-	return ok && len(object) == 0
 }
 
 // TestRecordAlignmentExactLegalCombination pins the reported fault: the

@@ -1320,8 +1320,9 @@ func validateCorrectionOpenFindingsTx(ctx context.Context, q queryer, workID str
 	}
 	for _, id := range supplied {
 		if !derivedSet[id] {
-			return oracleFindingFailure(KindInvalidPayload, "open_finding_ids names "+id+", which is not in the derived open finding set", "record exactly the derived open finding set")
+			return oracleFindingFailure(KindInvalidPayload, "open_finding_ids contains an unknown or repeated id "+id, "record exactly the derived open finding set")
 		}
+		delete(derivedSet, id)
 	}
 	return nil
 }

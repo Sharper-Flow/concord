@@ -921,6 +921,12 @@ func TestOwnerOracleLineage(t *testing.T) {
 	if got := lineage.openFindingIDs(); len(got) != 3 {
 		t.Fatalf("open ids after variant and uncertain join = %v, want three distinct identities", got)
 	}
+	if err := validateCorrectionOpenFindingsTx(context.Background(), s.db, workID, lineage.openFindingIDs(), true); err != nil {
+		t.Fatalf("exact derived set refused: %v", err)
+	}
+	if err := validateCorrectionOpenFindingsTx(context.Background(), s.db, workID, []string{blockerID, blockerID, blockerID}, true); err == nil {
+		t.Fatal("duplicate finding ids hid two members of the derived open set")
+	}
 
 	// The context reader projects the open ranked finding with its source
 	// kind and tie, never as a generic claim, and the resolver accepts the

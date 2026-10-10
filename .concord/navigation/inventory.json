@@ -4516,7 +4516,7 @@
       ],
       "dependency_interpretations_to": [],
       "domain_id": "repository-verification",
-      "mapped_count": 190,
+      "mapped_count": 192,
       "mechanism_owner_ids": [
         "mechanism:repo-validators",
         "mechanism:test-infrastructure"
@@ -4716,7 +4716,7 @@
         ]
       },
       "purpose": "Owns the authority a repository check may hold: what a validator may assert, what it may block, how required checks bind to declared coverage, and the boundary between a check's finding and accepted Product law.",
-      "test_count": 86,
+      "test_count": 87,
       "test_packages": [
         "github.com/sharper-flow/concord/internal/gittest",
         "github.com/sharper-flow/concord/internal/pm1fixture",
@@ -4766,6 +4766,7 @@
         "scripts/test-archived-work-kind.py",
         "scripts/test-blackbox-acceptance.py",
         "scripts/test-cd-allocation.py",
+        "scripts/test-check-committed-content.py",
         "scripts/test-check-domain-registry.py",
         "scripts/test-check-json.py",
         "scripts/test-check-pr-linear-link.py",
@@ -7791,6 +7792,7 @@
     "scripts/check-archived-work-kind.py": "repository-verification",
     "scripts/check-cd-allocation.py": "repository-verification",
     "scripts/check-commit-title.py": "repository-verification",
+    "scripts/check-committed-content.py": "repository-verification",
     "scripts/check-complexity.py": "repository-verification",
     "scripts/check-doc-contract.py": "repository-verification",
     "scripts/check-doc-links.py": "repository-verification",
@@ -7860,6 +7862,7 @@
     "scripts/test-archived-work-kind.py": "repository-verification",
     "scripts/test-blackbox-acceptance.py": "repository-verification",
     "scripts/test-cd-allocation.py": "repository-verification",
+    "scripts/test-check-committed-content.py": "repository-verification",
     "scripts/test-check-domain-registry.py": "repository-verification",
     "scripts/test-check-json.py": "repository-verification",
     "scripts/test-check-pr-linear-link.py": "repository-verification",
@@ -7913,7 +7916,7 @@
     "skills/README.md": "agent-surface",
     "workflows/README.md": "workflow-engine"
   },
-  "mapped_count": 1991,
+  "mapped_count": 1993,
   "mechanisms": [
     {
       "check_ids": [

@@ -5,11 +5,8 @@
 ([`terminal-launcher-replacement-contract.md`](./terminal-launcher-replacement-contract.md))
 and the terminal launcher contract (C18,
 [`terminal-launcher-contract.md`](./terminal-launcher-contract.md)).
-**Approval:** The operator approved this successor on 2026-10-09 under
-[Concord (CON) issue 899](https://linear.app/sharper-flow/issue/CON-899).
 **Implementation status:** The launcher build is implemented. Operator
-verification of ZLauncher retirement remains tracked by
-[issue #803](https://github.com/Sharper-Flow/concord/issues/803).
+verification remains required before ZLauncher retirement.
 
 ## Context
 

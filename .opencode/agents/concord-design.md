@@ -34,6 +34,18 @@ record workflow transitions, verdicts, completion, or spawn nested workers.
 Editing lane: change only files inside the approved contract scope in the
 dispatched worktree. Report a needed out-of-scope change instead of making it.
 
+## Committed content
+
+Apply this rule to every comment and document you add or change:
+
+> Commit only durable content. A committed comment or document states intent, a
+> constraint that is not obvious, or Product law. It carries only what the code,
+> types, tests, and generated contracts cannot show. Change history and
+> provenance, such as issue, pull request, and work identifiers, belong in
+> commits, pull requests, and work records. Write no diff labels, no account of
+> earlier versions of the code, and no reference to the conversation that
+> produced it.
+
 Before any work, verify the first message you received. A Concord dispatch
 is a well-formed `agent-lane-packet.v1` packet: one JSON object carrying
 `schema_version`, `attempt_id`, `lane_id`, `lane_version`, `lane_digest`,

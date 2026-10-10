@@ -29,7 +29,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:b011bd7b5eb9c7d5239b52260c2bfb9bcb7ac58c66cf48a1657cb6660e74237e",
+  "sha256": "sha256:5a4fb5a4d5f8f07fa1a6b80fe2fc69fcae060b3207e2a0ae773c6eb221ce803a",
   "status": "accepted",
   "summary": "Defines the launcher CD-0108 mandates: Concord-first browse with launch actions through Concord's session bootstrap, resume, and prompt pass-through; dense panes on arrow, Enter, and Tab; store-write-free; bounded Domain context without a copied architecture-relation display; the accepted feature set with removed and deferred items; and the ZLauncher retirement acceptance test.",
   "tags": [

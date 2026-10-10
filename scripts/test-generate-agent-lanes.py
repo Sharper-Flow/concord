@@ -722,6 +722,72 @@ class RepositoryEditBoundaryTests(unittest.TestCase):
                 self.assertIn("do not create, change, or delete repository source files", projection, lane["id"])
 
 
+class CommittedContentRuleTests(unittest.TestCase):
+    # The rule has one owner, the conduct corpus paragraph the generator reads.
+    # Lanes that write repository files apply it; the diff-inspecting lane
+    # reviews against it; other lanes carry no section.
+    EDITING = ["read_repository", "edit_scoped_files", "run_tests", "report_evidence"]
+    REVIEWING = ["read_repository", "inspect_diff", "run_targeted_checks", "report_findings"]
+    VERIFYING = ["read_repository", "run_tests", "run_validators", "report_evidence"]
+
+    @staticmethod
+    def lane(lane_id, capabilities):
+        return {
+            "id": lane_id,
+            "purpose": "Do one bounded thing.",
+            "budgets": {"time_seconds_max": 1200},
+            "evidence_obligations": ["files_touched"],
+            "capabilities": capabilities,
+        }
+
+    @staticmethod
+    def owner_paragraph():
+        text = (ROOT / ".concord/instructions/change.md").read_text(encoding="utf-8")
+        blocks = [" ".join(block.split()) for block in text.split("\n\n")]
+        return next(block for block in blocks if block.startswith(generator.COMMITTED_CONTENT_LEAD))
+
+    def test_editing_lane_applies_the_owner_paragraph_verbatim(self):
+        projection = " ".join(lane_projection(self.lane("implement", self.EDITING)).split())
+        self.assertIn("## Committed content", projection)
+        self.assertIn("Apply this rule to every comment and document you add or change", projection)
+        self.assertIn(self.owner_paragraph(), projection.replace("> ", ""))
+
+    def test_reviewing_lane_reports_violations_as_named_findings(self):
+        projection = " ".join(lane_projection(self.lane("review", self.REVIEWING)).split())
+        self.assertIn("## Committed content", projection)
+        self.assertIn("Review every added comment and committed document against this rule", projection)
+        self.assertIn("`committed-content:`", projection)
+        self.assertIn(self.owner_paragraph(), projection.replace("> ", ""))
+
+    def test_other_lanes_carry_no_committed_content_section(self):
+        self.assertNotIn("## Committed content", lane_projection(self.lane("verify", self.VERIFYING)))
+
+    def test_section_sits_between_the_edit_boundary_and_the_packet_rule(self):
+        projection = lane_projection(self.lane("design", self.EDITING))
+        self.assertLess(projection.index("## Repository edit boundary"), projection.index("## Committed content"))
+        self.assertLess(
+            projection.index("## Committed content"),
+            projection.index("Before any work, verify the first message you received"),
+        )
+
+    def test_manifest_lanes_follow_their_capabilities(self):
+        manifest, _ = generator.load_manifest()
+        carrying = {lane["id"] for lane in manifest["lanes"] if "## Committed content" in lane_projection(lane)}
+        self.assertEqual(carrying, {"implement", "design", "review"})
+
+    def test_a_missing_or_repeated_owner_paragraph_fails_generation(self):
+        original = generator.CONDUCT_CHANGE
+        self.addCleanup(setattr, generator, "CONDUCT_CHANGE", original)
+        paragraph = "Commit only durable content. Keep comments durable."
+        for body in ("# Changing things\n\nNo rule here.\n", f"{paragraph}\n\n{paragraph}\n"):
+            with self.subTest(body=body), tempfile.TemporaryDirectory() as directory:
+                path = Path(directory) / "change.md"
+                path.write_text(body, encoding="utf-8")
+                generator.CONDUCT_CHANGE = path
+                with self.assertRaises(ValueError):
+                    generator.committed_content_rule()
+
+
 class EvalPacketProjectionTests(unittest.TestCase):
     def test_projection_replaces_lane_digest_without_manual_edit(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -40,6 +40,19 @@ needed source change as evidence. Authored `.concord/` files are repository
 sources. See
 `.concord/docs/decisions/CD-0220-repository-authoring-follows-lane-capability-and-approved-scope.md`.
 
+## Committed content
+
+Review every added comment and committed document against this rule. Report each
+violation as a review finding whose `detail` starts with `committed-content:`.
+
+> Commit only durable content. A committed comment or document states intent, a
+> constraint that is not obvious, or Product law. It carries only what the code,
+> types, tests, and generated contracts cannot show. Change history and
+> provenance, such as issue, pull request, and work identifiers, belong in
+> commits, pull requests, and work records. Write no diff labels, no account of
+> earlier versions of the code, and no reference to the conversation that
+> produced it.
+
 Before any work, verify the first message you received. A Concord dispatch
 is a well-formed `agent-lane-packet.v1` packet: one JSON object carrying
 `schema_version`, `attempt_id`, `lane_id`, `lane_version`, `lane_digest`,

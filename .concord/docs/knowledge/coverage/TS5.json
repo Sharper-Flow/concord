@@ -31,6 +31,10 @@
     {
       "kind": "go_test",
       "value": "internal/agent.TestReplayDeduplicationBackupRestoreRebuild"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestReplayNamespacesRemainPartitioned"
     }
   ],
   "id": "TS5",

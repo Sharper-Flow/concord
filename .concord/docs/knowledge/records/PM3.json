@@ -38,7 +38,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:a112ae79f74c107b28486ddf7f8784ab5120b550cb0772980218d25a6fa18ecb",
+  "sha256": "sha256:46bee2eae2f22755dfa81256a1e6d74cb679b933a63d1136b407720811bb50e9",
   "status": "accepted",
   "summary": "Defines the authoritative event log and typed Product-memory projections.",
   "tags": [

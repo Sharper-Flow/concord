@@ -524,7 +524,7 @@ func TestOccupiedWorkRequiresExplicitConfirmation(t *testing.T) {
 
 // TestNewBacklogResolvesIssueKeyOrDegradesToProjects proves
 // check:launcher.new_backlog_resolves_issue_or_project: the New/Backlog row
-// opens the issue-key prompt; a confirmed key launches where the work lives;
+// opens the issue-key prompt; a recorded key launches where the work lives;
 // an unlinked key and an empty Enter degrade to the Product's Project select.
 // The select offers only Projects with a recorded repository path, which the
 // store port enforces and its own test proves.
@@ -535,7 +535,7 @@ func TestNewBacklogResolvesIssueKeyOrDegradesToProjects(t *testing.T) {
 			Ranked: []launcher.RankedWork{{ID: "work-1", Title: "Live work", Lifecycle: "needed", Priority: 1}},
 		}
 	}
-	t.Run("confirmed key resolves offline and launches the linked work", func(t *testing.T) {
+	t.Run("recorded key resolves offline and launches the linked work", func(t *testing.T) {
 		stub := &screenStub{state: product(), resolve: func(string) (launcher.SessionHandoff, error) {
 			return launcher.SessionHandoff{ProductID: "product-1", WorkID: "work-linked", Agent: launcher.DefaultSessionAgent}, nil
 		}}
@@ -555,7 +555,7 @@ func TestNewBacklogResolvesIssueKeyOrDegradesToProjects(t *testing.T) {
 		typeString(t, m, "CON-153")
 		m.UpdateKey("enter")
 		if len(launched) != 1 || launched[0].WorkID != "work-linked" {
-			t.Fatalf("confirmed key launched %#v, want the linked work", launched)
+			t.Fatalf("recorded key launched %#v, want the linked work", launched)
 		}
 		if core.Snapshot().ProjectSelect {
 			t.Fatal("a resolved key must not degrade to the Project select")

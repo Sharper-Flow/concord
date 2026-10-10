@@ -187,7 +187,7 @@ visible before they become blockers or contradictory Product truth.
 - Cross-project and cross-Domain dependencies are first-class.
 - The operator sees what is ready, what is blocked, what overlaps, and what is next.
 - Agents operate inside a Product and Domain context rather than hopping between disconnected projects.
-- Initiative is an optional business/outcome overlay and owns no architectural or law authority.
+- Business grouping lives in Linear under CD-0213 and owns no architectural or law authority.
 
 ### 6. Workflow versatility
 

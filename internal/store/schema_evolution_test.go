@@ -231,7 +231,7 @@ func TestEventKindRegistryIsClosedAndComplete(t *testing.T) {
 		t.Fatal(err)
 	}
 	for kind, registration := range eventKindRegistry {
-		if registration.Authority != EventAppendAuthorityGeneric && registration.Authority != EventAppendAuthorityWorkflow {
+		if registration.Authority != EventAppendAuthorityGeneric && registration.Authority != EventAppendAuthorityWorkflow && registration.Authority != EventAppendAuthorityRetired {
 			t.Fatalf("%s registration has invalid authority %d", kind, registration.Authority)
 		}
 		if registration.ValidatePayload == nil || registration.Fold == nil || registration.Upcasters == nil || registration.MinSupported < 1 || registration.MinSupported > registration.CurrentVersion {

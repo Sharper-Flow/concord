@@ -764,8 +764,8 @@ func TestLauncherBlockersCarryTheBlockingTicketReference(t *testing.T) {
 		}
 	}()
 	if _, err := s.DatabaseForTesting().ExecContext(ctx, `
-		INSERT INTO linear_issue_links(work_id,remote_issue_uuid,human_key,url,link_state,created_at,updated_at) VALUES
-		('blocker','uuid-blocker-key','BLK-9','https://linear.app/example/issue/BLK-9','confirmed','2026-08-01T00:00:00Z','2026-08-01T00:00:00Z');
+		INSERT INTO linear_issue_links(work_id,remote_issue_uuid,human_key,url,created_at,updated_at) VALUES
+		('blocker','uuid-blocker-key','BLK-9','https://linear.app/example/issue/BLK-9','2026-08-01T00:00:00Z','2026-08-01T00:00:00Z');
 	`); err != nil {
 		t.Fatal(err)
 	}

@@ -149,13 +149,9 @@ func TestInFlightWorkflowSurvivesSchemaMigration(t *testing.T) {
 	if _, err := db.ExecContext(ctx, schemaManifestDDL); err != nil {
 		t.Fatal(err)
 	}
-	// The write path now ends in the initiative invariant validator, whose
-	// projection tables belong to migration 120, so the fixture applies
-	// every step and then rolls the manifest and objects of exactly the
-	// newest one back: the item starts at full schema, the newest
-	// migration applies while it is open, and the mid-flight scenario keeps
-	// its original shape instead of assuming a write path that tolerates a
-	// missing validator projection.
+	// Start in-flight work with every current projection present, then
+	// roll back only the newest schema step. Migrate reapplies that step
+	// while the work remains open.
 	for _, migration := range migrations {
 		if err := applyMigration(ctx, db, migration); err != nil {
 			t.Fatalf("migration %d: %v", migration.Version, err)
@@ -179,11 +175,11 @@ func TestInFlightWorkflowSurvivesSchemaMigration(t *testing.T) {
 	if _, err := db.ExecContext(ctx, `DELETE FROM schema_migrations WHERE version=?`, last.Version); err != nil {
 		t.Fatalf("cannot roll the manifest back to v%d: %v", last.Version-1, err)
 	}
-	// dropMigration123Objects drops exactly the objects the newest
-	// migration creates. A migration appended after 123 fails this test
-	// loudly at the Migrate below until its objects join the helper, the
-	// same loud coupling upgrade_recovery_test.go carries for its tail.
-	if err := dropMigration123Objects(ctx, db); err != nil {
+	// undoMigration124 restores the schema the newest migration changes. A
+	// migration appended after 124 fails this test loudly at the Migrate
+	// below until its objects join a helper, the same loud coupling
+	// upgrade_recovery_test.go carries for its tail.
+	if err := undoMigration124(t, ctx, db); err != nil {
 		t.Fatalf("cannot drop migration %d objects for its mid-flight re-apply: %v", last.Version, err)
 	}
 	beforeVersion, err := readSchemaManifestVersion(ctx, db)

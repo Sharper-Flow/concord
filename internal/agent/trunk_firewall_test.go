@@ -45,7 +45,7 @@ func trunkFirewallFixture(t *testing.T, mainWorktree bool) *Service {
 // because its writes land in the store, not a checkout path.
 func TestAuthorizeRefusesMutationOnMainWorktree(t *testing.T) {
 	t.Parallel()
-	mutating := []Capability{"work_transition", "work_relate", "work_compact", "work_initiative", "cross_scope"}
+	mutating := []Capability{"work_transition", "work_relate", "work_compact", "cross_scope"}
 	for _, capability := range mutating {
 		service := trunkFirewallFixture(t, true)
 		_, err := service.Authorize(context.Background(), Invocation{ClientRef: "client-1", PrincipalRef: "human-1", SessionRef: "session-1", AgentRef: "agent-1", Directory: "/repo", Worktree: "/repo-wt", ManifestDigest: ManifestDigest, RequiredCapability: capability, ProductID: "product-1", ProjectID: "project-1"})

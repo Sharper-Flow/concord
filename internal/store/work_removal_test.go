@@ -19,6 +19,31 @@ func removalTestRequest() WorkRemovalRequest {
 	}
 }
 
+func TestWorkRemovalLinearHandoffRequiresRecordedIdentity(t *testing.T) {
+	s := openTemp(t)
+	ctx := context.Background()
+	seedWork(t, s, "remove-work-1")
+	req := removalTestRequest()
+	req.ProductID = "product"
+	req.Linear = &LinearHandoffConfirmation{ProductID: "product", Destination: "linear", RemoteIssueUUID: "fabricated-issue"}
+	err := validateRemovalDestinationQ(ctx, s.DatabaseForTesting(), req)
+	assertFailureKind(t, err, KindInvalidRelation)
+	if !strings.Contains(err.Error(), "no recorded Linear issue identity") {
+		t.Fatalf("unrecorded handoff refusal=%v", err)
+	}
+	if _, err := s.RecordLinearIssueLink(ctx, LinearIssueLink{WorkID: req.WorkID, RemoteIssueUUID: "recorded-issue", HumanKey: "EX-1", URL: "https://linear.app/example/issue/EX-1"}); err != nil {
+		t.Fatal(err)
+	}
+	assertFailureKind(t, validateRemovalDestinationQ(ctx, s.DatabaseForTesting(), req), KindInvalidRelation)
+	req.Linear.RemoteIssueUUID = "recorded-issue"
+	if err := validateRemovalDestinationQ(ctx, s.DatabaseForTesting(), req); err != nil {
+		t.Fatalf("recorded identity refusal=%v", err)
+	}
+	req.ProductID = "unrelated-product"
+	req.Linear.ProductID = req.ProductID
+	assertFailureKind(t, validateRemovalDestinationQ(ctx, s.DatabaseForTesting(), req), KindInvalidRelation)
+}
+
 func TestWorkRemovalDeletesExecutionAndReplaysAbsence(t *testing.T) {
 	s := openTemp(t)
 	ctx := context.Background()

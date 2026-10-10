@@ -42,7 +42,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:155208a3eb0a7a6391fc99a3a95c5b63de8e9ec63bd964043cf60e91c098cfce",
+  "sha256": "sha256:3567463aebcd065e6919b4d5f2f3d0a5b1e84db20e4ce3fee0eda17a2bee135b",
   "status": "accepted",
   "summary": "Fixes the mutation tools, each committing one domain intent per SQLite transaction with sequenced git-first compaction.",
   "tags": [

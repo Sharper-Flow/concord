@@ -187,10 +187,10 @@ func (s *Store) ResolveLauncherLinearIssue(ctx context.Context, humanKey, issueU
 	return LauncherLinearIssue{WorkID: workID, ProductID: productID}, nil
 }
 
-// ResolveLauncherLinearIssueWork resolves only the confirmed link, so a
-// caller can answer "is this issue linked" separately from the landing-Project
-// Product rule. The only unknown-scope refusal it returns is the unlinked
-// case.
+// ResolveLauncherLinearIssueWork resolves the work item that records the
+// Linear issue, so a caller can answer "is this issue recorded" separately
+// from the landing-Project Product rule. The only unknown-scope refusal it
+// returns is the unrecorded case.
 func (s *Store) ResolveLauncherLinearIssueWork(ctx context.Context, humanKey, issueURL string) (string, error) {
 	tx, err := beginRead(ctx, s, "launcher.forward")
 	if err != nil {
@@ -203,7 +203,7 @@ func (s *Store) ResolveLauncherLinearIssueWork(ctx context.Context, humanKey, is
 func launcherLinkedWorkTx(ctx context.Context, tx *sql.Tx, humanKey, issueURL string) (string, error) {
 	var workID string
 	err := tx.QueryRowContext(ctx, `SELECT work_id FROM linear_issue_links
-		WHERE link_state='confirmed' AND (human_key=? OR url=?)
+		WHERE human_key=? OR url=?
 		ORDER BY work_id LIMIT 1`, humanKey, issueURL).Scan(&workID)
 	if err == sql.ErrNoRows {
 		return "", unknownScope("launcher.forward", "Linear issue is not linked to a work")
@@ -244,7 +244,7 @@ func (s *Store) QueryLauncherSearch(ctx context.Context, req LauncherSearchReque
 	rows, err := tx.QueryContext(ctx, `SELECT w.id,w.kind,w.title,COALESCE(NULLIF(l.human_key,''),json_extract(w.intent_json,'$.external_ref'),''),COALESCE(l.url,''),w.lifecycle,w.priority,w.urgency,w.created_at,w.updated_at,
 		(SELECT count(DISTINCT wp2.project_id) FROM work_projects wp2 JOIN product_projects pp2 ON pp2.project_id=wp2.project_id WHERE wp2.work_id=w.id AND pp2.product_id=?),
 		EXISTS (SELECT 1 FROM relations br JOIN work_items b ON b.id=br.work_id_from WHERE br.work_id_to=w.id AND br.kind='blocks' AND b.lifecycle IN ('needed','in_progress'))
-		FROM work_items w LEFT JOIN linear_issue_links l ON l.work_id=w.id AND l.link_state='confirmed' WHERE EXISTS (SELECT 1 FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=w.id AND pp.product_id=?) AND w.lifecycle IN ('needed','in_progress') AND lower(w.id || ' ' || w.title || ' ' || w.kind) LIKE ?
+		FROM work_items w LEFT JOIN linear_issue_links l ON l.work_id=w.id WHERE EXISTS (SELECT 1 FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=w.id AND pp.product_id=?) AND w.lifecycle IN ('needed','in_progress') AND lower(w.id || ' ' || w.title || ' ' || w.kind) LIKE ?
 		ORDER BY w.urgency ASC,w.priority,w.created_at DESC,w.id LIMIT ?`, req.Product, req.Product, needle, limit+1)
 	if err != nil {
 		return out, wrapFailure(KindUnavailable, "launcher.search", "cannot search Product work", true, "retry once the database is readable", err)
@@ -323,7 +323,7 @@ func (s *Store) QueryLauncherProduct(ctx context.Context, req LauncherProductReq
 	q := `SELECT w.id,w.kind,w.title,COALESCE(NULLIF(l.human_key,''),json_extract(w.intent_json,'$.external_ref'),''),COALESCE(l.url,''),w.lifecycle,w.priority,w.urgency,w.created_at,w.updated_at,
 		(SELECT count(DISTINCT wp2.project_id) FROM work_projects wp2 JOIN product_projects pp2 ON pp2.project_id=wp2.project_id WHERE wp2.work_id=w.id AND pp2.product_id=?),
 		EXISTS (SELECT 1 FROM relations br JOIN work_items b ON b.id=br.work_id_from WHERE br.work_id_to=w.id AND br.kind='blocks' AND b.lifecycle IN ('needed','in_progress'))
-		FROM work_items w LEFT JOIN linear_issue_links l ON l.work_id=w.id AND l.link_state='confirmed' WHERE EXISTS (SELECT 1 FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=w.id AND pp.product_id=? AND w.lifecycle IN ('needed','in_progress'))
+		FROM work_items w LEFT JOIN linear_issue_links l ON l.work_id=w.id WHERE EXISTS (SELECT 1 FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=w.id AND pp.product_id=? AND w.lifecycle IN ('needed','in_progress'))
 		ORDER BY (COALESCE((SELECT MAX(substr(e.occurred_at, 1, 19) || '.' || substr(CASE WHEN substr(e.occurred_at, 20, 1) = '.' THEN substr(e.occurred_at, 21, length(e.occurred_at) - 21) ELSE '' END || '000000000', 1, 9) || 'Z') FROM domain_events e WHERE e.subject_type='work_item' AND e.subject_id=w.id AND e.kind<>'work.removed'), substr(w.updated_at, 1, 19) || '.' || substr(CASE WHEN substr(w.updated_at, 20, 1) = '.' THEN substr(w.updated_at, 21, length(w.updated_at) - 21) ELSE '' END || '000000000', 1, 9) || 'Z')) DESC,w.id`
 	rows, err := tx.QueryContext(ctx, q, req.Product, req.Product)
 	if err != nil {
@@ -349,7 +349,7 @@ func (s *Store) QueryLauncherProduct(ctx context.Context, req LauncherProductReq
 	// for terminal items: their marker is the terminal state itself.
 	trows, err := tx.QueryContext(ctx, `SELECT w.id,w.kind,w.title,COALESCE(NULLIF(l.human_key,''),json_extract(w.intent_json,'$.external_ref'),''),COALESCE(l.url,''),w.lifecycle,w.priority,w.urgency,w.created_at,w.updated_at,coalesce(w.terminal_time,''),
 		(SELECT count(DISTINCT wp2.project_id) FROM work_projects wp2 JOIN product_projects pp2 ON pp2.project_id=wp2.project_id WHERE wp2.work_id=w.id AND pp2.product_id=?)
-		FROM work_items w LEFT JOIN linear_issue_links l ON l.work_id=w.id AND l.link_state='confirmed' WHERE EXISTS (SELECT 1 FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=w.id AND pp.product_id=? AND w.lifecycle IN ('completed','cancelled','superseded'))
+		FROM work_items w LEFT JOIN linear_issue_links l ON l.work_id=w.id WHERE EXISTS (SELECT 1 FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=w.id AND pp.product_id=? AND w.lifecycle IN ('completed','cancelled','superseded'))
 		ORDER BY w.terminal_time DESC,w.id LIMIT ?`, req.Product, req.Product, limit+1)
 	if err != nil {
 		return out, wrapFailure(KindUnavailable, "launcher.product", "cannot read Product terminal work", true, "retry once the database is readable", err)
@@ -377,7 +377,7 @@ func (s *Store) QueryLauncherProduct(ctx context.Context, req LauncherProductReq
 	// blocked_by edge is a display inverse of a stored blocks edge, not a stored
 	// relation. It carries the inverse label the relation vocabulary declares for
 	// blocks, so it cannot be mistaken for the stored depends_on kind.
-	erows, err := tx.QueryContext(ctx, `SELECT r.id,r.kind,r.work_id_from,r.work_id_to FROM relations r WHERE r.kind IN ('parent','includes','blocks','supersedes','implements') AND EXISTS (SELECT 1 FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=r.work_id_from AND pp.product_id=?) AND EXISTS (SELECT 1 FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=r.work_id_to AND pp.product_id=?) ORDER BY r.kind,r.work_id_from,r.work_id_to LIMIT 201`, req.Product, req.Product)
+	erows, err := tx.QueryContext(ctx, `SELECT r.id,r.kind,r.work_id_from,r.work_id_to FROM relations r WHERE r.kind IN ('parent','blocks','supersedes','implements') AND EXISTS (SELECT 1 FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=r.work_id_from AND pp.product_id=?) AND EXISTS (SELECT 1 FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=r.work_id_to AND pp.product_id=?) ORDER BY r.kind,r.work_id_from,r.work_id_to LIMIT 201`, req.Product, req.Product)
 	if err != nil {
 		return out, err
 	}
@@ -455,7 +455,7 @@ func launcherBlockersForWorks(ctx context.Context, tx *sql.Tx, workIDs []string)
 		placeholders[i] = "?"
 		args[i] = id
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT r.work_id_to,b.id,b.title,COALESCE((SELECT c.resolution_authority FROM workflow_external_conditions c WHERE c.work_id=b.id AND c.condition_state='open' ORDER BY c.condition_id LIMIT 1),'canonical'),COALESCE((SELECT c.condition_id FROM workflow_external_conditions c WHERE c.work_id=b.id AND c.condition_state='open' ORDER BY c.condition_id LIMIT 1),''),b.created_at,COALESCE((SELECT l.human_key FROM linear_issue_links l WHERE l.work_id=b.id AND l.link_state='confirmed' LIMIT 1),'') FROM relations r JOIN work_items b ON b.id=r.work_id_from WHERE r.work_id_to IN (`+strings.Join(placeholders, ",")+`) AND r.kind='blocks' AND b.lifecycle IN ('needed','in_progress') ORDER BY r.work_id_to,b.created_at,b.id`, args...) //nolint:gosec // the fragment contains only generated question-mark placeholders and every work ID stays parameter-bound.
+	rows, err := tx.QueryContext(ctx, `SELECT r.work_id_to,b.id,b.title,COALESCE((SELECT c.resolution_authority FROM workflow_external_conditions c WHERE c.work_id=b.id AND c.condition_state='open' ORDER BY c.condition_id LIMIT 1),'canonical'),COALESCE((SELECT c.condition_id FROM workflow_external_conditions c WHERE c.work_id=b.id AND c.condition_state='open' ORDER BY c.condition_id LIMIT 1),''),b.created_at,COALESCE((SELECT l.human_key FROM linear_issue_links l WHERE l.work_id=b.id LIMIT 1),'') FROM relations r JOIN work_items b ON b.id=r.work_id_from WHERE r.work_id_to IN (`+strings.Join(placeholders, ",")+`) AND r.kind='blocks' AND b.lifecycle IN ('needed','in_progress') ORDER BY r.work_id_to,b.created_at,b.id`, args...) //nolint:gosec // the fragment contains only generated question-mark placeholders and every work ID stays parameter-bound.
 	if err != nil {
 		return nil, err
 	}

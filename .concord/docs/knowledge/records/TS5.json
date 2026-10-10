@@ -5,7 +5,7 @@
   "criterion_bindings": [
     {
       "criterion": 1,
-      "exemption": "The corpus scenario AJ1-ambiguous-product proves the read-side refusal; the mutation-before-effect guarantee is proved by TestDispatchInitiativeCreateRejectsAmbiguousProductBeforeCreation (internal/agent/mutation_dispatch_test.go)."
+      "exemption": "The corpus scenario AJ1-ambiguous-product proves read-side refusal through TestAgentJobsCorpus (internal/agent/agent_jobs_corpus_test.go). Mutation refusal before effects remains required and needs a retained mutation witness after planning retirement."
     },
     {
       "criterion": 2,
@@ -43,7 +43,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:18e1852e8d4d6068ebc731533fb46dfd18fbbfc7831d59651d0104d01d468cbd",
+  "sha256": "sha256:b0b00c118c6b9628e9a5874f19583586d13c17b6e17dc2695f6f9c1dae887c7e",
   "status": "accepted",
   "summary": "Defines the typed call envelope and its re-validation by the Go core on every short-lived invocation.",
   "tags": [

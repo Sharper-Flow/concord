@@ -6210,7 +6210,10 @@ DELETE FROM fold_guard;
 	{
 		Version:  125,
 		Name:     "native_oracle_plan_and_streams",
-		Breaking: false,
+		Breaking: true,
+		// Operational leases pin plans at acquire and streams at release, once
+		// per lease. Rebuild preserves these rows through its operational snapshot.
+		FoldMaintained: "origin",
 		SQL: `
 ALTER TABLE worktree_verify_leases ADD COLUMN native_plan_json TEXT CHECK(native_plan_json IS NULL OR (json_valid(native_plan_json) AND length(CAST(native_plan_json AS BLOB))<=65536));
 ALTER TABLE worktree_verify_leases ADD COLUMN native_plan_sha256 TEXT CHECK(native_plan_sha256 IS NULL OR length(native_plan_sha256)=71);

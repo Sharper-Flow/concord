@@ -138,7 +138,7 @@ func TestNativeOracleOutputReadNoIdempotency(t *testing.T) {
 	}
 }
 
-func TestNativeOracleMigrationAdditiveLegacyNulls(t *testing.T) {
+func TestNativeOracleMigrationLegacyNulls(t *testing.T) {
 	s, _ := realGitTiersFixture(t)
 	r, err := s.VerifyWorktree(context.Background(), oracleRealVerifyRequest("legacy-null", nil))
 	if err != nil {
@@ -148,8 +148,8 @@ func TestNativeOracleMigrationAdditiveLegacyNulls(t *testing.T) {
 	if err := s.db.QueryRow(`SELECT (native_plan_json IS NULL)+(native_plan_sha256 IS NULL)+(stdout_blob IS NULL)+(stderr_blob IS NULL) FROM worktree_verify_leases WHERE lease_id=?`, r.LeaseID).Scan(&nulls); err != nil || nulls != 4 {
 		t.Fatalf("legacy columns upcast: %d %v", nulls, err)
 	}
-	if migrations[len(migrations)-1].Breaking {
-		t.Fatal("native migration is not additive")
+	if migration := migrations[len(migrations)-1]; !migration.Breaking || migration.FoldMaintained != "origin" {
+		t.Fatal("native migration must declare its write constraints and origin-owned columns")
 	}
 	if _, err := s.db.Exec(`UPDATE worktree_verify_leases SET stdout_blob=? WHERE lease_id=?`, bytes.Repeat([]byte{1}, nativeOracleStreamLimit+1), r.LeaseID); err == nil {
 		t.Fatal("BLOB bound is not enforced")

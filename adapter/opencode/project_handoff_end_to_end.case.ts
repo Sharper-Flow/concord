@@ -6,7 +6,7 @@ import { basename, join } from "node:path"
 import { fixtureTempRoot, requireOwnedFixtureRun, runFixtureProcess } from "./fixture-temp-root"
 requireOwnedFixtureRun()
 import ConcordAdapterPlugin from "./concord-plugin"
-import { configureConcordAdapter, invokeConcordOperation, projectHandoffConsumeKey, resetConsumedProjectHandoffs, work_start, work_transition } from "./concord"
+import { configureConcordAdapter, invokeConcordOperation, projectHandoffConsumeKey, work_start, work_transition } from "./concord"
 import { configureCoreBinary, type DispatchRunner } from "./dispatch"
 import { configureHostLease } from "./host-lease"
 import { resetClaimedWorktrees } from "./claimed-worktree"
@@ -319,7 +319,6 @@ async function bootHandoffFixture(root: string): Promise<HandoffFixture> {
 }
 
 afterEach(async () => {
-  resetConsumedProjectHandoffs()
   resetClaimedWorktrees()
   resetTurnMoveBoundaries()
   configureConcordAdapter({ reset: true })

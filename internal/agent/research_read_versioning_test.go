@@ -36,11 +36,11 @@ func invokeResearchRead(t *testing.T, s *store.Store, service *Service, grant Au
 	return response
 }
 
-// seedResearchReadPack authors one two-revision pack through the store's
+// seedResearchReadPack authors one two-revision pack owned by work-1 through the store's
 // direct mutation API: revision 1 carries findings f-1 and f-1b with source
 // s-1, revision 2 carries finding f-2. The fixture is what the store produces,
 // not a literal that can drift from it.
-func seedResearchReadPack(t *testing.T, s *store.Store, owner, id string) {
+func seedResearchReadPack(t *testing.T, s *store.Store, id string) {
 	t.Helper()
 	ctx := context.Background()
 	identity := func(key string) store.ResearchMutationIdentity {
@@ -53,7 +53,7 @@ func seedResearchReadPack(t *testing.T, s *store.Store, owner, id string) {
 		}
 	}
 	pack, err := store.CreateResearchPack(ctx, s, store.CreateResearchPackRequest{
-		Identity: identity(id + "-create"), PackID: id, OwnerWorkID: owner,
+		Identity: identity(id + "-create"), PackID: id, OwnerWorkID: "work-1",
 		Freshness: store.ResearchCurrent, Revision: revision("Which revision does the exact read return?"),
 	})
 	if err != nil {
@@ -96,7 +96,7 @@ func seedResearchReadPack(t *testing.T, s *store.Store, owner, id string) {
 func TestResearchReadLegacyPackStaysBareFullResult(t *testing.T) {
 	t.Parallel()
 	s, service, grant, _ := researchSurfaceFixture(t)
-	seedResearchReadPack(t, s, "work-1", "legacy-pack")
+	seedResearchReadPack(t, s, "legacy-pack")
 	for _, input := range []map[string]any{
 		{"product_id": "product-1", "pack_id": "legacy-pack"},
 		{"product_id": "product-1", "pack_id": "legacy-pack", "result_version": 1},
@@ -127,7 +127,7 @@ func TestResearchReadLegacyPackStaysBareFullResult(t *testing.T) {
 func TestResearchReadLegacyOwnerRefused(t *testing.T) {
 	t.Parallel()
 	s, service, grant, _ := researchSurfaceFixture(t)
-	seedResearchReadPack(t, s, "work-1", "owner-pack")
+	seedResearchReadPack(t, s, "owner-pack")
 	for _, input := range []map[string]any{
 		{"product_id": "product-1", "work_id": "work-1"},
 		{"product_id": "product-1", "work_id": "work-1", "result_version": 1},
@@ -152,7 +152,7 @@ func TestResearchReadOwnerVersion2DescriptorsAndContinuation(t *testing.T) {
 	s, service, grant, _ := researchSurfaceFixture(t)
 	created := []string{"owner-pack-1", "owner-pack-2", "owner-pack-3"}
 	for _, id := range created {
-		seedResearchReadPack(t, s, "work-1", id)
+		seedResearchReadPack(t, s, id)
 	}
 	first := invokeResearchRead(t, s, service, grant, map[string]any{
 		"product_id": "product-1", "work_id": "work-1", "result_version": 2,
@@ -245,7 +245,7 @@ func TestResearchReadOwnerVersion2EmptyOwnerIsEmptyPage(t *testing.T) {
 func TestResearchReadVersion2ExactRevisionAndFindings(t *testing.T) {
 	t.Parallel()
 	s, service, grant, _ := researchSurfaceFixture(t)
-	seedResearchReadPack(t, s, "work-1", "exact-pack")
+	seedResearchReadPack(t, s, "exact-pack")
 
 	wrapper := func(read Envelope) (int, store.ResearchPack) {
 		t.Helper()
@@ -307,7 +307,7 @@ func TestResearchReadVersion2ExactRevisionAndFindings(t *testing.T) {
 func TestResearchReadSelectorCombinationsRefuse(t *testing.T) {
 	t.Parallel()
 	s, service, grant, _ := researchSurfaceFixture(t)
-	seedResearchReadPack(t, s, "work-1", "combo-pack")
+	seedResearchReadPack(t, s, "combo-pack")
 	for _, tc := range []struct {
 		name  string
 		input map[string]any

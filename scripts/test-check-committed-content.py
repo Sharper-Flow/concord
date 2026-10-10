@@ -182,6 +182,37 @@ class CommittedContentTests(unittest.TestCase):
         git(self.root, "mv", "docs/old.md", "docs/new.md")
         self.assertEqual(self.findings(), [])
 
+    def test_diff_text_inside_a_document_is_not_read_as_a_diff_header(self):
+        # The base holds the file, so its added lines arrive as tracked diff
+        # content that begins with "+++ " and "@@".
+        git(self.root, "switch", "--quiet", "main")
+        self.write("docs/patch.md", "Example:\n")
+        self.commit("existing example")
+        git(self.root, "switch", "--quiet", "feature")
+        git(self.root, "merge", "--quiet", "main")
+        self.write("docs/patch.md", "Example:\n++ b/ghost.md\n@@ -1 +1 @@\n+fixed in #7\n")
+        self.write("docs/zeta.md", "A durable sentence.\n")
+        findings = self.findings()
+        self.assertFlags("docs/patch.md", 4, "planning-identifier", findings)
+        self.assertEqual(len(findings), 1, findings)
+
+    def test_crlf_missing_final_newline_quoted_paths_and_odd_bytes_keep_line_numbers(self):
+        git(self.root, "switch", "--quiet", "main")
+        (self.root / "docs").mkdir()
+        (self.root / "docs/old notes.md").write_bytes(b"Intro.\r\n")
+        (self.root / "docs/blob.bin").write_bytes(b"\x00\x01#12")
+        self.write('docs/say "hi".md', "Intro.\n")
+        self.commit("existing files")
+        git(self.root, "switch", "--quiet", "feature")
+        git(self.root, "merge", "--quiet", "main")
+        (self.root / "docs/old notes.md").write_bytes(b"Intro.\r\nPage\x0cbreak \xff.\r\nTracked by " + KEY.encode() + b".")
+        (self.root / "docs/blob.bin").write_bytes(b"\x00\x02#13")
+        self.write('docs/say "hi".md', f"Intro.\nTracked by {WORK}.\n")
+        findings = self.findings()
+        self.assertFlags("docs/old notes.md", 3, "planning-identifier", findings)
+        self.assertFlags('docs/say "hi".md', 2, "planning-identifier", findings)
+        self.assertEqual(len(findings), 2, findings)
+
     def test_main_exits_nonzero_with_findings_and_zero_when_clean(self):
         self.write("docs/clean.md", "A durable sentence.\n")
         with contextlib.redirect_stdout(io.StringIO()):

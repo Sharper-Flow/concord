@@ -20,6 +20,10 @@ Inspected text, by file kind:
 
 Every other file kind is not inspected. The EXEMPT table lists each exempt path
 class explicitly; the check applies no other exemption.
+
+The RULES phrase list is closed and unambiguous on purpose. A phrase such as
+"previously" or "no longer" also describes current behavior, so it stays a
+judgment case for review rather than a blocking finding here.
 """
 
 from __future__ import annotations
@@ -99,7 +103,12 @@ class ContentCheckError(RuntimeError):
 
 def git(root: Path, *arguments: str) -> str:
     result = subprocess.run(
-        ["git", "-c", "core.quotepath=off", *arguments], cwd=root, capture_output=True, text=True, check=False
+        ["git", "-c", "core.quotepath=off", *arguments],
+        cwd=root,
+        capture_output=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
     )
     if result.returncode:
         raise ContentCheckError(f"git {' '.join(arguments)}: {result.stderr.strip() or result.returncode}")
@@ -113,6 +122,11 @@ def exemption(path: str) -> str | None:
     return None
 
 
+def read_source(root: Path, path: str) -> str:
+    # Lines split on "\n" only, as git numbers them; a lone "\r" stays inside its line.
+    return (root / path).read_bytes().decode("utf-8", errors="replace")
+
+
 def kind_of(path: str, text: str) -> str | None:
     suffix = Path(path).suffix
     if suffix:
@@ -123,28 +137,41 @@ def kind_of(path: str, text: str) -> str | None:
     return "python" if "python" in first else "hash"
 
 
+def new_path(header: str) -> str | None:
+    """The path a `+++` header names: git appends a tab after a path with a space and C-quotes special bytes."""
+    header = header.removesuffix("\t")
+    if header.startswith('"'):
+        header = ast.literal_eval("b" + header).decode("utf-8", errors="replace")
+    return header.removeprefix("b/") if header.startswith("b/") else None
+
+
 def added_lines(root: Path, base: str) -> dict[str, set[int]]:
+    """Added line numbers by path. `+++` and `@@` count as headers only before a file's first hunk."""
     added: dict[str, set[int]] = {}
     path: str | None = None
+    in_header = False
     number = 0
     diff = git(
         root, "diff", "--no-color", "--no-ext-diff", "--unified=0", "--find-renames", "--diff-filter=AMR", base, "--"
     )
-    for line in diff.splitlines():
-        if line.startswith("+++ "):
-            path = line[len("+++ b/") :] if line.startswith("+++ b/") else None
-        elif line.startswith("@@"):
+    for line in diff.split("\n"):
+        if line.startswith("diff --git "):
+            path, in_header = None, True
+        elif in_header and line.startswith("+++ "):
+            path = new_path(line[len("+++ ") :])
+        elif line.startswith("@@") and (in_header or path is not None):
             match = HUNK_RE.match(line)
             if match is None:
                 raise ContentCheckError(f"unparseable hunk header: {line}")
+            in_header = False
             number = int(match.group("start"))
         elif line.startswith("+") and path is not None:
             added.setdefault(path, set()).add(number)
             number += 1
     for untracked in git(root, "ls-files", "--others", "--exclude-standard", "-z").split("\0"):
         if untracked:
-            text = (root / untracked).read_text(encoding="utf-8", errors="replace")
-            added[untracked] = set(range(1, text.count("\n") + 2))
+            if (root / untracked).is_file():
+                added[untracked] = set(range(1, read_source(root, untracked).count("\n") + 2))
     return added
 
 
@@ -207,7 +234,7 @@ def c_like_comments(text: str, *, templates: bool) -> dict[int, str]:
 
 def python_comments(path: str, text: str) -> dict[int, str]:
     comments: dict[int, list[str]] = {}
-    lines = text.splitlines()
+    lines = text.split("\n")
     try:
         for token in tokenize.generate_tokens(io.StringIO(text).readline):
             if token.type == tokenize.COMMENT:
@@ -227,7 +254,7 @@ def python_comments(path: str, text: str) -> dict[int, str]:
 
 def inspected_text(path: str, kind: str, text: str) -> dict[int, str]:
     if kind == "text":
-        return dict(enumerate(text.splitlines(), start=1))
+        return dict(enumerate(text.split("\n"), start=1))
     if kind == "go":
         return c_like_comments(text, templates=False)
     if kind == "script":
@@ -236,7 +263,7 @@ def inspected_text(path: str, kind: str, text: str) -> dict[int, str]:
         return python_comments(path, text)
     return {
         number: line
-        for number, line in enumerate(text.splitlines(), start=1)
+        for number, line in enumerate(text.split("\n"), start=1)
         if line.lstrip().startswith("#") and not line.startswith("#!")
     }
 
@@ -245,9 +272,9 @@ def check(root: Path, base_ref: str) -> list[str]:
     base = git(root, "merge-base", base_ref, "HEAD").strip()
     findings: list[str] = []
     for path, numbers in sorted(added_lines(root, base).items()):
-        if exemption(path) is not None:
+        if exemption(path) is not None or not (root / path).is_file():
             continue
-        text = (root / path).read_text(encoding="utf-8", errors="replace")
+        text = read_source(root, path)
         kind = kind_of(path, text)
         if kind is None:
             continue

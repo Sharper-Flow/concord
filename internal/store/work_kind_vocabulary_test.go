@@ -63,8 +63,15 @@ func TestWorkKindPoliciesAndDatabaseRegistry(t *testing.T) {
 
 func TestWorkKindFoldPoliciesRejectRetiredAndAllowInitiative(t *testing.T) {
 	t.Parallel()
+	// CD-0213 D4/D8: initiative stays fold-create allowed solely so a
+	// historical capture replays; revise, agent capture, and every new
+	// append refuse. The append seam owns the new-write refusal, so the
+	// vocabulary must keep both halves of the split.
 	if !WorkKindFoldCreateAllowed("initiative") || WorkKindFoldReviseAllowed("initiative") {
 		t.Fatal("initiative policy does not distinguish create from revise")
+	}
+	if WorkKindAgentCaptureAllowed("initiative") {
+		t.Fatal("initiative must not be agent-capturable under CD-0213 D4")
 	}
 	if WorkKindFoldCreateAllowed("epic") || WorkKindStored("epic") {
 		t.Fatal("epic policy permits storage")

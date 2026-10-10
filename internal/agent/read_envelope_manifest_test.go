@@ -52,8 +52,6 @@ var readMarshalInputs = map[string]string{
 	"concord_knowledge.resolve_note": `{"work_id":"work-done"}`,
 	"concord_knowledge.unprocessed":  `{"product_id":"prod-alpha"}`,
 
-	"concord_work_initiative.entries": `{"initiative_work_id":"work-done"}`,
-
 	"concord_domain.list":        `{"product_id":"prod-alpha","page":{"cursor":null,"limit":10}}`,
 	"concord_domain.detail":      `{"product_id":"prod-alpha","domain_id":"root"}`,
 	"concord_domain.active_work": `{"product_id":"prod-alpha","domain_id":"root"}`,

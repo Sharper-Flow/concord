@@ -11,7 +11,7 @@ import (
 )
 
 // seedLauncherStoreFixture seeds two Products with Projects, works in both,
-// one terminal work, one confirmed Linear link, one intent external_ref
+// one terminal work, one recorded Linear issue identity, one intent external_ref
 // fallback, and one active occupied worktree entry. The fold guard is active
 // only while the fold-only fixture rows are inserted. Work activity lives in
 // the retained log as work_item-subject events, so the launcher derives the
@@ -51,8 +51,8 @@ func seedLauncherStoreFixture(t *testing.T, s *store.Store) {
 		INSERT INTO work_projects(work_id,project_id,role) VALUES
 		('scope-live','proj-a1','primary'),('scope-done','proj-a1','primary'),
 		('scope-ref','proj-a1','primary'),('other-live','proj-b','primary');
-		INSERT INTO linear_issue_links(work_id,remote_issue_uuid,human_key,url,link_state,created_at,updated_at) VALUES
-		('scope-live','uuid-con-153','CON-153','https://linear.app/example/issue/CON-153','confirmed','2026-08-01T00:00:00Z','2026-08-01T00:00:00Z');
+		INSERT INTO linear_issue_links(work_id,remote_issue_uuid,human_key,url,created_at,updated_at) VALUES
+		('scope-live','uuid-con-153','CON-153','https://linear.app/example/issue/CON-153','2026-08-01T00:00:00Z','2026-08-01T00:00:00Z');
 		INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at,git_facts) VALUES
 		('`+store.WorktreeSetID("scope-live")+`','proj-a1','claim-op-1','work/scope-live','0000000000000000000000000000000000000000','/wt/scope-live','repo-1','active','2026-08-01T00:00:00Z','{}');
 		INSERT INTO worktree_occupancy(worktree_id,session_ref,recorded_at,host_pid,host_pid_start,has_process_identity) VALUES
@@ -109,8 +109,8 @@ func TestProductReadScopesWorkToProductAndActiveLifeCycle(t *testing.T) {
 
 // TestProductReadCarriesIssueKeyWorktreeAndLiveOccupancy proves
 // check:launcher.work_row_issue_key_and_occupancy at the store boundary: a
-// confirmed Linear link resolves to the row's issue key, a linked-but-unconfirmed
-// external reference falls back to the intent ref, and the occupancy join fills
+// recorded Linear issue identity supplies the row's issue key and URL, a work
+// without an issue identity falls back to the intent ref, and the occupancy join fills
 // the worktree path and Live only when the host probe attests a live session.
 func TestProductReadCarriesIssueKeyWorktreeAndLiveOccupancy(t *testing.T) {
 	dir := t.TempDir()
@@ -216,8 +216,17 @@ func TestLauncherPortReadsPerformNoDurableWrite(t *testing.T) {
 	if _, err := port.Projects(ctx, "scope-a"); err != nil {
 		t.Fatalf("projects: %v", err)
 	}
-	if _, err := port.ResolveIssue(ctx, "CON-153", ""); err != nil {
-		t.Fatalf("resolve linked issue: %v", err)
+	for _, query := range []struct{ key, url string }{
+		{key: "CON-153"},
+		{url: "https://linear.app/example/issue/CON-153"},
+	} {
+		resolved, err := port.ResolveIssue(ctx, query.key, query.url)
+		if err != nil {
+			t.Fatalf("resolve recorded issue %v: %v", query, err)
+		}
+		if resolved.ProductID != "scope-a" || resolved.WorkID != "scope-live" {
+			t.Fatalf("recorded issue %v resolved to %#v, want scope-live in scope-a", query, resolved)
+		}
 	}
 	if _, err := port.ResolveIssue(ctx, "CON-999", ""); err == nil {
 		t.Fatal("unlinked issue must refuse, not fabricate a target")

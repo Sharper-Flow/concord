@@ -494,7 +494,7 @@ func (m *Model) workHandoff(item launcher.RankedWork) launcher.SessionHandoff {
 // openIssueURL opens a linked Linear issue in the operator's browser. The
 // indirection keeps the process out of tests.
 var openIssueURL = func(url string) error {
-	return exec.Command("xdg-open", url).Start() //nolint:gosec // the URL comes from the store's confirmed link, and the fixed argv does not invoke a shell.
+	return exec.Command("xdg-open", url).Start() //nolint:gosec // the URL comes from the store's recorded issue identity, and the fixed argv does not invoke a shell.
 }
 
 // openSelectedIssue opens the selected row's linked Linear issue. A row

@@ -186,6 +186,61 @@ esac''',
         command = [sys.executable, str(SCRIPT), *arguments, "--root", str(self.root)]
         return subprocess.run(command, text=True, capture_output=True, env=self.env if env is None else env)
 
+    @contextlib.contextmanager
+    def assert_workspace_cleanup(self, prefix: str):
+        factory = tempfile.TemporaryDirectory
+        workspaces: list[Path] = []
+
+        def record_workspace(*args, **kwargs):
+            temporary = factory(*args, **kwargs)
+            self.addCleanup(temporary.cleanup)
+            if kwargs.get("prefix") == prefix:
+                workspaces.append(Path(temporary.name))
+            return temporary
+
+        with mock.patch.object(installer.tempfile, "TemporaryDirectory", side_effect=record_workspace):
+            try:
+                yield
+            finally:
+                self.assertTrue(workspaces, "the operation did not allocate its workspace")
+                self.assertEqual([workspace.exists() for workspace in workspaces], [False] * len(workspaces))
+
+    def test_install_workspace_cleanup_on_return_and_exception(self) -> None:
+        self.make_release("v1.0.0")
+        args = SimpleNamespace(root=self.root, version="v1.0.0", artifact_dir=str(self.artifacts), base_url="unused")
+        with mock.patch.dict(os.environ, self.env, clear=True), contextlib.redirect_stdout(io.StringIO()):
+            with self.assert_workspace_cleanup("concord-installer-"), mock.patch.object(
+                installer, "extract_verified_artifact", side_effect=RuntimeError("synthetic extraction failure")
+            ), self.assertRaisesRegex(RuntimeError, "synthetic extraction failure"):
+                installer.install(args)
+            with self.assert_workspace_cleanup("concord-installer-"):
+                self.assertEqual(installer.install(args), 0)
+
+    def test_repair_workspace_cleanup_on_return_and_exception(self) -> None:
+        self.assertEqual(self.install_release("v1.0.0").returncode, 0)
+        args = SimpleNamespace(root=self.root, version="v1.0.0", artifact_dir=str(self.artifacts), base_url="unused")
+        with mock.patch.dict(os.environ, self.env, clear=True), contextlib.redirect_stdout(io.StringIO()):
+            with self.assert_workspace_cleanup("concord-repair-"), mock.patch.object(
+                installer, "extract_verified_artifact", side_effect=RuntimeError("synthetic extraction failure")
+            ), self.assertRaisesRegex(RuntimeError, "synthetic extraction failure"):
+                installer.repair(args)
+            with self.assert_workspace_cleanup("concord-repair-"):
+                self.assertEqual(installer.repair(args), 0)
+            (self.root / "config" / "opencode" / "tools" / "concord.ts").unlink()
+            with self.assert_workspace_cleanup("concord-repair-"):
+                self.assertEqual(installer.repair(args), 0)
+
+    def test_activate_workspace_cleanup_on_return_and_exception(self) -> None:
+        self.prepare_a_blocked_release()
+        args = SimpleNamespace(root=self.root, version="v1.1.0")
+        with mock.patch.dict(os.environ, self.plan_env(blocked=False), clear=True), contextlib.redirect_stdout(io.StringIO()):
+            with self.assert_workspace_cleanup("concord-activator-"), mock.patch.object(
+                installer.shutil, "copytree", side_effect=RuntimeError("synthetic staging failure")
+            ), self.assertRaisesRegex(RuntimeError, "synthetic staging failure"):
+                installer.activate(args)
+            with self.assert_workspace_cleanup("concord-activator-"):
+                self.assertEqual(installer.activate(args), 0)
+
     def run_after_phase(self, phase: str, *arguments: str) -> subprocess.CompletedProcess[str]:
         environment = self.env.copy()
         environment["CONCORD_INSTALLER_STOP_AFTER_PHASE"] = phase

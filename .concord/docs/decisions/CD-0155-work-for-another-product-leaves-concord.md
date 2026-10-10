@@ -1,6 +1,6 @@
 # CD-0155: Work for another Product leaves Concord
 
-- **Status:** Accepted
+- **Status:** Superseded by CD-0213
 - **Date:** 2026-09-16
 - **Scope:** Product identity and routing of work found outside the serving Product
 - **Approval:** The operator approved this Product boundary.

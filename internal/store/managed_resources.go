@@ -101,20 +101,6 @@ type managedResourceConsumerAddedPayload struct {
 	ResultingVersion int64    `json:"resulting_version"`
 }
 
-// ManagedResourceMetadataUpdateRequest replaces only the versioned metadata
-// object of one owned resource. The event carries the complete resulting
-// object so unrelated metadata survives a typed update.
-type ManagedResourceMetadataUpdateRequest struct {
-	EventID                 string
-	ResourceID              string
-	ProductID               string
-	MetadataSchemaVersion   string
-	Metadata                json.RawMessage
-	ExpectedResourceVersion int64
-	Actor                   string
-	OccurredAt              time.Time
-}
-
 type managedResourceUpdatedPayload struct {
 	ResourceID            string          `json:"resource_id"`
 	ProductID             string          `json:"product_id"`
@@ -122,28 +108,6 @@ type managedResourceUpdatedPayload struct {
 	Metadata              json.RawMessage `json:"metadata"`
 	ExpectedVersion       int64           `json:"expected_version"`
 	ResultingVersion      int64           `json:"resulting_version"`
-}
-
-// UpdateManagedResourceMetadata records a version-checked replacement of a
-// managed resource's metadata through its Product owner.
-func UpdateManagedResourceMetadata(ctx context.Context, s *Store, req ManagedResourceMetadataUpdateRequest) error {
-	if req.EventID == "" || req.ResourceID == "" || req.ProductID == "" || req.Actor == "" || req.OccurredAt.IsZero() || req.ExpectedResourceVersion < 1 {
-		return newFailure(KindInvalidOperation, "update_managed_resource", "metadata update is missing bounded identity or version fields", false, "supply resource, Product, event, actor, time, and a positive expected version")
-	}
-	if req.MetadataSchemaVersion == "" || len(req.MetadataSchemaVersion) > 64 || len(req.Metadata) > maxManagedResourceMetadataBytes || !isJSONObject(req.Metadata) {
-		return newFailure(KindInvalidOperation, "update_managed_resource", "metadata schema or object is missing or unbounded", false, "supply a bounded schema version and JSON object")
-	}
-	payload, err := json.Marshal(managedResourceUpdatedPayload{
-		ResourceID: req.ResourceID, ProductID: req.ProductID, MetadataSchemaVersion: req.MetadataSchemaVersion,
-		Metadata: req.Metadata, ExpectedVersion: req.ExpectedResourceVersion, ResultingVersion: req.ExpectedResourceVersion + 1,
-	})
-	if err != nil {
-		return wrapFailure(KindInvalidPayload, "update_managed_resource", "cannot encode metadata update", false, "supply valid metadata", err)
-	}
-	return ApplyOperation(ctx, s, Operation{Events: []Event{{
-		EventID: req.EventID, Kind: managedResourceEventUpdated, SubjectType: SubjectProduct, SubjectID: req.ProductID,
-		Actor: req.Actor, OccurredAt: req.OccurredAt, PayloadVersion: 1, Payload: payload,
-	}}})
 }
 
 func CreateManagedResource(ctx context.Context, s *Store, req ManagedResourceCreateRequest) (ManagedResource, error) {

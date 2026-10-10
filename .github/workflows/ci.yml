@@ -112,8 +112,6 @@ jobs:
           CONCORD_SELECTED_AGENT: poison-agent
           CONCORD_LAST_WORK_ID: poison-work
           CONCORD_HOST_INSTRUCTIONS: /nonexistent/poison-instructions
-          CONCORD_LINEAR_API_KEY: poison-key
-          CONCORD_LINEAR_ENDPOINT: https://poison.invalid
           CONCORD_LAUNCHER_PINS: /nonexistent/poison-pins
           CONCORD_LAUNCHER_SCAN_ROOTS: /nonexistent/poison-roots
           CONCORD_CLIENT_REF: poison-client
@@ -360,8 +358,6 @@ jobs:
           CONCORD_SELECTED_AGENT: poison-agent
           CONCORD_LAST_WORK_ID: poison-work
           CONCORD_HOST_INSTRUCTIONS: /nonexistent/poison-instructions
-          CONCORD_LINEAR_API_KEY: poison-key
-          CONCORD_LINEAR_ENDPOINT: https://poison.invalid
           CONCORD_LAUNCHER_PINS: /nonexistent/poison-pins
           CONCORD_LAUNCHER_SCAN_ROOTS: /nonexistent/poison-roots
           CONCORD_CLIENT_REF: poison-client
@@ -411,8 +407,6 @@ jobs:
           CONCORD_SELECTED_AGENT: poison-agent
           CONCORD_LAST_WORK_ID: poison-work
           CONCORD_HOST_INSTRUCTIONS: /nonexistent/poison-instructions
-          CONCORD_LINEAR_API_KEY: poison-key
-          CONCORD_LINEAR_ENDPOINT: https://poison.invalid
           CONCORD_LAUNCHER_PINS: /nonexistent/poison-pins
           CONCORD_LAUNCHER_SCAN_ROOTS: /nonexistent/poison-roots
           CONCORD_CLIENT_REF: poison-client
@@ -462,8 +456,6 @@ jobs:
           CONCORD_SELECTED_AGENT: poison-agent
           CONCORD_LAST_WORK_ID: poison-work
           CONCORD_HOST_INSTRUCTIONS: /nonexistent/poison-instructions
-          CONCORD_LINEAR_API_KEY: poison-key
-          CONCORD_LINEAR_ENDPOINT: https://poison.invalid
           CONCORD_LAUNCHER_PINS: /nonexistent/poison-pins
           CONCORD_LAUNCHER_SCAN_ROOTS: /nonexistent/poison-roots
           CONCORD_CLIENT_REF: poison-client
@@ -513,8 +505,6 @@ jobs:
           CONCORD_SELECTED_AGENT: poison-agent
           CONCORD_LAST_WORK_ID: poison-work
           CONCORD_HOST_INSTRUCTIONS: /nonexistent/poison-instructions
-          CONCORD_LINEAR_API_KEY: poison-key
-          CONCORD_LINEAR_ENDPOINT: https://poison.invalid
           CONCORD_LAUNCHER_PINS: /nonexistent/poison-pins
           CONCORD_LAUNCHER_SCAN_ROOTS: /nonexistent/poison-roots
           CONCORD_CLIENT_REF: poison-client
@@ -564,8 +554,6 @@ jobs:
           CONCORD_SELECTED_AGENT: poison-agent
           CONCORD_LAST_WORK_ID: poison-work
           CONCORD_HOST_INSTRUCTIONS: /nonexistent/poison-instructions
-          CONCORD_LINEAR_API_KEY: poison-key
-          CONCORD_LINEAR_ENDPOINT: https://poison.invalid
           CONCORD_LAUNCHER_PINS: /nonexistent/poison-pins
           CONCORD_LAUNCHER_SCAN_ROOTS: /nonexistent/poison-roots
           CONCORD_CLIENT_REF: poison-client
@@ -615,8 +603,6 @@ jobs:
           CONCORD_SELECTED_AGENT: poison-agent
           CONCORD_LAST_WORK_ID: poison-work
           CONCORD_HOST_INSTRUCTIONS: /nonexistent/poison-instructions
-          CONCORD_LINEAR_API_KEY: poison-key
-          CONCORD_LINEAR_ENDPOINT: https://poison.invalid
           CONCORD_LAUNCHER_PINS: /nonexistent/poison-pins
           CONCORD_LAUNCHER_SCAN_ROOTS: /nonexistent/poison-roots
           CONCORD_CLIENT_REF: poison-client
@@ -656,8 +642,6 @@ jobs:
           CONCORD_SELECTED_AGENT: poison-agent
           CONCORD_LAST_WORK_ID: poison-work
           CONCORD_HOST_INSTRUCTIONS: /nonexistent/poison-instructions
-          CONCORD_LINEAR_API_KEY: poison-key
-          CONCORD_LINEAR_ENDPOINT: https://poison.invalid
           CONCORD_LAUNCHER_PINS: /nonexistent/poison-pins
           CONCORD_LAUNCHER_SCAN_ROOTS: /nonexistent/poison-roots
           CONCORD_CLIENT_REF: poison-client

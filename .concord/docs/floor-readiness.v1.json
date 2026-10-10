@@ -399,23 +399,6 @@
    ]
   },
   {
-   "id": "fc3-initiative-migration",
-   "condition": "fc3",
-   "title": "Initiative owns grouping without gaining architecture authority",
-   "requirement": "The current pre-go-live path uses Initiative while preserving narrative, ordering, requiredness, Product scope, research ownership, and independent child lifecycles. Initiative remains secondary to each entry's Domain/law contract; no alias, migration window, or compatibility branch remains.",
-   "state": "satisfied",
-   "evidence": [
-    {
-     "kind": "go_test",
-     "value": "internal/store.TestInitiativeNarrativeRevisedFoldAndAudit"
-    },
-    {
-     "kind": "go_test",
-     "value": "internal/store.TestInitiativeEntryPositionIsBoundedAtFoldTime"
-    }
-   ]
-  },
-  {
    "id": "fc3-external-systems-retain-authority",
    "condition": "fc3",
    "title": "External systems retain authority for their own execution and enforcement",

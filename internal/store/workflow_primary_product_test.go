@@ -140,37 +140,25 @@ func TestCompactionHomeFollowsThePrimaryMembership(t *testing.T) {
 	}
 }
 
-// Initiative and child each derive exactly one Product over the primary
-// membership, so a secondary membership in another Product neither widens the
-// shared scope nor refuses the entry.
-func TestInitiativeChildProductFollowsThePrimaryMembership(t *testing.T) {
+// workProductIDs derives exactly one Product over the primary membership, so
+// a secondary membership in another Product does not widen the scope.
+func TestWorkProductIDsFollowThePrimaryMembership(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
-	seedWork(t, s, "initiative-cross-product")
-	seedSecondaryProductMembership(t, s, "initiative-cross-product")
-	seedWork(t, s, "initiative-child-cross-product")
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO work_projects(work_id,project_id,role) VALUES('initiative-child-cross-product','project-secondary','secondary'); DELETE FROM fold_guard`); err != nil {
-		t.Fatalf("seed the child secondary membership: %v", err)
-	}
+	seedWork(t, s, "cross-product-work")
+	seedSecondaryProductMembership(t, s, "cross-product-work")
 	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	initiativeProducts, err := workProductIDs(ctx, tx, "initiative-cross-product")
+	products, err := workProductIDs(ctx, tx, "cross-product-work")
 	if err != nil {
-		t.Fatalf("cross-Product Initiative refused its Product scope: %v", err)
+		t.Fatalf("cross-Product work refused its Product scope: %v", err)
 	}
-	childProducts, err := workProductIDs(ctx, tx, "initiative-child-cross-product")
-	if err != nil {
-		t.Fatalf("cross-Product child refused its Product scope: %v", err)
-	}
-	if len(initiativeProducts) != 1 || initiativeProducts[0] != "product" || len(childProducts) != 1 || childProducts[0] != "product" {
-		t.Fatalf("Product scope = %v / %v, want [product] for both", initiativeProducts, childProducts)
-	}
-	if err := validateInitiativeEntryScope(ctx, tx, "initiative-cross-product", "initiative-child-cross-product"); err != nil {
-		t.Fatalf("cross-Product Initiative entry refused: %v", err)
+	if len(products) != 1 || products[0] != "product" {
+		t.Fatalf("Product scope = %v, want [product]", products)
 	}
 }
 

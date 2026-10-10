@@ -1,6 +1,6 @@
 # CD-0121: Product-scoped planning authority
 
-- **Status:** Accepted
+- **Status:** Superseded by CD-0213
 - **Date:** 2026-09-08
 - **Scope:** Product planning authority, optional Linear, local-only operation,
   development-session linkage, and integration cutover policy

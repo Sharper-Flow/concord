@@ -11,9 +11,9 @@
 > **Does not decide:** PM5 Project-membership roles/order, exact DDL/indexes, agent
 > tools, workflow/gate ceremony, PM8 WIP-byte exclusion, PM9 no-receipt boundary, PM10 recovery, or
 > external-system polling.
-> **Amended by CD-0041, CD-0042, and CD-0142:** Initiative is the current grouping kind; Initiative
-> membership uses the dedicated `includes`/entry projection rather than generic
-> `parent`; architecture-overlap resolutions extend the work-pair grammar.
+> **Amended by CD-0041, CD-0042, CD-0142, and CD-0213:** business grouping lives in Linear, and
+> Concord stores no grouping kind or membership; architecture-overlap resolutions extend the
+> work-pair grammar.
 > CD-0142 adds operator-directed removal of nonterminal execution projections
 > without adding a lifecycle state. The planning record and exact event history remain.
 > Issues #196/#197 replace obsolete pre-go-live forms directly, without aliases,
@@ -26,9 +26,9 @@ read. The binding inputs are the accepted PM1 query contract, PM2 global
 authority, PM3's hybrid explicit core, and CD-0002 invariants I1 through I6.
 This record decides the closed lifecycle state set, the allowed transitions,
 the derived work views, and the typed relation model with its graph rules.
-CD-0041 and CD-0042 amend it: initiative is the sole grouping kind with a
-dedicated entry projection, and architecture-overlap resolutions extend the
-work-pair grammar.
+CD-0041 and CD-0042 extend the work-pair grammar with architecture-overlap
+resolutions. CD-0213 places business grouping in Linear through the Linear
+MCP server; Concord keeps no grouping projection or membership authoring.
 ## Contract
 
 The binding contract is sections 1 through 6: the decision, the closed
@@ -63,18 +63,13 @@ summary flags to drift from truth. Accepted PM5 now supplies Q6 membership ident
 `blocked`, `ready`, `active`, and `terminal` are not lifecycle states. No independent
 `is_blocked`, `is_ready`, or `is_terminal` column exists.
 
-CD-0009 as amended by CD-0041 fixes two ordinary work-item kinds without adding
+CD-0009 as amended by CD-0041 and CD-0213 fixes one ordinary work-item kind without adding
 lifecycle states:
 
-- `initiative`: finite single-Product business/outcome context; entries retain
-  independent workflows/recovery/architecture bindings and project bounded
-  `initiative_entries(initiative_work_id, child_work_id, position, required)` metadata;
 - `research`: independently trackable investigation that may conclude `no change`.
 
-New Initiative entries default to `required=true`; optionality is explicit. An Initiative cannot
-complete while any required child or typed external condition remains nonterminal.
-Removing an entry atomically removes its Initiative entry relation/order metadata without
-cancelling the child. Embedded research is not another work item.
+Embedded research is not another work item. A historical work item of kind `initiative` stays
+readable with no grouping behavior, and capture refuses a new one under CD-0213 D8.
 
 ### 2.2 Allowed transitions
 
@@ -136,8 +131,7 @@ read names are part of the contract; callers never create mirrored rows.
 | `supersedes`: A supersedes B | B superseded-by A | A is B's canonical replacement | no self-edge, duplicate, cycle, or second direct successor for B |
 | `implements`: A implements B | B implemented-by A | A fulfills another work item | no self-edge or duplicate; no lifecycle effect |
 
-CD-0041 makes `parent` legacy for Initiative membership. The future canonical
-work-pair grammar adds version-pinned `compatible_with`, `merged_into`, and
+CD-0041's work-pair grammar adds version-pinned `compatible_with`, `merged_into`, and
 architecture-sequencing use of `blocks`/`depends_on`/`supersedes`; its
 implementation issue must update this table, schemas, events, and conformance in
 one major rather than partially accepting new relation strings.

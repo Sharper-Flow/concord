@@ -1,7 +1,7 @@
 # Generated Concord agent tool surface
 
-Manifest digest: `sha256:4dc1d12d748bb9cb6f516afc573258e4d1462d5afe8ec34e2b8e1a11836f86c2`
-Payload schema digest: `sha256:263efe30e4d02754440315e908ea3a0a926f770eb9c1c6e0b3f7735d20f77baf`
+Manifest digest: `sha256:de1cb48a597bfebbf04082549302b4f8de4d267b0b53a39490b9442e01ed8653`
+Payload schema digest: `sha256:9ecd8700c3ff83e6baa05cd8cca8f90609912f7995e7fdd36e1ebf7e5a7f0fe4`
 Envelope schema: `1.0`
 
 | Operation | Kind | Query | Capability | Consequence | Availability |
@@ -38,14 +38,7 @@ Envelope schema: `1.0`
 | `concord_work_define.research_freshness_set` | `mutation` | `—` | `research` | `research` | `always` |
 | `concord_work_define.research_retire` | `mutation` | `—` | `research` | `research` | `always` |
 | `concord_work_define.observation_record` | `mutation` | `—` | `work_define` | `intent` | `always` |
-| `concord_work_define.issue_adopt` | `mutation` | `—` | `work_define` | `intent` | `always` |
-| `concord_work_initiative.create` | `mutation` | `—` | `work_initiative` | `intent` | `always` |
-| `concord_work_initiative.add_entry` | `mutation` | `—` | `work_initiative` | `relation` | `always` |
-| `concord_work_initiative.remove_entry` | `mutation` | `—` | `work_initiative` | `relation` | `always` |
-| `concord_work_initiative.reorder_entry` | `mutation` | `—` | `work_initiative` | `relation` | `always` |
-| `concord_work_initiative.change_requiredness` | `mutation` | `—` | `work_initiative` | `relation` | `always` |
-| `concord_work_initiative.revise_narrative` | `mutation` | `—` | `work_initiative` | `intent` | `always` |
-| `concord_work_initiative.entries` | `read` | `C21.InitiativeEntries` | `product_read` | `read` | `always` |
+| `concord_work_define.issue_link_record` | `mutation` | `—` | `work_define` | `intent` | `always` |
 | `concord_work_transition.lifecycle` | `mutation` | `—` | `work_transition` | `lifecycle` | `always` |
 | `concord_work_transition.remove` | `mutation` | `—` | `work_transition` | `lifecycle` | `always` |
 | `concord_work_transition.workflow_action` | `mutation` | `—` | `work_transition` | `workflow_action` | `workflow_definition` |

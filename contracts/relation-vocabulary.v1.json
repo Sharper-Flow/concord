@@ -50,19 +50,6 @@
       "written_by": ["relation.added"]
     },
     {
-      "kind": "includes",
-      "summary": "Ordered Initiative membership. The edge mirrors an initiative_entries row.",
-      "inverse_label": "included_by",
-      "transitive": true,
-      "transitive_meaning": "Closure reports nested Initiative containment.",
-      "link": "refused",
-      "link_refusal": {
-        "message": "Initiative membership edges must be created by Initiative entry events",
-        "recovery": "append an Initiative entry event"
-      },
-      "written_by": ["initiative_entry.added"]
-    },
-    {
       "kind": "merged_into",
       "summary": "The source work was merged into the target work and terminalized.",
       "inverse_label": null,

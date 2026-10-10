@@ -169,7 +169,7 @@ record public lesson evidence only.
 
 CD-0035 capture-time governing-requirement enforcement and CD-0036 breaking-law
 cutovers are implemented. CD-0041 is accepted constitutional law, but its Domain
-identity, architecture-bound contract, overlap-resolution, Initiative migration,
+identity, architecture-bound contract, overlap-resolution,
 and read-surface mechanisms remain follow-up implementation work. Issue #192 does
 not claim those runtime outcomes are complete.
 
@@ -183,7 +183,7 @@ not claim those runtime outcomes are complete.
 | [`specs-as-laws.md`](./specs-as-laws.md) §2 | The guiding principle: specs are laws, the user is the legislator. |
 | [`decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md`](./decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md) | **Accepted CD-0012** — the counterpart direction. This document governs scope **contraction** under spec-law pressure; CD-0012 governs outcome **substitution and dilution**, reusing this document's three-option flow and audit shape. Nothing in this document is altered by it. |
 | [`decisions/CD-0036-breaking-law-cutovers.md`](./decisions/CD-0036-breaking-law-cutovers.md) | **Accepted CD-0036** — exact revision pins, compatible same-ID amendments, and strict quiescence on law supersession. |
-| [`decisions/CD-0041-architecture-bound-product-law.md`](./decisions/CD-0041-architecture-bound-product-law.md) | **Accepted CD-0041** — Domain-owned law, architecture-bound work contracts, concurrent-overlap resolution, Initiative's secondary role, and retained SQLite authority. |
+| [`decisions/CD-0041-architecture-bound-product-law.md`](./decisions/CD-0041-architecture-bound-product-law.md) | **Accepted CD-0041** — Domain-owned law, architecture-bound work contracts, concurrent-overlap resolution, and retained SQLite execution authority. CD-0213 places business grouping in Linear. |
 
 ---
 

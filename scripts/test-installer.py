@@ -2193,6 +2193,12 @@ esac''',
 
     # --- CD-0063: shipped operator conduct rules -----------------------
 
+    def test_shipped_instruction_manifest_matches_loadable_corpus(self) -> None:
+        corpus = SCRIPT.parent.parent / ".concord" / "instructions"
+        self.assertNotIn("README.md", installer.INSTRUCTION_FILES)
+        self.assertIn("records.md", installer.INSTRUCTION_FILES)
+        self.assertEqual(set(installer.INSTRUCTION_FILES), {path.name for path in corpus.glob("*.md")})
+
     def test_install_places_instructions_and_agents_in_version_tree_and_manifest(self) -> None:
         self.make_release("v1.0.0")
         result = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
@@ -2203,6 +2209,9 @@ esac''',
         self.assertTrue(instructions_dir.is_dir(), "version tree is missing instructions/")
         for name in installer.INSTRUCTION_FILES:
             self.assertTrue((instructions_dir / name).is_file(), f"missing instruction file {name} in version tree")
+        self.assertEqual({path.name for path in instructions_dir.glob("*.md")}, set(installer.INSTRUCTION_FILES))
+        self.assertFalse((instructions_dir / "README.md").exists())
+        self.assertTrue((instructions_dir / "records.md").is_file())
         self.assertTrue(agents_dir.is_dir(), "version tree is missing agents/")
         for name in installer.AGENT_FILES:
             self.assertTrue((agents_dir / name).is_file(), f"missing agent file {name} in version tree")

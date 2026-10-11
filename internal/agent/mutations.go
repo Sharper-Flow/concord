@@ -1098,6 +1098,9 @@ func (r runtime) knowledgeSourceProofForAction(ctx context.Context, base Envelop
 }
 
 func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []byte, grant Authority, op ContractOperation) (Envelope, error) {
+	if r.Store == nil {
+		return coreError(base, "invalid_input", "workflow action requires a registered workflow authority", "contact_operator", false), nil
+	}
 	var in actionMutationInput
 	if err := decodeOperationInput(raw, &in); err != nil {
 		return coreError(base, "invalid_input", err.Error(), "reread_entities", false), nil
@@ -1146,16 +1149,11 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 		if len(contractVersions) == 0 {
 			return coreError(base, "invalid_input", "supersede_contract requires an active workflow contract", "reread_entities", false), nil
 		}
-		if len(contractVersions) == 1 {
-			contractVersion = contractVersions[0]
-			versions["contract"] = contractVersion
-		} else {
-			// The request digest binds the complete predecessor list. The
-			// highest active version remains the scalar contract snapshot used
-			// by the existing approval schema without selecting authority.
-			contractVersion = contractVersions[len(contractVersions)-1]
-			versions["contract"] = contractVersion
-		}
+		// The request digest binds the complete predecessor list. The
+		// highest active version remains the scalar contract snapshot used
+		// by the existing approval schema without selecting authority.
+		contractVersion = contractVersions[len(contractVersions)-1]
+		versions["contract"] = contractVersion
 	}
 	if in.ActionID == "request_correction" {
 		version, err := r.Store.LatestWorkflowContractVersion(ctx, in.WorkID)

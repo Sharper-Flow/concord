@@ -1533,7 +1533,7 @@ func (r runtime) planLifecycle(_ context.Context, base Envelope, raw []byte, dig
 		return base, err, true
 	}
 	if in.Target == "superseded" {
-		return coreError(base, "invalid_input", "superseded is only available through relate.supersede", "reread_entities", false), nil, true
+		return coreError(base, "invalid_input", "superseded requires resolve_overlap with resolution_kind supersedes", "reread_entities", false), nil, true
 	}
 	// Terminal lifecycle transitions demand evidence before approval can be
 	// granted. Refuse the missing-evidence case structurally with a typed

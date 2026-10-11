@@ -129,7 +129,7 @@ func CompleteWorkflowTxWithRegistry(ctx context.Context, tx *sql.Tx, registry De
 	// the lifecycle route and supersession stays atomic with its relation, so
 	// the completion names completed or refuses before any effect.
 	if payload.TerminalState != "completed" {
-		return newFailure(KindInvalidPayload, "complete_workflow", "workflow completion closes only as completed", false, "cancel through the lifecycle route or supersede through relate.supersede")
+		return newFailure(KindInvalidPayload, "complete_workflow", "workflow completion closes only as completed", false, "cancel through the lifecycle route or resolve an overlap with resolution_kind supersedes")
 	}
 	if err := workflowBase(event, payload.WorkflowVersionFields); err != nil {
 		return err

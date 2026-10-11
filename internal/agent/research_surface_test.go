@@ -115,10 +115,18 @@ func TestResearchAuthorBindProveAndRead(t *testing.T) {
 	}
 
 	// 4. Declare reliance at a workflow boundary on a fresh pack: the action
-	// succeeds and the consumer binding lands in the same transaction.
+	// succeeds and the consumer binding lands in the same transaction. The
+	// current head folds the three diagnosis records into one typed
+	// record_diagnosis (CD-0198 D2), so the journey records every required
+	// section in that one act.
 	action := invoke("workflow_action", map[string]any{
-		"work_id": "work-1", "expected_version": 4, "action_id": "record_reproduction", "idempotency_key": "rs-action-1",
-		"fields":            map[string]any{},
+		"work_id": "work-1", "expected_version": 4, "action_id": "record_diagnosis", "idempotency_key": "rs-action-1",
+		"fields": map[string]any{
+			"reproduction": "The bounded defect reproduction statement.",
+			"searched":     "The bounded backlog search statement.",
+			"outcome":      "none_found",
+			"root_cause":   "The bounded root cause statement.",
+		},
 		"research_bindings": []map[string]any{{"pack_id": packID, "revision": 1, "use_role": "context", "required": true}},
 	})
 	if action.Outcome != OutcomeOK {
@@ -129,15 +137,6 @@ func TestResearchAuthorBindProveAndRead(t *testing.T) {
 		t.Fatalf("binding freshness=%v err=%v", freshness, err)
 	}
 
-	// The alignment step records the backlog search before diagnose.
-	aligned := invoke("workflow_action", map[string]any{
-		"work_id": "work-1", "expected_version": 5, "action_id": "record_alignment", "idempotency_key": "rs-action-align",
-		"fields": map[string]any{"searched": "The bounded backlog search statement.", "outcome": "none_found"},
-	})
-	if aligned.Outcome != OutcomeOK {
-		t.Fatalf("alignment with fresh required binding failed: %+v", aligned.Error)
-	}
-
 	// 5. Stale the pack; a second required reliance on the stale revision is
 	// refused fail-closed at the boundary (CD-0009 D6 / CD-0025).
 	if r := invoke("research_freshness_set", map[string]any{
@@ -146,8 +145,8 @@ func TestResearchAuthorBindProveAndRead(t *testing.T) {
 		t.Fatalf("freshness set failed: %+v", r.Error)
 	}
 	refused := invoke("workflow_action", map[string]any{
-		"work_id": "work-1", "expected_version": 7, "action_id": "record_root_cause", "idempotency_key": "rs-action-2",
-		"fields":            map[string]any{},
+		"work_id": "work-1", "expected_version": 6, "action_id": "record_work_context", "idempotency_key": "rs-action-2",
+		"fields":            map[string]any{"required_reading": []any{}, "finding_refs": []any{}, "context_findings": []any{}},
 		"research_bindings": []map[string]any{{"pack_id": packID, "revision": 1, "use_role": "context", "required": true}},
 	})
 	if refused.Outcome == OutcomeOK {

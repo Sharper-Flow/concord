@@ -964,12 +964,15 @@ func workflowLatestVerdictSequences(ctx context.Context, q queryer, workID strin
 }
 
 // workflowRefinementStepID returns the ID of the definition's refinement pass,
-// the step that declares start_refine, or "" when the pinned shape carries no
-// refinement step. The refinement pass is where a review result is accepted or
-// rejected, so the post-rejection review gate reads its history.
+// the step that declares checkpoint_refine, or "" when the pinned shape
+// carries no refinement step. The refinement pass is where a review result is
+// accepted or rejected, so the post-rejection review gate reads its history.
+// The checkpoint declares on the same step its callable start declared on
+// every version that shipped one, so the read is invariant across the
+// CD-0198 D3 derived-start pins.
 func workflowRefinementStepID(definition WorkflowDefinition) string {
 	for i := range definition.StepGraph.Steps {
-		if stepDeclaresAction(definition, definition.StepGraph.Steps[i].ID, "start_refine") {
+		if stepDeclaresAction(definition, definition.StepGraph.Steps[i].ID, "checkpoint_refine") {
 			return definition.StepGraph.Steps[i].ID
 		}
 	}
@@ -980,7 +983,7 @@ func workflowRefinementStepID(definition WorkflowDefinition) string {
 // whose advance carries an unreviewed repaired result toward delivery: the
 // refinement step that enters the delivery gate, and the gate itself.
 func workflowPostRejectionReviewStep(definition WorkflowDefinition, currentStep string) bool {
-	return stepDeclaresAction(definition, currentStep, "start_refine") || workflowStepIsDeliveryGate(workflowStep(definition, currentStep))
+	return stepDeclaresAction(definition, currentStep, "checkpoint_refine") || workflowStepIsDeliveryGate(workflowStep(definition, currentStep))
 }
 
 // workflowReviewSettlesDebt is the single owner of the review-verdict half of

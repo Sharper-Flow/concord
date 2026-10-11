@@ -36,17 +36,18 @@ func TestCarryForwardOntoTheCurrentVersionPreservesTheStep(t *testing.T) {
 	s := openTemp(t)
 	defer s.Close()
 	const workID = "carry-forward-step"
-	carryForwardFixture(t, s, workID, "workflow.break_fix", 12, "diagnose")
+	carryForwardFixture(t, s, workID, "workflow.break_fix", 12, "repair")
 	current, err := BuiltinWorkflowDefinitionForRef("workflow.break_fix")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if current.Definition.Version != 24 {
-		t.Fatalf("current break_fix version = %d, want 24", current.Definition.Version)
+	if current.Definition.Version != 26 {
+		t.Fatalf("current break_fix version = %d, want 26", current.Definition.Version)
 	}
 	// An in-flight attempt on the held step: the stranded shape the carry
-	// forward exists for.
-	startStepFixtureAction(t, s, workID, "record_root_cause")
+	// forward exists for. The current head folds the diagnosis steps into
+	// diagnosis, so the held step is the repair step both versions declare.
+	startStepFixtureAction(t, s, workID, "start_repair")
 	ctx := context.Background()
 	if err := s.Transact(ctx, func(transaction *Transaction) error {
 		return RepinWorkflowTx(ctx, transaction, WorkflowRepinRequest{WorkID: workID, EventID: workID + "-carry", Definition: current, Actor: stepFixtureActor(), Now: time.Unix(30, 0).UTC()})
@@ -57,8 +58,8 @@ func TestCarryForwardOntoTheCurrentVersionPreservesTheStep(t *testing.T) {
 	if ref != "workflow.break_fix" || version != current.Definition.Version || digest != current.Digest {
 		t.Fatalf("pin after carry forward = %s v%d %s, want workflow.break_fix v%d %s", ref, version, digest, current.Definition.Version, current.Digest)
 	}
-	if got := readInstanceStep(t, s, workID); got != "diagnose" {
-		t.Fatalf("step after carry forward = %q, want diagnose preserved", got)
+	if got := readInstanceStep(t, s, workID); got != "repair" {
+		t.Fatalf("step after carry forward = %q, want repair preserved", got)
 	}
 }
 

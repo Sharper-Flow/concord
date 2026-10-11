@@ -704,15 +704,41 @@ func decodeProjectLocator(event Event) (projectLocatorPayload, error) {
 		if payload.Kind != LocatorGitRemote && payload.Kind != LocatorCanonicalPath || payload.Value == "" || payload.NormalizedValue == "" {
 			return payload, newFailure(KindInvalidPayload, "fold_event", "Project locator payload has invalid kind or value", false, "supply a normalized git_remote or canonical_path")
 		}
-		normalized, err := NormalizeProjectLocator(payload.Kind, payload.Value)
-		if err != nil {
+		// Replay purity: the fold decodes recorded journal bytes and never
+		// probes the host filesystem. Live normalization ran once at the
+		// mutation (applyLocatorEvent) and its recorded normalized_value is
+		// frozen authority afterwards, so a rebuild must succeed on a host
+		// where the recorded repository path no longer exists. Re-derive the
+		// recorded normalization only where it is pure (git_remote); for a
+		// canonical_path, enforce the structural properties live normalization
+		// guaranteed at write time.
+		if payload.Kind == LocatorGitRemote {
+			normalized, err := NormalizeProjectLocator(payload.Kind, payload.Value)
+			if err != nil {
+				return payload, err
+			}
+			if normalized != payload.NormalizedValue {
+				return payload, newFailure(KindInvalidPayload, "fold_event", "Project locator normalization is not deterministic", false, "use the normalized locator value")
+			}
+		} else if err := checkRecordedCanonicalPath(payload.Value, payload.NormalizedValue); err != nil {
 			return payload, err
-		}
-		if normalized != payload.NormalizedValue {
-			return payload, newFailure(KindInvalidPayload, "fold_event", "Project locator normalization is not deterministic", false, "use the normalized locator value")
 		}
 	}
 	return payload, nil
+}
+
+// checkRecordedCanonicalPath validates a recorded canonical_path locator pair
+// from journal bytes alone. It enforces exactly what live normalization
+// (normalizePath) guaranteed when the locator was recorded: neither field
+// carries NUL, and the recorded canonical value is an absolute, cleaned path.
+func checkRecordedCanonicalPath(value, normalized string) error {
+	if strings.ContainsRune(value, '\x00') || strings.ContainsRune(normalized, '\x00') {
+		return newFailure(KindInvalidPayload, "fold_event", "Project locator payload contains NUL", false, "supply a normalized locator value")
+	}
+	if !filepath.IsAbs(normalized) || filepath.Clean(normalized) != normalized {
+		return newFailure(KindInvalidPayload, "fold_event", "recorded canonical_path is not an absolute clean path", false, "supply the normalized canonical path recorded at write time")
+	}
+	return nil
 }
 
 func foldProjectLocatorAdded(ctx context.Context, tx *sql.Tx, event Event) error {

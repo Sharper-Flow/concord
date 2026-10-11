@@ -68,9 +68,17 @@ func seedStaleRegistryWorkerAttempt(t *testing.T, s *Store, workID string, owner
 		t.Fatal(err)
 	}
 	version := verdictItemVersion(t, s, workID)
+	startAction := "start_repair"
+	if entry, entryErr := VerifyWorkflowInstanceDefinition(ctx, s, BuiltinWorkflowRegistry(), workID); entryErr != nil {
+		t.Fatal(entryErr)
+	} else if workflowDerivedStepStartActive(entry.Definition) {
+		// The derived-start pin records the qualifying checkpoint's own
+		// started event, so the fixture crafts that shape.
+		startAction = "checkpoint_repair"
+	}
 	start := workflowEventWithActor("repin-start-"+workID, WorkflowActionStarted, workID, ownerRef, map[string]any{
 		"work_id": workID, "expected_version": version, "resulting_version": version + 1, "step_id": "repair",
-		"action_id": "start_repair", "attempt_epoch": 1, "accepted_inputs_digest": "sha256:" + strings.Repeat("a", 64),
+		"action_id": startAction, "attempt_epoch": 1, "accepted_inputs_digest": "sha256:" + strings.Repeat("a", 64),
 		"idempotency_identity": "start:" + workID, "actor_ref": ownerRef,
 	})
 	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{start}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {

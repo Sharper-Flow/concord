@@ -1037,15 +1037,15 @@ func TestAcceptWorkerResultAdvancesCurrentNonExternalDispatchStep(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	definition, err := BuiltinWorkflowDefinitionForRef("workflow.break_fix")
+	definition, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
 	if err != nil {
 		t.Fatal(err)
 	}
 	setup := []Event{
 		workflowEvent("internal-worker-actor", WorkflowActorRecorded, workID, map[string]any{"work_id": workID, "expected_version": 2, "resulting_version": 3, "actor_ref": workerRef, "principal_ref": worker.PrincipalRef, "client_ref": worker.ClientRef, "agent_ref": worker.AgentRef, "session_ref": worker.SessionRef, "actor_class": "agent"}),
 		workflowEvent("internal-owner-actor", WorkflowActorRecorded, workID, map[string]any{"work_id": workID, "expected_version": 3, "resulting_version": 4, "actor_ref": ownerRef, "principal_ref": owner.PrincipalRef, "client_ref": owner.ClientRef, "agent_ref": owner.AgentRef, "session_ref": owner.SessionRef, "actor_class": "agent"}),
-		workflowEvent("internal-definition", WorkflowDefinitionSelected, workID, map[string]any{"work_id": workID, "expected_version": 4, "resulting_version": 5, "ref": definition.Definition.Ref, "version": definition.Definition.Version, "digest": definition.Digest, "work_kind": "break_fix"}),
-		workflowEventWithActor("internal-start", WorkflowActionStarted, workID, workerRef, map[string]any{"work_id": workID, "expected_version": 5, "resulting_version": 6, "step_id": "reproduce", "action_id": "dispatch_worker", "attempt_epoch": 1, "accepted_inputs_digest": "sha256:" + strings.Repeat("i", 64), "idempotency_identity": "internal-start", "actor_ref": workerRef}),
+		workflowEvent("internal-definition", WorkflowDefinitionSelected, workID, map[string]any{"work_id": workID, "expected_version": 4, "resulting_version": 5, "ref": definition.Definition.Ref, "version": definition.Definition.Version, "digest": definition.Digest, "work_kind": "implementation"}),
+		workflowEventWithActor("internal-start", WorkflowActionStarted, workID, workerRef, map[string]any{"work_id": workID, "expected_version": 5, "resulting_version": 6, "step_id": "proposal", "action_id": "dispatch_worker", "attempt_epoch": 1, "accepted_inputs_digest": "sha256:" + strings.Repeat("i", 64), "idempotency_identity": "internal-start", "actor_ref": workerRef}),
 	}
 	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: setup, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 2}}); err != nil {
 		t.Fatal(err)
@@ -1085,9 +1085,8 @@ func TestAcceptWorkerResultAdvancesCurrentNonExternalDispatchStep(t *testing.T) 
 	if result.ResultingVersion != 8 {
 		t.Fatalf("accept result version=%d, want 8", result.ResultingVersion)
 	}
-	// The acceptance advances reproduce to its next step, which CD-0156 makes
-	// the alignment step; the item still cannot reach diagnose without
-	// record_alignment.
+	// The acceptance advances proposal to its next step, the alignment step;
+	// the item still cannot reach discovery without record_alignment.
 	if got := currentStep(t, s, workID); got != "alignment" {
 		t.Fatalf("accepted worker result current_step=%q, want alignment", got)
 	}

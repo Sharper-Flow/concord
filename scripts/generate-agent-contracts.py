@@ -811,14 +811,40 @@ def project_native_oracle_requests(defs: dict) -> None:
     }
 
 
-def closed_field_union(branches: list[dict]) -> dict:
+def field_variants_disjoint(left: dict, right: dict) -> bool:
+    """Prove object alternatives incompatible by required values or closed keys."""
+    if "$ref" in left or "$ref" in right or left.get("type") != "object" or right.get("type") != "object":
+        return False
+    left_required = set(left.get("required", []))
+    right_required = set(right.get("required", []))
+    left_properties = left.get("properties", {})
+    right_properties = right.get("properties", {})
+    for key in left_required & right_required:
+        left_field = left_properties.get(key)
+        right_field = right_properties.get(key)
+        if (isinstance(left_field, dict) and isinstance(right_field, dict)
+                and "$ref" not in left_field and "$ref" not in right_field
+                and "const" in left_field and "const" in right_field
+                and left_field["const"] != right_field["const"]):
+            return True
+    for required, other in ((left_required, right), (right_required, left)):
+        if other.get("additionalProperties") is False and not other.get("patternProperties"):
+            if required - set(other.get("properties", {})):
+                return True
+    return False
+
+
+def closed_field_union(branches: list[dict], defs: dict, name: str) -> dict:
     """Publish the exact union without overlapping oneOf members.
 
-    Whole-field variants can be contained in another closed contract when all
-    shared declarations agree and the extra fields are optional. That smaller
-    contract adds no accepted inputs. Remaining alternatives exclude earlier
-    members instead of rejecting inputs valid under several original contracts.
+    Contained fieldsets add no accepted inputs. Proven-disjoint alternatives
+    need no exclusion; other alternatives exclude shared definitions of earlier
+    members so an input valid under several original contracts still passes.
     """
+    prefix = name + "_fields_member_"
+    for key in tuple(defs):
+        if key.startswith(prefix):
+            del defs[key]
     flattened = []
     for branch in branches:
         for member in branch.get("oneOf", [branch]):
@@ -847,8 +873,15 @@ def closed_field_union(branches: list[dict]) -> dict:
     disjoint = []
     for index, member in enumerate(members):
         branch = copy.deepcopy(member)
-        if index:
-            exclusions = copy.deepcopy(members[:index])
+        exclusions = []
+        for earlier_index, earlier in enumerate(members[:index]):
+            if field_variants_disjoint(member, earlier):
+                continue
+            key = prefix + str(earlier_index)
+            if key not in defs:
+                defs[key] = copy.deepcopy(earlier)
+            exclusions.append({"$ref": "#/$defs/" + key})
+        if exclusions:
             if "not" in branch:
                 exclusions.insert(0, branch.pop("not"))
             branch["not"] = exclusions[0] if len(exclusions) == 1 else {"anyOf": exclusions}
@@ -1145,7 +1178,7 @@ def project_workflow_action_schema(document: dict, actions: list[dict], workflow
                     wait["description"] = DELIVERY_RULE_WAIT_DESCRIPTION
                 if branch not in branches:
                     branches.append(branch)
-            field_object = closed_field_union(branches)
+            field_object = closed_field_union(branches, defs, name)
             properties["fields"] = field_object
             def requires_fields(branch: dict) -> bool:
                 return bool(branch.get("required")) or any(all(requires_fields(child) for child in branch[keyword]) for keyword in ("oneOf", "anyOf") if keyword in branch)

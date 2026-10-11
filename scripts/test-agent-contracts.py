@@ -1043,23 +1043,110 @@ class HostSafeWorkflowFieldUnionTests(unittest.TestCase):
         right = copy.deepcopy(base)
         left["properties"]["left"] = {"type": "boolean"}
         right["properties"]["right"] = {"type": "boolean"}
-        union = generator.closed_field_union([left, right])
+        defs = {}
+        union = generator.closed_field_union([left, right], defs, "overlap")
         self.assertNotIn("anyOf", union)
         self.assertEqual(len(union["oneOf"]), 2)
         for sample in ({"id": "x"}, {"id": "x", "left": True}, {"id": "x", "right": False}):
-            generator.schema_validate(sample, union, {})
+            generator.schema_validate(sample, union, {"$defs": defs})
         for sample in ({"id": "x", "left": True, "right": True}, {"id": "x", "left": "true"}, {}):
             with self.assertRaises(ValueError):
-                generator.schema_validate(sample, union, {})
+                generator.schema_validate(sample, union, {"$defs": defs})
 
     def test_equivalent_required_order_keeps_one_representative(self):
         left = {"type": "object", "additionalProperties": False, "required": ["one", "two"],
                 "properties": {"one": {"type": "string"}, "two": {"type": "string"}}}
         right = copy.deepcopy(left)
         right["required"].reverse()
-        union = generator.closed_field_union([left, right])
+        union = generator.closed_field_union([left, right], {}, "equivalent")
         self.assertEqual(union, left)
         generator.schema_validate({"one": "1", "two": "2"}, union, {})
+
+    def test_required_const_discriminators_need_no_exclusions(self):
+        branches = [{"type": "object", "additionalProperties": False, "required": ["kind"],
+                     "properties": {"kind": {"const": kind}}} for kind in ("first", "second", "third")]
+        union = generator.closed_field_union(branches, {}, "const")
+        self.assertEqual(union, {"oneOf": branches})
+        for kind in ("first", "second", "third"):
+            generator.schema_validate({"kind": kind}, union, {})
+        for sample in ({}, {"kind": "other"}, {"kind": "first", "extra": True}):
+            with self.assertRaises(ValueError):
+                generator.schema_validate(sample, union, {})
+
+    def test_required_key_forbidden_by_other_closed_branch_needs_no_exclusion(self):
+        branches = [{"type": "object", "additionalProperties": False, "required": [key],
+                     "properties": {key: {"type": "boolean"}}} for key in ("left", "right")]
+        union = generator.closed_field_union(branches, {}, "key")
+        self.assertEqual(union, {"oneOf": branches})
+        for sample in ({"left": True}, {"right": False}):
+            generator.schema_validate(sample, union, {})
+        for sample in ({}, {"left": True, "right": False}):
+            with self.assertRaises(ValueError):
+                generator.schema_validate(sample, union, {})
+
+    def test_optional_const_does_not_prove_disjointness(self):
+        branches = [{"type": "object", "additionalProperties": False,
+                     "properties": {"kind": {"const": kind}}} for kind in ("first", "second")]
+        defs = {}
+        union = generator.closed_field_union(branches, defs, "optional")
+        self.assertEqual(union["oneOf"][1]["not"], {"$ref": "#/$defs/optional_fields_member_0"})
+        self.assertEqual(defs["optional_fields_member_0"], branches[0])
+        for sample in ({}, {"kind": "first"}, {"kind": "second"}):
+            generator.schema_validate(sample, union, {"$defs": defs})
+
+    def test_open_or_pattern_allowed_keys_do_not_prove_disjointness(self):
+        left = {"type": "object", "additionalProperties": False, "required": ["left"],
+                "properties": {"left": {"type": "boolean"}}}
+        for other in ({"type": "object", "properties": {"right": {"type": "boolean"}}},
+                      {"type": "object", "additionalProperties": False,
+                       "patternProperties": {"^left$": {"type": "boolean"}}}):
+            with self.subTest(other=other):
+                defs = {}
+                union = generator.closed_field_union([left, other], defs, "open")
+                self.assertIn("not", union["oneOf"][1])
+                generator.schema_validate({"left": True}, union, {"$defs": defs})
+
+    def test_overlapping_exclusions_share_original_members_and_preserve_not(self):
+        branches = [{"type": "object", "additionalProperties": False,
+                     "properties": {"id": {"type": "string"}, key: {"type": "boolean"}},
+                     "required": ["id"]} for key in ("left", "middle", "right")]
+        branches[1]["not"] = {"properties": {"middle": {"const": False}}, "required": ["middle"]}
+        originals = copy.deepcopy(branches)
+        defs = {}
+        union = generator.closed_field_union(branches, defs, "shared")
+        first_ref = {"$ref": "#/$defs/shared_fields_member_0"}
+        self.assertEqual(union["oneOf"][1]["not"], {"anyOf": [branches[1]["not"], first_ref]})
+        self.assertEqual(union["oneOf"][2]["not"], {"anyOf": [first_ref, {"$ref": "#/$defs/shared_fields_member_1"}]})
+        self.assertEqual(defs, {"shared_fields_member_0": branches[0], "shared_fields_member_1": branches[1]})
+        self.assertEqual(branches, originals)
+        for sample in ({"id": "x"}, {"id": "x", "left": True}, {"id": "x", "middle": True},
+                       {"id": "x", "middle": False}, {"id": "x", "right": False},
+                       {"id": "x", "left": True, "right": True}, {}, {"id": False}):
+            expected = any(generator._valid(sample, branch, {"$defs": defs}, "sample") for branch in originals)
+            self.assertEqual(generator._valid(sample, union, {"$defs": defs}, "sample"), expected, sample)
+
+    def test_union_reprojection_removes_only_its_owned_definitions(self):
+        branches = [{"type": "object", "additionalProperties": False,
+                     "properties": {key: {"type": "boolean"}}} for key in ("left", "right")]
+        defs = {"unrelated": {"type": "string"}}
+        first = generator.closed_field_union(branches, defs, "repeat")
+        original_defs = copy.deepcopy(defs)
+        self.assertEqual(generator.closed_field_union(branches, defs, "repeat"), first)
+        self.assertEqual(defs, original_defs)
+        generator.closed_field_union([branches[0]], defs, "repeat")
+        self.assertEqual(defs, {"unrelated": {"type": "string"}})
+
+    def test_reference_siblings_are_not_direct_disjointness_evidence(self):
+        branches = [{"type": "object", "additionalProperties": False, "required": ["kind"],
+                     "properties": {"kind": {"$ref": "#/$defs/kind", "const": kind}}}
+                    for kind in ("first", "second")]
+        defs = {"kind": {"type": "string"}}
+        union = generator.closed_field_union(branches, defs, "refs")
+        self.assertIn("not", union["oneOf"][1])
+        generator.schema_validate({"kind": "other"}, union, {"$defs": defs})
+        for branch in branches:
+            branch["$ref"] = "#/$defs/object"
+        self.assertFalse(generator.field_variants_disjoint(*branches))
 
 
 class NativeOracleRequestProjectionTests(unittest.TestCase):

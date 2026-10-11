@@ -429,7 +429,12 @@ func workflowDomainOverlapPair(left, right workflowOverlapFootprint) (WorkflowDo
 	// The pinned continuity projection validates against the generated
 	// envelope schema, which types every shared-item list as an array. A nil
 	// slice marshals as null and fails that validation, so an overlap that
-	// shares no laws, modifications, or relations carries empty arrays.
+	// shares no affected Domains, laws, modifications, or relations carries
+	// empty arrays. A law-only pair with disjoint affected Domains is a real
+	// write intersection and stays reported with an empty Domain list.
+	if sharedDomains == nil {
+		sharedDomains = []string{}
+	}
 	if sharedLaw == nil {
 		sharedLaw = []string{}
 	}

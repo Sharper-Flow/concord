@@ -330,17 +330,21 @@ async function driveWorkflowToContract(
   requiredEvidence: string[] = [],
 ): Promise<number> {
   const transition = (version: number, actionID: string, idempotencyKey: string, fields: Record<string, unknown>) => invoke("concord_work_transition", { operation: "workflow_action", input: { work_id: workID, expected_version: version, action_id: actionID, idempotency_key: idempotencyKey, fields } }, context)
-  let response = await transition(5, "record_reproduction", "e2e-reproduction", {})
+  // CD-0198 D2: one typed record_diagnosis carries the reproduction,
+  // alignment-search, and root-cause sections the three separate records
+  // carried, so the diagnosis step takes one action instead of three.
+  let response = await transition(5, "record_diagnosis", "e2e-diagnosis", {
+    reproduction: "The defect reproduces from a clean store with the seeded project.",
+    searched: "Searched the backlog for duplicate defect work.",
+    outcome: "none_found",
+    root_cause: "The fold recorded the acceptance without its delivery assertion.",
+  })
   expect(response.outcome, JSON.stringify(response)).toBe("ok")
-  response = await transition(7, "record_alignment", "e2e-alignment", { searched: "Searched the backlog for duplicate defect work.", outcome: "none_found" })
-  expect(response.outcome).toBe("ok")
-  response = await transition(9, "record_root_cause", "e2e-root-cause", {})
-  expect(response.outcome).toBe("ok")
   const domainList = await invoke("concord_domain", { operation: "list", input: { product_id: PRODUCT_ID, page: { cursor: null, limit: 10 } } }, context)
   expect(domainList.outcome).toBe("ok")
   const registry = domainList.result as JSONRecord
   const registryHash = (registry.registry as JSONRecord).content_hash as string
-  response = await transition(10, "approve_contract", "e2e-approve-contract", {
+  response = await transition(8, "approve_contract", "e2e-approve-contract", {
     premise,
     outcome_predicates: outcomePredicates,
     required_evidence: requiredEvidence,
@@ -400,7 +404,7 @@ async function driveWorkflowToContract(
   const preparationRef = response.result.oracle.run_ref as string
   // The job-capable break-fix definition dispatches the implement lane only
   // under a recorded ready worker-job revision (CD-0205).
-  response = await transition(12, "record_worker_job", "e2e-worker-job", {
+  response = await transition(10, "record_worker_job", "e2e-worker-job", {
     job_id: ROUTE_WORKER_JOB_ID,
     objective: "Apply the bounded route repair.",
     stopping_condition: "The route repair is applied and its checks pass.",
@@ -694,7 +698,9 @@ routeDeclaration("composes implementation and independent review through one ord
     response = await transition(repairDeliveryVersion, "record_delivery", "e2e-record-repair-delivery", { delivery_artifact: "https://github.com/synthetic/concord/pull/898", delivery_state: "asserted" })
     expect(response.outcome, JSON.stringify(response)).toBe("ok")
     const refineStartVersion = dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number
-    response = await transition(refineStartVersion, "start_refine", "e2e-start-refine", {})
+    // CD-0198 D3: the qualifying checkpoint claims the refine epoch; the
+    // callable start_refine is gone from the current head.
+    response = await transition(refineStartVersion, "checkpoint_refine", "e2e-start-refine", {})
     expect(response.outcome).toBe("ok")
     expect(dbValue(dbPath, `SELECT definition_version FROM workflow_instances WHERE work_id='${workID}'`).definition_version).toBe(definitionVersion)
     expect(dbValue(dbPath, `SELECT current_step FROM workflow_instances WHERE work_id='${workID}'`).current_step).toBe("refine")
@@ -1173,7 +1179,7 @@ routeDeclaration("dispatches an admitted maximum premise with eight synthetic pr
       invokeConcordOperation(toolName, args as any, callContext, sessionDirectory)
     await driveWorkflowToContract(workID, invoke, context, MAX_PREMISE, EIGHT_ROUTE_PREDICATES)
 
-    const routed = laneDispatchRequest({ operation: "workflow_action", input: { work_id: workID, expected_version: 14, action_id: "dispatch_worker", idempotency_key: "e2e-max-premise-dispatch", fields: { lane_id: "implement" } } })
+    const routed = laneDispatchRequest({ operation: "workflow_action", input: { work_id: workID, expected_version: 12, action_id: "dispatch_worker", idempotency_key: "e2e-max-premise-dispatch", fields: { lane_id: "implement" } } })
     const windows = new DispatchWindows()
     const dispatchResult = await dispatchLaneWorker(routed as any, {
       context, invoke,
@@ -1196,7 +1202,7 @@ routeDeclaration("dispatches an admitted maximum premise with eight synthetic pr
     expect(packet.inputs.task).toBe(MAX_PREMISE)
     expect(Buffer.byteLength(packet.inputs.task as string, "utf8")).toBe(4_096)
     expect(packet.inputs.task).not.toContain(workID)
-    expect(packet.inputs.binding).toEqual({ objective_source: "contract_premise", work_version: 14, contract_version: 1, assigned_result: "files_touched" })
+    expect(packet.inputs.binding).toEqual({ objective_source: "contract_premise", work_version: 12, contract_version: 1, assigned_result: "files_touched" })
     const predicates = packet.inputs.outcome_predicates as JSONRecord[]
     expect(predicates).toHaveLength(8)
     predicates.forEach((predicate, ordinal) => {
@@ -1278,7 +1284,7 @@ routeDeclaration("records an oversized worker session through the real CLI and s
     const invoke = (toolName: string, args: { operation: string; input: Record<string, unknown> }, callContext: any, sessionDirectory?: string) =>
       invokeConcordOperation(toolName, args as any, callContext, sessionDirectory)
     await driveWorkflowToContract(workID, invoke, context)
-    const routed = laneDispatchRequest({ operation: "workflow_action", input: { work_id: workID, expected_version: 14, action_id: "dispatch_worker", idempotency_key: "e2e-oversized-dispatch", fields: { lane_id: "implement" } } })
+    const routed = laneDispatchRequest({ operation: "workflow_action", input: { work_id: workID, expected_version: 12, action_id: "dispatch_worker", idempotency_key: "e2e-oversized-dispatch", fields: { lane_id: "implement" } } })
     const windows = new DispatchWindows()
     const dispatchResult = await dispatchLaneWorker(routed as any, {
       context, invoke,
@@ -1363,7 +1369,7 @@ routeDeclaration("records a refused readback as a durable failed attempt through
     const invoke = (toolName: string, args: { operation: string; input: Record<string, unknown> }, callContext: any, sessionDirectory?: string) =>
       invokeConcordOperation(toolName, args as any, callContext, sessionDirectory)
     await driveWorkflowToContract(workID, invoke, context)
-    const routed = laneDispatchRequest({ operation: "workflow_action", input: { work_id: workID, expected_version: 14, action_id: "dispatch_worker", idempotency_key: "e2e-refused-dispatch", fields: { lane_id: "implement" } } })
+    const routed = laneDispatchRequest({ operation: "workflow_action", input: { work_id: workID, expected_version: 12, action_id: "dispatch_worker", idempotency_key: "e2e-refused-dispatch", fields: { lane_id: "implement" } } })
     const windows = new DispatchWindows()
     const dispatchResult = await dispatchLaneWorker(routed as any, {
       context, invoke,

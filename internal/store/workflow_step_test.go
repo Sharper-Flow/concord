@@ -66,7 +66,7 @@ func TestWorkflowInstanceStartsAtItsDefinitionStartStep(t *testing.T) {
 	t.Parallel()
 	want := map[string]string{
 		"workflow.implementation":     "proposal",
-		"workflow.break_fix":          "reproduce",
+		"workflow.break_fix":          "diagnosis",
 		"workflow.research":           "frame",
 		"workflow.architecture_spike": "frame",
 		"workflow.ops_runbook":        "plan",

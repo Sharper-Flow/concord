@@ -52,7 +52,9 @@ func TestFirstWorkflowActionRecordsTheActingActor(t *testing.T) {
 		actionID string
 	}{
 		{kind: "task", step: "proposal", actionID: "record_proposal"},
-		{kind: "bug", step: "reproduce", actionID: "record_reproduction"},
+		// The bug head opens at the merged diagnosis step whose only advance
+		// exit is record_diagnosis.
+		{kind: "bug", step: "diagnosis", actionID: "record_diagnosis"},
 	} {
 		t.Run(testCase.actionID, func(t *testing.T) {
 			ctx := context.Background()
@@ -74,6 +76,9 @@ func TestFirstWorkflowActionRecordsTheActingActor(t *testing.T) {
 			payload := mustJSONValue(map[string]any{})
 			if testCase.actionID == "record_proposal" {
 				payload = mustJSONValue(map[string]any{"problem": "The bounded problem statement.", "affected": []string{"The affected system."}, "stakes": "The bounded stakes statement.", "user_outcomes": []string{"The expected user outcome."}})
+			}
+			if testCase.actionID == "record_diagnosis" {
+				payload = mustJSONValue(map[string]any{"reproduction": "The bounded reproduction steps.", "searched": "The bounded searched area.", "outcome": "none_found", "root_cause": "The bounded root cause."})
 			}
 
 			request := WorkflowActionExecutionRequest{

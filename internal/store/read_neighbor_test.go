@@ -77,17 +77,17 @@ func TestReadEntryPointsWithWriterNeighbor(t *testing.T) {
 		}},
 		{"Resources", func() error { _, err := s.Resources(ctx, ResourcesRequest{ProductID: "prod"}); return err }},
 		{"BlockedSessions", func() error { _, err := s.BlockedSessions(ctx, time.Now(), []string{"prod"}, 100); return err }},
-		{"ResolveLauncherWorkProduct", func() error { _, err := s.ResolveLauncherWorkProduct(ctx, "blocker", "proj", "prod"); return err }},
-		{"ResolveLauncherLinearIssue", func() error {
-			workID, err := s.ResolveLauncherLinearIssueWork(ctx, "SYN-1", "https://example.invalid/issues/SYN-1")
+		{"ResolveLandingProjectProduct", func() error { _, err := s.ResolveLandingProjectProduct(ctx, "blocker", "proj", "prod"); return err }},
+		{"ResolveLinearIssueProduct", func() error {
+			workID, err := s.ResolveLinearIssueWork(ctx, "SYN-1", "https://example.invalid/issues/SYN-1")
 			if err != nil {
 				return err
 			}
-			_, err = s.ResolveLauncherWorkProduct(ctx, workID, "proj", "prod")
+			_, err = s.ResolveLandingProjectProduct(ctx, workID, "proj", "prod")
 			return err
 		}},
-		{"ResolveLauncherLinearIssueWork", func() error {
-			_, err := s.ResolveLauncherLinearIssueWork(ctx, "SYN-1", "https://example.invalid/issues/SYN-1")
+		{"ResolveLinearIssueWork", func() error {
+			_, err := s.ResolveLinearIssueWork(ctx, "SYN-1", "https://example.invalid/issues/SYN-1")
 			return err
 		}},
 	}

@@ -29,9 +29,14 @@ func TestMutationEnvelopePublishesPinnedObligationsAndDefinitionIdentity(t *test
 	workID := captureCompositionWork(t, ctx, s, service, env, "Mutation envelope obligations", "bug", "workflow.break_fix", "obligation-envelope")
 	version := agentCompositionWorkVersion(t, s, workID)
 
-	response, _ := ekbDispatch(t, ctx, s, service, env, grant, privateKey, workID, version, "record_reproduction", map[string]any{}, nil, "obligation-envelope-reproduce")
+	response, _ := ekbDispatch(t, ctx, s, service, env, grant, privateKey, workID, version, "record_diagnosis", map[string]any{
+		"reproduction": "The bounded defect reproduction statement.",
+		"searched":     "The bounded backlog search statement.",
+		"outcome":      "none_found",
+		"root_cause":   "The bounded root cause statement.",
+	}, nil, "obligation-envelope-diagnosis")
 	if response.Outcome != OutcomeOK {
-		t.Fatalf("record_reproduction: %+v", response.Error)
+		t.Fatalf("record_diagnosis: %+v", response.Error)
 	}
 	var payload struct {
 		WorkPins []store.WorkPin `json:"work_pins"`

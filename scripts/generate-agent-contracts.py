@@ -8,6 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "contracts/agent-tool-surface.v1.json"
 IR = ROOT / "contracts/agent-tool-surface.schema.json"
 PAYLOAD = ROOT / "contracts/agent-tool-surface-payloads.schema.json"
+HISTORICAL_DECODER = ROOT / "contracts/workflow-historical-decoder.schema.json"
 LANE_PACKET = ROOT / "contracts/agent-lane-packet.schema.json"
 WORKFLOW_OUTCOME = ROOT / "contracts/workflow-outcome.schema.json"
 ENVELOPE = ROOT / "contracts/agent-tool-envelope.schema.json"
@@ -303,7 +304,7 @@ def validate_persisted_manifest(manifest, ir):
     schema_validate(manifest, ir, ir, "manifest")
 
 
-def load_workflow_action_contracts() -> tuple[list[dict], list[dict]]:
+def load_workflow_action_contracts() -> tuple[list[dict], list[dict], dict, dict]:
     result = subprocess.run(
         ["go", "run", "./scripts/workflow-action-contracts"],
         cwd=ROOT,
@@ -313,8 +314,15 @@ def load_workflow_action_contracts() -> tuple[list[dict], list[dict]]:
         check=True,
     )
     projection = json.loads(result.stdout)
-    if set(projection) != {"schema_version", "actions", "workflows", "teaching"} or projection["schema_version"] != "1.0":
+    if set(projection) != {"schema_version", "actions", "workflows", "teaching", "schema_refs"} or projection["schema_version"] != "1.0":
         fail("workflow action contract projection is invalid")
+    schema_refs = projection["schema_refs"]
+    if set(schema_refs) != {"current", "historical"}:
+        fail("workflow action contract projection carries no schema-ref classes")
+    for side in ("current", "historical"):
+        refs = schema_refs[side]
+        if not isinstance(refs, list) or any(not isinstance(ref, str) or not ref for ref in refs) or len(set(refs)) != len(refs) or refs != sorted(refs):
+            fail(f"workflow action contract projection {side} schema refs are not a sorted unique name list")
     teaching = projection["teaching"]
     if set(teaching) != {"predicate_ordinal_rule", "law_addition_mandate_rule", "obligation_membership_rule", "architecture_domain_rule", "alignment_combination_rule", "outcome_kind_equality_rule"}:
         fail("workflow action contract projection carries no guard-owned teaching rules")
@@ -355,7 +363,7 @@ def load_workflow_action_contracts() -> tuple[list[dict], list[dict]]:
             fail(f"workflow outcome contract projection names no predicate kinds: {workflow.get('ref')}")
         if not isinstance(workflow["allowed_outcome_tokens"], list):
             fail(f"workflow outcome contract projection has no token list: {workflow.get('ref')}")
-    return actions, workflows, teaching
+    return actions, workflows, teaching, schema_refs
 
 
 def validate_workflow_cross_field(action: dict, payload: dict) -> None:
@@ -391,6 +399,113 @@ def validate_workflow_cross_field(action: dict, payload: dict) -> None:
         for name in group.get("forbids", []):
             if name not in declared:
                 fail(f"workflow action {action.get('id')} alternative forbids undeclared field {name}")
+
+
+def schema_ref_closure(defs: dict, roots: list[str]) -> list[str]:
+    """The transitive $defs closure the named schema refs reach."""
+    seen: set[str] = set()
+
+    def walk(node: object) -> None:
+        if isinstance(node, dict):
+            ref = node.get("$ref")
+            if isinstance(ref, str) and ref.startswith("#/$defs/"):
+                name = ref.removeprefix("#/$defs/")
+                if name not in seen:
+                    seen.add(name)
+                    if name in defs:
+                        walk(defs[name])
+            for key, value in node.items():
+                if key != "$ref":
+                    walk(value)
+        elif isinstance(node, list):
+            for entry in node:
+                walk(entry)
+
+    for root in roots:
+        if root not in defs:
+            fail(f"declared payload schema ref {root} resolves in no generated definition")
+        seen.add(root)
+        walk(defs[root])
+    return sorted(seen)
+
+
+def freeze_historical_decoder(schema_refs: dict) -> int:
+    """Freeze or union-extend the historical decoder document.
+
+    The decoder document is the engine's frozen baseline closure over the
+    public authoring document: every schema ref any registered workflow
+    definition declares resolves inside it, and the engine resolves retained
+    registry pins' payload validation against it independently of later
+    public authoring changes. Existing frozen definitions are
+    never rewritten: a re-freeze only adds the closure definitions the
+    registry newly declares, so the frozen baseline can never silently
+    re-derive from a changed public document.
+    """
+    payload_defs = json.loads(PAYLOAD.read_text()).get("$defs", {})
+    union = sorted(set(schema_refs["current"]) | set(schema_refs["historical"]))
+    closure = schema_ref_closure(payload_defs, union)
+    frozen: dict = {}
+    if HISTORICAL_DECODER.is_file():
+        frozen = json.loads(HISTORICAL_DECODER.read_text())
+        if not isinstance(frozen.get("$defs"), dict):
+            fail("historical decoder document carries no $defs object")
+    existing = frozen.setdefault("$defs", {})
+    added = [name for name in closure if name not in existing]
+    for name in added:
+        existing[name] = payload_defs[name]
+    if not existing:
+        fail("the historical decoder freeze would be empty")
+    # The document stays keyword-pure: its provenance is the freeze evidence
+    # and the baseline-equality test against the manifest's pinned payload
+    # digest, not metadata keys the schema keyword validator would refuse.
+    frozen.setdefault("$schema", "https://json-schema.org/draft/2020-12/schema")
+    HISTORICAL_DECODER.write_text(json.dumps(frozen, ensure_ascii=False, indent=2) + "\n")
+    print(f"historical decoder freeze: {len(existing)} definitions, {len(added)} added")
+    return 0
+
+
+def validate_historical_decoder(schema_refs: dict, payload_defs: dict) -> None:
+    """The frozen decoder owns historical resolution.
+
+    Every schema ref any registered definition declares must resolve inside
+    the frozen decoder, and the decoder must stay internally closed. Current
+    refs must additionally resolve in the public authoring document, whose
+    published variants stay the authoring owner.
+    """
+    if not HISTORICAL_DECODER.is_file():
+        fail("the frozen historical decoder document is missing; freeze it with --freeze-historical-decoder")
+    frozen = json.loads(HISTORICAL_DECODER.read_text())
+    frozen_defs = frozen.get("$defs")
+    if not isinstance(frozen_defs, dict) or not frozen_defs:
+        fail("the frozen historical decoder document carries no $defs object")
+    check_schema_keywords(frozen, "historical-decoder")
+    union = sorted(set(schema_refs["current"]) | set(schema_refs["historical"]))
+    for ref in union:
+        if ref not in frozen_defs:
+            fail(f"declared payload schema ref {ref} resolves in neither the frozen historical decoder nor generation; re-freeze with --freeze-historical-decoder")
+    for name, schema in frozen_defs.items():
+        if not isinstance(schema, dict):
+            fail(f"frozen historical decoder definition {name} is not an object")
+    internal: list[str] = []
+
+    def collect_internal_refs(node: object) -> None:
+        if isinstance(node, dict):
+            ref = node.get("$ref")
+            if isinstance(ref, str) and ref.startswith("#/$defs/"):
+                internal.append(ref.removeprefix("#/$defs/"))
+            for value in node.values():
+                collect_internal_refs(value)
+        elif isinstance(node, list):
+            for entry in node:
+                collect_internal_refs(entry)
+
+    collect_internal_refs(frozen_defs)
+    for name in sorted(set(internal)):
+        if name not in frozen_defs:
+            fail(f"the frozen historical decoder carries a dangling internal reference {name}")
+    for ref in schema_refs["current"]:
+        if ref not in payload_defs:
+            fail(f"current payload schema ref {ref} does not resolve in the public authoring document")
 
 
 def single_variant(action: dict) -> dict:
@@ -1212,6 +1327,19 @@ WORKER_PACKET_INPUT_ALIASES = {
     "checkpoint": "continuity_checkpoint",
     "outcome_predicates": "worker_packet_outcome_predicates",
 }
+# Every packet def the projection derives inputs for. worker_packet is the
+# released dispatch surface; worker_packet2 is the versioned identity the
+# derived-failure heads record and replay. One projection owner keeps the two
+# from drifting on a canonical lane packet change.
+WORKER_PACKET_DEF_NAMES = ("worker_packet", "worker_packet2")
+# work_context splits by packet generation: the versioned packet2 identity
+# anchors the versioned work-context view (and through it the nav-free
+# domain group), while the released worker_packet surface anchors the shared
+# view. Every alias a generation does not override stays shared, so no
+# unchanged definition clones.
+WORKER_PACKET_INPUT_ALIAS_OVERRIDES = {
+    "worker_packet2": {"work_context": "work_context_view2"},
+}
 WORKER_PACKET_INPUT_PUBLISHED_TEXT = {
     "work_context": (
         "CON-887: the current work-context view the work pin carried when the "
@@ -1238,40 +1366,48 @@ def contains_schema_ref(node: object) -> bool:
 
 
 def project_worker_packet_inputs(payload: dict, lane_packet: dict) -> None:
-    """Derive $defs/worker_packet inputs from the canonical lane packet.
+    """Derive the packet defs' inputs from the canonical lane packet.
 
     The canonical contract owns the field set and the required set; the
     payloads schema owns the shared def aliases the aliased fields anchor
     to. A canonical inputs change either lands here on regeneration or
     fails --check, so the published surface cannot again omit a wire field
-    the dispatcher sends.
+    the dispatcher sends. Every def the projection names carries the same
+    projected inputs: worker_packet is the released dispatch surface and
+    worker_packet2 is the versioned identity the derived-failure heads
+    record, so the two cannot drift apart on a canonical change. A
+    generation's alias overrides re-anchor only the definitions that
+    generation versions; everything else stays shared.
     """
     inputs = lane_packet.get("properties", {}).get("inputs")
     if not isinstance(inputs, dict) or inputs.get("type") != "object" or inputs.get("additionalProperties") is not False:
         fail("contracts/agent-lane-packet.schema.json: inputs is not a closed object")
-    packet = payload.get("$defs", {}).get("worker_packet")
-    if not isinstance(packet, dict) or not isinstance(packet.get("properties"), dict):
-        fail("contracts/agent-tool-surface-payloads.schema.json: $defs/worker_packet is not an object with properties")
-    properties = {}
-    for name, schema in inputs.get("properties", {}).items():
-        alias = WORKER_PACKET_INPUT_ALIASES.get(name)
-        if alias is not None:
-            if alias not in payload.get("$defs", {}):
-                fail(f"worker_packet inputs alias for {name} names unknown def {alias}")
-            node = {"$ref": f"#/$defs/{alias}"}
-            published = WORKER_PACKET_INPUT_PUBLISHED_TEXT.get(name, schema.get("description"))
-            if published is not None:
-                node["description"] = published
-            properties[name] = node
-            continue
-        if contains_schema_ref(schema):
-            fail(f"canonical lane packet inputs field {name} carries a $ref; anchor it through WORKER_PACKET_INPUT_ALIASES")
-        properties[name] = copy.deepcopy(schema)
-    projected = {"type": "object", "additionalProperties": False, "properties": properties}
-    required = list(inputs.get("required", []))
-    if required:
-        projected["required"] = required
-    packet["properties"]["inputs"] = projected
+    doc_defs = payload.get("$defs", {})
+    for packet_name in WORKER_PACKET_DEF_NAMES:
+        packet = doc_defs.get(packet_name)
+        if not isinstance(packet, dict) or not isinstance(packet.get("properties"), dict):
+            fail(f"contracts/agent-tool-surface-payloads.schema.json: $defs/{packet_name} is not an object with properties")
+        aliases = {**WORKER_PACKET_INPUT_ALIASES, **WORKER_PACKET_INPUT_ALIAS_OVERRIDES.get(packet_name, {})}
+        properties = {}
+        for name, schema in inputs.get("properties", {}).items():
+            alias = aliases.get(name)
+            if alias is not None:
+                if alias not in doc_defs:
+                    fail(f"worker_packet inputs alias for {name} names unknown def {alias}")
+                node = {"$ref": f"#/$defs/{alias}"}
+                published = WORKER_PACKET_INPUT_PUBLISHED_TEXT.get(name, schema.get("description"))
+                if published is not None:
+                    node["description"] = published
+                properties[name] = node
+                continue
+            if contains_schema_ref(schema):
+                fail(f"canonical lane packet inputs field {name} carries a $ref; anchor it through WORKER_PACKET_INPUT_ALIASES")
+            properties[name] = copy.deepcopy(schema)
+        projected = {"type": "object", "additionalProperties": False, "properties": properties}
+        required = list(inputs.get("required", []))
+        if required:
+            projected["required"] = required
+        packet["properties"]["inputs"] = projected
 
 
 def check_schema_keywords(node, path="schema"):
@@ -1641,6 +1777,22 @@ def go_payload_schema_projection() -> str:
     document = json.dumps(json.loads(PAYLOAD.read_text()), ensure_ascii=False, sort_keys=True, indent=2)
     return "// Code generated by scripts/generate-agent-contracts.py; DO NOT EDIT.\npackage payloadschema\n\nconst GeneratedPayloadSchemaDocument = `" + document + "`\n"
 
+def go_historical_schema_projection() -> str:
+    document = json.dumps(json.loads(HISTORICAL_DECODER.read_text()), ensure_ascii=False, sort_keys=True, indent=2)
+    if "`" in document:
+        fail("historical decoder document contains a Go raw-string delimiter")
+    return (
+        "// Code generated by scripts/generate-agent-contracts.py; DO NOT EDIT.\n"
+        "package payloadschema\n\n"
+        "// GeneratedHistoricalSchemaDocument is the frozen historical decoder\n"
+        "// document, contracts/workflow-historical-decoder.schema.json, projected\n"
+        "// beside the public authoring document. The engine resolves retained\n"
+        "// workflow definitions' declared payload schemas against this frozen\n"
+        "// baseline closure, so a public authoring change cannot break historical\n"
+        "// payload validation (CON-902 S0).\n"
+        "const GeneratedHistoricalSchemaDocument = `" + document + "`\n"
+    )
+
 def go_envelope_schema_projection() -> str:
     document = json.dumps(json.loads((ROOT / "contracts/agent-tool-envelope.schema.json").read_text()), ensure_ascii=False, sort_keys=True, indent=2)
     if "`" in document:
@@ -1867,10 +2019,14 @@ console.log(JSON.stringify(total));'''
 def main() -> int:
     try:
         check = "--check" in sys.argv[1:]
+        freeze = "--freeze-historical-decoder" in sys.argv[1:]
         manifest = json.loads(MANIFEST.read_text())
         ir = json.loads(IR.read_text())
         payload = json.loads(PAYLOAD.read_text())
-        actions, workflows, teaching = load_workflow_action_contracts()
+        actions, workflows, teaching, schema_refs = load_workflow_action_contracts()
+        if freeze:
+            return freeze_historical_decoder(schema_refs)
+        validate_historical_decoder(schema_refs, payload.get("$defs", {}))
         projected_payload, public_variants = project_workflow_action_schema(payload, actions, workflows, teaching)
         project_worker_packet_inputs(projected_payload, json.loads(LANE_PACKET.read_text()))
         if payload != projected_payload:
@@ -1905,6 +2061,7 @@ def main() -> int:
             ROOT / ".concord/docs/generated-agent-tool-surface.md": docs_projection(manifest),
             ROOT / "adapter/opencode/generated-contract-tests.ts": ts_validator_projection(manifest),
             ROOT / "internal/payloadschema/generated_schemas.go": go_payload_schema_projection(),
+            ROOT / "internal/payloadschema/generated_historical_schemas.go": go_historical_schema_projection(),
             ROOT / "internal/agent/generated_envelope_schema.go": subprocess.run(["gofmt"], input=go_envelope_schema_projection(), text=True, capture_output=True, check=True).stdout,
             ROOT / "internal/store/generated_typed_error_kinds.go": subprocess.run(["gofmt"], input=go_typed_error_kind_projection(envelope), text=True, capture_output=True, check=True).stdout,
         }

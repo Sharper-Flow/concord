@@ -379,6 +379,12 @@ func TestBootstrapRollbackRefDeletionRefusals(t *testing.T) {
 			if err == nil || !strings.Contains(err.Error(), detail) {
 				t.Errorf("rollback error=%v, want gate refusal containing %q", err, detail)
 			}
+			var failure *Failure
+			if !errors.As(err, &failure) || failure.Op != "work_bootstrap" {
+				t.Errorf("rollback error=%v, want work_bootstrap attribution", err)
+			} else if strings.Contains(failure.Detail, "reclaim") || strings.Contains(failure.RecoveryAction, "reclaim") {
+				t.Errorf("rollback diagnostics describe reclaim: detail=%q remedy=%q", failure.Detail, failure.RecoveryAction)
+			}
 			var state, claimState string
 			if err := s.db.QueryRow(`SELECT b.state,c.state FROM bootstrap_operations b JOIN worktree_claims c ON c.op_id=b.operation_id WHERE b.operation_id=?`, result.OperationID).Scan(&state, &claimState); err != nil {
 				t.Fatal(err)

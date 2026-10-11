@@ -190,7 +190,7 @@ func TestNonOKVerdictCorrectionReturnsImplementationToExecution(t *testing.T) {
 		t.Fatal(err)
 	}
 	reviewer := acceptReturnRouteWorker(t, fixture, workID, ownerRef)
-	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:return-route","verdict_kind":"outcome_mismatch","evaluation_evidence":["evidence:return-route-verification"],"incomparable_with_approved":true}`), 0, reviewer); err != nil {
+	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"verdicts":[{"predicate_id":"predicate:return-route","verdict_kind":"outcome_mismatch","evaluation_evidence":["evidence:return-route-verification"],"incomparable_with_approved":true}]}`), 0, reviewer); err != nil {
 		t.Fatalf("record non-ok verdict: %v", err)
 	}
 	operator := fixture.operator
@@ -222,7 +222,7 @@ func TestNonOKVerdictCorrectionReturnsBreakFixToRepair(t *testing.T) {
 		t.Fatal(err)
 	}
 	reviewer := acceptReturnRouteWorker(t, fixture, workID, ownerRef)
-	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:return-route","verdict_kind":"outcome_mismatch","evaluation_evidence":["evidence:return-route-verification"],"incomparable_with_approved":true}`), 0, reviewer); err != nil {
+	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"verdicts":[{"predicate_id":"predicate:return-route","verdict_kind":"outcome_mismatch","evaluation_evidence":["evidence:return-route-verification"],"incomparable_with_approved":true}]}`), 0, reviewer); err != nil {
 		t.Fatalf("record non-ok break-fix verdict: %v", err)
 	}
 	correction := json.RawMessage(`{"diagnosis":"the repaired subject still reproduces the defect","strategy":"repeat the repair external effect","predicate_ids":["predicate:return-route"],"evidence_refs":["evidence:return-route-verification"]}`)
@@ -252,7 +252,7 @@ func TestVerdictCorrectionRequiresAcceptedWorkerDelivery(t *testing.T) {
 		t.Fatal(err)
 	}
 	reviewer := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/unaccepted-reviewer", SessionRef: "session/" + workID + "-reviewer", ActorClass: ActorAgent}
-	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:return-route","verdict_kind":"outcome_mismatch","incomparable_with_approved":true}`), 0, reviewer); err != nil {
+	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"verdicts":[{"predicate_id":"predicate:return-route","verdict_kind":"outcome_mismatch","incomparable_with_approved":true}]}`), 0, reviewer); err != nil {
 		t.Fatalf("record non-ok verdict: %v", err)
 	}
 	err = InspectWorkflowActionAdmission(context.Background(), s, WorkflowActionPreflightRequest{
@@ -353,7 +353,7 @@ func prepareVerdictCorrectionFixture(t *testing.T, workID, definitionRef string)
 		t.Fatal(err)
 	}
 	reviewer := acceptReturnRouteWorker(t, fixture, workID, ownerRef)
-	if err := runVerdictActionAs(t, fixture.store, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:return-route","verdict_kind":"outcome_mismatch","evaluation_evidence":["evidence:return-route-verification"],"incomparable_with_approved":true}`), 0, reviewer); err != nil {
+	if err := runVerdictActionAs(t, fixture.store, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"verdicts":[{"predicate_id":"predicate:return-route","verdict_kind":"outcome_mismatch","evaluation_evidence":["evidence:return-route-verification"],"incomparable_with_approved":true}]}`), 0, reviewer); err != nil {
 		t.Fatalf("record refusal fixture verdict: %v", err)
 	}
 	return fixture
@@ -406,7 +406,7 @@ func TestVerdictCorrectionSequenceNeedsConjunctiveHealthyVerdicts(t *testing.T) 
 		t.Fatal(err)
 	}
 	firstReviewer := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/first-reviewer", SessionRef: "session/" + workID + "-first", ActorClass: ActorAgent}
-	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:return-route","verdict_kind":"outcome_mismatch","incomparable_with_approved":true}`), 0, firstReviewer); err != nil {
+	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"verdicts":[{"predicate_id":"predicate:return-route","verdict_kind":"outcome_mismatch","incomparable_with_approved":true}]}`), 0, firstReviewer); err != nil {
 		t.Fatalf("record first non-ok verdict: %v", err)
 	}
 	// The first non-ok verdict makes the artifact any second verdict judges
@@ -420,7 +420,7 @@ func TestVerdictCorrectionSequenceNeedsConjunctiveHealthyVerdicts(t *testing.T) 
 	}
 	_ = acceptReturnRouteWorkerLabeled(t, fixture, workID, ownerRef, "mid-sequence")
 	secondReviewer := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/second-reviewer", SessionRef: "session/" + workID + "-second", ActorClass: ActorAgent}
-	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:second","verdict_kind":"ok"}`), 0, secondReviewer); err != nil {
+	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"verdicts":[{"predicate_id":"predicate:second","verdict_kind":"ok"}]}`), 0, secondReviewer); err != nil {
 		t.Fatalf("record second healthy verdict: %v", err)
 	}
 	var beforeSeq int64
@@ -452,7 +452,7 @@ func TestNonOKVerdictCorrectionReturnsTerminalImplementationToExecution(t *testi
 	if err := advanceWorkflowTestInstanceToStep(context.Background(), s, workID, "release", operatorRef); err != nil {
 		t.Fatalf("advance to terminal correction checkpoint: %v", err)
 	}
-	verdict := json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:return-route","verdict_kind":"insufficient_evidence","evaluation_evidence":["evidence:return-route-verification"],"incomparable_with_approved":true}`)
+	verdict := json.RawMessage(`{"contract_version":1,"verdicts":[{"predicate_id":"predicate:return-route","verdict_kind":"insufficient_evidence","evaluation_evidence":["evidence:return-route-verification"],"incomparable_with_approved":true}]}`)
 	if err := runVerdictActionAs(t, s, workID, "record_verdict", verdict, 0, reviewer); err != nil {
 		t.Fatalf("record terminal non-ok verdict: %v", err)
 	}
@@ -679,7 +679,7 @@ func testWorkflowReturnRoute(t *testing.T, workID, definitionRef, verdictStep, p
 		return count
 	}
 	_ = acceptReturnRouteWorker(t, fixture, workID, ownerRef)
-	verdictPayload := json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:return-route","verdict_kind":"outcome_mismatch","evaluation_evidence":["evidence:return-route-verification"],"incomparable_with_approved":true}`)
+	verdictPayload := json.RawMessage(`{"contract_version":1,"verdicts":[{"predicate_id":"predicate:return-route","verdict_kind":"outcome_mismatch","evaluation_evidence":["evidence:return-route-verification"],"incomparable_with_approved":true}]}`)
 	correctionPayload := json.RawMessage(`{"diagnosis":"the delivered subject still mismatches the approved predicate","strategy":"repeat production at the declared external effect","predicate_ids":["predicate:return-route"],"evidence_refs":["evidence:return-route-verification"]}`)
 	// The second verdict judges a fresh producer result but makes it stale
 	// again: persistent mismatch cannot escape through either graph edge.
@@ -815,7 +815,7 @@ func testWorkflowReturnRoute(t *testing.T, workID, definitionRef, verdictStep, p
 	acceptor := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/return-route-acceptor", SessionRef: "session/" + workID + "-acceptor", ActorClass: ActorAgent}
 	_ = refineReturnRouteWorkerLabeled(t, fixture, workID, acceptor, "c-failure-edge")
 	assertStale(false)
-	healthy := json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:return-route","verdict_kind":"ok","evaluation_evidence":["evidence:return-route-verification"]}`)
+	healthy := json.RawMessage(`{"contract_version":1,"verdicts":[{"predicate_id":"predicate:return-route","verdict_kind":"ok","evaluation_evidence":["evidence:return-route-verification"]}]}`)
 	if err := runIssue933OperatorAction(t, s, workID, "record_verdict", healthy, fixture.owner, fixture.operator); err != nil {
 		t.Fatalf("record healthy verdict after production: %v", err)
 	}
@@ -901,7 +901,7 @@ func TestVerdictCorrectionAdmitsReviewEvidenceAccept(t *testing.T) {
 	if step := currentStep(t, s, workID); step != "verify" {
 		t.Fatalf("step after accept_worker_evidence = %q, want verify", step)
 	}
-	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:return-route","verdict_kind":"outcome_mismatch","evaluation_evidence":["evidence:return-route-verification"],"incomparable_with_approved":true}`), 0, reviewer); err != nil {
+	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"verdicts":[{"predicate_id":"predicate:return-route","verdict_kind":"outcome_mismatch","evaluation_evidence":["evidence:return-route-verification"],"incomparable_with_approved":true}]}`), 0, reviewer); err != nil {
 		t.Fatalf("record non-ok verdict after the review accept: %v", err)
 	}
 	correction := json.RawMessage(`{"diagnosis":"the review found the delivered subject does not satisfy the approved predicate","strategy":"repeat the repair external effect","predicate_ids":["predicate:return-route"],"evidence_refs":["evidence:return-route-verification"]}`)
@@ -922,7 +922,7 @@ func TestVerdictCorrectionRefusesUnacceptedReviewDelivery(t *testing.T) {
 	s := fixture.store
 	reviewer := checkpointReviewReviewer(t, s, workID)
 	dispatchVerifyReviewAttempt(t, fixture, workID)
-	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:return-route","verdict_kind":"outcome_mismatch","evaluation_evidence":["evidence:return-route-verification"],"incomparable_with_approved":true}`), 0, reviewer); err != nil {
+	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"verdicts":[{"predicate_id":"predicate:return-route","verdict_kind":"outcome_mismatch","evaluation_evidence":["evidence:return-route-verification"],"incomparable_with_approved":true}]}`), 0, reviewer); err != nil {
 		t.Fatalf("record non-ok verdict over the unaccepted review: %v", err)
 	}
 	registered, err := BuiltinWorkflowDefinitionForRef("workflow.break_fix")

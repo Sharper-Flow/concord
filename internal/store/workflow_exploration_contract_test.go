@@ -145,7 +145,7 @@ func TestLivenessExecutesGeneratedCorrection(t *testing.T) {
 		t.Fatal(err)
 	}
 	reviewer := acceptReturnRouteWorker(t, fixture, workID, ownerRef)
-	if err := runVerdictActionAs(t, fixture.store, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:return-route","verdict_kind":"outcome_mismatch","evaluation_evidence":["evidence:return-route-verification"],"incomparable_with_approved":true}`), 0, reviewer); err != nil {
+	if err := runVerdictActionAs(t, fixture.store, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"verdicts":[{"predicate_id":"predicate:return-route","verdict_kind":"outcome_mismatch","evaluation_evidence":["evidence:return-route-verification"],"incomparable_with_approved":true}]}`), 0, reviewer); err != nil {
 		t.Fatal(err)
 	}
 	definition, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")

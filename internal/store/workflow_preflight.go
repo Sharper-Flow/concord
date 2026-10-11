@@ -449,8 +449,9 @@ func workflowEnvelopeProjectedPayload(definition WorkflowDefinition, actionID st
 // document, for every definition. A live call answers to the current
 // published contract regardless of pin age — a retained pin dispatching live
 // carries the current published worker packet, not the frozen transport
-// schema the pin's recorded history was validated against; the live or
-// replay invocation role, not pin age, selects the document.
+// schema the pin's recorded history was validated against. The preflight
+// picks the decoder by the live/replay role, never by pin age, so an
+// old-pin live dispatch admits the current published packet identity.
 // workflowReplayPayloadSchemaDocument returns the document that resolves a
 // RECORDED payload's declared schema refs: the frozen historical decoder
 // document, so recorded history replays against the exact frozen bytes its

@@ -2703,6 +2703,18 @@ func workflowStepPassBoundary(ctx context.Context, q queryer, definition Workflo
 	if err := q.QueryRowContext(ctx, query, args...).Scan(&entrySeq); err != nil {
 		return 0, false, wrapFailure(KindUnavailable, subject, "cannot inspect the workflow step's latest entry", true, "retry once the workflow event log is readable", err)
 	}
+	if workflowDerivedStepStartActive(definition) {
+		// A successor contract opens fresh work at the held step. Its typed
+		// supersession event is not an action completion, but the next
+		// qualifying action must claim a new epoch rather than reuse the
+		// predecessor contract's start and verification cutoff. Released
+		// callable-start pins keep their original pass-boundary rule.
+		var supersededSeq int64
+		if err := q.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND seq>?`, string(SubjectWorkItem), workID, WorkflowContractSuperseded, startSeq).Scan(&supersededSeq); err != nil {
+			return 0, false, wrapFailure(KindUnavailable, subject, "cannot inspect the workflow step's contract entry", true, "retry once the workflow event log is readable", err)
+		}
+		entrySeq = max(entrySeq, supersededSeq)
+	}
 	if entrySeq > startSeq {
 		return entrySeq, true, nil
 	}

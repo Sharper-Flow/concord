@@ -2577,7 +2577,7 @@ async function launchRetriedWorkerDispatch(args: HostToolArgs, context: ToolCont
   const attemptID = typeof result.retry_attempt_id === "string" ? result.retry_attempt_id : ""
   const digest = typeof result.worker_packet_digest === "string" ? result.worker_packet_digest : ""
   const worktree = typeof result.worker_worktree === "string" ? result.worker_worktree : ""
-  const launch = await dispatchRetriedLaneWorker({ packet: result.retry_worker_packet, packetDigest: digest, attemptID, authorizedWorktree: worktree }, { context })
+  const launch = await dispatchRetriedLaneWorker({ packet: result.retry_worker_packet, packetDigest: digest, attemptID, authorizedWorktree: worktree }, { context, credentials: credentialsOverride ?? undefined })
   if (!record(launch)) return launch as HostConcordEnvelope
   const receipt = Array.isArray(envelope.changed_refs) ? envelope.changed_refs : undefined
   const intents = Array.isArray(envelope.next_valid_intents) ? envelope.next_valid_intents : undefined

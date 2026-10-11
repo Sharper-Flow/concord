@@ -10,28 +10,38 @@ import (
 )
 
 // historicalDecoderCorpus pairs one frozen historical schema ref with one
-// payload the schema accepts and one it refuses. Both sides of the corpus
-// must verdict identically through the frozen historical decoder and the
-// public authoring document while the two documents carry the same bytes.
+// payload the schema accepts and one it refuses. Every ref classifies
+// explicitly as still-public or historical-only: the frozen historical
+// decoder verdicts every entry, while the live public authoring document
+// answers only still-public refs. A historical-only ref refuses both payloads
+// there, because a schema only the frozen decoder carries is not authorable.
+// The live document contradicting a ref's classification fails the corpus
+// until the classification is updated deliberately.
 var historicalDecoderCorpus = []struct {
-	name    string
-	valid   string
-	invalid string
+	name        string
+	stillPublic bool
+	valid       string
+	invalid     string
 }{
 	{
-		name:    "workflow_design_decision",
-		valid:   `{"id":"design:record","question":"which owner","choice":"the fold owner","rationale":"one authority","rejected":[]}`,
-		invalid: `{"id":"design:record","question":"which owner","choice":"the fold owner","rationale":"one authority","rejected":"not-a-list"}`,
+		name:        "workflow_design_decision",
+		stillPublic: true,
+		valid:       `{"id":"design:record","question":"which owner","choice":"the fold owner","rationale":"one authority","rejected":[]}`,
+		invalid:     `{"id":"design:record","question":"which owner","choice":"the fold owner","rationale":"one authority","rejected":"not-a-list"}`,
 	},
 	{
-		name:    "workflow_forward_relation",
-		valid:   `{"kind":"forward_link"}`,
-		invalid: `{"kind":"blocks"}`,
+		name:        "workflow_forward_relation",
+		stillPublic: true,
+		valid:       `{"kind":"forward_link"}`,
+		invalid:     `{"kind":"blocks"}`,
 	},
 	{
-		name:    "native_report_timestamp",
-		valid:   `"2026-10-10T12:00:00Z"`,
-		invalid: `"not-a-time"`,
+		// Retired from public authoring with the native-run surface; its
+		// recorded history stays readable through the frozen decoder only.
+		name:        "native_report_timestamp",
+		stillPublic: false,
+		valid:       `"2026-10-10T12:00:00Z"`,
+		invalid:     `"not-a-time"`,
 	},
 }
 
@@ -51,21 +61,24 @@ func collectDefs(t *testing.T, document map[string]any) []string {
 }
 
 // TestHistoricalDecoderDocumentIsFrozenAndClosed proves the frozen historical
-// decoder document parses, carries its own $defs, and resolves every internal
-// reference without consulting the public authoring document.
+// decoder document parses, carries its own $defs, resolves every internal
+// reference without consulting the public authoring document, and covers
+// every corpus ref through the frozen manifest rather than the live public
+// document, whose authoring surface evolves independently.
 func TestHistoricalDecoderDocumentIsFrozenAndClosed(t *testing.T) {
 	document := HistoricalDocument()
 	defs := collectDefs(t, document)
 	if len(defs) == 0 {
 		t.Fatal("the frozen historical decoder document is empty")
 	}
-	publicNames := collectDefs(t, Document())
 	for _, ref := range historicalDecoderRefs(t) {
 		if !HasIn(document, ref) {
 			t.Errorf("frozen historical decoder does not declare schema %q", ref)
 		}
-		if !slices.Contains(publicNames, ref) {
-			t.Errorf("frozen historical decoder carries %q, which no baseline definition declared", ref)
+		if _, baseline := frozenBaselineDefs[ref]; !baseline {
+			if _, recorded := newlyFrozenHistoricalDefs[ref]; !recorded {
+				t.Errorf("frozen historical decoder carries %q outside the frozen baseline and newly frozen manifest", ref)
+			}
 		}
 	}
 	// Every $defs/$ref inside the frozen document resolves within the frozen
@@ -96,32 +109,48 @@ func TestHistoricalDecoderDocumentIsFrozenAndClosed(t *testing.T) {
 }
 
 // TestHistoricalDecoderValidatesIndependentlyOfPublicAuthoringDocument is the
-// S0 red/green witness: a public-only schema change (a definition removed from
-// the public authoring document) must not break historical payload
-// validation, because the frozen decoder resolves the ref itself. Baseline
-// authoring stays unchanged: the full public document still validates current
-// payloads, and both documents refuse the same invalid corpus.
+// S0 red/green witness under the narrowed public authoring surface: a
+// definition the live public document retires must keep validating
+// historical payloads, because the frozen decoder resolves the ref itself.
+// Each corpus ref classifies explicitly. A still-public ref answers through
+// the live document, valid and invalid; a historical-only ref refuses both
+// there, so no historical shape gains authoring authority. The simulated
+// public deletion copy stays independent: with every corpus ref removed from
+// a live copy, that copy refuses every valid payload while the frozen
+// decoder still accepts it.
 func TestHistoricalDecoderValidatesIndependentlyOfPublicAuthoringDocument(t *testing.T) {
-	publicOnly := deepCopyDocument(t, Document())
+	live := Document()
+	publicOnly := deepCopyDocument(t, live)
 	publicDefs := publicOnly["$defs"].(map[string]any)
-	for _, ref := range historicalDecoderRefs(t) {
-		delete(publicDefs, ref)
+	for _, entry := range historicalDecoderCorpus {
+		if HasIn(live, entry.name) != entry.stillPublic {
+			t.Errorf("corpus classifies %q as still-public=%v, which the live public authoring document contradicts; update the classification deliberately", entry.name, entry.stillPublic)
+		}
+		delete(publicDefs, entry.name)
 	}
 	for _, entry := range historicalDecoderCorpus {
-		if err := ValidateInDocument(publicOnly, entry.name, []byte(entry.valid)); err == nil {
-			t.Errorf("public-only copy still resolved %q after the simulated public-only schema change", entry.name)
-		}
 		if err := ValidateInDocument(HistoricalDocument(), entry.name, []byte(entry.valid)); err != nil {
 			t.Errorf("frozen historical decoder refused a valid historical payload for %q: %v", entry.name, err)
 		}
 		if err := ValidateInDocument(HistoricalDocument(), entry.name, []byte(entry.invalid)); err == nil {
 			t.Errorf("frozen historical decoder accepted an invalid historical payload for %q", entry.name)
 		}
-		if err := Validate(entry.name, []byte(entry.valid)); err != nil {
-			t.Errorf("baseline public authoring document refused the same valid payload for %q: %v", entry.name, err)
+		if err := ValidateInDocument(publicOnly, entry.name, []byte(entry.valid)); err == nil {
+			t.Errorf("public-only copy still resolved %q after the simulated public-only schema change", entry.name)
 		}
-		if err := Validate(entry.name, []byte(entry.invalid)); err == nil {
-			t.Errorf("baseline public authoring document accepted the same invalid payload for %q", entry.name)
+		publicValid := Validate(entry.name, []byte(entry.valid))
+		publicInvalid := Validate(entry.name, []byte(entry.invalid))
+		if entry.stillPublic {
+			if publicValid != nil {
+				t.Errorf("live public authoring document refused the valid payload for still-public %q: %v", entry.name, publicValid)
+			}
+			if publicInvalid == nil {
+				t.Errorf("live public authoring document accepted the invalid payload for still-public %q", entry.name)
+			}
+			continue
+		}
+		if publicValid == nil || publicInvalid == nil {
+			t.Errorf("live public authoring document answered historical-only %q, which only the frozen decoder owns", entry.name)
 		}
 	}
 }
@@ -131,7 +160,7 @@ func TestHistoricalDecoderValidatesIndependentlyOfPublicAuthoringDocument(t *tes
 // packets. The freeze contract is per-name: every definition the S0 baseline
 // carried must stay byte-equal to its frozen bytes, and the only definitions
 // a re-freeze may add are the ones this test names explicitly. A public
-// packet identity the live document admits (the CON-899 2.0 packet) resolves
+// packet identity the live document admits (the 2.0 packet) resolves
 // live through the public document and never through a mutated frozen
 // definition.
 var frozenBaselineDefs = map[string]string{

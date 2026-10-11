@@ -85,21 +85,42 @@ func seedWorkflowReturnRouteFixtureWithDefinition(t *testing.T, workID string, r
 		}))
 	}
 	events := []Event{actorEvent("return-operator-"+workID, operator, operatorRef)}
-	contract := workflowEventWithActor("return-contract-"+workID, WorkflowContractApproved, workID, ownerRef, map[string]any{
+	// The contract's one predicate answers to the pinned definition's own
+	// outcome vocabulary: check-kind where the definition admits it, the
+	// closed outcome token where it does not.
+	outcomePredicate := map[string]any{
+		"predicate_id": "predicate:return-route", "ordinal": 0, "outcome_kind": "check",
+		"outcome_payload": map[string]any{"kind": "check", "check_ref": "check:return-route", "immutable_subject_ref": "commit:" + workID, "expected_result": "pass"},
+	}
+	checkAdmitted := false
+	for _, kind := range registered.Definition.OutcomeSchema.AllowedKinds {
+		if kind == PredicateCheck {
+			checkAdmitted = true
+		}
+	}
+	if !checkAdmitted {
+		outcomePredicate["outcome_kind"] = "outcome"
+		outcomePredicate["outcome_payload"] = map[string]any{"kind": "outcome", "allowed": []string{"report_recorded"}}
+	}
+	contractPayload := map[string]any{
 		"work_id": workID, "expected_version": version, "resulting_version": version + 1,
 		"contract_version": 1, "premise": "deliver the checked change", "outcome_kind": "check",
-		"outcome_predicates": []map[string]any{{
-			"predicate_id": "predicate:return-route", "ordinal": 0, "outcome_kind": "check",
-			"outcome_payload": map[string]any{"kind": "check", "check_ref": "check:return-route", "immutable_subject_ref": "commit:" + workID, "expected_result": "pass"},
-		}},
-		"required_evidence": requiredEvidence, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{},
+		"outcome_predicates": []map[string]any{outcomePredicate},
+		"required_evidence":  requiredEvidence, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{},
 		"law_revisions": []WorkflowLawRevision{}, "law_boundary_version": 1, "rigor_class": "prototype_internal",
-		"consequence_class": "internal_sqlite", "architecture_binding": WorkflowArchitectureBinding{
+		"consequence_class": "internal_sqlite",
+	}
+	// The approved contract carries the Domain write authority only where the
+	// pinned definition changes Product truth; the fold refuses the binding
+	// everywhere else.
+	if registered.Definition.ChangesProductTruth != nil && *registered.Definition.ChangesProductTruth {
+		contractPayload["architecture_binding"] = WorkflowArchitectureBinding{
 			DomainRegistryContentHash: "sha256:" + strings.Repeat("b", 64), HomeDomainID: "root", AffectedDomainIDs: []string{"root"},
 			DomainModifies: []string{}, DomainRelationModifies: []WorkflowDomainRelationModification{}, LawAdditions: []WorkflowLawAddition{},
 			VerificationObligations: []WorkflowVerificationObligation{},
-		},
-	})
+		}
+	}
+	contract := workflowEventWithActor("return-contract-"+workID, WorkflowContractApproved, workID, ownerRef, contractPayload)
 	contract.PayloadVersion = 3
 	events = append(events, nextEvent(contract))
 	for _, kind := range boundKinds {

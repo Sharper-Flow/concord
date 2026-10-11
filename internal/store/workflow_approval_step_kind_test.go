@@ -126,7 +126,7 @@ func workflowRequiredEvidenceOutsideReach(definition WorkflowDefinition) []Evide
 // Frozen prior versions stay byte-identical by law, so the scope is the
 // shipped set alone, like the invariants above.
 func TestShippedDefinitionsCanProduceRequiredEvidence(t *testing.T) {
-	for _, definition := range BuiltinWorkflowDefinitions() {
+	for _, definition := range builtinWorkflowFrozenHeads() {
 		if missing := workflowRequiredEvidenceOutsideReach(definition); len(missing) != 0 {
 			producible := evidenceStrings(workflowReachableEvidenceKinds(definition))
 			t.Errorf("%s v%d requires evidence kinds %v its reachable actions cannot produce; those actions produce %v", definition.Ref, definition.Version, missing, producible)

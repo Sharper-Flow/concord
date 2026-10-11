@@ -1196,13 +1196,19 @@ func resolveLawContextDomains(ctx context.Context, tx *sql.Tx, productID string,
 // set, and the exactly-one outcome group all come from
 // workflowContractRecoveryActionDefinition, so no handwritten field-name list
 // or outcome-shape branch can drift from the declaration the published
-// variant generates from (CON-412).
-func validateWorkflowContractRecoveryPayload(raw json.RawMessage) error {
+// variant generates from. On a canonical authoring head the
+// outcome group is the explicit predicate array alone: the legacy outcome
+// pair refuses and the array is required, so the successor's end state is
+// always the one the caller supplied.
+func validateWorkflowContractRecoveryPayload(definition WorkflowDefinition, raw json.RawMessage) error {
 	fields, err := workflowActionObject(raw)
 	if err != nil {
 		return err
 	}
 	declaration := workflowContractRecoveryActionDefinition().Payload
+	if workflowCanonicalAuthoringActive(definition) {
+		declaration.Fields = workflowCanonicalContractRecoveryPayloadFields()
+	}
 	crossField := workflowActionCrossField("supersede_contract")
 	allowed := make(map[string]WorkflowPayloadField)
 	for _, field := range declaration.Fields {
@@ -1216,9 +1222,9 @@ func validateWorkflowContractRecoveryPayload(raw json.RawMessage) error {
 		// The declared schema refs bind here exactly as the action payload
 		// preflight binds them: the per-kind outcome_predicates items and
 		// the closed object fields the published successor variant projects
-		// refuse at this boundary, not first at the fold (CON-412). The
-		// successor contract is a current engine declaration, so it resolves
-		// through the public authoring document (CON-902 S0).
+		// refuse at this boundary, not first at the fold. The successor
+		// contract is a current engine declaration, so it resolves through
+		// the public authoring document.
 		if err := validateWorkflowPayloadSchema(payloadschema.Document(), field, value); err != nil {
 			return err
 		}

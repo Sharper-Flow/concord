@@ -182,6 +182,12 @@ func readAppliedFromDB(ctx context.Context, db *sql.DB, path string) (map[int]ap
 	if err := checkBinaryCompatibility(ctx, tx); err != nil {
 		return nil, false, err
 	}
+	// The authoring-cutover gate answers the same read-only snapshot: a
+	// nonterminal work item pinned to retired or old authoring blocks
+	// activation until its disposition lands.
+	if err := checkWorkflowAuthoringCutover(ctx, tx); err != nil {
+		return nil, false, err
+	}
 	return applied, false, nil
 }
 

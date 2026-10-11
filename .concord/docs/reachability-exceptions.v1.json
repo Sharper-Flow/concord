@@ -90,19 +90,21 @@
       "id": "contract-generator-history-source",
       "state": "out_of_scope",
       "functions": [
-        "internal/store.BuiltinWorkflowActionPublication",
+        "internal/store.BuiltinWorkflowDefinitions",
         "internal/store.BuiltinWorkflowDefinitionsWithHistory"
       ],
-      "reason": "BuiltinWorkflowDefinitionsWithHistory is the data source for scripts/workflow-action-contracts, the projector the contract generator runs under `go run` (scripts/generate-agent-contracts.py). The analysis roots ./cmd/... only, so it cannot see a build-time consumption edge that never enters the shipped binary. The edge is not unproven: CI runs generate-agent-contracts.py --check, which fails the build when this function stops projecting the historical payloads. The unexported core builtinWorkflowDefinitionsWithHistory stays runtime-reachable through NewBuiltinWorkflowRegistry, so only the generator-facing export is declared here."
+      "reason": "BuiltinWorkflowDefinitions supplies the live authoring heads to scripts/workflow-action-contracts; BuiltinWorkflowDefinitionsWithHistory supplies frozen schema references. CI runs generate-agent-contracts.py --check to verify both projections. The analysis roots ./cmd/... only and cannot see these build-time edges. Runtime capture resolves live families through LiveWorkflowDefinitionForRef and the full registry; builtinWorkflowDefinitionsWithHistory stays runtime-reachable through NewBuiltinWorkflowRegistry."
     },
     {
       "id": "contract-generator-cross-field-projection",
       "state": "out_of_scope",
       "functions": [
+        "internal/store.BuiltinWorkflowCanonicalRecoveryActionDefinitions",
+        "internal/store.WorkflowActionCanonicalCrossFieldRules",
         "internal/store.WorkflowActionCrossFieldRules",
         "internal/store.WorkflowContractTeachingRules"
       ],
-      "reason": "WorkflowActionCrossFieldRules and WorkflowContractTeachingRules export the engine cross-field declarations and the guard-owned teaching to scripts/workflow-action-contracts, the projector the contract generator runs under `go run` (scripts/generate-agent-contracts.py). The analysis roots ./cmd/... only, so it cannot see that build-time edge. CI runs generate-agent-contracts.py --check, which fails the build when either projection drifts from the published schemas. The unexported cores stay runtime-reachable: core preflight reads workflowActionCrossField, and the builtin registry validates the declarations at construction."
+      "reason": "These pure accessors supply canonical recovery payloads, cross-field declarations, and guard-owned teaching to scripts/workflow-action-contracts. The projector generates the authoring contract from the engine-owned fields and rules; it grants no runtime admission. The analysis roots ./cmd/... only and cannot see this build-time edge. CI runs generate-agent-contracts.py --check to detect projection drift. Core preflight and recovery validation retain the runtime field and cross-field owners."
     },
     {
       "id": "workflow-admission-inspection-seam",

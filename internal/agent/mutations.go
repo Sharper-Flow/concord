@@ -1474,12 +1474,18 @@ func (r runtime) planCapture(ctx context.Context, base Envelope, raw []byte, dig
 	workID := "work-" + digest[7:31]
 	// C19 continuity is unconditional, so a capture that names no workflow pins
 	// the kind-driven default rather than leaving the work item without a
-	// workflow instance (#650).
+	// workflow instance. The live authoring selector resolves the ref,
+	// so a retired family or an unnamed decision/other kind refuses before
+	// any write.
 	workflowRef := in.WorkflowTypeRef
 	if workflowRef == "" {
-		workflowRef = store.DefaultWorkflowRefForKind(in.Kind)
+		var refErr error
+		workflowRef, refErr = store.DefaultWorkflowRefForKind(in.Kind)
+		if refErr != nil {
+			return failureEnvelope(base, refErr), nil, true
+		}
 	}
-	registeredDefinition, definitionErr := store.BuiltinWorkflowDefinitionForRef(workflowRef)
+	registeredDefinition, definitionErr := store.LiveWorkflowDefinitionForRef(workflowRef)
 	if definitionErr != nil {
 		return failureEnvelope(base, definitionErr), nil, true
 	}
@@ -1595,7 +1601,9 @@ func (r runtime) planReviseIntent(_ context.Context, base Envelope, raw []byte, 
 	var registeredDefinition store.RegisteredDefinition
 	if in.WorkflowTypeRef != "" {
 		var definitionErr error
-		registeredDefinition, definitionErr = store.BuiltinWorkflowDefinitionForRef(in.WorkflowTypeRef)
+		// The live authoring selector refuses a retired family before the
+		// revision plans any effect, so a re-pin cannot reach archived authoring.
+		registeredDefinition, definitionErr = store.LiveWorkflowDefinitionForRef(in.WorkflowTypeRef)
 		if definitionErr != nil {
 			return failureEnvelope(base, definitionErr), nil, true
 		}

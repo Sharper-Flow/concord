@@ -1,6 +1,6 @@
 package store
 
-// Frozen CON-902 WHISTORY baseline journals. Each constant is the verbatim
+// Frozen WHISTORY baseline journals. Each constant is the verbatim
 // capture output of a synthetic temporary-store journal driven through the
 // baseline engine's own initialization, admission, and fold paths at commit
 // d95dd9d0293f01317c5744b555dd3c59be0acbd4; the embedded provenance names the

@@ -55,21 +55,24 @@ func ekbDispatch(t *testing.T, _ context.Context, s *store.Store, service *Servi
 // the execute step, where bind_evidence is a declared action.
 func ekbWorkAtExecute(t *testing.T, ctx context.Context, s *store.Store, service *Service, env CallEnvelope, grant Authority, privateKey ed25519.PrivateKey, key string) (string, int64) {
 	t.Helper()
-	workID := captureCompositionWork(t, ctx, s, service, env, "Evidence kind binding "+key, "task", "workflow.generic_one_off", "ekb-capture-"+key)
-	version := agentCompositionWorkVersion(t, s, workID)
+	seedCurrentWorkflowDomainOnce(t, s)
+	workID := captureCompositionWork(t, ctx, s, service, env, "Evidence kind binding "+key, "task", "workflow.implementation", "ekb-capture-"+key)
+	// The canonical head declares approve_contract behind the pre-contract walk.
+	version := advanceCapturedWorkToContract(t, s, service, env, workID, "ekb-"+key)
 	approved, after := ekbDispatch(t, ctx, s, service, env, grant, privateKey, workID, version, "approve_contract", map[string]any{
-		"premise":            "one bind records one evidence kind",
-		"outcome_predicates": []map[string]any{{"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "outcome", "outcome_payload": map[string]any{"kind": "outcome", "allowed": []string{"completed"}}}},
-		"required_evidence":  []string{"artifact"},
-		"spec_mandate":       []string{},
-		"law_modifies":       []string{},
+		"premise":              "one bind records one evidence kind",
+		"outcome_predicates":   []map[string]any{{"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:ekb", "immutable_subject_ref": "commit:ekb", "expected_result": "pass"}}},
+		"architecture_binding": workflowArchitectureBindingFixture(),
+		"required_evidence":    []string{"artifact"},
+		"spec_mandate":         []string{},
+		"law_modifies":         []string{},
 	}, nil, "ekb-approve-"+key)
 	if approved.Outcome != OutcomeOK {
 		t.Fatalf("approve_contract: %+v", approved.Error)
 	}
-	started, after := ekbDispatch(t, ctx, s, service, env, grant, privateKey, workID, after, "start_action", nil, nil, "ekb-start-"+key)
+	started, after := ekbDispatch(t, ctx, s, service, env, grant, privateKey, workID, after, "start_execution", nil, nil, "ekb-start-"+key)
 	if started.Outcome != OutcomeOK {
-		t.Fatalf("start_action: %+v", started.Error)
+		t.Fatalf("start_execution: %+v", started.Error)
 	}
 	return workID, after
 }
@@ -254,7 +257,12 @@ func TestEvidenceKindRefusalCoversTheBindingFamily(t *testing.T) {
 		{Kind: "verification", Authority: "github-actions", LocatorKind: "check_run", Locator: "check:family"},
 		{Kind: "artifact", Authority: "github", LocatorKind: "pull_request", Locator: "pr:family"},
 	}
-	for _, actionID := range []string{"bind_evidence", "record_research", "record_report", "accept_decision", "approve_operation"} {
+	// The live family of evidence-carrying actions the pinned graph declares
+	// at the parked step: bind_evidence is declared on every step. The
+	// retired family-only decision and operation actions left the closed
+	// union (CD-0218 D1), so the family refusal coverage names the actions
+	// that remain authorable.
+	for _, actionID := range []string{"bind_evidence"} {
 		workID, version := ekbWorkAtExecute(t, ctx, s, service, env, grant, privateKey, "family-"+actionID)
 		response, after := ekbDispatch(t, ctx, s, service, env, grant, privateKey, workID, version, actionID, nil, mixed, "ekb-family-"+actionID)
 		if response.Outcome != OutcomeError || response.Error == nil || response.Error.Kind != "invalid_input" {

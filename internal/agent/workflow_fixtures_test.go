@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -17,6 +18,20 @@ func seedCurrentWorkflowDomainFixture(t *testing.T, s *store.Store) {
 	}
 }
 
+// seedCurrentWorkflowDomainOnce seeds the canonical Product Domain registry
+// when the store holds none, so journeys that call it per subtest on one
+// shared store never double-seed the law locator.
+func seedCurrentWorkflowDomainOnce(t *testing.T, s *store.Store) {
+	t.Helper()
+	var registries int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_registries WHERE product_id='product-1'`).Scan(&registries); err != nil {
+		t.Fatal(err)
+	}
+	if registries == 0 {
+		seedCurrentWorkflowDomainFixture(t, s)
+	}
+}
+
 func workflowArchitectureBindingFixture() map[string]any {
 	return map[string]any{
 		"domain_registry_content_hash": pm1fixture.FixtureDomainRegistryContentHash,
@@ -27,6 +42,22 @@ func workflowArchitectureBindingFixture() map[string]any {
 		"law_additions":                []any{},
 		"verification_obligations":     []any{},
 	}
+}
+
+// workflowArchitectureBindingForSeededRegistry reads the committed
+// registry's content hash and root Domain from the store, so a binding
+// cannot drift from the registry the store validates against.
+func workflowArchitectureBindingForSeededRegistry(t *testing.T, s *store.Store) map[string]any {
+	t.Helper()
+	var hash, root string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT content_hash,root_domain_id FROM domain_registries WHERE product_id='product-1'`).Scan(&hash, &root); err != nil {
+		t.Fatal(err)
+	}
+	binding := workflowArchitectureBindingFixture()
+	binding["domain_registry_content_hash"] = hash
+	binding["home_domain_id"] = root
+	binding["affected_domain_ids"] = []string{root}
+	return binding
 }
 
 func addWorkflowContractApprovalFields(input map[string]any) {
@@ -46,8 +77,11 @@ func workflowContractFieldsFixture() map[string]any {
 func workflowContractActionInput(t *testing.T, key, approvalRef string) json.RawMessage {
 	t.Helper()
 	input := map[string]any{
-		"work_id":          "work-1",
-		"expected_version": 11,
+		"work_id": "work-1",
+		// The canonical pre-contract walk is proposal, alignment, design:
+		// two events each over the version-4 capture, so the approval lands
+		// at expected version 10 without the retired discovery marker.
+		"expected_version": 10,
 		"action_id":        "approve_contract",
 		"fields":           workflowContractFieldsFixture(),
 		"idempotency_key":  key,
@@ -60,6 +94,85 @@ func workflowContractActionInput(t *testing.T, key, approvalRef string) json.Raw
 		t.Fatal(err)
 	}
 	return raw
+}
+
+// challengeApprovalBindings converts the challenge's consequence summary —
+// the wire owner of the exact bindings — into the scope and version maps the
+// host approval must sign. The approval validates equality against the
+// challenge's canonical bindings, so a fixture that signs its own literals
+// breaks whenever the admission binds a value the fixture guessed (the
+// derived failure record's window epoch, for one).
+func challengeApprovalBindings(t *testing.T, summary *ConsequenceSummary) (map[string]any, map[string]any) {
+	t.Helper()
+	if summary == nil {
+		t.Fatal("challenge carries no consequence summary")
+	}
+	scope := map[string]any{}
+	versions := map[string]any{}
+	parseInt := func(text string) (int64, bool) {
+		var value int64
+		_, err := fmt.Sscanf(text, "%d", &value)
+		return value, err == nil
+	}
+	for _, entry := range summary.Scope {
+		key, value, found := strings.Cut(entry, ":")
+		if !found {
+			t.Fatalf("scope binding %q is not key:value", entry)
+		}
+		switch key {
+		case "project_ids", "work_ids", "product_ids":
+			existing, _ := scope[key].([]string)
+			scope[key] = append(existing, value)
+		default:
+			scope[key] = value
+		}
+	}
+	for _, entry := range summary.Versions {
+		key, value, found := strings.Cut(entry, ":")
+		if !found {
+			t.Fatalf("version binding %q is not key:value", entry)
+		}
+		if number, ok := parseInt(value); ok {
+			versions[key] = number
+		} else {
+			versions[key] = value
+		}
+	}
+	return scope, versions
+}
+
+// advanceCapturedWorkToContract walks one captured implementation work item
+// through the canonical pre-contract steps (proposal, alignment, design) so
+// approve_contract is declared on the work's current step. Each action
+// consumes two events; the walk returns the version approve_contract takes.
+func advanceCapturedWorkToContract(t *testing.T, s *store.Store, service *Service, env CallEnvelope, workID, keyPrefix string) int64 {
+	t.Helper()
+	ctx := context.Background()
+	dispatch := func(actionID string, fields map[string]any, key string) int64 {
+		t.Helper()
+		var version int64
+		if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT version FROM work_items WHERE id=?`, workID).Scan(&version); err != nil {
+			t.Fatal(err)
+		}
+		raw, err := json.Marshal(map[string]any{"work_id": workID, "expected_version": version, "action_id": actionID, "fields": fields, "idempotency_key": keyPrefix + "-" + key})
+		if err != nil {
+			t.Fatal(err)
+		}
+		env.RequestID = "request:" + keyPrefix + "-" + key
+		response := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: raw}, env)
+		if response.Outcome != OutcomeOK {
+			t.Fatalf("pre-contract %s: %+v", actionID, response.Error)
+		}
+		var after int64
+		if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT version FROM work_items WHERE id=?`, workID).Scan(&after); err != nil {
+			t.Fatal(err)
+		}
+		return after
+	}
+	version := dispatch("record_proposal", map[string]any{"problem": "The bounded problem statement.", "affected": []string{"The affected system."}, "stakes": "The bounded stakes statement.", "user_outcomes": []string{"The expected user outcome."}}, "proposal")
+	version = dispatch("record_alignment", map[string]any{"searched": "The bounded backlog search statement.", "outcome": "none_found"}, "alignment")
+	version = dispatch("record_design", map[string]any{"approach": "The recorded approach is the implementation boundary.", "decisions": []map[string]any{{"id": "decision:" + keyPrefix, "question": "What crosses into execution?", "choice": "The typed design record.", "rationale": "The worker must receive the approved decision.", "rejected": []string{}}}, "touched_refs": []string{"path:" + keyPrefix}}, "design")
+	return version
 }
 
 func TestArchitectureBindingSchemaPreservesCurrentIdentifierBounds(t *testing.T) {

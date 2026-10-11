@@ -893,6 +893,40 @@ func livenessBindRecordedState(ctx context.Context, s *Store, workID, actionID s
 		bound["predicate_id"] = predicateID
 		bound["contract_version"] = contractVersion
 	}
+	if actionID == "record_verdict" {
+		if _, declared := fields["verdicts"]; declared {
+			// The canonical verdict names the approved predicates from
+			// recorded state: one entry per approved predicate, each judged
+			// on the subject the explored path already bound.
+			rows, err := s.db.QueryContext(ctx, `SELECT predicate_id FROM workflow_contract_predicates WHERE work_id=? AND contract_version=(SELECT COALESCE(MAX(contract_version),0) FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL)`, workID, workID)
+			if err != nil {
+				return nil, err
+			}
+			entries := make([]map[string]any, 0, 1)
+			for rows.Next() {
+				var predicateID string
+				if err := rows.Scan(&predicateID); err != nil {
+					_ = rows.Close()
+					return nil, err
+				}
+				entries = append(entries, map[string]any{
+					"predicate_id": predicateID, "verdict_kind": "ok",
+					"evaluation_evidence": []string{livenessSubjectRef},
+				})
+			}
+			closeErr := rows.Close()
+			if err := rows.Err(); err != nil {
+				return nil, err
+			}
+			if closeErr != nil {
+				return nil, closeErr
+			}
+			if len(entries) == 0 {
+				return nil, fmt.Errorf("no approved contract predicate to name in a verdict")
+			}
+			bound["verdicts"] = entries
+		}
+	}
 	if _, declared := fields["resolution_authority"]; declared {
 		// A condition names the durable operation that may resolve it. The
 		// operation is recorded state, and the fold requires its reference

@@ -438,9 +438,9 @@ func TestOutsideRepairOutcomeKindParity(t *testing.T) {
 	}
 	// The mismatched supersede single pair: outcome_kind "exists" beside the
 	// same check outcome_payload at the successor field level.
-	if err := validateWorkflowContractRecoveryPayload(outsideRepairRaw(t, pairFields("exists"))); err == nil {
+	if err := validateWorkflowContractRecoveryPayload(WorkflowDefinition{}, outsideRepairRaw(t, pairFields("exists"))); err == nil {
 		t.Error("the successor-contract payload validator admits an outcome pair whose outcome_kind and outcome_payload.kind disagree")
-	} else if pairControl := validateWorkflowContractRecoveryPayload(outsideRepairRaw(t, pairFields("check"))); pairControl != nil {
+	} else if pairControl := validateWorkflowContractRecoveryPayload(WorkflowDefinition{}, outsideRepairRaw(t, pairFields("check"))); pairControl != nil {
 		t.Fatalf("the successor-contract payload validator refuses the matching-kind control pair: %v", pairControl)
 	}
 	if verdict := require("supersede-pair-mismatch"); verdict.Admit {

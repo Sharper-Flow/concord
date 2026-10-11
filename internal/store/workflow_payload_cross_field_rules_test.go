@@ -129,7 +129,7 @@ func TestDeclaredCrossFieldRulesMatchCoreAndPublishedVerdicts(t *testing.T) {
 				t.Fatal(err)
 			}
 			if actionID == "supersede_contract" {
-				return validateWorkflowContractRecoveryPayload(encoded)
+				return validateWorkflowContractRecoveryPayload(WorkflowDefinition{}, encoded)
 			}
 			return validateWorkflowActionPayload(WorkflowDefinition{ActionDefinitions: []WorkflowActionDefinition{{ID: actionID, Payload: payload}}}, actionID, encoded)
 		}

@@ -124,7 +124,7 @@ func TestContractPremiseRejectsBlankAndFallbackText(t *testing.T) {
 	}
 	for _, premise := range []string{"   ", "workflow premise"} {
 		payload := `{"contract_version":2,"premise":"` + premise + `","outcome_predicates":[{"predicate_id":"predicate:one","ordinal":0,"outcome_kind":"check","outcome_payload":{"kind":"check","check_ref":"check:test","immutable_subject_ref":"commit:test","expected_result":"pass"}}],"required_evidence":[],"route_conventions":[],"spec_mandate":[],"law_modifies":[],"rigor_class":"prototype_internal","supersede_reason":"replace the contract","audit_evidence":["evidence:test"]}`
-		if err := validateWorkflowContractRecoveryPayload(json.RawMessage(payload)); err == nil {
+		if err := validateWorkflowContractRecoveryPayload(WorkflowDefinition{}, json.RawMessage(payload)); err == nil {
 			t.Fatalf("supersede_contract accepted premise %q", premise)
 		}
 	}

@@ -1312,9 +1312,13 @@ func (s *Store) prepareBootstrapMode(ctx context.Context, req BootstrapRequest, 
 			// them with typed workflow absence.
 			workflowRef := req.WorkflowTypeRef
 			if workflowRef == "" {
-				workflowRef = DefaultWorkflowRefForKind(req.Kind)
+				var refErr error
+				workflowRef, refErr = DefaultWorkflowRefForKind(req.Kind)
+				if refErr != nil {
+					return out, refErr
+				}
 			}
-			definition, definitionErr := BuiltinWorkflowDefinitionForRef(workflowRef)
+			definition, definitionErr := LiveWorkflowDefinitionForRef(workflowRef)
 			if definitionErr != nil {
 				return out, definitionErr
 			}

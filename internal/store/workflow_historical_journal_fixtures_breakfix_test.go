@@ -1,6 +1,6 @@
 package store
 
-// Frozen CON-902 WHISTORY baseline retired-family journals (break_fix v24,
+// Frozen WHISTORY baseline retired-family journals (break_fix v24,
 // architecture_spike v17, and ops_runbook v18). Each constant is
 // the verbatim capture output of a synthetic temporary-store journal produced
 // by the d95dd9d0 baseline source archive (extracted with git archive and run

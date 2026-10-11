@@ -51,7 +51,7 @@ func Document() map[string]any {
 // It is the engine's frozen baseline closure over the public authoring
 // document: retained workflow definitions resolve their declared payload
 // schemas against it, so a public authoring change cannot break historical
-// payload validation (CON-902 S0). It is not an authoring surface: a schema
+// payload validation. It is not an authoring surface: a schema
 // only this document carries is not authorable.
 func HistoricalDocument() map[string]any {
 	loadDocumentOnce(&historicalOnce, GeneratedHistoricalSchemaDocument, &historicalValue, "historical decoder")

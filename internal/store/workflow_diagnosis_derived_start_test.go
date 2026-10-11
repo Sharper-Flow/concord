@@ -10,11 +10,11 @@ import (
 	"time"
 )
 
-// CON-902 S1 (CD-0198 D2/D3): typed diagnosis on workflow.break_fix and the
-// derived repair/refine step starts. The tests run against the current
-// definition heads; each expectation that names the new behavior is the
-// slice's acceptance clause, and each released-pin expectation is the frozen
-// boundary the slice must not move.
+// Typed diagnosis on workflow.break_fix and the derived repair/refine step
+// start (CD-0198 D2/D3). The tests run against the current definition
+// heads; each expectation that names the derived behavior is the suite's
+// acceptance clause, and each released-pin expectation is the frozen
+// boundary the suite must not move.
 
 func diagnosisS1Actor(workID, name string) WorkflowActor {
 	return WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/" + name, SessionRef: "session/" + workID + "-" + name, ActorClass: ActorAgent}
@@ -598,7 +598,7 @@ func TestConcurrentFirstQualifyingActionsYieldOneFence(t *testing.T) {
 	}
 }
 
-// TestCorrectedContractLivenessThroughProducerReturn proves the CON-794
+// TestCorrectedContractLivenessThroughProducerReturn proves the producer
 // absorb: after the declared producer return of a complete-step contract
 // correction, the corrected contract is live — source-qualified context, a
 // derived repair start, fresh check evidence, and the successor's verdict

@@ -9,7 +9,7 @@ import (
 	"github.com/sharper-flow/concord/internal/payloadschema"
 )
 
-// The CON-902 WHISTORY replay proof. Each frozen journal (see
+// The WHISTORY replay proof. Each frozen journal (see
 // workflow_historical_journal_fixtures_test.go) is the verbatim event log and
 // durable-receipt set of a synthetic temporary-store workflow driven through
 // the baseline engine at commit d95dd9d0293f01317c5744b555dd3c59be0acbd4.

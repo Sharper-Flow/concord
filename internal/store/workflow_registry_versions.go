@@ -1572,9 +1572,9 @@ func withDiagnosisStep(definition WorkflowDefinition) WorkflowDefinition {
 	return definition
 }
 
-// Each builder below ships its family's CD-0198 slice at the next version
-// after CON-890's heads: break_fix folds the typed diagnosis step and both
-// families derive their repair/refine starts.
+// Each builder below ships the family's next version carrying its CD-0198
+// slice: break_fix folds the typed diagnosis step and both families derive
+// their repair/refine starts.
 func implementationDerivedStartsV28() WorkflowDefinition {
 	d := implementationOwnerOracleV27()
 	d.Version = 28
@@ -1662,4 +1662,120 @@ func breakFixDerivedFailureV26() WorkflowDefinition {
 	d := breakFixTypedDiagnosisV25()
 	d.Version = 26
 	return withVersionedPacketRef(withDerivedWorkerFailure(d))
+}
+
+// canonicalVerdictActionFields declares record_verdict's canonical payload:
+// the verdicts batch is the one declared shape, required and
+// bounded 1-8, beside the optional active-contract version. The single-form
+// fields leave the declared set, so a canonical-head call that names
+// predicate_id refuses structurally while the batch entry keeps every
+// actor and evidence rule it shipped with.
+func canonicalVerdictActionFields() []WorkflowPayloadField {
+	return []WorkflowPayloadField{
+		actionIntegerField("contract_version", false, 2147483647),
+		actionItemArrayField("verdicts", true, 1, 8, "workflow_verdict_batch_entry"),
+	}
+}
+
+// withCanonicalVerdictAuthoring restates record_verdict's payload as the
+// canonical batch-only contract. The restated fields are the definition's own
+// registry content, so every earlier version keeps the payload and digest it
+// shipped, and the shared policy table stays byte-identical.
+func withCanonicalVerdictAuthoring(definition WorkflowDefinition) WorkflowDefinition {
+	definition = cloneWorkflowDefinition(definition)
+	for index := range definition.ActionDefinitions {
+		if definition.ActionDefinitions[index].ID != "record_verdict" {
+			continue
+		}
+		definition.ActionDefinitions[index].Payload = WorkflowPayloadDefinition{Closed: true, Fields: canonicalVerdictActionFields()}
+	}
+	return definition
+}
+
+// withNoDiscoveryStep removes the discovery marker from one definition: the
+// graph node and its callable record_discovery entry leave the definition, so
+// investigation stays real source-qualified work context rather than an empty
+// advancing payload. The removed step's single outgoing edge splices onto its
+// single incoming edge, so the mandatory alignment step keeps its forward
+// edge into design and every other edge keeps its place.
+func withNoDiscoveryStep(definition WorkflowDefinition) WorkflowDefinition {
+	definition = cloneWorkflowDefinition(definition)
+	const removedStep = "discovery"
+	const removedAction = "record_discovery"
+	removedFrom := map[string]bool{removedAction: true}
+	steps := make([]WorkflowStep, 0, len(definition.StepGraph.Steps)-1)
+	for _, graphStep := range definition.StepGraph.Steps {
+		if graphStep.ID == removedStep {
+			continue
+		}
+		actions := graphStep.Actions[:0:0]
+		for _, actionID := range graphStep.Actions {
+			if removedFrom[actionID] {
+				continue
+			}
+			actions = append(actions, actionID)
+		}
+		graphStep.Actions = actions
+		steps = append(steps, graphStep)
+	}
+	definition.StepGraph.Steps = steps
+	splicedTo, splicedKind := "", WorkflowEdgeForward
+	for _, edge := range definition.StepGraph.Edges {
+		if edge.From == removedStep {
+			splicedTo, splicedKind = edge.To, edge.Kind
+			break
+		}
+	}
+	edges := make([]WorkflowEdge, 0, len(definition.StepGraph.Edges)-1)
+	for _, edge := range definition.StepGraph.Edges {
+		if edge.From == removedStep {
+			continue
+		}
+		if edge.To == removedStep {
+			edge.To = splicedTo
+			edge.Kind = splicedKind
+		}
+		edges = append(edges, edge)
+	}
+	definition.StepGraph.Edges = edges
+	available := definition.AvailableActions[:0:0]
+	for _, actionID := range definition.AvailableActions {
+		if removedFrom[actionID] {
+			continue
+		}
+		available = append(available, actionID)
+	}
+	definition.AvailableActions = available
+	actionDefinitions := definition.ActionDefinitions[:0:0]
+	for _, action := range definition.ActionDefinitions {
+		if removedFrom[action.ID] {
+			continue
+		}
+		actionDefinitions = append(actionDefinitions, action)
+	}
+	definition.ActionDefinitions = actionDefinitions
+	return definition
+}
+
+// Each builder below ships its family's canonical authoring head: the
+// implementation head also removes the discovery marker, the research head
+// derives its workflow failure record from the attempt's own terminal event
+// behind the versioned packet closure, and all three restate record_verdict
+// as the canonical batch-only contract.
+func implementationCanonicalAuthoringV30() WorkflowDefinition {
+	d := implementationDerivedFailureV29()
+	d.Version = 30
+	return withCanonicalVerdictAuthoring(withNoDiscoveryStep(d))
+}
+
+func breakFixCanonicalAuthoringV27() WorkflowDefinition {
+	d := breakFixDerivedFailureV26()
+	d.Version = 27
+	return withCanonicalVerdictAuthoring(d)
+}
+
+func researchDerivedFailureV17() WorkflowDefinition {
+	d := researchWorkContextV16()
+	d.Version = 17
+	return withCanonicalVerdictAuthoring(withVersionedPacketRef(withDerivedWorkerFailure(d)))
 }

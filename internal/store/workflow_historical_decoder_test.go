@@ -127,7 +127,7 @@ func TestRetainedDefinitionPayloadValidationResolvesFrozenHistoricalDecoder(t *t
 // below a family head are retained, and every current head is not.
 func TestRetainedPinClassificationCoversEveryRegisteredHistoryVersion(t *testing.T) {
 	current := map[string]bool{}
-	for _, definition := range BuiltinWorkflowDefinitions() {
+	for _, definition := range builtinWorkflowFrozenHeads() {
 		current[definition.Ref+"/"+strconv.FormatInt(definition.Version, 10)] = true
 	}
 	historyCount := 0
@@ -149,7 +149,7 @@ func TestRetainedPinClassificationCoversEveryRegisteredHistoryVersion(t *testing
 	}
 }
 
-// TestCurrentAndRecoveryDeclarationsResolvePublicDocument keeps the CON-412
+// TestCurrentAndRecoveryDeclarationsResolvePublicDocument keeps the
 // authoring invariant: every schema ref a current definition or engine
 // recovery declaration declares still resolves in the public authoring
 // document the published variants build from.
@@ -202,7 +202,7 @@ func recoveryDefinitionWithSchemaRefs(t *testing.T) []WorkflowDefinition {
 // retainedDefinitionWithWorkerPacket returns a synthesized retained-pin
 // definition whose one action carries a worker_packet schema ref, the
 // transport schema the live/replay role split must discriminate on: the
-// public document admits the 2.0 packet identity CON-899 shipped, the frozen
+// public document admits the 2.0 packet identity, the frozen
 // decoder carries only the 1.0/1.1 identities its recorded writes answered
 // to.
 func retainedDefinitionWithWorkerPacket() WorkflowDefinition {
@@ -307,9 +307,9 @@ func deepCopyJSONDocument(t *testing.T, document map[string]any) map[string]any 
 // record_alignment declares the combinations; implementation v14 first
 // carried it, so a retained pin and the current head run the same corpus.
 func TestHistoricalEngineCrossFieldRulesStayVersionInvariant(t *testing.T) {
-	head, ok := BuiltinWorkflowRegistry().Lookup("workflow.implementation", 29)
+	head, ok := BuiltinWorkflowRegistry().Lookup("workflow.implementation", 30)
 	if !ok {
-		t.Fatal("implementation v29 is not registered")
+		t.Fatal("implementation v30 is not registered")
 	}
 	retained, ok := BuiltinWorkflowRegistry().Lookup("workflow.implementation", 14)
 	if !ok {

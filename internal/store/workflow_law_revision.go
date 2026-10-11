@@ -1216,9 +1216,9 @@ func validateWorkflowContractRecoveryPayload(raw json.RawMessage) error {
 		// The declared schema refs bind here exactly as the action payload
 		// preflight binds them: the per-kind outcome_predicates items and
 		// the closed object fields the published successor variant projects
-		// refuse at this boundary, not first at the fold (CON-412). The
-		// successor contract is a current engine declaration, so it resolves
-		// through the public authoring document (CON-902 S0).
+		// refuse at this boundary, not first at the fold. The successor
+		// contract is a current engine declaration, so it resolves through
+		// the public authoring document.
 		if err := validateWorkflowPayloadSchema(payloadschema.Document(), field, value); err != nil {
 			return err
 		}

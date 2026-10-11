@@ -720,7 +720,7 @@ func TestVerificationCorrectionWallArmsOnTheFourthRequest(t *testing.T) {
 		if err := runVerdictActionAs(t, s, workID, "accept_worker_result", json.RawMessage(`{"attempt_id":"`+attemptID+`","attempt_epoch":`+fmt.Sprint(attemptEpoch)+`}`), 0, acceptor); err != nil {
 			t.Fatalf("cycle %d accept worker result: %v", cycle, err)
 		}
-		if err := runVerdictActionAs(t, s, workID, "start_refine", json.RawMessage(`{}`), 0, acceptor); err != nil {
+		if err := runVerdictActionAs(t, s, workID, refineRecoveryRefineEntry(t, s, workID), json.RawMessage(`{}`), 0, acceptor); err != nil {
 			t.Fatalf("cycle %d start refinement: %v", cycle, err)
 		}
 		// The current definitions gate the refine exit on a green verify run

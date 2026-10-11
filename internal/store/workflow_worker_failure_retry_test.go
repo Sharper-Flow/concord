@@ -11,9 +11,9 @@ import (
 	"github.com/sharper-flow/concord/internal/payloadschema"
 )
 
-// CON-902 S2 (CD-0198 D5): the workflow failure record derives from the
-// attempt's own terminal failed event exactly once, and a rejected result can
-// carry its retry dispatch through the one dispatch owner. Every expectation
+// The workflow failure record derives from the attempt's own terminal failed
+// event exactly once (CD-0198 D5), and a rejected result can carry its retry
+// dispatch through the one dispatch owner. Every expectation
 // that names the new behavior is the slice's acceptance clause; every
 // released-pin expectation is the frozen boundary the slice must not move.
 

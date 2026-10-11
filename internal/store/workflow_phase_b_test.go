@@ -131,8 +131,10 @@ func TestRefinementStepsRequireArtifactEvidenceAndHaveNoSkipEdge(t *testing.T) {
 		if !containsString(evidenceStrings(definition.RequiredEvidenceKinds), string(EvidenceArtifact)) {
 			t.Fatalf("%s definition evidence = %v, want artifact", definition.Ref, definition.RequiredEvidenceKinds)
 		}
-		if !reflect.DeepEqual(refine.Actions[:4], []string{"start_refine", "checkpoint_refine", "bind_evidence", "record_delivery"}) {
-			t.Fatalf("%s refine actions = %v, want fenced, checkpoint, evidence, delivery", definition.Ref, refine.Actions)
+		// The derived-start shape: the qualifying checkpoint opens the fence,
+		// and the evidence, delivery, and continuity actions follow it.
+		if !reflect.DeepEqual(refine.Actions[:4], []string{"checkpoint_refine", "bind_evidence", "record_delivery", "checkpoint_context"}) {
+			t.Fatalf("%s refine actions = %v, want derived-start checkpoint, evidence, delivery, continuity", definition.Ref, refine.Actions)
 		}
 		var delivery WorkflowStep
 		for _, candidate := range definition.StepGraph.Steps {

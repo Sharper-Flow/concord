@@ -248,7 +248,7 @@ func admissionContractCorrection(definition WorkflowDefinition, state admissionM
 	case state.contracts != 1:
 		return false
 	}
-	return (state.attempt == "" && !state.dispatched) || state.attempt == "failed" || state.attempt == "rejected"
+	return !state.dispatched || state.attempt == "failure_recorded" || state.attempt == "rejected"
 }
 
 // admissionCompleteStepCorrection folds the CD-0172 complete-step route.
@@ -887,6 +887,12 @@ func admissionSupersedeSuccessors(definition WorkflowDefinition, state admission
 	successor.artifactStale = true
 	successor.attemptFresh = false
 	successor.convergence = "approach"
+	if workflowDerivedStepStartActive(definition) {
+		// The typed supersession opens the successor contract's pass. The
+		// old attempt still holds advances until disposition, but its
+		// dispatch precedes the boundary correction admission reads.
+		successor.dispatched = false
+	}
 	if target := workflowDisprovedPremiseAtCompleteRouteTarget(definition, state.step); target != "" {
 		successor = admissionEnterStep(definition, successor, target)
 		return []admissionModelState{successor}

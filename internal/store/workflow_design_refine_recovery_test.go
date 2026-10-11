@@ -149,7 +149,7 @@ func seedReturnedRefineCorrection(t *testing.T, workID string) workflowReturnRou
 	if err := runVerdictActionAs(t, s, workID, "accept_worker_result", json.RawMessage(`{"attempt_id":"`+executionAttempt+`","attempt_epoch":1}`), 0, acceptor); err != nil {
 		t.Fatalf("accept execution worker: %v", err)
 	}
-	if err := runVerdictActionAs(t, s, workID, "start_refine", json.RawMessage(`{}`), 0, acceptor); err != nil {
+	if err := runVerdictActionAs(t, s, workID, refineRecoveryRefineEntry(t, s, workID), json.RawMessage(`{}`), 0, acceptor); err != nil {
 		t.Fatalf("start refine: %v", err)
 	}
 	reviewAttempt, reviewEpoch, err := dispatchRefineAttempt(t, fixture, workID, "refine-review-1")
@@ -221,8 +221,24 @@ func refineRecoveryStepSeq(t *testing.T, s *Store, workID, kind, stepID, actionI
 	return seq
 }
 
+// refineRecoveryRefineEntry returns the refinement entry action the pinned
+// definition declares: derived-start heads open refine through the qualifying
+// checkpoint, and released pins keep the callable start.
+func refineRecoveryRefineEntry(t *testing.T, s *Store, workID string) string {
+	t.Helper()
+	registered, err := VerifyWorkflowInstanceDefinition(context.Background(), s, BuiltinWorkflowRegistry(), workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if workflowDerivedStepStartActive(registered.Definition) {
+		return "checkpoint_refine"
+	}
+	return "start_refine"
+}
+
 // A return edge re-enters refine without a start event, so the pass boundary
-// is the confirm_premise completion, not the previous pass's start_refine.
+// is the confirm_premise completion, not the previous pass's refinement
+// entry start.
 func TestReturnedRefinePassBoundaryStartsNewPass(t *testing.T) {
 	const workID = "refine-pass-boundary"
 	ctx := context.Background()
@@ -237,9 +253,10 @@ func TestReturnedRefinePassBoundaryStartsNewPass(t *testing.T) {
 	if !ok {
 		t.Fatalf("pinned definition %s@%d is not registered", definitionRef, definitionVersion)
 	}
-	startSeq := refineRecoveryStepSeq(t, s, workID, WorkflowActionStarted, "refine", "start_refine")
+	refineEntry := refineRecoveryRefineEntry(t, s, workID)
+	startSeq := refineRecoveryStepSeq(t, s, workID, WorkflowActionStarted, "refine", refineEntry)
 	if startSeq == 0 {
-		t.Fatal("no start_refine recorded at refine")
+		t.Fatalf("no %s recorded at refine", refineEntry)
 	}
 	entrySeq := refineRecoveryStepSeq(t, s, workID, WorkflowActionCompleted, "acceptance", "confirm_premise")
 	if entrySeq <= startSeq {
@@ -393,7 +410,7 @@ func seedRefineFirstPass(t *testing.T, workID string) (workflowReturnRouteFixtur
 	if err := runVerdictActionAs(t, s, workID, "accept_worker_result", json.RawMessage(`{"attempt_id":"`+executionAttempt+`","attempt_epoch":1}`), 0, acceptor); err != nil {
 		t.Fatalf("accept execution worker: %v", err)
 	}
-	if err := runVerdictActionAs(t, s, workID, "start_refine", json.RawMessage(`{}`), 0, acceptor); err != nil {
+	if err := runVerdictActionAs(t, s, workID, refineRecoveryRefineEntry(t, s, workID), json.RawMessage(`{}`), 0, acceptor); err != nil {
 		t.Fatalf("start refine: %v", err)
 	}
 	return fixture, acceptor

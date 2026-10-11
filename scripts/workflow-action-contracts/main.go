@@ -57,7 +57,7 @@ type workflowOutcomeContract struct {
 // through the public authoring document. Historical refs belong to retained
 // registry versions and resolve through the frozen historical decoder
 // document, so a later public authoring change cannot break historical
-// payload validation (CON-902 S0).
+// payload validation.
 type schemaRefProjection struct {
 	Current    []string `json:"current"`
 	Historical []string `json:"historical"`
@@ -220,7 +220,7 @@ func collectActionContracts(current []store.WorkflowDefinition, recovery []store
 			contracts[action.ID] = contract
 		}
 	}
-	// Retained publication (CON-902 S1): an action whose engine policy the
+	// Retained publication: an action whose engine policy the
 	// registry still declares and whose registered history still declares it
 	// stays authorable at the policy's own payload while no current head
 	// declares it. Released pins remain, so their actions keep their closed

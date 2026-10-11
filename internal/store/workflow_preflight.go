@@ -449,9 +449,9 @@ func workflowEnvelopeProjectedPayload(definition WorkflowDefinition, actionID st
 // document, for every definition. A live call answers to the current
 // published contract regardless of pin age — a retained pin dispatching live
 // carries the current published worker packet, not the frozen transport
-// schema the pin's recorded history was validated against (CON-902 S2: the
-// preflight chose the decoder by below-head pin even for live calls, so an
-// old-pin live dispatch refused the current published packet identity).
+// schema the pin's recorded history was validated against. The preflight
+// picks the decoder by the live/replay role, never by pin age, so an
+// old-pin live dispatch admits the current published packet identity.
 // workflowReplayPayloadSchemaDocument returns the document that resolves a
 // RECORDED payload's declared schema refs: the frozen historical decoder
 // document, so recorded history replays against the exact frozen bytes its
@@ -797,7 +797,7 @@ func validateEvidenceBindingReferencesWithReference(actionID string, fields map[
 //
 // The document argument is the decoding owner of the declaration: the public
 // authoring document for current declarations and the frozen historical
-// decoder for retained pins (CON-902 S0). A declared name that the owning
+// decoder for retained pins. A declared name that the owning
 // document does not carry fails closed. A declaration pointing at a schema
 // nobody generated enforces nothing, and silently passing it would admit a
 // payload no contract checked.
@@ -894,7 +894,7 @@ func validateWorkflowPayloadValue(field WorkflowPayloadField, raw json.RawMessag
 // validateWorkflowPayloadValueWithReference enforces the declared value type
 // and bounds. The document resolves the schema an item_ref names; it is the
 // declaration's decoding owner — the public authoring document for current
-// declarations, the frozen historical decoder for retained pins (CON-902 S0).
+// declarations, the frozen historical decoder for retained pins.
 func validateWorkflowPayloadValueWithReference(document map[string]any, field WorkflowPayloadField, raw json.RawMessage, validReference func(string) bool) bool {
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.UseNumber()

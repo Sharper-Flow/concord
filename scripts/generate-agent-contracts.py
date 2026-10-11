@@ -436,7 +436,7 @@ def freeze_historical_decoder(schema_refs: dict) -> int:
     public authoring document: every schema ref any registered workflow
     definition declares resolves inside it, and the engine resolves retained
     registry pins' payload validation against it independently of later
-    public authoring changes (CON-902 S0). Existing frozen definitions are
+    public authoring changes. Existing frozen definitions are
     never rewritten: a re-freeze only adds the closure definitions the
     registry newly declares, so the frozen baseline can never silently
     re-derive from a changed public document.
@@ -465,7 +465,7 @@ def freeze_historical_decoder(schema_refs: dict) -> int:
 
 
 def validate_historical_decoder(schema_refs: dict, payload_defs: dict) -> None:
-    """The frozen decoder owns historical resolution (CON-902 S0).
+    """The frozen decoder owns historical resolution.
 
     Every schema ref any registered definition declares must resolve inside
     the frozen decoder, and the decoder must stay internally closed. Current

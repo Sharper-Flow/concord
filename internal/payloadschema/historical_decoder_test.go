@@ -131,7 +131,7 @@ func TestHistoricalDecoderValidatesIndependentlyOfPublicAuthoringDocument(t *tes
 // packets. The freeze contract is per-name: every definition the S0 baseline
 // carried must stay byte-equal to its frozen bytes, and the only definitions
 // a re-freeze may add are the ones this test names explicitly. A public
-// packet identity the live document admits (the CON-899 2.0 packet) resolves
+// packet identity the live document admits (the 2.0 packet) resolves
 // live through the public document and never through a mutated frozen
 // definition.
 var frozenBaselineDefs = map[string]string{

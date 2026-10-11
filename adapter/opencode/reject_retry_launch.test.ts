@@ -101,12 +101,15 @@ const contextAnswer = () => ({ exitCode: 0, stdout: JSON.stringify({ project_id:
 async function runTransition(script: RunnerScript, directory = workspace): Promise<{ calls: string[]; result: any }> {
   const calls: string[] = []
   let step = 0
+  // The launch probes the credential it would sign worker evidence with, so
+  // the adapter's configured store must be the test's: the default store
+  // shells the OS Secret Service, which a test host does not answer.
   adapter.configureConcordAdapter({ runner: { async run(argv: string[], stdin: string) {
     calls.push(argv[1] ?? "context")
     const answer = step === 0 ? contextAnswer() : script[Math.min(step - 1, script.length - 1)](argv, stdin)
     step++
     return answer
-  } } })
+  } }, credentials: testCredentials })
   const raw = await adapter.work_transition.execute(rejectCall(), contextFor(directory))
   const output = typeof raw === "string" ? raw : raw.output
   return { calls, result: JSON.parse(output.slice(0, output.indexOf("\n") === -1 ? output.length : output.indexOf("\n"))) }
@@ -130,6 +133,7 @@ afterEach(async () => {
   dispatchWindows().takeInFlight(SESSION)
   dispatchWindows().close(SESSION)
   resetClaimedWorktrees()
+  adapter.configureConcordAdapter({ reset: true })
   await rm(workspace, { recursive: true, force: true })
 })
 

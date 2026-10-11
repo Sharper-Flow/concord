@@ -1572,9 +1572,8 @@ func withDiagnosisStep(definition WorkflowDefinition) WorkflowDefinition {
 	return definition
 }
 
-// Each builder below ships its family's CD-0198 slice at the next version
-// after CON-890's heads: break_fix folds the typed diagnosis step and both
-// families derive their repair/refine starts.
+// These CD-0198 definitions fold the typed break_fix diagnosis step and
+// derive repair/refine starts in both families.
 func implementationDerivedStartsV28() WorkflowDefinition {
 	d := implementationOwnerOracleV27()
 	d.Version = 28

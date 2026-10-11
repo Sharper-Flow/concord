@@ -2178,7 +2178,7 @@ export async function dispatchWorker(packet: unknown,   options: { signal?: Abor
 // authorization; dispatchRetriedWorker reaches it with the packet the core
 // derived and dispatched inside a combined rejection, with no second
 // authorization. Every armed-claim, unlanded, durable-worktree, window, and
-// credential gate lives here and nowhere else (CD-0102 D1/D2, issue #1322).
+// credential gate lives here and nowhere else (CD-0102 D1/D2).
 async function openAuthorizedDispatchWindow(
   lane: AgentLane,
   packet: AgentLanePacket,

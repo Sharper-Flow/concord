@@ -2068,7 +2068,7 @@ func currentActionDefinition(id string, payloadContracts bool) WorkflowActionDef
 }
 
 // BuiltinWorkflowActionPublication names the actions whose engine policy
-// declarations exist for publication. CON-902 S1's retained-publication rule
+// declarations exist for publication. The retained-publication rule
 // uses it in the contract exporter: an action the registered history still
 // declares but no current head declares stays authorable at this policy
 // payload until the retirement slice narrows the publication deliberately.

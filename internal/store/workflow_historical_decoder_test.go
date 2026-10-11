@@ -149,8 +149,8 @@ func TestRetainedPinClassificationCoversEveryRegisteredHistoryVersion(t *testing
 	}
 }
 
-// TestCurrentAndRecoveryDeclarationsResolvePublicDocument keeps the CON-412
-// authoring invariant: every schema ref a current definition or engine
+// TestCurrentAndRecoveryDeclarationsResolvePublicDocument keeps the authoring
+// invariant: every schema ref a current definition or engine
 // recovery declaration declares still resolves in the public authoring
 // document the published variants build from.
 func TestCurrentAndRecoveryDeclarationsResolvePublicDocument(t *testing.T) {
@@ -202,7 +202,7 @@ func recoveryDefinitionWithSchemaRefs(t *testing.T) []WorkflowDefinition {
 // retainedDefinitionWithWorkerPacket returns a synthesized retained-pin
 // definition whose one action carries a worker_packet schema ref, the
 // transport schema the live/replay role split must discriminate on: the
-// public document admits the 2.0 packet identity CON-899 shipped, the frozen
+// public document admits the 2.0 packet identity, the frozen
 // decoder carries only the 1.0/1.1 identities its recorded writes answered
 // to.
 func retainedDefinitionWithWorkerPacket() WorkflowDefinition {

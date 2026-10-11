@@ -258,4 +258,3 @@ test("a rejection-only response stays the core's own envelope and opens nothing"
   expect(result.dispatch_state).toBeUndefined()
   expect(dispatchWindows().has(SESSION)).toBe(false)
 })
-

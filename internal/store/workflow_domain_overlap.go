@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"sort"
 	"time"
 )
@@ -20,8 +21,8 @@ type WorkflowDomainRelationTuple struct {
 
 // WorkflowDomainOverlap names every bounded write intersection between two
 // active Product-changing contracts. The active contract versions are part of
-// the identity; a later contract revision therefore makes an old resolution
-// stale without rewriting its event history.
+// the audit identity; a revision of judged content makes a resolution stale
+// without rewriting its event history.
 type WorkflowDomainOverlap struct {
 	ProductID                     string                        `json:"product_id"`
 	FromWorkID                    string                        `json:"from_work_id"`
@@ -301,27 +302,20 @@ func readOverlapStringListTx(ctx context.Context, q queryer, query string, targe
 
 func currentWorkflowOverlapResolutionTx(ctx context.Context, q queryer, overlap WorkflowDomainOverlap) (string, string, error) {
 	var state, kind string
-	err := q.QueryRowContext(ctx, `SELECT CASE WHEN resolution_kind IN ('depends_on','blocks') THEN 'sequenced' ELSE 'current' END,resolution_kind FROM workflow_overlap_resolutions WHERE product_id=? AND from_work_id=? AND to_work_id=? AND from_contract_version=? AND to_contract_version=? AND invalidated_seq IS NULL ORDER BY event_seq DESC LIMIT 1`, overlap.ProductID, overlap.FromWorkID, overlap.ToWorkID, overlap.FromContractVersion, overlap.ToContractVersion).Scan(&state, &kind)
+	var from string
+	// The fold invalidates judgments when their content changes or their claim
+	// reopens. Recorded versions remain the original approval's audit inputs.
+	err := q.QueryRowContext(ctx, `SELECT CASE WHEN resolution_kind IN ('depends_on','blocks') THEN 'sequenced' ELSE 'current' END,resolution_kind,from_work_id FROM workflow_overlap_resolutions WHERE product_id=? AND ((from_work_id=? AND to_work_id=?) OR (from_work_id=? AND to_work_id=?)) AND invalidated_seq IS NULL ORDER BY event_seq DESC LIMIT 1`, overlap.ProductID, overlap.FromWorkID, overlap.ToWorkID, overlap.ToWorkID, overlap.FromWorkID).Scan(&state, &kind, &from)
 	if err == nil {
-		return state, kind, nil
-	}
-	if err != sql.ErrNoRows {
-		return "", "", wrapFailure(KindUnavailable, "workflow_domain_overlap", "cannot read overlap resolution", true, "retry once the overlap projection is readable", err)
-	}
-	// Directed sequence resolutions are stored in their operator-supplied
-	// direction. Read the reverse orientation as the equivalent canonical kind
-	// for the pairwise check.
-	err = q.QueryRowContext(ctx, `SELECT CASE WHEN resolution_kind IN ('depends_on','blocks') THEN 'sequenced' ELSE 'current' END,resolution_kind FROM workflow_overlap_resolutions WHERE product_id=? AND from_work_id=? AND to_work_id=? AND from_contract_version=? AND to_contract_version=? AND invalidated_seq IS NULL ORDER BY event_seq DESC LIMIT 1`, overlap.ProductID, overlap.ToWorkID, overlap.FromWorkID, overlap.ToContractVersion, overlap.FromContractVersion).Scan(&state, &kind)
-	if err == nil {
-		if kind == ResolutionDependsOn {
+		if from != overlap.FromWorkID && kind == ResolutionDependsOn {
 			kind = ResolutionBlocks
-		} else if kind == ResolutionBlocks {
+		} else if from != overlap.FromWorkID && kind == ResolutionBlocks {
 			kind = ResolutionDependsOn
 		}
 		return state, kind, nil
 	}
 	if err != sql.ErrNoRows {
-		return "", "", wrapFailure(KindUnavailable, "workflow_domain_overlap", "cannot read reverse overlap resolution", true, "retry once the overlap projection is readable", err)
+		return "", "", wrapFailure(KindUnavailable, "workflow_domain_overlap", "cannot read overlap resolution", true, "retry once the overlap projection is readable", err)
 	}
 	var stale int
 	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM workflow_overlap_resolutions WHERE product_id=? AND ((from_work_id=? AND to_work_id=?) OR (from_work_id=? AND to_work_id=?))`, overlap.ProductID, overlap.FromWorkID, overlap.ToWorkID, overlap.ToWorkID, overlap.FromWorkID).Scan(&stale); err != nil {
@@ -331,6 +325,83 @@ func currentWorkflowOverlapResolutionTx(ctx context.Context, q queryer, overlap 
 		return "stale", "", nil
 	}
 	return "unresolved", "", nil
+}
+
+type workflowOverlapJudgedContent struct {
+	AffectedDomains     []string
+	LawModifications    []string
+	DomainModifications []string
+	LawAdditions        []WorkflowLawAddition
+	Relations           []WorkflowDomainRelationTuple
+}
+
+// Judged content reads an exact historical contract, not the active footprint.
+// The four sets are ordered canonically; law additions keep their home identity.
+func readWorkflowOverlapJudgedContent(ctx context.Context, q queryer, workID string, version int64) (workflowOverlapJudgedContent, error) {
+	var content workflowOverlapJudgedContent
+	for _, list := range []struct {
+		query  string
+		values *[]string
+	}{
+		{`SELECT domain_id FROM workflow_contract_affected_domains WHERE work_id=? AND contract_version=? ORDER BY domain_id`, &content.AffectedDomains},
+		{`SELECT law_id FROM workflow_contract_law_modifications WHERE work_id=? AND contract_version=? ORDER BY law_id`, &content.LawModifications},
+		{`SELECT domain_id FROM workflow_contract_domain_modifications WHERE work_id=? AND contract_version=? ORDER BY domain_id`, &content.DomainModifications},
+	} {
+		if err := readOverlapStringListTx(ctx, q, list.query, list.values, workID, version); err != nil {
+			return content, err
+		}
+	}
+	rows, err := q.QueryContext(ctx, `SELECT law_id,home_domain_id FROM workflow_contract_law_additions WHERE work_id=? AND contract_version=? ORDER BY law_id,home_domain_id`, workID, version)
+	if err != nil {
+		return content, workflowOverlapResolutionProjectionError(err)
+	}
+	for rows.Next() {
+		var addition WorkflowLawAddition
+		if err := rows.Scan(&addition.LawID, &addition.HomeDomainID); err != nil {
+			_ = rows.Close()
+			return content, workflowOverlapResolutionProjectionError(err)
+		}
+		content.LawAdditions = append(content.LawAdditions, addition)
+	}
+	err = rows.Err()
+	_ = rows.Close()
+	if err != nil {
+		return content, workflowOverlapResolutionProjectionError(err)
+	}
+	rows, err = q.QueryContext(ctx, `SELECT source_domain_id,kind,target_domain_id FROM workflow_contract_domain_relation_modifications WHERE work_id=? AND contract_version=? ORDER BY source_domain_id,kind,target_domain_id`, workID, version)
+	if err != nil {
+		return content, workflowOverlapResolutionProjectionError(err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var relation WorkflowDomainRelationTuple
+		if err := rows.Scan(&relation.SourceDomainID, &relation.Kind, &relation.TargetDomainID); err != nil {
+			return content, workflowOverlapResolutionProjectionError(err)
+		}
+		content.Relations = append(content.Relations, relation)
+	}
+	return content, workflowOverlapResolutionProjectionError(rows.Err())
+}
+
+func invalidateWorkflowOverlapForContractRevisionTx(ctx context.Context, tx *sql.Tx, event Event, predecessors []int64, successor int64) error {
+	// Upcast v1/v2 events retain their recorded invalidation semantics.
+	if event.replaySourcePayloadVersion != 0 {
+		return invalidateWorkflowOverlapResolutionsForWorkTx(ctx, tx, event.EventID, event.SubjectID)
+	}
+	next, err := readWorkflowOverlapJudgedContent(ctx, tx, event.SubjectID, successor)
+	if err != nil {
+		return err
+	}
+	for _, version := range predecessors {
+		previous, err := readWorkflowOverlapJudgedContent(ctx, tx, event.SubjectID, version)
+		if err != nil {
+			return err
+		}
+		if !reflect.DeepEqual(previous, next) {
+			return invalidateWorkflowOverlapResolutionsForWorkTx(ctx, tx, event.EventID, event.SubjectID)
+		}
+	}
+	return nil
 }
 
 func workflowDomainOverlapPair(left, right workflowOverlapFootprint) (WorkflowDomainOverlap, bool) {

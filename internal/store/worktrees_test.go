@@ -250,13 +250,6 @@ func (g *fakeWorktreeGit) Run(_ context.Context, dir string, args ...string) ([]
 		g.worktreeRepos[path] = dir
 		g.branches[branch] = base
 		return nil, nil
-	case strings.HasPrefix(join, "branch -D "):
-		branch := strings.TrimPrefix(join, "branch -D -- ")
-		if _, exists := g.branches[branch]; !exists {
-			return nil, fmt.Errorf("branch does not exist")
-		}
-		delete(g.branches, branch)
-		return nil, nil
 	case strings.HasPrefix(join, "update-ref --no-deref -d refs/heads/"):
 		// The pinned argv no-deref deletion (CD-0212 D4): one command whose
 		// old-value argument refuses a ref that moved, exactly the
@@ -1622,8 +1615,139 @@ func TestClaimWorktreeRollbackCompensatesCreatedWorktree(t *testing.T) {
 	if _, held := git.branches[claimBranch()]; held {
 		t.Fatal("compensation left the created branch in place")
 	}
-	if git.countCalls("worktree remove") != 1 || git.countCalls("branch -D -- "+claimBranch()) != 1 {
+	if git.countCalls("worktree remove") != 1 || git.countCalls("update-ref --no-deref -d refs/heads/"+claimBranch()+" "+request.BaseSHA) != 1 {
 		t.Fatalf("compensation calls=%v, want one worktree remove and one branch delete", git.calls)
+	}
+}
+
+// cleanupRefRunner changes real Git state after directory removal releases its
+// locks, but before the cleanup owner inspects or deletes the branch.
+type cleanupRefRunner struct {
+	mutate         func()
+	removed        bool
+	mutated        bool
+	deleteAttempts int
+}
+
+func (r *cleanupRefRunner) Run(ctx context.Context, dir string, args ...string) ([]byte, error) {
+	if r.removed && !r.mutated {
+		r.mutated = true
+		r.mutate()
+	}
+	joined := strings.Join(args, " ")
+	if strings.Contains(joined, "branch -D -- ") || strings.Contains(joined, "branch -d -- ") || strings.HasPrefix(joined, "update-ref --no-deref -d ") {
+		r.deleteAttempts++
+	}
+	out, err := (ExecGitRunner{}).Run(ctx, dir, args...)
+	if err == nil && len(args) >= 2 && args[0] == "worktree" && args[1] == "remove" {
+		r.removed = true
+	}
+	return out, err
+}
+
+func cleanupRefRefusalCases() []string {
+	return []string{"foreign ref", "default branch", "unknown default", "checked-out branch", "moved tip"}
+}
+
+// mutateCleanupRef supplies each protection with actual refs and checkouts,
+// never canned Git output. The returned tip is the ref state that must survive.
+func mutateCleanupRef(t *testing.T, repo, branch, base, reason string) (string, string) {
+	t.Helper()
+	switch reason {
+	case "foreign ref":
+		runBootstrapGit(t, repo, "branch", "foreign/shared", base)
+		runBootstrapGit(t, repo, "symbolic-ref", "refs/heads/"+branch, "refs/heads/foreign/shared")
+		return base, "became a symbolic ref"
+	case "default branch":
+		runBootstrapGit(t, repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/"+branch)
+		return base, "is the repository's default ref"
+	case "unknown default":
+		runBootstrapGit(t, repo, "checkout", "--detach", "-q", base)
+		runBootstrapGit(t, repo, "symbolic-ref", "--delete", "refs/remotes/origin/HEAD")
+		return base, "cannot establish the protected default"
+	case "checked-out branch":
+		runBootstrapGit(t, repo, "worktree", "add", "-q", filepath.Join(t.TempDir(), "holder"), branch)
+		return base, "is checked out"
+	case "moved tip":
+		tree := runBootstrapGit(t, repo, "rev-parse", base+"^{tree}")
+		tip := runBootstrapGit(t, repo, "commit-tree", tree, "-p", base, "-m", "new cleanup tip")
+		runBootstrapGit(t, repo, "update-ref", "refs/heads/"+branch, tip, base)
+		return tip, "moved from the tip"
+	default:
+		t.Fatalf("unknown cleanup refusal %q", reason)
+		return "", ""
+	}
+}
+
+func assertCleanupRefRetained(t *testing.T, repo, branch, tip, reason string, runner *cleanupRefRunner) {
+	t.Helper()
+	if !runner.removed || !runner.mutated {
+		t.Fatalf("cleanup did not reach the ref boundary: removed=%v mutated=%v", runner.removed, runner.mutated)
+	}
+	out, err := (ExecGitRunner{}).Run(context.Background(), repo, "rev-parse", "--verify", "refs/heads/"+branch)
+	if err != nil || strings.TrimSpace(string(out)) != tip {
+		t.Errorf("retained ref tip=%q err=%v, want %s", out, err, tip)
+	}
+	if runner.deleteAttempts != 0 {
+		t.Errorf("cleanup attempted %d ref deletions despite %s", runner.deleteAttempts, reason)
+	}
+	if reason == "foreign ref" {
+		out, err := (ExecGitRunner{}).Run(context.Background(), repo, "symbolic-ref", "refs/heads/"+branch)
+		if err != nil || strings.TrimSpace(string(out)) != "refs/heads/foreign/shared" {
+			t.Errorf("symbolic target=%q err=%v", out, err)
+		}
+		if got := runBootstrapGit(t, repo, "rev-parse", "refs/heads/foreign/shared"); got != tip {
+			t.Errorf("foreign ref tip=%s, want %s", got, tip)
+		}
+	}
+}
+
+func TestClaimCompensationSettlesCreatedRefOnly(t *testing.T) {
+	for _, createdBranch := range []bool{true, false} {
+		t.Run(strconv.FormatBool(createdBranch), func(t *testing.T) {
+			repo := initBootstrapStoreRepo(t)
+			base := runBootstrapGit(t, repo, "rev-parse", "HEAD")
+			path := filepath.Join(t.TempDir(), "claim")
+			const branch = "concord/cleanup-claim"
+			runBootstrapGit(t, repo, "worktree", "add", "-q", "-b", branch, path, base)
+			cause := newFailure(KindVersionConflict, "worktree_claim", "claim fold failed", false, "reconcile claim")
+			err := CompensateWorktreeClaimCreation(context.Background(), nil, WorktreeClaimCreation{RepoRoot: repo, Path: path, Branch: branch, Base: base, CreatedBranch: createdBranch}, cause)
+			if err != cause || cause.EffectPossible {
+				t.Fatalf("cleanup error=%v effectPossible=%v, want unchanged no-effect cause", err, cause.EffectPossible)
+			}
+			_, probeErr := (ExecGitRunner{}).Run(context.Background(), repo, "show-ref", "--verify", "--quiet", "refs/heads/"+branch)
+			if createdBranch && !gitProbeFoundRefAbsent(probeErr) || !createdBranch && probeErr != nil {
+				t.Errorf("createdBranch=%v retained ref probe=%v", createdBranch, probeErr)
+			}
+			if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+				t.Errorf("compensated directory remains: %v", err)
+			}
+		})
+	}
+}
+
+func TestClaimCompensationRefDeletionRefusals(t *testing.T) {
+	for _, reason := range cleanupRefRefusalCases() {
+		t.Run(reason, func(t *testing.T) {
+			repo := initBootstrapStoreRepo(t)
+			base := runBootstrapGit(t, repo, "rev-parse", "HEAD")
+			path := filepath.Join(t.TempDir(), "claim")
+			const branch = "concord/cleanup-claim"
+			runBootstrapGit(t, repo, "worktree", "add", "-q", "-b", branch, path, base)
+			var tip string
+			runner := &cleanupRefRunner{mutate: func() {
+				tip, _ = mutateCleanupRef(t, repo, branch, base, reason)
+			}}
+			cause := newFailure(KindVersionConflict, "worktree_claim", "claim fold failed", false, "reconcile claim")
+			err := CompensateWorktreeClaimCreation(context.Background(), runner, WorktreeClaimCreation{RepoRoot: repo, Path: path, Branch: branch, Base: base, CreatedBranch: true}, cause)
+			assertCleanupRefRetained(t, repo, branch, tip, reason, runner)
+			if err != cause || !cause.EffectPossible {
+				t.Errorf("cleanup error=%v effectPossible=%v, want original failure with possible effect", err, cause.EffectPossible)
+			}
+			if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+				t.Errorf("clean claim directory remains: %v", err)
+			}
+		})
 	}
 }
 

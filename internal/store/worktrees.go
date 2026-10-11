@@ -881,14 +881,13 @@ func claimWorktreePhase3Tx(ctx context.Context, tx *sql.Tx, req WorktreeClaimReq
 }
 
 // compensateClaimWorktree removes the native worktree and branch a failed
-// claim created, so the rolled-back transaction does not leave an unowned
-// worktree behind. The removal runs only when the tree is clean and holds no
+// claim created, so the rolled-back transaction does not leave unowned native
+// state behind. The removal runs only when the tree is clean and holds no
 // commit beyond the pinned base, and the branch is removed only when this
-// operation created it. A removal that cannot complete marks the failure
-// effect-possible: the native tree then outlives the claim row. Compensation
-// runs detached from the caller's context, because a budget deadline that
-// fails the transaction must not stop the cleanup that keeps the no-effect
-// classification honest.
+// operation created it and the pinned ref-deletion gate settles it. Incomplete
+// removal marks the failure effect-possible: the tree or ref then outlives the
+// claim row. Compensation runs detached from the caller's context, because a
+// budget deadline must not stop cleanup and falsify the no-effect classification.
 func compensateClaimWorktree(ctx context.Context, runner GitRunner, created WorktreeClaimCreation, cause error) error {
 	ctx = context.WithoutCancel(ctx)
 	incomplete := func(reason error) error {
@@ -897,7 +896,7 @@ func compensateClaimWorktree(ctx context.Context, runner GitRunner, created Work
 			failure.EffectPossible = true
 			return cause
 		}
-		detail := "claim failed after the native worktree was created and compensation could not remove it; the created worktree may outlive the rolled-back claim"
+		detail := "claim failed after native creation and compensation could not finish; the created worktree or branch may outlive the rolled-back claim"
 		if reason != nil {
 			detail += ": " + reason.Error()
 		}
@@ -916,10 +915,11 @@ func compensateClaimWorktree(ctx context.Context, runner GitRunner, created Work
 	if _, rmErr := runner.Run(ctx, created.RepoRoot, "worktree", "remove", created.Path); rmErr != nil {
 		return incomplete(rmErr)
 	}
-	// The branch pointer is proven redundant: the count above established
-	// that nothing is reachable from the branch beyond the pinned base.
 	if created.CreatedBranch {
-		if _, brErr := runner.Run(ctx, created.RepoRoot, "branch", "-D", "--", created.Branch); brErr != nil {
+		outcome, brErr := deleteBranchPinned(ctx, runner,
+			&WorktreeNativeRemoval{RepoRoot: created.RepoRoot, Op: "worktree_claim"},
+			WorktreeBranchDeletion{Branch: created.Branch, ExpectedTip: created.Base})
+		if brErr != nil || outcome.Phase != WorktreeRefPhaseSettled {
 			return incomplete(brErr)
 		}
 	}

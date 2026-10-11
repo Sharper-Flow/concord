@@ -36,7 +36,7 @@ type branchMoveBeforeDeleteRunner struct {
 
 func (r branchMoveBeforeDeleteRunner) Run(ctx context.Context, dir string, args ...string) ([]byte, error) {
 	joined := strings.Join(args, " ")
-	if strings.Contains(joined, "branch -d -- ") {
+	if strings.HasPrefix(joined, "update-ref --no-deref -d refs/heads/") {
 		if _, err := (ExecGitRunner{}).Run(ctx, dir, "update-ref", "refs/heads/"+r.branch, r.sha); err != nil {
 			return nil, err
 		}
@@ -352,6 +352,41 @@ func TestMigration59PreservesPopulatedBootstrapOperation(t *testing.T) {
 	}
 	if persistedID != operationID || state != "completed" {
 		t.Fatalf("operation=%s state=%s", persistedID, state)
+	}
+}
+
+func TestBootstrapRollbackRefDeletionRefusals(t *testing.T) {
+	for _, reason := range cleanupRefRefusalCases() {
+		t.Run(reason, func(t *testing.T) {
+			repo := initBootstrapStoreRepo(t)
+			s, err := Open(context.Background(), filepath.Join(t.TempDir(), "concord.db"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer s.Close()
+			seedBootstrapStoreAuthority(t, s, repo)
+			result, err := s.BootstrapWorktree(context.Background(), bootstrapStoreRequest(), nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			location := WorktreeLocation{Repo: repo, Path: result.Entry.Path, Branch: result.Entry.Branch, BaseSHA: result.Entry.BaseSHA}
+			var tip, detail string
+			runner := &cleanupRefRunner{mutate: func() {
+				tip, detail = mutateCleanupRef(t, repo, location.Branch, location.BaseSHA, reason)
+			}}
+			err = s.rollbackBootstrap(context.Background(), result.OperationID, result.WorkID, location, runner, errors.New("session preparation failed"))
+			assertCleanupRefRetained(t, repo, location.Branch, tip, reason, runner)
+			if err == nil || !strings.Contains(err.Error(), detail) {
+				t.Errorf("rollback error=%v, want gate refusal containing %q", err, detail)
+			}
+			var state, claimState string
+			if err := s.db.QueryRow(`SELECT b.state,c.state FROM bootstrap_operations b JOIN worktree_claims c ON c.op_id=b.operation_id WHERE b.operation_id=?`, result.OperationID).Scan(&state, &claimState); err != nil {
+				t.Fatal(err)
+			}
+			if state != "rolling_back" || claimState != "verified" {
+				t.Errorf("ref retention lost rollback debt: operation=%s claim=%s", state, claimState)
+			}
+		})
 	}
 }
 

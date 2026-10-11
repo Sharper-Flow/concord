@@ -735,20 +735,14 @@ func (s *Store) rollbackBootstrap(ctx context.Context, operationID, workID strin
 	if err := removeBootstrapWorktree(ctx, runner, location); err != nil {
 		return err
 	}
-	if branchSHA, exists, err := bootstrapBranchHead(ctx, runner, location.Repo, location.Branch); err != nil {
+	outcome, err := deleteBranchPinned(ctx, runner,
+		&WorktreeNativeRemoval{RepoRoot: location.Repo, Op: "work_bootstrap"},
+		WorktreeBranchDeletion{Branch: location.Branch, ExpectedTip: location.BaseSHA})
+	if err != nil {
 		return err
-	} else if exists {
-		if branchSHA != location.BaseSHA {
-			return newFailure(KindProjectionConflict, "work_bootstrap", "failed bootstrap branch contains changes and cannot be removed", false, "preserve the branch and contact_operator")
-		}
-		if attached, err := branchAttachedElsewhere(ctx, runner, location.Repo, location.Branch); err != nil {
-			return err
-		} else if attached {
-			return newFailure(KindProjectionConflict, "work_bootstrap", "failed bootstrap branch is attached to another worktree", false, "detach the exact pinned branch before retrying")
-		}
-		if err := deleteBootstrapBranch(ctx, runner, location.Repo, location.Branch, location.BaseSHA); err != nil {
-			return wrapFailure(KindGitUnreachable, "work_bootstrap", "cannot remove the failed bootstrap branch", false, "remove the exact pinned branch before retrying", err)
-		}
+	}
+	if outcome.Phase != WorktreeRefPhaseSettled {
+		return newFailure(KindProjectionConflict, "work_bootstrap", outcome.Reason, false, "preserve the retained branch and reconcile the bootstrap rollback")
 	}
 	err = s.TransactDurable(ctx, func(transaction *Transaction) error {
 		return rollbackBootstrapTx(ctx, transaction, operationID, workID, now, cause.Error())
@@ -937,45 +931,6 @@ func reclaimStaleBootstrapGitLock(lockPath string) (bool, error) {
 		return false, err
 	}
 	return true, nil
-}
-
-func deleteBootstrapBranch(ctx context.Context, runner GitRunner, repo, branch, expectedSHA string) error {
-	hookDir, err := os.MkdirTemp("", "concord-bootstrap-ref-")
-	if err != nil {
-		return err
-	}
-	defer func() { _ = os.RemoveAll(hookDir) }()
-	if err := os.WriteFile(filepath.Join(hookDir, "expected-sha"), []byte(expectedSHA+"\n"), 0o600); err != nil {
-		return err
-	}
-	if err := os.WriteFile(filepath.Join(hookDir, "expected-ref"), []byte("refs/heads/"+branch+"\n"), 0o600); err != nil {
-		return err
-	}
-	hook := `#!/bin/sh
-set -eu
-[ "$1" = "prepared" ] || exit 0
-dir=${0%/*}
-IFS= read -r expected_sha < "$dir/expected-sha"
-IFS= read -r expected_ref < "$dir/expected-ref"
-observed_sha=$(git rev-parse --verify "$expected_ref^{commit}" 2>/dev/null || true)
-[ "$observed_sha" = "$expected_sha" ] || exit 1
-git worktree list --porcelain > "$dir/worktrees"
-while IFS= read -r line; do
-  if [ "$line" = "branch $expected_ref" ]; then
-    exit 1
-  fi
-done < "$dir/worktrees"
-`
-	hookPath := filepath.Join(hookDir, "reference-transaction")
-	// #nosec G306 -- Git hooks must be executable by the repository owner.
-	if err := os.WriteFile(hookPath, []byte(hook), 0o700); err != nil {
-		return err
-	}
-	output, err := runner.Run(ctx, repo, "-c", "core.hooksPath="+hookDir, "branch", "-d", "--", branch)
-	if err != nil {
-		return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(output)))
-	}
-	return nil
 }
 
 func beginBootstrapRollbackTx(ctx context.Context, transaction *Transaction, operationID, workID string, now time.Time, reason string, done *bool) error {

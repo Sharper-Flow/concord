@@ -566,7 +566,7 @@ export class AdapterFailure extends Error {
   }
 }
 
-// WorkStartFailure is the work_start refusal family (CON-913 family split):
+// WorkStartFailure is the work_start refusal family:
 // the WorkStartEnvelope result is a separate closed host shape with its own
 // kind/reason vocabulary, so its failures keep free kind and reason fields
 // instead of joining the TS7 table. Shared TS7 helpers
@@ -680,7 +680,7 @@ function operationIsMutation(toolName: string, operation: string): boolean {
 }
 
 // A failed invocation is classified by what its operation kind can have
-// done, through the closed table (CON-913 §2.2): every mutation takes the
+// done, through the closed table: every mutation takes the
 // operation-conflict unknown-effect tuple regardless of whether the event
 // was transport or malformed JSON — the transport/malformed kinds cannot
 // carry a possible effect — and the session_vacate branch routes through the
@@ -2144,13 +2144,13 @@ async function executeWorkerReconcile(args: HostToolArgs, context: ToolContext):
     // The composite catch spans the retained-report proof read and the
     // routine that submits evidence, so it cannot prove the composite
     // stopped before any submission: the refusal carries the underlying
-    // cause and reconciles the original attempt (CON-913 rows 17/18).
+    // cause and reconciles the original attempt.
     return adapterError("concord_work_transition", operation, requestID, "unknown_effect", `retained-report recovery stopped: ${String(error)}`)
   }
   if (result.outcome !== "ok") {
     // The submitted evidence routine owns a composite, not only its last
     // write, so every stopped lane outcome maps to the reconcile tuple while
-    // the lane diagnostic names the cause (CON-913 rows 19/20).
+    // the lane diagnostic names the cause.
     return adapterError("concord_work_transition", operation, requestID, "unknown_effect", result.error?.message ?? "worker reconciliation returned no completion")
   }
   const receipt = await invokeConcordOperation("concord_work_transition", { ...args, input: { ...args.input, idempotency_key: key("receipt") } }, context)
@@ -2261,7 +2261,7 @@ async function executeWorkerAbandon(args: HostToolArgs, context: ToolContext): P
   if (result.error?.retry_safe && result.error.details?.effect_state === "possible") {
     // The refusal keeps the same-abandon receipt instruction and the
     // underlying durable cause; the reconcile recovery replaces the retry,
-    // which cannot confirm a receipt the adapter never read (CON-913 row 24).
+    // which cannot confirm a receipt the adapter never read.
     return adapterError("concord_work_transition", WORKER_ABANDON_OPERATION, requestID, "worker_abandon_refused_possible", `the abandonment has an uncertain effect: ${message}; reconcile the original worker_abandon attempt and its receipt`)
   }
   if (result.error?.retry_safe === false) {
@@ -2512,8 +2512,7 @@ export async function moveSessionToRegisteredMainCheckout(args: HostToolArgs, co
     // The composed routes strip a destination before the core call, so this
     // refusal is pre-commit. A caller that reaches it on an ok envelope
     // reports the recorded relocation request truthfully instead: the
-    // request stands, so the state-driven replay is the recovery (CON-913
-    // row 31).
+    // request stands, so the state-driven replay is the recovery.
     const committed = record(envelope) && envelope.outcome === "ok"
     if (committed) return vacateError(requestID, "vacate_replay", "session_vacate derives the registered main checkout and refuses an agent-named destination; the relocation request stands, replay session_vacate from wherever the session sits to resolve it")
     return adapterError("concord_work_transition", "session_vacate", requestID, "invalid_tool_input", "session_vacate derives the registered main checkout and refuses an agent-named destination")
@@ -2552,8 +2551,7 @@ export async function moveSessionToRegisteredMainCheckout(args: HostToolArgs, co
       const message = error instanceof Error ? error.message : String(error)
       // A move route the host cannot serve makes the replay unreachable, so
       // the operator is the recovery; any other refusal keeps the replay,
-      // and both keep the committed request's destination named (CON-913
-      // rows 33/34).
+      // and both keep the committed request's destination named.
       if (error instanceof MoveSessionUnavailable) return vacateError(requestID, "vacate_unavailable", `${message}; the committed relocation request stands and names ${JSON.stringify(destination)} as its registered main checkout`)
       return vacateError(requestID, "vacate_replay", `${message}; the committed relocation request stands and names ${JSON.stringify(destination)} as its registered main checkout`)
     }
@@ -2702,7 +2700,7 @@ async function executeWorkTransition(args: HostToolArgs, context: ToolContext, s
         const message = error instanceof Error ? error.message : String(error)
         // A move route the host cannot serve makes the replay unreachable;
         // any other refusal keeps it. Both keep the committed request and its
-        // remembered destination named for the retry (CON-913 rows 40/41).
+        // remembered destination named for the retry.
         if (error instanceof MoveSessionUnavailable) return vacateError(requestID, "vacate_unavailable", `${message}; the committed relocation request stands and names ${JSON.stringify(remembered)} as its registered main checkout, so the occupancy rows wait for the verified landing there`)
         return vacateError(requestID, "vacate_replay", `${message}; the committed relocation request stands and names ${JSON.stringify(remembered)} as its registered main checkout, so the occupancy rows wait for the verified landing there`)
       }

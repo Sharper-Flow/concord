@@ -4654,10 +4654,10 @@ test("a stale work_start carries the staleness notice on its output layer", asyn
 })
 
 // ===========================================================================
-// CON-913 R1/R2 semantic tests: the decided closed tuples (design §3 M/V/VO/I)
-// through the real producers, plus deterministic contract-defect propagation.
-// Every test name carries the CON-913 prefix, so
-// `bun test adapter/opencode/concord.test.ts -t 'CON-913'` selects the block.
+// Semantic tests: the decided closed tuples (design §3 M/V/VO/I) through the
+// real producers, plus deterministic contract-defect propagation.
+// Every test name in this block carries one shared prefix, so a
+// `bun test -t` filter on that prefix selects the block.
 const { MoveSessionUnavailable } = await import("./move-session")
 const { pendingVacateDestination, recordPendingVacateDestination } = await import("./claimed-worktree")
 const { serializeLanePacket } = await import("./dispatch-window")

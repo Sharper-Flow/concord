@@ -1,4 +1,4 @@
-// CON-913 R1 table tests: the closed adapter error tuple table and its
+// Table tests: the closed adapter error tuple table and its
 // factory, vacate constructor, and exit validator. No AST instrumentation
 // and no per-site registry: the closed table plus the strict typecheck prove
 // the emittable set, and these tests prove every member validates in every

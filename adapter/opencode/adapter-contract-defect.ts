@@ -1,4 +1,4 @@
-// The typed fail-closed error for the adapter envelope contract (CON-913).
+// The typed fail-closed error for the adapter envelope contract.
 // An adapter-origin envelope that fails the generated contract, or a factory
 // call that names no admitted tuple, is a programming defect: it is thrown at
 // the factory and at every adapter-origin host exit, rethrown unchanged by

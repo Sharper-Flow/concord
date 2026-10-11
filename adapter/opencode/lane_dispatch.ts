@@ -244,7 +244,7 @@ export async function dispatchLaneWorker(input: LaneDispatchInput, deps: LaneDis
   } catch (error) {
     // The invoke validates its own adapter-origin envelope, so a contract
     // defect from that transport propagates unchanged instead of shipping as
-    // a lane transport failure (CON-913 R1.7).
+    // a lane transport failure.
     if (error instanceof AdapterContractDefect) throw error
     return errorEnvelopeForLane(laneForId(packet.lane_id), packet as Partial<AgentLanePacket>, "error", "transport_failure", `concord_work_transition.workflow_action threw before reaching the core: ${String(error)}`, "reconcile_operation")
   }

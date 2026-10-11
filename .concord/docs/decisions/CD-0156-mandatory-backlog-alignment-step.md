@@ -60,8 +60,7 @@ step runs before planning approves a contract, so no parent row exists.
 ### D5. No automatic relation
 
 The action records the candidate set only. It creates no relation: the relation
-kind is a semantic judgement that stays with `concord_work_relate.link` and
-`resolve_overlap`.
+kind is a semantic judgement that stays with `resolve_overlap`.
 
 ### D6. Frozen version chain
 

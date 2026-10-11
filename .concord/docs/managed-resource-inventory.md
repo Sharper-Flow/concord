@@ -10,7 +10,7 @@
 > placement, and accepted TS1–TS9 evolution gates.
 > **Does not decide:** credentials/secrets, provider integrations/live polling,
 > billing/cost allocation, resource execution tools,
-> exact DDL/indexes, or C14 row fields.
+> exact DDL/indexes, or Product glance row fields.
 
 ## Context
 
@@ -207,9 +207,9 @@ smuggled into `concord_work_define`.
 
 ## 7. Product-row and live-signal boundary
 
-C14 remains unchanged: default Product rows do not gain resource counts, health, or
-provider signals merely because C15 exists. Resource inventory appears after Product
-selection/drill-down.
+The Product-row exclusion stands as recorded: Product glance rows gain no resource
+counts, health, or provider signals merely because C15 exists. Resource inventory
+appears after Product selection/drill-down.
 
 Optional live signals are separate observations referencing `resource_id`, with
 their own authority/watermark/age. They never overwrite ownership, stage, purpose,
@@ -266,7 +266,7 @@ Prove:
 - Generic tags as identity or authorization.
 - Cascading Product/work deletion of resources.
 - Connector/API execution implied by membership.
-- Resource fields added to C14 default rows without separate glance evidence.
+- Resource fields added to Product glance rows without separate glance evidence.
 
 ## 12. Falsifiers
 

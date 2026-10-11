@@ -175,6 +175,21 @@ func TestDomainActiveWorkAndOverlapsDeriveFromCurrentContracts(t *testing.T) {
 	}
 }
 
+func TestDomainActiveWorkExcludesRetiredInitiative(t *testing.T) {
+	t.Parallel()
+	s, _ := seedOverlapProjection(t, "historical-initiative", "live-task", false)
+	// A historical Initiative can retain an architecture contract. Eligibility
+	// must exclude its stored kind, not rely on that contract being absent.
+	productRowExec(t, s, `UPDATE work_items SET kind='initiative' WHERE id='historical-initiative'`)
+	work, err := s.QueryDomainActiveWork(context.Background(), DomainActiveWorkRequest{Product: "product", Domain: "child", Limit: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(work.Work) != 1 || work.Work[0].WorkID != "live-task" || work.NextCursor != nil {
+		t.Fatalf("Domain active work = %#v, want only live-task without another page", work)
+	}
+}
+
 func TestDomainAttachmentsReadLocalSets(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

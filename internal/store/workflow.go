@@ -1746,7 +1746,7 @@ func foldWorkflowActionCheckpointed(ctx context.Context, tx *sql.Tx, event Event
 		if checkpointFieldsErr != nil {
 			return checkpointFieldsErr
 		}
-		deriving, deriveErr := workflowDerivedStartPairAuthored(ctx, tx, event.SubjectID, currentStep, workflowFieldStringDefault(checkpointFields, "action_id", ""), p.AttemptEpoch, event.Seq, p.ActorRef)
+		deriving, deriveErr := workflowDerivedStartPairAuthored(ctx, tx, entry.Definition, event.SubjectID, currentStep, workflowFieldStringDefault(checkpointFields, "action_id", ""), p.AttemptEpoch, event.Seq, p.ActorRef, event.EventID)
 		if deriveErr != nil {
 			return deriveErr
 		}
@@ -2714,21 +2714,28 @@ func advancingWorkflowActions(definition WorkflowDefinition) []string {
 }
 
 // workflowDerivedStartPairAuthored reports whether the checkpoint event at
-// beforeSeq is the one its own derived start opened (CD-0198 D3): the step's
-// latest start names the same qualifying action, carries the checkpoint's
-// epoch, and binds the checkpoint's own actor. Only that pair bypasses the
-// checkpoint-writer rule; the started fold authenticated the actor already.
-func workflowDerivedStartPairAuthored(ctx context.Context, tx *sql.Tx, workID, stepID, actionID string, epoch int64, beforeSeq int64, actorRef string) (bool, error) {
-	if workflowDerivedStartCheckpoints[actionID] != stepID {
+// beforeSeq is the one its own derived start opened (CD-0198 D3). Only a
+// derived-start pin qualifies, and the step's latest start must be the start
+// event the checkpoint's own operation wrote (opid:started beside
+// opid:checkpoint) naming the same qualifying action, epoch, and actor. A
+// dispatch start, a callable start on a released pin, and every later
+// checkpoint answer to the checkpoint-writer rule; the started fold
+// authenticated the actor for the derivation pair alone.
+func workflowDerivedStartPairAuthored(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, workID, stepID, actionID string, epoch int64, beforeSeq int64, actorRef, checkpointEventID string) (bool, error) {
+	if !workflowDerivedStepStartActive(definition) || workflowDerivedStartCheckpoints[actionID] != stepID {
 		return false, nil
 	}
 	startSeq, startEpoch, found, err := latestWorkflowActionStartAt(ctx, tx, workID, stepID, beforeSeq)
 	if err != nil || !found || startEpoch != epoch {
 		return false, err
 	}
-	var startedActor string
-	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(json_extract(payload,'$.actor_ref'),'') FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND seq=?`, workID, startSeq).Scan(&startedActor); err != nil {
+	var startedEventID, startedAction, startedActor string
+	if err := tx.QueryRowContext(ctx, `SELECT event_id,COALESCE(json_extract(payload,'$.action_id'),''),COALESCE(json_extract(payload,'$.actor_ref'),'') FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND seq=?`, workID, startSeq).Scan(&startedEventID, &startedAction, &startedActor); err != nil {
 		return false, workflowProjectionError(err, "cannot read the derived step start")
+	}
+	operationID := strings.TrimSuffix(checkpointEventID, ":checkpoint")
+	if operationID == checkpointEventID || startedEventID != operationID+":started" || startedAction != actionID {
+		return false, nil
 	}
 	return startedActor == actorRef, nil
 }

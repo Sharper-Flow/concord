@@ -33,11 +33,11 @@ func diagnosisPayload(reproduction, searched, outcome string, relatedIDs []strin
 }
 
 func workflowStartedEventsAtStep(t *testing.T, s *Store, workID, stepID string) []struct {
-	Seq       int64
-	ActionID  string
-	Epoch     int64
-	ActorRef  string
-	Occurred  time.Time
+	Seq      int64
+	ActionID string
+	Epoch    int64
+	ActorRef string
+	Occurred time.Time
 } {
 	t.Helper()
 	rows, err := s.DatabaseForTesting().Query(`SELECT seq, json_extract(payload,'$.action_id'), json_extract(payload,'$.attempt_epoch'), json_extract(payload,'$.actor_ref'), occurred_at FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.step_id')=? ORDER BY seq`, workID, WorkflowActionStarted, stepID)
@@ -86,9 +86,9 @@ func instanceExecutionStart(t *testing.T, s *Store, workID string) (string, stri
 }
 
 func diagnosisAlignmentRows(t *testing.T, s *Store, workID string) []struct {
-	Related string
+	Related  string
 	Searched string
-	Outcome string
+	Outcome  string
 } {
 	t.Helper()
 	rows, err := s.DatabaseForTesting().Query(`SELECT COALESCE(related_work_id,''),searched,outcome FROM workflow_backlog_alignment WHERE work_id=? ORDER BY related_work_id`, workID)
@@ -149,7 +149,7 @@ func TestBreakFixDiagnosisStepShapeIsTheMergedTypedStep(t *testing.T) {
 	if len(exits) != 1 || exits[0] != "record_diagnosis" {
 		t.Fatalf("break_fix diagnosis advance exits are %v, want exactly [record_diagnosis]", exits)
 	}
-	for _, withheld := range []string{"record_reproduction", "record_alignment", "record_root_cause", "dispatch_worker", "accept_worker_result"} {
+	for _, withheld := range []string{"record_reproduction", "record_alignment", "record_root_cause", "dispatch_worker", "record_worker_failure", "accept_worker_result"} {
 		if definitionStepAllows(definition, "diagnosis", withheld) {
 			t.Fatalf("break_fix diagnosis admits %s", withheld)
 		}
@@ -711,6 +711,304 @@ func TestCorrectedContractLivenessThroughProducerReturn(t *testing.T) {
 	}
 }
 
+// diagnosisS1LanePacket builds the closed lane packet the dispatch_worker
+// fold expects for one named lane, so a test can dispatch the lane class the
+// step's kind admits instead of the implementation lane.
+func diagnosisS1LanePacket(t *testing.T, s *Store, workID, stepID, attemptID, laneID string) map[string]any {
+	t.Helper()
+	var lane LaneDefinition
+	for _, candidate := range BuiltinLaneDefinitions() {
+		if candidate.ID == laneID {
+			lane = candidate
+		}
+	}
+	if lane.ID == "" {
+		t.Fatalf("lane %s is not a builtin lane", laneID)
+	}
+	task, binding := recordedPacketInputs(t, s, workID, laneID)
+	inputs := map[string]any{
+		"task":        task,
+		"binding":     binding,
+		"constraints": []string{"do-not-modify-product-truth"},
+	}
+	for member, value := range recordedPacketRecords(t, s, workID) {
+		inputs[member] = value
+	}
+	return map[string]any{
+		"schema_version": "1.0",
+		"attempt_id":     attemptID,
+		"lane_id":        lane.ID,
+		"lane_version":   lane.Version,
+		"lane_digest":    lane.Digest,
+		"work_id":        workID,
+		"step_id":        stepID,
+		"inputs":         inputs,
+	}
+}
+
+// diagnosisS1DispatchAttempt dispatches one live lane attempt at stepID
+// through the registered dispatch_worker action — a selected ready
+// worker-job revision when the pin runs the job lifecycle — and records the
+// worker.dispatched evidence through the authoritative lane-actor route, so
+// the writer rule names the lane the sole writer exactly as a production
+// dispatch does.
+func diagnosisS1DispatchAttempt(t *testing.T, s *Store, workID, stepID, attemptID string, dispatcher WorkflowActor, laneID string) {
+	t.Helper()
+	if err := diagnosisS1DispatchAttemptErr(t, s, workID, stepID, attemptID, dispatcher, laneID); err != nil {
+		t.Fatalf("dispatch %s at %s: %v", attemptID, stepID, err)
+	}
+}
+
+// diagnosisS1DispatchAttemptErr is diagnosisS1DispatchAttempt without the
+// fatal: it returns the dispatch route's own refusal so a test can prove the
+// route refuses before any write.
+func diagnosisS1DispatchAttemptErr(t *testing.T, s *Store, workID, stepID, attemptID string, dispatcher WorkflowActor, laneID string) error {
+	t.Helper()
+	entry, err := VerifyWorkflowInstanceDefinition(context.Background(), s, BuiltinWorkflowRegistry(), workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var lane LaneDefinition
+	for _, candidate := range BuiltinLaneDefinitions() {
+		if candidate.ID == laneID {
+			lane = candidate
+		}
+	}
+	if lane.ID == "" {
+		t.Fatalf("lane %s is not a builtin lane", laneID)
+	}
+	job := &WorkerJobBinding{JobID: "job-" + attemptID, Revision: 1}
+	var jobBinding map[string]any
+	if workflowWorkerJobsActive(entry.Definition) && stepDeclaresAction(entry.Definition, stepID, "record_worker_job") {
+		recordWorkerJobRevisionForTest(t, s, workID, dispatcher, job)
+		jobBinding = recordedPacketJobForTest(t, s, workID, *job)
+	} else {
+		job = nil
+	}
+	packet := diagnosisS1LanePacket(t, s, workID, stepID, attemptID, laneID)
+	packet["schema_version"] = WorkerPacketSchemaVersion
+	if jobBinding != nil {
+		packet["inputs"].(map[string]any)["worker_job"] = jobBinding
+	}
+	packet["inputs"].(map[string]any)["binding"].(map[string]any)["work_version"] = readWorkVersion(t, s, workID)
+	packetPayload, err := json.Marshal(packet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload := mustJSONValue(map[string]any{"attempt_id": attemptID, "worker_packet": json.RawMessage(packetPayload)})
+	key := "diagnosis-dispatch-" + attemptID
+	if _, err := invokeWorkflowActionForCD0059(context.Background(), t, s, WorkflowActionExecutionRequest{
+		WorkID: workID, ExpectedVersion: readWorkVersion(t, s, workID), ActionID: "dispatch_worker",
+		Payload: payload, SessionWorktree: dispatchSessionWorktree(t, s, workID),
+		Actor: dispatcher, AcceptedInputsDigest: "sha256:" + strings.Repeat("d", 64), IdempotencyIdentity: key, OperationID: key,
+		PrincipalRef: dispatcher.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: key, RequestID: "request:" + key,
+		ContractDigest: testManifestDigest, Now: time.Unix(10, 0).UTC(),
+	}); err != nil {
+		return err
+	}
+	var packetDigest string
+	if err := s.DatabaseForTesting().QueryRowContext(context.Background(), `SELECT json_extract(payload,'$.worker_packet_digest') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=? ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkflowActionCompleted, attemptID).Scan(&packetDigest); err != nil {
+		packetDigest = "sha256:" + strings.Repeat("d", 64)
+	}
+	dispatch := Event{EventID: "diagnosis-dispatch-" + workID + "-" + attemptID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(20, 0).UTC(), PayloadVersion: 2, Payload: mustJSONValue(WorkerDispatchedPayload{
+		AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, PacketDigest: packetDigest,
+		ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, WorkerJob: job,
+	})}
+	if err := s.Transact(context.Background(), func(transaction *Transaction) error {
+		prepared, err := PrepareLaneActorDispatch(context.Background(), transaction, dispatch, "principal/operator", "client/concord-1")
+		if err != nil {
+			return err
+		}
+		_, err = AppendLaneActorDispatchTx(context.Background(), transaction, prepared)
+		return err
+	}); err != nil {
+		t.Fatalf("record the lane dispatch %s: %v", attemptID, err)
+	}
+	return nil
+}
+
+// TestDispatchStartedStepDeniesTheCoordinatorCheckpointPair proves the
+// checkpoint-writer rule survives a dispatch-started step: the coordinator
+// whose dispatch opened the attempt holds no checkpoint pen while the lane
+// is live, because CD-0198 D3 exempts only the checkpoint its own derived
+// start opened.
+func TestDispatchStartedStepDeniesTheCoordinatorCheckpointPair(t *testing.T) {
+	t.Parallel()
+	const workID = "derived-pair-dispatch-started"
+	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
+	s := fixture.store
+	dispatcher := diagnosisS1Actor(workID, "dispatcher")
+	diagnosisS1DispatchAttempt(t, s, workID, "repair", "attempt:"+workID+":1", dispatcher, "implement")
+	starts := workflowStartedEventsAtStep(t, s, workID, "repair")
+	if len(starts) != 1 || starts[0].ActionID != "dispatch_worker" || starts[0].Epoch != 1 {
+		t.Fatalf("repair starts after the dispatch = %+v, want one dispatch_worker start at epoch 1", starts)
+	}
+	version := verdictItemVersion(t, s, workID)
+	if err := runVerdictActionAs(t, s, workID, "checkpoint_repair", json.RawMessage(`{}`), 0, dispatcher); err == nil {
+		t.Fatal("the dispatch-started coordinator authored checkpoint_repair behind a live lane")
+	}
+	if got := verdictItemVersion(t, s, workID); got != version {
+		t.Fatalf("the bypassed checkpoint moved the work version %d -> %d", version, got)
+	}
+	if starts := workflowStartedEventsAtStep(t, s, workID, "repair"); len(starts) != 1 {
+		t.Fatalf("the refused checkpoint left %d starts, want one", len(starts))
+	}
+}
+
+// TestReleasedPinsAnswerToTheCheckpointWriterRule proves the frozen boundary
+// the derivation pair never widened: on the released break_fix v24, whose
+// callable start_repair opens the step, the checkpoint its starter authors
+// behind a live lane answers to the writer rule like any other.
+func TestReleasedPinsAnswerToTheCheckpointWriterRule(t *testing.T) {
+	t.Parallel()
+	const workID = "released-pin-checkpoint-writer"
+	registered, ok := BuiltinWorkflowRegistry().Lookup("workflow.break_fix", 24)
+	if !ok {
+		t.Fatal("workflow.break_fix v24 is not registered")
+	}
+	fixture := seedWorkflowReturnRouteFixtureWithDefinition(t, workID, registered, "repair", []string{"verification"}, []string{"verification", "review", "artifact"})
+	s := fixture.store
+	starter := diagnosisS1Actor(workID, "starter")
+	if err := runVerdictActionAs(t, s, workID, "start_repair", json.RawMessage(`{}`), 0, starter); err != nil {
+		t.Fatalf("the callable start_repair on v24: %v", err)
+	}
+	diagnosisS1DispatchAttempt(t, s, workID, "repair", "attempt:"+workID+":1", starter, "implement")
+	starts := workflowStartedEventsAtStep(t, s, workID, "repair")
+	if len(starts) != 2 || starts[1].ActionID != "dispatch_worker" || starts[1].Epoch != 2 {
+		t.Fatalf("repair starts after the dispatch = %+v, want the start_repair start and the dispatch start at epoch 2", starts)
+	}
+	version := verdictItemVersion(t, s, workID)
+	if err := runVerdictActionAs(t, s, workID, "checkpoint_repair", json.RawMessage(`{}`), 0, starter); err == nil {
+		t.Fatal("the v24 starter authored checkpoint_repair behind a live lane")
+	}
+	if got := verdictItemVersion(t, s, workID); got != version {
+		t.Fatalf("the bypassed checkpoint moved the work version %d -> %d", version, got)
+	}
+}
+
+// TestDisposedWriterKeepsTheLaterCheckpointUnderTheWriterRule proves the
+// later same-actor checkpoint answers to the writer rule: after the derived
+// self-pair opened epoch 1, the dispatch that follows opens epoch 2, and the
+// attempt's disposal moves the pen — the pair's own actor cannot checkpoint
+// that later operation.
+func TestDisposedWriterKeepsTheLaterCheckpointUnderTheWriterRule(t *testing.T) {
+	t.Parallel()
+	const workID = "derived-pair-disposed-writer"
+	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
+	s := fixture.store
+	coordinator := diagnosisS1Actor(workID, "coordinator")
+	if err := runVerdictActionAs(t, s, workID, "checkpoint_repair", json.RawMessage(`{}`), 0, coordinator); err != nil {
+		t.Fatalf("the derived self-pair: %v", err)
+	}
+	starts := workflowStartedEventsAtStep(t, s, workID, "repair")
+	if len(starts) != 1 || starts[0].Epoch != 1 {
+		t.Fatalf("repair starts after the self-pair = %+v, want one derived start at epoch 1", starts)
+	}
+	diagnosisS1DispatchAttempt(t, s, workID, "repair", "attempt:"+workID+":2", coordinator, "implement")
+	starts = workflowStartedEventsAtStep(t, s, workID, "repair")
+	if len(starts) != 2 || starts[1].Epoch != 2 {
+		t.Fatalf("repair starts after the dispatch = %+v, want the dispatch start at epoch 2", starts)
+	}
+	failWorkerAttemptWithKind(t, s, workID, "attempt:"+workID+":2", "the lane failed before a judgeable result existed")
+	applyRecordWorkerFailureForTest(t, s, workID, fixture.owner, "attempt:"+workID+":2", 2, readWorkVersion(t, s, workID), "diagnosis-failure-"+workID)
+	version := verdictItemVersion(t, s, workID)
+	if err := runVerdictActionAs(t, s, workID, "checkpoint_repair", json.RawMessage(`{}`), 0, coordinator); err == nil {
+		t.Fatal("the derivation pair's actor authored the later checkpoint after the disposal moved the writer")
+	}
+	if got := verdictItemVersion(t, s, workID); got != version {
+		t.Fatalf("the bypassed checkpoint moved the work version %d -> %d", version, got)
+	}
+}
+
+// TestDiagnosisLaneCannotStrandTheMergedRecord proves the merged diagnosis
+// step stays live: it declares no worker dispatch and no failure record, so
+// a dispatch attempt refuses before any write, and the step's only route —
+// the valid merged record — advances diagnosis exactly as the three records
+// it replaced did. The refusal is not a guard to keep: a dispatch here
+// could never be disposed, because CD-0198 D2 removes the advancing accept,
+// so the step's own dispatch hold would strand the work with no accept to
+// release it and no other route across the merged edge (CD-0198 D2 keeps
+// record_diagnosis the only advance exit).
+func TestDiagnosisLaneCannotStrandTheMergedRecord(t *testing.T) {
+	t.Parallel()
+	const workID = "diagnosis-lane-cannot-strand"
+	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "diagnosis")
+	s := fixture.store
+	actor := fixture.owner
+	version := verdictItemVersion(t, s, workID)
+
+	// The structural refusal: the dispatch route itself refuses the attempt
+	// the merged step never declared, before any write.
+	if err := diagnosisS1DispatchAttemptErr(t, s, workID, "diagnosis", "attempt:"+workID+":1", actor, "review"); err == nil {
+		t.Fatal("dispatch_worker admitted at the merged diagnosis step")
+	}
+	if got := verdictItemVersion(t, s, workID); got != version {
+		t.Fatalf("the refused dispatch moved the work version %d -> %d", version, got)
+	}
+	if starts := workflowStartedEventsAtStep(t, s, workID, "diagnosis"); len(starts) != 0 {
+		t.Fatalf("the refused dispatch left %d step starts, want none", len(starts))
+	}
+	var attempts int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_attempts WHERE work_id=?`, workID).Scan(&attempts); err != nil {
+		t.Fatal(err)
+	}
+	if attempts != 0 {
+		t.Fatalf("the refused dispatch left %d worker attempts, want zero writes", attempts)
+	}
+	if err := runVerdictActionAs(t, s, workID, "record_worker_failure", json.RawMessage(`{"attempt_id":"attempt:`+workID+`:1","attempt_epoch":1}`), 0, actor); err == nil {
+		t.Fatal("record_worker_failure admitted at the merged diagnosis step")
+	}
+	if got := verdictItemVersion(t, s, workID); got != version {
+		t.Fatalf("the refused failure record moved the work version %d -> %d", version, got)
+	}
+	if rows := diagnosisAlignmentRows(t, s, workID); len(rows) != 0 {
+		t.Fatalf("the refused lane actions wrote %d alignment rows", len(rows))
+	}
+
+	// The liveness: the step's only route stays live behind the refusals —
+	// no dispatched hold stands between the step and its valid record.
+	if err := runVerdictActionAs(t, s, workID, "record_diagnosis", diagnosisPayload("the reproduction", "the search", "none_found", nil, "the cause"), 0, actor); err != nil {
+		t.Fatalf("the valid merged record behind the refused lane: %v", err)
+	}
+	if step := currentStep(t, s, workID); step != "planning" {
+		t.Fatalf("step after the valid record = %q, want planning", step)
+	}
+}
+
+// TestDispatchStillOpensTheFirstEpoch proves the fenced dispatch keeps its
+// own start on the current heads: on the repair and refine steps, which
+// still declare dispatch_worker, the dispatch is the step's first action and
+// opens the step's first epoch exactly as the callable start it replaced
+// did, without crossing the step's forward edge. The merged diagnosis step
+// declares no dispatch at all; TestDiagnosisLaneCannotStrandTheMergedRecord
+// proves that refusal leaves zero writes.
+func TestDispatchStillOpensTheFirstEpoch(t *testing.T) {
+	t.Parallel()
+	for _, route := range []struct{ step, lane string }{
+		{"repair", "implement"}, {"refine", "review"},
+	} {
+		workID := "dispatch-opens-first-epoch-" + route.step
+		fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", route.step)
+		s := fixture.store
+		dispatcher := fixture.owner
+		diagnosisS1DispatchAttempt(t, s, workID, route.step, "attempt:"+workID+":1", dispatcher, route.lane)
+		starts := workflowStartedEventsAtStep(t, s, workID, route.step)
+		if len(starts) != 1 || starts[0].ActionID != "dispatch_worker" || starts[0].Epoch != 1 {
+			t.Fatalf("%s starts after the dispatch = %+v, want one dispatch_worker start at epoch 1", route.step, starts)
+		}
+		dispatcherRef, err := WorkflowActorRef(dispatcher)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if starts[0].ActorRef != dispatcherRef {
+			t.Fatalf("the dispatch start names %q, want the dispatcher %q", starts[0].ActorRef, dispatcherRef)
+		}
+		if step := currentStep(t, s, workID); step != route.step {
+			t.Fatalf("step after the dispatch = %q, want %s; a dispatch never crosses the forward edge", step, route.step)
+		}
+	}
+}
+
 func runVerdictActionAtVersion(t *testing.T, s *Store, workID, action string, payload json.RawMessage, version int64, owner WorkflowActor) error {
 	t.Helper()
 	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
@@ -751,4 +1049,3 @@ func runWorkflowActionWithIdentity(t *testing.T, s *Store, workID, action string
 	}
 	return tx.Commit()
 }
-

@@ -18,7 +18,9 @@ func actionableWorkKind(kind string) bool {
 
 func requireActionableWorkKind(kind, operation string) error {
 	if !actionableWorkKind(kind) {
-		return retiredInitiativeWriteRefused(operation)
+		return newFailure(KindInvalidOperation, operation,
+			"initiative work kind is read-only under CD-0213 D4/D8 and cannot enter execution", false,
+			"group the work in Linear through the Linear MCP server")
 	}
 	return nil
 }
@@ -80,7 +82,10 @@ func refuseRetiredPlanningAppend(ctx context.Context, tx *sql.Tx, event Event, p
 		if err := decodePayload(prepared.current, &payload); err != nil {
 			return err
 		}
-		return requireActionableWorkKind(payload.WorkKind, event.Kind)
+		if !actionableWorkKind(payload.WorkKind) {
+			return retiredInitiativeWriteRefused(event.Kind)
+		}
+		return nil
 	}
 	var kind string
 	err := tx.QueryRowContext(ctx, `SELECT kind FROM work_items WHERE id=?`, event.SubjectID).Scan(&kind)
@@ -91,7 +96,10 @@ func refuseRetiredPlanningAppend(ctx context.Context, tx *sql.Tx, event Event, p
 		return wrapFailure(KindUnavailable, "append_event", "cannot read the subject work kind", true,
 			"retry once the database is readable", err)
 	}
-	return requireActionableWorkKind(kind, event.Kind)
+	if !actionableWorkKind(kind) {
+		return retiredInitiativeWriteRefused(event.Kind)
+	}
+	return nil
 }
 
 type productPlanningModeSetPayload struct {

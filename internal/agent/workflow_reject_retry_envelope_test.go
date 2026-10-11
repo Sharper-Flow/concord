@@ -180,10 +180,10 @@ func combinedRejectRefusalEvents(t *testing.T, s *store.Store) int {
 func TestCombinedRejectOversizedResultRefusesZeroWrite(t *testing.T) {
 	ctx := context.Background()
 	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition", "worker_dispatch"})
-	version, worktree := seedDerivedFailureWorkerForCombinedReject(t, s, service, grant)
+	_, worktree := seedDerivedFailureWorkerForCombinedReject(t, s, service, grant)
 	grant.Worktree = worktree
 	recordOversizedWorkContext(t, s, service, grant)
-	version = workVersion(t, s, "work-1")
+	version := workVersion(t, s, "work-1")
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)
@@ -252,11 +252,12 @@ func TestCombinedRejectNormalSizeCommits(t *testing.T) {
 		t.Fatalf("the normal-size combined rejection: %+v", committed.Error)
 	}
 	var result map[string]any
-	if json.Unmarshal(committed.Result, &result) != nil {
+	if err := json.Unmarshal(committed.Result, &result); err != nil {
 		t.Fatal(err)
 	}
-	if result["retry_attempt_id"] != "workflow-combined-reject-normal-1:retry" && result["retry_attempt_id"] == "" {
-		t.Fatalf("the committed combined rejection carries no retry attempt: %v", result)
+	operationID, ok := result["operation_id"].(string)
+	if !ok || operationID == "" || result["retry_attempt_id"] != operationID+":retry" {
+		t.Fatalf("the committed retry does not bind the original rejection operation: %v", result)
 	}
 	if after := combinedRejectRefusalEvents(t, s); after != before+2 {
 		t.Fatalf("the normal-size combined call recorded %d rejection and dispatch completions, want the rejection and the retry dispatch", after-before)

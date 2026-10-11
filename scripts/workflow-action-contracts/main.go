@@ -102,6 +102,35 @@ func conflictingFieldName(a, b store.WorkflowPayloadDefinition) string {
 	return ""
 }
 
+// schemaIdentityDrift reports whether two declarations of one field differ
+// only in the generated schema identity they declare. Versioned decoder
+// identities are the sanctioned case: current heads of different generations
+// declare the same wire field against different decoder identities, and the
+// projection publishes the declarations as the closed variants it already
+// carries. Any other difference stays a conflict.
+func schemaIdentityDrift(left, right store.WorkflowPayloadField) bool {
+	strippedLeft, strippedRight := left, right
+	strippedLeft.SchemaRef, strippedRight.SchemaRef = "", ""
+	strippedLeft.ItemRef, strippedRight.ItemRef = "", ""
+	return reflect.DeepEqual(strippedLeft, strippedRight) && (left.SchemaRef != right.SchemaRef || left.ItemRef != right.ItemRef)
+}
+
+// conflictingSharedField returns the first shared field two current payload
+// declarations carry with a difference that is not a schema-identity drift.
+// Schema-identity drift keeps both variants: the store validates each call
+// against the exact definition version the work item pins, and the frozen
+// historical decoder owns the replay side of each identity.
+func conflictingSharedField(a, b store.WorkflowPayloadDefinition) string {
+	for _, left := range a.Fields {
+		for _, right := range b.Fields {
+			if left.Name == right.Name && !reflect.DeepEqual(left, right) && !schemaIdentityDrift(left, right) {
+				return left.Name
+			}
+		}
+	}
+	return ""
+}
+
 // collectActionContracts folds the registered definitions into the
 // projection's action contracts. Current definitions and the recovery list
 // contribute variants; retained versions contribute legacy payloads under
@@ -125,10 +154,10 @@ func collectActionContracts(current []store.WorkflowDefinition, recovery []store
 				contracts[action.ID] = contract
 				return nil
 			}
-			if field := conflictingFieldName(existing.Payload, variant.Payload); field != "" {
+			if field := conflictingSharedField(existing.Payload, variant.Payload); field != "" {
 				return fmt.Errorf("action %s has inconsistent current payload contracts: field %s is declared differently across current definitions", action.ID, field)
 			}
-			if field := conflictingFieldName(existing.PublicPayload, variant.PublicPayload); field != "" {
+			if field := conflictingSharedField(existing.PublicPayload, variant.PublicPayload); field != "" {
 				return fmt.Errorf("action %s has inconsistent current payload contracts: field %s is declared differently across current public payload contracts", action.ID, field)
 			}
 		}

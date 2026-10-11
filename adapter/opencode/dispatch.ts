@@ -622,6 +622,18 @@ export interface AgentResultEnvelope {
   // dispatch reports that the window is open and the host must now issue the
   // Task call. A completed attempt never carries this field.
   dispatch_state?: "awaiting_worker"
+  // CD-0198 D5: the combined rejection route preserves the committed
+  // rejection's mutation receipt beside the Task directive, so the caller
+  // keeps the rejection's changed references, next intents, and result
+  // receipt (the retry attempt identity, the packet digest, and the claimed
+  // worktree) that the launch output replaced. The values are copied from the
+  // core envelope the invoke boundary already validated against the generated
+  // contracts; retry_worker_packet is omitted because the launch consumed
+  // those exact bytes into the armed window and the digest names the durable
+  // copy the store holds.
+  changed_refs?: Array<{ entity_kind: string; id: string; version: unknown }>
+  next_valid_intents?: unknown[]
+  result?: Record<string, unknown>
   error?: {
     // Only an authorization denial is unauthorized_dispatch. Other core
     // failures retain their typed error in details.core_error; a transport

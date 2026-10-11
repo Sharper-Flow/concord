@@ -1,8 +1,12 @@
 package store
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"reflect"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/sharper-flow/concord/internal/payloadschema"
@@ -330,5 +334,271 @@ func TestHistoricalEngineCrossFieldRulesStayVersionInvariant(t *testing.T) {
 	}
 	if len(workflowActionCrossField("record_alignment").Combinations) != 2 {
 		t.Fatal("record_alignment lost its engine cross-field declaration")
+	}
+}
+
+// releasedFrozenWorkerPacketDigest is the canonical-JSON digest of the frozen
+// historical decoder's worker_packet definition as released. The definition
+// is the only decoder for every released 1.0/1.1 recorded packet, so any
+// rewrite of its bytes is a replay break the witness refuses before it can
+// land.
+const releasedFrozenWorkerPacketDigest = "sha256:f2efb64652898438478e8f2093e97dcd76add600f23f022a345d4cc1861fccf9"
+
+// TestFrozenWorkerPacketBaselineStaysByteExact pins the frozen 1.0/1.1
+// worker_packet baseline to its released bytes: the historical decoder grows
+// only by addition through the owning freeze, and the versioned additions
+// must not have moved one byte of the released baseline. It also pins the
+// versioned identities: the frozen worker_packet2, work_context_view2, and
+// work_context_domain_group2 the freeze carried equal the live published
+// definitions, so the versioned identity replays exactly the shape it
+// records.
+func TestFrozenWorkerPacketBaselineStaysByteExact(t *testing.T) {
+	frozen := deepCopyJSONDocument(t, payloadschema.HistoricalDocument())
+	defs := frozen["$defs"].(map[string]any)
+	packet, ok := defs["worker_packet"].(map[string]any)
+	if !ok {
+		t.Fatal("the frozen decoder carries no worker_packet definition")
+	}
+	raw, err := json.Marshal(packet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var canonical map[string]any
+	if json.Unmarshal(raw, &canonical) != nil {
+		t.Fatal(err)
+	}
+	ordered, err := json.Marshal(canonical)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Canonical JSON sorts keys, so the digest is stable across projections.
+	sum := sha256.Sum256(ordered)
+	digest := "sha256:" + hex.EncodeToString(sum[:])
+	if digest != releasedFrozenWorkerPacketDigest {
+		t.Fatalf("the frozen worker_packet baseline drifted: computed %s, released %s", digest, releasedFrozenWorkerPacketDigest)
+	}
+	// The versioned identities the freeze carried are the published shapes:
+	// the packet, the view it anchors, and the nav-free group the view
+	// resolves, so the versioned identity replays exactly the shape it
+	// records, transitively.
+	liveDefs := deepCopyJSONDocument(t, payloadschema.Document())["$defs"].(map[string]any)
+	for _, name := range []string{"worker_packet2", "work_context_view2", "work_context_domain_group2"} {
+		versioned, ok := defs[name].(map[string]any)
+		if !ok {
+			t.Fatalf("the frozen decoder carries no versioned %s definition", name)
+		}
+		live, ok := liveDefs[name]
+		if !ok {
+			t.Fatalf("the public authoring document carries no versioned %s definition", name)
+		}
+		if !reflect.DeepEqual(versioned, live) {
+			t.Fatalf("the frozen %s definition drifted from the published identity", name)
+		}
+	}
+	if ref := defs["worker_packet2"].(map[string]any)["properties"].(map[string]any)["inputs"].(map[string]any)["properties"].(map[string]any)["work_context"].(map[string]any)["$ref"]; ref != "#/$defs/work_context_view2" {
+		t.Fatalf("the frozen worker_packet2 anchors %q, want the versioned work_context_view2", ref)
+	}
+	// The versioned identity carries no retired conditional: its
+	// schema_version is the 2.0 identity alone, so the 1.0 worker_job branch
+	// the released worker_packet keeps has nothing to select here.
+	if _, dead := defs["worker_packet2"].(map[string]any)["allOf"]; dead {
+		t.Fatal("the versioned worker_packet2 carries the retired 1.0 conditional")
+	}
+}
+
+// TestDerivedFailureHeadsReplayVersionedPacket is the replay witness for the
+// versioned packet2 closure: the derived-failure heads (implementation v29,
+// break_fix v26) declare the versioned packet2 decoder, so a recorded
+// dispatch_worker payload carrying the packet2.0 identity replays through
+// the frozen decoder's worker_packet2 definition; the retained v28/v25 pins
+// keep the released worker_packet declaration, so their 1.1 history replays
+// through the byte-exact frozen baseline unchanged, and each pin refuses the
+// other generation's identity on its own declaration.
+func TestDerivedFailureHeadsReplayVersionedPacket(t *testing.T) {
+	head, ok := BuiltinWorkflowRegistry().Lookup("workflow.implementation", 29)
+	if !ok {
+		t.Fatal("implementation v29 is not registered")
+	}
+	retained, ok := BuiltinWorkflowRegistry().Lookup("workflow.implementation", 28)
+	if !ok {
+		t.Fatal("implementation v28 is not registered")
+	}
+	if head.Definition.Version != 29 || !pinIsBelowHead(t, retained.Definition) {
+		t.Fatal("the witness pins are not one derived-failure head and one retained pin")
+	}
+	headRef, retainedRef := dispatchPacketSchemaRef(t, head.Definition), dispatchPacketSchemaRef(t, retained.Definition)
+	if headRef != "worker_packet2" {
+		t.Fatalf("implementation v29 dispatch packet schema ref = %q, want the versioned worker_packet2", headRef)
+	}
+	if retainedRef != "worker_packet" {
+		t.Fatalf("implementation v28 dispatch packet schema ref = %q, want the released worker_packet", retainedRef)
+	}
+	breakFixHead, ok := BuiltinWorkflowRegistry().Lookup("workflow.break_fix", 26)
+	if !ok {
+		t.Fatal("break_fix v26 is not registered")
+	}
+	if dispatchPacketSchemaRef(t, breakFixHead.Definition) != "worker_packet2" {
+		t.Fatal("break_fix v26 dispatch packet schema ref is not the versioned worker_packet2")
+	}
+
+	modern := json.RawMessage(`{"attempt_id":"attempt-witness","worker_packet":` + string(discriminatingWorkerPacket("2.0")) + `}`)
+	historic := json.RawMessage(`{"attempt_id":"attempt-witness","worker_packet":` + string(discriminatingWorkerPacket("1.1")) + `}`)
+	if err := validateWorkflowActionPayloadForReplay(head.Definition, "dispatch_worker", modern); err != nil {
+		t.Errorf("replay refused the recorded packet2.0 history the derived-failure head declared: %v", err)
+	}
+	if err := validateWorkflowActionPayloadForReplay(head.Definition, "dispatch_worker", historic); err == nil {
+		t.Error("replay admitted a retired 1.1 packet identity the versioned worker_packet2 declaration never accepted")
+	}
+	if err := validateWorkflowActionPayloadForReplay(retained.Definition, "dispatch_worker", historic); err != nil {
+		t.Errorf("replay refused the recorded 1.1 history the retained v28 pin declared: %v", err)
+	}
+	if err := validateWorkflowActionPayloadForReplay(retained.Definition, "dispatch_worker", modern); err == nil {
+		t.Error("replay admitted the packet2.0 identity through the released worker_packet declaration the frozen baseline never froze")
+	}
+	// The live role answers to the published document for every pin: the
+	// derived-failure head publishes the versioned identity, and the
+	// released surface keeps the 2.0-only worker_packet gate it shipped.
+	if err := validateWorkflowActionPayload(head.Definition, "dispatch_worker", modern); err != nil {
+		t.Errorf("live validation refused the current packet2.0 packet on the derived-failure head: %v", err)
+	}
+	if err := validateWorkflowActionPayload(retained.Definition, "dispatch_worker", modern); err != nil {
+		t.Errorf("live validation refused the published 2.0 packet on the retained v28 pin: %v", err)
+	}
+}
+
+// dispatchPacketSchemaRef reads the dispatch_worker packet field's declared
+// schema identity off one definition.
+func dispatchPacketSchemaRef(t *testing.T, definition WorkflowDefinition) string {
+	t.Helper()
+	for _, action := range definition.ActionDefinitions {
+		if action.ID != "dispatch_worker" {
+			continue
+		}
+		for _, field := range action.Payload.Fields {
+			if field.Name == "worker_packet" {
+				return field.SchemaRef
+			}
+		}
+	}
+	t.Fatal("the definition declares no dispatch_worker worker_packet field")
+	return ""
+}
+
+// fullWorkContextPacket2 builds one packet2 carrying a fully populated
+// work-context view — readings, findings, and the domain groups the versioned
+// view resolves — so the nested closure, not the packet root alone, decides
+// the verdict. navigationGroup carries the retired repository navigation
+// cards; navFreeGroup carries exactly the current group shape.
+func fullWorkContextPacket2(schemaVersion string, group map[string]any) json.RawMessage {
+	view := map[string]any{
+		"source_event_frontier": 7,
+		"required_reading": []map[string]any{{
+			"domain_id": "registry:root",
+			"reason":    "the root domain governs every finding in this view",
+			"source": map[string]any{
+				"kind": "repository_file", "project_id": "project-fixture",
+				"path": "docs/root.md", "commit_oid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			},
+		}},
+		"findings": []map[string]any{{
+			"finding_id": "finding:7:0", "kind": "observation",
+			"statement":     "the packet2 work-context closure carries the current view",
+			"subject_ref":   "context:packet2-closure",
+			"evidence_refs": []string{"evidence:packet2-closure"},
+			"domain_id":     "registry:root",
+			"origin":        "declaration", "status": "reported",
+			"source_event_id": "event:packet2-closure", "source_event_seq": 7, "ordinal": 0,
+		}},
+		"domain_groups": []map[string]any{group},
+	}
+	packet := map[string]any{
+		"schema_version": schemaVersion, "attempt_id": "attempt-packet2-closure",
+		"lane_id": "implement", "lane_version": 1,
+		"lane_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+		"work_id":     "work-packet2-closure", "step_id": "execution",
+		"inputs": map[string]any{
+			"task": "the bounded packet2 closure task",
+			"binding": map[string]any{
+				"objective_source": "contract_premise", "work_version": 1,
+				"contract_version": 1, "assigned_result": "changed_files",
+			},
+			"report_protocol": "concord-worker-result-v1",
+			"work_context":    view,
+		},
+	}
+	raw, err := json.Marshal(packet)
+	if err != nil {
+		panic(err)
+	}
+	return raw
+}
+
+// TestPacket2WorkContextClosureParityAcrossLiveAndReplay proves the
+// versioned packet2 closure preserves value and refusal parity transitively:
+// a full representative packet2 whose work-context view carries the current
+// nav-free domain group is admitted by the live worker_packet2 and replays
+// through the frozen worker_packet2; the same packet whose group carries the
+// retired repository navigation cards is refused by both, with the refusal
+// naming the retired member; and the frozen 1.0/1.1 worker_packet baseline
+// still decodes a navigation-bearing group, so the released histories keep
+// their own decoder unchanged. A root-and-version-only witness cannot see
+// any of this; the nested shape is the witness.
+func TestPacket2WorkContextClosureParityAcrossLiveAndReplay(t *testing.T) {
+	head, ok := BuiltinWorkflowRegistry().Lookup("workflow.implementation", 29)
+	if !ok {
+		t.Fatal("implementation v29 is not registered")
+	}
+	retained, ok := BuiltinWorkflowRegistry().Lookup("workflow.implementation", 28)
+	if !ok {
+		t.Fatal("implementation v28 is not registered")
+	}
+	if !pinIsBelowHead(t, retained.Definition) {
+		t.Fatal("the baseline witness pin is not a retained pin")
+	}
+	navFreeGroup := map[string]any{
+		"domain_id":                 "registry:root",
+		"required_reading_ordinals": []int{0},
+		"finding_ids":               []string{"finding:7:0"},
+	}
+	navigationGroup := map[string]any{
+		"domain_id":                 "registry:root",
+		"required_reading_ordinals": []int{0},
+		"finding_ids":               []string{"finding:7:0"},
+		"domain_cards": []map[string]any{{
+			"kind": "repository_file", "project_id": "project-fixture",
+			"path": "docs/root.md", "commit_oid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		}},
+	}
+	wrap := func(packet json.RawMessage) json.RawMessage {
+		return json.RawMessage(`{"attempt_id":"attempt-packet2-closure","worker_packet":` + string(packet) + `}`)
+	}
+
+	current := wrap(fullWorkContextPacket2("2.0", navFreeGroup))
+	if err := validateWorkflowActionPayload(head.Definition, "dispatch_worker", current); err != nil {
+		t.Errorf("live worker_packet2 refused the current nav-free work-context closure: %v", err)
+	}
+	if err := validateWorkflowActionPayloadForReplay(head.Definition, "dispatch_worker", current); err != nil {
+		t.Errorf("replay worker_packet2 refused the current nav-free work-context closure: %v", err)
+	}
+
+	retired := wrap(fullWorkContextPacket2("2.0", navigationGroup))
+	if err := validateWorkflowActionPayload(head.Definition, "dispatch_worker", retired); err == nil {
+		t.Error("live worker_packet2 admitted the retired repository navigation cards")
+	} else if !strings.Contains(err.Error(), "domain_cards") {
+		t.Errorf("the retired-navigation refusal does not name domain_cards: %v", err)
+	}
+	if err := validateWorkflowActionPayloadForReplay(head.Definition, "dispatch_worker", retired); err == nil {
+		t.Error("replay worker_packet2 admitted the retired repository navigation cards")
+	} else if !strings.Contains(err.Error(), "domain_cards") {
+		t.Errorf("the retired-navigation replay refusal does not name domain_cards: %v", err)
+	}
+
+	// The released baseline keeps its own decoder: a 1.1 packet whose view
+	// carries the navigation-bearing group replays through the frozen
+	// worker_packet exactly as its recorded writes answered, and the live
+	// retired gate above changed nothing about it.
+	historicRetained := wrap(fullWorkContextPacket2("1.1", navigationGroup))
+	if err := validateWorkflowActionPayloadForReplay(retained.Definition, "dispatch_worker", historicRetained); err != nil {
+		t.Errorf("replay worker_packet refused the released navigation-bearing history: %v", err)
 	}
 }

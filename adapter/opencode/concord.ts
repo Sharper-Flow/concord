@@ -2560,6 +2560,15 @@ async function executeWorkTransition(args: HostToolArgs, context: ToolContext, s
 // rejection-only response, an error such as the escalation wall, or any
 // other action) returns null and the ordinary path continues untouched; no
 // launch is attempted for a response that did not commit one.
+//
+// CD-0198 D5: the acknowledged output preserves the committed rejection's
+// mutation receipt beside the Task directive the launch owner produces:
+// changed_refs, next_valid_intents, and the core result receipt ride the
+// launch envelope under their core names. The copies come from the core
+// envelope the invoke boundary already validated against the generated
+// contracts, so no second validator runs; retry_worker_packet stays off the
+// copy because the launch consumed those exact bytes into the armed window
+// and the digest names the durable copy the store holds.
 async function launchRetriedWorkerDispatch(args: HostToolArgs, context: ToolContext, envelope: unknown): Promise<HostConcordEnvelope | null> {
   if (!record(args?.input) || args.input.action_id !== "reject_worker_result") return null
   if (!record(envelope) || envelope.outcome !== "ok") return null
@@ -2568,7 +2577,12 @@ async function launchRetriedWorkerDispatch(args: HostToolArgs, context: ToolCont
   const attemptID = typeof result.retry_attempt_id === "string" ? result.retry_attempt_id : ""
   const digest = typeof result.worker_packet_digest === "string" ? result.worker_packet_digest : ""
   const worktree = typeof result.worker_worktree === "string" ? result.worker_worktree : ""
-  return await dispatchRetriedLaneWorker({ packet: result.retry_worker_packet, packetDigest: digest, attemptID, authorizedWorktree: worktree }, { context })
+  const launch = await dispatchRetriedLaneWorker({ packet: result.retry_worker_packet, packetDigest: digest, attemptID, authorizedWorktree: worktree }, { context })
+  if (!record(launch)) return launch as HostConcordEnvelope
+  const receipt = Array.isArray(envelope.changed_refs) ? envelope.changed_refs : undefined
+  const intents = Array.isArray(envelope.next_valid_intents) ? envelope.next_valid_intents : undefined
+  const { retry_worker_packet: _consumed, ...resultReceipt } = result
+  return { ...launch, changed_refs: receipt, next_valid_intents: intents, result: resultReceipt } as HostConcordEnvelope
 }
 
 // vacateTerminalWorktree moves a session out of a work item's worktree after

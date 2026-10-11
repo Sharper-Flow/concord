@@ -2640,8 +2640,8 @@ const GeneratedPayloadSchemaDocument = `{
           "description": "CD-0198 D5: present only on a combined rejection whose retry dispatch the core committed. The fresh fenced attempt the core minted (<operation-id>:retry); its in-flight window, packet digest, and claimed worktree are all the core's own record. Reconcile by this identity; never re-authorize it."
         },
         "retry_worker_packet": {
-          "$ref": "#/$defs/worker_packet",
-          "description": "CD-0198 D5: the exact worker packet the core derived and dispatched inside a combined rejection, serialized on the response so the adapter's host launch arms the window from the core's own admitted bytes. The caller never authors, rebuilds, or replaces this packet."
+          "$ref": "#/$defs/worker_packet2",
+          "description": "CD-0198 D5: the exact worker packet the core derived and dispatched inside a combined rejection, serialized on the response so the adapter's host launch arms the window from the core's own admitted bytes. The caller never authors, rebuilds, or replaces this packet. The derived packet is always the versioned packet2 identity."
         },
         "vacate_target": {
           "$ref": "#/$defs/vacate_target",
@@ -7201,6 +7201,40 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "object"
     },
+    "work_context_domain_group2": {
+      "additionalProperties": false,
+      "properties": {
+        "domain_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "finding_ids": {
+          "items": {
+            "pattern": "^finding:[0-9]+:[0-9]+$",
+            "type": "string"
+          },
+          "maxItems": 32,
+          "minItems": 0,
+          "type": "array"
+        },
+        "required_reading_ordinals": {
+          "items": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "maxItems": 32,
+          "minItems": 0,
+          "type": "array"
+        }
+      },
+      "required": [
+        "domain_id",
+        "required_reading_ordinals",
+        "finding_ids"
+      ],
+      "type": "object"
+    },
     "work_context_finding": {
       "additionalProperties": false,
       "properties": {
@@ -7472,6 +7506,72 @@ const GeneratedPayloadSchemaDocument = `{
         "domain_groups": {
           "items": {
             "$ref": "#/$defs/work_context_domain_group"
+          },
+          "maxItems": 64,
+          "minItems": 0,
+          "type": "array"
+        },
+        "findings": {
+          "items": {
+            "$ref": "#/$defs/work_context_finding_view"
+          },
+          "maxItems": 32,
+          "minItems": 0,
+          "type": "array"
+        },
+        "oracle_preparations": {
+          "description": "Only native preparation records selected by the immutable job's readiness refs. No raw output or alternative readiness authority.",
+          "items": {
+            "$ref": "#/$defs/native_oracle_preparation"
+          },
+          "maxItems": 512,
+          "minItems": 0,
+          "type": "array"
+        },
+        "oracle_receipts": {
+          "description": "The prior typed control-execution receipts this work retained (CON-890), in log order: reported regression baselines with their exact identities, never current-subject acceptance.",
+          "items": {
+            "$ref": "#/$defs/worker_oracle_receipt"
+          },
+          "maxItems": 64,
+          "minItems": 0,
+          "type": "array"
+        },
+        "required_reading": {
+          "items": {
+            "$ref": "#/$defs/work_context_reading"
+          },
+          "maxItems": 32,
+          "minItems": 0,
+          "type": "array"
+        },
+        "source_event_frontier": {
+          "description": "The work item's maximum event sequence at read time, so a packet built from this view can be compared against current state before spawn.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "subject_commit": {
+          "description": "The sole core-derived current subject, as a raw commit OID. Native receipt subject_ref remains commit:OID and the store normalizes that reference once.",
+          "maxLength": 64,
+          "minLength": 40,
+          "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_event_frontier",
+        "required_reading",
+        "findings",
+        "domain_groups"
+      ],
+      "type": "object"
+    },
+    "work_context_view2": {
+      "additionalProperties": false,
+      "properties": {
+        "domain_groups": {
+          "items": {
+            "$ref": "#/$defs/work_context_domain_group2"
           },
           "maxItems": 64,
           "minItems": 0,
@@ -14597,27 +14697,77 @@ const GeneratedPayloadSchemaDocument = `{
           "$ref": "#/$defs/version"
         },
         "fields": {
-          "additionalProperties": false,
-          "maxProperties": 32,
-          "properties": {
-            "attempt_id": {
-              "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths.",
-              "maxLength": 128,
-              "minLength": 1,
-              "pattern": "^[^\\x09-\\x0d    -     　]+$",
-              "type": "string",
-              "x-maxBytes": 128,
-              "x-minBytes": 2
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "maxProperties": 32,
+              "properties": {
+                "attempt_id": {
+                  "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths.",
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[^\\x09-\\x0d    -     　]+$",
+                  "type": "string",
+                  "x-maxBytes": 128,
+                  "x-minBytes": 2
+                },
+                "worker_packet": {
+                  "$ref": "#/$defs/worker_packet2"
+                }
+              },
+              "required": [
+                "attempt_id",
+                "worker_packet"
+              ],
+              "type": "object"
             },
-            "worker_packet": {
-              "$ref": "#/$defs/worker_packet"
+            {
+              "additionalProperties": false,
+              "maxProperties": 32,
+              "not": {
+                "additionalProperties": false,
+                "maxProperties": 32,
+                "properties": {
+                  "attempt_id": {
+                    "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths.",
+                    "maxLength": 128,
+                    "minLength": 1,
+                    "pattern": "^[^\\x09-\\x0d    -     　]+$",
+                    "type": "string",
+                    "x-maxBytes": 128,
+                    "x-minBytes": 2
+                  },
+                  "worker_packet": {
+                    "$ref": "#/$defs/worker_packet2"
+                  }
+                },
+                "required": [
+                  "attempt_id",
+                  "worker_packet"
+                ],
+                "type": "object"
+              },
+              "properties": {
+                "attempt_id": {
+                  "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths.",
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[^\\x09-\\x0d    -     　]+$",
+                  "type": "string",
+                  "x-maxBytes": 128,
+                  "x-minBytes": 2
+                },
+                "worker_packet": {
+                  "$ref": "#/$defs/worker_packet"
+                }
+              },
+              "required": [
+                "attempt_id",
+                "worker_packet"
+              ],
+              "type": "object"
             }
-          },
-          "required": [
-            "attempt_id",
-            "worker_packet"
-          ],
-          "type": "object"
+          ]
         },
         "idempotency_key": {
           "$ref": "#/$defs/id"
@@ -24802,6 +24952,121 @@ const GeneratedPayloadSchemaDocument = `{
             },
             "work_context": {
               "$ref": "#/$defs/work_context_view",
+              "description": "CON-887: the current work-context view the work pin carried when the packet was built. The core refuses a dispatch whose packet does not consume the current view byte-for-byte."
+            },
+            "work_record": {
+              "$ref": "#/$defs/worker_packet_work_record"
+            },
+            "worker_job": {
+              "$ref": "#/$defs/worker_packet_worker_job"
+            }
+          },
+          "required": [
+            "task",
+            "binding"
+          ],
+          "type": "object"
+        },
+        "lane_digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "lane_id": {
+          "$ref": "#/$defs/id"
+        },
+        "lane_version": {
+          "maximum": 2147483647,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "schema_version": {
+          "description": "The live dispatch_worker surface records only the current card-free packet revision (CON-899). Released 1.0/1.1 histories replay through the versioned lane packet contract, never through this gate; an old host quoting a retired identity is refused typed before the authorization exists.",
+          "enum": [
+            "2.0"
+          ],
+          "type": "string"
+        },
+        "step_id": {
+          "$ref": "#/$defs/id"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "schema_version",
+        "attempt_id",
+        "lane_id",
+        "lane_version",
+        "lane_digest",
+        "work_id",
+        "step_id",
+        "inputs"
+      ],
+      "type": "object"
+    },
+    "worker_packet2": {
+      "additionalProperties": false,
+      "description": "The versioned packet2 identity the derived-failure workflow definitions record and replay. It mirrors $defs/worker_packet shape for shape under a versioned name, so the frozen decoder carries it beside the byte-exact 1.0/1.1 worker_packet baseline the released pins replay through; the live dispatch_worker surface below the derived-failure heads still records through $defs/worker_packet.",
+      "properties": {
+        "attempt_id": {
+          "$ref": "#/$defs/id"
+        },
+        "inputs": {
+          "additionalProperties": false,
+          "properties": {
+            "binding": {
+              "$ref": "#/$defs/worker_packet_binding"
+            },
+            "checkpoint": {
+              "$ref": "#/$defs/continuity_checkpoint",
+              "description": "CON-883: the latest context checkpoint the pinned continuity projection carried when the packet was built. The core refuses a dispatch whose packet does not carry the latest checkpoint byte-for-byte."
+            },
+            "constraints": {
+              "items": {
+                "maxLength": 512,
+                "minLength": 1,
+                "type": "string"
+              },
+              "maxItems": 64,
+              "minItems": 0,
+              "type": "array"
+            },
+            "context": {
+              "description": "Prose context a packet built before the typed record members carried. The lane-packet schema keeps it so a retained packet from an attempt dispatched before that change still validates on recovery. The core dispatch admission refuses it, so no new packet carries it.",
+              "maxLength": 16384,
+              "minLength": 0,
+              "type": "string"
+            },
+            "correction": {
+              "$ref": "#/$defs/workflow_correction_context"
+            },
+            "design_record": {
+              "$ref": "#/$defs/workflow_design_record",
+              "description": "The current typed design record (CD-0128). The core refuses a dispatch whose packet member differs from the current recorded state, omits a present record, or carries a member no record backs."
+            },
+            "law_context": {
+              "$ref": "#/$defs/workflow_law_context",
+              "description": "The approved contract's binding law and Domains the pinned continuity resolved. The core refuses a dispatch whose packet member differs from the current recorded state, omits a present record, or carries a member no record backs."
+            },
+            "outcome_predicates": {
+              "$ref": "#/$defs/worker_packet_outcome_predicates"
+            },
+            "proposal_record": {
+              "$ref": "#/$defs/workflow_proposal_record",
+              "description": "The recorded proposal's problem, user outcomes, and constraints. The core refuses a dispatch whose packet member differs from the current recorded state, omits a present record, or carries a member no record backs."
+            },
+            "report_protocol": {
+              "const": "concord-worker-result-v1",
+              "description": "Dispatch-owned final-report framing, covered by the authorized packet digest. New builders pin this protocol; absence identifies historical legacy output. This is not report schema or worker identity.",
+              "type": "string"
+            },
+            "task": {
+              "maxLength": 4096,
+              "minLength": 1,
+              "type": "string"
+            },
+            "work_context": {
+              "$ref": "#/$defs/work_context_view2",
               "description": "CON-887: the current work-context view the work pin carried when the packet was built. The core refuses a dispatch whose packet does not consume the current view byte-for-byte."
             },
             "work_record": {

@@ -111,8 +111,15 @@ func applyRejectRetryDispatchTx(ctx context.Context, tx *sql.Tx, scope *foldScop
 		return result, record, err
 	}
 	retryAttemptID := request.OperationID + workflowDerivedRetryAttemptIDSuffix
-	if len(retryAttemptID) > 128 {
-		return result, record, newFailure(KindInvalidPayload, "workflow_action", "the retry attempt identity exceeds the bounded attempt id length", false, "retry with a shorter operation identity")
+	// The derived identities answer to the published bounds before any
+	// write: the attempt id, the retry idempotency key, and the retry
+	// request id each carry the suffix, and the idempotency key's bound is
+	// a structural CHECK on the durable key tables. Appending past a bound
+	// would either fail the key insert as a raw constraint error or record
+	// an identity the published contract never admits, so the combined
+	// refusal is typed here, before this transaction writes anything.
+	if len(retryAttemptID) > 128 || len(request.IdempotencyKey)+len(workflowDerivedRetryAttemptIDSuffix) > maxRetryDerivedKeyLength || len(request.RequestID)+len(workflowDerivedRetryAttemptIDSuffix) > maxRetryDerivedKeyLength {
+		return result, record, newFailure(KindInvalidPayload, "workflow_action", "the derived retry identity exceeds the bounded attempt, idempotency-key, or request-id length", false, "retry the rejection with a shorter operation identity, or reject without the retry payload")
 	}
 	currentStep, version, lifecycle, err := workflowInstanceStateTx(ctx, tx, request.WorkID)
 	if err != nil {
@@ -159,6 +166,12 @@ func applyRejectRetryDispatchTx(ctx context.Context, tx *sql.Tx, scope *foldScop
 // cannot mint a second one.
 const workflowDerivedRetryAttemptIDSuffix = ":retry"
 
+// maxRetryDerivedKeyLength is the published 128-byte bound the retry
+// idempotency key and retry request id answer to. The suffix must fit under
+// it beside the caller's key; a key with no room for the suffix refuses
+// whole instead of recording an identity the contract never admits.
+const maxRetryDerivedKeyLength = 128
+
 // workflowInstanceStateTx reads the instance's current step, the work
 // version, and the work lifecycle in the caller's transaction.
 func workflowInstanceStateTx(ctx context.Context, tx *sql.Tx, workID string) (string, int64, string, error) {
@@ -175,13 +188,16 @@ func workflowInstanceStateTx(ctx context.Context, tx *sql.Tx, workID string) (st
 
 // workerPacketSchemaIdentity resolves the packet schema version and the
 // report protocol from the generated worker-packet contract, so the derived
-// packet reads the live published identity instead of restating it.
+// packet reads the live published identity instead of restating it. The
+// derived packet is the versioned packet2 identity: only definitions that
+// declare worker_packet2 derive retry dispatches, so the versioned
+// definition is the one published contract the derived bytes answer to.
 func workerPacketSchemaIdentity() (string, string, error) {
 	doc := payloadschema.Document()
 	defs, _ := doc["$defs"].(map[string]any)
-	def, _ := defs["worker_packet"].(map[string]any)
+	def, _ := defs["worker_packet2"].(map[string]any)
 	if def == nil {
-		return "", "", newFailure(KindInvariantViolation, "workflow_action", "the generated payload contracts carry no worker packet definition", false, "regenerate the payload contracts")
+		return "", "", newFailure(KindInvariantViolation, "workflow_action", "the generated payload contracts carry no versioned worker packet definition", false, "regenerate the payload contracts")
 	}
 	properties, _ := def["properties"].(map[string]any)
 	schemaVersion, err := payloadSchemaLastEnumString(properties, "schema_version")

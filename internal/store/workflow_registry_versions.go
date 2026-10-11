@@ -1587,6 +1587,28 @@ func breakFixTypedDiagnosisV25() WorkflowDefinition {
 	return withDerivedStepStarts(withDiagnosisStep(d))
 }
 
+// withVersionedPacketRef points the definition's dispatch_worker packet
+// field at the versioned packet2 schema, whose frozen decoder definition
+// anchors the current nav-free work-context view. The packet2.0 identity
+// this definition records replays through that versioned closure, never
+// through the frozen 1.0/1.1 worker_packet baseline the released pins
+// decode through. Released versions never call this composition.
+func withVersionedPacketRef(definition WorkflowDefinition) WorkflowDefinition {
+	definition = cloneWorkflowDefinition(definition)
+	for i := range definition.ActionDefinitions {
+		if definition.ActionDefinitions[i].ID != "dispatch_worker" {
+			continue
+		}
+		for j := range definition.ActionDefinitions[i].Payload.Fields {
+			field := &definition.ActionDefinitions[i].Payload.Fields[j]
+			if field.Name == "worker_packet" {
+				field.SchemaRef = "worker_packet2"
+			}
+		}
+	}
+	return definition
+}
+
 // withDerivedWorkerFailure publishes the CD-0198 D5 derivation: the callable
 // record_worker_failure entry leaves the step graphs and the advertised
 // surface, and the worker terminal fold derives the workflow failure record
@@ -1633,11 +1655,11 @@ func withDerivedWorkerFailure(definition WorkflowDefinition) WorkflowDefinition 
 func implementationDerivedFailureV29() WorkflowDefinition {
 	d := implementationDerivedStartsV28()
 	d.Version = 29
-	return withDerivedWorkerFailure(d)
+	return withVersionedPacketRef(withDerivedWorkerFailure(d))
 }
 
 func breakFixDerivedFailureV26() WorkflowDefinition {
 	d := breakFixTypedDiagnosisV25()
 	d.Version = 26
-	return withDerivedWorkerFailure(d)
+	return withVersionedPacketRef(withDerivedWorkerFailure(d))
 }

@@ -305,16 +305,13 @@ func TestCombinedRejectRetryDispatchesThroughTheDispatchOwner(t *testing.T) {
 	if resultWorktree == "" {
 		t.Fatal("the combined result carries no claimed worktree the retry authorization rested on")
 	}
-	// The core's agent envelope refuses any response over 51200 bytes
-	// (internal/agent MaxResultEnvelopeBytes), and this result rides that
-	// envelope with the packet inline. A derived packet that grows past the
-	// budget must fail here, at the serializer's own witness, instead of
-	// refusing the committed rejection's response at the runtime boundary.
-	const mutationEnvelopeBytes = 51200
-	const envelopeMembersBudget = 2048
-	if len(result.Result) > mutationEnvelopeBytes-envelopeMembersBudget {
-		t.Fatalf("the combined result is %d bytes; the agent envelope bound leaves no room for it", len(result.Result))
-	}
+	// The combined result rides the agent envelope with the packet inline.
+	// The byte budget is owned at the public mutation boundary, which
+	// validates the fully enriched result inside the transaction and rolls
+	// the whole call back on overflow: TestCombinedRejectOversizedResultRefusesZeroWrite
+	// and TestCombinedRejectNormalSizeCommits (internal/agent) carry that
+	// evidence, so no second, hand-picked byte constant stands in for the
+	// owner here.
 	// The rejection recorded.
 	var rejects int
 	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='reject_worker_result' AND json_extract(payload,'$.worker_attempt_id')=?`, workID, WorkflowActionCompleted, attempt).Scan(&rejects); err != nil {
@@ -558,4 +555,83 @@ func TestRetryLaunchFailureAfterCommittedIntentStaysTruthful(t *testing.T) {
 	if got := s2DerivedFailureRecords(t, s, workID, retryAttempt); len(got) != 1 {
 		t.Fatalf("the abandoned retry attempt derived %d records after the replay, want one", len(got))
 	}
+}
+
+// TestCombinedRejectDerivedRetryIdentityStaysBounded proves the derived
+// retry identities answer to the published bounds before the transaction
+// writes: an idempotency key or request id with no room for the :retry
+// suffix refuses typed with the rejection unwritten and the attempt window
+// unopened, and the longest admitted key derives exactly the bounded
+// identities and commits one rejection and one retry dispatch.
+func TestCombinedRejectDerivedRetryIdentityStaysBounded(t *testing.T) {
+	const workID = "s2-bound"
+	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
+	s := fixture.store
+	dispatcher := diagnosisS1Actor(workID, "dispatcher")
+	lane := reviewGateLane(t, "implementation")
+	attempt := "attempt:" + workID + ":1"
+	dispatchJobBoundAttempt(t, s, workID, "repair", attempt, nil, dispatcher, 0, "s2-bound-dispatch-"+workID, &WorkerJobBinding{JobID: "job:" + workID})
+	s2CompletedJobBoundAttempt(t, s, workID, attempt)
+
+	boundReject := func(t *testing.T, idempotencyKey, requestID string) error {
+		t.Helper()
+		_, err := invokeWorkflowActionForCD0059(context.Background(), t, s, WorkflowActionExecutionRequest{
+			WorkID: workID, ExpectedVersion: readWorkVersion(t, s, workID), ActionID: "reject_worker_result",
+			Payload:         s2CombinedRejectPayload(attempt, latestStepStartEpoch(t, s, workID, "repair"), json.RawMessage(`{"lane_id":"implement"}`)),
+			SessionWorktree: dispatchSessionWorktree(t, s, workID),
+			Actor:           fixture.owner, AcceptedInputsDigest: "sha256:" + strings.Repeat("c", 64), IdempotencyIdentity: "s2-bound-key", OperationID: "s2-bound-key",
+			PrincipalRef: fixture.owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: idempotencyKey, RequestID: requestID,
+			ContractDigest: testManifestDigest, Now: time.Unix(40, 0).UTC(),
+		})
+		return err
+	}
+	overKey, overRequest := strings.Repeat("k", 123), strings.Repeat("r", 123)
+	workflowActionEvents := func(t *testing.T) int {
+		t.Helper()
+		var events int
+		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND json_extract(payload,'$.action_id') IN ('reject_worker_result','dispatch_worker')`, workID).Scan(&events); err != nil {
+			t.Fatal(err)
+		}
+		return events
+	}
+	for name, keys := range map[string][2]string{"idempotency key": {overKey, "request:s2-bound"}, "request id": {"s2-bound-key", overRequest}} {
+		before := readWorkVersion(t, s, workID)
+		eventsBefore := workflowActionEvents(t)
+		err := boundReject(t, keys[0], keys[1])
+		if err == nil {
+			t.Fatalf("the combined rejection with an over-bound %s committed", name)
+		}
+		var failure *Failure
+		if !failureAs(err, &failure) || failure.Kind != KindInvalidPayload {
+			t.Fatalf("the over-bound %s refusal is not the typed payload failure: %v", name, err)
+		}
+		if !strings.Contains(failure.Detail, "derived retry identity") {
+			t.Fatalf("the over-bound %s refusal does not name the derived identity: %s", name, failure.Detail)
+		}
+		if readWorkVersion(t, s, workID) != before {
+			t.Fatalf("the over-bound %s refusal moved the work version", name)
+		}
+		if got := workflowActionEvents(t) - eventsBefore; got != 0 {
+			t.Fatalf("the over-bound %s refusal left %d rejection or dispatch events", name, got)
+		}
+	}
+
+	// The longest admitted key derives exactly the bounded identities: the
+	// key and the request id land at 128 bytes with the suffix inside the
+	// bound, and the combined call commits one rejection and one retry.
+	exact := strings.Repeat("k", 122)
+	if err := boundReject(t, exact, exact); err != nil {
+		t.Fatalf("the combined rejection at the identity bound: %v", err)
+	}
+	if len(exact+workflowDerivedRetryAttemptIDSuffix) != maxRetryDerivedKeyLength {
+		t.Fatalf("the bounded key derivation is %d bytes, want exactly the %d-byte bound", len(exact+workflowDerivedRetryAttemptIDSuffix), maxRetryDerivedKeyLength)
+	}
+	var retryAttempts int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_attempts WHERE work_id=? AND attempt_id=?`, workID, "s2-bound-key:retry").Scan(&retryAttempts); err != nil {
+		t.Fatal(err)
+	}
+	if retryAttempts != 1 {
+		t.Fatalf("bounded retry attempts = %d, want one", retryAttempts)
+	}
+	_ = lane
 }

@@ -145,6 +145,18 @@ test("a combined rejection arms one window and the host Task spawn consumes the 
   expect(invokeCalls(calls)).toHaveLength(1)
   expect(result.outcome).toBe("ok")
   expect(result.dispatch_state).toBe("awaiting_worker")
+  // The acknowledged envelope preserves the committed rejection's mutation
+  // receipt beside the Task directive: the rejection's changed_refs and next
+  // intents under their core names, and the core result receipt with the
+  // retry identity, digest, and claimed worktree. The packet itself stays off
+  // the receipt: the launch consumed those exact bytes into the armed window.
+  expect(result.changed_refs).toEqual(okMembers.changed_refs)
+  expect(result.next_valid_intents).toEqual([])
+  expect(result.result?.operation_id).toBe(REJECT_OPERATION_ID)
+  expect(result.result?.retry_attempt_id).toBe(RETRY_ATTEMPT)
+  expect(result.result?.worker_packet_digest).toBe(RETRY_DIGEST)
+  expect(result.result?.worker_worktree).toBe(workspace)
+  expect(result.result?.retry_worker_packet).toBeUndefined()
   expect(dispatchWindows().has(SESSION)).toBe(true)
   // The host Task spawn is the plugin hook body: the window binds the Task
   // call to the retry packet and consumes itself.
@@ -192,6 +204,10 @@ test("a failed launch keeps the committed attempt truthful for one abandonment",
     expect(result.error?.details?.effect_state).toBe("possible")
     expect(result.error?.message).toContain(RETRY_ATTEMPT)
     expect(result.error?.message).toMatch(/worker.abandon|abandon/)
+    // The post-commit refusal preserves the rejection receipt too: the
+    // rejection committed even though the window never armed.
+    expect(result.changed_refs).toEqual(okMembers.changed_refs)
+    expect(result.result?.retry_attempt_id).toBe(RETRY_ATTEMPT)
     expect(dispatchWindows().has(SESSION)).toBe(false)
     // The coordinator abandons exactly the committed identity; the terminal
     // seam records one abandonment and the receipt names the same attempt.

@@ -209,6 +209,13 @@ var frozenBaselineDefs = map[string]string{
 // already carried, or an unlisted new definition, fails the witness.
 var newlyFrozenHistoricalDefs = map[string]string{
 	"reject_retry": "CD-0198 D5: the retry dispatch intent the new-pin reject_worker_result payload declares",
+	// The versioned packet2 identity the derived-failure heads declare, so
+	// their recorded 2.0 history replays here; the versioned view and group
+	// it anchors are the current nav-free shapes, and the frozen 1.0/1.1
+	// worker_packet baseline stays byte-exact beside them.
+	"worker_packet2":             "CD-0198 D5: the versioned packet2 identity the derived-failure implementation v29 and break_fix v26 dispatch payloads declare",
+	"work_context_view2":         "the versioned work-context view worker_packet2 anchors, resolving the nav-free group",
+	"work_context_domain_group2": "the current nav-free domain group: domain identity, reading ordinals, and finding ids, without the retired repository navigation cards",
 }
 
 // TestHistoricalDecoderRetainsFrozenBaselineBytes pins the freeze at per-name

@@ -318,11 +318,42 @@ func TestAgentDomainAttachmentsReturnTypedLocalEdgesWithCoverage(t *testing.T) {
 	}
 }
 
-// Element 8: unresolved architecture overlap between the Domain-bound contracts,
+// Element 8: unresolved write overlap between the Domain-bound contracts,
 // reported with its resolution state rather than silently omitted.
 func TestAgentDomainOverlapsReturnUnresolvedPairsWithCoverage(t *testing.T) {
 	t.Parallel()
 	s, service, env := domainEvidenceFixture(t)
+	unstarted := domainRead(t, s, service, env, "overlaps", `{"product_id":"product-1"}`)
+	assertAuthoritativeCoverage(t, unstarted, "overlaps")
+	var before struct {
+		Pairs []store.DomainOverlapPair `json:"pairs"`
+	}
+	if err := json.Unmarshal(unstarted.Result, &before); err != nil {
+		t.Fatal(err)
+	}
+	if len(before.Pairs) != 0 {
+		t.Fatalf("unstarted contracts claim no shared write: %#v", before.Pairs)
+	}
+	// A prospective item sees the shared write once its peer starts execution.
+	ctx := context.Background()
+	digest := breakFixFixtureDigest(t)
+	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_instances(work_id,definition_ref,definition_version,definition_digest,current_step,instance_state,execution_started_at) VALUES('work-1','workflow.break_fix',9,?,'repair','running','2026-08-19T00:00:00Z')`, digest); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
 	response := domainRead(t, s, service, env, "overlaps", `{"product_id":"product-1","domain_id":"`+singleDomainRootID+`"}`)
 	assertAuthoritativeCoverage(t, response, "overlaps")
 

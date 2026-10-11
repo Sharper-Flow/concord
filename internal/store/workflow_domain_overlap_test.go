@@ -453,9 +453,9 @@ func TestWorkflowDomainOverlapMergeAndSupersessionAreAtomicAndReopenStale(t *tes
 func seedProductChangingContract(t *testing.T, s *Store, workID string, binding WorkflowArchitectureBinding) (WorkflowActor, int64) {
 	t.Helper()
 	ctx := context.Background()
-	registered, ok := BuiltinWorkflowRegistry().Lookup("workflow.ops_runbook", 1)
+	registered, ok := BuiltinWorkflowRegistry().Lookup("workflow.break_fix", 9)
 	if !ok {
-		t.Fatal("workflow.ops_runbook is unavailable")
+		t.Fatal("workflow.break_fix v9 is unavailable")
 	}
 	actor := WorkflowActor{PrincipalRef: "principal:overlap", ClientRef: "client:overlap", AgentRef: "agent:" + workID, SessionRef: "session:" + workID, ActorClass: ActorAgent}
 	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
@@ -473,47 +473,36 @@ func seedProductChangingContract(t *testing.T, s *Store, workID string, binding 
 	if err != nil {
 		t.Fatal(err)
 	}
-	// CD-0144, as amended by CD-0183: the contract claims its Domains once
-	// the instance carries the execution-start fact, and the claim has to
-	// come from the log so a rebuild reproduces it. The item starts before it
-	// has a contract, so it claims nothing yet and no peer can refuse the
-	// transition. The fixture then drives the pinned ops-runbook definition —
-	// whose start step declares approve_contract — across its approval step
-	// onto the external-effect step, and start_run records the execution
-	// start the peer query reads.
-	if err := applyWorkEvent(t, s, workTransitionEvent("overlap-start-"+workID, workID, "needed", "in_progress", 4, 5), nil); err != nil {
-		t.Fatal(err)
-	}
-	approved := workflowEventWithActor("overlap-approve-"+workID, WorkflowActionCompleted, workID, actorRef, map[string]any{
-		"work_id": workID, "expected_version": int64(5), "resulting_version": int64(6),
-		"step_id": "plan", "action_id": "approve_contract", "attempt_epoch": int64(1),
-		"result_evidence_refs": []string{}, "changed_refs": []string{workID}, "actor_ref": actorRef,
-	})
-	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{approved}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 5}}); err != nil {
-		t.Fatalf("advance past the contract step: %v", err)
-	}
-	operation := workflowEventWithActor("overlap-operation-"+workID, WorkflowActionCompleted, workID, actorRef, map[string]any{
-		"work_id": workID, "expected_version": int64(6), "resulting_version": int64(7),
-		"step_id": "approval", "action_id": "approve_operation", "attempt_epoch": int64(1),
-		"result_evidence_refs": []string{}, "changed_refs": []string{workID}, "actor_ref": actorRef,
-	})
-	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{operation}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 6}}); err != nil {
-		t.Fatalf("advance onto the external-effect step: %v", err)
+	// The retained break-fix graph records execution start in the log, so
+	// rebuilding derives the same active claim.
+	for i, action := range []struct{ step, id string }{
+		{"reproduce", "record_reproduction"},
+		{"diagnose", "record_root_cause"},
+		{"planning", "approve_contract"},
+	} {
+		event := workflowActionCompletedFixture("overlap-phase-"+action.step+"-"+workID, workID, actorRef, int64(4+i), action.step, action.id)
+		if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): int64(4 + i)}}); err != nil {
+			t.Fatalf("advance onto repair: %v", err)
+		}
 	}
 	started := workflowEventWithActor("overlap-start-execution-"+workID, WorkflowActionStarted, workID, actorRef, map[string]any{
 		"work_id": workID, "expected_version": int64(7), "resulting_version": int64(8),
-		"step_id": "execute", "action_id": "start_run", "attempt_epoch": int64(1),
+		"step_id": "repair", "action_id": "start_repair", "attempt_epoch": int64(1),
 		"accepted_inputs_digest": "sha256:" + strings.Repeat("a", 64), "idempotency_identity": "overlap-start-" + workID,
 		"actor_ref": actorRef,
 	})
 	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{started}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 7}}); err != nil {
 		t.Fatalf("record the execution start: %v", err)
 	}
+	mandate := []string{"spec:one"}
+	for _, addition := range binding.LawAdditions {
+		mandate = append(mandate, addition.LawID)
+	}
 	contract := workflowEventWithActor("overlap-contract-"+workID, WorkflowContractApproved, workID, actorRef, map[string]any{
 		"work_id": workID, "expected_version": int64(8), "resulting_version": int64(9), "contract_version": int64(1),
 		"premise": "coordinate Product-changing overlap", "outcome_kind": "check",
 		"outcome_payload":   map[string]any{"kind": "check", "check_ref": "check:" + workID, "immutable_subject_ref": "commit:" + workID, "expected_result": "pass"},
-		"required_evidence": []string{"verification", "review"}, "route_conventions": []string{}, "spec_mandate": []string{"spec:one"}, "law_modifies": []string{},
+		"required_evidence": []string{"verification", "review"}, "route_conventions": []string{}, "spec_mandate": mandate, "law_modifies": []string{},
 		"law_revisions": []WorkflowLawRevision{{LawID: "spec:one", ContentHash: "sha256:" + strings.Repeat("a", 64)}}, "law_boundary_version": 1,
 		"rigor_class": "prototype_internal", "consequence_class": "internal_sqlite", "architecture_binding": binding,
 	})
@@ -639,18 +628,21 @@ func TestWorkflowDomainOverlapContractRevisionStalesResolutionAndRebuilds(t *tes
 	}); err != nil {
 		t.Fatal(err)
 	}
+	successorBinding := binding
+	successorBinding.DomainModifies = []string{"child", "root"}
 	successor := map[string]any{
 		"contract_version": int64(2), "premise": "revised Product-changing overlap", "outcome_kind": "check",
 		"outcome_payload":   map[string]any{"kind": "check", "check_ref": "check:revision-v2", "immutable_subject_ref": "commit:revision-v2", "expected_result": "pass"},
 		"required_evidence": []string{"verification", "review"}, "route_conventions": []string{}, "spec_mandate": []string{"spec:one"}, "law_modifies": []string{},
 		"law_revisions": []WorkflowLawRevision{{LawID: "spec:one", ContentHash: "sha256:" + strings.Repeat("a", 64)}}, "law_boundary_version": 1,
-		"rigor_class": "prototype_internal", "consequence_class": "internal_sqlite", "architecture_binding": binding,
+		"rigor_class": "prototype_internal", "consequence_class": "internal_sqlite", "architecture_binding": successorBinding,
 	}
 	supersede := workflowEventWithActor("revision-contract-v2", WorkflowContractSuperseded, "revision-left", leftActorRef, map[string]any{
 		"work_id": "revision-left", "expected_version": int64(10), "resulting_version": int64(11),
 		"previous_contract_version": int64(1), "new_contract_version": int64(2), "supersede_reason": "scope revision",
 		"audit_evidence": []string{"audit:revision-v2"}, "successor_contract": successor,
 	})
+	supersede.PayloadVersion = eventKindRegistry[WorkflowContractSuperseded].CurrentVersion
 	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{supersede}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "revision-left"): 10}}); err != nil {
 		t.Fatalf("contract revision: %v", err)
 	}

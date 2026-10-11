@@ -253,7 +253,7 @@ var eventKindRegistry = map[string]EventKindRegistration{
 	WorkflowContractApproved:                  workflowRegistration[workflowContractApprovedPayload](4, map[int]Upcaster{1: upcastWorkflowContractApprovedV1, 2: upcastWorkflowContractApprovedV2, 3: upcastWorkflowContractApprovedV3}, foldWorkflowContractApproved),
 	WorkflowOverlapResolved:                   workflowRegistration[workflowOverlapResolvedPayload](1, nil, foldWorkflowOverlapResolved),
 	WorkflowNativeRunRecorded:                 registerEventKind[nativeRunPayload](1, 1, nil, EventAppendAuthorityGeneric, foldNativeRunRecorded, validateNativeRunPayload),
-	WorkflowContractSuperseded:                workflowRegistration[workflowContractSupersededPayload](2, map[int]Upcaster{1: upcastWorkflowContractSupersededV1}, foldWorkflowContractSuperseded),
+	WorkflowContractSuperseded:                workflowRegistration[workflowContractSupersededPayload](3, map[int]Upcaster{1: upcastWorkflowContractSupersededV1, 2: upcastWorkflowContractSupersededV2}, foldWorkflowContractSuperseded),
 	WorkflowCandidateSetRevised:               workflowRegistration[workflowCandidateSetRevisedPayload](1, nil, foldWorkflowCandidateSetRevised),
 	WorkflowActorRecorded:                     workflowRegistration[workflowActorRecordedPayload](1, nil, foldWorkflowActorRecorded),
 	WorkflowActionStarted:                     workflowRegistration[workflowActionStartedPayload](1, nil, foldWorkflowActionStarted),

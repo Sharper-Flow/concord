@@ -1252,7 +1252,7 @@ func foldWorkflowContractSuperseded(ctx context.Context, tx *sql.Tx, event Event
 			return newFailure(KindProjectionNotFound, "fold_event", "predecessor workflow contract does not exist or is already superseded", false, "reload the exact active contract versions")
 		}
 	}
-	if err := invalidateWorkflowOverlapResolutionsForWorkTx(ctx, tx, event.EventID, event.SubjectID); err != nil {
+	if err := invalidateWorkflowOverlapForContractRevisionTx(ctx, tx, event, predecessors, p.NewContractVersion); err != nil {
 		return err
 	}
 	if p.SuccessorContract != nil {
@@ -3416,6 +3416,13 @@ func upcastWorkflowContractSupersededV1(event Event) (Event, error) {
 	}
 	event.Payload = payload
 	event.PayloadVersion = 2
+	return event, nil
+}
+
+func upcastWorkflowContractSupersededV2(event Event) (Event, error) {
+	// Shape is unchanged; original-version provenance preserves the earlier
+	// unconditional overlap invalidation when this event folds.
+	event.PayloadVersion = 3
 	return event, nil
 }
 

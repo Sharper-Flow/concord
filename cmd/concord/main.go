@@ -511,7 +511,7 @@ func resolveZLLinearReference(issueKey, issueURL, project, preferredProduct stri
 	defer func() { _ = s.Close() }()
 	// Concord makes no Linear call (CD-0213 D7): an issue no work item
 	// records resolves nothing, and the agent records the identity first.
-	work, err := s.ResolveLauncherLinearIssueWork(context.Background(), issueKey, issueURL)
+	work, err := s.ResolveLinearIssueWork(context.Background(), issueKey, issueURL)
 	if err != nil {
 		var failure *store.Failure
 		if errors.As(err, &failure) && failure.Kind == store.KindUnknownScope {
@@ -519,7 +519,7 @@ func resolveZLLinearReference(issueKey, issueURL, project, preferredProduct stri
 		}
 		return "", "", err
 	}
-	product, err := s.ResolveLauncherWorkProduct(context.Background(), work, project, preferredProduct)
+	product, err := s.ResolveLandingProjectProduct(context.Background(), work, project, preferredProduct)
 	if err != nil {
 		return "", "", err
 	}
@@ -547,7 +547,7 @@ func resolveForwardedProduct(work, project, preferredProduct string) (string, er
 		return "", err
 	}
 	defer func() { _ = s.Close() }()
-	return s.ResolveLauncherWorkProduct(context.Background(), work, project, preferredProduct)
+	return s.ResolveLandingProjectProduct(context.Background(), work, project, preferredProduct)
 }
 
 func launchForwardedSession(product, work, prompt, project string, in io.Reader, out, errOut io.Writer) int {

@@ -1496,8 +1496,6 @@
         "TS8",
         "TS9",
         "development-authority",
-        "terminal-launcher-contract",
-        "terminal-launcher-replacement-contract",
         "workflow-engine-contract"
       ]
     },

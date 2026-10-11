@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Loader for the closed legislated-by-default cohort asset (CON-875).
+"""Loader for the closed legislated-by-default cohort asset.
 
 The committed asset internal/store/knowledge_authority_defaults.v1.json is the
 only list of the frozen cohort: the records whose legislated standing the

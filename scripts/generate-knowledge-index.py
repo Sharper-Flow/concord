@@ -412,7 +412,7 @@ def validate_record(record: object, schema_version: str, domain_ids: set[str], p
 AUTHORITY_TIERS = {"legislated", "derived"}
 AUTHORITY_FIELDS = {"tier", "legislated_by", "contract_version"}
 
-# CON-875: the committed cohort asset is loaded once per process. A load
+# The committed cohort asset is loaded once per process. A load
 # failure is reported per validated record rather than silently dropping the
 # vehicle-membership rule; the reference grammar still applies either way.
 _AUTHORITY_DEFAULTS: knowledge_authority_defaults.AuthorityDefaults | None = None
@@ -434,7 +434,7 @@ def validate_authority(record: dict[str, object], prefix: str, findings: list[st
 
     The same rule check-knowledge-index.py enforces over the composed
     manifest, applied where the shards are validated before composition.
-    CON-875: a declared reference must name a work item, and a vehicle claim
+    A declared reference must name a work item, and a vehicle claim
     must name a frozen member of the committed legislated-by-default cohort
     at its exact version; any other work-shaped reference waits for the
     runtime resolver.

@@ -446,7 +446,7 @@ def validate(data: object, *, check_hashes: bool = True) -> list[str]:
     findings: list[str] = []
     if not isinstance(data, dict):
         return ["manifest: top-level value must be an object"]
-    # CON-875: the committed cohort asset is the only list of the frozen
+    # The committed cohort asset is the only list of the frozen
     # legislated-by-default members. A missing or malformed asset fails the
     # check rather than silently dropping the vehicle-membership rule; the
     # reference grammar still applies either way.
@@ -599,7 +599,7 @@ def validate(data: object, *, check_hashes: bool = True) -> list[str]:
         # check asserts tier presence, the closed two-value enum, the
         # legislated completeness, and the declared reference grammar — never
         # the D5 kind table, which is a one-time backfill rule; the operator
-        # promotes records afterward. CON-875: a declared reference must name
+        # promotes records afterward. A declared reference must name
         # a work item, and a vehicle claim must name a frozen member of the
         # committed legislated-by-default cohort at its exact version; any
         # other work-shaped reference waits for the runtime resolver.

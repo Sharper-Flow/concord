@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Focused tests for the CON-875 legislated-by-default authority grammar.
+"""Focused tests for the legislated-by-default authority grammar.
 
 Covers the shared cohort loader, the checker's authority validation, the
 generator's shard-level authority validation, and the schema's legislated_by

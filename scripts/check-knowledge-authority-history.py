@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Assert the committed cohort asset equals the application snapshot's census.
 
-CON-875 / CD-0159 D5: the frozen legislated-by-default cohort in
+CD-0159 D5: the frozen legislated-by-default cohort in
 internal/store/knowledge_authority_defaults.v1.json must equal, member for
 member, the (record_id, kind) pairs of the records in the named application
 tree whose authority names the asset's vehicle contract at the asset's

@@ -174,7 +174,7 @@ func TestAdapterEnvelopeAdmitsSchemaVocabulary(t *testing.T) {
 	for _, reason := range reasons {
 		t.Run("reason/"+reason, func(t *testing.T) {
 			typed := TypedError{Kind: "transport_failure", RecoveryAction: RecoveryAction{Kind: "contact_operator"}, EffectState: EffectNone, AdapterReason: reason}
-			if reason == "invalid_cli_input" || reason == "invalid_request_wrapper" {
+			if reason == "invalid_cli_input" || reason == "invalid_request_wrapper" || reason == "invalid_tool_input" {
 				typed.Kind, typed.RecoveryAction.Kind = "invalid_input", "restart_query"
 			}
 			assertAdmitted(t, typed)
@@ -231,6 +231,48 @@ func TestAdapterEnvelopeRetainsSchemaRejections(t *testing.T) {
 			mutate(&e)
 			if err := e.Validate(); err == nil {
 				t.Fatal("invalid adapter envelope admitted")
+			}
+		})
+	}
+}
+
+func TestAdapterVacateGeneratedSchemaRecoveryScope(t *testing.T) {
+	// Test the generated schema independently of Go's core-only recovery coupling.
+	type schemaWire Envelope
+	validate := func(e Envelope) error {
+		t.Helper()
+		data, err := json.Marshal(schemaWire(e))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return ValidateGeneratedEnvelope(data)
+	}
+	for _, recovery := range []string{"retry_same_request", "contact_operator"} {
+		t.Run(recovery, func(t *testing.T) {
+			e := NewCoreError(NewBase("vacate-schema", "concord_work_transition", "session_vacate"), TypedError{Kind: "operation_conflict", AdapterReason: "unknown_effect", EffectState: EffectPossible, RecoveryAction: RecoveryAction{Kind: recovery}})
+			e.Origin, e.Authority = OriginAdapter, AuthorityUnreachable
+			if err := validate(e); err != nil {
+				t.Fatalf("adapter vacate recovery refused: %v", err)
+			}
+			e.Operation = "worker_abandon"
+			if err := validate(e); err == nil {
+				t.Fatal("vacate recovery admitted under another operation")
+			}
+			e.Operation, e.Origin, e.Authority, e.Error.AdapterReason = "session_vacate", OriginCore, AuthorityAuthoritative, ""
+			if err := validate(e); err == nil {
+				t.Fatal("vacate recovery admitted under core origin")
+			}
+			e.Error.RecoveryAction.Kind = "reconcile_operation"
+			if err := validate(e); err != nil {
+				t.Fatalf("core reconciliation refused: %v", err)
+			}
+			partial := NewPartial(NewBase("partial-schema", "concord_work_compact", "publish"), OperationRef{ID: "op-1", Kind: "publish", Version: "2", State: OperationPartial, CurrentStep: "sqlite", UpdatedAt: fixedTime()}, []string{"git"}, TypedError{Kind: "operation_conflict", EffectState: EffectPartial, RecoveryAction: RecoveryAction{Kind: recovery}})
+			if err := validate(partial); err == nil {
+				t.Fatal("partial conflict admitted without reconciliation")
+			}
+			partial.Error.RecoveryAction.Kind = "reconcile_operation"
+			if err := validate(partial); err != nil {
+				t.Fatalf("partial reconciliation refused: %v", err)
 			}
 		})
 	}

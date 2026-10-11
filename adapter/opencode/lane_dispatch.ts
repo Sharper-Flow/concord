@@ -9,15 +9,18 @@
 // is the seam that keeps both halves honest.
 //
 // The import graph below is acyclic by construction:
-//   concord.ts → lane_dispatch.ts → {packet.ts, dispatch.ts}
+//   concord.ts → lane_dispatch.ts → {adapter-contract-defect.ts, packet.ts, dispatch.ts}
 // packet.ts imports dispatch.ts and generated-agent-lanes.ts, neither of
 // which reaches back into lane_dispatch.ts. lane_dispatch.ts never imports
 // concord.ts at runtime; the orchestrator-facing call site in concord.ts
-// passes its own transport in through `deps.invoke`.
+// passes its own transport in through `deps.invoke`. adapter-contract-defect.ts
+// imports nothing, so both concord.ts and this module can `instanceof` the
+// typed envelope-contract defect without a cycle.
 import { createHash } from "node:crypto"
 import type { ToolContext } from "@opencode-ai/plugin"
 import type { ConcordInvoke } from "./packet"
 import type { CredentialStore } from "./credentials"
+import { AdapterContractDefect } from "./adapter-contract-defect"
 import { canonicalDirectory, type DispatchWindows } from "./dispatch-window"
 import { computeHostPromptProvenance, dispatchRetriedWorker, dispatchWorker, errorEnvelopeForLane, coreDispatchFailure, contextPreflightRefusal, provenanceRefusal, type AgentLanePacket, type AgentResultEnvelope, type DispatchRunner, type HostProvenance } from "./dispatch"
 import { agentLanes, agentUtilities, type AgentLane, type AgentUtility } from "./generated-agent-lanes"
@@ -239,6 +242,10 @@ export async function dispatchLaneWorker(input: LaneDispatchInput, deps: LaneDis
   try {
     coreResponse = await coreDispatch()
   } catch (error) {
+    // The invoke validates its own adapter-origin envelope, so a contract
+    // defect from that transport propagates unchanged instead of shipping as
+    // a lane transport failure (CON-913 R1.7).
+    if (error instanceof AdapterContractDefect) throw error
     return errorEnvelopeForLane(laneForId(packet.lane_id), packet as Partial<AgentLanePacket>, "error", "transport_failure", `concord_work_transition.workflow_action threw before reaching the core: ${String(error)}`, "reconcile_operation")
   }
   // A retry-safe failure with a possible effect means the dispatch boundary
@@ -258,6 +265,7 @@ export async function dispatchLaneWorker(input: LaneDispatchInput, deps: LaneDis
     try {
       coreResponse = await coreDispatch()
     } catch (error) {
+      if (error instanceof AdapterContractDefect) throw error
       return errorEnvelopeForLane(laneForId(packet.lane_id), packet as Partial<AgentLanePacket>, "error", "transport_failure", `concord_work_transition.workflow_action threw before reaching the core: ${String(error)}`, "reconcile_operation")
     }
   }

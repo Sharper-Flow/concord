@@ -5,6 +5,10 @@ import { contractOperations, hostToolDescriptions, hostToolSchemas, maxEnvelopeB
 import { activeManifestDigest, adoptManifestDigest, resolveDiskManifestDigest } from "./manifest-pin"
 import { validateGeneratedEnvelope, validateGeneratedPayload, envelopeFailurePath, payloadFailurePath } from "./generated-contract-tests"
 import { dispatchLaneWorker, dispatchRetriedLaneWorker, type LaneDispatchInput } from "./lane_dispatch"
+import { AdapterContractDefect } from "./adapter-contract-defect"
+// The typed fail-closed error re-exports so callers of this module can catch
+// it by class without importing the shared owner.
+export { AdapterContractDefect }
 import { abandonWorkerAttempt, hostSessionReader, type WorkerRecoveryContext } from "./dispatch"
 import { reconcileRetainedWorker } from "./worker_recovery"
 import { dispatchWindows, staleReleaseDispatchRefusal, dispatchDirectoryMismatch } from "./dispatch-window"
@@ -40,8 +44,7 @@ function tool<T extends { args: object; execute: (args: any, context: ToolContex
     if (request === null || typeof request !== "object" || Array.isArray(request)) {
       const operation = typeof args?.operation === "string" && contractOperations.some((candidate) => candidate.tool === toolName && candidate.id === `${toolName}.${args.operation}`) ? args.operation : ""
       const requestID = `${context.sessionID}-${context.messageID}`
-      const envelope = adapterError(toolName, operation, requestID, "invalid_input", "invalid_request_wrapper", "Missing or invalid request wrapper: submit {request: {operation, input}}.", "none", "restart_query")
-      envelope.error.retry_safe = false
+      const envelope = adapterError(toolName, operation, requestID, "invalid_request_wrapper", "Missing or invalid request wrapper: submit {request: {operation, input}}.")
       const { envelope: settled, extraWarnings } = withReleaseStaleness(envelope, releaseStaleness())
       return appendWarnings(encodeHostResult(toolName, operation, requestID, settled), extraWarnings)
     }
@@ -401,37 +404,201 @@ export async function publishWorkStartDefinition(
 }
 
 function baseEnvelope(toolName: string, operation: string, requestID: string) {
-  const queryID = (contractOperations.find((candidate: any) => candidate.tool === toolName && candidate.id.endsWith(`.${operation}`)) as any)?.query_id
+  const queryID = (contractOperations.find((candidate: any) => candidate.tool === toolName && candidate.id === `${toolName}.${operation}`) as any)?.query_id
   return { schema_version: "1.0", manifest_digest: activeManifestDigest(), request_id: requestID, origin: "adapter", tool: toolName, operation, ...(queryID ? { query_id: queryID } : {}), outcome: "error", resolved_scope: null, authority: "unreachable", freshness: null, source_version_watermark: [], ordering_keys: [], next_cursor: null, omissions: [], warnings: [], evidence_refs: [], replayed: false }
 }
 
-function adapterError(toolName: string, operation: string, requestID: string, kind: string, reason: string, message: string, effect: "none" | "possible" | "partial" = "none", recovery = effect === "none" ? "retry_same_request" : "reconcile_operation", details?: Record<string, unknown>) {
-  return { ...baseEnvelope(toolName, operation, requestID), error: { kind, retry_safe: effect === "none", recovery_action: { kind: recovery }, effect_state: effect, adapter_reason: reason, message, ...(details ? { details } : {}) } }
+// Producers select a closed tuple key; the generated envelope schema validates
+// the tuple in its operation context. Retry safety is derived from the tuple.
+export const adapterErrorTuples = {
+  missing_binary: { kind: "transport_failure", adapter_reason: "missing_binary", effect_state: "none", recovery: "contact_operator" },
+  spawn_failure: { kind: "transport_failure", adapter_reason: "spawn_failure", effect_state: "none", recovery: "contact_operator" },
+  io_failure_retry: { kind: "transport_failure", adapter_reason: "io_failure", effect_state: "none", recovery: "retry_same_request" },
+  io_failure_operator: { kind: "transport_failure", adapter_reason: "io_failure", effect_state: "none", recovery: "contact_operator" },
+  malformed_core_response_retry: { kind: "malformed_response", adapter_reason: "malformed_core_response", effect_state: "none", recovery: "retry_same_request" },
+  malformed_core_response_operator: { kind: "malformed_response", adapter_reason: "malformed_core_response", effect_state: "none", recovery: "contact_operator" },
+  timeout_no_effect: { kind: "timeout", adapter_reason: "timeout_no_effect", effect_state: "none", recovery: "retry_same_request" },
+  cancelled_no_effect: { kind: "cancelled", adapter_reason: "cancelled_no_effect", effect_state: "none", recovery: "retry_same_request" },
+  manifest_mismatch: { kind: "transport_failure", adapter_reason: "manifest_mismatch", effect_state: "none", recovery: "contact_operator" },
+  context_resolution_failed: { kind: "transport_failure", adapter_reason: "context_resolution_failed", effect_state: "none", recovery: "contact_operator" },
+  host_lease_missing: { kind: "transport_failure", adapter_reason: "host_lease_missing", effect_state: "none", recovery: "contact_operator" },
+  unknown_effect: { kind: "operation_conflict", adapter_reason: "unknown_effect", effect_state: "possible", recovery: "reconcile_operation" },
+  session_directory_unreadable: { kind: "transport_failure", adapter_reason: "session_directory_unreadable", effect_state: "none", recovery: "retry_same_request" },
+  worker_abandon_refused_none: { kind: "operation_conflict", adapter_reason: "worker_abandon_refused", effect_state: "none", recovery: "reconcile_operation" },
+  worker_abandon_refused_possible: { kind: "operation_conflict", adapter_reason: "worker_abandon_refused", effect_state: "possible", recovery: "reconcile_operation" },
+  worker_abandon_receipt_failed: { kind: "operation_conflict", adapter_reason: "worker_abandon_receipt_failed", effect_state: "possible", recovery: "reconcile_operation" },
+  lane_tool_refusal: { kind: "unauthorized", adapter_reason: "lane_tool_refusal", effect_state: "none", recovery: "contact_operator" },
+  invalid_cli_input: { kind: "invalid_input", adapter_reason: "invalid_cli_input", effect_state: "none", recovery: "restart_query" },
+  invalid_request_wrapper: { kind: "invalid_input", adapter_reason: "invalid_request_wrapper", effect_state: "none", recovery: "restart_query" },
+  invalid_tool_input: { kind: "invalid_input", adapter_reason: "invalid_tool_input", effect_state: "none", recovery: "restart_query" },
+  vacate_replay: { kind: "operation_conflict", adapter_reason: "unknown_effect", effect_state: "possible", recovery: "retry_same_request" },
+  vacate_unavailable: { kind: "operation_conflict", adapter_reason: "unknown_effect", effect_state: "possible", recovery: "contact_operator" },
+} as const
+
+export type AdapterErrorKey = keyof typeof adapterErrorTuples
+export type GenericAdapterErrorKey = Exclude<AdapterErrorKey, "vacate_replay" | "vacate_unavailable">
+export type VacateAdapterErrorKey = Extract<AdapterErrorKey, "vacate_replay" | "vacate_unavailable">
+
+type AdapterErrorTuple = (typeof adapterErrorTuples)[AdapterErrorKey]
+
+// The typed shape the factories return: the closed base members plus the
+// error member the tuple drives, so producers and tests read the tuple
+// members without casts.
+export type AdapterErrorEnvelope = {
+  schema_version: "1.0"
+  manifest_digest: string
+  request_id: string
+  origin: "adapter"
+  tool: string
+  operation: string
+  query_id?: string
+  outcome: "error"
+  resolved_scope: null
+  authority: "unreachable"
+  freshness: null
+  source_version_watermark: []
+  ordering_keys: []
+  next_cursor: null
+  omissions: []
+  warnings: []
+  evidence_refs: []
+  replayed: false
+  error: {
+    kind: AdapterErrorTuple["kind"]
+    retry_safe: boolean
+    recovery_action: { kind: AdapterErrorTuple["recovery"] }
+    effect_state: AdapterErrorTuple["effect_state"]
+    adapter_reason: AdapterErrorTuple["adapter_reason"]
+    message: string
+    details?: Record<string, unknown>
+  }
 }
 
-class AdapterFailure extends Error {
+// The vacate entries are reachable only through vacateError (CD-0190 D3):
+// the generic factory refuses them under every pair, and vacateError refuses
+// every generic key.
+const VACATE_TABLE_KEYS: readonly string[] = ["vacate_replay", "vacate_unavailable"]
+
+// R1.2: retry_safe is derived in this one place — false for the input
+// entries and for possible effects, true for the other no-effect entries.
+function adapterRetrySafe(tuple: AdapterErrorTuple): boolean {
+  return tuple.kind !== "invalid_input" && tuple.effect_state !== "possible"
+}
+
+// The schema bounds the human diagnostic at 1000 code points; the bound here
+// is bytes, which never yields more code points than the schema admits.
+const ADAPTER_ERROR_MESSAGE_MAX_BYTES = 1000
+
+// adapterContractDefect names the failing identity and member. For a
+// mutation it states that the effect is unknown and must be reconciled
+// before any retry, because a rejected envelope must never be read as a
+// no-effect answer.
+function adapterContractDefect(toolName: string, operation: string, requestID: string, detail: string): AdapterContractDefect {
+  const duty = operationIsMutation(toolName, operation) ? "; the mutation effect is unknown: reconcile the operation before any retry" : ""
+  return new AdapterContractDefect(`${toolName}.${operation} request ${requestID} failed the adapter envelope contract at ${detail}${duty}`)
+}
+
+function tupleForKey(key: AdapterErrorKey, toolName: string, operation: string, requestID: string): AdapterErrorTuple {
+  const tuple = (adapterErrorTuples as Record<string, AdapterErrorTuple | undefined>)[key]
+  if (!Object.hasOwn(adapterErrorTuples, key) || !tuple || VACATE_TABLE_KEYS.includes(key)) {
+    throw adapterContractDefect(toolName, operation, requestID, `unknown adapter error key ${JSON.stringify(String(key))}: the admitted tuples are the adapterErrorTuples keys`)
+  }
+  return tuple
+}
+
+// adapterError is the sole generic adapter-origin TS7 constructor. It reads
+// kind, reason, effect, and recovery only from the table, derives retry_safe
+// from the tuple, bounds the diagnostic to the schema maximum, and fails
+// closed on an unknown key, an undeclared tool/operation pair, or any
+// envelope the generated contract refuses.
+export function adapterError(toolName: string, operation: string, requestID: string, key: GenericAdapterErrorKey, message: string, details?: Record<string, unknown>): AdapterErrorEnvelope {
+  const tuple = tupleForKey(key, toolName, operation, requestID)
+  const envelope = { ...baseEnvelope(toolName, operation, requestID), error: { kind: tuple.kind, retry_safe: adapterRetrySafe(tuple), recovery_action: { kind: tuple.recovery }, effect_state: tuple.effect_state, adapter_reason: tuple.adapter_reason, message: boundedUTF8(message, ADAPTER_ERROR_MESSAGE_MAX_BYTES), ...(details ? { details } : {}) } }
+  return validateAdapterEnvelope(envelope as AdapterErrorEnvelope)
+}
+
+// vacateError is the sole constructor for the two vacate tuples: it fixes
+// tool concord_work_transition and operation session_vacate, whose
+// post-effect refusals carry the CD-0190 D3 state-driven replay (or operator
+// contact when the replay is unreachable) instead of a reconciliation no
+// work id can drive.
+export function vacateError(requestID: string, key: VacateAdapterErrorKey, message: string, details?: Record<string, unknown>): AdapterErrorEnvelope {
+  const toolName = "concord_work_transition"
+  const operation = "session_vacate"
+  const tuple = (adapterErrorTuples as Record<string, AdapterErrorTuple | undefined>)[key]
+  if (!Object.hasOwn(adapterErrorTuples, key) || !tuple || !VACATE_TABLE_KEYS.includes(key)) {
+    throw adapterContractDefect(toolName, operation, requestID, `unknown vacate error key ${JSON.stringify(String(key))}: the vacate constructor admits only the vacate_replay and vacate_unavailable tuples`)
+  }
+  const envelope = { ...baseEnvelope(toolName, operation, requestID), error: { kind: tuple.kind, retry_safe: adapterRetrySafe(tuple), recovery_action: { kind: tuple.recovery }, effect_state: tuple.effect_state, adapter_reason: tuple.adapter_reason, message: boundedUTF8(message, ADAPTER_ERROR_MESSAGE_MAX_BYTES), ...(details ? { details } : {}) } }
+  return validateAdapterEnvelope(envelope as AdapterErrorEnvelope)
+}
+
+// validateAdapterEnvelope fails closed only for adapter origin: a core, lane,
+// or work-start envelope passes through untouched, and an adapter-origin
+// envelope that fails the generated contract throws the typed defect with
+// the failing member path.
+export function validateAdapterEnvelope<T>(envelope: T): T {
+  if (!record(envelope) || envelope.origin !== "adapter") return envelope
+  if (validateGeneratedEnvelope(envelope)) return envelope
+  throw adapterContractDefect(String(envelope.tool ?? "unknown tool"), String(envelope.operation ?? "unknown operation"), String(envelope.request_id ?? "unknown request"), `member ${envelopeFailurePath(envelope) ?? "envelope"} failed the generated envelope contract`)
+}
+
+// AdapterFailure is the typed TS7 transport failure: it names one closed
+// table key and carries that tuple, so failureEnvelope maps it through the
+// factory without free parameters.
+export class AdapterFailure extends Error {
+  readonly key: GenericAdapterErrorKey
+  readonly kind: string
+  readonly adapterReason: string
+  readonly effectState: "none" | "possible"
+  readonly recovery: string
+  readonly details?: Record<string, unknown>
+  constructor(key: GenericAdapterErrorKey, message: string, details?: Record<string, unknown>) {
+    super(message)
+    this.name = "AdapterFailure"
+    const tuple = tupleForKey(key, "unknown tool", "unknown operation", "unknown request")
+    this.key = key
+    this.kind = tuple.kind
+    this.adapterReason = tuple.adapter_reason
+    this.effectState = tuple.effect_state
+    this.recovery = tuple.recovery
+    this.details = details
+  }
+}
+
+// WorkStartFailure is the work_start refusal family (CON-913 family split):
+// the WorkStartEnvelope result is a separate closed host shape with its own
+// kind/reason vocabulary, so its failures keep free kind and reason fields
+// instead of joining the TS7 table. Shared TS7 helpers
+// (resolveAmbientContext, runnerFailure) still throw AdapterFailure, and
+// workStartFailure maps both classes by their kind and recovery.
+class WorkStartFailure extends Error {
   constructor(readonly kind: string, readonly reason: string, message: string, readonly effect: "none" | "possible" | "partial" = "none", readonly recovery = effect === "none" ? "contact_operator" : "reconcile_operation") { super(message) }
 }
 
-function failureEnvelope(toolName: string, operation: string, requestID: string, error: unknown, fallbackReason: string) {
-  if (error instanceof AdapterFailure) return adapterError(toolName, operation, requestID, error.kind, error.reason, error.message, error.effect, error.recovery)
-  return adapterError(toolName, operation, requestID, "transport_failure", fallbackReason, String(error), "none", "contact_operator")
+function failureEnvelope(toolName: string, operation: string, requestID: string, error: unknown, fallbackKey: GenericAdapterErrorKey): CoreConcordEnvelope {
+  // A contract defect is never relabeled: these fallbacks run before any TS7
+  // construction, so a defect reaching them must propagate unchanged.
+  if (error instanceof AdapterContractDefect) throw error
+  if (error instanceof AdapterFailure) return adapterError(toolName, operation, requestID, error.key, error.message, error.details)
+  return adapterError(toolName, operation, requestID, fallbackKey, String(error))
 }
 
 function runnerFailure(error: unknown, signal: AbortSignal) {
+  if (error instanceof AdapterContractDefect) throw error
   if (error instanceof AdapterFailure) return error
-  if (error instanceof CoreBinaryUnavailable) return new AdapterFailure("transport_failure", "missing_binary", error.message)
+  if (error instanceof CoreBinaryUnavailable) return new AdapterFailure("missing_binary", error.message)
   const name = error instanceof Error ? error.name : ""
   const code = typeof error === "object" && error !== null && "code" in error ? String((error as any).code) : ""
   // ENOENT names the spawn's own failure: the binary never resolved and no
   // child started, whatever the abort signal's state, so it outranks the
   // abort and timeout names.
-  if (code === "ENOENT") return new AdapterFailure("transport_failure", "missing_binary", String(error))
+  if (code === "ENOENT") return new AdapterFailure("missing_binary", String(error))
   // A transport can throw AbortError for a deadline. The shared caller
   // signal retains the cause even when the transport erases its name.
-  if (name === "TimeoutError" || signal.aborted && signal.reason?.name === "TimeoutError") return new AdapterFailure("timeout", "timeout_no_effect", String(error), "none", "retry_same_request")
-  if (signal.aborted || name === "AbortError") return new AdapterFailure("cancelled", "cancelled_no_effect", String(error), "none", "retry_same_request")
-  return new AdapterFailure("transport_failure", "spawn_failure", String(error))
+  if (name === "TimeoutError" || signal.aborted && signal.reason?.name === "TimeoutError") return new AdapterFailure("timeout_no_effect", String(error))
+  if (signal.aborted || name === "AbortError") return new AdapterFailure("cancelled_no_effect", String(error))
+  return new AdapterFailure("spawn_failure", String(error))
 }
 
 function singleJSON(text: string): any {
@@ -513,32 +680,19 @@ function operationIsMutation(toolName: string, operation: string): boolean {
 }
 
 // A failed invocation is classified by what its operation kind can have
-// done. A read cannot have written: its failures carry effect none, a
-// recovery that never reconciles a write, and the transport kind the event
-// names. operation_conflict is reserved for an operation whose effect may
-// need reconciling, and the envelope law couples it to that recovery, so a
-// read never carries it. A mutation's effect stays possible until the
-// readback reconciles it.
-function unknownOutcomeClassification(toolName: string, operation: string, transportFailure: boolean): [string, string, "none" | "possible", "retry_same_request" | "reconcile_operation"] {
+// done, through the closed table (CON-913 §2.2): every mutation takes the
+// operation-conflict unknown-effect tuple regardless of whether the event
+// was transport or malformed JSON — the transport/malformed kinds cannot
+// carry a possible effect — and the session_vacate branch routes through the
+// vacate constructor, whose state-driven replay resolves the committed
+// relocation request from wherever the session sits (CD-0190 D3). A read
+// cannot have written, so it keeps the transport event the failure names.
+function unknownOutcomeEnvelope(toolName: string, operation: string, requestID: string, transportFailure: boolean, message: string, details?: Record<string, unknown>): CoreConcordEnvelope {
   if (operationIsMutation(toolName, operation)) {
-    // session_vacate carries no work id, so the generic reconciliation has
-    // no read to drive, and the core commits the relocation request before
-    // it answers. The state-driven replay resolves or refuses the committed
-    // request from wherever the session sits (CD-0190 D3), so the recovery
-    // is the same request again — the adapter remembers nothing the core
-    // did not return, and the retry needs no remembered destination.
-    if (toolName === "concord_work_transition" && operation === "session_vacate") {
-      return transportFailure
-        ? ["operation_conflict", "unknown_effect", "possible", "retry_same_request"]
-        : ["malformed_response", "malformed_core_response", "possible", "retry_same_request"]
-    }
-    return transportFailure
-      ? ["operation_conflict", "unknown_effect", "possible", "reconcile_operation"]
-      : ["malformed_response", "malformed_core_response", "possible", "reconcile_operation"]
+    if (toolName === "concord_work_transition" && operation === "session_vacate") return vacateError(requestID, "vacate_replay", message, details)
+    return adapterError(toolName, operation, requestID, "unknown_effect", message, details)
   }
-  return transportFailure
-    ? ["transport_failure", "io_failure", "none", "retry_same_request"]
-    : ["malformed_response", "malformed_core_response", "none", "retry_same_request"]
+  return adapterError(toolName, operation, requestID, transportFailure ? "io_failure_retry" : "malformed_core_response_retry", message, details)
 }
 
 // The vacate-specific answer for an unreadable post-commit response: the
@@ -561,12 +715,11 @@ function vacateReplayRecovery(message: string): string {
 // reconciliation (CD-0190 D3).
 function invokeRunnerFailureEnvelope(toolName: string, operation: string, requestID: string, error: unknown, signal: AbortSignal, invokeRan: boolean) {
   const failure = runnerFailure(error, signal)
-  if ((failure.reason === "missing_binary" && !invokeRan) || !operationIsMutation(toolName, operation)) {
+  if ((failure.key === "missing_binary" && !invokeRan) || !operationIsMutation(toolName, operation)) {
     return failureEnvelope(toolName, operation, requestID, failure, "spawn_failure")
   }
-  const [kind, reason, effect, recovery] = unknownOutcomeClassification(toolName, operation, true)
   const replay = toolName === "concord_work_transition" && operation === "session_vacate"
-  return adapterError(toolName, operation, requestID, kind, reason, replay ? vacateReplayRecovery(failure.message) : failure.message, effect, recovery)
+  return unknownOutcomeEnvelope(toolName, operation, requestID, true, replay ? vacateReplayRecovery(failure.message) : failure.message)
 }
 
 function selectedProductID() {
@@ -583,11 +736,11 @@ async function resolveAmbientContext(context: ToolContext, sessionDirectory: str
   } catch (error) {
     throw runnerFailure(error, context.abort)
   }
-  if (result.exitCode !== 0) throw new AdapterFailure("transport_failure", "io_failure", result.stderr.slice(0, MAX_STDERR))
+  if (result.exitCode !== 0) throw new AdapterFailure("io_failure_operator", result.stderr.slice(0, MAX_STDERR))
   let response
-  try { response = singleJSON(result.stdout) } catch (error) { throw new AdapterFailure("malformed_response", "malformed_core_response", String(error)) }
+  try { response = singleJSON(result.stdout) } catch (error) { throw new AdapterFailure("malformed_core_response_operator", String(error)) }
   if (typeof response.project_id !== "string" || response.project_id.length === 0 || typeof response.scope_version !== "string" || response.scope_version.length === 0 || typeof response.main_worktree !== "boolean" || !Array.isArray(response.product_ids) || !response.product_ids.every((value: unknown) => typeof value === "string")) {
-    throw new AdapterFailure("malformed_response", "malformed_core_response", "project-resolve response failed the context contract")
+    throw new AdapterFailure("malformed_core_response_operator", "project-resolve response failed the context contract")
   }
   return { projectID: response.project_id, productIDs: response.product_ids, scopeVersion: response.scope_version, mainWorktree: response.main_worktree }
 }
@@ -597,7 +750,7 @@ async function resolveSessionDirectory(context: ToolContext): Promise<string> {
     return await hostControlPlane().sessionDirectory(context.sessionID, context.abort)
   } catch (error) {
     if (context.abort.aborted) throw runnerFailure(error, context.abort)
-    throw new AdapterFailure("transport_failure", "session_directory_unreadable", error instanceof Error ? error.message : String(error), "none", "retry_same_request")
+    throw new AdapterFailure("session_directory_unreadable", error instanceof Error ? error.message : String(error))
   }
 }
 
@@ -613,7 +766,7 @@ async function invokeConcordOperationRaw(toolName: string, args: HostToolArgs, c
   // The installer would treat it as absent and could remove the release it
   // runs, so no core call leaves before the lease exists.
   const leaseFault = hostLeaseFault()
-  if (leaseFault) return adapterError(toolName, operation, requestID, "transport_failure", "host_lease_missing", `${leaseFault}; no operation ran`, "none", "contact_operator")
+  if (leaseFault) return adapterError(toolName, operation, requestID, "host_lease_missing", `${leaseFault}; no operation ran`)
   let ambient: AmbientContext
   let sessionDirectory: string
   try { sessionDirectory = sessionDirectoryOverride ?? await resolveSessionDirectory(context) } catch (error) { return failureEnvelope(toolName, operation, requestID, error, "context_resolution_failed") }
@@ -630,13 +783,11 @@ async function invokeConcordOperationRaw(toolName: string, args: HostToolArgs, c
   try { result = await run(args.input) } catch (error) { return invokeRunnerFailureEnvelope(toolName, operation, requestID, error, context.abort, false) }
   if (result.exitCode !== 0 && !result.stdout.trim()) {
     if (result.exitCode === CLI_INPUT_REFUSAL_EXIT && result.stdout === "") return cliInputRefusal(toolName, operation, requestID, result.stderr)
-    const [kind, reason, effect, recovery] = unknownOutcomeClassification(toolName, operation, true)
-    return adapterError(toolName, operation, requestID, kind, reason, outcomeMessage(result.stderr.slice(0, MAX_STDERR)), effect, recovery)
+    return unknownOutcomeEnvelope(toolName, operation, requestID, true, outcomeMessage(result.stderr.slice(0, MAX_STDERR)))
   }
   let response: any
   try { response = singleJSON(result.stdout) } catch (error) {
-    const [kind, reason, effect, recovery] = unknownOutcomeClassification(toolName, operation, false)
-    return adapterError(toolName, operation, requestID, kind, reason, outcomeMessage(String(error)), effect, recovery, salvageDetails(result.stdout))
+    return unknownOutcomeEnvelope(toolName, operation, requestID, false, outcomeMessage(String(error)), salvageDetails(result.stdout))
   }
   const skewRefusal = () => {
     const disk = resolveDiskManifestDigest()
@@ -645,13 +796,13 @@ async function invokeConcordOperationRaw(toolName: string, args: HostToolArgs, c
     // contract pin to one release (D1), so a digest the retry could not heal
     // is a defect; the operator gets both digests.
     const skewDetail = `core contract digest ${response.manifest_digest} does not match this adapter's ${activeManifestDigest()}; ${diskDetail}; under the pinned release pair this mismatch is a defect, so contact the operator with both digests`
-    if (!operationIsMutation(toolName, operation)) return adapterError(toolName, operation, requestID, "transport_failure", "manifest_mismatch", skewDetail, "none", "contact_operator")
+    if (!operationIsMutation(toolName, operation)) return adapterError(toolName, operation, requestID, "manifest_mismatch", skewDetail)
     // CD-0190 D3: session_vacate names no work id, so a reconcile_operation
     // recovery cannot drive a reconciliation. The committed relocation
     // request's recovery is the state-driven replay, which keeps the skew
     // detail and both digests in the refusal message.
-    if (vacateOperation) return adapterError(toolName, operation, requestID, "operation_conflict", "unknown_effect", vacateReplayRecovery(skewDetail), "possible", "retry_same_request")
-    return adapterError(toolName, operation, requestID, "operation_conflict", "unknown_effect", `${skewDetail}, then reconcile this operation`, "possible", "reconcile_operation")
+    if (vacateOperation) return vacateError(requestID, "vacate_replay", vacateReplayRecovery(skewDetail))
+    return adapterError(toolName, operation, requestID, "unknown_effect", `${skewDetail}, then reconcile this operation`)
   }
   const contractFailure = coreResponseFailure(response, toolName, operation)
   if (contractFailure && isVersionSkew(response)) {
@@ -669,13 +820,11 @@ async function invokeConcordOperationRaw(toolName: string, args: HostToolArgs, c
       try { retryResult = await run(args.input) } catch (error) { return invokeRunnerFailureEnvelope(toolName, operation, requestID, error, context.abort, true) }
       if (retryResult.exitCode !== 0 && !retryResult.stdout.trim()) {
         if (retryResult.exitCode === CLI_INPUT_REFUSAL_EXIT && retryResult.stdout === "" && !operationIsMutation(toolName, operation)) return cliInputRefusal(toolName, operation, requestID, retryResult.stderr)
-        const [kind, reason, effect, recovery] = unknownOutcomeClassification(toolName, operation, true)
-        return adapterError(toolName, operation, requestID, kind, reason, outcomeMessage(retryResult.stderr.slice(0, MAX_STDERR)), effect, recovery)
+        return unknownOutcomeEnvelope(toolName, operation, requestID, true, outcomeMessage(retryResult.stderr.slice(0, MAX_STDERR)))
       }
       let retryResponse: any
       try { retryResponse = singleJSON(retryResult.stdout) } catch (error) {
-        const [kind, reason, effect, recovery] = unknownOutcomeClassification(toolName, operation, false)
-        return adapterError(toolName, operation, requestID, kind, reason, outcomeMessage(String(error)), effect, recovery, salvageDetails(retryResult.stdout))
+        return unknownOutcomeEnvelope(toolName, operation, requestID, false, outcomeMessage(String(error)), salvageDetails(retryResult.stdout))
       }
       if (!coreResponseFailure(retryResponse, toolName, operation)) {
         response = retryResponse
@@ -687,8 +836,7 @@ async function invokeConcordOperationRaw(toolName: string, args: HostToolArgs, c
       return skewRefusal()
     }
   } else if (contractFailure) {
-    const [, , effect, recovery] = unknownOutcomeClassification(toolName, operation, false)
-    return adapterError(toolName, operation, requestID, operationIsMutation(toolName, operation) ? "operation_conflict" : "malformed_response", operationIsMutation(toolName, operation) ? "unknown_effect" : "malformed_core_response", outcomeMessage(`core response failed the generated TS7 contract: ${contractFailure}`), effect, recovery, salvageDetails(result.stdout))
+    return unknownOutcomeEnvelope(toolName, operation, requestID, false, outcomeMessage(`core response failed the generated TS7 contract: ${contractFailure}`), salvageDetails(result.stdout))
   }
   if (response?.outcome === "error" && response?.error?.kind === "approval_required") {
     const details = response.error.details ?? {}
@@ -716,8 +864,8 @@ async function invokeConcordOperationRaw(toolName: string, args: HostToolArgs, c
       // and why before the expansion can apply (CD-0097 D6).
       requiredChallengeFields.push("summary", "client_ref", "policy_version", "reason")
     }
-    if (requiredChallengeFields.some((key) => typeof details[key] !== "string" || details[key].length === 0)) return adapterError(toolName, operation, requestID, "malformed_response", "malformed_core_response", "core approval challenge lacked exact workflow metadata")
-    if (toolName === "concord_work_transition" && operation === "workflow_action" && Array.from(details.premise_summary ?? "").length > 256) return adapterError(toolName, operation, requestID, "malformed_response", "malformed_core_response", "core approval challenge premise summary exceeded the public bound")
+    if (requiredChallengeFields.some((key) => typeof details[key] !== "string" || details[key].length === 0)) return adapterError(toolName, operation, requestID, "malformed_core_response_operator", "core approval challenge lacked exact workflow metadata")
+    if (toolName === "concord_work_transition" && operation === "workflow_action" && Array.from(details.premise_summary ?? "").length > 256) return adapterError(toolName, operation, requestID, "malformed_core_response_operator", "core approval challenge premise summary exceeded the public bound")
     // The selection binds only where the surface admits one. `confirm_premise`
     // is the sole action whose schema carries `selected_choice`, and the core
     // emits the field as an empty string for every other action, so comparing
@@ -725,7 +873,7 @@ async function invokeConcordOperationRaw(toolName: string, args: HostToolArgs, c
     // every approval-gated action with it.
     const bindsSelection = toolName === "concord_work_transition" && operation === "workflow_action" && args.input?.action_id === "confirm_premise"
     const consequenceSummary = response.error.consequence_summary
-    if (!consequenceSummary || !Array.isArray(consequenceSummary.scope) || !Array.isArray(consequenceSummary.versions) || consequenceSummary.tool !== toolName || consequenceSummary.operation !== operation || consequenceSummary.operation_digest !== details.operation_digest || (bindsSelection && details.selected_choice !== args.input?.selected_choice)) return adapterError(toolName, operation, requestID, "malformed_response", "malformed_core_response", "core approval challenge did not bind the exact workflow selection")
+    if (!consequenceSummary || !Array.isArray(consequenceSummary.scope) || !Array.isArray(consequenceSummary.versions) || consequenceSummary.tool !== toolName || consequenceSummary.operation !== operation || consequenceSummary.operation_digest !== details.operation_digest || (bindsSelection && details.selected_choice !== args.input?.selected_choice)) return adapterError(toolName, operation, requestID, "malformed_core_response_operator", "core approval challenge did not bind the exact workflow selection")
     // CD-0037 D5: the typed consequence summary rides host permission metadata
     // unchanged. The host renders the operator prompt; this is transport, not
     // adapter-owned domain logic.
@@ -748,37 +896,47 @@ async function invokeConcordOperationRaw(toolName: string, args: HostToolArgs, c
     // Built-in question supplies semantic choice; ToolContext.ask authorizes
     // only this exact core-issued challenge. OpenCode evaluates permission per
     // pattern; an empty list skips the policy and never asks the operator.
-    try { await context.ask({ permission: `concord:${toolName}.${operation}`, patterns: [details.operation_digest], always: [], metadata: askMetadata }) } catch { return adapterError(toolName, operation, requestID, "cancelled", "cancelled_no_effect", "host approval was rejected") }
+    try { await context.ask({ permission: `concord:${toolName}.${operation}`, patterns: [details.operation_digest], always: [], metadata: askMetadata }) } catch (error) {
+      if (error instanceof AdapterContractDefect) throw error
+      return adapterError(toolName, operation, requestID, "cancelled_no_effect", "host approval was rejected")
+    }
     envelope.host_approval_assertion = { challenge_ref: details.approval_ref, request_digest: details.operation_digest, scope: consequenceSummary.scope, versions: consequenceSummary.versions, session_ref: envelope.session_ref, agent_ref: envelope.agent_ref, worktree: sessionDirectory, issued_at: new Date().toISOString() }
     const approvedInput = args.input && typeof args.input === "object" && !Array.isArray(args.input) ? { ...args.input, approval: { approval_ref: details.approval_ref } } : null
-    if (!approvedInput) return adapterError(toolName, operation, requestID, "malformed_response", "malformed_core_response", "approval resubmission requires object input")
+    if (!approvedInput) return adapterError(toolName, operation, requestID, "malformed_core_response_operator", "approval resubmission requires object input")
     try {
       result = await run(approvedInput)
     } catch (error) {
       return invokeRunnerFailureEnvelope(toolName, operation, requestID, error, context.abort, false)
     }
     try { response = singleJSON(result.stdout) } catch (error) {
-      if (vacateOperation) return adapterError(toolName, operation, requestID, "operation_conflict", "unknown_effect", vacateReplayRecovery(String(error)), "possible", "retry_same_request", salvageDetails(result.stdout))
-      return adapterError(toolName, operation, requestID, "operation_conflict", "unknown_effect", String(error), "possible", "reconcile_operation", salvageDetails(result.stdout))
+      if (vacateOperation) return vacateError(requestID, "vacate_replay", vacateReplayRecovery(String(error)), salvageDetails(result.stdout))
+      return adapterError(toolName, operation, requestID, "unknown_effect", String(error), salvageDetails(result.stdout))
     }
     const approvedFailure = coreResponseFailure(response, toolName, operation)
     if (approvedFailure) {
-      if (vacateOperation) return adapterError(toolName, operation, requestID, "operation_conflict", "unknown_effect", vacateReplayRecovery(`post-approval response failed the TS7 contract: ${approvedFailure}`), "possible", "retry_same_request", salvageDetails(result.stdout))
-      return adapterError(toolName, operation, requestID, "operation_conflict", "unknown_effect", `post-approval response failed the TS7 contract: ${approvedFailure}`, "possible", "reconcile_operation", salvageDetails(result.stdout))
+      if (vacateOperation) return vacateError(requestID, "vacate_replay", vacateReplayRecovery(`post-approval response failed the TS7 contract: ${approvedFailure}`), salvageDetails(result.stdout))
+      return adapterError(toolName, operation, requestID, "unknown_effect", `post-approval response failed the TS7 contract: ${approvedFailure}`, salvageDetails(result.stdout))
     }
   }
   return response as CoreConcordEnvelope;
 }
 
 function cliInputRefusal(toolName: string, operation: string, requestID: string, stderr: string): CoreConcordEnvelope {
-  const envelope = adapterError(toolName, operation, requestID, "invalid_input", "invalid_cli_input", stderr.slice(0, 1000), "none", "restart_query")
-  envelope.error.retry_safe = false
-  return envelope
+  return adapterError(toolName, operation, requestID, "invalid_cli_input", stderr.slice(0, ADAPTER_ERROR_MESSAGE_MAX_BYTES))
 }
 
 function requestWorkID(args: HostToolArgs): string | undefined {
   const input = args.input
   return record(input) && saneWorkID(input.work_id) ? input.work_id : undefined
+}
+
+// claimIdentity keeps the durable claim's known work identity on a post-claim
+// refusal, so the reconcile-then-replay diagnostic names what the replay
+// adopts. A request without a sane work id supplies nothing: the missing
+// identity is the reconciliation blocker, never a value to invent.
+function claimIdentity(args: HostToolArgs): Record<string, unknown> | undefined {
+  const workID = requestWorkID(args)
+  return workID === undefined ? undefined : { work_id: workID }
 }
 
 function addErrorDetails(response: CoreConcordEnvelope, details: Record<string, unknown>): CoreConcordEnvelope {
@@ -798,13 +956,17 @@ async function reconcileUnknownEffect(toolName: string, args: HostToolArgs, cont
     if (readback.outcome !== "ok" || !record(readback.result) || !Array.isArray(readback.result.items)) throw new Error("reconcile read failed")
     const item = readback.result.items.find((candidate: unknown) => record(candidate) && candidate.id === workID)
     return addErrorDetails(response, { reconciled: { found: !!item, lifecycle: item?.lifecycle ?? null, version: item?.version ?? null } })
-  } catch {
+  } catch (error) {
+    // The readback runs inside the invoke that must return a schema-valid
+    // envelope, so a contract defect from the nested transport propagates
+    // unchanged instead of degrading to a reconcile-attempted note.
+    if (error instanceof AdapterContractDefect) throw error
     return addErrorDetails(response, { reconcile_attempted: true })
   }
 }
 
 export async function invokeConcordOperation(toolName: string, args: HostToolArgs, context: ToolContext, sessionDirectoryOverride?: string): Promise<CoreConcordEnvelope> {
-  return reconcileUnknownEffect(toolName, args, context, await invokeConcordOperationRaw(toolName, args, context, sessionDirectoryOverride))
+  return validateAdapterEnvelope(await reconcileUnknownEffect(toolName, args, context, await invokeConcordOperationRaw(toolName, args, context, sessionDirectoryOverride)))
 }
 
 const workStateReporter = createWorkStateReporter(
@@ -889,21 +1051,25 @@ export function withReleaseStaleness(envelope: HostConcordEnvelope, staleness: R
 }
 
 function encodeHostResult(toolName: string, operation: string, requestID: string, envelope: HostConcordEnvelope): ToolResult {
-  let output = JSON.stringify(envelope)
-  if (Buffer.byteLength(output) > maxEnvelopeBytes) {
-    const [, , effect, recovery] = unknownOutcomeClassification(toolName, operation, false)
-    output = JSON.stringify(adapterError(toolName, operation, requestID, "malformed_response", "malformed_core_response", `Concord result exceeds ${maxEnvelopeBytes} bytes`, effect, recovery))
+  let settled = envelope
+  if (Buffer.byteLength(JSON.stringify(settled)) > maxEnvelopeBytes) {
+    // The 51,200-byte output guard stands: an oversized result is replaced by
+    // the whole classifier tuple for the operation before serialization.
+    settled = unknownOutcomeEnvelope(toolName, operation, requestID, false, `Concord result exceeds ${maxEnvelopeBytes} bytes`)
   }
-  return { title: toolName, output, metadata: {} }
+  // Final host exit: the serialized bytes must carry a schema-valid
+  // adapter-origin envelope, after staleness enrichment and any replacement.
+  validateAdapterEnvelope(settled)
+  return { title: toolName, output: JSON.stringify(settled), metadata: {} }
 }
 
 async function encodeHostToolResult(toolName: string, args: HostToolArgs, context: ToolContext, envelope: HostConcordEnvelope): Promise<ToolResult> {
+  const requestID = `${context.sessionID}-${context.messageID}`
   if (Buffer.byteLength(JSON.stringify(envelope)) > maxEnvelopeBytes) {
-    const [, , effect, recovery] = unknownOutcomeClassification(toolName, args.operation, false)
-    const oversized = adapterError(toolName, args.operation, `${context.sessionID}-${context.messageID}`, "malformed_response", "malformed_core_response", `Concord result exceeds ${maxEnvelopeBytes} bytes`, effect, recovery)
-    return encodeHostResult(toolName, args.operation, `${context.sessionID}-${context.messageID}`, await reconcileUnknownEffect(toolName, args, context, oversized))
+    const oversized = unknownOutcomeEnvelope(toolName, args.operation, requestID, false, `Concord result exceeds ${maxEnvelopeBytes} bytes`)
+    return encodeHostResult(toolName, args.operation, requestID, await reconcileUnknownEffect(toolName, args, context, oversized))
   }
-  return encodeHostResult(toolName, args.operation, `${context.sessionID}-${context.messageID}`, envelope)
+  return encodeHostResult(toolName, args.operation, requestID, envelope)
 }
 
 // The Project-session retirement read composes the core derivation with this
@@ -979,7 +1145,7 @@ async function laneConcordRefusalReason(context: ToolContext): Promise<string | 
 
 function laneConcordRefusalEnvelope(toolName: string, operation: string, context: ToolContext, reason: string): ToolResult {
   const requestID = `${context.sessionID}-${context.messageID}`
-  const envelope = adapterError(toolName, operation, requestID, "unauthorized", "lane_tool_refusal", `${reason}; the call is refused with effect_state none and records nothing.`, "none", "contact_operator")
+  const envelope = adapterError(toolName, operation, requestID, "lane_tool_refusal", `${reason}; the call is refused with effect_state none and records nothing.`)
   return encodeHostResult(toolName, operation, requestID, envelope)
 }
 
@@ -1141,10 +1307,10 @@ function validateWorkStartArgs(value: unknown, failures: string[]): value is Wor
 function deriveWorkStartProduct(context: AmbientContext): string {
   const selected = process.env.CONCORD_SELECTED_PRODUCT_ID
   if (selected !== undefined && selected !== "") {
-    if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(selected) || !context.productIDs.includes(selected)) throw new AdapterFailure("invalid_input", "product_selection_not_in_project", "selected Product is not a member of the resolved Project")
+    if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(selected) || !context.productIDs.includes(selected)) throw new WorkStartFailure("invalid_input", "product_selection_not_in_project", "selected Product is not a member of the resolved Project")
     return selected
   }
-  if (context.productIDs.length !== 1) throw new AdapterFailure("invalid_input", "ambiguous_product_selection", "the resolved Project does not have one unambiguous Product")
+  if (context.productIDs.length !== 1) throw new WorkStartFailure("invalid_input", "ambiguous_product_selection", "the resolved Project does not have one unambiguous Product")
   return context.productIDs[0]
 }
 
@@ -1304,7 +1470,11 @@ function workStartError(kind: string, message: string, identity: Partial<WorkSta
 // nothing here is an effect a replay cannot reproduce or reuse; the durable
 // state is the work item and the claim, both keyed on the request digest.
 function workStartFailure(error: unknown, target: { product_id: string; project_id: string; work_id: string; worktree: { path: string } } | null, fallbackKind: string): WorkStartEnvelope {
-  const failure = error instanceof AdapterFailure ? error : new AdapterFailure("transport_failure", fallbackKind, String(error))
+  // A contract defect is never relabeled: executeWorkStart's runner-backed
+  // child calls cross the shared transport helpers, which rethrow the defect
+  // unchanged, so it propagates instead of becoming a work-start refusal.
+  if (error instanceof AdapterContractDefect) throw error
+  const failure = error instanceof WorkStartFailure || error instanceof AdapterFailure ? error : new WorkStartFailure("transport_failure", fallbackKind, String(error))
   const identity = target ? { product_id: target.product_id, project_id: target.project_id, work_id: target.work_id, worktree_path: target.worktree.path } : {}
   const retrySafe = failure.recovery === "retry_same_request"
   return workStartError(failure.kind, failure.message, identity, failure.recovery, retrySafe)
@@ -1390,11 +1560,11 @@ function secondSessionLaunch(workID: string, projectID: string, directory: strin
 // worktree claim, stays out of the routing decision (CD-0182).
 async function projectCanonicalRepository(projectID: string, context: ToolContext): Promise<string> {
   const result = await runWorkStartChild([concordBinaryPath(), "project-canonical-path"], JSON.stringify({ project_id: projectID }), context.abort, { cwd: context.directory })
-  if (result.exitCode !== 0) throw new AdapterFailure("invalid_input", "project_location_failed", result.stderr.slice(0, MAX_STDERR), "none", "correct_request")
+  if (result.exitCode !== 0) throw new WorkStartFailure("invalid_input", "project_location_failed", result.stderr.slice(0, MAX_STDERR), "none", "correct_request")
   let parsed: any
-  try { parsed = singleJSON(result.stdout) } catch (error) { throw new AdapterFailure("malformed_response", "malformed_core_response", String(error)) }
+  try { parsed = singleJSON(result.stdout) } catch (error) { throw new WorkStartFailure("malformed_response", "malformed_core_response", String(error)) }
   if (typeof parsed.canonical_path !== "string" || !parsed.canonical_path.startsWith("/")) {
-    throw new AdapterFailure("malformed_response", "malformed_core_response", "project-canonical-path response failed the location contract")
+    throw new WorkStartFailure("malformed_response", "malformed_core_response", "project-canonical-path response failed the location contract")
   }
   return parsed.canonical_path
 }
@@ -1599,8 +1769,8 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext, warni
   try {
     // Input refusals have no effect; correction belongs to the caller.
     const failures: string[] = []
-    if (!validateWorkStartArgs(args, failures)) throw new AdapterFailure("invalid_input", "invalid_work_start_input", `work_start arguments failed the host-tool contract: ${failures.join("; ")}. ${workStartUsage} Submit a corrected request; resubmitting unchanged arguments will fail again.`, "none", "correct_request")
-    if (context.abort.aborted) throw new AdapterFailure("cancelled", "cancelled_no_effect", `work_start was cancelled before ${resume ? "the resume read" : "bootstrap"}`)
+    if (!validateWorkStartArgs(args, failures)) throw new WorkStartFailure("invalid_input", "invalid_work_start_input", `work_start arguments failed the host-tool contract: ${failures.join("; ")}. ${workStartUsage} Submit a corrected request; resubmitting unchanged arguments will fail again.`, "none", "correct_request")
+    if (context.abort.aborted) throw new WorkStartFailure("cancelled", "cancelled_no_effect", `work_start was cancelled before ${resume ? "the resume read" : "bootstrap"}`)
     const ambient = await resolveAmbientContext(context, context.directory)
     // CD-0182: a resume that names a member Project branches before any
     // Product derivation or host probe. A Project whose canonical path is
@@ -1626,7 +1796,7 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext, warni
       await hostControlPlane().probe(context.sessionID, context.abort)
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error)
-      throw new AdapterFailure(
+      throw new WorkStartFailure(
         "unreachable",
         "control_plane_unreachable",
         // CD-0098 D2 reaches the host through the client the plugin factory
@@ -1641,7 +1811,7 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext, warni
     try {
       await hostControlPlane().manageSession(context.sessionID, context.abort)
     } catch (error) {
-      throw new AdapterFailure("unreachable", "managed_scope_unavailable", error instanceof Error ? error.message : String(error), "none", "contact_operator")
+      throw new WorkStartFailure("unreachable", "managed_scope_unavailable", error instanceof Error ? error.message : String(error), "none", "contact_operator")
     }
     let prepareTask: string
     let recordedIssue: RecordedLinearIssueSection | undefined
@@ -1653,11 +1823,11 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext, warni
       // empty case keeps the calling session's resolved Project (CD-0182).
       const projectID = typeof (args as { project_id?: string }).project_id === "string" ? (args as { project_id: string }).project_id : ambient.projectID
       const resumed = await runWorkStartChild([concordBinaryPath(), "work-resume"], JSON.stringify({ product_id: productID, project_id: projectID, work_id: workID, session_ref: context.sessionID }), context.abort, { cwd: context.directory })
-      if (resumed.exitCode === workResumeRefusalExit) throw new AdapterFailure("resume_failure", "resume_refused", resumed.stderr.slice(0, MAX_STDERR), "none", "contact_operator")
-      if (resumed.exitCode !== 0) throw new AdapterFailure("resume_failure", "resume_refused", resumed.stderr.slice(0, MAX_STDERR), "none", "retry_same_request")
+      if (resumed.exitCode === workResumeRefusalExit) throw new WorkStartFailure("resume_failure", "resume_refused", resumed.stderr.slice(0, MAX_STDERR), "none", "contact_operator")
+      if (resumed.exitCode !== 0) throw new WorkStartFailure("resume_failure", "resume_refused", resumed.stderr.slice(0, MAX_STDERR), "none", "retry_same_request")
       let resumedValue: unknown
-      try { resumedValue = singleJSON(resumed.stdout) } catch (error) { throw new AdapterFailure("malformed_response", "malformed_resume_response", String(error), "none", "retry_same_request") }
-      if (!validateWorkStartResume(resumedValue) || resumedValue.product_id !== productID || resumedValue.project_id !== projectID || resumedValue.work_id !== workID) throw new AdapterFailure("malformed_response", "malformed_resume_response", "work-resume response failed the strict resume contract", "none", "retry_same_request")
+      try { resumedValue = singleJSON(resumed.stdout) } catch (error) { throw new WorkStartFailure("malformed_response", "malformed_resume_response", String(error), "none", "retry_same_request") }
+      if (!validateWorkStartResume(resumedValue) || resumedValue.product_id !== productID || resumedValue.project_id !== projectID || resumedValue.work_id !== workID) throw new WorkStartFailure("malformed_response", "malformed_resume_response", "work-resume response failed the strict resume contract", "none", "retry_same_request")
       target = resumedValue
       recordedIssue = resumedValue.linear_issue
       renderedHandoff = resumedValue.project_handoff
@@ -1669,20 +1839,20 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext, warni
       // identity from creation (CD-0179); the landing re-records it.
       const bootstrapInput = { product_id: productID, project_id: ambient.projectID, ...capture, session_ref: context.sessionID, host_pid: process.pid }
       const boot = await runWorkStartChild([concordBinaryPath(), "work-bootstrap"], JSON.stringify(bootstrapInput), context.abort, { cwd: context.directory })
-      if (boot.exitCode === workBootstrapRefusalExit) throw new AdapterFailure("bootstrap_failure", "bootstrap_refused", boot.stderr.slice(0, MAX_STDERR), "none", "contact_operator")
-      if (boot.exitCode !== 0) throw new AdapterFailure("bootstrap_failure", "bootstrap_failed", boot.stderr.slice(0, MAX_STDERR), "none", "retry_same_request")
+      if (boot.exitCode === workBootstrapRefusalExit) throw new WorkStartFailure("bootstrap_failure", "bootstrap_refused", boot.stderr.slice(0, MAX_STDERR), "none", "contact_operator")
+      if (boot.exitCode !== 0) throw new WorkStartFailure("bootstrap_failure", "bootstrap_failed", boot.stderr.slice(0, MAX_STDERR), "none", "retry_same_request")
       let bootValue: unknown
-      try { bootValue = singleJSON(boot.stdout) } catch (error) { throw new AdapterFailure("malformed_response", "malformed_bootstrap_response", String(error), "none", "retry_same_request") }
-      if (!validateWorkStartBootstrap(bootValue) || bootValue.product_id !== productID || bootValue.project_id !== ambient.projectID) throw new AdapterFailure("malformed_response", "malformed_bootstrap_response", "work-bootstrap response failed the strict bootstrap contract", "none", "retry_same_request")
+      try { bootValue = singleJSON(boot.stdout) } catch (error) { throw new WorkStartFailure("malformed_response", "malformed_bootstrap_response", String(error), "none", "retry_same_request") }
+      if (!validateWorkStartBootstrap(bootValue) || bootValue.product_id !== productID || bootValue.project_id !== ambient.projectID) throw new WorkStartFailure("malformed_response", "malformed_bootstrap_response", "work-bootstrap response failed the strict bootstrap contract", "none", "retry_same_request")
       target = bootValue
       prepareTask = capture.task
     }
 
-    if (context.abort.aborted) throw new AdapterFailure("cancelled", "cancelled_after_bootstrap", `work_start was cancelled after ${resume ? "the resume read" : "bootstrap"}; replay the same idempotency_key to resume`, "none", "retry_same_request")
+    if (context.abort.aborted) throw new WorkStartFailure("cancelled", "cancelled_after_bootstrap", `work_start was cancelled after ${resume ? "the resume read" : "bootstrap"}; replay the same idempotency_key to resume`, "none", "retry_same_request")
     try {
       await ensureConductLink(target.worktree.path, context.abort)
     } catch (error) {
-      throw new AdapterFailure("transport_failure", "conduct_link_failed", error instanceof Error ? error.message : String(error), "none", "contact_operator")
+      throw new WorkStartFailure("transport_failure", "conduct_link_failed", error instanceof Error ? error.message : String(error), "none", "contact_operator")
     }
     // session-prepare verifies the ACTIVE host agent: the request carries the
     // agent this session runs as (context.agent), the core resolves that
@@ -1690,14 +1860,14 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext, warni
     // same agent. A core that answers with any other agent fails the strict
     // contract below.
     const prepared = await runWorkStartChild([concordBinaryPath(), "session-prepare"], JSON.stringify({ product_id: target.product_id, work_id: target.work_id, task: prepareTask, agent: context.agent }), context.abort, { cwd: target.worktree.path })
-    if (prepared.exitCode === sessionPrepareRefusalExit) throw new AdapterFailure("session_prepare_failure", "session_prepare_refused", prepared.stderr.slice(0, MAX_STDERR), "none", "contact_operator")
-    if (prepared.exitCode !== 0) throw new AdapterFailure("session_prepare_failure", "session_prepare_failed", prepared.stderr.slice(0, MAX_STDERR), "none", "retry_same_request")
+    if (prepared.exitCode === sessionPrepareRefusalExit) throw new WorkStartFailure("session_prepare_failure", "session_prepare_refused", prepared.stderr.slice(0, MAX_STDERR), "none", "contact_operator")
+    if (prepared.exitCode !== 0) throw new WorkStartFailure("session_prepare_failure", "session_prepare_failed", prepared.stderr.slice(0, MAX_STDERR), "none", "retry_same_request")
     let preparedValue: unknown
-    try { preparedValue = singleJSON(prepared.stdout) } catch (error) { throw new AdapterFailure("malformed_response", "malformed_prepare_response", String(error), "none", "retry_same_request") }
-    if (!validateWorkStartPrepared(preparedValue, target, context.agent)) throw new AdapterFailure("malformed_response", "malformed_prepare_response", "session-prepare response failed the strict prepare contract", "none", "retry_same_request")
+    try { preparedValue = singleJSON(prepared.stdout) } catch (error) { throw new WorkStartFailure("malformed_response", "malformed_prepare_response", String(error), "none", "retry_same_request") }
+    if (!validateWorkStartPrepared(preparedValue, target, context.agent)) throw new WorkStartFailure("malformed_response", "malformed_prepare_response", "session-prepare response failed the strict prepare contract", "none", "retry_same_request")
     const agent = preparedValue.agent
 
-    if (context.abort.aborted) throw new AdapterFailure("cancelled", "cancelled_before_move", "work_start was cancelled before the move; replay the same idempotency_key to resume", "none", "retry_same_request")
+    if (context.abort.aborted) throw new WorkStartFailure("cancelled", "cancelled_before_move", "work_start was cancelled before the move; replay the same idempotency_key to resume", "none", "retry_same_request")
     // CD-0098 D2. The move is the only route to the worktree. An absent route
     // refuses here; what the capture recorded (or the resume read) stays
     // adoptable rather than being rolled back for a host-capability gap the
@@ -1707,9 +1877,9 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext, warni
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       if (error instanceof MoveSessionUnavailable) {
-        throw new AdapterFailure("unreachable", "move_session_route_unavailable", message, "none", "contact_operator")
+        throw new WorkStartFailure("unreachable", "move_session_route_unavailable", message, "none", "contact_operator")
       }
-      throw new AdapterFailure("transport_failure", "move_session_refused", message, "none", "retry_same_request")
+      throw new WorkStartFailure("transport_failure", "move_session_refused", message, "none", "retry_same_request")
     }
     // CD-0098 D3. The destination is read back from the host, not assumed from
     // the request that asked for it, and success is refused unless the session
@@ -1722,11 +1892,11 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext, warni
       landed = await hostControlPlane().sessionDirectory(context.sessionID, context.abort)
     } catch (error) {
       recordUnlandedClaimedWorktree(context.sessionID, target.worktree.path)
-      throw new AdapterFailure("malformed_response", "session_directory_unreadable", error instanceof Error ? error.message : String(error), "none", "retry_same_request")
+      throw new WorkStartFailure("malformed_response", "session_directory_unreadable", error instanceof Error ? error.message : String(error), "none", "retry_same_request")
     }
     if (!samePath(landed, target.worktree.path)) {
       recordUnlandedClaimedWorktree(context.sessionID, target.worktree.path)
-      throw new AdapterFailure("session_directory_mismatch", "move_destination_mismatch", `the session moved to ${JSON.stringify(landed)} rather than the claimed worktree ${JSON.stringify(target.worktree.path)}`, "none", "retry_same_request")
+      throw new WorkStartFailure("session_directory_mismatch", "move_destination_mismatch", `the session moved to ${JSON.stringify(landed)} rather than the claimed worktree ${JSON.stringify(target.worktree.path)}`, "none", "retry_same_request")
     }
     // Issue #1322: a host that accepted the retarget can keep running this
     // session's tools in the pre-move directory, so the confirmed read-back
@@ -1742,7 +1912,7 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext, warni
     // that move has not landed.
     if (!samePath(context.directory, target.worktree.path)) {
       recordUnlandedClaimedWorktree(context.sessionID, target.worktree.path)
-      throw new AdapterFailure("session_directory_mismatch", "move_context_not_landed", `the host reports the session in the claimed worktree ${JSON.stringify(target.worktree.path)}, but this session's tool context still resolves in ${JSON.stringify(context.directory)}, so the move has not landed: Concord reports no success, arms no claimed worktree, and this refusal arms no turn-move boundary. Recovery is possible next turn: end this turn and ask the operator to send the next message, because the next turn's tool context can resolve in the claimed worktree. That message alone is not placement proof: before replaying, confirm from the new turn's tool context, for example the shell working directory, that it actually resolves in ${JSON.stringify(target.worktree.path)}; only then replay this same work_start request.`, "none", "retry_same_request")
+      throw new WorkStartFailure("session_directory_mismatch", "move_context_not_landed", `the host reports the session in the claimed worktree ${JSON.stringify(target.worktree.path)}, but this session's tool context still resolves in ${JSON.stringify(context.directory)}, so the move has not landed: Concord reports no success, arms no claimed worktree, and this refusal arms no turn-move boundary. Recovery is possible next turn: end this turn and ask the operator to send the next message, because the next turn's tool context can resolve in the claimed worktree. That message alone is not placement proof: before replaying, confirm from the new turn's tool context, for example the shell working directory, that it actually resolves in ${JSON.stringify(target.worktree.path)}; only then replay this same work_start request.`, "none", "retry_same_request")
     }
     // A resumed session claims no worktree: the read that derives its active
     // worktree records nothing (CD-0104 D1), so the store holds no occupancy
@@ -1767,7 +1937,7 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext, warni
           // Project, so managed execution would refuse. Reporting success
           // here would boot the session into a state where every
           // consequential action refuses.
-          throw new AdapterFailure("resume_failure", "claim_landing_unrecorded", `Concord did not record this session as the occupant of ${target.worktree.path}: ${message}. The addressed Project handoff requires verified placement before managed execution; replay work_start to retry the record.`, "none", "retry_same_request")
+          throw new WorkStartFailure("resume_failure", "claim_landing_unrecorded", `Concord did not record this session as the occupant of ${target.worktree.path}: ${message}. The addressed Project handoff requires verified placement before managed execution; replay work_start to retry the record.`, "none", "retry_same_request")
         }
         warnings.push(`Concord did not record this session as the occupant of ${target.worktree.path}: ${message}. The worktree removal gates may not hold it for this session; replay work_start to retry the record.`)
       }
@@ -1786,11 +1956,11 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext, warni
     // warning path above.
     if (resume && !renderedHandoff && landingRecorded) {
       const refreshed = await runWorkStartChild([concordBinaryPath(), "work-resume"], JSON.stringify({ product_id: target.product_id, project_id: target.project_id, work_id: target.work_id, session_ref: context.sessionID }), context.abort, { cwd: context.directory })
-      if (refreshed.exitCode === workResumeRefusalExit) throw new AdapterFailure("resume_failure", "resume_refused", `the post-landing handoff re-read refused: ${refreshed.stderr.slice(0, MAX_STDERR)}`, "none", "contact_operator")
-      if (refreshed.exitCode !== 0) throw new AdapterFailure("resume_failure", "resume_refused", `the post-landing handoff re-read refused: ${refreshed.stderr.slice(0, MAX_STDERR)}`, "none", "retry_same_request")
+      if (refreshed.exitCode === workResumeRefusalExit) throw new WorkStartFailure("resume_failure", "resume_refused", `the post-landing handoff re-read refused: ${refreshed.stderr.slice(0, MAX_STDERR)}`, "none", "contact_operator")
+      if (refreshed.exitCode !== 0) throw new WorkStartFailure("resume_failure", "resume_refused", `the post-landing handoff re-read refused: ${refreshed.stderr.slice(0, MAX_STDERR)}`, "none", "retry_same_request")
       let refreshedValue: unknown
-      try { refreshedValue = singleJSON(refreshed.stdout) } catch (error) { throw new AdapterFailure("malformed_response", "malformed_resume_response", `the post-landing handoff re-read failed the strict resume contract: ${String(error)}`, "none", "retry_same_request") }
-      if (!validateWorkStartResume(refreshedValue) || refreshedValue.product_id !== target.product_id || refreshedValue.project_id !== target.project_id || refreshedValue.work_id !== target.work_id) throw new AdapterFailure("malformed_response", "malformed_resume_response", "the post-landing handoff re-read failed the strict resume contract", "none", "retry_same_request")
+      try { refreshedValue = singleJSON(refreshed.stdout) } catch (error) { throw new WorkStartFailure("malformed_response", "malformed_resume_response", `the post-landing handoff re-read failed the strict resume contract: ${String(error)}`, "none", "retry_same_request") }
+      if (!validateWorkStartResume(refreshedValue) || refreshedValue.product_id !== target.product_id || refreshedValue.project_id !== target.project_id || refreshedValue.work_id !== target.work_id) throw new WorkStartFailure("malformed_response", "malformed_resume_response", "the post-landing handoff re-read failed the strict resume contract", "none", "retry_same_request")
       renderedHandoff = refreshedValue.project_handoff
     }
     // The verified placement arms the receiving side of the Project-session
@@ -1803,7 +1973,7 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext, warni
     if (renderedHandoff) {
       const handoff = await consumeAddressedProjectHandoff(target.work_id, renderedHandoff.handoff_id, context, { sessionDirectory: target.worktree.path, ambient })
       if (!handoff.consumed) {
-        throw new AdapterFailure("resume_failure", "project_handoff_unconsumed", `Concord did not consume the addressed Project handoff for ${target.work_id}: ${handoff.message ?? "the consume refused"}. Managed execution stays gated until a typed consume succeeds.`, "none", "retry_same_request")
+        throw new WorkStartFailure("resume_failure", "project_handoff_unconsumed", `Concord did not consume the addressed Project handoff for ${target.work_id}: ${handoff.message ?? "the consume refused"}. Managed execution stays gated until a typed consume succeeds.`, "none", "retry_same_request")
       }
     }
     // The tool context landed in the claimed worktree, so this session's
@@ -1958,31 +2128,33 @@ const WORKER_ABANDON_OPERATION = "worker_abandon"
 async function executeWorkerReconcile(args: HostToolArgs, context: ToolContext): Promise<HostConcordEnvelope> {
   const operation = "worker_reconcile"
   const requestID = `${context.sessionID}-${context.messageID}`
-  if (!validateGeneratedPayload("work_transition_worker_reconcile_input", args.input)) return adapterError("concord_work_transition", operation, requestID, "invalid_input", "invalid_worker_reconcile_input", "worker_reconcile requires only the work, original attempt, retained Task part and idempotency key", "none", "correct_request")
+  if (!validateGeneratedPayload("work_transition_worker_reconcile_input", args.input)) return adapterError("concord_work_transition", operation, requestID, "invalid_tool_input", "worker_reconcile requires only the work, original attempt, retained Task part and idempotency key")
   const input = args.input as { work_id: string; attempt_id: string; task_part_id: string; idempotency_key: string }
   const key = (phase: string) => `worker-reconcile-${createHash("sha256").update(`${phase}\0${input.idempotency_key}`).digest("hex")}`
   const prepared = await invokeConcordOperation("concord_work_transition", { ...args, input: { ...args.input, idempotency_key: key("prepare") } }, context)
   if (prepared.outcome !== "ok") return prepared
   const recovery = (prepared.result as any)?.worker_recovery
-  if (!validateGeneratedPayload("worker_recovery_context", recovery)) return adapterError("concord_work_transition", operation, requestID, "malformed_response", "invalid_worker_recovery_context", "the core supplied no closed original-attempt recovery context", "none", "contact_operator")
+  if (!validateGeneratedPayload("worker_recovery_context", recovery)) return adapterError("concord_work_transition", operation, requestID, "malformed_core_response_operator", "the core supplied no closed original-attempt recovery context")
   let result: AgentResultEnvelope
   try {
     const mismatch = dispatchDirectoryMismatch(recovery.worker_worktree, await resolveSessionDirectory(context))
     if (mismatch) throw new Error(mismatch)
     result = await reconcileRetainedWorker(recovery as WorkerRecoveryContext, input.work_id, input.attempt_id, input.task_part_id, { credentials: credentialsOverride ?? undefined, evidenceRunner: runner, sessionReader: hostSessionReader() ?? undefined, workerDirectory: recovery.worker_worktree }, context.abort)
   } catch (error) {
-    if (context.abort.aborted) {
-      const kind = context.abort.reason?.name === "TimeoutError" ? "timeout" : "cancelled"
-      return adapterError("concord_work_transition", operation, requestID, kind, "worker_recovery_read_aborted", `retained-report proof read stopped before evidence: ${String(error)}`, "none", "retry_same_request")
-    }
-    return adapterError("concord_work_transition", operation, requestID, "operation_conflict", "worker_recovery_proof_unavailable", `retained-report recovery stopped without accepting evidence: ${String(error)}`, "none", "contact_operator")
+    // The composite catch spans the retained-report proof read and the
+    // routine that submits evidence, so it cannot prove the composite
+    // stopped before any submission: the refusal carries the underlying
+    // cause and reconciles the original attempt (CON-913 rows 17/18).
+    return adapterError("concord_work_transition", operation, requestID, "unknown_effect", `retained-report recovery stopped: ${String(error)}`)
   }
   if (result.outcome !== "ok") {
-    const effect = result.error?.details?.effect_state
-    return adapterError("concord_work_transition", operation, requestID, "operation_conflict", "worker_reconciliation_pending", result.error?.message ?? "worker reconciliation returned no completion", effect === "none" ? "none" : "possible", result.error?.retry_safe ? "retry_same_request" : "contact_operator")
+    // The submitted evidence routine owns a composite, not only its last
+    // write, so every stopped lane outcome maps to the reconcile tuple while
+    // the lane diagnostic names the cause (CON-913 rows 19/20).
+    return adapterError("concord_work_transition", operation, requestID, "unknown_effect", result.error?.message ?? "worker reconciliation returned no completion")
   }
   const receipt = await invokeConcordOperation("concord_work_transition", { ...args, input: { ...args.input, idempotency_key: key("receipt") } }, context)
-  if (receipt.outcome !== "ok" || (receipt.result as any)?.worker_recovery?.lifecycle_state !== "completed") return adapterError("concord_work_transition", operation, requestID, "operation_conflict", "worker_reconciliation_receipt_pending", "the worker evidence was acknowledged, but the matching completed-attempt receipt is unavailable", "possible", "retry_same_request")
+  if (receipt.outcome !== "ok" || (receipt.result as any)?.worker_recovery?.lifecycle_state !== "completed") return adapterError("concord_work_transition", operation, requestID, "unknown_effect", "the worker evidence was acknowledged, but the matching completed-attempt receipt is unavailable")
   dispatchWindows().releaseRetained(recovery.coordinator_session, input.attempt_id, recovery.dispatch.lane_id)
   return receipt
 }
@@ -2055,14 +2227,14 @@ function nothingDurableReleaseEnvelope(requestID: string, abandonInput: { work_i
 async function executeWorkerAbandon(args: HostToolArgs, context: ToolContext): Promise<HostConcordEnvelope> {
   const requestID = `${context.sessionID}-${context.messageID}`
   const leaseFault = hostLeaseFault()
-  if (leaseFault) return adapterError("concord_work_transition", WORKER_ABANDON_OPERATION, requestID, "transport_failure", "host_lease_missing", `${leaseFault}; no worker attempt was closed`, "none", "contact_operator")
+  if (leaseFault) return adapterError("concord_work_transition", WORKER_ABANDON_OPERATION, requestID, "host_lease_missing", `${leaseFault}; no worker attempt was closed`)
   const input = args.input
   if (!validateGeneratedPayload("work_transition_worker_abandon_input", input)) {
-    return adapterError("concord_work_transition", WORKER_ABANDON_OPERATION, requestID, "invalid_input", "invalid_worker_abandon_input", `worker_abandon input failed the generated contract at ${payloadFailurePath("work_transition_worker_abandon_input", input)}`, "none", "correct_request")
+    return adapterError("concord_work_transition", WORKER_ABANDON_OPERATION, requestID, "invalid_tool_input", `worker_abandon input failed the generated contract at ${payloadFailurePath("work_transition_worker_abandon_input", input)}`)
   }
   const abandonInput = input as { work_id: string; attempt_id: string; lane_id: string; detail: string; idempotency_key: string }
   const lane = agentLanes.find((candidate) => candidate.id === abandonInput.lane_id)
-  if (!lane) return adapterError("concord_work_transition", WORKER_ABANDON_OPERATION, requestID, "invalid_input", "unknown_worker_lane", `worker_abandon does not recognize lane ${JSON.stringify(abandonInput.lane_id)}`, "none", "correct_request")
+  if (!lane) return adapterError("concord_work_transition", WORKER_ABANDON_OPERATION, requestID, "invalid_tool_input", `worker_abandon does not recognize lane ${JSON.stringify(abandonInput.lane_id)}`)
   const token = workerAbandonToken(abandonInput.idempotency_key)
   const result = await abandonWorkerAttempt(lane, { work_id: abandonInput.work_id, attempt_id: abandonInput.attempt_id }, abandonInput.detail, {
     credentials: credentialsOverride ?? undefined,
@@ -2087,7 +2259,10 @@ async function executeWorkerAbandon(args: HostToolArgs, context: ToolContext): P
     return recoverOwnRowAbandon(args, context, abandonInput, lane, token, requestID, message)
   }
   if (result.error?.retry_safe && result.error.details?.effect_state === "possible") {
-    return adapterError("concord_work_transition", WORKER_ABANDON_OPERATION, requestID, "operation_conflict", "worker_abandon_effect_uncertain", `the abandonment has an uncertain effect: ${message}; retry the same worker_abandon to confirm its receipt`, "possible", "retry_same_request")
+    // The refusal keeps the same-abandon receipt instruction and the
+    // underlying durable cause; the reconcile recovery replaces the retry,
+    // which cannot confirm a receipt the adapter never read (CON-913 row 24).
+    return adapterError("concord_work_transition", WORKER_ABANDON_OPERATION, requestID, "worker_abandon_refused_possible", `the abandonment has an uncertain effect: ${message}; reconcile the original worker_abandon attempt and its receipt`)
   }
   if (result.error?.retry_safe === false) {
     const receipt = await invokeConcordOperation("concord_work_transition", args, context)
@@ -2096,12 +2271,12 @@ async function executeWorkerAbandon(args: HostToolArgs, context: ToolContext): P
     }
     return workerAbandonReceiptFailure(requestID, receipt)
   }
-  return adapterError("concord_work_transition", WORKER_ABANDON_OPERATION, requestID, "operation_conflict", "worker_abandon_refused", "worker abandonment could not be recorded", result.error?.details?.effect_state === "none" ? "none" : "possible", "reconcile_operation", { abandon_error_message: message })
+  return adapterError("concord_work_transition", WORKER_ABANDON_OPERATION, requestID, result.error?.details?.effect_state === "none" ? "worker_abandon_refused_none" : "worker_abandon_refused_possible", "worker abandonment could not be recorded", { abandon_error_message: message })
 }
 
 function workerAbandonReceiptFailure(requestID: string, receipt: CoreConcordEnvelope, steps: string[] = []): HostConcordEnvelope {
   const error = record(receipt.error) ? receipt.error : {}
-  return adapterError("concord_work_transition", WORKER_ABANDON_OPERATION, requestID, "operation_conflict", "worker_abandon_receipt_failed", "the worker attempt was closed, but the durable replay receipt was not confirmed", "possible", "reconcile_operation", {
+  return adapterError("concord_work_transition", WORKER_ABANDON_OPERATION, requestID, "worker_abandon_receipt_failed", "the worker attempt was closed, but the durable replay receipt was not confirmed", {
     recovery_stopped_at: "worker_abandon_receipt",
     ...(typeof receipt.outcome === "string" ? { receipt_outcome: receipt.outcome } : {}),
     ...(typeof error.kind === "string" ? { receipt_error_kind: error.kind } : {}),
@@ -2146,6 +2321,7 @@ async function recoverOwnRowAbandon(args: HostToolArgs, context: ToolContext, ab
         steps.push(`work_start re-land refused: ${detail}; replay work_start once the session's tool context runs in the claimed worktree`)
       }
     } catch (error) {
+      if (error instanceof AdapterContractDefect) throw error
       const detail = error instanceof Error ? error.message : String(error)
       steps.push(`work_start re-land refused: ${detail}; replay work_start once the session's tool context runs in the claimed worktree`)
     }
@@ -2176,7 +2352,8 @@ async function recoverOwnRowAbandon(args: HostToolArgs, context: ToolContext, ab
       throw new Error(detail)
     }
   } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error)
+    if (error instanceof AdapterContractDefect) throw error
+    const message = error instanceof Error ? error.message : String(error)
     // A committed core vacate records the relocation request durably even
     // when its host move or readback failed afterwards; the occupancy rows
     // stand until the vacate-landing verb records the verified landing. The
@@ -2184,7 +2361,7 @@ async function recoverOwnRowAbandon(args: HostToolArgs, context: ToolContext, ab
     // step (TS7 durable-outcome honesty); a refusal before the write keeps
     // none.
     if (vacateCommitted) steps.push("session_vacate: the relocation request is recorded at the core; the occupancy rows stand until the landing is recorded")
-    return adapterError("concord_work_transition", WORKER_ABANDON_OPERATION, requestID, "operation_conflict", "worker_abandon_refused", "the own-row recovery stopped at session_vacate", vacateCommitted ? "possible" : vacateEffectState ?? "none", "reconcile_operation", { recovery_stopped_at: "session_vacate", abandon_error_message: refusedMessage, recovery_error_message: detail, ...(steps.length ? { recovery_steps: steps } : {}) })
+    return adapterError("concord_work_transition", WORKER_ABANDON_OPERATION, requestID, (vacateCommitted ? "possible" : vacateEffectState ?? "none") === "possible" ? "worker_abandon_refused_possible" : "worker_abandon_refused_none", "the own-row recovery stopped at session_vacate", { recovery_stopped_at: "session_vacate", abandon_error_message: refusedMessage, recovery_error_message: message, ...(steps.length ? { recovery_steps: steps } : {}) })
   }
   steps.push("session_vacate: the session moved to the registered main checkout and the verified landing released its occupancy rows")
   // 2. one abandon retry. The identity derives from the same idempotency key,
@@ -2205,12 +2382,12 @@ async function recoverOwnRowAbandon(args: HostToolArgs, context: ToolContext, ab
     // re-land runs before the stop: a refusal that ended at the main checkout
     // would strand the coordinator away from its claimed worktree.
     await reland()
-    return adapterError("concord_work_transition", WORKER_ABANDON_OPERATION, requestID, "operation_conflict", "worker_abandon_refused", "the own-row recovery released the occupancy row, but the abandon retry still refused", "possible", "reconcile_operation", { recovery_stopped_at: "worker_abandon_retry", abandon_error_message: refusedMessage, recovery_error_message: retryMessage, ...(steps.length ? { recovery_steps: steps } : {}) })
+    return adapterError("concord_work_transition", WORKER_ABANDON_OPERATION, requestID, "worker_abandon_refused_possible", "the own-row recovery released the occupancy row, but the abandon retry still refused", { recovery_stopped_at: "worker_abandon_retry", abandon_error_message: refusedMessage, recovery_error_message: retryMessage, ...(steps.length ? { recovery_steps: steps } : {}) })
   }
   steps.push("worker_abandon: the retry closed the dispatched attempt")
   // 3. Return to the linked worktree before the receipt's authority check.
   if (!await reland()) {
-    return adapterError("concord_work_transition", WORKER_ABANDON_OPERATION, requestID, "operation_conflict", "worker_abandon_receipt_failed", "the worker attempt was closed, but the session did not re-land in the claimed worktree; the durable replay receipt was not recorded", "possible", "reconcile_operation", { recovery_stopped_at: "work_start", recovery_steps: steps })
+    return adapterError("concord_work_transition", WORKER_ABANDON_OPERATION, requestID, "worker_abandon_receipt_failed", "the worker attempt was closed, but the session did not re-land in the claimed worktree; the durable replay receipt was not recorded", { recovery_stopped_at: "work_start", recovery_steps: steps })
   }
   // 4. Record the durable receipt from the confirmed linked worktree.
   const receipt = await invokeConcordOperation("concord_work_transition", args, context)
@@ -2237,14 +2414,14 @@ export async function moveSessionToClaimedWorktree(args: HostToolArgs, context: 
   const result = envelope.result
   const path = record(result) ? result.path : undefined
   if (typeof path !== "string" || !path.startsWith("/")) {
-    return adapterError("concord_work_transition", "worktree_claim", requestID, "malformed_response", "claim_destination_unreadable", "core worktree_claim response did not carry an absolute derived destination", "none", "retry_same_request")
+    return adapterError("concord_work_transition", "worktree_claim", requestID, "unknown_effect", "core worktree_claim response did not carry an absolute derived destination; the claim is durable: reconcile the recorded claim, then replay the same worktree_claim request to finish host placement", claimIdentity(args))
   }
   try {
     await ensureConductLink(path, context.abort)
     await hostControlPlane().moveSession(context.sessionID, path, context.abort)
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    return adapterError("concord_work_transition", "worktree_claim", requestID, "transport_failure", "claim_move_refused", `${message}; the claim is durable, replay worktree_claim to retry the move`, "none", "retry_same_request")
+    return adapterError("concord_work_transition", "worktree_claim", requestID, "unknown_effect", `${message}; the claim is durable: reconcile the recorded claim, then replay the same worktree_claim request to finish host placement`, claimIdentity(args))
   }
   // The move was accepted but the landing cannot be proved, so every refusal
   // past the move records the pending target: dispatch stays closed for this
@@ -2256,11 +2433,11 @@ export async function moveSessionToClaimedWorktree(args: HostToolArgs, context: 
   } catch (error) {
     recordUnlandedClaimedWorktree(context.sessionID, path)
     const message = error instanceof Error ? error.message : String(error)
-    return adapterError("concord_work_transition", "worktree_claim", requestID, "malformed_response", "claim_move_destination_unreadable", message, "none", "retry_same_request")
+    return adapterError("concord_work_transition", "worktree_claim", requestID, "unknown_effect", `${message}; the claim is durable: reconcile the recorded claim, then replay the same worktree_claim request to finish placement and landing`, claimIdentity(args))
   }
   if (!samePath(landed, path)) {
     recordUnlandedClaimedWorktree(context.sessionID, path)
-    return adapterError("concord_work_transition", "worktree_claim", requestID, "session_directory_mismatch", "claim_move_destination_mismatch", `the claim recorded ${JSON.stringify(path)} but the session runs in ${JSON.stringify(landed)}`, "none", "retry_same_request")
+    return adapterError("concord_work_transition", "worktree_claim", requestID, "unknown_effect", `the claim recorded ${JSON.stringify(path)} but the session runs in ${JSON.stringify(landed)}; the claim is durable: reconcile the recorded claim, then replay the same worktree_claim request to finish host placement`, claimIdentity(args))
   }
   // The verified landing is recorded in the core: one transaction confirms
   // the destination row is active and occupied by this session, clears this
@@ -2272,13 +2449,17 @@ export async function moveSessionToClaimedWorktree(args: HostToolArgs, context: 
   const input = args.input
   const workID = record(input) ? input.work_id : undefined
   if (typeof workID !== "string" || workID === "") {
-    return adapterError("concord_work_transition", "worktree_claim", requestID, "malformed_response", "claim_landing_unattributable", "the claim's landing verified by readback carries no work id to record it under", "none", "retry_same_request")
+    return adapterError("concord_work_transition", "worktree_claim", requestID, "unknown_effect", "the claim's landing verified by readback carries no work id to record it under; the original work identity needs repair before the landing can be reconciled: reconcile the recorded claim, then replay the same worktree_claim request with the corrected identity")
   }
   try {
     await recordClaimLanding(workID, context.sessionID, path, context.abort)
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    return adapterError("concord_work_transition", "worktree_claim", requestID, "operation_conflict", "claim_landing_refused", `${message}; the verified landing is not recorded and the source occupancy stands, replay worktree_claim to retry the landing record`, "none", "retry_same_request")
+    // The landing verb commits before it answers, so a refused call leaves
+    // the landing record unsettled rather than absent: the diagnostic reports
+    // the possible effect and the replay that confirms or completes it, and
+    // never asserts that nothing was recorded.
+    return adapterError("concord_work_transition", "worktree_claim", requestID, "unknown_effect", `${message}; the landing record is unsettled because the verb commits before it answers and the source occupancy stands: reconcile the recorded claim, then replay the same worktree_claim request to confirm or complete the landing record`, claimIdentity(args))
   }
   // The landing is confirmed, so this session's active claimed worktree is
   // armed for the dispatch check.
@@ -2330,15 +2511,18 @@ export async function moveSessionToRegisteredMainCheckout(args: HostToolArgs, co
   if (!record(input) || Object.keys(input).some((key) => key === "destination" || key === "destination_directory" || key === "path")) {
     // The composed routes strip a destination before the core call, so this
     // refusal is pre-commit. A caller that reaches it on an ok envelope
-    // reports the recorded relocation request truthfully instead.
+    // reports the recorded relocation request truthfully instead: the
+    // request stands, so the state-driven replay is the recovery (CON-913
+    // row 31).
     const committed = record(envelope) && envelope.outcome === "ok"
-    return adapterError("concord_work_transition", "session_vacate", requestID, "invalid_input", "agent_named_destination", "session_vacate derives the registered main checkout and refuses an agent-named destination", committed ? "possible" : "none", "correct_request")
+    if (committed) return vacateError(requestID, "vacate_replay", "session_vacate derives the registered main checkout and refuses an agent-named destination; the relocation request stands, replay session_vacate from wherever the session sits to resolve it")
+    return adapterError("concord_work_transition", "session_vacate", requestID, "invalid_tool_input", "session_vacate derives the registered main checkout and refuses an agent-named destination")
   }
   if (!record(envelope) || envelope.outcome !== "ok") return envelope
   const result = envelope.result
   const destination = record(result) ? result.destination_directory : undefined
   if (typeof destination !== "string" || !destination.startsWith("/")) {
-    return adapterError("concord_work_transition", "session_vacate", requestID, "malformed_response", "vacate_destination_unreadable", "core session_vacate response did not carry an absolute derived destination", "possible", "retry_same_request")
+    return vacateError(requestID, "vacate_replay", "core session_vacate response did not carry an absolute derived destination")
   }
   // The core committed the relocation request (a fresh request or a replay
   // resolution), so the adapter keeps its registered main checkout for this
@@ -2366,10 +2550,12 @@ export async function moveSessionToRegisteredMainCheckout(args: HostToolArgs, co
       await hostControlPlane().moveSession(context.sessionID, destination, context.abort)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      const kind = error instanceof MoveSessionUnavailable ? "unreachable" : "transport_failure"
-      const reason = error instanceof MoveSessionUnavailable ? "move_session_route_unavailable" : "vacate_move_refused"
-      const recovery = error instanceof MoveSessionUnavailable ? "contact_operator" : "retry_same_request"
-      return adapterError("concord_work_transition", "session_vacate", requestID, kind, reason, `${message}; the committed relocation request stands and names ${JSON.stringify(destination)} as its registered main checkout`, "possible", recovery)
+      // A move route the host cannot serve makes the replay unreachable, so
+      // the operator is the recovery; any other refusal keeps the replay,
+      // and both keep the committed request's destination named (CON-913
+      // rows 33/34).
+      if (error instanceof MoveSessionUnavailable) return vacateError(requestID, "vacate_unavailable", `${message}; the committed relocation request stands and names ${JSON.stringify(destination)} as its registered main checkout`)
+      return vacateError(requestID, "vacate_replay", `${message}; the committed relocation request stands and names ${JSON.stringify(destination)} as its registered main checkout`)
     }
     moved = true
   }
@@ -2377,7 +2563,7 @@ export async function moveSessionToRegisteredMainCheckout(args: HostToolArgs, co
   try {
     landed = await hostControlPlane().sessionDirectory(context.sessionID, context.abort)
   } catch (error) {
-    return adapterError("concord_work_transition", "session_vacate", requestID, "malformed_response", "vacate_destination_unreadable", error instanceof Error ? error.message : String(error), "possible", "retry_same_request")
+    return vacateError(requestID, "vacate_replay", error instanceof Error ? error.message : String(error))
   }
   if (!samePath(landed, destination)) {
     // The relocation request stands, so the effect is possible. When the
@@ -2389,7 +2575,7 @@ export async function moveSessionToRegisteredMainCheckout(args: HostToolArgs, co
     // replay can run, so only the remembered request offers the retry and
     // every other state reports contact_operator (CD-0190 D3).
     const reachable = pendingVacateDestination(context.sessionID) === destination
-    return adapterError("concord_work_transition", "session_vacate", requestID, "session_directory_mismatch", "vacate_destination_mismatch", `the session landed in ${JSON.stringify(landed)} rather than the registered main checkout ${JSON.stringify(destination)}`, "possible", reachable ? "retry_same_request" : "contact_operator")
+    return vacateError(requestID, reachable ? "vacate_replay" : "vacate_unavailable", `the session landed in ${JSON.stringify(landed)} rather than the registered main checkout ${JSON.stringify(destination)}`)
   }
   // The host readback names the registered main checkout, so the verified
   // landing records itself through the same adapter-only landing owner the
@@ -2402,7 +2588,7 @@ export async function moveSessionToRegisteredMainCheckout(args: HostToolArgs, co
   // a live session's worktree as empty.
   const workID = record(result) ? result.work_id : undefined
   if (typeof workID !== "string" || workID === "") {
-    return adapterError("concord_work_transition", "session_vacate", requestID, "malformed_response", "vacate_landing_unattributable", "the vacate's landing verified by readback carries no work id to record it under", "possible", "retry_same_request")
+    return vacateError(requestID, "vacate_replay", "the vacate's landing verified by readback carries no work id to record it under; replay session_vacate to re-read the committed request instead of naming a work id")
   }
   try {
     await recordVacateLanding(workID, context.sessionID, destination, context.abort)
@@ -2413,7 +2599,7 @@ export async function moveSessionToRegisteredMainCheckout(args: HostToolArgs, co
     // never asserts the landing is not recorded: it reports the possible
     // effect and the replay that confirms or completes the record
     // (CD-0190 D3).
-    return adapterError("concord_work_transition", "session_vacate", requestID, "operation_conflict", "vacate_landing_refused", `${message}; the landing may be recorded because the verb commits before it answers, so replay session_vacate from the verified destination to confirm or complete the landing record`, "possible", "retry_same_request")
+    return vacateError(requestID, "vacate_replay", `${message}; the landing may be recorded because the verb commits before it answers, so replay session_vacate from the verified destination to confirm or complete the landing record`)
   }
   // The verified landing released the occupancy rows, so no claimed worktree
   // is armed for this session any more.
@@ -2479,7 +2665,7 @@ async function executeWorkTransition(args: HostToolArgs, context: ToolContext, s
   if (args?.operation === "session_vacate") {
     const input = args.input
     if (!record(input) || Object.keys(input).some((key) => key === "destination" || key === "destination_directory" || key === "path")) {
-      return adapterError("concord_work_transition", "session_vacate", `${context.sessionID}-${context.messageID}`, "invalid_input", "agent_named_destination", "session_vacate derives the registered main checkout and refuses an agent-named destination", "none", "correct_request")
+      return adapterError("concord_work_transition", "session_vacate", `${context.sessionID}-${context.messageID}`, "invalid_tool_input", "session_vacate derives the registered main checkout and refuses an agent-named destination")
     }
     const requestID = `${context.sessionID}-${context.messageID}`
     const remembered = pendingVacateDestination(context.sessionID)
@@ -2514,10 +2700,11 @@ async function executeWorkTransition(args: HostToolArgs, context: ToolContext, s
         await hostControlPlane().moveSession(context.sessionID, remembered, context.abort)
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
-        const kind = error instanceof MoveSessionUnavailable ? "unreachable" : "transport_failure"
-        const reason = error instanceof MoveSessionUnavailable ? "move_session_route_unavailable" : "vacate_move_refused"
-        const recovery = error instanceof MoveSessionUnavailable ? "contact_operator" : "retry_same_request"
-        return adapterError("concord_work_transition", "session_vacate", requestID, kind, reason, `${message}; the committed relocation request stands and names ${JSON.stringify(remembered)} as its registered main checkout, so the occupancy rows wait for the verified landing there`, "possible", recovery)
+        // A move route the host cannot serve makes the replay unreachable;
+        // any other refusal keeps it. Both keep the committed request and its
+        // remembered destination named for the retry (CON-913 rows 40/41).
+        if (error instanceof MoveSessionUnavailable) return vacateError(requestID, "vacate_unavailable", `${message}; the committed relocation request stands and names ${JSON.stringify(remembered)} as its registered main checkout, so the occupancy rows wait for the verified landing there`)
+        return vacateError(requestID, "vacate_replay", `${message}; the committed relocation request stands and names ${JSON.stringify(remembered)} as its registered main checkout, so the occupancy rows wait for the verified landing there`)
       }
     }
     if ((movedToRemembered || atRemembered) && typeof remembered === "string") {
@@ -2615,6 +2802,7 @@ export async function vacateTerminalWorktree(toolName: string, args: HostToolArg
       : "the vacate move did not confirm a landing"
     if (!record(moved) || moved.outcome !== "ok") throw new Error(reason)
   } catch (error) {
+    if (error instanceof AdapterContractDefect) throw error
     const message = error instanceof Error ? error.message : String(error)
     if (committed) {
       // The relocation request stands recorded (CD-0190 D3), so the effect

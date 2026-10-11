@@ -913,7 +913,7 @@ func TestMigrateV7ToV8PreservesValidMultiParentRelations(t *testing.T) {
 	}
 	// Breaking steps sit between v7 and the current schema, so the explicit
 	// upgrade applies them; open alone would stop before the first one.
-	if _, err := Upgrade(ctx, path, nil); err != nil {
+	if _, err := Upgrade(ctx, path, nil, UpgradeOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	s, err := Open(ctx, path)
@@ -997,7 +997,7 @@ func TestMigrateEmptyVersion3DatabaseToVersion4(t *testing.T) {
 		t.Fatalf("seed database Close() error = %v", err)
 	}
 
-	if _, err := Upgrade(ctx, path, nil); err != nil {
+	if _, err := Upgrade(ctx, path, nil, UpgradeOptions{}); err != nil {
 		t.Fatalf("Upgrade() empty v3 database error = %v", err)
 	}
 	s, err := Open(ctx, path)

@@ -471,7 +471,20 @@ func runUpgradeCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 	for _, lease := range live {
 		held = append(held, store.HeldSchema{PID: lease.PID, ReleaseRoot: lease.ReleaseRoot, SchemaVersion: lease.SchemaVersion, Directory: lease.Directory, Worktree: lease.Worktree})
 	}
-	report, err := store.Upgrade(context.Background(), path, held)
+	// A breaking step drops tables whose rows the event log cannot rebuild,
+	// so the store is snapshotted before it applies. A failed snapshot
+	// applies nothing.
+	options := store.UpgradeOptions{}
+	if len(plan.PendingBreaking) > 0 {
+		backups := filepath.Join(dataRoot, "backups")
+		if err := os.MkdirAll(backups, 0o750); err != nil {
+			closeOwnedFence()
+			writeOperatorDiagnostic(errOut, "upgrade", "cannot create the backup directory; nothing was migrated: "+err.Error())
+			return 1
+		}
+		options.BreakingBackup = filepath.Join(backups, fmt.Sprintf("pre-upgrade-schema-%d-%s", plan.PendingBreaking[0].Version, time.Now().UTC().Format("20060102T150405.000000000Z")))
+	}
+	report, err := store.Upgrade(context.Background(), path, held, options)
 	if err != nil {
 		// The error may sit after the commit: Upgrade applies every
 		// migration and then finishes the open, and a post-commit
@@ -526,6 +539,9 @@ func runUpgradeCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 		"from_version":   version.Value,
 		"schema_version": report.SchemaVersion,
 		"applied":        report.Applied,
+	}
+	if report.Backup != "" {
+		result["backup"] = report.Backup
 	}
 	if fence != nil {
 		result["maintenance"] = map[string]any{

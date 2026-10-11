@@ -36,7 +36,7 @@ LEGACY_DECISION_PROFILE_IDS = frozenset({"CD-0002", "CD-0003", "CD-0005", "CD-00
 # The spec boundary is the spec record identifiers registered before the spec
 # outline amendment. Membership makes legacy available to author, never
 # asserted: an unprofiled spec record authors the current profile.
-LEGACY_SPEC_PROFILE_IDS = frozenset({"C14", "C15", "C17", "PM1", "PM10", "PM2", "PM3", "PM4", "PM5", "PM6", "PM7", "PM8", "PM9", "TS1", "TS2", "TS3", "TS4", "TS5", "TS6", "TS7", "TS8", "TS9", "development-authority", "terminal-launcher-contract", "terminal-launcher-replacement-contract", "workflow-engine-contract"})
+LEGACY_SPEC_PROFILE_IDS = frozenset({"C14", "C15", "C17", "PM1", "PM10", "PM2", "PM3", "PM4", "PM5", "PM6", "PM7", "PM8", "PM9", "TS1", "TS2", "TS3", "TS4", "TS5", "TS6", "TS7", "TS8", "TS9", "development-authority", "workflow-engine-contract"})
 ALLOWED_AUTHORITY = {"tier", "legislated_by", "contract_version"}
 AUTHORITY_TIERS = {"legislated", "derived"}
 # The bounded set the parser reads, mirroring knowledgeManifestSchemaAccepted in

@@ -44,17 +44,23 @@ func TestResearchRelianceRefusalHasNoEffects(t *testing.T) {
 				return out
 			}
 			binding := map[string]any{"pack_id": pack.PackID, "revision": 1, "use_role": "context", "required": true}
-			input := map[string]any{"work_id": "work-1", "expected_version": 4, "action_id": "record_reproduction", "idempotency_key": "refused", "fields": map[string]any{}, "research_bindings": []any{binding}}
+			diagnosisFields := map[string]any{
+				"reproduction": "The bounded defect reproduction statement.",
+				"searched":     "The bounded backlog.",
+				"outcome":      "none_found",
+				"root_cause":   "The bounded root cause statement.",
+			}
+			input := map[string]any{"work_id": "work-1", "expected_version": 4, "action_id": "record_diagnosis", "idempotency_key": "refused", "fields": diagnosisFields, "research_bindings": []any{binding}}
 			if test.name == "missing_revision" {
 				binding["revision"] = 999
 			} else {
-				accepted := invoke(map[string]any{"work_id": "work-1", "expected_version": 4, "action_id": "record_reproduction", "idempotency_key": "pin", "fields": map[string]any{}, "research_bindings": []any{binding}})
+				accepted := invoke(map[string]any{"work_id": "work-1", "expected_version": 4, "action_id": "record_diagnosis", "idempotency_key": "pin", "fields": diagnosisFields, "research_bindings": []any{binding}})
 				if accepted.Outcome != OutcomeOK {
 					t.Fatalf("pin: %+v", accepted.Error)
 				}
-				input["expected_version"] = 5
-				input["action_id"] = "record_alignment"
-				input["fields"] = map[string]any{"searched": "The bounded backlog.", "outcome": "none_found"}
+				input["expected_version"] = 6
+				input["action_id"] = "record_work_context"
+				input["fields"] = map[string]any{"required_reading": []any{}, "finding_refs": []any{}, "context_findings": []any{}}
 				switch test.name {
 				case "omitted_stale_pin", "required_stale_declaration":
 					if err := s.SetResearchFreshness(ctx, store.SetResearchFreshnessRequest{Identity: store.ResearchMutationIdentity{PrincipalRef: "operator", Tool: "research-test", OperationKind: "stale", IdempotencyKey: "stale"}, PackID: pack.PackID, ExpectedVersion: 2, Freshness: store.ResearchStale}); err != nil {
@@ -122,7 +128,12 @@ func TestResearchRelianceDeclarationReplacesPin(t *testing.T) {
 				return out
 			}
 			binding := map[string]any{"pack_id": pack.PackID, "revision": 1, "use_role": "context", "required": true}
-			if out := invoke(4, "record_reproduction", "pin", map[string]any{}, binding); out.Outcome != OutcomeOK {
+			if out := invoke(4, "record_diagnosis", "pin", map[string]any{
+				"reproduction": "The bounded defect reproduction statement.",
+				"searched":     "The bounded backlog.",
+				"outcome":      "none_found",
+				"root_cause":   "The bounded root cause statement.",
+			}, binding); out.Outcome != OutcomeOK {
 				t.Fatalf("pin: %+v", out.Error)
 			}
 			packVersion := int64(2)
@@ -147,7 +158,7 @@ func TestResearchRelianceDeclarationReplacesPin(t *testing.T) {
 			if name == "role_change" {
 				binding["use_role"], wantRole = "design_input", "design_input"
 			}
-			if out := invoke(5, "record_alignment", "replace", map[string]any{"searched": "The bounded backlog.", "outcome": "none_found"}, binding); out.Outcome != OutcomeOK || out.Error != nil {
+			if out := invoke(6, "record_work_context", "replace", map[string]any{"required_reading": []any{}, "finding_refs": []any{}, "context_findings": []any{}}, binding); out.Outcome != OutcomeOK || out.Error != nil {
 				t.Fatalf("replacement: %+v", out.Error)
 			}
 			var pins int
@@ -167,7 +178,7 @@ func TestResearchRelianceDeclarationReplacesPin(t *testing.T) {
 			if err := s.DatabaseForTesting().QueryRow(`SELECT expected_version FROM active_research_packs WHERE pack_id=?`, pack.PackID).Scan(&gotVersion); err != nil || gotVersion != packVersion+1 {
 				t.Fatalf("version=%d, want %d err=%v", gotVersion, packVersion+1, err)
 			}
-			if out := invoke(7, "record_root_cause", "omitted", map[string]any{}, nil); out.Outcome != OutcomeOK {
+			if out := invoke(7, "record_work_context", "omitted", map[string]any{"required_reading": []any{}, "finding_refs": []any{}, "context_findings": []any{}}, nil); out.Outcome != OutcomeOK {
 				t.Fatalf("following action: %+v", out.Error)
 			}
 		})

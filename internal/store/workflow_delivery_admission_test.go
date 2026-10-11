@@ -107,7 +107,7 @@ func TestMalformedDeliveryProofDoesNotHideRecovery(t *testing.T) {
 	if decision := workflowAdmit(definition, state, "record_delivery"); decision.Admitted || decision.Failure.Kind != KindInvariantViolation {
 		t.Fatalf("malformed proof admission = %+v", decision)
 	}
-	for _, action := range []string{"bind_evidence", "checkpoint_context", "start_refine"} {
+	for _, action := range []string{"bind_evidence", "checkpoint_context", "checkpoint_refine"} {
 		if decision := workflowAdmit(definition, state, action); !decision.Admitted {
 			t.Fatalf("malformed proof hides %s: %+v", action, decision)
 		}

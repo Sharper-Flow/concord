@@ -600,6 +600,24 @@ func oracleDispatchAttempt(t *testing.T, f oracleRepairFixture, workID, attemptI
 	}
 	version := verdictItemVersion(t, s, workID)
 	epoch := latestStepStartEpoch(t, s, workID, "repair") + 1
+	// CD-0198 D3: on a derived-start pin the dispatch opens the step epoch
+	// itself, so the replay-style fixture crafts the same started event a
+	// real fenced dispatch appends before its completion.
+	entry, entryErr := VerifyWorkflowInstanceDefinition(context.Background(), s, BuiltinWorkflowRegistry(), workID)
+	if entryErr != nil {
+		t.Fatal(entryErr)
+	}
+	if workflowDerivedStepStartActive(entry.Definition) {
+		start := workflowEventWithActor("oracle-start-"+attemptID, WorkflowActionStarted, workID, actorRef, map[string]any{
+			"work_id": workID, "expected_version": version, "resulting_version": version + 1,
+			"step_id": "repair", "action_id": "dispatch_worker", "attempt_epoch": epoch, "actor_ref": actorRef,
+			"accepted_inputs_digest": "sha256:" + strings.Repeat("d", 64), "idempotency_identity": "oracle-start-" + attemptID,
+		})
+		if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{start}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
+			t.Fatalf("craft the derived dispatch start for %s: %v", attemptID, err)
+		}
+		version++
+	}
 	authorization := workflowEventWithActor("oracle-authorize-"+attemptID, WorkflowActionCompleted, workID, actorRef, map[string]any{
 		"work_id": workID, "expected_version": version, "resulting_version": version + 1,
 		"step_id": "repair", "action_id": "dispatch_worker", "attempt_epoch": epoch, "worker_attempt_id": attemptID,

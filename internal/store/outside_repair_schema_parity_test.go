@@ -392,7 +392,7 @@ func TestOutsideRepairUnicodeParity(t *testing.T) {
 func TestOutsideRepairOutcomeKindParity(t *testing.T) {
 	t.Parallel()
 	const itemsRef = "workflow_action_outcome_predicates"
-	if !payloadschema.Has(itemsRef) {
+	if !payloadschema.HasIn(payloadschema.Document(), itemsRef) {
 		t.Fatalf("the core schema registry carries no %s def; the item probe cannot run", itemsRef)
 	}
 	checkPayload := func() map[string]any {

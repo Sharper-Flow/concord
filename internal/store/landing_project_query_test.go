@@ -93,7 +93,7 @@ func seedForwardingFixture(t *testing.T) *Store {
 	return s
 }
 
-func TestResolveLauncherWorkProductFollowsLandingProject(t *testing.T) {
+func TestResolveLandingProjectProductFollowsLandingProject(t *testing.T) {
 	t.Parallel()
 	s := seedForwardingFixture(t)
 	t.Cleanup(func() { _ = s.Close() })
@@ -120,11 +120,11 @@ func TestResolveLauncherWorkProductFollowsLandingProject(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			got, err := s.ResolveLauncherWorkProduct(ctx, tc.work, tc.project, tc.preferred)
+			got, err := s.ResolveLandingProjectProduct(ctx, tc.work, tc.project, tc.preferred)
 			if tc.wantKind != "" {
 				var failure *Failure
 				if !errors.As(err, &failure) || failure.Kind != tc.wantKind {
-					t.Fatalf("ResolveLauncherWorkProduct(%q, %q, %q) error = %v, want kind %s", tc.work, tc.project, tc.preferred, err, tc.wantKind)
+					t.Fatalf("ResolveLandingProjectProduct(%q, %q, %q) error = %v, want kind %s", tc.work, tc.project, tc.preferred, err, tc.wantKind)
 				}
 				if tc.candidate != "" {
 					found := false
@@ -140,16 +140,16 @@ func TestResolveLauncherWorkProductFollowsLandingProject(t *testing.T) {
 				return
 			}
 			if err != nil {
-				t.Fatalf("ResolveLauncherWorkProduct(%q, %q, %q): %v", tc.work, tc.project, tc.preferred, err)
+				t.Fatalf("ResolveLandingProjectProduct(%q, %q, %q): %v", tc.work, tc.project, tc.preferred, err)
 			}
 			if got != tc.want {
-				t.Fatalf("ResolveLauncherWorkProduct(%q, %q, %q) = %q, want %q", tc.work, tc.project, tc.preferred, got, tc.want)
+				t.Fatalf("ResolveLandingProjectProduct(%q, %q, %q) = %q, want %q", tc.work, tc.project, tc.preferred, got, tc.want)
 			}
 		})
 	}
 }
 
-func TestResolveLauncherLinearIssueFollowsLandingProject(t *testing.T) {
+func TestResolveLinearIssueWorkFollowsLandingProject(t *testing.T) {
 	t.Parallel()
 	s := seedForwardingFixture(t)
 	t.Cleanup(func() { _ = s.Close() })
@@ -171,33 +171,32 @@ func TestResolveLauncherLinearIssueFollowsLandingProject(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			// The kept zl route composes the two live reads: the recorded-issue
-			// lookup, then the landing-Project Product rule for that work. A
-			// wanted refusal may surface from either read, as before.
-			workID, err := s.ResolveLauncherLinearIssueWork(ctx, tc.key, "")
+			// Session forwarding composes the recorded-issue lookup and the
+			// landing-Project Product rule. Either read can refuse the request.
+			workID, err := s.ResolveLinearIssueWork(ctx, tc.key, "")
 			if err != nil {
 				var failure *Failure
 				if !errors.As(err, &failure) || failure.Kind != tc.wantKind {
-					t.Fatalf("ResolveLauncherLinearIssueWork(%q) error = %v, want kind %s", tc.key, err, tc.wantKind)
+					t.Fatalf("ResolveLinearIssueWork(%q) error = %v, want kind %s", tc.key, err, tc.wantKind)
 				}
 				return
 			}
 			if tc.wantKind == "" && workID != tc.wantWork {
-				t.Fatalf("ResolveLauncherLinearIssueWork(%q) = %q, want work %q", tc.key, workID, tc.wantWork)
+				t.Fatalf("ResolveLinearIssueWork(%q) = %q, want work %q", tc.key, workID, tc.wantWork)
 			}
-			got, err := s.ResolveLauncherWorkProduct(ctx, workID, tc.project, tc.preferred)
+			got, err := s.ResolveLandingProjectProduct(ctx, workID, tc.project, tc.preferred)
 			if err != nil {
 				var failure *Failure
 				if !errors.As(err, &failure) || failure.Kind != tc.wantKind {
-					t.Fatalf("ResolveLauncherWorkProduct(%q, %q, %q) error = %v, want kind %s", workID, tc.project, tc.preferred, err, tc.wantKind)
+					t.Fatalf("ResolveLandingProjectProduct(%q, %q, %q) error = %v, want kind %s", workID, tc.project, tc.preferred, err, tc.wantKind)
 				}
 				return
 			}
 			if tc.wantKind != "" {
-				t.Fatalf("ResolveLauncherWorkProduct(%q, %q, %q) = %q, want kind %s", workID, tc.project, tc.preferred, got, tc.wantKind)
+				t.Fatalf("ResolveLandingProjectProduct(%q, %q, %q) = %q, want kind %s", workID, tc.project, tc.preferred, got, tc.wantKind)
 			}
 			if got != tc.want {
-				t.Fatalf("ResolveLauncherWorkProduct(%q, %q, %q) = %q, want %q", workID, tc.project, tc.preferred, got, tc.want)
+				t.Fatalf("ResolveLandingProjectProduct(%q, %q, %q) = %q, want %q", workID, tc.project, tc.preferred, got, tc.want)
 			}
 		})
 	}

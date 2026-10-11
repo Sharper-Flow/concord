@@ -36,7 +36,7 @@ The store materialization the record documented keeps its owning contracts.
 `internal/store/product_row.go` derives the five-tier Product attention kind.
 `internal/store/domain_reads.go` resolves the governing Domain and its
 architecture overlap. `cmd/concord/session.go` carries the session input, and
-`internal/store/launcher_query.go` keeps the bounded forwarding reads the
+`internal/store/landing_project_query.go` keeps the bounded forwarding reads the
 session entry route applies. No fold-maintained last-activity stamp survives:
 migration 109 drops the `work_items.last_activity_at` column the 2026-09-28
 amendment carried, so no release's writes can drift a stored stamp behind the

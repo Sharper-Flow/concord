@@ -429,8 +429,8 @@ describe("worktree_claim moves the session into the claimed worktree", () => {
     expect(envelope.outcome).toBe("error")
     if (envelope.outcome === "error") {
       const error = envelope.error as { adapter_reason?: string; recovery_action?: { kind?: string }; message?: string }
-      expect(error.adapter_reason).toBe("claim_move_destination_mismatch")
-      expect(error.recovery_action).toEqual({ kind: "retry_same_request" })
+      expect(error.adapter_reason).toBe("unknown_effect")
+      expect(error.recovery_action).toEqual({ kind: "reconcile_operation" })
       expect(error.message).toContain("/claimed")
     }
   })
@@ -441,9 +441,9 @@ describe("worktree_claim moves the session into the claimed worktree", () => {
     expect(envelope.outcome).toBe("error")
     if (envelope.outcome === "error") {
       const error = envelope.error as { adapter_reason?: string; message?: string }
-      expect(error.adapter_reason).toBe("claim_move_refused")
+      expect(error.adapter_reason).toBe("unknown_effect")
       expect(error.message).toContain("held by another session")
-      expect(error.message).toContain("replay worktree_claim")
+      expect(error.message).toContain("reconcile the recorded claim, then replay the same worktree_claim request")
     }
   })
 
@@ -487,7 +487,7 @@ describe("worktree_claim records the verified landing in the core", () => {
     expect(landingCalls).toHaveLength(0)
   })
 
-  test("refuses with a replay remedy and records nothing further when the core refuses the landing", async () => {
+  test("refuses with a reconciliation remedy and records nothing further when the core refuses the landing", async () => {
     await fakeHost({})
     configureConcordAdapter({ runner: landingRunner(1, "store: claim-landing: the claimed worktree is not recorded as occupied by this session") })
     const envelope = await moveSessionToClaimedWorktree(claimArgs(), context(), okEnvelope())
@@ -495,9 +495,9 @@ describe("worktree_claim records the verified landing in the core", () => {
     if (envelope.outcome === "error") {
       const error = envelope.error as { kind?: string; adapter_reason?: string; recovery_action?: { kind?: string }; message?: string }
       expect(error.kind).toBe("operation_conflict")
-      expect(error.adapter_reason).toBe("claim_landing_refused")
-      expect(error.recovery_action).toEqual({ kind: "retry_same_request" })
-      expect(error.message).toContain("replay worktree_claim")
+      expect(error.adapter_reason).toBe("unknown_effect")
+      expect(error.recovery_action).toEqual({ kind: "reconcile_operation" })
+      expect(error.message).toContain("reconcile the recorded claim, then replay the same worktree_claim request")
     }
     expect(landingCalls).toHaveLength(1)
   })

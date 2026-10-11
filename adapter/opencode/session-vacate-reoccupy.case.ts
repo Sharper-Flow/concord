@@ -307,7 +307,7 @@ connected("vacate, work-resume, vacate in one session keeps one event per reques
     const first = await transition("session_vacate", { idempotency_key: "reoccupy-vacate-1" }, worktree1)
     expect(first.outcome, JSON.stringify(first)).toBe("error")
     expect(first.replayed).toBe(false)
-    expect((first.error as any).kind).toBe("transport_failure")
+    expect((first.error as any).kind).toBe("operation_conflict")
     expect((first.error as any).recovery_action).toEqual({ kind: "retry_same_request" })
     expect(vacateEvents()).toHaveLength(1)
     expect(moves).toEqual([
@@ -535,7 +535,7 @@ connected("a readback outside every Project recovers through the remembered dest
     moveRegresses = true
     const first = await transition("session_vacate", { idempotency_key: "outside-vacate-1" }, worktree1)
     expect(first.outcome, JSON.stringify(first)).toBe("error")
-    expect((first.error as any).adapter_reason).toBe("vacate_destination_mismatch")
+    expect((first.error as any).adapter_reason).toBe("unknown_effect")
     expect((first.error as any).effect_state).toBe("possible")
     expect((first.error as any).recovery_action).toEqual({ kind: "retry_same_request" })
     expect(moves).toEqual([
@@ -723,7 +723,7 @@ connected("an unreadable ok answer recovers through the same-key replay from the
     dropNextVacateAnswer = true
     const first = await transition("session_vacate", { idempotency_key: "unreadable-vacate-1" }, worktree1)
     expect(first.outcome, JSON.stringify(first)).toBe("error")
-    expect((first.error as any).kind).toBe("malformed_response")
+    expect((first.error as any).kind).toBe("operation_conflict")
     expect((first.error as any).effect_state).toBe("possible")
     expect((first.error as any).recovery_action).toEqual({ kind: "retry_same_request" })
     expect((first.error as any).message).toContain("replay session_vacate")
@@ -905,7 +905,7 @@ connected("a same-key replay after a later claim refuses without moving the host
     failNextLandingAnswer = true
     const first = await transition("session_vacate", { idempotency_key: "later-claim-vacate-1" }, worktree1)
     expect(first.outcome, JSON.stringify(first)).toBe("error")
-    expect((first.error as any).adapter_reason).toBe("vacate_landing_refused")
+    expect((first.error as any).adapter_reason).toBe("unknown_effect")
     expect((first.error as any).effect_state).toBe("possible")
     expect((first.error as any).recovery_action).toEqual({ kind: "retry_same_request" })
     expect(vacateEvents()).toHaveLength(1)

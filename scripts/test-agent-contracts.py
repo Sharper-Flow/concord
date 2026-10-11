@@ -947,17 +947,22 @@ class WorkflowActionVariantProjectionTests(unittest.TestCase):
         self.assertNotIn("anyOf", then["properties"]["fields"], "an action with one current contract and no retained compatible shapes must stay a single branch")
 
     def test_the_public_dispatch_override_remains_correct(self):
-        # dispatch_worker stays one divergent variant: the payload route
-        # validates attempt_id and worker_packet, the public route validates
-        # lane_id alone.
+        # Versioned packet schemas do not expose packet authoring publicly.
         action = self.action("dispatch_worker")
-        self.assertEqual(len(action["variants"]), 1)
-        variant = action["variants"][0]
-        self.assertNotEqual(variant["payload"], variant["public_payload"])
-        self.assertEqual([field["name"] for field in variant["public_payload"]["fields"]], ["lane_id"])
-        for schema_name, expected in (("work_transition_action_variant_dispatch_worker", "worker_packet"), ("work_transition_action_public_variant_dispatch_worker", "lane_id")):
-            fields = payload_schema["$defs"][schema_name]["properties"]["fields"]
-            self.assertEqual(sorted(fields["properties"]), sorted([expected, "attempt_id"]) if expected == "worker_packet" else ["lane_id"])
+        self.assertEqual(len(action["variants"]), 2)
+        packet_refs = set()
+        for variant in action["variants"]:
+            self.assertNotEqual(variant["payload"], variant["public_payload"])
+            self.assertEqual([field["name"] for field in variant["public_payload"]["fields"]], ["lane_id"])
+            packet_refs.update(field["schema_ref"] for field in variant["payload"]["fields"] if field["name"] == "worker_packet")
+        self.assertEqual(packet_refs, {"worker_packet", "worker_packet2"})
+        internal = payload_schema["$defs"]["work_transition_action_variant_dispatch_worker"]["properties"]["fields"]
+        branches = internal.get("anyOf", internal.get("oneOf", [internal]))
+        self.assertEqual(len(branches), 2)
+        for fields in branches:
+            self.assertEqual(sorted(fields["properties"]), ["attempt_id", "worker_packet"])
+        public = payload_schema["$defs"]["work_transition_action_public_variant_dispatch_worker"]["properties"]["fields"]
+        self.assertEqual(sorted(public["properties"]), ["lane_id"])
 
     def test_retained_core_dispatch_payload_does_not_enter_public_override(self):
         actions = copy.deepcopy(self.actions)

@@ -513,6 +513,8 @@ func validateRequestedScope(ctx context.Context, s *store.Store, env CallEnvelop
 		return err
 	}
 	workIDs := identity.WorkIDs
+	// A pack_id names content owned by one immutable work item, so these
+	// operations are authorized as references to that owner.
 	switch request.Tool + "." + request.Operation {
 	case "concord_work_trace.research", "concord_work_define.research_revision_append", "concord_work_define.research_finding_record", "concord_work_define.research_source_record", "concord_work_define.research_freshness_set":
 		var in struct {

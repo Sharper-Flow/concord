@@ -610,11 +610,15 @@ func validateWorkReferenceScope(env CallEnvelope, grant Authority, kind Operatio
 	return nil
 }
 
-// validateResearchBindingScopeTx authorizes the owner of every declared
-// research binding under the grant read in the same action transaction, before
-// the action writes a binding or an idempotency receipt. A retained pin with
-// no new declaration is not rechecked.
-func validateResearchBindingScopeTx(ctx context.Context, tx *store.Transaction, env CallEnvelope, grant Authority, bindings []researchBindingInput) error {
+// authorizeWorkflowActionTx authorizes the caller inside the action
+// transaction, then authorizes the owner of every declared research binding
+// under that grant, before the action writes a binding or an idempotency
+// receipt. A retained pin with no new declaration is not rechecked.
+func (r runtime) authorizeWorkflowActionTx(ctx context.Context, tx *store.Transaction, host store.ResolvedProjectHost, inv Invocation, bindings []researchBindingInput) error {
+	grant, err := r.Authority.AuthorizeTx(ctx, tx, host, inv)
+	if err != nil {
+		return err
+	}
 	ids := make([]string, 0, len(bindings))
 	for _, binding := range bindings {
 		ids = append(ids, binding.PackID)
@@ -627,7 +631,7 @@ func validateResearchBindingScopeTx(ctx context.Context, tx *store.Transaction, 
 	if err != nil {
 		return err
 	}
-	return validateWorkReferenceScope(env, grant, OperationMutation, owners, scopes)
+	return validateWorkReferenceScope(r.Envelope, grant, OperationMutation, owners, scopes)
 }
 
 type mutationWorkIdentity struct {

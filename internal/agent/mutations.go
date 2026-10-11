@@ -1309,11 +1309,7 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 				return err
 			}
 		}
-		currentGrant, err := r.Authority.AuthorizeTx(ctx, tx, host, inv)
-		if err != nil {
-			return err
-		}
-		if err := validateResearchBindingScopeTx(ctx, tx, r.Envelope, currentGrant, in.ResearchBindings); err != nil {
+		if err := r.authorizeWorkflowActionTx(ctx, tx, host, inv, in.ResearchBindings); err != nil {
 			return err
 		}
 		if requiresApproval || (operatorVerdict && approval != "") {

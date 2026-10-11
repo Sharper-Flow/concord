@@ -271,7 +271,7 @@ type researchScopeEffects struct {
 	approvalUses    int64
 }
 
-func researchScopeSnapshot(t *testing.T, s *store.Store, packID, consumerID string) researchScopeEffects {
+func researchScopeSnapshot(t *testing.T, s *store.Store, packID string) researchScopeEffects {
 	t.Helper()
 	db := s.DatabaseForTesting()
 	load := func(query string, args []any, dest ...any) {
@@ -286,10 +286,10 @@ func researchScopeSnapshot(t *testing.T, s *store.Store, packID, consumerID stri
 	load(`SELECT count(*),COALESCE(group_concat(x),'') FROM (SELECT revision||'|'||finding_id||'|'||kind||'|'||statement||'|'||confidence||'|'||freshness||'|'||status AS x FROM active_research_findings WHERE pack_id=? ORDER BY revision,finding_id)`, []any{packID}, &e.findingCount, &e.findings)
 	load(`SELECT count(*),COALESCE(group_concat(x),'') FROM (SELECT revision||'|'||source_id||'|'||kind||'|'||locator||'|'||title||'|'||accessed_at AS x FROM active_research_sources WHERE pack_id=? ORDER BY revision,source_id)`, []any{packID}, &e.sourceCount, &e.sources)
 	load(`SELECT count(*),COALESCE(group_concat(x),'') FROM (SELECT pack_id||'/'||consumer_work_id||'/'||revision||'/'||use_role||'/'||required||'/'||accepted_at AS x FROM active_research_consumers ORDER BY pack_id,consumer_work_id,revision)`, nil, &e.pinCount, &e.pins)
-	load(`SELECT version FROM work_items WHERE id=?`, []any{consumerID}, &e.consumerVersion)
-	load(`SELECT current_step FROM workflow_instances WHERE work_id=?`, []any{consumerID}, &e.consumerStep)
+	load(`SELECT version FROM work_items WHERE id=?`, []any{researchScopeConsumer}, &e.consumerVersion)
+	load(`SELECT current_step FROM workflow_instances WHERE work_id=?`, []any{researchScopeConsumer}, &e.consumerStep)
 	load(`SELECT count(*) FROM domain_events`, nil, &e.events)
-	load(`SELECT count(*) FROM domain_events WHERE subject_id=?`, []any{consumerID}, &e.consumerEvents)
+	load(`SELECT count(*) FROM domain_events WHERE subject_id=?`, []any{researchScopeConsumer}, &e.consumerEvents)
 	load(`SELECT count(*) FROM idempotency_records`, nil, &e.receipts)
 	load(`SELECT count(*) FROM durable_operations`, nil, &e.durableOps)
 	load(`SELECT count(*),COALESCE(sum(used_count),0) FROM agent_approval_challenges`, nil, &e.approvalRows, &e.approvalUses)
@@ -513,14 +513,14 @@ func TestResearchScopeBindingRefusesForeignPack(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			before := researchScopeSnapshot(t, f.store, researchScopePackB, researchScopeConsumer)
+			before := researchScopeSnapshot(t, f.store, researchScopePackB)
 			input := researchScopeBindingAction(t, f, "record_proposal", "bind-"+test.name, []map[string]any{test.binding(researchScopePackB)})
 			read := researchScopeInvoke(t, f, "workflow_action", input)
 			researchScopeAssertRefused(t, read, test.wantKind, researchScopePackB, researchScopeOwnerB, researchScopeMarkerB)
 			if test.wantNoDetail != "" && strings.Contains(read.Error.Message, test.wantNoDetail) {
 				t.Fatalf("refusal reported %s details before owner authorization: %s", test.wantNoDetail, read.Error.Message)
 			}
-			researchScopeAssertNoEffects(t, before, researchScopeSnapshot(t, f.store, researchScopePackB, researchScopeConsumer))
+			researchScopeAssertNoEffects(t, before, researchScopeSnapshot(t, f.store, researchScopePackB))
 		})
 	}
 }
@@ -538,10 +538,10 @@ func TestResearchScopeBindingReplacementAndBatchRefuseAtomically(t *testing.T) {
 		if pinned.Outcome != OutcomeOK {
 			t.Fatalf("in-scope pin failed: %+v", pinned.Error)
 		}
-		before := researchScopeSnapshot(t, f.store, researchScopePackA, researchScopeConsumer)
+		before := researchScopeSnapshot(t, f.store, researchScopePackA)
 		refused := researchScopeInvoke(t, f, "workflow_action", researchScopeBindingAction(t, f, "record_work_context", "replace-b", []map[string]any{researchScopeBinding(researchScopePackB, 1, true)}))
 		researchScopeAssertRefused(t, refused, "unauthorized", researchScopePackB, researchScopeMarkerB)
-		researchScopeAssertNoEffects(t, before, researchScopeSnapshot(t, f.store, researchScopePackA, researchScopeConsumer))
+		researchScopeAssertNoEffects(t, before, researchScopeSnapshot(t, f.store, researchScopePackA))
 		// The required pin on revision 1 seals only that revision: all four
 		// content-authoring paths stay deliverable on the pack's new current
 		// revision, so a retained pin never freezes a pack shut.
@@ -558,15 +558,15 @@ func TestResearchScopeBindingReplacementAndBatchRefuseAtomically(t *testing.T) {
 	})
 	t.Run("mixed_allowed_and_foreign_batch", func(t *testing.T) {
 		f := researchScopeFixture(t, []Capability{"product_read", "work_transition"}, []string{"product-a"})
-		beforeA := researchScopeSnapshot(t, f.store, researchScopePackA, researchScopeConsumer)
-		beforeB := researchScopeSnapshot(t, f.store, researchScopePackB, researchScopeConsumer)
+		beforeA := researchScopeSnapshot(t, f.store, researchScopePackA)
+		beforeB := researchScopeSnapshot(t, f.store, researchScopePackB)
 		refused := researchScopeInvoke(t, f, "workflow_action", researchScopeBindingAction(t, f, "record_proposal", "mixed-batch", []map[string]any{
 			researchScopeBinding(researchScopePackA, 1, true),
 			researchScopeBinding(researchScopePackB, 1, true),
 		}))
 		researchScopeAssertRefused(t, refused, "unauthorized", researchScopePackB, researchScopeMarkerB)
-		researchScopeAssertNoEffects(t, beforeA, researchScopeSnapshot(t, f.store, researchScopePackA, researchScopeConsumer))
-		researchScopeAssertNoEffects(t, beforeB, researchScopeSnapshot(t, f.store, researchScopePackB, researchScopeConsumer))
+		researchScopeAssertNoEffects(t, beforeA, researchScopeSnapshot(t, f.store, researchScopePackA))
+		researchScopeAssertNoEffects(t, beforeB, researchScopeSnapshot(t, f.store, researchScopePackB))
 	})
 	t.Run("narrowed_caller_replaces_nothing", func(t *testing.T) {
 		f := researchScopeFixture(t, []Capability{"product_read", "work_transition"}, []string{"product-a"})
@@ -581,12 +581,12 @@ func TestResearchScopeBindingReplacementAndBatchRefuseAtomically(t *testing.T) {
 		if free.Outcome != OutcomeOK {
 			t.Fatalf("retained pin must not demand owner recheck: %+v", free.Error)
 		}
-		before := researchScopeSnapshot(t, f.store, pack, researchScopeConsumer)
+		before := researchScopeSnapshot(t, f.store, pack)
 		replacement := researchScopeBinding(pack, 1, true)
 		replacement["use_role"] = "design_input"
 		refused := researchScopeInvoke(t, f, "workflow_action", researchScopeBindingAction(t, f, "record_work_context", "replace-after-move", []map[string]any{replacement}))
 		researchScopeAssertRefused(t, refused, "unauthorized", pack, researchScopeMarkerA)
-		researchScopeAssertNoEffects(t, before, researchScopeSnapshot(t, f.store, pack, researchScopeConsumer))
+		researchScopeAssertNoEffects(t, before, researchScopeSnapshot(t, f.store, pack))
 	})
 }
 
@@ -597,10 +597,10 @@ func TestResearchScopeAuthoringRefusesForeignPack(t *testing.T) {
 	f := researchScopeFixture(t, []Capability{"product_read", "research"}, []string{"product-a"})
 	for _, operation := range researchScopeAuthoringInputs() {
 		t.Run("foreign_"+operation.name, func(t *testing.T) {
-			before := researchScopeSnapshot(t, f.store, researchScopePackB, researchScopeConsumer)
+			before := researchScopeSnapshot(t, f.store, researchScopePackB)
 			read := researchScopeInvoke(t, f, operation.name, operation.input(researchScopePackB, before.packVersion))
 			researchScopeAssertRefused(t, read, "unauthorized", researchScopePackB, researchScopeOwnerB, researchScopeMarkerB)
-			researchScopeAssertNoEffects(t, before, researchScopeSnapshot(t, f.store, researchScopePackB, researchScopeConsumer))
+			researchScopeAssertNoEffects(t, before, researchScopeSnapshot(t, f.store, researchScopePackB))
 		})
 	}
 	for _, operation := range researchScopeAuthoringInputs() {
@@ -712,10 +712,10 @@ func TestResearchScopeSpecialOwners(t *testing.T) {
 		// derived owner Product must sit inside the grant. The owner's primary
 		// Product B is outside the A-only grant, so authoring refuses whole.
 		for _, operation := range researchScopeAuthoringInputs() {
-			before := researchScopeSnapshot(t, f.store, pack, researchScopeConsumer)
+			before := researchScopeSnapshot(t, f.store, pack)
 			authored := researchScopeInvoke(t, f, operation.name, operation.input(pack, before.packVersion))
 			researchScopeAssertRefused(t, authored, "unauthorized")
-			researchScopeAssertNoEffects(t, before, researchScopeSnapshot(t, f.store, pack, researchScopeConsumer))
+			researchScopeAssertNoEffects(t, before, researchScopeSnapshot(t, f.store, pack))
 		}
 		read := researchScopeInvoke(t, f, "research", map[string]any{"product_id": "product-a", "pack_id": pack, "result_version": 2})
 		if read.Outcome != OutcomeOK {
@@ -735,14 +735,14 @@ func TestResearchScopeSpecialOwners(t *testing.T) {
 		if _, err := f.store.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); DELETE FROM work_projects WHERE work_id='owner-none'; DELETE FROM fold_guard`); err != nil {
 			t.Fatal(err)
 		}
-		before := researchScopeSnapshot(t, f.store, pack, researchScopeConsumer)
+		before := researchScopeSnapshot(t, f.store, pack)
 		read := researchScopeInvoke(t, f, "research", map[string]any{"product_id": "product-a", "pack_id": pack, "result_version": 2})
 		researchScopeAssertRefused(t, read, "unknown_scope")
 		bound := researchScopeInvoke(t, f, "workflow_action", researchScopeBindingAction(t, f, "record_proposal", "bind-orphan", []map[string]any{researchScopeBinding(pack, 1, true)}))
 		researchScopeAssertRefused(t, bound, "unknown_scope")
 		authored := researchScopeInvoke(t, f, "research_freshness_set", map[string]any{"pack_id": pack, "expected_version": before.packVersion, "freshness": "stale", "idempotency_key": "sc-orphan-fresh"})
 		researchScopeAssertRefused(t, authored, "unknown_scope")
-		researchScopeAssertNoEffects(t, before, researchScopeSnapshot(t, f.store, pack, researchScopeConsumer))
+		researchScopeAssertNoEffects(t, before, researchScopeSnapshot(t, f.store, pack))
 	})
 	t.Run("missing_pack_keeps_typed_absence", func(t *testing.T) {
 		f := researchScopeFixture(t, []Capability{"product_read", "work_transition", "research"}, []string{"product-a"})
@@ -768,13 +768,13 @@ func TestResearchScopeSpecialOwners(t *testing.T) {
 		if bound.Outcome != OutcomeOK {
 			t.Fatalf("terminal-owner bind failed: %+v", bound.Error)
 		}
-		before := researchScopeSnapshot(t, f.store, pack, researchScopeConsumer)
+		before := researchScopeSnapshot(t, f.store, pack)
 		authored := researchScopeInvoke(t, f, "research_finding_record", map[string]any{
 			"pack_id": pack, "expected_version": before.packVersion,
 			"finding": map[string]any{"finding_id": "f-late", "kind": "observation", "statement": "Synthetic late finding", "confidence": "high"}, "idempotency_key": "sc-done-finding",
 		})
 		researchScopeAssertRefused(t, authored, "invalid_input")
-		researchScopeAssertNoEffects(t, before, researchScopeSnapshot(t, f.store, pack, researchScopeConsumer))
+		researchScopeAssertNoEffects(t, before, researchScopeSnapshot(t, f.store, pack))
 	})
 }
 
@@ -791,12 +791,12 @@ func TestResearchScopeBindingReplayAndRetainedPins(t *testing.T) {
 		if first.Outcome != OutcomeOK {
 			t.Fatalf("allowed bind failed: %+v", first.Error)
 		}
-		afterFirst := researchScopeSnapshot(t, f.store, researchScopePackB, researchScopeConsumer)
+		afterFirst := researchScopeSnapshot(t, f.store, researchScopePackB)
 		replay := researchScopeInvoke(t, f, "workflow_action", input)
 		if replay.Outcome != OutcomeOK {
 			t.Fatalf("allowed replay failed: %+v", replay.Error)
 		}
-		researchScopeAssertNoEffects(t, afterFirst, researchScopeSnapshot(t, f.store, researchScopePackB, researchScopeConsumer))
+		researchScopeAssertNoEffects(t, afterFirst, researchScopeSnapshot(t, f.store, researchScopePackB))
 		researchScopeNarrowGrantToProductA(t, f)
 		free := researchScopeInvoke(t, f, "workflow_action", researchScopeBindingAction(t, f, "record_work_context", "free-after-narrow", nil))
 		if free.Outcome != OutcomeOK {

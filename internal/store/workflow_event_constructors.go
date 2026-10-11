@@ -248,6 +248,38 @@ func workflowRecordAlignmentEvents(ctx context.Context, tx *sql.Tx, request Work
 	return []Event{workflowTypedEvent(eventID, WorkflowBacklogAlignmentRecorded, request.WorkID, actor, request.Now, expected, values)}, nil
 }
 
+// workflowRecordDiagnosisEvents builds the typed CD-0198 D2 diagnosis event.
+// The action records all three required sections in one act: the
+// reproduction record, the alignment search, and the root-cause record. The
+// outcome enum and the outcome/related_ids legal input combinations are
+// declared on the record_diagnosis registry payload and enforced by
+// validateWorkflowActionPayload before any event is built, so this
+// constructor does not restate them. Each related id names a real work
+// item, refused here at the boundary rather than at the fold's foreign key,
+// under the same rule the alignment constructor applies.
+func workflowRecordDiagnosisEvents(ctx context.Context, tx *sql.Tx, request WorkflowActionExecutionRequest, actor string, fields map[string]json.RawMessage, eventID string, expected int64) ([]Event, error) {
+	relatedIDs := workflowFieldStrings(fields, "related_ids")
+	for _, relatedID := range relatedIDs {
+		var exists int
+		err := tx.QueryRowContext(ctx, `SELECT 1 FROM work_items WHERE id=?`, relatedID).Scan(&exists)
+		if err == sql.ErrNoRows {
+			return nil, newFailure(KindInvalidPayload, "workflow_action", "record_diagnosis related id "+workflowRefExcerpt(relatedID)+" does not name a work item", false, "supply a real related work item id")
+		} else if err != nil {
+			return nil, workflowProjectionError(err, "cannot read the diagnosis related work item")
+		}
+	}
+	values := map[string]any{
+		"reproduction": workflowFieldStringDefault(fields, "reproduction", ""),
+		"searched":     workflowFieldStringDefault(fields, "searched", ""),
+		"outcome":      workflowFieldStringDefault(fields, "outcome", ""),
+		"root_cause":   workflowFieldStringDefault(fields, "root_cause", ""),
+	}
+	if len(relatedIDs) != 0 {
+		values["related_ids"] = relatedIDs
+	}
+	return []Event{workflowTypedEvent(eventID, WorkflowDiagnosisRecorded, request.WorkID, actor, request.Now, expected, values)}, nil
+}
+
 func workflowSupersedeContractEvents(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, request WorkflowActionExecutionRequest, actor string, raw json.RawMessage, fields map[string]json.RawMessage, eventID string, expected int64) ([]Event, error) {
 	if err := validateWorkflowContractRecoveryPayload(raw); err != nil {
 		return nil, err

@@ -39,7 +39,7 @@ type WorkflowAdmissionState struct {
 	// and recovery actions. Only the operator-only outside-repair APIs clear it.
 	OutsideRepairActive bool
 	// RefinementWorkflow reports whether the pinned definition declares the
-	// refinement review shape: a step that declares start_refine. The
+	// refinement review shape: a step that declares checkpoint_refine. The
 	// post-rejection review debt and its settling review belong to that
 	// shape (CD-0197), not to a work kind.
 	RefinementWorkflow bool
@@ -574,7 +574,7 @@ func workflowAdmit(definition WorkflowDefinition, state WorkflowAdmissionState, 
 		return decision
 	}
 	if state.RefinementWorkflow && state.ReviewDebt == ReviewDebtOutstanding {
-		refineStep := stepDeclaresAction(definition, state.Step, "start_refine")
+		refineStep := stepDeclaresAction(definition, state.Step, "checkpoint_refine")
 		switch actionID {
 		case "record_delivery":
 			if state.ReviewStep {

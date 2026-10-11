@@ -471,6 +471,16 @@ func acceptReturnRouteWorkerLabeled(t *testing.T, fixture workflowReturnRouteFix
 	if definitionRef == "workflow.break_fix" {
 		effectStep, startAction = "repair", "start_repair"
 	}
+	// CD-0198 D3: the derived-start pins record the qualifying checkpoint's
+	// own started event, so the crafted start names that action there.
+	if entry, entryOK := BuiltinWorkflowRegistry().Lookup(definitionRef, definitionVersion); entryOK && workflowDerivedStepStartActive(entry.Definition) {
+		for candidate, step := range workflowDerivedStartCheckpoints {
+			if step == effectStep && definitionStepAllows(entry.Definition, effectStep, candidate) {
+				startAction = candidate
+				break
+			}
+		}
+	}
 	startID := "start-" + workID
 	dispatchID := "dispatch-" + workID
 	completedID := "completed-" + workID
@@ -537,7 +547,13 @@ func refineReturnRouteWorkerLabeled(t *testing.T, fixture workflowReturnRouteFix
 	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref, definition_version FROM workflow_instances WHERE work_id=?`, workID).Scan(&definitionRef, &definitionVersion); err != nil {
 		t.Fatal(err)
 	}
-	if err := runVerdictActionAs(t, s, workID, "start_refine", json.RawMessage(`{}`), 0, acceptor); err != nil {
+	// CD-0198 D3: the derived-start pins record the qualifying checkpoint's
+	// own started event, so the refinement pass enters through it.
+	refineEntry := "start_refine"
+	if entry, entryOK := BuiltinWorkflowRegistry().Lookup(definitionRef, definitionVersion); entryOK && workflowDerivedStepStartActive(entry.Definition) {
+		refineEntry = "checkpoint_refine"
+	}
+	if err := runVerdictActionAs(t, s, workID, refineEntry, json.RawMessage(`{}`), 0, acceptor); err != nil {
 		t.Fatalf("start refinement: %v", err)
 	}
 	// The current definitions gate the refine exit on a green verify run

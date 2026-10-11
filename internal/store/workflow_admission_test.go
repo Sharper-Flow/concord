@@ -29,11 +29,14 @@ func TestWorkflowAdmitDecisionTable(t *testing.T) {
 			{ID: "accept_worker_result", ExecutionMode: ActionAdvance},
 			{ID: "dispatch_worker", ExecutionMode: ActionHold},
 			{ID: "checkpoint_context", ExecutionMode: ActionHold},
-			{ID: "start_refine", ExecutionMode: ActionHold},
+			// The refinement shape the review-debt rule reads is the step
+			// that declares checkpoint_refine; the derived-start pins
+			// removed the callable start_refine beside it (CD-0198 D3).
+			{ID: "checkpoint_refine", ExecutionMode: ActionHold},
 			{ID: "confirm_premise", ExecutionMode: ActionAdvance},
 		},
 		StepGraph: WorkflowStepGraph{Steps: []WorkflowStep{
-			{ID: refineStep, Actions: []string{"start_refine", "record_delivery", "dispatch_worker", "accept_worker_result", "confirm_premise", "checkpoint_context"}},
+			{ID: refineStep, Actions: []string{"checkpoint_refine", "record_delivery", "dispatch_worker", "accept_worker_result", "confirm_premise", "checkpoint_context"}},
 			{ID: gateStep, Actions: []string{"record_delivery", "request_correction", "checkpoint_context"}},
 		}}}
 	// Each case names the step, the debt, and the ready review the loader

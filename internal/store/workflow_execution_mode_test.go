@@ -54,7 +54,6 @@ func TestWorkflowExecutionModesPreserveCurrentTransitionSemantics(t *testing.T) 
 		"checkpoint_context":     ActionHold,
 		"cross_context_boundary": ActionHold,
 		"record_delivery":        ActionAdvance,
-		"start_refine":           ActionFenced,
 		"checkpoint_refine":      ActionCheckpoint,
 		"accept_worker_result":   ActionAdvance,
 		"record_worker_failure":  ActionHold,
@@ -64,6 +63,12 @@ func TestWorkflowExecutionModesPreserveCurrentTransitionSemantics(t *testing.T) 
 		if !ok || mode != expected {
 			t.Fatalf("action %s mode=%q found=%t, want %q", actionID, mode, ok, expected)
 		}
+	}
+	// CD-0198 D3: the current head derives the refine start, so the
+	// callable start_refine is no longer a declared action; the released
+	// pins keep theirs.
+	if _, ok := workflowActionExecutionMode(definition, "start_refine"); ok {
+		t.Fatal("the current head still declares start_refine; the derived-start pin omits it")
 	}
 }
 

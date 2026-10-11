@@ -849,7 +849,7 @@ class WorkflowActionVariantProjectionTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.actions, cls.workflows, cls.teaching = generator.load_workflow_action_contracts()
+        cls.actions, cls.workflows, cls.teaching, cls.schema_refs = generator.load_workflow_action_contracts()
 
     def action(self, action_id):
         return next(action for action in self.actions if action["id"] == action_id)
@@ -947,17 +947,22 @@ class WorkflowActionVariantProjectionTests(unittest.TestCase):
         self.assertNotIn("anyOf", then["properties"]["fields"], "an action with one current contract and no retained compatible shapes must stay a single branch")
 
     def test_the_public_dispatch_override_remains_correct(self):
-        # dispatch_worker stays one divergent variant: the payload route
-        # validates attempt_id and worker_packet, the public route validates
-        # lane_id alone.
+        # Versioned packet schemas do not expose packet authoring publicly.
         action = self.action("dispatch_worker")
-        self.assertEqual(len(action["variants"]), 1)
-        variant = action["variants"][0]
-        self.assertNotEqual(variant["payload"], variant["public_payload"])
-        self.assertEqual([field["name"] for field in variant["public_payload"]["fields"]], ["lane_id"])
-        for schema_name, expected in (("work_transition_action_variant_dispatch_worker", "worker_packet"), ("work_transition_action_public_variant_dispatch_worker", "lane_id")):
-            fields = payload_schema["$defs"][schema_name]["properties"]["fields"]
-            self.assertEqual(sorted(fields["properties"]), sorted([expected, "attempt_id"]) if expected == "worker_packet" else ["lane_id"])
+        self.assertEqual(len(action["variants"]), 2)
+        packet_refs = set()
+        for variant in action["variants"]:
+            self.assertNotEqual(variant["payload"], variant["public_payload"])
+            self.assertEqual([field["name"] for field in variant["public_payload"]["fields"]], ["lane_id"])
+            packet_refs.update(field["schema_ref"] for field in variant["payload"]["fields"] if field["name"] == "worker_packet")
+        self.assertEqual(packet_refs, {"worker_packet", "worker_packet2"})
+        internal = payload_schema["$defs"]["work_transition_action_variant_dispatch_worker"]["properties"]["fields"]
+        branches = internal.get("anyOf", internal.get("oneOf", [internal]))
+        self.assertEqual(len(branches), 2)
+        for fields in branches:
+            self.assertEqual(sorted(fields["properties"]), ["attempt_id", "worker_packet"])
+        public = payload_schema["$defs"]["work_transition_action_public_variant_dispatch_worker"]["properties"]["fields"]
+        self.assertEqual(sorted(public["properties"]), ["lane_id"])
 
     def test_retained_core_dispatch_payload_does_not_enter_public_override(self):
         actions = copy.deepcopy(self.actions)
@@ -992,7 +997,7 @@ class NativeOracleLaneInstructionTests(unittest.TestCase):
 class HostSafeWorkflowFieldUnionTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        actions, workflows, teaching = generator.load_workflow_action_contracts()
+        actions, workflows, teaching, _ = generator.load_workflow_action_contracts()
         cls.projected, _ = generator.project_workflow_action_schema(payload_schema, actions, workflows, teaching)
         cls.actions = actions
 
@@ -1028,7 +1033,7 @@ class HostSafeWorkflowFieldUnionTests(unittest.TestCase):
         retained = copy.deepcopy(action["variants"][0]["payload"])
         retained["fields"] = [field for field in retained["fields"] if field["name"] == "attempt_id"]
         action["legacy_payloads"] = [retained]
-        _, workflows, teaching = generator.load_workflow_action_contracts()
+        _, workflows, teaching, _ = generator.load_workflow_action_contracts()
         projected, _ = generator.project_workflow_action_schema(payload_schema, actions, workflows, teaching)
         call = {"work_id": "work-1", "expected_version": 1, "action_id": "accept_worker_result",
                 "idempotency_key": "accept-1", "fields": {"attempt_id": "attempt-1"}}
@@ -1152,7 +1157,7 @@ class HostSafeWorkflowFieldUnionTests(unittest.TestCase):
 class NativeOracleRequestProjectionTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        actions, workflows, teaching = generator.load_workflow_action_contracts()
+        actions, workflows, teaching, _ = generator.load_workflow_action_contracts()
         cls.projected, _ = generator.project_workflow_action_schema(payload_schema, actions, workflows, teaching)
 
     def validate(self, value, name):
@@ -1269,7 +1274,7 @@ class NativeOracleRequestProjectionTests(unittest.TestCase):
             self.validate(incomplete, "native_oracle_result")
 
     def test_projection_is_idempotent_and_keeps_navigation_and_report_pins(self):
-        actions, workflows, teaching = generator.load_workflow_action_contracts()
+        actions, workflows, teaching, _ = generator.load_workflow_action_contracts()
         repeated, _ = generator.project_workflow_action_schema(self.projected, actions, workflows, teaching)
         self.assertEqual(repeated, self.projected)
         generator.check_schema_keywords(self.projected)
@@ -1902,7 +1907,7 @@ class WorkflowActionVariantCorpusTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.actions, cls.workflows, cls.teaching = generator.load_workflow_action_contracts()
+        cls.actions, cls.workflows, cls.teaching, cls.schema_refs = generator.load_workflow_action_contracts()
         cls.defs = payload_schema["$defs"]
 
     def _variants(self):
@@ -2235,9 +2240,11 @@ class WorkflowActionVariantCorpusTests(unittest.TestCase):
             self.assertEqual(approve["required_evidence"].get("description"), self.teaching["obligation_membership_rule"])
 
     def test_every_registry_action_has_one_closed_variant(self):
-        names = {f"work_transition_action_variant_{action['id']}" for action in self.actions}
-        published = {name for name in self.defs if name.startswith("work_transition_action_variant_") or name.startswith("work_transition_action_public_variant_")}
-        self.assertEqual(published - {f"work_transition_action_public_variant_{a['id']}" for a in self.actions if any(variant["payload"] != variant["public_payload"] for variant in a["variants"])}, names)
+        core_refs = [{"$ref": f"#/$defs/work_transition_action_variant_{action['id']}"} for action in self.actions]
+        public_refs = [{"$ref": f"#/$defs/work_transition_action_{'public_variant' if any(variant['payload'] != variant['public_payload'] for variant in action['variants']) else 'variant'}_{action['id']}"} for action in self.actions]
+        self.assertCountEqual(self.defs["work_transition_action_input"]["anyOf"],
+                              core_refs + [{"$ref": "#/$defs/work_transition_action_legacy_input"}])
+        self.assertCountEqual(self.defs["work_transition_action_public_input"]["anyOf"], public_refs)
 
     def _sample(self, schema, path="$", fallback_properties=None):
         if "$ref" in schema:

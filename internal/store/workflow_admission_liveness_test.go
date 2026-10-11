@@ -248,7 +248,7 @@ func admissionContractCorrection(definition WorkflowDefinition, state admissionM
 	case state.contracts != 1:
 		return false
 	}
-	return (state.attempt == "" && !state.dispatched) || state.attempt == "failed" || state.attempt == "rejected"
+	return !state.dispatched || state.attempt == "failure_recorded" || state.attempt == "rejected"
 }
 
 // admissionCompleteStepCorrection folds the CD-0172 complete-step route.
@@ -734,7 +734,16 @@ func admissionSuccessors(definition WorkflowDefinition, state admissionModelStat
 	case "supersede_contract":
 		return admissionSupersedeSuccessors(definition, state)
 	default:
-		if mode, ok := workflowActionExecutionMode(definition, actionID); ok && mode == ActionFenced && !admissionContinuityAction(actionID) {
+		mode, modeOK := workflowActionExecutionMode(definition, actionID)
+		// CD-0198 D3: on a derived-start pin the step's qualifying
+		// checkpoint answers the loader's start window: a fresh entry's
+		// first checkpoint derives the start, so the pass reads started
+		// with no proof; a re-entry's checkpoint reuses the standing start
+		// and resets nothing.
+		if workflowDerivedStepStartActive(definition) && workflowDerivedStartCheckpoints[actionID] == state.step {
+			next.started, next.proof = true, false
+		}
+		if modeOK && mode == ActionFenced && !admissionContinuityAction(actionID) {
 			// A fresh fenced start opens a new attempt window and releases
 			// the hold of every attempt before it.
 			next.attempt = ""
@@ -878,6 +887,12 @@ func admissionSupersedeSuccessors(definition WorkflowDefinition, state admission
 	successor.artifactStale = true
 	successor.attemptFresh = false
 	successor.convergence = "approach"
+	if workflowDerivedStepStartActive(definition) {
+		// The typed supersession opens the successor contract's pass. The
+		// old attempt still holds advances until disposition, but its
+		// dispatch precedes the boundary correction admission reads.
+		successor.dispatched = false
+	}
 	if target := workflowDisprovedPremiseAtCompleteRouteTarget(definition, state.step); target != "" {
 		successor = admissionEnterStep(definition, successor, target)
 		return []admissionModelState{successor}
@@ -1524,6 +1539,24 @@ func admissionModelPath(parents map[admissionModelState]admissionModelEdge, stat
 // record. The conformance replay names the outcome it performs.
 func admissionSuccessor(definition WorkflowDefinition, state admissionModelState, actionID string) admissionModelState {
 	return admissionSuccessors(definition, state, actionID)[0]
+}
+
+// admissionDerivedCheckpointSuccessor is the CD-0198 D3 successor for the
+// step's qualifying checkpoint. derives reports whether the checkpoint
+// actually derives the step start — the store's answer, which depends on the
+// step's log, not the abstract state — so a deriving checkpoint re-anchors
+// the pass the way the loader re-anchors it, and a re-entry checkpoint
+// changes nothing.
+func admissionDerivedCheckpointSuccessor(definition WorkflowDefinition, state admissionModelState, actionID string, derives bool) admissionModelState {
+	next := admissionSuccessors(definition, state, actionID)[0]
+	if workflowDerivedStepStartActive(definition) && workflowDerivedStartCheckpoints[actionID] == state.step && derives {
+		next.attempt = ""
+		next.dispatched = false
+		next.attemptProduces, next.attemptFresh = false, false
+		next.started, next.proof = true, false
+		next.integration = false
+	}
+	return next
 }
 
 // admissionBadToOkWitnesses walks every well-formed state whose artifact is

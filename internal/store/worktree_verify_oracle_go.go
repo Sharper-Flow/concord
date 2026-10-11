@@ -431,13 +431,17 @@ func materializeNativeSnapshot(ctx context.Context, r GitRunner, repo, commit, r
 			return nativeUnavailable(fmt.Sprintf("snapshot materialization: %v: %s", err, output))
 		}
 	}
+	rooted, err := os.OpenRoot(root)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = rooted.Close() }()
 	for _, b := range blobs {
-		file := filepath.Join(root, filepath.FromSlash(b.name))
-		info, err := os.Lstat(file)
+		info, err := rooted.Lstat(b.name)
 		if err != nil || !info.Mode().IsRegular() || (info.Mode().Perm()&0111 != 0) != (b.mode == "100755") {
 			return nativeUnavailable("snapshot file mode differs from subject: " + b.name)
 		}
-		data, err := os.ReadFile(file)
+		data, err := rooted.ReadFile(b.name)
 		if err != nil {
 			return err
 		}
@@ -457,7 +461,7 @@ func materializeNativeSnapshot(ctx context.Context, r GitRunner, repo, commit, r
 			return nativeUnavailable("snapshot blob differs from subject: " + b.name)
 		}
 	}
-	return fs.WalkDir(os.DirFS(root), ".", func(name string, d fs.DirEntry, err error) error {
+	return fs.WalkDir(rooted.FS(), ".", func(name string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}

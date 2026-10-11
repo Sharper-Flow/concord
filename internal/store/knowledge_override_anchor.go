@@ -4,8 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"os"
-	"path"
 	"strconv"
 	"strings"
 )
@@ -214,14 +212,5 @@ func committedOverrideAnchorReader(ctx context.Context, repo, commit string) fun
 			return nil, err
 		}
 		return out, nil
-	}
-}
-
-// workingTreeOverrideAnchorReader reads one record document's bytes from the
-// checked-out repository, the form lesson publication composes before it
-// commits.
-func workingTreeOverrideAnchorReader(repo string) func(string) ([]byte, error) {
-	return func(relPath string) ([]byte, error) {
-		return os.ReadFile(path.Join(repo, relPath)) //nolint:gosec // relPath is a validated manifest record path and repo is the operator-selected Git authority.
 	}
 }

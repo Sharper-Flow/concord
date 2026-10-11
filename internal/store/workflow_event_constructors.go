@@ -223,7 +223,7 @@ func workflowReviseCandidatesEvents(request WorkflowActionExecutionRequest, acto
 // workflowRecordAlignmentEvents builds the typed CD-0156 alignment event. The
 // action records the candidate set only: it creates no relation, so the
 // related ids travel as recorded search output, and relation creation stays
-// with concord_work_relate.link and resolve_overlap. The outcome enum and the
+// with resolve_overlap. The outcome enum and the
 // outcome/related_ids legal input combinations are declared on the
 // record_alignment registry payload and enforced by
 // validateWorkflowActionPayload before any event is built, so this

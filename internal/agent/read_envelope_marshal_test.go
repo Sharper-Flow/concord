@@ -31,7 +31,6 @@ func TestKnowledgeReadEnvelopeMarshalsWithRealisticIdentifiers(t *testing.T) {
 	}{
 		{"concord_knowledge", "search", `{"product_id":"prod-alpha","kinds":["decision","lesson"],"page":{"cursor":null,"limit":10}}`},
 		{"concord_knowledge", "resolve_note", `{"knowledge_id":"knowledge-decision"}`},
-		{"concord_knowledge", "unprocessed", `{"product_id":"prod-alpha"}`},
 	} {
 		resp := dispatchRead(t, s, service, InvokeRequest{Tool: tc.tool, Operation: tc.op, Input: json.RawMessage(tc.input)}, env)
 		if resp.Outcome != OutcomeOK {
@@ -92,7 +91,6 @@ func TestDomainReadsMarshalWithAmbiguousContractOmission(t *testing.T) {
 		operation string
 		input     string
 	}{
-		{"active_work", `{"product_id":"product-1","domain_id":"` + singleDomainRootID + `","page":{"cursor":null,"limit":10}}`},
 		{"overlaps", `{"product_id":"product-1"}`},
 	} {
 		resp := dispatchRead(t, s, service, InvokeRequest{Tool: "concord_domain", Operation: tc.operation, Input: json.RawMessage(tc.input)}, env)

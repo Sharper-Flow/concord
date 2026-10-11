@@ -6,10 +6,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 	"testing"
-	"time"
 )
 
 // writeAggregateAsShards lays an aggregate-shaped manifest document out as the
@@ -249,47 +249,60 @@ func TestReadKnowledgeManifestAtCommitPrefersShardsAndReadsLegacyAggregates(t *t
 	}
 }
 
-// TestPublishLessonAddsExactlyOneShard states the outcome CD-0114 exists for:
-// a publication commits the note, its record shard, and its coverage shard,
-// and touches no other file, so two publications never conflict.
-func TestPublishLessonAddsExactlyOneShard(t *testing.T) {
+// TestShardRoundTripPreservesV12LawHomes proves a law record written as a
+// shard composes back with its Domain home intact.
+func TestShardRoundTripPreservesV12LawHomes(t *testing.T) {
 	t.Parallel()
-	_, home := lessonWorktreeFixture(t)
-	headBefore, err := os.ReadFile(filepath.Join(home.RepoPath, filepath.FromSlash(knowledgeHeadPath)))
+	repo := t.TempDir()
+	manifest := KnowledgeManifest{
+		SchemaVersion: "1.2", SupportedKinds: []string{"decision", "lesson"}, IndexedKinds: []string{"decision", "lesson"},
+		DomainRegistry: KnowledgeDomainRegistry{
+			SchemaVersion: "1.0", ProductKey: "concord", RootDomainID: "product-root:concord",
+			Domains: []KnowledgeDomain{
+				{DomainID: "product-root:concord", Name: "Concord", Purpose: "Product-wide law", Status: "current", ArchitectureRelations: []KnowledgeArchitectureRelation{}},
+				{DomainID: "store", Name: "Store", Purpose: "Storage", ParentDomainID: "product-root:concord", Status: "current", ArchitectureRelations: []KnowledgeArchitectureRelation{}},
+			},
+		},
+		Records: []KnowledgeRecord{{
+			ID: "CD-0001", Kind: "decision", Path: ".concord/docs/decisions/CD-0001-law.md", Status: "accepted", Date: "2026-08-18T00:00:00Z",
+			Title: "Law", Summary: "A current law retains its Domain ownership across the shard round trip.", Tags: []string{},
+			Scopes:       KnowledgeRecordScopes{Mode: "home", ProductIDs: []string{}, ProjectIDs: []string{}, DomainIDs: []string{}, TagIDs: []string{}},
+			HomeDomainID: "product-root:concord", AppliesToDomainIDs: []string{"store"}, SHA256: "sha256:" + strings.Repeat("a", 64),
+			ProductWideRationale: "Ownership survives shard composition across every child Domain.",
+		}},
+	}
+	writeManifestShards(t, repo, manifest)
+	parsed := composeWorkingTreeManifest(t, repo)
+	if got := parsed.Records[0]; got.HomeDomainID != "product-root:concord" || len(got.AppliesToDomainIDs) != 1 || got.AppliesToDomainIDs[0] != "store" {
+		t.Fatalf("law homes lost during the shard round trip: %+v", got)
+	}
+}
+
+// TestShardTreeComposesIdenticallyInGoAndPython proves the store and
+// scripts/knowledge_index.py compose the same manifest from the same shards.
+func TestShardTreeComposesIdenticallyInGoAndPython(t *testing.T) {
+	t.Parallel()
+	repoRoot := repositoryRootForTest(t)
+	goManifest := composeWorkingTreeManifest(t, repoRoot)
+	cmd := exec.Command("python3", "-c", "import sys, json; sys.path.insert(0, 'scripts'); import knowledge_index; sys.stdout.write(knowledge_index.compose_manifest_bytes().decode('utf-8'))")
+	cmd.Dir = repoRoot
+	output, err := cmd.Output()
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("python composition failed: %v", err)
 	}
-	published, err := PublishLessonRecord(context.Background(), home, LessonPublication{
-		LessonID: "lesson-one-shard", Title: "A publication adds one shard",
-		Summary:  "Publishing a lesson writes its record shard and nothing else.",
-		Content:  "# A publication adds one shard\n\nThe diff is the shard.\n",
-		Tags:     []string{"knowledge"},
-		Scopes:   KnowledgeRecordScopes{Mode: "home"},
-		Coverage: &LessonCoverageDeclaration{State: "unmeasured", Reason: "The shard isolation fixture lesson proves no accepted law."},
-		Now:      time.Date(2026, 8, 21, 0, 0, 0, 0, time.UTC),
-	})
+	pyManifest, err := parseKnowledgeManifest(output)
 	if err != nil {
-		t.Fatalf("publish: %v", err)
+		t.Fatalf("python composition is not runtime-readable: %v", err)
 	}
-	out, err := exec.Command("git", "-C", home.RepoPath, "diff", "--name-status", "HEAD~1", "HEAD").CombinedOutput()
-	if err != nil {
-		t.Fatalf("git diff: %v\n%s", err, out)
+	if len(pyManifest.Records) != len(goManifest.Records) {
+		t.Fatalf("python composed %d records, Go composed %d", len(pyManifest.Records), len(goManifest.Records))
 	}
-	changed := strings.Split(strings.TrimSpace(string(out)), "\n")
-	sort.Strings(changed)
-	want := []string{"A\t" + knowledgeRecordTree + "/lesson-one-shard.json", "A\t" + published.Record.Path, "A\t" + lessonCoverageDir + "/lesson-one-shard.json"}
-	sort.Strings(want)
-	if strings.Join(changed, "|") != strings.Join(want, "|") {
-		t.Fatalf("publication changed %v, want exactly %v", changed, want)
+	for i := range goManifest.Records {
+		if goManifest.Records[i].ID != pyManifest.Records[i].ID || goManifest.Records[i].SHA256 != pyManifest.Records[i].SHA256 {
+			t.Fatalf("record %d differs: go=%s/%s python=%s/%s", i, goManifest.Records[i].ID, goManifest.Records[i].SHA256, pyManifest.Records[i].ID, pyManifest.Records[i].SHA256)
+		}
 	}
-	headAfter, err := os.ReadFile(filepath.Join(home.RepoPath, filepath.FromSlash(knowledgeHeadPath)))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(headBefore) != string(headAfter) {
-		t.Fatal("publication rewrote the manifest head")
-	}
-	if _, err := os.Stat(filepath.Join(home.RepoPath, filepath.FromSlash(knowledgeManifestPath))); !os.IsNotExist(err) {
-		t.Fatal("publication wrote an aggregate file")
+	if !reflect.DeepEqual(goManifest.KnowledgeRoots, pyManifest.KnowledgeRoots) || !reflect.DeepEqual(goManifest.Exclusions, pyManifest.Exclusions) {
+		t.Fatal("head fields differ between the Go and Python compositions")
 	}
 }

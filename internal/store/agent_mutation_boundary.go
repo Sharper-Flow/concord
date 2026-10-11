@@ -62,13 +62,6 @@ type WorkflowInstanceDefinition struct {
 	DefinitionVersion int64
 }
 
-// RelationRecord is the relation identity needed by unlink effects.
-type RelationRecord struct {
-	FromWorkID string
-	ToWorkID   string
-	Kind       string
-}
-
 // DurableOperationRecord identifies the newest pending attempt for a work item.
 type DurableOperationRecord struct {
 	OperationID string
@@ -298,22 +291,6 @@ func workLifecycleCore(ctx context.Context, q queryer, workID string) (string, e
 		return "", wrapFailure(KindUnavailable, "work_lifecycle", "cannot read work lifecycle", true, "retry once the database is readable", err)
 	}
 	return lifecycle, nil
-}
-
-func RelationByIDTx(ctx context.Context, transaction *Transaction, relationID int64) (RelationRecord, error) {
-	tx, err := transactionSQL(transaction, "relation")
-	if err != nil {
-		return RelationRecord{}, err
-	}
-	var relation RelationRecord
-	err = tx.QueryRowContext(ctx, `SELECT work_id_from,work_id_to,kind FROM relations WHERE id=?`, relationID).Scan(&relation.FromWorkID, &relation.ToWorkID, &relation.Kind)
-	if err == sql.ErrNoRows {
-		return RelationRecord{}, newFailure(KindRelationNotFound, "relation", "relation does not exist", false, "reread the relation graph")
-	}
-	if err != nil {
-		return RelationRecord{}, wrapFailure(KindUnavailable, "relation", "cannot read relation", true, "retry once the database is readable", err)
-	}
-	return relation, nil
 }
 
 func ProductsForProjectIDsTx(ctx context.Context, transaction *Transaction, ids []string) (map[string][]string, error) {

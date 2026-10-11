@@ -143,7 +143,7 @@
       ]
     },
     "lifecycle_transition_target": {
-      "description": "Agent-requestable lifecycle transition targets. Strictly smaller than 'lifecycle': 'superseded' is excluded because supersession must be atomic with its 'supersedes' relation and is reachable only via concord_work_relate.supersede. The runtime guard in internal/agent/mutations.go that rejects target=='superseded' is genuine defense-in-depth behind this structural control.",
+      "description": "Agent-requestable lifecycle transition targets. Strictly smaller than 'lifecycle': 'superseded' is excluded because supersession must be atomic with its 'supersedes' relation and is reachable only through the work.superseded event, whose surviving writer is operator-approved resolve_overlap. The runtime guard in internal/agent/mutations.go that rejects target=='superseded' is genuine defense-in-depth behind this structural control.",
       "type": "string",
       "enum": [
         "needed",
@@ -3987,24 +3987,6 @@
         }
       ]
     },
-    "knowledge_unprocessed_input": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "product_id": {
-          "$ref": "#/$defs/id"
-        },
-        "project_id": {
-          "$ref": "#/$defs/id"
-        },
-        "page": {
-          "$ref": "#/$defs/page"
-        },
-        "limit": {
-          "$ref": "#/$defs/limit"
-        }
-      }
-    },
     "product_context": {
       "type": "object",
       "additionalProperties": false,
@@ -4732,24 +4714,6 @@
         },
         "successor_id": {
           "$ref": "#/$defs/id"
-        }
-      }
-    },
-    "unprocessed_page": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "paths"
-      ],
-      "properties": {
-        "paths": {
-          "type": "array",
-          "maxItems": 100,
-          "items": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 512
-          }
         }
       }
     },
@@ -5644,48 +5608,6 @@
         }
       }
     },
-    "work_relate_link_input": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "from_work_id",
-        "to_work_id",
-        "from_expected_version",
-        "to_expected_version",
-        "kind",
-        "reason",
-        "idempotency_key"
-      ],
-      "properties": {
-        "from_work_id": {
-          "$ref": "#/$defs/id"
-        },
-        "to_work_id": {
-          "$ref": "#/$defs/id"
-        },
-        "from_expected_version": {
-          "$ref": "#/$defs/version"
-        },
-        "to_expected_version": {
-          "$ref": "#/$defs/version"
-        },
-        "kind": {
-          "$ref": "#/$defs/relation_link_kind"
-        },
-        "reason": {
-          "$ref": "#/$defs/short"
-        },
-        "idempotency_key": {
-          "$ref": "#/$defs/id"
-        },
-        "approval": {
-          "$ref": "#/$defs/approval"
-        },
-        "requested_budget_seconds": {
-          "$ref": "#/$defs/requested_budget_seconds"
-        }
-      }
-    },
     "work_relate_resolve_overlap_input": {
       "type": "object",
       "additionalProperties": false,
@@ -5737,154 +5659,6 @@
         },
         "approval": {
           "$ref": "#/$defs/approval"
-        },
-        "requested_budget_seconds": {
-          "$ref": "#/$defs/requested_budget_seconds"
-        }
-      }
-    },
-    "work_relate_unlink_input": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "relation_id",
-        "expected_versions",
-        "reason",
-        "idempotency_key"
-      ],
-      "properties": {
-        "relation_id": {
-          "$ref": "#/$defs/id"
-        },
-        "expected_versions": {
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 100,
-          "uniqueItems": true,
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "work_id",
-              "version"
-            ],
-            "properties": {
-              "work_id": {
-                "$ref": "#/$defs/id"
-              },
-              "version": {
-                "$ref": "#/$defs/version"
-              }
-            }
-          }
-        },
-        "reason": {
-          "$ref": "#/$defs/short"
-        },
-        "idempotency_key": {
-          "$ref": "#/$defs/id"
-        },
-        "approval": {
-          "$ref": "#/$defs/approval"
-        },
-        "requested_budget_seconds": {
-          "$ref": "#/$defs/requested_budget_seconds"
-        }
-      }
-    },
-    "work_relate_supersede_input": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "predecessor_id",
-        "successor_id",
-        "predecessor_expected_version",
-        "successor_expected_version",
-        "reason",
-        "idempotency_key"
-      ],
-      "properties": {
-        "predecessor_id": {
-          "$ref": "#/$defs/id"
-        },
-        "successor_id": {
-          "$ref": "#/$defs/id"
-        },
-        "predecessor_expected_version": {
-          "$ref": "#/$defs/version"
-        },
-        "successor_expected_version": {
-          "$ref": "#/$defs/version"
-        },
-        "reason": {
-          "$ref": "#/$defs/short"
-        },
-        "idempotency_key": {
-          "$ref": "#/$defs/id"
-        },
-        "approval": {
-          "$ref": "#/$defs/approval"
-        },
-        "evidence": {
-          "type": "array",
-          "maxItems": 32,
-          "items": {
-            "$ref": "#/$defs/evidence"
-          }
-        },
-        "requested_budget_seconds": {
-          "$ref": "#/$defs/requested_budget_seconds"
-        }
-      }
-    },
-    "work_relate_restore_input": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "predecessor_id",
-        "predecessor_expected_version",
-        "successor_id",
-        "successor_expected_version",
-        "reason",
-        "idempotency_key"
-      ],
-      "properties": {
-        "predecessor_id": {
-          "$ref": "#/$defs/id"
-        },
-        "predecessor_expected_version": {
-          "$ref": "#/$defs/version"
-        },
-        "successor_id": {
-          "$ref": "#/$defs/id"
-        },
-        "successor_expected_version": {
-          "$ref": "#/$defs/version"
-        },
-        "replacement_successor_id": {
-          "$ref": "#/$defs/id"
-        },
-        "replacement_successor_expected_version": {
-          "$ref": "#/$defs/version"
-        },
-        "instruction": {
-          "$ref": "#/$defs/short"
-        },
-        "reason": {
-          "$ref": "#/$defs/short"
-        },
-        "idempotency_key": {
-          "$ref": "#/$defs/id"
-        },
-        "approval": {
-          "$ref": "#/$defs/approval"
-        },
-        "evidence": {
-          "type": "array",
-          "maxItems": 32,
-          "items": {
-            "$ref": "#/$defs/evidence"
-          }
         },
         "requested_budget_seconds": {
           "$ref": "#/$defs/requested_budget_seconds"
@@ -6119,394 +5893,10 @@
         },
         "vacate_target": {
           "$ref": "#/$defs/vacate_target",
-          "description": "Present on a completed or cancelled lifecycle transition, and on a supersede, when the calling session's linked worktree is that work item's active worktree. Names the registered main checkout the adapter moves the session to after the transition."
+          "description": "Present on a completed or cancelled lifecycle transition when the calling session's linked worktree is that work item's active worktree. Names the registered main checkout the adapter moves the session to after the transition."
         },
         "worker_recovery": {
           "$ref": "#/$defs/worker_recovery_context"
-        }
-      }
-    },
-    "product_row_source": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "authority": {
-          "type": "string",
-          "enum": [
-            "authoritative",
-            "degraded",
-            "unreachable"
-          ]
-        },
-        "observed_at": {
-          "type": "string",
-          "maxLength": 128
-        },
-        "age": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "stale": {
-          "type": "boolean"
-        },
-        "blocks_execution": {
-          "type": "boolean"
-        },
-        "reason": {
-          "$ref": "#/$defs/short"
-        },
-        "omissions": {
-          "type": "array",
-          "maxItems": 16,
-          "items": {
-            "$ref": "#/$defs/short"
-          }
-        }
-      }
-    },
-    "product_row_portfolio_input": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "product_id": {
-          "$ref": "#/$defs/id"
-        },
-        "page": {
-          "$ref": "#/$defs/page"
-        },
-        "limit": {
-          "$ref": "#/$defs/limit"
-        },
-        "source": {
-          "$ref": "#/$defs/product_row_source"
-        },
-        "requested_budget_seconds": {
-          "$ref": "#/$defs/requested_budget_seconds"
-        }
-      }
-    },
-    "product_row_stage": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "maturity",
-        "audience_commitment"
-      ],
-      "properties": {
-        "maturity": {
-          "type": "string",
-          "enum": [
-            "prototype",
-            "alpha",
-            "beta",
-            "production",
-            "deprecated"
-          ]
-        },
-        "audience_commitment": {
-          "type": "string",
-          "enum": [
-            "operator_only",
-            "limited",
-            "public"
-          ]
-        }
-      }
-    },
-    "product_row_reliance": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "authority",
-        "observed_at",
-        "age",
-        "stale",
-        "blocks_execution",
-        "omissions"
-      ],
-      "properties": {
-        "authority": {
-          "type": "string",
-          "enum": [
-            "authoritative",
-            "degraded",
-            "unreachable"
-          ]
-        },
-        "observed_at": {
-          "type": "string",
-          "maxLength": 128
-        },
-        "age": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "stale": {
-          "type": "boolean"
-        },
-        "blocks_execution": {
-          "type": "boolean"
-        },
-        "reason": {
-          "$ref": "#/$defs/short"
-        },
-        "omissions": {
-          "type": "array",
-          "maxItems": 16,
-          "items": {
-            "$ref": "#/$defs/short"
-          }
-        }
-      }
-    },
-    "product_row_unavailable": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "reason",
-        "omissions"
-      ],
-      "properties": {
-        "reason": {
-          "$ref": "#/$defs/short"
-        },
-        "omissions": {
-          "type": "array",
-          "maxItems": 16,
-          "items": {
-            "$ref": "#/$defs/short"
-          }
-        }
-      }
-    },
-    "product_row_action_values": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "in_progress",
-        "blocked",
-        "ready",
-        "active_problems",
-        "approval_required",
-        "overdue_awaits",
-        "parked_deliveries",
-        "live",
-        "waiting",
-        "needs_attention",
-        "unknown"
-      ],
-      "properties": {
-        "in_progress": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "blocked": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "ready": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "active_problems": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "approval_required": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "overdue_awaits": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "parked_deliveries": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "live": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "waiting": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "needs_attention": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "unknown": {
-          "type": "integer",
-          "minimum": 0
-        }
-      }
-    },
-    "product_row_action_counts": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "state"
-      ],
-      "properties": {
-        "state": {
-          "type": "string",
-          "enum": [
-            "known",
-            "unavailable"
-          ]
-        },
-        "values": {
-          "$ref": "#/$defs/product_row_action_values"
-        },
-        "unavailable": {
-          "$ref": "#/$defs/product_row_unavailable"
-        }
-      }
-    },
-    "product_row_stage_context": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "kind"
-      ],
-      "properties": {
-        "kind": {
-          "type": "string",
-          "enum": [
-            "product_default",
-            "single_focus_override",
-            "mixed"
-          ]
-        },
-        "focus_override": {
-          "$ref": "#/$defs/product_row_stage"
-        }
-      }
-    },
-    "product_row_focus": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "work_id",
-        "title",
-        "work_kind",
-        "lifecycle",
-        "attention_kind",
-        "priority",
-        "project_count",
-        "stage_context"
-      ],
-      "properties": {
-        "attention_kind": {
-          "type": "string",
-          "enum": [
-            "approval_required",
-            "active_problem",
-            "blocked",
-            "in_progress",
-            "ready"
-          ]
-        },
-        "blocked_sessions": {
-          "type": "array",
-          "maxItems": 100,
-          "items": {
-            "$ref": "#/$defs/product_row_blocked_session"
-          }
-        },
-        "lifecycle": {
-          "$ref": "#/$defs/lifecycle"
-        },
-        "liveness": {
-          "$ref": "#/$defs/work_liveness"
-        },
-        "priority": {
-          "type": "integer"
-        },
-        "project_count": {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 100
-        },
-        "stage_context": {
-          "$ref": "#/$defs/product_row_stage_context"
-        },
-        "title": {
-          "$ref": "#/$defs/short"
-        },
-        "work_id": {
-          "$ref": "#/$defs/id"
-        },
-        "work_kind": {
-          "$ref": "#/$defs/stored_work_kind"
-        },
-        "workflow_step_label": {
-          "$ref": "#/$defs/short"
-        }
-      }
-    },
-    "product_row": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "product_id",
-        "display_name",
-        "stage",
-        "reliance",
-        "action_counts"
-      ],
-      "properties": {
-        "product_id": {
-          "$ref": "#/$defs/id"
-        },
-        "display_name": {
-          "$ref": "#/$defs/short"
-        },
-        "display_name_suffix": {
-          "$ref": "#/$defs/short"
-        },
-        "stage": {
-          "$ref": "#/$defs/product_row_stage"
-        },
-        "reliance": {
-          "$ref": "#/$defs/product_row_reliance"
-        },
-        "action_counts": {
-          "$ref": "#/$defs/product_row_action_counts"
-        },
-        "focus": {
-          "$ref": "#/$defs/product_row_focus"
-        },
-        "focus_absent_reason": {
-          "type": "string",
-          "enum": [
-            "stale_block",
-            "unreachable",
-            "no_actionable_work",
-            "authoritative_empty"
-          ]
-        }
-      }
-    },
-    "product_row_page": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "observed_at",
-        "rows"
-      ],
-      "properties": {
-        "observed_at": {
-          "type": "string",
-          "maxLength": 128
-        },
-        "rows": {
-          "type": "array",
-          "maxItems": 100,
-          "items": {
-            "$ref": "#/$defs/product_row"
-          }
         }
       }
     },
@@ -7149,9 +6539,16 @@
     "work_define_research_retire_input": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["product_id", "candidates", "dry_run", "idempotency_key"],
+      "required": [
+        "product_id",
+        "candidates",
+        "dry_run",
+        "idempotency_key"
+      ],
       "properties": {
-        "product_id": {"$ref": "#/$defs/id"},
+        "product_id": {
+          "$ref": "#/$defs/id"
+        },
         "candidates": {
           "type": "array",
           "minItems": 1,
@@ -7160,34 +6557,60 @@
           "items": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["pack_id", "expected_version"],
+            "required": [
+              "pack_id",
+              "expected_version"
+            ],
             "properties": {
-              "pack_id": {"$ref": "#/$defs/id"},
-              "expected_version": {"type": "integer", "minimum": 1, "maximum": 9223372036854775807}
+              "pack_id": {
+                "$ref": "#/$defs/id"
+              },
+              "expected_version": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9223372036854775807
+              }
             }
           }
         },
-        "dry_run": {"type": "boolean"},
-        "idempotency_key": {"$ref": "#/$defs/id"},
-        "approval": {"$ref": "#/$defs/approval"},
-        "requested_budget_seconds": {"$ref": "#/$defs/requested_budget_seconds"}
+        "dry_run": {
+          "type": "boolean"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        }
       }
     },
     "research_retire_result": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["dry_run", "candidates"],
+      "required": [
+        "dry_run",
+        "candidates"
+      ],
       "properties": {
-        "dry_run": {"type": "boolean"},
+        "dry_run": {
+          "type": "boolean"
+        },
         "next_valid_intents": {
           "type": "array",
           "maxItems": 16,
-          "items": {"$ref": "#/$defs/next_valid_intent"}
+          "items": {
+            "$ref": "#/$defs/next_valid_intent"
+          }
         },
         "work_pins": {
           "type": "array",
           "maxItems": 32,
-          "items": {"$ref": "#/$defs/work_pin"}
+          "items": {
+            "$ref": "#/$defs/work_pin"
+          }
         },
         "candidates": {
           "type": "array",
@@ -7196,14 +6619,42 @@
           "items": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["pack_id", "owner_work_id", "expected_version", "current_version", "classification"],
+            "required": [
+              "pack_id",
+              "owner_work_id",
+              "expected_version",
+              "current_version",
+              "classification"
+            ],
             "properties": {
-              "pack_id": {"$ref": "#/$defs/id"},
-              "owner_work_id": {"$ref": "#/$defs/id"},
-              "expected_version": {"$ref": "#/$defs/version"},
-              "current_version": {"$ref": "#/$defs/version"},
-              "classification": {"type": "string", "enum": ["eligible", "retired", "protected", "version_conflict"]},
-              "protection_reason": {"type": "string", "enum": ["owner_active", "active_pin"]}
+              "pack_id": {
+                "$ref": "#/$defs/id"
+              },
+              "owner_work_id": {
+                "$ref": "#/$defs/id"
+              },
+              "expected_version": {
+                "$ref": "#/$defs/version"
+              },
+              "current_version": {
+                "$ref": "#/$defs/version"
+              },
+              "classification": {
+                "type": "string",
+                "enum": [
+                  "eligible",
+                  "retired",
+                  "protected",
+                  "version_conflict"
+                ]
+              },
+              "protection_reason": {
+                "type": "string",
+                "enum": [
+                  "owner_active",
+                  "active_pin"
+                ]
+              }
             }
           }
         }
@@ -7793,117 +7244,6 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 40
-        }
-      }
-    },
-    "knowledge_scopes_input": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "mode"
-      ],
-      "properties": {
-        "mode": {
-          "type": "string",
-          "enum": [
-            "home",
-            "explicit"
-          ]
-        },
-        "product_ids": {
-          "type": "array",
-          "maxItems": 32,
-          "items": {
-            "$ref": "#/$defs/id"
-          }
-        },
-        "project_ids": {
-          "type": "array",
-          "maxItems": 32,
-          "items": {
-            "$ref": "#/$defs/id"
-          }
-        },
-        "tag_ids": {
-          "type": "array",
-          "maxItems": 32,
-          "items": {
-            "$ref": "#/$defs/id"
-          }
-        }
-      }
-    },
-    "work_compact_lesson_publish_input": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "work_id",
-        "lesson_id",
-        "title",
-        "summary",
-        "content",
-        "idempotency_key"
-      ],
-      "properties": {
-        "work_id": {
-          "$ref": "#/$defs/id"
-        },
-        "lesson_id": {
-          "type": "string",
-          "minLength": 2,
-          "maxLength": 128,
-          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
-        },
-        "title": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 256
-        },
-        "summary": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 1024
-        },
-        "content": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 32768
-        },
-        "tags": {
-          "type": "array",
-          "maxItems": 8,
-          "items": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 32
-          }
-        },
-        "scopes": {
-          "$ref": "#/$defs/knowledge_scopes_input"
-        },
-        "evidence": {
-          "type": "array",
-          "maxItems": 32,
-          "items": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 512
-          }
-        },
-        "idempotency_key": {
-          "$ref": "#/$defs/id"
-        },
-        "approval": {
-          "$ref": "#/$defs/approval"
-        },
-        "requested_budget_seconds": {
-          "$ref": "#/$defs/requested_budget_seconds"
-        },
-        "publication_work_id": {
-          "$ref": "#/$defs/id"
-        },
-        "coverage": {
-          "$ref": "#/$defs/lesson_coverage_input"
         }
       }
     },
@@ -9157,31 +8497,6 @@
         }
       }
     },
-    "domain_active_work_input": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "product_id",
-        "domain_id"
-      ],
-      "properties": {
-        "product_id": {
-          "$ref": "#/$defs/id"
-        },
-        "domain_id": {
-          "$ref": "#/$defs/id"
-        },
-        "page": {
-          "$ref": "#/$defs/page"
-        },
-        "limit": {
-          "$ref": "#/$defs/limit"
-        },
-        "requested_budget_seconds": {
-          "$ref": "#/$defs/requested_budget_seconds"
-        }
-      }
-    },
     "domain_attachments_input": {
       "type": "object",
       "additionalProperties": false,
@@ -9501,146 +8816,6 @@
         },
         "dismissed_at": {
           "type": "string"
-        }
-      }
-    },
-    "domain_observation_record_input": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "product_id",
-        "domain_id",
-        "statement",
-        "idempotency_key"
-      ],
-      "properties": {
-        "product_id": {
-          "$ref": "#/$defs/id"
-        },
-        "domain_id": {
-          "$ref": "#/$defs/id"
-        },
-        "statement": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 512
-        },
-        "refs": {
-          "type": "array",
-          "maxItems": 16,
-          "items": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 256
-          }
-        },
-        "tags": {
-          "type": "array",
-          "maxItems": 8,
-          "items": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 32
-          }
-        },
-        "idempotency_key": {
-          "$ref": "#/$defs/id"
-        },
-        "approval": {
-          "$ref": "#/$defs/approval"
-        },
-        "requested_budget_seconds": {
-          "$ref": "#/$defs/requested_budget_seconds"
-        }
-      }
-    },
-    "domain_observation_dismiss_input": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "product_id",
-        "domain_id",
-        "observation_id",
-        "idempotency_key"
-      ],
-      "properties": {
-        "product_id": {
-          "$ref": "#/$defs/id"
-        },
-        "domain_id": {
-          "$ref": "#/$defs/id"
-        },
-        "observation_id": {
-          "$ref": "#/$defs/id"
-        },
-        "idempotency_key": {
-          "$ref": "#/$defs/id"
-        },
-        "approval": {
-          "$ref": "#/$defs/approval"
-        },
-        "requested_budget_seconds": {
-          "$ref": "#/$defs/requested_budget_seconds"
-        }
-      }
-    },
-    "domain_active_work_item": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "work_id",
-        "kind",
-        "title",
-        "lifecycle",
-        "priority",
-        "contract_version",
-        "home_domain"
-      ],
-      "properties": {
-        "work_id": {
-          "$ref": "#/$defs/id"
-        },
-        "kind": {
-          "type": "string"
-        },
-        "title": {
-          "type": "string"
-        },
-        "lifecycle": {
-          "$ref": "#/$defs/lifecycle"
-        },
-        "priority": {
-          "type": "integer"
-        },
-        "contract_version": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "home_domain": {
-          "type": "boolean"
-        },
-        "liveness": {
-          "$ref": "#/$defs/work_liveness"
-        }
-      }
-    },
-    "domain_active_work_result": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "registry",
-        "work"
-      ],
-      "properties": {
-        "registry": {
-          "$ref": "#/$defs/domain_registry"
-        },
-        "work": {
-          "type": "array",
-          "maxItems": 100,
-          "items": {
-            "$ref": "#/$defs/domain_active_work_item"
-          }
         }
       }
     },
@@ -12319,74 +11494,6 @@
             }
           }
         ]
-      }
-    },
-    "lesson_coverage_input": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "state"
-      ],
-      "properties": {
-        "state": {
-          "type": "string",
-          "enum": [
-            "satisfied",
-            "outstanding",
-            "unmeasured",
-            "out_of_scope"
-          ]
-        },
-        "evidence": {
-          "type": "array",
-          "maxItems": 32,
-          "items": {
-            "$ref": "#/$defs/law_coverage_anchor"
-          }
-        },
-        "issue": {
-          "description": "Tracking issue number or Linear issue identifier for an outstanding record, the union contracts/law-coverage.schema.json admits. Required when outstanding; forbidden otherwise.",
-          "oneOf": [
-            {
-              "type": "integer",
-              "minimum": 1
-            },
-            {
-              "type": "string",
-              "pattern": "^[A-Z][A-Z0-9]*-[1-9][0-9]*$"
-            }
-          ]
-        },
-        "reason": {
-          "type": "string",
-          "minLength": 12,
-          "maxLength": 1024
-        }
-      }
-    },
-    "law_coverage_anchor": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "kind",
-        "value"
-      ],
-      "properties": {
-        "kind": {
-          "type": "string",
-          "description": "The closed anchor set contracts/law-coverage.schema.json admits for a committed coverage shard.",
-          "enum": [
-            "go_test",
-            "scenario",
-            "validator",
-            "generated"
-          ]
-        },
-        "value": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 512
-        }
       }
     },
     "vacate_target": {

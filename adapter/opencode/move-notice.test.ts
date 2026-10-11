@@ -8,7 +8,7 @@ import ConcordAdapterPlugin from "./concord-plugin"
 import { configureHostLease } from "./host-lease"
 import { configureCoreBinary } from "./dispatch"
 import { manifestDigest } from "./generated-contracts"
-import { configureConcordAdapter, moveSessionToClaimedWorktree, moveSessionToRegisteredMainCheckout, takeWorkNotices, vacateTerminalWorktree, work_relate, work_transition } from "./concord"
+import { configureConcordAdapter, moveSessionToClaimedWorktree, moveSessionToRegisteredMainCheckout, takeWorkNotices, vacateTerminalWorktree, work_transition } from "./concord"
 import { resetClaimedWorktrees } from "./claimed-worktree"
 import { dispatchRequiresNextTurn, resetTurnMoveBoundaries } from "./turn-move-boundary"
 import { recordMoveNotice, resetMoveNotices, takeMoveNotice } from "./move-notice"
@@ -34,8 +34,6 @@ const vacateOkEnvelope = () => ({
 }) as Parameters<typeof moveSessionToRegisteredMainCheckout>[2]
 
 const lifecycleArgs = (target: string) => ({ operation: "lifecycle", input: { work_id: "work-1", target, expected_version: 4, idempotency_key: "k-1" } })
-
-const supersedeToolArgs = () => ({ request: { operation: "supersede", input: { predecessor_id: "work-1", successor_id: "work-2", predecessor_expected_version: 4, successor_expected_version: 1, reason: "replaced", idempotency_key: "k-2" } } })
 
 const terminalOkEnvelope = (withTarget = true) => ({
   schema_version: "1.0",
@@ -254,25 +252,6 @@ describe("a confirmed terminal vacate records the move notice", () => {
     const envelope = await vacateTerminalWorktree("concord_work_transition", lifecycleArgs("completed"), vacateContext(), terminalOkEnvelope(false))
     expect(envelope.outcome).toBe("ok")
     expect(takeMoveNotice("session-1")).toBeNull()
-  })
-})
-
-describe("the work_relate supersede route carries the move notice", () => {
-  test("a supersede with a vacate target records the notice on the relate result", async () => {
-    let sitting = "/worktree"
-    await bindHost((body) => {
-      sitting = body.destination.directory
-      return { status: 204, body: null }
-    }, () => ({ status: 200, body: { directory: sitting } }), invokeRunner({ invoke: (operation) => {
-      if (operation === "supersede") return { exitCode: 0, stdout: JSON.stringify(coreEnvelope("concord_work_relate", "supersede", { result: { changed_refs: [], next_valid_intents: [], vacate_target: { work_id: "work-1", project_id: "project-1", source_directory: "/worktree", destination_directory: "/main" } } })) + "\n", stderr: "" }
-      if (operation === "session_vacate") return { exitCode: 0, stdout: JSON.stringify(coreEnvelope("concord_work_transition", "session_vacate", { result: { changed_refs: [], next_valid_intents: [], work_id: "work-1", project_id: "project-1", source_directory: "/worktree", destination_directory: "/main" } })) + "\n", stderr: "" }
-      return undefined
-    } }))
-    const result = await work_relate.execute(supersedeToolArgs() as never, vacateContext() as never)
-    const output = typeof result === "string" ? result : result.output
-    const envelope = JSON.parse(output.split("\n")[0])
-    expect(envelope.outcome, output).toBe("ok")
-    expectMoveNotice(output.split("\n")[1] ?? null, "/main")
   })
 })
 

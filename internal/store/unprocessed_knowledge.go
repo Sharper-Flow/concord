@@ -1,7 +1,6 @@
 package store
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -105,28 +104,4 @@ func hasKnowledgePrefix(candidate string, prefixes []string) bool {
 
 func normalizeKnowledgePath(value string) string {
 	return strings.TrimLeft(strings.ReplaceAll(value, "\\", "/"), "/")
-}
-
-// ReadUnprocessedKnowledgeDocs reads the current committed manifest at the
-// resolved knowledge home, then enumerates the checkout rooted at that home.
-func (s *Store) ReadUnprocessedKnowledgeDocs(ctx context.Context, home KnowledgeHome) ([]string, error) {
-	if s == nil || s.db == nil {
-		return nil, newFailure(KindUnavailable, "PM1.Q15", "store is not open", false, "open a store before reading unprocessed knowledge")
-	}
-	commit, err := resolveKnowledgeHead(ctx, home)
-	if err != nil {
-		return nil, err
-	}
-	role, err := resolveKnowledgeManifestRole(ctx, s.db, home)
-	if err != nil {
-		return nil, err
-	}
-	manifest, missing, err := readKnowledgeManifest(ctx, home.RepoPath, commit, role)
-	if err != nil {
-		return nil, err
-	}
-	if missing {
-		return nil, newFailure(KindKnowledgeMissing, "PM1.Q15", "knowledge manifest is missing", false, "restore the manifest at the repository head")
-	}
-	return UnprocessedKnowledgeDocs(manifest, home.RepoPath)
 }

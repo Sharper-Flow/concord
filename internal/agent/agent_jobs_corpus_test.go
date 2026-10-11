@@ -74,9 +74,8 @@ type jobScenario struct {
 // Consumption is tracked instead of the key set being closed in the schema
 // because a closed key set proves only that a name is spelled correctly, and
 // the keys that went unread were spelled fine. The precondition each scenario
-// needs is bespoke — AJ5 replays fold events rather than assigning a value — so
-// the binding is the only party that can honor an override, and the binding is
-// therefore what must prove it did.
+// needs is specific to its binding, so the binding must prove it honored each
+// declared override.
 type overrideTracker struct {
 	declared map[string]any
 	consumed map[string]bool
@@ -1031,7 +1030,7 @@ func TestAgentJobsCorpus(t *testing.T) {
 
 	// The corpus count is pinned so scenario removal cannot masquerade as a
 	// complete binding run.
-	if len(corpus.Scenarios) != 23 {
+	if len(corpus.Scenarios) != 20 {
 		t.Fatalf("corpus declares %d scenarios, want 23", len(corpus.Scenarios))
 	}
 
@@ -1379,8 +1378,7 @@ func init() {
 	jobBindings["AJ1-ambiguous-product"] = bindAJ1AmbiguousProduct
 	jobBindings["AJ1-cross-project-deduplication"] = bindAJ1CrossProjectDeduplication
 	jobBindings["AJ2-blocker-explanation"] = bindAJ2BlockerExplanation
-	// AJ3/AJ4/AJ5 mutation bindings land in this tranche (#159). The
-	// handlers live in agent_jobs_mutations_bindings_test.go.
+	// Mutation bindings live in agent_jobs_mutations_bindings_test.go.
 	jobBindings["AJ3-capture-work"] = bindAJ3CaptureWork
 	jobBindings["AJ3-spec-conflict"] = bindAJ3SpecConflict
 	jobBindings["AJ8-ground-truth-reclamation"] = bindAJ8GroundTruthReclamation
@@ -1397,9 +1395,6 @@ func init() {
 	jobBindings["AJ4-complete-valid-work"] = bindAJ4CompleteValidWork
 	jobBindings["AJ4-completion-missing-evidence"] = bindAJ4CompletionMissingEvidence
 	jobBindings["AJ4-stale-version"] = bindAJ4StaleVersion
-	jobBindings["AJ5-add-dependency"] = bindAJ5AddDependency
-	jobBindings["AJ5-reject-cycle"] = bindAJ5RejectCycle
-	jobBindings["AJ5-atomic-supersession"] = bindAJ5AtomicSupersession
 	jobBindings["AJ5-resolve-domain-overlap"] = bindAJ5ResolveDomainOverlap
 	jobBindings["AJ8-approval-required"] = bindAJ8ApprovalRequired
 	jobBindings["AJ8-budget-refused"] = bindAJ8BudgetRefused

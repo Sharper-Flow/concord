@@ -105,16 +105,22 @@ new identity from the surviving planning record.
 
 For work item `W`:
 
+- `actionable(W)` iff its work kind is not retired from execution;
 - `terminal(W)` iff lifecycle is `completed`, `cancelled`, or `superseded`;
-- `active(W)` iff lifecycle is `in_progress`;
-- `blocked(W)` iff at least one nonterminal work item has a stored `blocks` edge to
-  `W`;
-- `ready(W)` iff lifecycle is `needed` and `blocked(W)` is false.
+- `active(W)` iff `actionable(W)` and lifecycle is `in_progress`;
+- `blocked(W)` iff `actionable(W)` and at least one actionable nonterminal work
+  item has a stored `blocks` edge to `W`;
+- `ready(W)` iff `actionable(W)`, lifecycle is `needed`, and `blocked(W)` is false.
+
+CD-0213 retires the `initiative` kind from execution. Its historical lifecycle
+and record remain readable, but actionable views do not select it.
 
 A terminal blocker resolves its outgoing blocking effect regardless of which
 terminal state it reached. History still explains whether it completed, was
-cancelled, or was superseded. Parent relations do not silently block children or
-auto-transition parents. Any progress roll-up is a derived read model.
+cancelled, or was superseded. Under CD-0213 D8, a blocker of a kind retired from
+execution has no blocking effect. Its stored edge stays readable as history.
+Parent relations do not silently block children or auto-transition parents.
+Any progress roll-up is a derived read model.
 
 PM1 ranking remains: explicit priority, creation time, stable ID. Lifecycle stage
 is displayed but does not silently rewrite business priority.

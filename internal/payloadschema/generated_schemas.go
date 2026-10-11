@@ -2635,6 +2635,14 @@ const GeneratedPayloadSchemaDocument = `{
         "operation_id": {
           "$ref": "#/$defs/id"
         },
+        "retry_attempt_id": {
+          "$ref": "#/$defs/id",
+          "description": "CD-0198 D5: present only on a combined rejection whose retry dispatch the core committed. The fresh fenced attempt the core minted (<operation-id>:retry); its in-flight window, packet digest, and claimed worktree are all the core's own record. Reconcile by this identity; never re-authorize it."
+        },
+        "retry_worker_packet": {
+          "$ref": "#/$defs/worker_packet2",
+          "description": "CD-0198 D5: the exact worker packet the core derived and dispatched inside a combined rejection, serialized on the response so the adapter's host launch arms the window from the core's own admitted bytes. The caller never authors, rebuilds, or replaces this packet. The derived packet is always the versioned packet2 identity."
+        },
         "vacate_target": {
           "$ref": "#/$defs/vacate_target",
           "description": "Present on a completed or cancelled lifecycle transition, and on a supersede, when the calling session's linked worktree is that work item's active worktree. Names the registered main checkout the adapter moves the session to after the transition."
@@ -5301,6 +5309,19 @@ const GeneratedPayloadSchemaDocument = `{
       "x-maxBytes": 128,
       "x-minBytes": 2
     },
+    "reject_retry": {
+      "additionalProperties": false,
+      "description": "CD-0198 D5: the retry dispatch intent a rejected result can carry on a definition that derives the worker failure record. It names only the lane; the store mints the fresh fenced attempt and derives the lane packet from the recorded state the rejection commits, through the dispatch admission every dispatch answers to. The host launch stays the post-commit dispatch boundary; a refusal, including the escalation wall, leaves the rejection unwritten and the rejection-only escape available.",
+      "properties": {
+        "lane_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "lane_id"
+      ],
+      "type": "object"
+    },
     "relation_link_kind": {
       "description": "Stored relation kinds an ordinary relate.link request may name. Derived from contracts/relation-vocabulary.v1.json: every kind whose link is allowed or refused. A refused kind is admitted here so the runtime can answer with the composite operation that owns it, rather than a bare enum mismatch.",
       "enum": [
@@ -7180,6 +7201,40 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "object"
     },
+    "work_context_domain_group2": {
+      "additionalProperties": false,
+      "properties": {
+        "domain_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "finding_ids": {
+          "items": {
+            "pattern": "^finding:[0-9]+:[0-9]+$",
+            "type": "string"
+          },
+          "maxItems": 32,
+          "minItems": 0,
+          "type": "array"
+        },
+        "required_reading_ordinals": {
+          "items": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "maxItems": 32,
+          "minItems": 0,
+          "type": "array"
+        }
+      },
+      "required": [
+        "domain_id",
+        "required_reading_ordinals",
+        "finding_ids"
+      ],
+      "type": "object"
+    },
     "work_context_finding": {
       "additionalProperties": false,
       "properties": {
@@ -7451,6 +7506,72 @@ const GeneratedPayloadSchemaDocument = `{
         "domain_groups": {
           "items": {
             "$ref": "#/$defs/work_context_domain_group"
+          },
+          "maxItems": 64,
+          "minItems": 0,
+          "type": "array"
+        },
+        "findings": {
+          "items": {
+            "$ref": "#/$defs/work_context_finding_view"
+          },
+          "maxItems": 32,
+          "minItems": 0,
+          "type": "array"
+        },
+        "oracle_preparations": {
+          "description": "Only native preparation records selected by the immutable job's readiness refs. No raw output or alternative readiness authority.",
+          "items": {
+            "$ref": "#/$defs/native_oracle_preparation"
+          },
+          "maxItems": 512,
+          "minItems": 0,
+          "type": "array"
+        },
+        "oracle_receipts": {
+          "description": "The prior typed control-execution receipts this work retained (CON-890), in log order: reported regression baselines with their exact identities, never current-subject acceptance.",
+          "items": {
+            "$ref": "#/$defs/worker_oracle_receipt"
+          },
+          "maxItems": 64,
+          "minItems": 0,
+          "type": "array"
+        },
+        "required_reading": {
+          "items": {
+            "$ref": "#/$defs/work_context_reading"
+          },
+          "maxItems": 32,
+          "minItems": 0,
+          "type": "array"
+        },
+        "source_event_frontier": {
+          "description": "The work item's maximum event sequence at read time, so a packet built from this view can be compared against current state before spawn.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "subject_commit": {
+          "description": "The sole core-derived current subject, as a raw commit OID. Native receipt subject_ref remains commit:OID and the store normalizes that reference once.",
+          "maxLength": 64,
+          "minLength": 40,
+          "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_event_frontier",
+        "required_reading",
+        "findings",
+        "domain_groups"
+      ],
+      "type": "object"
+    },
+    "work_context_view2": {
+      "additionalProperties": false,
+      "properties": {
+        "domain_groups": {
+          "items": {
+            "$ref": "#/$defs/work_context_domain_group2"
           },
           "maxItems": 64,
           "minItems": 0,
@@ -10152,6 +10273,9 @@ const GeneratedPayloadSchemaDocument = `{
           "$ref": "#/$defs/work_transition_action_variant_record_design"
         },
         {
+          "$ref": "#/$defs/work_transition_action_variant_record_diagnosis"
+        },
+        {
           "$ref": "#/$defs/work_transition_action_variant_record_discovery"
         },
         {
@@ -10852,6 +10976,9 @@ const GeneratedPayloadSchemaDocument = `{
         },
         {
           "$ref": "#/$defs/work_transition_action_variant_record_design"
+        },
+        {
+          "$ref": "#/$defs/work_transition_action_variant_record_diagnosis"
         },
         {
           "$ref": "#/$defs/work_transition_action_variant_record_discovery"
@@ -14570,27 +14697,77 @@ const GeneratedPayloadSchemaDocument = `{
           "$ref": "#/$defs/version"
         },
         "fields": {
-          "additionalProperties": false,
-          "maxProperties": 32,
-          "properties": {
-            "attempt_id": {
-              "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths.",
-              "maxLength": 128,
-              "minLength": 1,
-              "pattern": "^[^\\x09-\\x0d    -     　]+$",
-              "type": "string",
-              "x-maxBytes": 128,
-              "x-minBytes": 2
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "maxProperties": 32,
+              "properties": {
+                "attempt_id": {
+                  "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths.",
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[^\\x09-\\x0d    -     　]+$",
+                  "type": "string",
+                  "x-maxBytes": 128,
+                  "x-minBytes": 2
+                },
+                "worker_packet": {
+                  "$ref": "#/$defs/worker_packet2"
+                }
+              },
+              "required": [
+                "attempt_id",
+                "worker_packet"
+              ],
+              "type": "object"
             },
-            "worker_packet": {
-              "$ref": "#/$defs/worker_packet"
+            {
+              "additionalProperties": false,
+              "maxProperties": 32,
+              "not": {
+                "additionalProperties": false,
+                "maxProperties": 32,
+                "properties": {
+                  "attempt_id": {
+                    "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths.",
+                    "maxLength": 128,
+                    "minLength": 1,
+                    "pattern": "^[^\\x09-\\x0d    -     　]+$",
+                    "type": "string",
+                    "x-maxBytes": 128,
+                    "x-minBytes": 2
+                  },
+                  "worker_packet": {
+                    "$ref": "#/$defs/worker_packet2"
+                  }
+                },
+                "required": [
+                  "attempt_id",
+                  "worker_packet"
+                ],
+                "type": "object"
+              },
+              "properties": {
+                "attempt_id": {
+                  "description": "A workflow reference list item with no Unicode White_Space characters and 2-128 UTF-8 bytes. Slashes are allowed because touched refs name repository paths.",
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[^\\x09-\\x0d    -     　]+$",
+                  "type": "string",
+                  "x-maxBytes": 128,
+                  "x-minBytes": 2
+                },
+                "worker_packet": {
+                  "$ref": "#/$defs/worker_packet"
+                }
+              },
+              "required": [
+                "attempt_id",
+                "worker_packet"
+              ],
+              "type": "object"
             }
-          },
-          "required": [
-            "attempt_id",
-            "worker_packet"
-          ],
-          "type": "object"
+          ]
         },
         "idempotency_key": {
           "$ref": "#/$defs/id"
@@ -15673,6 +15850,264 @@ const GeneratedPayloadSchemaDocument = `{
             "touched_refs"
           ],
           "type": "object"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/id"
+        },
+        "requested_budget_seconds": {
+          "$ref": "#/$defs/requested_budget_seconds"
+        },
+        "research_bindings": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "pack_id": {
+                "$ref": "#/$defs/id"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "revision": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "use_role": {
+                "enum": [
+                  "context",
+                  "design_input",
+                  "verification_basis",
+                  "decision_basis"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "pack_id",
+              "revision",
+              "use_role",
+              "required"
+            ],
+            "type": "object"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "type": "array"
+        },
+        "selected_choice": {
+          "enum": [
+            "confirm",
+            "revise",
+            "stop"
+          ],
+          "type": "string"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "work_id",
+        "expected_version",
+        "action_id",
+        "idempotency_key",
+        "fields"
+      ],
+      "type": "object"
+    },
+    "work_transition_action_variant_record_diagnosis": {
+      "additionalProperties": false,
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "selected_choice"
+            ]
+          },
+          {
+            "required": [
+              "decision_context_digest"
+            ]
+          }
+        ]
+      },
+      "properties": {
+        "action_id": {
+          "const": "record_diagnosis",
+          "type": "string"
+        },
+        "approval": {
+          "$ref": "#/$defs/approval"
+        },
+        "decision_context_digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/evidence"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "expected_version": {
+          "$ref": "#/$defs/version"
+        },
+        "fields": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "maxProperties": 32,
+              "properties": {
+                "outcome": {
+                  "const": "related_found",
+                  "type": "string"
+                },
+                "related_ids": {
+                  "description": "record_alignment couples outcome and related_ids: outcome related_found requires a non-empty related_ids list, and outcome none_found must omit related_ids entirely; the store refuses any other combination.",
+                  "items": {
+                    "$ref": "#/$defs/id"
+                  },
+                  "maxItems": 64,
+                  "minItems": 1,
+                  "type": "array",
+                  "uniqueItems": true
+                },
+                "reproduction": {
+                  "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
+                  "maxLength": 4096,
+                  "minLength": 1,
+                  "pattern": "\\S",
+                  "type": "string",
+                  "x-maxBytes": 4096,
+                  "x-minBytes": 2
+                },
+                "root_cause": {
+                  "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
+                  "maxLength": 4096,
+                  "minLength": 1,
+                  "pattern": "\\S",
+                  "type": "string",
+                  "x-maxBytes": 4096,
+                  "x-minBytes": 2
+                },
+                "searched": {
+                  "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
+                  "maxLength": 4096,
+                  "minLength": 1,
+                  "pattern": "\\S",
+                  "type": "string",
+                  "x-maxBytes": 4096,
+                  "x-minBytes": 2
+                }
+              },
+              "required": [
+                "reproduction",
+                "searched",
+                "outcome",
+                "related_ids",
+                "root_cause"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "maxProperties": 32,
+              "not": {
+                "additionalProperties": false,
+                "maxProperties": 32,
+                "properties": {
+                  "outcome": {
+                    "const": "related_found",
+                    "type": "string"
+                  },
+                  "related_ids": {
+                    "description": "record_alignment couples outcome and related_ids: outcome related_found requires a non-empty related_ids list, and outcome none_found must omit related_ids entirely; the store refuses any other combination.",
+                    "items": {
+                      "$ref": "#/$defs/id"
+                    },
+                    "maxItems": 64,
+                    "minItems": 1,
+                    "type": "array",
+                    "uniqueItems": true
+                  },
+                  "reproduction": {
+                    "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
+                    "maxLength": 4096,
+                    "minLength": 1,
+                    "pattern": "\\S",
+                    "type": "string",
+                    "x-maxBytes": 4096,
+                    "x-minBytes": 2
+                  },
+                  "root_cause": {
+                    "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
+                    "maxLength": 4096,
+                    "minLength": 1,
+                    "pattern": "\\S",
+                    "type": "string",
+                    "x-maxBytes": 4096,
+                    "x-minBytes": 2
+                  },
+                  "searched": {
+                    "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
+                    "maxLength": 4096,
+                    "minLength": 1,
+                    "pattern": "\\S",
+                    "type": "string",
+                    "x-maxBytes": 4096,
+                    "x-minBytes": 2
+                  }
+                },
+                "required": [
+                  "reproduction",
+                  "searched",
+                  "outcome",
+                  "related_ids",
+                  "root_cause"
+                ],
+                "type": "object"
+              },
+              "properties": {
+                "outcome": {
+                  "const": "none_found",
+                  "type": "string"
+                },
+                "reproduction": {
+                  "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
+                  "maxLength": 4096,
+                  "minLength": 1,
+                  "pattern": "\\S",
+                  "type": "string",
+                  "x-maxBytes": 4096,
+                  "x-minBytes": 2
+                },
+                "root_cause": {
+                  "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
+                  "maxLength": 4096,
+                  "minLength": 1,
+                  "pattern": "\\S",
+                  "type": "string",
+                  "x-maxBytes": 4096,
+                  "x-minBytes": 2
+                },
+                "searched": {
+                  "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
+                  "maxLength": 4096,
+                  "minLength": 1,
+                  "pattern": "\\S",
+                  "type": "string",
+                  "x-maxBytes": 4096,
+                  "x-minBytes": 2
+                }
+              },
+              "required": [
+                "reproduction",
+                "searched",
+                "outcome",
+                "root_cause"
+              ],
+              "type": "object"
+            }
+          ]
         },
         "idempotency_key": {
           "$ref": "#/$defs/id"
@@ -17711,6 +18146,9 @@ const GeneratedPayloadSchemaDocument = `{
               "minItems": 1,
               "type": "array",
               "uniqueItems": true
+            },
+            "retry": {
+              "$ref": "#/$defs/reject_retry"
             },
             "strategy": {
               "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
@@ -24514,6 +24952,121 @@ const GeneratedPayloadSchemaDocument = `{
             },
             "work_context": {
               "$ref": "#/$defs/work_context_view",
+              "description": "CON-887: the current work-context view the work pin carried when the packet was built. The core refuses a dispatch whose packet does not consume the current view byte-for-byte."
+            },
+            "work_record": {
+              "$ref": "#/$defs/worker_packet_work_record"
+            },
+            "worker_job": {
+              "$ref": "#/$defs/worker_packet_worker_job"
+            }
+          },
+          "required": [
+            "task",
+            "binding"
+          ],
+          "type": "object"
+        },
+        "lane_digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "lane_id": {
+          "$ref": "#/$defs/id"
+        },
+        "lane_version": {
+          "maximum": 2147483647,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "schema_version": {
+          "description": "The live dispatch_worker surface records only the current card-free packet revision (CON-899). Released 1.0/1.1 histories replay through the versioned lane packet contract, never through this gate; an old host quoting a retired identity is refused typed before the authorization exists.",
+          "enum": [
+            "2.0"
+          ],
+          "type": "string"
+        },
+        "step_id": {
+          "$ref": "#/$defs/id"
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "schema_version",
+        "attempt_id",
+        "lane_id",
+        "lane_version",
+        "lane_digest",
+        "work_id",
+        "step_id",
+        "inputs"
+      ],
+      "type": "object"
+    },
+    "worker_packet2": {
+      "additionalProperties": false,
+      "description": "The versioned packet2 identity the derived-failure workflow definitions record and replay. It mirrors $defs/worker_packet shape for shape under a versioned name, so the frozen decoder carries it beside the byte-exact 1.0/1.1 worker_packet baseline the released pins replay through; the live dispatch_worker surface below the derived-failure heads still records through $defs/worker_packet.",
+      "properties": {
+        "attempt_id": {
+          "$ref": "#/$defs/id"
+        },
+        "inputs": {
+          "additionalProperties": false,
+          "properties": {
+            "binding": {
+              "$ref": "#/$defs/worker_packet_binding"
+            },
+            "checkpoint": {
+              "$ref": "#/$defs/continuity_checkpoint",
+              "description": "CON-883: the latest context checkpoint the pinned continuity projection carried when the packet was built. The core refuses a dispatch whose packet does not carry the latest checkpoint byte-for-byte."
+            },
+            "constraints": {
+              "items": {
+                "maxLength": 512,
+                "minLength": 1,
+                "type": "string"
+              },
+              "maxItems": 64,
+              "minItems": 0,
+              "type": "array"
+            },
+            "context": {
+              "description": "Prose context a packet built before the typed record members carried. The lane-packet schema keeps it so a retained packet from an attempt dispatched before that change still validates on recovery. The core dispatch admission refuses it, so no new packet carries it.",
+              "maxLength": 16384,
+              "minLength": 0,
+              "type": "string"
+            },
+            "correction": {
+              "$ref": "#/$defs/workflow_correction_context"
+            },
+            "design_record": {
+              "$ref": "#/$defs/workflow_design_record",
+              "description": "The current typed design record (CD-0128). The core refuses a dispatch whose packet member differs from the current recorded state, omits a present record, or carries a member no record backs."
+            },
+            "law_context": {
+              "$ref": "#/$defs/workflow_law_context",
+              "description": "The approved contract's binding law and Domains the pinned continuity resolved. The core refuses a dispatch whose packet member differs from the current recorded state, omits a present record, or carries a member no record backs."
+            },
+            "outcome_predicates": {
+              "$ref": "#/$defs/worker_packet_outcome_predicates"
+            },
+            "proposal_record": {
+              "$ref": "#/$defs/workflow_proposal_record",
+              "description": "The recorded proposal's problem, user outcomes, and constraints. The core refuses a dispatch whose packet member differs from the current recorded state, omits a present record, or carries a member no record backs."
+            },
+            "report_protocol": {
+              "const": "concord-worker-result-v1",
+              "description": "Dispatch-owned final-report framing, covered by the authorized packet digest. New builders pin this protocol; absence identifies historical legacy output. This is not report schema or worker identity.",
+              "type": "string"
+            },
+            "task": {
+              "maxLength": 4096,
+              "minLength": 1,
+              "type": "string"
+            },
+            "work_context": {
+              "$ref": "#/$defs/work_context_view2",
               "description": "CON-887: the current work-context view the work pin carried when the packet was built. The core refuses a dispatch whose packet does not consume the current view byte-for-byte."
             },
             "work_record": {

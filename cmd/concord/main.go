@@ -1002,7 +1002,7 @@ func applyWorkerEvidence(ctx context.Context, command string, s *store.Store, se
 			eventIDs = result.EventIDs
 			return nil
 		}
-		result, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{event}})
+		result, err := store.ApplyWorkerEvidenceOperationTx(ctx, tx, event)
 		if err != nil {
 			return err
 		}

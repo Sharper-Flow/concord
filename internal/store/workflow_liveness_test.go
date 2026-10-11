@@ -243,7 +243,7 @@ func livenessValue(field WorkflowPayloadField, chosen string) any {
 		// instead points schema_ref at a non-array schema and means the same
 		// thing, so the element reading is recovered from the schema's own type.
 		element := field.ItemRef
-		if element == "" && field.ValueType == PayloadArray && field.SchemaRef != "" && !payloadschema.DescribesArray(field.SchemaRef) {
+		if element == "" && field.ValueType == PayloadArray && field.SchemaRef != "" && !payloadschema.DescribesArrayIn(payloadschema.Document(), field.SchemaRef) {
 			element = field.SchemaRef
 		}
 		if element != "" {

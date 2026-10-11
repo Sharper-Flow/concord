@@ -1306,14 +1306,22 @@ func validateKnowledgeRecordIdentity(record KnowledgeRecord, supported, indexed 
 }
 
 // validateKnowledgeRecordAuthority validates the record's authority tier and
-// the fields each tier admits.
+// the fields each tier admits. A legislated authority must name a work item
+// with the shared work- id grammar and a positive contract version, and a
+// declared vehicle reference must name a frozen default-cohort member at
+// exactly the committed asset's vehicle version; the version stays a decoded
+// non-boolean integer, and a schema 1.2 record that declares no authority
+// keeps its applied derived default above.
 func validateKnowledgeRecordAuthority(record KnowledgeRecord) error {
 	if record.Authority.Tier != "legislated" && record.Authority.Tier != "derived" {
 		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "record authority tier is not closed", false, "use legislated or derived")
 	}
 	if record.Authority.Tier == "legislated" {
-		if !validManifestID(record.Authority.LegislatedBy) || record.Authority.ContractVersion < 1 {
-			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "legislated record authority is incomplete", false, "name the approving work and positive contract version")
+		if len(record.Authority.LegislatedBy) > maxManifestID || !criterionWorkIDPattern.MatchString(record.Authority.LegislatedBy) || record.Authority.ContractVersion < 1 {
+			return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "legislated record authority is incomplete", false, "name the approving work with the work- id form and a positive contract version")
+		}
+		if err := validateKnowledgeAuthorityDefault(record); err != nil {
+			return err
 		}
 	} else if record.Authority.LegislatedBy != "" || record.Authority.ContractVersion != 0 {
 		return newFailure(KindInvalidNoteProof, "parse_knowledge_manifest", "derived record authority carries legislative fields", false, "remove legislated_by and contract_version")

@@ -569,24 +569,39 @@ func (r runtime) readKnowledgeSearch(ctx context.Context, base Envelope, input [
 	// reach is left for the query itself to refuse or degrade by rule.
 	// CD-0200: the demand covers the Product's full registered source set,
 	// so a member Project's source rebuilds on demand too.
-	if err := r.Store.EnsureKnowledgeIndexFresh(ctx, home); err != nil && !in.AllowDegraded {
-		return failureEnvelope(base, err), nil
+	// CD-0159 D6: under allow_degraded a suppressed demand is not silence —
+	// the exact per-source outcome rides the typed Q9 request, and Q9
+	// degrades that source through its owning per-source path. Without
+	// allow_degraded the same error refuses, as before.
+	var demandFailures []store.KnowledgeDemandFailure
+	if err := r.Store.EnsureKnowledgeIndexFresh(ctx, home); err != nil {
+		if !in.AllowDegraded {
+			return failureEnvelope(base, err), nil
+		}
+		demandFailures = append(demandFailures, store.KnowledgeDemandFailure{ProjectID: home.HomeProjectID, LocatorID: home.HomeLocatorID, FailureKind: demandFailureKind(err)})
 	}
+	registrationsUnread := false
 	if in.ProductID != "" {
 		sources, srcErr := r.Store.ProductKnowledgeSourceRegistrations(ctx, in.ProductID)
 		if srcErr != nil && !in.AllowDegraded {
 			return failureEnvelope(base, srcErr), nil
 		}
+		if srcErr != nil {
+			registrationsUnread = true
+		}
 		for _, source := range sources {
 			if source.HomeProjectID == home.HomeProjectID && source.HomeLocatorID == home.HomeLocatorID {
 				continue
 			}
-			if err := r.Store.EnsureKnowledgeIndexFresh(ctx, source); err != nil && !in.AllowDegraded {
-				return failureEnvelope(base, err), nil
+			if err := r.Store.EnsureKnowledgeIndexFresh(ctx, source); err != nil {
+				if !in.AllowDegraded {
+					return failureEnvelope(base, err), nil
+				}
+				demandFailures = append(demandFailures, store.KnowledgeDemandFailure{ProjectID: source.HomeProjectID, LocatorID: source.HomeLocatorID, FailureKind: demandFailureKind(err)})
 			}
 		}
 	}
-	q, err := r.Store.QueryQ9(ctx, store.Q9Request{Product: in.ProductID, Project: in.ProjectID, Domain: in.DomainID, Kinds: knowledgeKinds(in.Kinds), Tags: in.Tags, Text: in.Text, Limit: effectiveLimit(in.Limit, in.Page), Cursor: inner, Home: home, AllowDegraded: in.AllowDegraded})
+	q, err := r.Store.QueryQ9(ctx, store.Q9Request{Product: in.ProductID, Project: in.ProjectID, Domain: in.DomainID, Kinds: knowledgeKinds(in.Kinds), Tags: in.Tags, Text: in.Text, Limit: effectiveLimit(in.Limit, in.Page), Cursor: inner, Home: home, AllowDegraded: in.AllowDegraded, DemandFailures: demandFailures, RegistrationsUnread: registrationsUnread})
 	if err != nil {
 		return failureEnvelope(base, err), nil
 	}
@@ -595,6 +610,16 @@ func (r runtime) readKnowledgeSearch(ctx context.Context, base Envelope, input [
 		return response, err
 	}
 	return r.wrapCursor(ctx, response, string(binding), "summary")
+}
+
+// demandFailureKind names the existing failure kind a suppressed demand
+// refused with, so the degraded omission carries the cause verbatim.
+func demandFailureKind(err error) string {
+	var failure *store.Failure
+	if errors.As(err, &failure) {
+		return string(failure.Kind)
+	}
+	return "unknown"
 }
 
 func (r runtime) readKnowledgeResolveNote(ctx context.Context, base Envelope, input []byte) (Envelope, error) {

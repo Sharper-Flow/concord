@@ -7,12 +7,24 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 )
+
+// KnowledgeDemandFailure is one suppressed freshness-demand outcome the
+// search handler defers to Q9's owning per-source degraded path (CD-0159 D6,
+// CD-0020 D3 as amended by CD-0200 D3). It is handler-to-query state, not
+// client input: the identities are exact source Project/locator pairs and the
+// cause is the existing failure kind the demand refused with.
+type KnowledgeDemandFailure struct {
+	ProjectID   string
+	LocatorID   string
+	FailureKind string
+}
 
 type Q9Request struct {
 	Product       string
@@ -25,6 +37,14 @@ type Q9Request struct {
 	Cursor        string
 	AllowDegraded bool
 	Home          KnowledgeHome
+	// DemandFailures carries the per-source freshness-demand failures the
+	// handler suppressed under AllowDegraded. Each named source degrades
+	// through the same per-source path a stale watermark uses.
+	DemandFailures []KnowledgeDemandFailure
+	// RegistrationsUnread says the source-registration read was suppressed.
+	// It marks every Q9-resolved source except the designated home
+	// unadmitted; a recovered home-only set stays authoritative.
+	RegistrationsUnread bool
 }
 
 type KnowledgeItem struct {
@@ -509,7 +529,41 @@ func verifyQ10ManifestRecord(ctx context.Context, db *sql.DB, req Q10Request, lo
 		_, verifyErr := q10HistoricalFailure(out, req.AllowDegraded, "recorded manifest declaration or blob could not be verified", err)
 		return true, verifyErr
 	}
+	// CD-0159 D2: the authoritative manifest entry carries the record's
+	// declared authority, so the exact historical contract resolves after the
+	// Git proof, inside one short read transaction. A held negative refuses
+	// directly regardless of the degraded allowance; an unknown declared work
+	// is unverified, keeps its declared tier, and warns through the existing
+	// envelope.
+	if manifestRecord, found := manifestRecordByID(manifest, lookupID); found && manifestRecord.Authority.Tier == "legislated" {
+		tx, txErr := beginReadTx(ctx, db)
+		if txErr != nil {
+			return true, wrapFailure(KindUnavailable, "PM1.Q10", "cannot begin the canonical authority admission", true, "retry once the database is readable", txErr)
+		}
+		unverified, resolveErr := resolveKnowledgeLegislatedAuthorityTx(ctx, tx, manifestRecord)
+		if rbErr := tx.Rollback(); rbErr != nil && resolveErr == nil {
+			resolveErr = wrapFailure(KindUnavailable, "PM1.Q10", "cannot close the canonical authority admission", true, "retry once the database is readable", rbErr)
+		}
+		if resolveErr != nil {
+			return true, resolveErr
+		}
+		if unverified {
+			out.ResultMeta.Warnings = append(out.ResultMeta.Warnings,
+				fmt.Sprintf("legislated_authority_unverified:%s:%s:%d", manifestRecord.ID, manifestRecord.Authority.LegislatedBy, manifestRecord.Authority.ContractVersion))
+		}
+	}
 	return false, nil
+}
+
+// manifestRecordByID locates the authoritative manifest entry a projection
+// row was verified against.
+func manifestRecordByID(manifest KnowledgeManifest, id string) (KnowledgeRecord, bool) {
+	for _, record := range manifest.Records {
+		if record.ID == id {
+			return record, true
+		}
+	}
+	return KnowledgeRecord{}, false
 }
 
 // classifyQ10MissingNote classifies an absent archived note: a live work
@@ -756,6 +810,7 @@ func queryQ9Federated(ctx context.Context, db *sql.DB, req Q9Request, sources []
 	watermarks := make([]KnowledgeSourceWatermark, 0, len(sources))
 	omissions := make([]string, 0)
 	degraded := false
+	demandFailed := false
 	for _, source := range sources {
 		label := source.HomeProjectID + "/" + source.HomeLocatorID
 		scanned, authority, err := validateKnowledgeHomeForQueryCore(ctx, db, source, req.AllowDegraded, "PM1.Q9")
@@ -776,6 +831,15 @@ func queryQ9Federated(ctx context.Context, db *sql.DB, req Q9Request, sources []
 			} else {
 				omissions = append(omissions, "knowledge_source_degraded:"+label)
 			}
+		}
+		// A suppressed demand failure degrades the source through this same
+		// per-source path, naming the source and the cause; it never relabels
+		// a freshness verdict the source's own watermark already carries.
+		if cause := knowledgeDemandFailureCause(req, source); cause != "" {
+			demandFailed = true
+			degraded = true
+			authority = "degraded"
+			omissions = append(omissions, "knowledge_source_demand_failed:"+label+":"+cause)
 		}
 		watermarks = append(watermarks, KnowledgeSourceWatermark{ProjectID: source.HomeProjectID, LocatorID: source.HomeLocatorID, Watermark: verdict, Authority: authority})
 		if authority != "authoritative" && len(sources) > 1 {
@@ -852,8 +916,33 @@ func queryQ9Federated(ctx context.Context, db *sql.DB, req Q9Request, sources []
 	out.IndexWatermark = watermarks[0].Watermark
 	if len(sources) > 1 {
 		out.SourceWatermarks = watermarks
+	} else if demandFailed {
+		// A single-source answer whose one source was demand-degraded emits
+		// its affected watermark so the degraded admission is explicit; an
+		// unaffected single-source answer keeps the shape it always had.
+		out.SourceWatermarks = watermarks
 	}
 	return out, nil
+}
+
+// knowledgeDemandFailureCause returns the cause recorded for this source's
+// suppressed demand, or "" when its demand succeeded. An unread registration
+// set marks every resolved source except the designated home unadmitted: a
+// recovered home-only resolution leaves no source to degrade, and the
+// answer's aggregate authority follows the per-source rule alone.
+func knowledgeDemandFailureCause(req Q9Request, source KnowledgeHome) string {
+	for _, failure := range req.DemandFailures {
+		if failure.ProjectID == source.HomeProjectID && failure.LocatorID == source.HomeLocatorID {
+			if failure.FailureKind == "" {
+				return "unknown"
+			}
+			return failure.FailureKind
+		}
+	}
+	if req.RegistrationsUnread && !(source.HomeProjectID == req.Home.HomeProjectID && source.HomeLocatorID == req.Home.HomeLocatorID) {
+		return "registrations_unread"
+	}
+	return ""
 }
 
 // federatedSourceFailure names the source a federated refusal belongs to, so

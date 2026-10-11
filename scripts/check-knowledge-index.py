@@ -14,6 +14,7 @@ from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import knowledge_authority_defaults  # noqa: E402
 import knowledge_index  # noqa: E402
 import shard_format  # noqa: E402
 
@@ -445,6 +446,15 @@ def validate(data: object, *, check_hashes: bool = True) -> list[str]:
     findings: list[str] = []
     if not isinstance(data, dict):
         return ["manifest: top-level value must be an object"]
+    # CON-875: the committed cohort asset is the only list of the frozen
+    # legislated-by-default members. A missing or malformed asset fails the
+    # check rather than silently dropping the vehicle-membership rule; the
+    # reference grammar still applies either way.
+    try:
+        defaults = knowledge_authority_defaults.load()
+    except knowledge_authority_defaults.AuthorityDefaultsError as exc:
+        fail(findings, f"knowledge authority defaults: {exc}")
+        defaults = None
     unknown = set(data) - ALLOWED_ROOT
     if unknown:
         fail(findings, f"manifest: unknown fields: {sorted(unknown)}")
@@ -586,9 +596,13 @@ def validate(data: object, *, check_hashes: bool = True) -> list[str]:
             fail(findings, f"{prefix}: successor is only valid for superseded records")
 
         # CD-0159 D3/D5: every record carries its authority tier. The standing
-        # check asserts tier presence, the closed two-value enum, and
-        # legislated completeness — never the D5 kind table, which is a
-        # one-time backfill rule; the operator promotes records afterward.
+        # check asserts tier presence, the closed two-value enum, the
+        # legislated completeness, and the declared reference grammar — never
+        # the D5 kind table, which is a one-time backfill rule; the operator
+        # promotes records afterward. CON-875: a declared reference must name
+        # a work item, and a vehicle claim must name a frozen member of the
+        # committed legislated-by-default cohort at its exact version; any
+        # other work-shaped reference waits for the runtime resolver.
         authority = record.get("authority")
         if authority is None and schema_version == SCHEMA_VERSION_LEGACY:
             pass
@@ -599,6 +613,14 @@ def validate(data: object, *, check_hashes: bool = True) -> list[str]:
             complete = valid_id(authority.get("legislated_by")) and isinstance(authority.get("contract_version"), int) and not isinstance(authority.get("contract_version"), bool) and authority["contract_version"] >= 1
             if legislated and not complete:
                 fail(findings, f"{prefix}: a legislated record requires clean legislated_by and a positive contract_version")
+            elif legislated:
+                by = authority["legislated_by"]
+                if not knowledge_authority_defaults.WORK_ID_PATTERN.fullmatch(by):
+                    fail(findings, f"{prefix}: legislated_by must be a work- prefixed id of 8-64 hex characters")
+                elif defaults is not None and by == defaults.vehicle_work_id:
+                    membership = defaults.vehicle_membership_error(identifier, kind, authority["contract_version"])
+                    if membership:
+                        fail(findings, f"{prefix}: {membership}")
             if not legislated and ("legislated_by" in authority or "contract_version" in authority):
                 fail(findings, f"{prefix}: a derived record carries no legislative fields")
 

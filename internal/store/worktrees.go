@@ -894,6 +894,9 @@ func compensateClaimWorktree(ctx context.Context, runner GitRunner, created Work
 		var failure *Failure
 		if errors.As(cause, &failure) {
 			failure.EffectPossible = true
+			if reason != nil {
+				failure.Detail += "; claim compensation incomplete: " + reason.Error()
+			}
 			return cause
 		}
 		detail := "claim failed after native creation and compensation could not finish; the created worktree or branch may outlive the rolled-back claim"
@@ -919,7 +922,10 @@ func compensateClaimWorktree(ctx context.Context, runner GitRunner, created Work
 		outcome, brErr := deleteBranchPinned(ctx, runner,
 			&WorktreeNativeRemoval{RepoRoot: created.RepoRoot, Op: "worktree_claim"},
 			WorktreeBranchDeletion{Branch: created.Branch, ExpectedTip: created.Base})
-		if brErr != nil || outcome.Phase != WorktreeRefPhaseSettled {
+		if brErr == nil && outcome.Phase != WorktreeRefPhaseSettled {
+			brErr = errors.New(outcome.Reason)
+		}
+		if brErr != nil {
 			return incomplete(brErr)
 		}
 	}
@@ -2125,7 +2131,7 @@ func planStoredRefDeletion(ctx context.Context, runner GitRunner, req WorktreeRe
 	// checked-out claim branch itself: the default ref is never deleted,
 	// whatever the claim row or the live checkout says (CD-0212 D3).
 	if protected[entry.Branch] {
-		resolved := resolveBranchRef(ctx, runner, repoRoot, entry.Branch)
+		resolved := resolveBranchRef(ctx, runner, repoRoot, entry.Branch, op)
 		if resolved.err != nil {
 			return nil, nil, resolved.err
 		}
@@ -2147,7 +2153,7 @@ func planStoredRefDeletion(ctx context.Context, runner GitRunner, req WorktreeRe
 		}
 		return append(deletions, WorktreeBranchDeletion{Branch: entry.Branch, ExpectedTip: live.Tip, Reason: reason}), retained, nil
 	}
-	resolved := resolveBranchRef(ctx, runner, repoRoot, entry.Branch)
+	resolved := resolveBranchRef(ctx, runner, repoRoot, entry.Branch, op)
 	if resolved.err != nil {
 		return nil, nil, resolved.err
 	}
@@ -2270,28 +2276,28 @@ type branchRefResolution struct {
 // status 1 and every other failure with a different status; only exit 1 is
 // absence, so native deletion debt is never marked converged by a probe that
 // could not run (CD-0212 D4).
-func resolveBranchRef(ctx context.Context, runner GitRunner, repoRoot, branch string) branchRefResolution {
+func resolveBranchRef(ctx context.Context, runner GitRunner, repoRoot, branch, op string) branchRefResolution {
 	full := "refs/heads/" + branch
 	_, symErr := runner.Run(ctx, repoRoot, "symbolic-ref", "--quiet", full)
 	if symErr == nil {
 		tipOut, tipErr := runner.Run(ctx, repoRoot, "rev-parse", "--verify", full)
 		if tipErr != nil {
-			return branchRefResolution{symbolic: true, exists: true, err: wrapFailure(KindGitUnreachable, "worktree_reclaim", "cannot resolve the tip of branch "+branch, true, "retry once the repository is reachable", tipErr)}
+			return branchRefResolution{symbolic: true, exists: true, err: wrapFailure(KindGitUnreachable, op, "cannot resolve the tip of branch "+branch, true, "retry once the repository is reachable", tipErr)}
 		}
 		return branchRefResolution{tip: strings.TrimSpace(string(tipOut)), symbolic: true, exists: true}
 	}
 	if !gitProbeFoundRefAbsent(symErr) {
-		return branchRefResolution{err: wrapFailure(KindGitUnreachable, "worktree_reclaim", "cannot inspect branch "+branch, true, "retry once the repository is reachable", symErr)}
+		return branchRefResolution{err: wrapFailure(KindGitUnreachable, op, "cannot inspect branch "+branch, true, "retry once the repository is reachable", symErr)}
 	}
 	if _, err := runner.Run(ctx, repoRoot, "show-ref", "--verify", "--quiet", full); err != nil {
 		if gitProbeFoundRefAbsent(err) {
 			return branchRefResolution{}
 		}
-		return branchRefResolution{err: wrapFailure(KindGitUnreachable, "worktree_reclaim", "cannot inspect branch "+branch, true, "retry once the repository is reachable", err)}
+		return branchRefResolution{err: wrapFailure(KindGitUnreachable, op, "cannot inspect branch "+branch, true, "retry once the repository is reachable", err)}
 	}
 	tipOut, tipErr := runner.Run(ctx, repoRoot, "rev-parse", "--verify", full)
 	if tipErr != nil {
-		return branchRefResolution{exists: true, err: wrapFailure(KindGitUnreachable, "worktree_reclaim", "cannot resolve the tip of branch "+branch, true, "retry once the repository is reachable", tipErr)}
+		return branchRefResolution{exists: true, err: wrapFailure(KindGitUnreachable, op, "cannot resolve the tip of branch "+branch, true, "retry once the repository is reachable", tipErr)}
 	}
 	return branchRefResolution{tip: strings.TrimSpace(string(tipOut)), exists: true}
 }
@@ -2357,7 +2363,7 @@ func RunWorktreeNativeRemoval(ctx context.Context, runner GitRunner, removal *Wo
 			args = append(args, "--force")
 		}
 		if _, err := runner.Run(ctx, removal.RepoRoot, append(args, removal.Path)...); err != nil {
-			return outcomes, wrapFailure(KindGitUnreachable, removal.Op, "reclaimed in Concord but native removal failed", true, "remove the worktree manually; the projection already records reclamation", err)
+			return outcomes, wrapFailure(KindGitUnreachable, removal.Op, "native worktree removal failed", true, "inspect the worktree and retry the recorded removal", err)
 		}
 	}
 	// The pinned stdin transaction below is what keeps the forced deletion
@@ -2455,7 +2461,7 @@ func (r *pinnedDeletionRun) restorationOwedRun(step, reason string) WorktreeNati
 // settles only when a complete inventory verifies no worktree holds it.
 func deleteBranchPinned(ctx context.Context, runner GitRunner, removal *WorktreeNativeRemoval, deletion WorktreeBranchDeletion) (WorktreeNativeOutcome, error) {
 	if deletion.ExpectedTip == "" {
-		return WorktreeNativeOutcome{}, newFailure(KindProjectionConflict, removal.Op, "branch "+deletion.Branch+" has no pinned tip in the recorded plan; the ref was retained and not deleted", false, "re-run the reclaim probe so the plan records the tip it proved")
+		return WorktreeNativeOutcome{}, newFailure(KindProjectionConflict, removal.Op, "branch "+deletion.Branch+" has no pinned tip in the recorded plan; the ref was retained and not deleted", false, "retry cleanup only with a verified branch tip")
 	}
 	phase := deletion.Phase
 	if phase == "" {
@@ -2478,7 +2484,7 @@ func deleteBranchPinned(ctx context.Context, runner GitRunner, removal *Worktree
 		}
 		return outcome, err
 	}
-	resolved := resolveBranchRef(ctx, runner, removal.RepoRoot, deletion.Branch)
+	resolved := resolveBranchRef(ctx, runner, removal.RepoRoot, deletion.Branch, removal.Op)
 	if resolved.err != nil {
 		return WorktreeNativeOutcome{}, resolved.err
 	}
@@ -2491,11 +2497,11 @@ func deleteBranchPinned(ctx context.Context, runner GitRunner, removal *Worktree
 	}
 	if resolved.symbolic {
 		return retain(resolved.tip, "the ref became a symbolic ref; deleting through it would delete its target", WorktreeRefRefusalSymbolicRef,
-			newFailure(KindProjectionConflict, removal.Op, "branch "+deletion.Branch+" became a symbolic ref after the reclaim pinned it; the ref and its target were retained", false, "inspect the symbolic ref and delete it by hand if its content is disposable"))
+			newFailure(KindProjectionConflict, removal.Op, "branch "+deletion.Branch+" became a symbolic ref after its tip was pinned; the ref and its target were retained", false, "inspect the symbolic ref and delete it by hand if its content is disposable"))
 	}
 	if resolved.tip != deletion.ExpectedTip {
-		return retain(resolved.tip, "the ref moved from the tip the reclaim pinned", WorktreeRefRefusalMovedTip,
-			newFailure(KindProjectionConflict, removal.Op, "branch "+deletion.Branch+" moved from the tip the reclaim pinned; the ref was retained and not deleted", false, "inspect the branch and delete it by hand if its new content is disposable"))
+		return retain(resolved.tip, "the ref moved from its pinned tip", WorktreeRefRefusalMovedTip,
+			newFailure(KindProjectionConflict, removal.Op, "branch "+deletion.Branch+" moved from its pinned tip; the ref was retained and not deleted", false, "inspect the branch and delete it by hand if its new content is disposable"))
 	}
 	// The default ownership is re-derived here, not trusted from the plan:
 	// the repository's default may have moved onto this branch after the
@@ -2508,7 +2514,7 @@ func deleteBranchPinned(ctx context.Context, runner GitRunner, removal *Worktree
 	protected, defaultsKnown := protectedDefaultBranches(ctx, runner, removal.RepoRoot, removal.DefaultRef)
 	if protected[deletion.Branch] {
 		return WorktreeNativeOutcome{Branch: deletion.Branch, Tip: resolved.tip, Phase: run.phase, Reason: "the branch is the repository's default ref; the default ref is never deleted", Refusal: WorktreeRefRefusalProtectedDefault},
-			newFailure(KindProjectionConflict, removal.Op, "branch "+deletion.Branch+" is the repository's default ref; it was retained and not deleted", false, "inspect the default ref: the reclaim proved the content durable, but the default ref is never deleted")
+			newFailure(KindProjectionConflict, removal.Op, "branch "+deletion.Branch+" is the repository's default ref; it was retained and not deleted", false, "inspect the protected default; this cleanup cannot delete a default ref")
 	}
 	if !defaultsKnown {
 		// Fail closed exactly as the plan-time guard does: no observation
@@ -2542,7 +2548,7 @@ func deleteBranchPinned(ctx context.Context, runner GitRunner, removal *Worktree
 	}
 	full := "refs/heads/" + deletion.Branch
 	if _, err := runner.Run(ctx, removal.RepoRoot, "update-ref", "--no-deref", "-d", full, deletion.ExpectedTip); err != nil {
-		after := resolveBranchRef(ctx, runner, removal.RepoRoot, deletion.Branch)
+		after := resolveBranchRef(ctx, runner, removal.RepoRoot, deletion.Branch, removal.Op)
 		if after.err != nil {
 			return WorktreeNativeOutcome{}, after.err
 		}
@@ -2553,13 +2559,13 @@ func deleteBranchPinned(ctx context.Context, runner GitRunner, removal *Worktree
 		}
 		if after.symbolic {
 			return retain(after.tip, "the ref became a symbolic ref; deleting through it would delete its target", WorktreeRefRefusalSymbolicRef,
-				newFailure(KindProjectionConflict, removal.Op, "branch "+deletion.Branch+" became a symbolic ref after the reclaim pinned it; the ref and its target were retained", false, "inspect the symbolic ref and delete it by hand if its content is disposable"))
+				newFailure(KindProjectionConflict, removal.Op, "branch "+deletion.Branch+" became a symbolic ref after its tip was pinned; the ref and its target were retained", false, "inspect the symbolic ref and delete it by hand if its content is disposable"))
 		}
 		if after.tip != deletion.ExpectedTip {
-			return retain(after.tip, "the ref moved from the tip the reclaim pinned", WorktreeRefRefusalMovedTip,
-				newFailure(KindProjectionConflict, removal.Op, "branch "+deletion.Branch+" moved from the tip the reclaim pinned; the ref was retained and not deleted", false, "inspect the branch and delete it by hand if its new content is disposable"))
+			return retain(after.tip, "the ref moved from its pinned tip", WorktreeRefRefusalMovedTip,
+				newFailure(KindProjectionConflict, removal.Op, "branch "+deletion.Branch+" moved from its pinned tip; the ref was retained and not deleted", false, "inspect the branch and delete it by hand if its new content is disposable"))
 		}
-		return WorktreeNativeOutcome{}, wrapFailure(KindGitUnreachable, removal.Op, "reclaimed in Concord but branch deletion failed", true, "delete the branch manually; the projection already records reclamation", err)
+		return WorktreeNativeOutcome{}, wrapFailure(KindGitUnreachable, removal.Op, "cannot delete branch "+deletion.Branch+" at its pinned tip", true, "inspect the retained branch and retry the same cleanup operation", err)
 	}
 	// The deletion ran; the phase records it before the post-deletion
 	// observation, so an interruption between them resumes as uncertainty
@@ -2637,7 +2643,7 @@ func restoreDeletedBranchAtPinnedTip(ctx context.Context, runner GitRunner, run 
 	full := "refs/heads/" + run.deletion.Branch
 	zero := strings.Repeat("0", len(run.deletion.ExpectedTip))
 	if _, err := runner.Run(ctx, run.removal.RepoRoot, "update-ref", "--no-deref", full, run.deletion.ExpectedTip, zero); err != nil {
-		after := resolveBranchRef(ctx, runner, run.removal.RepoRoot, run.deletion.Branch)
+		after := resolveBranchRef(ctx, runner, run.removal.RepoRoot, run.deletion.Branch, run.removal.Op)
 		if after.err != nil {
 			return run.restorationOwedRun(WorktreeRefStepRestoreExpected, "the raced branch could not be restored at its pinned tip and its state is unobservable; the restoration is still owed"), after.err
 		}
@@ -2649,7 +2655,7 @@ func restoreDeletedBranchAtPinnedTip(ctx context.Context, runner GitRunner, run 
 			return outcome, newFailure(KindInvalidOperation, run.removal.Op, "branch "+run.deletion.Branch+" was checked out at the deletion boundary and was already rebuilt by another actor", false, "inspect the branch: the recorded plan no longer owes its deletion")
 		}
 		return run.restorationOwedRun(WorktreeRefStepRestoreExpected, "the raced branch could not be restored at its pinned tip; the restoration is still owed"),
-			wrapFailure(KindGitUnreachable, run.removal.Op, "reclaimed in Concord but the raced branch could not be restored at its pinned tip", true, "restore branch "+run.deletion.Branch+" at "+run.deletion.ExpectedTip+" by hand; a worktree holds it checked out", err)
+			wrapFailure(KindGitUnreachable, run.removal.Op, "cannot restore branch "+run.deletion.Branch+" at its pinned tip", true, "restore branch "+run.deletion.Branch+" at "+run.deletion.ExpectedTip+" by hand; a worktree holds it checked out", err)
 	}
 	// A restored checked-out ref remains retained, never deletion-settled.
 	outcome := WorktreeNativeOutcome{Branch: run.deletion.Branch, Tip: run.deletion.ExpectedTip, Phase: WorktreeRefPhaseRestored, Reason: "the branch was checked out at the deletion boundary and was restored at its pinned tip"}
@@ -2724,7 +2730,7 @@ func isWorktreeOID(value string) bool {
 // malformed successful inventory is an unknown observation — never proof
 // that a branch is checked out nowhere.
 func parseWorktreeInventory(out []byte) (*worktreeInventory, error) {
-	malformed := errors.New("store: worktree_reclaim: the worktree inventory is malformed or incomplete")
+	malformed := errors.New("the worktree inventory is malformed or incomplete")
 	inv := &worktreeInventory{}
 	var current *worktreeCheckoutEntry
 	attrSeen := map[string]bool{}

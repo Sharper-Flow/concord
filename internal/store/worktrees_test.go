@@ -1649,6 +1649,68 @@ func cleanupRefRefusalCases() []string {
 	return []string{"foreign ref", "default branch", "unknown default", "checked-out branch", "moved tip"}
 }
 
+type cleanupDiagnosticRunner struct {
+	failCommand string
+	malformed   bool
+}
+
+func (r cleanupDiagnosticRunner) Run(ctx context.Context, dir string, args ...string) ([]byte, error) {
+	joined := strings.Join(args, " ")
+	if joined == r.failCommand {
+		return nil, errors.New("injected Git diagnostic failure")
+	}
+	if r.malformed && joined == "worktree list --porcelain" {
+		return []byte("worktree " + dir + "\n"), nil
+	}
+	return (ExecGitRunner{}).Run(ctx, dir, args...)
+}
+
+func TestSharedRefDeletionDiagnostics(t *testing.T) {
+	for _, op := range []string{"worktree_claim", "work_bootstrap", "worktree_reclaim"} {
+		t.Run(op, func(t *testing.T) {
+			for _, stage := range []string{"symbolic probe", "symbolic tip", "direct existence", "direct tip", "deletion", "malformed inventory"} {
+				t.Run(stage, func(t *testing.T) {
+					repo := initBootstrapStoreRepo(t)
+					base := runBootstrapGit(t, repo, "rev-parse", "HEAD")
+					const branch = "concord/cleanup-diagnostics"
+					full := "refs/heads/" + branch
+					runBootstrapGit(t, repo, "branch", branch, base)
+					runner := cleanupDiagnosticRunner{}
+					switch stage {
+					case "symbolic probe":
+						runner.failCommand = "symbolic-ref --quiet " + full
+					case "symbolic tip":
+						runBootstrapGit(t, repo, "symbolic-ref", full, "refs/heads/main")
+						runner.failCommand = "rev-parse --verify " + full
+					case "direct existence":
+						runner.failCommand = "show-ref --verify --quiet " + full
+					case "direct tip":
+						runner.failCommand = "rev-parse --verify " + full
+					case "deletion":
+						runner.failCommand = "update-ref --no-deref -d " + full + " " + base
+					case "malformed inventory":
+						runner.malformed = true
+					}
+					_, err := deleteBranchPinned(context.Background(), runner, &WorktreeNativeRemoval{RepoRoot: repo, Op: op}, WorktreeBranchDeletion{Branch: branch, ExpectedTip: base})
+					var failure *Failure
+					if !errors.As(err, &failure) || failure.Op != op || failure.Kind != KindGitUnreachable || !failure.RetrySafe {
+						t.Fatalf("gate error=%v, want retry-safe git_unreachable for %s", err, op)
+					}
+					if strings.Contains(failure.Detail, "reclaim") || strings.Contains(failure.RecoveryAction, "reclaim") || strings.Contains(failure.Detail, "projection already") || strings.Contains(failure.RecoveryAction, "projection already") {
+						t.Errorf("gate diagnostics claim unrelated durable state: detail=%q remedy=%q", failure.Detail, failure.RecoveryAction)
+					}
+					if op != "worktree_reclaim" && strings.Contains(err.Error(), "worktree_reclaim") {
+						t.Errorf("gate error contains another operation: %v", err)
+					}
+					if tip := runBootstrapGit(t, repo, "rev-parse", "--verify", full); tip != base {
+						t.Errorf("failed gate changed the branch: tip=%s, want %s", tip, base)
+					}
+				})
+			}
+		})
+	}
+}
+
 // mutateCleanupRef supplies each protection with actual refs and checkouts,
 // never canned Git output. The returned tip is the ref state that must survive.
 func mutateCleanupRef(t *testing.T, repo, branch, base, reason string) (string, string) {
@@ -1672,7 +1734,7 @@ func mutateCleanupRef(t *testing.T, repo, branch, base, reason string) (string, 
 		tree := runBootstrapGit(t, repo, "rev-parse", base+"^{tree}")
 		tip := runBootstrapGit(t, repo, "commit-tree", tree, "-p", base, "-m", "new cleanup tip")
 		runBootstrapGit(t, repo, "update-ref", "refs/heads/"+branch, tip, base)
-		return tip, "moved from the tip"
+		return tip, "moved from its pinned tip"
 	default:
 		t.Fatalf("unknown cleanup refusal %q", reason)
 		return "", ""
@@ -1743,6 +1805,9 @@ func TestClaimCompensationRefDeletionRefusals(t *testing.T) {
 			assertCleanupRefRetained(t, repo, branch, tip, reason, runner)
 			if err != cause || !cause.EffectPossible {
 				t.Errorf("cleanup error=%v effectPossible=%v, want original failure with possible effect", err, cause.EffectPossible)
+			}
+			if reason == "unknown default" && !strings.Contains(cause.Detail, "cannot establish the protected default") {
+				t.Errorf("claim compensation lost the retention reason: %q", cause.Detail)
 			}
 			if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
 				t.Errorf("clean claim directory remains: %v", err)

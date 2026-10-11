@@ -179,7 +179,7 @@ func activeWorkInProduct(ctx context.Context, q queryer, productID string, limit
 	if limit > 100 {
 		limit = 100
 	}
-	rows, err := q.QueryContext(ctx, `SELECT w.id FROM work_items w WHERE w.lifecycle='in_progress' AND EXISTS (SELECT 1 FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=w.id AND pp.product_id=?) ORDER BY w.id LIMIT ?`, productID, limit)
+	rows, err := q.QueryContext(ctx, `SELECT w.id FROM work_items w WHERE w.lifecycle='in_progress' AND `+actionableWorkKindSQL("w.kind")+` AND EXISTS (SELECT 1 FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=w.id AND pp.product_id=?) ORDER BY w.id LIMIT ?`, productID, limit)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "work_messages", "cannot list active work", true, "retry once the database is readable", err)
 	}

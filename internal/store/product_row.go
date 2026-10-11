@@ -190,7 +190,7 @@ type productRowWork struct {
 // productRowPageSQL is the only page-data statement. page_products first
 // bounds Products, then one grouped join gathers all canonical work once per
 // Product/work identity. The caller never performs a Product or work fan-out.
-const productRowPageSQL = `
+var productRowPageSQL = `
 WITH page_products AS (
 	SELECT id, display_name, stage_maturity, stage_audience_commitment, version, created_at, updated_at
 	FROM products
@@ -217,6 +217,7 @@ WITH page_products AS (
 			WHERE r.work_id_to = w.id
 			  AND r.kind = 'blocks'
 			  AND blocker.lifecycle IN ('needed', 'in_progress')
+			  AND ` + actionableWorkKindSQL("blocker.kind") + `
 		)) AS blocked,
 		(w.lifecycle = 'needed' AND NOT EXISTS (
 			SELECT 1
@@ -225,6 +226,7 @@ WITH page_products AS (
 			WHERE r.work_id_to = w.id
 			  AND r.kind = 'blocks'
 			  AND blocker.lifecycle IN ('needed', 'in_progress')
+			  AND ` + actionableWorkKindSQL("blocker.kind") + `
 		)) AS ready,
 		(w.kind = 'bug' AND w.lifecycle IN ('needed', 'in_progress')) AS active_problem,
 		(w.lifecycle IN ('needed', 'in_progress') AND EXISTS (
@@ -254,7 +256,7 @@ WITH page_products AS (
 	JOIN product_projects product_membership ON product_membership.product_id = pp.id
 	JOIN work_projects wp ON wp.project_id = product_membership.project_id
 	JOIN projects project ON project.id = wp.project_id
-	JOIN work_items w ON w.id = wp.work_id
+	JOIN work_items w ON w.id = wp.work_id AND ` + actionableWorkKindSQL("w.kind") + `
 	LEFT JOIN workflow_instances wi ON wi.work_id = w.id
 	GROUP BY pp.id, w.id, w.kind, w.title, w.lifecycle, w.priority, w.urgency, w.created_at, w.updated_at,
 		wi.current_step, wi.definition_ref, wi.definition_version, wi.definition_digest, wi.instance_state

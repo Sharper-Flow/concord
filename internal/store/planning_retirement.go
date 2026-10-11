@@ -6,6 +6,13 @@ import (
 	"errors"
 )
 
+// actionableWorkKindSQL qualifies trusted SQL column names, never caller input.
+// CD-0213 D8 keeps Initiative records and edges readable but gives them no
+// execution behavior: neither selectable work nor operative blockers.
+func actionableWorkKindSQL(column string) string {
+	return column + " <> 'initiative'"
+}
+
 // CD-0213 D8 retires the planning-mirror event kinds. domain_events is
 // append-only and replay refuses an unregistered kind, so each retired kind
 // stays registered: its payload still validates and its fold still advances

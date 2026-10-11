@@ -201,7 +201,7 @@ func DomainEvidenceRepo(dir string) (string, error) {
 			{
 				ID: DomainEvidenceLawID, Kind: "decision", Path: DomainEvidenceLawPath, Status: "accepted", Date: "2026-08-18T00:00:00Z",
 				Title: DomainEvidenceLawTitle, Summary: "Domains carry architecture authority", Tags: []string{},
-				Authority:    store.KnowledgeAuthority{Tier: "legislated", LegislatedBy: "fixture-authority", ContractVersion: 1},
+				Authority:    store.KnowledgeAuthority{Tier: "legislated", LegislatedBy: "work-0f1e2d3c4b5a6978", ContractVersion: 1},
 				LawRelations: []store.KnowledgeRelation{{Kind: "supersedes", TargetID: domainEvidenceSupersededID}},
 				Scopes:       store.KnowledgeRecordScopes{Mode: "explicit", ProductIDs: []string{}, ProjectIDs: []string{}, DomainIDs: []string{SingleDomainRootID}, TagIDs: []string{}},
 				HomeDomainID: SingleDomainRootID, ProductWideRationale: SingleDomainRootRationale, SHA256: ContentDigest(DomainEvidenceLawBody),
@@ -209,7 +209,7 @@ func DomainEvidenceRepo(dir string) (string, error) {
 			{
 				ID: domainEvidenceSupersededID, Kind: "decision", Path: domainEvidenceSupersededPath, Status: "superseded", Date: "2026-08-17T00:00:00Z",
 				Title: "Component authority", Summary: "Retired architecture authority", Tags: []string{},
-				Authority: store.KnowledgeAuthority{Tier: "legislated", LegislatedBy: "fixture-authority", ContractVersion: 1}, Successor: DomainEvidenceLawID,
+				Authority: store.KnowledgeAuthority{Tier: "legislated", LegislatedBy: "work-0f1e2d3c4b5a6978", ContractVersion: 1}, Successor: DomainEvidenceLawID,
 				Scopes:       store.KnowledgeRecordScopes{Mode: "explicit", ProductIDs: []string{}, ProjectIDs: []string{}, DomainIDs: []string{SingleDomainRootID}, TagIDs: []string{}},
 				HomeDomainID: SingleDomainRootID, ProductWideRationale: SingleDomainRootRationale, SHA256: ContentDigest(domainEvidenceSupersededBody),
 			},

@@ -27,7 +27,7 @@ func seedFederatedSource(t *testing.T, repo, lawID, path, title string) {
 		Records: []KnowledgeRecord{{
 			ID: lawID, Kind: "decision", Path: path, Status: "accepted",
 			Date: "2026-09-20T00:00:00Z", Title: title, Summary: "A source rule", Tags: []string{},
-			Authority: KnowledgeAuthority{Tier: "legislated", LegislatedBy: "fixture-authority", ContractVersion: 1},
+			Authority: KnowledgeAuthority{Tier: "legislated", LegislatedBy: "work-0f1e2d3c4b5a6978", ContractVersion: 1},
 			Scopes:    homeScope(), HomeDomainID: "fixture-law", SHA256: "sha256:" + hex.EncodeToString(sum[:]),
 		}},
 	}

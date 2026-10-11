@@ -89,7 +89,7 @@ func writeManifestFixture(t *testing.T, repo string, fixtures ...manifestFixture
 		scopes.TagIDs = append([]string{}, scopes.TagIDs...)
 		authority := KnowledgeAuthority{Tier: "derived"}
 		if fixture.Kind == "constitution" || fixture.Kind == "decision" {
-			authority = KnowledgeAuthority{Tier: "legislated", LegislatedBy: "fixture-authority", ContractVersion: 1}
+			authority = KnowledgeAuthority{Tier: "legislated", LegislatedBy: "work-0f1e2d3c4b5a6978", ContractVersion: 1}
 		}
 		record := KnowledgeRecord{
 			ID: fixture.ID, Kind: fixture.Kind, Path: fixture.Path, Status: fixture.Status,

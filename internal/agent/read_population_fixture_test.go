@@ -226,7 +226,7 @@ func (fx readPopulationFixture) seedKnowledgeHome(t *testing.T) {
 	scopes := func(domainIDs ...string) store.KnowledgeRecordScopes {
 		return store.KnowledgeRecordScopes{Mode: "explicit", ProductIDs: []string{}, ProjectIDs: []string{}, DomainIDs: domainIDs, TagIDs: []string{}}
 	}
-	legislated := store.KnowledgeAuthority{Tier: "legislated", LegislatedBy: "fixture-authority", ContractVersion: 1}
+	legislated := store.KnowledgeAuthority{Tier: "legislated", LegislatedBy: "work-0f1e2d3c4b5a6978", ContractVersion: 1}
 	manifest := store.KnowledgeManifest{
 		SchemaVersion:  "1.2",
 		SupportedKinds: []string{"constitution", "decision", "spec", "lesson"},

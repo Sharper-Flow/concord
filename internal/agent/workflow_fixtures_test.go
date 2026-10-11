@@ -169,10 +169,9 @@ func advanceCapturedWorkToContract(t *testing.T, s *store.Store, service *Servic
 		}
 		return after
 	}
-	version := dispatch("record_proposal", map[string]any{"problem": "The bounded problem statement.", "affected": []string{"The affected system."}, "stakes": "The bounded stakes statement.", "user_outcomes": []string{"The expected user outcome."}}, "proposal")
-	version = dispatch("record_alignment", map[string]any{"searched": "The bounded backlog search statement.", "outcome": "none_found"}, "alignment")
-	version = dispatch("record_design", map[string]any{"approach": "The recorded approach is the implementation boundary.", "decisions": []map[string]any{{"id": "decision:" + keyPrefix, "question": "What crosses into execution?", "choice": "The typed design record.", "rationale": "The worker must receive the approved decision.", "rejected": []string{}}}, "touched_refs": []string{"path:" + keyPrefix}}, "design")
-	return version
+	dispatch("record_proposal", map[string]any{"problem": "The bounded problem statement.", "affected": []string{"The affected system."}, "stakes": "The bounded stakes statement.", "user_outcomes": []string{"The expected user outcome."}}, "proposal")
+	dispatch("record_alignment", map[string]any{"searched": "The bounded backlog search statement.", "outcome": "none_found"}, "alignment")
+	return dispatch("record_design", map[string]any{"approach": "The recorded approach is the implementation boundary.", "decisions": []map[string]any{{"id": "decision:" + keyPrefix, "question": "What crosses into execution?", "choice": "The typed design record.", "rationale": "The worker must receive the approved decision.", "rejected": []string{}}}, "touched_refs": []string{"path:" + keyPrefix}}, "design")
 }
 
 func TestArchitectureBindingSchemaPreservesCurrentIdentifierBounds(t *testing.T) {

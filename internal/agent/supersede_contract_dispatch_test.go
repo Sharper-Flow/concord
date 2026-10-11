@@ -40,7 +40,7 @@ func testSupersedeContractDispatch(t *testing.T, stage string) {
 	}
 	contractFields := workflowContractFieldsFixture()
 	contractFields["architecture_binding"] = binding
-	contract, version := approvedOpsAction(t, s, service, grant, privateKey, env, version, "approve_contract", contractFields, "supersede-approve-contract")
+	contract, version := approvedWorkflowContract(t, s, service, grant, privateKey, env, version, contractFields, "supersede-approve-contract")
 	if contract.Outcome != OutcomeOK {
 		t.Fatalf("approve_contract=%+v", contract.Error)
 	}

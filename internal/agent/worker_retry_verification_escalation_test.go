@@ -310,7 +310,6 @@ func seedEscalatedVerificationWorkerMutation(t *testing.T, s *store.Store, servi
 		if executionDelivery.Outcome != OutcomeOK {
 			t.Fatalf("seed verification execution delivery %d: %+v", cycle, executionDelivery.Error)
 		}
-		version = workVersion(t, s, "work-1")
 		// The released pins (v26 oracle-free, v27 oracle) keep their callable
 		// refinement entry store-executable; the closed live union publishes
 		// no start_refine authoring shape, so the public boundary cannot

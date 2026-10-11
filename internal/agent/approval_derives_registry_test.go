@@ -80,7 +80,7 @@ func TestProductChangingApprovalDerivesTheRegistryItPins(t *testing.T) {
 		"law_additions":                []any{},
 		"verification_obligations":     []any{},
 	}
-	resp, _ := approvedOpsAction(t, s, service, grant, privateKey, env, version, "approve_contract", fields, "derived-registry-approval")
+	resp, _ := approvedWorkflowContract(t, s, service, grant, privateKey, env, version, fields, "derived-registry-approval")
 	if resp.Outcome != OutcomeOK {
 		t.Fatalf("approve_contract against a derived registry: %+v", resp.Error)
 	}
@@ -147,7 +147,7 @@ func TestProductChangingApprovalDerivesTheRegistryWithoutAPriorRead(t *testing.T
 		"law_additions":                []any{},
 		"verification_obligations":     []any{},
 	}
-	resp, _ := approvedOpsAction(t, s, service, grant, privateKey, env, version, "approve_contract", fields, "derived-registry-approval-no-read")
+	resp, _ := approvedWorkflowContract(t, s, service, grant, privateKey, env, version, fields, "derived-registry-approval-no-read")
 	if resp.Outcome != OutcomeOK {
 		t.Fatalf("approve_contract with no derived registry present: %+v", resp.Error)
 	}

@@ -107,12 +107,9 @@ func TestRefusedWorkerProvenanceRecoversWithoutAcceptedEvidence(t *testing.T) {
 			if receipt.Outcome != OutcomeOK {
 				t.Fatalf("abandonment receipt: %+v", receipt.Error)
 			}
-			// A distinct coordinator session reads the derived disposition:
-			// recovery does not confer verdict authority on the actor that
-			// opened the attempt, and the derived record's actor is the
-			// dispatch authorization's own identity.
+			// A distinct coordinator retries after the derived disposition.
+			// The derived record keeps the dispatch authorization's actor.
 			grant.SessionRef = "session-recovery"
-			env = mutationEnvelope(grant, scopeVersion)
 			pin, pinErr := store.ReadWorkPin(ctx, s, "work-1")
 			if pinErr != nil {
 				t.Fatal(pinErr)

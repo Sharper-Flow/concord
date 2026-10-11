@@ -200,13 +200,11 @@ func bindAJ8GroundTruthReclamation(t *testing.T, sc jobScenario) jobObservation 
 	return obs
 }
 
-// approvedOpsAction dispatches one ops workflow action, cycling the core
-// approval challenge through a signed host approval when the action requires
-// operator authority. It returns the final envelope and the work version the
-// action produced.
-func approvedOpsAction(t *testing.T, s *store.Store, service *Service, grant Authority, privateKey ed25519.PrivateKey, env CallEnvelope, version int64, action string, fields map[string]any, key string) (Envelope, int64) {
+// approvedWorkflowContract approves a contract through the signed host
+// challenge and returns its envelope and resulting work version.
+func approvedWorkflowContract(t *testing.T, s *store.Store, service *Service, grant Authority, privateKey ed25519.PrivateKey, env CallEnvelope, version int64, fields map[string]any, key string) (Envelope, int64) {
 	t.Helper()
-	return approvedWorkflowActionWithVersions(t, s, service, grant, privateKey, env, version, action, fields, key, map[string]any{"work": version})
+	return approvedWorkflowActionWithVersions(t, s, service, grant, privateKey, env, version, "approve_contract", fields, key, map[string]any{"work": version})
 }
 
 func approvedWorkflowActionWithVersions(t *testing.T, s *store.Store, service *Service, grant Authority, privateKey ed25519.PrivateKey, env CallEnvelope, version int64, action string, fields map[string]any, key string, versions map[string]any) (Envelope, int64) {

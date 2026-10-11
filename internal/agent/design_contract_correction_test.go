@@ -24,7 +24,7 @@ func TestContractCorrectionDoesNotPinAnObsoleteDesign(t *testing.T) {
 	}
 	fields := workflowContractFieldsFixture()
 	fields["architecture_binding"] = workflowArchitectureBindingFixture()
-	approved, version := approvedOpsAction(t, s, service, grant, privateKey, env, version, "approve_contract", fields, "design-correction-approve")
+	approved, version := approvedWorkflowContract(t, s, service, grant, privateKey, env, version, fields, "design-correction-approve")
 	if approved.Outcome != OutcomeOK {
 		t.Fatalf("approve contract: %+v", approved.Error)
 	}

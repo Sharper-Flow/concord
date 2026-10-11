@@ -686,7 +686,7 @@ func TestCorrectedContractLivenessThroughProducerReturn(t *testing.T) {
 		t.Fatalf("record_delivery through the delivery gate on the corrected contract: %v", err)
 	}
 	reviewer := diagnosisS1Actor(workID, "liveness-reviewer")
-	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":2,"predicate_id":"predicate:return-route","verdict_kind":"ok"}`), 0, reviewer); err != nil {
+	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":2,"verdicts":[{"predicate_id":"predicate:return-route","verdict_kind":"ok"}]}`), 0, reviewer); err != nil {
 		t.Fatalf("fresh verdict on the corrected contract: %v", err)
 	}
 	if err := runIssue933OperatorAction(t, s, workID, "confirm_premise", json.RawMessage(`{"contract_version":2}`), fixture.owner, fixture.operator); err != nil {

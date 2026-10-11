@@ -89,6 +89,17 @@ func assertRetiredPlanningRefusal(t *testing.T, err error) {
 	}
 }
 
+func TestRetiredInitiativeExecutionRefusalNamesOperation(t *testing.T) {
+	t.Parallel()
+	s, _ := seedRetiredPlanningHistory(t)
+	err := s.RequireActionableWork(context.Background(), "retired-initiative", "worktree_claim")
+	assertRetiredPlanningRefusal(t, err)
+	var failure *Failure
+	if !errors.As(err, &failure) || failure.Op != "worktree_claim" || strings.Contains(failure.Detail, "event kind") {
+		t.Fatalf("execution refusal must name its operation, not an event kind: %v", err)
+	}
+}
+
 // TestRetiredPlanningEventsReplayWithoutInitiativeState proves CD-0213 D8:
 // a log that carries every retired planning kind still rebuilds, the rebuilt
 // projection holds no Initiative membership, and each retired event still

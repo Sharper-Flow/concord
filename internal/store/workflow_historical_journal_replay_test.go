@@ -295,7 +295,7 @@ func TestHistoricalJournalFixturesReplayWithOriginalPins(t *testing.T) {
 						t.Fatalf("as-of %s at %d: %v", sample.Label, sample.Seq, readErr)
 					}
 					state := "running"
-					if snapshot.Work != nil && !snapshot.Work.Active {
+					if snapshot.Work != nil && snapshot.Work.Lifecycle != "in_progress" {
 						state = snapshot.Work.Lifecycle
 					}
 					if state != sample.State {

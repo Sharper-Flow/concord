@@ -5277,6 +5277,10 @@ type WorktreeVerifyRequest struct {
 	Runner         GitRunner
 	RunCommand     func(ctx context.Context, dir string, command []string, maxOutput int) (int, []byte, bool, error)
 	MaxOutputBytes int
+	// Native oracle test stages use the operation's declared ceiling only
+	// when the caller did not supply its own operation deadline.
+	SupportedBudgetSeconds int
+	CallerBudgetApplied    bool
 }
 
 // WorktreeVerifyResult is the bounded record of one leased run. OperationRef

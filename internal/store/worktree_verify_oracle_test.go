@@ -46,17 +46,21 @@ func newNativeOracleFixture(t *testing.T, recordedSubject ...string) *nativeOrac
 	const work = "native-oracle-work"
 	seed := seedWorkflowReturnRouteFixture(t, work, "workflow.break_fix", "repair")
 	f := &nativeOracleFixture{s: seed.store, work: work, repo: t.TempDir(), initMarker: filepath.Join(t.TempDir(), "init.marker"), testMarker: filepath.Join(t.TempDir(), "test.marker"), actor: seed.owner}
-	t.Setenv("CONCORD_ORACLE_INIT_MARKER", f.initMarker)
-	t.Setenv("CONCORD_ORACLE_TEST_MARKER", f.testMarker)
+	markers, err := json.Marshal(map[string]string{"init": f.initMarker, "test": f.testMarker})
+	if err != nil {
+		t.Fatal(err)
+	}
 	for name, data := range map[string]string{
 		"go.mod":       "module example.invalid/oracle\n\ngo 1.26.0\ntoolchain go1.26.7\n",
 		"pkg/value.go": "package oracle\nfunc Value() int { return 7 }\n",
 		"pkg/value_test.go": `package oracle
-import("testing";"os";"strings")
-func init(){ if p:=os.Getenv("CONCORD_ORACLE_INIT_MARKER");p!="" { _=os.WriteFile(p,[]byte("init"),0600) } }
-func TestValue(t *testing.T){ if p:=os.Getenv("CONCORD_ORACLE_TEST_MARKER");p!="" { _=os.WriteFile(p,[]byte("test"),0600) };_,_=os.Stdout.Write(append([]byte(strings.Repeat("out",6000)),255,0,10));_,_=os.NewFile(2,"stderr").Write(append([]byte(strings.Repeat("err",6000)),254,0,10));if Value()!=7 { t.Fatal("wrong value") } }
+import("testing";"os";"strings";"encoding/json")
+func marker(kind string){ data,err:=os.ReadFile("markers.json");if err!=nil { panic(err) };var paths map[string]string;if err=json.Unmarshal(data,&paths);err!=nil { panic(err) };if err=os.WriteFile(paths[kind],[]byte(kind),0600);err!=nil { panic(err) } }
+func init(){ marker("init") }
+func TestValue(t *testing.T){ if os.Getenv("CONCORD_ORACLE_SECRET_SENTINEL")!="" { t.Fatal("server sentinel leaked") };marker("test");_,_=os.Stdout.Write(append([]byte(strings.Repeat("out",6000)),255,0,10));_,_=os.NewFile(2,"stderr").Write(append([]byte(strings.Repeat("err",6000)),254,0,10));if Value()!=7 { t.Fatal("wrong value") } }
 `,
-		"pkg/oracle.json": `{"kind":"go_top_level_v1","package_cwd":"pkg","test_files":["pkg/value_test.go"],"fixture_files":[],"cases":{"case:fixture":["TestValue"]}}`,
+		"pkg/markers.json": string(markers),
+		"pkg/oracle.json":  `{"kind":"go_top_level_v1","package_cwd":"pkg","test_files":["pkg/value_test.go"],"fixture_files":["pkg/markers.json"],"cases":{"case:fixture":["TestValue"]}}`,
 	} {
 		name = filepath.Join(f.repo, name)
 		if err := os.MkdirAll(filepath.Dir(name), 0700); err != nil {
@@ -115,6 +119,7 @@ func TestValue(t *testing.T){ if p:=os.Getenv("CONCORD_ORACLE_TEST_MARKER");p!="
 
 func (f *nativeOracleFixture) request(id string, o *NativeOracleRequest) WorktreeVerifyRequest {
 	r := WorktreeVerifyRequest{WorkID: f.work, ProjectID: "project", LeaseID: "native-" + id, RequestID: "request-" + id, PrincipalRef: "principal/operator", Owner: SessionWorktreeOwner{ClientRef: "client/oracle", AgentRef: "agent/native", SessionRef: "session/native"}, Runner: ExecGitRunner{}, Oracle: o, Now: time.Now().UTC()}
+	r.SupportedBudgetSeconds = 30
 	if o == nil {
 		r.Command = []string{"git", "rev-parse", "--verify", "HEAD^{commit}"}
 	}
@@ -260,6 +265,88 @@ func TestNativeOracleGenuineExecutionAndImmutableReplay(t *testing.T) {
 		t.Fatalf("preparation created green authority: %d %v", greenPrepare, err)
 	}
 	t.Logf("genuine test execution: %s; %d distinct witnesses; one launch; identical replay", r.OperationRef, len(r.Oracle.ObservedTestNames))
+}
+
+func TestNativeOracleServerEnvironmentDoesNotReachWorker(t *testing.T) {
+	t.Setenv("CONCORD_ORACLE_SECRET_SENTINEL", "synthetic-server-secret")
+	f := newNativeOracleFixture(t)
+	r, err := f.s.VerifyWorktree(context.Background(), f.request("sentinel", &f.a))
+	if err != nil || r.Oracle == nil || r.Oracle.Qualification != "pass" || f.launches != 1 {
+		t.Fatalf("worker inherited server environment: qualification=%+v err=%v launches=%d", r.Oracle, err, f.launches)
+	}
+}
+
+func TestNativeOracleHangingTestDeadlineReleasesLease(t *testing.T) {
+	f := newNativeOracleFixture(t)
+	if err := os.WriteFile(filepath.Join(f.repo, "pkg/value.go"), []byte("package oracle\nimport \"time\"\nfunc Value() int { time.Sleep(3*time.Second); return 7 }\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	f.commitAndPrepare(t, "slow")
+	o := f.authorize(t, "slow", f.actor)
+	req := f.request("slow-execute", &o)
+	req.SupportedBudgetSeconds = 1
+	r, err := f.s.VerifyWorktree(context.Background(), req)
+	if failureKind(err) != KindUnavailable || r.Oracle == nil || r.Oracle.Qualification != "unavailable" || f.launches != 1 {
+		t.Fatalf("hanging test did not expire: qualification=%+v err=%v launches=%d", r.Oracle, err, f.launches)
+	}
+	var state string
+	if err := f.s.db.QueryRow(`SELECT state FROM worktree_verify_leases WHERE lease_id=?`, req.LeaseID).Scan(&state); err != nil || state != "released" {
+		t.Fatalf("expired lease state=%s: %v", state, err)
+	}
+	var green int
+	if err := f.s.db.QueryRow(`SELECT count(*) FROM durable_operations WHERE op_id=?`, r.OperationRef).Scan(&green); err != nil || green != 0 {
+		t.Fatal("deadline expiry published green authority")
+	}
+}
+
+func TestNativeOracleTwoReadyRevisionsFailInvariant(t *testing.T) {
+	f := newNativeOracleFixture(t)
+	preparations, err := readSelectedOraclePreparations(context.Background(), f.s.db, f.work)
+	if failureKind(err) != KindInvariantViolation {
+		t.Fatalf("two ready revisions: preparations=%d err=%v", len(preparations), err)
+	}
+}
+
+func TestNativeOracleCorePreparationAdmissionAndAdapterBoundary(t *testing.T) {
+	f := newNativeOracleFixture(t)
+	var original string
+	if err := f.s.db.QueryRow(`SELECT result_json FROM worktree_verify_leases WHERE lease_id='native-prepare'`).Scan(&original); err != nil {
+		t.Fatal(err)
+	}
+	for name, alteration := range map[string]string{
+		"unready":             `json_set(result_json,'$.oracle.qualification','unavailable')`,
+		"foreign_subject":     `json_set(result_json,'$.oracle.subject_commit','` + strings.Repeat("c", 40) + `')`,
+		"contract_drift":      `json_set(result_json,'$.oracle.contract_version',2)`,
+		"streams_incomplete":  `json_set(result_json,'$.oracle.streams_complete',json('false'))`,
+		"no_selected_names":   `json_set(result_json,'$.oracle.selected_test_names',json_array())`,
+		"distinct_count_zero": `json_set(result_json,'$.oracle.selected_distinct_count',0)`,
+		"empty_case_map":      `json_set(result_json,'$.oracle.case_to_test_map',json_object())`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := f.s.db.Exec(`UPDATE worktree_verify_leases SET result_json=` + alteration + ` WHERE lease_id='native-prepare'`); err != nil {
+				t.Fatal(err)
+			}
+			if err := requireWorkerJobRevisionReadyTx(context.Background(), f.s.db, f.work, *f.a.WorkerJobBinding); err == nil {
+				t.Fatal("dispatch admission accepted a mismatched preparation")
+			}
+			if _, err := f.s.VerifyWorktree(context.Background(), f.request("preparation-"+name, &f.a)); err == nil {
+				t.Fatal("execute admission accepted a mismatched preparation")
+			}
+			f.assertNoLaunch(t)
+			if _, err := f.s.db.Exec(`UPDATE worktree_verify_leases SET result_json=? WHERE lease_id='native-prepare'`, original); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+	// The adapter's stream-reference checks are not duplicates of core
+	// receipt admission. Keep those checks until their owner changes.
+	if _, err := f.s.db.Exec(`UPDATE worktree_verify_leases SET result_json=json_set(result_json,'$.oracle.stdout.ref','') WHERE lease_id='native-prepare'`); err != nil {
+		t.Fatal(err)
+	}
+	if err := requireWorkerJobRevisionReadyTx(context.Background(), f.s.db, f.work, *f.a.WorkerJobBinding); err != nil {
+		t.Fatalf("adapter/core boundary changed; reconsider duplicate checks: %v", err)
+	}
+	f.assertNoLaunch(t)
 }
 
 func TestNativeOracleSelectorArgvCeiling(t *testing.T) {
@@ -440,12 +527,7 @@ func TestNativeOracleAuthorizationRecheckBeforeLaunchAndRelease(t *testing.T) {
 			if r.Oracle == nil || r.Oracle.Qualification != "unavailable" {
 				t.Fatalf("changed authorization qualified: %+v %v", r, err)
 			}
-			if stageName == "converter_compile" {
-				if failureKind(err) != KindUnauthorizedDispatch {
-					t.Fatalf("prelaunch recheck lost typed refusal: %v", err)
-				}
-				f.assertNoLaunch(t)
-			} else if err != nil || f.launches != 1 {
+			if err != nil || f.launches != 1 {
 				t.Fatalf("release drift fabricated rerun: %v launches=%d", err, f.launches)
 			}
 			var green int

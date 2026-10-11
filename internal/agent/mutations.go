@@ -3048,15 +3048,17 @@ func (r runtime) mutateWorktreeVerify(ctx context.Context, base Envelope, raw []
 	leaseDigest := sha256Hex(leaseInput)
 	leaseID := leaseDigest + ":worktree-verify:" + in.WorkID
 	result, err := r.Store.VerifyWorktree(ctx, store.WorktreeVerifyRequest{
-		Owner:        store.SessionWorktreeOwner{ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef},
-		WorkID:       in.WorkID,
-		ProjectID:    project,
-		Command:      in.Command,
-		Oracle:       in.Oracle,
-		LeaseID:      leaseID,
-		PrincipalRef: grant.PrincipalRef,
-		RequestID:    in.IdempotencyKey,
-		Now:          r.Authority.now(),
+		Owner:                  store.SessionWorktreeOwner{ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef},
+		WorkID:                 in.WorkID,
+		ProjectID:              project,
+		Command:                in.Command,
+		Oracle:                 in.Oracle,
+		LeaseID:                leaseID,
+		PrincipalRef:           grant.PrincipalRef,
+		RequestID:              in.IdempotencyKey,
+		Now:                    r.Authority.now(),
+		SupportedBudgetSeconds: r.Budget.SupportedSeconds,
+		CallerBudgetApplied:    r.Budget.RequestedSeconds > 0,
 	})
 	if err != nil {
 		failure := failureEnvelope(base, err)

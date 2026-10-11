@@ -3,11 +3,14 @@ package store
 import (
 	"bytes"
 	"context"
+	"crypto/sha1" //nolint:gosec // Git's SHA-1 object format is an interoperability requirement.
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"go/version"
 	"io"
 	"io/fs"
 	"os"
@@ -19,6 +22,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"time"
 )
 
 type nativeGoOracleManifest struct {
@@ -42,6 +46,7 @@ type nativeGoEnvironment struct {
 }
 
 var nativeOracleTestName = regexp.MustCompile(`^Test[A-Z][A-Za-z0-9_]*$`)
+var nativeGoToolchainName = regexp.MustCompile(`^go1\.[0-9]+(\.[0-9]+|beta[0-9]+|rc[0-9]+)?$`)
 
 func nativeUnavailable(detail string) error {
 	return oracleFailure(KindUnavailable, detail, "repair the pinned harness or installed inputs, then request explicit native preparation")
@@ -96,70 +101,127 @@ func nativeOracleCaseTests(m nativeGoOracleManifest, c OracleControl) ([]string,
 	return names, nil
 }
 
-func nativeControlledEnv(e nativeGoEnvironment, cache string) []string {
+func nativeControlledEnv(e nativeGoEnvironment, root string) []string {
 	var env []string
-	for _, v := range os.Environ() {
-		key, _, _ := strings.Cut(v, "=")
-		if strings.HasPrefix(key, "GO") || strings.HasPrefix(key, "CGO") || key == "CC" || key == "CXX" {
-			continue
+	for _, key := range []string{"PATH", "LANG", "LC_ALL"} {
+		if value, ok := os.LookupEnv(key); ok {
+			env = append(env, key+"="+value)
 		}
-		env = append(env, v)
 	}
-	env = append(env, "GOTOOLCHAIN=local", "GOPROXY=off", "GOFLAGS=-mod=readonly", "CGO_ENABLED=0", "GOWORK=off", "GOENV=off", "GOOS="+e.GOOS, "GOARCH="+e.GOARCH)
+	env = append(env, "HOME="+filepath.Join(root, "home"), "TMPDIR="+filepath.Join(root, "tmp"), "GOCACHE="+filepath.Join(root, "cache"), "GOTOOLCHAIN=local", "GOPROXY=off", "GOSUMDB=off", "GOFLAGS=-mod=readonly", "CGO_ENABLED=0", "GOWORK=off", "GOENV=off", "GOOS="+e.GOOS, "GOARCH="+e.GOARCH)
 	if e.GoRoot != "" {
 		env = append(env, "GOROOT="+e.GoRoot)
 	}
 	if e.ModuleCache != "" {
 		env = append(env, "GOMODCACHE="+e.ModuleCache)
 	}
-	if cache != "" {
-		env = append(env, "GOCACHE="+cache)
-	}
 	return env
 }
 
-func resolveNativeGoEnvironment(ctx context.Context) (nativeGoEnvironment, error) {
+func nativeScratchDirectories(root string) error {
+	for _, name := range []string{"home", "tmp", "cache"} {
+		if err := os.MkdirAll(filepath.Join(root, name), 0700); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func nativeOracleTestContext(ctx context.Context, req WorktreeVerifyRequest) (context.Context, context.CancelFunc, error) {
+	if req.CallerBudgetApplied {
+		return ctx, func() {}, nil
+	}
+	if req.SupportedBudgetSeconds < 1 {
+		return ctx, func() {}, nativeUnavailable("test stage has no supported operation ceiling")
+	}
+	child, cancel := context.WithTimeout(ctx, time.Duration(req.SupportedBudgetSeconds)*time.Second)
+	return child, cancel, nil
+}
+
+func nativeOracleStageCapture(name string, capture *nativeStreamCapture) *nativeStreamCapture {
+	if name == "metadata" {
+		// Dependency metadata is consumed here, not mixed into the retained
+		// test evidence. Its own cap cannot spend the witness stream budget.
+		return &nativeStreamCapture{complete: true}
+	}
+	return capture
+}
+
+func resolveNativeGoEnvironment(ctx context.Context, pinned string) (nativeGoEnvironment, error) {
 	e := nativeGoEnvironment{GOOS: runtime.GOOS, GOARCH: runtime.GOARCH}
+	unavailable := func(cause string) (nativeGoEnvironment, error) {
+		return e, nativeUnavailable("pinned toolchain " + pinned + " is unavailable (cached-only, GOPROXY=off): " + cause)
+	}
 	goPath, err := exec.LookPath("go")
 	if err != nil {
-		return e, nativeUnavailable("installed Go executable is unavailable")
+		return unavailable(err.Error())
 	}
-	goPath, err = filepath.EvalSymlinks(goPath)
+	root, err := os.MkdirTemp("", "concord-native-toolchain-")
 	if err != nil {
 		return e, err
 	}
-	e.GoExecutable = goPath
-	cmd := exec.CommandContext(ctx, goPath, "env", "-json", "GOVERSION", "GOROOT", "GOMODCACHE", "GOOS", "GOARCH") //nolint:gosec // installed executable read, fixed argv.
-	cmd.Env = nativeControlledEnv(e, "")
-	raw, err := cmd.Output()
-	if err != nil {
-		return e, nativeUnavailable("installed local Go environment is unavailable")
-	}
-	var values map[string]string
-	if json.Unmarshal(raw, &values) != nil {
-		return e, nativeUnavailable("Go environment metadata is malformed")
-	}
-	e.Version = values["GOVERSION"]
-	e.GoRoot = values["GOROOT"]
-	e.ModuleCache = values["GOMODCACHE"]
-	if e.Version != "go1.26.7" || values["GOOS"] != e.GOOS || values["GOARCH"] != e.GOARCH || e.GoRoot == "" || e.ModuleCache == "" {
-		return e, nativeUnavailable("installed toolchain must be go1.26.7 on the native target")
-	}
-	b, err := os.ReadFile(goPath)
-	if err != nil {
+	defer func() { _ = os.RemoveAll(root) }()
+	if err := nativeScratchDirectories(root); err != nil {
 		return e, err
+	}
+	// Only the standard installed module cache is shared. Host Go variables
+	// and persistent Go configuration never select compiler inputs.
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return unavailable(err.Error())
+	}
+	e.ModuleCache = filepath.Join(home, "go", "pkg", "mod")
+	probe := func(toolchain string) (map[string]string, error) {
+		cmd := exec.CommandContext(ctx, goPath, "env", "-json", "GOVERSION", "GOROOT", "GOMODCACHE", "GOOS", "GOARCH") //nolint:gosec // installed command, fixed argv.
+		cmd.Dir = root
+		cmd.Env = nativeControlledEnv(e, root)
+		for i, value := range cmd.Env {
+			if strings.HasPrefix(value, "GOTOOLCHAIN=") {
+				cmd.Env[i] = "GOTOOLCHAIN=" + toolchain
+			}
+		}
+		var stderr bytes.Buffer
+		cmd.Stderr = &stderr
+		raw, err := cmd.Output()
+		if err != nil {
+			return nil, fmt.Errorf("%w: %s", err, strings.TrimSpace(stderr.String()))
+		}
+		var values map[string]string
+		if err := json.Unmarshal(raw, &values); err != nil {
+			return nil, fmt.Errorf("malformed Go environment: %w", err)
+		}
+		return values, nil
+	}
+	values, err := probe("local")
+	if err != nil || values["GOVERSION"] != pinned {
+		values, err = probe(pinned)
+		if err != nil {
+			return unavailable(err.Error())
+		}
+	}
+	e.Version, e.GoRoot = values["GOVERSION"], values["GOROOT"]
+	if e.Version != pinned || values["GOOS"] != e.GOOS || values["GOARCH"] != e.GOARCH || e.GoRoot == "" || values["GOMODCACHE"] != e.ModuleCache {
+		return unavailable("resolved environment does not match the exact pin and native target")
+	}
+	e.GoExecutable, err = filepath.EvalSymlinks(filepath.Join(e.GoRoot, "bin", "go"))
+	if err != nil {
+		return unavailable(err.Error())
+	}
+	b, err := os.ReadFile(e.GoExecutable)
+	if err != nil {
+		return unavailable(err.Error())
 	}
 	var tools []NativeOracleFile
 	for _, name := range []string{"pkg/tool/" + e.GOOS + "_" + e.GOARCH + "/compile", "pkg/tool/" + e.GOOS + "_" + e.GOARCH + "/link", "pkg/tool/" + e.GOOS + "_" + e.GOARCH + "/asm", "src/cmd/test2json/main.go", "src/cmd/internal/test2json/test2json.go"} {
 		data, err := os.ReadFile(filepath.Join(e.GoRoot, filepath.FromSlash(name)))
 		if err != nil {
-			return e, nativeUnavailable("pinned compiler, linker, or converter source is unavailable")
+			return unavailable("compiler, linker, or converter source: " + err.Error())
 		}
 		tools = append(tools, NativeOracleFile{Path: name, SHA256: nativeDigest(data)})
 	}
 	toolsRaw, _ := json.Marshal(tools)
 	e.ToolchainIdentity = e.Version + ":" + nativeDigest(append(b, toolsRaw...))
-	e.Digest = nativeDigest([]byte(e.ToolchainIdentity + "\x00" + e.GOOS + "\x00" + e.GOARCH + "\x00GOTOOLCHAIN=local\x00GOPROXY=off\x00GOFLAGS=-mod=readonly\x00CGO_ENABLED=0\x00GOWORK=off\x00GOENV=off\x00private-disposable-per-lease"))
+	e.Digest = nativeDigest([]byte(e.ToolchainIdentity + "\x00" + e.GOOS + "\x00" + e.GOARCH + "\x00GOTOOLCHAIN=local\x00GOPROXY=off\x00GOSUMDB=off\x00GOFLAGS=-mod=readonly\x00CGO_ENABLED=0\x00GOWORK=off\x00GOENV=off\x00private-disposable-per-lease"))
 	return e, nil
 }
 
@@ -248,18 +310,19 @@ func normalizeNativeOraclePlan(ctx context.Context, r GitRunner, entry WorktreeE
 		}
 	}
 	slices.SortFunc(p.Files, func(a, b NativeOracleFile) int { return strings.Compare(a.Path, b.Path) })
-	p.Environment, err = resolveNativeGoEnvironment(ctx)
-	if err != nil {
-		return p, err
-	}
 	var moduleInputs [][]byte
+	var pinned string
 	for _, commit := range []string{subject, b.Control.RecipeSource.CommitOID} {
 		_, mod, err := nativeGitFile(ctx, r, entry.Path, commit, "go.mod")
 		if err != nil {
 			return p, nativeUnavailable("supported recipe requires a pinned root go.mod")
 		}
-		if !nativePinnedGoToolchain(mod) {
-			return p, nativeUnavailable("module must pin toolchain go1.26.7")
+		pin, err := nativePinnedGoToolchain(mod)
+		if err != nil {
+			return p, err
+		}
+		if pinned == "" {
+			pinned = pin
 		}
 		var sum []byte
 		listed, err := r.Run(ctx, entry.Path, "ls-tree", "-z", commit, "--", "go.sum")
@@ -277,13 +340,16 @@ func normalizeNativeOraclePlan(ctx context.Context, r GitRunner, entry WorktreeE
 	if !bytes.Equal(moduleInputs[0], moduleInputs[1]) {
 		return p, nativeUnavailable("candidate module dependency inputs differ from pinned preparation")
 	}
+	p.Environment, err = resolveNativeGoEnvironment(ctx, pinned)
+	if err != nil {
+		return p, err
+	}
 	p.Environment.ModuleInputsDigest = nativeDigest(moduleInputs[0])
 	p.Environment.Digest = nativeDigest([]byte(p.Environment.Digest + "\x00" + p.Environment.ModuleInputsDigest))
 	p.Stages = []NativeOracleStage{{Name: "dependencies", Argv: []string{"go", "mod", "verify"}}, {Name: "metadata", Argv: []string{"go", "list", "-json", "-deps", "-test", "."}}, {Name: "compile", Argv: []string{"go", "test", "-c", "-o", "$scratch/oracle.test", "."}}, {Name: "converter_compile", Argv: []string{"go", "build", "-o", "$scratch/test2json", "cmd/test2json"}}}
 	if req.Oracle.Phase == "execute" {
 		p.Stages = append(p.Stages, NativeOracleStage{Name: "test", Argv: []string{"$scratch/oracle.test", "-test.count=1", "-test.run=" + b.Control.Argv[4], "-test.v=test2json", "-test.paniconexit0"}}, NativeOracleStage{Name: "convert", Argv: []string{"$scratch/test2json", "-p", "$package"}})
 	}
-	p.Stages = append(p.Stages, NativeOracleStage{Name: "dependencies_final", Argv: []string{"go", "mod", "verify"}})
 	for _, stage := range p.Stages {
 		if err := validateWorktreeVerifyCommand(stage.Argv); err != nil {
 			return p, err
@@ -292,28 +358,48 @@ func normalizeNativeOraclePlan(ctx context.Context, r GitRunner, entry WorktreeE
 	return p, nil
 }
 
-func nativePinnedGoToolchain(mod []byte) bool {
-	count := 0
+func nativePinnedGoToolchain(mod []byte) (string, error) {
+	var toolchain, language string
 	for _, line := range strings.Split(string(mod), "\n") {
 		line, _, _ = strings.Cut(line, "//")
 		fields := strings.Fields(line)
-		if len(fields) == 0 || fields[0] != "toolchain" {
+		if len(fields) == 0 || (fields[0] != "toolchain" && fields[0] != "go") {
 			continue
 		}
-		if len(fields) != 2 || fields[1] != "go1.26.7" {
-			return false
+		if len(fields) != 2 {
+			return "", nativeUnavailable("malformed module Go version directive")
 		}
-		count++
+		target := &language
+		if fields[0] == "toolchain" {
+			target = &toolchain
+		}
+		if *target != "" {
+			return "", nativeUnavailable("duplicate module Go version directive")
+		}
+		*target = fields[1]
 	}
-	return count == 1
+	if toolchain == "" {
+		toolchain = "go" + language
+		if strings.Count(language, ".") == 1 && version.Compare(toolchain, "go1.21") >= 0 {
+			toolchain += ".0"
+		}
+	}
+	if !version.IsValid(toolchain) || !nativeGoToolchainName.MatchString(toolchain) {
+		return "", nativeUnavailable("module must name an exact Go toolchain or Go version")
+	}
+	return toolchain, nil
 }
 
-// Snapshot only regular Git blobs. No links are followed or materialized.
+// A private index materializes regular Git blobs once. Links are refused
+// before checkout, and hashes and executable modes verify the exported tree.
 func materializeNativeSnapshot(ctx context.Context, r GitRunner, repo, commit, root string) error {
 	raw, err := r.Run(ctx, repo, "ls-tree", "-r", "-z", commit)
 	if err != nil {
 		return err
 	}
+	type blob struct{ name, mode, oid string }
+	var blobs []blob
+	names := map[string]bool{}
 	for _, entry := range strings.Split(string(raw), "\x00") {
 		if entry == "" {
 			continue
@@ -323,22 +409,63 @@ func materializeNativeSnapshot(ctx context.Context, r GitRunner, repo, commit, r
 		if !ok || len(fields) != 3 || fields[1] != "blob" || (fields[0] != "100644" && fields[0] != "100755") {
 			return nativeUnavailable("snapshot contains unsupported symlink or gitlink")
 		}
-		if !fs.ValidPath(name) || strings.HasPrefix(name, ".git/") {
+		if !fs.ValidPath(name) || name == ".git" || strings.HasPrefix(name, ".git/") {
 			return nativeUnavailable("snapshot path is not contained")
 		}
-		data, err := r.Run(ctx, repo, "cat-file", "blob", fields[2])
+		blobs = append(blobs, blob{name, fields[0], fields[2]})
+		names[name] = true
+	}
+	scratch, err := os.MkdirTemp("", "concord-native-index-")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = os.RemoveAll(scratch) }()
+	if err := nativeScratchDirectories(scratch); err != nil {
+		return err
+	}
+	env := append(nativeControlledEnv(nativeGoEnvironment{}, scratch), "GIT_INDEX_FILE="+filepath.Join(scratch, "index"), "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null")
+	for _, args := range [][]string{{"read-tree", commit}, {"checkout-index", "-a", "--prefix=" + root + string(filepath.Separator)}} {
+		cmd := exec.CommandContext(ctx, "git", args...) //nolint:gosec // fixed Git commands, separate immutable-subject argv.
+		cmd.Dir, cmd.Env = repo, env
+		if output, err := cmd.CombinedOutput(); err != nil {
+			return nativeUnavailable(fmt.Sprintf("snapshot materialization: %v: %s", err, output))
+		}
+	}
+	for _, b := range blobs {
+		file := filepath.Join(root, filepath.FromSlash(b.name))
+		info, err := os.Lstat(file)
+		if err != nil || !info.Mode().IsRegular() || (info.Mode().Perm()&0111 != 0) != (b.mode == "100755") {
+			return nativeUnavailable("snapshot file mode differs from subject: " + b.name)
+		}
+		data, err := os.ReadFile(file)
 		if err != nil {
 			return err
 		}
-		file := filepath.Join(root, filepath.FromSlash(name))
-		if err := os.MkdirAll(filepath.Dir(file), 0700); err != nil {
-			return err
+		object := append([]byte(fmt.Sprintf("blob %d\x00", len(data))), data...)
+		var oid string
+		switch len(b.oid) {
+		case 40:
+			sum := sha1.Sum(object) //nolint:gosec // verify Git SHA-1 object identity, not a security primitive.
+			oid = fmt.Sprintf("%x", sum)
+		case 64:
+			sum := sha256.Sum256(object)
+			oid = fmt.Sprintf("%x", sum)
+		default:
+			return nativeUnavailable("unsupported Git object identity")
 		}
-		if err := os.WriteFile(file, data, 0600); err != nil {
-			return err
+		if oid != b.oid {
+			return nativeUnavailable("snapshot blob differs from subject: " + b.name)
 		}
 	}
-	return nil
+	return fs.WalkDir(os.DirFS(root), ".", func(name string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() && !names[name] {
+			return nativeUnavailable("snapshot contains a file outside the subject tree: " + name)
+		}
+		return nil
+	})
 }
 
 func nativeReplaceHarness(ctx context.Context, r GitRunner, repo, root string, p nativeOraclePlan) error {
@@ -788,7 +915,7 @@ func (s *Store) runNativeGoOracle(ctx context.Context, r GitRunner, entry Worktr
 	}()
 	cache := filepath.Join(root, "cache")
 	snapshot := filepath.Join(root, "snapshot")
-	if err := os.Mkdir(cache, 0700); err != nil {
+	if err := nativeScratchDirectories(root); err != nil {
 		return err
 	}
 	if err := os.Mkdir(snapshot, 0700); err != nil {
@@ -809,16 +936,7 @@ func (s *Store) runNativeGoOracle(ctx context.Context, r GitRunner, entry Worktr
 		return err
 	}
 	result.InputManifestDigest = digest
-	currentEnv, err := resolveNativeGoEnvironment(ctx)
-	if err != nil {
-		return err
-	}
-	currentEnv.ModuleInputsDigest = p.Environment.ModuleInputsDigest
-	currentEnv.Digest = nativeDigest([]byte(currentEnv.Digest + "\x00" + currentEnv.ModuleInputsDigest))
-	if currentEnv != p.Environment {
-		return nativeUnavailable("installed build environment changed after plan acquisition")
-	}
-	env := nativeControlledEnv(p.Environment, cache)
+	env := nativeControlledEnv(p.Environment, root)
 	cwd := filepath.Join(snapshot, filepath.FromSlash(p.Bundle.Control.Cwd))
 	if !nativeContained(snapshot, cwd) {
 		return nativeUnavailable("effective cwd escapes candidate snapshot")
@@ -848,13 +966,6 @@ func (s *Store) runNativeGoOracle(ctx context.Context, r GitRunner, entry Worktr
 			return nativeUnavailable("disposable cache no longer realizes the leased plan slot")
 		}
 		if stage.Name == "test" {
-			before, err := snapshotOracleGitSubject(ctx, r, entry.Path)
-			if err != nil {
-				return err
-			}
-			if _, _, _, err := s.nativeOracleAdmission(ctx, req, entry, before, p.WorktreeIdentity, &p, false); err != nil {
-				return err
-			}
 			actual, err := validateNativeOraclePackageInputs(snapshot, p)
 			if err != nil || actual != digest {
 				return nativeUnavailable("candidate inputs changed before test launch")
@@ -893,14 +1004,24 @@ func (s *Store) runNativeGoOracle(ctx context.Context, r GitRunner, entry Worktr
 		if s.nativeOracleStageObserved != nil {
 			s.nativeOracleStageObserved(stage.Name, cwd, slices.Clone(argv), slices.Clone(env))
 		}
-		exit, runErr := runNativeOracleStage(ctx, cwd, argv, env, stdin, capture, launched)
+		stageCtx := ctx
+		cancel := func() {}
+		if stage.Name == "test" {
+			stageCtx, cancel, err = nativeOracleTestContext(ctx, req)
+			if err != nil {
+				return err
+			}
+		}
+		stageCapture := nativeOracleStageCapture(stage.Name, capture)
+		exit, runErr := runNativeOracleStage(stageCtx, cwd, argv, env, stdin, stageCapture, launched)
+		cancel()
 		stage.ExitCode = exit
 		stage.StdoutOffset = so
 		stage.StderrOffset = se
 		stage.StdoutLength = len(capture.stdout) - so
 		stage.StderrLength = len(capture.stderr) - se
 		result.Stages = append(result.Stages, stage)
-		if runErr != nil || !capture.complete {
+		if runErr != nil || !stageCapture.complete {
 			return nativeUnavailable(fmt.Sprintf("native %s failed: %v", stage.Name, runErr))
 		}
 		if stage.Name == "compile" && exit != 0 && req.Oracle.Phase == "execute" {
@@ -912,7 +1033,7 @@ func (s *Store) runNativeGoOracle(ctx context.Context, r GitRunner, entry Worktr
 		}
 		switch stage.Name {
 		case "metadata":
-			packagePath, err = validateNativeGoMetadata(capture.stdout[so:], snapshot, p)
+			packagePath, err = validateNativeGoMetadata(stageCapture.stdout, snapshot, p)
 			if err != nil {
 				return err
 			}
@@ -954,15 +1075,6 @@ func (s *Store) runNativeGoOracle(ctx context.Context, r GitRunner, entry Worktr
 	actual, err := validateNativeOraclePackageInputs(snapshot, p)
 	if err != nil || actual != digest {
 		return nativeUnavailable("consumed candidate inputs changed during execution")
-	}
-	finalEnv, err := resolveNativeGoEnvironment(ctx)
-	if err != nil {
-		return err
-	}
-	finalEnv.ModuleInputsDigest = p.Environment.ModuleInputsDigest
-	finalEnv.Digest = nativeDigest([]byte(finalEnv.Digest + "\x00" + finalEnv.ModuleInputsDigest))
-	if finalEnv != p.Environment {
-		return nativeUnavailable("consumed toolchain identity changed during execution")
 	}
 	binary, err := scratchRoot.ReadFile("oracle.test")
 	if err != nil || nativeDigest(binary) != result.BinaryDigest {

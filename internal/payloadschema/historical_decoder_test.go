@@ -1,7 +1,9 @@
 package payloadschema
 
 import (
+	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -124,26 +126,13 @@ func TestHistoricalDecoderValidatesIndependentlyOfPublicAuthoringDocument(t *tes
 	}
 }
 
-// TestHistoricalDecoderMatchesPublicAuthoringDocumentAtBaseline freezes the
-// S0 baseline: every frozen decoder definition is byte-equal to the public
-// authoring document's definition of the same name, so both sides accept and
-// refuse the identical baseline corpus. A later slice that narrows the public
-// authoring document removes or replaces this assertion with its own
-// conscious divergence evidence; the frozen decoder itself never re-derives.
-func TestHistoricalDecoderMatchesPublicAuthoringDocumentAtBaseline(t *testing.T) {
-	frozen := HistoricalDocument()
-	public := Document()
-	frozenDefs := frozen["$defs"].(map[string]any)
-	publicDefs := public["$defs"].(map[string]any)
-	for name, frozenDef := range frozenDefs {
-		publicDef, ok := publicDefs[name]
-		if !ok {
-			t.Errorf("frozen historical decoder definition %q has no baseline public counterpart", name)
-			continue
-		}
-		if canonicalJSON(t, frozenDef) != canonicalJSON(t, publicDef) {
-			t.Errorf("frozen historical decoder definition %q diverged from the baseline public authoring document", name)
-		}
+// The decoder bytes were frozen from d95dd9d0. The public document evolves
+// independently: navigation-free packets cannot rewrite recorded packets.
+func TestHistoricalDecoderRetainsFrozenBaselineBytes(t *testing.T) {
+	const expected = "sha256:81339ce1d8c300555ab0afb031dda6f0b97f41e25407f464a357a9d7c0dbc431"
+	digest := fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(canonicalJSON(t, HistoricalDocument()))))
+	if digest != expected {
+		t.Fatalf("historical decoder baseline digest = %s, want %s", digest, expected)
 	}
 }
 

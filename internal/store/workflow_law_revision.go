@@ -500,7 +500,7 @@ func readWorkflowLawRevisions(ctx context.Context, q queryer, workID string, con
 // subject: a stale law revision, an unresolved Domain overlap, or the
 // subject's own stale Domain registry pin. guardSupersedeContractRecovery and
 // both workflow_action preflights share it, so no surface can widen the
-// recovery admission on its own (CD-0041 D7). A marker naming another item, a
+// recovery admission on its own (CD-0222 D7). A marker naming another item, a
 // Product with no registry, and every other refusal stay refused.
 func workflowContractRecoveryStaleness(err error, workID string) bool {
 	var failure *Failure
@@ -578,7 +578,7 @@ func checkWorkflowLawRevisionStalenessAdmittingTx(ctx context.Context, tx *sql.T
 	return failure
 }
 
-// CheckWorkflowConsequentialBoundaryTx is the CD-0041 D7 preflight for a
+// CheckWorkflowConsequentialBoundaryTx is the CD-0222 D7 preflight for a
 // caller-owned mutation transaction. It validates both halves the boundary
 // owes — the contract's law revision pins and its active Domain overlaps — in
 // the transaction that owns the write, so neither can change between the check

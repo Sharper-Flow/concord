@@ -368,7 +368,7 @@ func ActiveWorkIDsTx(ctx context.Context, transaction *Transaction, productID st
 	if err != nil {
 		return nil, err
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT w.id FROM work_items w WHERE w.lifecycle='in_progress' AND `+actionableWorkKindSQL("w.kind")+` AND EXISTS (SELECT 1 FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=w.id AND pp.product_id=?) ORDER BY w.id LIMIT 100`, productID)
+	rows, err := tx.QueryContext(ctx, `SELECT w.id FROM work_items w WHERE w.lifecycle='in_progress' AND w.`+actionableWorkKindSQL+` AND EXISTS (SELECT 1 FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=w.id AND pp.product_id=?) ORDER BY w.id LIMIT 100`, productID)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "active_work", "cannot read bounded in-progress work", true, "retry once the database is readable", err)
 	}

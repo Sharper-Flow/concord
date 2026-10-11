@@ -512,7 +512,7 @@ func queryDomainActiveWork(ctx context.Context, q queryer, req DomainActiveWorkR
 		FROM workflow_contracts c
 		JOIN workflow_architecture_bindings b ON b.work_id=c.work_id AND b.contract_version=c.contract_version
 		JOIN work_items w ON w.id=c.work_id
-		WHERE c.superseded_by IS NULL AND w.lifecycle NOT IN ('completed','cancelled','superseded') AND `+actionableWorkKindSQL("w.kind")+`
+		WHERE c.superseded_by IS NULL AND w.lifecycle NOT IN ('completed','cancelled','superseded') AND w.`+actionableWorkKindSQL+`
 		  AND (SELECT count(*) FROM workflow_contracts c3 WHERE c3.work_id=c.work_id AND c3.superseded_by IS NULL)=1
 		  AND (b.home_domain_id=? OR EXISTS (SELECT 1 FROM workflow_contract_affected_domains a WHERE a.work_id=c.work_id AND a.contract_version=c.contract_version AND a.domain_id=?))
 		  AND (w.priority,w.id) > (?,?)

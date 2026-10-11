@@ -209,24 +209,6 @@ func WorkflowInstanceDefinitionTx(ctx context.Context, transaction *Transaction,
 	return definition, true, nil
 }
 
-func (s *Store) WorkVersion(ctx context.Context, workID string) (int64, error) {
-	if s == nil || s.db == nil {
-		return 0, newFailure(KindUnavailable, "work_version", "store is not open", false, "open the authority database")
-	}
-	return mutationWorkVersion(ctx, s.db, workID)
-}
-
-func mutationWorkVersion(ctx context.Context, q queryer, workID string) (int64, error) {
-	var version int64
-	if err := q.QueryRowContext(ctx, `SELECT version FROM work_items WHERE id=?`, workID).Scan(&version); err != nil {
-		if err == sql.ErrNoRows {
-			return 0, newFailure(KindProjectionNotFound, "work_version", "work item does not exist", false, "reread the work item")
-		}
-		return 0, wrapFailure(KindUnavailable, "work_version", "cannot read work version", true, "retry once the database is readable", err)
-	}
-	return version, nil
-}
-
 func (s *Store) TerminalWorkVersion(ctx context.Context, workID string) (int64, error) {
 	if s == nil || s.db == nil {
 		return 0, newFailure(KindUnavailable, "terminal_work", "store is not open", false, "open the authority database")

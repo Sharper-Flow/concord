@@ -3,8 +3,10 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"reflect"
 	"sort"
@@ -93,6 +95,37 @@ func writeManifestShards(t *testing.T, repo string, manifest KnowledgeManifest) 
 		t.Fatal(err)
 	}
 	writeAggregateAsShards(t, repo, encoded)
+}
+
+// readKnowledgeShardsWorkingTree reads the shard tree from the checked-out
+// repository, the form lesson publication edits before it commits. It lives in
+// the test build: only the shard-composition fixtures read the working tree.
+func readKnowledgeShardsWorkingTree(repo string) (knowledgeShards, error) {
+	head, err := os.ReadFile(path.Join(repo, knowledgeHeadPath)) //nolint:gosec // knowledgeHeadPath is fixed and repo is the operator-selected Git authority.
+	if err != nil {
+		return knowledgeShards{}, wrapFailure(KindGitUnreachable, "read_knowledge_manifest", "cannot read the knowledge manifest head", true, "restore the git knowledge home", err)
+	}
+	shards := knowledgeShards{head: head, records: map[string][]byte{}, recordPathPrefix: manifestRecordPathPrefix}
+	if registry, err := os.ReadFile(path.Join(repo, knowledgeRegistryPath)); err == nil { //nolint:gosec // knowledgeRegistryPath is fixed and repo is the operator-selected Git authority.
+		shards.registry = registry
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return knowledgeShards{}, wrapFailure(KindGitUnreachable, "read_knowledge_manifest", "cannot read the domain registry shard", true, "restore the git knowledge home", err)
+	}
+	entries, err := os.ReadDir(path.Join(repo, knowledgeRecordTree))
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return knowledgeShards{}, wrapFailure(KindGitUnreachable, "read_knowledge_manifest", "cannot list the knowledge record shards", true, "restore the git knowledge home", err)
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		content, err := os.ReadFile(path.Join(repo, knowledgeRecordTree, entry.Name())) //nolint:gosec // the record tree is fixed and repo is the operator-selected Git authority.
+		if err != nil {
+			return knowledgeShards{}, wrapFailure(KindGitUnreachable, "read_knowledge_manifest", "cannot read a knowledge record shard", true, "restore the git knowledge home", err)
+		}
+		shards.records[entry.Name()] = content
+	}
+	return shards, nil
 }
 
 // composeWorkingTreeManifest reads the manifest the repository's working-tree

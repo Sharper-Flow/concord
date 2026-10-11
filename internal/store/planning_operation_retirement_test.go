@@ -132,10 +132,10 @@ func TestRetiredPlanningEventsReplay(t *testing.T) {
 	}
 	// The superseded item is back to needed at v4; the untouched endpoints
 	// hold the versions the journal advanced them to.
-	assertWorkLifecycleVersion(t, db, "replay-predecessor", "needed", 4)
-	assertWorkLifecycleVersion(t, db, "replay-successor", "needed", 2)
-	assertWorkLifecycleVersion(t, db, "replay-link-a", "needed", 3)
-	assertWorkLifecycleVersion(t, db, "replay-link-c", "needed", 4)
+	assertWorkNeededVersion(t, db, "replay-predecessor", 4)
+	assertWorkNeededVersion(t, db, "replay-successor", 2)
+	assertWorkNeededVersion(t, db, "replay-link-a", 3)
+	assertWorkNeededVersion(t, db, "replay-link-c", 4)
 	// The recorded observation is dismissed, still readable for audit, and
 	// holds no open row on the Domain.
 	var state, dismissedAt string
@@ -154,15 +154,15 @@ func TestRetiredPlanningEventsReplay(t *testing.T) {
 	}
 }
 
-func assertWorkLifecycleVersion(t *testing.T, db *sql.DB, id, lifecycle string, version int64) {
+func assertWorkNeededVersion(t *testing.T, db *sql.DB, id string, version int64) {
 	t.Helper()
 	var gotLifecycle string
 	var gotVersion int64
 	if err := db.QueryRowContext(context.Background(), `SELECT lifecycle, version FROM work_items WHERE id=?`, id).Scan(&gotLifecycle, &gotVersion); err != nil {
 		t.Fatalf("work item %s must stay readable: %v", id, err)
 	}
-	if gotLifecycle != lifecycle || gotVersion != version {
-		t.Fatalf("work item %s = (%q, v%d), want (%q, v%d)", id, gotLifecycle, gotVersion, lifecycle, version)
+	if gotLifecycle != "needed" || gotVersion != version {
+		t.Fatalf("work item %s = (%q, v%d), want (needed, v%d)", id, gotLifecycle, gotVersion, version)
 	}
 }
 
@@ -237,7 +237,7 @@ func TestOverlapTerminalResolutionRejectsSecondSuccessor(t *testing.T) {
 				})
 				return err
 			})
-			requireOverlapOwnerRefusal(t, err, tc.wantKind, tc.wantDetail)
+			_ = requireOverlapOwnerRefusal(t, err, tc.wantKind, tc.wantDetail)
 			assertOverlapResolutionRefusalWroteNothing(t, s, "overlap-second-"+tc.kind)
 		})
 	}

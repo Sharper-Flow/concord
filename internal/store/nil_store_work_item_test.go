@@ -54,10 +54,6 @@ func TestUnopenedStoreWorkItemMethods(t *testing.T) {
 			_, err := s.ActiveWorkflowContract(ctx, "work-1")
 			return err
 		}},
-		{"WorkVersion", func(s *Store) error {
-			_, err := s.WorkVersion(ctx, "work-1")
-			return err
-		}},
 		{"TerminalWorkVersion", func(s *Store) error {
 			_, err := s.TerminalWorkVersion(ctx, "work-1")
 			return err

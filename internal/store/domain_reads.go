@@ -414,10 +414,10 @@ func queryDomainDetail(ctx context.Context, q queryer, req DomainDetailRequest) 
 	}
 	relRows.Close()
 
-	// CD-0068 D6: the open observations join the existing Domain surface, so
+	// CD-0224: the open observations join the existing Domain surface, so
 	// the operator meets them where the next decision about the Domain is
 	// made. They are not authority — the result stays authoritative on law and
-	// relations, and an observation satisfies nothing (CD-0068 D5).
+	// relations, and an observation satisfies nothing.
 	observations, err := observationsForDomain(ctx, q, req.Product, req.Domain, DomainObservationOpenWindow)
 	if err != nil {
 		return out, err

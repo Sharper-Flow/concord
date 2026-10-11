@@ -188,6 +188,49 @@ func TestRunZLForwardingLandsSecondaryProjectInItsOwnProduct(t *testing.T) {
 	}
 }
 
+func TestRunZLForwardingResolvesRecordedLinearIssueKey(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "concord.db")
+	seedCLIProduct(t, dbPath, "fwd-alpha-product", "fwd-alpha-project")
+	seedCLIProduct(t, dbPath, "fwd-zeta-product", "fwd-zeta-project")
+	seedForwardingCLIWork(t, dbPath, "fwd-work", "fwd-zeta-project", "fwd-alpha-project")
+	s, err := store.Open(context.Background(), dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Transact(context.Background(), func(tx *store.Transaction) error {
+		_, err := store.RecordLinearIssueLinkTx(context.Background(), tx, store.LinearIssueLink{WorkID: "fwd-work", RemoteIssueUUID: "fwd-issue-1", HumanKey: "FWD-1", URL: "https://linear.app/example/issue/FWD-1"})
+		return err
+	}); err != nil {
+		s.Close()
+		t.Fatal(err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(dbOverrideEnv, dbPath)
+	t.Setenv(selectedProductEnv, "fwd-alpha-product")
+	t.Setenv("CONCORD_PRODUCT_ID", "")
+	for _, tc := range []struct {
+		name string
+		args []string
+		want forwardedHandoff
+	}{
+		{"primary Project", []string{"FWD-1"}, forwardedHandoff{product: "fwd-zeta-product", work: "fwd-work"}},
+		{"explicit Project", []string{"FWD-1", "--project", "fwd-alpha-project"}, forwardedHandoff{product: "fwd-alpha-product", work: "fwd-work", project: "fwd-alpha-project"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			calls := captureForwardSession(t)
+			var out, errOut bytes.Buffer
+			if code := runZLForwarding(tc.args, strings.NewReader(""), &out, &errOut); code != 0 {
+				t.Fatalf("runZLForwarding exit = %d, stderr = %q", code, errOut.String())
+			}
+			if len(*calls) != 1 || (*calls)[0] != tc.want {
+				t.Fatalf("forwarded handoffs = %+v, want [%+v]", *calls, tc.want)
+			}
+		})
+	}
+}
+
 func TestRunZLForwardingRefusesProjectForUnlinkedLinearIssue(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "concord.db")
 	seedCLIProduct(t, dbPath, "fwd-alpha-product", "fwd-alpha-project")

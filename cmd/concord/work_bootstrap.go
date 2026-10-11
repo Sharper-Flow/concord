@@ -200,6 +200,10 @@ func runSessionPrepare(raw []byte, s *store.Store, out, errOut io.Writer, laneId
 		writeOperatorDiagnostic(errOut, "session-prepare", "product_id, work_id, and agent are required, and task must be bounded valid UTF-8")
 		return sessionPrepareRefusalExit
 	}
+	if err := s.RequireActionableWork(context.Background(), input.WorkID, "session-prepare"); err != nil {
+		writeOperatorDiagnostic(errOut, "session-prepare", err.Error())
+		return sessionPrepareFailureExit(err, sessionPrepareRefusalExit)
+	}
 	cwd, err := os.Getwd()
 	if err != nil {
 		writeOperatorDiagnostic(errOut, "session-prepare", "cannot read current directory")

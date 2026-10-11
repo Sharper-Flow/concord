@@ -1148,7 +1148,7 @@ func executeStructuredWorkflowAction(t *testing.T, name string, initial map[stri
 		}
 		state := ""
 		if snapshot.Work != nil {
-			if snapshot.Work.Active {
+			if snapshot.Work.Lifecycle == "in_progress" {
 				state = "running"
 			} else {
 				state = snapshot.Work.Lifecycle

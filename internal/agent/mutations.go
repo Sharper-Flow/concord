@@ -785,6 +785,9 @@ func preflightWorkflowActionRequestWithRegistry(ctx context.Context, s *store.St
 	if err := decodeOperationInput(raw, &in); err != nil {
 		return newRuntimeFailure("invalid_input", err.Error(), "reread_entities", false)
 	}
+	if err := s.RequireActionableWork(ctx, in.WorkID, "workflow_action"); err != nil {
+		return err
+	}
 	payload, err := workflowActionFields(in.Fields)
 	if err != nil {
 		return newRuntimeFailure("invalid_input", err.Error(), "reread_entities", false)
@@ -1101,6 +1104,9 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 	var in actionMutationInput
 	if err := decodeOperationInput(raw, &in); err != nil {
 		return coreError(base, "invalid_input", err.Error(), "reread_entities", false), nil
+	}
+	if err := r.Store.RequireActionableWork(ctx, in.WorkID, "workflow_action"); err != nil {
+		return failureEnvelope(base, err), nil
 	}
 	payload, err := workflowActionFields(in.Fields)
 	if err != nil {

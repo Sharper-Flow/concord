@@ -308,6 +308,21 @@ func TestRetiredInitiativeSelectionAfterMigration124(t *testing.T) {
 			if err != nil || scope.Work == nil || scope.Work.Kind != "initiative" || scope.Work.Ready || scope.Work.Blocked || scope.Work.Active {
 				t.Errorf("Initiative scope = %#v, %v; want readable, non-actionable record", scope, err)
 			}
+			projectScope, err := s.QueryQ6(ctx, Q6Request{Product: "product", Project: "project"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(projectScope.Items) != 4 {
+				t.Errorf("Project scope lost historical work: %v", projectScope.Items)
+			}
+			for _, item := range projectScope.Items {
+				if item.Kind == "initiative" && (item.Ready || item.Blocked || item.Active) {
+					t.Errorf("Project scope offers historical Initiative: %#v", item)
+				}
+				if item.ID == "retired-child" && (!item.Ready || item.Blocked) {
+					t.Errorf("Project scope still gates child: %#v", item)
+				}
+			}
 			rows, err := s.QueryProductRows(ctx, ProductRowRequest{Product: "product"})
 			if err != nil {
 				t.Fatal(err)

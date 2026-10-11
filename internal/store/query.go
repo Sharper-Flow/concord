@@ -1410,6 +1410,10 @@ func (s *Store) QueryQ6(ctx context.Context, req Q6Request) (Q6Result, error) {
 	if err != nil {
 		return out, err
 	}
+	out.Items, err = attachDerivedFlags(ctx, tx, out.Items)
+	if err != nil {
+		return out, err
+	}
 	out.ResultMeta, err = queryMeta(ctx, tx, "PM1.Q6", ResolvedScope{ProductID: req.Product, ProjectID: req.Project}, []string{"urgency", "priority", "updated_at", "id"})
 	if err != nil {
 		return out, err

@@ -475,13 +475,16 @@ func firstCallBreakFixSeed(t *testing.T, workID string) (*Store, WorkflowActor, 
 	if registered.Definition.ChangesProductTruth == nil || !*registered.Definition.ChangesProductTruth {
 		t.Fatal("the pinned break-fix definition is not Product-changing; the fixture cannot exercise the binding guards")
 	}
-	var version int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id=?`, workID).Scan(&version); err != nil {
-		t.Fatal(err)
-	}
-	for _, action := range []string{"record_reproduction", "record_alignment", "record_root_cause"} {
-		version = issue31WorkflowAction(t, s, workID, version, action, "first-call-bf-"+action, actor)
-	}
+	// CD-0198 D2: the merged diagnosis record replaces the three separate
+	// records, so the none_found combination the published variant admits
+	// rides record_diagnosis's sections.
+	version := issue31WorkflowActionWithPayload(t, s, workID, func() int64 {
+		var current int64
+		if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id=?`, workID).Scan(&current); err != nil {
+			t.Fatal(err)
+		}
+		return current
+	}(), "record_diagnosis", "first-call-bf-record_diagnosis", actor, diagnosisPayload("the defect reproduces from a clean store", "The bounded backlog search statement.", "none_found", nil, "the cause is not a duplicate"))
 	pin, err := ReadWorkPin(context.Background(), s, workID)
 	if err != nil {
 		t.Fatal(err)

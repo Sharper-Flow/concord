@@ -6096,6 +6096,14 @@
           "maxLength": 71,
           "pattern": "^sha256:[0-9a-f]{64}$"
         },
+        "retry_attempt_id": {
+          "$ref": "#/$defs/id",
+          "description": "CD-0198 D5: present only on a combined rejection whose retry dispatch the core committed. The fresh fenced attempt the core minted (<operation-id>:retry); its in-flight window, packet digest, and claimed worktree are all the core's own record. Reconcile by this identity; never re-authorize it."
+        },
+        "retry_worker_packet": {
+          "$ref": "#/$defs/worker_packet",
+          "description": "CD-0198 D5: the exact worker packet the core derived and dispatched inside a combined rejection, serialized on the response so the adapter's host launch arms the window from the core's own admitted bytes. The caller never authors, rebuilds, or replaces this packet."
+        },
         "worker_worktree": {
           "$ref": "#/$defs/absolute_path"
         },
@@ -20304,6 +20312,9 @@
               },
               "minItems": 1,
               "maxItems": 32
+            },
+            "retry": {
+              "$ref": "#/$defs/reject_retry"
             }
           },
           "required": [
@@ -27644,6 +27655,19 @@
           }
         ]
       }
+    },
+    "reject_retry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "lane_id"
+      ],
+      "properties": {
+        "lane_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "description": "CD-0198 D5: the retry dispatch intent a rejected result can carry on a definition that derives the worker failure record. It names only the lane; the store mints the fresh fenced attempt and derives the lane packet from the recorded state the rejection commits, through the dispatch admission every dispatch answers to. The host launch stays the post-commit dispatch boundary; a refusal, including the escalation wall, leaves the rejection unwritten and the rejection-only escape available."
     }
   }
 }

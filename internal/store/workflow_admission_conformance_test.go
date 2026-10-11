@@ -139,7 +139,6 @@ func conformanceArtifactCheckpoint(t *testing.T, s *Store, workID string, defini
 	}
 }
 
-
 // conformanceStepDerives reports whether the step's first qualifying
 // checkpoint will derive the step start: the store's own answer, read from
 // the step's action-start history (CD-0198 D3).

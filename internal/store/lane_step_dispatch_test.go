@@ -183,9 +183,19 @@ func TestJoinComposesWorkerActionsOnAdmittedStepKinds(t *testing.T) {
 
 func TestCurrentJoinComposesTheWorkerFailureRecordWithTheDispatchPair(t *testing.T) {
 	t.Parallel()
+	// CD-0198 D5: implementation v29 and break_fix v26 derive the workflow
+	// failure record from the attempt's own terminal event, so their current
+	// heads carry the dispatch/accept pair without the callable failure
+	// record. Every other current head keeps the worker trio all-or-none per
+	// step; the released v28/v25 heads keep the trio they shipped.
+	derivedFailure := map[string]bool{"workflow.implementation": true, "workflow.break_fix": true}
 	for _, definition := range BuiltinWorkflowDefinitions() {
-		if !containsString(definition.AvailableActions, "record_worker_failure") {
+		derives := derivedFailure[definition.Ref]
+		if !derives && !containsString(definition.AvailableActions, "record_worker_failure") {
 			t.Errorf("%s current definition does not declare record_worker_failure", definition.Ref)
+		}
+		if derives && containsString(definition.AvailableActions, "record_worker_failure") {
+			t.Errorf("%s still advertises record_worker_failure; CD-0198 D5 derives it", definition.Ref)
 		}
 		for _, step := range definition.StepGraph.Steps {
 			dispatch := containsString(step.Actions, "dispatch_worker")
@@ -201,7 +211,13 @@ func TestCurrentJoinComposesTheWorkerFailureRecordWithTheDispatchPair(t *testing
 				}
 				continue
 			}
-			if dispatch != accept || dispatch != recordFailure {
+			if derives && recordFailure {
+				t.Errorf("%s step %s still declares record_worker_failure; CD-0198 D5 derives it", definition.Ref, step.ID)
+			}
+			if dispatch != accept {
+				t.Errorf("%s step %s worker actions: dispatch=%t accept=%t", definition.Ref, step.ID, dispatch, accept)
+			}
+			if !derives && dispatch != recordFailure {
 				t.Errorf("%s step %s worker actions: dispatch=%t accept=%t record_failure=%t", definition.Ref, step.ID, dispatch, accept, recordFailure)
 			}
 			if acceptEvidence {
@@ -210,6 +226,21 @@ func TestCurrentJoinComposesTheWorkerFailureRecordWithTheDispatchPair(t *testing
 		}
 	}
 
+	for _, pin := range []struct {
+		ref     string
+		version int64
+	}{
+		{"workflow.implementation", 28},
+		{"workflow.break_fix", 25},
+	} {
+		released, ok := BuiltinWorkflowRegistry().Lookup(pin.ref, pin.version)
+		if !ok {
+			t.Fatalf("%s v%d is not registered", pin.ref, pin.version)
+		}
+		if !containsString(released.Definition.AvailableActions, "record_worker_failure") {
+			t.Fatalf("%s v%d lost its callable failure record; released pins keep the trio", pin.ref, pin.version)
+		}
+	}
 	prior, ok := BuiltinWorkflowRegistry().Lookup("workflow.break_fix", 4)
 	if !ok {
 		t.Fatal("workflow.break_fix v4 is not registered")

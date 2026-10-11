@@ -1586,3 +1586,58 @@ func breakFixTypedDiagnosisV25() WorkflowDefinition {
 	d.Version = 25
 	return withDerivedStepStarts(withDiagnosisStep(d))
 }
+
+// withDerivedWorkerFailure publishes the CD-0198 D5 derivation: the callable
+// record_worker_failure entry leaves the step graphs and the advertised
+// surface, and the worker terminal fold derives the workflow failure record
+// from the attempt's own terminal event instead. The derivation's version
+// gate lives in workflowDerivedWorkerFailureActive; the behavior this version
+// gates is the action's absence from the definition. The engine's
+// failure-recovery route keeps the disposition for terminal events the
+// derivation structurally cannot record.
+func withDerivedWorkerFailure(definition WorkflowDefinition) WorkflowDefinition {
+	definition = cloneWorkflowDefinition(definition)
+	removed := map[string]bool{"record_worker_failure": true}
+	available := definition.AvailableActions[:0:0]
+	for _, actionID := range definition.AvailableActions {
+		if removed[actionID] {
+			continue
+		}
+		available = append(available, actionID)
+	}
+	definition.AvailableActions = available
+	actionDefinitions := definition.ActionDefinitions[:0:0]
+	for _, action := range definition.ActionDefinitions {
+		if removed[action.ID] {
+			continue
+		}
+		actionDefinitions = append(actionDefinitions, action)
+	}
+	definition.ActionDefinitions = actionDefinitions
+	for i := range definition.StepGraph.Steps {
+		actions := definition.StepGraph.Steps[i].Actions[:0:0]
+		for _, actionID := range definition.StepGraph.Steps[i].Actions {
+			if removed[actionID] {
+				continue
+			}
+			actions = append(actions, actionID)
+		}
+		definition.StepGraph.Steps[i].Actions = actions
+	}
+	return definition
+}
+
+// Each builder below ships its family's CD-0198 D5 slice at the next version
+// after the S1 heads: both families derive the workflow failure record from
+// the attempt's own terminal event.
+func implementationDerivedFailureV29() WorkflowDefinition {
+	d := implementationDerivedStartsV28()
+	d.Version = 29
+	return withDerivedWorkerFailure(d)
+}
+
+func breakFixDerivedFailureV26() WorkflowDefinition {
+	d := breakFixTypedDiagnosisV25()
+	d.Version = 26
+	return withDerivedWorkerFailure(d)
+}

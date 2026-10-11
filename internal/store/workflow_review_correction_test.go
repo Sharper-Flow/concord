@@ -94,7 +94,6 @@ func reviewGateStartedEpoch(t *testing.T, s *Store, workID, action string) int64
 	return epoch
 }
 
-
 func reviewGateRequireStep(t *testing.T, s *Store, workID, want string) {
 	t.Helper()
 	if got := currentStep(t, s, workID); got != want {

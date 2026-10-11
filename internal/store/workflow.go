@@ -2197,6 +2197,15 @@ func admitWorkflowActionOffStep(ctx context.Context, tx *sql.Tx, event Event, p 
 		if recoveryErr != nil {
 			return recoveryErr
 		}
+		if !workerFailureRecovery {
+			// CD-0198 D5: the terminal event's own derivation pair folds
+			// without the recovery route — the record derives from the
+			// attempt's terminal event, not from a coordinator call.
+			workerFailureRecovery, recoveryErr = workflowDerivedWorkerFailurePairAdmitsFold(ctx, tx, entry.Definition, event, p)
+			if recoveryErr != nil {
+				return recoveryErr
+			}
+		}
 	}
 	if p.ActionID == "reject_worker_result" && stepDeclaresAction(entry.Definition, currentStep, "dispatch_worker") {
 		var recoveryErr error
@@ -2980,6 +2989,17 @@ func latestWorkflowActionStartAt(ctx context.Context, q queryer, workID, stepID 
 func validateWorkerAttemptAction(ctx context.Context, tx *sql.Tx, event Event, payload workflowActionCompletedPayload, definition WorkflowDefinition, currentStep, requiredLifecycle string) error {
 	step := workflowStep(definition, currentStep)
 	allowed := step != nil && definitionStepAllows(definition, currentStep, payload.ActionID)
+	// derivedPair marks the CD-0198 D5 derivation pair: the completing event
+	// is the workflow failure record the attempt's own terminal event
+	// derives. The pair's actor is already authenticated by that terminal
+	// fold, and the executor-distinctness law below serves verdict
+	// independence, not the engine's own disposition of the worker's terminal
+	// fact — so the pair alone skips it, exactly as the CD-0198 D3 pair skips
+	// the checkpoint-writer rule. The pair check runs beside the recovery
+	// route, not behind it: on a derived-failure pin the recovery admits the
+	// record first, and the pair identity — not the admitting route — is
+	// what the skip keys on.
+	derivedPair := false
 	if !allowed && payload.ActionID == "accept_worker_evidence" {
 		if err := validateRefineReviewEvidenceAttempt(ctx, tx, event.SubjectID, definition, currentStep, payload.WorkerAttemptID, payload.AttemptEpoch, "fold_event", event.Seq); err != nil {
 			return err
@@ -2992,6 +3012,14 @@ func validateWorkerAttemptAction(ctx context.Context, tx *sql.Tx, event Event, p
 		if recoveryErr != nil {
 			return recoveryErr
 		}
+		// CD-0198 D5: the terminal event's own derivation pair folds without
+		// the recovery route — the record derives from the attempt's terminal
+		// event, not from a coordinator call.
+		derivedPair, recoveryErr = workflowDerivedWorkerFailurePairAdmitsFold(ctx, tx, definition, event, payload)
+		if recoveryErr != nil {
+			return recoveryErr
+		}
+		allowed = allowed || derivedPair
 	}
 	if !allowed && payload.ActionID == "reject_worker_result" && stepDeclaresAction(definition, currentStep, "dispatch_worker") {
 		var recoveryErr error
@@ -3065,8 +3093,10 @@ func validateWorkerAttemptAction(ctx context.Context, tx *sql.Tx, event Event, p
 	if payload.ActorRef != event.Actor {
 		return newFailure(KindUnauthorized, "fold_event", "worker result actor must match the authenticated event actor", false, "record the worker result through the authenticated workflow owner")
 	}
-	if err := workflowActorsDistinct(ctx, tx, event.SubjectID, payload.ActorRef, "", false, "fold_event"); err != nil {
-		return err
+	if !derivedPair {
+		if err := workflowActorsDistinct(ctx, tx, event.SubjectID, payload.ActorRef, "", false, "fold_event"); err != nil {
+			return err
+		}
 	}
 	return nil
 }

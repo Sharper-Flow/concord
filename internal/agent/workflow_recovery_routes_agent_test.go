@@ -371,6 +371,45 @@ func workflowRecoveryRouteTuples() []workflowRecoveryRouteTuple {
 			RecordWorkerJob:  true,
 			WorkflowID:       "break_fix-v25-complete",
 		},
+		// The CD-0198 D5 heads republish the same recovery tables; their
+		// journeys enter the producer and refinement steps through the
+		// qualifying checkpoints the derived-start pins admit.
+		{
+			Ref: "workflow.implementation", Version: 29,
+			Step: "acceptance", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execution",
+			ProducerStep: "execution", DeliveryStep: "execution", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "start_execution",
+			VerdictStep: "acceptance", BindStep: "execution", BindKind: store.EvidenceArtifact,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
+			RecordWorkerJob:  true,
+			WorkflowID:       "implementation-v29-acceptance",
+		},
+		{
+			Ref: "workflow.implementation", Version: 29,
+			Step: "release", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execution",
+			ProducerStep: "execution", DeliveryStep: "execution", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "start_execution",
+			VerdictStep: "release", BindStep: "execution", BindKind: store.EvidenceArtifact,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
+			RecordWorkerJob:  true,
+			WorkflowID:       "implementation-v29-release",
+		},
+		{
+			Ref: "workflow.break_fix", Version: 26,
+			Step: "verify", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "repair",
+			ProducerStep: "repair", DeliveryStep: "repair", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "checkpoint_repair",
+			VerdictStep: "verify", BindStep: "repair", BindKind: store.EvidenceVerification,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceVerification},
+			RecordWorkerJob:  true,
+			WorkflowID:       "break_fix-v26-verify",
+		},
+		{
+			Ref: "workflow.break_fix", Version: 26,
+			Step: "complete", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "repair",
+			ProducerStep: "repair", DeliveryStep: "repair", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "checkpoint_repair",
+			VerdictStep: "complete", BindStep: "repair", BindKind: store.EvidenceVerification,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceVerification},
+			RecordWorkerJob:  true,
+			WorkflowID:       "break_fix-v26-complete",
+		},
 		{
 			Ref: "workflow.break_fix", Version: 24,
 			Step: "verify", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "repair",
@@ -632,8 +671,8 @@ func workflowRecoveryRouteTuples() []workflowRecoveryRouteTuple {
 // (ref, version) fails the test before the journey runs.
 func TestWorkflowRecoveryRoutesDeclareEveryEvaluatorStep(t *testing.T) {
 	tuples := workflowRecoveryRouteTuples()
-	if len(tuples) != 62 {
-		t.Fatalf("recovery-route journey table carries %d tuples, want 62 (58 pre-CD-0198 journeys + 4 CD-0198 derived-start head versions)", len(tuples))
+	if len(tuples) != 66 {
+		t.Fatalf("recovery-route journey table carries %d tuples, want 66 (58 pre-CD-0198 journeys + 4 CD-0198 derived-start heads + 4 CD-0198 D5 heads)", len(tuples))
 	}
 	seen := map[string]bool{}
 	for _, tuple := range tuples {
@@ -1634,6 +1673,21 @@ func workflowRecoveryRouteSupersedeTuples() []workflowRecoveryRouteSupersedeTupl
 			Step: "complete", Target: "repair",
 			RecordWorkerJob: true,
 			WorkflowID:      "break_fix-v25-complete-supersede",
+		},
+		// The CD-0198 D5 heads republish the same complete-step supersede
+		// routes; their journeys follow the same local-accept +
+		// record_delivery integration the CD-0198 D2/D3 authors do.
+		{
+			Ref: "workflow.implementation", Version: 29,
+			Step: "release", Target: "execution",
+			RecordWorkerJob: true,
+			WorkflowID:      "implementation-v29-release-supersede",
+		},
+		{
+			Ref: "workflow.break_fix", Version: 26,
+			Step: "complete", Target: "repair",
+			RecordWorkerJob: true,
+			WorkflowID:      "break_fix-v26-complete-supersede",
 		},
 		// The CON-887 work-context versions republish the same complete-step
 		// supersede routes; their journeys follow the same local-accept +

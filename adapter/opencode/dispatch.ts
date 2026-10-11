@@ -2144,8 +2144,40 @@ export async function dispatchWorker(packet: unknown,   options: { signal?: Abor
   // CD-0058 D1 still holds and needs no model here. The adapter names the lane
   // executor and never asserts which model runs it; the executing model is read
   // back from the worker session at completion.
+  return openAuthorizedDispatchWindow(lane, packet as AgentLanePacket, {
+    sessionID: options.sessionID,
+    windows: options.windows,
+    workPins: options.workPins,
+    workerDirectory,
+    canonicalWorkerDirectory,
+    liveWorkerDirectory,
+    authorizedWorktree: options.authorizedWorktree,
+    resolveWorkerDirectory: options.resolveWorkerDirectory,
+    contextDirectory: options.contextDirectory,
+    provenance,
+    credentials: options.credentials,
+    packetDigest: options.packetDigest,
+  })
+}
+
+// The post-commit dispatch launch owner: the one route every authorized
+// dispatch takes from a committed core record to an armed single-use host
+// window. dispatchWorker reaches it after its own dispatch_worker
+// authorization; dispatchRetriedWorker reaches it with the packet the core
+// derived and dispatched inside a combined rejection, with no second
+// authorization. Every armed-claim, unlanded, durable-worktree, window, and
+// credential gate lives here and nowhere else (CD-0102 D1/D2, issue #1322).
+async function openAuthorizedDispatchWindow(
+  lane: AgentLane,
+  packet: AgentLanePacket,
+  launch: { sessionID?: string; windows?: DispatchWindows; workPins?: unknown[]; workerDirectory?: string; canonicalWorkerDirectory?: string; liveWorkerDirectory?: string; authorizedWorktree?: string; resolveWorkerDirectory?: () => Promise<string>; contextDirectory?: string; provenance?: HostProvenance; credentials?: CredentialStore; packetDigest?: string },
+): Promise<AgentResultEnvelope> {
+  const sessionID = launch.sessionID
   if (!sessionID) {
     return errorEnvelope(lane, packet as Partial<AgentLanePacket>, "error", "invalid_input", "dispatch requires the calling session identifier to open an authorization window", "contact_operator")
+  }
+  if (dispatchRequiresNextTurn(sessionID)) {
+    return errorEnvelope(lane, packet as Partial<AgentLanePacket>, "error", "unauthorized_dispatch", TURN_MOVE_DISPATCH_REFUSAL, "retry_same_request", { details: { boundary: "turn_move" } })
   }
   // The host-answer guards above compare host answers with each other, so a
   // session directory that regressed after its move converged answers stale on
@@ -2157,10 +2189,10 @@ export async function dispatchWorker(packet: unknown,   options: { signal?: Abor
   if (armedClaim !== null) {
     // The host's fresh answer is checked first: it catches a move that never
     // landed, which replaying worktree_claim can repair.
-    if (liveWorkerDirectory !== undefined) {
-      const claimMismatch = dispatchDirectoryMismatch(armedClaim, liveWorkerDirectory)
+    if (launch.liveWorkerDirectory !== undefined) {
+      const claimMismatch = dispatchDirectoryMismatch(armedClaim, launch.liveWorkerDirectory)
       if (claimMismatch) {
-        return errorEnvelope(lane, packet as Partial<AgentLanePacket>, "error", "unauthorized_dispatch", `the host runs this session in ${JSON.stringify(liveWorkerDirectory)} but the armed claimed worktree is ${JSON.stringify(armedClaim)}; replay worktree_claim to retry the move, then dispatch again`, "reconcile_operation")
+        return errorEnvelope(lane, packet as Partial<AgentLanePacket>, "error", "unauthorized_dispatch", `the host runs this session in ${JSON.stringify(launch.liveWorkerDirectory)} but the armed claimed worktree is ${JSON.stringify(armedClaim)}; replay worktree_claim to retry the move, then dispatch again`, "reconcile_operation")
       }
     }
     // Issue #1322: the two host answers above can agree on the claimed
@@ -2168,10 +2200,10 @@ export async function dispatchWorker(packet: unknown,   options: { signal?: Abor
     // session record converges before the effective tool context does. The
     // calling tool context is where this dispatch actually executes, so it
     // must resolve inside the armed claimed worktree before the window opens.
-    if (options.contextDirectory !== undefined) {
-      const contextMismatch = dispatchDirectoryMismatch(armedClaim, options.contextDirectory)
+    if (launch.contextDirectory !== undefined) {
+      const contextMismatch = dispatchDirectoryMismatch(armedClaim, launch.contextDirectory)
       if (contextMismatch) {
-        return errorEnvelope(lane, packet as Partial<AgentLanePacket>, "error", "unauthorized_dispatch", `the calling tool context runs in ${JSON.stringify(options.contextDirectory)} but the armed claimed worktree is ${JSON.stringify(armedClaim)} (${contextMismatch}); replay work_start or worktree_claim to land the session's tool context in the claimed worktree, then dispatch again`, "reconcile_operation")
+        return errorEnvelope(lane, packet as Partial<AgentLanePacket>, "error", "unauthorized_dispatch", `the calling tool context runs in ${JSON.stringify(launch.contextDirectory)} but the armed claimed worktree is ${JSON.stringify(armedClaim)} (${contextMismatch}); replay work_start or worktree_claim to land the session's tool context in the claimed worktree, then dispatch again`, "reconcile_operation")
       }
     }
   }
@@ -2187,9 +2219,9 @@ export async function dispatchWorker(packet: unknown,   options: { signal?: Abor
   // and removes this record.
   const unlandedClaim = unlandedClaimedWorktree(sessionID)
   if (unlandedClaim !== null) {
-    const contextUnresolved = options.contextDirectory === undefined ? "the calling tool context directory was not supplied" : dispatchDirectoryMismatch(unlandedClaim, options.contextDirectory)
+    const contextUnresolved = launch.contextDirectory === undefined ? "the calling tool context directory was not supplied" : dispatchDirectoryMismatch(unlandedClaim, launch.contextDirectory)
     if (contextUnresolved) {
-      const contextRuns = options.contextDirectory === undefined ? "" : ` the calling tool context runs in ${JSON.stringify(options.contextDirectory)};`
+      const contextRuns = launch.contextDirectory === undefined ? "" : ` the calling tool context runs in ${JSON.stringify(launch.contextDirectory)};`
       return errorEnvelope(lane, packet as Partial<AgentLanePacket>, "error", "unauthorized_dispatch", `the session has a claimed worktree ${JSON.stringify(unlandedClaim)} whose move has not landed (${contextUnresolved});${contextRuns} replay work_start once the session's tool context runs in the claimed worktree, then dispatch again`, "reconcile_operation")
     }
   }
@@ -2199,16 +2231,16 @@ export async function dispatchWorker(packet: unknown,   options: { signal?: Abor
   // The calling tool context must resolve inside it before the window opens,
   // and without a context answer the landing cannot be proved at all. A
   // replay that lands the context satisfies every gate here.
-  if (options.authorizedWorktree !== undefined) {
-    const durableUnresolved = options.contextDirectory === undefined ? "the calling tool context directory was not supplied" : dispatchDirectoryMismatch(options.authorizedWorktree, options.contextDirectory)
+  if (launch.authorizedWorktree !== undefined) {
+    const durableUnresolved = launch.contextDirectory === undefined ? "the calling tool context directory was not supplied" : dispatchDirectoryMismatch(launch.authorizedWorktree, launch.contextDirectory)
     if (durableUnresolved) {
-      const contextRuns = options.contextDirectory === undefined ? "" : ` the calling tool context runs in ${JSON.stringify(options.contextDirectory)};`
-      return errorEnvelope(lane, packet as Partial<AgentLanePacket>, "error", "unauthorized_dispatch", `the dispatch is authorized for the claimed worktree ${JSON.stringify(options.authorizedWorktree)} whose tool context has not landed (${durableUnresolved});${contextRuns} replay work_start or worktree_claim once the session's tool context runs in the claimed worktree, then dispatch again`, "reconcile_operation")
+      const contextRuns = launch.contextDirectory === undefined ? "" : ` the calling tool context runs in ${JSON.stringify(launch.contextDirectory)};`
+      return errorEnvelope(lane, packet as Partial<AgentLanePacket>, "error", "unauthorized_dispatch", `the dispatch is authorized for the claimed worktree ${JSON.stringify(launch.authorizedWorktree)} whose tool context has not landed (${durableUnresolved});${contextRuns} replay work_start or worktree_claim once the session's tool context runs in the claimed worktree, then dispatch again`, "reconcile_operation")
     }
   }
-  const windows = options.windows ?? dispatchWindows()
+  const windows = launch.windows ?? dispatchWindows()
   try {
-    windows.open(sessionID, packet, options.packetDigest ?? "", workerDirectory, canonicalWorkerDirectory, provenance)
+    windows.open(sessionID, packet, launch.packetDigest ?? "", launch.workerDirectory, launch.canonicalWorkerDirectory, launch.provenance)
   } catch (error) {
     const detail = error instanceof DispatchWindowError ? error.message : String(error)
     return errorEnvelope(lane, packet as Partial<AgentLanePacket>, "error", "error", detail.slice(0, MAX_ERROR_BYTES), "reconcile_operation")
@@ -2220,15 +2252,105 @@ export async function dispatchWorker(packet: unknown,   options: { signal?: Abor
   // the last point where an unreadable credential costs nothing. A failed probe
   // closes the window so no spawn can follow it. Signing is unchanged and still
   // binds the readback after the run; this checks availability alone.
-  const credentialFailure = await probeWorkerEvidenceCredential(options.credentials ?? defaultCredentials)
+  const credentialFailure = await probeWorkerEvidenceCredential(launch.credentials ?? defaultCredentials)
   if (credentialFailure) {
     windows.close(sessionID)
     return errorEnvelope(lane, packet as Partial<AgentLanePacket>, "error", "error", `credential probe failed before worker execution: ${credentialFailure}`, "contact_operator")
   }
   const directive = baseEnvelope(lane, packet, "ok")
   directive.dispatch_state = "awaiting_worker"
-  if (options.workPins) directive.work_pins = options.workPins
+  if (launch.workPins) directive.work_pins = launch.workPins
   return directive
+}
+
+// dispatchRetriedWorker arms the host launch window for a retry dispatch the
+// core already committed inside a combined rejection (CD-0198 D5). The core
+// derived the packet, minted the fresh attempt, and recorded the durable
+// dispatch — the response serializes all of it — so this route runs the same
+// closed packet validation and the same post-commit launch owner the
+// dispatch_worker route runs, and authorizes nothing again: no second
+// dispatch_worker call, no second executor or authorizer, and no
+// caller-built packet. A refusal here is post-commit by construction, so
+// every one of them names the committed attempt for exactly one abandonment.
+export async function dispatchRetriedWorker(packet: unknown, options: { signal?: AbortSignal; credentials?: CredentialStore; packetDigest?: string; sessionID?: string; windows?: DispatchWindows; workPins?: unknown[]; workerDirectory?: string; authorizedWorktree?: string; resolveWorkerDirectory?: () => Promise<string>; contextDirectory?: string; provenance?: HostProvenance } = {}): Promise<AgentResultEnvelope> {
+  const validated = validatedRetryPacket(packet)
+  if ("envelope" in validated) return validated.envelope
+  const { lane, packet: retryPacket } = validated
+  // The calling session's turn-move boundary closes the launch exactly as it
+  // closes a dispatch_worker launch: the owner re-checks it, and the refusal
+  // carries the committed attempt for the coordinator's reconciliation.
+  if (options.sessionID && dispatchRequiresNextTurn(options.sessionID)) {
+    return committedRetryRefusal(lane, retryPacket, TURN_MOVE_DISPATCH_REFUSAL, { boundary: "turn_move" })
+  }
+  // The host session route is the source for the claimed directory (CD-0104
+  // D1), read per launch rather than stored. The durable gate in the launch
+  // owner compares it with the claimed worktree the core's response named.
+  let workerDirectory = options.workerDirectory
+  if (workerDirectory === undefined && options.resolveWorkerDirectory) {
+    try {
+      workerDirectory = await options.resolveWorkerDirectory()
+    } catch {
+      return committedRetryRefusal(lane, retryPacket, "the host session directory could not be read to resolve the claimed worktree the retry authorization rested on", {})
+    }
+  }
+  const canonicalWorkerDirectory = canonicalDirectory(workerDirectory)
+  if (canonicalWorkerDirectory === null) {
+    return committedRetryRefusal(lane, retryPacket, "dispatch requires a non-empty, resolvable worker directory before the window can open", {})
+  }
+  const contextRefusal = contextPreflightRefusal(lane, retryPacket, canonicalWorkerDirectory, options.contextDirectory)
+  if (contextRefusal) return committedRetryRefusal(lane, retryPacket, contextRefusal.error?.message ?? "the calling tool context does not resolve inside the claimed worktree the retry authorization rested on", {})
+  let provenance: HostProvenance
+  try {
+    provenance = options.provenance ?? await computeHostPromptProvenance(lane.id, workerDirectory)
+  } catch (error) {
+    return committedRetryRefusal(lane, retryPacket, error instanceof HostProvenanceError ? error.message : `the retry launch could not bind its host prompt provenance: ${String(error)}`, {})
+  }
+  const envelope = await openAuthorizedDispatchWindow(lane, retryPacket, {
+    sessionID: options.sessionID,
+    windows: options.windows,
+    workPins: options.workPins,
+    workerDirectory,
+    canonicalWorkerDirectory,
+    liveWorkerDirectory: workerDirectory,
+    authorizedWorktree: options.authorizedWorktree,
+    resolveWorkerDirectory: options.resolveWorkerDirectory,
+    contextDirectory: options.contextDirectory,
+    provenance,
+    credentials: options.credentials,
+    packetDigest: options.packetDigest,
+  })
+  if (envelope.outcome === "ok") return envelope
+  return committedRetryRefusal(lane, retryPacket, envelope.error?.message ?? "the retry launch was refused", {})
+}
+
+// validatedRetryPacket runs the closed packet schema, the lane registry, and
+// the worker-scope assignment check over a core-derived retry packet. The
+// core dispatched these bytes, but the window arms only what this boundary
+// can prove, so the same three checks every dispatch_worker packet answers
+// to run here too.
+function validatedRetryPacket(packet: unknown): { lane: AgentLane; packet: AgentLanePacket } | { envelope: AgentResultEnvelope } {
+  if (!validateAgentLanePacket(packet)) return { envelope: errorEnvelope(null, isRecord(packet) ? packet as Partial<AgentLanePacket> : {}, "error", "invalid_input", "the core's retry packet failed the closed packet schema", "reconcile_operation") }
+  const retryPacket = packet as AgentLanePacket
+  const retryLane = laneForPacket(retryPacket)
+  if (!retryLane) return { envelope: errorEnvelope(null, retryPacket, "error", "invalid_input", "the retry packet's lane identity or digest is not registered", "reconcile_operation") }
+  // The binding's assigned result is the one obligation the worker-scope
+  // contract derives from the lane, so a packet that names any other result
+  // is a contract or registry drift the schema alone cannot see. It fails
+  // closed here, before the window can arm.
+  if (retryPacket.inputs.binding.assigned_result !== workerScopeAssignedResult(retryLane.id)) {
+    return { envelope: errorEnvelope(null, retryPacket, "error", "invalid_input", `retry packet binding names assigned result ${retryPacket.inputs.binding.assigned_result}, but the ${retryLane.id} lane's worker-scope assignment is ${workerScopeAssignedResult(retryLane.id)}`, "reconcile_operation") }
+  }
+  return { lane: retryLane, packet: retryPacket }
+}
+
+// committedRetryRefusal renders a post-commit retry launch refusal: the core
+// already committed the rejection and the dispatch, so the effect is real
+// regardless of this refusal. The envelope names the committed attempt and
+// its exactly-one abandonment route, so the coordinator reconciles the
+// original identity and never launches again.
+function committedRetryRefusal(lane: AgentLane, packet: AgentLanePacket, detail: string, extra: { boundary?: string }): AgentResultEnvelope {
+  const message = `the combined rejection committed retry attempt ${packet.attempt_id} and its dispatch window was not armed: ${detail}. Recover the committed attempt with concord_work_transition operation worker_abandon naming work ${packet.work_id}, attempt ${packet.attempt_id}, and lane ${packet.lane_id} when no worker report exists; never dispatch the attempt again`
+  return errorEnvelope(lane, packet, "error", "unauthorized_dispatch", message.slice(0, MAX_ERROR_BYTES), "reconcile_operation", { details: { effect_state: "possible", retry_attempt_id: packet.attempt_id, committed_dispatch: true, ...(extra.boundary ? { boundary: extra.boundary } : {}) } })
 }
 
 // completeWorkerAttempt admits a finished worker: it reads executing-model and

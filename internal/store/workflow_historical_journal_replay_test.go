@@ -21,15 +21,17 @@ import (
 // promises that the pinned authoring remains executable in a reduced binary.
 
 type frozenJournalEvent struct {
-	Seq            int64           `json:"seq"`
-	EventID        string          `json:"event_id"`
-	Kind           string          `json:"kind"`
-	SubjectType    string          `json:"subject_type"`
-	SubjectID      string          `json:"subject_id"`
-	Actor          string          `json:"actor"`
-	OccurredAt     string          `json:"occurred_at"`
-	PayloadVersion int             `json:"payload_version"`
-	Payload        json.RawMessage `json:"payload"`
+	Seq            int64  `json:"seq"`
+	EventID        string `json:"event_id"`
+	Kind           string `json:"kind"`
+	SubjectType    string `json:"subject_type"`
+	SubjectID      string `json:"subject_id"`
+	Actor          string `json:"actor"`
+	OccurredAt     string `json:"occurred_at"`
+	PayloadVersion int    `json:"payload_version"`
+	// Payload is the event payload's exact recorded bytes, carried as a JSON
+	// string so the document encoder cannot rewrite nested objects.
+	Payload string `json:"payload"`
 }
 
 type frozenJournalReceipt struct {
@@ -51,6 +53,12 @@ type frozenJournalReceipt struct {
 	ObservedAt            string `json:"observed_at"`
 	CompletedAt           string `json:"completed_at"`
 	ContractDigest        string `json:"contract_digest"`
+	// BoundEventIDs and BoundSeq are the receipt's original operation
+	// position in the journal: the durable-operation rows are extra-log
+	// state, so a prefix restore may restore a receipt only when its own
+	// consuming or authoring events are present.
+	BoundEventIDs []string `json:"bound_event_ids"`
+	BoundSeq      int64    `json:"bound_seq"`
 }
 
 type frozenAsOfSample struct {
@@ -73,6 +81,7 @@ type frozenJournal struct {
 		DefinitionDigest       string             `json:"definition_digest"`
 		TerminalState          string             `json:"terminal_state"`
 		WorkflowProjectionHash string             `json:"workflow_projection_hash"`
+		PayloadEncoding        string             `json:"payload_encoding"`
 		AsOfSamples            []frozenAsOfSample `json:"as_of_samples"`
 	} `json:"provenance"`
 }
@@ -88,6 +97,11 @@ func frozenJournalFixtures() []struct {
 		{"completed-static-analysis-v15", historicalJournalFixtureCompletedStaticAnalysisV15},
 		{"failed-static-analysis-v15", historicalJournalFixtureFailedStaticAnalysisV15},
 		{"corrected-generic-one-off-v16", historicalJournalFixtureCorrectedGenericOneOffV16},
+		{"completed-break-fix-v24", historicalJournalFixtureCompletedBreakFixV24},
+		{"failed-break-fix-v24", historicalJournalFixtureFailedBreakFixV24},
+		{"corrected-break-fix-v24", historicalJournalFixtureCorrectedBreakFixV24},
+		{"completed-architecture-spike-v17", historicalJournalFixtureCompletedArchitectureSpikeV17},
+		{"completed-ops-runbook-v18", historicalJournalFixtureCompletedOpsRunbookV18},
 	}
 }
 
@@ -105,6 +119,9 @@ func decodeFrozenJournal(t *testing.T, document string) frozenJournal {
 	}
 	if journal.Provenance.BaselineCommit == "" || journal.Provenance.WorkflowProjectionHash == "" {
 		t.Fatal("frozen journal provenance is incomplete")
+	}
+	if journal.Provenance.PayloadEncoding != "text" {
+		t.Fatalf("frozen journal payload_encoding = %q, want the exact-byte text encoding", journal.Provenance.PayloadEncoding)
 	}
 	if journal.frozenWorkID(t) == "" {
 		t.Fatal("frozen journal carries no work item")
@@ -139,11 +156,17 @@ func restoreFrozenJournal(t *testing.T, ctx context.Context, journal frozenJourn
 			continue
 		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO domain_events(seq,event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?,?)`,
-			event.Seq, event.EventID, event.Kind, event.SubjectType, event.SubjectID, event.Actor, event.OccurredAt, event.PayloadVersion, string(event.Payload)); err != nil {
+			event.Seq, event.EventID, event.Kind, event.SubjectType, event.SubjectID, event.Actor, event.OccurredAt, event.PayloadVersion, event.Payload); err != nil {
 			t.Fatalf("restore event %s: %v", event.EventID, err)
 		}
 	}
 	for _, receipt := range journal.Receipts {
+		// A receipt is usable exactly when its original operation's events
+		// are present; a prefix restore never resumes a receipt whose
+		// consuming or authoring position the prefix excludes.
+		if maxSeq > 0 && receipt.BoundSeq > maxSeq {
+			continue
+		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO durable_operations(op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_version,step_id,step_kind,accepted_inputs_digest,accepted_scope_snapshot,result_kind,result_payload,evidence_refs,changed_refs,principal_ref,request_id,observed_at,completed_at,contract_digest) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 			receipt.OpID, receipt.AttemptEpoch, receipt.WorkID, receipt.WorkflowTypeRef, receipt.WorkflowTypeVersion, receipt.StepID, receipt.StepKind, receipt.AcceptedInputsDigest, receipt.AcceptedScopeSnapshot, receipt.ResultKind, receipt.ResultPayload, receipt.EvidenceRefs, receipt.ChangedRefs, receipt.PrincipalRef, receipt.RequestID, receipt.ObservedAt, receipt.CompletedAt, receipt.ContractDigest); err != nil {
 			t.Fatalf("restore receipt %s: %v", receipt.OpID, err)
@@ -172,14 +195,15 @@ func TestHistoricalJournalFixturesReplayWithOriginalPins(t *testing.T) {
 				t.Fatalf("pinned definition %s v%d digest %s moved from the frozen %s", provenance.DefinitionRef, provenance.DefinitionVersion, entry.Digest, provenance.DefinitionDigest)
 			}
 			// Every declared payload schema of the pinned definition resolves
-			// in the document its classification selects, so the recorded
-			// history stays decodable under the baseline split.
-			document := workflowPayloadSchemaDocumentFor(entry.Definition)
+			// in the replay document, so the recorded history stays decodable
+			// under the invocation-role split: recorded bytes replay through
+			// the frozen decoder alone.
+			document := workflowReplayPayloadSchemaDocument()
 			for _, action := range entry.Definition.ActionDefinitions {
 				for _, field := range action.Payload.Fields {
 					for _, ref := range []string{field.SchemaRef, field.ItemRef} {
 						if ref != "" && !payloadschema.HasIn(document, ref) {
-							t.Fatalf("pinned definition %s v%d action %s field %s declares schema %q, which its classified document does not carry", provenance.DefinitionRef, provenance.DefinitionVersion, action.ID, field.Name, ref)
+							t.Fatalf("pinned definition %s v%d action %s field %s declares schema %q, which the replay frozen decoder does not carry", provenance.DefinitionRef, provenance.DefinitionVersion, action.ID, field.Name, ref)
 						}
 					}
 				}
@@ -194,7 +218,7 @@ func TestHistoricalJournalFixturesReplayWithOriginalPins(t *testing.T) {
 					StepID   string `json:"step_id"`
 					ActionID string `json:"action_id"`
 				}
-				if err := json.Unmarshal(event.Payload, &payload); err != nil {
+				if err := json.Unmarshal([]byte(event.Payload), &payload); err != nil {
 					t.Fatalf("recorded action completion %s is not valid JSON: %v", event.EventID, err)
 				}
 				if payload.ActionID == "" {
@@ -255,8 +279,14 @@ func TestHistoricalJournalFixturesReplayWithOriginalPins(t *testing.T) {
 			}
 
 			// As-of boundaries. A reconstruct sample replays through the
-			// production as-of API; a prefix sample restores the journal
-			// prefix and requires the recorded mid-history workflow state.
+			// production as-of API; it is only available before the journal's
+			// first receipt-consuming or Product-truth-contract event, because
+			// that API folds the subject sub-log in a scratch store that
+			// restores neither durable receipts nor cross-subject Product
+			// endpoints. A prefix sample restores the journal prefix with its
+			// bounded receipts and rebuilds: this is a deterministic prefix
+			// rebuild of recorded history, not a production as-of read, and
+			// the two kinds are never conflated.
 			for _, sample := range provenance.AsOfSamples {
 				switch sample.Kind {
 				case "reconstruct":
@@ -309,7 +339,7 @@ func con902AssertJournalIdentities(t *testing.T, ctx context.Context, s *Store, 
 				AttemptID   string `json:"attempt_id"`
 				FailureKind string `json:"failure_kind"`
 			}
-			if err := json.Unmarshal(event.Payload, &payload); err != nil {
+			if err := json.Unmarshal([]byte(event.Payload), &payload); err != nil {
 				t.Fatalf("recorded worker failure %s is not valid JSON: %v", event.EventID, err)
 			}
 			if payload.FailureKind == "" || payload.AttemptID == "" {
@@ -320,7 +350,7 @@ func con902AssertJournalIdentities(t *testing.T, ctx context.Context, s *Store, 
 			var payload struct {
 				AttemptID string `json:"attempt_id"`
 			}
-			if err := json.Unmarshal(event.Payload, &payload); err != nil {
+			if err := json.Unmarshal([]byte(event.Payload), &payload); err != nil {
 				t.Fatalf("recorded worker completion %s is not valid JSON: %v", event.EventID, err)
 			}
 			completedAttempts[payload.AttemptID] = true
@@ -329,7 +359,7 @@ func con902AssertJournalIdentities(t *testing.T, ctx context.Context, s *Store, 
 				ActionID        string `json:"action_id"`
 				WorkerAttemptID string `json:"worker_attempt_id"`
 			}
-			if err := json.Unmarshal(event.Payload, &payload); err != nil {
+			if err := json.Unmarshal([]byte(event.Payload), &payload); err != nil {
 				t.Fatalf("recorded action completion %s is not valid JSON: %v", event.EventID, err)
 			}
 			if payload.ActionID == "record_worker_failure" {

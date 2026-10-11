@@ -2635,6 +2635,14 @@ const GeneratedPayloadSchemaDocument = `{
         "operation_id": {
           "$ref": "#/$defs/id"
         },
+        "retry_attempt_id": {
+          "$ref": "#/$defs/id",
+          "description": "CD-0198 D5: present only on a combined rejection whose retry dispatch the core committed. The fresh fenced attempt the core minted (<operation-id>:retry); its in-flight window, packet digest, and claimed worktree are all the core's own record. Reconcile by this identity; never re-authorize it."
+        },
+        "retry_worker_packet": {
+          "$ref": "#/$defs/worker_packet",
+          "description": "CD-0198 D5: the exact worker packet the core derived and dispatched inside a combined rejection, serialized on the response so the adapter's host launch arms the window from the core's own admitted bytes. The caller never authors, rebuilds, or replaces this packet."
+        },
         "vacate_target": {
           "$ref": "#/$defs/vacate_target",
           "description": "Present on a completed or cancelled lifecycle transition, and on a supersede, when the calling session's linked worktree is that work item's active worktree. Names the registered main checkout the adapter moves the session to after the transition."
@@ -5300,6 +5308,19 @@ const GeneratedPayloadSchemaDocument = `{
       "type": "string",
       "x-maxBytes": 128,
       "x-minBytes": 2
+    },
+    "reject_retry": {
+      "additionalProperties": false,
+      "description": "CD-0198 D5: the retry dispatch intent a rejected result can carry on a definition that derives the worker failure record. It names only the lane; the store mints the fresh fenced attempt and derives the lane packet from the recorded state the rejection commits, through the dispatch admission every dispatch answers to. The host launch stays the post-commit dispatch boundary; a refusal, including the escalation wall, leaves the rejection unwritten and the rejection-only escape available.",
+      "properties": {
+        "lane_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "lane_id"
+      ],
+      "type": "object"
     },
     "relation_link_kind": {
       "description": "Stored relation kinds an ordinary relate.link request may name. Derived from contracts/relation-vocabulary.v1.json: every kind whose link is allowed or refused. A refused kind is admitted here so the runtime can answer with the composite operation that owns it, rather than a bare enum mismatch.",
@@ -17975,6 +17996,9 @@ const GeneratedPayloadSchemaDocument = `{
               "minItems": 1,
               "type": "array",
               "uniqueItems": true
+            },
+            "retry": {
+              "$ref": "#/$defs/reject_retry"
             },
             "strategy": {
               "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",

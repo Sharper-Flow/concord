@@ -813,15 +813,28 @@ func workflowLawHomeRepo(ctx context.Context, q queryer, homeProjectID, homeLoca
 // typed: the packet would otherwise advertise a locator no lane can read, or
 // silently drop the Domain binding.
 func knowledgeRegistryLocator(homeRepo string) (string, error) {
+	// Every existence and regularity probe runs through the confined root
+	// open, so a projected home path that escapes the checkout cannot be
+	// probed or advertised; the escaped-locator refusal is the confined
+	// open's own typed error.
+	root, err := os.OpenRoot(homeRepo)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			// A removed checkout carries no manifest head under any layout;
+			// keep the typed absence the stat walk produced.
+			return "", newFailure(KindDomainRegistryAbsent, "read_workflow_law_context", "the Product knowledge home repository carries no knowledge manifest head under a supported layout", false, "publish the knowledge shards in the knowledge home repository")
+		}
+		return "", wrapFailure(KindUnavailable, "read_workflow_law_context", "cannot open the knowledge home checkout", true, "restore access to the Product knowledge home and retry", err)
+	}
+	defer func() { _ = root.Close() }()
 	for _, layout := range knowledgeShardLayouts {
-		head := filepath.Join(homeRepo, filepath.FromSlash(layout.headPath))
-		if _, err := os.Stat(head); errors.Is(err, os.ErrNotExist) {
+		if _, err := root.Stat(layout.headPath); errors.Is(err, os.ErrNotExist) {
 			continue
 		} else if err != nil {
 			return "", wrapFailure(KindUnavailable, "read_workflow_law_context", "cannot inspect the knowledge manifest head", true, "restore access to the Product knowledge home and retry", err)
 		}
 		registry := filepath.Join(homeRepo, filepath.FromSlash(layout.registryPath))
-		info, err := os.Stat(registry)
+		info, err := root.Stat(layout.registryPath)
 		if errors.Is(err, os.ErrNotExist) || (err == nil && !info.Mode().IsRegular()) {
 			return "", newFailure(KindDomainRegistryAbsent, "read_workflow_law_context", "the knowledge home's selected layout carries no Domain registry file: "+registry, false, "publish the Domain registry shard beside the knowledge manifest head")
 		}
@@ -834,7 +847,7 @@ func knowledgeRegistryLocator(homeRepo string) (string, error) {
 		return registry, nil
 	}
 	aggregate := filepath.Join(homeRepo, filepath.FromSlash(knowledgeManifestPath))
-	aggregateInfo, err := os.Stat(aggregate)
+	aggregateInfo, err := root.Stat(knowledgeManifestPath)
 	if errors.Is(err, os.ErrNotExist) {
 		return "", newFailure(KindDomainRegistryAbsent, "read_workflow_law_context", "the Product knowledge home repository carries no knowledge manifest head under a supported layout", false, "publish the knowledge shards in the knowledge home repository")
 	}
@@ -861,7 +874,21 @@ func knowledgeLawLocator(homeRepo, lawID, subjectPath string) (string, error) {
 		return "", nil
 	}
 	qualified := filepath.Join(homeRepo, filepath.FromSlash(subjectPath))
-	info, err := os.Stat(qualified)
+	root, err := os.OpenRoot(homeRepo)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return "", wrapFailure(KindUnavailable, "read_workflow_law_context", "cannot open the knowledge home checkout", true, "restore access to the Product knowledge home and retry", err)
+	}
+	if root != nil {
+		defer func() { _ = root.Close() }()
+	}
+	var info os.FileInfo
+	if root != nil {
+		info, err = root.Stat(subjectPath)
+	} else {
+		// A removed checkout: the confined stat cannot run, and the bound law
+		// keeps its missing-document refusal.
+		err = os.ErrNotExist
+	}
 	if errors.Is(err, os.ErrNotExist) {
 		failure := newFailure(KindProjectionNotFound, "read_workflow_law_context", "bound law document is missing from the knowledge home checkout: "+qualified, false, "rebuild the accepted Git law projection")
 		failure.CandidateIDs = []string{lawID}

@@ -73,12 +73,15 @@ import (
 // acceptance_oracle member on record_worker_job's payload. Every released
 // version below keeps the payload it was pinned under, so oracle capability
 // is a declared action member, never a behavior flag on a historical pin.
-// CD-0198 ships at implementation 28 and break_fix 25: break_fix folds
+// CD-0198 ships at implementation 28/29 and break_fix 25/26: break_fix folds
 // reproduce, alignment, and diagnose into one diagnosis step whose only
 // advance exit is record_diagnosis (D2), and both families derive the
 // repair/refine step start from the first admitted qualifying action
 // instead of declaring start_repair/start_refine (D3). start_execution
-// stays callable; every released version below keeps its graph and digest.
+// stays callable. CD-0198 D5 ships at implementation 29 and break_fix 26:
+// both families derive the workflow failure record from the attempt's own
+// terminal event instead of declaring record_worker_failure. Every released
+// version below keeps its graph and digest.
 // The complete-step correction trigger ships in the same tables (CD-0172
 // D3): implementation and break_fix carry a disproved_premise_at_complete
 // route from the complete action step their graphs pin, and CD-0186 keeps
@@ -215,9 +218,11 @@ var workflowDefinitionVersionPins = map[[2]string]string{
 	{"workflow.implementation", "26"}:     "sha256:c4a5623f94eda4ac4578462b54b84f4475997780b3e75c457367971196c02ad1",
 	{"workflow.implementation", "27"}:     "sha256:a4510246b78d843cc27efad6d09f290c057dc2fc9b21f4a92a6ad8d1c9a42252",
 	{"workflow.implementation", "28"}:     "sha256:d79ab810143286c3b5f4a6bb8401a6471476179fefc956ef4302602b345cdc4d",
+	{"workflow.implementation", "29"}:     "sha256:8f88fd97b17587273a1f4d9e14586f393fc970a54388a4e9c6544281676c3633",
 	{"workflow.break_fix", "23"}:          "sha256:abd2369cdb1614c52cfe54eab9f3040e87d37ffcf70c232d1c5088e9d92f42e0",
 	{"workflow.break_fix", "24"}:          "sha256:6e4445beac1027d110bc9512a7961ee9ecdac55054f10e861fdcc89c0a056137",
 	{"workflow.break_fix", "25"}:          "sha256:4fc28d8e29996c6062427c007575e24f22196c847a00539be6b93fdc926e0cb7",
+	{"workflow.break_fix", "26"}:          "sha256:db9f62557da5391a698d89ae42ab83e8e539ed7761764b3e119ae115c0939c27",
 	{"workflow.research", "16"}:           "sha256:df5941b03aaf8a47af83bb070b749ae322974ed026b2d9cf44f9a066eeff5018",
 	{"workflow.architecture_spike", "17"}: "sha256:3e9d434cba63d47aadea18399c3f950b89e93a5cc69317b8685fbbee2d245e55",
 	{"workflow.ops_runbook", "18"}:        "sha256:354390116b3faf7a73524ca4bfbbfe962650f8ed8eaf73a68845d812daade63a",
@@ -406,8 +411,8 @@ func TestBuiltinDefinitionVersionContinuityRejectsGap(t *testing.T) {
 func TestBuiltinDefinitionForRefResolvesTheLatestVersion(t *testing.T) {
 	t.Parallel()
 	cases := map[string]int64{
-		"workflow.break_fix":          25,
-		"workflow.implementation":     28,
+		"workflow.break_fix":          26,
+		"workflow.implementation":     29,
 		"workflow.generic_one_off":    16,
 		"workflow.research":           16,
 		"workflow.architecture_spike": 17,

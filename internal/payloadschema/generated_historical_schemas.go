@@ -581,6 +581,19 @@ const GeneratedHistoricalSchemaDocument = `{
       "x-maxBytes": 128,
       "x-minBytes": 2
     },
+    "reject_retry": {
+      "additionalProperties": false,
+      "description": "CD-0198 D5: the retry dispatch intent a rejected result can carry on a definition that derives the worker failure record. It names only the lane; the store mints the fresh fenced attempt and derives the lane packet from the recorded state the rejection commits, through the dispatch admission every dispatch answers to. The host launch stays the post-commit dispatch boundary; a refusal, including the escalation wall, leaves the rejection unwritten and the rejection-only escape available.",
+      "properties": {
+        "lane_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "lane_id"
+      ],
+      "type": "object"
+    },
     "short": {
       "maxLength": 256,
       "minLength": 1,

@@ -281,9 +281,10 @@ async function bootHandoffFixture(root: string): Promise<HandoffFixture> {
     const response = await invoke("concord_work_transition", "workflow_action", { work_id: workID, expected_version: await version(), action_id: actionID, idempotency_key: `handoff-e2e-${actionID}`, fields }, sourceContext)
     expect(response.outcome, `${actionID}: ${JSON.stringify(response)}`).toBe("ok")
   }
-  await walk("record_reproduction", {})
-  await walk("record_alignment", { searched: "Searched the backlog for duplicate defect work.", outcome: "none_found" })
-  await walk("record_root_cause", {})
+  // CD-0198 D2: the merged diagnosis record carries the reproduction,
+  // alignment search, and root cause sections the three retired records
+  // carried separately.
+  await walk("record_diagnosis", { reproduction: "The defect reproduces from a clean store.", searched: "Searched the backlog for duplicate defect work.", outcome: "none_found", root_cause: "The defect is the fold's own pool." })
   const domainList = await invoke("concord_domain", "list", { product_id: PRODUCT_ID, page: { cursor: null, limit: 10 } }, sourceContext)
   expect(domainList.outcome).toBe("ok")
   const registryHash = ((domainList.result as JSONRecord).registry as JSONRecord).content_hash as string

@@ -1,10 +1,10 @@
 package agent
 
 import (
-	"slices"
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 

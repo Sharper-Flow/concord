@@ -307,6 +307,7 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *foldScope,
 	guards.correctionRequestRecovery = admission.CorrectionRequestRecovery
 	guards.correctionRequestMissing = admission.CorrectionRequestMissing
 	var retryCorrection *WorkflowCorrectionContext
+	var rejectRetry *rejectRetryIntent
 	if request.ActionID == "dispatch_worker" {
 		// The completion fence reads the correction context the wall admission
 		// folded: a retry must open a fresh attempt epoch past the failed one.
@@ -322,6 +323,11 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *foldScope,
 	if request.ActionID == "reject_worker_result" {
 		if err := validateRejectCorrectionPinValues(request.Payload, request.EvidenceRefs); err != nil {
 			return result, err
+		}
+		var parseErr error
+		rejectRetry, parseErr = parseRejectRetryIntent(entry.Definition, request.Payload)
+		if parseErr != nil {
+			return result, parseErr
 		}
 	}
 	if err := runWorkflowActionGuard(guards, guardPhaseRecovery); err != nil {
@@ -456,6 +462,33 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *foldScope,
 	result.OperationID = request.OperationID
 	resultVersion := request.ExpectedVersion + int64(len(operationResult.EventIDs))
 	result.ResultingVersion = resultVersion
+	// CD-0198 D5: the combined rejection records its retry dispatch in the
+	// same transaction, through the one dispatch owner below. The recursion
+	// re-folds the post-rejection state, so the wall, the correction
+	// context, and every packet rule answer from the state the rejection
+	// just committed; a refusal here fails the whole transaction and the
+	// rejection commits no partial writes. The response serializes the
+	// exact admitted retry dispatch — the derived packet bytes, the minted
+	// attempt identity, the digest the fresh window opened for, and the
+	// claimed worktree the authorization rested on — so the adapter's host
+	// launch routes through the core's own record and builds no packet.
+	var resultMapRetryDigest string
+	var resultMapRetryRecord retryDispatchRecord
+	if rejectRetry != nil {
+		retryResult, retryRecord, retryErr := applyRejectRetryDispatchTx(ctx, tx, scope, registry, request, entry, rejectRetry)
+		if retryErr != nil {
+			return result, retryErr
+		}
+		result.EventIDs = append(result.EventIDs, retryResult.EventIDs...)
+		resultMapRetryRecord = retryRecord
+		resultMapRetryDigest = retryRecord.Digest
+		version, versionErr := workflowInstanceStateVersionTx(ctx, tx, request.WorkID)
+		if versionErr != nil {
+			return result, versionErr
+		}
+		resultVersion = version
+		result.ResultingVersion = resultVersion
+	}
 	changedRef := map[string]any{"entity_kind": "work_item", "id": request.WorkID, "version": resultVersion}
 	resultMap := map[string]any{"changed_refs": []any{changedRef}, "next_valid_intents": []any{}, "operation_id": request.OperationID}
 	// CD-0067 D6: the dispatch_worker response surfaces worker_packet_digest
@@ -464,6 +497,16 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *foldScope,
 	// schema drift.
 	if workerPacketDigest != "" {
 		resultMap["worker_packet_digest"] = workerPacketDigest
+	}
+	if resultMapRetryDigest != "" {
+		resultMap["worker_packet_digest"] = resultMapRetryDigest
+	}
+	if resultMapRetryRecord.AttemptID != "" {
+		resultMap["retry_attempt_id"] = resultMapRetryRecord.AttemptID
+		resultMap["retry_worker_packet"] = resultMapRetryRecord.Packet
+	}
+	if resultMapRetryRecord.Worktree != "" {
+		resultMap["worker_worktree"] = resultMapRetryRecord.Worktree
 	}
 	// Issue #1322: the authorized dispatch names the durable claimed worktree
 	// its authorization rested on, so the adapter can gate the calling tool

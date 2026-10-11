@@ -9,9 +9,7 @@ import (
 	"io"
 	"maps"
 	"slices"
-	"strconv"
 	"strings"
-	"sync"
 	"time"
 	"unicode"
 
@@ -446,44 +444,28 @@ func workflowEnvelopeProjectedPayload(definition WorkflowDefinition, actionID st
 	return merged
 }
 
-// workflowHistoricalDefinitionPins reports the retained registry versions:
-// registered (ref, version) entries that sit below their family's current
-// head. Their payload declarations are frozen history.
-var workflowHistoricalDefinitionPins = sync.OnceValue(func() map[string]bool {
-	current := map[string]bool{}
-	for _, definition := range BuiltinWorkflowDefinitions() {
-		current[definition.Ref+"/"+strconv.FormatInt(definition.Version, 10)] = true
-	}
-	pins := map[string]bool{}
-	for _, definition := range builtinWorkflowDefinitionsWithHistory() {
-		pin := definition.Ref + "/" + strconv.FormatInt(definition.Version, 10)
-		if !current[pin] {
-			pins[pin] = true
-		}
-	}
-	return pins
-})
-
-// workflowDefinitionIsHistorical reports whether the definition carries a
-// retained registry pin: a registered (ref, version) entry below its
-// family's current head.
-func workflowDefinitionIsHistorical(definition WorkflowDefinition) bool {
-	return workflowHistoricalDefinitionPins()[definition.Ref+"/"+strconv.FormatInt(definition.Version, 10)]
+// workflowLivePayloadSchemaDocument returns the schema document that resolves
+// a LIVE payload's declared schema refs: the generated public authoring
+// document, for every definition. A live call answers to the current
+// published contract regardless of pin age — a retained pin dispatching live
+// carries the current published worker packet, not the frozen transport
+// schema the pin's recorded history was validated against (CON-902 S2: the
+// preflight chose the decoder by below-head pin even for live calls, so an
+// old-pin live dispatch refused the current published packet identity).
+// workflowReplayPayloadSchemaDocument returns the document that resolves a
+// RECORDED payload's declared schema refs: the frozen historical decoder
+// document, so recorded history replays against the exact frozen bytes its
+// writes answered to and a public authoring change cannot rewrite it. The
+// global engine cross-field rules stay outside both documents on the engine
+// registry.
+func workflowLivePayloadSchemaDocument() map[string]any {
+	return payloadschema.Document()
 }
 
-// workflowPayloadSchemaDocumentFor returns the schema document that resolves
-// the definition's declared payload schema refs: the frozen historical
-// decoder document for a retained registry pin, the generated public
-// authoring document for a current head. The split is the S0 owner
-// separation: a public authoring change cannot break historical payload
-// validation, and a frozen historical schema never becomes authorable
-// through the public document (CON-902 S0). The global engine cross-field
-// rules stay outside both documents on the engine registry.
-func workflowPayloadSchemaDocumentFor(definition WorkflowDefinition) map[string]any {
-	if workflowDefinitionIsHistorical(definition) {
-		return payloadschema.HistoricalDocument()
-	}
-	return payloadschema.Document()
+// workflowReplayPayloadSchemaDocument is the replay side of the invocation
+// role split: see workflowLivePayloadSchemaDocument.
+func workflowReplayPayloadSchemaDocument() map[string]any {
+	return payloadschema.HistoricalDocument()
 }
 
 // validateWorkflowActionEnvelopePayload validates the declared action payload
@@ -496,14 +478,14 @@ func validateWorkflowActionEnvelopePayload(definition WorkflowDefinition, reques
 }
 
 func validateWorkflowActionPayload(definition WorkflowDefinition, actionID string, payload json.RawMessage) error {
-	return validateWorkflowActionPayloadWithReference(definition, actionID, payload, ValidReference)
+	return validateWorkflowActionPayloadInDocument(workflowLivePayloadSchemaDocument(), definition, actionID, payload, ValidReference)
 }
 
 func validateWorkflowActionPayloadForReplay(definition WorkflowDefinition, actionID string, payload json.RawMessage) error {
-	return validateWorkflowActionPayloadWithReference(definition, actionID, payload, replayValidReference)
+	return validateWorkflowActionPayloadInDocument(workflowReplayPayloadSchemaDocument(), definition, actionID, payload, replayValidReference)
 }
 
-func validateWorkflowActionPayloadWithReference(definition WorkflowDefinition, actionID string, payload json.RawMessage, validReference func(string) bool) error {
+func validateWorkflowActionPayloadInDocument(document map[string]any, definition WorkflowDefinition, actionID string, payload json.RawMessage, validReference func(string) bool) error {
 	if len(payload) == 0 {
 		payload = json.RawMessage(`{}`)
 	}
@@ -515,12 +497,10 @@ func validateWorkflowActionPayloadWithReference(definition WorkflowDefinition, a
 		return err
 	}
 	var payloadDefinition WorkflowPayloadDefinition
-	var document map[string]any
 	found := false
 	for _, action := range definition.ActionDefinitions {
 		if action.ID == actionID {
 			payloadDefinition = action.Payload
-			document = workflowPayloadSchemaDocumentFor(definition)
 			found = true
 			break
 		}
@@ -528,17 +508,14 @@ func validateWorkflowActionPayloadWithReference(definition WorkflowDefinition, a
 	if !found {
 		if actionID == "record_worker_failure" {
 			payloadDefinition = workerFailureRecoveryActionDefinition().Payload
-			document = payloadschema.Document()
 			found = true
 		}
 		if actionID == "reject_worker_result" {
 			payloadDefinition = workflowCorrectionActionDefinition().Payload
-			document = payloadschema.Document()
 			found = true
 		}
 		if actionID == "request_correction" {
 			payloadDefinition = workflowCorrectionRequestActionDefinition().Payload
-			document = payloadschema.Document()
 			found = true
 		}
 	}

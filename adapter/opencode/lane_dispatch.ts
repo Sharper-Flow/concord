@@ -19,7 +19,7 @@ import type { ToolContext } from "@opencode-ai/plugin"
 import type { ConcordInvoke } from "./packet"
 import type { CredentialStore } from "./credentials"
 import { canonicalDirectory, type DispatchWindows } from "./dispatch-window"
-import { computeHostPromptProvenance, dispatchWorker, errorEnvelopeForLane, coreDispatchFailure, contextPreflightRefusal, provenanceRefusal, type AgentLanePacket, type AgentResultEnvelope, type DispatchRunner, type HostProvenance } from "./dispatch"
+import { computeHostPromptProvenance, dispatchRetriedWorker, dispatchWorker, errorEnvelopeForLane, coreDispatchFailure, contextPreflightRefusal, provenanceRefusal, type AgentLanePacket, type AgentResultEnvelope, type DispatchRunner, type HostProvenance } from "./dispatch"
 import { agentLanes, agentUtilities, type AgentLane, type AgentUtility } from "./generated-agent-lanes"
 import { buildAgentLanePacket, type AgentLanePacketFailureKind } from "./packet"
 import { hostControlPlane } from "./move-session"
@@ -306,4 +306,33 @@ export async function dispatchLaneWorker(input: LaneDispatchInput, deps: LaneDis
   // metadata-only work_start refusal left behind, and with the durable
   // claimed worktree the core names.
   return dispatchWorker(packet, { authorize: async () => coreResponse, credentials: deps.credentials, runner: deps.runner, evidenceRunner: deps.evidenceRunner, concordBinary: deps.concordBinary, packetDigest, sessionID: deps.context.sessionID, windows: deps.windows, workPins, workerDirectory, pinnedWorkerDirectory, authorizedWorktree, resolveWorkerDirectory: () => hostControlPlane().sessionDirectory(deps.context.sessionID, deps.context.abort), contextDirectory, provenance })
+}
+
+// RetriedDispatchRecord is what a combined rejection's core response
+// serializes about the retry dispatch it committed (CD-0198 D5): the exact
+// derived packet bytes, the digest the fresh window opened for, the minted
+// attempt identity, and the claimed worktree the authorization rested on.
+export interface RetriedDispatchRecord {
+  packet: unknown
+  packetDigest: string
+  attemptID: string
+  authorizedWorktree: string
+}
+
+// dispatchRetriedLaneWorker completes a combined rejection's host launch:
+// the core already committed the rejection and the retry dispatch in one
+// transaction, so this seam arms the same single-use window the
+// dispatch_worker route arms — through dispatchRetriedWorker and the one
+// post-commit launch owner — with no second dispatch_worker call, no second
+// authorizer, and no adapter-built packet.
+export async function dispatchRetriedLaneWorker(retry: RetriedDispatchRecord, deps: Pick<LaneDispatchDeps, "context" | "credentials" | "windows">): Promise<AgentResultEnvelope> {
+  return dispatchRetriedWorker(retry.packet, {
+    credentials: deps.credentials,
+    packetDigest: retry.packetDigest,
+    sessionID: deps.context.sessionID,
+    windows: deps.windows,
+    authorizedWorktree: retry.authorizedWorktree || undefined,
+    resolveWorkerDirectory: () => hostControlPlane().sessionDirectory(deps.context.sessionID, deps.context.abort),
+    contextDirectory: typeof deps.context.directory === "string" ? deps.context.directory : undefined,
+  })
 }

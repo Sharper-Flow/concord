@@ -56,7 +56,8 @@ func TestUpgradeKeepsTheSnapshotWhenTheBreakingStepFails(t *testing.T) {
 	path, root := cliStoreRoot(t)
 	pendingBreakingStore(t, path, false)
 
-	if code, _, errOut := runUpgradeStdin(t, `{}`); code != 1 {
+	code, _, errOut := runUpgradeStdin(t, `{}`)
+	if code != 1 {
 		t.Fatalf("a colliding migration must fail the upgrade: %d %s", code, errOut)
 	}
 	entries, err := os.ReadDir(filepath.Join(root, "backups"))
@@ -74,6 +75,9 @@ func TestUpgradeKeepsTheSnapshotWhenTheBreakingStepFails(t *testing.T) {
 		t.Fatalf("exactly one pre-upgrade snapshot must remain: %v", entries)
 	}
 	snapshot := filepath.Join(root, "backups", snapshots[0])
+	if !strings.Contains(errOut, snapshot) {
+		t.Errorf("migration failure must report retained snapshot %s: %s", snapshot, errOut)
+	}
 	if _, err := store.VerifyBackup(context.Background(), snapshot); err != nil {
 		t.Fatalf("the snapshot must verify: %v", err)
 	}

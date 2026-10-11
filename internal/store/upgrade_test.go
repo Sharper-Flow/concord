@@ -109,7 +109,7 @@ func TestUpgradeRefusesWhileALiveLeaseHoldsAnOlderSchema(t *testing.T) {
 	older := HeldSchema{PID: 4242, ReleaseRoot: "/releases/v1.2.3", SchemaVersion: breaking.Version - 1, Directory: "/workspace/card-site"}
 	current := HeldSchema{PID: 4343, ReleaseRoot: "/releases/v2.0.0", SchemaVersion: CurrentSchemaVersion()}
 
-	_, err := Upgrade(context.Background(), path, []HeldSchema{current, older}, UpgradeOptions{})
+	_, err := Upgrade(context.Background(), path, []HeldSchema{current, older})
 	var failure *Failure
 	if !failureAs(err, &failure) || failure.Kind != KindUpgradeBlocked {
 		t.Fatalf("Upgrade() error = %v, want %s", err, KindUpgradeBlocked)
@@ -126,7 +126,7 @@ func TestUpgradeRefusesWhileALiveLeaseHoldsAnOlderSchema(t *testing.T) {
 		t.Fatalf("schema version after refused upgrade = %d, want %d: a refusal writes nothing", got, want)
 	}
 
-	report, err := Upgrade(context.Background(), path, []HeldSchema{current}, UpgradeOptions{})
+	report, err := Upgrade(context.Background(), path, []HeldSchema{current})
 	if err != nil {
 		t.Fatalf("Upgrade() with no older session error = %v", err)
 	}
@@ -153,7 +153,7 @@ func TestUpgradeRefusesWhileALiveLeaseHoldsAnOlderSchema(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	again, err := Upgrade(context.Background(), path, nil, UpgradeOptions{})
+	again, err := Upgrade(context.Background(), path, nil)
 	if err != nil {
 		t.Fatalf("Upgrade() on a current database error = %v", err)
 	}
@@ -177,11 +177,11 @@ func TestUpgradeRepairsAManifestPredatingTheBreakingColumn(t *testing.T) {
 	// The gate still holds: the repaired manifest admits a refused upgrade
 	// under an older live session before anything applies.
 	older := HeldSchema{PID: 4747, ReleaseRoot: "/releases/v0.13.0", SchemaVersion: applied - 1}
-	if _, err := Upgrade(context.Background(), path, []HeldSchema{older}, UpgradeOptions{}); err == nil {
+	if _, err := Upgrade(context.Background(), path, []HeldSchema{older}); err == nil {
 		t.Fatal("upgrade applied a pending breaking step under a session that predates it")
 	}
 
-	report, err := Upgrade(context.Background(), path, nil, UpgradeOptions{})
+	report, err := Upgrade(context.Background(), path, nil)
 	if err != nil {
 		t.Fatalf("Upgrade() after the column repair error = %v", err)
 	}

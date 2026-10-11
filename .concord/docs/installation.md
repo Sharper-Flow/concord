@@ -157,6 +157,18 @@ another `CONCORD_DB_PATH` or data home cannot redirect it. While the boundary
 is open, an install whose own activation is blocked or unknown refuses and
 keeps the prepared record. Run the recorded activation command first.
 
+When breaking migrations are pending, the migration command takes and verifies
+a database snapshot after session admission closes and the final session checks
+pass, before applying any migration. The snapshot uses the backup command's
+Online Backup API and verification rules and remains under the data root's
+`backups/` directory. Success reports its path as `backup` in the upgrade JSON
+report. A snapshot or verification failure names the cause and path, applies no
+migration, and closes only the boundary that this run opened. An adopted boundary
+stays unchanged. A read-only upgrade plan reports `snapshot_required` without
+creating a snapshot or directory. A fresh store with no database file needs no
+snapshot. An existing empty file is not exempt. A later migration or finish-open
+failure names the retained verified snapshot on stderr.
+
 The migration command opens the maintenance boundary: new session admission is
 excluded before its final lease check, and the exclusion is held through the
 migration and the activation. A session that starts inside the boundary fails

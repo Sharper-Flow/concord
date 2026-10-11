@@ -185,28 +185,14 @@ type UpgradeReport struct {
 	Applied []int `json:"applied"`
 	// SchemaVersion is the highest applied migration after the call.
 	SchemaVersion int `json:"schema_version"`
-	// Backup is the verified pre-migration snapshot, empty when no breaking
-	// step was pending or the caller named no destination.
-	Backup string `json:"backup,omitempty"`
-}
-
-// UpgradeOptions carries the optional behavior of Upgrade.
-type UpgradeOptions struct {
-	// BreakingBackup is an absolute destination that does not yet exist. When
-	// a breaking step is pending, a verified snapshot of the unmigrated store
-	// is written there before any migration applies; a failed snapshot
-	// applies nothing.
-	BreakingBackup string
 }
 
 // Upgrade applies every pending migration, breaking steps included. It refuses
 // with KindUpgradeBlocked while any held schema predates the first pending
 // breaking step, naming each session and the release it holds, and writes
 // nothing in that case. An unstamped build refuses pending migrations in an
-// existing store and applies them only to a fresh store. A breaking step drops
-// data the event log alone cannot rebuild, so the optional snapshot is taken
-// after the held-schema gate and before the first migration.
-func Upgrade(ctx context.Context, path string, held []HeldSchema, options UpgradeOptions) (UpgradeReport, error) {
+// existing store and applies them only to a fresh store.
+func Upgrade(ctx context.Context, path string, held []HeldSchema) (UpgradeReport, error) {
 	s, err := openUnmigrated(ctx, path)
 	if err != nil {
 		return UpgradeReport{}, err
@@ -226,16 +212,9 @@ func Upgrade(ctx context.Context, path string, held []HeldSchema, options Upgrad
 	if err != nil {
 		return UpgradeReport{}, err
 	}
-	backup := ""
 	if pending := pendingBreaking(before); len(pending) > 0 {
-		if err := refuseHeldOlderSchemas(pending, held); err != nil {
+		if err := CheckUpgradeSessions(pendingBreakingList(before), held); err != nil {
 			return UpgradeReport{}, err
-		}
-		if options.BreakingBackup != "" {
-			if _, err := Backup(ctx, s, options.BreakingBackup); err != nil {
-				return UpgradeReport{}, err
-			}
-			backup = options.BreakingBackup
 		}
 	}
 	var after map[int]appliedMigration
@@ -258,7 +237,7 @@ func Upgrade(ctx context.Context, path string, held []HeldSchema, options Upgrad
 	if err := s.finishOpen(ctx); err != nil {
 		return UpgradeReport{}, err
 	}
-	report := UpgradeReport{Applied: []int{}, Backup: backup}
+	report := UpgradeReport{Applied: []int{}}
 	for _, m := range migrations {
 		if _, was := before[m.Version]; was {
 			continue
@@ -275,10 +254,11 @@ func Upgrade(ctx context.Context, path string, held []HeldSchema, options Upgrad
 	return report, nil
 }
 
-// refuseHeldOlderSchemas is the CD-0111 D3 gate: a breaking step never applies
+// CheckUpgradeSessions is the CD-0111 D3 gate: a breaking step never applies
 // under a live session whose release predates it. Each refused session is
-// named with the first pending breaking step it predates.
-func refuseHeldOlderSchemas(pending []migration, held []HeldSchema) error {
+// named with the first pending breaking step it predates. The CLI checks its
+// plan before taking a snapshot; Upgrade rechecks before applying migrations.
+func CheckUpgradeSessions(pending []PendingMigration, held []HeldSchema) error {
 	var older []string
 	for _, h := range held {
 		for _, m := range pending {

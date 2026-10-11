@@ -29,7 +29,7 @@ func TestOpenRefusesUpgradeWindowState(t *testing.T) {
 						_ = opened.Close()
 					}
 				case "upgrade":
-					_, err = Upgrade(context.Background(), path, nil, UpgradeOptions{})
+					_, err = Upgrade(context.Background(), path, nil)
 				case "readiness":
 					_, err = PlanUpgradeReadiness(context.Background(), path)
 				}

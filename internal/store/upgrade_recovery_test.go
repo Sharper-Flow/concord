@@ -70,7 +70,7 @@ func TestUpgradeFailureCommitsNothingAndKeepsTheStoreReadable(t *testing.T) {
 	path := migratedStoreWithTailRemoved(t, 112)
 	held := []HeldSchema{}
 
-	report, err := Upgrade(context.Background(), path, held, UpgradeOptions{})
+	report, err := Upgrade(context.Background(), path, held)
 	if err == nil {
 		t.Fatalf("a migration colliding with the live schema must fail, got %+v", report)
 	}
@@ -100,7 +100,7 @@ func TestUpgradeFailureCommitsNothingAndKeepsTheStoreReadable(t *testing.T) {
 func TestUpgradeResumesAfterTheCollisionIsRepaired(t *testing.T) {
 	stampAsRelease(t)
 	path := migratedStoreWithTailRemoved(t, 115)
-	if _, err := Upgrade(context.Background(), path, nil, UpgradeOptions{}); err == nil {
+	if _, err := Upgrade(context.Background(), path, nil); err == nil {
 		t.Fatal("the poisoned tail must fail the first upgrade")
 	}
 	db, err := sql.Open(driverName, dataSourceName(path))
@@ -142,7 +142,7 @@ func TestUpgradeResumesAfterTheCollisionIsRepaired(t *testing.T) {
 		t.Fatalf("cannot drop migration 123's colliding objects: %v", err)
 	}
 	_ = db.Close()
-	report, err := Upgrade(context.Background(), path, nil, UpgradeOptions{})
+	report, err := Upgrade(context.Background(), path, nil)
 	if err != nil {
 		t.Fatalf("the repaired tail must apply: %v", err)
 	}

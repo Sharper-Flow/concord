@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -12,9 +11,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"time"
-
-	"github.com/sharper-flow/concord/internal/store"
 )
 
 const defaultReleaseBaseURL = "https://github.com/Sharper-Flow/concord/releases"
@@ -154,34 +150,14 @@ func backupBeforeRepair(out, errOut io.Writer, dataRoot, version string) int {
 		writeOperatorDiagnostic(errOut, "repair", err.Error())
 		return 1
 	}
-	info, statErr := os.Stat(path)
-	if statErr != nil || info.IsDir() {
+	destination, present, err := snapshotBeforeMutation(path, dataRoot, "repair", version)
+	if err != nil {
+		writeOperatorDiagnostic(errOut, "repair", fmt.Sprintf("snapshot %s failed; nothing was repaired: %v", destination, err))
+		return 1
+	}
+	if !present {
 		_, _ = fmt.Fprintln(out, "repair: no work database found; skipped the backup")
 		return 0
-	}
-	s, err := store.Open(context.Background(), path)
-	if err != nil {
-		writeOperatorDiagnostic(errOut, "repair", "cannot open the work database for backup: "+err.Error())
-		return 1
-	}
-	defer func() { _ = s.Close() }()
-	// The backup API requires an existing destination parent; the repair
-	// tree under the data root is created on first use.
-	if err := os.MkdirAll(filepath.Join(dataRoot, "backups"), 0o750); err != nil {
-		writeOperatorDiagnostic(errOut, "repair", "cannot create the backup directory: "+err.Error())
-		return 1
-	}
-	destination := filepath.Join(
-		dataRoot, "backups",
-		fmt.Sprintf("pre-repair-%s-%s", version, time.Now().UTC().Format("20060102T150405Z")),
-	)
-	if _, err := store.Backup(context.Background(), s, destination); err != nil {
-		writeOperatorDiagnostic(errOut, "repair", "database backup failed; nothing was repaired: "+err.Error())
-		return 1
-	}
-	if _, err := store.VerifyBackup(context.Background(), destination); err != nil {
-		writeOperatorDiagnostic(errOut, "repair", "database backup verification failed; nothing was repaired: "+err.Error())
-		return 1
 	}
 	_, _ = fmt.Fprintf(out, "repair: database backup at %s\n", destination)
 	return 0

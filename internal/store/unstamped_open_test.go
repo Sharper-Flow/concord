@@ -68,7 +68,7 @@ func TestUnstampedUpgradeDoesNotMigrateAnExistingStore(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err := Upgrade(context.Background(), path, nil, UpgradeOptions{})
+	_, err := Upgrade(context.Background(), path, nil)
 	var failure *Failure
 	if !errors.As(err, &failure) {
 		t.Fatalf("Upgrade() error = %v, want a typed refusal", err)

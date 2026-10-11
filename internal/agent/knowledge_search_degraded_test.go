@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -34,10 +35,21 @@ const (
 // demand path can see the change.
 func demandSearchHarness(t *testing.T, withSource bool) (*store.Store, store.KnowledgeHome, store.KnowledgeHome) {
 	t.Helper()
-	homeRepo := initDemandRepo(t, "home", demandHomeWork, true)
-	var sourceRepo string
+	source := store.KnowledgeHome{}
 	if withSource {
-		sourceRepo = initDemandRepo(t, "source", demandSourceWork, false)
+		source = store.KnowledgeHome{HomeProjectID: "d-src", HomeLocatorID: "d-srcl"}
+	}
+	return demandSearchHarnessWithSources(t, store.KnowledgeHome{HomeProjectID: "d-home", HomeLocatorID: "d-loc"}, source)
+}
+
+func demandSearchHarnessWithSources(t *testing.T, home, source store.KnowledgeHome) (*store.Store, store.KnowledgeHome, store.KnowledgeHome) {
+	t.Helper()
+	withSource := source.HomeProjectID != ""
+	home.RepoPath = initDemandRepo(t, "home", demandHomeWork, true)
+	home.HeadRef = "HEAD"
+	if withSource {
+		source.RepoPath = initDemandRepo(t, "source", demandSourceWork, false)
+		source.HeadRef = "HEAD"
 	}
 	s, err := storetest.Open(t.TempDir())
 	if err != nil {
@@ -56,37 +68,34 @@ func demandSearchHarness(t *testing.T, withSource bool) (*store.Store, store.Kno
 			t.Fatal(err)
 		}
 	}
-	seed("d-home", "d-loc", homeRepo)
+	seed(home.HomeProjectID, home.HomeLocatorID, home.RepoPath)
 	if withSource {
-		seed("d-src", "d-srcl", sourceRepo)
+		seed(source.HomeProjectID, source.HomeLocatorID, source.RepoPath)
 	}
 	if _, err := db.Exec(`INSERT INTO products(id,display_name,stage_maturity,stage_audience_commitment,version,created_at,updated_at) VALUES('demand-product','Demand product','prototype','operator_only',1,'now','now')`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`INSERT INTO product_knowledge_homes(product_id,project_id,locator_id) VALUES('demand-product','d-home','d-loc')`); err != nil {
+	if _, err := db.Exec(`INSERT INTO product_knowledge_homes(product_id,project_id,locator_id) VALUES('demand-product',?,?)`, home.HomeProjectID, home.HomeLocatorID); err != nil {
 		t.Fatal(err)
 	}
 	if withSource {
-		if _, err := db.Exec(`INSERT INTO product_knowledge_sources(product_id,project_id,locator_id,registered_at) VALUES('demand-product','d-src','d-srcl','now')`); err != nil {
+		if _, err := db.Exec(`INSERT INTO product_knowledge_sources(product_id,project_id,locator_id,registered_at) VALUES('demand-product',?,?,'now')`, source.HomeProjectID, source.HomeLocatorID); err != nil {
 			t.Fatal(err)
 		}
 	}
 	if _, err := db.Exec(`DELETE FROM fold_guard`); err != nil {
 		t.Fatal(err)
 	}
-	home := store.KnowledgeHome{HomeProjectID: "d-home", HomeLocatorID: "d-loc", RepoPath: homeRepo, HeadRef: "HEAD"}
 	ctx := context.Background()
 	if err := s.RebuildKnowledgeIndex(ctx, home); err != nil {
 		t.Fatal(err)
 	}
 	if withSource {
-		source := store.KnowledgeHome{HomeProjectID: "d-src", HomeLocatorID: "d-srcl", RepoPath: sourceRepo, HeadRef: "HEAD"}
 		if err := s.RebuildKnowledgeIndex(ctx, source); err != nil {
 			t.Fatal(err)
 		}
-		return s, home, source
 	}
-	return s, home, store.KnowledgeHome{}
+	return s, home, source
 }
 
 // initDemandRepo lays one committed lesson and one committed legislated
@@ -220,23 +229,6 @@ func searchDemand(t *testing.T, s *store.Store, allowDegraded bool) Envelope {
 	return response
 }
 
-func envelopeOmissionKinds(response Envelope) []string {
-	kinds := make([]string, 0, len(response.Omissions))
-	for _, omission := range response.Omissions {
-		kinds = append(kinds, omission.Kind)
-	}
-	return kinds
-}
-
-func containsPrefix(values []string, prefix string) bool {
-	for _, value := range values {
-		if strings.HasPrefix(value, prefix) {
-			return true
-		}
-	}
-	return false
-}
-
 func TestKnowledgeSearchHeldNegativeDemandRefusesWithoutDegraded(t *testing.T) {
 	t.Parallel()
 	s, _, _ := demandSearchHarness(t, false)
@@ -260,10 +252,9 @@ func TestKnowledgeSearchHeldNegativeDemandDegradesWithAllowDegraded(t *testing.T
 	if response.Authority != "degraded" {
 		t.Fatalf("a suppressed demand failure caps the answer at degraded, got %q", response.Authority)
 	}
-	omissions := envelopeOmissionKinds(response)
-	if !containsPrefix(omissions, "knowledge_source_demand_failed:d-home/d-loc:") {
-		t.Fatalf("the answer must name the failed source and its cause: %v", omissions)
-	}
+	assertKnowledgeNotice(t, response.Omissions, "knowledge_source_demand_failed", map[string]any{
+		"project_id": "d-home", "locator": "d-loc", "cause": "invalid_note_proof",
+	})
 	var payload struct {
 		Items            []map[string]any `json:"items"`
 		SourceWatermarks []map[string]any `json:"source_watermarks"`
@@ -288,10 +279,9 @@ func TestKnowledgeSearchMultiSourceSkipsDemandFailedSourceItems(t *testing.T) {
 	if response.Outcome != OutcomeOK || response.Authority != "degraded" {
 		t.Fatalf("the federated answer must degrade: outcome=%v authority=%q", response.Outcome, response.Authority)
 	}
-	omissions := envelopeOmissionKinds(response)
-	if !containsPrefix(omissions, "knowledge_source_demand_failed:d-home/d-loc:") {
-		t.Fatalf("the failed home must carry the demand omission: %v", omissions)
-	}
+	assertKnowledgeNotice(t, response.Omissions, "knowledge_source_demand_failed", map[string]any{
+		"project_id": "d-home", "locator": "d-loc", "cause": "invalid_note_proof",
+	})
 	var payload struct {
 		Items            []map[string]any `json:"items"`
 		SourceWatermarks []map[string]any `json:"source_watermarks"`
@@ -325,10 +315,9 @@ func TestKnowledgeSearchMultiSourceKeepsHomeWhenSourceDemandFailed(t *testing.T)
 	if response.Outcome != OutcomeOK || response.Authority != "degraded" {
 		t.Fatalf("the federated answer must degrade when a source demand fails: outcome=%v authority=%q", response.Outcome, response.Authority)
 	}
-	omissions := envelopeOmissionKinds(response)
-	if !containsPrefix(omissions, "knowledge_source_demand_failed:d-src/d-srcl:") {
-		t.Fatalf("the suppressed source demand must name the source: %v", omissions)
-	}
+	assertKnowledgeNotice(t, response.Omissions, "knowledge_source_demand_failed", map[string]any{
+		"project_id": "d-src", "locator": "d-srcl", "cause": "invalid_note_proof",
+	})
 	var payload struct {
 		Items []map[string]any `json:"items"`
 	}
@@ -343,4 +332,53 @@ func TestKnowledgeSearchMultiSourceKeepsHomeWhenSourceDemandFailed(t *testing.T)
 			t.Fatalf("the failed source's items must be skipped: %#v", payload.Items)
 		}
 	}
+}
+
+func assertKnowledgeNotice(t *testing.T, notices []Notice, kind string, details map[string]any) {
+	t.Helper()
+	for _, notice := range notices {
+		if notice.Kind == kind && reflect.DeepEqual(notice.Details, details) {
+			return
+		}
+	}
+	t.Fatalf("missing %s with exact details %#v: %#v", kind, details, notices)
+}
+
+func TestKnowledgeSearchDemandFailureNoticeMarshalsWithRealisticIdentifiers(t *testing.T) {
+	t.Parallel()
+	s, home, _ := demandSearchHarnessWithSources(t, store.KnowledgeHome{HomeProjectID: "concord", HomeLocatorID: "canonical-path"}, store.KnowledgeHome{})
+	defer s.Close()
+	seedDemandHeldNegative(t, s, demandHomeWork)
+	response := searchDemand(t, s, true)
+	if response.Outcome != OutcomeOK || response.Authority != AuthorityDegraded {
+		t.Fatalf("suppressed demand must answer degraded: %+v", response)
+	}
+	if _, err := json.Marshal(response); err != nil {
+		t.Fatalf("realistic demand failure does not marshal: %v", err)
+	}
+	assertKnowledgeNotice(t, response.Omissions, "knowledge_source_demand_failed", map[string]any{
+		"project_id": home.HomeProjectID, "locator": home.HomeLocatorID, "cause": "invalid_note_proof",
+	})
+}
+
+func TestKnowledgeSearchDegradedSourceNoticeMarshalsWithLongLocator(t *testing.T) {
+	t.Parallel()
+	s, _, source := demandSearchHarnessWithSources(t,
+		store.KnowledgeHome{HomeProjectID: "d-home", HomeLocatorID: "d-loc"},
+		store.KnowledgeHome{HomeProjectID: "d-src", HomeLocatorID: "canonical-" + strings.Repeat("x", 80)})
+	defer s.Close()
+	// This repository belongs to the temporary synthetic fixture only.
+	if err := os.RemoveAll(source.RepoPath); err != nil {
+		t.Fatal(err)
+	}
+	response := searchDemand(t, s, true)
+	if response.Outcome != OutcomeOK || response.Authority != AuthorityDegraded {
+		t.Fatalf("unreachable source must answer degraded: %+v", response)
+	}
+	if _, err := json.Marshal(response); err != nil {
+		t.Fatalf("long-locator degraded source does not marshal: %v", err)
+	}
+	assertKnowledgeNotice(t, response.Omissions, "knowledge_source_degraded", map[string]any{
+		"project_id": source.HomeProjectID, "locator": source.HomeLocatorID,
+	})
 }

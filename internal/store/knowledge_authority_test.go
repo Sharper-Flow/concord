@@ -369,10 +369,8 @@ func TestRebuildAcceptsProductChangingContractAdmittingTheLaw(t *testing.T) {
 	if err != nil || q10.Status != "canonical" {
 		t.Fatalf("Q10 = %#v, err %v", q10, err)
 	}
-	for _, warning := range q10.Warnings {
-		if strings.HasPrefix(warning, "legislated_authority_unverified:") {
-			t.Fatalf("a verified authority must not carry the unverified warning: %v", q10.Warnings)
-		}
+	if q10.UnverifiedAuthority != nil {
+		t.Fatalf("a verified authority must not carry the unverified warning: %+v", q10.UnverifiedAuthority)
 	}
 }
 
@@ -491,14 +489,8 @@ func TestQ10ReportsUnverifiedAuthorityForAbsentWork(t *testing.T) {
 	if err != nil || q10.Status != "canonical" {
 		t.Fatalf("Q10 = %#v, err %v", q10, err)
 	}
-	found := false
-	for _, warning := range q10.Warnings {
-		if warning == "legislated_authority_unverified:CD-8751:"+authoritySyntheticWork+":1" {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatalf("the canonical read must carry the exact unverified warning, got %v", q10.Warnings)
+	if q10.UnverifiedAuthority == nil || *q10.UnverifiedAuthority != (KnowledgeUnverifiedAuthority{LawID: "CD-8751", WorkID: authoritySyntheticWork, ContractVersion: 1}) {
+		t.Fatalf("the canonical read must carry the exact unverified warning, got %+v", q10.UnverifiedAuthority)
 	}
 	// The approved exact contract clears the warning on the next read.
 	seedAuthorityWork(t, s, authoritySyntheticWork)
@@ -508,10 +500,8 @@ func TestQ10ReportsUnverifiedAuthorityForAbsentWork(t *testing.T) {
 	if err != nil || cleared.Status != "canonical" {
 		t.Fatalf("Q10 after approval = %#v, err %v", cleared, err)
 	}
-	for _, warning := range cleared.Warnings {
-		if strings.HasPrefix(warning, "legislated_authority_unverified:") {
-			t.Fatalf("positive historical content clears the unverified warning: %v", cleared.Warnings)
-		}
+	if cleared.UnverifiedAuthority != nil {
+		t.Fatalf("positive historical content clears the unverified warning: %+v", cleared.UnverifiedAuthority)
 	}
 }
 

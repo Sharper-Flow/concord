@@ -210,10 +210,8 @@ func TestFederatedQ9IteratesRegisteredSourceSet(t *testing.T) {
 	if result.ResultMeta.Authority != "authoritative" {
 		t.Fatalf("meta = %#v", result.ResultMeta)
 	}
-	for _, omission := range result.ResultMeta.Omissions {
-		if len(omission) >= len("knowledge_source_degraded:") && omission[:len("knowledge_source_degraded:")] == "knowledge_source_degraded:" {
-			t.Fatalf("authoritative answer carries a degraded omission: %q", omission)
-		}
+	if len(result.SourceOmissions) != 0 {
+		t.Fatalf("authoritative answer carries a degraded omission: %+v", result.SourceOmissions)
 	}
 }
 
@@ -270,13 +268,13 @@ func TestFederatedQ9DegradedSourceRefusesAndOmits(t *testing.T) {
 		t.Fatalf("degraded authority = %q", degraded.ResultMeta.Authority)
 	}
 	found := false
-	for _, omission := range degraded.ResultMeta.Omissions {
-		if omission == "knowledge_source_degraded:deg-src/deg-src-loc" {
+	for _, omission := range degraded.SourceOmissions {
+		if omission == (KnowledgeSourceOmission{Kind: KnowledgeSourceDegraded, ProjectID: "deg-src", LocatorID: "deg-src-loc"}) {
 			found = true
 		}
 	}
 	if !found {
-		t.Fatalf("omissions name no degraded source: %#v", degraded.ResultMeta.Omissions)
+		t.Fatalf("omissions name no degraded source: %#v", degraded.SourceOmissions)
 	}
 }
 

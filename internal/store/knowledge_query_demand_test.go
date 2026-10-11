@@ -8,7 +8,6 @@ import (
 	"encoding/hex"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -100,16 +99,16 @@ func TestRegistrationsUnreadDegradesResolvedNonHomeSources(t *testing.T) {
 		t.Fatalf("an unread registration set degrades the unadmitted sources, got %q", q.Authority)
 	}
 	found := false
-	for _, omission := range q.Omissions {
-		if omission == "knowledge_source_demand_failed:d-src/d-srcl:registrations_unread" {
+	for _, omission := range q.SourceOmissions {
+		if omission == (KnowledgeSourceOmission{Kind: KnowledgeSourceDemandFailed, ProjectID: "d-src", LocatorID: "d-srcl", Cause: "registrations_unread"}) {
 			found = true
 		}
-		if strings.HasPrefix(omission, "knowledge_source_demand_failed:d-home/d-loc") {
-			t.Fatalf("the designated home is never marked unread: %v", q.Omissions)
+		if omission.ProjectID == "d-home" && omission.LocatorID == "d-loc" {
+			t.Fatalf("the designated home is never marked unread: %v", q.SourceOmissions)
 		}
 	}
 	if !found {
-		t.Fatalf("the unadmitted source must carry the registrations_unread cause: %v", q.Omissions)
+		t.Fatalf("the unadmitted source must carry the registrations_unread cause: %v", q.SourceOmissions)
 	}
 	if len(q.Items) != 1 || q.Items[0].ID != "home-lesson" {
 		t.Fatalf("the unadmitted source's items are skipped and the home's kept: items=%#v", q.Items)
@@ -144,7 +143,7 @@ func TestRegistrationsUnreadKeepsARecoveredHomeOnlySetAuthoritative(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if q.Authority != "authoritative" || len(q.Omissions) != 1 || q.Omissions[0] != "knowledge_kind_not_indexed:research" || q.SourceWatermarks != nil {
+	if q.Authority != "authoritative" || len(q.Omissions) != 1 || q.Omissions[0] != "knowledge_kind_not_indexed:research" || len(q.SourceOmissions) != 0 || q.SourceWatermarks != nil {
 		t.Fatalf("the home-only shape stays unchanged: authority=%q omissions=%v watermarks=%#v", q.Authority, q.Omissions, q.SourceWatermarks)
 	}
 }
@@ -161,13 +160,13 @@ func TestDemandFailuresNameTheSourceAndItsExactCause(t *testing.T) {
 		t.Fatalf("a suppressed demand failure degrades the source, got %q", q.Authority)
 	}
 	found := false
-	for _, omission := range q.Omissions {
-		if omission == "knowledge_source_demand_failed:d-src/d-srcl:index_degraded" {
+	for _, omission := range q.SourceOmissions {
+		if omission == (KnowledgeSourceOmission{Kind: KnowledgeSourceDemandFailed, ProjectID: "d-src", LocatorID: "d-srcl", Cause: "index_degraded"}) {
 			found = true
 		}
 	}
 	if !found {
-		t.Fatalf("the omission must carry the exact cause: %v", q.Omissions)
+		t.Fatalf("the omission must carry the exact cause: %v", q.SourceOmissions)
 	}
 	if len(q.Items) != 1 || q.Items[0].ID != "home-lesson" {
 		t.Fatalf("the failed source's items are skipped in a federated answer: %#v", q.Items)
@@ -192,7 +191,7 @@ func TestDemandFailureForUnresolvedSourceIsIgnored(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if q.Authority != "authoritative" {
+	if q.Authority != "authoritative" || len(q.SourceOmissions) != 0 {
 		t.Fatalf("an outcome for a source outside the answered set marks nothing, got %q", q.Authority)
 	}
 }
@@ -218,8 +217,8 @@ func TestDemandFailureKeepsSingleSourceRowsAndEmitsItsWatermark(t *testing.T) {
 	}
 	// The watermark is fresh, so the freshness path adds nothing: the answer
 	// carries exactly the demand cause, whose spelling is its own.
-	if len(q.Omissions) != 1 || q.Omissions[0] != "knowledge_source_demand_failed:d-home/d-loc:invalid_note_proof" {
-		t.Fatalf("the demand cause is the one omission: %v", q.Omissions)
+	if len(q.Omissions) != 0 || len(q.SourceOmissions) != 1 || q.SourceOmissions[0] != (KnowledgeSourceOmission{Kind: KnowledgeSourceDemandFailed, ProjectID: "d-home", LocatorID: "d-loc", Cause: "invalid_note_proof"}) {
+		t.Fatalf("the demand cause is the one omission: %v / %v", q.Omissions, q.SourceOmissions)
 	}
 	if len(q.SourceWatermarks) != 1 || q.SourceWatermarks[0].Authority != "degraded" {
 		t.Fatalf("the affected source watermark must be explicit: %#v", q.SourceWatermarks)

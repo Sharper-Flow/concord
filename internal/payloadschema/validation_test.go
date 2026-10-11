@@ -58,7 +58,7 @@ func TestDateTimeFormatIsEnforced(t *testing.T) {
 func TestWorkerPacketTypedPredicatesEnforcePerKindFieldSets(t *testing.T) {
 	packet := func(predicates string) []byte {
 		return []byte(`{
-			"schema_version": "1.0", "attempt_id": "attempt-1", "lane_id": "implement",
+			"schema_version": "2.0", "attempt_id": "attempt-1", "lane_id": "implement",
 			"lane_version": 1, "lane_digest": "sha256:` + string(make([]byte, 0)) + `0000000000000000000000000000000000000000000000000000000000000000",
 			"work_id": "work-1", "step_id": "execution",
 			"inputs": {"task": "t", "binding": {"objective_source": "contract_premise", "work_version": 1, "contract_version": 1, "assigned_result": "files_touched"}, "outcome_predicates": ` + predicates + `}
@@ -89,7 +89,7 @@ func TestWorkerPacketTypedPredicatesEnforcePerKindFieldSets(t *testing.T) {
 func TestWorkerPacketBindingFailsClosed(t *testing.T) {
 	packet := func(binding string) []byte {
 		return []byte(`{
-			"schema_version": "1.0", "attempt_id": "attempt-1", "lane_id": "implement",
+			"schema_version": "2.0", "attempt_id": "attempt-1", "lane_id": "implement",
 			"lane_version": 1, "lane_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
 			"work_id": "work-1", "step_id": "execution",
 			"inputs": {"task": "t", "binding": ` + binding + `}
@@ -112,7 +112,7 @@ func TestWorkerPacketBindingFailsClosed(t *testing.T) {
 		t.Fatalf("valid read-only binding refused: %v", err)
 	}
 	missing := []byte(`{
-		"schema_version": "1.0", "attempt_id": "attempt-1", "lane_id": "implement",
+		"schema_version": "2.0", "attempt_id": "attempt-1", "lane_id": "implement",
 		"lane_version": 1, "lane_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
 		"work_id": "work-1", "step_id": "execution",
 		"inputs": {"task": "t"}

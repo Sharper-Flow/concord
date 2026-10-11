@@ -922,7 +922,7 @@ func validateWorkflowContractApprovalLaw(ctx context.Context, tx *sql.Tx, event 
 			return newFailure(KindInvalidPayload, "fold_event", "non-Product-changing workflow cannot carry architecture_binding", false, "select a registered Product-changing workflow")
 		}
 		if len(p.LawModifies) != 0 {
-			// CD-0041 D5 as amended by the CON-336 decision: a contract that
+			// CD-0222 D5: a contract that
 			// does not change Product truth may revise derived law in-contract.
 			// The replay path skips the check because the approved contract
 			// already carried the tiers it named at approval time.
@@ -1184,7 +1184,7 @@ func foldWorkflowContractSuperseded(ctx context.Context, tx *sql.Tx, event Event
 				return err
 			}
 		} else if len(p.SuccessorContract.LawModifies) != 0 || p.SuccessorContract.ArchitectureBinding != nil {
-			// CD-0041 D5 as amended by the CON-336 decision: a successor that
+			// CD-0222 D5: a successor that
 			// does not change Product truth may revise derived law in-contract.
 			// A binding still carries Product authority and is refused here.
 			if p.SuccessorContract.ArchitectureBinding != nil {

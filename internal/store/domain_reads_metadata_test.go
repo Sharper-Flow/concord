@@ -2,7 +2,7 @@ package store
 
 import "testing"
 
-// CD-0041 D4 gives the Domain-to-resource relation bounded purpose and
+// CD-0222 D4 gives the Domain-to-resource relation bounded purpose and
 // environment metadata. The read projection dropped both until #387, so an
 // operator could record a purpose no agent could ever read back.
 func TestDomainAttachmentsPayloadKeepsResourceMetadata(t *testing.T) {

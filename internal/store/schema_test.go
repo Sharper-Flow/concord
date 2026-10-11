@@ -2046,7 +2046,7 @@ func TestMigrateV45ToV46DropsOrchestratorReservationAndNarrowsBoundaryKind(t *te
 	}
 }
 
-// TestMigrateV47ToV48RenamesResearchScopeComponentToDomain proves the CD-0041
+// TestMigrateV47ToV48RenamesResearchScopeComponentToDomain proves the CD-0222
 // execution on the research scope surface: the active_research_finding_scopes
 // CHECK on scope_kind drops 'component' in favor of 'domain', every legacy
 // 'component' row is rewritten to 'domain' in the same transaction, the home

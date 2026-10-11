@@ -59,13 +59,15 @@ architectural owner.
 ### D2. The root Domain keeps only Product-wide constitutional law
 
 Eight records home to `product-root:concord`. Each binds every child Domain and
-cannot sit in one of them. CD-0041 itself is among them, because a record that
-defines the Domain model cannot be owned by a partition it creates.
+cannot sit in one of them. CD-0222, the record that now defines the Domain
+model, is among them, because a record that defines the Domain model cannot be
+owned by a partition it creates.
 
 ### D3. Straddling law declares one home and bounded applicability
 
 Law that reaches several Domains declares one `home_domain_id` and lists the
-others in `applies_to_domain_ids`. Twenty-one records do this. Per CD-0041 D3,
+others in `applies_to_domain_ids`. Twenty-one records do this. Per
+[CD-0222 D3](CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md),
 applicability creates no second owner.
 
 Where a record amends another record's contract, it homes with that contract.
@@ -86,23 +88,20 @@ before.
 ### D5. Architecture relations name the law that governs them
 
 Every relation carries `governing_law_ids`, as the schema requires for
-`depends_on` and `shares_contract_with`. The participation rule remains
-[CD-0214 D2](CD-0214-repository-navigation-consumes-the-domain-graph-without-launcher-copies.md), not an outbound-edge count.
+`depends_on` and `shares_contract_with`. A relation records governed
+architecture; it is not required merely to populate a display or a
+code-navigation graph.
 
-Repository navigation may record an authored dependency interpretation that
-names the relation endpoints and the exact governing clauses. A `depends_on`
-relation does not authorize every code edge between those Domains.
+A `depends_on` relation does not authorize every code edge between its Domains.
 A `shares_contract_with` relation identifies a shared contract, not arbitrary
-imports. Hierarchy and replacement relations are not import permission.
-
-Observed code edges remain separate from these interpretations. An unmeasured
-intra-package relationship remains unmeasured, not absent or permitted.
-Neither an observed edge nor a navigation binding creates a registry relation.
+imports. Hierarchy and replacement relations are not import permission. Code
+relationships and owner notes do not create registry relations.
 This record adds no import gate or workflow execution gate.
 
 ### D6. Domain identity is not inferred from a record's name
 
-CD-0041 D2 excludes paths, tags, and repository names from Domain identity. A
+[CD-0222 D2](CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md)
+excludes paths, tags, and repository names from Domain identity. A
 record's own title is the same kind of evidence and is excluded on the same
 ground.
 

@@ -32,7 +32,7 @@ linkage where many items may point at one target) and completes the original
 four-kind set: hierarchy (`parent`), dependency (`blocks`), replacement
 (`supersedes`), fulfilment (`implements`).
 
-CD-0041's `workflow_architecture_bindings` own the work-to-Domain dimension.
+CD-0222's `workflow_architecture_bindings` own the work-to-Domain dimension.
 The work-to-decision-record dimension this kind addresses remains otherwise
 unowned.
 

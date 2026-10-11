@@ -150,7 +150,7 @@ func activeStaleRegistryContract(t *testing.T, s *Store, workID string) (int64, 
 // the hash its approved contract pins. The attempt disposition records under
 // the subject's own stale pin, so the enclosed item settles its attempt, and
 // an operator-approved supersede_contract whose successor pins the current
-// registry hash is the one admissible re-pin (CD-0041 D7).
+// registry hash is the one admissible re-pin (CD-0222 D7).
 func TestStaleRegistryRescanAdmitsExactlyOneRePinRoute(t *testing.T) {
 	const workID = "stale-registry-repin"
 	ctx := context.Background()
@@ -279,7 +279,7 @@ func TestStaleRegistryRescanLetsAcceptWorkerResultRecord(t *testing.T) {
 // late-verdict hole a registry rescan opened: an item past its verification
 // step with a missing verdict admitted the late record_verdict recovery
 // without consulting the staleness boundary, so a verdict could record under
-// a pin the rescan had stranded (CD-0041 D7). The recovery refuses with
+// a pin the rescan had stranded (CD-0222 D7). The recovery refuses with
 // stale_requires_review on the owning transaction and on the admission
 // inspection, and the held verdict records once the current-hash successor
 // re-pins. An ops runbook is Product-changing but not a correction workflow,
@@ -371,7 +371,7 @@ func seedStaleRegistryRescanPeer(t *testing.T, s *Store, peerID, approverRef str
 // refusal with its four closed recovery routes, never the peer's stale pin.
 // supersede_contract is one of those routes, so the subject's recovery re-pin
 // beside the peer is admitted, while the stale pin's marker keeps naming the
-// peer whose own contract re-pins through it (CD-0041 D7).
+// peer whose own contract re-pins through it (CD-0222 D7).
 func TestStaleRegistryOverlapRefusalBesideAPeerStalePin(t *testing.T) {
 	const workID = "stale-registry-repin-peer"
 	const peerID = "stale-registry-repin-peer-other"

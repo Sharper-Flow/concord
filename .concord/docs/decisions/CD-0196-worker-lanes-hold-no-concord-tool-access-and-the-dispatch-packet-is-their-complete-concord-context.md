@@ -1,6 +1,6 @@
 # CD-0196: Worker lanes hold no Concord tool access, and the dispatch packet is their complete Concord context
 
-- **Status:** Accepted
+- **Status:** Superseded by [CD-0223](CD-0223-worker-lanes-hold-no-concord-tool-access-and-the-dispatch-packet-carries-only-declared-context.md)
 - **Date:** 2026-09-30
 - **Scope:** The tool access of dispatched worker lanes, the adapter surface
   those lanes reach, and the packet block that carries law and Domains to a

@@ -145,7 +145,7 @@ func (r *mergeConditionResolver) Resolve(_ context.Context, _ ExternalCondition,
 }
 
 // TestResolveWorkflowConditionRefusesMergeUnderUnresolvedOverlap covers the
-// CD-0041 D7 merge/ship boundary. Accepting a merge result is a consequential
+// CD-0222 D7 merge/ship boundary. Accepting a merge result is a consequential
 // mutation, so it revalidates architecture and law inside its own transaction.
 func TestResolveWorkflowConditionRefusesMergeUnderUnresolvedOverlap(t *testing.T) {
 	t.Parallel()

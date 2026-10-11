@@ -22,9 +22,8 @@ import (
 // approve_contract and supersede_contract arms share: the architecture
 // binding must parse, a Product-changing contract requires one, and a
 // non-Product-changing contract carries none. A non-Product-changing contract
-// may name law_modifies only when every named law is derived (CD-0041 D5 as
-// amended by the CON-336 decision, obs:fb9642cbd1700ec6); the tier-scoped
-// check runs against the same transaction the caller already holds.
+// may name law_modifies only when every named law is derived (CD-0222 D5);
+// the tier-scoped check runs against the same transaction the caller already holds.
 // role names the contract side in the refusal messages; completeRecovery is
 // the Product-changing refusal's recovery hint. The parsed binding returns
 // for the caller's payload assembly.
@@ -183,7 +182,7 @@ func workflowApproveContractEvents(ctx context.Context, tx *sql.Tx, definition W
 	}
 	// law_modifies stays on non-Product-changing contracts that passed the
 	// tier-scoped guard: the derived revision lines are the visible record
-	// the operator approves (CD-0041 D5 as amended). An empty law_modifies is
+	// the operator approves (CD-0222 D5 as amended). An empty law_modifies is
 	// dropped only for non-Product-changing contracts, so a contract that
 	// touches no law keeps its old shape; the Product-changing fold requires
 	// the composed field to be present even when empty.

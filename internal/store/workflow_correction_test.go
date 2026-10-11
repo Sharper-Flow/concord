@@ -1888,7 +1888,7 @@ func completeStepPinnedDefinition(t *testing.T, s *Store, workID string) (Regist
 
 // staleLawSuccessorPayload mandates the accepted successor law: the composed
 // successor derives its law revision pins from the mandate's current state, so
-// the stale-law recovery finds the accepted successor pinned (CD-0041 D5).
+// the stale-law recovery finds the accepted successor pinned (CD-0222 D5).
 func staleLawSuccessorPayload(workID string) json.RawMessage {
 	binding := `{"domain_registry_content_hash":"sha256:` + strings.Repeat("b", 64) + `","home_domain_id":"root","affected_domain_ids":["root"],"domain_modifies":[],"domain_relation_modifies":[],"law_additions":[],"verification_obligations":[]}`
 	return json.RawMessage(`{"contract_version":2,"premise":"the delivered subject under the successor law","outcome_predicates":[{"predicate_id":"predicate:return-route","ordinal":0,"outcome_kind":"check","outcome_payload":{"kind":"check","check_ref":"check:return-route","immutable_subject_ref":"commit:` + workID + `","expected_result":"pass"}}],"required_evidence":["verification","review","artifact"],"route_conventions":["complete_step_correction"],"spec_mandate":["spec:two"],"law_modifies":[],"rigor_class":"prototype_internal","architecture_binding":` + binding + `,"supersede_reason":"the approved premise moved to the successor law","audit_evidence":["evidence:complete-correction-` + workID + `"]}`)

@@ -42,7 +42,7 @@ func workContextDispatchPacket(t *testing.T, f workContextFixture, attemptID str
 		inputs["work_context"] = view
 	}
 	return map[string]any{
-		"schema_version": "1.1",
+		"schema_version": WorkerPacketSchemaVersion,
 		"attempt_id":     attemptID,
 		"lane_id":        "implement",
 		"lane_version":   laneVersion,

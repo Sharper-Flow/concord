@@ -1409,6 +1409,7 @@ test("worker recovery bounds a cooperative two-second host read with one caller 
     packet_digest: "sha256:" + "a".repeat(64), worker_worktree: directory,
     coordinator_session: "session-1", attempt_epoch: 1,
     dispatch_event_id: "original-dispatch", lifecycle_state: "dispatched",
+    packet_schema_version: "1.0", report_schema_version: "1.0",
     dispatch: {
       attempt_id: "attempt-1", lane_id: lane.id, lane_version: lane.version,
       lane_digest: lane.digest, packet_digest: "sha256:" + "a".repeat(64),

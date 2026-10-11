@@ -82,7 +82,7 @@ A **workflow type** is a purpose-built definition:
 | **Work kind** | What shape of work it's for (implementation, operations, database, break-fix, configuration, infrastructure, options research, evidence research, RCA, static-analysis variants, …). |
 | **Value statement** | One sentence stating the work value: what it delivers and why it matters. |
 | **Outcome contract** | The premise, required end-state, and candidate set the type requires at approval. See §2.1a. |
-| **Product-truth effect** | Closed `changes_product_truth` classification. `true` requires CD-0041's architecture binding; `false` cannot write Domain identity, Domain relations, Product law, or Product behavior. |
+| **Product-truth effect** | Closed `changes_product_truth` classification. `true` requires CD-0222's architecture binding; `false` cannot write Domain identity, Domain relations, Product law, or Product behavior. |
 | **Staleness rule** | Whether execution is blocked while the workflow's inputs or upstream state are stale. |
 | **Active visibility** | Which gates/problems are surfaced by default vs. hidden behind history. |
 
@@ -137,7 +137,7 @@ See [`clarifications.md`](./clarifications.md) R3.
 
 See [`clarifications.md`](./clarifications.md) R2.
 
-CD-0041 adds one non-optional preflight for Product-changing workflow types. An
+CD-0222 adds one non-optional preflight for Product-changing workflow types. An
 approved contract carries one home Domain, all affected Domains, exact governing
 law revisions, authorized law/Domain/relation modifications, and law-linked
 verification obligations. Overlap with another nonterminal Product-changing

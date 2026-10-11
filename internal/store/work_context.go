@@ -114,18 +114,13 @@ type WorkContextFindingView struct {
 	Oracle     *WorkerOracleFinding `json:"oracle,omitempty"`
 }
 
-// WorkContextDomainCard reuses the repository_file source identity. Its
-// enclosing group supplies the validated Domain identity; content stays in Git.
-type WorkContextDomainCard WorkContextReadingSource
-
 // WorkContextDomainGroup partitions the current view's readings and findings
 // by Domain, in the contract's approved affected-Domain order. Empty slots
 // are legal: a group may hold only readings or only findings.
 type WorkContextDomainGroup struct {
-	DomainID                string                  `json:"domain_id"`
-	RequiredReadingOrdinals []int                   `json:"required_reading_ordinals"`
-	FindingIDs              []string                `json:"finding_ids"`
-	DomainCards             []WorkContextDomainCard `json:"domain_cards"`
+	DomainID                string   `json:"domain_id"`
+	RequiredReadingOrdinals []int    `json:"required_reading_ordinals"`
+	FindingIDs              []string `json:"finding_ids"`
 }
 
 // WorkContextView is the current work context the tx-scoped reader
@@ -618,8 +613,7 @@ func workContextOriginForKind(kind string) string {
 // anchor. The queries are bounded: the report scan reads at most 33
 // findings-bearing events, and any work-wide current view past 32 findings
 // or 64 KiB of findings content refuses the read explicitly instead of
-// truncating. Without declarations or findings, adopted navigation can still
-// supply required cards. A work item without any required context reads as nil.
+// truncating. A work item without any required context reads as nil.
 func readWorkContextView(ctx context.Context, q queryer, workID string) (*WorkContextView, error) {
 	view := WorkContextView{RequiredReading: []WorkContextReading{}, Findings: []WorkContextFindingView{}, DomainGroups: []WorkContextDomainGroup{}}
 	subject, subjectErr := readCurrentOracleSubject(ctx, q, workID)
@@ -805,10 +799,6 @@ func assembleWorkContextDomainGroups(ctx context.Context, q queryer, workID stri
 			return wrapFailure(KindUnavailable, "work_context_read", "cannot read the contract architecture binding", true, "retry once the contract projection is readable", bindingErr)
 		}
 	}
-	cards, err := assembleWorkContextNavigation(ctx, q, workID, orderedDomains, view)
-	if err != nil {
-		return err
-	}
 	grouped := make(map[string]*WorkContextDomainGroup)
 	ordered := make(map[string]bool, len(orderedDomains))
 	for _, domainID := range orderedDomains {
@@ -818,7 +808,7 @@ func assembleWorkContextDomainGroups(ctx context.Context, q queryer, workID stri
 		if group, exists := grouped[domainID]; exists {
 			return group
 		}
-		group := &WorkContextDomainGroup{DomainID: domainID, RequiredReadingOrdinals: []int{}, FindingIDs: []string{}, DomainCards: []WorkContextDomainCard{}}
+		group := &WorkContextDomainGroup{DomainID: domainID, RequiredReadingOrdinals: []int{}, FindingIDs: []string{}}
 		grouped[domainID] = group
 		if !ordered[domainID] {
 			orderedDomains = append(orderedDomains, domainID)
@@ -829,9 +819,6 @@ func assembleWorkContextDomainGroups(ctx context.Context, q queryer, workID stri
 	for ordinal, reading := range view.RequiredReading {
 		group := groupFor(reading.DomainID)
 		group.RequiredReadingOrdinals = append(group.RequiredReadingOrdinals, ordinal)
-		if refs := cards[reading.DomainID]; refs != nil {
-			group.DomainCards = refs
-		}
 	}
 	for _, finding := range view.Findings {
 		groupFor(finding.DomainID).FindingIDs = append(groupFor(finding.DomainID).FindingIDs, finding.FindingID)

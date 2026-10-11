@@ -922,6 +922,11 @@ func runWorkerCommand(command string, raw []byte, s *store.Store, service *agent
 // same durable transaction as new evidence or an exact existing-event match.
 // A match appends nothing and consumes no second dispatch authorization.
 func applyWorkerEvidence(ctx context.Context, command string, s *store.Store, service *agent.Service, assertion agent.WorkerEvidenceAssertion, binding agent.WorkerEvidenceBinding, event store.Event, out, errOut io.Writer) int {
+	if err := s.RequireActionableWork(ctx, binding.WorkID, command); err != nil {
+		writeOperatorDiagnostic(errOut, command, err.Error())
+		writeWorkerEvidenceFailure(out, errOut, err, nil)
+		return 1
+	}
 	// CD-0179 D3: an abandoned close releases a legacy occupancy row only on
 	// the lease-set proof, so the verb reads the live host lease set before
 	// the transaction opens and carries the observation to the fold gate on

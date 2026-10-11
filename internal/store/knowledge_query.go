@@ -7,7 +7,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"sort"
 	"strconv"
@@ -73,13 +72,30 @@ type KnowledgeItem struct {
 
 type Q9Result struct {
 	ResultMeta
-	Items          []KnowledgeItem `json:"items"`
-	IndexWatermark string          `json:"index_watermark"`
+	Items           []KnowledgeItem           `json:"items"`
+	IndexWatermark  string                    `json:"index_watermark"`
+	SourceOmissions []KnowledgeSourceOmission `json:"source_omissions,omitempty"`
 	// SourceWatermarks carries the per-source freshness verdict of a
 	// Product-wide Q9 over a registered source set (CD-0200). It stays empty
 	// for a single-source answer, whose output is unchanged.
 	SourceWatermarks []KnowledgeSourceWatermark `json:"source_watermarks,omitempty"`
 }
+
+// KnowledgeSourceOmission carries identities separately from the bounded
+// notice family. Demand failures also carry the exact suppressed cause.
+type KnowledgeSourceOmission struct {
+	Kind      KnowledgeSourceOmissionKind `json:"kind"`
+	ProjectID string                      `json:"project_id"`
+	LocatorID string                      `json:"locator"`
+	Cause     string                      `json:"cause,omitempty"`
+}
+
+type KnowledgeSourceOmissionKind string
+
+const (
+	KnowledgeSourceDegraded     KnowledgeSourceOmissionKind = "knowledge_source_degraded"
+	KnowledgeSourceDemandFailed KnowledgeSourceOmissionKind = "knowledge_source_demand_failed"
+)
 
 // KnowledgeSourceWatermark is one registered source's verified freshness
 // verdict inside a federated Q9 answer.
@@ -126,9 +142,18 @@ type CanonicalNote struct {
 
 type Q10Result struct {
 	ResultMeta
-	Status string         `json:"status"`
-	Note   *CanonicalNote `json:"note,omitempty"`
-	Result *Q10Payload    `json:"result"`
+	Status              string                        `json:"status"`
+	Note                *CanonicalNote                `json:"note,omitempty"`
+	Result              *Q10Payload                   `json:"result"`
+	UnverifiedAuthority *KnowledgeUnverifiedAuthority `json:"unverified_authority,omitempty"`
+}
+
+// KnowledgeUnverifiedAuthority identifies a declared contract whose work is
+// not held locally. It is a read warning, never a change to the declared tier.
+type KnowledgeUnverifiedAuthority struct {
+	LawID           string `json:"law_id"`
+	WorkID          string `json:"work_id"`
+	ContractVersion int64  `json:"contract_version"`
 }
 
 type Q10Payload struct {
@@ -548,8 +573,10 @@ func verifyQ10ManifestRecord(ctx context.Context, db *sql.DB, req Q10Request, lo
 			return true, resolveErr
 		}
 		if unverified {
-			out.ResultMeta.Warnings = append(out.ResultMeta.Warnings,
-				fmt.Sprintf("legislated_authority_unverified:%s:%s:%d", manifestRecord.ID, manifestRecord.Authority.LegislatedBy, manifestRecord.Authority.ContractVersion))
+			out.UnverifiedAuthority = &KnowledgeUnverifiedAuthority{
+				LawID: manifestRecord.ID, WorkID: manifestRecord.Authority.LegislatedBy,
+				ContractVersion: manifestRecord.Authority.ContractVersion,
+			}
 		}
 	}
 	return false, nil
@@ -829,7 +856,7 @@ func queryQ9Federated(ctx context.Context, db *sql.DB, req Q9Request, sources []
 			if len(sources) == 1 {
 				omissions = append(omissions, "knowledge_index_lagging_or_unreachable")
 			} else {
-				omissions = append(omissions, "knowledge_source_degraded:"+label)
+				out.SourceOmissions = append(out.SourceOmissions, KnowledgeSourceOmission{Kind: KnowledgeSourceDegraded, ProjectID: source.HomeProjectID, LocatorID: source.HomeLocatorID})
 			}
 		}
 		// A suppressed demand failure degrades the source through this same
@@ -839,7 +866,7 @@ func queryQ9Federated(ctx context.Context, db *sql.DB, req Q9Request, sources []
 			demandFailed = true
 			degraded = true
 			authority = "degraded"
-			omissions = append(omissions, "knowledge_source_demand_failed:"+label+":"+cause)
+			out.SourceOmissions = append(out.SourceOmissions, KnowledgeSourceOmission{Kind: KnowledgeSourceDemandFailed, ProjectID: source.HomeProjectID, LocatorID: source.HomeLocatorID, Cause: cause})
 		}
 		watermarks = append(watermarks, KnowledgeSourceWatermark{ProjectID: source.HomeProjectID, LocatorID: source.HomeLocatorID, Watermark: verdict, Authority: authority})
 		if authority != "authoritative" && len(sources) > 1 {

@@ -609,7 +609,20 @@ func (r runtime) readKnowledgeSearch(ctx context.Context, base Envelope, input [
 	if err != nil {
 		return response, err
 	}
+	response.Omissions = boundedNotices(response.Omissions, knowledgeSourceNotices(q.SourceOmissions))
 	return r.wrapCursor(ctx, response, string(binding), "summary")
+}
+
+func knowledgeSourceNotices(omissions []store.KnowledgeSourceOmission) []Notice {
+	out := make([]Notice, 0, len(omissions))
+	for _, omission := range omissions {
+		details := map[string]any{"project_id": omission.ProjectID, "locator": omission.LocatorID}
+		if omission.Kind == store.KnowledgeSourceDemandFailed {
+			details["cause"] = omission.Cause
+		}
+		out = append(out, Notice{Kind: string(omission.Kind), Details: details})
+	}
+	return out
 }
 
 // demandFailureKind names the existing failure kind a suppressed demand
@@ -631,7 +644,16 @@ func (r runtime) readKnowledgeResolveNote(ctx context.Context, base Envelope, in
 	if err != nil {
 		return failureEnvelope(base, err), nil
 	}
-	return r.q10(base, q)
+	response, err := r.q10(base, q)
+	if err != nil {
+		return response, err
+	}
+	if authority := q.UnverifiedAuthority; authority != nil {
+		response.Warnings = boundedNotices(response.Warnings, []Notice{{Kind: "legislated_authority_unverified", Details: map[string]any{
+			"law_id": authority.LawID, "work_id": authority.WorkID, "contract_version": authority.ContractVersion,
+		}}})
+	}
+	return response, nil
 }
 
 func (r runtime) readDomain(ctx context.Context, base Envelope, input []byte, queryID string) (Envelope, error) {

@@ -16,6 +16,62 @@
       "$ref": "#/$defs/errorOutcome"
     }
   ],
+  "allOf": [
+    {
+      "if": {
+        "required": ["error"],
+        "properties": {
+          "error": {
+            "required": ["kind"],
+            "properties": { "kind": { "const": "operation_conflict" } }
+          }
+        }
+      },
+      "then": {
+        "if": {
+          "required": ["origin", "outcome", "tool", "operation", "error"],
+          "properties": {
+            "origin": { "const": "adapter" },
+            "outcome": { "const": "error" },
+            "tool": { "const": "concord_work_transition" },
+            "operation": { "const": "session_vacate" },
+            "error": {
+              "required": ["kind", "adapter_reason", "effect_state"],
+              "properties": {
+                "kind": { "const": "operation_conflict" },
+                "adapter_reason": { "const": "unknown_effect" },
+                "effect_state": { "const": "possible" }
+              }
+            }
+          }
+        },
+        "then": {
+          "properties": {
+            "error": {
+              "properties": {
+                "recovery_action": {
+                  "properties": {
+                    "kind": { "enum": ["retry_same_request", "contact_operator"], "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "else": {
+          "properties": {
+            "error": {
+              "properties": {
+                "recovery_action": {
+                  "properties": { "kind": { "const": "reconcile_operation" } }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
   "$defs": {
     "toolOperation": {
       "oneOf": [
@@ -1440,13 +1496,16 @@
             "timeout_no_effect",
             "cancelled_no_effect",
             "manifest_mismatch",
+            "context_resolution_failed",
+            "host_lease_missing",
             "unknown_effect",
             "session_directory_unreadable",
             "worker_abandon_refused",
             "worker_abandon_receipt_failed",
             "lane_tool_refusal",
             "invalid_cli_input",
-            "invalid_request_wrapper"
+            "invalid_request_wrapper",
+            "invalid_tool_input"
           ],
           "type": "string"
         },
@@ -2174,29 +2233,6 @@
           "if": {
             "properties": {
               "kind": {
-                "const": "operation_conflict"
-              }
-            },
-            "required": [
-              "kind"
-            ]
-          },
-          "then": {
-            "properties": {
-              "recovery_action": {
-                "properties": {
-                  "kind": {
-                    "const": "reconcile_operation"
-                  }
-                }
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "kind": {
                 "enum": [
                   "cancelled",
                   "timeout"
@@ -2747,7 +2783,7 @@
                   },
                   {
                     "required": ["adapter_reason"],
-                    "properties": { "adapter_reason": { "type": "string", "enum": ["invalid_request_wrapper", "invalid_cli_input"] } }
+                    "properties": { "adapter_reason": { "type": "string", "enum": ["invalid_request_wrapper", "invalid_cli_input", "invalid_tool_input"] } }
                   }
                 ]
               }
@@ -2759,7 +2795,7 @@
                 "required": ["kind", "adapter_reason", "effect_state", "retry_safe", "recovery_action"],
                 "properties": {
                   "kind": { "const": "invalid_input" },
-                  "adapter_reason": { "type": "string", "enum": ["invalid_request_wrapper", "invalid_cli_input"] },
+                  "adapter_reason": { "type": "string", "enum": ["invalid_request_wrapper", "invalid_cli_input", "invalid_tool_input"] },
                   "effect_state": { "const": "none" },
                   "retry_safe": { "const": false },
                   "recovery_action": {
@@ -2967,6 +3003,27 @@
               },
               "authority": {
                 "const": "unreachable"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": ["origin", "error"],
+            "properties": {
+              "origin": { "const": "adapter" },
+              "error": {
+                "required": ["kind"],
+                "properties": {
+                  "kind": { "enum": ["transport_failure", "malformed_response"], "type": "string" }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "error": {
+                "properties": { "effect_state": { "const": "none" } }
               }
             }
           }

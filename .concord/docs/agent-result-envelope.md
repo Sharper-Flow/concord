@@ -178,13 +178,18 @@ will succeed; `recovery_action` owns preparation.
 Error kind structurally constrains recovery: ambiguity resolves candidates; stale
 context refreshes; version/domain conflicts reread entities; approval/evidence errors
 request their missing proof; limit errors reduce the limit; budget refusal adjusts
-the budget; invalid cursors restart the query; operation conflicts reconcile;
-unreachable and internal failures contact the operator or use their
+the budget; invalid cursors restart the query; operation conflicts reconcile.
+An adapter-origin `session_vacate` error with reason `unknown_effect` and
+effect `possible` uses the state-driven replay from
+[CD-0190 D3](./decisions/CD-0190-cd-0179-d1-and-d4-release-at-the-verified-vacate-landing.md#d3-every-refusal-after-the-committed-request-reports-a-possible-effect-with-a-working-recovery).
+Its recovery is `retry_same_request`, or `contact_operator` when the replay
+is unreachable. Core-origin errors and other operations keep reconciliation.
+Unreachable and internal failures contact the operator or use their
 explicitly allowed same-request retry. An unauthorized refusal contacts the
 operator or names a declared route: `required_refs` lists the workflow
 actions in execution order. Cancellation/timeout may
 use an `error` outcome only when `effect_state=none`; possible effects become
-`operation_conflict` with reconciliation.
+`operation_conflict` with the recovery this section permits.
 
 `options` is the one affordance that names choices for the operator rather than
 recovery steps for the agent. It is permitted only on a governing-law conflict —
@@ -293,13 +298,13 @@ The schema admits these adapter-origin kinds:
 
 | Kind | Meaning | Effect | Recovery |
 |---|---|---|---|
-| `transport_failure` | Missing binary, spawn, I/O, or bootstrap failure. | `none` | The typed action from section 5; bootstrap mismatch requires `contact_operator`. |
+| `transport_failure` | Host context, lease admission, binary, spawn, I/O, or bootstrap failure. | `none` | The typed action from section 5; bootstrap mismatch requires `contact_operator`. |
 | `malformed_response` | No schema-valid core response exists. | `none`; an uncertain effect follows the rule at the end of this section. | The typed action from section 5; uncertain effects require recovery before retry. |
 | `timeout` | The deadline ended with no authoritative effect. | `none` | `retry_same_request` |
 | `cancelled` | Cancellation completed with no authoritative effect. | `none` | `retry_same_request` |
-| `operation_conflict` | A failed operation needs reconciliation. | `none` or `possible` | `reconcile_operation` |
+| `operation_conflict` | A failed operation needs reconciliation. | `none` or `possible` | `reconcile_operation`; an adapter `session_vacate` error with `unknown_effect` and `possible` uses the CD-0190 D3 replay or operator contact. |
 | `unauthorized` | The adapter refused lane tool authorization before dispatch. | `none` | `contact_operator` |
-| `invalid_input` | The host wrapper or CLI input failed validation before dispatch. | `none`, with `retry_safe=false` | `restart_query` |
+| `invalid_input` | The host wrapper, tool arguments, or CLI input failed validation before dispatch. | `none`, with `retry_safe=false` | `restart_query` |
 
 If the wrapper refusal cannot resolve an accepted tool/operation pair, `operation` is
 the empty string and `query_id` is absent. Only this no-effect wrapper refusal may
@@ -327,16 +332,19 @@ a reason and a kind beyond the input and manifest rules named below.
 | `timeout_no_effect` | The deadline ended without an effect. | `none` | `retry_same_request` |
 | `cancelled_no_effect` | Cancellation ended without an effect. | `none` | `retry_same_request` |
 | `manifest_mismatch` | The core and adapter manifests disagree. | `none` | `contact_operator`: regenerate the current manifest and restart the session. |
-| `unknown_effect` | A mutation's effect remains uncertain. | `possible` | `reconcile_operation`; `session_vacate` uses the CD-0190 D3 replay rule. |
+| `context_resolution_failed` | Host directory or ambient context resolution failed before invocation without a classified cause. | `none` | `contact_operator` |
+| `host_lease_missing` | The host lease admission gate refused invocation. | `none` | `contact_operator` |
+| `unknown_effect` | A mutation's effect remains uncertain. | `possible` | `reconcile_operation`; an adapter `session_vacate` uses the CD-0190 D3 replay, or `contact_operator` when replay is unreachable. |
 | `session_directory_unreadable` | The host cannot read the session directory. | `none` | `retry_same_request` |
 | `worker_abandon_refused` | The recovery operation refused abandonment. | `none` or `possible` | `reconcile_operation` |
 | `worker_abandon_receipt_failed` | Abandonment succeeded but its receipt failed. | `possible` | `reconcile_operation` |
 | `lane_tool_refusal` | A managed lane called a tool outside its authority. | `none` | `contact_operator` |
 | `invalid_cli_input` | The CLI refused input before dispatch. | `none`, with `retry_safe=false` | `restart_query` |
 | `invalid_request_wrapper` | The host request wrapper is absent or malformed. | `none`, with `retry_safe=false` | `restart_query` |
+| `invalid_tool_input` | Host tool arguments failed validation before dispatch. | `none`, with `retry_safe=false` | `restart_query` |
 
-`manifest_mismatch` requires `transport_failure/none/contact_operator`.
-The two input reasons require `invalid_input/none/restart_query` and
+`manifest_mismatch` requires kind `transport_failure`, effect `none`, and recovery `contact_operator`.
+The three input reasons require kind `invalid_input`, effect `none`, recovery `restart_query`, and
 `retry_safe=false`. Unknown reasons fail validation. The adapter's own
 `adapter_contract_version` validates the bootstrap envelope before core invocation.
 

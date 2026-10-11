@@ -167,13 +167,12 @@ func initDemandRepo(t *testing.T, name, workID string, withRegistry bool) string
 			t.Fatal(err)
 		}
 	}
-	run := func(args ...string) string {
+	run := func(args ...string) {
 		t.Helper()
 		out, err := exec.Command("git", append([]string{"-C", repo}, args...)...).CombinedOutput()
 		if err != nil {
 			t.Fatalf("git %v: %v\n%s", args, err, out)
 		}
-		return string(out)
 	}
 	run("init", "--quiet", "--initial-branch=main")
 	run("config", "user.email", "test@example.invalid")

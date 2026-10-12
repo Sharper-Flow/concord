@@ -7,6 +7,14 @@ import (
 	"time"
 )
 
+type researchWriteMode uint8
+
+const (
+	researchWriteAdd researchWriteMode = iota
+	researchWriteUpdate
+	researchWriteUpsert
+)
+
 func (s *Store) CreateResearchPack(ctx context.Context, req CreateResearchPackRequest) (ResearchPack, error) {
 	return CreateResearchPack(ctx, s, req)
 }
@@ -120,13 +128,13 @@ func AppendResearchRevision(ctx context.Context, s *Store, req AppendResearchRev
 }
 
 func (s *Store) AddResearchFinding(ctx context.Context, req ResearchFindingRequest) (ResearchFinding, error) {
-	return addResearchFinding(ctx, s, req, false)
+	return addResearchFinding(ctx, s, req, researchWriteAdd)
 }
 func (s *Store) UpdateResearchFinding(ctx context.Context, req ResearchFindingRequest) (ResearchFinding, error) {
-	return addResearchFinding(ctx, s, req, true)
+	return addResearchFinding(ctx, s, req, researchWriteUpdate)
 }
 
-func addResearchFinding(ctx context.Context, s *Store, req ResearchFindingRequest, update bool) (ResearchFinding, error) {
+func addResearchFinding(ctx context.Context, s *Store, req ResearchFindingRequest, mode researchWriteMode) (ResearchFinding, error) {
 	var out ResearchFinding
 	if err := validateResearchIdentity(req.Identity); err != nil {
 		return out, err
@@ -167,7 +175,7 @@ func addResearchFinding(ctx context.Context, s *Store, req ResearchFindingReques
 		}
 		return out, tx.Commit()
 	}
-	out, err = recordResearchFindingWithinRawTx(ctx, tx, req, update, s.now())
+	out, err = recordResearchFindingWithinRawTx(ctx, tx, req, mode, s.now())
 	if err != nil {
 		_ = tx.Rollback()
 		return out, err
@@ -183,13 +191,13 @@ func addResearchFinding(ctx context.Context, s *Store, req ResearchFindingReques
 }
 
 func (s *Store) AddResearchSource(ctx context.Context, req ResearchSourceRequest) (ResearchSource, error) {
-	return addResearchSource(ctx, s, req, false)
+	return addResearchSource(ctx, s, req, researchWriteAdd)
 }
 func (s *Store) UpdateResearchSource(ctx context.Context, req ResearchSourceRequest) (ResearchSource, error) {
-	return addResearchSource(ctx, s, req, true)
+	return addResearchSource(ctx, s, req, researchWriteUpdate)
 }
 
-func addResearchSource(ctx context.Context, s *Store, req ResearchSourceRequest, update bool) (ResearchSource, error) {
+func addResearchSource(ctx context.Context, s *Store, req ResearchSourceRequest, mode researchWriteMode) (ResearchSource, error) {
 	var out ResearchSource
 	if err := validateResearchIdentity(req.Identity); err != nil {
 		return out, err
@@ -227,7 +235,7 @@ func addResearchSource(ctx context.Context, s *Store, req ResearchSourceRequest,
 		}
 		return out, tx.Commit()
 	}
-	out, err = addResearchSourceWithinTx(ctx, tx, req, update, s.now())
+	out, err = addResearchSourceWithinTx(ctx, tx, req, mode, s.now())
 	if err != nil {
 		_ = tx.Rollback()
 		return out, err
@@ -692,7 +700,7 @@ func appendResearchRevisionWithinRawTx(ctx context.Context, tx *sql.Tx, req Appe
 	return out, nil
 }
 
-func recordResearchFindingWithinRawTx(ctx context.Context, tx *sql.Tx, req ResearchFindingRequest, update bool, observedAt time.Time) (ResearchFinding, error) {
+func recordResearchFindingWithinRawTx(ctx context.Context, tx *sql.Tx, req ResearchFindingRequest, mode researchWriteMode, observedAt time.Time) (ResearchFinding, error) {
 	var out ResearchFinding
 	if err := validateFinding(req.Finding); err != nil {
 		return out, err
@@ -728,14 +736,15 @@ func recordResearchFindingWithinRawTx(ctx context.Context, tx *sql.Tx, req Resea
 	}
 	var exists int
 	err = tx.QueryRowContext(ctx, `SELECT 1 FROM active_research_findings WHERE pack_id=? AND revision=? AND finding_id=?`, req.PackID, revision, req.Finding.FindingID).Scan(&exists)
-	if !update && err == nil {
-		return out, researchConflict("finding already exists")
-	}
-	if update && err == sql.ErrNoRows {
-		return out, researchNotFound("finding does not exist")
-	}
 	if err != nil && err != sql.ErrNoRows {
 		return out, researchUnavailable("cannot inspect finding", err)
+	}
+	update := err == nil
+	if mode == researchWriteAdd && update {
+		return out, researchConflict("finding already exists")
+	}
+	if mode == researchWriteUpdate && !update {
+		return out, researchNotFound("finding does not exist")
 	}
 	if update {
 		// Clear scope before changing mode: the database guard makes home with any
@@ -778,7 +787,7 @@ func recordResearchFindingWithinRawTx(ctx context.Context, tx *sql.Tx, req Resea
 // addResearchSourceWithinTx runs the AddResearchSource core on the caller's transaction. The
 // caller owns idempotency; the research idempotency table is skipped, and
 // this function never rolls back or commits the caller's transaction.
-func addResearchSourceWithinTx(ctx context.Context, tx *sql.Tx, req ResearchSourceRequest, update bool, observedAt time.Time) (ResearchSource, error) {
+func addResearchSourceWithinTx(ctx context.Context, tx *sql.Tx, req ResearchSourceRequest, mode researchWriteMode, observedAt time.Time) (ResearchSource, error) {
 	var out ResearchSource
 	if err := validateSource(req.Source); err != nil {
 		return out, err
@@ -808,14 +817,15 @@ func addResearchSourceWithinTx(ctx context.Context, tx *sql.Tx, req ResearchSour
 	}
 	var exists int
 	err = tx.QueryRowContext(ctx, `SELECT 1 FROM active_research_sources WHERE pack_id=? AND revision=? AND source_id=?`, req.PackID, revision, req.Source.SourceID).Scan(&exists)
-	if !update && err == nil {
-		return out, researchConflict("source already exists")
-	}
-	if update && err == sql.ErrNoRows {
-		return out, researchNotFound("source does not exist")
-	}
 	if err != nil && err != sql.ErrNoRows {
 		return out, researchUnavailable("cannot inspect source", err)
+	}
+	update := err == nil
+	if mode == researchWriteAdd && update {
+		return out, researchConflict("source already exists")
+	}
+	if mode == researchWriteUpdate && !update {
+		return out, researchNotFound("source does not exist")
 	}
 	if update {
 		_, err = tx.ExecContext(ctx, `UPDATE active_research_sources SET kind=?,locator=?,title=?,publisher_or_author=?,published_at=?,accessed_at=? WHERE pack_id=? AND revision=? AND source_id=?`, req.Source.Kind, req.Source.Locator, req.Source.Title, req.Source.PublisherOrAuthor, nullableString(req.Source.PublishedAt), req.Source.AccessedAt, req.PackID, revision, req.Source.SourceID)
@@ -888,20 +898,7 @@ func RecordResearchFindingWithinTxUpsert(ctx context.Context, transaction *Trans
 	if err != nil {
 		return ResearchFinding{}, err
 	}
-	return recordResearchFindingWithinTxUpsertRaw(ctx, tx, req, transaction.now())
-}
-
-func recordResearchFindingWithinTxUpsertRaw(ctx context.Context, tx *sql.Tx, req ResearchFindingRequest, observedAt time.Time) (ResearchFinding, error) {
-	var exists int
-	err := tx.QueryRowContext(ctx, `SELECT 1 FROM active_research_findings WHERE pack_id=? AND revision=? AND finding_id=?`, req.PackID, req.Finding.Revision, req.Finding.FindingID).Scan(&exists)
-	switch {
-	case err == nil:
-		return recordResearchFindingWithinRawTx(ctx, tx, req, true, observedAt)
-	case err == sql.ErrNoRows:
-		return recordResearchFindingWithinRawTx(ctx, tx, req, false, observedAt)
-	default:
-		return ResearchFinding{}, researchUnavailable("cannot inspect finding", err)
-	}
+	return recordResearchFindingWithinRawTx(ctx, tx, req, researchWriteUpsert, transaction.now())
 }
 
 // RecordResearchSourceWithinTx records a source with the same upsert rule.
@@ -910,18 +907,5 @@ func RecordResearchSourceWithinTx(ctx context.Context, transaction *Transaction,
 	if err != nil {
 		return ResearchSource{}, err
 	}
-	return recordResearchSourceWithinTxRaw(ctx, tx, req, transaction.now())
-}
-
-func recordResearchSourceWithinTxRaw(ctx context.Context, tx *sql.Tx, req ResearchSourceRequest, observedAt time.Time) (ResearchSource, error) {
-	var exists int
-	err := tx.QueryRowContext(ctx, `SELECT 1 FROM active_research_sources WHERE pack_id=? AND revision=? AND source_id=?`, req.PackID, req.Source.Revision, req.Source.SourceID).Scan(&exists)
-	switch {
-	case err == nil:
-		return addResearchSourceWithinTx(ctx, tx, req, true, observedAt)
-	case err == sql.ErrNoRows:
-		return addResearchSourceWithinTx(ctx, tx, req, false, observedAt)
-	default:
-		return ResearchSource{}, researchUnavailable("cannot inspect source", err)
-	}
+	return addResearchSourceWithinTx(ctx, tx, req, researchWriteUpsert, transaction.now())
 }

@@ -181,6 +181,13 @@ func TestResearchFindingUnknownSourceHasNoEffects(t *testing.T) {
 			PackID: pack.PackID, ExpectedVersion: 1,
 			Source: store.ResearchSource{SourceID: "s-1", Kind: store.SourceCode, Locator: "synthetic/source.go", Title: "Synthetic source", PublisherOrAuthor: "Synthetic fixture", AccessedAt: "2026-08-14T00:00:00Z"},
 		})
+		if err != nil {
+			return err
+		}
+		_, err = store.RecordResearchFindingWithinTxUpsert(ctx, tx, store.ResearchFindingRequest{
+			PackID: pack.PackID, ExpectedVersion: 2,
+			Finding: store.ResearchFinding{FindingID: "f-1", Kind: store.FindingObservation, Statement: "Original finding", Confidence: store.ConfidenceHigh, Freshness: store.ResearchCurrent, Status: store.FindingActive, Scopes: store.ResearchScopes{Mode: "home"}, SourceIDs: []string{"s-1"}},
+		})
 		return err
 	}); err != nil {
 		t.Fatal(err)
@@ -214,17 +221,122 @@ func TestResearchFindingUnknownSourceHasNoEffects(t *testing.T) {
 		return read.Result, state
 	}
 	beforePack, beforeState := snapshot()
-	refused := invoke("research_finding_record", map[string]any{
-		"pack_id": pack.PackID, "expected_version": 2,
-		"finding":    map[string]any{"finding_id": "f-1", "kind": "observation", "statement": "The synthetic source supports the finding.", "confidence": "high"},
-		"source_ids": []string{"s-1", "missing-source"}, "idempotency_key": "unknown-source",
-	})
-	if refused.Outcome != OutcomeError || refused.Error == nil || refused.Error.Kind != "unknown_scope" || refused.Error.EffectState != "none" || !strings.Contains(refused.Error.Message, "cannot cite a source that is absent from this revision") {
-		t.Fatalf("expected unknown-source refusal with no effects, got outcome=%s error=%+v", refused.Outcome, refused.Error)
+	for _, findingID := range []string{"f-1", "new-finding"} {
+		refused := invoke("research_finding_record", map[string]any{
+			"pack_id": pack.PackID, "expected_version": 3,
+			"finding":    map[string]any{"finding_id": findingID, "kind": "observation", "statement": "Replacement finding", "confidence": "high"},
+			"source_ids": []string{"s-1", "missing-source"}, "idempotency_key": "unknown-source-" + findingID,
+		})
+		if refused.Outcome != OutcomeError || refused.Error == nil || refused.Error.Kind != "unknown_scope" || refused.Error.EffectState != "none" || !strings.Contains(refused.Error.Message, "cannot cite a source that is absent from this revision") {
+			t.Fatalf("%s: expected unknown-source refusal with no effects, got outcome=%s error=%+v", findingID, refused.Outcome, refused.Error)
+		}
+		afterPack, afterState := snapshot()
+		if !bytes.Equal(beforePack, afterPack) || beforeState != afterState {
+			t.Fatalf("%s: refusal changed pack or durable state: pack %s -> %s, state %v -> %v", findingID, beforePack, afterPack, beforeState, afterState)
+		}
 	}
-	afterPack, afterState := snapshot()
-	if !bytes.Equal(beforePack, afterPack) || beforeState != afterState {
-		t.Fatalf("refusal changed pack or durable state: pack %s -> %s, state %v -> %v", beforePack, afterPack, beforeState, afterState)
+}
+
+func TestResearchRecordUpsertsCurrentRevision(t *testing.T) {
+	t.Parallel()
+	for _, operation := range []string{"research_finding_record", "research_source_record"} {
+		t.Run(operation, func(t *testing.T) {
+			ctx := context.Background()
+			s, service, grant, _ := researchSurfaceFixture(t)
+			scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			invoke := func(op string, input any) Envelope {
+				t.Helper()
+				raw, err := json.Marshal(input)
+				if err != nil {
+					t.Fatal(err)
+				}
+				response, err := Dispatch(ctx, s, service, InvokeRequest{Tool: toolForOperation(op), Operation: op, Input: raw}, mutationEnvelope(grant, scopeVersion))
+				if err != nil || response.Outcome != OutcomeOK {
+					t.Fatalf("%s outcome=%s error=%+v err=%v", op, response.Outcome, response.Error, err)
+				}
+				return response
+			}
+			created := invoke("research_pack_create", map[string]any{
+				"owner_work_id": "work-1", "revision": map[string]any{"question": "Which source supports the finding?", "method": "source inspection"}, "idempotency_key": "upsert-pack",
+			})
+			var result struct {
+				ChangedRefs []struct {
+					ID string `json:"id"`
+				} `json:"changed_refs"`
+			}
+			if err := json.Unmarshal(created.Result, &result); err != nil || len(result.ChangedRefs) != 1 {
+				t.Fatalf("create result=%s err=%v", created.Result, err)
+			}
+			packID := result.ChangedRefs[0].ID
+			for i, sourceID := range []string{"s-1", "s-2"} {
+				invoke("research_source_record", map[string]any{
+					"pack_id": packID, "expected_version": i + 1,
+					"source":          map[string]any{"source_id": sourceID, "kind": "source_code", "locator": "synthetic/original.go", "title": "Original source", "publisher_or_author": "Synthetic fixture", "accessed_at": "2026-08-14T00:00:00Z"},
+					"idempotency_key": "upsert-source-" + sourceID,
+				})
+			}
+			invoke("research_finding_record", map[string]any{
+				"pack_id": packID, "expected_version": 3, "finding": map[string]any{"finding_id": "f-1", "kind": "observation", "statement": "Original finding", "confidence": "high"}, "source_ids": []string{"s-1"}, "idempotency_key": "upsert-finding",
+			})
+			read := func() store.ResearchPack {
+				t.Helper()
+				response := invoke("research", map[string]any{"product_id": "product-1", "pack_id": packID})
+				var pack store.ResearchPack
+				if err := json.Unmarshal(response.Result, &pack); err != nil {
+					t.Fatal(err)
+				}
+				return pack
+			}
+			before := read()
+			invoke("research_revision_append", map[string]any{
+				"pack_id": packID, "expected_version": 4, "revision": map[string]any{"question": "Which source supports the finding?", "method": "source inspection"}, "idempotency_key": "upsert-next-revision",
+			})
+			update := map[string]any{"pack_id": packID, "expected_version": 5, "idempotency_key": "upsert-replacement"}
+			if operation == "research_finding_record" {
+				update["finding"] = map[string]any{"finding_id": "f-1", "kind": "conclusion", "statement": "Replacement finding", "confidence": "medium"}
+				update["source_ids"] = []string{"s-2"}
+			} else {
+				update["source"] = map[string]any{"source_id": "s-1", "kind": "source_code", "locator": "synthetic/replacement.go", "title": "Replacement source", "publisher_or_author": "Synthetic fixture", "accessed_at": "2026-08-15T00:00:00Z"}
+			}
+			written := invoke(operation, update)
+			after := read()
+			if after.CurrentRevision != 2 || after.ExpectedVersion != 6 || len(after.Revisions) != 2 {
+				t.Fatalf("updated pack=%+v", after)
+			}
+			oldBefore, _ := json.Marshal(before.Revisions[0])
+			oldAfter, _ := json.Marshal(after.Revisions[0])
+			if !bytes.Equal(oldBefore, oldAfter) {
+				t.Fatalf("upsert changed older revision: %s -> %s", oldBefore, oldAfter)
+			}
+			current := after.Revisions[1]
+			if len(current.Findings) != 1 || len(current.Sources) != 2 {
+				t.Fatalf("upsert duplicated content: %+v", current)
+			}
+			if operation == "research_finding_record" {
+				finding := current.Findings[0]
+				if finding.Statement != "Replacement finding" || finding.Kind != store.FindingConclusion || finding.Confidence != store.ConfidenceMedium || len(finding.SourceIDs) != 1 || finding.SourceIDs[0] != "s-2" {
+					t.Fatalf("replacement finding=%+v", finding)
+				}
+			} else if source := current.Sources[0]; source.SourceID != "s-1" || source.Title != "Replacement source" || source.Locator != "synthetic/replacement.go" || source.AccessedAt != "2026-08-15T00:00:00Z" {
+				t.Fatalf("replacement source=%+v", source)
+			}
+			replay := invoke(operation, update)
+			if !replay.Replayed || !bytes.Equal(written.Result, replay.Result) {
+				t.Fatalf("upsert replay=%+v", replay)
+			}
+			final, _ := json.Marshal(read())
+			unchanged, _ := json.Marshal(after)
+			if !bytes.Equal(final, unchanged) {
+				t.Fatalf("replay changed pack: %s -> %s", unchanged, final)
+			}
+			var receipts int
+			if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM idempotency_records WHERE idempotency_key='upsert-replacement'`).Scan(&receipts); err != nil || receipts != 1 {
+				t.Fatalf("upsert receipts=%d err=%v", receipts, err)
+			}
+		})
 	}
 }
 

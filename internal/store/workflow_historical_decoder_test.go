@@ -347,17 +347,17 @@ func TestHistoricalEngineCrossFieldRulesStayVersionInvariant(t *testing.T) {
 	}
 }
 
-// releasedFrozenWorkerPacketDigest is the canonical-JSON digest of the frozen
-// historical decoder's worker_packet definition as released. The definition
-// is the only decoder for every released 1.0/1.1 recorded packet, so any
-// rewrite of its bytes is a replay break the witness refuses before it can
-// land.
-const releasedFrozenWorkerPacketDigest = "sha256:f2efb64652898438478e8f2093e97dcd76add600f23f022a345d4cc1861fccf9"
+// frozenWorkerPacketDigest is the canonical-JSON digest of worker_packet as
+// the frozen decoder first publishes it. The definition equals the v13.3.1
+// and v13.4.0 released definitions except for description annotations, cut once
+// before first publication. Any later rewrite of these bytes is a replay break
+// the witness refuses before it can land.
+const frozenWorkerPacketDigest = "sha256:33ba1533be5063aca5530c88af9d3eeef20b54b1f2260c683753a64e053e7109"
 
 // TestFrozenWorkerPacketBaselineStaysByteExact pins the frozen 1.0/1.1
-// worker_packet baseline to its released bytes: the historical decoder grows
+// worker_packet baseline to the decoder's first-published bytes: it grows
 // only by addition through the owning freeze, and the versioned additions
-// must not have moved one byte of the released baseline. It also pins the
+// must not have moved one byte of the frozen baseline. It also pins the
 // versioned identities: the frozen worker_packet2, work_context_view2, and
 // work_context_domain_group2 the freeze carried equal the live published
 // definitions, so the versioned identity replays exactly the shape it
@@ -384,8 +384,8 @@ func TestFrozenWorkerPacketBaselineStaysByteExact(t *testing.T) {
 	// Canonical JSON sorts keys, so the digest is stable across projections.
 	sum := sha256.Sum256(ordered)
 	digest := "sha256:" + hex.EncodeToString(sum[:])
-	if digest != releasedFrozenWorkerPacketDigest {
-		t.Fatalf("the frozen worker_packet baseline drifted: computed %s, released %s", digest, releasedFrozenWorkerPacketDigest)
+	if digest != frozenWorkerPacketDigest {
+		t.Fatalf("the frozen worker_packet baseline drifted: computed %s, frozen %s", digest, frozenWorkerPacketDigest)
 	}
 	// The versioned identities the freeze carried are the published shapes:
 	// the packet, the view it anchors, and the nav-free group the view
@@ -410,7 +410,7 @@ func TestFrozenWorkerPacketBaselineStaysByteExact(t *testing.T) {
 	}
 	// The versioned identity carries no retired conditional: its
 	// schema_version is the 2.0 identity alone, so the 1.0 worker_job branch
-	// the released worker_packet keeps has nothing to select here.
+	// the frozen worker_packet keeps has nothing to select here.
 	if _, dead := defs["worker_packet2"].(map[string]any)["allOf"]; dead {
 		t.Fatal("the versioned worker_packet2 carries the retired 1.0 conditional")
 	}

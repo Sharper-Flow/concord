@@ -643,6 +643,7 @@ func TestDistinctReleasedCoreBreakingUpgradeRequiresStoppedSessions(t *testing.T
 const cutoverBaselineCommit = "0559ec20be8e31f2fdb9851bb3dbfeb804db3be2"
 const cutoverBaselineSchema = 122
 const cutoverCandidateBaseCommit = "f07f0eac1277b21bb9a4a4023c924fb9854d967e"
+
 // Test-only input; runtime CONCORD_* inputs are removed by TestMain.
 const cutoverCandidateOverrideEnv = "TEST_CUTOVER_CANDIDATE_SHA"
 

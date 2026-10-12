@@ -22,7 +22,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:49bd3186b9f356f02e70677c37873e686f81c6b501578859c0aa589649a13868",
+  "sha256": "sha256:fb6d0395b1d9578f36061a5830c291e22356c88877dd7692aed9de4c1c3a265d",
   "status": "accepted",
   "summary": "Records Concord's public origin, the private material excluded at bootstrap, and the transition of authority to this repository.",
   "tags": [

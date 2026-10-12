@@ -46,6 +46,11 @@ instance may pin, for as long as any store may hold such an instance. A pin
 on any released version verifies forever, and new captures pin the highest
 version.
 
+The registry may compile frozen canonical data instead of procedural version
+chains. The representation must preserve each definition's canonical bytes,
+digest, graph, payload contracts, and released recovery data. Representation
+changes do not change which pins verify or authorize new captures.
+
 ### D3. The version pins are the enforcement evidence
 
 `workflow_definition_version_pins_test.go` holds the digest of every

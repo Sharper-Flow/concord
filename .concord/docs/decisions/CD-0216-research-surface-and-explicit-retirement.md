@@ -20,6 +20,7 @@ Destruction needs its own explicit authorized operation rather than an archive o
 `concord_work_define` hosts pack create, revision append, finding record, source record, and freshness set under the closed `research` capability and consequence.
 Finding and source records remain deterministic idempotent upserts.
 Content authoring requires a nonterminal owner and respects sealed consumed revisions.
+Revision append, finding record, source record, and freshness set authorize the Product scope of the pack owner before any effect.
 An authorized freshness update may mark retained content stale without editing that content.
 
 The same tool hosts `research_retire`, the only pack-retirement operation.
@@ -35,7 +36,8 @@ No standalone unconditional delete, timer, sweep, or destructive read route exis
 ### D2. Reliance belongs to the consuming boundary
 
 `concord_work_transition.workflow_action` accepts optional `research_bindings`.
-Inside the action transaction, the engine validates authorized scope, pack existence, and exact revision existence.
+Inside the action transaction, the consuming boundary authorizes the owner of every declared pack under the grant of the caller.
+The engine validates pack existence and exact revision existence.
 A retained terminal-owner revision is eligible for reliance while it exists.
 Owner terminal status does not certify freshness.
 Required non-current freshness refuses fail-closed as `research_consumer_blocked`, surfaced as `stale_requires_review`.
@@ -52,6 +54,7 @@ There is no standalone bind or unbind operation whose recorded declaration subst
 ### D3. One research read path
 
 `concord_work_trace.research` exposes pack content by identifier and research owned by a selected work item.
+A read by pack identifier authorizes the Product scope of the pack owner before it returns content.
 Exact revision reads and bounded owner descriptors preserve scope checks and explicit continuation or omissions.
 A bounded nested prefix cannot claim to be a complete corpus.
 Terminal-owner reads remain available without destructive reconciliation.

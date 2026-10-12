@@ -44,8 +44,8 @@ func TestResearchScopeDomainIDsAreAcceptedOnTheResultSurface(t *testing.T) {
 	}
 }
 
-// The Domain replacements carry the same closed-surface guarantee: the five
-// concord_domain reads validate, and knowledge search accepts domain_id.
+// Domain reads carry a closed-surface guarantee, and knowledge search accepts
+// domain_id.
 func TestDomainReadInputsValidate(t *testing.T) {
 	t.Parallel()
 	valid := []struct {
@@ -53,7 +53,6 @@ func TestDomainReadInputsValidate(t *testing.T) {
 	}{
 		{"concord_domain", "list", `{"product_id":"product-1","page":{"cursor":null,"limit":20}}`},
 		{"concord_domain", "detail", `{"product_id":"product-1","domain_id":"root"}`},
-		{"concord_domain", "active_work", `{"product_id":"product-1","domain_id":"root","page":{"cursor":null,"limit":20}}`},
 		{"concord_domain", "attachments", `{"product_id":"product-1","domain_id":"root"}`},
 		{"concord_domain", "overlaps", `{"product_id":"product-1","domain_id":"root"}`},
 		{"concord_knowledge", "search", `{"product_id":"product-1","domain_id":"root","page":{"cursor":null,"limit":20}}`},

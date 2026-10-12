@@ -76,7 +76,7 @@ the stdin plumbing, keeps the count alone authoritative.
   deleted.
 - `internal/store.TestReclaimWorktreeResolvesDefaultRefForSquashContainment`
   asserts the gate resolves the default ref from the repository's
-  `origin/HEAD` when the caller names none.
+  [`origin/HEAD`](https://git-scm.com/docs/git-symbolic-ref) when the caller names none.
 - `internal/store.TestReclaimWorktreeRefusesEmptyNetDiff` and
   `internal/store.TestReclaimWorktreeRefusesCommitsBeyondTheMergedPatch`
   assert the refused edges of D2.

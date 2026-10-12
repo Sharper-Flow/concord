@@ -7,12 +7,10 @@ import (
 	"time"
 )
 
-// CD-0156: Concord mandates the backlog check. The alignment step is spliced
-// into workflow.implementation between proposal and discovery, and into
-// workflow.break_fix between reproduce and diagnose. The step declares one
-// advance action, record_alignment, so the single forward edge cannot be
-// crossed without the search, and the search becomes structural rather than
-// discretionary.
+// CD-0156 mandates the backlog check. The canonical implementation head
+// places alignment between proposal and design, with record_alignment as
+// its only advance action. Break-fix records the check in its merged
+// diagnosis step under CD-0198 D2.
 
 // alignmentAdvanceExits returns every action on the alignment step whose
 // execution mode advances the step.
@@ -39,14 +37,16 @@ func TestAlignmentStepHasOnlyRecordAlignmentAsItsAdvanceExit(t *testing.T) {
 	t.Parallel()
 	// CD-0198 D2 narrows the step-shape obligation to
 	// workflow.implementation: break_fix folds the alignment step into the
-	// merged diagnosis step, whose shape the CD-0198 tests hold.
+	// merged diagnosis step, whose shape the CD-0198 tests hold. The
+	// canonical implementation head removes the discovery step, so the
+	// alignment step's single forward exit lands on design.
 	cases := []struct {
 		ref         string
 		afterStep   string
 		nextStep    string
 		wantVersion int64
 	}{
-		{"workflow.implementation", "proposal", "discovery", 29},
+		{"workflow.implementation", "proposal", "design", 30},
 	}
 	for _, testCase := range cases {
 		registered, err := BuiltinWorkflowDefinitionForRef(testCase.ref)
@@ -178,8 +178,8 @@ func TestRecordAlignmentRefusesInconsistentOutcomeAndRelatedIds(t *testing.T) {
 	if err := s.DatabaseForTesting().QueryRow(`SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&step); err != nil {
 		t.Fatal(err)
 	}
-	if step != "discovery" {
-		t.Fatalf("after record_alignment the workflow sits at %q, want discovery", step)
+	if step != "design" {
+		t.Fatalf("after record_alignment the workflow sits at %q, want design", step)
 	}
 	var searchedRecorded, outcome string
 	var related []string

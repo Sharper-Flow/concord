@@ -44,7 +44,7 @@ actually reported never becomes durable, so `worker.completed` records that an
 attempt ended, not what it produced.
 
 This reproduces the predecessor lesson recorded at
-`docs/advance-predecessor-lessons.md`: a delegated result must be bounded and
+`.concord/docs/predecessor-operational-coverage.md`: a delegated result must be bounded and
 validated by its producer. Concord declares the bound and validates nothing.
 
 The failure vocabulary already anticipated this. `WorkerFailureInvalidReport`

@@ -61,7 +61,7 @@ func seedCheckpointFailedReview(t *testing.T, workID string) (workflowReturnRout
 	t.Helper()
 	fixture := seedWorkflowReturnRouteFixtureRequiring(t, workID, "workflow.break_fix", "verify", []string{"verification"}, []string{"verification", "artifact"})
 	reviewer := checkpointReviewReviewer(t, fixture.store, workID)
-	if err := runVerdictActionAs(t, fixture.store, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:return-route","verdict_kind":"ok","evaluation_evidence":["evidence:return-route-verification"]}`), 0, reviewer); err != nil {
+	if err := runVerdictActionAs(t, fixture.store, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"verdicts":[{"predicate_id":"predicate:return-route","verdict_kind":"ok","evaluation_evidence":["evidence:return-route-verification"]}]}`), 0, reviewer); err != nil {
 		t.Fatalf("record_verdict refused: %v", err)
 	}
 	attemptID := "attempt:" + workID + ":failed-review"

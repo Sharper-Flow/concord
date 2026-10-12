@@ -145,7 +145,7 @@ func TestWorkflowReplayDurableWriteFailureDoesNotAcknowledge(t *testing.T) {
 	seedAgentWorkflow(t, s, grant)
 	env := grantRequestEnvelope(t, s, grant)
 	release := holdReplayDurabilityReader(t, s)
-	request := InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: json.RawMessage(`{"work_id":"work-1","expected_version":4,"action_id":"record_proposal","fields":{},"idempotency_key":"durability-replay"}`)}
+	request := InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: json.RawMessage(`{"work_id":"work-1","expected_version":4,"action_id":"record_proposal","fields":{"problem":"The bounded problem statement.","affected":["The affected system."],"stakes":"The bounded stakes statement.","user_outcomes":["The expected user outcome."]},"idempotency_key":"durability-replay"}`)}
 	seedCurrentWorkflowActionReplay(t, s, env, request.Input, "completed")
 	before := s.DurableCommits()
 	metadataBefore := replayMetadataCount(t, s, "durability-replay")

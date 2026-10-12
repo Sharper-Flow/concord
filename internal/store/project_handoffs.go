@@ -657,10 +657,10 @@ func consumeProjectHandoffCore(ctx context.Context, tx *sql.Tx, req ConsumeProje
 	return out, nil
 }
 
-func readProjectHandoffTx(ctx context.Context, tx *sql.Tx, workID, handoffID string) (ProjectHandoff, error) {
+func readProjectHandoffTx(ctx context.Context, q queryer, workID, handoffID string) (ProjectHandoff, error) {
 	var h ProjectHandoff
 	var changes, verification, artifactRefs, blockers string
-	err := tx.QueryRowContext(ctx, `SELECT handoff_id,work_id,contract_version,source_project_id,target_project_id,source_session_ref,bounded_job,changes,verification,artifact_refs,blockers,next_action,state,consumed_by_session_ref,consumed_at,recorded_at
+	err := q.QueryRowContext(ctx, `SELECT handoff_id,work_id,contract_version,source_project_id,target_project_id,source_session_ref,bounded_job,changes,verification,artifact_refs,blockers,next_action,state,consumed_by_session_ref,consumed_at,recorded_at
 		FROM project_handoffs WHERE work_id=? AND handoff_id=?`, workID, handoffID).Scan(&h.HandoffID, &h.WorkID, &h.ContractVersion, &h.SourceProjectID, &h.TargetProjectID, &h.SourceSessionRef, &h.BoundedJob, &changes, &verification, &artifactRefs, &blockers, &h.NextAction, &h.State, &h.ConsumedBySessionRef, &h.ConsumedAt, &h.RecordedAt)
 	if err == sql.ErrNoRows {
 		return h, newFailure(KindProjectionNotFound, "project_handoff", "no recorded project handoff carries this id on the work", false, "read the work's recorded handoffs")
@@ -698,10 +698,10 @@ func readProjectHandoffTx(ctx context.Context, tx *sql.Tx, workID, handoffID str
 // claim the occupancy row stands on: a landing recorded for a superseded
 // claim — after a reclaim, or a vacate plus re-claim — proves nothing about
 // the current claim. It returns an empty Project when no verified placement
-// stands. It runs inside the caller's transaction.
-func verifiedSessionPlacementTx(ctx context.Context, tx *sql.Tx, workID, sessionRef string) (string, error) {
+// stands.
+func verifiedSessionPlacementTx(ctx context.Context, q queryer, workID, sessionRef string) (string, error) {
 	var projectID string
-	err := tx.QueryRowContext(ctx, `SELECT c.project_id
+	err := q.QueryRowContext(ctx, `SELECT c.project_id
 		FROM worktree_occupancy o
 		JOIN worktree_entries e ON e.set_id || ':' || e.project_id || ':' || e.claim_op_id = o.worktree_id AND e.state='active'
 		JOIN worktree_claims c ON c.op_id=e.claim_op_id
@@ -845,8 +845,8 @@ const (
 //
 // The git/filesystem preservation probe must run outside any SQL
 // transaction, so the derivation reads in two snapshots: the phase-one
-// handoff facts, then the probe, then the final transaction. The final
-// transaction revalidates the phase-one snapshot against the committed
+// handoff facts, then the probe, then the final read snapshot. The final
+// read snapshot revalidates the phase-one snapshot against the committed
 // state — the active contract version, the selected handoff identity and
 // frontier, the preserved artifact references, and the claimed source
 // worktree — because the probe proved a fact about THAT selection and THAT
@@ -861,11 +861,11 @@ func EvaluateProjectSessionRetirement(ctx context.Context, s *Store, workID, pro
 	if workID == "" || projectID == "" || sessionRef == "" {
 		return out, newFailure(KindInvalidOperation, "project_retirement", "the retirement read requires the work, Project, and session identities", false, "read the retirement state with the session's authenticated identities")
 	}
-	// Phase one: the read transaction gathers the recorded facts, including
+	// Phase one: the read snapshot gathers the recorded facts, including
 	// the claimed source worktree path the preservation probe needs.
 	var handoffFacts projectRetirementHandoffFacts
-	err := s.Transact(ctx, func(transaction *Transaction) error {
-		return readRetirementHandoffFactsTx(ctx, transaction, workID, projectID, sessionRef, &handoffFacts)
+	err := s.readSnapshot(ctx, func(q queryer) error {
+		return readRetirementHandoffFactsTx(ctx, q, workID, projectID, sessionRef, &handoffFacts)
 	})
 	if err != nil {
 		return out, err
@@ -894,11 +894,11 @@ func EvaluateProjectSessionRetirement(ctx context.Context, s *Store, workID, pro
 		s.retireProbeInterleave()
 	}
 	// Phase three: the remaining facts are projection reads, and the same
-	// final transaction revalidates the phase-one snapshot the probe proved.
+	// final read snapshot revalidates the phase-one snapshot the probe proved.
 	var execution projectRetirementExecutionFacts
 	var recheck projectRetirementHandoffFacts
-	err = s.Transact(ctx, func(transaction *Transaction) error {
-		return readRetirementFinalFactsTx(ctx, transaction, workID, projectID, sessionRef, &execution, &recheck)
+	err = s.readSnapshot(ctx, func(q queryer) error {
+		return readRetirementFinalFactsTx(ctx, q, workID, projectID, sessionRef, &execution, &recheck)
 	})
 	if err != nil {
 		return out, err
@@ -977,7 +977,7 @@ type projectRetirementHandoffFacts struct {
 	contractBlocker string
 }
 
-// readRetirementHandoffFactsTx is the tx-taking wrapper the transaction
+// readRetirementHandoffFactsTx is the queryer-taking read the transaction
 // scope rule owns the phase-one read through. Retirement eligibility binds
 // to the work's active contract: a handoff recorded under a superseded
 // contract is one the receiving session can never consume, so readiness
@@ -985,12 +985,8 @@ type projectRetirementHandoffFacts struct {
 // records a fresh addressed handoff under the active contract; until then
 // the fact reads as unrecorded with the stale contract named, and
 // readiness fails closed.
-func readRetirementHandoffFactsTx(ctx context.Context, transaction *Transaction, workID, projectID, sessionRef string, facts *projectRetirementHandoffFacts) error {
-	tx, err := transactionSQL(transaction, "project_retirement")
-	if err != nil {
-		return err
-	}
-	version, contractErr := activeWorkflowContractVersion(ctx, tx, workID, "project_handoff")
+func readRetirementHandoffFactsTx(ctx context.Context, q queryer, workID, projectID, sessionRef string, facts *projectRetirementHandoffFacts) error {
+	version, contractErr := activeWorkflowContractVersion(ctx, q, workID, "project_handoff")
 	switch {
 	case contractErr == sql.ErrNoRows:
 		facts.contractVersion = 0
@@ -1000,7 +996,7 @@ func readRetirementHandoffFactsTx(ctx context.Context, transaction *Transaction,
 		facts.contractVersion = version
 	}
 	var recorded int
-	if scanErr := tx.QueryRowContext(ctx, `SELECT count(*) FROM project_handoffs WHERE work_id=? AND source_project_id=? AND source_session_ref=?`, workID, projectID, sessionRef).Scan(&recorded); scanErr != nil {
+	if scanErr := q.QueryRowContext(ctx, `SELECT count(*) FROM project_handoffs WHERE work_id=? AND source_project_id=? AND source_session_ref=?`, workID, projectID, sessionRef).Scan(&recorded); scanErr != nil {
 		return wrapFailure(KindUnavailable, "project_retirement", "cannot read the recorded handoffs", true, "retry once the database is readable", scanErr)
 	}
 	if recorded > 0 {
@@ -1008,11 +1004,11 @@ func readRetirementHandoffFactsTx(ctx context.Context, transaction *Transaction,
 			facts.contractBlocker = "the work holds no active workflow contract, so the recorded handoff cannot stand as the addressed handoff retirement derives from"
 		} else {
 			var handoffID, refs string
-			scanErr := tx.QueryRowContext(ctx, `SELECT handoff_id,artifact_refs FROM project_handoffs WHERE work_id=? AND source_project_id=? AND source_session_ref=? AND contract_version=? ORDER BY `+projectHandoffEventOrder+` LIMIT 1`, workID, projectID, sessionRef, facts.contractVersion).Scan(&handoffID, &refs)
+			scanErr := q.QueryRowContext(ctx, `SELECT handoff_id,artifact_refs FROM project_handoffs WHERE work_id=? AND source_project_id=? AND source_session_ref=? AND contract_version=? ORDER BY `+projectHandoffEventOrder+` LIMIT 1`, workID, projectID, sessionRef, facts.contractVersion).Scan(&handoffID, &refs)
 			switch {
 			case scanErr == sql.ErrNoRows:
 				var staleVersion int64
-				if staleErr := tx.QueryRowContext(ctx, `SELECT contract_version FROM project_handoffs WHERE work_id=? AND source_project_id=? AND source_session_ref=? ORDER BY `+projectHandoffEventOrder+` LIMIT 1`, workID, projectID, sessionRef).Scan(&staleVersion); staleErr != nil {
+				if staleErr := q.QueryRowContext(ctx, `SELECT contract_version FROM project_handoffs WHERE work_id=? AND source_project_id=? AND source_session_ref=? ORDER BY `+projectHandoffEventOrder+` LIMIT 1`, workID, projectID, sessionRef).Scan(&staleVersion); staleErr != nil {
 					return wrapFailure(KindUnavailable, "project_retirement", "cannot read the recorded handoffs", true, "retry once the database is readable", staleErr)
 				}
 				facts.contractBlocker = fmt.Sprintf("the newest recorded handoff stands under contract version %d, but the active contract is version %d; a handoff the receiver can no longer consume cannot prove retirement readiness, so record a fresh addressed handoff under the active contract", staleVersion, facts.contractVersion)
@@ -1027,20 +1023,21 @@ func readRetirementHandoffFactsTx(ctx context.Context, transaction *Transaction,
 			}
 		}
 	}
-	facts.sourceWorktree, err = sessionClaimedWorktreeTx(ctx, tx, workID, projectID)
+	var err error
+	facts.sourceWorktree, err = sessionClaimedWorktreeTx(ctx, q, workID, projectID)
 	return err
 }
 
-// readRetirementFinalFactsTx is the tx-taking wrapper the transaction scope
+// readRetirementFinalFactsTx is the queryer-taking read the transaction scope
 // rule owns the phase-three read through: the execution facts and the
 // phase-one snapshot revalidation read in one transaction, so the drift
 // comparison observes the same committed state the stopped-worker and
 // landing facts derive from.
-func readRetirementFinalFactsTx(ctx context.Context, transaction *Transaction, workID, projectID, sessionRef string, execution *projectRetirementExecutionFacts, recheck *projectRetirementHandoffFacts) error {
-	if err := readRetirementExecutionFactsTx(ctx, transaction, workID, sessionRef, execution); err != nil {
+func readRetirementFinalFactsTx(ctx context.Context, q queryer, workID, projectID, sessionRef string, execution *projectRetirementExecutionFacts, recheck *projectRetirementHandoffFacts) error {
+	if err := readRetirementExecutionFactsTx(ctx, q, workID, sessionRef, execution); err != nil {
 		return err
 	}
-	return readRetirementHandoffFactsTx(ctx, transaction, workID, projectID, sessionRef, recheck)
+	return readRetirementHandoffFactsTx(ctx, q, workID, projectID, sessionRef, recheck)
 }
 
 // projectRetirementExecutionFacts carries the phase-three read: whether the
@@ -1051,26 +1048,22 @@ type projectRetirementExecutionFacts struct {
 	blocker        string
 }
 
-// readRetirementExecutionFactsTx is the tx-taking wrapper the transaction
+// readRetirementExecutionFactsTx is the queryer-taking read the transaction
 // scope rule owns the phase-three read through.
-func readRetirementExecutionFactsTx(ctx context.Context, transaction *Transaction, workID, sessionRef string, facts *projectRetirementExecutionFacts) error {
-	tx, err := transactionSQL(transaction, "project_retirement")
-	if err != nil {
+func readRetirementExecutionFactsTx(ctx context.Context, q queryer, workID, sessionRef string, facts *projectRetirementExecutionFacts) error {
+	var err error
+	if facts.workersStopped, err = sessionOwnedExecutionStoppedTx(ctx, q, workID, sessionRef); err != nil {
 		return err
 	}
-	if facts.workersStopped, err = sessionOwnedExecutionStoppedTx(ctx, tx, workID, sessionRef); err != nil {
-		return err
-	}
-	facts.vacateLanded, facts.blocker, err = sessionVacateLandingStateTx(ctx, tx, workID, sessionRef)
+	facts.vacateLanded, facts.blocker, err = sessionVacateLandingStateTx(ctx, q, workID, sessionRef)
 	return err
 }
 
 // sessionClaimedWorktreeTx resolves the active claimed worktree path of one
-// work and Project, or an empty string when none is active. It runs inside
-// the caller's transaction.
-func sessionClaimedWorktreeTx(ctx context.Context, tx *sql.Tx, workID, projectID string) (string, error) {
+// work and Project, or an empty string when none is active.
+func sessionClaimedWorktreeTx(ctx context.Context, q queryer, workID, projectID string) (string, error) {
 	var path string
-	err := tx.QueryRowContext(ctx, `SELECT e.path FROM worktree_entries e JOIN worktree_claims c ON c.op_id=e.claim_op_id
+	err := q.QueryRowContext(ctx, `SELECT e.path FROM worktree_entries e JOIN worktree_claims c ON c.op_id=e.claim_op_id
 		WHERE c.work_id=? AND c.project_id=? AND e.state='active' AND c.state IN ('pending','verified') ORDER BY e.path LIMIT 1`, workID, projectID).Scan(&path)
 	if err == sql.ErrNoRows {
 		return "", nil
@@ -1089,8 +1082,8 @@ func sessionClaimedWorktreeTx(ctx context.Context, tx *sql.Tx, workID, projectID
 // between this read and the record refuses there.
 func ReadSessionClaimedWorktree(ctx context.Context, s *Store, workID, projectID string) (string, error) {
 	var path string
-	err := s.Transact(ctx, func(transaction *Transaction) error {
-		return readSessionClaimedWorktreeTx(ctx, transaction, workID, projectID, &path)
+	err := s.readSnapshot(ctx, func(q queryer) error {
+		return readSessionClaimedWorktreeTx(ctx, q, workID, projectID, &path)
 	})
 	if err != nil {
 		return "", err
@@ -1098,13 +1091,9 @@ func ReadSessionClaimedWorktree(ctx context.Context, s *Store, workID, projectID
 	return path, nil
 }
 
-func readSessionClaimedWorktreeTx(ctx context.Context, transaction *Transaction, workID, projectID string, out *string) error {
-	tx, err := transactionSQL(transaction, "project_handoff")
-	if err != nil {
-		return err
-	}
+func readSessionClaimedWorktreeTx(ctx context.Context, q queryer, workID, projectID string, out *string) error {
 	var readErr error
-	*out, readErr = sessionClaimedWorktreeTx(ctx, tx, workID, projectID)
+	*out, readErr = sessionClaimedWorktreeTx(ctx, q, workID, projectID)
 	return readErr
 }
 
@@ -1124,16 +1113,15 @@ func readSessionClaimedWorktreeTx(ctx context.Context, transaction *Transaction,
 // attribution, and a positively identified attempt of ANOTHER session never
 // blocks this session's readiness. Nonterminal workflow actions the
 // session's actors started (a started action with no later completed or
-// failed event for the same step and attempt epoch) also block. It runs
-// inside the caller's transaction.
-func sessionOwnedExecutionStoppedTx(ctx context.Context, tx *sql.Tx, workID, sessionRef string) (bool, error) {
-	return workExecutionStoppedTx(ctx, tx, workID, sessionRef)
+// failed event for the same step and attempt epoch) also block.
+func sessionOwnedExecutionStoppedTx(ctx context.Context, q queryer, workID, sessionRef string) (bool, error) {
+	return workExecutionStoppedTx(ctx, q, workID, sessionRef)
 }
 
 // An empty session selects all execution on the work. Session retirement uses
 // the same derivation with its ownership filter; outside repair holds all of it.
-func workExecutionStoppedTx(ctx context.Context, tx *sql.Tx, workID, sessionRef string) (bool, error) {
-	rows, err := tx.QueryContext(ctx, `SELECT attempt_id FROM worker_attempts WHERE work_id=? AND lifecycle_state IN ('in_flight','dispatched')`, workID)
+func workExecutionStoppedTx(ctx context.Context, q queryer, workID, sessionRef string) (bool, error) {
+	rows, err := q.QueryContext(ctx, `SELECT attempt_id FROM worker_attempts WHERE work_id=? AND lifecycle_state IN ('in_flight','dispatched')`, workID)
 	if err != nil {
 		return false, wrapFailure(KindUnavailable, "project_retirement", "cannot read the work's open worker attempts", true, "retry once the database is readable", err)
 	}
@@ -1160,7 +1148,7 @@ func workExecutionStoppedTx(ctx context.Context, tx *sql.Tx, workID, sessionRef 
 		// dispatch_worker completion, then resolve its authenticated session
 		// through workflow_actors.
 		var actorRef string
-		scanErr := tx.QueryRowContext(ctx, `SELECT json_extract(payload,'$.actor_ref') FROM domain_events
+		scanErr := q.QueryRowContext(ctx, `SELECT json_extract(payload,'$.actor_ref') FROM domain_events
 			WHERE kind='workflow.action_completed' AND subject_id=?
 			AND json_extract(payload,'$.action_id')='dispatch_worker'
 			AND json_extract(payload,'$.worker_attempt_id')=?
@@ -1175,7 +1163,7 @@ func workExecutionStoppedTx(ctx context.Context, tx *sql.Tx, workID, sessionRef 
 			return false, nil
 		}
 		var ownerSession string
-		actorErr := tx.QueryRowContext(ctx, `SELECT session_ref FROM workflow_actors WHERE actor_ref=?`, actorRef).Scan(&ownerSession)
+		actorErr := q.QueryRowContext(ctx, `SELECT session_ref FROM workflow_actors WHERE actor_ref=?`, actorRef).Scan(&ownerSession)
 		if actorErr == sql.ErrNoRows {
 			return false, nil
 		}
@@ -1192,7 +1180,7 @@ func workExecutionStoppedTx(ctx context.Context, tx *sql.Tx, workID, sessionRef 
 	// epoch has no later completed or failed event is still open, whoever
 	// else acted on the work since.
 	var open int
-	err = tx.QueryRowContext(ctx, `SELECT count(*) FROM domain_events f
+	err = q.QueryRowContext(ctx, `SELECT count(*) FROM domain_events f
 		LEFT JOIN workflow_actors a ON a.actor_ref=json_extract(f.payload,'$.actor_ref')
 		WHERE f.kind='workflow.action_started' AND f.subject_id=? AND (?='' OR a.session_ref=?)
 		  AND NOT EXISTS (
@@ -1215,10 +1203,9 @@ func workExecutionStoppedTx(ctx context.Context, tx *sql.Tx, workID, sessionRef 
 // landing released the rows its request's claim held, so rows that stand
 // after it belong to a later claim, and the old landing proves nothing about
 // this retirement. A pending request, a version 1 release, no request at
-// all, or renewed occupancy reports the blocker text instead. It runs inside
-// the caller's transaction.
-func sessionVacateLandingStateTx(ctx context.Context, tx *sql.Tx, workID, sessionRef string) (bool, string, error) {
-	_, seq, version, err := latestSessionVacateRequestTx(ctx, tx, workID, sessionRef)
+// all, or renewed occupancy reports the blocker text instead.
+func sessionVacateLandingStateTx(ctx context.Context, q queryer, workID, sessionRef string) (bool, string, error) {
+	_, seq, version, err := latestSessionVacateRequestTx(ctx, q, workID, sessionRef)
 	if err != nil {
 		var failure *Failure
 		if failureAs(err, &failure) && failure.Kind == KindProjectionNotFound {
@@ -1229,7 +1216,7 @@ func sessionVacateLandingStateTx(ctx context.Context, tx *sql.Tx, workID, sessio
 	if version != 2 {
 		return false, "the recorded session vacate predates the landing-verified release and cannot prove this session's landing", nil
 	}
-	landed, err := sessionVacateLandedAfterTx(ctx, tx, workID, sessionRef, seq)
+	landed, err := sessionVacateLandedAfterTx(ctx, q, workID, sessionRef, seq)
 	if err != nil {
 		return false, "", err
 	}
@@ -1237,7 +1224,7 @@ func sessionVacateLandingStateTx(ctx context.Context, tx *sql.Tx, workID, sessio
 		return false, "the committed session vacate still waits for its verified landing", nil
 	}
 	var occupied int
-	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM worktree_occupancy o
+	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM worktree_occupancy o
 		JOIN worktree_entries e ON e.set_id || ':' || e.project_id || ':' || e.claim_op_id = o.worktree_id AND e.state='active'
 		JOIN worktree_claims c ON c.op_id=e.claim_op_id
 		WHERE o.session_ref=? AND c.work_id=?`, sessionRef, workID).Scan(&occupied); err != nil {
@@ -1286,9 +1273,9 @@ func PendingProjectHandoffTx(ctx context.Context, tx *sql.Tx, workID string) (*P
 // resurrects it, and
 // a handoff recorded under a superseded contract can never be consumed, so
 // resume renders nothing for it. Visibility here never consumes or
-// authorizes. It runs inside the caller's transaction.
-func PendingProjectHandoffForProjectTx(ctx context.Context, tx *sql.Tx, workID, projectID, sessionRef string) (*ProjectHandoff, error) {
-	version, contractErr := activeWorkflowContractVersion(ctx, tx, workID, "project_handoff")
+// authorizes.
+func PendingProjectHandoffForProjectTx(ctx context.Context, q queryer, workID, projectID, sessionRef string) (*ProjectHandoff, error) {
+	version, contractErr := activeWorkflowContractVersion(ctx, q, workID, "project_handoff")
 	if contractErr == sql.ErrNoRows {
 		// No active workflow contract: no handoff can bind, so the boot
 		// renders no bounded job.
@@ -1298,14 +1285,14 @@ func PendingProjectHandoffForProjectTx(ctx context.Context, tx *sql.Tx, workID, 
 		return nil, contractErr
 	}
 	var id string
-	err := tx.QueryRowContext(ctx, `SELECT handoff_id FROM project_handoffs WHERE work_id=? AND target_project_id=? AND contract_version=? ORDER BY `+projectHandoffEventOrder+` LIMIT 1`, workID, projectID, version).Scan(&id)
+	err := q.QueryRowContext(ctx, `SELECT handoff_id FROM project_handoffs WHERE work_id=? AND target_project_id=? AND contract_version=? ORDER BY `+projectHandoffEventOrder+` LIMIT 1`, workID, projectID, version).Scan(&id)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "project_handoff", "cannot read the addressed handoff", true, "retry once the database is readable", err)
 	}
-	handoff, err := readProjectHandoffTx(ctx, tx, workID, id)
+	handoff, err := readProjectHandoffTx(ctx, q, workID, id)
 	if err != nil {
 		return nil, err
 	}
@@ -1318,7 +1305,7 @@ func PendingProjectHandoffForProjectTx(ctx context.Context, tx *sql.Tx, workID, 
 		// managed-execution gate grants — not only the session whose
 		// consume event the bind recorded. An unplaced session and a
 		// session of another Project render nothing.
-		placed, placeErr := verifiedSessionPlacementTx(ctx, tx, workID, sessionRef)
+		placed, placeErr := verifiedSessionPlacementTx(ctx, q, workID, sessionRef)
 		if placeErr != nil {
 			return nil, placeErr
 		}
@@ -1329,15 +1316,15 @@ func PendingProjectHandoffForProjectTx(ctx context.Context, tx *sql.Tx, workID, 
 	return nil, nil
 }
 
-// ReadPendingProjectHandoffForProject is the transaction-taking wrapper the
-// boot/resume flow reads the addressed bounded job through. The session
+// ReadPendingProjectHandoffForProject opens a deferred read snapshot for the
+// boot/resume flow to read the addressed bounded job. The session
 // reference is the authenticated receiving session the resume carries; it
 // decides whose consumed bind renders again, and an empty reference renders
 // recorded handoffs only.
 func ReadPendingProjectHandoffForProject(ctx context.Context, s *Store, workID, projectID, sessionRef string) (*ProjectHandoff, error) {
 	var handoff *ProjectHandoff
-	err := s.Transact(ctx, func(transaction *Transaction) error {
-		return readPendingProjectHandoffForProjectTx(ctx, transaction, workID, projectID, sessionRef, &handoff)
+	err := s.readSnapshot(ctx, func(q queryer) error {
+		return readPendingProjectHandoffForProjectTx(ctx, q, workID, projectID, sessionRef, &handoff)
 	})
 	if err != nil {
 		return nil, err
@@ -1345,11 +1332,8 @@ func ReadPendingProjectHandoffForProject(ctx context.Context, s *Store, workID, 
 	return handoff, nil
 }
 
-func readPendingProjectHandoffForProjectTx(ctx context.Context, transaction *Transaction, workID, projectID, sessionRef string, out **ProjectHandoff) error {
-	tx, err := transactionSQL(transaction, "project_handoff")
-	if err != nil {
-		return err
-	}
-	*out, err = PendingProjectHandoffForProjectTx(ctx, tx, workID, projectID, sessionRef)
+func readPendingProjectHandoffForProjectTx(ctx context.Context, q queryer, workID, projectID, sessionRef string, out **ProjectHandoff) error {
+	var err error
+	*out, err = PendingProjectHandoffForProjectTx(ctx, q, workID, projectID, sessionRef)
 	return err
 }

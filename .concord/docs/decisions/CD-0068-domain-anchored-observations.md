@@ -1,6 +1,6 @@
 # CD-0068: Domain-Anchored Observations
 
-Status: accepted
+Status: Superseded by [CD-0224](CD-0224-ten-planning-and-browsing-operations-are-retired-from-the-agent-surface.md)
 Date: 2026-08-24
 
 ## Context

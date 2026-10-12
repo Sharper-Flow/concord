@@ -77,7 +77,7 @@ direct reclaim produces keep their kinds.
 
 ### D4. A read that cannot derive the gate skips the class
 
-The audit read derives the default ref from the repository's `origin/HEAD`
+The audit read derives the default ref from the repository's [`origin/HEAD`](https://git-scm.com/docs/git-symbolic-ref)
 or a caller-supplied override. A Project whose default ref cannot be
 resolved contributes no `unstarted_present` rows to the read, and the read
 keeps serving every other class: one underivable fact must not refuse the

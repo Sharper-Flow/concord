@@ -43,9 +43,8 @@ The current inventory of Go-source analysis in required checks:
 | Check | Shape |
 |---|---|
 | `scripts/check-reachability.py` | version-pinned `deadcode` callgraph over `./cmd/...` with a declared-exceptions manifest (CD-0047 D4) |
-| `internal/launcher` dependency-inventory tests | AST analysis through the toolchain's own parser (CD-0014 D7) |
-| `scripts/check-tx-scope.py` | textual guard over the one-connection pool invariant |
-| `scripts/check-store-boundary.py` | hand-written Go comment/string masking plus SQL regex parsing |
+| `internal/store/txscope_test.go` | structural checks over the one-connection pool invariant |
+| `internal/store/boundary_test.go` | AST analysis through the toolchain's own parser over the raw SQLite boundary |
 
 ## Decision
 
@@ -88,36 +87,31 @@ a probabilistic or judgment-shaped verdict is D4 and never blocks.
 ### D5. The existing checks are audited against this policy
 
 - `check-reachability.py` is the D2 model and stands.
-- The launcher dependency-inventory tests are D2's toolchain-backed shape in
-  its structural home — the language's own parser, executed as tests — and
-  stand.
 - `check-tx-scope.py` was retained under D3 until the structural end-state it
   named existed. That end-state is `internal/store/txscope_test.go`: a
   function receiving a live transaction handle may not hold a `*Store`, every
   `Transact` closure delegates to one transaction-scoped core, and no nil check
   is written against an interface-typed handle, which cannot fire. The guard is
   deleted under D3, not extended.
-- `check-store-boundary.py` is replaced under D2, not extended. Its invariant —
-  raw SQLite stays inside `internal/store` — is real, but its implementation is
-  a growing hand-rolled Go/SQL front end: the D2 violation at accretion scale.
-  No new lexical rule is added to it after this decision; the replacement
-  deletes the lexer. Tracked in #302.
+- The raw SQLite boundary is owned by `internal/store/boundary_test.go` under
+  D2. The toolchain parser inspects Go syntax, and SQL string literals are
+  checked against the schema's table vocabulary. The hand-written Go lexer
+  is deleted, not extended.
 
 ## Consequences
 
 1. A proposed check names its authority class — structural, real-tool,
    textual-guard, or warn-only — and a check that cannot is a review finding.
-2. `check-store-boundary.py` shrinks monotonically from acceptance until its
-   replacement lands.
+2. The structural store-boundary tests own the invariant; the retired scanner
+   gains no new lexical rule or compatibility path.
 3. Appeasing a guard by reshaping code, rather than improving structure, is
    evidence the guard exceeded its class; the response is to fix or retire the
    guard, not to appease it.
 4. This decision governs the repository validator plane only. The coordination
    plane's prior exclusion of heuristic authority is unchanged and remains the
    stronger rule.
-5. This record is law-coverage `outstanding` against #302 until the
-   store-boundary replacement lands and proves D5; its anchors then become the
-   surviving checks themselves.
+5. This record's satisfied coverage names the surviving store-boundary tests,
+   transaction-scope test, and reachability checker.
 
 ## Rejected alternatives
 
@@ -139,10 +133,10 @@ warn-only guard over an invisible hang is noise nobody reads.
 
 ## Verification
 
-- The retained checks remain required and green in `.github/workflows/ci.yml`:
-  `check-reachability.py` and the launcher dependency-inventory tests. The
-  transaction-scope invariant is required and green as `TestTxScope` in the Go
-  suite, which `verify` runs.
-- The store-boundary replacement lands behind #302, preserves every current
-  finding class through the tool or tests, and deletes the hand-rolled lexer.
-- This record's law-coverage state is `outstanding` against #302 until then.
+- `scripts/check-reachability.py` remains required in `.github/workflows/ci.yml`.
+- `internal/store.TestTxScope` proves the transaction-scope invariant.
+- `internal/store.TestStoreBoundaryRepoIsClean` checks the production tree, and
+  `internal/store.TestStoreBoundaryFixtureViolations` proves the boundary's
+  finding classes and allowed scopes through the toolchain parser.
+- The required Go suite runs those tests. This record's coverage names them
+  with the reachability checker as its surviving anchors.

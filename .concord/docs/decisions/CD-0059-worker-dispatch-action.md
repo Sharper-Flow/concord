@@ -53,7 +53,7 @@ The same completion records the admitted core subject for native oracle
 execution under CD-0067 D2. This snapshot belongs to the existing fenced
 dispatch; it grants no new capability, attempt window, or retry budget.
 
-This is the placement `docs/capability-placement.md` §4 selects: a capability
+This is the placement `.concord/docs/capability-placement.md` §4 selects: a capability
 that mutates durable state and needs validation, authorization, and approval is
 a core domain operation, exposed only through the accepted adapter. CD-0017 D2
 places the same boundary from the other side — the adapter validates envelopes

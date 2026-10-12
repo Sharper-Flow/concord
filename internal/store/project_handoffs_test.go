@@ -2043,7 +2043,7 @@ func TestProjectHandoffSelectionsOrderByRecordedEventOrder(t *testing.T) {
 	// The retirement facts read the later-recorded handoff's artifacts.
 	var facts projectRetirementHandoffFacts
 	if err := f.store.Transact(ctx, func(transaction *Transaction) error {
-		return readRetirementHandoffFactsTx(ctx, transaction, f.workID, f.sourceProject, f.sourceSession, &facts)
+		return readRetirementHandoffFactsTx(ctx, transaction.tx, f.workID, f.sourceProject, f.sourceSession, &facts)
 	}); err != nil {
 		t.Fatal(err)
 	}

@@ -326,7 +326,7 @@ The JSON corpus is executable through a candidate adapter implementing
   path, commit OID, and content hash. Outcomes remain locator, `not_compacted`,
   `missing`, or `ambiguous`; authority remains `authoritative|degraded|unreachable`.
 - **Source-qualified identity (amended 2026-10-01 by CD-0200 D4):** a knowledge
-  reference may take the qualified form `project_id/law_id` and resolves only
+  reference may take the qualified form `<project_id>/<law_id>` and resolves only
   through that Project's canonical knowledge locator. A bare ID resolves across
   the Product's registered source set and refuses as `ambiguous` when more than
   one source holds it. Every returned locator names its source Project,

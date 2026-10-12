@@ -1,4 +1,4 @@
-// A terminal transition (complete, cancel, supersede) leaves the calling
+// A terminal transition (complete, cancel) leaves the calling
 // session inside the work item's worktree, so reclaiming the tree would move
 // or remove it under a live session. These tests hold the terminal-vacate
 // hook to its contract (CD-0179): the core names the vacate target only when
@@ -19,8 +19,6 @@ const context = () =>
   ({ sessionID: "session-1", messageID: "message-1", abort: new AbortController().signal, directory: "/worktree" }) as Parameters<typeof moveSessionToRegisteredMainCheckout>[1]
 
 const lifecycleArgs = (target: string) => ({ operation: "lifecycle", input: { work_id: "work-1", target, expected_version: 4, idempotency_key: "k-1" } })
-
-const supersedeArgs = () => ({ operation: "supersede", input: { predecessor_id: "work-1", successor_id: "work-2", predecessor_expected_version: 4, successor_expected_version: 1, reason: "replaced", idempotency_key: "k-2" } })
 
 const okEnvelope = (withTarget = true) => ({
   schema_version: "1.0",
@@ -123,12 +121,13 @@ describe("terminal transitions vacate the worktree after success", () => {
     }
   })
 
-  test("a supersede with a vacate target vacates, moves, and records the verified landing", async () => {
+  test("a supersede operation is no longer a vacate trigger", async () => {
     await fakeHost("/main")
-    const envelope = await vacateTerminalWorktree("concord_work_relate", supersedeArgs(), context(), okEnvelope())
+    const args = { operation: "resolve_overlap", input: { from_work_id: "work-1", to_work_id: "work-2", from_expected_version: 1, to_expected_version: 1, from_contract_version: 1, to_contract_version: 1, resolution_kind: "supersedes", reason: "replaced", idempotency_key: "k-3" } }
+    const envelope = await vacateTerminalWorktree("concord_work_relate", args as never, context(), okEnvelope())
     expect(envelope.outcome).toBe("ok")
-    expect(vacateCalls).toEqual(["session_vacate"])
-    expect(landingCalls).toEqual(["/main"])
+    expect(vacateCalls).toEqual([])
+    expect(landingCalls).toEqual([])
   })
 
   test("a lifecycle without a vacate target does nothing", async () => {

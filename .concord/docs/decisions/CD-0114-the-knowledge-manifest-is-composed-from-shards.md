@@ -14,12 +14,12 @@
 
 ## Context
 
-`.concord/docs/concord-knowledge-index.v1.json` was a generated aggregate of the record
+[`docs/concord-knowledge-index.v1.json`](https://github.com/Sharper-Flow/concord/blob/9a4df6bf20dd3b7083a9226851212f2338c353c9/docs/concord-knowledge-index.v1.json) was a generated aggregate of the record
 shards under `.concord/docs/knowledge/records/`, committed beside them. The store read
 it at a commit, fourteen scripts read it from the working tree, and lesson
 publication rewrote it. Its records were sorted by id, so two branches that
 each added a record inserted on adjacent lines and git reported a conflict
-every time. The same held for `.concord/docs/law-coverage.v1.json` and its shards under
+every time. The same held for [`docs/law-coverage.v1.json`](https://github.com/Sharper-Flow/concord/blob/9a4df6bf20dd3b7083a9226851212f2338c353c9/docs/law-coverage.v1.json) and its shards under
 `.concord/docs/knowledge/coverage/`. GitHub's merge queue runs no generator and honors
 no merge driver, so the conflict had no queue-side cure: every second landing
 rebased, regenerated, and pushed again.
@@ -52,14 +52,14 @@ aggregate.
 
 ### D3. Lesson publication writes the record shard and the coverage shard
 
-`PublishLessonRecord` composes the working-tree manifest to check identity and
+A lesson publication composes the working-tree manifest to check identity and
 path conflicts, validates the manifest with the new record present, and stages
 the note, the record shard, and the coverage shard whose explicit CD-0047
-declaration the caller supplies — never an inferred state. The three land as
-one commit on the claimed worktree branch of the knowledge-home Project,
+declaration the author supplies — never an inferred state. The three land as
+one commit on a branch of the knowledge-home Project,
 never on the canonical default checkout. The commit is prepared delivery, not
-a publication claim: the lesson is published when the coordinator's pull
-request merges and a knowledge read verifies it. The head shard is never
+a publication claim: the lesson is published when the pull request merges
+and a knowledge read verifies it. The head shard is never
 rewritten by the store.
 
 ### D4. A commit that predates the shards is read in the shape it has
@@ -95,30 +95,22 @@ Scenario: A publication adds one record shard and one coverage shard
   And no other file changes
 
 Scenario: A prepared commit is not a published lesson
-  Given a lesson committed on the claimed worktree branch of the knowledge-home Project
-  When the operation returns before the coordinator merges the pull request
-  Then the response names the branch and the immutable commit as prepared delivery
-  And the canonical Product knowledge read does not claim publication
+  Given a lesson committed on a branch of the knowledge-home Project
+  When the pull request has not yet merged
+  Then the canonical Product knowledge read does not claim publication
 ```
 
 ## Verification
 
-- `internal/store/lesson_publish_test.go`: the isolated three-file commit on
-  the claimed branch with the canonical checkout untouched.
-- `internal/store/lesson_publish_test.go`: the explicit coverage disposition
-  with its state-conditional refusals, and the typed replay and conflict
-  refusals.
-- `internal/store/lesson_publish_test.go`: the claimed-worktree home
-  resolution, with no-claim and foreign-Project refusals.
-- `internal/store/knowledge_shards_test.go`: a publication adds the record
-  shard and the coverage shard and no other file.
-- `internal/agent/lesson_dispatch_test.go`: the approval round trip returns
-  prepared branch-and-commit delivery and refuses without a claimed worktree.
+- `scripts/generate-knowledge-index.py --check`: the shards compose, and a
+  record shard naming an occupied id or path is refused.
+- The reviewed pull request carries the three-file commit; the canonical
+  checkout is untouched until merge.
 
 ## Consequences
 
-`.concord/docs/concord-knowledge-index.v1.json` and `.concord/docs/law-coverage.v1.json` leave
-the repository. `scripts/generate-knowledge-index.py --update` and
+The repository carries neither .concord/docs/concord-knowledge-index.v1.json
+nor .concord/docs/law-coverage.v1.json. `scripts/generate-knowledge-index.py --update` and
 `scripts/generate-law-coverage.py --update` normalise shards and write no file
 beside them. `scripts/renumber-cd.py` regenerates nothing that lists records.
 The Go aggregate marshaler and its byte-format tests are removed, since no

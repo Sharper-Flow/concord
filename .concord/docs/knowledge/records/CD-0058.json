@@ -22,7 +22,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:65dcd905e081f5076b2635de0090eb6d99903ee49b181578cb1c4870c6b21594",
+  "sha256": "sha256:1e6ecf6cadedf07fe418691f2c8d4638f43d6d08c9f339904a28ae891772e8f5",
   "status": "accepted",
   "summary": "Concord performs no model resolution: lane dispatch omits --model and the host selects the executing model. Actual readback_model is the sole model evidence for workflow-declared distinctness; missing or ambiguous readback records a failed attempt. Concord has no routing-policy record, load path, declared legal model set, or substitution guarantee. Migration 44 removes the five declared-side attempt columns and preserves existing rows; capability classes remain documentary labels.",
   "tags": [

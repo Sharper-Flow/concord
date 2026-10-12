@@ -1878,14 +1878,10 @@ export const work_relate = tool({
   description: "Concord work relate",
   args: argsSchema("concord_work_relate"),
   execute: laneGuarded("concord_work_relate", async (args: HostToolCall, context: ToolContext): Promise<ToolResult> => {
-    // Same shape as the transition tool: a supersede that terminalizes the
-    // work whose worktree this session runs in carries a vacate_target the
-    // adapter applies before the result is reported (CD-0179).
     const staleness = releaseStaleness()
     const request = hostRequest(args)
     const envelope = await invokeConcordOperation("concord_work_relate", request, context)
-    const vacated = await vacateTerminalWorktree("concord_work_relate", request, context, envelope)
-    const { envelope: settled, extraWarnings } = withReleaseStaleness(vacated, staleness)
+    const { envelope: settled, extraWarnings } = withReleaseStaleness(envelope, staleness)
     const warnings = operationIsMutation("concord_work_relate", request.operation) ? await workStateReporter.report(settled, context) : []
     return appendMoveNotice(appendWarnings(await encodeHostToolResult("concord_work_relate", request, context, settled), [...warnings, ...extraWarnings]), context)
   }),
@@ -2586,9 +2582,9 @@ async function launchRetriedWorkerDispatch(args: HostToolArgs, context: ToolCont
 }
 
 // vacateTerminalWorktree moves a session out of a work item's worktree after
-// the work reached a terminal state (complete, cancel, supersede). The core
-// attaches vacate_target to the transition result only when the calling
-// session's linked worktree is that work item's active worktree, so the hook
+// the work reached a terminal state (complete, cancel). The core attaches
+// vacate_target to the transition result only when the calling session's
+// linked worktree is that work item's active worktree, so the hook
 // never releases another work item's occupancy. The vacate runs first — it
 // records the relocation request and resolves the registered main checkout —
 // the move follows it, and the verified landing the move readback earns
@@ -2602,8 +2598,7 @@ async function launchRetriedWorkerDispatch(args: HostToolArgs, context: ToolCont
 // reach it; a vacate refused before the commit keeps the worktree retry.
 export async function vacateTerminalWorktree(toolName: string, args: HostToolArgs, context: ToolContext, envelope: HostConcordEnvelope): Promise<HostConcordEnvelope> {
   const transitioned = args?.operation === "lifecycle" && record(args.input) && ["completed", "cancelled"].includes(String(args.input.target))
-  const superseded = toolName === "concord_work_relate" && args?.operation === "supersede"
-  if (!transitioned && !superseded) return envelope
+  if (!transitioned) return envelope
   if (!record(envelope) || envelope.outcome !== "ok") return envelope
   const target = record(envelope.result) ? envelope.result.vacate_target : undefined
   if (!record(target) || typeof target.work_id !== "string" || typeof target.destination_directory !== "string") return envelope

@@ -130,11 +130,6 @@ func workflowApproveContractEvents(ctx context.Context, tx *sql.Tx, definition W
 	}
 	contractVersion := workflowFieldInt(fields, "contract_version", 1)
 	premise, _ := workflowFieldString(fields, "premise")
-	outcomeKind := workflowFieldStringDefault(fields, "outcome_kind", string(definition.OutcomeSchema.DefaultKind))
-	outcome := workflowFieldRaw(fields, "outcome_payload")
-	if len(outcome) == 0 {
-		outcome = defaultWorkflowOutcome(definition, fields)
-	}
 	required := workflowFieldStrings(fields, "required_evidence")
 	if len(required) == 0 {
 		for _, kind := range definition.RequiredEvidenceKinds {
@@ -171,7 +166,19 @@ func workflowApproveContractEvents(ctx context.Context, tx *sql.Tx, definition W
 		lawModifies = append([]string(nil), request.LawModifies...)
 	}
 	rigor := workflowFieldStringDefault(fields, "rigor_class", "prototype_internal")
-	contract := map[string]any{"contract_version": contractVersion, "premise": premise, "outcome_predicates": outcomePredicates, "outcome_kind": outcomeKind, "outcome_payload": outcome, "required_evidence": required, "route_conventions": routes, "spec_mandate": spec, "law_modifies": lawModifies, "rigor_class": rigor, "consequence_class": string(ActionInternalSQLite)}
+	contract := map[string]any{"contract_version": contractVersion, "premise": premise, "outcome_predicates": outcomePredicates, "required_evidence": required, "route_conventions": routes, "spec_mandate": spec, "law_modifies": lawModifies, "rigor_class": rigor, "consequence_class": string(ActionInternalSQLite)}
+	// On a canonical authoring head the contract records the explicit
+	// predicate array alone: the legacy outcome pair stays off the event, and
+	// the fold resolves the end state through the predicates whenever they
+	// are present. Earlier versions keep the pair they shipped.
+	if !workflowCanonicalAuthoringActive(definition) {
+		outcome := workflowFieldRaw(fields, "outcome_payload")
+		if len(outcome) == 0 {
+			outcome = defaultWorkflowOutcome(definition, fields)
+		}
+		contract["outcome_kind"] = workflowFieldStringDefault(fields, "outcome_kind", string(definition.OutcomeSchema.DefaultKind))
+		contract["outcome_payload"] = outcome
+	}
 	productChanging := definition.ChangesProductTruth != nil && *definition.ChangesProductTruth
 	binding, bindingErr := workflowContractProductGuard(ctx, tx, request.WorkID, fields, lawModifies, productChanging, "approval", "supply the complete architecture binding")
 	if bindingErr != nil {
@@ -223,7 +230,7 @@ func workflowReviseCandidatesEvents(request WorkflowActionExecutionRequest, acto
 // workflowRecordAlignmentEvents builds the typed CD-0156 alignment event. The
 // action records the candidate set only: it creates no relation, so the
 // related ids travel as recorded search output, and relation creation stays
-// with concord_work_relate.link and resolve_overlap. The outcome enum and the
+// with resolve_overlap. The outcome enum and the
 // outcome/related_ids legal input combinations are declared on the
 // record_alignment registry payload and enforced by
 // validateWorkflowActionPayload before any event is built, so this
@@ -281,7 +288,7 @@ func workflowRecordDiagnosisEvents(ctx context.Context, tx *sql.Tx, request Work
 }
 
 func workflowSupersedeContractEvents(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, request WorkflowActionExecutionRequest, actor string, raw json.RawMessage, fields map[string]json.RawMessage, eventID string, expected int64) ([]Event, error) {
-	if err := validateWorkflowContractRecoveryPayload(raw); err != nil {
+	if err := validateWorkflowContractRecoveryPayload(definition, raw); err != nil {
 		return nil, err
 	}
 	predecessors, previous, predecessorErr := resolveWorkflowContractPredecessors(ctx, tx, request.WorkID, fields)

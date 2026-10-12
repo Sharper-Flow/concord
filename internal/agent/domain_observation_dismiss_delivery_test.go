@@ -7,45 +7,23 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-
-	"github.com/sharper-flow/concord/internal/pm1fixture"
 )
 
-// CD-0068 D3 makes dismissal the operator's act, so the core mints an approval
-// challenge and refuses. CD-0037 D1 requires that refusal to carry the typed
-// consequence summary the challenge was minted with. The operator can only act
-// on a refusal that reaches them, so the refusal must encode.
-
-// TestUnapprovedObservationDismissalRefusalIsDeliverable is the reproduction.
-// The refusal was built correctly and could not be marshalled, so a wrong
-// Domain observation could not be dismissed: the caller received a transport
-// fault carrying no approval_ref to approve with.
-func TestUnapprovedObservationDismissalRefusalIsDeliverable(t *testing.T) {
+// CD-0037 D1 requires a minted challenge to carry its typed consequence summary.
+// The operator can act only when that refusal encodes with the approval ref.
+func TestUnapprovedMembershipRefusalIsDeliverable(t *testing.T) {
 	ctx := context.Background()
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_define", "product_read"})
-	if err := pm1fixture.SeedCurrentProductDomain(ctx, s, "product-1", "project-1", t.TempDir()); err != nil {
-		t.Fatal(err)
-	}
+	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_relate"})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	domain := pm1fixture.FixtureRootDomainID
 	env := mutationEnvelope(grant, scopeVersion)
 
-	recordInput := json.RawMessage(fmt.Sprintf(`{"product_id":"product-1","domain_id":%q,"statement":"This Domain has no owner for the scanner failure path.","refs":[".concord/docs/core-architecture.md"],"tags":["gap"],"idempotency_key":"dismiss-delivery-obs"}`, domain))
-	if recorded, recordErr := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_domain", Operation: "observation_record", Input: recordInput}, env); recordErr != nil || recorded.Outcome != OutcomeOK {
-		t.Fatalf("observation_record response=%+v err=%v", recorded.Error, recordErr)
-	}
-	var observationID string
-	if scanErr := s.DatabaseForTesting().QueryRow(`SELECT observation_id FROM domain_observations WHERE product_id='product-1' AND domain_id=?`, domain).Scan(&observationID); scanErr != nil {
-		t.Fatal(scanErr)
-	}
-
-	dismissInput := json.RawMessage(fmt.Sprintf(`{"product_id":"product-1","domain_id":%q,"observation_id":%q,"idempotency_key":"dismiss-delivery-1"}`, domain, observationID))
-	refusal, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_domain", Operation: "observation_dismiss", Input: dismissInput}, env)
+	input := json.RawMessage(`{"work_id":"work-1","expected_version":2,"memberships":[{"project_id":"project-1","role":"primary"}],"idempotency_key":"membership-delivery"}`)
+	refusal, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_relate", Operation: "set_memberships", Input: input}, env)
 	if err != nil || refusal.Error == nil || refusal.Error.Kind != "approval_required" {
-		t.Fatalf("unapproved dismissal response=%+v err=%v", refusal, err)
+		t.Fatalf("unapproved membership response=%+v err=%v", refusal, err)
 	}
 	raw, encodeErr := refusal.Encode()
 	if encodeErr != nil {
@@ -69,7 +47,7 @@ func TestUnapprovedObservationDismissalRefusalIsDeliverable(t *testing.T) {
 	if summary == nil {
 		t.Fatal("CD-0037 D1: a refusal that minted a challenge must carry its consequence summary")
 	}
-	if summary.Tool != "concord_domain" || summary.Operation != "observation_dismiss" {
+	if summary.Tool != "concord_work_relate" || summary.Operation != "set_memberships" {
 		t.Errorf("consequence summary names %s.%s", summary.Tool, summary.Operation)
 	}
 	if len(summary.Scope) == 0 {

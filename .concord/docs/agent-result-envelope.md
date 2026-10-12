@@ -9,7 +9,7 @@
 > job/tool/context/transport contracts.
 > **Does not decide:** operation-specific payload fields already owned by TS3/TS4,
 > surface identity/change evidence (TS8), measurement evidence (TS9), UI rendering,
-> C14, or C15.
+> or C15.
 
 ## Context
 

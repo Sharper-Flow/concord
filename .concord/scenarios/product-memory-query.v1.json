@@ -928,29 +928,6 @@
       }
     },
     {
-      "id": "C22-domain-active-work-authoritative-empty",
-      "query_id": "C22.DomainActiveWork",
-      "input": {
-        "product": "prod-alpha",
-        "domain": "product-root:fixture-product"
-      },
-      "expected": {
-        "authority": "authoritative",
-        "assertions": [
-          {
-            "path": "$.items",
-            "op": "eq",
-            "value": []
-          },
-          {
-            "path": "$.registry.root_domain_id",
-            "op": "eq",
-            "value": "product-root:fixture-product"
-          }
-        ]
-      }
-    },
-    {
       "id": "C22-domain-overlaps-authoritative-empty",
       "query_id": "C22.DomainOverlaps",
       "input": {

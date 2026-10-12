@@ -66,10 +66,6 @@
     },
     {
       "kind": "go_test",
-      "value": "internal/store.TestShardRoundTripPreservesV12LawHomes"
-    },
-    {
-      "kind": "go_test",
       "value": "internal/store.TestWorkflowDefinitionValidationRequiresProductTruthClassification"
     },
     {
@@ -95,6 +91,10 @@
     {
       "kind": "go_test",
       "value": "internal/store.TestWorkflowDomainOverlapMergeAndSupersessionAreAtomicAndReopenStale"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestComposeKnowledgeManifestReadsTheLiveShards"
     }
   ],
   "id": "CD-0041",

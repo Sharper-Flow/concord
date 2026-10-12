@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"os"
 	"path"
 	"sort"
 	"strings"
@@ -191,36 +190,6 @@ func readKnowledgeShardsAtCommitLayout(ctx context.Context, repo, commit string,
 		}
 	}
 	return shards, true, nil
-}
-
-// readKnowledgeShardsWorkingTree reads the shard tree from the checked-out
-// repository, the form lesson publication edits before it commits.
-func readKnowledgeShardsWorkingTree(repo string) (knowledgeShards, error) {
-	head, err := os.ReadFile(path.Join(repo, knowledgeHeadPath)) //nolint:gosec // knowledgeHeadPath is fixed and repo is the operator-selected Git authority.
-	if err != nil {
-		return knowledgeShards{}, wrapFailure(KindGitUnreachable, "read_knowledge_manifest", "cannot read the knowledge manifest head", true, "restore the git knowledge home", err)
-	}
-	shards := knowledgeShards{head: head, records: map[string][]byte{}, recordPathPrefix: manifestRecordPathPrefix}
-	if registry, err := os.ReadFile(path.Join(repo, knowledgeRegistryPath)); err == nil { //nolint:gosec // knowledgeRegistryPath is fixed and repo is the operator-selected Git authority.
-		shards.registry = registry
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return knowledgeShards{}, wrapFailure(KindGitUnreachable, "read_knowledge_manifest", "cannot read the domain registry shard", true, "restore the git knowledge home", err)
-	}
-	entries, err := os.ReadDir(path.Join(repo, knowledgeRecordTree))
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return knowledgeShards{}, wrapFailure(KindGitUnreachable, "read_knowledge_manifest", "cannot list the knowledge record shards", true, "restore the git knowledge home", err)
-	}
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
-			continue
-		}
-		content, err := os.ReadFile(path.Join(repo, knowledgeRecordTree, entry.Name())) //nolint:gosec // the record tree is fixed and repo is the operator-selected Git authority.
-		if err != nil {
-			return knowledgeShards{}, wrapFailure(KindGitUnreachable, "read_knowledge_manifest", "cannot read a knowledge record shard", true, "restore the git knowledge home", err)
-		}
-		shards.records[entry.Name()] = content
-	}
-	return shards, nil
 }
 
 // accept places one archive member into the shards by path. Members outside

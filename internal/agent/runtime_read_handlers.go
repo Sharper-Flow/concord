@@ -6,7 +6,6 @@ import (
 	"errors"
 	"time"
 
-	"github.com/sharper-flow/concord/internal/portfolio"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -65,18 +64,6 @@ func (r runtime) readProductSnapshot(ctx context.Context, base Envelope, input [
 		return failureEnvelope(base, err), nil
 	}
 	return r.q2(base, q)
-}
-
-func (r runtime) readProductPortfolio(ctx context.Context, base Envelope, input []byte) (Envelope, error) {
-	var in productRowPortfolioInput
-	if err := decodeOperationInput(input, &in); err != nil {
-		return base, err
-	}
-	q, err := portfolio.Read(ctx, r.Store, store.ProductRowRequest{Product: in.ProductID, Limit: effectiveLimit(in.Limit, in.Page), Cursor: cursorValue(in.Page), Source: in.Source})
-	if err != nil {
-		return failureEnvelope(base, err), nil
-	}
-	return r.productRows(base, q)
 }
 
 func (r runtime) readProductBlockedSessions(ctx context.Context, base Envelope, input []byte) (Envelope, error) {
@@ -622,46 +609,6 @@ func (r runtime) readKnowledgeResolveNote(ctx context.Context, base Envelope, in
 	return r.q10(base, q)
 }
 
-func (r runtime) readKnowledgeUnprocessed(ctx context.Context, base Envelope, input []byte) (Envelope, error) {
-	var in knowledgeUnprocessedInput
-	if err := decodeOperationInput(input, &in); err != nil {
-		return base, err
-	}
-	if in.ProductID == "" {
-		in.ProductID = r.Envelope.SelectedProductID
-	}
-	var home store.KnowledgeHome
-	var homeErr error
-	if in.ProductID != "" || in.ProjectID != "" {
-		home, homeErr = r.Store.ResolveKnowledgeQueryHome(ctx, in.ProductID, in.ProjectID, store.KnowledgeHome{}, "PM1.Q15")
-	} else {
-		home, homeErr = r.knowledgeHome(ctx)
-	}
-	if homeErr != nil {
-		return failureEnvelope(base, homeErr), nil
-	}
-	paths, err := r.Store.ReadUnprocessedKnowledgeDocs(ctx, home)
-	if err != nil {
-		return failureEnvelope(base, err), nil
-	}
-	limit := effectiveLimit(in.Limit, in.Page)
-	if limit == 0 || limit > 100 {
-		limit = 100
-	}
-	if len(paths) > limit {
-		paths = paths[:limit]
-	}
-	meta := store.ResultMeta{
-		QueryID:         "PM1.Q15",
-		ContractVersion: "PM1/1.0",
-		ResolvedScope:   store.ResolvedScope{ProductID: in.ProductID, ProjectID: in.ProjectID},
-		Authority:       "authoritative",
-		Freshness:       store.Freshness{ObservedAt: time.Now().UTC().Format(time.RFC3339Nano)},
-		OrderingKeys:    []string{"path"},
-	}
-	return r.resultEnvelope(base, meta, r.scope(meta), map[string]any{"paths": paths})
-}
-
 func (r runtime) readDomain(ctx context.Context, base Envelope, input []byte, queryID string) (Envelope, error) {
 	var in domainReadInput
 	if err := decodeOperationInput(input, &in); err != nil {
@@ -703,19 +650,6 @@ func (r runtime) readDomain(ctx context.Context, base Envelope, input []byte, qu
 			return failureEnvelope(base, err), nil
 		}
 		return r.resultEnvelope(base, result.ResultMeta, r.scope(result.ResultMeta), store.NewDomainDetailPayload(result))
-	case "active_work":
-		if in.DomainID == "" {
-			return coreError(base, "invalid_input", "active Domain work requires domain_id", "reread_entities", false), nil
-		}
-		result, err := r.Store.QueryDomainActiveWork(ctx, store.DomainActiveWorkRequest{Product: product, Domain: in.DomainID, Limit: effectiveLimit(in.Limit, in.Page), Cursor: deref(in.Page.Cursor)})
-		if err != nil {
-			return failureEnvelope(base, err), nil
-		}
-		response, err := r.resultEnvelope(base, result.ResultMeta, r.scope(result.ResultMeta), store.NewDomainActiveWorkPayload(result))
-		if err != nil {
-			return response, err
-		}
-		return r.wrapCursor(ctx, response, queryID+":"+product+":"+in.DomainID, "work")
 	case "attachments":
 		if in.DomainID == "" {
 			return coreError(base, "invalid_input", "Domain attachments require domain_id", "reread_entities", false), nil

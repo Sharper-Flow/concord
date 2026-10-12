@@ -18,7 +18,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:0dbe934c0d38279234744a18daa2da2de453f7e4f4e0c800bbdd2c5dca3d1e0f",
+  "sha256": "sha256:5765c3c7992cdf2c704a4d86f27490754b7bb0484663002e59181d984d845d16",
   "status": "accepted",
   "summary": "Amends CD-0096 D6 and CD-0088 D4 at their launch clauses so work start moves the calling session into the claimed worktree instead of launching a new one. The worktree claim is recorded before the move, so a failed move leaves a resumable claim rather than a moved session with no claim. The host move route is required and its absence fails closed with a typed refusal instead of a launch fallback. The default checkout must be clean, the move carries no changes and takes effect from the next turn, and the session directory is read back and verified afterward. The session-prepare directory refusal, lane definition check, and read-back assertion are preserved and now guard the destination of a move.",
   "tags": [

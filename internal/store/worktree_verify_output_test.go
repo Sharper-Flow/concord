@@ -10,10 +10,13 @@ import (
 	"go/parser"
 	"go/token"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 // dropMigration125Objects restores the pre-oracle lease shape for migration
@@ -292,12 +295,12 @@ func TestNativeOracleEnvironmentPinned(t *testing.T) {
 	t.Setenv("GOTOOLCHAIN", "auto")
 	t.Setenv("GOPROXY", "https://example.invalid")
 	t.Setenv("GOCACHE", "/untrusted/cache")
-	e, err := resolveNativeGoEnvironment(context.Background())
+	e, err := resolveNativeGoEnvironment(context.Background(), runtime.Version())
 	if err != nil {
 		t.Fatal(err)
 	}
 	env := nativeControlledEnv(e, "/lease-cache")
-	for _, v := range []string{"GOTOOLCHAIN=local", "GOPROXY=off", "GOFLAGS=-mod=readonly", "CGO_ENABLED=0", "GOWORK=off", "GOCACHE=/lease-cache"} {
+	for _, v := range []string{"GOTOOLCHAIN=local", "GOPROXY=off", "GOSUMDB=off", "GOFLAGS=-mod=readonly", "CGO_ENABLED=0", "GOWORK=off", "GOCACHE=/lease-cache/cache", "HOME=/lease-cache/home", "TMPDIR=/lease-cache/tmp"} {
 		if !slices.Contains(env, v) {
 			t.Fatalf("pinned environment omits %s", v)
 		}
@@ -340,13 +343,118 @@ func TestNativeOracleRootedInputGraphIncludesDependencies(t *testing.T) {
 }
 
 func TestNativeOracleModuleToolchainDirectiveIsParsed(t *testing.T) {
-	for _, data := range []string{"// toolchain go1.26.7\ngo 1.26.0\n", "toolchain go1.26.7-extra", "toolchain go1.26.7\ntoolchain go1.26.7", "toolchain go1.26.6"} {
-		if nativePinnedGoToolchain([]byte(data)) {
-			t.Fatalf("unapproved toolchain directive qualified: %q", data)
+	for _, data := range []string{"// toolchain go1.26.7\n", "toolchain go1.26.7-extra", "toolchain go1.26.7\ntoolchain go1.26.7", "go 1.26.0\ngo 1.26.0", "toolchain auto", "go nonsense"} {
+		if pin, err := nativePinnedGoToolchain([]byte(data)); err == nil {
+			t.Fatalf("invalid toolchain directive qualified: %q => %s", data, pin)
 		}
 	}
-	if !nativePinnedGoToolchain([]byte("toolchain\tgo1.26.7 // installed pin\n")) {
-		t.Fatal("valid exact module directive refused")
+	for data, want := range map[string]string{"toolchain\tgo1.26.7 // installed pin\n": "go1.26.7", "// toolchain go1.26.7\ngo 1.25.1\n": "go1.25.1", "go 1.26\n": "go1.26.0"} {
+		if pin, err := nativePinnedGoToolchain([]byte(data)); err != nil || pin != want {
+			t.Fatalf("module directive %q = %s, want %s: %v", data, pin, want, err)
+		}
+	}
+}
+
+func TestNativeOracleModuleAcceptsAnotherPinnedToolchain(t *testing.T) {
+	if pin, err := nativePinnedGoToolchain([]byte("go 1.26.0\ntoolchain go1.26.6\n")); err != nil || pin != "go1.26.6" {
+		t.Fatal("module's explicit toolchain pin refused")
+	}
+}
+
+func TestNativeOracleMetadataCaptureDoesNotSpendTestBudget(t *testing.T) {
+	capture := &nativeStreamCapture{complete: true}
+	metadata := nativeOracleStageCapture("metadata", capture)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	_, _ = (nativeCaptureWriter{capture: metadata, cancel: cancel}).Write(bytes.Repeat([]byte("m"), nativeOracleStreamLimit))
+	tests := nativeOracleStageCapture("test", capture)
+	_, _ = (nativeCaptureWriter{capture: tests, cancel: cancel}).Write([]byte("test witnesses"))
+	if !capture.complete || ctx.Err() != nil || string(capture.stdout) != "test witnesses" || metadata == capture {
+		t.Fatal("metadata exhausted the test-output cap")
+	}
+}
+
+func TestNativeOracleTestDeadlineUsesOperationCeiling(t *testing.T) {
+	before := time.Now()
+	ctx, cancel, err := nativeOracleTestContext(context.Background(), WorktreeVerifyRequest{SupportedBudgetSeconds: 3})
+	defer cancel()
+	after := time.Now()
+	deadline, ok := ctx.Deadline()
+	if err != nil || !ok || deadline.Before(before.Add(3*time.Second)) || deadline.After(after.Add(3*time.Second)) {
+		t.Fatalf("default test deadline does not use ceiling: %v %v", deadline, err)
+	}
+	caller, callerCancel := context.WithTimeout(context.Background(), 7*time.Second)
+	defer callerCancel()
+	ctx, cancel, err = nativeOracleTestContext(caller, WorktreeVerifyRequest{SupportedBudgetSeconds: 3, CallerBudgetApplied: true})
+	defer cancel()
+	if err != nil || ctx != caller {
+		t.Fatal("test stage replaced the caller deadline")
+	}
+	_, cancel, err = nativeOracleTestContext(context.Background(), WorktreeVerifyRequest{})
+	defer cancel()
+	if failureKind(err) != KindUnavailable {
+		t.Fatal("missing ceiling invented a default deadline")
+	}
+}
+
+func TestNativeOracleSnapshotPreservesExecutableAndTree(t *testing.T) {
+	repo := t.TempDir()
+	gitRunStore(t, repo, "init", "-b", "snapshot")
+	if err := os.WriteFile(filepath.Join(repo, "witness.sh"), []byte("#!/bin/sh\nprintf 'witness\\n'\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	gitRunStore(t, repo, "add", ".")
+	gitRunStore(t, repo, "-c", "user.email=oracle@example.invalid", "-c", "user.name=Oracle", "commit", "-m", "executable witness")
+	if err := os.WriteFile(filepath.Join(repo, "witness.sh"), []byte("dirty candidate bytes"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	if err := materializeNativeSnapshot(context.Background(), ExecGitRunner{}, repo, "HEAD", root); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(filepath.Join(root, "witness.sh"))
+	if output, err := cmd.CombinedOutput(); err != nil || string(output) != "witness\n" {
+		t.Fatalf("executable snapshot witness: %q %v", output, err)
+	}
+	gitRunStore(t, root, "init", "-b", "materialized")
+	gitRunStore(t, root, "add", ".")
+	got, err := (ExecGitRunner{}).Run(context.Background(), root, "write-tree")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := (ExecGitRunner{}).Run(context.Background(), repo, "rev-parse", "HEAD^{tree}")
+	if err != nil || string(got) != string(want) {
+		t.Fatalf("snapshot tree = %q, want %q: %v", got, want, err)
+	}
+}
+
+func TestNativeOracleSnapshotRefusesSymlinksBeforeMaterialization(t *testing.T) {
+	repo := t.TempDir()
+	gitRunStore(t, repo, "init", "-b", "snapshot")
+	if err := os.Symlink(t.TempDir(), filepath.Join(repo, "link")); err != nil {
+		t.Fatal(err)
+	}
+	gitRunStore(t, repo, "add", ".")
+	gitRunStore(t, repo, "-c", "user.email=oracle@example.invalid", "-c", "user.name=Oracle", "commit", "-m", "symlink witness")
+	root := t.TempDir()
+	if err := materializeNativeSnapshot(context.Background(), ExecGitRunner{}, repo, "HEAD", root); failureKind(err) != KindUnavailable {
+		t.Fatalf("symlink snapshot was materialized: %v", err)
+	}
+	files, err := os.ReadDir(root)
+	if err != nil || len(files) != 0 {
+		t.Fatal("rejected symlink wrote snapshot files")
+	}
+}
+
+func TestNativeOracleToolchainResolutionIsOffline(t *testing.T) {
+	t.Setenv("GOPROXY", "https://example.invalid")
+	t.Setenv("GOSUMDB", "example.invalid")
+	e, err := resolveNativeGoEnvironment(context.Background(), runtime.Version())
+	if err != nil || e.Version != runtime.Version() || !strings.HasPrefix(e.ToolchainIdentity, e.Version+":sha256:") {
+		t.Fatalf("installed or cached pin resolution: %+v %v", e, err)
+	}
+	if _, err := resolveNativeGoEnvironment(context.Background(), "go1.999.0"); failureKind(err) != KindUnavailable || !strings.Contains(err.Error(), "go1.999.0") || !strings.Contains(err.Error(), "toolchain not available") {
+		t.Fatalf("uncached toolchain did not name offline pin/cause: %v", err)
 	}
 }
 
@@ -419,7 +527,7 @@ func TestNativeOracleCachePolicyAndMarshalBeforeRelease(t *testing.T) {
 	if err != nil || r.Oracle.Qualification != "pass" {
 		t.Fatalf("real execution %+v %v", r, err)
 	}
-	if stages != 7 || cache == "" {
+	if stages != 6 || cache == "" {
 		t.Fatalf("observed stages=%d cache=%s", stages, cache)
 	}
 	if _, err := os.Stat(cache); !os.IsNotExist(err) {
@@ -428,7 +536,7 @@ func TestNativeOracleCachePolicyAndMarshalBeforeRelease(t *testing.T) {
 	if err := validateNativeOracleProducerTx(context.Background(), f.s.db, f.work, &r, "pass"); err != nil {
 		t.Fatalf("qualified native receipt rejected: %v", err)
 	}
-	if _, err := f.s.VerifyWorktree(context.Background(), f.request("cache-check", &f.a)); err != nil || stages != 7 {
+	if _, err := f.s.VerifyWorktree(context.Background(), f.request("cache-check", &f.a)); err != nil || stages != 6 {
 		t.Fatalf("replay recreated cache or stages: %d %v", stages, err)
 	}
 	var stdout, stderr []byte

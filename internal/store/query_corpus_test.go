@@ -76,8 +76,8 @@ func TestAcceptedQ1ToQ10Corpus(t *testing.T) {
 		}
 		results[scenario.ID] = encoded
 	}
-	if run != 28 {
-		t.Fatalf("Q1-Q10 corpus scenarios executed = %d, want 23", run)
+	if run != 27 {
+		t.Fatalf("Q1-Q10 corpus scenarios executed = %d, want 27", run)
 	}
 }
 
@@ -146,16 +146,6 @@ func executeCorpusQuery(ctx context.Context, s *store.Store, id string, input ma
 			store.ResultMeta
 			Result store.DomainDetailResult `json:"result"`
 		}{detail.ResultMeta, detail}, nil
-	case "C22.DomainActiveWork":
-		result, workErr := s.QueryDomainActiveWork(ctx, store.DomainActiveWorkRequest{Product: stringInput(input, "product"), Domain: stringInput(input, "domain"), Limit: intInput(input, "limit")})
-		if workErr != nil {
-			return nil, workErr
-		}
-		return struct {
-			store.ResultMeta
-			Items    []store.DomainActiveWorkItem `json:"items"`
-			Registry *store.DomainRegistryView    `json:"registry"`
-		}{result.ResultMeta, result.Work, result.Registry}, nil
 	case "C22.DomainOverlaps":
 		result, overlapErr := s.QueryDomainOverlaps(ctx, store.DomainOverlapsRequest{Product: stringInput(input, "product"), Domain: stringInput(input, "domain")})
 		if overlapErr != nil {

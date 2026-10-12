@@ -32,7 +32,7 @@ refusal. The adapter forwards it and does not create a second origin rule.
 ### D2. A chained worktree starts from the default branch
 
 When the invocation directory is a linked worktree and `ref` is empty,
-`work-bootstrap` resolves `origin/HEAD` and uses that branch ref as the base.
+`work-bootstrap` resolves [`origin/HEAD`](https://git-scm.com/docs/git-symbolic-ref) and uses that branch ref as the base.
 The terminal origin branch never becomes the implicit base.
 
 ### D3. The origin remains for audit reclamation

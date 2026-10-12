@@ -67,7 +67,7 @@ path. A one-element set retains single-source output and uses a v3 cursor.
 
 Every returned record carries its source Project and locator, its
 repository-relative path, its commit OID, and its content hash. The
-qualified reference form is `project_id/law_id` in string fields and a
+qualified reference form is `<project_id>/<law_id>` in string fields and a
 structured source field in manifests. A bare ID resolves Product-wide and
 refuses as ambiguous when two sources hold it. A rebuild refuses a law ID
 that contains `/`, which the qualified form reserves.

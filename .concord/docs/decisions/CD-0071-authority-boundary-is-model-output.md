@@ -73,7 +73,7 @@ The authority system defends against authority asserted by an agent's *tool
 arguments*. It does not defend against an agent's *process*, and no design that
 trusts a same-UID-writable database can.
 
-`docs/agent-call-context-contract.md` §4.1 already states this property
+`.concord/docs/agent-call-context-contract.md` §4.1 already states this property
 precisely, without naming an adversary:
 
 > Tool input cannot name or impersonate a principal, widen scope, or add

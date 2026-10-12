@@ -5,13 +5,17 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sharper-flow/concord/internal/hostlease"
+	"github.com/sharper-flow/concord/internal/pm1fixture"
 	"github.com/sharper-flow/concord/internal/store"
 	"github.com/sharper-flow/concord/internal/version"
 	_ "modernc.org/sqlite"
@@ -709,5 +713,608 @@ func TestSupportedReleasePairsCoexistWithOldSessionsAndNewAccess(t *testing.T) {
 		if lease.FenceProtocol != hostlease.CurrentFenceProtocol {
 			t.Fatalf("a coexisting lease must record its fence protocol: %+v", lease)
 		}
+	}
+}
+
+// The fixtures below rebuild, at the CLI package's own seam, the pin shapes
+// the internal authoring-cutover witnesses seed: workflow initialization runs
+// through the exported store transaction API over synthetic work created by
+// the event log, and the fold-only projection rows (contracts, the
+// outside-repair hold, the terminal lifecycle) are written under the same
+// transient fold guard the store's own folds use.
+
+const (
+	cutoverArchivedPinWork        = "cutover-archived-pin"
+	cutoverOldContractWork        = "cutover-old-contract-pin"
+	cutoverCanonicalWork          = "cutover-canonical"
+	cutoverTerminalHistoryWork    = "cutover-terminal-history"
+	cutoverSupersededContractWork = "cutover-superseded-contract"
+	cutoverHeldWork               = "cutover-held-pin"
+)
+
+// cutoverSelectedWorks names the two nonterminal items the authoring-cutover
+// gate selects in the fixture store: one archived-family instance pin and one
+// old-authoring pin carried only by the work's active contract.
+// cutoverSparedWorks names the three look-alikes the gate must leave alone.
+var cutoverSelectedWorks = []string{cutoverArchivedPinWork, cutoverOldContractWork}
+var cutoverSparedWorks = []string{cutoverCanonicalWork, cutoverTerminalHistoryWork, cutoverSupersededContractWork}
+
+// cutoverDispositionReport is the cutover_disposition object the upgrade
+// surface reports when the operator names the cancel input.
+type cutoverDispositionReport struct {
+	WorkCount      int            `json:"work_count"`
+	ByLifecycle    map[string]int `json:"by_lifecycle"`
+	ByPinnedFamily map[string]int `json:"by_pinned_family"`
+	WorkIDs        []string       `json:"work_ids"`
+}
+
+type cutoverWorkState struct {
+	Lifecycle     string
+	Version       int64
+	InstanceState string
+}
+
+// cutoverTransitionPayload is the ordinary work.transitioned payload the
+// disposition appends per selected item.
+type cutoverTransitionPayload struct {
+	From             string `json:"from"`
+	To               string `json:"to"`
+	Reason           string `json:"reason"`
+	ExpectedVersion  int64  `json:"expected_version"`
+	ResultingVersion int64  `json:"resulting_version"`
+}
+
+// execUnderFoldGuard runs fixture statements against the fold-only
+// projections under the same transient fold the store's own folds use.
+func execUnderFoldGuard(t *testing.T, db *sql.DB, statements ...string) {
+	t.Helper()
+	ctx := context.Background()
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+		_ = tx.Rollback()
+		t.Fatal(err)
+	}
+	for _, statement := range statements {
+		if _, err := tx.ExecContext(ctx, statement); err != nil {
+			_ = tx.Rollback()
+			t.Fatalf("cannot seed the cutover fixture with %q: %v", statement, err)
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
+		_ = tx.Rollback()
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// cutoverFixtureActor is the operator-identity actor tuple every fixture
+// workflow initialization records.
+func cutoverFixtureActor(workID string) store.WorkflowActor {
+	return store.WorkflowActor{
+		PrincipalRef: "principal/operator",
+		ClientRef:    "client/concord-cli-test",
+		AgentRef:     "agent/operator",
+		SessionRef:   "session/" + workID,
+		ActorClass:   store.ActorAgent,
+	}
+}
+
+// cutoverFixtureContract inserts one contract pin row for a work item under
+// the fold guard, the shape an approval leaves behind.
+func cutoverFixtureContract(workID string, contractVersion int64, ref string, definitionVersion int64, digest string) string {
+	return fmt.Sprintf(`INSERT INTO workflow_contracts
+		(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,definition_ref,definition_version,definition_digest)
+		VALUES('%s',%d,'cutover contract pin','internal_sqlite','[]','[]','2026-10-12T00:00:00Z',
+		(SELECT actor_ref FROM workflow_actors LIMIT 1),'[]','%s',%d,'%s')`,
+		workID, contractVersion, ref, definitionVersion, digest)
+}
+
+// seedCutoverPinStore builds one fully migrated temporary store whose
+// nonterminal work holds every pin shape the authoring-cutover gate
+// distinguishes. The item identities and their expected selection are
+// cutoverSelectedWorks and cutoverSparedWorks.
+func seedCutoverPinStore(t *testing.T, path string) {
+	t.Helper()
+	ctx := context.Background()
+	s, err := store.Open(ctx, path)
+	if err != nil {
+		t.Fatalf("seed open: %v", err)
+	}
+	defer func() { _ = s.Close() }()
+	if err := pm1fixture.SeedProductAndProject(ctx, s, "cutover-product", "cutover-project"); err != nil {
+		t.Fatal(err)
+	}
+	for _, workID := range append(append([]string{}, cutoverSelectedWorks...), cutoverSparedWorks...) {
+		if err := pm1fixture.SeedWorkItem(ctx, s, "cutover-project", workID, "cutover pin fixture "+workID, 0); err != nil {
+			t.Fatal(err)
+		}
+	}
+	archived, err := store.BuiltinWorkflowDefinitionForRef("workflow.generic_one_off")
+	if err != nil {
+		t.Fatal(err)
+	}
+	canonical, err := store.LiveWorkflowDefinitionForRef("workflow.implementation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	old, ok := store.BuiltinWorkflowRegistry().Lookup("workflow.implementation", 29)
+	if !ok {
+		t.Fatal("implementation v29 left the registry")
+	}
+	initialize := func(workID string, registered store.RegisteredDefinition) {
+		t.Helper()
+		if err := s.Transact(ctx, func(tx *store.Transaction) error {
+			return store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{
+				WorkID:     workID,
+				Definition: registered,
+				Actor:      cutoverFixtureActor(workID),
+				Now:        time.Date(2026, 10, 12, 0, 0, 0, 0, time.UTC),
+			})
+		}); err != nil {
+			t.Fatalf("cannot initialize the workflow for %s: %v", workID, err)
+		}
+	}
+	initialize(cutoverArchivedPinWork, archived)
+	initialize(cutoverOldContractWork, canonical)
+	initialize(cutoverCanonicalWork, canonical)
+	initialize(cutoverTerminalHistoryWork, archived)
+	initialize(cutoverSupersededContractWork, canonical)
+
+	execUnderFoldGuard(t, s.DatabaseForTesting(),
+		// The old-authoring item is pinned only through its active contract:
+		// the instance carries the canonical head while contract v1 still
+		// pins v29.
+		cutoverFixtureContract(cutoverOldContractWork, 1, "workflow.implementation", 29, old.Digest),
+		// The superseded-contract item carries the closed history the gate
+		// must ignore: v1 pins the old authoring and v2, the canonical
+		// successor, supersedes it.
+		cutoverFixtureContract(cutoverSupersededContractWork, 1, "workflow.implementation", 29, old.Digest),
+		cutoverFixtureContract(cutoverSupersededContractWork, 2, "workflow.implementation", 30, canonical.Digest),
+		fmt.Sprintf(`UPDATE workflow_contracts SET superseded_by=2 WHERE work_id='%s' AND contract_version=1`, cutoverSupersededContractWork),
+		// The terminal historical item closed while its archived pin stayed
+		// recorded: terminal work opens, reads, and rebuilds.
+		fmt.Sprintf(`UPDATE work_items SET lifecycle='cancelled' WHERE id='%s'`, cutoverTerminalHistoryWork),
+	)
+}
+
+// holdCutoverWorkUnderOutsideRepair adds one more archived-pin item and
+// places it under an active outside-repair hold, the held disposition the
+// cancellation must refuse instead of transitioning.
+func holdCutoverWorkUnderOutsideRepair(t *testing.T, path string) {
+	t.Helper()
+	ctx := context.Background()
+	s, err := store.Open(ctx, path)
+	if err != nil {
+		t.Fatalf("seed open: %v", err)
+	}
+	defer func() { _ = s.Close() }()
+	if err := pm1fixture.SeedWorkItem(ctx, s, "cutover-project", cutoverHeldWork, "cutover pin fixture "+cutoverHeldWork, 0); err != nil {
+		t.Fatal(err)
+	}
+	archived, err := store.BuiltinWorkflowDefinitionForRef("workflow.generic_one_off")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Transact(ctx, func(tx *store.Transaction) error {
+		return store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{
+			WorkID:     cutoverHeldWork,
+			Definition: archived,
+			Actor:      cutoverFixtureActor(cutoverHeldWork),
+			Now:        time.Date(2026, 10, 12, 0, 0, 0, 0, time.UTC),
+		})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	execUnderFoldGuard(t, s.DatabaseForTesting(),
+		fmt.Sprintf(`UPDATE workflow_instances SET instance_state='outside_repair', outside_repair_state='active' WHERE work_id='%s'`, cutoverHeldWork),
+		fmt.Sprintf(`INSERT INTO outside_repair_dispositions(work_id,approval_ref,state,reason,evidence_json,recorded_at)
+			VALUES('%s','approval:cutover-fixture-hold','active','operator-held outside repair','{}','2026-10-12T00:00:00Z')`, cutoverHeldWork),
+	)
+}
+
+// cutoverWorkStates reads every fixture work item's lifecycle, version, and
+// workflow instance state, so assertions compare full state, not claims.
+func cutoverWorkStates(t *testing.T, path string) map[string]cutoverWorkState {
+	t.Helper()
+	db := mustOpenCutoverStore(t, path)
+	rows, err := db.Query(`SELECT w.id, w.lifecycle, w.version, COALESCE(i.instance_state,'')
+		FROM work_items w LEFT JOIN workflow_instances i ON i.work_id=w.id ORDER BY w.id`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	states := map[string]cutoverWorkState{}
+	for rows.Next() {
+		var workID string
+		var state cutoverWorkState
+		if err := rows.Scan(&workID, &state.Lifecycle, &state.Version, &state.InstanceState); err != nil {
+			t.Fatal(err)
+		}
+		states[workID] = state
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	return states
+}
+
+// cutoverEventCount counts the whole event log, so a read-only claim and a
+// zero-effect refusal are checked against every event, not a filtered kind.
+func cutoverEventCount(t *testing.T, path string) int64 {
+	t.Helper()
+	db := mustOpenCutoverStore(t, path)
+	var count int64
+	if err := db.QueryRow(`SELECT count(*) FROM domain_events`).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	return count
+}
+
+// cutoverTransitionedEvents reads the ordinary transition events keyed by
+// their work item.
+func cutoverTransitionedEvents(t *testing.T, path string) map[string]cutoverTransitionPayload {
+	t.Helper()
+	db := mustOpenCutoverStore(t, path)
+	rows, err := db.Query(`SELECT subject_id, payload FROM domain_events WHERE kind='work.transitioned' ORDER BY subject_id`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	events := map[string]cutoverTransitionPayload{}
+	for rows.Next() {
+		var workID, raw string
+		if err := rows.Scan(&workID, &raw); err != nil {
+			t.Fatal(err)
+		}
+		var payload cutoverTransitionPayload
+		if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+			t.Fatalf("the transition payload for %s is not JSON: %v: %s", workID, err, raw)
+		}
+		events[workID] = payload
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	return events
+}
+
+// preCutoverUpgradeSnapshots lists the pre-mutation snapshots the data root
+// retains, the same population the finish-open failure witness reads.
+func preCutoverUpgradeSnapshots(t *testing.T, root string) []string {
+	t.Helper()
+	entries, err := os.ReadDir(filepath.Join(root, "backups"))
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	var snapshots []string
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), "pre-upgrade-") && !strings.Contains(entry.Name(), ".json") && !strings.HasSuffix(entry.Name(), "-wal") && !strings.HasSuffix(entry.Name(), "-shm") {
+			snapshots = append(snapshots, filepath.Join(root, "backups", entry.Name()))
+		}
+	}
+	return snapshots
+}
+
+// cutoverCancellationProbe is the deterministic timing witness: the trigger
+// aborts the first cancellation append, so a mutating run dies exactly at the
+// disposition and whatever the run already wrote stays observable.
+const cutoverCancellationProbe = "cutover-cancel timing probe"
+
+func installCancellationProbe(t *testing.T, path string) {
+	t.Helper()
+	db := mustOpenCutoverStore(t, path)
+	if _, err := db.Exec(`CREATE TRIGGER cutover_cancel_timing_probe
+		BEFORE INSERT ON domain_events
+		WHEN NEW.kind = 'work.transitioned'
+		BEGIN
+			SELECT RAISE(ABORT, '` + cutoverCancellationProbe + `');
+		END`); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func dropCancellationProbe(t *testing.T, path string) {
+	t.Helper()
+	db := mustOpenCutoverStore(t, path)
+	if _, err := db.Exec(`DROP TRIGGER cutover_cancel_timing_probe`); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// The plan refuses a store whose nonterminal work pins retired or old
+// authoring, and the refusal names the one operator input that cancels the
+// selected work. The refusal reads only.
+func TestUpgradePlanRefusesCutoverPinnedWorkUntilTheOperatorNamesTheCancelInput(t *testing.T) {
+	path, _ := cliStoreRoot(t)
+	seedCutoverPinStore(t, path)
+	eventsBefore := cutoverEventCount(t, path)
+
+	code, out, errOut := runUpgradeStdin(t, `{"plan":true}`)
+	if code != 1 {
+		t.Fatalf("plan over pinned work without the cancel input = %d, want a refusal: %s", code, errOut)
+	}
+	if out != "" {
+		t.Fatalf("the refused plan must print no report: %s", out)
+	}
+	if !strings.Contains(errOut, `{"cancel_cutover_pinned_work":true}`) {
+		t.Fatalf("the cutover refusal must name the operator input that cancels the selected work: %s", errOut)
+	}
+	if !strings.Contains(errOut, "workflow.generic_one_off") {
+		t.Fatalf("the cutover refusal must name the blocking pin: %s", errOut)
+	}
+	if after := cutoverEventCount(t, path); after != eventsBefore {
+		t.Fatalf("the refused plan moved the event log %d -> %d; the refusal must write nothing", eventsBefore, after)
+	}
+}
+
+// The plan with the cancel input skips only the cutover gate and reports the
+// exact disposition read-only: the two selected items, and nothing else —
+// no lifecycle moves, no events, no fence, no snapshot.
+func TestUpgradePlanWithTheCancelInputReportsTheExactCutoverDisposition(t *testing.T) {
+	path, root := cliStoreRoot(t)
+	seedCutoverPinStore(t, path)
+	statesBefore := cutoverWorkStates(t, path)
+	eventsBefore := cutoverEventCount(t, path)
+
+	code, out, errOut := runUpgradeStdin(t, `{"plan":true,"cancel_cutover_pinned_work":true}`)
+	if code != 0 {
+		t.Fatalf("plan with the cancel input = %d: %s", code, errOut)
+	}
+	var report struct {
+		store.UpgradeReadiness
+		SnapshotRequired   bool                      `json:"snapshot_required"`
+		CutoverDisposition *cutoverDispositionReport `json:"cutover_disposition"`
+	}
+	if err := json.Unmarshal([]byte(out), &report); err != nil {
+		t.Fatalf("the plan output is not JSON: %v: %s", err, out)
+	}
+	if report.ActivationBlocked || len(report.PendingBreaking) != 0 || !report.SnapshotRequired {
+		t.Fatalf("the cancel input clears the cutover gate alone; nothing else may block the plan: %+v", report.UpgradeReadiness)
+	}
+	disposition := report.CutoverDisposition
+	if disposition == nil {
+		t.Fatalf("the plan with the cancel input must report a cutover_disposition object: %s", out)
+	}
+	if disposition.WorkCount != len(cutoverSelectedWorks) {
+		t.Fatalf("cutover_disposition.work_count = %d, want %d: %+v", disposition.WorkCount, len(cutoverSelectedWorks), disposition)
+	}
+	if want := []string{cutoverArchivedPinWork, cutoverOldContractWork}; !reflect.DeepEqual(disposition.WorkIDs, want) {
+		t.Fatalf("cutover_disposition.work_ids = %v, want the exactly selected %v", disposition.WorkIDs, want)
+	}
+	if want := map[string]int{"needed": 2}; !reflect.DeepEqual(disposition.ByLifecycle, want) {
+		t.Fatalf("cutover_disposition.by_lifecycle = %v, want %v", disposition.ByLifecycle, want)
+	}
+	if want := map[string]int{"workflow.generic_one_off": 1, "workflow.implementation": 1}; !reflect.DeepEqual(disposition.ByPinnedFamily, want) {
+		t.Fatalf("cutover_disposition.by_pinned_family = %v, want %v", disposition.ByPinnedFamily, want)
+	}
+	if after := cutoverEventCount(t, path); after != eventsBefore {
+		t.Fatalf("the planned disposition moved the event log %d -> %d; the plan must read only", eventsBefore, after)
+	}
+	if after := cutoverWorkStates(t, path); !reflect.DeepEqual(after, statesBefore) {
+		t.Fatalf("the planned disposition moved work state: %+v", after)
+	}
+	if fence, err := hostlease.ReadFence(root); err != nil || fence != nil {
+		t.Fatalf("a plan must not touch the maintenance boundary: %+v %v", fence, err)
+	}
+	if snapshots := preCutoverUpgradeSnapshots(t, root); len(snapshots) != 0 {
+		t.Fatalf("a plan must not write a snapshot: %v", snapshots)
+	}
+}
+
+// The migrating run with the cancel input and no pending breaking migration
+// is still a mutation: it takes the maintenance boundary and writes a
+// verified snapshot before the cancellation runs. Phase one proves the order
+// deterministically — a probe trigger aborts the first cancellation append,
+// so the verified snapshot the failed run leaves behind can only have been
+// written before it — and phase two lets the same run complete and checks the
+// disposition cancels exactly the selected items through ordinary
+// work.transitioned events.
+func TestUpgradeWithTheCancelInputFencesAndSnapshotsBeforeItCancels(t *testing.T) {
+	path, root := cliStoreRoot(t)
+	seedCutoverPinStore(t, path)
+	statesBefore := cutoverWorkStates(t, path)
+	eventsBefore := cutoverEventCount(t, path)
+
+	installCancellationProbe(t, path)
+	code, _, errOut := runUpgradeStdin(t, `{"cancel_cutover_pinned_work":true}`)
+	if code != 1 {
+		t.Fatalf("the probe-aborted run = %d, want a refusal at the first cancellation: %s", code, errOut)
+	}
+	if !strings.Contains(errOut, cutoverCancellationProbe) {
+		t.Fatalf("the run must fail at the cancellation append the probe aborts: %s", errOut)
+	}
+	snapshots := preCutoverUpgradeSnapshots(t, root)
+	if len(snapshots) != 1 {
+		t.Fatalf("the mutating run must write its verified snapshot before the cancellation it attempts: %v", snapshots)
+	}
+	if _, err := store.VerifyBackup(context.Background(), snapshots[0]); err != nil {
+		t.Fatalf("the pre-cancellation snapshot must verify: %v", err)
+	}
+	if fence, err := hostlease.ReadFence(root); err != nil || fence != nil {
+		t.Fatalf("the refused run must close the boundary it opened: %+v %v", fence, err)
+	}
+	if after := cutoverEventCount(t, path); after != eventsBefore {
+		t.Fatalf("the aborted disposition committed %d event(s); the refusal must be atomic", after-eventsBefore)
+	}
+	if after := cutoverWorkStates(t, path); !reflect.DeepEqual(after, statesBefore) {
+		t.Fatalf("the aborted run moved work state: %+v", after)
+	}
+	dropCancellationProbe(t, path)
+
+	code, out, errOut := runUpgradeStdin(t, `{"cancel_cutover_pinned_work":true}`)
+	if code != 0 {
+		t.Fatalf("the canceling run = %d: %s", code, errOut)
+	}
+	var report struct {
+		Applied       []int  `json:"applied"`
+		SchemaVersion int    `json:"schema_version"`
+		Backup        string `json:"backup"`
+	}
+	if err := json.Unmarshal([]byte(out), &report); err != nil {
+		t.Fatalf("the upgrade output is not JSON: %v: %s", err, out)
+	}
+	if len(report.Applied) != 0 || report.SchemaVersion != store.CurrentSchemaVersion() {
+		t.Fatalf("a run with no pending migration must apply nothing: %+v", report)
+	}
+	if report.Backup == "" {
+		t.Fatalf("the mutating run must report its pre-mutation snapshot: %s", out)
+	}
+	if _, err := store.VerifyBackup(context.Background(), report.Backup); err != nil {
+		t.Fatalf("the reported snapshot must verify: %v", err)
+	}
+	if snapshots := preCutoverUpgradeSnapshots(t, root); len(snapshots) != 2 {
+		t.Fatalf("each mutating attempt retains its verified snapshot: %v", snapshots)
+	}
+
+	events := cutoverTransitionedEvents(t, path)
+	if len(events) != len(cutoverSelectedWorks) {
+		t.Fatalf("the disposition appended %+v, want one transition per selected item %v", events, cutoverSelectedWorks)
+	}
+	for _, workID := range cutoverSelectedWorks {
+		transition, ok := events[workID]
+		if !ok {
+			t.Fatalf("the selected item %s has no work.transitioned event: %+v", workID, events)
+		}
+		if transition.From != statesBefore[workID].Lifecycle || transition.To != "cancelled" {
+			t.Fatalf("%s transitioned %+v, want an ordinary cancellation from %s", workID, transition, statesBefore[workID].Lifecycle)
+		}
+		if !strings.Contains(transition.Reason, "cutover") {
+			t.Fatalf("%s transition reason %q must name the cutover disposition", workID, transition.Reason)
+		}
+		if transition.ExpectedVersion != statesBefore[workID].Version || transition.ResultingVersion != statesBefore[workID].Version+1 {
+			t.Fatalf("%s transition versions = %+v, want %d -> %d", workID, transition, statesBefore[workID].Version, statesBefore[workID].Version+1)
+		}
+	}
+	statesAfter := cutoverWorkStates(t, path)
+	for _, workID := range cutoverSelectedWorks {
+		state := statesAfter[workID]
+		if state.Lifecycle != "cancelled" || state.Version != statesBefore[workID].Version+1 || state.InstanceState != "cancelled" {
+			t.Fatalf("%s after the disposition = %+v, want the cancelled lifecycle, the bumped version, and the closed instance", workID, state)
+		}
+	}
+	for _, workID := range cutoverSparedWorks {
+		if statesAfter[workID] != statesBefore[workID] {
+			t.Fatalf("the spared item %s moved: %+v -> %+v", workID, statesBefore[workID], statesAfter[workID])
+		}
+	}
+	if after := cutoverEventCount(t, path); after != eventsBefore+int64(len(cutoverSelectedWorks)) {
+		t.Fatalf("the canceling run moved the event log %d -> %d, want exactly the %d transitions", eventsBefore, after, len(cutoverSelectedWorks))
+	}
+	if _, err := store.PlanUpgradeReadiness(context.Background(), path); err != nil {
+		t.Fatalf("readiness must pass once the selected work is cancelled: %v", err)
+	}
+}
+
+// The maintenance boundary admits the canceling run like every other
+// mutation: with a foreign fence open, the run refuses at the boundary before
+// any effect — no snapshot, no events, no lifecycle moves — and the foreign
+// boundary stays untouched.
+func TestUpgradeWithTheCancelInputRefusesAtTheMaintenanceBoundaryBeforeAnyEffect(t *testing.T) {
+	path, root := cliStoreRoot(t)
+	seedCutoverPinStore(t, path)
+	statesBefore := cutoverWorkStates(t, path)
+	eventsBefore := cutoverEventCount(t, path)
+
+	fenceID, err := hostlease.NewFenceID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	foreign := hostlease.Fence{
+		FenceID:       fenceID,
+		Operation:     "operator-foreign-hold",
+		ReleaseRoot:   "/releases/cutover-foreign",
+		CoreBinary:    "/releases/cutover-foreign/bin/concord",
+		SchemaVersion: 1,
+		Notice:        "operator-held boundary for the cancel-input refusal probe",
+	}
+	if _, err := hostlease.EnsureFence(root, foreign); err != nil {
+		t.Fatal(err)
+	}
+
+	code, out, errOut := runUpgradeStdin(t, `{"cancel_cutover_pinned_work":true}`)
+	if code != 1 {
+		t.Fatalf("a run that cannot claim the boundary must refuse: %d %s", code, errOut)
+	}
+	if out != "" {
+		t.Fatalf("the refused run must print no report: %s", out)
+	}
+	if !strings.Contains(errOut, "not this binary's own upgrade boundary") {
+		t.Fatalf("the refusal must name the boundary admission failure: %s", errOut)
+	}
+	kept, err := hostlease.ReadFence(root)
+	if err != nil || kept == nil || kept.FenceID != fenceID || kept.Operation != foreign.Operation {
+		t.Fatalf("the foreign boundary must stay untouched: %+v %v", kept, err)
+	}
+	if snapshots := preCutoverUpgradeSnapshots(t, root); len(snapshots) != 0 {
+		t.Fatalf("no snapshot may precede the boundary admission: %v", snapshots)
+	}
+	if after := cutoverEventCount(t, path); after != eventsBefore {
+		t.Fatalf("the boundary-refused run moved the event log %d -> %d", eventsBefore, after)
+	}
+	if after := cutoverWorkStates(t, path); !reflect.DeepEqual(after, statesBefore) {
+		t.Fatalf("the boundary-refused run moved work state: %+v", after)
+	}
+}
+
+// A selected item under an active outside-repair hold is a refusal the plan
+// can determine read-only: the plan names it as a blocker, and the migrating
+// run refuses before fence or snapshot with zero events and zero lifecycle
+// change on every item.
+func TestUpgradeWithTheCancelInputRefusesAHeldOutsideRepairItemBeforeFenceOrSnapshot(t *testing.T) {
+	path, root := cliStoreRoot(t)
+	seedCutoverPinStore(t, path)
+	holdCutoverWorkUnderOutsideRepair(t, path)
+	statesBefore := cutoverWorkStates(t, path)
+	eventsBefore := cutoverEventCount(t, path)
+
+	code, out, errOut := runUpgradeStdin(t, `{"plan":true,"cancel_cutover_pinned_work":true}`)
+	if !strings.Contains(out+errOut, cutoverHeldWork) {
+		t.Fatalf("the plan must name the held item among the blockers: %d %s %s", code, out, errOut)
+	}
+	var report struct {
+		store.UpgradeReadiness
+		CutoverDisposition *cutoverDispositionReport `json:"cutover_disposition"`
+	}
+	if err := json.Unmarshal([]byte(out), &report); err == nil {
+		if !report.ActivationBlocked {
+			t.Fatalf("a determinable cancellation refusal must block the plan: %+v", report.UpgradeReadiness)
+		}
+		if !strings.Contains(strings.Join(report.Blockers, "\n"), cutoverHeldWork) {
+			t.Fatalf("the plan blockers must name the held item: %+v", report.Blockers)
+		}
+		if report.CutoverDisposition == nil || report.CutoverDisposition.WorkCount != len(cutoverSelectedWorks)+1 {
+			t.Fatalf("the selected held item must remain in the disposition count: %+v", report.CutoverDisposition)
+		}
+	}
+
+	code, out, errOut = runUpgradeStdin(t, `{"cancel_cutover_pinned_work":true}`)
+	if code != 1 {
+		t.Fatalf("the held item must refuse the migrating run: %d %s", code, errOut)
+	}
+	if out != "" {
+		t.Fatalf("the refused run must print no report: %s", out)
+	}
+	if !strings.Contains(errOut, cutoverHeldWork) {
+		t.Fatalf("the refusal must name the held item and its refusal: %s", errOut)
+	}
+	if fence, err := hostlease.ReadFence(root); err != nil || fence != nil {
+		t.Fatalf("the refused run must leave no boundary behind: %+v %v", fence, err)
+	}
+	if snapshots := preCutoverUpgradeSnapshots(t, root); len(snapshots) != 0 {
+		t.Fatalf("the held-item refusal must come before the snapshot: %v", snapshots)
+	}
+	if after := cutoverEventCount(t, path); after != eventsBefore {
+		t.Fatalf("the held-item refusal moved the event log %d -> %d; it must write nothing", eventsBefore, after)
+	}
+	if after := cutoverWorkStates(t, path); !reflect.DeepEqual(after, statesBefore) {
+		t.Fatalf("the held-item refusal moved work state: %+v", after)
 	}
 }

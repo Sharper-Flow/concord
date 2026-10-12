@@ -239,10 +239,12 @@ func actionableUpgradeRefusal(err error, leases []hostlease.Lease, current int) 
 // the read-only readiness report instead of applying anything.
 // confirm_sessions_stopped is the operator's statement that no session runs on
 // an installed release tree the maintenance fence cannot exclude; without it
-// such a tree refuses the incompatible migration.
+// such a tree refuses the boundary-owned mutation. cancel_cutover_pinned_work
+// selects ordinary lifecycle cancellation of every authoring-cutover blocker.
 type upgradeInput struct {
-	Plan                   bool `json:"plan"`
-	ConfirmSessionsStopped bool `json:"confirm_sessions_stopped"`
+	Plan                    bool `json:"plan"`
+	ConfirmSessionsStopped  bool `json:"confirm_sessions_stopped"`
+	CancelCutoverPinnedWork bool `json:"cancel_cutover_pinned_work"`
 }
 
 // preparedReleaseRecord carries the one field the CLI echoes from the
@@ -321,11 +323,13 @@ func runUpgradeCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 	}
 	// Readiness is established by reading before anything is applied or
 	// fenced: an unknown store never reaches the migration path.
-	plan, err := store.PlanUpgradeReadiness(context.Background(), path)
+	options := store.UpgradeOptions{CancelCutoverPinnedWork: request.CancelCutoverPinnedWork}
+	plan, err := store.PlanUpgradeReadiness(context.Background(), path, options)
 	if err != nil {
 		writeOperatorDiagnostic(errOut, "upgrade", err.Error())
 		return 1
 	}
+	maintenanceRequired := len(plan.PendingBreaking) > 0 || request.CancelCutoverPinnedWork
 	if request.Plan {
 		_, binary, err := selfRelease()
 		if err != nil {
@@ -334,9 +338,17 @@ func runUpgradeCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 		}
 		plan.MigrationCommand = shellWord(binary) + " upgrade"
 		plan.ActivationCommand = activationCommandFor(dataRoot)
-		return writeJSON(out, upgradePlanReport{UpgradeReadiness: plan, MaintenanceFence: fenceBefore, SnapshotRequired: len(plan.PendingBreaking) > 0}, errOut)
+		return writeJSON(out, upgradePlanReport{UpgradeReadiness: plan, MaintenanceFence: fenceBefore, SnapshotRequired: maintenanceRequired}, errOut)
 	}
-	// An incompatible migration runs only inside an explicit maintenance
+	if plan.CutoverDisposition != nil && len(plan.CutoverDisposition.Blockers) > 0 {
+		writeOperatorDiagnostic(errOut, "upgrade", strings.Join(plan.CutoverDisposition.Blockers, "; "))
+		return 1
+	}
+	if request.CancelCutoverPinnedWork && plan.ActivationBlocked && len(plan.PendingBreaking) == 0 {
+		writeOperatorDiagnostic(errOut, "upgrade", strings.Join(plan.Blockers, "; "))
+		return 1
+	}
+	// A breaking migration or cutover cancellation requires the maintenance
 	// boundary: the fence excludes new session admission before the final
 	// lease check, and the activation that follows removes it. The command
 	// itself is the boundary, so no flag can skip the exclusion.
@@ -348,7 +360,7 @@ func runUpgradeCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 	// failed run cannot delete another operation's exclusion.
 	openedFenceID := ""
 	fenceIsOurs := false
-	if len(plan.PendingBreaking) > 0 {
+	if maintenanceRequired {
 		root, binary, err := selfRelease()
 		if err != nil {
 			writeOperatorDiagnostic(errOut, "upgrade", err.Error())
@@ -412,7 +424,7 @@ func runUpgradeCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 	// fence, so the boundary cannot exclude it: an unfenceable participant.
 	// The boundary fails closed on one, because a session it admitted after
 	// the final check would strand on the migrated store.
-	if len(plan.PendingBreaking) > 0 {
+	if maintenanceRequired {
 		var legacy []string
 		for _, lease := range live {
 			if lease.FenceProtocol == hostlease.CurrentFenceProtocol {
@@ -441,7 +453,7 @@ func runUpgradeCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 	// The fence cannot exclude it, so the operator decides: the command names
 	// every such tree and proceeds only when the operator confirms no session
 	// runs on one.
-	if len(plan.PendingBreaking) > 0 {
+	if maintenanceRequired {
 		selfRoot, _, err := selfRelease()
 		if err != nil {
 			closeOwnedFence()
@@ -472,11 +484,10 @@ func runUpgradeCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 	for _, lease := range live {
 		held = append(held, store.HeldSchema{PID: lease.PID, ReleaseRoot: lease.ReleaseRoot, SchemaVersion: lease.SchemaVersion, Directory: lease.Directory, Worktree: lease.Worktree})
 	}
-	// A breaking step drops tables whose rows the event log cannot rebuild,
-	// so the store is snapshotted before it applies. A failed snapshot
-	// applies nothing.
+	// Every boundary-owned mutation requires a verified snapshot. A failed
+	// session check or snapshot applies no migration or cancellation.
 	snapshotPath := ""
-	if len(plan.PendingBreaking) > 0 {
+	if maintenanceRequired {
 		if err := store.CheckUpgradeSessions(plan.PendingBreaking, held); err != nil {
 			closeOwnedFence()
 			writeOperatorDiagnostic(errOut, "upgrade", err.Error())
@@ -493,7 +504,7 @@ func runUpgradeCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 			return 1
 		}
 	}
-	report, err := store.Upgrade(context.Background(), path, held)
+	report, err := store.Upgrade(context.Background(), path, held, options)
 	if err != nil {
 		diagnostic := err.Error()
 		if snapshotPath != "" {
@@ -552,6 +563,9 @@ func runUpgradeCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 		"from_version":   version.Value,
 		"schema_version": report.SchemaVersion,
 		"applied":        report.Applied,
+	}
+	if report.CutoverDisposition != nil {
+		result["cutover_disposition"] = report.CutoverDisposition
 	}
 	if snapshotPath != "" {
 		result["backup"] = snapshotPath

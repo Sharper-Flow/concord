@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"reflect"
 	"sort"
 	"strings"
@@ -1077,5 +1079,269 @@ func TestCutoverRefusesActiveOldContractWithoutInstance(t *testing.T) {
 	defer func() { _ = opened.Close() }()
 	if err := RebuildFromLog(ctx, opened); err != nil {
 		t.Fatalf("rebuild over the contract-only old pin: %v", err)
+	}
+}
+
+func seedCutoverDispositionFixture(t *testing.T) *Store {
+	t.Helper()
+	path := copyTestDatabase(t)
+	archived, err := BuiltinWorkflowDefinitionForRef("workflow.generic_one_off")
+	if err != nil {
+		t.Fatal(err)
+	}
+	old, ok := BuiltinWorkflowRegistry().Lookup("workflow.implementation", 29)
+	if !ok {
+		t.Fatal("implementation v29 left the registry")
+	}
+	canonical, err := LiveWorkflowDefinitionForRef("workflow.implementation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range []struct {
+		id  string
+		pin RegisteredDefinition
+	}{
+		{"a-archived", archived}, {"b-contract-only", old}, {"c-canonical", canonical},
+		{"d-terminal", archived}, {"e-superseded-contract", canonical},
+	} {
+		seedPinnedInstance(t, path, item.id, item.pin)
+	}
+	s, err := Open(context.Background(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	insertCutoverContract(t, s, "a-archived") // Two blocking surfaces still select one work.
+	insertCutoverContract(t, s, "b-contract-only")
+	execStaleRegistryInFold(t, s, `DELETE FROM workflow_instances WHERE work_id='b-contract-only'`)
+	insertCutoverSuccessorContract(t, s, "e-superseded-contract", 1, old.Definition.Ref, old.Definition.Version, old.Digest)
+	insertCutoverSuccessorContract(t, s, "e-superseded-contract", 2, canonical.Definition.Ref, canonical.Definition.Version, canonical.Digest)
+	supersedeCutoverContract(t, s, "e-superseded-contract")
+	terminal, err := cutoverReadWork(context.Background(), s, "d-terminal")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := applyWorkEvent(t, s, workTransitionEvent("terminal-history", "d-terminal", terminal.lifecycle, "cancelled", terminal.version, terminal.version+1), workVersion("d-terminal", terminal.version)); err != nil {
+		t.Fatal(err)
+	}
+	return s
+}
+
+func cutoverTableSnapshot(t *testing.T, s *Store, table string) string {
+	t.Helper()
+	rows, err := s.db.Query("SELECT * FROM " + table + " ORDER BY 1,2") //nolint:gosec // test-owned closed table names.
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	columns, err := rows.Columns()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var snapshot [][]any
+	for rows.Next() {
+		values := make([]any, len(columns))
+		pointers := make([]any, len(columns))
+		for i := range values {
+			pointers[i] = &values[i]
+		}
+		if err := rows.Scan(pointers...); err != nil {
+			t.Fatal(err)
+		}
+		snapshot = append(snapshot, values)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	return string(mustJSONBytes(snapshot))
+}
+
+func cutoverReadWork(ctx context.Context, s *Store, id string) (workProjection, error) {
+	tx, err := beginReadTx(ctx, s.db)
+	if err != nil {
+		return workProjection{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	return readWork(ctx, tx, id)
+}
+
+func TestCutoverDispositionSelectsAndCancelsExactlyBlockedWork(t *testing.T) {
+	ctx := context.Background()
+	s := seedCutoverDispositionFixture(t)
+	archived, err := cutoverReadWork(ctx, s, "a-archived")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := applyWorkEvent(t, s, relationAddedEvent("cutover-relation", "depends_on", "a-archived", "b-contract-only", archived.version, archived.version+1), workVersion("a-archived", archived.version)); err != nil {
+		t.Fatal(err)
+	}
+	files := map[string]string{}
+	for _, id := range []string{"a-archived", "b-contract-only"} {
+		current, err := cutoverReadWork(ctx, s, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		claim := operationEvent("claim-"+id, "work.resource_claimed", SubjectWorkItem, id, map[string]any{
+			"work_id": id, "resource_key": "fence:" + id, "reason": "cutover fixture", "holder_agent": "agent:test", "holder_session": "session:test",
+			"expected_version": current.version, "resulting_version": current.version + 1,
+		})
+		if err := applyWorkEvent(t, s, claim, workVersion(id, current.version)); err != nil {
+			t.Fatal(err)
+		}
+		dir := t.TempDir()
+		file := filepath.Join(dir, "retained.txt")
+		if err := os.WriteFile(file, []byte(id), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		files[file] = id
+		if _, err := s.db.Exec(`INSERT INTO worktree_claims(op_id,work_id,project_id,set_id,repository_id,pinned_branch,pinned_base_sha,pinned_path,state,principal_ref,request_id,observed_at,updated_at)
+			VALUES(?,?,'project',?,'synthetic-repository',? ,?,?,'verified','operator',?,'now','now')`, "wt-"+id, id, WorktreeSetID(id), "work/"+id, strings.Repeat("a", 40), dir, "req-"+id); err != nil {
+			t.Fatal(err)
+		}
+		execStaleRegistryInFold(t, s, fmt.Sprintf(`INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at,git_facts)
+			VALUES('%s','project','wt-%s','work/%s','%s','%s','synthetic-repository','active','now','{}')`, WorktreeSetID(id), id, id, strings.Repeat("a", 40), dir))
+	}
+	// Research content stays; only the cancelled work's active bindings drop.
+	execStaleRegistryInFold(t, s, `UPDATE work_items SET kind='research' WHERE id='c-canonical'`)
+	pack, err := CreateResearchPack(ctx, s, CreateResearchPackRequest{Identity: researchIdentity("cutover-pack"), OwnerWorkID: "c-canonical", Revision: ResearchRevisionInput{Question: "cutover fixture", ScopeIn: json.RawMessage(`{}`), ScopeOut: json.RawMessage(`{}`), DoneWhen: json.RawMessage(`{}`), Method: "source"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, id := range []string{"a-archived", "b-contract-only"} {
+		if _, err := BindResearchConsumer(ctx, s, BindResearchConsumerRequest{Identity: researchIdentity("bind-" + id), PackID: pack.PackID, Revision: 1, ExpectedVersion: int64(i + 1), Consumer: ResearchConsumer{ConsumerWorkID: id, UseRole: UseContext, Required: true}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	before := map[string]workProjection{}
+	for _, id := range []string{"a-archived", "b-contract-only", "c-canonical", "d-terminal", "e-superseded-contract"} {
+		before[id], err = cutoverReadWork(ctx, s, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	untouched := map[string]string{}
+	for _, table := range []string{"relations", "work_messages", "workflow_contracts", "workflow_checkpoints", "worktree_claims", "worktree_entries", "linear_issue_links", "active_research_revisions"} {
+		untouched[table] = cutoverTableSnapshot(t, s, table)
+	}
+	eventsBefore := countRows(t, s, "domain_events")
+	options := UpgradeOptions{CancelCutoverPinnedWork: true}
+	plan, err := PlanUpgradeReadiness(ctx, s.Path(), options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := &CutoverDisposition{WorkCount: 2, WorkIDs: []string{"a-archived", "b-contract-only"}, ByLifecycle: map[string]int{"needed": 2}, ByPinnedFamily: map[string]int{"workflow.generic_one_off": 1, "workflow.implementation": 1}}
+	if plan.ActivationBlocked || !reflect.DeepEqual(plan.CutoverDisposition, want) {
+		t.Fatalf("cutover plan = %+v, want %+v", plan, want)
+	}
+	if countRows(t, s, "domain_events") != eventsBefore {
+		t.Fatal("plan appended an event")
+	}
+	report, err := Upgrade(ctx, s.Path(), nil, options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(report.CutoverDisposition, want) {
+		t.Fatalf("disposition = %+v, want %+v", report.CutoverDisposition, want)
+	}
+	if countRows(t, s, "domain_events") != eventsBefore+2 {
+		t.Fatal("disposition must append exactly two events")
+	}
+	for id, prior := range before {
+		current, err := cutoverReadWork(ctx, s, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if id != "a-archived" && id != "b-contract-only" {
+			if !reflect.DeepEqual(current, prior) {
+				t.Fatalf("spared work %s changed: %+v -> %+v", id, prior, current)
+			}
+			continue
+		}
+		if current.lifecycle != "cancelled" || current.version != prior.version+1 {
+			t.Fatalf("cancelled work %s = %+v", id, current)
+		}
+		var kind, actor, raw string
+		if err := s.db.QueryRow(`SELECT kind,actor,payload FROM domain_events WHERE event_id=?`, fmt.Sprintf("upgrade-cutover-cancel:%s:%d", id, prior.version)).Scan(&kind, &actor, &raw); err != nil {
+			t.Fatal(err)
+		}
+		var payload workTransitionPayload
+		if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+			t.Fatal(err)
+		}
+		if kind != "work.transitioned" || actor != "operator" || payload.From != prior.lifecycle || payload.To != "cancelled" || payload.ExpectedVersion != prior.version || payload.ResultingVersion != prior.version+1 || !strings.Contains(payload.Reason, "CD-0218 D5 cutover disposition") {
+			t.Fatalf("cancellation event %s/%s/%s", kind, actor, raw)
+		}
+	}
+	var state string
+	if err := s.db.QueryRow(`SELECT instance_state FROM workflow_instances WHERE work_id='a-archived'`).Scan(&state); err != nil || state != "cancelled" {
+		t.Fatalf("archived instance = %s, %v", state, err)
+	}
+	for table, prior := range untouched {
+		if after := cutoverTableSnapshot(t, s, table); after != prior {
+			t.Fatalf("cancellation changed %s: %s -> %s", table, prior, after)
+		}
+	}
+	if countRows(t, s, "active_research_consumers") != 0 {
+		t.Fatal("cancelled consumers still bind research")
+	}
+	var held int
+	if err := s.db.QueryRow(`SELECT count(*) FROM resource_claims WHERE state='held'`).Scan(&held); err != nil || held != 0 {
+		t.Fatalf("held resources = %d, %v", held, err)
+	}
+	for file, want := range files {
+		content, err := os.ReadFile(file)
+		if err != nil || string(content) != want {
+			t.Fatalf("worktree file changed: %q, %v", content, err)
+		}
+	}
+	if _, err := PlanUpgradeReadiness(ctx, s.Path()); err != nil {
+		t.Fatalf("readiness after disposition: %v", err)
+	}
+}
+
+func TestCutoverDispositionOutsideRepairRefusalRollsBackEveryCancellation(t *testing.T) {
+	ctx := context.Background()
+	s := seedCutoverDispositionFixture(t)
+	// The held item sorts second, so the first cancellation must roll back.
+	execStaleRegistryInFold(t, s, `INSERT INTO outside_repair_dispositions(work_id,approval_ref,state,reason,evidence_json,recorded_at)
+		VALUES('b-contract-only','approval:hold','active','synthetic outside repair','{}','now')`)
+	before := cutoverTableSnapshot(t, s, "work_items")
+	eventsBefore := countRows(t, s, "domain_events")
+	options := UpgradeOptions{CancelCutoverPinnedWork: true}
+	plan, err := PlanUpgradeReadiness(ctx, s.Path(), options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !plan.ActivationBlocked || len(plan.Blockers) != 1 || !strings.Contains(plan.Blockers[0], "b-contract-only") || !strings.Contains(plan.Blockers[0], "outside-repair") {
+		t.Fatalf("held-item plan = %+v", plan)
+	}
+	_, err = Upgrade(ctx, s.Path(), nil, options)
+	var failure *Failure
+	if !failureAs(err, &failure) || failure.Kind != KindOutsideRepairActive || !strings.Contains(err.Error(), "b-contract-only") {
+		t.Fatalf("held-item disposition = %v", err)
+	}
+	if after := cutoverTableSnapshot(t, s, "work_items"); after != before || countRows(t, s, "domain_events") != eventsBefore {
+		t.Fatal("atomic refusal changed lifecycle, version, or event log")
+	}
+}
+
+func TestCutoverDispositionRechecksGateBeforeCommit(t *testing.T) {
+	ctx := context.Background()
+	s := seedCutoverDispositionFixture(t)
+	before := cutoverTableSnapshot(t, s, "work_items")
+	eventsBefore := countRows(t, s, "domain_events")
+	// A synthetic fold defect leaves a selected item nonterminal. The final
+	// gate must refuse and roll back all events, not report a partial cutover.
+	if _, err := s.db.Exec(`CREATE TRIGGER cutover_incomplete_fold AFTER UPDATE OF lifecycle ON work_items
+		WHEN NEW.id='b-contract-only' AND NEW.lifecycle='cancelled'
+		BEGIN UPDATE work_items SET lifecycle='needed' WHERE id=NEW.id; END`); err != nil {
+		t.Fatal(err)
+	}
+	_, err := Upgrade(ctx, s.Path(), nil, UpgradeOptions{CancelCutoverPinnedWork: true})
+	if err == nil || !strings.Contains(err.Error(), "b-contract-only") {
+		t.Fatalf("incomplete disposition must refuse at the re-check: %v", err)
+	}
+	if after := cutoverTableSnapshot(t, s, "work_items"); after != before || countRows(t, s, "domain_events") != eventsBefore {
+		t.Fatal("incomplete disposition committed a partial cutover")
 	}
 }

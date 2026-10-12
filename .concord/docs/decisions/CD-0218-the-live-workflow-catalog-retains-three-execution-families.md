@@ -163,6 +163,13 @@ quiesces all remaining old-law consumers regardless of their serving binary.
 There is no grandfather path. Release activation follows publication and verified
 disposition. No session termination or live pin backfill is authorized here.
 
+On 2026-10-12, the operator approved a one-time cancellation route at the upgrade
+boundary for every nonterminal item the cutover gate selects. This route requires
+explicit operator input and runs inside the maintenance boundary after the
+verified snapshot. It records an ordinary lifecycle cancellation per item. It
+backfills no pin, ends no session, writes no external tracker, and changes no
+worktree.
+
 Publication uses new stable law IDs and the existing supersedes relations.
 CD-0036 strict quiescence, transactional stale-consumer checks, and its closed
 recovery paths remain. Compatible revision notices cannot disguise a breaking

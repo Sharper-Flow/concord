@@ -272,14 +272,7 @@ func loadWorkflowAdmissionStateTx(ctx context.Context, q queryer, workID string,
 	// refusing, so the loader stays total over the projection the recovery
 	// owns and every action still reaches its typed route.
 	duplicatedProjection := state.ActiveContracts > 1
-	// The staleness boundary reads through the mutation transaction the
-	// admission sites already hold; a pool-backed queryer cannot answer it
-	// inside one fold, so the loader refuses rather than read past the tx.
-	lawTx, isTx := q.(*sql.Tx)
-	if !isTx {
-		return WorkflowAdmissionState{}, nil, nil, newFailure(KindUnavailable, subject, "workflow action admission folds in the caller's transaction", false, "run the admission fold inside the mutation transaction")
-	}
-	lawErr := checkWorkflowLawRevisionStalenessAdmittingTx(ctx, lawTx, workID, workflowStalePinAdmitNone)
+	lawErr := checkWorkflowLawRevisionStalenessAdmittingTx(ctx, q, workID, workflowStalePinAdmitNone)
 	// The staleness boundary's overlap half resolves the one active contract,
 	// so under a duplicated projection it raises the duplicate invariant the
 	// supersede recovery owns. The count itself classifies the recovery, so
@@ -289,7 +282,7 @@ func loadWorkflowAdmissionStateTx(ctx context.Context, q queryer, workID string,
 	}
 	state.LawPinStaleError = lawErr
 	state.LawPinStale = lawErr != nil && workflowContractRecoveryStaleness(lawErr, workID)
-	state.LawPinSelfError = checkWorkflowLawRevisionStalenessAdmittingTx(ctx, lawTx, workID, workflowStalePinAdmitOwnMarker)
+	state.LawPinSelfError = checkWorkflowLawRevisionStalenessAdmittingTx(ctx, q, workID, workflowStalePinAdmitOwnMarker)
 	if state.LawPinSelfError != nil && duplicatedProjection && workflowDuplicateContractProjection(state.LawPinSelfError) {
 		state.LawPinSelfError = nil
 	}
@@ -519,6 +512,15 @@ func workflowAdmit(definition WorkflowDefinition, state WorkflowAdmissionState, 
 	}
 	if workflowCompletedInstanceActionImmutable(state.InstanceState, actionID, state.Lifecycle) {
 		decision.Failure = newFailure(KindInvalidOperation, "workflow_action", "terminal workflow instance is immutable", false, "start a successor workflow")
+		return decision
+	}
+	// A nonterminal instance under an archived family refuses every public
+	// action here — the recovery routes included — before any write. Terminal
+	// instances keep the terminal-immutability answer above.
+	if workflowFamilyArchived(definition.Ref) {
+		decision.Failure = newFailure(KindInvalidOperation, "workflow_action",
+			"workflow family "+definition.Ref+" is archived: new public workflow actions are refused", false,
+			"read the recorded history, or start retained-family work")
 		return decision
 	}
 	consequence := workflowActionConsequence(definition, actionID)

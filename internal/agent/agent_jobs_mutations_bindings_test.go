@@ -2,8 +2,8 @@ package agent
 
 import (
 	"context"
-	"crypto/ed25519"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -13,8 +13,8 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 )
 
-// This file implements the eight TS1 mutation scenarios bound from
-// .concord/scenarios/agent-jobs.v1.json for the #159 tranche. Every binding
+// This file implements mutation scenarios bound from
+// .concord/scenarios/agent-jobs.v1.json. Every binding
 // returns a jobObservation whose state/result/communication/effects/
 // authority maps satisfy the corpus assertions literally. The
 // fixture helpers live in agent_jobs_mutation_fixture_test.go.
@@ -546,356 +546,6 @@ func bindAJ4StaleVersion(t *testing.T, sc jobScenario) jobObservation {
 // AJ5 — relate_and_scope_work
 // ---------------------------------------------------------------------------
 
-// AJ5-add-dependency: add a blocks edge from work-cross to
-// work-ready-low. After the edge lands, work-ready-low must be
-// derived_blocked=true. The blocked column must NOT exist on
-// work_items (the binding actively probes the schema) so the
-// observation is structurally honest about the derivation rather than
-// reading from a stored flag.
-func bindAJ5AddDependency(t *testing.T, sc jobScenario) jobObservation {
-	t.Helper()
-	s, service, grant, _, _ := agentJobsMutationPM1Fixture(t)
-	env := agentJobsMutationEnvelope(t, s, grant, "proj-web")
-
-	// Pre-probe: schema check — work_items must not carry a stored
-	// blocked/ready column. The runner's absent assertion depends on
-	// this guarantee; without it the assertion could pass by
-	// coincidence rather than from derivation.
-	cols := tableColumns(t, s.DatabaseForTesting())
-	for _, c := range cols {
-		if c == "blocked" || c == "ready" {
-			t.Fatalf("work_items has stored %q column; the derived_blocked assertion becomes a coincidence", c)
-		}
-	}
-
-	// Pre-probe: work-ready-low starts unblocked.
-	if deriveWorkBlocked(t, s, "work-ready-low") {
-		t.Fatalf("work-ready-low is blocked before AJ5 mutation")
-	}
-
-	preCrossVersion, preLowVersion := workVersion(t, s, "work-cross"), workVersion(t, s, "work-ready-low")
-
-	idempotencySeed, _ := sc.InitialState["idempotency_seed"].(string)
-	if idempotencySeed == "" {
-		t.Fatalf("AJ5-add-dependency: missing idempotency_seed")
-	}
-	input := []byte(fmt.Sprintf(`{"from_work_id":"work-cross","to_work_id":"work-ready-low","from_expected_version":%d,"to_expected_version":%d,"kind":"blocks","reason":"add dependency","idempotency_key":"%s"}`, preCrossVersion, preLowVersion, idempotencySeed))
-	resp := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_relate", Operation: "link", Input: input}, env)
-	if resp.Outcome != OutcomeOK {
-		t.Fatalf("relate.link failed outcome=%s err=%+v", resp.Outcome, resp.Error)
-	}
-
-	// Probe: only one blocks relation from work-cross to work-ready-low.
-	if n := readRelationsFor(t, s, "work-cross", "work-ready-low"); n != 1 {
-		t.Fatalf("blocks relations from work-cross to work-ready-low=%d, want 1", n)
-	}
-
-	// Derive blocked status from the relation graph (same derivation
-	// the Q4/Q5 queries apply).
-	derived := deriveWorkBlocked(t, s, "work-ready-low")
-	if !derived {
-		t.Fatalf("derived_blocked=false after AJ5 mutation; relation was not honored")
-	}
-
-	// Replay the same idempotency key — retry_safe must hold.
-	replay := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_relate", Operation: "link", Input: input}, env)
-	if !replay.Replayed {
-		t.Fatalf("replay did not set Replayed=true")
-	}
-	if n := readRelationsFor(t, s, "work-cross", "work-ready-low"); n != 1 {
-		t.Fatalf("replay created an additional blocks relation: count=%d", n)
-	}
-
-	obs := envelopeToObservation(resp)
-	// relations.created.0.kind: "0" must be a string map key on the
-	// "created" sub-object, not a slice index. The runner's
-	// dot-path traversal uses map[string]any throughout.
-	obs.State = map[string]any{
-		"relations": map[string]any{
-			"created": map[string]any{
-				"count": 1,
-				"0": map[string]any{
-					"from": "work-cross",
-					"to":   "work-ready-low",
-					"kind": "blocks",
-				},
-			},
-		},
-		"work": map[string]any{
-			"work-ready-low": map[string]any{
-				"derived_blocked": derived,
-			},
-		},
-	}
-	// Success path — the absent assertion for stored_blocked_state
-	// must be backed by an active schema probe. Query the actual
-	// work_items columns (NOT a hardcoded guess at the column name)
-	// and confirm no stored blocked/ready/blocking column exists.
-	// Blockedness must be derived at read time from relations; a
-	// stored column would let the absent assertion pass by coincidence
-	// rather than from genuine derivation.
-	postCols := tableColumns(t, s.DatabaseForTesting())
-	storedColumn := ""
-	for _, c := range postCols {
-		switch c {
-		case "blocked", "ready", "blocking", "is_blocked", "blocked_by":
-			storedColumn = c
-		}
-	}
-	if storedColumn != "" {
-		t.Fatalf("stored_blocked_state probe: work_items carries stored %q column; derived_blocked must come from relations, not a stored flag", storedColumn)
-	}
-	obs.Effects = map[string]any{
-		"retry_safe_replayed": true,
-		"atomic_core_effect":  "complete",
-		"stored_blocked_state": probedAbsent{
-			Evidence: fmt.Sprintf("PRAGMA table_info(work_items) reports columns %v; no blocked/ready/blocking column exists, blockedness is derived at read time", cols),
-		},
-	}
-	return obs
-}
-
-// AJ5-reject-cycle: attempt to add a blocks edge from work-blocked to
-// work-prereq, which would cycle against the seeded
-// work-prereq → work-blocked blocks edge. After the D5 repair the
-// runner expects error.kind=invalid_relation with
-// error.violations nonempty, and an actively-probed absence of any
-// newly inserted relation row.
-func bindAJ5RejectCycle(t *testing.T, sc jobScenario) jobObservation {
-	t.Helper()
-	s, service, grant, _, _ := agentJobsMutationPM1Fixture(t)
-	env := agentJobsMutationEnvelope(t, s, grant, "proj-web")
-
-	preCount := 0
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM relations`).Scan(&preCount); err != nil {
-		t.Fatalf("pre-count relations: %v", err)
-	}
-
-	preBlockedVersion := workVersion(t, s, "work-blocked")
-	prePrereqVersion := workVersion(t, s, "work-prereq")
-
-	input := []byte(fmt.Sprintf(`{"from_work_id":"work-blocked","to_work_id":"work-prereq","from_expected_version":%d,"to_expected_version":%d,"kind":"blocks","reason":"cyclic","idempotency_key":"reject-cycle-1"}`, preBlockedVersion, prePrereqVersion))
-	resp := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_relate", Operation: "link", Input: input}, env)
-	if resp.Outcome != OutcomeError || resp.Error == nil {
-		t.Fatalf("expected typed error outcome=%s err=%+v", resp.Outcome, resp.Error)
-	}
-	if resp.Error.Kind != "invalid_relation" {
-		t.Fatalf("error.kind=%q, want invalid_relation", resp.Error.Kind)
-	}
-	if len(resp.Error.Violations) == 0 {
-		t.Fatalf("error.violations empty; D5 typed carrier is missing")
-	}
-	found := false
-	for _, v := range resp.Error.Violations {
-		if v == "blocks:work-blocked->work-prereq" {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Fatalf("error.violations missing blocks:work-blocked->work-prereq: %v", resp.Error.Violations)
-	}
-
-	postCount := 0
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM relations`).Scan(&postCount); err != nil {
-		t.Fatalf("post-count relations: %v", err)
-	}
-	if postCount != preCount {
-		t.Fatalf("cycle rejection left %d new relation rows (pre=%d, post=%d)", postCount-preCount, preCount, postCount)
-	}
-	if n := readRelationsFor(t, s, "work-blocked", "work-prereq"); n != 0 {
-		t.Fatalf("cycle rejection left %d blocks relations work-blocked->work-prereq", n)
-	}
-
-	obs := envelopeToObservation(resp)
-	obs.State = map[string]any{
-		"relations": map[string]any{
-			"created": map[string]any{
-				"count": 0,
-			},
-		},
-	}
-	// violations must be []any so the invariant's `.([]any)` cast
-	// succeeds; []string does not match []any under Go's type
-	// assertion rules.
-	obsViolations := make([]any, 0, len(resp.Error.Violations))
-	for _, v := range resp.Error.Violations {
-		obsViolations = append(obsViolations, v)
-	}
-	obs.Communication["error"] = map[string]any{
-		"kind":            "invalid_relation",
-		"violations":      obsViolations,
-		"recovery_action": "reread_entities",
-	}
-	// Active probe for the cyclic_relation absent assertion: confirm
-	// (a) the relations row count is unchanged after the refusal and
-	// (b) no row matches the attempted blocks edge
-	// work-blocked -> work-prereq. Together these prove the cycle
-	// detection refused BEFORE any insert; without this probe the
-	// runner's absent assertion would pass vacuously.
-	postCount2 := 0
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM relations`).Scan(&postCount2); err != nil {
-		t.Fatalf("cyclic_relation probe: post-count relations: %v", err)
-	}
-	if postCount2 != preCount {
-		t.Fatalf("cyclic_relation probe: post-count=%d != pre-count=%d; the cycle refusal must not insert", postCount2, preCount)
-	}
-	attemptedFrom := "work-blocked"
-	attemptedTo := "work-prereq"
-	if n := readRelationsFor(t, s, attemptedFrom, attemptedTo); n != 0 {
-		t.Fatalf("cyclic_relation probe: %d blocks rows for %s->%s; the refused edge must not be persisted", n, attemptedFrom, attemptedTo)
-	}
-	obs.Effects = map[string]any{
-		"atomic_core_effect_zero": true,
-		"cyclic_relation": probedAbsent{
-			Evidence: fmt.Sprintf("relations row count unchanged (pre=%d, post=%d); no %s->%s blocks row exists after the invalid_relation refusal", preCount, postCount2, attemptedFrom, attemptedTo),
-		},
-	}
-	return obs
-}
-
-// AJ5-atomic-supersession: supersede work-old with work-new. The
-// initial_state.fixture_override wants work-old.lifecycle=in_progress
-// and the existing supersession relation removed. We honor the
-// override by applying two extra events through the legitimate store
-// fold path: work.reopened_from_superseded (which atomically
-// transitions the lifecycle back to needed AND deletes the
-// supersession relation) followed by work.transitioned to
-// in_progress.
-func bindAJ5AtomicSupersession(t *testing.T, sc jobScenario) jobObservation {
-	t.Helper()
-	s, service, grant, privateKey, _ := agentJobsMutationPM1Fixture(t)
-	env := agentJobsMutationEnvelope(t, s, grant, "proj-web")
-
-	// Honor fixture_override by replaying the legitimate fold events.
-	if err := applyAtomicSupersessionFixtureOverride(t, sc, s); err != nil {
-		t.Fatalf("apply fixture_override: %v", err)
-	}
-
-	preOldLifecycle, preOldVersion := readWorkFromStore(t, s, "work-old")
-	if preOldLifecycle != "in_progress" {
-		t.Fatalf("work-old pre-lifecycle=%q, want in_progress (fixture_override)", preOldLifecycle)
-	}
-	if deriveSupersession(t, s, "work-new", "work-old") {
-		t.Fatalf("fixture_override failed to remove work-new->work-old supersession")
-	}
-	_, preNewVersion := readWorkFromStore(t, s, "work-new")
-
-	input := []byte(fmt.Sprintf(`{"predecessor_id":"work-old","successor_id":"work-new","predecessor_expected_version":%d,"successor_expected_version":%d,"reason":"supersede stale plan","idempotency_key":"supersede-old-new-%d"}`, preOldVersion, preNewVersion, preOldVersion))
-
-	// First dispatch — surface the approval challenge.
-	first := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_relate", Operation: "supersede", Input: input}, env)
-	if first.Error == nil || first.Error.Kind != "approval_required" {
-		t.Fatalf("expected approval_required on first dispatch, got outcome=%s err=%+v", first.Outcome, first.Error)
-	}
-	challengeRef, ok := first.Error.Details["approval_ref"].(string)
-	if !ok || len(challengeRef) != 64 {
-		t.Fatalf("approval challenge missing or malformed: %v", first.Error.Details)
-	}
-	withApproval, err := injectApproval(input, challengeRef)
-	if err != nil {
-		t.Fatalf("inject approval: %v", err)
-	}
-	// Scope mirrors the mutation preflight. For supersede the
-	// preflight carries {product_id, project_ids: [AmbientProjectID],
-	// scope_version, work_ids: [predecessor, successor]} and
-	// executeMutation adds product_ids derived from the work scope.
-	// This binding uses proj-web as the ambient project, so
-	// project_ids is ["proj-web"].
-	scope := map[string]any{
-		"product_id":    "prod-alpha",
-		"product_ids":   []string{"prod-alpha"},
-		"project_ids":   []string{"proj-web"},
-		"work_ids":      []string{"work-old", "work-new"},
-		"scope_version": env.ScopeVersion,
-	}
-	versions := map[string]any{"predecessor": preOldVersion, "successor": preNewVersion}
-	digest := mutationDigest("concord_work_relate", "supersede", env, withApproval)
-	env.HostApproval = signedHostApproval(privateKey, challengeRef, digest, scope, versions, env.SessionRef, env.AgentRef, env.Worktree, fixedTime(), nonceForChallenge(challengeRef))
-	approved := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_relate", Operation: "supersede", Input: withApproval}, env)
-	if approved.Outcome != OutcomeOK {
-		t.Fatalf("approved supersede failed outcome=%s err=%+v", approved.Outcome, approved.Error)
-	}
-
-	postLifecycle, postVersion := readWorkFromStore(t, s, "work-old")
-	if postLifecycle != "superseded" {
-		t.Fatalf("post-lifecycle=%q, want superseded", postLifecycle)
-	}
-	supersessionPresent := deriveSupersession(t, s, "work-new", "work-old")
-	if !supersessionPresent {
-		t.Fatalf("supersession edge work-new->work-old missing after supersede call")
-	}
-
-	// Atomicity probe: terminal lifecycle AND supersession relation
-	// are present together. The runner's terminal_without_relation
-	// and relation_without_terminal absent assertions both rely on
-	// this conjunction. If either is missing while the other is
-	// present, the binding deliberately fails before evaluating the
-	// absent assertions so the runner cannot pass vacuously.
-	if postLifecycle != "superseded" && supersessionPresent {
-		t.Fatalf("relation exists without terminal lifecycle")
-	}
-	if postLifecycle == "superseded" && !supersessionPresent {
-		t.Fatalf("terminal lifecycle exists without supersession relation")
-	}
-
-	obs := envelopeToObservation(approved)
-	// relations.supersedes must be a []any slice (the corpus's
-	// `contains` op casts to []any via containsOp). The runner
-	// declares the value as `{source, target}`, which decodes to
-	// map[string]any; the slice element type must therefore be
-	// interface{} rather than the typed map.
-	obs.State = map[string]any{
-		"work": map[string]any{
-			"work-old": map[string]any{
-				"lifecycle": postLifecycle,
-				"version":   postVersion,
-			},
-		},
-		"relations": map[string]any{
-			"supersedes": []any{
-				map[string]any{"source": "work-new", "target": "work-old"},
-			},
-		},
-	}
-	// Active probes for the two atomicity absent assertions.
-	// terminal_without_relation: confirm work-old's terminal lifecycle
-	//	was NOT set without the supersession edge — if the supersession
-	//	relation is missing while the lifecycle moved to superseded,
-	//	the operation is half-applied.
-	// relation_without_terminal: confirm the supersession edge was NOT
-	//	written without the terminal lifecycle — if the relation row
-	//	exists while lifecycle is still in_progress, the operation is
-	//	half-applied in the other direction.
-	// Together they prove atomicity: both halves must be present
-	// together, neither may exist without the other.
-	successor := "work-new"
-	predecessor := "work-old"
-	var supersessionRows int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM relations WHERE work_id_from=? AND work_id_to=? AND kind='supersedes'`, successor, predecessor).Scan(&supersessionRows); err != nil {
-		t.Fatalf("atomicity probe: query supersession rows: %v", err)
-	}
-	supersessionPresentNow := supersessionRows > 0
-	if postLifecycle == "superseded" && !supersessionPresentNow {
-		t.Fatalf("atomicity probe: terminal_without_relation — lifecycle is superseded but supersession edge is missing")
-	}
-	if supersessionPresentNow && postLifecycle != "superseded" {
-		t.Fatalf("atomicity probe: relation_without_terminal — supersession edge exists but lifecycle=%q", postLifecycle)
-	}
-	obs.Effects = map[string]any{
-		"atomic_core_effect":       "complete",
-		"fixture_override_applied": true,
-		"terminal_without_relation": probedAbsent{
-			Evidence: fmt.Sprintf("work-old lifecycle=%q (terminal) and supersession edge %s->%s present together (%d row); the half-applied state does not exist", postLifecycle, successor, predecessor, supersessionRows),
-		},
-		"relation_without_terminal": probedAbsent{
-			Evidence: fmt.Sprintf("supersession edge %s->%s present (%d row) and work-old lifecycle=%q (terminal); the half-applied state does not exist", successor, predecessor, supersessionRows, postLifecycle),
-		},
-	}
-	obs.Authority["supersession_relation_row_present"] = supersessionPresentNow
-	return obs
-}
-
 // AJ5-resolve-domain-overlap proves why the current overlap operation exists: an
 // ordinary relation cannot confer Product-concordance authority, while one
 // operator-approved call binds both endpoint and contract versions atomically.
@@ -913,12 +563,29 @@ func bindAJ5ResolveDomainOverlap(t *testing.T, sc jobScenario) jobObservation {
 		t.Fatal(err)
 	}
 
-	ordinary := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_relate", Operation: "link", Input: json.RawMessage(`{"from_work_id":"work-1","to_work_id":"work-2","from_expected_version":2,"to_expected_version":2,"kind":"compatible_with","reason":"ordinary links cannot decide compatibility","idempotency_key":"ordinary-compatible"}`)}, env)
-	if ordinary.Error == nil || ordinary.Error.Kind != "invalid_relation" {
-		t.Fatalf("ordinary compatible_with link was not rejected: %+v", ordinary.Error)
+	ordinary := store.Event{
+		EventID: "ordinary-compatible", Kind: "relation.added", SubjectType: store.SubjectWorkItem,
+		SubjectID: "work-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1,
+		Payload: json.RawMessage(`{"from":"work-1","to":"work-2","kind":"compatible_with","reason":"ordinary relation carries no overlap authority","expected_version":2,"resulting_version":3,"to_expected_version":2,"to_resulting_version":3}`),
+	}
+	beforeEvents := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM domain_events`)
+	ordinaryErr := store.ApplyOperation(context.Background(), s, store.Operation{Events: []store.Event{ordinary}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, "work-1"): 2, store.VersionRef(store.SubjectWorkItem, "work-2"): 2}})
+	var failure *store.Failure
+	if !errors.As(ordinaryErr, &failure) || failure.Kind != store.KindRelationContractViolation {
+		t.Fatalf("ordinary compatible_with fold was not refused: %v", ordinaryErr)
+	}
+	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM relations WHERE kind='compatible_with'`); got != 0 {
+		t.Fatalf("ordinary relation rows=%d, want 0", got)
 	}
 	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM workflow_overlap_resolutions`); got != 0 {
 		t.Fatalf("ordinary relation wrote %d overlap resolutions", got)
+	}
+	overlaps, err := s.QueryDomainOverlaps(context.Background(), store.DomainOverlapsRequest{Product: "product-1", Domain: "root"})
+	if err != nil || len(overlaps.Pairs) != 1 || overlaps.Pairs[0].ResolutionState != "absent" {
+		t.Fatalf("ordinary relation conferred overlap authority: pairs=%+v err=%v", overlaps.Pairs, err)
+	}
+	if countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM domain_events`) != beforeEvents || workVersion(t, s, "work-1") != 2 || workVersion(t, s, "work-2") != 2 {
+		t.Fatal("ordinary relation refusal changed journal or endpoint versions")
 	}
 
 	first := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_relate", Operation: "resolve_overlap", Input: input}, env)
@@ -970,7 +637,7 @@ func bindAJ5ResolveDomainOverlap(t *testing.T, sc jobScenario) jobObservation {
 	obs.Effects = map[string]any{
 		"atomic_core_effect":          "complete",
 		"approval_authority_consumed": true,
-		"ordinary_relation_authority": probedAbsent{Evidence: "generic compatible_with link returned invalid_relation and wrote no resolution row"},
+		"ordinary_relation_authority": probedAbsent{Evidence: "the generic compatible_with fold returned relation_contract_violation, wrote no relation or resolution, and left the Domain overlap unresolved"},
 	}
 	return obs
 }
@@ -978,84 +645,6 @@ func bindAJ5ResolveDomainOverlap(t *testing.T, sc jobScenario) jobObservation {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-// applyAtomicSupersessionFixtureOverride honors the
-// AJ5-atomic-supersession initial_state.fixture_override by replaying
-// the legitimate fold events through the store. PM1 seeds work-old at
-// lifecycle=superseded (version 3) with a supersession edge from
-// work-new; the override requires lifecycle=in_progress and the edge
-// removed.
-//
-// The chosen approach (legitimate store fold rather than
-// hand-mutating rows) preserves version accounting: the
-// reopened_from_superseded event bumps work-old from 3 to 4 AND
-// removes the relation row in one transaction; the subsequent
-// work.transitioned event bumps work-old from 4 to 5 and changes
-// lifecycle to in_progress. After this sequence work-old is at
-// version 5 with no supersession edge, exactly the precondition the
-// corpus expects for the supersede call.
-func applyAtomicSupersessionFixtureOverride(t *testing.T, sc jobScenario, s *store.Store) error {
-	t.Helper()
-	// Consume the declared preconditions and check the replay below implements
-	// exactly what they state. Reading them here is what proves the corpus
-	// override is honored rather than decorative.
-	if got := sc.overrideString(t, "work-old.lifecycle"); got != "in_progress" {
-		t.Fatalf("fixture_override work-old.lifecycle = %q, want in_progress", got)
-	}
-	if got := sc.overrideString(t, "remove_relation"); got != "work-new supersedes work-old" {
-		t.Fatalf("fixture_override remove_relation = %q, want %q", got, "work-new supersedes work-old")
-	}
-	// Step 1: work.reopened_from_superseded — work-old is reopened
-	// by work-new. This atomically removes the supersession edge
-	// AND transitions work-old from superseded → needed at version
-	// 4.
-	reopenEvent := store.Event{
-		EventID:        "fixture-override-reopen-work-old",
-		Kind:           "work.reopened_from_superseded",
-		SubjectType:    store.SubjectWorkItem,
-		SubjectID:      "work-old",
-		Actor:          "operator",
-		OccurredAt:     fixedTime(),
-		PayloadVersion: 1,
-		Payload:        json.RawMessage(`{"superseded":"work-old","reason":"fixture_override for atomic supersession","expected_version":3,"resulting_version":4}`),
-	}
-	if err := store.ApplyOperation(context.Background(), s, store.Operation{Events: []store.Event{reopenEvent}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, "work-old"): 3}}); err != nil {
-		return fmt.Errorf("reopen work-old: %w", err)
-	}
-	// Step 2: work.transitioned — work-old moves from needed to
-	// in_progress at version 5.
-	transitionEvent := store.Event{
-		EventID:        "fixture-override-transition-work-old",
-		Kind:           "work.transitioned",
-		SubjectType:    store.SubjectWorkItem,
-		SubjectID:      "work-old",
-		Actor:          "operator",
-		OccurredAt:     fixedTime(),
-		PayloadVersion: 1,
-		Payload:        json.RawMessage(`{"from":"needed","to":"in_progress","reason":"fixture_override for atomic supersession","expected_version":4,"resulting_version":5}`),
-	}
-	if err := store.ApplyOperation(context.Background(), s, store.Operation{Events: []store.Event{transitionEvent}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, "work-old"): 4}}); err != nil {
-		return fmt.Errorf("transition work-old: %w", err)
-	}
-	return nil
-}
-
-// deriveSupersession reports whether a supersession edge exists from
-// successor to predecessor in the relations table. Bindings use it
-// to assert the atomic durability of the supersede call.
-func deriveSupersession(t *testing.T, s *store.Store, successor, predecessor string) bool {
-	t.Helper()
-	var count int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM relations WHERE work_id_from=? AND work_id_to=? AND kind='supersedes'`, successor, predecessor).Scan(&count); err != nil {
-		t.Fatalf("derive supersession %s->%s: %v", successor, predecessor, err)
-	}
-	return count > 0
-}
-
-// _ ensures ed25519 import is exercised; the mutation fixture
-// function returns ed25519.PrivateKey and the symbol must remain
-// referenced.
-var _ ed25519.PrivateKey
 
 // AJ3-spec-conflict: capture into a Project carrying an accepted governing
 // requirement while declaring a requirement set that omits it. CD-0035 D3 makes

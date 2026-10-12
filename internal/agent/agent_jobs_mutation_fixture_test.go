@@ -111,23 +111,9 @@ func readTransitionEvents(t *testing.T, s *store.Store, workID string) (count in
 	return count, latestEvidenceRefs
 }
 
-// readRelationsFor returns only relations whose from/to/kind matches
-// the filter — bindings use this to assert a single new edge landed
-// without scanning the whole table.
-func readRelationsFor(t *testing.T, s *store.Store, from, to string) (count int) {
-	t.Helper()
-	var n int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM relations WHERE work_id_from=? AND work_id_to=? AND kind='blocks'`, from, to).Scan(&n); err != nil {
-		t.Fatalf("read relations for %s->%s: %v", from, to, err)
-	}
-	return n
-}
-
 // deriveWorkBlocked reports whether the given work item has at least one
 // active blocks relation from a needed/in_progress peer. It is the
-// derivation the Q4/Q5 read queries use; bindings assert against the
-// SAME query so that AJ5-add-dependency's derived_blocked=true
-// assertion is genuinely observed, not read from a stored column.
+// derivation the Q4/Q5 read queries use, not a stored blocked column.
 func deriveWorkBlocked(t *testing.T, s *store.Store, workID string) bool {
 	t.Helper()
 	var blocked bool

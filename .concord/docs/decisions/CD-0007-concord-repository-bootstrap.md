@@ -24,7 +24,7 @@ execution.
 ### D1. Repository identity and Product authority
 
 - Public remote: `https://github.com/Sharper-Flow/concord`.
-- Go module: `github.com/sharper-flow/concord`.
+- Go module: [`github.com/sharper-flow/concord`](https://github.com/Sharper-Flow/concord).
 - Public instructions use a generic clone destination; no personal checkout
   convention is part of the repository contract.
 - Default branch: `main`.
@@ -166,7 +166,7 @@ must exclude secrets/private fixtures and include checksums/provenance.
 
 1. Prepare and audit the public candidate locally.
 2. Review every file and outbound link.
-3. Create `Sharper-Flow/concord` publicly.
+3. Create [`Sharper-Flow/concord`](https://github.com/Sharper-Flow/concord) publicly.
 4. Push one constitutional bootstrap commit.
 5. Tag that commit `constitutional-bootstrap`; public Concord authority starts there.
 6. Enable branch protections and CI.

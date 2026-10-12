@@ -325,7 +325,7 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 		return RegisteredDefinition{}, err
 	}
 	if staleRecovery {
-		if err := validateWorkflowContractRecoveryPayload(request.Payload); err != nil {
+		if err := validateWorkflowContractRecoveryPayload(entry.Definition, request.Payload); err != nil {
 			return RegisteredDefinition{}, err
 		}
 	} else if err := validateWorkflowActionEnvelopePayload(entry.Definition, request); err != nil {

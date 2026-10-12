@@ -103,7 +103,7 @@ check:
 
 | Kind | Value | Resolution |
 |---|---|---|
-| `go_test` | `package.TestName` | the test exists and its package is covered by `go test ./...` |
+| `go_test` | `<package>.TestName` | the test exists and its package is covered by `go test ./...` |
 | `scenario` | corpus scenario ID | the ID exists in a `.concord/scenarios/` corpus **and no harness defers it** |
 | `validator` | `scripts/check-*.py` | the script exists and CI invokes it, directly or nested through `check-json.py` |
 | `generated` | symbol in a `DO NOT EDIT` artifact | the symbol exists in an artifact carrying the generator marker |

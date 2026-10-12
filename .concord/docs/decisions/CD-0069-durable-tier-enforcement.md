@@ -55,7 +55,7 @@ embedded state dumps — those rules have no exceptions.
 
 CD-0002's page-size sentence is written about the note a terminal entity is
 distilled into. The bound applies to the note roots CD-0002 names for that
-purpose: `.concord/docs/work/` and `.concord/docs/lessons/`. 16384 bytes is roughly eight
+purpose: `<product-root>/.concord/docs/work/` and `<product-root>/.concord/docs/lessons/`. 16384 bytes is roughly eight
 times a real distilled page and three orders of magnitude under the
 predecessor's failure, so it rejects the disease without rationing the cure.
 

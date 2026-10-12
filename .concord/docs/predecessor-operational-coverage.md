@@ -101,7 +101,7 @@ Seeing the state of the portfolio without blind spots, across sessions.
 
 | Outcome | State | Evidence or reason |
 |---|---|---|
-| See every Product as a row with focus, attention, and actionable counts | Covered | C14; `internal/store/product_row.go`, `internal/portfolio/read.go` |
+| See every Product as a row with focus, attention, and actionable counts | Excluded | CD-0224 retires the C14 row's last live surface (`concord_product_view.portfolio`), and CD-0219 already retired the launcher render, so no runtime path produces the row; the `QueryProductRows` projection is removed. The C14 contract is deleted with its read (CD-0219 D2, CD-0224), and Product visibility comes from `concord_product_view.snapshot` plus the ready and blocked queues (`internal/store/query.go`). |
 | Get a bounded Product snapshot with lifecycle counts and staleness | Covered | Q2, `internal/store/query.go` |
 | List and filter work in a Product or Project with stable pagination | Covered | Q3, `internal/store/query.go` |
 | See what is blocked and why | Covered | Q4, `internal/store/query.go` |
@@ -151,7 +151,7 @@ Commissioning, validating, and reusing investigation so work does not start blin
 | Persist a reusable research pack with revisions, findings, sources, and consumer bindings | Covered | `concord_work_define.research_pack_create` and its authoring operations (CD-0025) reach the pack-operation boundary; `concord_work_trace.research` reads it back (`internal/agent/mutations.go`). |
 | Prove a consumer read a sufficiently fresh research revision before relying on it | Covered | `workflow_action` declares research bindings; the engine validates, binds the consumer, and refuses required reliance on non-current freshness inside the action's transaction (`internal/agent/research_surface_test.go`, CD-0025). |
 | Detect that a recorded plan has gone stale against current reality, and revise it | Covered | Staleness rules and `replace_outcome` / `supersede_contract` in `internal/store/workflow_revision.go` |
-| Record post-completion learning about how the work itself went | Covered | A reflection is a lesson with a `reflection` tag, recorded through `concord_work_compact.lesson_publish` (CD-0026 D3), dispatched in `internal/agent/mutations.go`. |
+| Record post-completion learning about how the work itself went | Covered | A reflection is a lesson with a `reflection` tag, authored as a file with its record and coverage shards and published through a reviewed pull request (CD-0026 D3); the record's evidence paths stay audited by `scripts/check-knowledge-index.py`. |
 | Scout unrealized opportunities and leverage points during discovery | Excluded | [`capability-placement.md`](./capability-placement.md) §3: heuristic analysis tooling is an external native authority. Same basis as §3's quality-scanner row — Concord commissions such investigation through the `research` workflow and records its findings; it does not implement the heuristic. |
 
 ## 5. Ops runbooks
@@ -183,7 +183,7 @@ Knowledge that outlives the change that produced it.
 | Keep specifications as binding law with typed relations between them | Covered | CD-0015; `.concord/docs/decisions/CD-0015-typed-law-relations.md` |
 | Bind a law change to the work that justified it, so law and history move together | Covered | `law_modifies` amendment path, `internal/store/workflow_completion.go` |
 | Preserve the provenance link between a unit of work and its external tracking record | Covered | CD-0213's record-only `concord_work_define.issue_link_record` stores the reported key, UUID, and URL without remote confirmation (`internal/store/linear_issue_link.go`, `internal/agent/issue_link_record_test.go`). |
-| Capture a per-change learning and promote the durable ones to project scope | Covered | `concord_work_compact.lesson_publish` records a lesson per change under operator approval; explicit scopes promote it to project/Product reach through the existing scope-filtered reads (CD-0026 D1/D2), dispatched in `internal/agent/mutations.go`. |
+| Capture a per-change learning and promote the durable ones to project scope | Covered | A lesson per change is authored as a file with an explicit-scope coverage shard and published through a reviewed pull request; explicit scopes reach project/Product through the existing scope-filtered reads (CD-0026 D1/D2; `.concord/docs/decisions/CD-0026-learning-capture.md`). |
 | Preserve provenance when an item is promoted into an initiative | Excluded | CD-0213 places grouping and membership changes in Linear through the Linear MCP server. Concord retains the work unit's recorded issue identity, not an Initiative promotion operation or membership history projection. |
 | Audit instruction and guidance prose against executable anchors | Covered | CD-0026 D4: manifest records name implementation evidence and `scripts/check-knowledge-index.py` fails in CI when a named path rots, so guidance cannot silently outlive the code it describes. |
 
@@ -207,9 +207,9 @@ Territory that appears across all six and is an outcome in its own right.
 
 | State | Count |
 |---|---|
-| Covered | 59 |
+| Covered | 58 |
 | Not covered | 0 |
-| Excluded with reason | 16 |
+| Excluded with reason | 17 |
 
 **Total enumerated outcomes: 75.**
 

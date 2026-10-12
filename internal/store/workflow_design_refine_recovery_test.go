@@ -193,7 +193,7 @@ func seedReturnedRefineCorrection(t *testing.T, workID string) workflowReturnRou
 	// the premise. The premise confirmation follows the failure edge from
 	// acceptance to refine (CD-0133 D1) and lands the workflow back on the
 	// refinement step the design recovery test exercises.
-	verdict := json.RawMessage(`{"contract_version":2,"predicate_id":"predicate:return-route","verdict_kind":"outcome_mismatch","evaluation_evidence":["evidence:return-route-verification"],"incomparable_with_approved":true}`)
+	verdict := json.RawMessage(`{"contract_version":2,"verdicts":[{"predicate_id":"predicate:return-route","verdict_kind":"outcome_mismatch","evaluation_evidence":["evidence:return-route-verification"],"incomparable_with_approved":true}]}`)
 	if err := runIssue933OperatorAction(t, s, workID, "record_verdict", verdict, owner, operator); err != nil {
 		t.Fatalf("record_verdict: %v", err)
 	}
@@ -431,7 +431,7 @@ func returnRefineFromAcceptance(t *testing.T, fixture workflowReturnRouteFixture
 	if err := runIssue933OperatorAction(t, s, workID, "supersede_contract", refineRecoverySuccessor(2, ""), owner, operator); err != nil {
 		t.Fatalf("supersede_contract without design_record at acceptance: %v", err)
 	}
-	verdict := json.RawMessage(`{"contract_version":2,"predicate_id":"predicate:return-route","verdict_kind":"outcome_mismatch","evaluation_evidence":["evidence:return-route-verification"],"incomparable_with_approved":true}`)
+	verdict := json.RawMessage(`{"contract_version":2,"verdicts":[{"predicate_id":"predicate:return-route","verdict_kind":"outcome_mismatch","evaluation_evidence":["evidence:return-route-verification"],"incomparable_with_approved":true}]}`)
 	if err := runIssue933OperatorAction(t, s, workID, "record_verdict", verdict, owner, operator); err != nil {
 		t.Fatalf("record_verdict: %v", err)
 	}

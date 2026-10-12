@@ -29,7 +29,7 @@ func TestPreContractWorkerRetryMintsChallengeAndOpensFreshAttempt(t *testing.T) 
 	}
 	env := mutationEnvelope(grant, scopeVersion)
 	freshAttemptID := "attempt:work-1:fresh"
-	packet := preContractRetryPacket(t, s, "work-1", "discovery", freshAttemptID, pin.Correction)
+	packet := preContractRetryPacket(t, s, "work-1", "investigate", freshAttemptID, pin.Correction)
 	input := map[string]any{
 		"work_id": "work-1", "expected_version": version, "action_id": "dispatch_worker",
 		"idempotency_key": "precontract-retry-1", "fields": map[string]any{"attempt_id": freshAttemptID, "worker_packet": packet},
@@ -98,21 +98,29 @@ func TestApprovalChallengeVersionValidityRefusalNamesVersions(t *testing.T) {
 
 // seedFailedPreContractResearchRetry mirrors seedFailedWorkerRetryMutation
 // without the workflow contract row and with a failed research dispatch at
-// the discovery step: the exact live shape of the reported defect.
+// the investigate step: the exact live shape of the reported defect. The
+// canonical research head derives the workflow failure record from the
+// attempt's own terminal event (CD-0198 D5, CD-0218 D2).
 func seedFailedPreContractResearchRetry(t *testing.T, s *store.Store, service *Service, grant Authority) (int64, string, string) {
 	t.Helper()
-	if got := seedAgentWorkflow(t, s, grant); got != 4 {
-		t.Fatalf("workflow seed version=%d, want 4", got)
-	}
-	owner := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
-	ownerRef, err := store.WorkflowActorRef(owner)
+	seedCurrentWorkflowDomainFixture(t, s)
+	registered, err := store.LiveWorkflowDefinitionForRef("workflow.research")
 	if err != nil {
 		t.Fatal(err)
 	}
+	owner := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
+	if err := s.Transact(context.Background(), func(tx *store.Transaction) error {
+		return store.InitializeWorkflowTx(context.Background(), tx, store.WorkflowInitializationRequest{WorkID: "work-1", Definition: registered, Actor: owner, Now: fixedTime()})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got := workVersion(t, s, "work-1"); got != 4 {
+		t.Fatalf("workflow seed version=%d, want 4", got)
+	}
 	path := t.TempDir()
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
-		UPDATE workflow_instances SET current_step='discovery' WHERE work_id='work-1';
-		DELETE FROM fold_guard`, ownerRef); err != nil {
+		UPDATE workflow_instances SET current_step='investigate' WHERE work_id='work-1';
+		DELETE FROM fold_guard`); err != nil {
 		t.Fatalf("seed pre-contract projections: %v", err)
 	}
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
@@ -127,38 +135,29 @@ func seedFailedPreContractResearchRetry(t *testing.T, s *store.Store, service *S
 	}
 	grant.Worktree = path
 	initialEnv := mutationEnvelope(grant, scopeVersion)
-	initialInput := retryJSON(map[string]any{"work_id": "work-1", "expected_version": 4, "action_id": "dispatch_worker", "idempotency_key": "precontract-initial", "fields": map[string]any{"attempt_id": attemptID, "worker_packet": preContractRetryPacket(t, s, "work-1", "discovery", attemptID, nil)}})
+	initialInput := retryJSON(map[string]any{"work_id": "work-1", "expected_version": 4, "action_id": "dispatch_worker", "idempotency_key": "precontract-initial", "fields": map[string]any{"attempt_id": attemptID, "worker_packet": preContractRetryPacket(t, s, "work-1", "investigate", attemptID, nil)}})
 	initial := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: initialInput}, initialEnv)
 	if initial.Outcome != OutcomeOK {
 		t.Fatalf("seed initial pre-contract research dispatch: %+v", initial.Error)
 	}
+	// The worker session's own lane dispatch precedes its terminal fact;
+	// the live worker-evidence seam is the route the worker-fail CLI owns:
+	// the terminal fact and the derived workflow record commit together.
 	lane := preContractResearchLane(t)
-	dispatch := store.Event{EventID: "precontract-dispatch", Kind: store.WorkerDispatched, SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: 2, Payload: retryJSON(store.WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, PacketDigest: "sha256:" + strings.Repeat("b", 64), ReadbackModel: "openai/gpt-5.6-luna", PacketSchemaVersion: store.WorkerPacketSchemaVersion, ReportSchemaVersion: store.WorkerReportSchemaVersion})}
+	laneDispatch := store.Event{EventID: "precontract-dispatch", Kind: store.WorkerDispatched, SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: 2, Payload: retryJSON(store.WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, PacketDigest: "sha256:" + strings.Repeat("b", 64), ReadbackModel: "openai/gpt-5.6-luna", PacketSchemaVersion: store.WorkerPacketSchemaVersion, ReportSchemaVersion: store.WorkerReportSchemaVersion})}
 	failure := store.Event{EventID: "precontract-failed", Kind: store.WorkerFailed, SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: retryJSON(store.WorkerFailedPayload{AttemptID: attemptID, ReadbackModel: "openai/gpt-5.6-luna", FailureKind: store.WorkerFailureWorkerError, Detail: "usage limit reached"})}
 	if err := s.Transact(context.Background(), func(tx *store.Transaction) error {
-		enriched, err := store.PrepareLaneActorDispatch(context.Background(), tx, dispatch, grant.PrincipalRef, grant.ClientRef)
+		enriched, err := store.PrepareLaneActorDispatch(context.Background(), tx, laneDispatch, grant.PrincipalRef, grant.ClientRef)
 		if err != nil {
 			return err
 		}
 		if _, err := store.AppendLaneActorDispatchTx(context.Background(), tx, enriched); err != nil {
 			return err
 		}
-		_, err = store.ApplyOperationTx(context.Background(), tx, store.Operation{Events: []store.Event{failure}})
+		_, err = store.ApplyWorkerEvidenceOperationTx(context.Background(), tx, failure)
 		return err
 	}); err != nil {
 		t.Fatalf("seed pre-contract failure: %v", err)
-	}
-	var failureVersion int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id='work-1'`).Scan(&failureVersion); err != nil {
-		t.Fatal(err)
-	}
-	scopeVersion, _, err = s.ScopeVersion(context.Background(), "project-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	record := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: retryJSON(map[string]any{"work_id": "work-1", "expected_version": failureVersion, "action_id": "record_worker_failure", "fields": map[string]any{"attempt_id": attemptID, "attempt_epoch": 1}, "idempotency_key": "precontract-record-failure"})}, mutationEnvelope(grant, scopeVersion))
-	if record.Outcome != OutcomeOK {
-		t.Fatalf("seed pre-contract failure record: %+v", record.Error)
 	}
 	binding, err := store.WorkflowFailedWorkerRetryBinding(context.Background(), s, nil, "work-1")
 	if err != nil || binding == nil {

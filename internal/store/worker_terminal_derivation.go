@@ -153,6 +153,8 @@ func workflowDerivedWorkerFailureActive(definition WorkflowDefinition) bool {
 		return definition.Version >= 29
 	case "workflow.break_fix":
 		return definition.Version >= 26
+	case "workflow.research":
+		return definition.Version >= 17
 	default:
 		return false
 	}

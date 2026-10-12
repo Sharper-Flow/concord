@@ -94,14 +94,24 @@ func recordVerdictParityPublishedFields(t *testing.T, document map[string]any) m
 func TestRecordVerdictCrossFieldOriginalMechanismRedGreen(t *testing.T) {
 	document := payloadschema.Document()
 	publishedFields := recordVerdictParityPublishedFields(t, document)
-	// The batched payload restatement the pinned definitions carry: the same
-	// field list both commits pin, so the comparison isolates the cross-field
-	// declaration alone.
-	definition := WorkflowDefinition{ActionDefinitions: []WorkflowActionDefinition{{
-		ID: "record_verdict", Payload: WorkflowPayloadDefinition{Closed: true, Fields: verdictBatchActionFields()},
-	}}}
+	// The canonical live head is its own definition: the batch-only
+	// record_verdict payload the registered entry declares, so the comparison
+	// runs against the payload the store actually enforces rather than a
+	// hand-restated copy.
+	live, err := LiveWorkflowDefinitionForRef("workflow.implementation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	definition := live.Definition
+	frozen, ok := BuiltinWorkflowRegistry().Lookup("workflow.implementation", 29)
+	if !ok {
+		t.Fatal("implementation v29 is not registered")
+	}
 	preflightAdmits := func(fields map[string]any) bool {
 		return validateWorkflowActionPayload(definition, "record_verdict", mustJSONRaw(t, fields)) == nil
+	}
+	frozenReplayAdmits := func(fields map[string]any) bool {
+		return validateWorkflowActionPayloadForReplay(frozen.Definition, "record_verdict", mustJSONRaw(t, fields)) == nil
 	}
 	publishedAdmits := func(fields map[string]any) bool {
 		return payloadschema.ValidateValue(recordVerdictParityDecode(t, fields), publishedFields, document, "fields") == nil
@@ -154,16 +164,32 @@ func TestRecordVerdictCrossFieldOriginalMechanismRedGreen(t *testing.T) {
 			}
 		}
 	}
-	for name, fields := range map[string]map[string]any{"single form": single, "batch form": batch} {
-		if !preflightAdmits(fields) {
-			t.Fatalf("core payload validation refuses the valid %s", name)
-		}
-		if err := payloadschema.ValidateValue(recordVerdictParityDecode(t, fields), publishedFields, document, "fields"); err != nil {
-			t.Fatalf("published record_verdict fields refuse the valid %s: %v", name, err)
-		}
-		if err := wholeStoreRefusal(t, fields); err != nil {
-			t.Fatalf("whole-store admission refuses the valid %s: %v", name, err)
-		}
+	// The canonical head authors the batch alone: the one-entry batch is the
+	// valid positive across engine, publication, and whole-store admission,
+	// while the scalar wire shape refuses everywhere live and stays valid
+	// only through the frozen replay document against the pre-canonical pin.
+	if !preflightAdmits(batch) {
+		t.Fatal("core payload validation refuses the valid batch form")
+	}
+	if err := payloadschema.ValidateValue(recordVerdictParityDecode(t, batch), publishedFields, document, "fields"); err != nil {
+		t.Fatalf("published record_verdict fields refuse the valid batch form: %v", err)
+	}
+	if err := wholeStoreRefusal(t, batch); err != nil {
+		t.Fatalf("whole-store admission refuses the valid batch form: %v", err)
+	}
+	if preflightAdmits(single) {
+		t.Fatal("core payload validation admits the scalar form on the canonical head")
+	}
+	if publishedAdmits(single) {
+		t.Fatal("published record_verdict fields admit the scalar form")
+	}
+	scalarErr := wholeStoreRefusal(t, single)
+	var failure *Failure
+	if !errors.As(scalarErr, &failure) || failure.Op != "workflow_action_preflight" {
+		t.Fatalf("the scalar form was refused at %v, want the payload preflight", scalarErr)
+	}
+	if !frozenReplayAdmits(single) {
+		t.Fatal("the frozen replay document refuses the scalar form the pre-canonical pin recorded")
 	}
 }
 

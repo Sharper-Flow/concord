@@ -24,9 +24,10 @@ was session-ingested. The cross-Product recall capability had never been used.
 
 Every durable learning already had an owner. A procedure belongs to host
 instructions or a skill. A fact about one Product belongs to a `lesson`
-(CD-0026), committed in that Product's knowledge home through
-`lesson_publish`. An unproven notice belongs to a work observation (CD-0030)
-or a Domain observation (CD-0068). Accepted law belongs to a `decision` or a
+(CD-0026), committed in that Product's knowledge home through a reviewed
+pull request. An unproven notice belongs to a work observation (CD-0030)
+or, as readable history, to the retired Domain-observation store (CD-0068).
+Accepted law belongs to a `decision` or a
 `spec`. The seam CD-0086 defined pointed at the two kinds no agent can write,
 so every promotion needed a human edit.
 
@@ -54,11 +55,11 @@ D1 through D4 are superseded in full. The tool count falls by one.
 Three rungs hold every durable learning, and each rung exists today.
 
 1. An observation holds an unproven notice. `work_observations` (CD-0030)
-   anchors on a work item. `domain_observations` (CD-0068) anchors on a
-   Domain.
-2. A `lesson` holds a proven Product-scoped learning. An agent publishes it
-   at work completion through `lesson_publish` (CD-0026), and it is committed
-   in the Product's knowledge home with a manifest record.
+   anchors on a work item. The retired `domain_observations` store
+   (CD-0068) keeps its rows readable and records nothing new.
+2. A `lesson` holds a proven Product-scoped learning. It is published
+   through a reviewed pull request (CD-0026), and it is committed in the
+   Product's knowledge home with a manifest record.
 3. A `decision` or a `spec` holds accepted law. Only the formalization
    procedure reaches this rung.
 

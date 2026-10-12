@@ -3,7 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-10-09
 - **Scope:** The interactive terminal launcher TUI — the `concord launcher`
-  verb, the bare-invocation TUI route, and the `internal/launcher` tree with
+  verb, the bare-invocation TUI route, and the internal/launcher tree with
   its Bubble Tea renderer — together with the launcher contracts, the launcher
   portfolio scenario, and the obligations that retire with that surface
 - **Approval:** The operator pre-approved this law change for Linear
@@ -25,7 +25,7 @@
 ## Context
 
 Operation Snowball simplifies by deletion. The interactive terminal launcher
-is deleted end to end: `internal/launcher`, the `concord launcher` verb, the
+is deleted end to end: internal/launcher, the `concord launcher` verb, the
 bare-invocation TUI route, and the `charm.land` Bubble Tea, bubbles, and
 lipgloss modules. Bare `concord` prints usage.
 
@@ -40,7 +40,7 @@ carries that entry route as the ZLauncher replacement.
 
 ### D1. The interactive TUI and its dependencies are removed
 
-The `internal/launcher` tree, the `concord launcher` verb, the bare-invocation
+The internal/launcher tree, the `concord launcher` verb, the bare-invocation
 TUI route, the launcher `--list` verb, and the `charm.land` Bubble Tea,
 bubbles, and lipgloss modules are removed from the repository and the module
 graph. The entry route is non-interactive; bare `concord` prints usage and no
@@ -50,7 +50,7 @@ renderer ships.
 
 `terminal-launcher-contract.md`, `terminal-launcher-replacement-contract.md`,
 `terminal-launcher-entry-contract.md`, and
-`.concord/scenarios/launcher-portfolio.v1.json` are deleted. Their
+.concord/scenarios/launcher-portfolio.v1.json are deleted. Their
 surviving statements keep their owning records: the identity-only handoff
 (CD-0031, CD-0163), the no-durable-write boundary (CD-0108 D4), and the bounded
 store reads (the store query contracts).

@@ -333,7 +333,7 @@ func TestAdmissionConformanceReplayRejectionReviewAndSettlingAccept(t *testing.T
 	conformanceCheckpoint(t, s, workID, def, model, "delivery recorded at the gate")
 
 	reviewer := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/conformance-reviewer", SessionRef: "session/" + workID + "-reviewer", ActorClass: ActorAgent}
-	badVerdict := json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:return-route","verdict_kind":"outcome_mismatch","evaluation_evidence":["evidence:return-route-verification"],"incomparable_with_approved":true}`)
+	badVerdict := json.RawMessage(`{"contract_version":1,"verdicts":[{"predicate_id":"predicate:return-route","verdict_kind":"outcome_mismatch","evaluation_evidence":["evidence:return-route-verification"],"incomparable_with_approved":true}]}`)
 	if err := runVerdictActionAs(t, s, workID, "record_verdict", badVerdict, 0, reviewer); err != nil {
 		t.Fatalf("record the unhealthy verdict: %v", err)
 	}

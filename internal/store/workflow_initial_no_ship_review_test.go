@@ -259,7 +259,7 @@ func TestRenewedNoShipObligationCarriesItsOwnEvidence(t *testing.T) {
 	}
 	reviewGateRequireStep(t, s, workID, "verify")
 	reviewer := checkpointReviewReviewer(t, s, workID)
-	verdict := json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:return-route","verdict_kind":"outcome_mismatch","evaluation_evidence":["evidence:return-route-verification"],"incomparable_with_approved":true}`)
+	verdict := json.RawMessage(`{"contract_version":1,"verdicts":[{"predicate_id":"predicate:return-route","verdict_kind":"outcome_mismatch","evaluation_evidence":["evidence:return-route-verification"],"incomparable_with_approved":true}]}`)
 	if err := runVerdictActionAs(t, s, workID, "record_verdict", verdict, 0, reviewer); err != nil {
 		t.Fatal(err)
 	}

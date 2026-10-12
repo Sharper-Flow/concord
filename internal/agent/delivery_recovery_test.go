@@ -42,6 +42,20 @@ func deliveryRecoveryPacket(t *testing.T, s *store.Store, workID, stepID, attemp
 	if pin.Correction != nil {
 		inputs["correction"] = pin.Correction
 	}
+	// The dispatch selects the freshly recorded ready revision explicitly,
+	// as the adapter does, so an earlier revision on the step never shadows
+	// the one this dispatch binds.
+	snapshot, snapshotErr := store.ReadWorkflowContinuity(context.Background(), s, store.ContinuityRequest{Work: workID})
+	if snapshotErr != nil {
+		t.Fatal(snapshotErr)
+	}
+	if len(snapshot.ReadyWorkerJobs) > 0 {
+		selected, selectErr := json.Marshal(snapshot.ReadyWorkerJobs[len(snapshot.ReadyWorkerJobs)-1])
+		if selectErr != nil {
+			t.Fatal(selectErr)
+		}
+		inputs["worker_job"] = json.RawMessage(selected)
+	}
 	return bindPacketToRecordedState(t, s, map[string]any{"schema_version": store.WorkerPacketSchemaVersion, "attempt_id": attemptID, "lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest, "work_id": workID, "step_id": stepID, "inputs": inputs})
 }
 
@@ -50,15 +64,33 @@ func deliveryRecoveryPacket(t *testing.T, s *store.Store, workID, stepID, attemp
 func deliveryRecoveryCompletion(t *testing.T, s *store.Store, grant Authority, attemptID, capabilityClass string) {
 	t.Helper()
 	lane := deliveryRecoveryLane(t, capabilityClass)
-	dispatch := store.Event{EventID: "delivery-recovery-dispatch-" + attemptID, Kind: store.WorkerDispatched, SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: 2, Payload: retryJSON(store.WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, PacketDigest: "sha256:" + strings.Repeat("c", 64), ReadbackModel: "openai/gpt-5.6-luna", PacketSchemaVersion: store.WorkerPacketSchemaVersion, ReportSchemaVersion: store.WorkerReportSchemaVersion})}
-	payload := store.WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: "openai/gpt-5.6-luna", ReportSchemaVersion: store.WorkerReportSchemaVersion}
+	job := authorizedWorkerJob(t, s, attemptID)
+	dispatch := store.Event{EventID: "delivery-recovery-dispatch-" + attemptID, Kind: store.WorkerDispatched, SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: 2, Payload: retryJSON(store.WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, PacketDigest: "sha256:" + strings.Repeat("c", 64), ReadbackModel: "openai/gpt-5.6-luna", PacketSchemaVersion: store.WorkerPacketSchemaVersion, ReportSchemaVersion: store.WorkerReportSchemaVersion, WorkerJob: job})}
+	payload := store.WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: "openai/gpt-5.6-luna", ReportSchemaVersion: store.WorkerReportSchemaVersion, WorkerJob: job}
 	payloadVersion := 1
 	// A live completion on a lane that requires the typed review block
-	// carries it (CD-0197), whatever evidence origin it claims.
+	// carries it (CD-0197), whatever evidence origin it claims. An
+	// oracle-bound dispatch's review findings carry their oracle
+	// classification (CD-0198).
 	if len(lane.RequiredReportBlocks) > 0 {
 		payloadVersion = 3
 		payload.EvidenceOrigin = store.WorkerEvidenceLegacyUnavailable
-		payload.Review = &store.WorkerReviewBlock{Verdict: "no_ship", Findings: []store.WorkerReviewFinding{{Severity: "P1", Confidence: "high", Detail: "the refined result misses the approved contract"}}}
+		payload.Review = &store.WorkerReviewBlock{Verdict: "no_ship", Findings: []store.WorkerReviewFinding{{Severity: "P0", Confidence: "high", Detail: "the refined result misses the approved contract"}}}
+		if job != nil {
+			if oracle := recordedAgentOracle(t, s, job); oracle != nil {
+				owner := oracle.Owners[0]
+				payload.Review.Findings[0].Oracle = &store.WorkerOracleFinding{
+					Classification: store.OracleClassificationFollowUp,
+					OwnerID:        owner.OwnerID, PredicateIDs: owner.PredicateIDs,
+				}
+				payloadVersion = store.WorkerEvidenceEventPayloadVersion(store.WorkerCompleted)
+			}
+		}
+	}
+	// A job-bound completion declares its evidence origin (CD-0205).
+	if job != nil && payloadVersion < 4 {
+		payloadVersion = 4
+		payload.EvidenceOrigin = store.WorkerEvidenceLegacyUnavailable
 	}
 	completion := store.Event{EventID: "delivery-recovery-completed-" + attemptID, Kind: store.WorkerCompleted, SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: payloadVersion, Payload: retryJSON(payload)}
 	if err := s.Transact(context.Background(), func(tx *store.Transaction) error {
@@ -84,11 +116,14 @@ func TestDeliveryGateRecoveryAdmitsPinnedReturnThroughAgent(t *testing.T) {
 	worktree := t.TempDir()
 	grant.Worktree = worktree
 
-	// The instance is pinned to the released closed-gate implementation
-	// version, whose delivery step carries no corrective return.
-	pinned, ok := store.BuiltinWorkflowRegistry().Lookup("workflow.implementation", 15)
-	if !ok {
-		t.Fatal("workflow.implementation v15 is not registered")
+	// The journey runs on the canonical head: the live union authors the
+	// derived checkpoint_refine entry alone, so the public gate-return
+	// admission is authorable there and on no released pin (CD-0218 D2/D4).
+	// The released closed-gate v15 keeps its recorded behavior readable at
+	// its frozen pin.
+	pinned, err := store.LiveWorkflowDefinitionForRef("workflow.implementation")
+	if err != nil {
+		t.Fatal(err)
 	}
 	grantActor := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
 	grantActorRef, err := store.WorkflowActorRef(grantActor)
@@ -151,6 +186,9 @@ func TestDeliveryGateRecoveryAdmitsPinnedReturnThroughAgent(t *testing.T) {
 	version := func() int64 { return workVersion(t, s, "work-1") }
 	dispatch := func(stepID, attemptID, capabilityClass string) {
 		t.Helper()
+		// Each dispatch binds its own recorded ready revision: an accepted
+		// job is satisfied and never redispatches (CD-0205).
+		recordReadyRetryJob(t, s, service, env, "job:"+attemptID)
 		response := invoke(map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "dispatch_worker", "fields": map[string]any{"attempt_id": attemptID, "worker_packet": deliveryRecoveryPacket(t, s, "work-1", stepID, attemptID, capabilityClass)}, "idempotency_key": "gate-dispatch-" + attemptID})
 		if response.Outcome != OutcomeOK {
 			t.Fatalf("gate recovery dispatch %s: %+v", attemptID, response.Error)
@@ -170,11 +208,23 @@ func TestDeliveryGateRecoveryAdmitsPinnedReturnThroughAgent(t *testing.T) {
 	if response := invoke(map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "accept_worker_result", "fields": map[string]any{"attempt_id": "attempt:work-1:gate-execution", "attempt_epoch": executionEpoch}, "idempotency_key": "gate-execution-accept"}); response.Outcome != OutcomeOK {
 		t.Fatalf("gate recovery execution accept: %+v", response.Error)
 	}
-	if stepOf() != "refine" {
-		t.Fatalf("step after execution accept = %q, want refine", stepOf())
+	// The job-bound accept is local acceptance and holds execution; the step
+	// exits through its delivery assertion, which requires qualifying
+	// core-owned worktree verification covering the job's Project (CD-0205 D3).
+	integrationRef := agentSeedIntegrationVerifyRun(t, s, "work-1", "gate-execution-integration")
+	if response := invoke(map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "bind_evidence", "fields": map[string]any{"evidence_kind": "verification", "evidence_ref": integrationRef}, "idempotency_key": "gate-execution-integration"}); response.Outcome != OutcomeOK {
+		t.Fatalf("gate recovery integration bind: %+v", response.Error)
 	}
-	if response := invoke(map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "start_refine", "idempotency_key": "gate-refine-start"}); response.Outcome != OutcomeOK {
-		t.Fatalf("gate recovery start_refine: %+v", response.Error)
+	if response := invoke(map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "record_delivery", "fields": map[string]any{"delivery_artifact": "artifact:gate-execution", "delivery_state": "asserted"}, "idempotency_key": "gate-execution-delivery"}); response.Outcome != OutcomeOK {
+		t.Fatalf("gate recovery execution delivery: %+v", response.Error)
+	}
+	if stepOf() != "refine" {
+		t.Fatalf("step after execution delivery = %q, want refine", stepOf())
+	}
+	// The canonical head derives the refine start from the qualifying
+	// checkpoint pair; the callable start_refine retired with it.
+	if response := invoke(map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "checkpoint_refine", "fields": map[string]any{}, "idempotency_key": "gate-refine-start"}); response.Outcome != OutcomeOK {
+		t.Fatalf("gate recovery checkpoint_refine: %+v", response.Error)
 	}
 	refineEpoch := epochOf("dispatch_worker")
 
@@ -239,21 +289,22 @@ func TestDeliveryGateRecoveryAdmitsPinnedReturnThroughAgent(t *testing.T) {
 		t.Fatalf("step after gate return = %q, want execution", got)
 	}
 
-	// The return asserted no delivery: record_delivery stays the only forward
-	// exit and the parked change never claimed one.
+	// The return asserted no further delivery: the execution pass's own
+	// delivery assertion is the only one, and the parked change never
+	// claimed one of its own.
 	var deliveries int
 	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id='work-1' AND kind=? AND json_extract(payload,'$.action_id')='record_delivery'`, store.WorkflowActionCompleted).Scan(&deliveries); err != nil {
 		t.Fatal(err)
 	}
-	if deliveries != 0 {
-		t.Fatalf("gate recovery recorded %d delivery assertions, want none", deliveries)
+	if deliveries != 1 {
+		t.Fatalf("gate recovery recorded %d delivery assertions, want the one execution-pass assertion", deliveries)
 	}
 	var pinnedVersion int64
 	var pinnedDigest string
 	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_version,definition_digest FROM workflow_instances WHERE work_id='work-1'`).Scan(&pinnedVersion, &pinnedDigest); err != nil {
 		t.Fatal(err)
 	}
-	if pinnedVersion != 15 || pinnedDigest != pinned.Digest {
+	if pinnedVersion != pinned.Definition.Version || pinnedDigest != pinned.Digest {
 		t.Fatalf("pin after recovery = v%d %s, want the released v15 %s", pinnedVersion, pinnedDigest, pinned.Digest)
 	}
 }

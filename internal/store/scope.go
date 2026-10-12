@@ -3,34 +3,65 @@ package store
 import (
 	"context"
 	"database/sql"
-	"strconv"
 	"strings"
 )
-
-func (s *Store) RelationEndpoints(ctx context.Context, relationID string) ([]string, error) {
-	return relationEndpoints(ctx, s.db, relationID)
-}
-
-func relationEndpoints(ctx context.Context, q queryer, relationID string) ([]string, error) {
-	id, err := strconv.ParseInt(relationID, 10, 64)
-	if err != nil || id < 1 {
-		return nil, newFailure(KindRelationNotFound, "relation_scope", "relation ID is invalid", false, "supply a known relation ID")
-	}
-	var from, to string
-	err = q.QueryRowContext(ctx, `SELECT r.work_id_from,r.work_id_to FROM relations r JOIN work_items wf ON wf.id=r.work_id_from JOIN work_items wt ON wt.id=r.work_id_to WHERE r.id=?`, id).Scan(&from, &to)
-	if err == sql.ErrNoRows {
-		return nil, newFailure(KindRelationNotFound, "relation_scope", "relation or one of its work endpoints does not exist", false, "reread the relation graph")
-	}
-	if err != nil {
-		return nil, wrapFailure(KindUnavailable, "relation_scope", "cannot resolve relation endpoints", true, "retry once the database is readable", err)
-	}
-	return []string{from, to}, nil
-}
 
 // ProductsForWorkIDs returns distinct Product identities across every Project
 // membership, including secondary memberships that widen work visibility.
 func (s *Store) ProductsForWorkIDs(ctx context.Context, ids []string) (map[string][]string, error) {
 	return productsForWorkIDs(ctx, s.db, ids)
+}
+
+// ResearchPackOwnerWorkIDs resolves identities only. Product membership and
+// caller authorization belong to the work-reference boundary.
+func (s *Store) ResearchPackOwnerWorkIDs(ctx context.Context, ids []string) ([]string, error) {
+	return researchPackOwnerWorkIDs(ctx, s.db, ids)
+}
+
+func ResearchPackOwnerWorkIDsTx(ctx context.Context, transaction *Transaction, ids []string) ([]string, error) {
+	tx, err := transactionSQL(transaction, "research_scope")
+	if err != nil {
+		return nil, err
+	}
+	return researchPackOwnerWorkIDs(ctx, tx, ids)
+}
+
+func researchPackOwnerWorkIDs(ctx context.Context, q queryer, ids []string) ([]string, error) {
+	if len(ids) == 0 {
+		return []string{}, nil
+	}
+	if len(ids) > 100 {
+		return nil, newFailure(KindLimitExceeded, "research_scope", "at most 100 research pack identities may be resolved", false, "supply fewer pack identities")
+	}
+	placeholders := make([]string, len(ids))
+	args := make([]any, len(ids))
+	for i, id := range ids {
+		placeholders[i], args[i] = "?", id
+	}
+	rows, err := q.QueryContext(ctx, `SELECT pack_id,owner_work_id FROM active_research_packs WHERE pack_id IN (`+strings.Join(placeholders, ",")+`) ORDER BY pack_id`, args...)
+	if err != nil {
+		return nil, wrapFailure(KindUnavailable, "research_scope", "cannot resolve research pack ownership", true, "retry once the database is readable", err)
+	}
+	defer rows.Close()
+	found := make(map[string]bool, len(ids))
+	owners := []string{}
+	for rows.Next() {
+		var id, owner string
+		if err := rows.Scan(&id, &owner); err != nil {
+			return nil, err
+		}
+		found[id] = true
+		owners = append(owners, owner)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	for _, id := range ids {
+		if !found[id] {
+			return nil, newFailure(KindProjectionNotFound, "research_scope", "research pack does not exist", false, "check the pack identifier")
+		}
+	}
+	return owners, nil
 }
 
 func productsForWorkIDs(ctx context.Context, q queryer, ids []string) (map[string][]string, error) {
@@ -194,83 +225,6 @@ func resolveCompactionHome(ctx context.Context, q queryer, workID string) (Knowl
 	}
 	primary := primaryLocators[0]
 	return KnowledgeHome{HomeProjectID: primary.project, HomeLocatorID: primary.locator, RepoPath: primary.value, HeadRef: "HEAD"}, nil
-}
-
-// ResolveLessonPublicationHome resolves the only tree a lesson publication
-// may write: the active verified worktree claim on the deterministic
-// knowledge-home Project (PM6's home order supplies the Project; the claim
-// supplies the path and the branch). The source work names the lesson and its
-// home. When that work is terminal and its original worktree is gone, the
-// caller names a distinct live publication work with publicationWorkID; its
-// claim on the same knowledge-home Project is used, and the lesson still
-// names the terminal source work. The publication owner must be live — a
-// terminal work holds no active lane and cannot own a claimed worktree a
-// publication writes through. There is no fallback to the canonical default
-// checkout and no claim outside the home Project: both refuse typed.
-func (s *Store) ResolveLessonPublicationHome(ctx context.Context, sourceWorkID, publicationWorkID string) (KnowledgeHome, error) {
-	return resolveLessonPublicationHome(ctx, s.db, sourceWorkID, publicationWorkID)
-}
-
-func resolveLessonPublicationHome(ctx context.Context, q queryer, sourceWorkID, publicationWorkID string) (KnowledgeHome, error) {
-	home, err := resolveCompactionHome(ctx, q, sourceWorkID)
-	if err != nil {
-		return KnowledgeHome{}, err
-	}
-	owner := publicationWorkID
-	if owner == "" {
-		owner = sourceWorkID
-	}
-	var lifecycle string
-	switch err := q.QueryRowContext(ctx, `SELECT lifecycle FROM work_items WHERE id=?`, owner).Scan(&lifecycle); {
-	case err == sql.ErrNoRows:
-		return KnowledgeHome{}, newFailure(KindUnknownScope, "lesson_publish", "the publication owner work does not exist", false, "name a live publication work that claims the knowledge-home worktree")
-	case err != nil:
-		return KnowledgeHome{}, wrapFailure(KindUnavailable, "lesson_publish", "cannot read the publication owner work", true, "retry once the database is readable", err)
-	case lifecycle == "completed" || lifecycle == "cancelled" || lifecycle == "superseded":
-		return KnowledgeHome{}, newFailure(KindUnknownScope, "lesson_publish", "the publication owner work is terminal, so it cannot own the claimed worktree", false, "name a live publication work that claims the knowledge-home worktree")
-	}
-	rows, err := q.QueryContext(ctx, `SELECT project_id,pinned_path,pinned_branch FROM worktree_claims WHERE work_id=? AND state='verified' ORDER BY project_id`, owner)
-	if err != nil {
-		return KnowledgeHome{}, wrapFailure(KindUnavailable, "lesson_publish", "cannot read the claimed knowledge-home worktree", true, "retry once the database is readable", err)
-	}
-	defer rows.Close()
-	var homeClaim, foreignClaim *worktreeClaimRow
-	for rows.Next() {
-		row := worktreeClaimRow{}
-		if err := rows.Scan(&row.projectID, &row.path, &row.branch); err != nil {
-			return KnowledgeHome{}, wrapFailure(KindUnavailable, "lesson_publish", "cannot decode the claimed knowledge-home worktree", true, "retry once the database is readable", err)
-		}
-		if row.projectID == home.HomeProjectID {
-			homeClaim = &row
-		} else {
-			foreignClaim = &row
-		}
-	}
-	if err := rows.Err(); err != nil {
-		return KnowledgeHome{}, wrapFailure(KindUnavailable, "lesson_publish", "cannot finish reading the claimed knowledge-home worktree", true, "retry once the database is readable", err)
-	}
-	if homeClaim != nil {
-		return KnowledgeHome{HomeProjectID: home.HomeProjectID, HomeLocatorID: home.HomeLocatorID, RepoPath: homeClaim.path, HeadRef: homeClaim.branch}, nil
-	}
-	if foreignClaim != nil {
-		return KnowledgeHome{}, newFailure(KindUnknownScope, "lesson_publish", "the publication work holds its claimed worktree on a foreign Project", false, "claim the knowledge-home Project's worktree for the publication work")
-	}
-	return KnowledgeHome{}, newFailure(KindUnknownScope, "lesson_publish", "the knowledge-home Project has no claimed worktree for the publication work", false, "claim the knowledge-home worktree for a live publication work and name it with publication_work_id")
-}
-
-type worktreeClaimRow struct {
-	projectID string
-	path      string
-	branch    string
-}
-
-// NewLessonPublicationWorktreeRefusal is the typed refusal for a lesson
-// publication whose resolved claimed worktree is not the calling session's
-// host-verified worktree. The agent effect boundary raises it, so the refusal
-// stays a store Failure end to end while the grant comparison stays in the
-// agent plane, which owns grants (CD-0026 D1).
-func NewLessonPublicationWorktreeRefusal() *Failure {
-	return newFailure(KindUnknownScope, "lesson_publish", "the claimed knowledge-home worktree is not the calling session's verified worktree", false, "run lesson publication from the claimed knowledge-home worktree, or claim that worktree for a live publication work")
 }
 
 func (s *Store) KnowledgeHomeForLocator(ctx context.Context, projectID, locatorID, headRef string) (KnowledgeHome, error) {

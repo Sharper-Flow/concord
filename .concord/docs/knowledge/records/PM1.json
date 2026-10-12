@@ -41,7 +41,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:f3d826d55a962667d00d5295c4f339e8d38d2782bc1b5294448f3ddd826ccc88",
+  "sha256": "sha256:2accea4b917c8abdbf0198f94762b4c0dd4e538833ea9cdd2c1d6c1ac472ccf8",
   "status": "accepted",
   "summary": "Defines bounded authoritative Product-memory queries including Q9 and Q10.",
   "tags": [

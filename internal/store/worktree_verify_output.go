@@ -43,7 +43,8 @@ func nativeDigest(b []byte) string {
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
-// Raw buffers never enter a JSON type. One capture spans all native stages.
+// Raw buffers never enter a JSON type. Metadata has a separate capture;
+// the remaining native stages share the retained evidence streams.
 type nativeStreamCapture struct {
 	mu                      sync.Mutex
 	stdout, stderr, preview []byte

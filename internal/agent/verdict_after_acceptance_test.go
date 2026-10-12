@@ -37,7 +37,7 @@ func testVerdictAfterAcceptance(t *testing.T, operatorApproval, otherAcceptor bo
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(grant, scopeVersion)
-	workID := captureCompositionWork(t, ctx, s, service, env, "Verdict after acceptance", "task", "workflow.generic_one_off", "accept-e2e-capture")
+	workID := captureCompositionWork(t, ctx, s, service, env, "Verdict after acceptance", "task", "workflow.implementation", "accept-e2e-capture")
 
 	// Dispatch admission requires the host session to sit inside the work
 	// item's active worktree claim, compared by filesystem identity, so the
@@ -58,39 +58,18 @@ func testVerdictAfterAcceptance(t *testing.T, operatorApproval, otherAcceptor bo
 		}
 	}
 	// The operator question gate requires an investigation observation naming
-	// a current Domain of the fixture Product and another work item. This
-	// fixture folds no knowledge index, so seed the registry too; the registry
-	// and its root Domain reference each other, so one transaction holds both.
-	seedTx, err := db.BeginTx(ctx, nil)
-	if err != nil {
+	// a current Domain of the fixture Product, and the contract approval
+	// reads the Product knowledge home, so seed the committed fixture
+	// repository and point the locator at it.
+	recoveryDomainRepository(t, s)
+	var registryHash, rootDomain string
+	if err := db.QueryRowContext(ctx, `SELECT content_hash,root_domain_id FROM domain_registries WHERE product_id='product-1'`).Scan(&registryHash, &rootDomain); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := seedTx.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
-		seedTx.Rollback()
-		t.Fatal(err)
-	}
-	registryHash := "sha256:" + strings.Repeat("d", 64)
-	registryStatements := []struct {
-		sql  string
-		args []any
-	}{
-		{`INSERT INTO project_locators(locator_id,project_id,kind,locator_value,normalized_value,created_at,updated_at) VALUES('accept-locator','project-1','canonical_path','/fixture','/fixture','2026-09-05T00:00:00Z','2026-09-05T00:00:00Z')`, nil},
-		{`INSERT INTO domain_registries(product_id,home_project_id,home_locator_id,product_key,root_domain_id,schema_version,content_hash,scanned_commit_oid) VALUES('product-1','project-1','accept-locator','product-1','root','1.0',?,'test')`, []any{registryHash}},
-		{`INSERT INTO domains(home_project_id,home_locator_id,product_id,domain_id,name,purpose,status,registry_content_hash,scanned_commit_oid) VALUES('project-1','accept-locator','product-1','root','Root','Fixture Domain','current',?,'test')`, []any{registryHash}},
-		{`INSERT INTO work_observations(observation_id,work_id,statement,refs,tags,recorded_at) VALUES('obs:verdictaccepta01',?,'verdict acceptance investigation','["root","work-1"]','[]','2026-09-09T00:00:00Z')`, []any{workID}},
-	}
-	for _, statement := range registryStatements {
-		if _, err := seedTx.ExecContext(ctx, statement.sql, statement.args...); err != nil {
-			seedTx.Rollback()
-			t.Fatalf("seed registry statement %q: %v", statement.sql, err)
-		}
-	}
-	if _, err := seedTx.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
-		seedTx.Rollback()
-		t.Fatal(err)
-	}
-	if err := seedTx.Commit(); err != nil {
-		t.Fatal(err)
+	if _, err := db.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1);
+		INSERT INTO work_observations(observation_id,work_id,statement,refs,tags,recorded_at) VALUES('obs:verdictaccepta01',?,'verdict acceptance investigation',?,'[]','2026-09-09T00:00:00Z');
+		DELETE FROM fold_guard`, workID, retryJSON([]string{rootDomain, "work-1"})); err != nil {
+		t.Fatalf("seed investigation observation: %v", err)
 	}
 	env.Worktree = sessionWorktree
 
@@ -152,7 +131,7 @@ func testVerdictAfterAcceptance(t *testing.T, operatorApproval, otherAcceptor bo
 					case "changed_version":
 						changed["expected_version"] = version + 1
 					case "changed_verdict":
-						changed["fields"].(map[string]any)["verdict_kind"] = "outcome_mismatch"
+						changed["fields"].(map[string]any)["verdicts"].([]any)[0].(map[string]any)["verdict_kind"] = "outcome_mismatch"
 					}
 					badRaw, err := json.Marshal(changed)
 					if err != nil {
@@ -202,21 +181,36 @@ func testVerdictAfterAcceptance(t *testing.T, operatorApproval, otherAcceptor bo
 		return dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: raw}, reviewEnv)
 	}
 
+	// The canonical head declares approve_contract at planning, behind the
+	// pre-contract proposal/alignment/design walk.
+	advanceCapturedWorkToContract(t, s, service, env, workID, "accept-e2e")
+	// The binding pins the registry the fixture seeded above, read from the
+	// rows, so the hash cannot drift from what the store validates against.
+	binding := workflowArchitectureBindingFixture()
+	binding["domain_registry_content_hash"] = registryHash
+	binding["home_domain_id"] = rootDomain
+	binding["affected_domain_ids"] = []string{rootDomain}
 	contract := action("approve_contract", map[string]any{
 		"premise": "A verdict after acceptance cites the accepted attempt.", "contract_version": 1,
-		"required_evidence": []string{"verification"}, "route_conventions": []string{},
+		"architecture_binding": binding,
+		"required_evidence":    []string{"verification"}, "route_conventions": []string{},
 		"outcome_predicates": []map[string]any{{"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:fixture", "immutable_subject_ref": "commit:fixture", "expected_result": "pass"}}},
 	}, "accept-e2e-contract")
 	if contract.Outcome != OutcomeOK {
 		t.Fatalf("approve_contract refused: %+v", contract.Error)
 	}
-	if started := action("start_action", map[string]any{}, "accept-e2e-start"); started.Outcome != OutcomeOK {
-		t.Fatalf("start_action refused: %+v", started.Error)
+	// The canonical head derives the execution start from the first
+	// qualifying action; the closed union authors no callable start.
+	if started := action("start_execution", map[string]any{}, "accept-e2e-start"); started.Outcome != OutcomeOK {
+		t.Fatalf("start_execution refused: %+v", started.Error)
 	}
 	if bound := action("bind_evidence", map[string]any{"evidence_kind": "artifact", "evidence_ref": "artifact:checked-delivery"}, "accept-e2e-artifact"); bound.Outcome != OutcomeOK {
 		t.Fatalf("bind delivered artifact refused: %+v", bound.Error)
 	}
 
+	// The job-capable canonical pin gates the dispatch on a ready worker-job
+	// revision recorded under the captured work's active contract (CD-0205).
+	recordReadyRetryJobForWork(t, s, service, env, workID, "job:"+workID+":accept-e2e")
 	var lane store.LaneDefinition
 	for _, candidate := range store.BuiltinLaneDefinitions() {
 		if candidate.ID == "verify" {
@@ -228,7 +222,7 @@ func testVerdictAfterAcceptance(t *testing.T, operatorApproval, otherAcceptor bo
 		"attempt_id": attemptID,
 		"worker_packet": bindPacketToRecordedState(t, s, map[string]any{
 			"schema_version": store.WorkerPacketSchemaVersion, "attempt_id": attemptID, "lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest,
-			"work_id": workID, "step_id": "execute", "inputs": map[string]any{"task": "prove the acceptance binds evidence"},
+			"work_id": workID, "step_id": "execution", "inputs": map[string]any{"task": "prove the acceptance binds evidence"},
 		}),
 	}, "accept-e2e-dispatch")
 	if dispatched.Outcome != OutcomeOK {
@@ -253,7 +247,10 @@ func testVerdictAfterAcceptance(t *testing.T, operatorApproval, otherAcceptor bo
 
 	// CD-0109: the dispatch route derives the lane actor and appends the
 	// actor/dispatch pair through the authoritative closed-shape route.
-	dispatchedEventPayload, err := json.Marshal(store.WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: "openai/test-model", PacketSchemaVersion: store.WorkerPacketSchemaVersion, ReportSchemaVersion: store.WorkerReportSchemaVersion, PacketDigest: "sha256:" + strings.Repeat("0", 64)})
+	// The lane dispatch carries the worker-job binding the dispatch_worker
+	// authorization recorded (CD-0205), so the fold admits the pair.
+	job := authorizedWorkerJobFor(t, s, workID, attemptID)
+	dispatchedEventPayload, err := json.Marshal(store.WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: "openai/test-model", PacketSchemaVersion: store.WorkerPacketSchemaVersion, ReportSchemaVersion: store.WorkerReportSchemaVersion, PacketDigest: "sha256:" + strings.Repeat("0", 64), WorkerJob: job})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -275,11 +272,20 @@ func testVerdictAfterAcceptance(t *testing.T, operatorApproval, otherAcceptor bo
 	for _, obligation := range lane.EvidenceObligations {
 		evidence = append(evidence, store.WorkerReportEvidence{Obligation: obligation, Detail: "discharged " + obligation})
 	}
-	completedPayload, err := json.Marshal(store.WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: "openai/test-model", ReportSchemaVersion: store.WorkerReportSchemaVersion, Evidence: evidence, EvidenceOrigin: store.WorkerEvidenceReported})
+	completedPayload, err := json.Marshal(store.WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: "openai/test-model", ReportSchemaVersion: store.WorkerReportSchemaVersion, Evidence: evidence, EvidenceOrigin: store.WorkerEvidenceReported, WorkerJob: job})
 	if err != nil {
 		t.Fatal(err)
 	}
-	completion := store.Event{EventID: "accept-e2e-worker-completed", Kind: store.WorkerCompleted, SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 2, Payload: completedPayload}
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A job-bound completion declares its evidence origin and rides the
+	// payload version the job field requires (CD-0205).
+	completionPayloadVersion := 2
+	if job != nil {
+		completionPayloadVersion = store.WorkerEvidenceEventPayloadVersion(store.WorkerCompleted)
+	}
+	completion := store.Event{EventID: "accept-e2e-worker-completed", Kind: store.WorkerCompleted, SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: completionPayloadVersion, Payload: completedPayload}
 	if err := store.ApplyOperation(ctx, s, store.Operation{Events: []store.Event{completion}}); err != nil {
 		t.Fatalf("worker completion folded: %v", err)
 	}
@@ -288,24 +294,54 @@ func testVerdictAfterAcceptance(t *testing.T, operatorApproval, otherAcceptor bo
 	if otherAcceptor {
 		acceptAction = signedReviewAction
 	}
-	accepted := acceptAction("accept_worker_result", map[string]any{"attempt_id": attemptID, "attempt_epoch": 2}, "accept-e2e-accept")
+	// The dispatch authorization mints the attempt's own fenced epoch; the
+	// accept binds it exactly.
+	var attemptEpochValue int64
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT json_extract(payload,'$.attempt_epoch') FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=? ORDER BY seq DESC LIMIT 1`, workID, store.WorkflowActionCompleted, attemptID).Scan(&attemptEpochValue); err != nil {
+		t.Fatal(err)
+	}
+	accepted := acceptAction("accept_worker_result", map[string]any{"attempt_id": attemptID, "attempt_epoch": attemptEpochValue}, "accept-e2e-accept")
+	keyPrefix := "accept-e2e"
 	if accepted.Outcome != OutcomeOK {
 		t.Fatalf("accept_worker_result refused: %+v", accepted.Error)
 	}
 
+	// The job-bound accept is local acceptance and holds the step; the
+	// canonical walk exits through the delivery assertions to the verdict
+	// step (execution -> refine -> delivery -> acceptance).
+	integrationRef := agentSeedIntegrationVerifyRun(t, s, workID, keyPrefix+"-integration")
+	if bound := acceptAction("bind_evidence", map[string]any{"evidence_kind": "verification", "evidence_ref": integrationRef}, keyPrefix+"-integration-bind"); bound.Outcome != OutcomeOK {
+		t.Fatalf("integration verification bind refused: %+v", bound.Error)
+	}
+	if delivered := acceptAction("record_delivery", map[string]any{"delivery_artifact": "artifact:" + keyPrefix + "-execution", "delivery_state": "asserted"}, keyPrefix+"-execution-delivery"); delivered.Outcome != OutcomeOK {
+		t.Fatalf("execution record_delivery refused: %+v", delivered.Error)
+	}
+	if refined := acceptAction("checkpoint_refine", map[string]any{}, keyPrefix+"-refine"); refined.Outcome != OutcomeOK {
+		t.Fatalf("checkpoint_refine refused: %+v", refined.Error)
+	}
+	proofRef := agentSeedRefineProofRun(t, s, workID, strings.Repeat("b", 64))
+	if bound := acceptAction("bind_evidence", map[string]any{"evidence_kind": "verification", "evidence_ref": proofRef}, keyPrefix+"-refine-proof"); bound.Outcome != OutcomeOK {
+		t.Fatalf("refine proof bind refused: %+v", bound.Error)
+	}
+	if delivered := acceptAction("record_delivery", map[string]any{"delivery_artifact": "artifact:" + keyPrefix + "-refine", "delivery_state": "asserted"}, keyPrefix+"-refine-delivery"); delivered.Outcome != OutcomeOK {
+		t.Fatalf("refine record_delivery refused: %+v", delivered.Error)
+	}
+	if gated := acceptAction("record_delivery", map[string]any{"delivery_artifact": "artifact:" + keyPrefix + "-gate", "delivery_state": "asserted"}, keyPrefix+"-gate-delivery"); gated.Outcome != OutcomeOK {
+		t.Fatalf("delivery gate record_delivery refused: %+v", gated.Error)
+	}
 	var step string
 	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&step); err != nil {
 		t.Fatal(err)
 	}
-	if step != "verify" {
-		t.Fatalf("current_step=%q, want verify", step)
+	if step != "acceptance" {
+		t.Fatalf("current_step=%q, want acceptance", step)
 	}
 	verdictAction := signedReviewAction
 	if operatorApproval {
 		verdictAction = signedAction
 	}
 	verdict := verdictAction("record_verdict", map[string]any{
-		"predicate_id": "predicate:primary", "verdict_kind": "ok", "evaluation_evidence": []string{attemptID},
+		"verdicts": []map[string]any{{"predicate_id": "predicate:primary", "verdict_kind": "ok", "evaluation_evidence": []string{attemptID}}},
 	}, "accept-e2e-verdict")
 	if verdict.Outcome != OutcomeOK {
 		t.Fatalf("verdict citing the accepted attempt refused: %+v", verdict.Error)
@@ -321,6 +357,9 @@ func testVerdictAfterAcceptance(t *testing.T, operatorApproval, otherAcceptor bo
 		t.Fatalf("verdict result carried no work reference: %s", verdict.Result)
 	}
 	if operatorApproval {
+		if bound := signedAction("bind_evidence", map[string]any{"evidence_kind": "review", "immutable_subject_ref": "evidence:" + keyPrefix + "-review"}, keyPrefix+"-review-bind"); bound.Outcome != OutcomeOK {
+			t.Fatalf("review evidence bind refused: %+v", bound.Error)
+		}
 		var actorClass string
 		if err := db.QueryRowContext(ctx, `SELECT a.actor_class FROM domain_events e JOIN workflow_actors a ON a.actor_ref=json_extract(e.payload,'$.verdict_actor_ref') WHERE e.subject_id=? AND e.kind=? ORDER BY e.seq DESC LIMIT 1`, workID, store.WorkflowVerdictRecorded).Scan(&actorClass); err != nil {
 			t.Fatal(err)

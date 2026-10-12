@@ -17,6 +17,9 @@ Inspected text, by file kind:
   comment start.
 - Python: comments and docstrings, read with tokenize and ast.
 - Shell, YAML, TOML, and extensionless shebang files: full-line `#` comments.
+- JSON: decoded `description` and `reason` string values, including nested
+  objects and arrays. A split property is inspected when its key or value line
+  is added.
 
 Every other file kind is not inspected. The EXEMPT table lists each exempt path
 class explicitly; the check applies no other exemption.
@@ -32,6 +35,7 @@ import argparse
 import ast
 import fnmatch
 import io
+import json
 import re
 import subprocess
 import sys
@@ -71,6 +75,7 @@ RULES: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("planning-identifier", re.compile(r"\bwork-[0-9a-f]{8,}\b")),
     ("planning-identifier", re.compile(r"(?<![\w#&/])#[1-9][0-9]*(?![\w-])")),
     ("planning-identifier", re.compile(r"github\.com/[\w.-]+/[\w.-]+/(?:issues|pull)/[0-9]+")),
+    ("planning-identifier", re.compile(r"linear\.app/[\w.-]+/issue/[A-Za-z][A-Za-z0-9]*-[0-9]+\b")),
     (
         "history-narration",
         re.compile(r"\b(?:used to be|formerly|renamed from|was renamed|in this change|this pull request)\b", re.IGNORECASE),
@@ -91,9 +96,12 @@ SUFFIX_KINDS = {
     ".yml": "hash",
     ".yaml": "hash",
     ".toml": "hash",
+    ".json": "json",
 }
 
 HUNK_RE = re.compile(r"^@@ -[0-9]+(?:,[0-9]+)? \+(?P<start>[0-9]+)(?:,[0-9]+)? @@")
+JSON_STRING_RE = re.compile(r'"(?:[^"\\]|\\.)*"')
+JSON_STRING_VALUE_RE = re.compile(r'\s*:\s*(?=")')
 
 
 class ContentCheckError(RuntimeError):
@@ -262,6 +270,28 @@ def python_comments(path: str, text: str) -> dict[int, str]:
     return {number: " ".join(parts) for number, parts in comments.items()}
 
 
+def json_prose(path: str, text: str) -> dict[int, str]:
+    """Decoded prose by source line; validation makes each token's role unambiguous."""
+    try:
+        json.loads(text)
+    except ValueError as error:
+        raise ContentCheckError(f"{path}: cannot parse JSON source: {error}") from error
+    prose: dict[int, list[str]] = {}
+    decoder = json.JSONDecoder()
+    line, offset = 1, 0
+    for token in JSON_STRING_RE.finditer(text):
+        line += text.count("\n", offset, token.start())
+        offset = token.start()
+        separator = JSON_STRING_VALUE_RE.match(text, token.end())
+        if separator is None or json.loads(token.group()) not in ("description", "reason"):
+            continue
+        value, end = decoder.raw_decode(text, separator.end())
+        last_line = line + text.count("\n", token.start(), end)
+        for number in range(line, last_line + 1):
+            prose.setdefault(number, []).append(value)
+    return {number: " ".join(parts) for number, parts in prose.items()}
+
+
 def inspected_text(path: str, kind: str, text: str) -> dict[int, str]:
     if kind == "text":
         return dict(enumerate(text.split("\n"), start=1))
@@ -271,6 +301,8 @@ def inspected_text(path: str, kind: str, text: str) -> dict[int, str]:
         return c_like_comments(text, templates=True)
     if kind == "python":
         return python_comments(path, text)
+    if kind == "json":
+        return json_prose(path, text)
     return {
         number: line
         for number, line in enumerate(text.split("\n"), start=1)

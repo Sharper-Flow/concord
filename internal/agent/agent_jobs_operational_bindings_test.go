@@ -200,13 +200,11 @@ func bindAJ8GroundTruthReclamation(t *testing.T, sc jobScenario) jobObservation 
 	return obs
 }
 
-// approvedOpsAction dispatches one ops workflow action, cycling the core
-// approval challenge through a signed host approval when the action requires
-// operator authority. It returns the final envelope and the work version the
-// action produced.
-func approvedOpsAction(t *testing.T, s *store.Store, service *Service, grant Authority, privateKey ed25519.PrivateKey, env CallEnvelope, version int64, action string, fields map[string]any, key string) (Envelope, int64) {
+// approvedWorkflowContract approves a contract through the signed host
+// challenge and returns its envelope and resulting work version.
+func approvedWorkflowContract(t *testing.T, s *store.Store, service *Service, grant Authority, privateKey ed25519.PrivateKey, env CallEnvelope, version int64, fields map[string]any, key string) (Envelope, int64) {
 	t.Helper()
-	return approvedWorkflowActionWithVersions(t, s, service, grant, privateKey, env, version, action, fields, key, map[string]any{"work": version})
+	return approvedWorkflowActionWithVersions(t, s, service, grant, privateKey, env, version, "approve_contract", fields, key, map[string]any{"work": version})
 }
 
 func approvedWorkflowActionWithVersions(t *testing.T, s *store.Store, service *Service, grant Authority, privateKey ed25519.PrivateKey, env CallEnvelope, version int64, action string, fields map[string]any, key string, versions map[string]any) (Envelope, int64) {
@@ -248,9 +246,16 @@ func approvedWorkflowActionWithVersions(t *testing.T, s *store.Store, service *S
 // phase through typed workflow-action fields, Concord folds one attributed
 // native-run event per phase, and the logical operation completes partial —
 // the native steps succeeded, the approved change did not.
+// bindAJ8HealthFailureRollback carries the AJ8 corpus row's retired
+// ops-runbook authoring into its CD-0218 disposition: the native
+// start/health/rollback choreography left the live catalog with its family,
+// so the corpus witness becomes the archived-family refusal — the nonterminal
+// retired instance a serving release leaves behind refuses every public
+// workflow action with zero effects, and the retained native-run reader keeps
+// the recorded-history shape the frozen journals cover.
 func bindAJ8HealthFailureRollback(t *testing.T, sc jobScenario) jobObservation {
 	t.Helper()
-	s, service, grant, privateKey := mutationDispatchFixture(t, []Capability{"work_transition"})
+	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition"})
 	seedCurrentWorkflowDomainFixture(t, s)
 	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
 	if err != nil {
@@ -270,89 +275,67 @@ func bindAJ8HealthFailureRollback(t *testing.T, sc jobScenario) jobObservation {
 	}
 
 	const runID = "run-routing-1"
-	const subject = "routing-provider:prod-edge"
-	evidenceFor := func(phase string) (string, string) {
-		digit := map[string]string{"start": "1", "health": "2", "rollback": "3"}[phase]
-		return "https://evidence.invalid/runs/" + runID + "/" + phase, "sha256:" + strings.Repeat(digit, 64)
+	state := func() (int64, int64) {
+		t.Helper()
+		var events, contracts int64
+		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id='work-1'`).Scan(&events); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_contracts WHERE work_id='work-1'`).Scan(&contracts); err != nil {
+			t.Fatal(err)
+		}
+		return events, contracts
 	}
 	nativeFields := func(phase, status string) map[string]any {
-		evidenceRef, evidenceDigest := evidenceFor(phase)
-		return map[string]any{"run_id": runID, "native_subject_ref": subject, "status": status, "evidence_ref": evidenceRef, "evidence_digest": evidenceDigest, "asserted_at": fixedTime().Format("2006-01-02T15:04:05Z")}
+		digit := map[string]string{"start": "1", "health": "2", "rollback": "3"}[phase]
+		return map[string]any{"run_id": runID, "native_subject_ref": "routing-provider:prod-edge", "status": status, "evidence_ref": "https://evidence.invalid/runs/" + runID + "/" + phase, "evidence_digest": "sha256:" + strings.Repeat(digit, 64), "asserted_at": fixedTime().Format("2006-01-02T15:04:05Z")}
 	}
 
-	// plan → approval → execute: the operator approves the contract and the
-	// operation through real challenge/approval cycles.
-	contractResp, version := approvedOpsAction(t, s, service, grant, privateKey, env, version, "approve_contract", workflowContractFieldsFixture(), "aj8-rollback-contract")
-	if contractResp.Outcome != OutcomeOK {
-		t.Fatalf("approve_contract=%+v", contractResp.Error)
+	// Every public action on the nonterminal archived instance refuses with
+	// the archived-family answer and commits nothing — the approval-gated
+	// contract first, then the retired native actions by id.
+	baselineEvents, baselineContracts := state()
+	refuse := func(actionID string, fields map[string]any, key string) {
+		t.Helper()
+		input := map[string]any{"work_id": "work-1", "expected_version": version, "action_id": actionID, "idempotency_key": key}
+		if fields != nil {
+			input["fields"] = fields
+		}
+		challenge := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: retryJSON(input)}, env)
+		if challenge.Outcome != OutcomeError || challenge.Error == nil {
+			t.Fatalf("%s on the archived instance = %+v, want a refusal", actionID, challenge.Error)
+		}
+		// A live action id reaches the archived-family gate and names it; a
+		// retired id refuses at the closed union before any authority read.
+		if actionID == "approve_contract" && !strings.Contains(challenge.Error.Message, "workflow.ops_runbook is archived") {
+			t.Fatalf("approve_contract on the archived instance = %+v, want the archived-family refusal", challenge.Error)
+		}
+		events, contracts := state()
+		if events != baselineEvents || contracts != baselineContracts {
+			t.Fatalf("%s refusal wrote state: events=%d/%d contracts=%d/%d", actionID, baselineEvents, events, baselineContracts, contracts)
+		}
 	}
-	operationResp, version := approvedOpsAction(t, s, service, grant, privateKey, env, version, "approve_operation", nil, "aj8-rollback-operation")
-	if operationResp.Outcome != OutcomeOK {
-		t.Fatalf("approve_operation=%+v", operationResp.Error)
-	}
-	startResp, version := approvedOpsAction(t, s, service, grant, privateKey, env, version, "start_run", nativeFields("start", "started"), "aj8-rollback-start")
-	if startResp.Outcome != OutcomeOK {
-		t.Fatalf("start_run=%+v", startResp.Error)
-	}
-	// Fixture placement to the health step: the execute step's only
-	// advance-mode actions are condition actions, and an open condition
-	// blocks the cross-authority health report by design. The scenario's
-	// initial_state already declares the approval valid and the change
-	// applied, so the runbook position at the health check is fixture
-	// context (mirroring seedOverlapProjection's fold-guarded seeding), not
-	// behavior under test. Every reported action below is a real dispatch.
-	placeOpsRunbookAtStep(t, s, "health")
-	healthResp, version := approvedOpsAction(t, s, service, grant, privateKey, env, version, "record_health", nativeFields("health", "failed"), "aj8-rollback-health")
-	if healthResp.Outcome != OutcomePartial {
-		t.Fatalf("failed health must classify partial, got %s: %+v", healthResp.Outcome, healthResp.Error)
-	}
-	rollbackResp, _ := approvedOpsAction(t, s, service, grant, privateKey, env, version, "rollback_run", nativeFields("rollback", "rolled_back"), "aj8-rollback-run")
-	if rollbackResp.Outcome != OutcomePartial {
-		t.Fatalf("successful rollback after failed health must classify partial (logical operation unsuccessful), got %s: %+v", rollbackResp.Outcome, rollbackResp.Error)
-	}
-	if rollbackResp.Error == nil || rollbackResp.Error.Kind != "operation_conflict" || rollbackResp.Error.RecoveryAction.Kind != "reconcile_operation" || rollbackResp.Error.EffectState != EffectPartial {
-		t.Fatalf("rollback partial shape wrong: %+v", rollbackResp.Error)
-	}
-	healthFailure, _ := rollbackResp.Error.Details["health_failure"].(string)
-	rollbackResult, _ := rollbackResp.Error.Details["rollback_result"].(string)
-	if healthFailure == "" || rollbackResult == "" {
-		t.Fatalf("partial outcome missing native failure/rollback results: %+v", rollbackResp.Error.Details)
-	}
+	refuse("approve_contract", workflowContractFieldsFixture(), "aj8-rollback-contract")
+	refuse("approve_operation", nil, "aj8-rollback-operation")
+	refuse("start_run", nativeFields("start", "started"), "aj8-rollback-start")
+	refuse("record_health", nativeFields("health", "failed"), "aj8-rollback-health")
+	refuse("rollback_run", nativeFields("rollback", "rolled_back"), "aj8-rollback-run")
 
-	// The durable projection: every phase is an attributed report with the
-	// reporter, subject, and evidence riding alongside the status (CD-0039 D4).
+	// The recorded-history reader survives: the continuity snapshot's
+	// native-run section stays the frozen reader for replayed journals
+	// (CD-0039 D4), so the refusal gates authoring, not the frozen history.
 	snapshot, err := store.ReadWorkflowContinuity(context.Background(), s, store.ContinuityRequest{Work: "work-1", Limit: 20})
 	if err != nil {
 		t.Fatal(err)
 	}
-	reports := snapshot.NativeRuns
-	phases := map[string]store.NativeRunReport{}
-	for _, report := range reports {
-		if report.RunID == runID {
-			phases[report.Phase] = report
-		}
-	}
-	if len(phases) != 3 || phases["start"].Status != "started" || phases["health"].Status != "failed" || phases["rollback"].Status != "rolled_back" {
-		t.Fatalf("native run phases=%+v", phases)
-	}
-	for phase, report := range phases {
-		if report.ReportingAuthorityRef != grant.ClientRef || report.NativeSubjectRef != subject || report.EvidenceRef == "" || report.EvidenceDigest == "" || report.AssertedAt == "" {
-			t.Fatalf("%s report lost attribution: %+v", phase, report)
-		}
+	if snapshot.NativeRuns == nil || len(snapshot.NativeRuns) != 0 {
+		t.Fatalf("native-run reader shape changed: %+v", snapshot.NativeRuns)
 	}
 
-	obs := envelopeToObservation(rollbackResp)
-	obs.State = map[string]any{"native_change": map[string]any{"status": phases["rollback"].Status}}
-	obs.Communication["health_failure"] = healthFailure
-	obs.Communication["rollback_result"] = rollbackResult
-	obs.Effects["evidence_authority_supplied"] = true
-	// The prohibited effect is adapter domain logic: the adapter inferring a
-	// provider outcome or synthesizing partial from prose. Probing it means
-	// proving the typed core path owns the classification: the partial status
-	// equals the folded attributed report, and the inputs carried only the
-	// closed typed fields — no summary, no authority strings, no prose.
+	obs := envelopeToObservation(Envelope{Outcome: OutcomeOK})
+	obs.State = map[string]any{"archived_family": "workflow.ops_runbook", "refused_actions": "approve_contract,approve_operation,start_run,record_health,rollback_run", "zero_effects": true}
 	obs.Effects["adapter_domain_logic"] = probedAbsent{
-		Evidence: "outcome partial is derived core-side from the folded workflow.native_run_recorded event and matches the durable projection (rolled_back by " + phases["rollback"].ReportingAuthorityRef + "); the adapter input surface carried only the closed typed fields with no caller authority or prose summary",
+		Evidence: "the retired authoring refuses before any write; no adapter inference path exists to probe because no native action is authorable",
 	}
 	return obs
 }

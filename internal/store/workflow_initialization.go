@@ -27,16 +27,20 @@ type WorkflowInitializationRequest struct {
 // unconditionally, so a capture pins the kind-driven default instead of
 // skipping initialization. Imported work items are the one shape that
 // holds no instance; continuity answers for them with typed absence.
-func DefaultWorkflowRefForKind(kind string) string {
+// Decision and other work carry no implicit family: the caller refuses with
+// the returned failure until the capture names a retained family explicitly.
+func DefaultWorkflowRefForKind(kind string) (string, error) {
 	switch kind {
 	case "task":
-		return "workflow.implementation"
+		return "workflow.implementation", nil
 	case "bug":
-		return "workflow.break_fix"
+		return "workflow.break_fix", nil
 	case "research":
-		return "workflow.research"
+		return "workflow.research", nil
 	default:
-		return "workflow.generic_one_off"
+		return "", newFailure(KindInvalidOperation, "workflow_authoring",
+			"work kind "+workflowRefExcerpt(kind)+" requires an explicit retained workflow family", false,
+			"supply workflow_type_ref naming workflow.implementation, workflow.break_fix, or workflow.research")
 	}
 }
 

@@ -672,6 +672,9 @@ func (s *Store) PrepareWorktreeClaimNative(ctx context.Context, req WorktreeClai
 	if !worktreeSHAPattern.MatchString(req.BaseSHA) {
 		return native, nil, newFailure(KindInvalidOperation, "worktree_claim", "base is not a full commit SHA", false, "pin the exact base commit SHA")
 	}
+	if err := s.RequireActionableWork(ctx, req.WorkID, "worktree_claim"); err != nil {
+		return native, nil, err
+	}
 	runner := req.Runner
 	if runner == nil {
 		runner = ExecGitRunner{}
@@ -769,6 +772,9 @@ func (s *Store) PrepareWorktreeClaimNative(ctx context.Context, req WorktreeClai
 // (CD-0195 D2).
 func claimWorktreeStoreTx(ctx context.Context, tx *sql.Tx, req WorktreeClaimRequest, native WorktreeClaimNative) (WorktreeClaimResult, error) {
 	out := WorktreeClaimResult{}
+	if err := requireActionableWork(ctx, tx, req.WorkID, "worktree_claim"); err != nil {
+		return out, err
+	}
 	location := native.Location
 	derivedBranch, derivedPath, repoRoot := location.Branch, location.Path, location.Repo
 	if err := validateWorktreeProjectMembershipTx(ctx, tx, req.WorkID, req.ProjectID, "worktree_claim"); err != nil {
@@ -4404,7 +4410,7 @@ func readWorktreeAuditRows(ctx context.Context, db *sql.DB, productID string) (w
 		return out, err
 	}
 	out.entries = entries
-	stranded, err := collectAuditQuery(ctx, db, "cannot read work lifecycle", `SELECT w.id FROM work_items w JOIN worktree_entries e ON e.set_id=?||w.id JOIN product_projects pp ON pp.project_id=e.project_id WHERE pp.product_id=? AND e.state='active' AND w.lifecycle='needed'`, []any{worktreeSetPrefix, productID}, func(r *sql.Rows) (string, error) {
+	stranded, err := collectAuditQuery(ctx, db, "cannot read work lifecycle", `SELECT w.id FROM work_items w JOIN worktree_entries e ON e.set_id=?||w.id JOIN product_projects pp ON pp.project_id=e.project_id WHERE pp.product_id=? AND e.state='active' AND w.lifecycle='needed' AND w.`+actionableWorkKindSQL, []any{worktreeSetPrefix, productID}, func(r *sql.Rows) (string, error) {
 		var id string
 		if err := r.Scan(&id); err != nil {
 			return "", err
@@ -5277,6 +5283,10 @@ type WorktreeVerifyRequest struct {
 	Runner         GitRunner
 	RunCommand     func(ctx context.Context, dir string, command []string, maxOutput int) (int, []byte, bool, error)
 	MaxOutputBytes int
+	// Native oracle test stages use the operation's declared ceiling only
+	// when the caller did not supply its own operation deadline.
+	SupportedBudgetSeconds int
+	CallerBudgetApplied    bool
 }
 
 // WorktreeVerifyResult is the bounded record of one leased run. OperationRef

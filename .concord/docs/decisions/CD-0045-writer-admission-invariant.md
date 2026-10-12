@@ -171,8 +171,8 @@ is a manifest* was written to prevent.
 ## Verification
 
 - `.concord/docs/decisions/CD-0045-writer-admission-invariant.md` exists with status
-  `accepted` and is indexed exactly once in
-  `.concord/docs/concord-knowledge-index.v1.json`.
+  `accepted` and is indexed exactly once as the record shard
+  `.concord/docs/knowledge/records/CD-0045.json`, composed by `scripts/knowledge_index.py`.
 - No document claims zero lock waiting or zero contention for Concord-owned
   writes while `busy_timeout` queueing remains the selected mechanism.
 - `.concord/docs/floor-readiness.v1.json` item `fc5-concurrent-process-conformance` names

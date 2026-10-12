@@ -168,20 +168,4 @@ func TestOverdueAwaitsInProductListsStalledWaits(t *testing.T) {
 	if len(overdue) != 1 || overdue[0].ConditionID != "cond-stalled" || !overdue[0].Overdue {
 		t.Fatalf("overdue=%+v", overdue)
 	}
-
-	// The portfolio row counts it: the stalled item no longer presents as
-	// merely active.
-	page, err := s.QueryProductRows(ctx, ProductRowRequest{Product: "p-await", Limit: 10})
-	if err != nil {
-		t.Fatal(err)
-	}
-	found := false
-	for _, row := range page.Rows {
-		if row.ActionCounts.Values != nil && row.ActionCounts.Values.OverdueAwaits == 1 {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatal("portfolio row does not surface the overdue await")
-	}
 }

@@ -97,21 +97,14 @@ func TestRetainedDefinitionPayloadValidationResolvesFrozenHistoricalDecoder(t *t
 		t.Error("frozen decoder disagrees with the classified engine path on the invalid corpus")
 	}
 
-	// The live role resolves every declared schema ref of every registered
-	// definition through the public authoring document, and the replay role
-	// resolves them all through the frozen decoder — the new-pin replay
-	// obligation: every current pin becomes retained later, so the frozen
-	// document must already carry what a current definition declares, not
-	// only what the S0 baseline carried.
+	// Every registered pin must resolve its declared refs for replay. Live
+	// declarations are checked separately against the public document below.
 	for _, definition := range builtinWorkflowDefinitionsWithHistory() {
 		for _, action := range definition.ActionDefinitions {
 			for _, field := range action.Payload.Fields {
 				for _, ref := range []string{field.SchemaRef, field.ItemRef} {
 					if ref == "" {
 						continue
-					}
-					if !payloadschema.HasIn(workflowLivePayloadSchemaDocument(), ref) {
-						t.Errorf("definition %s v%d action %s field %s declares schema %q, which the live public document does not carry", definition.Ref, definition.Version, action.ID, field.Name, ref)
 					}
 					if !payloadschema.HasIn(workflowReplayPayloadSchemaDocument(), ref) {
 						t.Errorf("definition %s v%d action %s field %s declares schema %q, which the replay frozen decoder does not carry", definition.Ref, definition.Version, action.ID, field.Name, ref)
@@ -122,12 +115,29 @@ func TestRetainedDefinitionPayloadValidationResolvesFrozenHistoricalDecoder(t *t
 	}
 }
 
+func TestRetiredDecisionDeclarationResolvesOnlyFrozenDecoder(t *testing.T) {
+	definition, err := BuiltinWorkflowDefinitionForRef("workflow.architecture_spike")
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(historicalDecisionFields())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validateWorkflowActionPayload(definition.Definition, "record_decision", raw); err == nil {
+		t.Error("retired decision record stayed authorable through the live document")
+	}
+	if err := validateWorkflowActionPayloadForReplay(definition.Definition, "record_decision", raw); err != nil {
+		t.Fatalf("frozen decoder rejected the recorded decision shape: %v", err)
+	}
+}
+
 // TestRetainedPinClassificationCoversEveryRegisteredHistoryVersion pins the
 // retained-pin identity itself: exactly the registered (ref, version) entries
 // below a family head are retained, and every current head is not.
 func TestRetainedPinClassificationCoversEveryRegisteredHistoryVersion(t *testing.T) {
 	current := map[string]bool{}
-	for _, definition := range BuiltinWorkflowDefinitions() {
+	for _, definition := range builtinWorkflowFrozenHeads() {
 		current[definition.Ref+"/"+strconv.FormatInt(definition.Version, 10)] = true
 	}
 	historyCount := 0
@@ -149,8 +159,8 @@ func TestRetainedPinClassificationCoversEveryRegisteredHistoryVersion(t *testing
 	}
 }
 
-// TestCurrentAndRecoveryDeclarationsResolvePublicDocument keeps the authoring
-// invariant: every schema ref a current definition or engine
+// TestCurrentAndRecoveryDeclarationsResolvePublicDocument keeps the
+// authoring invariant: every schema ref a current definition or engine
 // recovery declaration declares still resolves in the public authoring
 // document the published variants build from.
 func TestCurrentAndRecoveryDeclarationsResolvePublicDocument(t *testing.T) {
@@ -307,9 +317,9 @@ func deepCopyJSONDocument(t *testing.T, document map[string]any) map[string]any 
 // record_alignment declares the combinations; implementation v14 first
 // carried it, so a retained pin and the current head run the same corpus.
 func TestHistoricalEngineCrossFieldRulesStayVersionInvariant(t *testing.T) {
-	head, ok := BuiltinWorkflowRegistry().Lookup("workflow.implementation", 29)
+	head, ok := BuiltinWorkflowRegistry().Lookup("workflow.implementation", 30)
 	if !ok {
-		t.Fatal("implementation v29 is not registered")
+		t.Fatal("implementation v30 is not registered")
 	}
 	retained, ok := BuiltinWorkflowRegistry().Lookup("workflow.implementation", 14)
 	if !ok {

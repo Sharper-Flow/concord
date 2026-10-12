@@ -29,7 +29,7 @@ The remake shipped as an interactive terminal launcher. The simplify lane
 (Concord (CON) issue 908) deletes that interactive surface end to end: the
 browse UI, the
 `concord launcher` verb, the bare-invocation TUI route, and the
-`internal/launcher` tree. CD-0219 records the retirement. What remains — and
+internal/launcher tree. CD-0219 records the retirement. What remains — and
 what this record now governs — is the non-interactive session entry route the
 remake already carried: the operator names the work, Concord starts or resumes
 the session through its session bootstrap.

@@ -275,32 +275,40 @@ func TestStaleRegistryRescanLetsAcceptWorkerResultRecord(t *testing.T) {
 	}
 }
 
-// TestStaleRegistryRescanHoldsLateVerdictUntilRePin reproduces the
-// late-verdict hole a registry rescan opened: an item past its verification
-// step with a missing verdict admitted the late record_verdict recovery
-// without consulting the staleness boundary, so a verdict could record under
-// a pin the rescan had stranded (CD-0222 D7). The recovery refuses with
-// stale_requires_review on the owning transaction and on the admission
-// inspection, and the held verdict records once the current-hash successor
-// re-pins. An ops runbook is Product-changing but not a correction workflow,
-// so it holds the complete step across the re-pin and the late recovery is
-// still available afterwards.
+// TestStaleRegistryRescanHoldsLateVerdictUntilRePin proves a stale contract
+// pin strands a late verdict behind the staleness boundary: an item past its
+// verification step with a missing verdict admits the late record_verdict
+// recovery only through the boundary, so a verdict never records under a pin
+// the rescan stranded. The recovery refuses on the owning transaction and on
+// the admission inspection, the accepted successor law re-pins through the
+// ordinary stale recovery, and the held verdict records under the re-pinned
+// contract afterwards. Research's complete step resolves the late recovery
+// and classifies the successor as an ordinary re-pin, so the journey runs on
+// a retained family's eligible step.
 func TestStaleRegistryRescanHoldsLateVerdictUntilRePin(t *testing.T) {
 	const workID = "stale-registry-late-verdict"
-	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.ops_runbook", "complete")
+	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.research", "complete")
 	s, owner, operator := fixture.store, fixture.owner, fixture.operator
 	defer s.Close()
 	if got := currentStep(t, s, workID); got != "complete" {
 		t.Fatalf("fixture step = %q, want complete", got)
 	}
-	currentHash := driftStaleRegistryFixture(t, s)
-	// The ops_runbook contract's verdicts require native_run evidence, so the
-	// fixture captures and verifies one run the held verdict can name.
-	seedVerifiedNativeRunCapture(t, s, workID)
+	// The rescan: the contract's mandated law is superseded by an accepted
+	// successor, so the pinned revision reads stale.
+	execStaleRegistryInFold(t, s,
+		`UPDATE workflow_contracts SET spec_mandate='["spec:one"]' WHERE work_id='`+workID+`' AND contract_version=1`,
+		`UPDATE law_subjects SET status='superseded' WHERE home_project_id='project' AND home_locator_id='workflow-law-locator' AND law_id='spec:one'`,
+		`INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','spec:two','spec','accepted','.concord/docs/spec-two.md','Synthetic successor law','sha256:`+strings.Repeat("b", 64)+`','test')`,
+		`INSERT INTO law_relations(home_project_id,home_locator_id,source_law_id,kind,target_law_id,scanned_commit_oid) VALUES('project','workflow-law-locator','spec:two','supersedes','spec:one','test')`,
+		`INSERT INTO law_domain_homes(home_project_id,home_locator_id,law_id,product_id,domain_id,law_content_hash,scanned_commit_oid,product_wide_rationale) VALUES('project','workflow-law-locator','spec:two','product','root','sha256:`+strings.Repeat("b", 64)+`','test','')`,
+	)
 
+	// The canonical heads author the batched verdict alone, so the held
+	// verdict rides the one-entry batch with the evidence the fixture bound.
 	lateVerdict := func(contractVersion int64, verdict string) json.RawMessage {
 		return mustJSONValue(map[string]any{
-			"contract_version": contractVersion, "predicate_id": "predicate:return-route", "verdict_kind": verdict,
+			"contract_version": contractVersion,
+			"verdicts":         []map[string]any{{"predicate_id": "predicate:return-route", "verdict_kind": verdict, "evaluation_evidence": []string{"evidence:return-route-verification"}}},
 		})
 	}
 	// The action executor cannot author its own verdict, so the held verdict
@@ -309,11 +317,11 @@ func TestStaleRegistryRescanHoldsLateVerdictUntilRePin(t *testing.T) {
 
 	err := runVerdictActionAs(t, s, workID, "record_verdict", lateVerdict(1, "ok"), 0, reviewer)
 	var failure *Failure
-	if !errors.As(err, &failure) || failure.Kind != KindStaleRequiresReview || failure.Detail != "workflow Domain registry pin is stale" {
-		t.Fatalf("late record_verdict under a stale pin error=%v, want stale_requires_review naming the stale pin", err)
+	if !errors.As(err, &failure) || failure.Kind != KindStaleLawRevision || failure.Detail != "workflow contract consumes a superseded law revision" {
+		t.Fatalf("late record_verdict under a stale pin error=%v, want the stale-law refusal naming the superseded revision", err)
 	}
-	if err := InspectWorkflowActionAdmission(context.Background(), s, WorkflowActionPreflightRequest{WorkID: workID, ActionID: "record_verdict", Payload: lateVerdict(1, "ok"), Actor: owner}); !errors.As(err, &failure) || failure.Kind != KindStaleRequiresReview {
-		t.Fatalf("admission inspection error=%v, want stale_requires_review", err)
+	if err := InspectWorkflowActionAdmission(context.Background(), s, WorkflowActionPreflightRequest{WorkID: workID, ActionID: "record_verdict", Payload: lateVerdict(1, "ok"), Actor: owner}); !errors.As(err, &failure) || failure.Kind != KindStaleLawRevision {
+		t.Fatalf("admission inspection error=%v, want the stale-law refusal", err)
 	}
 	var recorded int
 	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=? AND kind=?`, workID, WorkflowVerdictRecorded).Scan(&recorded); err != nil {
@@ -323,17 +331,51 @@ func TestStaleRegistryRescanHoldsLateVerdictUntilRePin(t *testing.T) {
 		t.Fatalf("refused late verdict recorded %d verdicts, want 0", recorded)
 	}
 
-	if err := runIssue933OperatorAction(t, s, workID, "supersede_contract", registryRepinSuccessorPayload(2, currentHash, workID, 1), owner, operator); err != nil {
-		t.Fatalf("current-hash successor supersede: %v", err)
+	// The ordinary stale-law re-pin: the successor mandates the accepted
+	// successor law and carries no Domain write authority.
+	successor := mustJSONValue(map[string]any{
+		"contract_version": 2, "predecessor_contract_versions": []int64{1},
+		"premise": "re-pin the approved contract to the accepted successor law",
+		"outcome_predicates": []map[string]any{{
+			"predicate_id": "predicate:return-route", "ordinal": 0, "outcome_kind": "outcome",
+			"outcome_payload": map[string]any{"kind": "outcome", "allowed": []string{"report_recorded"}},
+		}},
+		"required_evidence": []string{"verification"}, "route_conventions": []string{},
+		"spec_mandate": []string{"spec:two"}, "law_modifies": []string{},
+		"rigor_class":      "prototype_internal",
+		"supersede_reason": "the approved contract consumes a superseded law revision",
+		"audit_evidence":   []string{"evidence:law-rescan"},
+	})
+	if err := runIssue933OperatorAction(t, s, workID, "supersede_contract", successor, owner, operator); err != nil {
+		t.Fatalf("successor-law supersede: %v", err)
+	}
+	if version, active := activeStaleRegistryContract(t, s, workID); version != 2 || active != 1 {
+		t.Fatalf("active contracts after re-pin = version %d count %d, want exactly version 2", version, active)
 	}
 	if got := currentStep(t, s, workID); got != "complete" {
 		t.Fatalf("step after re-pin = %q, want the held complete step", got)
+	}
+	// The successor's mandate law binds the way every mandate binds: one
+	// durable evidence reference naming the law.
+	version := readWorkVersion(t, s, workID)
+	ownerRef, err := WorkflowActorRef(owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seedWorkflowAuthority(t, s, "law-rescan-"+workID, workID, owner.PrincipalRef, "request/law-rescan-"+workID, []string{"spec:two"})
+	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{workflowEventWithActor("law-rescan-binding-"+workID, WorkflowEvidenceBound, workID, ownerRef, map[string]any{
+		"work_id": workID, "expected_version": version, "resulting_version": version + 1, "evidence_kind": "approval",
+		"immutable_subject_ref": "spec:two", "producer_id": owner.PrincipalRef, "producer_run_ref": "law-rescan-" + workID,
+		"producer_watermark": "request/law-rescan-" + workID, "observed_at": "2026-10-11T00:00:00Z",
+	})}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
+		t.Fatal(err)
 	}
 
 	// The re-pin reopens the held verdict: a non-ok verdict records under the
 	// successor, holds the step, and leaves the recovery route open.
 	if err := runVerdictActionAs(t, s, workID, "record_verdict", mustJSONValue(map[string]any{
-		"contract_version": 2, "predicate_id": "predicate:return-route", "verdict_kind": "outcome_mismatch", "incomparable_with_approved": true,
+		"contract_version": 2,
+		"verdicts":         []map[string]any{{"predicate_id": "predicate:return-route", "verdict_kind": "outcome_mismatch", "incomparable_with_approved": true, "evaluation_evidence": []string{"evidence:return-route-verification"}}},
 	}), 0, reviewer); err != nil {
 		t.Fatalf("late record_verdict after the re-pin: %v", err)
 	}

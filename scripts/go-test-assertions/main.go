@@ -34,6 +34,7 @@ var failureMethods = map[string]bool{
 }
 
 func main() {
+	filesStdin := flag.Bool("files-stdin", false, "parse candidate Go paths from a JSON array on stdin")
 	flag.Parse()
 	root := "."
 	if flag.NArg() > 1 {
@@ -48,7 +49,22 @@ func main() {
 		fail(err)
 	}
 
-	files, err := parseModule(root)
+	var candidates map[string]bool
+	if *filesStdin {
+		var paths []string
+		if err := json.NewDecoder(os.Stdin).Decode(&paths); err != nil {
+			fail(fmt.Errorf("candidate Go paths: %w", err))
+		}
+		candidates = make(map[string]bool, len(paths))
+		for _, path := range paths {
+			clean := filepath.Clean(filepath.FromSlash(path))
+			if filepath.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+				fail(fmt.Errorf("candidate Go path escapes module: %s", path))
+			}
+			candidates[filepath.Join(root, clean)] = true
+		}
+	}
+	files, err := parseModule(root, candidates)
 	if err != nil {
 		fail(err)
 	}
@@ -66,7 +82,7 @@ func fail(err error) {
 	os.Exit(1)
 }
 
-func parseModule(root string) ([]sourceFile, error) {
+func parseModule(root string, candidates map[string]bool) ([]sourceFile, error) {
 	fset := token.NewFileSet()
 	var files []sourceFile
 	err := filepath.Walk(root, func(path string, info os.FileInfo, walkErr error) error {
@@ -81,6 +97,17 @@ func parseModule(root string) ([]sourceFile, error) {
 		}
 		if !strings.HasSuffix(info.Name(), ".go") {
 			return nil
+		}
+		if candidates != nil && !candidates[path] {
+			return nil
+		}
+		resolved, err := filepath.EvalSymlinks(path)
+		if err != nil {
+			return err
+		}
+		relativeTarget, err := filepath.Rel(root, resolved)
+		if err != nil || relativeTarget == ".." || strings.HasPrefix(relativeTarget, ".."+string(filepath.Separator)) {
+			return fmt.Errorf("go source escapes module: %s", path)
 		}
 		file, err := parser.ParseFile(fset, path, nil, parser.ParseComments)
 		if err != nil {

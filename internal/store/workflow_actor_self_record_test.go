@@ -17,7 +17,11 @@ func seedBootstrapCapturedWork(t *testing.T, workID, kind string) (*Store, int64
 	ctx := context.Background()
 	s := openTemp(t)
 	seedWork(t, s, workID)
-	definition, err := BuiltinWorkflowDefinitionForRef(DefaultWorkflowRefForKind(kind))
+	ref, err := DefaultWorkflowRefForKind(kind)
+	if err != nil {
+		t.Fatal(err)
+	}
+	definition, err := BuiltinWorkflowDefinitionForRef(ref)
 	if err != nil {
 		t.Fatal(err)
 	}

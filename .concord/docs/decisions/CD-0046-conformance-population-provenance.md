@@ -215,7 +215,8 @@ bug. The resolver makes the rule visible to any future reader of
   acceptance-conformance step.
 - CD-0011 §*Accepted load profile calibration* is amended to state
   provenance, not "structural" isolation.
-- `.concord/docs/concord-knowledge-index.v1.json` records CD-0046 once.
+- The record shard `.concord/docs/knowledge/records/CD-0046.json` records CD-0046 once,
+  composed by `scripts/knowledge_index.py`.
 - `python3 scripts/check-doc-links.py`,
   `python3 scripts/check-knowledge-index.py`,
   `python3 scripts/check-floor-readiness.py`,

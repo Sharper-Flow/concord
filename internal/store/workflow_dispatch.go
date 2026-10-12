@@ -191,15 +191,15 @@ func WorkflowActionDefinitionFor(ctx context.Context, s *Store, registry Definit
 // recovery route another surface admits.
 func workflowSupersedeContractDiscovery(ctx context.Context, s *Store, entry RegisteredDefinition, workID string) (WorkflowActionDefinition, error) {
 	var action WorkflowActionDefinition
-	if err := s.Transact(ctx, func(transaction *Transaction) error {
-		return workflowSupersedeContractDiscoveryTx(ctx, transaction.tx, entry, workID, &action)
+	if err := s.readSnapshot(ctx, func(q queryer) error {
+		return workflowSupersedeContractDiscoveryTx(ctx, q, entry, workID, &action)
 	}); err != nil {
 		return WorkflowActionDefinition{}, err
 	}
 	return action, nil
 }
 
-func workflowSupersedeContractDiscoveryTx(ctx context.Context, tx *sql.Tx, entry RegisteredDefinition, workID string, action *WorkflowActionDefinition) error {
+func workflowSupersedeContractDiscoveryTx(ctx context.Context, tx queryer, entry RegisteredDefinition, workID string, action *WorkflowActionDefinition) error {
 	var currentStep string
 	if err := tx.QueryRowContext(ctx, `SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&currentStep); err != nil {
 		if err == sql.ErrNoRows {
@@ -345,7 +345,7 @@ func applyWorkflowActionRawTx(ctx context.Context, tx *sql.Tx, scope *foldScope,
 		return result, err
 	}
 	if guards.staleRecovery {
-		if err := validateWorkflowContractRecoveryPayload(request.Payload); err != nil {
+		if err := validateWorkflowContractRecoveryPayload(entry.Definition, request.Payload); err != nil {
 			return result, err
 		}
 	} else if err := validateWorkflowActionPayload(entry.Definition, request.ActionID, workflowEnvelopeProjectedPayload(entry.Definition, request.ActionID, request.Payload, request.SelectedChoice, request.DecisionContextDigest)); err != nil {

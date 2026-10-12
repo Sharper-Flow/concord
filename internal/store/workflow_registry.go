@@ -669,17 +669,18 @@ func normalizeWorkflowDefinition(definition WorkflowDefinition) WorkflowDefiniti
 	return definition
 }
 
-// BuiltinWorkflowDefinitions returns the current definition of each shipped
-// workflow family: the last element of its authored version chain. Frozen
-// version builders live in workflow_registry_versions.go and never acquire
-// current payload contracts.
+// BuiltinWorkflowDefinitions returns the three live authoring heads in chain
+// order. The frozen registry keeps every retired family registered; this
+// enumeration answers only what new authoring resolves to.
 func BuiltinWorkflowDefinitions() []WorkflowDefinition {
-	chains := workflowDefinitionChains()
-	currents := make([]WorkflowDefinition, 0, len(chains))
-	for _, chain := range chains {
-		currents = append(currents, chain[len(chain)-1])
+	heads := make([]WorkflowDefinition, 0, len(liveWorkflowAuthoringFamilies))
+	for _, chain := range workflowDefinitionChains() {
+		tail := chain[len(chain)-1]
+		if liveWorkflowAuthoringFamilies[tail.Ref] {
+			heads = append(heads, tail)
+		}
 	}
-	return currents
+	return heads
 }
 
 // builtinWorkflowDefinitionsWithHistory returns every registered built-in
@@ -695,7 +696,7 @@ func builtinWorkflowDefinitionsWithHistory() []WorkflowDefinition {
 }
 
 // BuiltinWorkflowDefinitionsWithHistory returns the immutable built-in
-// definitions that the contract generator must inspect for legacy payloads.
+// definitions that the contract generator inspects for frozen schema references.
 func BuiltinWorkflowDefinitionsWithHistory() []WorkflowDefinition {
 	return builtinWorkflowDefinitionsWithHistory()
 }
@@ -748,27 +749,23 @@ var builtinWorkflowRegistry = sync.OnceValue(NewBuiltinWorkflowRegistry)
 
 func BuiltinWorkflowRegistry() DefinitionRegistry { return builtinWorkflowRegistry() }
 
-// BuiltinWorkflowDefinitionForRef resolves the immutable built-in definition
-// selected by a work item. Capture and revise use this before opening their
-// mutation path so an unknown workflow family cannot leave partial work state.
+// BuiltinWorkflowDefinitionForRef resolves the current registered head of one
+// family from the full frozen registry, retired families included. Reads,
+// replays, and pins resolve through this lookup; the live authoring selector
+// narrows what new work may pin, never what a pin can resolve.
 func BuiltinWorkflowDefinitionForRef(ref string) (RegisteredDefinition, error) {
 	if !validWorkflowRef(ref) {
 		return RegisteredDefinition{}, definitionFailure(KindInvalidDefinition, "workflow type reference is invalid")
 	}
-	var latest RegisteredDefinition
-	for _, definition := range BuiltinWorkflowDefinitions() {
-		if definition.Ref == ref && definition.Version > latest.Definition.Version {
-			registered, ok := BuiltinWorkflowRegistry().Lookup(ref, definition.Version)
-			if !ok {
-				return RegisteredDefinition{}, definitionFailure(KindDefinitionDigestMismatch, "workflow type reference is not registered")
-			}
-			latest = registered
-		}
+	current, ok := builtinWorkflowCurrentVersions[ref]
+	if !ok {
+		return RegisteredDefinition{}, definitionFailure(KindDefinitionDigestMismatch, "workflow type reference is not registered")
 	}
-	if latest.Definition.Ref != "" {
-		return latest, nil
+	registered, ok := BuiltinWorkflowRegistry().Lookup(ref, current)
+	if !ok {
+		return RegisteredDefinition{}, definitionFailure(KindDefinitionDigestMismatch, "workflow type reference is not registered")
 	}
-	return RegisteredDefinition{}, definitionFailure(KindDefinitionDigestMismatch, "workflow type reference is not registered")
+	return registered, nil
 }
 
 // dispatchableStepKinds derives the workflow step kinds that may carry the
@@ -2065,19 +2062,6 @@ func currentActionDefinition(id string, payloadContracts bool) WorkflowActionDef
 		publicPayload = policy.PublicPayload
 	}
 	return WorkflowActionDefinition{ID: id, Consequence: policy.Consequence, Approval: policy.Approval, ExecutionMode: policy.ExecutionMode, Payload: payload, PublicPayload: publicPayload}
-}
-
-// BuiltinWorkflowActionPublication names the actions whose engine policy
-// declarations exist for publication. The retained-publication rule
-// uses it in the contract exporter: an action the registered history still
-// declares but no current head declares stays authorable at this policy
-// payload until the retirement slice narrows the publication deliberately.
-func BuiltinWorkflowActionPublication() map[string]WorkflowActionDefinition {
-	publication := make(map[string]WorkflowActionDefinition, len(builtinActionPolicies))
-	for id := range builtinActionPolicies {
-		publication[id] = currentActionDefinition(id, true)
-	}
-	return publication
 }
 
 func workerFailureRecoveryActionDefinition() WorkflowActionDefinition {

@@ -4,7 +4,7 @@
 - **Date:** 2026-09-29
 - **Scope:** The repository placement of Product knowledge, the operator
   override route for placements outside `.concord/`, and the retirement of
-  the root `docs/`, `instructions/`, and `scenarios/` trees in this
+  the root docs/, instructions/, and scenarios/ trees in this
   repository
 - **Amends:** CD-0114 (keeps the shard composition, moves the shard home)
 - **Related:** CD-0007, CD-0047, CD-0063, CD-0114, CD-0159
@@ -20,7 +20,7 @@ The operator set a default Product law: all Product knowledge belongs within
 the repository's `.concord/` docs, structure, and schema. Only an explicit
 recorded operator override admits a placement outside that tree. An inferred
 exception never does. Concord itself held required knowledge in three root
-trees: `docs/`, `instructions/`, and `scenarios/`. The default law therefore
+trees: docs/, instructions/, and scenarios/. The default law therefore
 required a migration of this repository before it could bind any other
 Product.
 
@@ -75,7 +75,7 @@ that override names.
 
 ### D3. The root trees are gone
 
-This repository carries no root `docs/`, `instructions/`, or `scenarios/`
+This repository carries no root docs/, instructions/, or scenarios/
 directory and no compatibility symlink for those paths. The placement check
 refuses the directory and the symlink alike. A new knowledge document lands
 under `.concord/` by default, and the closure check keeps every unprocessed
@@ -83,8 +83,8 @@ document visible.
 
 ### D4. Installed conduct is a projection, not a second authoring home
 
-The release copies `.concord/instructions` into the `instructions/` archive
-member, and the installer keeps the installed `current/instructions/`
+The release copies `.concord/instructions` into the `<archive-root>/instructions/` archive
+member, and the installer keeps the installed `<installation-root>/current/instructions/`
 location. The repository placement changes. Shipped conduct keeps working,
 and the installed copy stays derived from the one authored source.
 

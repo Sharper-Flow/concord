@@ -351,9 +351,6 @@ func populateReconstructionSnapshot(ctx context.Context, s *Store, snapshot *Rec
 			return err
 		}
 		work.Projects = projects
-		work.Active = work.Lifecycle == "in_progress"
-		work.Terminal = work.Lifecycle == "completed" || work.Lifecycle == "cancelled" || work.Lifecycle == "superseded"
-		work.Ready = work.Lifecycle == "needed"
 		snapshot.WorkProjects = work.Projects
 		snapshot.Relations, err = reconstructionRelations(ctx, s.db, snapshot.Subject.ID)
 		if err != nil {

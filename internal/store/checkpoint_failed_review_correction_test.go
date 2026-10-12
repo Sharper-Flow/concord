@@ -52,7 +52,7 @@ func seedCheckpointFailedReviewMismatchWith(t *testing.T, workID string, registe
 	epoch := dispatchCheckpointReviewAttempt(t, fixture, workID, checkpoint, attemptID)
 	failCheckpointReviewAttempt(t, fixture.store, workID, attemptID)
 	reviewer := checkpointReviewReviewer(t, fixture.store, workID)
-	if err := runVerdictActionAs(t, fixture.store, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:return-route","verdict_kind":"outcome_mismatch","evaluation_evidence":["evidence:return-route-verification"],"incomparable_with_approved":true}`), 0, reviewer); err != nil {
+	if err := runVerdictActionAs(t, fixture.store, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"verdicts":[{"predicate_id":"predicate:return-route","verdict_kind":"outcome_mismatch","evaluation_evidence":["evidence:return-route-verification"],"incomparable_with_approved":true}]}`), 0, reviewer); err != nil {
 		t.Fatalf("record mismatch verdict after the failed review: %v", err)
 	}
 	return fixture, attemptID, epoch
@@ -276,7 +276,7 @@ func TestCheckpointFailedReviewCorrectionPreflightMatchesTheResolver(t *testing.
 		fixture := seedWorkflowReturnRouteFixtureRequiring(t, workID, "workflow.break_fix", "verify", []string{"verification", "review"}, []string{"verification", "artifact"})
 		reviewer := checkpointReviewReviewer(t, fixture.store, workID)
 		dispatchVerifyReviewAttempt(t, fixture, workID)
-		if err := runVerdictActionAs(t, fixture.store, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:return-route","verdict_kind":"outcome_mismatch","evaluation_evidence":["evidence:return-route-verification"],"incomparable_with_approved":true}`), 0, reviewer); err != nil {
+		if err := runVerdictActionAs(t, fixture.store, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"verdicts":[{"predicate_id":"predicate:return-route","verdict_kind":"outcome_mismatch","evaluation_evidence":["evidence:return-route-verification"],"incomparable_with_approved":true}]}`), 0, reviewer); err != nil {
 			t.Fatalf("record mismatch verdict: %v", err)
 		}
 		kind, detail := requestCorrectionPreflightRefusalClass(t, fixture.store, workID, fixture.owner)
@@ -318,7 +318,7 @@ func TestCheckpointFailedReviewCorrectionNamesEachMissingPrerequisite(t *testing
 		fixture := seedWorkflowReturnRouteFixtureRequiring(t, workID, "workflow.break_fix", "verify", []string{"verification", "review"}, []string{"verification", "artifact"})
 		reviewer := checkpointReviewReviewer(t, fixture.store, workID)
 		dispatchVerifyReviewAttempt(t, fixture, workID)
-		if err := runVerdictActionAs(t, fixture.store, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:return-route","verdict_kind":"outcome_mismatch","evaluation_evidence":["evidence:return-route-verification"],"incomparable_with_approved":true}`), 0, reviewer); err != nil {
+		if err := runVerdictActionAs(t, fixture.store, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"verdicts":[{"predicate_id":"predicate:return-route","verdict_kind":"outcome_mismatch","evaluation_evidence":["evidence:return-route-verification"],"incomparable_with_approved":true}]}`), 0, reviewer); err != nil {
 			t.Fatalf("record mismatch verdict: %v", err)
 		}
 		kind, detail := requestCorrectionRefusalClass(t, fixture.store, workID)
@@ -709,7 +709,7 @@ func TestCheckpointCorrectionDispatchCountsIncomparableOKVerdicts(t *testing.T) 
 	fixture, reviewer := seedCheckpointCorrectionSecondCycle(t, workID)
 	s := fixture.store
 	ctx := context.Background()
-	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:return-route","verdict_kind":"ok","evaluation_evidence":["evidence:return-route-verification"],"incomparable_with_approved":true}`), 0, reviewer); err != nil {
+	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"verdicts":[{"predicate_id":"predicate:return-route","verdict_kind":"ok","evaluation_evidence":["evidence:return-route-verification"],"incomparable_with_approved":true}]}`), 0, reviewer); err != nil {
 		t.Fatalf("incomparable ok verdict refused: %v", err)
 	}
 	entry, err := BuiltinWorkflowDefinitionForRef("workflow.break_fix")
@@ -759,10 +759,10 @@ func TestCheckpointCorrectionDispatchCountsMixedPredicateWindows(t *testing.T) {
 	if _, err := db.Exec(`DELETE FROM fold_guard`); err != nil {
 		t.Fatal(err)
 	}
-	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:return-route","verdict_kind":"ok","evaluation_evidence":["evidence:return-route-verification"]}`), 0, reviewer); err != nil {
+	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"verdicts":[{"predicate_id":"predicate:return-route","verdict_kind":"ok","evaluation_evidence":["evidence:return-route-verification"]}]}`), 0, reviewer); err != nil {
 		t.Fatalf("comparable ok verdict refused: %v", err)
 	}
-	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:second","verdict_kind":"outcome_mismatch","evaluation_evidence":["evidence:return-route-verification"],"incomparable_with_approved":true}`), 0, reviewer); err != nil {
+	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"verdicts":[{"predicate_id":"predicate:second","verdict_kind":"outcome_mismatch","evaluation_evidence":["evidence:return-route-verification"],"incomparable_with_approved":true}]}`), 0, reviewer); err != nil {
 		t.Fatalf("stale second-predicate verdict refused: %v", err)
 	}
 	entry, err := BuiltinWorkflowDefinitionForRef("workflow.break_fix")

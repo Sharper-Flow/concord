@@ -95,7 +95,7 @@ setting W's primary Project through PM5, then retries idempotently.
 This rule is rebuild-stable because Product-home, primary-Project, and Project-level
 knowledge-locator designations are typed authoritative configuration—not process cwd,
 current repo, or free-form choice. PM6 defines these placement references; accepted
-C14 owns launcher presentation and accepted C15 owns non-Project resource shape.
+C15 owns non-Project resource shape.
 
 ## 4. Canonical note and durable locator
 

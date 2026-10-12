@@ -49,6 +49,25 @@ const (
 // diagnostic-only stress evidence; the acceptance profile refuses it.
 const productionLikePaceInterval = 100 * time.Millisecond
 
+// durable_mixed is the separately named scenario that mixes the surviving
+// public read owners with consequential durable commits (CD-0050 D2, CD-0207
+// D1) on one temporary database. Its samples form the separately named mixed
+// population; they never feed the production-like latency denominator or the
+// falsifier verdict (CD-0046 owns that provenance).
+const (
+	durableMixedScenario            = "durable_mixed"
+	durableMixedIterations          = 8
+	durableMixedReadsPerIteration   = 3
+	durableMixedReadBacksPerWorker  = 1
+	durableMixedDurableOpsPerWorker = 2
+	durableMixedProbeOp             = "conformance-durable-mixed-probe"
+	durableMixedProbeProduct        = "conformance-durable-mixed-probe-product"
+	durableMixedResearchOwner       = "conformance-durable-mixed-owner"
+	durableMixedResearchPackID      = "conformance-durable-mixed-pack"
+	mixedSampleProfileRead          = "mixed_read"
+	mixedSampleProfileDurable       = "mixed_durable"
+)
+
 type conformanceRunnerProfile string
 
 const (
@@ -209,6 +228,10 @@ type WorkerResult struct {
 	Attempts         int            `json:"attempts,omitempty"`
 	Profile          string         `json:"profile,omitempty"`
 	Samples          []WorkerSample `json:"samples,omitempty"`
+	// DurableCommits counts the durable transactions this child committed
+	// through the durable owner (CD-0207 D1). It is set only by the
+	// durable_mixed scenario.
+	DurableCommits int64 `json:"durable_commits,omitempty"`
 }
 
 type latencySummary struct {
@@ -225,6 +248,25 @@ type conformancePopulations struct {
 	CommitSamples    int64 `json:"commit_samples"`
 	RaceInstrumented bool  `json:"race_instrumented"`
 	ProductionLike   bool  `json:"production_like"`
+}
+
+// conformanceMixedPopulation is the separately named sample population for
+// the durable_mixed scenario. It counts the public read samples and the
+// durable commit samples on their own latency summaries. It is informational:
+// it carries no threshold, no falsifier verdict, and no authority of its own,
+// and its samples never redefine the accepted latency denominator (CD-0046).
+type conformanceMixedPopulation struct {
+	Workers                 int            `json:"workers"`
+	ReadSamples             int64          `json:"read_samples"`
+	DurableSamples          int64          `json:"durable_samples"`
+	Accepted                int64          `json:"accepted"`
+	BusyEscaped             int64          `json:"busy_escaped"`
+	Errors                  int64          `json:"errors"`
+	DurableCommits          int64          `json:"durable_commits"`
+	ReadWallLatency         latencySummary `json:"read_wall_latency"`
+	DurableWallLatency      latencySummary `json:"durable_wall_latency"`
+	DurableBeginWaitLatency latencySummary `json:"durable_begin_wait_latency"`
+	DurableCommitLatency    latencySummary `json:"durable_commit_latency"`
 }
 
 // ConformanceReport keeps correctness ahead of latency and names every timing
@@ -271,6 +313,9 @@ type ConformanceReport struct {
 	AcceptedLatency latencySummary                   `json:"accepted_latency"`
 	Scenarios       map[string]map[WorkerOutcome]int `json:"scenarios"`
 	PayloadProfiles map[string]map[int]WorkerOutcome `json:"payload_profiles,omitempty"`
+	// MixedPopulation carries the durable_mixed sample population. The
+	// production-like rounds omit it.
+	MixedPopulation *conformanceMixedPopulation `json:"mixed_population,omitempty"`
 }
 
 func TestConformanceWorker(t *testing.T) {
@@ -428,6 +473,47 @@ func runTenProcessConformance(t *testing.T, runnerProfile conformanceRunnerProfi
 	}
 	if countOutcome(results, outcomeAccepted) != 10 {
 		t.Fatalf("Step reads = %+v, want ten successful reads", report.Scenarios["step_read"])
+	}
+
+	// durable_mixed (CD-0050 D2, CD-0207 D1): ten children mix the surviving
+	// public read owners with durable claim and completion commits on the
+	// same temporary database. The mixed samples form their own named
+	// population; the ordinary write latency populations stay untouched.
+	if err := prepareDurableMixedFixtures(t, ctx, s); err != nil {
+		t.Fatal(err)
+	}
+	mixedResults, err := runConformanceWorkers(ctx, path, durableMixedScenario)
+	if err != nil {
+		t.Fatalf("durable_mixed scenario: %v", err)
+	}
+	assertTenWorkers(t, path, mixedResults)
+	addScenario(&report, durableMixedScenario, mixedResults)
+	if countOutcome(mixedResults, outcomeAccepted) != 10 {
+		t.Fatalf("durable_mixed workers = %+v, want ten accepted", report.Scenarios[durableMixedScenario])
+	}
+	if err := verifyDurableMixedEffects(t, ctx, s, report.Workers); err != nil {
+		t.Fatal(err)
+	}
+	mixedPopulation := summarizeMixedPopulation(mixedResults)
+	if err := validateMixedPopulation(mixedPopulation, report.Workers); err != nil {
+		t.Fatalf("durable_mixed population: %v", err)
+	}
+	report.MixedPopulation = &mixedPopulation
+	// Mixed correctness outcomes join the base accounting, so the existing
+	// gate semantics (CD-0045 D2) keep applying to them. Their timing stays
+	// out of the base latency populations.
+	for _, sample := range expandWorkerResults(mixedResults) {
+		report.Counts[sample.Outcome]++
+		report.Attempts++
+		if sample.Outcome == outcomeLost {
+			report.Lost++
+		}
+		if sample.Outcome == outcomeInvariantViolation {
+			report.InvariantViolations++
+		}
+		if sample.Outcome == outcomeBusyEscaped {
+			report.BusyEscaped++
+		}
 	}
 
 	if err := ApplyOperation(ctx, s, conformanceCreationOperation("duplicate-conformance", "duplicate-membership")); err != nil {
@@ -797,6 +883,8 @@ func runWorkerScenario(ctx context.Context, s *Store, worker int, scenario strin
 			result.WallDurationMS = durationMS(time.Since(started))
 			return result
 		}
+	case durableMixedScenario:
+		return runDurableMixedScenario(ctx, s, worker)
 	default:
 		err = errors.New("unknown conformance scenario")
 	}
@@ -856,6 +944,252 @@ func runLoadScenario(ctx context.Context, s *Store, worker int, scenario string)
 		}
 	}
 	return result
+}
+
+// durableMixedWorkerPlan builds one worker's durable operation identities for
+// the durable_mixed scenario. Op IDs and idempotency keys are unique per
+// worker, so the plan carries no same-entity contention; the `same` scenario
+// owns that race. The claim and the completion use distinct idempotency keys.
+func durableMixedWorkerPlan(worker int) (ClaimRequest, CompleteRequest) {
+	opID := fmt.Sprintf("conformance-durable-mixed-%d", worker)
+	claim := testClaim(opID, fmt.Sprintf("mixed-claim-%d", worker))
+	completion := completionRequest(opID, 1, fmt.Sprintf("mixed-complete-%d", worker), fmt.Sprintf(`{"worker":%d}`, worker))
+	return claim, completion
+}
+
+// prepareDurableMixedFixtures seeds the read targets the durable_mixed
+// children use: a claimed probe operation for the fence read, a probe product
+// for the membership read, and a research pack for the canonical research
+// read. Everything lands in the temporary conformance database.
+func prepareDurableMixedFixtures(t *testing.T, ctx context.Context, s *Store) error {
+	t.Helper()
+	if _, err := ApplyOperationWithResult(ctx, s, conformanceCreationOperation(durableMixedProbeProduct, durableMixedProbeProduct+"-membership")); err != nil {
+		return fmt.Errorf("durable_mixed probe product: %w", err)
+	}
+	if _, err := ClaimStep(ctx, s, testClaim(durableMixedProbeOp, "mixed-probe-claim")); err != nil {
+		return fmt.Errorf("durable_mixed probe claim: %w", err)
+	}
+	seedResearchWork(t, s, durableMixedResearchOwner)
+	if _, err := CreateResearchPack(ctx, s, CreateResearchPackRequest{
+		Identity:    researchIdentity("conformance-durable-mixed-pack-create"),
+		PackID:      durableMixedResearchPackID,
+		OwnerWorkID: durableMixedResearchOwner,
+		Revision:    ResearchRevisionInput{Question: "conformance", ScopeIn: json.RawMessage(`{}`), ScopeOut: json.RawMessage(`{}`), DoneWhen: json.RawMessage(`{}`), Method: "source"},
+	}); err != nil {
+		return fmt.Errorf("durable_mixed research pack: %w", err)
+	}
+	return nil
+}
+
+// runDurableMixedScenario performs one worker's durable_mixed plan: every
+// iteration reads through the surviving public read owners, and the first and
+// last iterations add the worker's durable claim and completion. The commit
+// path is the durable owner's (CD-0050 D2, CD-0207 D1), so a durable commit
+// that returns success is durable and waits for no WAL reader. Every
+// operation appends one WorkerSample under its named profile.
+func runDurableMixedScenario(ctx context.Context, s *Store, worker int) WorkerResult {
+	result := WorkerResult{Worker: worker, Outcome: outcomeAccepted, Attempts: 1}
+	claim, completion := durableMixedWorkerPlan(worker)
+	invariant := func() WorkerResult {
+		result.Outcome = outcomeInvariantViolation
+		result.FailureKind = KindInvariantViolation
+		return result
+	}
+	for iteration := 0; iteration < durableMixedIterations; iteration++ {
+		started := time.Now()
+		_, err := Step(ctx, s, durableMixedProbeOp)
+		if !appendMixedSample(&result, mixedSampleProfileRead, started, nil, err) {
+			return result
+		}
+		started = time.Now()
+		_, err = s.ProjectsForProduct(ctx, durableMixedProbeProduct)
+		if !appendMixedSample(&result, mixedSampleProfileRead, started, nil, err) {
+			return result
+		}
+		started = time.Now()
+		_, err = s.ReadResearchPack(ctx, ResearchReadRequest{PackID: durableMixedResearchPackID, Limit: 100})
+		if !appendMixedSample(&result, mixedSampleProfileRead, started, nil, err) {
+			return result
+		}
+		switch iteration {
+		case 0:
+			observer := &operationObserver{}
+			started := time.Now()
+			fence, err := claimStepObservedAuthorized(ctx, s, claim, true, observer, nil)
+			if !appendMixedSample(&result, mixedSampleProfileDurable, started, observer, err) {
+				return result
+			}
+			if fence.AttemptEpoch != 1 || fence.Replayed {
+				return invariant()
+			}
+		case durableMixedIterations - 1:
+			observer := &operationObserver{}
+			started := time.Now()
+			fence, err := completeStep(ctx, s, completion, true, observer)
+			if !appendMixedSample(&result, mixedSampleProfileDurable, started, observer, err) {
+				return result
+			}
+			if fence.Replayed || fence.ResultKind != ResultCompleted {
+				return invariant()
+			}
+			started = time.Now()
+			readback, err := Step(ctx, s, completion.OpID)
+			if !appendMixedSample(&result, mixedSampleProfileRead, started, nil, err) {
+				return result
+			}
+			if readback.AttemptEpoch != completion.AttemptEpoch || readback.ResultKind != ResultCompleted || readback.ResultPayload != completion.ResultPayload {
+				return invariant()
+			}
+		}
+	}
+	if got := s.DurableCommits(); got != durableMixedDurableOpsPerWorker {
+		return invariant()
+	}
+	result.DurableCommits = int64(s.DurableCommits())
+	return result
+}
+
+// appendMixedSample records one mixed operation sample. It returns false when
+// err is non-nil and classifies the result outcome from that failure.
+func appendMixedSample(result *WorkerResult, profile string, started time.Time, observer *operationObserver, err error) bool {
+	begin, commit := mixedObserverDurations(observer)
+	sample := WorkerSample{
+		Outcome:          classifyOutcome(failureKind(err), err, outcomeAccepted),
+		FailureKind:      failureKind(err),
+		BeginWaitMS:      durationMS(begin),
+		CommitDurationMS: durationMS(commit),
+		WallDurationMS:   durationMS(time.Since(started)),
+		Profile:          profile,
+	}
+	result.Samples = append(result.Samples, sample)
+	if err != nil {
+		result.FailureKind = sample.FailureKind
+		result.Outcome = sample.Outcome
+		return false
+	}
+	return true
+}
+
+func mixedObserverDurations(observer *operationObserver) (begin, commit time.Duration) {
+	if observer == nil {
+		return 0, 0
+	}
+	return observer.beginWait, observer.commitDuration
+}
+
+// verifyDurableMixedEffects proves from the parent handle that each worker's
+// durable commits landed and their effects are visible to a fresh read: the
+// completion is the newest attempt with its payload, and the probe research
+// pack still reads current.
+func verifyDurableMixedEffects(t *testing.T, ctx context.Context, s *Store, workers int) error {
+	t.Helper()
+	for worker := 0; worker < workers; worker++ {
+		claim, completion := durableMixedWorkerPlan(worker)
+		fence, err := Step(ctx, s, claim.OpID)
+		if err != nil {
+			return fmt.Errorf("durable_mixed worker %d effect read: %w", worker, err)
+		}
+		if fence.AttemptEpoch != completion.AttemptEpoch || fence.ResultKind != ResultCompleted || fence.ResultPayload != completion.ResultPayload {
+			return fmt.Errorf("durable_mixed worker %d effect = epoch %d kind %q payload %q, want epoch %d kind %q payload %q", worker, fence.AttemptEpoch, fence.ResultKind, fence.ResultPayload, completion.AttemptEpoch, ResultCompleted, completion.ResultPayload)
+		}
+		if got := maxAttemptEpoch(t, s, claim.OpID); got != completion.AttemptEpoch {
+			return fmt.Errorf("durable_mixed worker %d newest attempt epoch = %d, want %d", worker, got, completion.AttemptEpoch)
+		}
+	}
+	pack, err := s.ReadResearchPack(ctx, ResearchReadRequest{PackID: durableMixedResearchPackID, Limit: 100})
+	if err != nil {
+		return fmt.Errorf("durable_mixed probe pack read: %w", err)
+	}
+	if pack.OwnerWorkID != durableMixedResearchOwner || pack.CurrentRevision != 1 {
+		return fmt.Errorf("durable_mixed probe pack = owner %q revision %d, want owner %q revision 1", pack.OwnerWorkID, pack.CurrentRevision, durableMixedResearchOwner)
+	}
+	return nil
+}
+
+func durableMixedExpectedReadSamples(workers int) int64 {
+	return int64(workers) * (durableMixedIterations*durableMixedReadsPerIteration + durableMixedReadBacksPerWorker)
+}
+
+func durableMixedExpectedDurableSamples(workers int) int64 {
+	return int64(workers) * durableMixedDurableOpsPerWorker
+}
+
+// summarizeMixedPopulation derives the separately named mixed population from
+// the durable_mixed samples alone. Samples carrying any other profile are not
+// part of this population.
+func summarizeMixedPopulation(results []WorkerResult) conformanceMixedPopulation {
+	population := conformanceMixedPopulation{Workers: len(results)}
+	var readWalls, durableWalls, durableBegins, durableCommits []int64
+	for _, result := range results {
+		population.DurableCommits += result.DurableCommits
+		for _, sample := range result.Samples {
+			switch sample.Profile {
+			case mixedSampleProfileRead:
+				population.ReadSamples++
+				readWalls = append(readWalls, sample.WallDurationMS)
+			case mixedSampleProfileDurable:
+				population.DurableSamples++
+				durableWalls = append(durableWalls, sample.WallDurationMS)
+				durableBegins = append(durableBegins, sample.BeginWaitMS)
+				durableCommits = append(durableCommits, sample.CommitDurationMS)
+			default:
+				continue
+			}
+			switch sample.Outcome {
+			case outcomeAccepted:
+				population.Accepted++
+			case outcomeBusyEscaped:
+				population.BusyEscaped++
+			case outcomeError:
+				population.Errors++
+			}
+		}
+	}
+	population.ReadWallLatency = summarizeValues(readWalls)
+	population.DurableWallLatency = summarizeValues(durableWalls)
+	population.DurableBeginWaitLatency = summarizeValues(durableBegins)
+	population.DurableCommitLatency = summarizeValues(durableCommits)
+	return population
+}
+
+// validateMixedPopulation checks the structural invariants of the mixed
+// population: every worker contributed its planned samples, every latency
+// summary covers its own sample population, and no sample class is empty.
+// Outcome classification is not structural: busy escapes and errors flow
+// through the existing base gate semantics (CD-0045 D2 binds zero-escape to
+// the accepted population only).
+func validateMixedPopulation(population conformanceMixedPopulation, workers int) error {
+	if population.Workers != workers {
+		return fmt.Errorf("workers = %d, want %d", population.Workers, workers)
+	}
+	if want := durableMixedExpectedReadSamples(workers); population.ReadSamples != want {
+		return fmt.Errorf("read samples = %d, want %d", population.ReadSamples, want)
+	}
+	if want := durableMixedExpectedDurableSamples(workers); population.DurableSamples != want {
+		return fmt.Errorf("durable samples = %d, want %d", population.DurableSamples, want)
+	}
+	if want := int64(workers) * durableMixedDurableOpsPerWorker; population.DurableCommits != want {
+		return fmt.Errorf("durable commits = %d, want %d", population.DurableCommits, want)
+	}
+	if population.ReadWallLatency.Population != population.ReadSamples {
+		return fmt.Errorf("read latency population = %d, want %d", population.ReadWallLatency.Population, population.ReadSamples)
+	}
+	for _, summary := range []struct {
+		name  string
+		value latencySummary
+	}{
+		{"durable wall", population.DurableWallLatency},
+		{"durable begin-wait", population.DurableBeginWaitLatency},
+		{"durable commit", population.DurableCommitLatency},
+	} {
+		if summary.value.Population != population.DurableSamples {
+			return fmt.Errorf("%s latency population = %d, want %d", summary.name, summary.value.Population, population.DurableSamples)
+		}
+	}
+	if population.ReadSamples == 0 || population.DurableSamples == 0 {
+		return fmt.Errorf("empty mixed sample population: %+v", population)
+	}
+	return nil
 }
 
 func classifyOutcome(kind FailureKind, err error, prior WorkerOutcome) WorkerOutcome {

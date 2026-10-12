@@ -1202,7 +1202,7 @@ routeDeclaration("G07 retains sourced research pinned by another coordinator acr
     const createdPack = await ok("concord_work_define", "research_pack_create", {
       owner_work_id: ownerID, revision: { question: "Which synthetic source owns the route?", method: "source inspection" }, idempotency_key: "g07-pack",
     }, a)
-    const packID = createdPack.changed_refs[0].id as string
+    const packID = createdPack.changed_refs.find((ref: JSONRecord) => ref.entity_kind === "research_pack").id as string
     const packVersion = () => dbValue(dbPath, `SELECT expected_version FROM active_research_packs WHERE pack_id='${packID}'`).expected_version
     const workVersion = (id = workID) => dbValue(dbPath, `SELECT version FROM work_items WHERE id='${id}'`).version
     const source = { source_id: "source:g07", kind: "source_code", locator: "oraclekit/oracle.go", title: "Synthetic route source", publisher_or_author: "Synthetic Author", accessed_at: "2026-10-12T00:00:00Z" }
@@ -1308,7 +1308,7 @@ routeDeclaration("G07 retains sourced research pinned by another coordinator acr
     await writePack("research_freshness_set", "g07-stale-pin", { revision: 1, freshness: "stale" })
     const beforeRefusal = snapshot()
     const refused = await invoke("concord_work_transition", { operation: "workflow_action", input: actionInput("g07-stale-required", true) }, b)
-    expect(refused.outcome).toBe("error")
+    expect(refused.outcome, JSON.stringify(refused)).toBe("error")
     expect(refused.error.kind).toBe("stale_requires_review")
     expect(refused.error.effect_state).toBe("none")
     expect(snapshot()).toEqual(beforeRefusal)

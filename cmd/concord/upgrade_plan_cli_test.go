@@ -1276,23 +1276,24 @@ func TestUpgradeWithTheCancelInputRefusesAHeldOutsideRepairItemBeforeFenceOrSnap
 	eventsBefore := cutoverEventCount(t, path)
 
 	code, out, errOut := runUpgradeStdin(t, `{"plan":true,"cancel_cutover_pinned_work":true}`)
-	if !strings.Contains(out+errOut, cutoverHeldWork) {
-		t.Fatalf("the plan must name the held item among the blockers: %d %s %s", code, out, errOut)
+	if code != 0 {
+		t.Fatalf("the held-item plan must report its blockers as JSON: %d %s %s", code, out, errOut)
 	}
 	var report struct {
 		store.UpgradeReadiness
 		CutoverDisposition *cutoverDispositionReport `json:"cutover_disposition"`
 	}
-	if err := json.Unmarshal([]byte(out), &report); err == nil {
-		if !report.ActivationBlocked {
-			t.Fatalf("a determinable cancellation refusal must block the plan: %+v", report.UpgradeReadiness)
-		}
-		if !strings.Contains(strings.Join(report.Blockers, "\n"), cutoverHeldWork) {
-			t.Fatalf("the plan blockers must name the held item: %+v", report.Blockers)
-		}
-		if report.CutoverDisposition == nil || report.CutoverDisposition.WorkCount != len(cutoverSelectedWorks)+1 {
-			t.Fatalf("the selected held item must remain in the disposition count: %+v", report.CutoverDisposition)
-		}
+	if err := json.Unmarshal([]byte(out), &report); err != nil {
+		t.Fatalf("the held-item plan output is not JSON: %v: %s", err, out)
+	}
+	if !report.ActivationBlocked {
+		t.Fatalf("a determinable cancellation refusal must block the plan: %+v", report.UpgradeReadiness)
+	}
+	if !strings.Contains(strings.Join(report.Blockers, "\n"), cutoverHeldWork) {
+		t.Fatalf("the plan blockers must name the held item: %+v", report.Blockers)
+	}
+	if report.CutoverDisposition == nil || report.CutoverDisposition.WorkCount != len(cutoverSelectedWorks)+1 {
+		t.Fatalf("the selected held item must remain in the disposition count: %+v", report.CutoverDisposition)
 	}
 
 	code, out, errOut = runUpgradeStdin(t, `{"cancel_cutover_pinned_work":true}`)

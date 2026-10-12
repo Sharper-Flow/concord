@@ -638,27 +638,9 @@ func TestDistinctReleasedCoreBreakingUpgradeRequiresStoppedSessions(t *testing.T
 	}
 }
 
-// The pair uses immutable source commits. The environment override selects
-// the final candidate when the integration head advances.
-const cutoverBaselineCommit = "0559ec20be8e31f2fdb9851bb3dbfeb804db3be2"
+// The baseline is a released source; the candidate is the checkout under test.
+const cutoverBaselineTag = "v13.4.0"
 const cutoverBaselineSchema = 122
-const cutoverCandidateBaseCommit = "f07f0eac1277b21bb9a4a4023c924fb9854d967e"
-
-// Test-only input; runtime CONCORD_* inputs are removed by TestMain.
-const cutoverCandidateOverrideEnv = "TEST_CUTOVER_CANDIDATE_SHA"
-
-// cutoverCandidateCommit names the exact candidate source: the pinned base
-// unless the coordinator overrides it with a full SHA for the final head.
-func cutoverCandidateCommit(t *testing.T) string {
-	t.Helper()
-	if override := strings.TrimSpace(os.Getenv(cutoverCandidateOverrideEnv)); override != "" {
-		if len(override) != 40 || strings.Trim(override, "0123456789abcdef") != "" {
-			t.Fatalf("%s must be a full lowercase SHA-1, got %q", cutoverCandidateOverrideEnv, override)
-		}
-		return override
-	}
-	return cutoverCandidateBaseCommit
-}
 
 // cutoverEvidenceQueries fingerprints the living evidence a cutover must
 // carry across the breaking floor: the original event log with its actors,
@@ -819,13 +801,14 @@ func toAnySlice(values []string) []any {
 }
 
 // TestCutoverBaselineCoreBreakingUpgradePreservesLivingEvidence exercises
-// the maintenance fence and verified snapshot with two immutable binaries.
+// the maintenance fence and verified snapshot with a released baseline and
+// the checked-out candidate core.
 // An active baseline session blocks migration even with operator confirmation.
 // After it stops, the confirmed upgrade preserves living evidence, archives
 // retired planning projections, and excludes the baseline core at the new floor.
 func TestCutoverBaselineCoreBreakingUpgradePreservesLivingEvidence(t *testing.T) {
 	if testing.Short() {
-		t.Skip("builds two release cores from two exact sources")
+		t.Skip("builds the released baseline and checked-out candidate cores")
 	}
 	root := t.TempDir()
 	dataRoot := filepath.Join(root, "data", "concord")
@@ -835,10 +818,9 @@ func TestCutoverBaselineCoreBreakingUpgradePreservesLivingEvidence(t *testing.T)
 	path := filepath.Join(dataRoot, "concord.db")
 	baselineVersion := "v0.0.0-con867-cutover-baseline"
 	candidateVersion := "v0.0.0-con867-cutover-candidate"
-	baselineSource := extractReleasedSource(t, cutoverBaselineCommit)
-	candidateCommit := cutoverCandidateCommit(t)
-	t.Logf("binary sources: baseline=%s candidate=%s", cutoverBaselineCommit, candidateCommit)
-	candidateSource := extractReleasedSource(t, candidateCommit)
+	baselineSource := extractReleasedSource(t, cutoverBaselineTag)
+	t.Logf("binary sources: baseline=%s candidate=checked-out source", cutoverBaselineTag)
+	candidateSource := repoSourceDir(t)
 	baseline := buildCoreFrom(t, baselineSource, baselineVersion)
 	candidate := buildCoreFrom(t, candidateSource, candidateVersion)
 	// The candidate tree carries the fence-protocol marker its installer

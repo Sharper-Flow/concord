@@ -27,9 +27,6 @@ var transportOnlyInputFields = map[string]bool{
 func TestMutationInputSchemasBindDecodingStructs(t *testing.T) {
 	t.Parallel()
 	decodeTargets := map[string]any{
-		"concord_domain.observation_dismiss":               domainObservationDismissInput{},
-		"concord_domain.observation_record":                domainObservationRecordInput{},
-		"concord_work_compact.lesson_publish":              lessonPublishInput{},
 		"concord_work_compact.publish":                     compactPublishInput{},
 		"concord_work_compact.reconcile":                   compactReconcileInput{},
 		"concord_work_define.capture":                      captureMutationInput{},
@@ -42,7 +39,6 @@ func TestMutationInputSchemasBindDecodingStructs(t *testing.T) {
 		"concord_work_define.research_revision_append":     researchRevisionMutation{},
 		"concord_work_define.research_source_record":       researchSourceMutation{},
 		"concord_work_define.revise_intent":                reviseMutationInput{},
-		"concord_work_relate.link":                         linkMutationInput{},
 		"concord_work_relate.client_policy_grant_request":  clientPolicyGrantRequestInput{},
 		"concord_work_relate.message_send":                 messageSendInput{},
 		"concord_work_relate.message_withdraw":             messageWithdrawInput{},
@@ -50,10 +46,7 @@ func TestMutationInputSchemasBindDecodingStructs(t *testing.T) {
 		"concord_work_relate.resolve_overlap":              resolveOverlapMutationInput{},
 		"concord_work_relate.resource_claim":               resourceClaimInput{},
 		"concord_work_relate.resource_release":             resourceReleaseInput{},
-		"concord_work_relate.restore_superseded":           restoreMutationInput{},
 		"concord_work_relate.set_memberships":              membershipsMutationInput{},
-		"concord_work_relate.supersede":                    supersedeMutationInput{},
-		"concord_work_relate.unlink":                       unlinkMutationInput{},
 		"concord_work_transition.correct_delivery":         correctDeliveryMutationInput{},
 		"concord_work_transition.outside_repair":           outsideRepairDispositionInput{},
 		"concord_work_transition.outside_repair_reconcile": outsideRepairReconcileInput{},

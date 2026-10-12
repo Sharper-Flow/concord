@@ -444,10 +444,10 @@ func TestOperationPayloadValidationUsesGeneratedClosedSchemas(t *testing.T) {
 		t.Fatal("unknown property inside union branch array accepted")
 	}
 	validResult := []byte(`{"changed_refs":[{"entity_kind":"work_item","id":"w-1","version":2}],"next_valid_intents":[]}`)
-	if err := ValidateOperationPayload("concord_work_relate", "link", validResult, true); err != nil {
+	if err := ValidateOperationPayload("concord_work_relate", "resolve_overlap", validResult, true); err != nil {
 		t.Fatalf("valid generated mutation result rejected: %v", err)
 	}
-	if err := ValidateOperationPayload("concord_work_relate", "link", []byte(`{"changed_refs":[],"next_valid_intents":[],"unknown":true}`), true); err == nil {
+	if err := ValidateOperationPayload("concord_work_relate", "resolve_overlap", []byte(`{"changed_refs":[],"next_valid_intents":[],"unknown":true}`), true); err == nil {
 		t.Fatal("unknown mutation result property accepted")
 	}
 }
@@ -496,7 +496,7 @@ func TestMutationResultProducerAcceptsCanonicalPayload(t *testing.T) {
 	for _, operation := range []struct{ tool, operation string }{
 		{"concord_work_define", "capture"}, {"concord_work_define", "revise_intent"},
 		{"concord_work_transition", "lifecycle"}, {"concord_work_transition", "workflow_action"},
-		{"concord_work_relate", "set_memberships"}, {"concord_work_relate", "link"}, {"concord_work_relate", "unlink"}, {"concord_work_relate", "supersede"}, {"concord_work_relate", "restore_superseded"},
+		{"concord_work_relate", "set_memberships"}, {"concord_work_relate", "resolve_overlap"},
 		{"concord_work_compact", "publish"}, {"concord_work_compact", "reconcile"},
 	} {
 		t.Run(operation.tool+"."+operation.operation, func(t *testing.T) {

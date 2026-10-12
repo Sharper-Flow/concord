@@ -122,25 +122,10 @@ func TestDomainDetailShowsCurrentLawRelationsAndRefusesUnknown(t *testing.T) {
 	assertFailureKind(t, err, KindUnknownDomain)
 }
 
-func TestDomainActiveWorkAndOverlapsDeriveFromCurrentContracts(t *testing.T) {
+func TestDomainOverlapsDeriveFromCurrentContracts(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s, actor := seedOverlapProjection(t, "overlap-left", "overlap-right", false)
-
-	work, err := s.QueryDomainActiveWork(ctx, DomainActiveWorkRequest{Product: "product", Domain: "child"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(work.Work) != 2 {
-		t.Fatalf("active work count = %d, want 2: %#v", len(work.Work), work.Work)
-	}
-	for _, item := range work.Work {
-		if !item.HomeDomain {
-			t.Fatalf("fixture work must read as home-bound: %#v", item)
-		}
-	}
-	_, err = s.QueryDomainActiveWork(ctx, DomainActiveWorkRequest{Product: "product", Domain: "missing"})
-	assertFailureKind(t, err, KindUnknownDomain)
 
 	overlaps, err := s.QueryDomainOverlaps(ctx, DomainOverlapsRequest{Product: "product"})
 	if err != nil {
@@ -172,21 +157,6 @@ func TestDomainActiveWorkAndOverlapsDeriveFromCurrentContracts(t *testing.T) {
 	}
 	if len(otherDomain.Pairs) != 0 {
 		t.Fatalf("root domain reported the child overlap: %#v", otherDomain.Pairs)
-	}
-}
-
-func TestDomainActiveWorkExcludesRetiredInitiative(t *testing.T) {
-	t.Parallel()
-	s, _ := seedOverlapProjection(t, "historical-initiative", "live-task", false)
-	// A historical Initiative can retain an architecture contract. Eligibility
-	// must exclude its stored kind, not rely on that contract being absent.
-	productRowExec(t, s, `UPDATE work_items SET kind='initiative' WHERE id='historical-initiative'`)
-	work, err := s.QueryDomainActiveWork(context.Background(), DomainActiveWorkRequest{Product: "product", Domain: "child", Limit: 1})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(work.Work) != 1 || work.Work[0].WorkID != "live-task" || work.NextCursor != nil {
-		t.Fatalf("Domain active work = %#v, want only live-task without another page", work)
 	}
 }
 

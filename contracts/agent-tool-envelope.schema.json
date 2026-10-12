@@ -84,24 +84,6 @@
               "const": "concord_domain"
             },
             "operation": {
-              "const": "active_work"
-            },
-            "query_id": {
-              "const": "C22.DomainActiveWork"
-            }
-          }
-        },
-        {
-          "required": [
-            "tool",
-            "operation",
-            "query_id"
-          ],
-          "properties": {
-            "tool": {
-              "const": "concord_domain"
-            },
-            "operation": {
               "const": "attachments"
             },
             "query_id": {
@@ -124,29 +106,6 @@
             },
             "query_id": {
               "const": "C22.DomainOverlaps"
-            }
-          }
-        },
-        {
-          "required": [
-            "tool",
-            "operation"
-          ],
-          "not": {
-            "required": [
-              "query_id"
-            ]
-          },
-          "properties": {
-            "tool": {
-              "const": "concord_domain"
-            },
-            "operation": {
-              "enum": [
-                "observation_record",
-                "observation_dismiss"
-              ],
-              "type": "string"
             }
           }
         },
@@ -523,10 +482,6 @@
             "operation": {
               "enum": [
                 "set_memberships",
-                "link",
-                "unlink",
-                "supersede",
-                "restore_superseded",
                 "resolve_overlap",
                 "resource_claim",
                 "resource_release",
@@ -556,28 +511,9 @@
             "operation": {
               "enum": [
                 "publish",
-                "reconcile",
-                "lesson_publish"
+                "reconcile"
               ],
               "type": "string"
-            }
-          }
-        },
-        {
-          "required": [
-            "tool",
-            "operation",
-            "query_id"
-          ],
-          "properties": {
-            "tool": {
-              "const": "concord_product_view"
-            },
-            "operation": {
-              "const": "portfolio"
-            },
-            "query_id": {
-              "const": "C14.ProductRows"
             }
           }
         },
@@ -652,24 +588,6 @@
               "const": "CD-0040.R1"
             }
           }
-        },
-        {
-          "required": [
-            "tool",
-            "operation",
-            "query_id"
-          ],
-          "properties": {
-            "tool": {
-              "const": "concord_knowledge"
-            },
-            "operation": {
-              "const": "unprocessed"
-            },
-            "query_id": {
-              "const": "PM1.Q15"
-            }
-          }
         }
       ]
     },
@@ -731,7 +649,6 @@
         "operation": {
           "enum": [
             "",
-            "active_work",
             "attachments",
             "blocked",
             "blocked_sessions",
@@ -742,18 +659,14 @@
             "external_observations",
             "history",
             "issue_link_record",
-            "lesson_publish",
             "lifecycle",
-            "link",
             "list",
             "message_send",
             "message_withdraw",
             "messages",
-            "observation_dismiss",
             "observation_record",
             "observations",
             "overlaps",
-            "portfolio",
             "publish",
             "ready",
             "reconcile",
@@ -772,15 +685,11 @@
             "resource_claims",
             "resource_release",
             "resources",
-            "restore_superseded",
             "revise_intent",
             "scope",
             "search",
             "set_memberships",
             "snapshot",
-            "supersede",
-            "unlink",
-            "unprocessed",
             "remove",
             "workflow_action",
             "correct_delivery",
@@ -805,7 +714,7 @@
         },
         "query_id": {
           "type": "string",
-          "pattern": "^(PM1\\.Q(1[0-6]|[1-9])|CD-0030\\.R1|CD-0040\\.R1|CD-0096\\.R1|CD-0182\\.R1|C14\\.ProductRows|C15\\.Resources|C19\\.Continuity|C22\\.Domain(List|Detail|ActiveWork|Attachments|Overlaps))$"
+          "pattern": "^(PM1\\.Q(1[0-46]|[1-9])|CD-0030\\.R1|CD-0040\\.R1|CD-0096\\.R1|CD-0182\\.R1|C15\\.Resources|C19\\.Continuity|C22\\.Domain(List|Detail|Attachments|Overlaps))$"
         },
         "outcome": {
           "enum": [
@@ -1224,7 +1133,6 @@
         },
         "operation": {
           "enum": [
-            "active_work",
             "attachments",
             "blocked",
             "blocked_sessions",
@@ -1235,18 +1143,14 @@
             "external_observations",
             "history",
             "issue_link_record",
-            "lesson_publish",
             "lifecycle",
-            "link",
             "list",
             "message_send",
             "message_withdraw",
             "messages",
-            "observation_dismiss",
             "observation_record",
             "observations",
             "overlaps",
-            "portfolio",
             "publish",
             "ready",
             "reconcile",
@@ -1265,15 +1169,11 @@
             "resource_claims",
             "resource_release",
             "resources",
-            "restore_superseded",
             "revise_intent",
             "scope",
             "search",
             "set_memberships",
             "snapshot",
-            "supersede",
-            "unlink",
-            "unprocessed",
             "remove",
             "workflow_action",
             "correct_delivery",
@@ -1298,7 +1198,7 @@
         },
         "query_id": {
           "type": "string",
-          "pattern": "^(PM1\\.Q(1[0-6]|[1-9])|CD-0030\\.R1|CD-0040\\.R1|CD-0096\\.R1|CD-0182\\.R1|C14\\.ProductRows|C15\\.Resources|C19\\.Continuity|C22\\.Domain(List|Detail|ActiveWork|Attachments|Overlaps))$"
+          "pattern": "^(PM1\\.Q(1[0-46]|[1-9])|CD-0030\\.R1|CD-0040\\.R1|CD-0096\\.R1|CD-0182\\.R1|C15\\.Resources|C19\\.Continuity|C22\\.Domain(List|Detail|Attachments|Overlaps))$"
         },
         "reason_code": {
           "type": "string",
@@ -2628,17 +2528,13 @@
                   "operation": {
                     "enum": [
                       "client_policy_grant_request",
-                      "link",
                       "message_send",
                       "message_withdraw",
                       "product_project_add",
                       "resource_claim",
                       "resource_release",
                       "resolve_overlap",
-                      "restore_superseded",
-                      "set_memberships",
-                      "supersede",
-                      "unlink"
+                      "set_memberships"
                     ],
                     "type": "string"
                   }
@@ -2670,42 +2566,8 @@
                   },
                   "operation": {
                     "enum": [
-                      "lesson_publish",
                       "publish",
                       "reconcile"
-                    ],
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "tool",
-                  "operation"
-                ]
-              },
-              "then": {
-                "required": [
-                  "result",
-                  "changed_refs",
-                  "next_valid_intents"
-                ],
-                "not": {
-                  "required": [
-                    "items"
-                  ]
-                }
-              }
-            },
-            {
-              "if": {
-                "properties": {
-                  "tool": {
-                    "const": "concord_domain",
-                    "type": "string"
-                  },
-                  "operation": {
-                    "enum": [
-                      "observation_dismiss",
-                      "observation_record"
                     ],
                     "type": "string"
                   }

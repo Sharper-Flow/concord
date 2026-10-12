@@ -251,44 +251,6 @@ func TestAgentDomainRelationsAreAuthoritativeEmptyNotUnavailable(t *testing.T) {
 	}
 }
 
-// Element 4: active work bound to the Domain, distinguishing the architectural
-// home from mere footprint.
-func TestAgentDomainActiveWorkReturnsDomainBoundWorkWithCoverage(t *testing.T) {
-	t.Parallel()
-	s, service, env := domainEvidenceFixture(t)
-	response := domainRead(t, s, service, env, "active_work", `{"product_id":"product-1","domain_id":"`+singleDomainRootID+`","page":{"cursor":null,"limit":20}}`)
-	assertAuthoritativeCoverage(t, response, "active_work")
-
-	var payload struct {
-		Work []store.DomainActiveWorkItem `json:"work"`
-	}
-	if err := json.Unmarshal(response.Result, &payload); err != nil {
-		t.Fatal(err)
-	}
-	if len(payload.Work) != 2 {
-		t.Fatalf("active Domain work = %d items, want the two seeded contracts: %#v", len(payload.Work), payload.Work)
-	}
-	seen := map[string]store.DomainActiveWorkItem{}
-	for _, item := range payload.Work {
-		seen[item.WorkID] = item
-	}
-	for _, id := range []string{"work-1", "work-2"} {
-		item, ok := seen[id]
-		if !ok {
-			t.Fatalf("active work omitted %s: %#v", id, payload.Work)
-		}
-		if !item.HomeDomain {
-			t.Fatalf("%s is homed at the root Domain but was not flagged: %#v", id, item)
-		}
-		if item.ContractVersion != 1 || item.Lifecycle == "" || item.Kind == "" {
-			t.Fatalf("%s carries no bounded contract identity: %#v", id, item)
-		}
-	}
-	if seen["work-1"].Title != "Work" || seen["work-2"].Title != "Second work" {
-		t.Fatalf("active work titles are not the seeded ones: %#v", payload.Work)
-	}
-}
-
 // Element 7: typed local attachments with their optimistic set version.
 func TestAgentDomainAttachmentsReturnTypedLocalEdgesWithCoverage(t *testing.T) {
 	t.Parallel()

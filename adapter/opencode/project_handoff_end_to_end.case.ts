@@ -383,13 +383,6 @@ routeDeclaration("boots, consumes, and retires through the real core routes", as
   try {
     const fixture = await bootHandoffFixture(root)
     const { dbPath, workID, sourceWorktree, repoReceive, handoffID, captured } = fixture
-    const parseToolResult = (result: any) => {
-      try {
-        return JSON.parse(String(result.output).split("\n")[0]) as JSONRecord
-      } catch {
-        throw new Error(`unparsable tool output: ${String(result.output).slice(0, 2000)}`)
-      }
-    }
     const invoke = (toolName: string, operation: string, input: JSONRecord, callContext: any) => invokeConcordOperation(toolName, { operation, input } as any, callContext)
     const occupantOf = (projectID: string) =>
       dbValue(dbPath, `SELECT COALESCE((SELECT group_concat(o.session_ref, ',') FROM worktree_occupancy o WHERE o.worktree_id = e.set_id || ':' || e.project_id || ':' || e.claim_op_id), '') AS occupant FROM worktree_entries e JOIN worktree_claims c ON c.op_id=e.claim_op_id WHERE c.work_id='${workID}' AND c.project_id='${projectID}' AND e.state='active'`).occupant as string
@@ -556,7 +549,11 @@ routeDeclaration("boots, consumes, and retires through the real core routes", as
 const RESTART_WITNESS = "restarts the handoff host and continues the original receiver without duplicate sessions"
 
 function parseToolResult(result: any): JSONRecord {
-  return JSON.parse(String(result.output).split("\n")[0]) as JSONRecord
+  try {
+    return JSON.parse(String(result.output).split("\n")[0]) as JSONRecord
+  } catch {
+    throw new Error(`unparsable tool output: ${String(result.output).slice(0, 2000)}`)
+  }
 }
 
 function assertReceiverCounts(fixture: HandoffFixture): void {

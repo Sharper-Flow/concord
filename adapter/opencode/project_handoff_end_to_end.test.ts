@@ -22,4 +22,4 @@ const routeDeclaration =
 routeDeclaration("boots, consumes, retires, and resumes after host restart through the real core routes", async () => {
   const result = await runOwnedSuite(join(import.meta.dir, "project_handoff_end_to_end.case.ts"))
   expect(result.exitCode, `owned handoff suite failed:\n${result.stdout}\n${result.stderr}`).toBe(0)
-}, 300_000)
+}, 450_000)

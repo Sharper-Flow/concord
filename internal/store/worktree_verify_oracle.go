@@ -333,7 +333,7 @@ func nativePreparationComplete(o *NativeOracleResult, p nativeOraclePlan) bool {
 	return true
 }
 
-func validateNativeJobPreparations(ctx context.Context, q queryer, work, project string, version int64, oracle *AcceptanceOracle) error {
+func validateNativeJobPreparations(ctx context.Context, q queryer, work string, version int64, oracle *AcceptanceOracle) error {
 	core, err := readCurrentOracleSubject(ctx, q, work)
 	if err != nil {
 		return err
@@ -350,7 +350,7 @@ func validateNativeJobPreparations(ctx context.Context, q queryer, work, project
 			return oracleFailure(KindMissingEvidence, "job control has no qualified native preparation", "prepare its exact bundle")
 		}
 		for _, ref := range control.ReadinessEvidenceRefs {
-			p, err := readOraclePreparationReceiptTx(ctx, q, work, project, ref)
+			p, err := readOraclePreparationReceiptTx(ctx, q, work, control.RecipeSource.ProjectID, ref)
 			if err != nil {
 				return err
 			}
@@ -394,7 +394,7 @@ func readSelectedOraclePreparations(ctx context.Context, q queryer, work string)
 				continue
 			}
 			seen[ref] = true
-			p, err := readOraclePreparationReceiptTx(ctx, q, work, selected.ProjectScope, ref)
+			p, err := readOraclePreparationReceiptTx(ctx, q, work, control.RecipeSource.ProjectID, ref)
 			if err != nil {
 				return nil, err
 			}

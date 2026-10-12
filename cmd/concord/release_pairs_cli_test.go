@@ -71,7 +71,7 @@ func assertReleasePendingBreaking(t *testing.T, plan store.UpgradeReadiness, ver
 	}
 }
 
-// extractReleasedSource checks out a release tag or pinned commit into a
+// extractReleasedSource checks out a release tag into a
 // private directory. The bytes come from this repository's object store, so
 // the built core is the released source, not a relabel of the working tree.
 func extractReleasedSource(t *testing.T, tag string) string {
@@ -90,10 +90,7 @@ func extractReleasedSource(t *testing.T, tag string) string {
 	}
 	root := strings.TrimSpace(string(toplevel))
 	if err := exec.Command(git, "-C", root, "rev-parse", "--verify", "--quiet", tag+"^{commit}").Run(); err != nil {
-		fetchRef := tag
-		if tag == releasedPairTag {
-			fetchRef = "+refs/tags/" + tag + ":refs/tags/" + tag
-		}
+		fetchRef := "+refs/tags/" + tag + ":refs/tags/" + tag
 		t.Fatalf("the released source %s is absent from this clone; fetch it with: git fetch --no-tags --depth=1 origin %s", tag, fetchRef)
 	}
 	scratch := t.TempDir()

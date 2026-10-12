@@ -68,7 +68,7 @@ func TestBuiltinDefinitionsAreTheChainTails(t *testing.T) {
 }
 
 // Store open answers pin compatibility from builtinWorkflowCurrentVersions
-// instead of building the chains (CON-905). The table must name exactly the
+// instead of building the chains. The table must name exactly the
 // versions the registry registers, so a promotion that forgets the table
 // fails here rather than refusing its own pins at open.
 func TestBuiltinWorkflowCurrentVersionsMatchChains(t *testing.T) {

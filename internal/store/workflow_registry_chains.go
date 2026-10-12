@@ -54,7 +54,7 @@ func retainedAtDeliveryContract(definition WorkflowDefinition) WorkflowDefinitio
 // (validateBuiltinWorkflowVersionContinuity), so this table answers "is this
 // pin registered?" without building the chains. Store open asks that question
 // on every process start, and building the chains costs about half a second
-// of CPU and 115 MB of allocation (CON-905). Appending a promotion to a chain
+// of CPU and 115 MB of allocation. Appending a promotion to a chain
 // raises that family's entry here; TestBuiltinWorkflowCurrentVersionsMatchChains
 // fails until it does.
 var builtinWorkflowCurrentVersions = map[string]int64{

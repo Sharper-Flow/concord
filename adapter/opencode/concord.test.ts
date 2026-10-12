@@ -106,7 +106,7 @@ test("published tool arguments expose a host-safe request shape", async () => {
     const published = adapter.publishedRequestSchema(toolName) as any
     const expected = contractOperations.filter((item: any) => item.tool === toolName).map((item: any) => item.id.split(".")[1])
     expect(published.properties.operation.enum, toolName).toEqual(expected)
-    // The published input is compact (CON-812): the request parent keeps its
+    // The published input is compact: the request parent keeps its
     // type, required set, and closure, and the document carries its own
     // local reference table that the expansion resolves.
     expect(published.properties.input.type, toolName).toBe("object")

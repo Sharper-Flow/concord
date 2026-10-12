@@ -13,7 +13,7 @@
 # uses smoke admission; targeted uses ungated targeted admission; conformance
 # uses full admission; preflight uses smoke admission because its gates vet,
 # build, lint, and compile every package, which is heavy on a shared host when
-# several worktrees push at once (CON-907). The
+# several worktrees push at once. The
 # continuous-integration workflow does not use this wrapper; it calls the same
 # underlying commands natively so its behavior stays deterministic.
 #

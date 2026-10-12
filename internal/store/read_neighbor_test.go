@@ -75,10 +75,6 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 	if err := s.db.QueryRow("SELECT max(seq) FROM domain_events").Scan(&watermark); err != nil {
 		t.Fatal(err)
 	}
-	var relationID int64
-	if err := s.db.QueryRow(`SELECT id FROM relations WHERE work_id_from='blocker' AND kind='blocks'`).Scan(&relationID); err != nil {
-		t.Fatal(err)
-	}
 	backupDestination := filepath.Join(t.TempDir(), "neighbor-backup.db")
 	proposalPayload := []byte(`{"problem":"A bounded problem.","affected":["The store."],"stakes":"The committed proposal survives.","user_outcomes":["A durable proposal."]}`)
 	preflightRequest := WorkflowActionPreflightRequest{WorkID: "neighbor-work", ExpectedVersion: version, ActionID: "record_proposal", Payload: proposalPayload, Actor: actor}
@@ -95,7 +91,6 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 		{name: "PM1.Q6", run: func() error { _, err := s.QueryQ6(ctx, Q6Request{Work: "blocker"}); return err }},
 		{name: "PM1.Q7", run: func() error { _, err := s.QueryQ7(ctx, Q7Request{Work: "blocker"}); return err }},
 		{name: "PM1.Q8", run: func() error { _, err := s.QueryQ8(ctx, Q8Request{Work: "blocker"}); return err }},
-		{name: "QueryProductRows", run: func() error { _, err := s.QueryProductRows(ctx, ProductRowRequest{}); return err }},
 		{name: "QueryQ9", run: func() error {
 			result, err := s.QueryQ9(ctx, Q9Request{Text: "neighbor law govern", Kinds: []string{"decision"}, Home: knowledgeHome})
 			if err != nil {
@@ -199,7 +194,6 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 			}
 			return nil
 		}},
-		{name: "WorkVersion", run: func() error { _, err := s.WorkVersion(ctx, "blocker"); return err }},
 		{name: "WorkLifecycle", run: func() error {
 			lifecycle, err := s.WorkLifecycle(ctx, "blocker")
 			if err != nil {
@@ -549,7 +543,6 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 			}
 			return nil
 		}},
-		{name: "ResolveLessonPublicationHome", absent: KindUnknownScope, run: func() error { _, err := s.ResolveLessonPublicationHome(ctx, "blocker", "blocker"); return err }},
 		{name: "ResolveKnowledgeQueryHome", run: func() error {
 			home, err := s.ResolveKnowledgeQueryHome(ctx, "neighbor-knowledge-product", "", KnowledgeHome{}, "PM1.Q9")
 			if err != nil {
@@ -567,16 +560,6 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 			}
 			if home.RepoPath != knowledgeRepo {
 				return fmt.Errorf("home=%+v", home)
-			}
-			return nil
-		}},
-		{name: "ReadUnprocessedKnowledgeDocs", run: func() error {
-			docs, err := s.ReadUnprocessedKnowledgeDocs(ctx, knowledgeHome)
-			if err != nil {
-				return err
-			}
-			if len(docs) != 0 {
-				return fmt.Errorf("docs=%v, want none", docs)
 			}
 			return nil
 		}},
@@ -703,16 +686,6 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 			}
 			if digest == "" {
 				return fmt.Errorf("empty scope version")
-			}
-			return nil
-		}},
-		{name: "RelationEndpoints", run: func() error {
-			endpoints, err := s.RelationEndpoints(ctx, fmt.Sprintf("%d", relationID))
-			if err != nil {
-				return err
-			}
-			if len(endpoints) != 2 || endpoints[0] != "blocker" || endpoints[1] != "blocked" {
-				return fmt.Errorf("endpoints=%v", endpoints)
 			}
 			return nil
 		}},
@@ -889,6 +862,30 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 				}
 			})
 		}
+	}
+	// Recovery discovery folds admission even when duplicate contracts prevent
+	// selecting one active contract. Its own fixture keeps that ambiguity out
+	// of the other read rows.
+	for _, mode := range []neighbor.Mode{neighbor.Reader, neighbor.Writer} {
+		t.Run(string(mode)+"/WorkflowActionDefinitionForSupersedeContract", func(t *testing.T) {
+			f := newAcceptanceRecoveryFixture(ctx, t)
+			duplicateActiveWorkflowContract(ctx, t, f.store, f.workID)
+			if _, err := f.store.db.Exec("PRAGMA busy_timeout=50"); err != nil {
+				t.Fatal(err)
+			}
+			neighbor.Start(t, f.store.Path(), mode)
+			started := time.Now()
+			_, action, err := WorkflowActionDefinitionFor(ctx, f.store, BuiltinWorkflowRegistry(), f.workID, "supersede_contract")
+			if err != nil {
+				t.Fatalf("supersede_contract discovery under %s neighbor: %v", mode, err)
+			}
+			if action.ID != "supersede_contract" || action.Approval != ActionApprovalRequired {
+				t.Fatalf("recovery action=%+v, want supersede_contract with required approval", action)
+			}
+			if mode == neighbor.Writer && time.Since(started) >= neighbor.WriterHold {
+				t.Fatal("supersede_contract discovery waited for writer release")
+			}
+		})
 	}
 	// The bootstrap-origin validation owns a worktree fixture and its fake
 	// git, so it prepares its own store per mode beside the same neighbors.

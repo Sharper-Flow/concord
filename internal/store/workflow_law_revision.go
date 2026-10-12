@@ -525,7 +525,7 @@ func checkWorkflowLawRevisionStalenessTx(ctx context.Context, tx *sql.Tx, workID
 // with one admission extension the workflow-action surfaces pass. Attempt
 // disposition admits a stale registry pin whose marker names workID itself;
 // a peer's stale pin, a stale law revision, and every other refusal stand.
-func checkWorkflowLawRevisionStalenessAdmittingTx(ctx context.Context, tx *sql.Tx, workID string, admission workflowStalePinAdmission) error {
+func checkWorkflowLawRevisionStalenessAdmittingTx(ctx context.Context, tx queryer, workID string, admission workflowStalePinAdmission) error {
 	var mandateJSON string
 	// This boundary reads the law revisions that one approved contract pins.
 	// An absent projection pins nothing, and an ambiguous one names no single

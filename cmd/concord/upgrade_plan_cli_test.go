@@ -1318,3 +1318,50 @@ func TestUpgradeWithTheCancelInputRefusesAHeldOutsideRepairItemBeforeFenceOrSnap
 		t.Fatalf("the held-item refusal moved work state: %+v", after)
 	}
 }
+
+func TestUpgradeCutoverPreCommitFailureClosesFenceWithoutClaimingCommit(t *testing.T) {
+	for _, stamp := range []string{version.Development, "v-test"} {
+		t.Run(stamp, func(t *testing.T) {
+			previous := version.Value
+			version.Value = stamp
+			t.Cleanup(func() { version.Value = previous })
+			path, root := cliStoreRoot(t)
+			seedCutoverPinStore(t, path)
+			// Leave the first pending migration's trigger in place. A stamped
+			// run collides before commit; an unstamped run refuses migration.
+			db := mustOpenCutoverStore(t, path)
+			if _, err := db.Exec(`DELETE FROM schema_migrations WHERE version >= 123`); err != nil {
+				t.Fatal(err)
+			}
+			statesBefore := cutoverWorkStates(t, path)
+			eventsBefore := cutoverEventCount(t, path)
+			options := store.UpgradeOptions{CancelCutoverPinnedWork: true}
+			before, err := store.PlanUpgradeReadiness(context.Background(), path, options)
+			if err != nil || before.SchemaVersion != 122 || len(before.PendingBreaking) == 0 {
+				t.Fatalf("pending breaking fixture = %+v, %v", before, err)
+			}
+			code, out, errOut := runUpgradeStdin(t, `{"cancel_cutover_pinned_work":true}`)
+			if code != 1 || out != "" {
+				t.Fatalf("pre-commit failure = %d, %s, %s", code, out, errOut)
+			}
+			if strings.Contains(errOut, "the incompatible migration committed before this failure") {
+				t.Fatalf("a pre-commit failure must not claim a breaking commit: %s", errOut)
+			}
+			if fence, err := hostlease.ReadFence(root); err != nil || fence != nil {
+				t.Fatalf("pre-commit failure must close its own fence: %+v, %v", fence, err)
+			}
+			if snapshots := preCutoverUpgradeSnapshots(t, root); len(snapshots) != 1 {
+				t.Fatalf("pre-commit failure must retain the pre-mutation snapshot: %v", snapshots)
+			} else if _, err := store.VerifyBackup(context.Background(), snapshots[0]); err != nil {
+				t.Fatal(err)
+			}
+			after, err := store.PlanUpgradeReadiness(context.Background(), path, options)
+			if err != nil || after.SchemaVersion != before.SchemaVersion || !reflect.DeepEqual(after.AppliedVersions, before.AppliedVersions) {
+				t.Fatalf("pre-commit failure moved schema: %+v -> %+v, %v", before, after, err)
+			}
+			if cutoverEventCount(t, path) != eventsBefore || !reflect.DeepEqual(cutoverWorkStates(t, path), statesBefore) {
+				t.Fatal("pre-commit failure moved the event log or work state")
+			}
+		})
+	}
+}

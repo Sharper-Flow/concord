@@ -516,7 +516,7 @@ func runUpgradeCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 		// readiness and keep the boundary open when any pending breaking
 		// step committed: the older releases are unusable from here, and
 		// only the prepared candidate's activation may reopen admission.
-		if breakingCommittedAfterFailure(path, plan.PendingBreaking) {
+		if breakingCommittedAfterFailure(path, plan.PendingBreaking, options) {
 			if fence, fenceErr := hostlease.ReadFence(dataRoot); fenceErr == nil && fence != nil {
 				writeOperatorDiagnostic(errOut, "upgrade", diagnostic+
 					"\nthe incompatible migration committed before this failure; session admission stays excluded until the prepared release activates; activation command: "+
@@ -586,11 +586,11 @@ func runUpgradeCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 // reports committed: after an error, exclusion is retained on both committed
 // and uncertain outcomes, and only a re-check that still shows every breaking
 // step pending proves nothing committed.
-func breakingCommittedAfterFailure(path string, pendingBreaking []store.PendingMigration) bool {
+func breakingCommittedAfterFailure(path string, pendingBreaking []store.PendingMigration, options store.UpgradeOptions) bool {
 	if len(pendingBreaking) == 0 {
 		return false
 	}
-	recheck, err := store.PlanUpgradeReadiness(context.Background(), path)
+	recheck, err := store.PlanUpgradeReadiness(context.Background(), path, options)
 	if err != nil {
 		return true
 	}

@@ -163,6 +163,51 @@ func TestActiveResearchRevisionAndIdempotencyBoundary(t *testing.T) {
 	}
 }
 
+func TestResearchDirectAddAndUpdateRemainDistinct(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openTemp(t)
+	seedResearchWork(t, s, "owner")
+	pack := createSimplePack(t, s, "write-modes", "owner")
+	finding := ResearchFinding{FindingID: "f1", Kind: FindingObservation, Statement: "Original finding", Confidence: ConfidenceHigh, Freshness: ResearchCurrent, Status: FindingActive}
+	source := ResearchSource{SourceID: "s1", Kind: SourceCode, Locator: "synthetic/source.go", Title: "Original source", PublisherOrAuthor: "Synthetic fixture", AccessedAt: "2026-08-07T00:00:00Z"}
+	if _, err := s.AddResearchFinding(ctx, ResearchFindingRequest{Identity: researchIdentity("initial-finding"), PackID: pack.PackID, ExpectedVersion: 1, Finding: finding}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AddResearchSource(ctx, ResearchSourceRequest{Identity: researchIdentity("initial-source"), PackID: pack.PackID, ExpectedVersion: 2, Source: source}); err != nil {
+		t.Fatal(err)
+	}
+	before, err := s.ReadResearchPack(ctx, ResearchReadRequest{PackID: pack.PackID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipts := countRows(t, s, "idempotency_records")
+	_, err = s.AddResearchFinding(ctx, ResearchFindingRequest{Identity: researchIdentity("duplicate-finding"), PackID: pack.PackID, ExpectedVersion: 3, Finding: finding})
+	assertFailureKind(t, err, KindProjectionConflict)
+	_, err = s.AddResearchSource(ctx, ResearchSourceRequest{Identity: researchIdentity("duplicate-source"), PackID: pack.PackID, ExpectedVersion: 3, Source: source})
+	assertFailureKind(t, err, KindProjectionConflict)
+	finding.FindingID = "missing"
+	_, err = s.UpdateResearchFinding(ctx, ResearchFindingRequest{Identity: researchIdentity("missing-finding"), PackID: pack.PackID, ExpectedVersion: 3, Finding: finding})
+	assertFailureKind(t, err, KindProjectionNotFound)
+	source.SourceID = "missing"
+	_, err = s.UpdateResearchSource(ctx, ResearchSourceRequest{Identity: researchIdentity("missing-source"), PackID: pack.PackID, ExpectedVersion: 3, Source: source})
+	assertFailureKind(t, err, KindProjectionNotFound)
+	after, err := s.ReadResearchPack(ctx, ResearchReadRequest{PackID: pack.PackID})
+	if err != nil || !reflect.DeepEqual(before, after) || countRows(t, s, "idempotency_records") != receipts {
+		t.Fatalf("direct refusal changed pack or receipts: before=%+v after=%+v err=%v", before, after, err)
+	}
+	source.SourceID, source.Title = "s1", "Updated source"
+	updatedSource, err := s.UpdateResearchSource(ctx, ResearchSourceRequest{Identity: researchIdentity("update-source"), PackID: pack.PackID, ExpectedVersion: 3, Source: source})
+	if err != nil || updatedSource.Title != source.Title {
+		t.Fatalf("direct source update=%+v err=%v", updatedSource, err)
+	}
+	finding.FindingID, finding.Statement = "f1", "Updated finding"
+	updatedFinding, err := s.UpdateResearchFinding(ctx, ResearchFindingRequest{Identity: researchIdentity("update-finding"), PackID: pack.PackID, ExpectedVersion: 4, Finding: finding})
+	if err != nil || updatedFinding.Statement != finding.Statement {
+		t.Fatalf("direct finding update=%+v err=%v", updatedFinding, err)
+	}
+}
+
 func TestActiveResearchNonrequiredConsumerDoesNotBlock(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

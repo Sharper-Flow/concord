@@ -557,6 +557,23 @@ function parseToolResult(result: any): JSONRecord {
   }
 }
 
+function parseWorktreeVerifyResult(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)
+    || !("exit_code" in value) || typeof value.exit_code !== "number"
+    || !("tracked_files_changed" in value) || typeof value.tracked_files_changed !== "boolean") {
+    throw new Error(`invalid worktree verification result: ${JSON.stringify(value)}`)
+  }
+  const result = { exit_code: value.exit_code, tracked_files_changed: value.tracked_files_changed }
+  if (!("oracle" in value)) return { ...result, oracle: undefined }
+  const oracle = value.oracle
+  if (!oracle || typeof oracle !== "object" || Array.isArray(oracle)
+    || !("qualification" in oracle) || typeof oracle.qualification !== "string"
+    || !("run_ref" in oracle) || typeof oracle.run_ref !== "string") {
+    throw new Error(`invalid native oracle result: ${JSON.stringify(oracle)}`)
+  }
+  return { ...result, oracle: { qualification: oracle.qualification, run_ref: oracle.run_ref } }
+}
+
 function assertReceiverCounts(fixture: HandoffFixture): void {
   const { dbPath, workID, host } = fixture
   expect(dbValue(dbPath, `SELECT count(*) AS n FROM worktree_claims WHERE work_id='${workID}' AND project_id='${RECEIVE_PROJECT}'`).n).toBe(1)
@@ -657,12 +674,16 @@ routeDeclaration(RESTART_WITNESS, async () => {
     const control = { control_id: "control:handoff", owner_id: owner.owner_id, predicate_ids: owner.predicate_ids, case_ids: [oracleCase.case_id], recipe_source: { kind: "repository_file", project_id: RECEIVE_PROJECT, path: "test-oracle/manifest.json", commit_oid: head.stdout.trim() }, argv: ["go", "test", "-count=1", "-run", "^(TestHandoffReady)$", "."], cwd: "oraclekit", expected_result: "pass", required_evidence_role: "reported" }
     const subject = await invoke("concord_work_transition", { operation: "worktree_verify", input: { work_id: workID, idempotency_key: "handoff-oracle-subject", command: ["git", "status", "--porcelain"] } }, context)
     expect(subject.outcome, JSON.stringify(subject)).toBe("ok")
-    expect(subject.result.exit_code).toBe(0)
-    expect(subject.result.tracked_files_changed).toBe(false)
+    const subjectResult = parseWorktreeVerifyResult(subject.result)
+    expect(subjectResult.exit_code).toBe(0)
+    expect(subjectResult.tracked_files_changed).toBe(false)
     const prepare = await invoke("concord_work_transition", { operation: "worktree_verify", input: { work_id: workID, idempotency_key: "handoff-oracle-prepare", requested_budget_seconds: 300, oracle: { phase: "prepare", expected_contract_version: 1, control_bundle: { owner, cases: [oracleCase], control } } } }, context)
     expect(prepare.outcome, JSON.stringify(prepare)).toBe("ok")
-    expect(prepare.result.oracle.qualification).toBe("ready")
-    const job = await invoke("concord_work_transition", { operation: "workflow_action", input: { work_id: workID, expected_version: version(), action_id: "record_worker_job", idempotency_key: "handoff-receiver-job", fields: { job_id: "job:handoff-receiver", objective: expectedHandoff.bounded_job, stopping_condition: "The receiving adapter surface is verified.", path_scope: ["oraclekit"], checks: ["go test ./oraclekit"], ready: true, readiness_evidence: [prepare.result.oracle.run_ref], acceptance_oracle: { owners: [owner], cases: [oracleCase], controls: [{ ...control, readiness_evidence_refs: [prepare.result.oracle.run_ref] }] } } } }, context)
+    const prepareResult = parseWorktreeVerifyResult(prepare.result)
+    if (!prepareResult.oracle) throw new Error("native preparation returned no oracle result")
+    expect(prepareResult.oracle.qualification).toBe("ready")
+    const preparationRef = prepareResult.oracle.run_ref
+    const job = await invoke("concord_work_transition", { operation: "workflow_action", input: { work_id: workID, expected_version: version(), action_id: "record_worker_job", idempotency_key: "handoff-receiver-job", fields: { job_id: "job:handoff-receiver", objective: expectedHandoff.bounded_job, stopping_condition: "The receiving adapter surface is verified.", path_scope: ["oraclekit"], checks: ["go test ./oraclekit"], ready: true, readiness_evidence: [preparationRef], acceptance_oracle: { owners: [owner], cases: [oracleCase], controls: [{ ...control, readiness_evidence_refs: [preparationRef] }] } } } }, context)
     expect(job.outcome, JSON.stringify(job)).toBe("ok")
     const dispatched = await dispatchLaneWorker({ work_id: workID, expected_version: version(), idempotency_key: "handoff-receiver-dispatch", lane_id: "implement" }, { context, invoke, credentials: { async getPrivateKey() { return PRIVATE_SEED } }, windows: dispatchWindows() })
     expect(dispatched.outcome, JSON.stringify(dispatched)).toBe("ok")

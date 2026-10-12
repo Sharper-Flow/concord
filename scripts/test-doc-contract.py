@@ -2818,7 +2818,6 @@ def test_current_citation_excludes_defined_reference_link_labels() -> None:
         "[`foreign/owner.go`][source]",
         "[`foreign/owner.go`][]",
         "[`foreign/owner.go`]",
-        "[`foreign/owner.go`][undefined]",
     ):
         key = "source" if label.endswith("[source]") else "`foreign/owner.go`"
         root, manifest = citation_fixture(
@@ -2832,6 +2831,16 @@ def test_current_citation_keeps_undefined_reference_labels_as_citations() -> Non
     root, manifest = citation_fixture(
         "The owner is [`retired/owner.go`][source].\n\n"
         "```md\n[source]: https://example.com/source\n```"
+    )
+    code, output, error = run_checker(root, manifest)
+    assert code == 1, (code, output, error)
+    assert "missing candidate target: retired/owner.go" in output, output
+
+
+def test_current_citation_undefined_suffix_prevents_shortcut_link() -> None:
+    root, manifest = citation_fixture(
+        "The owner is [`retired/owner.go`][undefined].\n\n"
+        "[`retired/owner.go`]: https://example.com/source"
     )
     code, output, error = run_checker(root, manifest)
     assert code == 1, (code, output, error)

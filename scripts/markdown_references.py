@@ -49,7 +49,7 @@ def reference_links(line: str, definitions: dict[str, tuple[str, int]]):
             if definition is not None:
                 position = suffix.end()
                 yield (match.start(), position), definition[0]
-                continue
+            continue
         if line[position:].startswith("("):
             continue
         definition = definitions.get(label_key(label))

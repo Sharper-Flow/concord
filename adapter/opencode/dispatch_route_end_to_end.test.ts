@@ -19,7 +19,9 @@ const routeDeclaration =
     ? test
     : test.skip
 
-routeDeclaration("composes implementation and independent review through one ordinary workflow completion", async () => {
+routeDeclaration("runs the protected dispatch journeys and retained recovery witnesses", async () => {
   const result = await runOwnedSuite(join(import.meta.dir, "dispatch_route_end_to_end.case.ts"))
   expect(result.exitCode, `owned dispatch-route suite failed:\n${result.stdout}\n${result.stderr}`).toBe(0)
+  const selected = process.env.TEST_CONCORD_ROUTE_CASE
+  if (!selected || new RegExp(selected).test("G01 composes concurrent coordinators")) expect(result.stdout).toContain("[pass] G01 composes concurrent coordinators")
 }, 600_000)

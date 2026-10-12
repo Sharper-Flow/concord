@@ -169,6 +169,8 @@ explicit operator input and runs inside the maintenance boundary after the
 verified snapshot. It records an ordinary lifecycle cancellation per item. It
 backfills no pin, ends no session, writes no external tracker, and changes no
 worktree.
+An active outside-repair hold on a selected item refuses the run before the fence
+and the snapshot.
 
 Publication uses new stable law IDs and the existing supersedes relations.
 CD-0036 strict quiescence, transactional stale-consumer checks, and its closed

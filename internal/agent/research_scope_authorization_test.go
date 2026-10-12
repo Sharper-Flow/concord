@@ -11,7 +11,7 @@ import (
 	"github.com/sharper-flow/concord/internal/store/storetest"
 )
 
-// Product authorization for research packs (CON-919): a pack-ID read, an
+// Product authorization for research packs: a pack-ID read, an
 // explicit research_bindings declaration, and a pack-content authoring
 // operation must all resolve the pack's immutable owner work item and run the
 // one work-reference rule against the caller's grant before any content or

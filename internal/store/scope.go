@@ -12,6 +12,58 @@ func (s *Store) ProductsForWorkIDs(ctx context.Context, ids []string) (map[strin
 	return productsForWorkIDs(ctx, s.db, ids)
 }
 
+// ResearchPackOwnerWorkIDs resolves identities only. Product membership and
+// caller authorization belong to the work-reference boundary.
+func (s *Store) ResearchPackOwnerWorkIDs(ctx context.Context, ids []string) ([]string, error) {
+	return researchPackOwnerWorkIDs(ctx, s.db, ids)
+}
+
+func ResearchPackOwnerWorkIDsTx(ctx context.Context, transaction *Transaction, ids []string) ([]string, error) {
+	tx, err := transactionSQL(transaction, "research_scope")
+	if err != nil {
+		return nil, err
+	}
+	return researchPackOwnerWorkIDs(ctx, tx, ids)
+}
+
+func researchPackOwnerWorkIDs(ctx context.Context, q queryer, ids []string) ([]string, error) {
+	if len(ids) == 0 {
+		return []string{}, nil
+	}
+	if len(ids) > 100 {
+		return nil, newFailure(KindLimitExceeded, "research_scope", "at most 100 research pack identities may be resolved", false, "supply fewer pack identities")
+	}
+	placeholders := make([]string, len(ids))
+	args := make([]any, len(ids))
+	for i, id := range ids {
+		placeholders[i], args[i] = "?", id
+	}
+	rows, err := q.QueryContext(ctx, `SELECT pack_id,owner_work_id FROM active_research_packs WHERE pack_id IN (`+strings.Join(placeholders, ",")+`) ORDER BY pack_id`, args...)
+	if err != nil {
+		return nil, wrapFailure(KindUnavailable, "research_scope", "cannot resolve research pack ownership", true, "retry once the database is readable", err)
+	}
+	defer rows.Close()
+	found := make(map[string]bool, len(ids))
+	owners := []string{}
+	for rows.Next() {
+		var id, owner string
+		if err := rows.Scan(&id, &owner); err != nil {
+			return nil, err
+		}
+		found[id] = true
+		owners = append(owners, owner)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	for _, id := range ids {
+		if !found[id] {
+			return nil, newFailure(KindProjectionNotFound, "research_scope", "research pack does not exist", false, "check the pack identifier")
+		}
+	}
+	return owners, nil
+}
+
 func productsForWorkIDs(ctx context.Context, q queryer, ids []string) (map[string][]string, error) {
 	out := make(map[string][]string)
 	if len(ids) == 0 {

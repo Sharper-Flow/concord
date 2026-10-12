@@ -490,22 +490,31 @@ func validateRequestedScope(ctx context.Context, s *store.Store, env CallEnvelop
 		return err
 	}
 	workIDs := identity.WorkIDs
+	// A pack_id names content owned by one immutable work item, so these
+	// operations are authorized as references to that owner.
+	switch request.Tool + "." + request.Operation {
+	case "concord_work_trace.research", "concord_work_define.research_revision_append", "concord_work_define.research_finding_record", "concord_work_define.research_source_record", "concord_work_define.research_freshness_set":
+		var in struct {
+			PackID string `json:"pack_id"`
+		}
+		if err := json.Unmarshal(request.Input, &in); err != nil {
+			return err
+		}
+		if in.PackID != "" {
+			owners, err := s.ResearchPackOwnerWorkIDs(ctx, []string{in.PackID})
+			if err != nil {
+				return err
+			}
+			workIDs = append(workIDs, owners...)
+		}
+	}
 	if len(workIDs) > 0 {
 		scopes, err := s.ProductsForWorkIDs(ctx, workIDs)
 		if err != nil {
 			return err
 		}
-		for _, id := range workIDs {
-			products, ok := scopes[id]
-			if !ok {
-				return newRuntimeFailure("unknown_scope", "work reference is not in Product scope", "reread_entities", false)
-			}
-			if !scopeIntersects(products, grant.ProductScope) {
-				return newRuntimeFailure("unauthorized", "work reference is outside authorized Product scope", "contact_operator", false)
-			}
-			if kind != OperationRead && env.SelectedProductID != "" && !contains(products, env.SelectedProductID) && !containsCapability(grant.Capabilities, Capability("cross_scope")) {
-				return newRuntimeFailure("unauthorized", "cross-Product mutation requires cross_scope capability", "contact_operator", false)
-			}
+		if err := validateWorkReferenceScope(env, grant, kind, workIDs, scopes); err != nil {
+			return err
 		}
 	}
 	if raw, ok := fields["knowledge_id"]; ok {
@@ -551,6 +560,50 @@ func validateRequestedScope(ctx context.Context, s *store.Store, env CallEnvelop
 		}
 	}
 	return nil
+}
+
+// validateWorkReferenceScope is the one Product policy for a work reference:
+// a direct work ID or a research pack owner. Every
+// referenced work's Products must intersect the grant, and a mutation outside
+// the selected Product also needs cross_scope.
+func validateWorkReferenceScope(env CallEnvelope, grant Authority, kind OperationKind, workIDs []string, scopes map[string][]string) error {
+	for _, id := range workIDs {
+		products, ok := scopes[id]
+		if !ok {
+			return newRuntimeFailure("unknown_scope", "work reference is not in Product scope", "reread_entities", false)
+		}
+		if !scopeIntersects(products, grant.ProductScope) {
+			return newRuntimeFailure("unauthorized", "work reference is outside authorized Product scope", "contact_operator", false)
+		}
+		if kind != OperationRead && env.SelectedProductID != "" && !contains(products, env.SelectedProductID) && !containsCapability(grant.Capabilities, Capability("cross_scope")) {
+			return newRuntimeFailure("unauthorized", "cross-Product mutation requires cross_scope capability", "contact_operator", false)
+		}
+	}
+	return nil
+}
+
+// authorizeWorkflowActionTx authorizes the caller inside the action
+// transaction, then authorizes the owner of every declared research binding
+// under that grant, before the action writes a binding or an idempotency
+// receipt. A retained pin with no new declaration is not rechecked.
+func (r runtime) authorizeWorkflowActionTx(ctx context.Context, tx *store.Transaction, host store.ResolvedProjectHost, inv Invocation, bindings []researchBindingInput) error {
+	grant, err := r.Authority.AuthorizeTx(ctx, tx, host, inv)
+	if err != nil {
+		return err
+	}
+	ids := make([]string, 0, len(bindings))
+	for _, binding := range bindings {
+		ids = append(ids, binding.PackID)
+	}
+	owners, err := store.ResearchPackOwnerWorkIDsTx(ctx, tx, ids)
+	if err != nil {
+		return err
+	}
+	scopes, err := store.ProductsForWorkIDsTx(ctx, tx, owners)
+	if err != nil {
+		return err
+	}
+	return validateWorkReferenceScope(r.Envelope, grant, OperationMutation, owners, scopes)
 }
 
 type mutationWorkIdentity struct {

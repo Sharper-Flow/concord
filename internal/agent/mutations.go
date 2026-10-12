@@ -1166,7 +1166,7 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 				return err
 			}
 		}
-		if _, err := r.Authority.AuthorizeTx(ctx, tx, host, inv); err != nil {
+		if err := r.authorizeWorkflowActionTx(ctx, tx, host, inv, in.ResearchBindings); err != nil {
 			return err
 		}
 		if requiresApproval || (operatorVerdict && approval != "") {
@@ -1653,7 +1653,7 @@ func (r runtime) planResearchPackCreate(_ context.Context, base Envelope, raw []
 }
 
 // planResearchRevisionAppend plans concord_work_define.research_revision_append.
-func (r runtime) planResearchRevisionAppend(_ context.Context, base Envelope, raw []byte, _ string, _ Authority, _ ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
+func (r runtime) planResearchRevisionAppend(ctx context.Context, base Envelope, raw []byte, _ string, _ Authority, _ ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
 	var in researchRevisionMutation
 	if err := decodeOperationInput(raw, &in); err != nil {
 		return base, err, true
@@ -1661,6 +1661,11 @@ func (r runtime) planResearchRevisionAppend(_ context.Context, base Envelope, ra
 	if in.Approval != nil {
 		plan.approval = in.Approval.ApprovalRef
 	}
+	owners, err := r.Store.ResearchPackOwnerWorkIDs(ctx, []string{in.PackID})
+	if err != nil {
+		return failureEnvelope(base, err), nil, true
+	}
+	plan.scope["work_ids"] = owners
 	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
 		if _, err := store.AppendResearchRevisionWithinTx(ctx, tx, store.AppendResearchRevisionRequest{PackID: in.PackID, ExpectedVersion: in.ExpectedVersion, Revision: storeResearchRevision(in.Revision)}); err != nil {
 			return nil, nil, nil, err
@@ -1672,7 +1677,7 @@ func (r runtime) planResearchRevisionAppend(_ context.Context, base Envelope, ra
 }
 
 // planResearchFindingRecord plans concord_work_define.research_finding_record.
-func (r runtime) planResearchFindingRecord(_ context.Context, base Envelope, raw []byte, _ string, _ Authority, _ ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
+func (r runtime) planResearchFindingRecord(ctx context.Context, base Envelope, raw []byte, _ string, _ Authority, _ ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
 	var in researchFindingMutation
 	if err := decodeOperationInput(raw, &in); err != nil {
 		return base, err, true
@@ -1680,6 +1685,11 @@ func (r runtime) planResearchFindingRecord(_ context.Context, base Envelope, raw
 	if in.Approval != nil {
 		plan.approval = in.Approval.ApprovalRef
 	}
+	owners, err := r.Store.ResearchPackOwnerWorkIDs(ctx, []string{in.PackID})
+	if err != nil {
+		return failureEnvelope(base, err), nil, true
+	}
+	plan.scope["work_ids"] = owners
 	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
 		freshness := in.Finding.Freshness
 		if freshness == "" {
@@ -1704,7 +1714,7 @@ func (r runtime) planResearchFindingRecord(_ context.Context, base Envelope, raw
 }
 
 // planResearchSourceRecord plans concord_work_define.research_source_record.
-func (r runtime) planResearchSourceRecord(_ context.Context, base Envelope, raw []byte, _ string, _ Authority, _ ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
+func (r runtime) planResearchSourceRecord(ctx context.Context, base Envelope, raw []byte, _ string, _ Authority, _ ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
 	var in researchSourceMutation
 	if err := decodeOperationInput(raw, &in); err != nil {
 		return base, err, true
@@ -1712,6 +1722,11 @@ func (r runtime) planResearchSourceRecord(_ context.Context, base Envelope, raw 
 	if in.Approval != nil {
 		plan.approval = in.Approval.ApprovalRef
 	}
+	owners, err := r.Store.ResearchPackOwnerWorkIDs(ctx, []string{in.PackID})
+	if err != nil {
+		return failureEnvelope(base, err), nil, true
+	}
+	plan.scope["work_ids"] = owners
 	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
 		source, err := store.RecordResearchSourceWithinTx(ctx, tx, store.ResearchSourceRequest{PackID: in.PackID, ExpectedVersion: in.ExpectedVersion, Source: store.ResearchSource{SourceID: in.Source.SourceID, Kind: store.ResearchSourceKind(in.Source.Kind), Locator: in.Source.Locator, Title: in.Source.Title, PublisherOrAuthor: in.Source.PublisherOrAuthor, PublishedAt: in.Source.PublishedAt, AccessedAt: in.Source.AccessedAt}})
 		if err != nil {
@@ -1724,7 +1739,7 @@ func (r runtime) planResearchSourceRecord(_ context.Context, base Envelope, raw 
 }
 
 // planResearchFreshnessSet plans concord_work_define.research_freshness_set.
-func (r runtime) planResearchFreshnessSet(_ context.Context, base Envelope, raw []byte, _ string, _ Authority, _ ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
+func (r runtime) planResearchFreshnessSet(ctx context.Context, base Envelope, raw []byte, _ string, _ Authority, _ ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
 	var in researchFreshnessMutation
 	if err := decodeOperationInput(raw, &in); err != nil {
 		return base, err, true
@@ -1732,6 +1747,11 @@ func (r runtime) planResearchFreshnessSet(_ context.Context, base Envelope, raw 
 	if in.Approval != nil {
 		plan.approval = in.Approval.ApprovalRef
 	}
+	owners, err := r.Store.ResearchPackOwnerWorkIDs(ctx, []string{in.PackID})
+	if err != nil {
+		return failureEnvelope(base, err), nil, true
+	}
+	plan.scope["work_ids"] = owners
 	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
 		if err := store.SetResearchFreshnessWithinTx(ctx, tx, store.SetResearchFreshnessRequest{PackID: in.PackID, ExpectedVersion: in.ExpectedVersion, Freshness: store.ResearchFreshness(in.Freshness), Revision: in.Revision}); err != nil {
 			return nil, nil, nil, err

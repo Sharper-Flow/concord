@@ -677,16 +677,12 @@ func validateAcceptanceOracleAuthorityTx(ctx context.Context, tx *sql.Tx, workID
 		if bundleErr != nil {
 			return bundleErr
 		}
-		var project string
-		if err := tx.QueryRowContext(ctx, `SELECT project_id FROM work_projects WHERE work_id=? AND role='primary'`, workID).Scan(&project); err != nil {
-			return err
-		}
 		current, subjectErr := readCurrentOracleSubject(ctx, tx, workID)
 		if subjectErr != nil {
 			return subjectErr
 		}
 		for _, ref := range control.ReadinessEvidenceRefs {
-			preparation, err := readOraclePreparationReceiptTx(ctx, tx, workID, project, ref)
+			preparation, err := readOraclePreparationReceiptTx(ctx, tx, workID, control.RecipeSource.ProjectID, ref)
 			if err != nil {
 				return err
 			}

@@ -22,7 +22,6 @@ function strings(value: unknown): string[] {
 }
 
 function preparationMatches(preparation: NativeOraclePreparation, control: Record<string, unknown>, packet: AgentLanePacket): boolean {
-  const job = packet.inputs.worker_job!
   const source = control.recipe_source
   const actual = preparation.recipe_source
   const names = preparation.selected_test_names
@@ -30,11 +29,11 @@ function preparationMatches(preparation: NativeOraclePreparation, control: Recor
   const refs = strings(control.readiness_evidence_refs)
   const argv = strings(control.argv)
   return preparation.protocol === "native_oracle_v2" && preparation.phase === "prepare" && preparation.qualification === "ready"
-    && refs.includes(preparation.run_ref) && preparation.work_id === packet.work_id && preparation.project_id === job.project_scope
+    && refs.includes(preparation.run_ref) && preparation.work_id === packet.work_id
     && preparation.contract_version === packet.inputs.binding.contract_version && preparation.subject_commit === packet.inputs.work_context?.subject_commit
     && preparation.logical_cwd === control.cwd && argv.length > 0
     && preparation.logical_argv_digest === `sha256:${createHash("sha256").update(JSON.stringify(argv)).digest("hex")}`
-    && isRecord(source) && actual.kind === "repository_file" && source.kind === actual.kind
+    && isRecord(source) && preparation.project_id === source.project_id && actual.kind === "repository_file" && source.kind === actual.kind
     && source.project_id === actual.project_id && source.path === actual.path && source.commit_oid === actual.commit_oid
     && preparation.streams_complete && preparation.stdout.complete && preparation.stderr.complete
     && preparation.stdout.stream === "stdout" && preparation.stderr.stream === "stderr" && preparation.stdout.ref.length > 0 && preparation.stderr.ref.length > 0

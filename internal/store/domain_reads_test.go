@@ -122,25 +122,10 @@ func TestDomainDetailShowsCurrentLawRelationsAndRefusesUnknown(t *testing.T) {
 	assertFailureKind(t, err, KindUnknownDomain)
 }
 
-func TestDomainActiveWorkAndOverlapsDeriveFromCurrentContracts(t *testing.T) {
+func TestDomainOverlapsDeriveFromCurrentContracts(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s, actor := seedOverlapProjection(t, "overlap-left", "overlap-right", false)
-
-	work, err := s.QueryDomainActiveWork(ctx, DomainActiveWorkRequest{Product: "product", Domain: "child"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(work.Work) != 2 {
-		t.Fatalf("active work count = %d, want 2: %#v", len(work.Work), work.Work)
-	}
-	for _, item := range work.Work {
-		if !item.HomeDomain {
-			t.Fatalf("fixture work must read as home-bound: %#v", item)
-		}
-	}
-	_, err = s.QueryDomainActiveWork(ctx, DomainActiveWorkRequest{Product: "product", Domain: "missing"})
-	assertFailureKind(t, err, KindUnknownDomain)
 
 	overlaps, err := s.QueryDomainOverlaps(ctx, DomainOverlapsRequest{Product: "product"})
 	if err != nil {

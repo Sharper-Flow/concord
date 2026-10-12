@@ -110,18 +110,42 @@ func TestWorkLivenessIncludesInFlightAttempt(t *testing.T) {
 	}
 }
 
-func TestProductRowsLivenessIncludesInFlightAttempt(t *testing.T) {
+func TestSnapshotLivenessIncludesInFlightAttempt(t *testing.T) {
 	t.Parallel()
 	s, req, _ := seedRemovalInFlightAttempt(t)
-	result, err := s.QueryProductRows(context.Background(), ProductRowRequest{})
+	result, err := s.QueryQ2(context.Background(), Q2Request{Product: "product"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(result.Rows) != 1 || result.Rows[0].Focus == nil || result.Rows[0].Focus.WorkID != req.WorkID {
-		t.Fatalf("unexpected Product-row focus: %+v", result.Rows)
+	var item *WorkItem
+	for i := range result.Items {
+		if result.Items[i].ID == req.WorkID {
+			item = &result.Items[i]
+		}
 	}
-	liveness := result.Rows[0].Focus.Liveness
+	if item == nil {
+		t.Fatalf("snapshot lost the in-flight work: %+v", result.Items)
+	}
+	liveness := item.Liveness
 	if liveness == nil || liveness.State != "unknown" || liveness.Attempts != 1 || strings.Join(liveness.Evidence, " ") != "1 open worker attempt(s) have unknown host state" {
-		t.Fatalf("Product-row liveness does not account for the in-flight attempt: %+v", liveness)
+		t.Fatalf("snapshot liveness does not account for the in-flight attempt: %+v", liveness)
+	}
+}
+
+// productRowExec runs one raw statement under the fold guard, so a direct
+// table write cannot desync the workflow projection between statements.
+func productRowExec(t *testing.T, s *Store, statement string, args ...any) {
+	t.Helper()
+	ctx := context.Background()
+	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES (1)`); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if _, err := s.DatabaseForTesting().ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
+			t.Errorf("remove fold guard: %v", err)
+		}
+	}()
+	if _, err := s.DatabaseForTesting().ExecContext(ctx, statement, args...); err != nil {
+		t.Fatal(err)
 	}
 }

@@ -74,7 +74,7 @@ func TestLivenessReplayPreservesOrderAndPayload(t *testing.T) {
 }
 
 func TestLivenessResolvesEngineOwnedRequestCorrection(t *testing.T) {
-	for _, definition := range BuiltinWorkflowDefinitions() {
+	for _, definition := range builtinWorkflowFrozenHeads() {
 		if _, ok := livenessActionDefinition(definition, "request_correction"); !ok {
 			t.Errorf("%s omits the engine-owned correction payload", definition.Ref)
 		}
@@ -87,7 +87,7 @@ func TestLivenessResolvesEngineOwnedRequestCorrection(t *testing.T) {
 }
 
 func TestLivenessDisclosesOutcomeKindAndTokenOmissions(t *testing.T) {
-	for _, definition := range BuiltinWorkflowDefinitions() {
+	for _, definition := range builtinWorkflowFrozenHeads() {
 		omissions := livenessOmittedVariants(definition)
 		for _, kind := range definition.OutcomeSchema.AllowedKinds {
 			if kind != definition.OutcomeSchema.DefaultKind && !containsString(omissions, "outcome_kind="+string(kind)) {
@@ -125,7 +125,7 @@ func TestLivenessOmitsUnrequestedOptionalDesignCorrection(t *testing.T) {
 }
 
 func TestLivenessReportsOptionalPresenceSampling(t *testing.T) {
-	for _, definition := range BuiltinWorkflowDefinitions() {
+	for _, definition := range builtinWorkflowFrozenHeads() {
 		omitted := livenessOmittedVariants(definition)
 		for _, action := range definition.ActionDefinitions {
 			for _, field := range action.Payload.Fields {
@@ -145,7 +145,7 @@ func TestLivenessExecutesGeneratedCorrection(t *testing.T) {
 		t.Fatal(err)
 	}
 	reviewer := acceptReturnRouteWorker(t, fixture, workID, ownerRef)
-	if err := runVerdictActionAs(t, fixture.store, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:return-route","verdict_kind":"outcome_mismatch","evaluation_evidence":["evidence:return-route-verification"],"incomparable_with_approved":true}`), 0, reviewer); err != nil {
+	if err := runVerdictActionAs(t, fixture.store, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"verdicts":[{"predicate_id":"predicate:return-route","verdict_kind":"outcome_mismatch","evaluation_evidence":["evidence:return-route-verification"],"incomparable_with_approved":true}]}`), 0, reviewer); err != nil {
 		t.Fatal(err)
 	}
 	definition, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
@@ -195,15 +195,15 @@ func TestLivenessBindsCurrentAndSuccessorContractVersions(t *testing.T) {
 // cannot substitute for the success path each builtin promises to support.
 func TestBuiltinWorkflowCompletionWitnesses(t *testing.T) {
 	paths := map[string]string{
-		"workflow.implementation":     "record_proposal record_alignment record_discovery record_design approve_contract start_execution bind record_delivery start_refine bind record_delivery record_delivery record_verdict confirm_premise complete",
-		"workflow.break_fix":          "record_reproduction record_alignment record_root_cause approve_contract start_repair bind record_delivery start_refine bind record_delivery record_delivery record_verdict confirm_premise complete",
+		"workflow.implementation":     "record_proposal record_alignment record_design approve_contract start_execution bind record_delivery checkpoint_refine bind record_delivery record_delivery record_verdict confirm_premise complete",
+		"workflow.break_fix":          "record_diagnosis approve_contract checkpoint_repair bind record_delivery checkpoint_refine bind record_delivery record_delivery record_verdict confirm_premise complete",
 		"workflow.research":           "frame_research approve_contract bind record_finding record_report record_conclusion record_verdict confirm_premise complete",
 		"workflow.architecture_spike": "frame_question approve_contract bind record_research record_option discard_poc record_decision record_verdict accept_decision confirm_premise complete",
 		"workflow.ops_runbook":        "approve_contract approve_operation start_run bind record_delivery record_verdict record_health rollback_run record_delivery cleanup_run confirm_premise complete",
 		"workflow.static_analysis":    "declare_scope approve_contract run_analysis record_delivery bind record_report record_verdict confirm_premise complete",
 		"workflow.generic_one_off":    "approve_contract start_action bind record_delivery record_verdict confirm_premise complete",
 	}
-	for _, definition := range BuiltinWorkflowDefinitions() {
+	for _, definition := range builtinWorkflowFrozenHeads() {
 		t.Run(definition.Ref, func(t *testing.T) {
 			sequence, ok := paths[definition.Ref]
 			if !ok {
@@ -212,6 +212,25 @@ func TestBuiltinWorkflowCompletionWitnesses(t *testing.T) {
 			s, workID := livenessReplay(t, definition, nil)
 			defer s.Close()
 			ctx := context.Background()
+			if workflowFamilyArchived(definition.Ref) {
+				// A retired family refuses public execution: the recorded
+				// journey's first action is the refusal witness, and the
+				// recorded history replays through the frozen journal
+				// owners.
+				first := strings.Fields(sequence)[0]
+				action, ok := livenessActionDefinition(definition, first)
+				if !ok {
+					t.Fatalf("unknown action %s", first)
+				}
+				payload, err := livenessPayload(definition, action, map[string]string{})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := livenessApply(ctx, s, workID, livenessMove{action: first, payload: payload}, 0); err == nil {
+					t.Fatal("the retired family admitted public execution")
+				}
+				return
+			}
 			ordinal := 0
 			apply := func(actionID string, variant map[string]string) {
 				t.Helper()

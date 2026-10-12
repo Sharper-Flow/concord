@@ -183,7 +183,8 @@ func TestResourceClaimReplayRefusalsAndAtomicity(t *testing.T) {
 	if replay.Outcome != OutcomeOK || !replay.Replayed {
 		t.Fatalf("replay=%+v", replay)
 	}
-	if version, versionErr := s.WorkVersion(ctx, "work-holder"); versionErr != nil || version != 3 {
+	var version int64
+	if versionErr := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id=?`, "work-holder").Scan(&version); versionErr != nil || version != 3 {
 		t.Fatalf("replayed claim version=%d err=%v", version, versionErr)
 	}
 	var events int
@@ -195,7 +196,7 @@ func TestResourceClaimReplayRefusalsAndAtomicity(t *testing.T) {
 	if stale.Outcome != OutcomeError || stale.Error == nil {
 		t.Fatalf("stale claim=%+v", stale)
 	}
-	if version, versionErr := s.WorkVersion(ctx, "work-holder"); versionErr != nil || version != 3 {
+	if versionErr := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id=?`, "work-holder").Scan(&version); versionErr != nil || version != 3 {
 		t.Fatalf("stale claim version=%d err=%v", version, versionErr)
 	}
 
@@ -218,7 +219,7 @@ func TestResourceClaimReplayRefusalsAndAtomicity(t *testing.T) {
 	if err := store.ApplyOperation(ctx, s, store.Operation{Events: atomicEvents, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, "work-contender"): 2}}); err == nil {
 		t.Fatal("invalid second claim must refuse")
 	}
-	if version, versionErr := s.WorkVersion(ctx, "work-contender"); versionErr != nil || version != 2 {
+	if versionErr := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id=?`, "work-contender").Scan(&version); versionErr != nil || version != 2 {
 		t.Fatalf("partial atomic claim version=%d err=%v", version, versionErr)
 	}
 	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM resource_claims WHERE resource_key=?`, "fence:atomic/valid").Scan(&events); err != nil || events != 0 {

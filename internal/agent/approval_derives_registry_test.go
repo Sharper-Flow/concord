@@ -57,16 +57,19 @@ func TestProductChangingApprovalDerivesTheRegistryItPins(t *testing.T) {
 		t.Fatalf("registry hash must be derived from committed content, got %q", listed.Registry.ContentHash)
 	}
 
-	registered := mustOpsRunbookDefinition(t)
+	// The archived ops_runbook authoring left the live catalog (CD-0218 D1);
+	// the derived-registry approval journey runs on the implementation head.
+	registered, registeredErr := store.LiveWorkflowDefinitionForRef("workflow.implementation")
+	if registeredErr != nil {
+		t.Fatal(registeredErr)
+	}
 	if err := s.Transact(ctx, func(tx *store.Transaction) error {
 		return store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: "work-1", Definition: registered, Actor: store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}, Now: fixedTime()})
 	}); err != nil {
 		t.Fatalf("initialize workflow: %v", err)
 	}
-	var version int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id='work-1'`).Scan(&version); err != nil {
-		t.Fatal(err)
-	}
+	// The canonical head declares approve_contract behind the pre-contract walk.
+	version := advanceCapturedWorkToContract(t, s, service, env, "work-1", "derived-registry")
 	fields := workflowContractFieldsFixture()
 	fields["architecture_binding"] = map[string]any{
 		"domain_registry_content_hash": listed.Registry.ContentHash,
@@ -77,7 +80,7 @@ func TestProductChangingApprovalDerivesTheRegistryItPins(t *testing.T) {
 		"law_additions":                []any{},
 		"verification_obligations":     []any{},
 	}
-	resp, _ := approvedOpsAction(t, s, service, grant, privateKey, env, version, "approve_contract", fields, "derived-registry-approval")
+	resp, _ := approvedWorkflowContract(t, s, service, grant, privateKey, env, version, fields, "derived-registry-approval")
 	if resp.Outcome != OutcomeOK {
 		t.Fatalf("approve_contract against a derived registry: %+v", resp.Error)
 	}
@@ -121,16 +124,19 @@ func TestProductChangingApprovalDerivesTheRegistryWithoutAPriorRead(t *testing.T
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(grant, scopeVersion)
-	registered := mustOpsRunbookDefinition(t)
+	// The archived ops_runbook authoring left the live catalog (CD-0218 D1);
+	// the no-prior-read derivation journey runs on the implementation head.
+	registered, registeredErr := store.LiveWorkflowDefinitionForRef("workflow.implementation")
+	if registeredErr != nil {
+		t.Fatal(registeredErr)
+	}
 	if err := s.Transact(ctx, func(tx *store.Transaction) error {
 		return store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: "work-1", Definition: registered, Actor: store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}, Now: fixedTime()})
 	}); err != nil {
 		t.Fatalf("initialize workflow: %v", err)
 	}
-	var version int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id='work-1'`).Scan(&version); err != nil {
-		t.Fatal(err)
-	}
+	// The canonical head declares approve_contract behind the pre-contract walk.
+	version := advanceCapturedWorkToContract(t, s, service, env, "work-1", "derived-registry-noread")
 	fields := workflowContractFieldsFixture()
 	fields["architecture_binding"] = map[string]any{
 		"domain_registry_content_hash": contentHash,
@@ -141,7 +147,7 @@ func TestProductChangingApprovalDerivesTheRegistryWithoutAPriorRead(t *testing.T
 		"law_additions":                []any{},
 		"verification_obligations":     []any{},
 	}
-	resp, _ := approvedOpsAction(t, s, service, grant, privateKey, env, version, "approve_contract", fields, "derived-registry-approval-no-read")
+	resp, _ := approvedWorkflowContract(t, s, service, grant, privateKey, env, version, fields, "derived-registry-approval-no-read")
 	if resp.Outcome != OutcomeOK {
 		t.Fatalf("approve_contract with no derived registry present: %+v", resp.Error)
 	}

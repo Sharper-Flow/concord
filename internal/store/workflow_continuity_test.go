@@ -79,7 +79,10 @@ func TestContinuityStepActions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"record_proposal", "checkpoint_context", "cross_context_boundary", "accept_worker_result", "record_worker_failure", "dispatch_worker", "record_work_context"}
+	// The current implementation head derives the workflow failure record
+	// from the attempt's own terminal event, so the step's declared actions
+	// carry the dispatch/accept pair without a callable failure record.
+	want := []string{"record_proposal", "checkpoint_context", "cross_context_boundary", "accept_worker_result", "dispatch_worker", "record_work_context"}
 	if !reflect.DeepEqual(snapshot.StepActions, want) {
 		t.Fatalf("step actions=%v, want %v", snapshot.StepActions, want)
 	}

@@ -4,7 +4,7 @@ import { clientRef, type CredentialStore } from "./credentials"
 import { contractOperations, hostToolDescriptions, hostToolSchemas, maxEnvelopeBytes, payloadSchemas, workflowActionPublicVariants } from "./generated-contracts"
 import { activeManifestDigest, adoptManifestDigest, resolveDiskManifestDigest } from "./manifest-pin"
 import { validateGeneratedEnvelope, validateGeneratedPayload, envelopeFailurePath, payloadFailurePath } from "./generated-contract-tests"
-import { dispatchLaneWorker, type LaneDispatchInput } from "./lane_dispatch"
+import { dispatchLaneWorker, dispatchRetriedLaneWorker, type LaneDispatchInput } from "./lane_dispatch"
 import { abandonWorkerAttempt, hostSessionReader, type WorkerRecoveryContext } from "./dispatch"
 import { reconcileRetainedWorker } from "./worker_recovery"
 import { dispatchWindows, staleReleaseDispatchRefusal, dispatchDirectoryMismatch } from "./dispatch-window"
@@ -1878,14 +1878,10 @@ export const work_relate = tool({
   description: "Concord work relate",
   args: argsSchema("concord_work_relate"),
   execute: laneGuarded("concord_work_relate", async (args: HostToolCall, context: ToolContext): Promise<ToolResult> => {
-    // Same shape as the transition tool: a supersede that terminalizes the
-    // work whose worktree this session runs in carries a vacate_target the
-    // adapter applies before the result is reported (CD-0179).
     const staleness = releaseStaleness()
     const request = hostRequest(args)
     const envelope = await invokeConcordOperation("concord_work_relate", request, context)
-    const vacated = await vacateTerminalWorktree("concord_work_relate", request, context, envelope)
-    const { envelope: settled, extraWarnings } = withReleaseStaleness(vacated, staleness)
+    const { envelope: settled, extraWarnings } = withReleaseStaleness(envelope, staleness)
     const warnings = operationIsMutation("concord_work_relate", request.operation) ? await workStateReporter.report(settled, context) : []
     return appendMoveNotice(appendWarnings(await encodeHostToolResult("concord_work_relate", request, context, settled), [...warnings, ...extraWarnings]), context)
   }),
@@ -2542,15 +2538,53 @@ async function executeWorkTransition(args: HostToolArgs, context: ToolContext, s
     args = { ...args, input: { ...(record(args.input) ? args.input : {}), host_pid: process.pid } }
   }
   const envelope = await invokeConcordOperation("concord_work_transition", args, context)
+  if (args?.operation === "workflow_action") {
+    const launched = await launchRetriedWorkerDispatch(args, context, envelope)
+    if (launched !== null) return launched
+  }
   const settled = await vacateTerminalWorktree("concord_work_transition", args, context, envelope)
   const landed = await moveSessionToClaimedWorktree(args, context, settled)
   return landed
 }
 
+// launchRetriedWorkerDispatch routes a combined rejection's committed retry
+// dispatch through the one post-commit host launch owner (CD-0198 D5). The
+// core's response carries the exact admitted retry dispatch — the derived
+// packet, the minted attempt identity, the digest the fresh window opened
+// for, and the claimed worktree — and this boundary arms the launch window
+// from those values alone. An envelope that carries no retry members (a
+// rejection-only response, an error such as the escalation wall, or any
+// other action) returns null and the ordinary path continues untouched; no
+// launch is attempted for a response that did not commit one.
+//
+// CD-0198 D5: the acknowledged output preserves the committed rejection's
+// mutation receipt beside the Task directive the launch owner produces:
+// changed_refs, next_valid_intents, and the core result receipt ride the
+// launch envelope under their core names. The copies come from the core
+// envelope the invoke boundary already validated against the generated
+// contracts, so no second validator runs; retry_worker_packet stays off the
+// copy because the launch consumed those exact bytes into the armed window
+// and the digest names the durable copy the store holds.
+async function launchRetriedWorkerDispatch(args: HostToolArgs, context: ToolContext, envelope: unknown): Promise<HostConcordEnvelope | null> {
+  if (!record(args?.input) || args.input.action_id !== "reject_worker_result") return null
+  if (!record(envelope) || envelope.outcome !== "ok") return null
+  const result = record(envelope.result) ? envelope.result : null
+  if (!result || result.retry_worker_packet === null || typeof result.retry_worker_packet !== "object") return null
+  const attemptID = typeof result.retry_attempt_id === "string" ? result.retry_attempt_id : ""
+  const digest = typeof result.worker_packet_digest === "string" ? result.worker_packet_digest : ""
+  const worktree = typeof result.worker_worktree === "string" ? result.worker_worktree : ""
+  const launch = await dispatchRetriedLaneWorker({ packet: result.retry_worker_packet, packetDigest: digest, attemptID, authorizedWorktree: worktree }, { context, credentials: credentialsOverride ?? undefined })
+  if (!record(launch)) return launch as HostConcordEnvelope
+  const receipt = Array.isArray(envelope.changed_refs) ? envelope.changed_refs : undefined
+  const intents = Array.isArray(envelope.next_valid_intents) ? envelope.next_valid_intents : undefined
+  const { retry_worker_packet: _consumed, ...resultReceipt } = result
+  return { ...launch, changed_refs: receipt, next_valid_intents: intents, result: resultReceipt } as HostConcordEnvelope
+}
+
 // vacateTerminalWorktree moves a session out of a work item's worktree after
-// the work reached a terminal state (complete, cancel, supersede). The core
-// attaches vacate_target to the transition result only when the calling
-// session's linked worktree is that work item's active worktree, so the hook
+// the work reached a terminal state (complete, cancel). The core attaches
+// vacate_target to the transition result only when the calling session's
+// linked worktree is that work item's active worktree, so the hook
 // never releases another work item's occupancy. The vacate runs first — it
 // records the relocation request and resolves the registered main checkout —
 // the move follows it, and the verified landing the move readback earns
@@ -2564,8 +2598,7 @@ async function executeWorkTransition(args: HostToolArgs, context: ToolContext, s
 // reach it; a vacate refused before the commit keeps the worktree retry.
 export async function vacateTerminalWorktree(toolName: string, args: HostToolArgs, context: ToolContext, envelope: HostConcordEnvelope): Promise<HostConcordEnvelope> {
   const transitioned = args?.operation === "lifecycle" && record(args.input) && ["completed", "cancelled"].includes(String(args.input.target))
-  const superseded = toolName === "concord_work_relate" && args?.operation === "supersede"
-  if (!transitioned && !superseded) return envelope
+  if (!transitioned) return envelope
   if (!record(envelope) || envelope.outcome !== "ok") return envelope
   const target = record(envelope.result) ? envelope.result.vacate_target : undefined
   if (!record(target) || typeof target.work_id !== "string" || typeof target.destination_directory !== "string") return envelope

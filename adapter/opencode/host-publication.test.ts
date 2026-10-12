@@ -47,7 +47,7 @@ test("published request schemas are compact and safe for host publication", () =
     expect(() => expandedPublishedRequestSchema(schema), toolName).not.toThrow()
     expect(JSON.stringify(schema), toolName).not.toContain('"allOf"')
     const branches = schema.oneOf
-    // One compact branch per operation; the 58 action variants share the
+    // One compact branch per operation; the action variants share the
     // workflow_action branch's grouped input union.
     const toolOperations = contractOperations.filter((operation: any) => operation.tool === toolName)
     expect(branches, toolName).toHaveLength(toolOperations.length)
@@ -126,17 +126,20 @@ test("published workflow transition teaches every approve_contract admission rul
 
 test("delivery-decidable-rule: the published schema teaches it and the gap check detects its removal", () => {
   const schema = adapter.publishedRequestSchema("concord_work_transition") as any
-  // CD-0184 teaches the rule at both authoring points: the outcome_predicates
-  // array on approve_contract (shared with supersede_contract), and the
-  // add_condition hold bound.
+  // CD-0184 teaches the rule at its surviving authoring point: the
+  // outcome_predicates array on approve_contract, shared with
+  // supersede_contract. The add_condition hold bound retired with its
+  // action, so the published surface carries no add_condition variant and
+  // no wait-rule teaching check exists to revive one.
   const predicateFields = actionInputBranch(schema, "approve_contract").properties.fields.properties
-  const waitFields = actionInputBranch(schema, "add_condition").properties.fields.properties
   expect(predicateFields.outcome_predicates.description).toContain("decidable at delivery")
   expect(predicateFields.outcome_predicates.description).toContain("raised_from")
-  expect(waitFields.expected_within_seconds.description).toContain("raised_from")
-  expect(waitFields.expected_within_seconds.description).toContain("time window")
+  const actionIds = (expandedPublishedRequestSchema(schema) as any).oneOf
+    .filter((branch: any) => branch.properties?.operation?.const === "workflow_action")
+    .map((branch: any) => branch.properties.input.properties.action_id.const)
+  expect(actionIds, "the retired add_condition action stays unpublished").not.toContain("add_condition")
 
-  // Dropping either teaching from the published document is a reported gap,
+  // Dropping the teaching from the published document is a reported gap,
   // so generation and its tests fail on drift. The mutation lands on an
   // inlined clone of the actual compact document, and the gap check walks
   // that mutated document the same way it walks the real one.
@@ -146,21 +149,13 @@ test("delivery-decidable-rule: the published schema teaches it and the gap check
     "outcome_predicates description does not teach the delivery-decidable rule (CD-0184) on action approve_contract",
   )
 
-  const droppedWaitRule = inlineExpanded(schema)
-  delete actionInputBranch(droppedWaitRule, "add_condition").properties.fields.properties.expected_within_seconds.description
-  expect(advertisedAdmissionTeachingGaps(droppedWaitRule)).toContain(
-    "expected_within_seconds description does not teach the delivery-decidable rule (CD-0184) on action add_condition",
-  )
-
   // A description cut down to its marker phrases no longer carries the rule,
   // so it is a gap too.
   const reducedRules = inlineExpanded(schema)
   actionInputBranch(reducedRules, "approve_contract").properties.fields.properties.outcome_predicates.description = "decidable at delivery; raised_from"
-  actionInputBranch(reducedRules, "add_condition").properties.fields.properties.expected_within_seconds.description = "raised_from; time window"
-  expect(advertisedAdmissionTeachingGaps(reducedRules)).toEqual(expect.arrayContaining([
+  expect(advertisedAdmissionTeachingGaps(reducedRules)).toContain(
     "outcome_predicates description does not teach the delivery-decidable rule (CD-0184) on action approve_contract",
-    "expected_within_seconds description does not teach the delivery-decidable rule (CD-0184) on action add_condition",
-  ]))
+  )
 })
 
 test("the request definition hook publishes an isolated root per tool and hoists no definitions anywhere else", async () => {

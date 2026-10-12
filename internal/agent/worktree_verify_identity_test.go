@@ -4,8 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -23,10 +26,41 @@ func TestWorktreeVerifyNewRequestRunsAgain(t *testing.T) {
 			s, service, grant, _, _, _ := tiersFixture(t)
 			now := fixedTime().Add(time.Second)
 			service.Now = func() time.Time { return now }
-			seedContinuityWorkflow(t, s, "work-2")
-			if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE workflow_instances SET current_step='refine' WHERE work_id='work-2'; DELETE FROM fold_guard`); err != nil {
+			// The refine-epoch lease identity seeds on the canonical head: the
+			// test's second leg advances the epoch through the declared
+			// correction re-entry the derived-start heads admit (CD-0198 D3),
+			// since the live union authors no callable start. The lease
+			// identity contract is identical on both sides.
+			pinned, pinnedErr := store.LiveWorkflowDefinitionForRef("workflow.implementation")
+			if pinnedErr != nil {
+				t.Fatal(pinnedErr)
+			}
+			grantActor := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
+			ownerRef, ownerRefErr := store.WorkflowActorRef(grantActor)
+			if ownerRefErr != nil {
+				t.Fatal(ownerRefErr)
+			}
+			if err := s.Transact(context.Background(), func(tx *store.Transaction) error {
+				return store.InitializeWorkflowTx(context.Background(), tx, store.WorkflowInitializationRequest{WorkID: "work-2", Definition: pinned, Actor: grantActor, Now: fixedTime()})
+			}); err != nil {
 				t.Fatal(err)
 			}
+			// The fixture parks the instance at the producer step under the
+			// approved contract and predicate the independent verdict answers
+			// to, the fold-guarded fixture pattern for fold-only tables.
+			if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
+				UPDATE workflow_instances SET current_step='execution' WHERE work_id='work-2';
+				INSERT INTO workflow_contracts(work_id,contract_version,premise,consequence_class,required_evidence,route_conventions,approved_at,approved_by,spec_mandate,law_modifies,law_boundary_version,rigor_class) VALUES('work-2',1,'approved verify objective','internal_sqlite','[]','[]','now',?,'[]','[]',0,'prototype_internal');
+				INSERT INTO workflow_contract_predicates(work_id,contract_version,predicate_id,ordinal,outcome_kind,outcome_payload) VALUES('work-2',1,'predicate:primary',0,'check','{"kind":"check","check_ref":"check:verify-identity","immutable_subject_ref":"commit:verify-identity","expected_result":"pass"}');
+				DELETE FROM fold_guard`, ownerRef); err != nil {
+				t.Fatal(err)
+			}
+			// The producer pass opens with its fenced start, and its declared
+			// delivery enters refine, so the refinement step opens with no
+			// start of its own and the verdict route reads the execution
+			// production it needs.
+			verifyIdentityAction(t, s, "start_execution", map[string]any{}, grantActor, nil, now)
+			verifyIdentityDelivery(t, s, grantActor, "evidence:verify-identity-enter-refine", now)
 			startRefine := func(key string) {
 				t.Helper()
 				var version int64
@@ -34,7 +68,7 @@ func TestWorktreeVerifyNewRequestRunsAgain(t *testing.T) {
 					t.Fatal(err)
 				}
 				response := tiersInvoke(t, s, service, grant, "concord_work_transition", "workflow_action", map[string]any{
-					"work_id": "work-2", "expected_version": version, "action_id": "start_refine", "idempotency_key": key,
+					"work_id": "work-2", "expected_version": version, "action_id": "checkpoint_refine", "fields": map[string]any{}, "idempotency_key": key,
 				})
 				if response.Outcome != OutcomeOK {
 					t.Fatalf("start refine: %+v", response.Error)
@@ -48,6 +82,17 @@ func TestWorktreeVerifyNewRequestRunsAgain(t *testing.T) {
 			assertVerifyExecutionCount(t, counter, 1)
 			if newEpoch {
 				now = now.Add(time.Second)
+				// A repeated qualifying action inside one pass reuses the
+				// standing start (CD-0198 D3), so the same-window checkpoint
+				// cannot mint a new epoch. The declared correction re-entry
+				// is the route that does: the green verify run binds as the
+				// refine epoch's verification evidence, the refine exit
+				// asserts its delivery through the gate, an independent
+				// evaluator judges the delivered change against the approved
+				// predicate, and the operator-approved correction returns the
+				// instance to the producer step, whose delivery re-enters
+				// refine on a fresh pass.
+				verifyIdentityCorrectionReentry(t, s, grant, first.OperationRef, now)
 				startRefine("verify-refine-2")
 			}
 			now = now.Add(time.Second)
@@ -96,6 +141,90 @@ func TestWorktreeVerifyNewRequestRunsAgain(t *testing.T) {
 			assertVerifyExecutionCount(t, counter, 2)
 		})
 	}
+}
+
+// verifyIdentityAction applies one store-level workflow action on work-2, so
+// the correction re-entry journey runs through the same admission and fold
+// the mutation boundary serves while the verify-identity assertions stay
+// about the verify lease. The store-level run mints nothing on the agent
+// challenge table, and the operator decision rides the verified operator
+// identity the fold's operator guard demands.
+func verifyIdentityAction(t *testing.T, s *store.Store, action string, fields map[string]any, actor store.WorkflowActor, operator *store.WorkflowActor, now time.Time) {
+	t.Helper()
+	var version int64
+	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id='work-2'`).Scan(&version); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(fields)
+	if err != nil {
+		t.Fatal(err)
+	}
+	operationID := "verify-identity-" + action + "-" + strconv.FormatInt(version, 10)
+	request := store.WorkflowActionExecutionRequest{
+		WorkID: "work-2", ExpectedVersion: version, ActionID: action, Payload: raw, Actor: actor, OperatorActor: operator,
+		AcceptedInputsDigest: "sha256:" + strings.Repeat("f", 64) + operationID, IdempotencyIdentity: operationID, OperationID: operationID,
+		PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID, RequestID: "request:" + operationID,
+		ContractDigest: ManifestDigest, Now: now,
+	}
+	if operator != nil {
+		request.OperatorApprovalRef = strings.Repeat("e", 64)
+		request.ApprovalOperationDigest = "sha256:" + strings.Repeat("c", 64)
+		request.ApprovalScopeJSON = `{}`
+		request.ApprovalVersionsJSON = fmt.Sprintf(`{"work":%d}`, version)
+		request.ApprovalConsequence = "recovery"
+	}
+	if err := s.Transact(context.Background(), func(tx *store.Transaction) error {
+		_, err := store.ApplyWorkflowActionTx(context.Background(), tx, store.BuiltinWorkflowRegistry(), request)
+		return err
+	}); err != nil {
+		t.Fatalf("verify-identity journey action %s: %v", action, err)
+	}
+}
+
+// verifyIdentityDelivery asserts one admitted delivery on work-2's current
+// step: the advancing completion whose fold crosses the step edge.
+func verifyIdentityDelivery(t *testing.T, s *store.Store, actor store.WorkflowActor, artifact string, now time.Time) {
+	t.Helper()
+	verifyIdentityAction(t, s, "record_delivery", map[string]any{"delivery_artifact": artifact, "delivery_state": "asserted"}, actor, nil, now)
+}
+
+// verifyIdentityCorrectionReentry drives the declared correction re-entry the
+// canonical head admits for a fresh refine epoch: the green verify run binds
+// as the refine epoch's verification evidence, the refine exit asserts its
+// delivery through the gate, an independent evaluator judges the delivered
+// change against the approved predicate, and the operator-approved correction
+// returns the instance to the producer step, whose delivery re-enters refine
+// on a fresh pass. No step and no record is faked: every leg is an admitted
+// action against the owning admission owner.
+func verifyIdentityCorrectionReentry(t *testing.T, s *store.Store, grant Authority, verifyOpRef string, now time.Time) {
+	t.Helper()
+	actor := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
+	judge := store.WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/verify-identity-judge", SessionRef: "session/verify-identity-judge", ActorClass: store.ActorAgent}
+	operator := store.WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "approval:" + strings.Repeat("e", 64), SessionRef: "session/verify-identity-correction", ActorClass: store.ActorOperator}
+	var producer, watermark string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT principal_ref,request_id FROM durable_operations WHERE op_id=?`, verifyOpRef).Scan(&producer, &watermark); err != nil {
+		t.Fatal(err)
+	}
+	verifyIdentityAction(t, s, "bind_evidence", map[string]any{
+		"evidence_kind": "verification", "immutable_subject_ref": verifyOpRef,
+		"producer_id": producer, "producer_run_ref": verifyOpRef, "producer_watermark": watermark,
+	}, actor, nil, now)
+	verifyIdentityDelivery(t, s, actor, "evidence:verify-identity-refine-exit", now)
+	verifyIdentityDelivery(t, s, actor, "evidence:verify-identity-gate-exit", now)
+	verifyIdentityAction(t, s, "record_verdict", map[string]any{
+		"contract_version": int64(1),
+		"verdicts": []map[string]any{{
+			"predicate_id": "predicate:primary", "verdict_kind": "outcome_mismatch",
+			"incomparable_with_approved": true, "evaluation_evidence": []string{verifyOpRef},
+		}},
+	}, judge, nil, now)
+	verifyIdentityAction(t, s, "request_correction", map[string]any{
+		"diagnosis":     "the delivered change does not satisfy the approved contract predicate",
+		"strategy":      "reproduce the change at the producer step and verify it under a fresh refine epoch",
+		"predicate_ids": []string{"predicate:primary"},
+		"evidence_refs": []string{verifyOpRef},
+	}, actor, &operator, now)
+	verifyIdentityDelivery(t, s, actor, "evidence:verify-identity-correction-reentry", now)
 }
 
 func TestWorktreeVerifyRequestIdentityIncludesPrincipal(t *testing.T) {

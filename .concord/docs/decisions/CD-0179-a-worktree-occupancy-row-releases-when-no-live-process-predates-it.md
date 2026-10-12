@@ -69,8 +69,8 @@ transaction opens and carries the observation with the request.
 
 ### D4. A terminal transition moves the calling session to the main checkout
 
-After a lifecycle transition to completed or cancelled succeeds, or a
-supersede succeeds, the adapter moves a calling session that runs in that work
+After a lifecycle transition to completed or cancelled succeeds, the adapter
+moves a calling session that runs in that work
 item's worktree to the registered main checkout. The core names the vacate
 target on the transition result only when the calling session's linked
 worktree is that work item's active worktree. The adapter then runs
@@ -130,7 +130,7 @@ or late by that error; a lease set that is unreadable at read time releases
 nothing, which is the safe direction.
 
 The terminal-transition move adds one core call and one host move after a
-completed, cancelled, or superseded transition from a worktree. A session
+completed or cancelled transition from a worktree. A session
 that ran the transition from the main checkout moves nowhere, and the
 transition result of every other caller is unchanged.
 

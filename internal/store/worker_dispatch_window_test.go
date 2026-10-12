@@ -83,7 +83,10 @@ func TestCurrentWorkerResultActionsRequireWorkTransition(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, actionID := range []string{"accept_worker_result", "record_worker_failure"} {
+	// CD-0198 D5: record_worker_failure leaves the current head; the
+	// recovery routes that serve it and the result rejection keep the
+	// work_transition capability.
+	for _, actionID := range []string{"accept_worker_result"} {
 		var capability string
 		for _, action := range entry.Definition.ActionDefinitions {
 			if action.ID == actionID {
@@ -94,6 +97,19 @@ func TestCurrentWorkerResultActionsRequireWorkTransition(t *testing.T) {
 		if capability != "work_transition" {
 			t.Errorf("action %q required_capability = %q, want work_transition", actionID, capability)
 		}
+	}
+	for _, recovery := range BuiltinWorkflowRecoveryActionDefinitions() {
+		// supersede_contract carries its own approval authority and is not a
+		// work_transition recovery; the correction routes are.
+		if recovery.ID == "supersede_contract" {
+			continue
+		}
+		if recovery.RequiredCapability != "work_transition" {
+			t.Errorf("recovery action %q required_capability = %q, want work_transition", recovery.ID, recovery.RequiredCapability)
+		}
+	}
+	if recovery := workerFailureRecoveryActionDefinition(); recovery.RequiredCapability != "work_transition" {
+		t.Errorf("recovery action %q required_capability = %q, want work_transition", recovery.ID, recovery.RequiredCapability)
 	}
 }
 

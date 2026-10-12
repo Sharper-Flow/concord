@@ -16,8 +16,11 @@ func seedAgentWorkflow(t *testing.T, s *store.Store, grant Authority) int64 {
 	t.Helper()
 	ctx := context.Background()
 	seedCurrentWorkflowDomainFixture(t, s)
-	definition := store.BuiltinWorkflowDefinitions()[0]
-	registered, err := store.BuiltinWorkflowRegistry().Register(definition)
+	// Seed the live authoring head, not a frozen version: the boundary's
+	// closed action union admits only the current heads' declared shapes, so
+	// every seeded workflow walks the canonical graph (CD-0218 D4 keeps the
+	// frozen pins registered for decode, never for new public authoring).
+	registered, err := store.LiveWorkflowDefinitionForRef("workflow.implementation")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -300,8 +303,11 @@ func seedCurrentWorkflowActionReplay(t *testing.T, s *store.Store, env CallEnvel
 	changedRef := `{"entity_kind":"work_item","id":"work-1","version":5}`
 	changedRefs := `[` + strconv.Quote(changedRef) + `]`
 	scope := `{"product_id":"product-1","project_ids":["project-1"],"work_ids":["work-1"],"scope_version":"` + env.ScopeVersion + `"}`
-	definition := store.BuiltinWorkflowDefinitions()[0]
-	_, err := s.DatabaseForTesting().Exec(`INSERT INTO durable_operations(op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_version,step_id,step_kind,accepted_inputs_digest,accepted_scope_snapshot,result_kind,result_payload,evidence_refs,changed_refs,principal_ref,request_id,observed_at,completed_at,contract_digest) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, opID, 1, "work-1", definition.Ref, definition.Version, "proposal", "internal_sqlite", "sha256:legacy-input", scope, "completed", resultPayload, "[]", changedRefs, env.PrincipalRef, env.RequestID, fixedTime().Format(time.RFC3339Nano), fixedTime().Format(time.RFC3339Nano), ManifestDigest)
+	definition, defErr := store.LiveWorkflowDefinitionForRef("workflow.implementation")
+	if defErr != nil {
+		t.Fatal(defErr)
+	}
+	_, err := s.DatabaseForTesting().Exec(`INSERT INTO durable_operations(op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_version,step_id,step_kind,accepted_inputs_digest,accepted_scope_snapshot,result_kind,result_payload,evidence_refs,changed_refs,principal_ref,request_id,observed_at,completed_at,contract_digest) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, opID, 1, "work-1", definition.Definition.Ref, definition.Definition.Version, "proposal", "internal_sqlite", "sha256:legacy-input", scope, "completed", resultPayload, "[]", changedRefs, env.PrincipalRef, env.RequestID, fixedTime().Format(time.RFC3339Nano), fixedTime().Format(time.RFC3339Nano), ManifestDigest)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -364,7 +370,9 @@ func TestWorkflowActionDispatchUsesDefinitionApprovalChallenge(t *testing.T) {
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(grant, scopeVersion)
-	for i, action := range []string{"record_proposal", "record_alignment", "record_discovery", "record_design"} {
+	// The canonical head removed the discovery marker, so the pre-contract
+	// walk is proposal, alignment, design; each consumes two events.
+	for i, action := range []string{"record_proposal", "record_alignment", "record_design"} {
 		fields := ""
 		if action == "record_design" {
 			fields = `,"fields":{"approach":"The recorded approach is the implementation boundary.","decisions":[{"id":"decision:dispatch","question":"What crosses into execution?","choice":"The typed design record.","rationale":"The worker must receive the approved decision.","rejected":[]}],"touched_refs":["path:dispatch"]}`
@@ -375,12 +383,9 @@ func TestWorkflowActionDispatchUsesDefinitionApprovalChallenge(t *testing.T) {
 		if action == "record_alignment" {
 			fields = `,"fields":{"searched":"The bounded backlog search statement.","outcome":"none_found"}`
 		}
-		if action == "record_discovery" {
-			fields = `,"fields":{}`
-		}
-		// Cumulative expected versions: proposal and design each consume two
-		// events, alignment consumes two, discovery one.
-		expectedVersion := []int{4, 6, 8, 9}[i]
+		// Cumulative expected versions: proposal, alignment, and design each
+		// consume two events over the version-4 capture.
+		expectedVersion := []int{4, 6, 8}[i]
 		input := json.RawMessage(`{"work_id":"work-1","expected_version":` + strconv.Itoa(expectedVersion) + `,"action_id":"` + action + `"` + fields + `,"idempotency_key":"wf-advance-` + action + `"}`)
 		response, dispatchErr := Dispatch(context.Background(), s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: input}, env)
 		if dispatchErr != nil || response.Outcome != OutcomeOK {
@@ -395,14 +400,14 @@ func TestWorkflowActionDispatchUsesDefinitionApprovalChallenge(t *testing.T) {
 	challengeRef, _ := challenge.Error.Details["approval_ref"].(string)
 	digest := mutationDigest("concord_work_transition", "workflow_action", env, input)
 	scope := map[string]any{"product_id": "product-1", "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}, "scope_version": scopeVersion}
-	versions := map[string]any{"work": 11}
+	versions := map[string]any{"work": 10}
 	env.HostApproval = signedHostApproval(privateKey, challengeRef, digest, scope, versions, grant.SessionRef, grant.AgentRef, grant.Worktree, fixedTime(), "workflow-approval-0001")
 	var durableBefore int
 	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM durable_operations WHERE workflow_type_ref LIKE 'workflow.%'`).Scan(&durableBefore); err != nil {
 		t.Fatal(err)
 	}
-	if durableBefore != 4 {
-		t.Fatalf("approval challenge durable operation count=%d, want 4 prior actions", durableBefore)
+	if durableBefore != 3 {
+		t.Fatalf("approval challenge durable operation count=%d, want 3 prior actions", durableBefore)
 	}
 	approvedInput := workflowContractActionInput(t, "wf-approve-contract", challengeRef)
 	approved, err := Dispatch(context.Background(), s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: approvedInput}, env)

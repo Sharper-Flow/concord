@@ -84,7 +84,7 @@ func TestMandateAdmissionAgreement(t *testing.T) {
 			step: pin.Step, debt: ReviewDebtNone, contracts: 1, mandate: mandate,
 		}, mandate)
 		decision := workflowAdmit(definition, state, "record_verdict")
-		payload := json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:return-route","verdict_kind":"ok"}`)
+		payload := json.RawMessage(`{"contract_version":1,"verdicts":[{"predicate_id":"predicate:return-route","verdict_kind":"ok"}]}`)
 		preflightErr := InspectWorkflowActionAdmission(ctx, s, WorkflowActionPreflightRequest{
 			WorkID: workID, ExpectedVersion: pin.Version, ActionID: "record_verdict", Actor: fixture.operator, Payload: payload,
 		})

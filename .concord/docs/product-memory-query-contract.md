@@ -214,8 +214,8 @@ The JSON corpus is executable through a candidate adapter implementing
 - **Intent:** "What is blocked, by what, and what must change?"
 - **Input:** Product with optional Project/work/kind filters; relation depth
   default `1`, maximum `3`.
-- **Output:** blocked work plus unresolved blocker nodes/edges, blocker authority,
-  age, and external-blocker marker. Blocked is derived, never a competing state.
+- **Output:** actionable blocked work plus unresolved blocker nodes/edges, blocker
+  authority, age, and external-blocker marker. Blocked is derived, never a competing state.
 - **Order/bounds:** priority, oldest blocker age, stable ID; graph node/edge caps.
 - **Oracle:** work with resolved dependencies is absent; no stored `blocked` flag
   can disagree with the relation graph.
@@ -226,14 +226,14 @@ The JSON corpus is executable through a candidate adapter implementing
 
 - **Intent:** "What should I do next?"
 - **Input:** Product; optional Project/work-kind; limit/cursor.
-- **Output:** needed work with no unresolved blockers, including priority, value,
-  Projects, and readiness evidence.
+- **Output:** actionable needed work with no unresolved blockers, including
+  priority, value, Projects, and readiness evidence.
 - **Order:** explicit priority rank, created time, stable ID. Lifecycle stage is
   displayed for rigor but **does not silently rewrite business priority**.
 - **Oracle:** a higher-priority blocked item is excluded; the next unblocked item
   wins deterministically.
-- **PM4 semantics:** ready means `needed` with no unresolved canonical `blocks`
-  edge. Stage is never a hidden business-priority input.
+- **PM4 semantics:** ready means actionable `needed` work with no unresolved
+  canonical `blocks` edge. Stage is never a hidden business-priority input.
 
 ### Q6. Cross-Project work
 

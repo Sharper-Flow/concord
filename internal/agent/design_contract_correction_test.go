@@ -18,13 +18,13 @@ func TestContractCorrectionDoesNotPinAnObsoleteDesign(t *testing.T) {
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(grant, scopeVersion)
-	for _, action := range []string{"record_proposal", "record_alignment", "record_discovery", "record_design"} {
+	for _, action := range []string{"record_proposal", "record_alignment", "record_design"} {
 		invokeWorkflowIssue31Action(t, s, service, env, action, version, "design-correction-"+action)
 		version = workflowIssue31Version(t, s)
 	}
 	fields := workflowContractFieldsFixture()
 	fields["architecture_binding"] = workflowArchitectureBindingFixture()
-	approved, version := approvedOpsAction(t, s, service, grant, privateKey, env, version, "approve_contract", fields, "design-correction-approve")
+	approved, version := approvedWorkflowContract(t, s, service, grant, privateKey, env, version, fields, "design-correction-approve")
 	if approved.Outcome != OutcomeOK {
 		t.Fatalf("approve contract: %+v", approved.Error)
 	}

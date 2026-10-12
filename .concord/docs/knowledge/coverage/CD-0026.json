@@ -1,8 +1,8 @@
 {
   "evidence": [
     {
-      "kind": "go_test",
-      "value": "internal/agent.TestDispatchLessonPublishApprovalRoundTripAndReplay"
+      "kind": "validator",
+      "value": "scripts/check-knowledge-index.py"
     }
   ],
   "id": "CD-0026",

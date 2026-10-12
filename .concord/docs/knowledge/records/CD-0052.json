@@ -21,7 +21,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:735e6c804ababe1a2af5ed82298073c30b92dde314fb333be662b7843270438e",
+  "sha256": "sha256:701cb8e0272c642bb7ce99bb956e69d9b31f970145b9c8500a12b107a5feefa1",
   "status": "accepted",
   "summary": "The work-relation kind implements is a directional, non-blocking, non-hierarchical, cycle-exempt many-to-one fulfilment link recording that a work item fulfils a decision-kind item; it is display-only until a consumer defines its read surface in a citing record, and removal stays off the table while it remains in the closed vocabulary.",
   "tags": [

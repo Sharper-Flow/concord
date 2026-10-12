@@ -1,18 +1,29 @@
 package store
 
-// CD-0201 D2 liveness over every registered definition version (CD-0115 D2):
-// every well-formed nonterminal state has an exit, and every reachable state
-// has a completion path or the declared stop at a missing-convergence refusal.
-// A path to a future stop never replaces an executable state's completion.
-// TestConvergenceWallWithoutBasisResolvesThroughOperatorStop proves cancellation
-// through the live lifecycle fold; seeded strands still detect missing exits
-// and completion actions. No state is skipped.
+// CD-0201 D2 liveness over every registered definition version (CD-0115 D2),
+// split by the CD-0218 D1 family boundary into two properties:
 //
-// The model folds review debt, attempts, whole-work nonprogress, convergence,
-// contracts, staleness, design, verdicts, artifacts, delivery, mandates, and jobs.
-// Breaking notices and external conditions stay zero. Recorded-correction
-// dispatch-count escalation is verified separately; this model folds the
-// nonprogress wall and its productive-acceptance reset.
+// Retained families satisfy the liveness property: every
+// well-formed nonterminal state has an exit, and every reachable state has a
+// completion path or the declared stop at a missing-convergence refusal.
+// A path to a future stop never replaces an executable state's completion.
+// TestConvergenceWallWithoutBasisResolvesThroughOperatorStop proves
+// cancellation through the live lifecycle fold; seeded strands still detect
+// missing exits and completion actions.
+//
+// Archived families cannot lawfully satisfy completion liveness: archived
+// public authoring is forbidden, so an archived state admits no public
+// action. Their assertion is the positive refusal totality — every candidate
+// action at every well-formed nonterminal state returns the archived-family
+// KindInvalidOperation refusal — and a seeded non-archived clone proves the
+// detector names an admitted action rather than passing vacuously.
+//
+// No state is skipped on either side. The model folds review debt, attempts,
+// whole-work nonprogress, convergence, contracts, staleness, design,
+// verdicts, artifacts, delivery, mandates, and jobs. Breaking notices and
+// external conditions stay zero. Recorded-correction dispatch-count
+// escalation is verified separately; this model folds the nonprogress wall
+// and its productive-acceptance reset.
 
 import (
 	"fmt"
@@ -248,7 +259,7 @@ func admissionContractCorrection(definition WorkflowDefinition, state admissionM
 	case state.contracts != 1:
 		return false
 	}
-	return (state.attempt == "" && !state.dispatched) || state.attempt == "failed" || state.attempt == "rejected"
+	return !state.dispatched || state.attempt == "failure_recorded" || state.attempt == "rejected"
 }
 
 // admissionCompleteStepCorrection folds the CD-0172 complete-step route.
@@ -734,7 +745,16 @@ func admissionSuccessors(definition WorkflowDefinition, state admissionModelStat
 	case "supersede_contract":
 		return admissionSupersedeSuccessors(definition, state)
 	default:
-		if mode, ok := workflowActionExecutionMode(definition, actionID); ok && mode == ActionFenced && !admissionContinuityAction(actionID) {
+		mode, modeOK := workflowActionExecutionMode(definition, actionID)
+		// CD-0198 D3: on a derived-start pin the step's qualifying
+		// checkpoint answers the loader's start window: a fresh entry's
+		// first checkpoint derives the start, so the pass reads started
+		// with no proof; a re-entry's checkpoint reuses the standing start
+		// and resets nothing.
+		if workflowDerivedStepStartActive(definition) && workflowDerivedStartCheckpoints[actionID] == state.step {
+			next.started, next.proof = true, false
+		}
+		if modeOK && mode == ActionFenced && !admissionContinuityAction(actionID) {
 			// A fresh fenced start opens a new attempt window and releases
 			// the hold of every attempt before it.
 			next.attempt = ""
@@ -878,6 +898,12 @@ func admissionSupersedeSuccessors(definition WorkflowDefinition, state admission
 	successor.artifactStale = true
 	successor.attemptFresh = false
 	successor.convergence = "approach"
+	if workflowDerivedStepStartActive(definition) {
+		// The typed supersession opens the successor contract's pass. The
+		// old attempt still holds advances until disposition, but its
+		// dispatch precedes the boundary correction admission reads.
+		successor.dispatched = false
+	}
 	if target := workflowDisprovedPremiseAtCompleteRouteTarget(definition, state.step); target != "" {
 		successor = admissionEnterStep(definition, successor, target)
 		return []admissionModelState{successor}
@@ -1287,19 +1313,92 @@ func wellFormedAdmissionExitWitnesses(definition WorkflowDefinition) []string {
 	return witnesses
 }
 
+// archivedFamilyRefusalHolds reports whether the admission of one candidate
+// action over one well-formed state is exactly the archived-family refusal:
+// no admission, no approval route, and a KindInvalidOperation failure whose
+// message names the archived family.
+func archivedFamilyRefusalHolds(definition WorkflowDefinition, state admissionModelState, actionID string) bool {
+	decision := workflowAdmit(definition, admissionWorkflowState(definition, state), actionID)
+	var failure *Failure
+	return !decision.Admitted && !decision.ApprovalRequired && failureAs(decision.Failure, &failure) &&
+		failure.Kind == KindInvalidOperation &&
+		strings.Contains(failure.Detail, definition.Ref) && strings.Contains(failure.Detail, "archived")
+}
+
+// archivedRefusalWitnesses walks one archived definition version's well-formed
+// nonterminal states and returns a witness for every candidate action whose
+// admission is not the archived-family refusal. Archived public authoring is
+// forbidden, so workflowAdmit's answer must be total on this side: every
+// candidate action refuses with KindInvalidOperation naming the family, and
+// a state or action that admits — or mis-classifies its refusal — is the
+// witness the seeded detector test proves this walk can name.
+func archivedRefusalWitnesses(definition WorkflowDefinition) []string {
+	var witnesses []string
+	for _, state := range wellFormedAdmissionStates(definition) {
+		for _, actionID := range admissionStateActions(definition, state) {
+			if archivedFamilyRefusalHolds(definition, state, actionID) {
+				continue
+			}
+			witnesses = append(witnesses, fmt.Sprintf("archived nonterminal state %s admits or mis-classifies %q", state, actionID))
+		}
+	}
+	return witnesses
+}
+
+// admissionSeededArchivedProbe returns the first well-formed state and
+// candidate action whose admission a definition admits.
+func admissionSeededArchivedProbe(definition WorkflowDefinition) (admissionModelState, string, bool) {
+	for _, state := range wellFormedAdmissionStates(definition) {
+		for _, actionID := range admissionStateActions(definition, state) {
+			if decision := workflowAdmit(definition, admissionWorkflowState(definition, state), actionID); decision.Admitted {
+				return state, actionID, true
+			}
+		}
+	}
+	return admissionModelState{}, "", false
+}
+
 // TestWellFormedAdmissionStateHasNonContinuityExit proves liveness clause
 // (a) over every registered definition version: every well-formed nonterminal
-// abstract state admits at least one non-continuity action that leaves it.
+// abstract state of a retained family admits at least one non-continuity
+// action that leaves it, and every well-formed nonterminal state of an
+// archived family refuses every candidate action with the archived-family
+// refusal. Archived rows permit reads, not public execution.
 func TestWellFormedAdmissionStateHasNonContinuityExit(t *testing.T) {
 	definitions := builtinWorkflowDefinitionsWithHistory()
 	if len(definitions) == 0 {
 		t.Fatal("no built-in workflow definitions are registered")
 	}
 	for _, definition := range definitions {
+		if workflowFamilyArchived(definition.Ref) {
+			for _, witness := range archivedRefusalWitnesses(definition) {
+				t.Errorf("%s v%d: %s", definition.Ref, definition.Version, witness)
+			}
+			continue
+		}
 		for _, witness := range wellFormedAdmissionExitWitnesses(definition) {
 			t.Errorf("%s v%d: %s", definition.Ref, definition.Version, witness)
 		}
 	}
+}
+
+// TestArchivedRefusalCheckNamesSeededAdmission proves the refusal-totality
+// detector is not vacuous: a clone whose ref is not archived admits candidate
+// actions and the walk names one of them, so a regression that drops or
+// mis-aims the archive guard turns an archived row into the same witnesses.
+func TestArchivedRefusalCheckNamesSeededAdmission(t *testing.T) {
+	seeded := cloneWorkflowDefinition(mustBuiltinDefinition(t, "workflow.implementation").Definition)
+	seeded.Ref = "workflow.seed_archived_refusal_detector"
+	probeState, probeAction, admitted := admissionSeededArchivedProbe(seeded)
+	if !admitted {
+		t.Fatalf("the non-archived clone admits no candidate action; the detector has nothing to detect: %s", probeState)
+	}
+	for _, witness := range archivedRefusalWitnesses(seeded) {
+		if strings.Contains(witness, fmt.Sprintf("%q", probeAction)) {
+			return
+		}
+	}
+	t.Fatalf("no witness names the admitted action %q; the refusal-totality walk is vacuous", probeAction)
 }
 
 // TestWellFormedExitCheckNamesSeededStrandedState proves the seeded-strand
@@ -1331,12 +1430,21 @@ func TestWellFormedExitCheckNamesSeededStrandedState(t *testing.T) {
 // TestReachableAdmissionStateReachesTerminal checks completion reachability
 // for executable states and the declared stop at a missing-basis refusal.
 // Reaching a future stop by wasting attempts cannot satisfy completion.
+// Archived versions cannot lawfully satisfy completion liveness; their
+// assertion is the same positive refusal totality the well-formed exit check
+// carries.
 func TestReachableAdmissionStateReachesTerminal(t *testing.T) {
 	definitions := builtinWorkflowDefinitionsWithHistory()
 	if len(definitions) == 0 {
 		t.Fatal("no built-in workflow definitions are registered")
 	}
 	for _, definition := range definitions {
+		if workflowFamilyArchived(definition.Ref) {
+			for _, witness := range archivedRefusalWitnesses(definition) {
+				t.Errorf("%s v%d: %s", definition.Ref, definition.Version, witness)
+			}
+			continue
+		}
 		for _, witness := range admissionStrandedWitnesses(definition) {
 			t.Errorf("%s v%d: %s", definition.Ref, definition.Version, witness)
 		}
@@ -1526,6 +1634,24 @@ func admissionSuccessor(definition WorkflowDefinition, state admissionModelState
 	return admissionSuccessors(definition, state, actionID)[0]
 }
 
+// admissionDerivedCheckpointSuccessor is the CD-0198 D3 successor for the
+// step's qualifying checkpoint. derives reports whether the checkpoint
+// actually derives the step start — the store's answer, which depends on the
+// step's log, not the abstract state — so a deriving checkpoint re-anchors
+// the pass the way the loader re-anchors it, and a re-entry checkpoint
+// changes nothing.
+func admissionDerivedCheckpointSuccessor(definition WorkflowDefinition, state admissionModelState, actionID string, derives bool) admissionModelState {
+	next := admissionSuccessors(definition, state, actionID)[0]
+	if workflowDerivedStepStartActive(definition) && workflowDerivedStartCheckpoints[actionID] == state.step && derives {
+		next.attempt = ""
+		next.dispatched = false
+		next.attemptProduces, next.attemptFresh = false, false
+		next.started, next.proof = true, false
+		next.integration = false
+	}
+	return next
+}
+
 // admissionBadToOkWitnesses walks every well-formed state whose artifact is
 // stale and returns a witness for each admitted path that records an ok
 // verdict or confirms the premise without re-production at the declared route
@@ -1579,11 +1705,11 @@ func TestStaleArtifactStateAdmitsNoBadToOkWithoutReproduction(t *testing.T) {
 }
 
 // TestStaleArtifactCheckNamesSeededWitness proves the safety check fails
-// rather than assumes: with the staleness mirror dropped — the fold the
-// CON-846 trap ran under — the same walk names a bad-to-ok witness, so the
-// check detects a model or admission that loses the enforcement.
+// rather than assumes: with the staleness mirror disabled, the same walk
+// names a bad-to-ok witness, so the check detects a model or admission that
+// loses the enforcement.
 func TestStaleArtifactCheckNamesSeededWitness(t *testing.T) {
-	definition := mustBuiltinDefinition(t, "workflow.generic_one_off").Definition
+	definition := mustBuiltinDefinition(t, "workflow.implementation").Definition
 	witnesses := admissionBadToOkWitnesses(definition, false)
 	if len(witnesses) == 0 {
 		t.Fatal("the seeded unmirrored staleness produced no bad-to-ok witness")
@@ -1635,7 +1761,7 @@ func TestContractStepAdvancesOnlyThroughItsApproval(t *testing.T) {
 }
 
 func TestAdmissionModelProductionRequiresCapabilityAndFreshOrigin(t *testing.T) {
-	definition := mustBuiltinDefinition(t, "workflow.generic_one_off").Definition
+	definition := mustBuiltinDefinition(t, "workflow.implementation").Definition
 	for _, test := range []struct {
 		name            string
 		produces, fresh bool
@@ -1648,7 +1774,7 @@ func TestAdmissionModelProductionRequiresCapabilityAndFreshOrigin(t *testing.T) 
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			state := admissionModelState{
-				step: "execute", contracts: 1, artifactStale: true,
+				step: "execution", contracts: 1, artifactStale: true,
 				attempt: "completed", attemptProduces: test.produces,
 				attemptFresh: test.fresh, started: true, proof: true,
 				debt: ReviewDebtNone,
@@ -1666,8 +1792,8 @@ func TestAdmissionModelProductionRequiresCapabilityAndFreshOrigin(t *testing.T) 
 }
 
 func TestAdmissionModelDispatchKeepsEvaluatorAndProducerAlternatives(t *testing.T) {
-	definition := mustBuiltinDefinition(t, "workflow.generic_one_off").Definition
-	state := admissionModelState{step: "execute", contracts: 1, artifactStale: true, debt: ReviewDebtNone}
+	definition := mustBuiltinDefinition(t, "workflow.implementation").Definition
+	state := admissionModelState{step: "execution", contracts: 1, artifactStale: true, debt: ReviewDebtNone}
 	producing, evaluating := false, false
 	for _, next := range admissionSuccessors(definition, state, "dispatch_worker") {
 		if next.attempt != "completed" {

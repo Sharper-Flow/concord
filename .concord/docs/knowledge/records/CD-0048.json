@@ -7,9 +7,8 @@
   "date": "2026-08-20T00:00:00Z",
   "doc_contract_profile": "legacy",
   "evidence": [
-    "internal/store/product_row.go",
     "internal/store/domain_reads.go",
-    "internal/store/launcher_query.go",
+    "internal/store/landing_project_query.go",
     "cmd/concord/session.go"
   ],
   "home_domain_id": "operator-surface",
@@ -23,7 +22,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:5f3fe17fe1922a48cb2eefa30aed1a7e52b2936256a1dc06d245ed7d1e3e1cb8",
+  "sha256": "sha256:e6ad3c1669ab0a7bec5d4b6f84b4e18353153a0d2faba64a58c75757ba1d0453",
   "status": "accepted",
   "summary": "The S2 answer-stack clauses are vacated with the retired launcher TUI under CD-0219. Store event, replay, and query contracts stand unchanged: the store materialization the record documented keeps its owning contracts, migration 109 drops the fold-maintained work_items.last_activity_at column, and updated_at keeps its versioned-write meaning.",
   "tags": [

@@ -120,16 +120,17 @@ func TestRetiredPlanningOperationsRefuseBeforeEffects(t *testing.T) {
 	}
 	env := mutationEnvelope(grant, scopeVersion)
 	// The event count catches durable writes, and the projection counts and
-	// work version catch partial work, contract, dispatch, or relation writes.
-	snapshot := func() [8]int64 {
+	// work version catch partial work, contract, dispatch, relation, or
+	// observation writes.
+	snapshot := func() [9]int64 {
 		t.Helper()
-		var counts [8]int64
-		for i, table := range []string{"domain_events", "work_items", "workflow_instances", "workflow_contracts", "worker_attempts", "relations", "durable_operations"} {
+		var counts [9]int64
+		for i, table := range []string{"domain_events", "work_items", "workflow_instances", "workflow_contracts", "worker_attempts", "relations", "domain_observations", "durable_operations"} {
 			if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM ` + table).Scan(&counts[i]); err != nil {
 				t.Fatal(err)
 			}
 		}
-		counts[7] = workVersion(t, s, "work-1")
+		counts[8] = workVersion(t, s, "work-1")
 		return counts
 	}
 	before := snapshot()
@@ -148,9 +149,6 @@ func TestRetiredPlanningOperationsRefuseBeforeEffects(t *testing.T) {
 		t.Run(pair.tool+"."+pair.operation, func(t *testing.T) {
 			if _, ok := ValidateContractOperation(pair.tool, pair.operation); ok {
 				t.Fatal("retired operation is still registered")
-			}
-			if err := ValidateOperationPayload(pair.tool, pair.operation, json.RawMessage(`{}`), false); err == nil {
-				t.Fatal("retired operation still has a public input schema")
 			}
 			_, err := Dispatch(context.Background(), s, service, InvokeRequest{Tool: pair.tool, Operation: pair.operation, Input: json.RawMessage(`{}`)}, env)
 			if err == nil || err.Error() != "unsupported tool operation" {

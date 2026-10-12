@@ -24,4 +24,5 @@ routeDeclaration("runs the protected dispatch journeys and retained recovery wit
   expect(result.exitCode, `owned dispatch-route suite failed:\n${result.stdout}\n${result.stderr}`).toBe(0)
   const selected = process.env.TEST_CONCORD_ROUTE_CASE
   if (!selected || new RegExp(selected).test("G01 composes concurrent coordinators")) expect(result.stdout).toContain("[pass] G01 composes concurrent coordinators")
+  if (!selected || new RegExp(selected).test("G07 retains sourced research")) expect(result.stdout).toContain("[pass] G07 retains sourced research")
 }, 600_000)

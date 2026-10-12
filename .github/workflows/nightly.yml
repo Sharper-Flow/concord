@@ -34,6 +34,7 @@ jobs:
         run: |
           git fetch --no-tags --depth=1 origin +refs/tags/v11.61.0:refs/tags/v11.61.0
           git fetch --no-tags --depth=1 origin +refs/tags/v11.63.30:refs/tags/v11.63.30
+          git fetch --no-tags --depth=1 origin +refs/tags/v13.4.0:refs/tags/v13.4.0
       - name: Test every package under the race detector
         # internal/agent under -race runs at ~575-595s on 2-core runners.
         # The 30m timeout leaves headroom for routine growth.

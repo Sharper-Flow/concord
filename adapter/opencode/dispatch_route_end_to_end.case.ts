@@ -528,14 +528,14 @@ function bindRouteSessions(worktree: string, coordinatorIDs: string[]) {
   let sessionCreates = 0
   hostControlPlane().bind({
     get: async ({ url, path }) => {
-      const session = sessions.get(path!.id!)
+      const session = sessions.get(path!.id as string)
       expect(session, `unregistered synthetic session ${path?.id}`).toBeDefined()
       if (url === SESSION_MESSAGES_ROUTE) return { data: session!.messages, response: new Response("[]", { status: 200 }) }
       expect(url).toBe(SESSION_ROUTE)
       return { data: session!.info, response: new Response(null, { status: 200 }) }
     },
     patch: async ({ path, body }) => {
-      sessions.get(path!.id!)!.info.metadata = body!.metadata
+      sessions.get(path!.id as string)!.info.metadata = (body as JSONRecord).metadata
       return { response: new Response(null, { status: 200 }) }
     },
     post: async () => { sessionCreates++; throw new Error("recovery and dispatch must not create a coordinator session") },
@@ -580,7 +580,7 @@ routeDeclaration("G01 composes concurrent coordinators with fresh production ind
       return result
     } }
     configureConcordAdapter({ runner })
-    const invoke = (tool: string, args: any, context: any, directory?: string) => invokeConcordOperation(tool, args, context, directory)
+    const invoke = (tool: string, args: any, context: any, directory?: string) => invokeConcordOperation(tool, args, context, directory) as Promise<JSONRecord>
     const version = () => dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version
     const events = () => dbValue(dbPath, `SELECT count(*) AS n FROM domain_events WHERE subject_id='${workID}'`).n
     const action = async (context: any, name: string, key: string, fields: JSONRecord) => {

@@ -6,8 +6,8 @@ quality tools, scanners, and check commands are already set up. Intent fields
 are hand-authored because they have no upstream source to drift from. The
 checker proves that referenced files resolve to regular files inside the
 repository. A missing manifest is a finding, not a vacuous pass. The checker
-performs file reads only and never executes a declared tool (CD-0074,
-issue #510).
+performs file reads only and never executes a declared tool
+(CD-0074).
 """
 
 from __future__ import annotations

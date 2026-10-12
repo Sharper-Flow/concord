@@ -29,7 +29,7 @@ func TestDurableTxCommitsUnderFull(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	ordinary, err := beginWriteTx(ctx, s, false)
+	ordinary, err := beginWriteTx(ctx, s.db, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

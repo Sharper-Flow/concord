@@ -9,9 +9,10 @@ const INPUT_BOUNDS = agentLanePacketSchema.properties.inputs.properties
 const TASK_MAX_LENGTH: number = INPUT_BOUNDS.task.maxLength
 const CONSTRAINT_MAX_LENGTH: number = INPUT_BOUNDS.constraints.items.maxLength
 const CONSTRAINTS_MAX_ITEMS: number = INPUT_BOUNDS.constraints.maxItems
-// The packet identity is versioned (CD-0205): the builder records the
-// current identity — the last enum entry the generated schema declares —
-// which is the job-capable packet that may carry inputs.worker_job.
+// The packet identity is versioned (CD-0205; the 2.0 cutover): the builder records
+// the current identity — the last enum entry the generated schema declares —
+// the card-free 2.0 packet that may carry inputs.worker_job and is the only
+// identity a live dispatch records.
 const PACKET_SCHEMA_VERSION = agentLanePacketSchema.properties.schema_version.enum[agentLanePacketSchema.properties.schema_version.enum.length - 1]
 
 export type AgentLanePacketFailureKind =

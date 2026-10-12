@@ -159,10 +159,7 @@ const (
 	// deletes the branch, and a pushed-then-abandoned branch holding a
 	// prepared lesson otherwise reclaims with no signal. The refusal names
 	// the records and the merge-or-supersede recovery.
-	KindWorktreeUnpublishedLesson   FailureKind = "worktree_unpublished_lesson"
-	KindInitiativeScopeViolation    FailureKind = "initiative_scope_violation"
-	KindInitiativeEntryConflict     FailureKind = "initiative_entry_conflict"
-	KindInitiativeCompletionBlocked FailureKind = "initiative_completion_blocked"
+	KindWorktreeUnpublishedLesson FailureKind = "worktree_unpublished_lesson"
 	// KindDomainRegistryAbsent marks a Domain read against a Product whose Git
 	// knowledge home has not projected a Domain registry. Absent is a refusal,
 	// never an empty page: authoritative-empty requires a registry watermark.

@@ -82,7 +82,7 @@ type operationObserver struct {
 
 func beginObservedTx(ctx context.Context, s *Store, durable bool, observer *operationObserver) (*writeTx, error) {
 	started := time.Now()
-	tx, err := beginWriteTx(ctx, s, durable)
+	tx, err := s.beginStoreWriteTx(ctx, durable)
 	if observer != nil {
 		observer.beginWait = time.Since(started)
 	}
@@ -111,6 +111,9 @@ const (
 	EventAppendAuthorityInvalid EventAppendAuthority = iota
 	EventAppendAuthorityGeneric
 	EventAppendAuthorityWorkflow
+	// EventAppendAuthorityRetired marks a kind no route may append. Its
+	// historical events still validate and fold on replay.
+	EventAppendAuthorityRetired
 )
 
 type eventPayloadSemantic[T any] func(Event, T) error
@@ -225,7 +228,7 @@ var eventKindRegistry = map[string]EventKindRegistration{
 	"product.knowledge_home_cleared":          registerEventKind[knowledgeHomePayload](1, 1, nil, EventAppendAuthorityGeneric, foldProductKnowledgeHomeCleared, nil),
 	"product.knowledge_source_registered":     registerEventKind[knowledgeSourcePayload](1, 1, nil, EventAppendAuthorityGeneric, foldProductKnowledgeSourceRegistered, nil),
 	"product.knowledge_source_removed":        registerEventKind[knowledgeSourcePayload](1, 1, nil, EventAppendAuthorityGeneric, foldProductKnowledgeSourceRemoved, nil),
-	"product.planning_mode_set":               registerEventKind[productPlanningModeSetPayload](1, 1, nil, EventAppendAuthorityGeneric, foldProductPlanningModeSet, nil),
+	"product.planning_mode_set":               registerEventKind[productPlanningModeSetPayload](1, 1, nil, EventAppendAuthorityRetired, foldRetiredProductPlanningModeSet, nil),
 	"work_project.added":                      registerEventKind[membershipPayload](1, 1, nil, EventAppendAuthorityGeneric, foldWorkProjectAdded, nil),
 	"work_project.removed":                    registerEventKind[membershipPayload](1, 1, nil, EventAppendAuthorityGeneric, foldWorkProjectRemoved, nil),
 	"work_project.role_changed":               registerEventKind[membershipPayload](1, 1, nil, EventAppendAuthorityGeneric, foldWorkProjectRoleChanged, nil),
@@ -237,14 +240,14 @@ var eventKindRegistry = map[string]EventKindRegistration{
 	"domain.resource_attachments_replaced":    registerEventKind[domainResourceAttachmentsReplacedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldDomainResourceAttachmentsReplaced, nil),
 	"domain.observation_recorded":             registerEventKind[domainObservationRecordedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldDomainObservationRecorded, nil),
 	"domain.observation_dismissed":            registerEventKind[domainObservationDismissedPayload](1, 1, nil, EventAppendAuthorityGeneric, foldDomainObservationDismissed, nil),
-	"initiative_entry.added":                  registerEventKind[initiativeEntryPayload](1, 1, nil, EventAppendAuthorityGeneric, foldInitiativeEntryAdded, nil),
-	"initiative_entry.removed":                registerEventKind[initiativeEntryPayload](1, 1, nil, EventAppendAuthorityGeneric, foldInitiativeEntryRemoved, nil),
-	"initiative_entry.reordered":              registerEventKind[initiativeEntryPayload](1, 1, nil, EventAppendAuthorityGeneric, foldInitiativeEntryReordered, nil),
-	"initiative_entry.requiredness_changed":   registerEventKind[initiativeEntryPayload](1, 1, nil, EventAppendAuthorityGeneric, foldInitiativeEntryRequirednessChanged, nil),
-	"initiative.narrative_revised":            registerEventKind[initiativeNarrativePayload](1, 1, nil, EventAppendAuthorityGeneric, foldInitiativeNarrativeRevised, nil),
+	"initiative_entry.added":                  registerEventKind[initiativeEntryPayload](1, 1, nil, EventAppendAuthorityRetired, foldRetiredInitiativeEntry, nil),
+	"initiative_entry.removed":                registerEventKind[initiativeEntryPayload](1, 1, nil, EventAppendAuthorityRetired, foldRetiredInitiativeEntry, nil),
+	"initiative_entry.reordered":              registerEventKind[initiativeEntryPayload](1, 1, nil, EventAppendAuthorityRetired, foldRetiredInitiativeEntry, nil),
+	"initiative_entry.requiredness_changed":   registerEventKind[initiativeEntryPayload](1, 1, nil, EventAppendAuthorityRetired, foldRetiredInitiativeEntry, nil),
+	"initiative.narrative_revised":            registerEventKind[initiativeNarrativePayload](1, 1, nil, EventAppendAuthorityRetired, foldRetiredInitiativeNarrativeRevised, nil),
 	WorkerJobRecorded:                         registerEventKind[WorkerJobRecordedPayload](1, 1, nil, EventAppendAuthorityWorkflow, foldWorkerJobRecorded, validateWorkerJobRecordedPayload),
 	WorkerDispatched:                          registerEventKind[WorkerDispatchedPayload](5, 1, map[int]Upcaster{1: upcastWorkerDispatchedV1, 2: upcastWorkerDispatchedV2, 3: upcastWorkerDispatchedV3, 4: upcastWorkerDispatchedV4}, EventAppendAuthorityGeneric, foldWorkerDispatched, validateWorkerDispatchedPayload),
-	WorkerCompleted:                           registerEventKind[WorkerCompletedPayload](5, 1, map[int]Upcaster{1: upcastWorkerCompletedV1, 2: upcastWorkerCompletedV2, 3: upcastWorkerCompletedV3, 4: upcastWorkerCompletedV4}, EventAppendAuthorityGeneric, foldWorkerCompleted, validateWorkerCompletedPayload),
+	WorkerCompleted:                           registerEventKind[WorkerCompletedPayload](6, 1, map[int]Upcaster{1: upcastWorkerCompletedV1, 2: upcastWorkerCompletedV2, 3: upcastWorkerCompletedV3, 4: upcastWorkerCompletedV4, 5: upcastWorkerCompletedV5}, EventAppendAuthorityGeneric, foldWorkerCompleted, validateWorkerCompletedPayload),
 	WorkerFailed:                              registerEventKind[WorkerFailedPayload](2, 1, map[int]Upcaster{1: upcastWorkerFailedV1}, EventAppendAuthorityGeneric, foldWorkerFailed, validateWorkerFailedPayload),
 	WorkflowDefinitionSelected:                workflowRegistration[workflowDefinitionSelectedPayload](1, nil, foldWorkflowDefinitionSelected),
 	WorkflowContractApproved:                  workflowRegistration[workflowContractApprovedPayload](4, map[int]Upcaster{1: upcastWorkflowContractApprovedV1, 2: upcastWorkflowContractApprovedV2, 3: upcastWorkflowContractApprovedV3}, foldWorkflowContractApproved),
@@ -273,6 +276,7 @@ var eventKindRegistry = map[string]EventKindRegistration{
 	WorkflowProposalRecorded:                  workflowRegistration[workflowProposalRecordedPayload](1, nil, foldWorkflowProposalRecorded),
 	WorkflowDesignRecorded:                    workflowRegistration[workflowDesignRecordedPayload](1, nil, foldWorkflowDesignRecorded),
 	WorkflowBacklogAlignmentRecorded:          workflowRegistration[workflowBacklogAlignmentRecordedPayload](1, nil, foldWorkflowBacklogAlignmentRecorded),
+	WorkflowDiagnosisRecorded:                 workflowRegistration[workflowDiagnosisRecordedPayload](1, nil, foldWorkflowDiagnosisRecorded),
 	WorkflowDeliveryCorrected:                 workflowRegistration[workflowDeliveryCorrectedPayload](1, nil, foldWorkflowDeliveryCorrected),
 	WorkflowCompleted:                         workflowRegistration[workflowCompletedPayload](2, map[int]Upcaster{1: upcastWorkflowCompletedV1}, foldWorkflowCompleted),
 	WorkflowOutsideRepairDispositionSet:       workflowRegistration[workflowOutsideRepairDispositionPayload](1, nil, foldOutsideRepairDispositionSet),
@@ -289,7 +293,9 @@ func validateEventKindRegistry(registry map[string]EventKindRegistration) error 
 		if kind == "" {
 			return fmt.Errorf("event kind key is empty")
 		}
-		if registration.Authority != EventAppendAuthorityGeneric && registration.Authority != EventAppendAuthorityWorkflow {
+		switch registration.Authority {
+		case EventAppendAuthorityGeneric, EventAppendAuthorityWorkflow, EventAppendAuthorityRetired:
+		default:
 			return fmt.Errorf("event kind %q has invalid append authority", kind)
 		}
 		if registration.ValidatePayload == nil || registration.Fold == nil || registration.Upcasters == nil || registration.MinSupported < 1 || registration.MinSupported > registration.CurrentVersion {
@@ -478,6 +484,9 @@ func applyOperationTx(ctx context.Context, tx *sql.Tx, operation Operation, scop
 		if err := validateRegisteredEvent(event); err != nil {
 			return output, attributeFailure(err, event, "upcast")
 		}
+		if err := validateWorkflowSelfRepairEventAdmission(event); err != nil {
+			return output, err
+		}
 		ref := VersionRef(event.SubjectType, event.SubjectID)
 		if expected, hasExpected := operation.ExpectedVersions[ref]; hasExpected && !checked[ref] {
 			got, exists, err := projectionVersion(ctx, tx, event.SubjectType, event.SubjectID)
@@ -522,9 +531,6 @@ func applyOperationTx(ctx context.Context, tx *sql.Tx, operation Operation, scop
 		return output, err
 	}
 	if err := validateDomainAttachmentInvariantsTx(ctx, tx); err != nil {
-		return output, err
-	}
-	if err := validateInitiativeInvariantsTx(ctx, tx); err != nil {
 		return output, err
 	}
 	if err := scope.close(ctx); err != nil {
@@ -637,9 +643,6 @@ func applyOperationObserved(ctx context.Context, s *Store, operation Operation, 
 	if err := validateDomainAttachmentInvariantsTx(ctx, tx.Tx); err != nil {
 		return output, rollback(err)
 	}
-	if err := validateInitiativeInvariantsTx(ctx, tx.Tx); err != nil {
-		return output, rollback(err)
-	}
 	output.Impact, err = membershipImpact(ctx, tx.Tx, operation)
 	if err != nil {
 		return output, rollback(err)
@@ -694,7 +697,7 @@ func RebuildFromLog(ctx context.Context, s *Store) error {
 		return newFailure(KindUnavailable, "rebuild_from_log", "store is not open", false,
 			"open a store before rebuilding projections")
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := beginOrdinaryTx(ctx, s.db)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "rebuild_from_log", "cannot begin projection rebuild", true,
 			"retry once the database is writable", err)
@@ -755,12 +758,21 @@ var replayProjectionClearTables = []string{
 	"workflow_premise_confirmations", "workflow_context_boundaries", "workflow_context_checkpoints", "workflow_impact_notices", "workflow_impact_edges",
 	"workflow_external_conditions", "workflow_checkpoints", "workflow_candidate_sets", "workflow_backlog_alignment",
 	"workflow_contracts", "workflow_decision_records", "workflow_design_records", "workflow_proposal_records", "workflow_instances", "workflow_actors",
-	"initiative_entries", "relations", "work_projects", "work_items", "product_projects",
+	"relations", "work_projects", "work_items", "product_projects",
 	"project_governing_requirements", "product_knowledge_homes", "product_knowledge_sources", "project_locators", "products", "projects",
 }
 
 func rebuildFromLogTx(ctx context.Context, tx *sql.Tx) error {
 	scope, err := beginFold(ctx, tx)
+	if err != nil {
+		return err
+	}
+	// The retirement delete guard refuses every pack delete that is not a
+	// retire-eligible research_retire. Rebuild staging deletes every pack row
+	// and restores it from the direct-authority snapshot in this same
+	// transaction, so the guard steps aside for the window like the migration
+	// 52 locator guard below.
+	retirementGuardDDL, err := dropTriggerReturningDDL(ctx, tx, researchRetirementDeleteGuardName)
 	if err != nil {
 		return err
 	}
@@ -815,6 +827,12 @@ func rebuildFromLogTx(ctx context.Context, tx *sql.Tx) error {
 	if err := restoreActiveResearchAfterRebuild(ctx, tx); err != nil {
 		return err
 	}
+	if retirementGuardDDL != "" {
+		if _, err := tx.ExecContext(ctx, retirementGuardDDL); err != nil {
+			return wrapFailure(KindUnavailable, "rebuild_from_log", "cannot restore the research retirement guard", true,
+				"retry once the database is writable", err)
+		}
+	}
 	if err := restoreOperationalAuthorityAfterRebuild(ctx, tx); err != nil {
 		return err
 	}
@@ -837,9 +855,6 @@ func rebuildFromLogTx(ctx context.Context, tx *sql.Tx) error {
 		return err
 	}
 	if err := validateDomainAttachmentInvariantsTx(ctx, tx); err != nil {
-		return err
-	}
-	if err := validateInitiativeInvariantsTx(ctx, tx); err != nil {
 		return err
 	}
 	if err := scope.close(ctx); err != nil {

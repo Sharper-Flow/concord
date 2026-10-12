@@ -17,9 +17,10 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:16a2008961707204f2854551972765a1781abde674743dac6d352e1cf84b8e8d",
-  "status": "accepted",
-  "summary": "D1 adds domain_observations keyed (product_id, domain_id) with a foreign key to domains and ON DELETE NO ACTION, reusing the domain attachment-set pattern and carrying the CD-0030 D1 bounds unchanged; D2 caps each Domain at 64 open observations and refuses a full window rather than evicting, because silent eviction is the drop CD-0030 exists to prevent; D3 makes dismissal a two-state flip modeled on work_messages with ApprovalClass required, so the queue is the operator's, while recording stays ApprovalClass none; D4 leaves promotion as the CD-0018 raised_from path, independent of dismissal; D5 preserves CD-0030 non-authority verbatim; D6 folds open observations into concord_domain.detail rather than adding a read operation; D7 puts declared ordering within a Domain out of scope and leaves CD-0041 D8 unrevisited.",
+  "sha256": "sha256:0b3855ac19825071239f3fc5a035c1ad8337319103a478ddc714b7dd7a8db47a",
+  "status": "superseded",
+  "successor": "CD-0224",
+  "summary": "D1 adds domain_observations keyed (product_id, domain_id) with a foreign key to domains and ON DELETE NO ACTION, reusing the domain attachment-set pattern and carrying the CD-0030 D1 bounds unchanged; D2 caps each Domain at 64 open observations and refuses a full window rather than evicting, because silent eviction is the drop CD-0030 exists to prevent; D3 makes dismissal a two-state flip modeled on work_messages with ApprovalClass required, so the queue is the operator's, while recording stays ApprovalClass none; D4 leaves promotion as the CD-0018 raised_from path, independent of dismissal; D5 preserves CD-0030 non-authority verbatim; D6 folds open observations into concord_domain.detail rather than adding a read operation; D7 puts declared ordering within a Domain out of scope and leaves CD-0222 D8 unrevisited.",
   "tags": [
     "observations",
     "domain-anchor",

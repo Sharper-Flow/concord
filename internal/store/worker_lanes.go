@@ -19,11 +19,18 @@ const (
 	WorkerFailed     = "worker.failed"
 
 	// WorkerPacketSchemaVersion and WorkerReportSchemaVersion are the
-	// job-capable schema identities (CD-0205): the versions whose packets
-	// and reports may carry the worker-job binding. The adapter records
-	// them on every dispatch and report it builds.
-	WorkerPacketSchemaVersion = "1.1"
-	WorkerReportSchemaVersion = "1.1"
+	// current schema identities: the card-free 2.0 revision whose
+	// packet drops the retired domain_cards member. The matched pair is the
+	// only one a live dispatch may record; the adapter records it on every
+	// dispatch and report it builds.
+	WorkerPacketSchemaVersion = "2.0"
+	WorkerReportSchemaVersion = "2.0"
+	// WorkerPacketSchemaVersionPrior and WorkerReportSchemaVersionPrior are
+	// the released job-capable identities (CD-0205) the 2.0 cutover retired
+	// from live production. Recorded dispatches that carry them keep
+	// folding and replaying; no host may record a new one.
+	WorkerPacketSchemaVersionPrior = "1.1"
+	WorkerReportSchemaVersionPrior = "1.1"
 	// WorkerPacketSchemaVersionLegacy and WorkerReportSchemaVersionLegacy
 	// are the released pre-job identities. A payload that records them
 	// never carries a worker-job binding: the binding at "1.0" was the
@@ -32,6 +39,26 @@ const (
 	WorkerPacketSchemaVersionLegacy = "1.0"
 	WorkerReportSchemaVersionLegacy = "1.0"
 )
+
+// workerMatchedSchemaVersions is the closed set of released packet/report
+// revisions one recorded dispatch may carry. The set is released history, not
+// configuration: 1.0 (pre-job), 1.1 (job-capable CD-0205), and the current
+// card-free 2.0 are exactly the identities a store ever recorded.
+var workerMatchedSchemaVersions = map[string]bool{
+	WorkerPacketSchemaVersionLegacy: true,
+	WorkerPacketSchemaVersionPrior:  true,
+	WorkerPacketSchemaVersion:       true,
+}
+
+// workerJobCapableSchemaVersions is the closed set of released revisions
+// whose packets and reports may carry the worker-job binding (CD-0205). Job
+// presence binds the recorded revision, not today's current: a recorded 1.1
+// history stays job-bound after the 2.0 cutover, while 1.0 never carries a
+// job.
+var workerJobCapableSchemaVersions = map[string]bool{
+	WorkerPacketSchemaVersionPrior: true,
+	WorkerPacketSchemaVersion:      true,
+}
 
 // workerDispatchedWorkerJobVersion and workerCompletedWorkerJobVersion are
 // the payload versions at which each worker event kind may first bind a
@@ -58,6 +85,15 @@ const (
 	workerCompletedContextFindingsVersion = 5
 	workerFailedContextFindingsVersion    = 2
 )
+
+// workerCompletedOracleReportVersion is the payload version at which
+// worker.completed may first carry the typed oracle members: a
+// receipt on one evidence entry, an oracle tie on one review finding, or a
+// closure claim in resolved_findings. A stored or supplied event whose
+// recorded source version sits below the boundary cannot carry oracle
+// report bytes: the members did not exist when that version was released,
+// so any bytes that name them are fabricated ties no store ever recorded.
+const workerCompletedOracleReportVersion = 6
 
 // WorkerEvidenceEventPayloadVersion resolves the payload version the event
 // registry currently owns for the named worker evidence kind (CD-0205), so
@@ -205,11 +241,14 @@ func workflowDispatchedJobForAttempt(ctx context.Context, q queryer, workID, att
 // vocabulary in agent_lanes.go; Detail is recorded as reported and is never
 // summarized, scored, or rewritten. PredicateIDs is the optional per-predicate
 // tie: the predicate_id of each typed inputs.outcome_predicates entry this
-// entry's evidence discharges.
+// entry's evidence discharges. OracleReceipt is the optional typed
+// control-execution receipt: reported evidence only, never
+// native-run authority, and bound to the dispatched job's oracle by the fold.
 type WorkerReportEvidence struct {
-	Obligation   string   `json:"obligation"`
-	Detail       string   `json:"detail"`
-	PredicateIDs []string `json:"predicate_ids,omitempty"`
+	Obligation    string               `json:"obligation"`
+	Detail        string               `json:"detail"`
+	PredicateIDs  []string             `json:"predicate_ids,omitempty"`
+	OracleReceipt *WorkerOracleReceipt `json:"oracle_receipt,omitempty"`
 }
 
 // WorkerBaseComparisonCheck is one verification command's result pair as the
@@ -234,21 +273,26 @@ type WorkerBaseComparison struct {
 // WorkerReviewFinding is one typed review finding as the worker reported it
 // (CD-0197): a severity from the closed P0-P3 scale, a confidence from the
 // closed low/medium/high scale, and the bounded detail. Recorded as reported
-// and never rescored.
+// and never rescored. Oracle is the optional typed oracle tie:
+// required on every finding of an oracle-bound dispatch, where its
+// classification is a dimension beside severity, never a replacement for it.
 type WorkerReviewFinding struct {
-	Severity   string `json:"severity"`
-	Confidence string `json:"confidence"`
-	Detail     string `json:"detail"`
+	Severity   string               `json:"severity"`
+	Confidence string               `json:"confidence"`
+	Detail     string               `json:"detail"`
+	Oracle     *WorkerOracleFinding `json:"oracle,omitempty"`
 }
 
 // WorkerReviewBlock is the typed review block of agent-lane-report.v1: the
-// lane's explicit ship or no_ship verdict and its findings. It is report
-// content only (CD-0197): it maps to no workflow field and records no
-// transition, and the coordinator records the workflow verdict through
+// lane's explicit ship or no_ship verdict, its findings, and the optional
+// evidenced closure claims of ranked findings the lineage holds open. It
+// is report content only (CD-0197): it maps to no workflow field and records
+// no transition, and the coordinator records the workflow verdict through
 // record_verdict.
 type WorkerReviewBlock struct {
-	Verdict  string                `json:"verdict"`
-	Findings []WorkerReviewFinding `json:"findings"`
+	Verdict          string                   `json:"verdict"`
+	Findings         []WorkerReviewFinding    `json:"findings"`
+	ResolvedFindings []WorkerOracleResolution `json:"resolved_findings,omitempty"`
 }
 
 type WorkerCompletedPayload struct {
@@ -359,11 +403,11 @@ func validateWorkerCompletedPayload(_ Event, payload WorkerCompletedPayload) err
 	if payload.AttemptID == "" || !workerModelPattern.MatchString(payload.ReadbackModel) {
 		return invalidWorkerPayload("worker.completed payload has invalid identity or report schema")
 	}
-	if payload.ReportSchemaVersion != WorkerReportSchemaVersion && payload.ReportSchemaVersion != WorkerReportSchemaVersionLegacy {
+	if !workerMatchedSchemaVersions[payload.ReportSchemaVersion] {
 		return invalidWorkerPayload("worker.completed payload has invalid identity or report schema")
 	}
-	if payload.WorkerJob != nil && payload.ReportSchemaVersion != WorkerReportSchemaVersion {
-		return invalidWorkerPayload("worker.completed worker_job requires the job-capable report schema " + WorkerReportSchemaVersion)
+	if payload.WorkerJob != nil && !workerJobCapableSchemaVersions[payload.ReportSchemaVersion] {
+		return invalidWorkerPayload("worker.completed worker_job requires the job-capable report schema " + WorkerReportSchemaVersionPrior + " or " + WorkerReportSchemaVersion)
 	}
 	if err := validateWorkerBaseComparison(payload.BaseComparison); err != nil {
 		return err
@@ -374,22 +418,25 @@ func validateWorkerCompletedPayload(_ Event, payload WorkerCompletedPayload) err
 	if err := ValidateWorkerContextFindings(payload.ContextFindings); err != nil {
 		return err
 	}
+	if err := ValidateWorkerOracleReportShape(payload); err != nil {
+		return err
+	}
 	return validateWorkerReportEvidence(payload.EvidenceOrigin, payload.Evidence)
 }
 
 // workerSchemaVersionFault names the boundary violation of one dispatch's
 // recorded packet/report schema identities against its worker-job binding
-// (CD-0205): the released "1.0" identities never carry a job, the job-capable
-// "1.1" identities may, and a dispatch records one matched pair. An empty
-// return means the coupling holds.
+// (CD-0205): every dispatch records one matched released pair — 1.0/1.0
+// (pre-job), 1.1/1.1 (job-capable), or the current card-free 2.0/2.0 — and a
+// job binding is reserved for the job-capable revisions, so the released 1.0
+// pair never carries a job. An empty return means the coupling holds.
 func workerSchemaVersionFault(packetVersion, reportVersion string, jobBound bool) string {
-	current := packetVersion == WorkerPacketSchemaVersion && reportVersion == WorkerReportSchemaVersion
-	legacy := packetVersion == WorkerPacketSchemaVersionLegacy && reportVersion == WorkerReportSchemaVersionLegacy
+	matched := packetVersion == reportVersion && workerMatchedSchemaVersions[packetVersion]
 	switch {
-	case !current && !legacy:
-		return "packet and report schema versions must be the matched pair " + WorkerPacketSchemaVersion + " or " + WorkerPacketSchemaVersionLegacy
-	case jobBound && !current:
-		return "worker_job requires the job-capable packet and report schema " + WorkerPacketSchemaVersion
+	case !matched:
+		return "packet and report schema versions must be the matched pair " + WorkerPacketSchemaVersion + " (current), " + WorkerPacketSchemaVersionPrior + ", or " + WorkerPacketSchemaVersionLegacy
+	case jobBound && !workerJobCapableSchemaVersions[packetVersion]:
+		return "worker_job requires the job-capable packet and report schema " + WorkerPacketSchemaVersionPrior + " or " + WorkerPacketSchemaVersion
 	}
 	return ""
 }
@@ -472,6 +519,38 @@ func validateWorkerReviewBlock(review *WorkerReviewBlock) error {
 		for _, finding := range review.Findings {
 			if workerReviewShipBlockerSeverities[finding.Severity] {
 				return invalidWorkerPayload("worker.completed review with a ship verdict cannot carry a P0 finding")
+			}
+		}
+	}
+	// Severity and classification are different dimensions, and
+	// both couplings hold on any report whose findings carry oracle ties —
+	// exactly the oracle-bound dispatches, where every finding must. A ship
+	// never carries a classified blocker; a no_ship justified only by
+	// sub-P0 follow-ups is an inconsistent verdict, while an out-of-scope
+	// P0 follow-up stays a valid retained no_ship for the decision owner.
+	oracleFindings := false
+	for _, finding := range review.Findings {
+		if finding.Oracle != nil {
+			oracleFindings = true
+		}
+	}
+	if oracleFindings {
+		if review.Verdict == "ship" {
+			for _, finding := range review.Findings {
+				if finding.Oracle != nil && oracleReviewBlockerClasses[finding.Oracle.Classification] {
+					return invalidWorkerPayload("worker.completed review with a ship verdict cannot carry a classified delivery blocker, uncovered case, or oracle defect")
+				}
+			}
+		}
+		if review.Verdict == "no_ship" {
+			onlySubP0FollowUps := true
+			for _, finding := range review.Findings {
+				if finding.Oracle == nil || finding.Oracle.Classification != OracleClassificationFollowUp || finding.Severity == "P0" {
+					onlySubP0FollowUps = false
+				}
+			}
+			if onlySubP0FollowUps {
+				return invalidWorkerPayload("worker.completed review with a no_ship verdict cannot be justified only by follow-ups below P0; an out-of-scope P0 follow-up stays a valid retained no_ship")
 			}
 		}
 	}
@@ -677,6 +756,7 @@ type WorkerDispatchWindow struct {
 	AttemptEpoch     int64
 	StartSeq         int64
 	PacketDigest     string
+	SubjectCommit    string
 	WorktreeIdentity string
 }
 
@@ -696,7 +776,7 @@ func FindAuthorizedDispatchWindowTx(ctx context.Context, tx *sql.Tx, workID, att
 	var window WorkerDispatchWindow
 	window.WorkID = workID
 	window.AttemptID = attemptID
-	if err := tx.QueryRowContext(ctx, `SELECT seq,json_extract(payload,'$.step_id'),COALESCE(json_extract(payload,'$.attempt_epoch'),0),COALESCE(json_extract(payload,'$.worker_packet_digest'),''),COALESCE(json_extract(payload,'$.worker_worktree_identity'),'') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')=? AND json_extract(payload,'$.worker_attempt_id')=? ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkflowActionCompleted, "dispatch_worker", attemptID).Scan(&window.StartSeq, &window.StepID, &window.AttemptEpoch, &window.PacketDigest, &window.WorktreeIdentity); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT seq,json_extract(payload,'$.step_id'),COALESCE(json_extract(payload,'$.attempt_epoch'),0),COALESCE(json_extract(payload,'$.worker_packet_digest'),''),COALESCE(json_extract(payload,'$.worker_worktree_identity'),''),COALESCE(json_extract(payload,'$.worker_subject_commit'),'') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')=? AND json_extract(payload,'$.worker_attempt_id')=? ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkflowActionCompleted, "dispatch_worker", attemptID).Scan(&window.StartSeq, &window.StepID, &window.AttemptEpoch, &window.PacketDigest, &window.WorktreeIdentity, &window.SubjectCommit); err != nil {
 		if err == sql.ErrNoRows {
 			return window, newFailure(KindUnauthorizedDispatch, "worker_dispatch_window", "no authorized dispatch window exists for this work item bound to this attempt", false, "open a dispatch_worker authorization for this attempt before recording worker evidence")
 		}
@@ -709,6 +789,9 @@ func FindAuthorizedDispatchWindowTx(ctx context.Context, tx *sql.Tx, workID, att
 			return window, newFailure(KindInvariantViolation, "worker_dispatch_window", "dispatch_worker completed without a starting authorization event", false, "reopen the workflow action against a fresh step epoch")
 		}
 		return window, wrapFailure(KindUnavailable, "worker_dispatch_window", "cannot read the dispatch authorization start", true, "retry once the database is readable", err)
+	}
+	if window.SubjectCommit != "" && !worktreeSHAPattern.MatchString(window.SubjectCommit) {
+		return window, newFailure(KindInvalidPayload, "worker_dispatch_window", "worker_subject_commit must be one raw commit OID", false, "reconcile the recorded authorization")
 	}
 	return window, nil
 }
@@ -929,6 +1012,15 @@ func foldWorkerDispatched(ctx context.Context, tx *sql.Tx, event Event) error {
 	if err := decodeClosedWorkerPayload(event, &payload); err != nil {
 		return err
 	}
+	// The live dispatch boundary records only the current card-free
+	// pair. An old host that stamps a released 1.0 or 1.1 identity is refused
+	// typed before the dispatch can land, so the cutover leaves exactly one
+	// live producer; recorded 1.0/1.1 history folds unchanged on replay.
+	if !isWorkflowReplay(ctx) && (payload.PacketSchemaVersion != WorkerPacketSchemaVersion || payload.ReportSchemaVersion != WorkerReportSchemaVersion) {
+		return newFailure(KindInvalidPayload, "fold_event",
+			"worker.dispatched must record the current matched packet and report schema "+WorkerPacketSchemaVersion+", not the retired pair "+payload.PacketSchemaVersion+"/"+payload.ReportSchemaVersion,
+			false, "dispatch from a host that records the current lane packet revision")
+	}
 	// CD-0205: worker_job was introduced at the worker.dispatched job-capable
 	// payload version (workerDispatchedWorkerJobVersion). A replayed event
 	// whose recorded source version sits below the boundary cannot carry
@@ -1131,6 +1223,13 @@ func foldWorkerCompleted(ctx context.Context, tx *sql.Tx, event Event) error {
 	if err := decodeClosedWorkerPayload(event, &payload); err != nil {
 		return err
 	}
+	// The completion's report identity is owned by the attempt row below:
+	// the dispatch recorded one matched released pair, and a completion whose
+	// claim disagrees with the pair the attempt was dispatched under refuses
+	// closed. There is deliberately no global current-revision check here —
+	// a recorded pre-cutover attempt finishes under the pair it recorded
+	// (retained-report recovery), while no new dispatch can create such a
+	// row, because the live dispatch boundary admits only the current pair.
 	// CD-0205: worker_job was introduced at the worker.completed job-capable
 	// payload version (workerCompletedWorkerJobVersion). A replayed event
 	// whose recorded source version sits below the boundary cannot carry
@@ -1148,6 +1247,22 @@ func foldWorkerCompleted(ctx context.Context, tx *sql.Tx, event Event) error {
 	// store ever recorded.
 	if payload.ContextFindings != nil && event.replaySourcePayloadVersion != 0 && event.replaySourcePayloadVersion < workerCompletedContextFindingsVersion {
 		return newFailure(KindInvalidPayload, "fold_event", "worker.completed context_findings are reserved for payload version >= 5", false, "record the context_findings on the current completion payload")
+	}
+	// The typed oracle report members are reserved for the
+	// oracle-capable payload version. A replayed event whose recorded
+	// source version sits below the boundary cannot carry oracle report
+	// bytes: any bytes that name them are fabricated ties no store ever
+	// recorded. A report that carries them must also claim the worker-job
+	// revision the attempt was dispatched under; the live fold joins every
+	// tie against that revision's recorded oracle and the prior
+	// ranked-finding lineage, while replay trusts the recorded log.
+	if hasOracleReportContent(payload) {
+		if event.replaySourcePayloadVersion != 0 && event.replaySourcePayloadVersion < workerCompletedOracleReportVersion {
+			return newFailure(KindInvalidPayload, "fold_event", "worker.completed oracle report content is reserved for payload version >= 6", false, "record the oracle receipts, finding ties, and closures on the current completion payload")
+		}
+		if payload.WorkerJob == nil {
+			return newFailure(KindInvalidPayload, "fold_event", "worker.completed oracle report content requires the worker-job revision the attempt was dispatched under", false, "report oracle content only for a job-bound dispatch")
+		}
 	}
 	if err := validateWorkerContextFindingDomainsTx(ctx, tx, event.SubjectID, payload.ContextFindings); err != nil {
 		return err
@@ -1182,6 +1297,36 @@ func foldWorkerCompleted(ctx context.Context, tx *sql.Tx, event Event) error {
 	}
 	if !sameWorkerJob(dispatchedJob, payload.WorkerJob) {
 		return newFailure(KindInvalidPayload, "fold_event", "worker.completed worker_job does not name the worker-job revision the attempt was dispatched under", false, "report the worker_job the dispatch packet carried, or none when it carried none")
+	}
+	// The live oracle join. The dispatched immutable job is the
+	// one authority: a report carrying oracle content must have been
+	// dispatched under an oracle-bearing revision, every review finding of
+	// an oracle-bound dispatch carries a classification, and every
+	// receipt, finding tie, and closure claim joins that revision's
+	// recorded oracle and the prior ranked-finding lineage. Replay trusts
+	// the recorded log — the live fold already passed these checks when it
+	// landed — and oracle-free dispatches keep their legacy reviews.
+	if !isWorkflowReplay(ctx) && (hasOracleReportContent(payload) || payload.Review != nil) {
+		var oracle *AcceptanceOracle
+		if dispatchedJob != nil {
+			read, oracleErr := readWorkerJobOracle(ctx, tx, attempt.WorkID, *dispatchedJob)
+			if oracleErr != nil {
+				return oracleErr
+			}
+			oracle = read
+		}
+		if hasOracleReportContent(payload) && oracle == nil {
+			return oracleFindingFailure(KindInvalidPayload, "a report carrying oracle content was dispatched under a job revision that records no oracle", "report oracle content only under an oracle-bearing revision")
+		}
+		if oracle != nil {
+			lineage, lineageErr := readWorkerOracleFindingLineageExcludingTx(ctx, tx, attempt.WorkID, event.Seq)
+			if lineageErr != nil {
+				return lineageErr
+			}
+			if err := validateWorkerOracleCompletedReportTx(ctx, tx, attempt.WorkID, payload, oracle, lineage); err != nil {
+				return err
+			}
+		}
 	}
 	now := event.OccurredAt.UTC().Format("2006-01-02T15:04:05.999999999Z07:00")
 	// CD-0056 D4: the fold is the only point where the attempt's lane
@@ -1264,8 +1409,8 @@ func foldWorkerFailed(ctx context.Context, tx *sql.Tx, event Event) error {
 	if err != nil {
 		return err
 	}
-	if payload.FailureKind == WorkerFailureAbandoned {
-		if err := validateNoLiveWorkerSession(ctx, tx, event.SubjectID); err != nil {
+	if payload.FailureKind == WorkerFailureAbandoned && !isWorkflowReplay(ctx) {
+		if err := validateNoLiveWorkerSession(ctx, tx, event.SubjectID, payload.AttemptID); err != nil {
 			return err
 		}
 	}
@@ -1288,10 +1433,12 @@ func foldWorkerFailed(ctx context.Context, tx *sql.Tx, event Event) error {
 	return nil
 }
 
-// validateNoLiveWorkerSession is the host-observation gate for an abandoned
-// attempt (CD-0178 D3). The durable projection owns occupancy: a worktree's
-// recorded rows carry the host process identity, and the kernel proves
-// whether a process is still alive. A live row blocks abandonment; a dead
+// validateNoLiveWorkerSession is the live-admission host-observation gate for
+// an abandoned attempt (CD-0178 D3). Replay trusts the recorded worker.failed
+// event instead of consulting today's filesystem, occupancy, or host liveness.
+// Its dispatch window owns the Project, and the durable projection owns
+// occupancy. Recorded rows carry the host process identity, and the kernel
+// proves whether a process is still alive. A live row blocks abandonment; a dead
 // row or no row at all admits the close. The store never reaches for the
 // host session list, so a session running in another repository cannot
 // strand this attempt through observation alone.
@@ -1302,12 +1449,16 @@ func foldWorkerFailed(ctx context.Context, tx *sql.Tx, event Event) error {
 // recorded_at, which proves the recording process ended. A missing or
 // unreadable lease set releases nothing, and so does any live lease that
 // started at or before the row.
-func validateNoLiveWorkerSession(ctx context.Context, q queryer, workID string) error {
-	rows, err := q.QueryContext(ctx, `
+func validateNoLiveWorkerSession(ctx context.Context, tx *sql.Tx, workID, attemptID string) error {
+	projectID, err := workerAttemptProjectTx(ctx, tx, workID, attemptID)
+	if err != nil {
+		return err
+	}
+	rows, err := tx.QueryContext(ctx, `
 		SELECT e.set_id, e.project_id, e.claim_op_id, o.session_ref, o.has_process_identity, o.host_pid, o.host_pid_start, o.recorded_at
 		  FROM worktree_entries e
 		  JOIN worktree_occupancy o ON o.worktree_id = e.set_id || ':' || e.project_id || ':' || e.claim_op_id
-		 WHERE e.set_id=? AND e.state='active'`, WorktreeSetID(workID))
+		 WHERE e.set_id=? AND e.state='active' AND (?='' OR e.project_id=?)`, WorktreeSetID(workID), projectID, projectID)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "worker_fail", "cannot read worktree occupancy", true, "retry once the database is readable", err)
 	}
@@ -1565,16 +1716,6 @@ func verifyWorkerTerminalUpdate(result sql.Result, unavailableDetail, missingDet
 	return nil
 }
 
-// WorkerAttemptByID returns the durable dispatch identity needed to validate a
-// completion or failure callback. The lookup is read-only; worker projections
-// remain fold-only and can only be changed by appending an event.
-func (s *Store) WorkerAttemptByID(ctx context.Context, attemptID string) (WorkerAttempt, error) {
-	if s == nil || s.db == nil {
-		return WorkerAttempt{}, newFailure(KindUnavailable, "worker_attempt_read", "database is not open", true, "open the authority database")
-	}
-	return workerAttemptByIDCore(ctx, s.db, attemptID)
-}
-
 // WorkerAttemptByIDTx is the transaction-scoped lookup. Authenticating a worker
 // evidence write, checking that the attempt has not already reached a recorded
 // outcome, and appending the evidence must observe one snapshot, so the caller
@@ -1678,6 +1819,17 @@ func upcastWorkerCompletedV3(event Event) (Event, error) {
 // it, and no upcaster fabricates worker claims.
 func upcastWorkerCompletedV4(event Event) (Event, error) {
 	event.PayloadVersion = 5
+	return event, nil
+}
+
+// upcastWorkerCompletedV5 carries a v5 completion into the v6 payload that
+// may carry the typed oracle report members. v5 payloads never
+// carried any, so the upcast is the bytes unchanged at the new version: a
+// replayed completion stays a report without oracle ties, exactly as the
+// worker returned it, and no upcaster fabricates a receipt, a tie, or a
+// closure.
+func upcastWorkerCompletedV5(event Event) (Event, error) {
+	event.PayloadVersion = 6
 	return event, nil
 }
 

@@ -243,7 +243,7 @@ func livenessValue(field WorkflowPayloadField, chosen string) any {
 		// instead points schema_ref at a non-array schema and means the same
 		// thing, so the element reading is recovered from the schema's own type.
 		element := field.ItemRef
-		if element == "" && field.ValueType == PayloadArray && field.SchemaRef != "" && !payloadschema.DescribesArray(field.SchemaRef) {
+		if element == "" && field.ValueType == PayloadArray && field.SchemaRef != "" && !payloadschema.DescribesArrayIn(payloadschema.Document(), field.SchemaRef) {
 			element = field.SchemaRef
 		}
 		if element != "" {
@@ -893,6 +893,40 @@ func livenessBindRecordedState(ctx context.Context, s *Store, workID, actionID s
 		bound["predicate_id"] = predicateID
 		bound["contract_version"] = contractVersion
 	}
+	if actionID == "record_verdict" {
+		if _, declared := fields["verdicts"]; declared {
+			// The canonical verdict names the approved predicates from
+			// recorded state: one entry per approved predicate, each judged
+			// on the subject the explored path already bound.
+			rows, err := s.db.QueryContext(ctx, `SELECT predicate_id FROM workflow_contract_predicates WHERE work_id=? AND contract_version=(SELECT COALESCE(MAX(contract_version),0) FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL)`, workID, workID)
+			if err != nil {
+				return nil, err
+			}
+			entries := make([]map[string]any, 0, 1)
+			for rows.Next() {
+				var predicateID string
+				if err := rows.Scan(&predicateID); err != nil {
+					_ = rows.Close()
+					return nil, err
+				}
+				entries = append(entries, map[string]any{
+					"predicate_id": predicateID, "verdict_kind": "ok",
+					"evaluation_evidence": []string{livenessSubjectRef},
+				})
+			}
+			closeErr := rows.Close()
+			if err := rows.Err(); err != nil {
+				return nil, err
+			}
+			if closeErr != nil {
+				return nil, closeErr
+			}
+			if len(entries) == 0 {
+				return nil, fmt.Errorf("no approved contract predicate to name in a verdict")
+			}
+			bound["verdicts"] = entries
+		}
+	}
 	if _, declared := fields["resolution_authority"]; declared {
 		// A condition names the durable operation that may resolve it. The
 		// operation is recorded state, and the fold requires its reference
@@ -952,54 +986,21 @@ func livenessFailureKind(err error) string {
 	return "untyped"
 }
 
-// livenessReplay rebuilds a state by committing the given path into a fresh
-// store. Replaying is slower than snapshotting the database file, but it keeps
-// the explored state exactly what the engine produces.
-type livenessReplayCache map[string]string
-
-// Cache only closed, checkpointed images of exact ordered prefixes. A branch
-// gets its own copy and still runs every remaining action through the engine.
-func (cache livenessReplayCache) replay(t *testing.T, definition WorkflowDefinition, path []livenessMove) (*Store, string) {
+// livenessReplay commits the ordered path into an independently seeded store.
+func livenessReplay(t *testing.T, definition WorkflowDefinition, path []livenessMove) (*Store, string) {
 	t.Helper()
 	ctx := context.Background()
-	var s *Store
-	start := 0
 	workID := livenessWorkID
-	for prefix := len(path); prefix >= 0; prefix-- {
-		if image, ok := cache[livenessPathKey(path[:prefix])]; ok {
-			s = openTempAtPath(t, copyClosedTestDatabase(t, image))
-			start = prefix
-			break
-		}
-	}
-	if s == nil {
-		s = openTemp(t)
-		seedStepWork(t, s, workID)
-		livenessSeedInvestigation(t, s, workID)
-		livenessInitialize(t, s, workID, definition)
-	}
-	for index := start; index < len(path); index++ {
-		move := path[index]
+	s := openTemp(t)
+	seedStepWork(t, s, workID)
+	livenessSeedInvestigation(t, s, workID)
+	livenessInitialize(t, s, workID, definition)
+	for index, move := range path {
 		if err := livenessApply(ctx, s, workID, move, index); err != nil {
 			t.Fatalf("%s replay of %s at index %d failed: %v", definition.Ref, move.String(), index, err)
 		}
 	}
 	return s, workID
-}
-
-func (cache livenessReplayCache) retain(t *testing.T, s *Store, path []livenessMove) {
-	t.Helper()
-	var busy, pages, checkpointed int
-	if err := s.db.QueryRow("PRAGMA wal_checkpoint(TRUNCATE)").Scan(&busy, &pages, &checkpointed); err != nil {
-		t.Fatal(err)
-	}
-	if busy != 0 {
-		t.Fatal("exploration snapshot has an active WAL reader")
-	}
-	if err := s.Close(); err != nil {
-		t.Fatal(err)
-	}
-	cache[livenessPathKey(path)] = s.Path()
 }
 
 // livenessSeedInvestigation records the observation that opens an operator
@@ -1123,23 +1124,4 @@ func livenessDeclaredActions(definition WorkflowDefinition, stepID string) []str
 	}
 	sort.Strings(actions)
 	return actions
-}
-
-// Paths are replayed from the same fixture. Only identical ordered inputs may
-// be deduplicated; selecting tables by a column name is not state equivalence.
-func livenessPathKey(path []livenessMove) string {
-	type input struct {
-		Action  string
-		Variant string
-		Payload json.RawMessage
-	}
-	inputs := make([]input, len(path))
-	for i, move := range path {
-		inputs[i] = input{move.action, move.variant, move.payload}
-	}
-	encoded, err := json.Marshal(inputs)
-	if err != nil {
-		panic(err)
-	}
-	return fmt.Sprintf("%x", sha256.Sum256(encoded))
 }

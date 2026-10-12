@@ -37,7 +37,9 @@ The Go parser, the Python validator, the generator, and the JSON Schema accept
 only knowledge manifest schema 1.2. Its Domain registry and Domain-scoped record
 shape are required.
 
-This rule applies only to `.concord/docs/concord-knowledge-index.v1.json` and its contract.
+This rule applies only to the knowledge manifest shards under `.concord/docs/knowledge/`,
+composed by `scripts/knowledge_index.py`, and their contract
+`contracts/concord-knowledge-index.v1.schema.json`.
 It does not change schema version 1.0 on the Domain registry or any unrelated
 repository surface.
 

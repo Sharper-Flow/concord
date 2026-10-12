@@ -6,7 +6,7 @@
   revising one
 - **Approval:** The operator approved the contract for `work-c089308b507cfac61f7dd228`
   on 2026-09-20, then accepted D1 to D5 below on the same date.
-- **Related:** CD-0006, CD-0036, CD-0041, and `docs/specs-as-laws.md`
+- **Related:** CD-0006, CD-0036, CD-0041, and `.concord/docs/specs-as-laws.md`
 - **Amends:** CD-0006's rule that human approval is always required to enact a
   law change
 - **Preserves:** CD-0006's ban on a silent scope cut, CD-0012's rule against
@@ -20,7 +20,7 @@ agent wrote while it delivered a change. Both cost one operator approval turn to
 revise. A layout note from a past change therefore obstructs the next request at
 the price of a real commitment.
 
-CD-0041 names the deliverable a pruned statement of what the Product must keep
+CD-0222 names the deliverable a pruned statement of what the Product must keep
 true. No rule states what may enter that statement, and no field records how it
 got there.
 
@@ -33,19 +33,14 @@ default tab of a strip. Each records what one change built. Each now binds every
 later change.
 
 Concord enforces harder than the predecessor did. CD-0036 pins each law by
-content hash. CD-0041 binds it to a home Domain. The checks rerun in a
+content hash. CD-0222 binds it to a home Domain. The checks rerun in a
 transaction at every consequential action. Admitting a build transcript as law
 therefore costs more under Concord than under the predecessor.
 
-The record schema has room for the fix and no record to migrate.
-`.concord/schemas/knowledge-record.v1.schema.json` requires a `provenance`
-object with `canonical_path`, `source_revision`, `source_digest`, `authored_at`,
-`author`, and `location_authority`. The `author` field is free short text. The
-`location_authority` field selects `canonical` or `operator_override`, which the
-typed knowledge draft calls a placement exception and not a second authority.
-The `status.state` field selects `current`, `historical`, or `superseded`, which
-is lifecycle. No field records standing. A glob of `.concord/knowledge` returns
-zero typed records, so a schema change costs no migration today.
+The manifest record is the place to fix it. Each record under
+`.concord/docs/knowledge/records/` already carries identity, kind, status, path,
+and a SHA-256 content proof. No field records standing, so a new field costs no
+migration of existing law text.
 
 ## Decision
 
@@ -59,7 +54,7 @@ Each law record carries one of two tier values.
 
 The tier is a recorded fact about the write. It is not a judgement about the
 content. An admission test that asks whether a statement is a genuine Product
-obligation is a heuristic, and CD-0041 with `docs/specs-as-laws.md` refuses a
+obligation is a heuristic, and CD-0222 with `.concord/docs/specs-as-laws.md` refuses a
 heuristic as sole authority for correctness.
 
 ### D2. The deliverable sets the tier, not the presence of an approval
@@ -94,7 +89,7 @@ Standing and source are separate facts, so they take separate objects.
 ### D4. A conflict with `derived` law is revised inside the contract
 
 A conflict with `legislated` law keeps the legislative moment that CD-0006 and
-`docs/specs-as-laws.md` define. The operator chooses to clarify intent, to evolve
+`.concord/docs/specs-as-laws.md` define. The operator chooses to clarify intent, to evolve
 the law, or to accept a scope reduction.
 
 A conflict with `derived` law is revised inside the work contract and recorded

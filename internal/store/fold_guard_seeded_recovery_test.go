@@ -59,14 +59,12 @@ func rblSeedStatements() []struct{ table, insert string } {
 		{"workflow_proposal_records", `INSERT INTO workflow_proposal_records(work_id,work_version,problem,affected,stakes,user_outcomes,constraints,open_questions,recorded_at) VALUES('work-rbl',1,'problem','["a"]','stakes','["outcome"]','[]','[]','` + rblStamp + `')`},
 		{"workflow_backlog_alignment", `INSERT INTO workflow_backlog_alignment(work_id,related_work_id,searched,outcome,recorded_at,recorded_by) VALUES('work-rbl',NULL,'searched','none_found','` + rblStamp + `','` + rblActor + `')`},
 		{"workflow_overlap_resolutions", `INSERT INTO workflow_overlap_resolutions(resolution_id,event_seq,product_id,from_work_id,to_work_id,from_contract_version,to_contract_version,resolution_kind,reason,approval_ref,created_at) VALUES('resolution-rbl',(SELECT seq FROM domain_events WHERE event_id='rbl-work-2'),'prod','work-rbl','work-rbl2',1,1,'depends_on','reason','','` + rblStamp + `')`},
-		{"initiative_entries", `INSERT INTO initiative_entries(initiative_work_id,child_work_id,position,required) VALUES('work-rbl','work-rbl2',0,0)`},
 		{"work_observations", `INSERT INTO work_observations(observation_id,work_id,statement,recorded_at) VALUES('obs:` + strings.Repeat("a", 16) + `','work-rbl','statement','` + rblStamp + `')`},
 		{"work_messages", `INSERT INTO work_messages(message_id,sender_work_id,recipient_work_id,body,state,sent_at) VALUES('msg:` + strings.Repeat("a", 32) + `','work-rbl','work-rbl2','body','sent','` + rblStamp + `')`},
 		{"resource_claims", `INSERT INTO resource_claims(resource_key,holder_work_id,holder_agent,holder_session,reason,state,claimed_at) VALUES('resource:rbl','work-rbl','agent-rbl','session-rbl','reason','held','` + rblStamp + `')`},
 		{"external_observations", `INSERT INTO external_observations(observation_id,work_id,subject_kind,subject_ref,capture_method,captured_at,reporting_authority_ref,observed_universe,freshness_policy_ref,divergence_policy_ref,created_event_seq) VALUES('xobs:rbl','work-rbl','work_item','work-rbl2','trusted_client_report','` + rblStamp + `','authority-rbl','{}','fresh-rbl','divergence-rbl',(SELECT seq FROM domain_events WHERE event_id='rbl-work-1'))`},
 		{"bootstrap_operations", `INSERT INTO bootstrap_operations(idempotency_key,operation_id,request_digest,request_json,product_id,project_id,work_id,repo_path,expected_version,state,created_at,updated_at) VALUES('idem-rbl','operation-rbl','` + rblDigest + `','{}','prod','proj','work-rbl','/repo',1,'completed','` + rblStamp + `','` + rblStamp + `')`},
-		{"linear_outbox", `INSERT INTO linear_outbox(operation_id,work_id,op_kind,idempotency_key,payload,created_at,updated_at) VALUES('operation-rbl','work-rbl','issue_create','idem-outbox-rbl','{}','` + rblStamp + `','` + rblStamp + `')`},
-		{"linear_outbox_dispositions", `INSERT INTO linear_outbox_dispositions(operation_id,work_id,disposition,reason,created_at) VALUES('operation-rbl','work-rbl','acknowledged','reason','` + rblStamp + `')`},
+		{"linear_issue_links", `INSERT INTO linear_issue_links(work_id,remote_issue_uuid,human_key,url,created_at,updated_at) VALUES('work-rbl','uuid-rbl','CON-123','https://linear.app/example/issue/CON-123','` + rblStamp + `','` + rblStamp + `')`},
 		{"worktree_verify_leases", `INSERT INTO worktree_verify_leases(lease_id,work_id,project_id,path,state,client_ref,agent_ref,session_ref,principal_ref,command_json,acquired_at,outcome) VALUES('lease-rbl','work-rbl','proj','/repo/wt-rbl','released','client-rbl','agent-rbl','session-rbl','principal-rbl','["true"]','` + rblStamp + `','completed')`},
 		{"active_research_packs", `INSERT INTO active_research_packs(pack_id,owner_work_id,current_revision,freshness,expected_version,created_at,updated_at) VALUES('pack-rbl','work-rbl',1,'current',1,'` + rblStamp + `','` + rblStamp + `')`},
 		{"active_research_revisions", `INSERT INTO active_research_revisions(pack_id,revision,question,scope_in_json,scope_out_json,done_when_json,method,created_at) VALUES('pack-rbl',1,'question','[]','[]','[]','method','` + rblStamp + `')`},
@@ -77,7 +75,7 @@ func rblSeedStatements() []struct{ table, insert string } {
 // A stranded fold guard on a database seeded across every RESTRICT-FK
 // projection table must recover: the rebuild clears each seeded projection
 // before work_items, folds the log back, and leaves the direct-authority
-// active research rows and the event log byte-for-byte in place.
+// active research rows, recorded issue identity, and the event log in place.
 func TestRecoverFoldGuardCompletesOnFullySeededStore(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -123,8 +121,7 @@ func TestRecoverFoldGuardCompletesOnFullySeededStore(t *testing.T) {
 	// membership events populate it, and its one-primary-per-work index
 	// leaves no seedable row beside them.
 	restrictTargets := map[string]bool{
-		"external_observations": true, "initiative_entries": true,
-		"linear_outbox_dispositions": true, "resource_claims": true,
+		"external_observations": true, "resource_claims": true,
 		"work_messages": true, "work_observations": true,
 		"workflow_backlog_alignment": true, "workflow_checkpoints": true,
 		"workflow_context_boundaries": true, "workflow_context_checkpoints": true,
@@ -163,9 +160,9 @@ func TestRecoverFoldGuardCompletesOnFullySeededStore(t *testing.T) {
 	}
 
 	// Drift guards: a seed may only target a cleared projection or
-	// direct-table authority (active research, the snapshotted runtime
-	// authority tables, or the untouched linear_outbox), and every
-	// RESTRICT-FK projection table must hold a seed.
+	// exempt direct authority (active research, the snapshotted runtime
+	// authority tables, or linear_issue_links), and every RESTRICT-FK
+	// projection table must hold a seed.
 	snapshotSet := map[string]bool{}
 	for _, table := range operationalRebuildTables {
 		snapshotSet[table] = true
@@ -177,8 +174,8 @@ func TestRecoverFoldGuardCompletesOnFullySeededStore(t *testing.T) {
 		if strings.HasPrefix(table, "active_research_") {
 			continue // direct-table authority; snapshotted and restored, never cleared
 		}
-		if table == "linear_outbox" {
-			continue // durable queue; no foreign key, so the rebuild never touches it
+		if table == "linear_issue_links" {
+			continue // recorded issue identity; no foreign key, so the rebuild neither clears nor snapshots it
 		}
 		if snapshotSet[table] {
 			continue // direct-table authority; snapshotted and restored, never cleared
@@ -232,17 +229,15 @@ func TestRecoverFoldGuardCompletesOnFullySeededStore(t *testing.T) {
 		}
 	}
 
-	// Direct-table authority survives byte-for-byte: active research, the
-	// snapshotted runtime authority tables, and the untouched linear_outbox
-	// queue. A queued Linear operation is pending work no event can restore,
-	// so its survival is the point of the snapshot treatment.
+	// Direct-table authority survives: active research, the snapshotted
+	// runtime authority tables, and the recorded issue identity, whose
+	// rows the rebuild leaves in place because the table holds no foreign key.
 	for _, check := range []struct{ table, condition string }{
 		{"active_research_packs", "pack_id='pack-rbl'"},
 		{"active_research_revisions", "pack_id='pack-rbl'"},
 		{"active_research_consumers", "pack_id='pack-rbl'"},
 		{"bootstrap_operations", "operation_id='operation-rbl'"},
-		{"linear_outbox", "operation_id='operation-rbl'"},
-		{"linear_outbox_dispositions", "operation_id='operation-rbl'"},
+		{"linear_issue_links", "work_id='work-rbl'"},
 		{"worktree_verify_leases", "lease_id='lease-rbl'"},
 	} {
 		var n int
@@ -253,6 +248,16 @@ func TestRecoverFoldGuardCompletesOnFullySeededStore(t *testing.T) {
 			t.Fatalf("%s rows with %s = %d after recovery, want 1", check.table, check.condition, n)
 		}
 	}
+	var issueIdentity [6]string
+	if err := rdb.QueryRowContext(ctx, `SELECT work_id,remote_issue_uuid,human_key,url,created_at,updated_at FROM linear_issue_links WHERE work_id='work-rbl'`).Scan(
+		&issueIdentity[0], &issueIdentity[1], &issueIdentity[2], &issueIdentity[3], &issueIdentity[4], &issueIdentity[5],
+	); err != nil {
+		t.Fatal(err)
+	}
+	wantIdentity := [6]string{"work-rbl", "uuid-rbl", "CON-123", "https://linear.app/example/issue/CON-123", rblStamp, rblStamp}
+	if issueIdentity != wantIdentity {
+		t.Fatalf("recorded issue identity after recovery = %v, want %v", issueIdentity, wantIdentity)
+	}
 
 	// Every seeded cleared projection loses its rows: the log does not
 	// restore any of them in this fixture, so any survivor is a row the
@@ -261,8 +266,8 @@ func TestRecoverFoldGuardCompletesOnFullySeededStore(t *testing.T) {
 		if strings.HasPrefix(seed.table, "active_research_") {
 			continue
 		}
-		if snapshotSet[seed.table] || seed.table == "linear_outbox" {
-			continue // direct-table authority; preserved above
+		if snapshotSet[seed.table] || seed.table == "linear_issue_links" {
+			continue // exempt direct authority; preserved above
 		}
 		var n int
 		if err := rdb.QueryRowContext(ctx, `SELECT count(*) FROM `+seed.table).Scan(&n); err != nil {

@@ -3,8 +3,8 @@
 Concord is a public Go project: an agent-native Product coordination system for
 one operator and many local AI agents. It holds accepted Product law,
 machine-readable contracts and scenarios, a SQLite-backed storage and workflow
-engine, a Bubble Tea terminal launcher, a JSON CLI, an OpenCode TypeScript
-adapter, and repository validators. Linux amd64 is the only release platform.
+engine, a JSON CLI, an OpenCode TypeScript adapter, and repository validators.
+Linux amd64 is the only release platform.
 
 This file carries what you must decide before acting. Everything else is a
 pointer to the artifact that owns the answer, because a prose copy of a
@@ -13,8 +13,8 @@ derivable fact drifts from its source and no check catches it.
 
 ## Authority
 
-- Resolve planning authority from the Product's mode under
-  [`.concord/docs/development-authority.md`](.concord/docs/development-authority.md). Pull requests
+- Linear owns planning; read and write it only through the Linear MCP server under
+  [`.concord/docs/managed-development-authority.md`](.concord/docs/managed-development-authority.md). Pull requests
   plus required checks own review and merge evidence.
 - [`.concord/docs/decisions/`](.concord/docs/decisions/) (CD-NNNN records), specifications, and
   constitutional documents own Product law. Ordinary prose cannot acquire that
@@ -70,8 +70,8 @@ Context is the scarcest resource in a session. Spend it on decisions.
 - Do not hand-tag or hand-cut a release. Releases are fully automated.
 - Do not weaken, bypass, or special-case a validator to make a check pass.
 - Do not introduce new third-party Go dependencies, framework abstractions, or
-  runtime behavior without accepted issue or decision scope. Bubble Tea v2,
-  bubbles v2, lipgloss v2, and modernc.org/sqlite are already accepted.
+  runtime behavior without accepted issue or decision scope. modernc.org/sqlite
+  is already accepted.
 - Do not populate reserved boundaries (`workflows/`, `skills/`) opportunistically.
 - Do not place any of the following in the repository, even temporarily:
   private Product or customer names and data; personal filesystem paths, machine
@@ -137,4 +137,4 @@ inference. Conventional Commit titles are load-bearing for release semver.
 | What is proved versus merely present | [`.concord/docs/knowledge/coverage/`](.concord/docs/knowledge/coverage/); [`.concord/docs/reachability-exceptions.v1.json`](.concord/docs/reachability-exceptions.v1.json) |
 | Predecessor operational coverage state | [`.concord/docs/predecessor-operational-coverage.md`](.concord/docs/predecessor-operational-coverage.md) |
 | Product law, priorities, documentation rules, and release currency before capture | [`.concord/docs/README.md`](.concord/docs/README.md); [`.concord/docs/priorities.md`](.concord/docs/priorities.md); [`CD-0165`](.concord/docs/decisions/CD-0165-an-agent-begins-a-work-item-only-on-the-current-concord-release.md) |
-| Repository layout, file → navigation Domain, Domain → card | [`.concord/docs/core-architecture.md`](.concord/docs/core-architecture.md); [`scripts/domain-navigation.py`](scripts/domain-navigation.py) `--help` |
+| Package and seam ownership | [`.concord/docs/core-architecture.md`](.concord/docs/core-architecture.md) §4 (entry points by responsibility) |

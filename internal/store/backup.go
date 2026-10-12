@@ -79,6 +79,26 @@ type BackupManifest struct {
 	BackupTime        string `json:"-"`
 }
 
+// BackupDatabase snapshots an existing database without migrating or repairing
+// its schema. The read-only source open cannot create a missing database. The
+// snapshot and manifest must pass the backup verb's verification rules.
+func BackupDatabase(ctx context.Context, path, destination string) (BackupManifest, error) {
+	if strings.TrimSpace(path) == "" {
+		return BackupManifest{}, newFailure(KindInvalidOperation, "backup", "source database path is empty", false, "supply an existing database path")
+	}
+	db, err := sql.Open(driverName, readOnlyDataSource(path))
+	if err != nil {
+		return BackupManifest{}, wrapFailure(KindUnavailable, "backup", "cannot open the source database read-only", false, "supply a readable database", err)
+	}
+	db.SetMaxOpenConns(1)
+	s := &Store{db: db, path: path}
+	defer func() { _ = s.Close() }()
+	if _, err := Backup(ctx, s, destination); err != nil {
+		return BackupManifest{}, err
+	}
+	return VerifyBackup(ctx, destination)
+}
+
 // Backup creates a self-contained SQLite snapshot with the Online Backup API.
 // The destination and its manifest must not already exist; a live database or
 // WAL copy is never used.
@@ -412,7 +432,6 @@ func projectionDigest(ctx context.Context, db *sql.DB) (string, error) {
 		{"projects", `SELECT id, display_name, stage_maturity_override, stage_audience_commitment_override, version, created_at, updated_at FROM projects ORDER BY id`},
 		{"work_items", `SELECT id, kind, title, lifecycle, priority, urgency, version, created_at, updated_at, terminal_time FROM work_items ORDER BY id`},
 		{"relations", `SELECT work_id_from, work_id_to, kind, created_at FROM relations ORDER BY work_id_from, work_id_to, kind`},
-		{"initiative_entries", `SELECT initiative_work_id, child_work_id, position, required FROM initiative_entries ORDER BY initiative_work_id, position, child_work_id`},
 		{"product_projects", `SELECT product_id, project_id, role FROM product_projects ORDER BY product_id, project_id`},
 		{"work_projects", `SELECT work_id, project_id, role FROM work_projects ORDER BY work_id, project_id`},
 	}
@@ -587,7 +606,7 @@ func cloneStringMap(input map[string]string) map[string]string {
 func manifestPath(destination string) string { return destination + ".manifest.json" }
 
 func readOnlyDataSource(path string) string {
-	return "file:" + path + "?mode=ro&_pragma=foreign_keys(1)"
+	return "file:" + escapeSQLiteURIPath(path) + "?mode=ro&_pragma=foreign_keys(1)"
 }
 
 func fileSHA256(path string) (string, error) {

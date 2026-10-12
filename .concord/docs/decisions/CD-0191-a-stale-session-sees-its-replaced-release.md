@@ -58,7 +58,7 @@ refusal rides the dispatch surface's adapter-gate envelope, the shape the
 turn-move gate already uses: `unauthorized_dispatch` with the
 `release_stale` boundary, and the `stale_context` refusal kind in the error
 details. The closed adapter-origin kind vocabulary of the tool envelope
-carries only transport classifications, and this decision changes no schema,
+has no stale-context classification, and this decision changes no schema,
 so the classification rides the details member this surface owns.
 
 Every other action keeps working. A stale session can finish its item,

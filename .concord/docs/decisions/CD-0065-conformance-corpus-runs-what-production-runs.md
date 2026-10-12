@@ -98,7 +98,7 @@ leaves two corpora to keep in sync.
 - `internal/store` suite passes against the corpus, including
   `initializeWorkflowRawTx`, `CompleteWorkflow`,
   `AppendWorkflowStalenessObservation`, and `RebuildFromLog` over real SQLite.
-- `docs/workflow-engine-contract.md` describes the collapsed single-version
+- `.concord/docs/workflow-engine-contract.md` describes the collapsed single-version
   definitions and no longer documents v1/v2/v3 pinned replay.
 - `python3 scripts/check-agent-contracts.py`,
   `python3 scripts/check-json.py`, and `python3 scripts/check-doc-links.py` pass.

@@ -32,7 +32,7 @@ linkage where many items may point at one target) and completes the original
 four-kind set: hierarchy (`parent`), dependency (`blocks`), replacement
 (`supersedes`), fulfilment (`implements`).
 
-CD-0041's `workflow_architecture_bindings` own the work-to-Domain dimension.
+CD-0222's `workflow_architecture_bindings` own the work-to-Domain dimension.
 The work-to-decision-record dimension this kind addresses remains otherwise
 unowned.
 
@@ -46,9 +46,10 @@ non-hierarchical: it never removes a target from the ready query, participates
 in no PM1.Q5 `blocks` exclusion, and asserts no parent-child structure. It is
 cycle-exempt by design — the exemption is the structural signature of a
 many-to-one linkage, not an oversight. It carries the common relation evidence
-(`actor`, `reason`, expected/resulting versions) via the existing
-`work_relate.link` and `work_relate.unlink` operations, with no
-special-cased composite path.
+(`actor`, `reason`, expected/resulting versions) of a plain relation, with no
+special-cased composite path. No operation writes it today: no overlap
+resolution kind maps to it, and an `implements` edge exists only where
+history holds one.
 
 ### D2. Display-only until a consumer exists
 

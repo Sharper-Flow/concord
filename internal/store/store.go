@@ -49,6 +49,10 @@ type Store struct {
 	// so a test can interleave a committed state change into exactly that
 	// window. Production leaves it nil.
 	retireProbeInterleave func()
+	// Observation-only seam at the native test program's successful Start.
+	// It cannot replace execution or change authorization.
+	nativeOracleProgramLaunched func()
+	nativeOracleStageObserved   func(string, string, []string, []string)
 
 	// durableCommits counts the durable transactions this handle committed.
 	durableCommits atomic.Uint64
@@ -209,7 +213,7 @@ func Upgrade(ctx context.Context, path string, held []HeldSchema) (UpgradeReport
 		return UpgradeReport{}, err
 	}
 	if pending := pendingBreaking(before); len(pending) > 0 {
-		if err := refuseHeldOlderSchemas(pending, held); err != nil {
+		if err := CheckUpgradeSessions(pendingBreakingList(before), held); err != nil {
 			return UpgradeReport{}, err
 		}
 	}
@@ -250,10 +254,11 @@ func Upgrade(ctx context.Context, path string, held []HeldSchema) (UpgradeReport
 	return report, nil
 }
 
-// refuseHeldOlderSchemas is the CD-0111 D3 gate: a breaking step never applies
+// CheckUpgradeSessions is the CD-0111 D3 gate: a breaking step never applies
 // under a live session whose release predates it. Each refused session is
-// named with the first pending breaking step it predates.
-func refuseHeldOlderSchemas(pending []migration, held []HeldSchema) error {
+// named with the first pending breaking step it predates. The CLI checks its
+// plan before taking a snapshot; Upgrade rechecks before applying migrations.
+func CheckUpgradeSessions(pending []PendingMigration, held []HeldSchema) error {
 	var older []string
 	for _, h := range held {
 		for _, m := range pending {
@@ -309,7 +314,7 @@ func manifestVersions(ctx context.Context, db *sql.DB) (map[int]appliedMigration
 // applies, and the column's default marks every recorded row breaking, which
 // is the conservative read the manifest check expects.
 func repairManifestBreakingColumn(ctx context.Context, db *sql.DB) error {
-	tx, err := db.BeginTx(ctx, nil)
+	tx, err := beginOrdinaryTx(ctx, db)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "upgrade", "cannot begin the manifest repair", true,
 			"retry once the database is writable", err)

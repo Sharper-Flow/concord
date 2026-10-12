@@ -13,7 +13,7 @@
 
 ## Context
 
-CD-0041 D6 states that changing either contract makes its overlap resolution
+CD-0222 D6 states that changing either contract makes its overlap resolution
 stale. A contract revision can change content unrelated to the architectural
 write intersection that the operator judged. Such a revision does not change
 the judged pair and must not void its resolution.

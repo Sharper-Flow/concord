@@ -145,10 +145,10 @@ const build = (script: Record<string, unknown>, overrides: Record<string, unknow
     { context: contextFor(), invoke: scriptedInvoke(script) as any },
   )
 
-test("new packets pin the worker report protocol without changing schema identity", async () => {
+test("new packets pin the worker report protocol and the current card-free revision", async () => {
   const result = await build(defaultScript())
   expect(result.packet).toBeDefined()
-  expect(result.packet?.schema_version).toBe("1.1")
+  expect(result.packet?.schema_version).toBe("2.0")
   expect(result.packet?.inputs.report_protocol).toBe("concord-worker-result-v1")
 })
 
@@ -191,7 +191,7 @@ test("a well-formed build projects mandate, narrative, and obligations into a va
   expect(built.failure).toBeUndefined()
   const packet = built.packet!
   expect(validateAgentLanePacket(packet)).toBe(true)
-  expect(packet.schema_version).toBe("1.1")
+  expect(packet.schema_version).toBe("2.0")
   expect(packet.attempt_id).toBe("attempt-1")
   expect(packet.work_id).toBe(WORK_ID)
   expect(packet.step_id).toBe("step-1")
@@ -354,8 +354,8 @@ const WORK_CONTEXT: AgentLanePacketWorkContext = {
     },
   ],
   domain_groups: [
-    { domain_id: "child-alpha", required_reading_ordinals: [1], finding_ids: ["finding:19:0"], domain_cards: [] },
-    { domain_id: "root", required_reading_ordinals: [0], finding_ids: [], domain_cards: [] },
+    { domain_id: "child-alpha", required_reading_ordinals: [1], finding_ids: ["finding:19:0"] },
+    { domain_id: "root", required_reading_ordinals: [0], finding_ids: [] },
   ],
 }
 
@@ -370,28 +370,65 @@ test("a work context projects verbatim into the packet", async () => {
   expect(validateAgentLanePacket(packet)).toBe(true)
 })
 
-test("pinned Domain cards project unchanged without content", async () => {
+test("a card-bearing work context refuses the current card-free packet", async () => {
+  // Domain cards are retired. The released 1.0/1.1 branches of the
+  // closed packet schema keep their card-bearing shapes for replay, and the
+  // current 2.0 branch refuses the member whole — cards derived by any
+  // reader never enter a packet, with or without inlined content.
   const source = { kind: "repository_file", project_id: "project", path: ".concord/navigation/domains/child-alpha.md", commit_oid: "a1".repeat(20) } as const
-  const work_context: AgentLanePacketWorkContext = {
+  const cardBearing: AgentLanePacketWorkContext = {
     ...WORK_CONTEXT,
     required_reading: [...WORK_CONTEXT.required_reading, { domain_id: "child-alpha", reason: "Read the pinned Domain card.", source }],
     domain_groups: WORK_CONTEXT.domain_groups.map(group => group.domain_id === "child-alpha"
       ? { ...group, required_reading_ordinals: [1, 2], domain_cards: [source] }
       : group),
   }
-  const built = await build({
+  const withCards = await build({
     ...defaultScript(),
-    "concord_work_trace.continuity": continuityEnvelope(pinnedContract(), null, { work_context }),
+    "concord_work_trace.continuity": continuityEnvelope(pinnedContract(), null, { work_context: cardBearing }),
   })
-  expect(built.failure).toBeUndefined()
-  expect(built.packet!.inputs.work_context).toEqual(work_context)
-  expect(validateAgentLanePacket(built.packet!)).toBe(true)
-  const content = { ...work_context, domain_groups: [{ ...work_context.domain_groups[0], domain_cards: [{ ...source, content: "must not enter packet" }] }] }
+  expect(withCards.failure?.kind).toBe("packet_refused")
+  const inlined = { ...cardBearing, domain_groups: [{ ...cardBearing.domain_groups[0], domain_cards: [{ ...source, content: "must not enter packet" }] }] }
   const refused = await build({
     ...defaultScript(),
-    "concord_work_trace.continuity": continuityEnvelope(pinnedContract(), null, { work_context: content }),
+    "concord_work_trace.continuity": continuityEnvelope(pinnedContract(), null, { work_context: inlined }),
   })
   expect(refused.failure?.kind).toBe("packet_refused")
+})
+
+test("retained card-bearing 1.1 packets still validate through their recorded branch", async () => {
+  // The historical reader stays available for replay and retained-result
+  // recovery: a released card-bearing packet validates under its recorded
+  // identity while the same member refuses at the current 2.0 branch.
+  const built = await build(defaultScript())
+  const base = built.packet!
+  const source = { kind: "repository_file", project_id: "project", path: ".concord/navigation/domains/child-alpha.md", commit_oid: "a1".repeat(20) }
+  const retained = {
+    ...base,
+    schema_version: "1.1" as const,
+    inputs: { ...base.inputs, work_context: { ...WORK_CONTEXT, domain_groups: [{ ...WORK_CONTEXT.domain_groups[0], domain_cards: [source] }] } },
+  }
+  expect(validateAgentLanePacket(retained)).toBe(true)
+  expect(validateAgentLanePacket({ ...retained, schema_version: "2.0" as const })).toBe(false)
+})
+test("released 1.0 branch keeps its released semantic fields, not merely its enum entry", async () => {
+  // The historical reader is the schema document's version branches, not the
+  // current merged enum: a retained 1.0 packet keeps the released prohibition
+  // (inputs.worker_job refused) and the released card-bearing shape, so the
+  // branch behavior is the original artifact and the 2.0 entry is a widening.
+  const built = await build(defaultScript())
+  const base = built.packet!
+  const jobbed = {
+    ...base,
+    schema_version: "1.0" as const,
+    inputs: { ...base.inputs, worker_job: { job_id: "job:retained", revision: 1, digest: "sha256:" + "1".repeat(64), objective: "o", stopping_condition: "s", project_scope: "project", path_scope: [], predicate_ids: [], checks: [], prerequisites: [], unresolved_refs: [], reserved_integration: "" } },
+  }
+  expect(validateAgentLanePacket(jobbed)).toBe(false)
+  const joblessInputs = { ...jobbed.inputs }
+  delete (joblessInputs as Record<string, unknown>).worker_job
+  const jobless = { ...jobbed, inputs: joblessInputs }
+  expect(Object.hasOwn(jobless.inputs, "worker_job")).toBe(false)
+  expect(validateAgentLanePacket(jobless)).toBe(true)
 })
 
 test("a pin without a work context adds no packet member", async () => {
@@ -1304,4 +1341,70 @@ test("the legacy packet schema forbids job fields while the current identity bin
   const built = await build({ ...defaultScript(), "concord_work_trace.continuity": jobContinuity(["dispatch_worker", "record_worker_job"], [READY_JOB]) })
   expect(validateAgentLanePacket(built.packet!)).toBe(true)
   expect(validateAgentLanePacket({ ...built.packet!, schema_version: "1.0" })).toBe(false)
+})
+
+// The owner-level acceptance oracle is typed immutable job content.
+// The builder rides the recorded revision verbatim, so the oracle rides with
+// it byte-for-byte inside inputs.worker_job — the same copy every admitted
+// lane receives — and the closed packet schema owns the oracle bounds.
+const ORACLE_RECIPE_SOURCE = { kind: "repository_file" as const, project_id: "project-1", path: "internal/store/worker_oracle_harness_test.go", commit_oid: `a1${"0".repeat(38)}` }
+const ORACLE = {
+  owners: [{
+    owner_id: "owner:acceptance-graph",
+    domain_id: "workflow-engine",
+    mechanism: { project_id: "project-1", path: "internal/store/worker_jobs.go", entry_point: "DeriveWorkerJobDigest" },
+    obligation: "The job digest covers every recorded content field, the oracle included.",
+    predicate_ids: ["predicate:primary"],
+    law_bindings: [{ source: { kind: "knowledge" as const, source_id: "records", law_id: "CD-0205", content_hash: `sha256:${"b".repeat(64)}` }, clause: "D1 lines 39-53" }],
+  }],
+  cases: [{
+    case_id: "case:digest-covers-oracle",
+    owner_id: "owner:acceptance-graph",
+    entry_point: "record_worker_job",
+    input_class: "one oracle-bearing revision",
+    expected_state: "the digest changes when the oracle changes",
+    control_ids: ["control:harness-digest"],
+  }],
+  controls: [{
+    control_id: "control:harness-digest",
+    owner_id: "owner:acceptance-graph",
+    predicate_ids: ["predicate:primary"],
+    case_ids: ["case:digest-covers-oracle"],
+    recipe_source: ORACLE_RECIPE_SOURCE,
+    argv: ["go", "test", "./internal/store", "-run", "TestOwnerOracleGraph"],
+    cwd: ".",
+    expected_result: "pass" as const,
+    required_evidence_role: "reported" as const,
+    readiness_evidence_refs: ["run:harness-selftest"],
+  }],
+}
+const ORACLE_JOB = { ...READY_JOB, predicate_ids: ["predicate:primary"], acceptance_oracle: ORACLE }
+
+test("a ready oracle job rides verbatim beside typed records and the report protocol", async () => {
+  const continuity = jobContinuity(["dispatch_worker", "record_worker_job"], [ORACLE_JOB])
+  Object.assign(continuity.result.pinned, { law_context: LAW_CONTEXT, design_record: DESIGN_RECORD, proposal_record: PROPOSAL })
+  const built = await build({ ...defaultScript(), "concord_work_trace.continuity": continuity })
+  expect(built.failure).toBeUndefined()
+  expect(validateAgentLanePacket(built.packet!)).toBe(true)
+  expect(built.packet!.inputs.worker_job).toEqual(ORACLE_JOB)
+  expect(built.packet!.inputs.worker_job!.acceptance_oracle).toEqual(ORACLE)
+  expect(built.packet!.inputs.law_context).toEqual(LAW_CONTEXT)
+  expect(built.packet!.inputs.design_record).toEqual(DESIGN_RECORD)
+  expect(built.packet!.inputs.proposal_record).toEqual(PROPOSAL)
+  expect(built.packet!.inputs.work_record).toEqual({ narrative: NARRATIVE })
+  expect(built.packet!.inputs.report_protocol).toBe("concord-worker-result-v1")
+  expect("context" in built.packet!.inputs).toBe(false)
+})
+
+test("a malformed acceptance oracle refuses the packet build rather than riding it", async () => {
+  const malformed = { ...ORACLE, owners: [{ ...ORACLE.owners[0], owner_id: "not-an-owner-identity" }] }
+  const built = await build({ ...defaultScript(), "concord_work_trace.continuity": jobContinuity(["dispatch_worker", "record_worker_job"], [{ ...ORACLE_JOB, acceptance_oracle: malformed }]) })
+  expect(built.failure?.kind).toBe("packet_refused")
+  expect(built.failure?.message).toContain("acceptance_oracle")
+})
+
+test("an oracle past the closed control bound refuses the packet build", async () => {
+  const overflow = { ...ORACLE, controls: [...ORACLE.controls, ...Array.from({ length: 64 }, (_, index) => ({ ...ORACLE.controls[0], control_id: `control:extra-${index}` }))] }
+  const built = await build({ ...defaultScript(), "concord_work_trace.continuity": jobContinuity(["dispatch_worker", "record_worker_job"], [{ ...ORACLE_JOB, acceptance_oracle: overflow }]) })
+  expect(built.failure?.kind).toBe("packet_refused")
 })

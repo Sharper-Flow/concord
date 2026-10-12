@@ -349,7 +349,7 @@ func TestWorkflowSupersedeOverlapRecoveryAgreesAcrossPinDiscoveryPreflightAndFol
 	}
 }
 
-// TestD7ConsequentialBoundariesRefuseUnresolvedOverlap covers the CD-0041 D7
+// TestD7ConsequentialBoundariesRefuseUnresolvedOverlap covers the CD-0222 D7
 // boundaries that are enacted as workflow actions: contract approval, execution
 // dispatch, checkpoint and evidence binding, worker-result acceptance, verdict
 // and premise confirmation, merge/ship successor linkage, and completion.

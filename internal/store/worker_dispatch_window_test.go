@@ -83,7 +83,10 @@ func TestCurrentWorkerResultActionsRequireWorkTransition(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, actionID := range []string{"accept_worker_result", "record_worker_failure"} {
+	// CD-0198 D5: record_worker_failure leaves the current head; the
+	// recovery routes that serve it and the result rejection keep the
+	// work_transition capability.
+	for _, actionID := range []string{"accept_worker_result"} {
 		var capability string
 		for _, action := range entry.Definition.ActionDefinitions {
 			if action.ID == actionID {
@@ -94,6 +97,19 @@ func TestCurrentWorkerResultActionsRequireWorkTransition(t *testing.T) {
 		if capability != "work_transition" {
 			t.Errorf("action %q required_capability = %q, want work_transition", actionID, capability)
 		}
+	}
+	for _, recovery := range BuiltinWorkflowRecoveryActionDefinitions() {
+		// supersede_contract carries its own approval authority and is not a
+		// work_transition recovery; the correction routes are.
+		if recovery.ID == "supersede_contract" {
+			continue
+		}
+		if recovery.RequiredCapability != "work_transition" {
+			t.Errorf("recovery action %q required_capability = %q, want work_transition", recovery.ID, recovery.RequiredCapability)
+		}
+	}
+	if recovery := workerFailureRecoveryActionDefinition(); recovery.RequiredCapability != "work_transition" {
+		t.Errorf("recovery action %q required_capability = %q, want work_transition", recovery.ID, recovery.RequiredCapability)
 	}
 }
 
@@ -689,7 +705,7 @@ func dispatchWorkerPacket(t *testing.T, s *Store, workID, stepID, attemptID stri
 		inputs[member] = value
 	}
 	packet := map[string]any{
-		"schema_version": "1.0",
+		"schema_version": WorkerPacketSchemaVersion,
 		"attempt_id":     attemptID,
 		"lane_id":        "implement",
 		"lane_version":   laneVersion,
@@ -1530,7 +1546,7 @@ func TestDispatchFoldDefensivelyRefusesNonObjectWorkerPacket(t *testing.T) {
 // reaching the fold directly tests the defensive depth.
 func TestDispatchFoldDefensivelyRefusesWorkerPacketMissingIdentity(t *testing.T) {
 	t.Parallel()
-	packetBytes, err := json.Marshal(map[string]any{"schema_version": "1.0", "lane_id": "implement"})
+	packetBytes, err := json.Marshal(map[string]any{"schema_version": WorkerPacketSchemaVersion, "lane_id": "implement"})
 	if err != nil {
 		t.Fatalf("marshal packet: %v", err)
 	}
@@ -1559,7 +1575,7 @@ func TestDispatchFoldDefensivelyReachesTheCanonicalJSONCall(t *testing.T) {
 	attemptID := "attempt-reaches-canonical"
 	laneVersion, laneDigest := implementLaneIdentity()
 	packetBytes, err := json.Marshal(map[string]any{
-		"schema_version": "1.0", "attempt_id": attemptID, "lane_id": "implement", "lane_version": laneVersion, "lane_digest": laneDigest,
+		"schema_version": WorkerPacketSchemaVersion, "attempt_id": attemptID, "lane_id": "implement", "lane_version": laneVersion, "lane_digest": laneDigest,
 		"work_id": "work-fold-defensive", "step_id": "execution",
 		"inputs": map[string]any{"task": "cd0065 dispatch packet", "binding": map[string]any{"objective_source": "work_question", "work_version": 1, "contract_version": nil, "assigned_result": "files_touched"}},
 	})

@@ -228,7 +228,7 @@ class TierRoutingTest(unittest.TestCase):
     def test_preflight_uses_the_installed_lefthook_binary(self):
         result = self.run_wrapper("preflight")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.gate_class, "targeted")
+        self.assertEqual(result.gate_class, "smoke")
         self.assertEqual(len(result.calls), 1)
         self.assertEqual(result.calls[0]["command"], "lefthook")
         self.assertEqual(result.calls[0]["args"], ["run", "pre-push"])
@@ -236,12 +236,12 @@ class TierRoutingTest(unittest.TestCase):
         self.assertEqual(result.calls[0]["selected_product"], "poison-product")
         self.assertIn("START preflight", result.stdout)
         self.assertIn("PASS preflight", result.stdout)
-        self.assertNotIn("WAIT admission", result.stdout)
+        self.assertIn("WAIT admission", result.stdout)
 
     def test_preflight_without_lefthook_runs_the_pinned_module(self):
         result = self.run_wrapper("preflight", commands=("go", "bun", "python3", "probe"))
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.gate_class, "targeted")
+        self.assertEqual(result.gate_class, "smoke")
         self.assertEqual(len(result.calls), 1)
         self.assertEqual(result.calls[0]["command"], "go")
         self.assertEqual(result.calls[0]["args"], [

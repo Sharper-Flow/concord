@@ -1,6 +1,6 @@
 # CD-0167: Backlog never resides in git
 
-- **Status:** Accepted
+- **Status:** Superseded by CD-0213
 - **Date:** 2026-09-21
 - **Scope:** Planning-backlog storage for every Product mode and session
 - **Approval:** The operator approved this Product boundary.

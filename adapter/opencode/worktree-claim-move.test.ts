@@ -1,7 +1,7 @@
 // A claimed worktree is the session's worktree only when the session runs in
 // it. These tests hold the claim hook to that contract: the move runs after a
 // successful claim, the landing is read back from the host, and every failure
-// mode is a typed refusal whose remedy is an idempotent replay (issue #822).
+// mode is a typed refusal whose remedy is an idempotent replay.
 import { afterEach, afterAll, describe, expect, test } from "bun:test"
 import { mkdir, mkdtemp, rm, symlink } from "node:fs/promises"
 import { join, resolve } from "node:path"

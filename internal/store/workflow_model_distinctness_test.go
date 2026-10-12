@@ -88,7 +88,7 @@ func TestDeclaredModelDistinctnessRejectsCollisionAndFailsClosed(t *testing.T) {
 		},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
-			err := ValidateDistinctWorkflowActors(testCase.executing, testCase.verdict, testCase.declared)
+			err := validateDistinctWorkflowActorsForReplay(testCase.executing, testCase.verdict, testCase.declared)
 			if testCase.wantAccepted {
 				if err != nil {
 					t.Fatalf("expected acceptance, got %v", err)

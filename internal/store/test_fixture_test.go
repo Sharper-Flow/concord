@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -125,4 +127,29 @@ func TestOpenTempCopiesIsolatedLatestSchema(t *testing.T) {
 			t.Errorf("second store %s rows = %d, want 0", table, count)
 		}
 	}
+}
+
+func TestTestDatabaseTemplateCleanupOnFailure(t *testing.T) {
+	const childEnv = "TEST_CONCORD_TEMPLATE_CLEANUP_CHILD"
+	const marker = "template-root: "
+	if os.Getenv(childEnv) == "1" {
+		openTemp(t)
+		fmt.Println(marker + testDatabaseTemplate.dir)
+		t.Fatal("synthetic failure after template creation")
+	}
+	command := exec.Command(os.Args[0], "-test.run=^TestTestDatabaseTemplateCleanupOnFailure$")
+	command.Env = append(os.Environ(), childEnv+"=1")
+	output, err := command.CombinedOutput()
+	if exit, ok := err.(*exec.ExitError); !ok || exit.ExitCode() != 1 {
+		t.Fatalf("failing test child: %v\n%s", err, output)
+	}
+	for line := range strings.SplitSeq(string(output), "\n") {
+		if root, found := strings.CutPrefix(line, marker); found {
+			if _, err := os.Stat(root); !os.IsNotExist(err) {
+				t.Fatalf("template root survived a failing test: %s (%v)", root, err)
+			}
+			return
+		}
+	}
+	t.Fatalf("test child did not create the template:\n%s", output)
 }

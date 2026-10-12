@@ -8,24 +8,73 @@ import (
 	"time"
 )
 
-func TestLivenessPathIdentityPreservesOrderAndPayload(t *testing.T) {
-	a := livenessMove{action: "record_verdict", payload: json.RawMessage(`{"verdict_kind":"ok"}`)}
-	b := livenessMove{action: "record_verdict", payload: json.RawMessage(`{"verdict_kind":"outcome_mismatch"}`)}
-	if livenessPathKey([]livenessMove{a, b}) == livenessPathKey([]livenessMove{b, a}) {
-		t.Fatal("order-sensitive verdict histories share a key")
+func TestLivenessReplayPreservesOrderAndPayload(t *testing.T) {
+	entry, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
+	if err != nil {
+		t.Fatal(err)
 	}
-	if livenessPathKey([]livenessMove{a}) == livenessPathKey([]livenessMove{b}) {
-		t.Fatal("different payloads share a key")
+	definition := entry.Definition
+	move := func(actionID string) livenessMove {
+		t.Helper()
+		action, ok := livenessActionDefinition(definition, actionID)
+		if !ok {
+			t.Fatalf("unknown action %s", actionID)
+		}
+		payload, err := livenessPayload(definition, action, map[string]string{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return livenessMove{action: actionID, payload: payload}
 	}
-	original := []livenessMove{a, b}
-	copied := append([]livenessMove(nil), original...)
-	if livenessPathKey(original) != livenessPathKey(copied) {
-		t.Fatal("identical paths have different keys")
+	for _, problem := range []string{"first problem", "another problem", "first problem"} {
+		proposal := move("record_proposal")
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(proposal.payload, &fields); err != nil {
+			t.Fatal(err)
+		}
+		fields["problem"], _ = json.Marshal(problem)
+		proposal.payload, err = json.Marshal(fields)
+		if err != nil {
+			t.Fatal(err)
+		}
+		path := []livenessMove{proposal, move("record_alignment")}
+		s, workID := livenessReplay(t, definition, append([]livenessMove(nil), path...))
+		var gotProblem string
+		if err := s.db.QueryRow(`SELECT problem FROM workflow_proposal_records WHERE work_id=?`, workID).Scan(&gotProblem); err != nil {
+			t.Fatal(err)
+		}
+		if gotProblem != problem {
+			t.Fatalf("replayed problem=%q, want %q", gotProblem, problem)
+		}
+		rows, err := s.db.Query(`SELECT json_extract(payload,'$.action_id') FROM domain_events WHERE subject_id=? AND kind=? ORDER BY seq`, workID, WorkflowActionCompleted)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var actions []string
+		for rows.Next() {
+			var action string
+			if err := rows.Scan(&action); err != nil {
+				t.Fatal(err)
+			}
+			actions = append(actions, action)
+		}
+		if err := rows.Err(); err != nil {
+			t.Fatal(err)
+		}
+		if err := rows.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if got := strings.Join(actions, " "); got != "record_proposal record_alignment" {
+			t.Fatalf("replayed action order=%q", got)
+		}
+		if err := s.Close(); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 
 func TestLivenessResolvesEngineOwnedRequestCorrection(t *testing.T) {
-	for _, definition := range BuiltinWorkflowDefinitions() {
+	for _, definition := range builtinWorkflowFrozenHeads() {
 		if _, ok := livenessActionDefinition(definition, "request_correction"); !ok {
 			t.Errorf("%s omits the engine-owned correction payload", definition.Ref)
 		}
@@ -38,7 +87,7 @@ func TestLivenessResolvesEngineOwnedRequestCorrection(t *testing.T) {
 }
 
 func TestLivenessDisclosesOutcomeKindAndTokenOmissions(t *testing.T) {
-	for _, definition := range BuiltinWorkflowDefinitions() {
+	for _, definition := range builtinWorkflowFrozenHeads() {
 		omissions := livenessOmittedVariants(definition)
 		for _, kind := range definition.OutcomeSchema.AllowedKinds {
 			if kind != definition.OutcomeSchema.DefaultKind && !containsString(omissions, "outcome_kind="+string(kind)) {
@@ -76,7 +125,7 @@ func TestLivenessOmitsUnrequestedOptionalDesignCorrection(t *testing.T) {
 }
 
 func TestLivenessReportsOptionalPresenceSampling(t *testing.T) {
-	for _, definition := range BuiltinWorkflowDefinitions() {
+	for _, definition := range builtinWorkflowFrozenHeads() {
 		omitted := livenessOmittedVariants(definition)
 		for _, action := range definition.ActionDefinitions {
 			for _, field := range action.Payload.Fields {
@@ -96,7 +145,7 @@ func TestLivenessExecutesGeneratedCorrection(t *testing.T) {
 		t.Fatal(err)
 	}
 	reviewer := acceptReturnRouteWorker(t, fixture, workID, ownerRef)
-	if err := runVerdictActionAs(t, fixture.store, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:return-route","verdict_kind":"outcome_mismatch","evaluation_evidence":["evidence:return-route-verification"],"incomparable_with_approved":true}`), 0, reviewer); err != nil {
+	if err := runVerdictActionAs(t, fixture.store, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"verdicts":[{"predicate_id":"predicate:return-route","verdict_kind":"outcome_mismatch","evaluation_evidence":["evidence:return-route-verification"],"incomparable_with_approved":true}]}`), 0, reviewer); err != nil {
 		t.Fatal(err)
 	}
 	definition, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
@@ -146,23 +195,42 @@ func TestLivenessBindsCurrentAndSuccessorContractVersions(t *testing.T) {
 // cannot substitute for the success path each builtin promises to support.
 func TestBuiltinWorkflowCompletionWitnesses(t *testing.T) {
 	paths := map[string]string{
-		"workflow.implementation":     "record_proposal record_alignment record_discovery record_design approve_contract start_execution bind record_delivery start_refine bind record_delivery record_delivery record_verdict confirm_premise complete",
-		"workflow.break_fix":          "record_reproduction record_alignment record_root_cause approve_contract start_repair bind record_delivery start_refine bind record_delivery record_delivery record_verdict confirm_premise complete",
+		"workflow.implementation":     "record_proposal record_alignment record_design approve_contract start_execution bind record_delivery checkpoint_refine bind record_delivery record_delivery record_verdict confirm_premise complete",
+		"workflow.break_fix":          "record_diagnosis approve_contract checkpoint_repair bind record_delivery checkpoint_refine bind record_delivery record_delivery record_verdict confirm_premise complete",
 		"workflow.research":           "frame_research approve_contract bind record_finding record_report record_conclusion record_verdict confirm_premise complete",
 		"workflow.architecture_spike": "frame_question approve_contract bind record_research record_option discard_poc record_decision record_verdict accept_decision confirm_premise complete",
 		"workflow.ops_runbook":        "approve_contract approve_operation start_run bind record_delivery record_verdict record_health rollback_run record_delivery cleanup_run confirm_premise complete",
 		"workflow.static_analysis":    "declare_scope approve_contract run_analysis record_delivery bind record_report record_verdict confirm_premise complete",
 		"workflow.generic_one_off":    "approve_contract start_action bind record_delivery record_verdict confirm_premise complete",
 	}
-	for _, definition := range BuiltinWorkflowDefinitions() {
+	for _, definition := range builtinWorkflowFrozenHeads() {
 		t.Run(definition.Ref, func(t *testing.T) {
 			sequence, ok := paths[definition.Ref]
 			if !ok {
 				t.Fatal("builtin has no completion witness")
 			}
-			s, workID := (livenessReplayCache{}).replay(t, definition, nil)
+			s, workID := livenessReplay(t, definition, nil)
 			defer s.Close()
 			ctx := context.Background()
+			if workflowFamilyArchived(definition.Ref) {
+				// A retired family refuses public execution: the recorded
+				// journey's first action is the refusal witness, and the
+				// recorded history replays through the frozen journal
+				// owners.
+				first := strings.Fields(sequence)[0]
+				action, ok := livenessActionDefinition(definition, first)
+				if !ok {
+					t.Fatalf("unknown action %s", first)
+				}
+				payload, err := livenessPayload(definition, action, map[string]string{})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := livenessApply(ctx, s, workID, livenessMove{action: first, payload: payload}, 0); err == nil {
+					t.Fatal("the retired family admitted public execution")
+				}
+				return
+			}
 			ordinal := 0
 			apply := func(actionID string, variant map[string]string) {
 				t.Helper()
@@ -220,14 +288,11 @@ func TestBuiltinWorkflowCompletionWitnesses(t *testing.T) {
 	}
 }
 
-func TestLivenessReplayCacheIsolatesBranches(t *testing.T) {
+func TestLivenessReplayIsolatesBranches(t *testing.T) {
 	definition := BuiltinWorkflowDefinitions()[0]
-	cache := livenessReplayCache{}
-	root, workID := cache.replay(t, definition, nil)
-	cache.retain(t, root, nil)
-	first, _ := cache.replay(t, definition, nil)
+	first, workID := livenessReplay(t, definition, nil)
 	defer first.Close()
-	second, _ := cache.replay(t, definition, nil)
+	second, _ := livenessReplay(t, definition, nil)
 	defer second.Close()
 	ctx := context.Background()
 	before, err := livenessWorkVersion(ctx, second, workID)
@@ -255,11 +320,10 @@ func TestLivenessReplayCacheIsolatesBranches(t *testing.T) {
 	if err != nil || before != after {
 		t.Fatalf("branch changed sibling: %d -> %d, %v", before, after, err)
 	}
-	cache.retain(t, first, []livenessMove{proposal})
-	restored, _ := cache.replay(t, definition, []livenessMove{proposal})
+	restored, _ := livenessReplay(t, definition, []livenessMove{proposal})
 	defer restored.Close()
 	step, err = livenessStep(ctx, restored, workID)
 	if err != nil || step != "alignment" {
-		t.Fatalf("prefix did not retain committed state: %s, %v", step, err)
+		t.Fatalf("replay did not restore committed state: %s, %v", step, err)
 	}
 }

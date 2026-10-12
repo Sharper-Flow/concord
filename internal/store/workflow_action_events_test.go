@@ -91,17 +91,17 @@ func TestWorkflowActionSemanticEventsAreFollowedByUniversalCompletion(t *testing
 		t.Fatal(err)
 	}
 	version := int64(4)
-	for _, action := range []string{"record_proposal", "record_alignment", "record_discovery", "record_design"} {
+	for _, action := range []string{"record_proposal", "record_alignment", "record_design"} {
 		version = issue31WorkflowAction(t, s, "workflow-issue31-actions", version, action, "issue31-"+action, actor)
 	}
 	approval := json.RawMessage(`{"spec_mandate":[],"law_modifies":[],"architecture_binding":{"domain_registry_content_hash":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","home_domain_id":"root","affected_domain_ids":["root"],"domain_modifies":[],"domain_relation_modifies":[],"law_additions":[],"verification_obligations":[]}}`)
 	version = issue31WorkflowActionWithPayload(t, s, "workflow-issue31-actions", version, "approve_contract", "issue31-approve", actor, approval)
-	if version != 13 {
-		t.Fatalf("approve_contract resulting version=%d, want 13", version)
+	if version != 12 {
+		t.Fatalf("approve_contract resulting version=%d, want 12", version)
 	}
 	version = issue31WorkflowAction(t, s, "workflow-issue31-actions", version, "bind_evidence", "issue31-evidence", actor)
-	if version != 15 {
-		t.Fatalf("bind_evidence resulting version=%d, want 15", version)
+	if version != 14 {
+		t.Fatalf("bind_evidence resulting version=%d, want 14", version)
 	}
 	rows, err := s.DatabaseForTesting().Query(`SELECT kind FROM domain_events WHERE subject_id=? AND (kind=? OR kind=? OR kind=?) ORDER BY seq`, "workflow-issue31-actions", WorkflowContractApproved, WorkflowEvidenceBound, WorkflowActionCompleted)
 	if err != nil {
@@ -119,7 +119,7 @@ func TestWorkflowActionSemanticEventsAreFollowedByUniversalCompletion(t *testing
 	if err := rows.Err(); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{WorkflowActionCompleted, WorkflowActionCompleted, WorkflowActionCompleted, WorkflowActionCompleted, WorkflowContractApproved, WorkflowActionCompleted, WorkflowEvidenceBound, WorkflowActionCompleted}
+	want := []string{WorkflowActionCompleted, WorkflowActionCompleted, WorkflowActionCompleted, WorkflowContractApproved, WorkflowActionCompleted, WorkflowEvidenceBound, WorkflowActionCompleted}
 	if len(kinds) != len(want) {
 		t.Fatalf("semantic event order=%v, want %v", kinds, want)
 	}
@@ -174,7 +174,7 @@ func TestApproveContractPersistsEvidenceAndRigor(t *testing.T) {
 				t.Fatal(err)
 			}
 			version := int64(4)
-			for _, action := range []string{"record_proposal", "record_alignment", "record_discovery", "record_design"} {
+			for _, action := range []string{"record_proposal", "record_alignment", "record_design"} {
 				version = issue31WorkflowAction(t, s, workID, version, action, "contract-fields-"+testCase.name+"-"+action, actor)
 			}
 			approval := json.RawMessage(`{` + testCase.extraFields + `"spec_mandate":[],"law_modifies":[],"architecture_binding":{"domain_registry_content_hash":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","home_domain_id":"root","affected_domain_ids":["root"],"domain_modifies":[],"domain_relation_modifies":[],"law_additions":[],"verification_obligations":[]}}`)

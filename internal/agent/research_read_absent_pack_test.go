@@ -2,6 +2,7 @@ package agent
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/sharper-flow/concord/internal/store"
@@ -18,7 +19,11 @@ import (
 // TestResearchReadWithoutAPackIsDeliverable is the reproduction. The branch
 // minted kind "not_found", which the envelope contract does not declare, so
 // validation refused the refusal and the caller received a transport fault in
-// place of the answer.
+// place of the answer. The owner read is versioned now: the version 1 owner
+// read is refused explicitly instead of silently discarding every pack after
+// the first, and that refusal must still be deliverable. The version 2 empty
+// owner returns an empty page; TestResearchReadOwnerVersion2EmptyOwnerIsEmptyPage
+// pins that shape.
 func TestResearchReadWithoutAPackIsDeliverable(t *testing.T) {
 	s, service, grant, _ := agentJobsPM1Fixture(t)
 	env := agentJobsEnvelope(grant, "proj-web", "prod-alpha")
@@ -27,21 +32,21 @@ func TestResearchReadWithoutAPackIsDeliverable(t *testing.T) {
 	resp := dispatchRead(t, s, service, InvokeRequest{Tool: "concord_work_trace", Operation: "research", Input: input}, env)
 
 	if resp.Outcome != OutcomeError || resp.Error == nil {
-		t.Fatalf("work-done carries no research pack, so the read must refuse; got outcome %q error %+v", resp.Outcome, resp.Error)
+		t.Fatalf("the version 1 owner read must refuse; got outcome %q error %+v", resp.Outcome, resp.Error)
 	}
 	if _, err := resp.Encode(); err != nil {
-		t.Fatalf("the absent-pack refusal cannot be delivered: %v", err)
+		t.Fatalf("the owner-read refusal cannot be delivered: %v", err)
 	}
 	if !store.TypedErrorKindAllowed(resp.Error.Kind) {
 		t.Fatalf("the refusal names kind %q, which the envelope contract does not declare", resp.Error.Kind)
 	}
-	if resp.Error.Kind != "unknown_scope" {
-		t.Errorf("an absent research pack is an unresolved entity; got kind %q, want unknown_scope", resp.Error.Kind)
+	if resp.Error.Kind != "invalid_input" {
+		t.Errorf("the version 1 owner read is refused as invalid input; got kind %q, want invalid_input", resp.Error.Kind)
+	}
+	if !strings.Contains(resp.Error.Message, "result_version") {
+		t.Errorf("the refusal must direct the caller to result_version 2; got %q", resp.Error.Message)
 	}
 	if resp.Error.EffectState != EffectNone {
 		t.Errorf("a read commits nothing; got effect_state %q, want %q", resp.Error.EffectState, EffectNone)
-	}
-	if resp.Error.RecoveryAction.Kind != "reread_entities" {
-		t.Errorf("got recovery %q, want reread_entities to match the sibling absent-entity reads", resp.Error.RecoveryAction.Kind)
 	}
 }

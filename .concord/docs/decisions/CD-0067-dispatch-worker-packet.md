@@ -28,13 +28,25 @@ window semantics CD-0059 D5 already owns).
 
 ### D2. The core digests the packet and records it as attempt evidence
 
-The core does not interpret the packet. It enforces object-ness, two identity
-equalities (packet.work_id equals the action's work_id, packet.attempt_id
-equals fields.attempt_id), and records `worker_packet_digest` — sha256 over
-canonicalJSON of the packet — on the WorkflowActionCompleted event beside
-`worker_attempt_id`. `FindAuthorizedDispatchWindowTx` exposes it on
-WorkerDispatchWindow. domain_events.payload is untyped JSON, so no store
-migration is needed.
+The core validates packet identity and declared typed context against its
+current records. It records `worker_packet_digest`, SHA-256 over canonicalJSON
+of that same admitted packet, beside `worker_attempt_id` on the completion.
+The completion builder also records `worker_subject_commit` from the same
+tx-scoped core view whose `subject_commit` the packet validation admitted.
+The fold and `FindAuthorizedDispatchWindowTx` expose that immutable commit,
+never a replacement derived from current state or a worker assertion.
+The integrated view carries only `subject_commit`, not a parallel candidate
+field. This extends the existing packet-derived predicate binding pattern;
+it does not retain packet bodies or create another authorization record.
+A present commit must be a valid raw commit OID. Missing candidates remain
+absent, including historical completions and non-oracle dispatches without
+a candidate. No upcast fabricates the field or changes historical authority.
+Native oracle execution requires current clean `HEAD`, current core subject,
+and this recorded dispatch commit to be nonempty and equal.
+Missing or unequal values refuse with zero test-program launches.
+Ordinary historical dispatch behavior remains unchanged; absent commit binding
+grants no native oracle execution. No store migration is needed for this
+completion-payload field.
 
 Amended 2026-10-09 for the packet output-protocol pin
 ([Linear](https://linear.app/sharper-flow/issue/CON-891/give-the-workers-final-report-an-explicit-protocol-identity-instead-of)):
@@ -42,8 +54,9 @@ the packet declares its output protocol. `inputs.report_protocol`, when
 present, names the report framing its worker must use —
 `concord-worker-result-v1` — and every new packet builder sets it. The field
 travels inside the digested packet object, so `worker_packet_digest` pins it
-and the core still interprets nothing beyond object-ness and its two identity
-equalities. A packet without the field is historical, and its output follows
+with the admitted packet identity, typed context, and recorded subject binding
+defined above. The core does not judge semantic adequacy. A packet without
+the field is historical, and its output follows
 the legacy report grammar; a packet that pins the protocol never falls back
 to that grammar.
 

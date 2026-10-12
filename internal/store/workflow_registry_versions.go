@@ -1398,3 +1398,383 @@ func genericOneOffWorkContextV16() WorkflowDefinition {
 	d.Version = 16
 	return withWorkContext(d)
 }
+
+// acceptanceOracleActionField binds immutable job content to the closed schema.
+func acceptanceOracleActionField() WorkflowPayloadField {
+	return actionObjectField("acceptance_oracle", true, "worker_acceptance_oracle")
+}
+
+// withOwnerOracle restates record_worker_job's payload as the
+// oracle-carrying contract: the predecessor's fields plus the required
+// acceptance_oracle member. Released versions keep the payload they were
+// pinned under — builtinActionPolicies stays byte-identical — so every
+// released definition digest holds, and oracle capability stays a declared
+// action member rather than a mutable behavior flag on historical defs.
+func withOwnerOracle(definition WorkflowDefinition) WorkflowDefinition {
+	definition = cloneWorkflowDefinition(definition)
+	for index := range definition.ActionDefinitions {
+		action := &definition.ActionDefinitions[index]
+		switch action.ID {
+		case "record_worker_job":
+			action.Payload.Fields = append(slices.Clone(action.Payload.Fields), acceptanceOracleActionField())
+		case "request_correction":
+			action.Payload.Fields = append(slices.Clone(action.Payload.Fields), actionIDListField("open_finding_ids", false, 1, 32))
+		}
+	}
+	return definition
+}
+
+// Each builder below ships the acceptance-oracle declaration at its
+// family's next version. The definition content stays the predecessor's;
+// the only content change is record_worker_job's declared payload, so every
+// released version above keeps its digest and its oracle-free behavior.
+func implementationOwnerOracleV27() WorkflowDefinition {
+	d := implementationWorkContextV26()
+	d.Version = 27
+	return withOwnerOracle(d)
+}
+
+func breakFixOwnerOracleV24() WorkflowDefinition {
+	d := breakFixWorkContextV23()
+	d.Version = 24
+	return withOwnerOracle(d)
+}
+
+// withDerivedStepStarts publishes the CD-0198 D3 derivation: the callable
+// start_repair/start_refine entries leave the step graphs and the advertised
+// surface, and the fold derives the step start from the first admitted
+// qualifying action instead. The derivation's version gate lives in
+// workflowDerivedStepStartActive; the behavior this version gates is the
+// actions' absence from the definition.
+func withDerivedStepStarts(definition WorkflowDefinition) WorkflowDefinition {
+	definition = cloneWorkflowDefinition(definition)
+	removed := map[string]bool{"start_repair": true, "start_refine": true}
+	available := definition.AvailableActions[:0:0]
+	for _, actionID := range definition.AvailableActions {
+		if removed[actionID] {
+			continue
+		}
+		available = append(available, actionID)
+	}
+	definition.AvailableActions = available
+	actionDefinitions := definition.ActionDefinitions[:0:0]
+	for _, action := range definition.ActionDefinitions {
+		if removed[action.ID] {
+			continue
+		}
+		actionDefinitions = append(actionDefinitions, action)
+	}
+	definition.ActionDefinitions = actionDefinitions
+	for i := range definition.StepGraph.Steps {
+		actions := definition.StepGraph.Steps[i].Actions[:0:0]
+		for _, actionID := range definition.StepGraph.Steps[i].Actions {
+			if removed[actionID] {
+				continue
+			}
+			actions = append(actions, actionID)
+		}
+		definition.StepGraph.Steps[i].Actions = actions
+	}
+	return definition
+}
+
+// withDiagnosisStep publishes the CD-0198 D2 merged diagnosis step: the
+// contiguous reproduce, alignment, and diagnose steps fold into one
+// diagnosis step whose declared advance action is record_diagnosis alone,
+// so its single forward edge cannot be crossed without all three sections
+// recorded. The merged step keeps every other action the three steps
+// declared, exactly once, in step order, except the worker trio the
+// reproduce and diagnose steps carried: an advancing worker acceptance
+// beside the record would cross the forward edge without the sections, so
+// the merged step takes the alignment step's closed shape. The trio stays
+// declared at the repair and refine steps. record_alignment survives on
+// workflow.implementation; this composition only applies where the three
+// steps are contiguous.
+func withDiagnosisStep(definition WorkflowDefinition) WorkflowDefinition {
+	definition = cloneWorkflowDefinition(definition)
+	merged := map[string]bool{"reproduce": true, "alignment": true, "diagnose": true}
+	replaced := map[string]bool{"record_reproduction": true, "record_alignment": true, "record_root_cause": true}
+	offStep := map[string]bool{"accept_worker_result": true, "record_worker_failure": true, "dispatch_worker": true}
+	var mergedActions []string
+	inserted := false
+	for _, step := range definition.StepGraph.Steps {
+		if !merged[step.ID] {
+			continue
+		}
+		for _, actionID := range step.Actions {
+			if replaced[actionID] {
+				if !inserted {
+					mergedActions = append(mergedActions, "record_diagnosis")
+					inserted = true
+				}
+				continue
+			}
+			if offStep[actionID] {
+				continue
+			}
+			if !containsString(mergedActions, actionID) {
+				mergedActions = append(mergedActions, actionID)
+			}
+		}
+	}
+	if !inserted {
+		return definition
+	}
+	steps := make([]WorkflowStep, 0, len(definition.StepGraph.Steps)-2)
+	for _, step := range definition.StepGraph.Steps {
+		if step.ID == "reproduce" {
+			steps = append(steps, WorkflowStep{ID: "diagnosis", Kind: WorkflowStepInternalSQLite, Actions: mergedActions})
+			continue
+		}
+		if merged[step.ID] {
+			continue
+		}
+		steps = append(steps, step)
+	}
+	definition.StepGraph.Steps = steps
+	definition.StepGraph.StartStep = "diagnosis"
+	edges := make([]WorkflowEdge, 0, len(definition.StepGraph.Edges))
+	for _, edge := range definition.StepGraph.Edges {
+		if merged[edge.From] && merged[edge.To] {
+			continue
+		}
+		if merged[edge.From] {
+			edge.From = "diagnosis"
+		}
+		if merged[edge.To] {
+			edge.To = "diagnosis"
+		}
+		edges = append(edges, edge)
+	}
+	definition.StepGraph.Edges = edges
+	available := make([]string, 0, len(definition.AvailableActions)-2)
+	inserted = false
+	for _, actionID := range definition.AvailableActions {
+		if replaced[actionID] {
+			if !inserted {
+				available = append(available, "record_diagnosis")
+				inserted = true
+			}
+			continue
+		}
+		available = append(available, actionID)
+	}
+	definition.AvailableActions = available
+	actionDefinitions := make([]WorkflowActionDefinition, 0, len(definition.ActionDefinitions)-1)
+	for _, action := range definition.ActionDefinitions {
+		if replaced[action.ID] {
+			continue
+		}
+		actionDefinitions = append(actionDefinitions, action)
+	}
+	actionDefinitions = append(actionDefinitions, currentActionDefinition("record_diagnosis", true))
+	definition.ActionDefinitions = actionDefinitions
+	return definition
+}
+
+// These CD-0198 definitions fold the typed break_fix diagnosis step and
+// derive repair/refine starts in both families.
+func implementationDerivedStartsV28() WorkflowDefinition {
+	d := implementationOwnerOracleV27()
+	d.Version = 28
+	return withDerivedStepStarts(d)
+}
+
+func breakFixTypedDiagnosisV25() WorkflowDefinition {
+	d := breakFixOwnerOracleV24()
+	d.Version = 25
+	return withDerivedStepStarts(withDiagnosisStep(d))
+}
+
+// withVersionedPacketRef points the definition's dispatch_worker packet
+// field at the versioned packet2 schema, whose frozen decoder definition
+// anchors the current nav-free work-context view. The packet2.0 identity
+// this definition records replays through that versioned closure, never
+// through the frozen 1.0/1.1 worker_packet baseline the released pins
+// decode through. Released versions never call this composition.
+func withVersionedPacketRef(definition WorkflowDefinition) WorkflowDefinition {
+	definition = cloneWorkflowDefinition(definition)
+	for i := range definition.ActionDefinitions {
+		if definition.ActionDefinitions[i].ID != "dispatch_worker" {
+			continue
+		}
+		for j := range definition.ActionDefinitions[i].Payload.Fields {
+			field := &definition.ActionDefinitions[i].Payload.Fields[j]
+			if field.Name == "worker_packet" {
+				field.SchemaRef = "worker_packet2"
+			}
+		}
+	}
+	return definition
+}
+
+// withDerivedWorkerFailure publishes the CD-0198 D5 derivation: the callable
+// record_worker_failure entry leaves the step graphs and the advertised
+// surface, and the worker terminal fold derives the workflow failure record
+// from the attempt's own terminal event instead. The derivation's version
+// gate lives in workflowDerivedWorkerFailureActive; the behavior this version
+// gates is the action's absence from the definition. The engine's
+// failure-recovery route keeps the disposition for terminal events the
+// derivation structurally cannot record.
+func withDerivedWorkerFailure(definition WorkflowDefinition) WorkflowDefinition {
+	definition = cloneWorkflowDefinition(definition)
+	removed := map[string]bool{"record_worker_failure": true}
+	available := definition.AvailableActions[:0:0]
+	for _, actionID := range definition.AvailableActions {
+		if removed[actionID] {
+			continue
+		}
+		available = append(available, actionID)
+	}
+	definition.AvailableActions = available
+	actionDefinitions := definition.ActionDefinitions[:0:0]
+	for _, action := range definition.ActionDefinitions {
+		if removed[action.ID] {
+			continue
+		}
+		actionDefinitions = append(actionDefinitions, action)
+	}
+	definition.ActionDefinitions = actionDefinitions
+	for i := range definition.StepGraph.Steps {
+		actions := definition.StepGraph.Steps[i].Actions[:0:0]
+		for _, actionID := range definition.StepGraph.Steps[i].Actions {
+			if removed[actionID] {
+				continue
+			}
+			actions = append(actions, actionID)
+		}
+		definition.StepGraph.Steps[i].Actions = actions
+	}
+	return definition
+}
+
+// Each builder below ships its family's CD-0198 D5 slice at the next version
+// after the S1 heads: both families derive the workflow failure record from
+// the attempt's own terminal event.
+func implementationDerivedFailureV29() WorkflowDefinition {
+	d := implementationDerivedStartsV28()
+	d.Version = 29
+	return withVersionedPacketRef(withDerivedWorkerFailure(d))
+}
+
+func breakFixDerivedFailureV26() WorkflowDefinition {
+	d := breakFixTypedDiagnosisV25()
+	d.Version = 26
+	return withVersionedPacketRef(withDerivedWorkerFailure(d))
+}
+
+// canonicalVerdictActionFields declares record_verdict's canonical payload:
+// the verdicts batch is the one declared shape, required and
+// bounded 1-8, beside the optional active-contract version. The single-form
+// fields leave the declared set, so a canonical-head call that names
+// predicate_id refuses structurally while the batch entry keeps every
+// actor and evidence rule it shipped with.
+func canonicalVerdictActionFields() []WorkflowPayloadField {
+	return []WorkflowPayloadField{
+		actionIntegerField("contract_version", false, 2147483647),
+		actionItemArrayField("verdicts", true, 1, 8, "workflow_verdict_batch_entry"),
+	}
+}
+
+// withCanonicalVerdictAuthoring restates record_verdict's payload as the
+// canonical batch-only contract. The restated fields are the definition's own
+// registry content, so every earlier version keeps the payload and digest it
+// shipped, and the shared policy table stays byte-identical.
+func withCanonicalVerdictAuthoring(definition WorkflowDefinition) WorkflowDefinition {
+	definition = cloneWorkflowDefinition(definition)
+	for index := range definition.ActionDefinitions {
+		if definition.ActionDefinitions[index].ID != "record_verdict" {
+			continue
+		}
+		definition.ActionDefinitions[index].Payload = WorkflowPayloadDefinition{Closed: true, Fields: canonicalVerdictActionFields()}
+	}
+	return definition
+}
+
+// withNoDiscoveryStep removes the discovery marker from one definition: the
+// graph node and its callable record_discovery entry leave the definition, so
+// investigation stays real source-qualified work context rather than an empty
+// advancing payload. The removed step's single outgoing edge splices onto its
+// single incoming edge, so the mandatory alignment step keeps its forward
+// edge into design and every other edge keeps its place.
+func withNoDiscoveryStep(definition WorkflowDefinition) WorkflowDefinition {
+	definition = cloneWorkflowDefinition(definition)
+	const removedStep = "discovery"
+	const removedAction = "record_discovery"
+	removedFrom := map[string]bool{removedAction: true}
+	steps := make([]WorkflowStep, 0, len(definition.StepGraph.Steps)-1)
+	for _, graphStep := range definition.StepGraph.Steps {
+		if graphStep.ID == removedStep {
+			continue
+		}
+		actions := graphStep.Actions[:0:0]
+		for _, actionID := range graphStep.Actions {
+			if removedFrom[actionID] {
+				continue
+			}
+			actions = append(actions, actionID)
+		}
+		graphStep.Actions = actions
+		steps = append(steps, graphStep)
+	}
+	definition.StepGraph.Steps = steps
+	splicedTo, splicedKind := "", WorkflowEdgeForward
+	for _, edge := range definition.StepGraph.Edges {
+		if edge.From == removedStep {
+			splicedTo, splicedKind = edge.To, edge.Kind
+			break
+		}
+	}
+	edges := make([]WorkflowEdge, 0, len(definition.StepGraph.Edges)-1)
+	for _, edge := range definition.StepGraph.Edges {
+		if edge.From == removedStep {
+			continue
+		}
+		if edge.To == removedStep {
+			edge.To = splicedTo
+			edge.Kind = splicedKind
+		}
+		edges = append(edges, edge)
+	}
+	definition.StepGraph.Edges = edges
+	available := definition.AvailableActions[:0:0]
+	for _, actionID := range definition.AvailableActions {
+		if removedFrom[actionID] {
+			continue
+		}
+		available = append(available, actionID)
+	}
+	definition.AvailableActions = available
+	actionDefinitions := definition.ActionDefinitions[:0:0]
+	for _, action := range definition.ActionDefinitions {
+		if removedFrom[action.ID] {
+			continue
+		}
+		actionDefinitions = append(actionDefinitions, action)
+	}
+	definition.ActionDefinitions = actionDefinitions
+	return definition
+}
+
+// Each builder below ships its family's canonical authoring head: the
+// implementation head also removes the discovery marker, the research head
+// derives its workflow failure record from the attempt's own terminal event
+// behind the versioned packet closure, and all three restate record_verdict
+// as the canonical batch-only contract.
+func implementationCanonicalAuthoringV30() WorkflowDefinition {
+	d := implementationDerivedFailureV29()
+	d.Version = 30
+	return withCanonicalVerdictAuthoring(withNoDiscoveryStep(d))
+}
+
+func breakFixCanonicalAuthoringV27() WorkflowDefinition {
+	d := breakFixDerivedFailureV26()
+	d.Version = 27
+	return withCanonicalVerdictAuthoring(d)
+}
+
+func researchDerivedFailureV17() WorkflowDefinition {
+	d := researchWorkContextV16()
+	d.Version = 17
+	return withCanonicalVerdictAuthoring(withVersionedPacketRef(withDerivedWorkerFailure(d)))
+}

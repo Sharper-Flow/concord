@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sharper-flow/concord/internal/pm1fixture"
 	"github.com/sharper-flow/concord/internal/store"
@@ -30,7 +31,6 @@ func TestKnowledgeReadEnvelopeMarshalsWithRealisticIdentifiers(t *testing.T) {
 	}{
 		{"concord_knowledge", "search", `{"product_id":"prod-alpha","kinds":["decision","lesson"],"page":{"cursor":null,"limit":10}}`},
 		{"concord_knowledge", "resolve_note", `{"knowledge_id":"knowledge-decision"}`},
-		{"concord_knowledge", "unprocessed", `{"product_id":"prod-alpha"}`},
 	} {
 		resp := dispatchRead(t, s, service, InvokeRequest{Tool: tc.tool, Operation: tc.op, Input: json.RawMessage(tc.input)}, env)
 		if resp.Outcome != OutcomeOK {
@@ -91,7 +91,6 @@ func TestDomainReadsMarshalWithAmbiguousContractOmission(t *testing.T) {
 		operation string
 		input     string
 	}{
-		{"active_work", `{"product_id":"product-1","domain_id":"` + singleDomainRootID + `","page":{"cursor":null,"limit":10}}`},
 		{"overlaps", `{"product_id":"product-1"}`},
 	} {
 		resp := dispatchRead(t, s, service, InvokeRequest{Tool: "concord_domain", Operation: tc.operation, Input: json.RawMessage(tc.input)}, env)
@@ -121,80 +120,25 @@ func containsNoticeKind(notices []Notice, want string) bool {
 	return false
 }
 
-// A tool may carry reads and mutations. The envelope validator answers the
-// mutation-metadata question per operation, and the generated TS7 schema is
-// a separate gate reached only at marshal, so a read can pass the
-// structural check and still fail MarshalJSON. This enumerates the surface:
-// for each read on a tool that also has a mutation, a minimal ok read
-// envelope must marshal, and the schema check is only exercised by the
-// marshal itself.
-func TestEveryReadOnAMixedToolMarshalsAsARead(t *testing.T) {
+// Every declared read must marshal without mutation metadata through both
+// the per-operation envelope validator and the generated TS7 schema gate.
+func TestEveryReadOperationMarshalsAsARead(t *testing.T) {
 	t.Parallel()
-	mutating := map[string]bool{}
-	for _, op := range ContractOperations {
-		if op.Kind == OperationMutation {
-			mutating[op.Tool] = true
-		}
-	}
 	checked := 0
 	for _, op := range ContractOperations {
-		if op.Kind != OperationRead || !mutating[op.Tool] {
+		if op.Kind != OperationRead {
 			continue
 		}
 		checked++
-		e := Envelope{SchemaVersion: "1.0", ManifestDigest: ManifestDigest, RequestID: "r", Origin: "core", Tool: op.Tool, Operation: op.Operation, QueryID: op.QueryID, Outcome: OutcomeOK, Authority: AuthorityAuthoritative, SourceVersionWatermark: []Watermark{}, OrderingKeys: []string{}, Omissions: []Notice{}, Warnings: []Notice{}, EvidenceRefs: []EvidenceRef{}, Items: []json.RawMessage{json.RawMessage(`{}`)}}
-		if _, err := json.Marshal(e); err != nil {
-			t.Errorf("%s.%s is a read on a mixed tool and does not marshal as a read: %v", op.Tool, op.Operation, err)
-		}
+		t.Run(op.Tool+"."+op.Operation, func(t *testing.T) {
+			e := Envelope{SchemaVersion: "1.0", ManifestDigest: ManifestDigest, RequestID: "r", Origin: "core", Tool: op.Tool, Operation: op.Operation, QueryID: op.QueryID, Outcome: OutcomeOK, Authority: AuthorityAuthoritative, SourceVersionWatermark: []Watermark{}, OrderingKeys: []string{}, Omissions: []Notice{}, Warnings: []Notice{}, EvidenceRefs: []EvidenceRef{}, Items: []json.RawMessage{json.RawMessage(`{}`)}}
+			if _, err := json.Marshal(e); err != nil {
+				t.Fatalf("read does not marshal without mutation metadata: %v", err)
+			}
+		})
 	}
 	if checked == 0 {
-		t.Fatal("no read on a mixed tool found; the surface changed shape")
-	}
-}
-
-// concord_work_initiative.entries answers ok with entries and narrative, and
-// a read envelope carries no mutation metadata. This walks the full path the
-// transport sees: create the initiative, add an entry, read the entries, and
-// marshal the envelope, which is where the generated schema check runs.
-func TestInitiativeEntriesReadMarshalsWithEntriesAndNarrative(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"product_read", "work_initiative"})
-	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	env := mutationEnvelope(grant, scopeVersion)
-	created, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_initiative", Operation: "create", Input: json.RawMessage(`{"title":"Initiative","value_statement":"Coordinate work","project_ids":["project-1"],"idempotency_key":"initiative-entries-read"}`)}, env)
-	if err != nil || created.Outcome != OutcomeOK {
-		t.Fatalf("create response=%+v err=%v", created, err)
-	}
-	initiativeID := (*created.ChangedRefs)[0].ID
-	added, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_initiative", Operation: "add_entry", Input: json.RawMessage(`{"initiative_work_id":"` + initiativeID + `","child_work_id":"work-1","expected_version":2,"position":0,"idempotency_key":"initiative-entries-add"}`)}, env)
-	if err != nil || added.Outcome != OutcomeOK {
-		t.Fatalf("add_entry response=%+v err=%v", added, err)
-	}
-	read, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_initiative", Operation: "entries", Input: json.RawMessage(`{"initiative_work_id":"` + initiativeID + `"}`)}, env)
-	if err != nil || read.Outcome != OutcomeOK {
-		t.Fatalf("entries response=%+v err=%v", read, err)
-	}
-	raw, err := json.Marshal(read)
-	if err != nil {
-		t.Fatalf("entries read does not marshal: %v", err)
-	}
-	var entryResult struct {
-		Entries   []store.InitiativeEntry `json:"entries"`
-		Narrative string                  `json:"narrative"`
-	}
-	if err := json.Unmarshal(read.Result, &entryResult); err != nil || len(entryResult.Entries) != 1 || entryResult.Entries[0].ChildWorkID != "work-1" {
-		t.Fatalf("entries result=%s err=%v", read.Result, err)
-	}
-	wire := string(raw)
-	if strings.Contains(wire, `"changed_refs"`) || strings.Contains(wire, `"next_valid_intents"`) {
-		t.Fatalf("a read envelope must not carry mutation metadata: %s", firstBytes(raw, 400))
-	}
-	if !strings.Contains(wire, `"entries"`) || !strings.Contains(wire, `"narrative"`) {
-		t.Fatalf("entries read lost its entries or narrative member: %s", firstBytes(raw, 400))
+		t.Fatal("no declared read operation found")
 	}
 }
 
@@ -204,17 +148,30 @@ func TestInitiativeEntriesReadMarshalsWithEntriesAndNarrative(t *testing.T) {
 func TestWorkBrowseListAnswersWhenAnInitiativeIsInTheResult(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"product_read", "work_initiative"})
+	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"product_read"})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(grant, scopeVersion)
-	created, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_initiative", Operation: "create", Input: json.RawMessage(`{"title":"Initiative","value_statement":"Coordinate work","project_ids":["project-1"],"idempotency_key":"initiative-in-list"}`)}, env)
-	if err != nil || created.Outcome != OutcomeOK {
-		t.Fatalf("create initiative: err=%v resp=%+v", err, created.Error)
+	// CD-0213 retired Initiative capture; a historical Initiative still
+	// replays, so the store can hold one. The events land in the log
+	// directly and RebuildFromLog folds them, because the live append seam
+	// refuses a new initiative capture under CD-0213 D4.
+	initiativeID := "historical-initiative"
+	db := s.DatabaseForTesting()
+	for _, event := range []store.Event{
+		{EventID: "historical-initiative-created", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: initiativeID, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 2, Payload: json.RawMessage(`{"work_kind":"initiative","title":"Initiative","priority":0}`)},
+		{EventID: "historical-initiative-member", Kind: "work_project.added", SubjectType: store.SubjectWorkItem, SubjectID: initiativeID, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"work_id":"historical-initiative","project_id":"project-1","role":"primary","reason":"test","expected_version":1,"resulting_version":2}`)},
+	} {
+		if _, err := db.ExecContext(ctx, `INSERT INTO domain_events(event_id, kind, subject_type, subject_id, actor, occurred_at, payload_version, payload) VALUES(?, ?, ?, ?, ?, ?, ?, ?)`,
+			event.EventID, event.Kind, string(event.SubjectType), event.SubjectID, event.Actor, event.OccurredAt.UTC().Format(time.RFC3339Nano), event.PayloadVersion, string(event.Payload)); err != nil {
+			t.Fatalf("seed historical initiative event: %v", err)
+		}
 	}
-	initiativeID := (*created.ChangedRefs)[0].ID
+	if err := store.RebuildFromLog(ctx, s); err != nil {
+		t.Fatalf("replay historical initiative: %v", err)
+	}
 	listed := dispatchRead(t, s, service, InvokeRequest{Tool: "concord_work_browse", Operation: "list", Input: json.RawMessage(`{"work_ids":["` + initiativeID + `"],"page":{"cursor":null,"limit":5}}`)}, env)
 	if listed.Outcome != OutcomeOK {
 		t.Fatalf("list including an initiative: %+v", listed.Error)

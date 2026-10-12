@@ -24,8 +24,6 @@ The checks:
   D5  every relation target resolves, is not the Domain itself, and every
       governing_law_ids entry names a current law record
   D2  the root Domain has no parent and every child parents to the root
-  CD-0158 D2  every Domain in a registry with two or more Domains participates
-              in at least one relation as a source or target
 
 The subject set comes from the aggregate manifest rather than the registry
 shard, so a Domain cannot escape the emptiness check by being declared only in
@@ -41,29 +39,26 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 import knowledge_index  # noqa: E402
-import domain_navigation  # noqa: E402
 
-def report(findings: list[str], subject: str, blocking: list[str] | None = None) -> int:
-    blocking = findings if blocking is None else blocking
+def report(findings: list[str], subject: str) -> int:
     if findings:
-        state = "failed" if blocking else "passed with advisory findings"
-        print(f"{subject} check {state}: {len(findings)} finding(s)")
+        print(f"{subject} check failed: {len(findings)} finding(s)")
         for finding in findings:
             print(f"  {finding}")
-        return 1 if blocking else 0
+        return 1
     print(f"{subject} check passed")
     return 0
 
 
-def validate(root: Path, *, base_ref: str = "HEAD") -> tuple[list[str], list[str], list[str]]:
+def validate(root: Path) -> list[str]:
     findings: list[str] = []
     try:
         manifest = knowledge_index.compose_manifest(root)
     except knowledge_index.ComposeError as exc:
-        return list(exc.findings), [], []
+        return list(exc.findings)
     registry = manifest.get("domain_registry")
     if not isinstance(registry, dict):
-        return [".concord/docs/knowledge: no domain_registry"], [], []
+        return [".concord/docs/knowledge: no domain_registry"]
 
     root_id = registry.get("root_domain_id")
     domains = registry.get("domains", [])
@@ -100,10 +95,9 @@ def validate(root: Path, *, base_ref: str = "HEAD") -> tuple[list[str], list[str
             if domain_id == home:
                 findings.append(
                     f"record {record_id}: applies_to_domain_ids restates its home {home!r}; "
-                    "applicability does not create another owner (CD-0041 D3)"
+                    "applicability does not create another owner (CD-0222 D3)"
                 )
 
-    participating: set[str] = set()
     for domain in domains:
         domain_id = domain.get("domain_id")
         prefix = f"domain {domain_id}"
@@ -123,10 +117,7 @@ def validate(root: Path, *, base_ref: str = "HEAD") -> tuple[list[str], list[str
 
         for position, relation in enumerate(domain.get("architecture_relations", [])):
             anchor = f"{prefix} relation {position}"
-            participating.add(domain_id)
             target = relation.get("target_domain_id")
-            if target in declared:
-                participating.add(target)
             if target not in declared:
                 findings.append(f"{anchor}: target {target!r} is not a declared Domain")
             if target == domain_id:
@@ -137,31 +128,16 @@ def validate(root: Path, *, base_ref: str = "HEAD") -> tuple[list[str], list[str
                 if law_id not in current
             )
 
-    participation_findings: list[str] = []
-    if len(declared) > 1:
-        participation_findings.extend(
-            f"domain {domain_id}: declared but participates in no architecture relation; "
-            "a registry with multiple Domains must name each Domain as a relation source or target (CD-0158 D2)"
-            for domain_id in sorted(declared)
-            if domain_id not in participating
-        )
-
-    navigation_findings, navigation_advisories = domain_navigation.validate_companion(root, registry, base_ref=base_ref)
-    findings.extend(navigation_findings)
-    return findings, participation_findings, navigation_advisories
+    return findings
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--strict", action="store_true", help="fail when a Domain does not participate in a relation")
     parser.add_argument("--root", type=Path, default=ROOT, help="repository root")
-    parser.add_argument("--base-ref", default="HEAD", help="Git revision for the optional navigation companion's unresolved-path ratchet")
     args = parser.parse_args()
 
-    findings, participation_findings, navigation_advisories = validate(args.root.resolve(), base_ref=args.base_ref)
-    all_findings = findings + participation_findings + navigation_advisories
-    blocking = findings + (participation_findings if args.strict else [])
-    return report(all_findings, "domain registry", blocking)
+    findings = validate(args.root.resolve())
+    return report(findings, "domain registry")
 
 
 if __name__ == "__main__":

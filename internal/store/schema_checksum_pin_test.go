@@ -135,6 +135,10 @@ var migrationChecksumPins = map[int]string{
 	120: "34db90c9dca47b6e34b2c6aa870405f70b9fe036fd6c0bdc7c7aa68e852fcfbd",
 	121: "ad613a484c4ba4cdf182b766f6a6e33b40776020447948cae28b84db81897aa3",
 	122: "cbd03ca11271eefb6d6ab4c3254398fc20de6192544c54128578e90493a4281e",
+	123: "4e4ced019de6fa95c188d08a4ed518d9d3c5c7ade499e665e2bbcc3f3325202f",
+	124: "ffab7b27ebae1ed2a1449668d7e1da8712ce58898dd826f4653fc32118e99657",
+	125: "c3a23f87bbde9088408d119e7333f513e9d88b440860e3eb75fc32cc3f031a1e",
+	126: "70723b2075171b104e0ae08debf21fda0e21e841719508a59216c0f2c446775c",
 }
 
 func TestMigrationChecksumPinsMatchDefinitions(t *testing.T) {
@@ -146,7 +150,7 @@ func TestMigrationChecksumPinsMatchDefinitions(t *testing.T) {
 	if len(migrationChecksumPins) != len(defined) {
 		for version := range defined {
 			if _, ok := migrationChecksumPins[version]; !ok {
-				t.Errorf("migration %d has no checksum pin; add one beside its definition", version)
+				t.Errorf("migration %d has no checksum pin; add %s beside its definition", version, defined[version].checksum())
 			}
 		}
 		for version := range migrationChecksumPins {

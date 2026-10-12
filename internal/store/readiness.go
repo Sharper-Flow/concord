@@ -136,7 +136,7 @@ func openReadonlyStore(path string) (*sql.DB, error) {
 // transaction, so a single snapshot answers every query: is the schema
 // manifest present, is the store fresh, and which migrations are applied.
 func readAppliedFromDB(ctx context.Context, db *sql.DB, path string) (map[int]appliedMigration, bool, error) {
-	tx, err := db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	tx, err := beginReadTx(ctx, db)
 	if err != nil {
 		return nil, false, wrapFailure(KindReadinessUnknown, "readiness",
 			"cannot begin the read-only snapshot", false, "confirm the database is readable", err)
@@ -180,6 +180,12 @@ func readAppliedFromDB(ctx context.Context, db *sql.DB, path string) (map[int]ap
 			"do not activate; run the operator-owned offline bootstrap")
 	}
 	if err := checkBinaryCompatibility(ctx, tx); err != nil {
+		return nil, false, err
+	}
+	// The authoring-cutover gate answers the same read-only snapshot: a
+	// nonterminal work item pinned to retired or old authoring blocks
+	// activation until its disposition lands.
+	if err := checkWorkflowAuthoringCutover(ctx, tx); err != nil {
 		return nil, false, err
 	}
 	return applied, false, nil

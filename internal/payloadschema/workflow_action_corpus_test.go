@@ -183,7 +183,7 @@ func corpusStringSample(node map[string]any) any {
 	switch {
 	case strings.Contains(pattern, "sha256:"):
 		return "sha256:" + strings.Repeat("0", 64)
-	case strings.Contains(pattern, "[0-9a-f]{40}"):
+	case strings.Contains(pattern, "[0-9a-f]{40}") || strings.Contains(pattern, "[0-9a-f]{40,64}"):
 		return strings.Repeat("0", 40)
 	case strings.HasPrefix(pattern, "^msg:"):
 		return "msg:" + strings.Repeat("0", 32)
@@ -191,6 +191,14 @@ func corpusStringSample(node map[string]any) any {
 		return "https://example.test/pull/1"
 	case strings.HasPrefix(pattern, "^predicate:"):
 		return "predicate:corpus-sample"
+	case strings.HasPrefix(pattern, "^owner:"):
+		return "owner:corpus-sample"
+	case strings.HasPrefix(pattern, "^case:"):
+		return "case:corpus-sample"
+	case strings.HasPrefix(pattern, "^control:"):
+		return "control:corpus-sample"
+	case strings.HasPrefix(pattern, "^finding:"):
+		return "finding:1:1"
 	case strings.HasPrefix(pattern, "^[a-z][a-z0-9_]"):
 		return "corpus_id_1"
 	}
@@ -569,7 +577,8 @@ func corpusVariantFieldNames(defs map[string]any, variantName string) []string {
 	}
 	// A fields object the registry's cross-field declarations split declares
 	// its fields per branch; the variant's field set is the union.
-	if branches, ok := fields["oneOf"].([]any); ok {
+	for _, keyword := range []string{"oneOf", "anyOf"} {
+		branches, _ := fields[keyword].([]any)
 		for _, raw := range branches {
 			branch, ok := raw.(map[string]any)
 			if !ok {
@@ -613,7 +622,10 @@ func TestWorkflowActionVariantCorpusParity(t *testing.T) {
 	document := Document()
 	defs, _ := document["$defs"].(map[string]any)
 	variantNames := []string{}
-	for name := range defs {
+	input := defs["work_transition_action_input"].(map[string]any)
+	for _, branch := range input["anyOf"].([]any) {
+		ref := branch.(map[string]any)["$ref"].(string)
+		name := strings.TrimPrefix(ref, "#/$defs/")
 		if strings.HasPrefix(name, "work_transition_action_variant_") {
 			variantNames = append(variantNames, name)
 		}
@@ -621,7 +633,6 @@ func TestWorkflowActionVariantCorpusParity(t *testing.T) {
 	if len(variantNames) < 30 {
 		t.Fatalf("corpus found only %d action variants", len(variantNames))
 	}
-	legacyActions := corpusLegacyActionIDs(defs)
 	for _, variantName := range variantNames {
 		// The public variant replaces the core payload only at the agent
 		// boundary, so its shape is sampled and proved on its own, against
@@ -662,17 +673,7 @@ func TestWorkflowActionVariantCorpusParity(t *testing.T) {
 					t.Fatal(err)
 				}
 				for _, schemaName := range schemaNames {
-					err := Validate(schemaName, encoded)
-					if err == nil {
-						// One exception is by design: the core input keeps
-						// admitting recorded historical payload layouts, so
-						// an action with legacy layouts accepts a payload
-						// whose fields object is absent or empty. Anything
-						// else the published variant refuses, the core must
-						// refuse too.
-						if unionName == "work_transition_action_input" && legacyActions[actionIDOfVariant(shapeName)] && corpusFieldsVacant(mutant.value) {
-							continue
-						}
+					if err := Validate(schemaName, encoded); err == nil {
 						t.Fatalf("%s mutant %q admitted by %s", shapeName, mutant.label, schemaName)
 					}
 				}
@@ -681,43 +682,104 @@ func TestWorkflowActionVariantCorpusParity(t *testing.T) {
 	}
 }
 
-// corpusLegacyActionIDs reads the action ids the never-published legacy
-// input names, straight from its own if/then conditions.
-func corpusLegacyActionIDs(defs map[string]any) map[string]bool {
-	legacy := map[string]bool{}
-	legacyInput, _ := defs["work_transition_action_legacy_input"].(map[string]any)
-	if legacyInput == nil {
-		return legacy
+// TestWorkerJobLegacyOracleAbsenceStaysOffPublishedInput requires an oracle
+// on every live job-authoring surface. The frozen job and packet schemas
+// retain oracle-free recorded revisions without granting authoring authority.
+func TestWorkerJobLegacyOracleAbsenceStaysOffPublishedInput(t *testing.T) {
+	defs := Document()["$defs"].(map[string]any)
+	sample := corpusSample(Document(), map[string]any{"$ref": "#/$defs/work_transition_action_variant_record_worker_job"}).(map[string]any)
+	delete(sample["fields"].(map[string]any), "acceptance_oracle")
+	raw, err := json.Marshal(sample)
+	if err != nil {
+		t.Fatal(err)
 	}
-	conditions, _ := legacyInput["allOf"].([]any)
-	for _, raw := range conditions {
-		condition, ok := raw.(map[string]any)
-		if !ok {
-			continue
+	for _, shapeName := range []string{
+		"work_transition_action_variant_record_worker_job",
+		"work_transition_action_input",
+		"work_transition_action_public_input",
+	} {
+		if _, declared := defs[shapeName]; !declared {
+			t.Fatalf("live schema %s is not declared; refusing an unknown name proves nothing", shapeName)
 		}
-		trigger, _ := condition["if"].(map[string]any)
-		properties, _ := trigger["properties"].(map[string]any)
-		actionID, _ := properties["action_id"].(map[string]any)
-		if id, ok := actionID["const"].(string); ok {
-			legacy[id] = true
+		if err := Validate(shapeName, raw); err == nil {
+			t.Fatalf("oracle-absent job admitted by live %s", shapeName)
 		}
 	}
-	return legacy
-}
-
-func actionIDOfVariant(variantName string) string {
-	return strings.TrimPrefix(variantName, "work_transition_action_variant_")
-}
-
-// corpusFieldsVacant reports whether the payload carries no fields content:
-// the exact historical layout a recorded legacy payload declares.
-func corpusFieldsVacant(value map[string]any) bool {
-	fields, carried := value["fields"]
-	if !carried {
-		return true
+	publicVariant := "work_transition_action_public_variant_record_worker_job"
+	if _, declared := defs[publicVariant]; declared {
+		if err := Validate(publicVariant, raw); err == nil {
+			t.Fatalf("oracle-absent job admitted by live %s", publicVariant)
+		}
 	}
-	object, ok := fields.(map[string]any)
-	return ok && len(object) == 0
+	if HasIn(Document(), "work_transition_action_legacy_input") {
+		t.Fatal("the live public document still declares work_transition_action_legacy_input; the authored legacy-input bridge is retired")
+	}
+
+	// The historical reader obligation: a persisted oracle-free job
+	// validates through the frozen owning schema, and a damaged one refuses.
+	job := map[string]any{
+		"job_id":               "job-historical-1",
+		"revision":             1,
+		"digest":               "sha256:" + strings.Repeat("0", 64),
+		"objective":            "historical pre-oracle objective",
+		"stopping_condition":   "the historical run finished",
+		"project_scope":        "",
+		"path_scope":           []any{},
+		"predicate_ids":        []any{},
+		"checks":               []any{},
+		"prerequisites":        []any{},
+		"unresolved_refs":      []any{},
+		"reserved_integration": "",
+	}
+	encoded, err := json.Marshal(job)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateInDocument(HistoricalDocument(), "worker_packet_worker_job", encoded); err != nil {
+		t.Fatalf("frozen worker_packet_worker_job refused a persisted oracle-free job: %v", err)
+	}
+	damaged := corpusCopy(job).(map[string]any)
+	delete(damaged, "digest")
+	encoded, err = json.Marshal(damaged)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateInDocument(HistoricalDocument(), "worker_packet_worker_job", encoded); err == nil {
+		t.Fatal("frozen worker_packet_worker_job accepted a job missing its required digest")
+	}
+
+	// The same obligation at the packet boundary: schema_version 1.1 carries
+	// the oracle-free job; a 1.0 packet may not carry worker_job at all.
+	packet := map[string]any{
+		"schema_version": "1.1",
+		"attempt_id":     "attempt-historical-1",
+		"lane_id":        "lane-historical-1",
+		"lane_version":   1,
+		"lane_digest":    "sha256:" + strings.Repeat("a", 64),
+		"work_id":        "work-historical-1",
+		"step_id":        "step-historical-1",
+		"inputs": map[string]any{
+			"task":       "historical packet task",
+			"binding":    map[string]any{"objective_source": "contract_premise", "work_version": 1, "contract_version": 1, "assigned_result": "store_result"},
+			"worker_job": corpusCopy(job),
+		},
+	}
+	encoded, err = json.Marshal(packet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateInDocument(HistoricalDocument(), "worker_packet", encoded); err != nil {
+		t.Fatalf("frozen worker_packet refused a persisted packet carrying the oracle-free job: %v", err)
+	}
+	preOracle := corpusCopy(packet).(map[string]any)
+	preOracle["schema_version"] = "1.0"
+	encoded, err = json.Marshal(preOracle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateInDocument(HistoricalDocument(), "worker_packet", encoded); err == nil {
+		t.Fatal("frozen worker_packet accepted a 1.0 packet carrying worker_job")
+	}
 }
 
 // TestRecordAlignmentExactLegalCombination pins the reported fault: the

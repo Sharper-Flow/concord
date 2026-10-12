@@ -39,11 +39,7 @@ func ReadWorkClosure(ctx context.Context, s *Store, workID string) (WorkClosure,
 	if s == nil || s.db == nil {
 		return closure, newFailure(KindUnavailable, "work_closure", "store is not open", false, "open the authority database")
 	}
-	ctx, err := prepareWorkNavigation(ctx, s, workID)
-	if err != nil {
-		return closure, err
-	}
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	tx, err := beginReadTx(ctx, s.db)
 	if err != nil {
 		return closure, wrapFailure(KindUnavailable, "work_closure", "cannot open a consistent work closure snapshot", true, "retry once the database is readable", err)
 	}
@@ -103,7 +99,7 @@ func decodeWorkClosureOutOfScope(raw string) ([]string, error) {
 // successors in creation order with each confirmed Linear key (CD-0202).
 // raised_from is not transitive, so depth stays at one.
 func workClosureFollowUpsTx(ctx context.Context, tx *sql.Tx, workID string) ([]WorkClosureFollowUp, error) {
-	rows, err := tx.QueryContext(ctx, `SELECT r.work_id_from,w.title,COALESCE(l.human_key,'') FROM relations r JOIN work_items w ON w.id=r.work_id_from LEFT JOIN linear_issue_links l ON l.work_id=r.work_id_from AND l.link_state='confirmed' WHERE r.work_id_to=? AND r.kind='raised_from' ORDER BY w.created_at,w.id`, workID)
+	rows, err := tx.QueryContext(ctx, `SELECT r.work_id_from,w.title,COALESCE(l.human_key,'') FROM relations r JOIN work_items w ON w.id=r.work_id_from LEFT JOIN linear_issue_links l ON l.work_id=r.work_id_from WHERE r.work_id_to=? AND r.kind='raised_from' ORDER BY w.created_at,w.id`, workID)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "work_closure", "cannot read the raised follow-up items", true, "retry once the database is readable", err)
 	}

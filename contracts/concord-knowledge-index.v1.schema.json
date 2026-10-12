@@ -1253,7 +1253,7 @@
           }
         },
         "activation": {
-          "description": "Numerical convergence criterion that must fully hold before enforced flips to true (issue #319). Recorded before activation; enforced=true requires this object.",
+          "description": "Numerical convergence criterion that must fully hold before enforced flips to true. Recorded before activation; enforced=true requires this object.",
           "type": "object",
           "additionalProperties": false,
           "required": [
@@ -1496,8 +1496,6 @@
         "TS8",
         "TS9",
         "development-authority",
-        "terminal-launcher-contract",
-        "terminal-launcher-replacement-contract",
         "workflow-engine-contract"
       ]
     },

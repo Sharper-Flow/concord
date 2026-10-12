@@ -161,9 +161,9 @@ func selfLease(t *testing.T, schemaVersion int) Lease {
 }
 
 // The maintenance fence is the shared session-admission exclusion of the
-// CON-807 boundary: while it is open, no new lease may be written, an
+// maintenance boundary: while it is open, no new lease may be written, an
 // already-open fence keeps one identity across both commands that hold it,
-// and closing it reopens admission (CON-807).
+// and closing it reopens admission.
 func TestFenceExcludesNewAdmissionAndIsAdoptedNotRewritten(t *testing.T) {
 	root := t.TempDir()
 	fence, err := EnsureFence(root, Fence{
@@ -206,7 +206,7 @@ func TestFenceExcludesNewAdmissionAndIsAdoptedNotRewritten(t *testing.T) {
 
 // An unreadable fence fails closed on both sides: admission refuses rather
 // than treating a possibly-open boundary as absent, and so does the reader
-// the migration and activation consult (CON-807 fail-closed rule).
+// the migration and activation consult.
 func TestFenceFailsClosedOnAMalformedRecord(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(FencePath(root), []byte("{not json"), 0o600); err != nil {
@@ -222,7 +222,7 @@ func TestFenceFailsClosedOnAMalformedRecord(t *testing.T) {
 
 // Compatible releases coexist at the lease plane: a session holding the
 // compatibility floor's release and a session on the current release are
-// both live at once, and neither excludes the other (CON-807 rolling-first).
+// both live at once, and neither excludes the other.
 func TestLeasesCoexistAcrossSchemaVersions(t *testing.T) {
 	root := t.TempDir()
 	if err := Write(root, selfLease(t, 111)); err != nil {
@@ -262,7 +262,7 @@ func mustJSON(t *testing.T, value any) []byte {
 
 // Release cleanup deletes trees while holding the admission lock. A claim
 // that queued behind it must not land on the deleted release: the session
-// would hold a pinned core that no longer exists (CON-807 retention).
+// would hold a pinned core that no longer exists.
 func TestWriteRefusesALeaseWhosePinnedCoreWasRemoved(t *testing.T) {
 	root := t.TempDir()
 	lease := selfLease(t, 115)
@@ -280,7 +280,7 @@ func TestWriteRefusesALeaseWhosePinnedCoreWasRemoved(t *testing.T) {
 }
 
 // One maintenance command holds the data root at a time, and the second
-// refuses at once instead of migrating under the first's boundary (CON-807).
+// refuses at once instead of migrating under the first's boundary.
 func TestMaintenanceIsExclusiveAndDoesNotWait(t *testing.T) {
 	root := t.TempDir()
 	release, err := AcquireMaintenance(root)
@@ -300,7 +300,7 @@ func TestMaintenanceIsExclusiveAndDoesNotWait(t *testing.T) {
 
 // A first-install bootstrap locks the same way an established root does:
 // the acquisition creates an absent root before opening it, so the lock is
-// held from the first command on and a second command refuses (CON-807).
+// held from the first command on and a second command refuses.
 // The release retains the bootstrapped root and its ancestors: retention
 // (obs:1ca149d633e69626) is the approved outcome, because no cleanup can
 // prove a replacement holder has not taken the directory over.
@@ -324,7 +324,7 @@ func TestMaintenanceLocksAnAbsentRootBeforeAnyStateWork(t *testing.T) {
 
 // A symlinked data root is refused by the open itself, never followed: the
 // lock would otherwise serialize on a directory the operator did not name,
-// and the migration would run against whatever the link points at (CON-807).
+// and the migration would run against whatever the link points at.
 func TestMaintenanceRefusesASymlinkedDataRoot(t *testing.T) {
 	target := t.TempDir()
 	link := filepath.Join(t.TempDir(), "concord")
@@ -350,7 +350,7 @@ func TestMaintenanceRefusesASymlinkedDataRoot(t *testing.T) {
 // removed and recreated between the open and the flock leaves the lock on
 // an orphaned inode; the acquisition must release the stale descriptor,
 // re-open the current path, and admit a lock the next command refuses
-// against — deterministically, without sleeping (CON-807).
+// against — deterministically, without sleeping.
 func TestMaintenanceReacquiresAfterTheRootIsReplacedBetweenOpenAndFlock(t *testing.T) {
 	root := t.TempDir()
 	calls := 0
@@ -387,7 +387,7 @@ func TestMaintenanceReacquiresAfterTheRootIsReplacedBetweenOpenAndFlock(t *testi
 }
 
 // A replacement that outlives the bounded retry sequence refuses the
-// command instead of looping or sleeping (CON-807).
+// command instead of looping or sleeping.
 func TestMaintenanceRefusesWhenTheRootNeverStopsChanging(t *testing.T) {
 	root := t.TempDir()
 	open := openMaintenanceDirectory
@@ -408,7 +408,7 @@ func TestMaintenanceRefusesWhenTheRootNeverStopsChanging(t *testing.T) {
 
 // The lock dies with its holder: a process killed while holding the
 // maintenance lock leaves the root immediately acquirable, because the
-// kernel releases a flock when the open file description closes (CON-807).
+// kernel releases a flock when the open file description closes.
 func TestMaintenanceLockIsReleasedWhenTheHolderDies(t *testing.T) {
 	if os.Getenv("TEST_CONCORD_HOLD_MAINTENANCE") == "1" {
 		release, err := AcquireMaintenance(os.Args[len(os.Args)-1])
@@ -453,7 +453,7 @@ func TestMaintenanceLockIsReleasedWhenTheHolderDies(t *testing.T) {
 // admitted: the confirmation must be an lstat, not a stat that follows the
 // link back to the inode the descriptor holds — the rename-aside-and-link
 // probe. The refusal names the symlink, and the moved directory is unlocked
-// again afterwards (CON-807).
+// again afterwards.
 func TestMaintenanceRefusesARootReplacedByASymlinkBetweenOpenAndFlock(t *testing.T) {
 	parent := t.TempDir()
 	root := filepath.Join(parent, "concord")
@@ -497,7 +497,7 @@ func TestMaintenanceRefusesARootReplacedByASymlinkBetweenOpenAndFlock(t *testing
 }
 
 // The release retains the empty bootstrap chain the acquisition created
-// (CON-807, obs:1ca149d633e69626): retained disk space is the accepted cost
+// (obs:1ca149d633e69626): retained disk space is the accepted cost
 // of never letting a cleanup delete a directory a replacement holder may
 // own. A root another participant recreated during the hold, a root the
 // command never bootstrapped, and the bootstrapped chain itself all survive
@@ -524,7 +524,7 @@ func TestMaintenanceReleaseRetainsTheEmptyRootItBootstrapped(t *testing.T) {
 }
 
 // A root the command did not bootstrap is retained by the release like any
-// other (CON-807): nothing in the release path distinguishes a foreign root
+// other: nothing in the release path distinguishes a foreign root
 // from a bootstrapped one, because nothing is removed at all.
 func TestMaintenanceReleaseRetainsARootItDidNotBootstrap(t *testing.T) {
 	parent := t.TempDir()
@@ -542,8 +542,8 @@ func TestMaintenanceReleaseRetainsARootItDidNotBootstrap(t *testing.T) {
 	}
 }
 
-// The reproduced final-cleanup interleaving, promoted to deterministic
-// coverage (CON-807): while the first holder still holds the lock, another
+// The external-replacement interleaving, exercised deterministically:
+// while the first holder still holds the lock, another
 // participant moves the root away and publishes its own directory at the
 // path, and a second real acquisition holds the replacement — a different
 // inode, so the flocks do not collide. Retention keeps both roots: the

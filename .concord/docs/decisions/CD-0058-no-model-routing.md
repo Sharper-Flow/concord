@@ -52,7 +52,7 @@ attempt row.
 
 ### D3. The routing-policy record and its load path are removed
 
-`contracts/routing-policy.v1.json`, the `CONCORD_ROUTING_POLICY` environment
+The contracts/routing-policy.v1.json file, the `CONCORD_ROUTING_POLICY` environment
 override, the embedded default, load-time validation, and the
 `opencode models` existence check are deleted. The repository retains no model
 identifier outside test and eval fixtures.

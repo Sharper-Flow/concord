@@ -8,8 +8,7 @@ import { validateAgentLaneReport } from "./dispatch"
 // (worker_lanes.go) and stays authoritative for anything unnormalized. An
 // ASCII detail is 1 byte and 1 code unit per character, so the counts
 // agree; byte-heavy non-ASCII prose splits them, and an unbounded report
-// would consume the attempt at the store after the adapter accepted it
-// (CON-354).
+// would consume the attempt at the store after the adapter accepted it.
 
 const report = (detail: string) => ({
   schema_version: "1.0",

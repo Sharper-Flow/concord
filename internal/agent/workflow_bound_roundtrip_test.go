@@ -49,15 +49,22 @@ func TestGeneratedPremiseBoundMatchesStore(t *testing.T) {
 
 func TestGeneratedReferenceDefMatchesStore(t *testing.T) {
 	t.Parallel()
-	reference := schemaDef(t, "reference")
-	if got := reference["pattern"]; got != "^\\S+$" {
-		t.Fatalf("$defs/reference pattern = %v, want the no-whitespace rule the store validates", got)
+	schemaReference := schemaDef(t, "reference")
+	document := payloadschema.Document()
+	definitions, _ := document["$defs"].(map[string]any)
+	reference, _ := definitions["reference"].(map[string]any)
+	if reference == nil {
+		t.Fatal("generated schema carries no $defs/reference")
+	}
+	pattern, ok := schemaReference["pattern"].(string)
+	if !ok || pattern == "" {
+		t.Fatalf("$defs/reference pattern = %v, want the enumerated Unicode White_Space rule", schemaReference["pattern"])
 	}
 	// ValidReference counts UTF-8 bytes. The byte bounds travel as
 	// x-minBytes/x-maxBytes; the code-point bounds derive from them
 	// (minLength = ceil(2/4)) so they never refuse a store-admitted value.
 	for keyword, want := range map[string]float64{"x-minBytes": 2, "x-maxBytes": 128, "minLength": 1, "maxLength": 128} {
-		if got := reference[keyword]; got != want {
+		if got := schemaReference[keyword]; got != want {
 			t.Fatalf("$defs/reference %s = %v, want %v", keyword, got, want)
 		}
 	}
@@ -70,10 +77,16 @@ func TestGeneratedReferenceDefMatchesStore(t *testing.T) {
 		strings.Repeat("x", 129):     false,
 		strings.Repeat("é", 65):      false,
 		"has space":                  false,
+		"a\fb":                       false,
+		"a\u00a0b":                   false,
+		"a\ufeffb":                   true,
 	}
 	for value, want := range probes {
 		if got := store.ValidReference(value); got != want {
 			t.Fatalf("ValidReference(%q) = %v, want %v", value, got, want)
+		}
+		if err := payloadschema.ValidateValue(value, reference, document, "$"); (err == nil) != want {
+			t.Fatalf("generated reference schema admission for %q = %v, want %v", value, err == nil, want)
 		}
 	}
 }

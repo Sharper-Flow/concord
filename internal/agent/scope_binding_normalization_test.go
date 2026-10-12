@@ -11,7 +11,7 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 )
 
-// CON-779: a scope list that names the same work item twice must not mask a
+// A scope list that names the same work item twice must not mask a
 // typed outcome behind an Envelope.MarshalJSON failure. Scope-list
 // normalization is the shared owner: bindings render strictly sorted and
 // unique however often a path repeats an identity, resolved scopes stay
@@ -158,7 +158,7 @@ func TestConsequenceSummaryStillRejectsNonCanonicalBindings(t *testing.T) {
 	}
 }
 
-// assertSelfSendInvariantRefusal holds the shared CON-779 regression shape:
+// assertSelfSendInvariantRefusal holds the shared regression shape:
 // an authorized direct self-addressed message_send answers with an
 // encodable typed invariant_violation, effect state none, naming the store
 // invariant's two sources, and leaves no message, version, or approval
@@ -241,22 +241,19 @@ func TestMessageSendSelfRecipientRefusedAsInvariantCrossProduct(t *testing.T) {
 	assertSelfSendInvariantRefusal(t, s, response, "work-1", dispatchErr)
 }
 
-// TestLessonPublishSelfPublicationCanonicalScopeRoundTrip holds the repeated
-// -work scope path end to end: a publication that pins itself as its own
-// publication work mints a challenge whose summary bindings are canonical,
-// the host assertion built from the same duplicate-named scope map consumes
-// the challenge, and the resolved scope carries each work once.
-func TestLessonPublishSelfPublicationCanonicalScopeRoundTrip(t *testing.T) {
+// The approval transport canonicalizes duplicate bindings before matching the
+// challenge, and both the committed response and replay resolve each work once.
+func TestMembershipApprovalCanonicalScopeRoundTrip(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, service, grant, privateKey, _, worktree := lessonDispatchFixture(t)
+	s, service, grant, privateKey := mutationDispatchFixture(t, []Capability{"work_relate"})
 	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(grant, scopeVersion)
-	input := json.RawMessage(`{"work_id":"work-pub","lesson_id":"lesson-self-pub-scope","title":"Self publication","summary":"The publication work is the sending work itself.","content":"# Self publication\n","coverage":{"state":"out_of_scope","reason":"Fixture probe for the canonical scope owner."},"idempotency_key":"lesson-self-pub-1","publication_work_id":"work-pub"}`)
-	request := InvokeRequest{Tool: "concord_work_compact", Operation: "lesson_publish", Input: input}
+	input := json.RawMessage(`{"work_id":"work-1","expected_version":2,"memberships":[{"project_id":"project-1","role":"primary"}],"idempotency_key":"membership-canonical-scope"}`)
+	request := InvokeRequest{Tool: "concord_work_relate", Operation: "set_memberships", Input: input}
 
 	missing, err := Dispatch(ctx, s, service, request, env)
 	if err != nil || missing.Outcome != OutcomeError || missing.Error == nil || missing.Error.Kind != "approval_required" {
@@ -269,7 +266,7 @@ func TestLessonPublishSelfPublicationCanonicalScopeRoundTrip(t *testing.T) {
 	if !sortedBoundedList(summary.Scope, maxConsequenceSummaryBindings) {
 		t.Fatalf("summary bindings are not strictly sorted and unique: %v", summary.Scope)
 	}
-	duplicateScope := map[string]any{"product_id": "product-1", "product_ids": []string{"product-1"}, "project_ids": []string{"project-1"}, "work_ids": []string{"work-pub", "work-pub"}, "scope_version": scopeVersion}
+	duplicateScope := map[string]any{"product_id": "product-1", "product_ids": []string{"product-1"}, "project_ids": []string{"project-1"}, "work_ids": []string{"work-1", "work-1"}, "scope_version": scopeVersion}
 	if want := approvalScopeBindings(duplicateScope); !reflect.DeepEqual(summary.Scope, want) {
 		t.Fatalf("summary scope=%v want the canonical bindings of the duplicate-named scope %v", summary.Scope, want)
 	}
@@ -277,7 +274,7 @@ func TestLessonPublishSelfPublicationCanonicalScopeRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the challenge envelope does not marshal: %v", err)
 	}
-	if strings.Contains(string(encoded), `"work_ids:work-pub","work_ids:work-pub"`) {
+	if strings.Contains(string(encoded), `"work_ids:work-1","work_ids:work-1"`) {
 		t.Fatalf("the challenge envelope carries a duplicate binding: %s", encoded)
 	}
 
@@ -285,46 +282,41 @@ func TestLessonPublishSelfPublicationCanonicalScopeRoundTrip(t *testing.T) {
 	if !ok {
 		t.Fatalf("challenge carries no approval ref: %v", missing.Error.Details)
 	}
-	approvedInput, _ := json.Marshal(map[string]any{
-		"work_id": "work-pub", "lesson_id": "lesson-self-pub-scope",
-		"title": "Self publication", "summary": "The publication work is the sending work itself.",
-		"content":             "# Self publication\n",
-		"coverage":            map[string]any{"state": "out_of_scope", "reason": "Fixture probe for the canonical scope owner."},
-		"publication_work_id": "work-pub", "idempotency_key": "lesson-self-pub-1",
-		"approval": map[string]any{"approval_ref": challengeRef},
-	})
+	approvedInput, err := injectApproval(input, challengeRef)
+	if err != nil {
+		t.Fatal(err)
+	}
 	request.Input = approvedInput
 	digest := mutationDigest(request.Tool, request.Operation, env, request.Input)
-	env.HostApproval = signedHostApproval(privateKey, challengeRef, digest, duplicateScope, map[string]any{"work": 2}, "session-1", "agent-1", worktree, fixedTime(), "self-pub-approval-0001")
+	env.HostApproval = signedHostApproval(privateKey, challengeRef, digest, duplicateScope, map[string]any{"work": 2}, "session-1", "agent-1", env.Worktree, fixedTime(), "membership-canonical-approval")
 
 	approved, err := Dispatch(ctx, s, service, request, env)
 	if err != nil || approved.Outcome != OutcomeOK {
-		t.Fatalf("approved self-publication response=%+v err=%v", approved.Error, err)
+		t.Fatalf("approved membership response=%+v err=%v", approved.Error, err)
 	}
-	if approved.ResolvedScope == nil || !reflect.DeepEqual(approved.ResolvedScope.WorkIDs, []string{"work-pub"}) {
-		t.Fatalf("resolved work scope=%v want [work-pub] once", approved.ResolvedScope)
+	if approved.ResolvedScope == nil || !reflect.DeepEqual(approved.ResolvedScope.WorkIDs, []string{"work-1"}) {
+		t.Fatalf("resolved work scope=%v want [work-1] once", approved.ResolvedScope)
 	}
 	if err := validateScope(approved.ResolvedScope); err != nil {
 		t.Fatalf("resolved scope invalid: %v", err)
 	}
-	// An exact retry replays from the stored snapshot, whose JSON-decoded
-	// scope list names the work twice. The compact replay resolves its
-	// wire scope from step state, so the snapshot itself is the authority
-	// here: decoded through the shared owner it must resolve each work
-	// once, exactly as a non-compact mutation replay's scopeFromMap does.
+	// An exact retry resolves its wire scope from the stored snapshot.
 	replay, err := Dispatch(ctx, s, service, request, env)
 	if err != nil || replay.Outcome != OutcomeOK || !replay.Replayed {
 		t.Fatalf("replay=%+v err=%v", replay, err)
 	}
 	var snapshot string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT authorized_scope_snapshot FROM idempotency_records WHERE idempotency_key=?`, "lesson-self-pub-1").Scan(&snapshot); err != nil {
+	if replay.ResolvedScope == nil || !reflect.DeepEqual(replay.ResolvedScope.WorkIDs, []string{"work-1"}) {
+		t.Fatalf("replayed work scope=%v want [work-1] once", replay.ResolvedScope)
+	}
+	if err := s.DatabaseForTesting().QueryRow(`SELECT authorized_scope_snapshot FROM idempotency_records WHERE idempotency_key=?`, "membership-canonical-scope").Scan(&snapshot); err != nil {
 		t.Fatalf("stored snapshot unreadable: %v", err)
 	}
 	authorizedScope, err := authorizedScopeFromSnapshot(snapshot)
 	if err != nil {
 		t.Fatalf("stored snapshot undecodable: %v", err)
 	}
-	if resolved := scopeFromMap(authorizedScope); resolved == nil || !reflect.DeepEqual(resolved.WorkIDs, []string{"work-pub"}) {
-		t.Fatalf("snapshot-decoded resolved work scope=%v want [work-pub] once", resolved)
+	if resolved := scopeFromMap(authorizedScope); resolved == nil || !reflect.DeepEqual(resolved.WorkIDs, []string{"work-1"}) {
+		t.Fatalf("snapshot-decoded resolved work scope=%v want [work-1] once", resolved)
 	}
 }

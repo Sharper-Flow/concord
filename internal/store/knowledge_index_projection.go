@@ -21,7 +21,7 @@ import (
 type CompactionBoundary int
 
 const (
-	// CompactionBoundaryRevalidated runs the CD-0041 D7 boundary check in the
+	// CompactionBoundaryRevalidated runs the CD-0222 D7 boundary check in the
 	// transaction that folds the link.
 	CompactionBoundaryRevalidated CompactionBoundary = iota
 	// CompactionBoundaryRecoveryExempt skips that check. Reconciling an
@@ -135,19 +135,14 @@ func PublishCompactionLink(ctx context.Context, s *Store, req CompactionLinkRequ
 	if note.TerminalState != lifecycle {
 		return newFailure(KindInvalidNoteProof, "publish_compaction_link", "note terminal_state does not match live work", false, "publish a note whose terminal state matches the work projection")
 	}
-	var blockedConsumer string
-	err = s.db.QueryRowContext(ctx, `SELECT c.consumer_work_id FROM active_research_consumers c JOIN active_research_packs p ON p.pack_id=c.pack_id JOIN work_items w ON w.id=c.consumer_work_id WHERE p.owner_work_id=? AND c.required=1 AND w.lifecycle NOT IN ('completed','cancelled','superseded') LIMIT 1`, req.WorkID).Scan(&blockedConsumer)
-	if err == nil {
-		return newFailure(KindResearchConsumerBlocked, "publish_compaction_link", "required active consumer remains bound: "+blockedConsumer, false, "unbind, rebind, or terminalize every required active consumer")
-	}
-	if err != sql.ErrNoRows {
-		return wrapFailure(KindUnavailable, "publish_compaction_link", "cannot inspect required research consumers", true, "retry once the database is readable", err)
-	}
 	var existing struct{ homeProject, homeLocator, notePath, commitOID, contentHash string }
 	err = s.db.QueryRowContext(ctx, `SELECT home_project_id,home_locator_id,note_path,commit_oid,content_hash FROM archived_work WHERE id = ?`, req.WorkID).Scan(&existing.homeProject, &existing.homeLocator, &existing.notePath, &existing.commitOID, &existing.contentHash)
 	if err == nil {
 		if existing.homeProject == req.Home.HomeProjectID && existing.homeLocator == req.Home.HomeLocatorID && existing.notePath == note.NotePath && existing.commitOID == note.CommitOID && existing.contentHash == note.ContentHash {
-			return cleanupTerminalResearch(ctx, s, req.WorkID)
+			// Publication is proof-backed archive, not destruction (CD-0217):
+			// an identical relink is idempotent and research is never a side
+			// effect. Only an explicit research_retire batch deletes packs.
+			return nil
 		}
 		return newFailure(KindCompactionConflict, "publish_compaction_link", "work already has a different canonical locator", false, "resolve the competing canonical note before retrying")
 	}
@@ -180,10 +175,10 @@ func PublishCompactionLink(ctx context.Context, s *Store, req CompactionLinkRequ
 	}); err != nil {
 		return err
 	}
-	return cleanupTerminalResearch(ctx, s, req.WorkID)
+	return nil
 }
 
-// publishCompactionLinkTx runs the CD-0041 D7 boundary check and the link fold
+// publishCompactionLinkTx runs the CD-0222 D7 boundary check and the link fold
 // in the caller's transaction, so a law cutover cannot land between them.
 //
 // The subject of a compaction link is terminal, so the Domain-overlap half of
@@ -227,14 +222,6 @@ func foldCompactionLinkPublished(ctx context.Context, tx *sql.Tx, event Event) e
 	if payload.TerminalState != "completed" && payload.TerminalState != "cancelled" && payload.TerminalState != "superseded" {
 		return newFailure(KindInvalidPayload, "fold_event", "compaction link has an invalid terminal state", false, "use a PM4 terminal state")
 	}
-	var blockedConsumer string
-	err := tx.QueryRowContext(ctx, `SELECT c.consumer_work_id FROM active_research_consumers c JOIN active_research_packs p ON p.pack_id=c.pack_id JOIN work_items w ON w.id=c.consumer_work_id WHERE p.owner_work_id=? AND c.required=1 AND w.lifecycle NOT IN ('completed','cancelled','superseded') LIMIT 1`, payload.ID).Scan(&blockedConsumer)
-	if err == nil {
-		return newFailure(KindResearchConsumerBlocked, "fold_event", "required active consumer remains bound: "+blockedConsumer, false, "unbind, rebind, or terminalize every required active consumer")
-	}
-	if err != sql.ErrNoRows {
-		return wrapFailure(KindUnavailable, "fold_event", "cannot inspect required research consumers", true, "retry once the database is readable", err)
-	}
 	var existing struct {
 		HomeProjectID string
 		HomeLocatorID string
@@ -242,7 +229,7 @@ func foldCompactionLinkPublished(ctx context.Context, tx *sql.Tx, event Event) e
 		CommitOID     string
 		ContentHash   string
 	}
-	err = tx.QueryRowContext(ctx, `SELECT home_project_id,home_locator_id,note_path,commit_oid,content_hash FROM archived_work WHERE id = ? AND home_project_id = ? AND home_locator_id = ?`, payload.ID, payload.HomeProjectID, payload.HomeLocatorID).Scan(
+	err := tx.QueryRowContext(ctx, `SELECT home_project_id,home_locator_id,note_path,commit_oid,content_hash FROM archived_work WHERE id = ? AND home_project_id = ? AND home_locator_id = ?`, payload.ID, payload.HomeProjectID, payload.HomeLocatorID).Scan(
 		&existing.HomeProjectID, &existing.HomeLocatorID, &existing.NotePath, &existing.CommitOID, &existing.ContentHash)
 	if err == nil {
 		if existing.HomeProjectID != payload.HomeProjectID || existing.HomeLocatorID != payload.HomeLocatorID || existing.NotePath != payload.NotePath || existing.CommitOID != payload.CommitOID || existing.ContentHash != payload.ContentHash {
@@ -640,7 +627,7 @@ func (s *Store) RebuildKnowledgeIndex(ctx context.Context, home KnowledgeHome) e
 		}
 	}
 
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := beginOrdinaryTx(ctx, s.db)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "rebuild_knowledge_index", "cannot begin knowledge index rebuild", true, "retry once the database is writable", err)
 	}
@@ -1077,8 +1064,8 @@ func (s *Store) EnsureKnowledgeIndexFresh(ctx context.Context, home KnowledgeHom
 	return s.RebuildKnowledgeIndex(ctx, home)
 }
 
-// knowledgeCoverageOmissions takes a queryer so the launcher search can pass
-// its own open read transaction rather than reaching back through the pool.
+// knowledgeCoverageOmissions takes a queryer so a caller holding an open
+// read transaction passes it rather than reaching back through the pool.
 func knowledgeCoverageOmissions(ctx context.Context, db queryer, home KnowledgeHome, commit string) []string {
 	rows, err := db.QueryContext(ctx, `SELECT kind FROM knowledge_kind_coverage WHERE home_project_id=? AND home_locator_id=? AND head_ref=? AND scanned_commit_oid=? AND coverage='supported_not_indexed' ORDER BY kind`, home.HomeProjectID, home.HomeLocatorID, home.HeadRef, commit)
 	if err != nil {
@@ -1106,4 +1093,25 @@ func orderedStrings(values []string) []string {
 
 func knowledgeWatermarkMeta(queryID, _, authority string, observedAt time.Time) ResultMeta {
 	return ResultMeta{QueryID: queryID, ContractVersion: queryContractVersion, ResolvedScope: ResolvedScope{ProductID: ""}, SourceVersionWatermark: 0, Authority: authority, Freshness: Freshness{ObservedAt: observedAt.UTC().Format(time.RFC3339Nano), Age: 0, Stale: authority != "authoritative"}, OrderingKeys: []string{"structured_match", "completed_at_desc", "id"}, NextCursor: nil, Omissions: []string{}, Warnings: []string{}}
+}
+
+// workProductIDs derives the Product a work item belongs to over its primary
+// Project membership: the primary Project's Product owns the pre-approval
+// knowledge warm, so a secondary membership in another Product must not widen
+// this scope into an ambiguity.
+func workProductIDs(ctx context.Context, q queryer, id string) ([]string, error) {
+	rows, err := q.QueryContext(ctx, `SELECT DISTINCT pp.product_id FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=? AND wp.role='primary' ORDER BY pp.product_id`, id)
+	if err != nil {
+		return nil, wrapFailure(KindUnavailable, "fold_event", "cannot derive Product scope", true, "retry once the database is readable", err)
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var p string
+		if err := rows.Scan(&p); err != nil {
+			return nil, wrapFailure(KindUnavailable, "fold_event", "cannot decode Product scope", true, "retry once the database is readable", err)
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
 }

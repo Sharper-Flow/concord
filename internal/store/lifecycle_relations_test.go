@@ -638,8 +638,6 @@ func TestCompositeRelationKindsNameTheirOwningOperation(t *testing.T) {
 		name, kind, wantDetail string
 		removed                bool
 	}{
-		{name: "includes added", kind: "includes", wantDetail: "Initiative entry events"},
-		{name: "includes removed", kind: "includes", wantDetail: "Initiative entry removal events", removed: true},
 		{name: "compatible_with added", kind: "compatible_with", wantDetail: "resolve_overlap"},
 		{name: "merged_into added", kind: "merged_into", wantDetail: "resolve_overlap"},
 	}

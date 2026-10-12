@@ -39,7 +39,7 @@ snapshots never masquerade as current authority.
 
 **Implication.** CD-0006 R3 retains declared `modifies` and hard/soft
 `depends_on` edges, completion-time breaking/non-breaking notices, and bounded
-downstream checks. CD-0041 adds a typed architecture binding to every
+downstream checks. CD-0222 adds a typed architecture binding to every
 Product-changing contract. Intersecting affected Domains require a resolution
 pinned to both contract versions before both items hold execution authority;
 exact law/Domain/relation writes are marked as write overlap. The check reruns
@@ -93,13 +93,13 @@ This supports Priority 4 (Visibility and continuity).
 
 ## 6. Lightweight, agent-buildable interface
 
-**Requirement.** The primary operator surface is a **Product-first terminal launcher**. Any additional interface (web, TUI, etc.) is optional and must not become the design center.
+**Requirement.** Until the Herdr cutover, the primary operator surface is the **`concord zl` launcher together with the agent sessions it opens**. Herdr replaces this surface at cutover. Any additional interface (web, TUI, etc.) is optional and must not become the design center.
 
-**Implication.** The launcher is the canonical human entry point. Agents interact
+**Implication.** The `concord zl` launcher and its agent sessions are the canonical human entry point until the Herdr cutover. Agents interact
 with the same durable Product memory through the **CD-0005 surface as amended by
 CD-0024** and `concord.ts` adapter. Grid/table views are secondary projections.
 
-**Direction.** Terminal-first, Product-scoped navigation; optional web/TUI grid views later; no IDE-specific integrations. The interface is simple enough that an agent can scaffold or extend views without fighting a heavy frontend stack.
+**Direction.** The entry route is work-oriented through `concord zl` and its agent sessions until the Herdr cutover. Optional web/TUI grid views remain secondary, with no IDE-specific integrations. The interface is simple enough that an agent can scaffold or extend views without fighting a heavy frontend stack.
 
 This supports the operating envelope in [`priorities.md`](./priorities.md) and Priority 4 (Visibility and continuity).
 
@@ -175,7 +175,7 @@ default. Ownership and architecture are recorded facts, not active integrations.
 The Product Git knowledge home owns shared Domain identity, hierarchy, and
 architecture relations; SQLite projects that law and owns local
 Domain→Project/resource attachments. Domains are never derived from tags, paths,
-or Initiative membership. See
+or external planning membership. See
 [`product-data-model.md`](./product-data-model.md) and
 [`capability-placement.md`](./capability-placement.md).
 
@@ -332,7 +332,7 @@ traceability and implementation conformance, not as active blockers.
 | Constraint | Touched priority | Companion doc |
 |---|---|---|
 | §1 concurrency | 2, 5 | [`product-data-model.md`](./product-data-model.md) |
-| §2 law/architecture impact | 1, 3, 4, 5 | [`decisions/CD-0041-architecture-bound-product-law.md`](./decisions/CD-0041-architecture-bound-product-law.md) |
+| §2 law/architecture impact | 1, 3, 4, 5 | [`decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md`](./decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md) |
 | §3 idle-boundary updates | 2, 6 | [`workflows.md`](./workflows.md) |
 | §4 bounded writer admission / no repair | 2 | [`clarifications.md`](./clarifications.md) C2 |
 | §5 fast read-path | 4 | [`rollout-plan.md`](./rollout-plan.md) |

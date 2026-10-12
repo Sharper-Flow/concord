@@ -60,11 +60,35 @@ func reviewGateRunAttempt(t *testing.T, s *Store, workID, attemptID, stepID stri
 
 func reviewGateStartStep(t *testing.T, s *Store, workID, stepID, startAction string, actor WorkflowActor) int64 {
 	t.Helper()
-	if err := runVerdictActionAs(t, s, workID, startAction, json.RawMessage(`{}`), 0, actor); err != nil {
-		t.Fatalf("start %s at %s: %v", startAction, stepID, err)
+	// CD-0198 D3: current-head fixtures derive the step start from the
+	// step's qualifying checkpoint; released pins keep the callable start
+	// the caller named. The pinned definition decides, so one helper serves
+	// both sides of the derived-start boundary. The derivation pair — the
+	// checkpoint that its own derived start opened — binds the fence from
+	// the calling actor, exactly as the callable start did.
+	entry, err := VerifyWorkflowInstanceDefinition(context.Background(), s, BuiltinWorkflowRegistry(), workID)
+	if err != nil {
+		t.Fatal(err)
 	}
+	action := startAction
+	if !definitionStepAllows(entry.Definition, stepID, startAction) {
+		for candidate, step := range workflowDerivedStartCheckpoints {
+			if step == stepID && definitionStepAllows(entry.Definition, stepID, candidate) {
+				action = candidate
+				break
+			}
+		}
+	}
+	if err := runVerdictActionAs(t, s, workID, action, json.RawMessage(`{}`), 0, actor); err != nil {
+		t.Fatalf("start %s at %s: %v", action, stepID, err)
+	}
+	return reviewGateStartedEpoch(t, s, workID, action)
+}
+
+func reviewGateStartedEpoch(t *testing.T, s *Store, workID, action string) int64 {
+	t.Helper()
 	var epoch int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.attempt_epoch') FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')=? ORDER BY seq DESC LIMIT 1`, workID, WorkflowActionStarted, startAction).Scan(&epoch); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.attempt_epoch') FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')=? ORDER BY seq DESC LIMIT 1`, workID, WorkflowActionStarted, action).Scan(&epoch); err != nil {
 		t.Fatal(err)
 	}
 	return epoch
@@ -130,7 +154,7 @@ func reviewGateAcceptor(workID string) WorkflowActor {
 	return WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/review-gate-acceptor", SessionRef: "session/" + workID + "-acceptor", ActorClass: ActorAgent}
 }
 
-// TestPostRejectionReviewGateHoldsBreakFixDelivery drives the CON-421 shape
+// TestPostRejectionReviewGateHoldsBreakFixDelivery drives the post-rejection review-gate shape
 // on the current break-fix definition over both delivery entry routes: a
 // rejected review, then the accepted implement repair the gate holds at
 // refine until a fresh accepted review covers it. The record_delivery route
@@ -289,7 +313,7 @@ func TestPostRejectionReviewGateRefusesPreRejectionReviewAccept(t *testing.T) {
 }
 
 // TestPostRejectionReviewGateRefusesReviewDispatchedBeforeRepair pins the
-// repair-tied fresh-review rule on the CON-421 defect shape over both entry
+// repair-tied fresh-review rule on the post-rejection defect shape over both entry
 // routes: a review dispatched and completed after the rejection but before
 // the repaired implement result settles nothing, so the refine exit behind
 // it refuses; a review dispatched after the repaired result is the fresh

@@ -7,14 +7,30 @@ import (
 	"time"
 )
 
+// beginReadTx always opens a deferred snapshot, even when the database's DSN
+// selects immediate write transactions. It also serves independent read-only
+// readiness handles, without borrowing the live store's connection.
+func beginReadTx(ctx context.Context, db *sql.DB) (*sql.Tx, error) {
+	return db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+}
+
+// beginOrdinaryTx uses the write owner without changing NORMAL commit or raw
+// transaction lifecycle semantics. Only durable writes need a pinned connection.
+func beginOrdinaryTx(ctx context.Context, db *sql.DB) (*sql.Tx, error) {
+	tx, err := beginWriteTx(ctx, db, nil)
+	if err != nil {
+		return nil, err
+	}
+	return tx.Tx, nil
+}
+
 // Transaction is an opaque unit of work owned by Store. Callers can pass it
 // back to store-owned Tx methods, but cannot execute SQL or control its
 // lifecycle directly.
 type Transaction struct {
-	tx         *sql.Tx
-	clock      func() time.Time
-	path       string
-	navigation *workContextNavigationProof
+	tx    *sql.Tx
+	clock func() time.Time
+	path  string
 	// fold is the transaction's fold scope while a fold region is open on it.
 	// A region owner sets it after beginFold and mutation seams reuse it, so
 	// nested folds stay depth-counted on one scope.
@@ -56,12 +72,11 @@ func (s *Store) transact(ctx context.Context, durable bool, fn func(*Transaction
 	if fn == nil {
 		return newFailure(KindInvalidOperation, "transaction", "transaction callback is required", false, "supply a transaction callback")
 	}
-	tx, err := beginWriteTx(ctx, s, durable)
+	tx, err := s.beginStoreWriteTx(ctx, durable)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "transaction", "cannot begin transaction", true, "retry once the database is writable", err)
 	}
 	transaction := &Transaction{tx: tx.Tx, clock: s.Clock, path: s.Path()}
-	transaction.navigation, _ = ctx.Value(workContextNavigationProofKey{}).(*workContextNavigationProof)
 	defer tx.finish(&retErr)
 	defer func() { transaction.tx = nil }()
 	if err := fn(transaction); err != nil {
@@ -78,4 +93,26 @@ func (s *Store) transact(ctx context.Context, durable bool, fn func(*Transaction
 		return wrapFailure(KindUnavailable, "transaction", "cannot commit transaction", true, "retry once the database is writable", err)
 	}
 	return nil
+}
+
+// readSnapshot owns a deferred read scope for projection readers.
+// The callback never commits; rollback releases its snapshot and
+// invalidates the transaction even when the callback fails or panics.
+func (s *Store) readSnapshot(ctx context.Context, fn func(queryer) error) (retErr error) {
+	if s == nil || s.db == nil {
+		return newFailure(KindUnavailable, "read_snapshot", "store is not open", false, "open the authority database")
+	}
+	if fn == nil {
+		return newFailure(KindInvalidOperation, "read_snapshot", "transaction callback is required", false, "supply a read callback")
+	}
+	tx, err := beginReadTx(ctx, s.db)
+	if err != nil {
+		return wrapFailure(KindUnavailable, "read_snapshot", "cannot begin read snapshot", true, "retry once the database is readable", err)
+	}
+	defer func() {
+		if err := tx.Rollback(); err != nil && !errors.Is(err, sql.ErrTxDone) {
+			retErr = errors.Join(retErr, wrapFailure(KindUnavailable, "read_snapshot", "cannot close read snapshot", false, "inspect the transaction cleanup failure", err))
+		}
+	}()
+	return fn(tx)
 }

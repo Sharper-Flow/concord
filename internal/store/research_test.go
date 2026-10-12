@@ -3,7 +3,7 @@ package store
 import (
 	"context"
 	"encoding/json"
-	"fmt"
+	"errors"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -85,14 +85,14 @@ func TestActiveResearchRevisionAndIdempotencyBoundary(t *testing.T) {
 	if err := BindResearchFindingSource(ctx, s, ResearchFindingSourceRequest{Identity: researchIdentity("finding-source"), PackID: pack.PackID, Revision: 2, ExpectedVersion: 4, FindingID: "f1", SourceID: "s1"}); err != nil {
 		t.Fatal(err)
 	}
-	complete, err := GetResearchPack(ctx, s, pack.PackID, 1000)
+	complete, err := s.ReadResearchPack(ctx, ResearchReadRequest{PackID: pack.PackID, Limit: 1000})
 	if err != nil || len(complete.Revisions) != 2 || len(complete.Revisions[1].Sources) != 1 || len(complete.Revisions[1].Findings) != 1 || len(complete.Revisions[1].Findings[0].SourceIDs) != 1 {
 		t.Fatalf("complete research pack = %+v, %v", complete, err)
 	}
 	if err := RebuildFromLog(ctx, s); err != nil {
 		t.Fatal(err)
 	}
-	retained, err := GetResearchPack(ctx, s, pack.PackID, 1000)
+	retained, err := s.ReadResearchPack(ctx, ResearchReadRequest{PackID: pack.PackID, Limit: 1000})
 	if err != nil || len(retained.Revisions) != 2 {
 		t.Fatalf("research pack was not preserved across projection rebuild: %+v, %v", retained, err)
 	}
@@ -150,10 +150,61 @@ func TestActiveResearchRevisionAndIdempotencyBoundary(t *testing.T) {
 	if got, err := s.RequiredResearchFreshness(ctx, pack.PackID, "consumer"); err != nil || got != ResearchStale {
 		t.Fatalf("unrelated append un-staled pinned content: %q, %v", got, err)
 	}
-	if err := DeleteResearchPack(ctx, s, ResearchPackMutationRequest{Identity: researchIdentity("delete-blocked"), PackID: pack.PackID, ExpectedVersion: 11}); err == nil {
-		t.Fatal("delete with required active consumer succeeded")
-	} else {
-		assertFailureKind(t, err, KindResearchConsumerBlocked)
+	// Retention cutover: deletion is retire-only. The owner is still needed
+	// here, so terminalize it to isolate the pin protection this assertion
+	// owns: the active required pin keeps the pack protected.
+	terminalizeResearchOwner(t, s, "owner")
+	out, err := retireResearchForTest(t, s, RetireResearchPacksRequest{ProductID: "product", Candidates: []ResearchRetirementCandidate{{PackID: pack.PackID, ExpectedVersion: 11}}})
+	if err != nil || len(out.Candidates) != 1 || out.Candidates[0].Classification != ResearchRetirementProtected || out.Candidates[0].ProtectionReason != "active_pin" {
+		t.Fatalf("retirement with required active consumer=%+v err=%v", out, err)
+	}
+	if countRows(t, s, "active_research_packs") != 1 {
+		t.Fatal("active required pin did not protect the pack")
+	}
+}
+
+func TestResearchDirectAddAndUpdateRemainDistinct(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openTemp(t)
+	seedResearchWork(t, s, "owner")
+	pack := createSimplePack(t, s, "write-modes", "owner")
+	finding := ResearchFinding{FindingID: "f1", Kind: FindingObservation, Statement: "Original finding", Confidence: ConfidenceHigh, Freshness: ResearchCurrent, Status: FindingActive}
+	source := ResearchSource{SourceID: "s1", Kind: SourceCode, Locator: "synthetic/source.go", Title: "Original source", PublisherOrAuthor: "Synthetic fixture", AccessedAt: "2026-08-07T00:00:00Z"}
+	if _, err := s.AddResearchFinding(ctx, ResearchFindingRequest{Identity: researchIdentity("initial-finding"), PackID: pack.PackID, ExpectedVersion: 1, Finding: finding}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AddResearchSource(ctx, ResearchSourceRequest{Identity: researchIdentity("initial-source"), PackID: pack.PackID, ExpectedVersion: 2, Source: source}); err != nil {
+		t.Fatal(err)
+	}
+	before, err := s.ReadResearchPack(ctx, ResearchReadRequest{PackID: pack.PackID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipts := countRows(t, s, "idempotency_records")
+	_, err = s.AddResearchFinding(ctx, ResearchFindingRequest{Identity: researchIdentity("duplicate-finding"), PackID: pack.PackID, ExpectedVersion: 3, Finding: finding})
+	assertFailureKind(t, err, KindProjectionConflict)
+	_, err = s.AddResearchSource(ctx, ResearchSourceRequest{Identity: researchIdentity("duplicate-source"), PackID: pack.PackID, ExpectedVersion: 3, Source: source})
+	assertFailureKind(t, err, KindProjectionConflict)
+	finding.FindingID = "missing"
+	_, err = s.UpdateResearchFinding(ctx, ResearchFindingRequest{Identity: researchIdentity("missing-finding"), PackID: pack.PackID, ExpectedVersion: 3, Finding: finding})
+	assertFailureKind(t, err, KindProjectionNotFound)
+	source.SourceID = "missing"
+	_, err = s.UpdateResearchSource(ctx, ResearchSourceRequest{Identity: researchIdentity("missing-source"), PackID: pack.PackID, ExpectedVersion: 3, Source: source})
+	assertFailureKind(t, err, KindProjectionNotFound)
+	after, err := s.ReadResearchPack(ctx, ResearchReadRequest{PackID: pack.PackID})
+	if err != nil || !reflect.DeepEqual(before, after) || countRows(t, s, "idempotency_records") != receipts {
+		t.Fatalf("direct refusal changed pack or receipts: before=%+v after=%+v err=%v", before, after, err)
+	}
+	source.SourceID, source.Title = "s1", "Updated source"
+	updatedSource, err := s.UpdateResearchSource(ctx, ResearchSourceRequest{Identity: researchIdentity("update-source"), PackID: pack.PackID, ExpectedVersion: 3, Source: source})
+	if err != nil || updatedSource.Title != source.Title {
+		t.Fatalf("direct source update=%+v err=%v", updatedSource, err)
+	}
+	finding.FindingID, finding.Statement = "f1", "Updated finding"
+	updatedFinding, err := s.UpdateResearchFinding(ctx, ResearchFindingRequest{Identity: researchIdentity("update-finding"), PackID: pack.PackID, ExpectedVersion: 4, Finding: finding})
+	if err != nil || updatedFinding.Statement != finding.Statement {
+		t.Fatalf("direct finding update=%+v err=%v", updatedFinding, err)
 	}
 }
 
@@ -176,8 +227,15 @@ func TestActiveResearchNonrequiredConsumerDoesNotBlock(t *testing.T) {
 	if err != nil || got.Blocked {
 		t.Fatalf("optional freshness = %+v, %v", got, err)
 	}
-	if err := DeleteResearchPack(ctx, s, ResearchPackMutationRequest{Identity: researchIdentity("delete-optional"), PackID: pack.PackID, ExpectedVersion: 3}); err != nil {
-		t.Fatal(err)
+	// An optional pin protects the pack too: after the owner terminalizes, the
+	// pack stays protected until the optional consumer releases.
+	terminalizeResearchOwner(t, s, "owner")
+	out, err := retireResearchForTest(t, s, RetireResearchPacksRequest{ProductID: "product", Candidates: []ResearchRetirementCandidate{{PackID: pack.PackID, ExpectedVersion: 3}}})
+	if err != nil || len(out.Candidates) != 1 || out.Candidates[0].Classification != ResearchRetirementProtected || out.Candidates[0].ProtectionReason != "active_pin" {
+		t.Fatalf("optional-pin retirement=%+v err=%v", out, err)
+	}
+	if countRows(t, s, "active_research_packs") != 1 {
+		t.Fatal("optional pin did not protect the pack")
 	}
 }
 
@@ -251,7 +309,7 @@ func TestActiveResearchPersistsAcrossCloseAndReopen(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer reopened.Close()
-	pack, err := GetResearchPack(ctx, reopened, "persist-pack", 1000)
+	pack, err := reopened.ReadResearchPack(ctx, ResearchReadRequest{PackID: "persist-pack", Limit: 1000})
 	if err != nil || len(pack.Revisions) != 1 || pack.OwnerWorkID != "owner" {
 		t.Fatalf("reopened pack=%+v err=%v", pack, err)
 	}
@@ -272,7 +330,7 @@ func TestResearchConsumersPinDifferentRevisions(t *testing.T) {
 	if _, err := BindResearchConsumer(ctx, s, BindResearchConsumerRequest{Identity: researchIdentity("pin-b"), PackID: pack.PackID, Revision: 2, ExpectedVersion: 3, Consumer: ResearchConsumer{ConsumerWorkID: "consumer-b", UseRole: UseDesignInput, Required: true}}); err != nil {
 		t.Fatal(err)
 	}
-	got, err := GetResearchPack(ctx, s, pack.PackID, 1000)
+	got, err := s.ReadResearchPack(ctx, ResearchReadRequest{PackID: pack.PackID, Limit: 1000})
 	if err != nil || len(got.Consumers) != 2 || got.Consumers[0].Revision == got.Consumers[1].Revision {
 		t.Fatalf("pinned consumers=%+v err=%v", got.Consumers, err)
 	}
@@ -296,65 +354,65 @@ func TestResearchPruneKeepsCurrentAndConsumedRevisions(t *testing.T) {
 	if count, err := PruneResearchRevisions(ctx, s, ResearchPackMutationRequest{Identity: researchIdentity("prune-operation"), PackID: pack.PackID, ExpectedVersion: 4}); err != nil || count != 1 {
 		t.Fatalf("prune count=%d err=%v", count, err)
 	}
-	got, err := GetResearchPack(ctx, s, pack.PackID, 1000)
+	got, err := s.ReadResearchPack(ctx, ResearchReadRequest{PackID: pack.PackID, Limit: 1000})
 	if err != nil || len(got.Revisions) != 2 || got.Revisions[0].Revision != 1 || got.Revisions[1].Revision != 3 {
 		t.Fatalf("pruned revisions=%+v err=%v", got.Revisions, err)
 	}
 }
 
-func TestTerminalResearchCleanupRefusesRequiredCompaction(t *testing.T) {
+func TestRetainedOwnerContentIsReadOnlyExceptFreshness(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s := openTemp(t)
 	seedResearchWork(t, s, "owner", "consumer")
-	pack := createSimplePack(t, s, "blocked-compaction", "owner")
-	if _, err := BindResearchConsumer(ctx, s, BindResearchConsumerRequest{Identity: researchIdentity("blocked-bind"), PackID: pack.PackID, Revision: 1, ExpectedVersion: 1, Consumer: ResearchConsumer{ConsumerWorkID: "consumer", UseRole: UseContext, Required: true}}); err != nil {
+	pack := createSimplePack(t, s, "retained-readonly", "owner")
+	if _, err := BindResearchConsumer(ctx, s, BindResearchConsumerRequest{Identity: researchIdentity("retained-bind"), PackID: pack.PackID, Revision: 1, ExpectedVersion: 1, Consumer: ResearchConsumer{ConsumerWorkID: "consumer", UseRole: UseContext, Required: false}}); err != nil {
 		t.Fatal(err)
 	}
 	terminalizeResearchOwner(t, s, "owner")
-	linkArchivedResearchOwner(t, s, "owner")
-	if err := cleanupTerminalResearch(ctx, s, "owner"); err == nil {
-		t.Fatal("compaction cleanup succeeded with required consumer")
-	} else {
-		assertFailureKind(t, err, KindResearchConsumerBlocked)
+	// A freshness review stays available: staling a retained revision is the
+	// one retained-owner write the retention cutover keeps.
+	if err := SetResearchFreshness(ctx, s, SetResearchFreshnessRequest{Identity: researchIdentity("retained-freshness"), PackID: pack.PackID, ExpectedVersion: 2, Freshness: ResearchStale}); err != nil {
+		t.Fatalf("retained freshness review refused: %v", err)
 	}
-	var count int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM active_research_packs WHERE pack_id=?`, pack.PackID).Scan(&count); err != nil || count != 1 {
-		t.Fatalf("blocked pack count=%d err=%v", count, err)
+	authoring := []struct {
+		name string
+		run  func() error
+	}{
+		{"append", func() error {
+			_, err := AppendResearchRevision(ctx, s, AppendResearchRevisionRequest{Identity: researchIdentity("retained-append"), PackID: pack.PackID, ExpectedVersion: 3, Revision: simpleResearchRevision()})
+			return err
+		}},
+		{"finding", func() error {
+			_, err := s.AddResearchFinding(ctx, ResearchFindingRequest{Identity: researchIdentity("retained-finding"), PackID: pack.PackID, ExpectedVersion: 3, Finding: ResearchFinding{FindingID: "f1", Kind: FindingObservation, Statement: "observed", Confidence: ConfidenceHigh, Freshness: ResearchCurrent, Status: FindingActive}})
+			return err
+		}},
+		{"source", func() error {
+			_, err := s.AddResearchSource(ctx, ResearchSourceRequest{Identity: researchIdentity("retained-source"), PackID: pack.PackID, ExpectedVersion: 3, Source: ResearchSource{SourceID: "s1", Kind: SourceOfficialDoc, Locator: "https://example.com", Title: "Source", PublisherOrAuthor: "Example", AccessedAt: "2026-08-07T00:00:00Z"}})
+			return err
+		}},
+		{"citation", func() error {
+			return BindResearchFindingSource(ctx, s, ResearchFindingSourceRequest{Identity: researchIdentity("retained-citation"), PackID: pack.PackID, Revision: 1, ExpectedVersion: 3, FindingID: "f1", SourceID: "s1"})
+		}},
+		{"prune", func() error {
+			_, err := PruneResearchRevisions(ctx, s, ResearchPackMutationRequest{Identity: researchIdentity("retained-prune"), PackID: pack.PackID, ExpectedVersion: 3})
+			return err
+		}},
 	}
-}
-
-func TestTerminalResearchCleanupDeletesUnblockedPack(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s := openTemp(t)
-	seedResearchWork(t, s, "owner")
-	pack := createSimplePack(t, s, "successful-compaction", "owner")
-	terminalizeResearchOwner(t, s, "owner")
-	linkArchivedResearchOwner(t, s, "owner")
-	if err := cleanupTerminalResearch(ctx, s, "owner"); err != nil {
-		t.Fatal(err)
+	for _, write := range authoring {
+		if err := write.run(); err == nil {
+			t.Fatalf("retained pack accepted %s", write.name)
+		} else if !hasFailureKind(err, KindInvalidOperation) || !strings.Contains(err.Error(), "read-only") {
+			t.Fatalf("retained pack %s refusal=%v", write.name, err)
+		}
 	}
-	var count int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM active_research_packs WHERE pack_id=?`, pack.PackID).Scan(&count); err != nil || count != 0 {
-		t.Fatalf("deleted pack count=%d err=%v", count, err)
+	// Releasing a pin is not authoring: the optional consumer may still unbind.
+	if _, err := UnbindResearchConsumer(ctx, s, UnbindResearchConsumerRequest{Identity: researchIdentity("retained-unbind"), PackID: pack.PackID, Revision: 1, ExpectedVersion: 3, ConsumerWorkID: "consumer"}); err != nil {
+		t.Fatalf("retained pack refused a pin release: %v", err)
 	}
-}
-
-func TestInterruptedTerminalCleanupFinishesAtNextPackMutation(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s := openTemp(t)
-	seedResearchWork(t, s, "owner")
-	pack := createSimplePack(t, s, "interrupted-compaction", "owner")
-	terminalizeResearchOwner(t, s, "owner")
-	linkArchivedResearchOwner(t, s, "owner")
-	if err := SetResearchFreshness(ctx, s, SetResearchFreshnessRequest{Identity: researchIdentity("resume-cleanup"), PackID: pack.PackID, ExpectedVersion: 1, Freshness: ResearchStale}); err == nil {
-		t.Fatal("mutation unexpectedly wrote a terminal-owner pack")
-	}
-	var count int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM active_research_packs WHERE pack_id=?`, pack.PackID).Scan(&count); err != nil || count != 0 {
-		t.Fatalf("reconciled pack count=%d err=%v", count, err)
+	got, err := s.ReadResearchPack(ctx, ResearchReadRequest{PackID: pack.PackID, Limit: 1000})
+	if err != nil || len(got.Revisions) != 1 || got.Revisions[0].Freshness != ResearchStale || len(got.Consumers) != 0 {
+		t.Fatalf("retained pack after read-only proofs=%+v err=%v", got, err)
 	}
 }
 
@@ -365,12 +423,300 @@ func TestTerminalUnlinkedPackRemainsReadable(t *testing.T) {
 	seedResearchWork(t, s, "owner", "other")
 	pack := createSimplePack(t, s, "unlinked-terminal", "owner")
 	terminalizeResearchOwner(t, s, "owner")
-	if got, err := GetResearchPack(ctx, s, pack.PackID, 1000); err != nil || got.PackID != pack.PackID {
+	if got, err := s.ReadResearchPack(ctx, ResearchReadRequest{PackID: pack.PackID, Limit: 1000}); err != nil || got.PackID != pack.PackID {
 		t.Fatalf("unlinked terminal pack=%+v err=%v", got, err)
 	}
 	other := createSimplePack(t, s, "unrelated-active", "other")
 	if err := SetResearchFreshness(ctx, s, SetResearchFreshnessRequest{Identity: researchIdentity("unrelated-write"), PackID: other.PackID, ExpectedVersion: 1, Freshness: ResearchStale}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestResearchRetentionLinkedReadDoesNotDelete(t *testing.T) {
+	ctx := context.Background()
+	s := openTemp(t)
+	seedResearchWork(t, s, "owner")
+	pack := createSimplePack(t, s, "retained-linked-read", "owner")
+	terminalizeResearchOwner(t, s, "owner")
+	linkArchivedResearchOwner(t, s, "owner")
+	if got, err := s.ReadResearchPack(ctx, ResearchReadRequest{PackID: pack.PackID, Limit: 1000}); err != nil || got.PackID != pack.PackID {
+		t.Fatalf("read deleted retained research: pack=%+v err=%v", got, err)
+	}
+}
+
+func TestResearchRetentionTerminalOwnerAllowsReliance(t *testing.T) {
+	ctx := context.Background()
+	s := openTemp(t)
+	seedResearchWork(t, s, "owner", "consumer")
+	pack := createSimplePack(t, s, "retained-terminal-reliance", "owner")
+	terminalizeResearchOwner(t, s, "owner")
+	err := s.Transact(ctx, func(transaction *Transaction) error {
+		tx, err := transactionSQL(transaction, "research_reliance")
+		if err != nil {
+			return err
+		}
+		return BindResearchRelianceTx(ctx, tx, "consumer", []ResearchBindingDeclaration{{PackID: pack.PackID, Revision: 1, UseRole: UseContext}}, time.Unix(10, 0))
+	})
+	if err != nil {
+		t.Fatalf("retained terminal-owner reliance refused: %v", err)
+	}
+}
+
+func TestRetirementDeleteGuardRefusesIneligibleDeletes(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openTemp(t)
+	seedResearchWork(t, s, "owner", "consumer")
+	activePack := createSimplePack(t, s, "guard-active", "owner")
+	retainedPack := createSimplePack(t, s, "guard-retained", "owner")
+	if _, err := BindResearchConsumer(ctx, s, BindResearchConsumerRequest{Identity: researchIdentity("guard-bind"), PackID: retainedPack.PackID, Revision: 1, ExpectedVersion: 1, Consumer: ResearchConsumer{ConsumerWorkID: "consumer", UseRole: UseContext, Required: false}}); err != nil {
+		t.Fatal(err)
+	}
+	db := s.DatabaseForTesting()
+	// The guard applies retirement authority to every delete, so a raw or
+	// legacy binary delete of an active-owner pack is refused.
+	if _, err := db.Exec(`DELETE FROM active_research_packs WHERE pack_id=?`, activePack.PackID); err == nil {
+		t.Fatal("raw delete of an active-owner pack passed the retirement guard")
+	} else if !strings.Contains(err.Error(), "retire-eligible") {
+		t.Fatalf("guard refusal=%v", err)
+	}
+	terminalizeResearchOwner(t, s, "owner")
+	// An optional pin protects the retained pack from every delete too.
+	if _, err := db.Exec(`DELETE FROM active_research_packs WHERE pack_id=?`, retainedPack.PackID); err == nil {
+		t.Fatal("raw delete with an active optional pin passed the retirement guard")
+	}
+	terminalizeResearchOwner(t, s, "consumer")
+	if _, err := db.Exec(`DELETE FROM active_research_packs WHERE pack_id=?`, retainedPack.PackID); err != nil {
+		t.Fatalf("retire-eligible pack delete refused: %v", err)
+	}
+}
+
+func TestWorkRemovalRefusesUntilOwnedPacksRetire(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openTemp(t)
+	seedResearchWork(t, s, "owner")
+	pack := createSimplePack(t, s, "removal-owned", "owner")
+	cancel := operationEventForResearch("removal-cancel", "work.transitioned", "owner", map[string]any{"from": "needed", "to": "cancelled", "reason": "done", "expected_version": 2, "resulting_version": 3})
+	if err := ApplyOperation(ctx, s, Operation{Events: []Event{cancel}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "owner"): 2}}); err != nil {
+		t.Fatal(err)
+	}
+	req := removalTestRequest()
+	req.OperationID = "remove-research-owner"
+	req.IdempotencyKey = "remove-research-owner-key"
+	req.WorkID = "owner"
+	req.ExpectedVersion = 3
+	req.Reason = "shelved"
+	if _, err := s.RemoveWork(ctx, req); err == nil {
+		t.Fatal("removal succeeded while the work still owned a research pack")
+	} else if !hasFailureKind(err, KindResourceClaimHeld) || !strings.Contains(err.Error(), "research pack") {
+		t.Fatalf("removal refusal=%v", err)
+	}
+	if countRows(t, s, "active_research_packs") != 1 {
+		t.Fatal("refused removal deleted the owned pack")
+	}
+	out, err := retireResearchForTest(t, s, RetireResearchPacksRequest{ProductID: "product", Candidates: []ResearchRetirementCandidate{{PackID: pack.PackID, ExpectedVersion: 1}}})
+	if err != nil || len(out.Candidates) != 1 || out.Candidates[0].Classification != ResearchRetirementRetired {
+		t.Fatalf("retirement before removal=%+v err=%v", out, err)
+	}
+	if _, err := s.RemoveWork(ctx, req); err != nil {
+		t.Fatalf("removal after retirement refused: %v", err)
+	}
+	var work int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM work_items WHERE id='owner'`).Scan(&work); err != nil {
+		t.Fatal(err)
+	}
+	if work != 0 || countRows(t, s, "active_research_packs") != 0 {
+		t.Fatalf("removal after retirement left work=%d packs=%d", work, countRows(t, s, "active_research_packs"))
+	}
+}
+
+func TestWorkRemovalReleasesOptionalConsumerPin(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openTemp(t)
+	seedResearchWork(t, s, "owner", "consumer")
+	pack := createSimplePack(t, s, "removal-pin", "owner")
+	if _, err := BindResearchConsumer(ctx, s, BindResearchConsumerRequest{Identity: researchIdentity("removal-pin-bind"), PackID: pack.PackID, Revision: 1, ExpectedVersion: 1, Consumer: ResearchConsumer{ConsumerWorkID: "consumer", UseRole: UseContext, Required: false}}); err != nil {
+		t.Fatal(err)
+	}
+	req := removalTestRequest()
+	req.OperationID = "remove-research-consumer"
+	req.IdempotencyKey = "remove-research-consumer-key"
+	req.WorkID = "consumer"
+	req.ExpectedVersion = 2
+	req.Reason = "shelved"
+	if _, err := s.RemoveWork(ctx, req); err != nil {
+		t.Fatalf("removal of an optional-pin consumer refused: %v", err)
+	}
+	if countRows(t, s, "active_research_consumers") != 0 {
+		t.Fatal("removal left the consumer pin behind")
+	}
+	if countRows(t, s, "active_research_packs") != 1 {
+		t.Fatal("removal destroyed the pinned pack")
+	}
+	var version int64
+	if err := s.DatabaseForTesting().QueryRow(`SELECT expected_version FROM active_research_packs WHERE pack_id=?`, pack.PackID).Scan(&version); err != nil {
+		t.Fatal(err)
+	}
+	// Create, bind, then one bump from the atomic pin release.
+	if version != 3 {
+		t.Fatalf("released pack version=%d, want one bump from the pin release", version)
+	}
+	terminalizeResearchOwner(t, s, "owner")
+	out, err := retireResearchForTest(t, s, RetireResearchPacksRequest{ProductID: "product", Candidates: []ResearchRetirementCandidate{{PackID: pack.PackID, ExpectedVersion: version}}})
+	if err != nil || len(out.Candidates) != 1 || out.Candidates[0].Classification != ResearchRetirementRetired {
+		t.Fatalf("retirement after pin release=%+v err=%v", out, err)
+	}
+}
+
+func TestRetainedPackSurvivesProjectionRebuild(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openTemp(t)
+	seedResearchWork(t, s, "owner", "consumer")
+	pack := createSimplePack(t, s, "rebuild-retained", "owner")
+	if _, err := BindResearchConsumer(ctx, s, BindResearchConsumerRequest{Identity: researchIdentity("rebuild-retained-bind"), PackID: pack.PackID, Revision: 1, ExpectedVersion: 1, Consumer: ResearchConsumer{ConsumerWorkID: "consumer", UseRole: UseContext, Required: false}}); err != nil {
+		t.Fatal(err)
+	}
+	terminalizeResearchOwner(t, s, "owner")
+	if err := RebuildFromLog(ctx, s); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.ReadResearchPack(ctx, ResearchReadRequest{PackID: pack.PackID, Limit: 1000})
+	if err != nil || len(got.Revisions) != 1 || len(got.Consumers) != 1 {
+		t.Fatalf("rebuilt retained pack=%+v err=%v", got, err)
+	}
+}
+
+func TestRetainedPackSurvivesCloseAndReopen(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "concord-retained.db")
+	s, err := Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seedResearchWork(t, s, "owner", "consumer")
+	pack := createSimplePack(t, s, "reopen-retained", "owner")
+	if _, err := BindResearchConsumer(ctx, s, BindResearchConsumerRequest{Identity: researchIdentity("reopen-retained-bind"), PackID: pack.PackID, Revision: 1, ExpectedVersion: 1, Consumer: ResearchConsumer{ConsumerWorkID: "consumer", UseRole: UseContext, Required: false}}); err != nil {
+		t.Fatal(err)
+	}
+	terminalizeResearchOwner(t, s, "owner")
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	got, err := reopened.ReadResearchPack(ctx, ResearchReadRequest{PackID: pack.PackID, Limit: 1000})
+	if err != nil || len(got.Revisions) != 1 || len(got.Consumers) != 1 || got.OwnerWorkID != "owner" {
+		t.Fatalf("reopened retained pack=%+v err=%v", got, err)
+	}
+}
+
+func TestMigrationInstallsRetirementDeleteGuard(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	db := openMigratedTo(t, filepath.Join(t.TempDir(), "concord-retention-v122.db"), 122)
+	if _, err := db.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at) VALUES('owner','task','Owner','needed',1,1,'t','t')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
+		t.Fatal(err)
+	}
+	packInsert := `INSERT INTO active_research_packs(pack_id,owner_work_id,current_revision,freshness,expected_version,created_at,updated_at) VALUES(?,'owner',1,'current',1,'t','t')`
+	revisionInsert := `INSERT INTO active_research_revisions(pack_id,revision,question,scope_in_json,scope_out_json,done_when_json,method,created_at,freshness) VALUES(?,1,'q','{}','{}','{}','m','t','current')`
+	if _, err := db.ExecContext(ctx, packInsert, "migration-pack"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, revisionInsert, "migration-pack"); err != nil {
+		t.Fatal(err)
+	}
+	// The pre-cutover schema still lets a legacy binary delete the pack.
+	if _, err := db.ExecContext(ctx, `DELETE FROM active_research_packs WHERE pack_id='migration-pack'`); err != nil {
+		t.Fatalf("v122 schema refused a legacy deletion: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, packInsert, "migration-pack"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, revisionInsert, "migration-pack"); err != nil {
+		t.Fatal(err)
+	}
+	if err := Migrate(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	var version int
+	if err := db.QueryRowContext(ctx, `SELECT max(version) FROM schema_migrations`).Scan(&version); err != nil {
+		t.Fatal(err)
+	}
+	if version != CurrentSchemaVersion() {
+		t.Fatalf("schema version=%d, want %d", version, CurrentSchemaVersion())
+	}
+	for _, m := range migrations {
+		if m.Version == 123 && !m.Breaking {
+			t.Fatal("retention cutover migration must declare Breaking")
+		}
+	}
+	var guards int
+	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_schema WHERE type='trigger' AND name='active_research_packs_retirement_delete_guard'`).Scan(&guards); err != nil {
+		t.Fatal(err)
+	}
+	if guards != 1 {
+		t.Fatal("retention migration did not install the retirement delete guard")
+	}
+	// The migration is data-preserving: the pack and its revision survive.
+	var packs, revisions int
+	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM active_research_packs`).Scan(&packs); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM active_research_revisions`).Scan(&revisions); err != nil {
+		t.Fatal(err)
+	}
+	if packs != 1 || revisions != 1 {
+		t.Fatalf("migration changed research content: packs=%d revisions=%d", packs, revisions)
+	}
+	// The legacy deletion shape is refused after the migration.
+	if _, err := db.ExecContext(ctx, `DELETE FROM active_research_packs WHERE pack_id='migration-pack'`); err == nil {
+		t.Fatal("migrated schema admitted a legacy deletion")
+	}
+}
+
+// TestRetirementDeleteGuardRefusesMissingOwner witnesses the guard's
+// fail-closed reading of a pack whose owner work row is missing: SQL NULL
+// from the owner lookup must count as unmet eligibility, not as silence the
+// delete passes through. No production path creates this state, so the
+// corruption is synthesized on a foreign connection with foreign keys off —
+// the kind of outside-the-store write the guard exists to refuse.
+func TestRetirementDeleteGuardRefusesMissingOwner(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "concord-retention-missing-owner.db")
+	db := openMigratedTo(t, path, 123)
+	if _, err := db.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at) VALUES('owner','task','Owner','needed',1,1,'t','t')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO active_research_packs(pack_id,owner_work_id,current_revision,freshness,expected_version,created_at,updated_at) VALUES('missing-owner-pack','owner',1,'current',1,'t','t')`); err != nil {
+		t.Fatal(err)
+	}
+	// A present, non-terminal owner refuses before the corruption too.
+	if _, err := db.ExecContext(ctx, `DELETE FROM active_research_packs WHERE pack_id='missing-owner-pack'`); err == nil {
+		t.Fatal("guard admitted a delete whose owner work is non-terminal")
+	}
+	synthExecPath(t, path, `DELETE FROM work_items WHERE id='owner'`)
+	if _, err := db.ExecContext(ctx, `DELETE FROM active_research_packs WHERE pack_id='missing-owner-pack'`); err == nil {
+		t.Fatal("guard admitted a delete whose owner work row is missing")
 	}
 }
 
@@ -435,7 +781,7 @@ func TestTerminalConsumerTransitionRemovesBindingAndAdvancesPack(t *testing.T) {
 					t.Fatal(err)
 				}
 				if version != 3 {
-					t.Fatalf("terminal consumer pack %s version=%d, want one bump from binding", pack.PackID, version)
+					t.Fatalf("terminal consumer pack %s version=%d, want 3: created at 1, one bump from the consumer binding, one from its release when the consumer went terminal", pack.PackID, version)
 				}
 			}
 		})
@@ -466,34 +812,34 @@ func compactionRequest(home KnowledgeHome, commit, path, eventID string) Compact
 	return CompactionLinkRequest{EventID: eventID, WorkID: "owner", ExpectedVersion: 3, Actor: "test", OccurredAt: time.Date(2026, 8, 7, 0, 0, 0, 0, time.UTC), Home: home, CommitOID: commit, NotePath: path, Reason: "proof-backed archive"}
 }
 
-func TestPublishCompactionLinkPreflightsRequiredResearchConsumer(t *testing.T) {
+func TestPublishCompactionLinkRetainsResearchWithRequiredConsumer(t *testing.T) {
 	t.Parallel()
 	s, home, pack, commit, path := compactionFixture(t, true)
-	beforeEvents := countRows(t, s, "domain_events")
-	if err := PublishCompactionLink(context.Background(), s, compactionRequest(home, commit, path, "blocked-compaction")); err == nil {
-		t.Fatal("compaction succeeded with required active consumer")
-	} else {
-		assertFailureKind(t, err, KindResearchConsumerBlocked)
-	}
-	var archived, events, active int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM archived_work WHERE id='owner'`).Scan(&archived); err != nil {
+	if err := PublishCompactionLink(context.Background(), s, compactionRequest(home, commit, path, "retained-compaction")); err != nil {
 		t.Fatal(err)
 	}
+	if countRows(t, s, "archived_work") != 1 {
+		t.Fatal("compaction did not record the archive")
+	}
+	var events int
 	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind='compaction_link.published'`).Scan(&events); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM active_research_packs WHERE pack_id=?`, pack.PackID).Scan(&active); err != nil {
-		t.Fatal(err)
+	if events != 1 {
+		t.Fatalf("compaction events=%d, want 1", events)
 	}
-	if archived != 0 || events != 0 || active != 1 || countRows(t, s, "domain_events") != beforeEvents {
-		t.Fatalf("blocked compaction mutated archived/events/pack=%d/%d/%d", archived, events, active)
+	if countRows(t, s, "active_research_packs") != 1 || countRows(t, s, "active_research_consumers") != 1 {
+		t.Fatal("publication destroyed retained research")
+	}
+	if got, err := s.ReadResearchPack(context.Background(), ResearchReadRequest{PackID: pack.PackID, Limit: 1000}); err != nil || got.PackID != pack.PackID {
+		t.Fatalf("retained pack unreadable after publication: %+v err=%v", got, err)
 	}
 }
 
-func TestCompactionFoldRejectsRequiredConsumerAtomically(t *testing.T) {
+func TestCompactionFoldAcceptsRequiredConsumer(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, home, _, commit, path := compactionFixture(t, true)
+	s, home, pack, commit, path := compactionFixture(t, true)
 	note, err := VerifyCommittedNote(ctx, home.RepoPath, commit, path, "")
 	if err != nil {
 		t.Fatal(err)
@@ -502,37 +848,62 @@ func TestCompactionFoldRejectsRequiredConsumerAtomically(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	beforeEvents := countRows(t, s, "domain_events")
-	event := Event{EventID: "direct-blocked-compaction", Kind: "compaction_link.published", SubjectType: SubjectWorkItem, SubjectID: "owner", Actor: "test", OccurredAt: time.Date(2026, 8, 7, 0, 0, 0, 0, time.UTC), PayloadVersion: 1, Payload: payload}
-	if err := ApplyOperation(ctx, s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "owner"): 3}}); err == nil {
-		t.Fatal("direct compaction fold succeeded with required active consumer")
-	} else {
-		assertFailureKind(t, err, KindResearchConsumerBlocked)
+	event := Event{EventID: "direct-retained-compaction", Kind: "compaction_link.published", SubjectType: SubjectWorkItem, SubjectID: "owner", Actor: "test", OccurredAt: time.Date(2026, 8, 7, 0, 0, 0, 0, time.UTC), PayloadVersion: 1, Payload: payload}
+	if err := ApplyOperation(ctx, s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "owner"): 3}}); err != nil {
+		t.Fatalf("compaction fold refused a required active consumer: %v", err)
 	}
-	if countRows(t, s, "domain_events") != beforeEvents || countRows(t, s, "archived_work") != 0 || countRows(t, s, "active_research_packs") != 1 {
-		t.Fatalf("direct compaction fold committed event/archive/pack rows: events=%d archive=%d packs=%d", countRows(t, s, "domain_events"), countRows(t, s, "archived_work"), countRows(t, s, "active_research_packs"))
+	if countRows(t, s, "archived_work") != 1 {
+		t.Fatal("fold did not record the archive")
+	}
+	if countRows(t, s, "active_research_packs") != 1 || countRows(t, s, "active_research_consumers") != 1 {
+		t.Fatalf("fold destroyed retained research: packs=%d consumers=%d", countRows(t, s, "active_research_packs"), countRows(t, s, "active_research_consumers"))
+	}
+	if _, err := s.ReadResearchPack(ctx, ResearchReadRequest{PackID: pack.PackID, Limit: 1000}); err != nil {
+		t.Fatalf("retained pack unreadable after fold: %v", err)
 	}
 }
 
-func TestProofBackedCompactionDeletesResearchAndNeverStoresBody(t *testing.T) {
+func TestProofBackedCompactionRetainsResearchAndNeverStoresBody(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, home, pack, commit, path := compactionFixture(t, true)
+	repo := initKnowledgeRepo(t)
+	path := ".concord/docs/work/owner.md"
+	writeKnowledgeFile(t, repo, path, canonicalWorkNote("owner", "2026-08-07T00:00:00Z"))
+	commit := commitKnowledgeRepo(t, repo, "owner proof")
+	s := openTemp(t)
+	seedResearchWork(t, s, "owner", "consumer")
+	seedEventDerivedLocator(t, s, "home", "owner-repo", repo)
+	pack := createSimplePack(t, s, "compaction-fixture", "owner")
+	if _, err := BindResearchConsumer(ctx, s, BindResearchConsumerRequest{Identity: researchIdentity("compaction-bind"), PackID: pack.PackID, Revision: 1, ExpectedVersion: 1, Consumer: ResearchConsumer{ConsumerWorkID: "consumer", UseRole: UseContext, Required: true}}); err != nil {
+		t.Fatal(err)
+	}
 	secret := "SECRET-RESEARCH-PACK-BODY"
 	if _, err := AppendResearchRevision(ctx, s, AppendResearchRevisionRequest{Identity: researchIdentity("secret-revision"), PackID: pack.PackID, ExpectedVersion: 2, Revision: ResearchRevisionInput{Question: secret, ScopeIn: json.RawMessage(`{}`), ScopeOut: json.RawMessage(`{}`), DoneWhen: json.RawMessage(`{}`), Method: "test"}}); err != nil {
 		t.Fatal(err)
 	}
-	consumerDone := operationEventForResearch("consumer-terminal", "work.transitioned", "consumer", map[string]any{"from": "needed", "to": "completed", "reason": "done", "expected_version": 2, "resulting_version": 3})
-	if err := ApplyOperation(ctx, s, Operation{Events: []Event{consumerDone}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "consumer"): 2}}); err != nil {
+	if _, err := s.AddResearchFinding(ctx, ResearchFindingRequest{Identity: researchIdentity("secret-finding"), PackID: pack.PackID, Revision: 2, ExpectedVersion: 3, Finding: ResearchFinding{FindingID: "f1", Kind: FindingObservation, Statement: "observed", Confidence: ConfidenceHigh, Freshness: ResearchCurrent, Status: FindingActive}}); err != nil {
 		t.Fatal(err)
 	}
-	if err := PublishCompactionLink(ctx, s, compactionRequest(home, commit, path, "successful-compaction")); err != nil {
+	if _, err := s.AddResearchSource(ctx, ResearchSourceRequest{Identity: researchIdentity("secret-source"), PackID: pack.PackID, Revision: 2, ExpectedVersion: 4, Source: ResearchSource{SourceID: "s1", Kind: SourceOfficialDoc, Locator: "https://example.com", Title: "Source", PublisherOrAuthor: "Example", AccessedAt: "2026-08-07T00:00:00Z"}}); err != nil {
 		t.Fatal(err)
 	}
+	if err := BindResearchFindingSource(ctx, s, ResearchFindingSourceRequest{Identity: researchIdentity("secret-citation"), PackID: pack.PackID, Revision: 2, ExpectedVersion: 5, FindingID: "f1", SourceID: "s1"}); err != nil {
+		t.Fatal(err)
+	}
+	terminalizeResearchOwner(t, s, "owner")
+	home := KnowledgeHome{HomeProjectID: "home", HomeLocatorID: "owner-repo", RepoPath: repo, HeadRef: "HEAD"}
+	if err := PublishCompactionLink(ctx, s, compactionRequest(home, commit, path, "retained-proof-compaction")); err != nil {
+		t.Fatal(err)
+	}
+	// Publication is proof-backed archive, not destruction: the pack body
+	// stays in direct-table authority with its required consumer.
 	for _, table := range []string{"active_research_packs", "active_research_revisions", "active_research_findings", "active_research_sources", "active_research_finding_sources", "active_research_consumers"} {
-		if countRows(t, s, table) != 0 {
-			t.Fatalf("%s retained rows after proof-backed compaction", table)
+		if countRows(t, s, table) == 0 {
+			t.Fatalf("%s lost rows after proof-backed compaction", table)
 		}
+	}
+	if got, err := s.ReadResearchPack(ctx, ResearchReadRequest{PackID: pack.PackID, Limit: 1000}); err != nil || len(got.Revisions) != 2 {
+		t.Fatalf("retained pack after publication=%+v err=%v", got, err)
 	}
 	var bodyEvents, bodySummary int
 	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE payload LIKE ?`, "%"+secret+"%").Scan(&bodyEvents); err != nil {
@@ -542,15 +913,15 @@ func TestProofBackedCompactionDeletesResearchAndNeverStoresBody(t *testing.T) {
 		t.Fatal(err)
 	}
 	if bodyEvents != 0 || bodySummary != 0 {
-		t.Fatalf("deleted pack body leaked to events/summary=%d/%d", bodyEvents, bodySummary)
+		t.Fatalf("retained pack body leaked to events/summary=%d/%d", bodyEvents, bodySummary)
 	}
 	note, err := VerifyCommittedNote(ctx, home.RepoPath, commit, path, "")
 	if err != nil || strings.Contains(string(note.Content), secret) {
-		t.Fatalf("Git authority contains deleted pack body: err=%v", err)
+		t.Fatalf("Git authority contains retained pack body: err=%v", err)
 	}
 }
 
-func TestCompactionRetryReconcilesCrashWindow(t *testing.T) {
+func TestCompactionRetryAfterCrashWindowRetainsResearch(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s, home, pack, commit, path := compactionFixture(t, false)
@@ -567,13 +938,20 @@ func TestCompactionRetryReconcilesCrashWindow(t *testing.T) {
 		t.Fatal(err)
 	}
 	if countRows(t, s, "active_research_packs") != 1 {
-		t.Fatal("crash-window setup did not retain pack before cleanup")
+		t.Fatal("crash-window link destroyed the retained pack")
 	}
 	if err := PublishCompactionLink(ctx, s, compactionRequest(home, commit, path, "crash-window-link")); err != nil {
+		t.Fatalf("idempotent compaction retry refused: %v", err)
+	}
+	var events int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind='compaction_link.published'`).Scan(&events); err != nil {
 		t.Fatal(err)
 	}
-	if countRows(t, s, "active_research_packs") != 0 || countRows(t, s, "active_research_revisions") != 0 || pack.PackID == "" {
-		t.Fatal("idempotent compaction retry did not finish cleanup")
+	if events != 1 {
+		t.Fatalf("retry duplicated the compaction event: %d", events)
+	}
+	if countRows(t, s, "active_research_packs") != 1 || countRows(t, s, "active_research_revisions") != 1 || pack.PackID == "" {
+		t.Fatal("idempotent compaction retry did not retain the research")
 	}
 }
 
@@ -614,7 +992,7 @@ func TestResearchFindingSourceReadRejectsGlobalOverflow(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if _, err := ReadResearchPack(ctx, s, pack.PackID, 2); err == nil {
+	if _, err := s.ReadResearchPack(ctx, ResearchReadRequest{PackID: pack.PackID, Limit: 2}); err == nil {
 		t.Fatal("bounded research read silently truncated finding-source links")
 	} else {
 		assertFailureKind(t, err, KindInvalidOperation)
@@ -686,178 +1064,8 @@ func TestActiveResearchSchemaEnforcesForeignKeysAndChecks(t *testing.T) {
 	}
 }
 
-func TestInitiativeEntriesFoldAndCompletionGate(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	guarded := openTemp(t)
-	seedResearchWork(t, guarded, "guarded")
-	if _, err := guarded.DatabaseForTesting().Exec(`UPDATE work_items SET kind='initiative' WHERE id='guarded'`); err == nil {
-		t.Fatal("direct work kind mutation bypassed fold-only authority")
-	}
-	// The operation below establishes the Initiative kind through work.created.
-	s := openTemp(t)
-	events := []Event{
-		{EventID: "p", Kind: "product.created", SubjectType: SubjectProduct, SubjectID: "p", Actor: "test", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: 1, Payload: []byte(`{"display_name":"P","stage_maturity":"prototype","stage_audience_commitment":"operator_only"}`)},
-		{EventID: "pr", Kind: "project.created", SubjectType: SubjectProject, SubjectID: "pr", Actor: "test", OccurredAt: time.Unix(1, 1).UTC(), PayloadVersion: 1, Payload: []byte(`{"display_name":"PR"}`)},
-		{EventID: "pp", Kind: "product_project.added", SubjectType: SubjectProduct, SubjectID: "p", Actor: "test", OccurredAt: time.Unix(1, 2).UTC(), PayloadVersion: 1, Payload: []byte(`{"product_id":"p","project_id":"pr","role":"primary","reason":"test","expected_version":1,"resulting_version":2}`)},
-		{EventID: "initiative", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: "initiative", Actor: "test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 2, Payload: mustJSONBytes(map[string]any{"work_kind": "initiative", "title": "Initiative", "priority": 1})},
-		{EventID: "child", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: "child", Actor: "test", OccurredAt: time.Unix(2, 1).UTC(), PayloadVersion: 2, Payload: mustJSONBytes(map[string]any{"work_kind": "task", "title": "Child", "priority": 1})},
-		{EventID: "child2", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: "child2", Actor: "test", OccurredAt: time.Unix(2, 2).UTC(), PayloadVersion: 2, Payload: mustJSONBytes(map[string]any{"work_kind": "task", "title": "Child 2", "priority": 1})},
-		{EventID: "initiative-project", Kind: "work_project.added", SubjectType: SubjectWorkItem, SubjectID: "initiative", Actor: "test", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1, Payload: mustJSONBytes(map[string]any{"work_id": "initiative", "project_id": "pr", "role": "primary", "reason": "test", "expected_version": 1, "resulting_version": 2})},
-		{EventID: "child-project", Kind: "work_project.added", SubjectType: SubjectWorkItem, SubjectID: "child", Actor: "test", OccurredAt: time.Unix(3, 1).UTC(), PayloadVersion: 1, Payload: mustJSONBytes(map[string]any{"work_id": "child", "project_id": "pr", "role": "primary", "reason": "test", "expected_version": 1, "resulting_version": 2})},
-		{EventID: "child2-project", Kind: "work_project.added", SubjectType: SubjectWorkItem, SubjectID: "child2", Actor: "test", OccurredAt: time.Unix(3, 2).UTC(), PayloadVersion: 1, Payload: mustJSONBytes(map[string]any{"work_id": "child2", "project_id": "pr", "role": "primary", "reason": "test", "expected_version": 1, "resulting_version": 2})},
-	}
-	if err := ApplyOperation(ctx, s, Operation{Events: events, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProduct, "p"): 0, VersionRef(SubjectProject, "pr"): 0, VersionRef(SubjectWorkItem, "initiative"): 0, VersionRef(SubjectWorkItem, "child"): 0, VersionRef(SubjectWorkItem, "child2"): 0}}); err != nil {
-		t.Fatal(err)
-	}
-	entry, _ := InitiativeEntryEvent("add", "initiative_entry.added", "initiative", InitiativeEntry{ChildWorkID: "child", Position: 0, Required: true}, "test", time.Unix(4, 0).UTC(), 2)
-	if err := ApplyOperation(ctx, s, Operation{Events: []Event{entry}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "initiative"): 2}}); err != nil {
-		t.Fatal(err)
-	}
-	entry2, _ := InitiativeEntryEvent("add-2", "initiative_entry.added", "initiative", InitiativeEntry{ChildWorkID: "child2", Position: 1, Required: false}, "test", time.Unix(4, 0).UTC(), 3)
-	if err := ApplyOperation(ctx, s, Operation{Events: []Event{entry2}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "initiative"): 3}}); err != nil {
-		t.Fatal(err)
-	}
-	entries, err := ReadInitiativeEntries(ctx, s, "initiative")
-	if err != nil || len(entries) != 2 || entries[0].ChildWorkID != "child" || entries[1].ChildWorkID != "child2" {
-		t.Fatalf("entries=%+v err=%v", entries, err)
-	}
-	var includesDirection, reverseDirection int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM relations WHERE kind='includes' AND work_id_from='initiative' AND work_id_to='child2'`).Scan(&includesDirection); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM relations WHERE kind='includes' AND work_id_from='child2' AND work_id_to='initiative'`).Scan(&reverseDirection); err != nil {
-		t.Fatal(err)
-	}
-	if includesDirection != 1 || reverseDirection != 0 {
-		t.Fatalf("Initiative includes direction = %d/%d", includesDirection, reverseDirection)
-	}
-	if err := RebuildFromLog(ctx, s); err != nil {
-		t.Fatal(err)
-	}
-	entries, err = ReadInitiativeEntries(ctx, s, "initiative")
-	if err != nil || len(entries) != 2 || entries[0].Position != 0 || entries[1].Position != 1 {
-		t.Fatalf("rebuilt entries=%+v err=%v", entries, err)
-	}
-	for _, relationKind := range []string{"parent", "includes"} {
-		blockedRelation := operationEventForResearch("generic-"+relationKind, "relation.added", "initiative", map[string]any{"from": "initiative", "to": "child2", "kind": relationKind, "reason": "generic relation must not own membership", "expected_version": 4, "resulting_version": 5})
-		if err := ApplyOperation(ctx, s, Operation{Events: []Event{blockedRelation}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "initiative"): 4}}); err == nil {
-			t.Fatalf("generic %s relation touching Initiative was accepted", relationKind)
-		} else {
-			assertFailureKind(t, err, KindRelationContractViolation)
-		}
-	}
-	blocked := operationEventForResearch("blocked-complete", "work.transitioned", "initiative", map[string]any{"from": "needed", "to": "completed", "reason": "test", "expected_version": 4, "resulting_version": 5})
-	if err := ApplyOperation(ctx, s, Operation{Events: []Event{blocked}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "initiative"): 4}}); err == nil {
-		t.Fatal("Initiative completed with required nonterminal child")
-	} else {
-		assertFailureKind(t, err, KindInitiativeCompletionBlocked)
-	}
-	reorder, _ := InitiativeEntryEvent("reorder", "initiative_entry.reordered", "initiative", InitiativeEntry{ChildWorkID: "child2", Position: 0}, "test", time.Unix(4, 1).UTC(), 4)
-	if err := ApplyOperation(ctx, s, Operation{Events: []Event{reorder}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "initiative"): 4}}); err != nil {
-		t.Fatal(err)
-	}
-	requiredness, _ := InitiativeEntryEvent("optional", "initiative_entry.requiredness_changed", "initiative", InitiativeEntry{ChildWorkID: "child", Required: false}, "test", time.Unix(4, 2).UTC(), 5)
-	if err := ApplyOperation(ctx, s, Operation{Events: []Event{requiredness}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "initiative"): 5}}); err != nil {
-		t.Fatal(err)
-	}
-	complete := operationEventForResearch("complete-initiative", "work.transitioned", "initiative", map[string]any{"from": "needed", "to": "completed", "reason": "test", "expected_version": 6, "resulting_version": 7})
-	if err := ApplyOperation(ctx, s, Operation{Events: []Event{complete}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "initiative"): 6}}); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestReadInitiativeEntriesRejectsOverflow(t *testing.T) {
-	t.Parallel()
-	s := openTemp(t)
-	tx, err := s.DatabaseForTesting().Begin()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := tx.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
-		_ = tx.Rollback()
-		t.Fatal(err)
-	}
-	insertWork := `INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at) VALUES(?, 'task', ?, 'needed', 1, 1, 'now', 'now')`
-	if _, err := tx.Exec(insertWork, "initiative", "Initiative"); err != nil {
-		_ = tx.Rollback()
-		t.Fatal(err)
-	}
-	for i := 0; i <= maxInitiativeEntriesRead; i++ {
-		childID := fmt.Sprintf("child-%04d", i)
-		if _, err := tx.Exec(insertWork, childID, childID); err != nil {
-			_ = tx.Rollback()
-			t.Fatal(err)
-		}
-		if _, err := tx.Exec(`INSERT INTO initiative_entries(initiative_work_id,child_work_id,position,required) VALUES(?,?,?,0)`, "initiative", childID, i); err != nil {
-			_ = tx.Rollback()
-			t.Fatal(err)
-		}
-	}
-	if _, err := tx.Exec(`DELETE FROM fold_guard`); err != nil {
-		_ = tx.Rollback()
-		t.Fatal(err)
-	}
-	if err := tx.Commit(); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := ReadInitiativeEntries(context.Background(), s, "initiative"); err == nil {
-		t.Fatal("Initiative entry read silently truncated overflow")
-	} else {
-		assertFailureKind(t, err, KindInvalidOperation)
-		var failure *Failure
-		if !failureAs(err, &failure) || failure.RetrySafe {
-			t.Fatalf("overflow failure=%v, want non-retryable typed failure", err)
-		}
-	}
-}
-
-func TestInitiativeRejectsNestedAndCrossProductEntries(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s := openTemp(t)
-	events := []Event{
-		{EventID: "p1", Kind: "product.created", SubjectType: SubjectProduct, SubjectID: "p1", Actor: "test", OccurredAt: time.Unix(1, 0).UTC(), PayloadVersion: 1, Payload: []byte(`{"display_name":"P1","stage_maturity":"prototype","stage_audience_commitment":"operator_only"}`)},
-		{EventID: "pr1", Kind: "project.created", SubjectType: SubjectProject, SubjectID: "pr1", Actor: "test", OccurredAt: time.Unix(1, 1).UTC(), PayloadVersion: 1, Payload: []byte(`{"display_name":"PR1"}`)},
-		{EventID: "p2", Kind: "product.created", SubjectType: SubjectProduct, SubjectID: "p2", Actor: "test", OccurredAt: time.Unix(1, 2).UTC(), PayloadVersion: 1, Payload: []byte(`{"display_name":"P2","stage_maturity":"prototype","stage_audience_commitment":"operator_only"}`)},
-		{EventID: "pr2", Kind: "project.created", SubjectType: SubjectProject, SubjectID: "pr2", Actor: "test", OccurredAt: time.Unix(1, 3).UTC(), PayloadVersion: 1, Payload: []byte(`{"display_name":"PR2"}`)},
-		{EventID: "p1-pr1", Kind: "product_project.added", SubjectType: SubjectProduct, SubjectID: "p1", Actor: "test", OccurredAt: time.Unix(1, 4).UTC(), PayloadVersion: 1, Payload: mustJSONBytes(map[string]any{"product_id": "p1", "project_id": "pr1", "role": "primary", "reason": "test", "expected_version": 1, "resulting_version": 2})},
-		{EventID: "p2-pr2", Kind: "product_project.added", SubjectType: SubjectProduct, SubjectID: "p2", Actor: "test", OccurredAt: time.Unix(1, 5).UTC(), PayloadVersion: 1, Payload: mustJSONBytes(map[string]any{"product_id": "p2", "project_id": "pr2", "role": "primary", "reason": "test", "expected_version": 1, "resulting_version": 2})},
-	}
-	for _, item := range []struct{ id, kind, project string }{{"initiative", "initiative", "pr1"}, {"nested", "initiative", "pr1"}, {"cross", "task", "pr2"}} {
-		events = append(events,
-			Event{EventID: item.id + "-created", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: item.id, Actor: "test", OccurredAt: time.Unix(2, int64(len(events))).UTC(), PayloadVersion: 2, Payload: mustJSONBytes(map[string]any{"work_kind": item.kind, "title": item.id, "priority": 1})},
-			Event{EventID: item.id + "-project", Kind: "work_project.added", SubjectType: SubjectWorkItem, SubjectID: item.id, Actor: "test", OccurredAt: time.Unix(3, int64(len(events))).UTC(), PayloadVersion: 1, Payload: mustJSONBytes(map[string]any{"work_id": item.id, "project_id": item.project, "role": "primary", "reason": "test", "expected_version": 1, "resulting_version": 2})},
-		)
-	}
-	expected := map[SubjectRef]int64{VersionRef(SubjectProduct, "p1"): 0, VersionRef(SubjectProject, "pr1"): 0, VersionRef(SubjectProduct, "p2"): 0, VersionRef(SubjectProject, "pr2"): 0}
-	for _, id := range []string{"initiative", "nested", "cross"} {
-		expected[VersionRef(SubjectWorkItem, id)] = 0
-	}
-	if err := ApplyOperation(ctx, s, Operation{Events: events, ExpectedVersions: expected}); err != nil {
-		t.Fatal(err)
-	}
-	nested, _ := InitiativeEntryEvent("nested-entry", "initiative_entry.added", "initiative", InitiativeEntry{ChildWorkID: "nested", Position: 0}, "test", time.Unix(4, 0).UTC(), 2)
-	if err := ApplyOperation(ctx, s, Operation{Events: []Event{nested}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "initiative"): 2}}); err == nil {
-		t.Fatal("nested Initiative entry succeeded")
-	} else {
-		assertFailureKind(t, err, KindInitiativeScopeViolation)
-	}
-	cross, _ := InitiativeEntryEvent("cross-entry", "initiative_entry.added", "initiative", InitiativeEntry{ChildWorkID: "cross", Position: 0}, "test", time.Unix(4, 1).UTC(), 2)
-	if err := ApplyOperation(ctx, s, Operation{Events: []Event{cross}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "initiative"): 2}}); err == nil {
-		t.Fatal("cross-Product Initiative entry succeeded")
-	} else {
-		assertFailureKind(t, err, KindInitiativeScopeViolation)
-	}
-}
-
 func TestObsoleteEpicEventsAreNotRegistered(t *testing.T) {
 	t.Parallel()
-	if _, err := InitiativeEntryEvent("obsolete", "epic_entry.added", "initiative", InitiativeEntry{ChildWorkID: "child"}, "test", time.Unix(4, 2).UTC(), 2); err == nil {
-		t.Fatal("obsolete Epic event remained registered")
-	} else {
-		assertFailureKind(t, err, KindInvalidOperation)
-	}
 	s := openTemp(t)
 	err := ApplyOperation(context.Background(), s, Operation{Events: []Event{{EventID: "obsolete-work", Kind: "work.created", SubjectType: SubjectWorkItem, SubjectID: "obsolete-work", Actor: "test", OccurredAt: time.Unix(4, 3).UTC(), PayloadVersion: 2, Payload: mustJSONBytes(map[string]any{"work_kind": "epic", "title": "obsolete", "priority": 1})}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "obsolete-work"): 0}})
 	if err == nil {
@@ -906,7 +1114,7 @@ func TestAppendRevisionCarriesContentForward(t *testing.T) {
 		if _, err := AppendResearchRevision(ctx, s, AppendResearchRevisionRequest{Identity: researchIdentity("append-same"), PackID: pack.PackID, ExpectedVersion: 3, Revision: sameBrief}); err != nil {
 			t.Fatal(err)
 		}
-		got, err := GetResearchPack(ctx, s, pack.PackID, 1000)
+		got, err := s.ReadResearchPack(ctx, ResearchReadRequest{PackID: pack.PackID, Limit: 1000})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -933,7 +1141,7 @@ func TestAppendRevisionCarriesContentForward(t *testing.T) {
 		if _, err := AppendResearchRevision(ctx, s, AppendResearchRevisionRequest{Identity: researchIdentity("append-restated"), PackID: pack.PackID, ExpectedVersion: 3, Revision: restated}); err != nil {
 			t.Fatal(err)
 		}
-		got, err := GetResearchPack(ctx, s, pack.PackID, 1000)
+		got, err := s.ReadResearchPack(ctx, ResearchReadRequest{PackID: pack.PackID, Limit: 1000})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -964,7 +1172,7 @@ func TestAppendRevisionCarriesContentForward(t *testing.T) {
 		if _, err := AppendResearchRevision(ctx, s, AppendResearchRevisionRequest{Identity: researchIdentity("append-after-bind"), PackID: pack.PackID, ExpectedVersion: 4, Revision: restated}); err != nil {
 			t.Fatal(err)
 		}
-		got, err := GetResearchPack(ctx, s, pack.PackID, 1000)
+		got, err := s.ReadResearchPack(ctx, ResearchReadRequest{PackID: pack.PackID, Limit: 1000})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1008,7 +1216,7 @@ func TestResearchFindingScopesAreValidatedReadBackAndCopied(t *testing.T) {
 	if _, err := AppendResearchRevision(ctx, s, AppendResearchRevisionRequest{Identity: researchIdentity("scope-append"), PackID: pack.PackID, ExpectedVersion: 2, Revision: ResearchRevisionInput{Question: "q", ScopeIn: json.RawMessage(`[]`), ScopeOut: json.RawMessage(`[]`), DoneWhen: json.RawMessage(`[]`), Method: "m"}}); err != nil {
 		t.Fatal(err)
 	}
-	got, err := GetResearchPack(ctx, s, pack.PackID, 1000)
+	got, err := s.ReadResearchPack(ctx, ResearchReadRequest{PackID: pack.PackID, Limit: 1000})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1023,7 +1231,7 @@ func TestResearchFindingScopesAreValidatedReadBackAndCopied(t *testing.T) {
 	if _, err := s.UpdateResearchFinding(ctx, ResearchFindingRequest{Identity: researchIdentity("scope-home-update"), PackID: pack.PackID, Revision: 2, ExpectedVersion: 3, Finding: ResearchFinding{FindingID: "f1", Kind: FindingObservation, Statement: "scoped", Confidence: ConfidenceHigh, Freshness: ResearchCurrent, Status: FindingActive, Scopes: ResearchScopes{Mode: "home"}}}); err != nil {
 		t.Fatal(err)
 	}
-	updated, err := GetResearchPack(ctx, s, pack.PackID, 1000)
+	updated, err := s.ReadResearchPack(ctx, ResearchReadRequest{PackID: pack.PackID, Limit: 1000})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1044,6 +1252,144 @@ func TestResearchFindingScopesAreValidatedReadBackAndCopied(t *testing.T) {
 			_, err := s.AddResearchFinding(ctx, ResearchFindingRequest{Identity: researchIdentity("invalid-scope-" + tc.name), PackID: pack.PackID, ExpectedVersion: 4, Finding: ResearchFinding{FindingID: "bad-" + tc.name, Kind: FindingObservation, Statement: "bad", Confidence: ConfidenceLow, Freshness: ResearchCurrent, Status: FindingActive, Scopes: tc.scope}})
 			if err == nil {
 				t.Fatal("scope validation accepted invalid scope")
+			}
+		})
+	}
+}
+
+// A research source keeps its full provenance (kind, locator, title, author,
+// publication and access times) across a store close and reopen, so a later
+// session reads exactly what the authoring session recorded. Once a consumer
+// pins the revision, the source refuses a rewrite and its provenance stays as
+// recorded.
+func TestResearchSourceProvenanceSurvivesReopenAndConsumption(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "concord.db")
+	s, err := Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seedResearchWork(t, s, "owner", "consumer")
+	pack := createSimplePack(t, s, "provenance", "owner")
+	recorded := ResearchSource{PackID: pack.PackID, Revision: 1, SourceID: "s1", Kind: SourceOfficialDoc, Locator: "https://example.com/spec", Title: "Example specification", PublisherOrAuthor: "Example Org", PublishedAt: "2026-07-01T00:00:00Z", AccessedAt: "2026-08-07T00:00:00Z"}
+	if _, err := s.AddResearchSource(ctx, ResearchSourceRequest{Identity: researchIdentity("provenance-source"), PackID: pack.PackID, ExpectedVersion: 1, Source: recorded}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AddResearchFinding(ctx, ResearchFindingRequest{Identity: researchIdentity("provenance-finding"), PackID: pack.PackID, ExpectedVersion: 2, Finding: ResearchFinding{FindingID: "f1", Kind: FindingObservation, Statement: "observed", Confidence: ConfidenceHigh, Freshness: ResearchCurrent, Status: FindingActive, SourceIDs: []string{"s1"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := BindResearchConsumer(ctx, s, BindResearchConsumerRequest{Identity: researchIdentity("provenance-bind"), PackID: pack.PackID, Revision: 1, ExpectedVersion: 3, Consumer: ResearchConsumer{ConsumerWorkID: "consumer", UseRole: UseDecisionBasis, Required: true}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	readSource := func() ResearchSource {
+		t.Helper()
+		got, err := reopened.ReadResearchPack(ctx, ResearchReadRequest{PackID: pack.PackID, Limit: 1000})
+		if err != nil || len(got.Revisions) != 1 || len(got.Revisions[0].Sources) != 1 || len(got.Revisions[0].Findings) != 1 {
+			t.Fatalf("reopened pack=%+v err=%v, want one revision with one source and one finding", got, err)
+		}
+		if ids := got.Revisions[0].Findings[0].SourceIDs; len(ids) != 1 || ids[0] != "s1" {
+			t.Fatalf("finding source ids=%v, want the finding to cite s1", ids)
+		}
+		return got.Revisions[0].Sources[0]
+	}
+	if got := readSource(); !reflect.DeepEqual(got, recorded) {
+		t.Fatalf("reopened source=%+v, want the recorded provenance %+v", got, recorded)
+	}
+	rewritten := recorded
+	rewritten.Locator = "https://example.com/other"
+	rewritten.PublisherOrAuthor = "Someone Else"
+	if _, err := reopened.UpdateResearchSource(ctx, ResearchSourceRequest{Identity: researchIdentity("provenance-rewrite"), PackID: pack.PackID, Revision: 1, ExpectedVersion: 4, Source: rewritten}); err == nil {
+		t.Fatal("a consumed revision accepted a source rewrite")
+	} else {
+		assertFailureKind(t, err, KindResearchRevisionImmutable)
+	}
+	if got := readSource(); !reflect.DeepEqual(got, recorded) {
+		t.Fatalf("source after the refused rewrite=%+v, want the recorded provenance %+v", got, recorded)
+	}
+}
+
+// A workflow action that declares research reliance is refused at the
+// declaration boundary when the pack is missing or a required binding pins a
+// stale or missing revision. A retained terminal-owner pack stays pinnable
+// (CD-0216). A refusal writes nothing. A current required binding and a
+// non-required stale binding each record exactly one pin.
+func TestResearchRelianceRefusesUnprovableBindingsAndPinsProvableOnes(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openTemp(t)
+	seedResearchWork(t, s, "owner", "retired-owner", "consumer")
+	current := createSimplePack(t, s, "reliance-current", "owner")
+	stale := createSimplePack(t, s, "reliance-stale", "owner")
+	if err := SetResearchFreshness(ctx, s, SetResearchFreshnessRequest{Identity: researchIdentity("reliance-stale-set"), PackID: stale.PackID, ExpectedVersion: 1, Freshness: ResearchStale}); err != nil {
+		t.Fatal(err)
+	}
+	retained := createSimplePack(t, s, "reliance-retained", "retired-owner")
+	terminalizeResearchOwner(t, s, "retired-owner")
+	now := time.Date(2026, 9, 9, 0, 0, 0, 0, time.UTC)
+	for _, tc := range []struct {
+		name        string
+		declaration ResearchBindingDeclaration
+		refusal     FailureKind
+		detail      string
+	}{
+		{"missing pack", ResearchBindingDeclaration{PackID: "no-such-pack", Revision: 1, UseRole: UseDecisionBasis, Required: true}, KindProjectionNotFound, ""},
+		{"missing revision", ResearchBindingDeclaration{PackID: current.PackID, Revision: 2, UseRole: UseDecisionBasis, Required: true}, KindProjectionNotFound, "declared research revision does not exist"},
+		{"required stale", ResearchBindingDeclaration{PackID: stale.PackID, Revision: 1, UseRole: UseDecisionBasis, Required: true}, KindResearchConsumerBlocked, ""},
+		{"required current", ResearchBindingDeclaration{PackID: current.PackID, Revision: 1, UseRole: UseDecisionBasis, Required: true}, "", ""},
+		{"optional stale", ResearchBindingDeclaration{PackID: stale.PackID, Revision: 1, UseRole: UseContext, Required: false}, "", ""},
+		{"retained terminal owner", ResearchBindingDeclaration{PackID: retained.PackID, Revision: 1, UseRole: UseDecisionBasis, Required: true}, "", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer tx.Rollback()
+			var beforeChanges, beforeVersion int64
+			if err := tx.QueryRowContext(ctx, `SELECT total_changes(), COALESCE((SELECT expected_version FROM active_research_packs WHERE pack_id=?),0)`, tc.declaration.PackID).Scan(&beforeChanges, &beforeVersion); err != nil {
+				t.Fatal(err)
+			}
+			err = BindResearchRelianceTx(ctx, tx, "consumer", []ResearchBindingDeclaration{tc.declaration}, now)
+			if tc.refusal != "" {
+				if err == nil {
+					t.Fatalf("binding %+v was admitted, want %s", tc.declaration, tc.refusal)
+				}
+				assertFailureKind(t, err, tc.refusal)
+				if tc.detail != "" {
+					var failure *Failure
+					if !errors.As(err, &failure) || failure.Detail != tc.detail {
+						t.Fatalf("binding error=%v, want detail %q", err, tc.detail)
+					}
+				}
+				var afterChanges, afterVersion int64
+				if err := tx.QueryRowContext(ctx, `SELECT total_changes(), COALESCE((SELECT expected_version FROM active_research_packs WHERE pack_id=?),0)`, tc.declaration.PackID).Scan(&afterChanges, &afterVersion); err != nil {
+					t.Fatal(err)
+				}
+				if afterVersion != beforeVersion || afterChanges != beforeChanges {
+					t.Fatalf("refused binding changed version %d -> %d or database changes %d -> %d", beforeVersion, afterVersion, beforeChanges, afterChanges)
+				}
+			} else if err != nil {
+				t.Fatalf("binding %+v was refused: %v", tc.declaration, err)
+			}
+			var pins int
+			if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM active_research_consumers WHERE consumer_work_id=?`, "consumer").Scan(&pins); err != nil {
+				t.Fatal(err)
+			}
+			want := 1
+			if tc.refusal != "" {
+				want = 0
+			}
+			if pins != want {
+				t.Fatalf("consumer pins=%d, want %d", pins, want)
 			}
 		})
 	}

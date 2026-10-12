@@ -7,12 +7,10 @@ import (
 	"testing"
 )
 
-// Issue #974: the "verdict evidence is not durably bound" refusal named no
-// ref, and no typed surface exposed the bound immutable_subject_ref set, so a
-// caller that cited a locator or another non-bound form had to read the raw
-// store to learn what qualifies. The refusal now names every unbound ref, and
-// the WorkPin exposes the bound set with kinds at steps that declare
-// record_verdict.
+// The "verdict evidence is not durably bound" refusal names every unbound
+// ref, and the WorkPin exposes the bound immutable_subject_ref set with kinds
+// at steps that declare record_verdict. A caller that cites a locator or
+// another non-bound form learns what qualifies without reading the raw store.
 
 // A verdict citing one bound ref and one unbound URL is refused with the URL
 // named and the qualifying form stated. The durable-binding requirement

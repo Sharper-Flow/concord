@@ -8,7 +8,7 @@ import { configureCoreBinary } from "./dispatch"
 import { dispatchWindows, staleReleaseDispatchRefusal, TASK_TOOL_ID } from "./dispatch-window"
 import { claimHostLease, configureHostLease, hostLeaseFault, releaseDisplayName, releaseStaleness, resolveInstalledReleaseRoot } from "./host-lease"
 import { armedClaimedWorktree, clearClaimedWorktree, resetClaimedWorktrees, unlandedClaimedWorktree } from "./claimed-worktree"
-import { validateGeneratedEnvelope, envelopeFailurePath } from "./generated-contract-tests"
+import { validateGeneratedEnvelope, envelopeFailurePath, expandedPublishedRequestSchema } from "./generated-contract-tests"
 import { hostControlPlane, SESSION_LIST_ROUTE, SESSION_MESSAGES_ROUTE, SESSION_ROUTE, type RouteResult } from "./move-session"
 import { adoptManifestDigest, resetManifestPinForTesting } from "./manifest-pin"
 import { resetMoveNotices, takeMoveNotice } from "./move-notice"
@@ -78,7 +78,7 @@ const hostCall = (operation: string, input: Record<string, unknown>) => ({ reque
 
 test("exports exactly the generated tool names", () => {
   const names = [...source.matchAll(/export const ([A-Za-z_][A-Za-z0-9_]*) = tool\(/g)].map((match) => match[1]).filter((name) => name !== "work_start")
-  expect(names).toEqual(["product_view", "work_browse", "work_trace", "knowledge", "work_define", "domain", "work_initiative", "work_transition", "work_relate", "work_compact"])
+  expect(names).toEqual(["product_view", "work_browse", "work_trace", "knowledge", "work_define", "domain", "work_transition", "work_relate", "work_compact"])
   expect(source).toContain("export const work_start = tool(")
   expect(new Set(contractOperations.map((operation: any) => operation.tool))).toEqual(new Set(names.map((name) => `concord_${name}`)))
 })
@@ -91,25 +91,33 @@ test("published tool arguments expose a host-safe request shape", async () => {
     concord_knowledge: adapter.knowledge,
     concord_work_define: adapter.work_define,
     concord_domain: adapter.domain,
-    concord_work_initiative: adapter.work_initiative,
     concord_work_transition: adapter.work_transition,
     concord_work_relate: adapter.work_relate,
     concord_work_compact: adapter.work_compact,
   } as const
+  const actionInput = (schema: any, actionId: string) => {
+    const expanded: any = expandedPublishedRequestSchema(schema)
+    const branch = expanded.oneOf.find((candidate: any) => candidate.properties.operation.const === "workflow_action" && candidate.properties.input.properties.action_id.const === actionId)
+    if (branch === undefined) throw new Error(`published schema carries no closed ${actionId} variant branch`)
+    return branch.properties.input
+  }
   for (const [toolName, exportedTool] of Object.entries(tools)) {
     expect(Object.keys((exportedTool as any).args), toolName).toEqual(["request"])
     const published = adapter.publishedRequestSchema(toolName) as any
     const expected = contractOperations.filter((item: any) => item.tool === toolName).map((item: any) => item.id.split(".")[1])
     expect(published.properties.operation.enum, toolName).toEqual(expected)
-    // The published input is one closed branch per operation, in contract
-    // order: the branch states the required set and the admitted fields the
-    // core enforces. No branch carries a sibling operation's fields.
+    // The published input is compact: the request parent keeps its
+    // type, required set, and closure, and the document carries its own
+    // local reference table that the expansion resolves.
     expect(published.properties.input.type, toolName).toBe("object")
-    const branches = published.oneOf
-    // One closed branch per operation — and for workflow_action, one closed
-    // branch per registry action variant. The published discriminator list is
-    // registry-derived: every operation keeps a branch, workflow_action keeps
-    // one per action, and no other operation gains a branch.
+    expect(published.$defs, toolName).toBeObject()
+    expect(() => expandedPublishedRequestSchema(published), toolName).not.toThrow()
+    // One compact branch per operation; the expanded view restores one
+    // closed branch per operation and per action variant, in contract order
+    // then registry action order. No branch carries a sibling operation's
+    // or action's fields.
+    expect(published.oneOf, toolName).toHaveLength(expected.length)
+    const branches = (expandedPublishedRequestSchema(published) as any).oneOf
     const variantActionIds = workflowActionPublicVariants.map((variant) => variant.action_id)
     const expectedBranchDiscriminators = expected.flatMap((operation: string) =>
       operation === "workflow_action" && toolName === "concord_work_transition"
@@ -138,25 +146,28 @@ test("published tool arguments expose a host-safe request shape", async () => {
     expect(JSON.stringify(published), toolName).not.toContain("~standard")
     expect(JSON.stringify(published), toolName).not.toContain('"def"')
     expect(JSON.stringify(published), toolName).not.toContain("#/properties/request/definitions/")
+    // Publication emits closed authored shapes, never the shared allOf or
+    // if-then conditional form: the core keeps consuming that form, and a
+    // published input carrying allOf or if is the merge fault back again.
+    // Authored bounded unions (outcome_payload variants, the resolve
+    // product/project selector oneOf) survive as-is.
+    expect(JSON.stringify(published), toolName).not.toContain('"allOf"')
     for (const branch of branches) {
-      // Publication emits closed authored shapes, never the shared
-      // allOf/if-then conditional form: the core keeps consuming that form,
-      // and a published input carrying allOf or if is the merge fault back
-      // again. Authored bounded unions (outcome_payload variants, the
-      // resolve product/project selector oneOf) survive as-is.
       const inputJson = JSON.stringify(branch.properties.input)
       expect(inputJson, toolName).not.toContain('"allOf"')
       expect(inputJson, toolName).not.toContain('"if"')
     }
   }
   const published = adapter.publishedRequestSchema("concord_work_define") as any
-  const captureInput = published.oneOf[0].properties.input
+  const expandedDefine: any = expandedPublishedRequestSchema(published)
+  const captureBranch = expandedDefine.oneOf.find((candidate: any) => candidate.properties.operation.const === "capture")
+  const captureInput = captureBranch.properties.input
   expect(captureInput.required).toEqual(["title", "value_statement", "kind", "project_ids", "idempotency_key"])
   expect(captureInput.properties.urgency.enum).toEqual(["standard", "expedite"])
   const transition = adapter.publishedRequestSchema("concord_work_transition") as any
   // Select the approve_contract variant by its action_id const: it is the
   // variant whose fields carry the outcome_predicates admission rules.
-  const actionBranch = transition.oneOf.find((branch: any) => branch.properties.operation.const === "workflow_action" && branch.properties.input.properties.action_id.const === "approve_contract").properties.input
+  const actionBranch = actionInput(transition, "approve_contract")
   // CON-412: the items close per kind; each branch binds outcome_kind to
   // outcome_payload.kind and carries that branch's payload inline.
   const itemVariants = actionBranch.properties.fields.properties.outcome_predicates.items.oneOf
@@ -196,6 +207,43 @@ test("published tool arguments expose a host-safe request shape", async () => {
   expect(publishedWorkStart.then).toEqual(generatedResume)
 })
 
+test("work define publishes the record-only issue identity contract", () => {
+  const published = adapter.publishedRequestSchema("concord_work_define") as any
+  expect(published.properties.operation.enum).toContain("issue_link_record")
+  expect(published.properties.operation.enum).not.toContain("issue_adopt")
+  const branch = published.oneOf.find((item: any) => item.properties.operation.const === "issue_link_record")
+  const input = branch.properties.input
+  expect(input.required).toEqual(["work_id", "human_key", "remote_issue_uuid", "url", "idempotency_key"])
+  expect(input.additionalProperties).toBe(false)
+  expect(Object.keys(input.properties).sort()).toEqual(["approval", "human_key", "idempotency_key", "remote_issue_uuid", "requested_budget_seconds", "url", "work_id"])
+  expect(input.properties.human_key).toEqual(payloadSchemas.work_define_issue_link_record_input.properties.human_key)
+  expect(input.properties.url).toEqual(payloadSchemas.work_define_issue_link_record_input.properties.url)
+})
+
+test("issue link record forwards the recorded key UUID and URL unchanged", async () => {
+  const input = {
+    work_id: "work-1",
+    human_key: "EX-3",
+    remote_issue_uuid: "cccccccc-0000-0000-0000-000000000003",
+    url: "https://linear.app/example/issue/EX-3",
+    idempotency_key: "link-record-1",
+  }
+  const invokes: any[] = []
+  adapter.configureConcordAdapter({ runner: runnerWithContext((_argv: string[], stdin: string) => {
+    invokes.push(JSON.parse(stdin))
+    return coreEnvelope("concord_work_define", "issue_link_record", "ok", {
+      changed_refs: [], next_valid_intents: [],
+      result: { changed_refs: [], next_valid_intents: [] },
+    })
+  }) })
+  const result: any = await rawHostResult(adapter.work_define.execute(hostCall("issue_link_record", input), contextFor()))
+  expect(validateGeneratedEnvelope(result), JSON.stringify(result)).toBe(true)
+  expect(result.outcome).toBe("ok")
+  expect(result.origin).toBe("core")
+  expect(invokes).toHaveLength(1)
+  expect(invokes[0]).toMatchObject({ tool: "concord_work_define", operation: "issue_link_record", input })
+})
+
 test("published tool schemas type every enum node", () => {
   // Moonshot's flavored tool-schema validator refuses enum nodes without an
   // explicit type, so the published surface must type each one.
@@ -212,7 +260,7 @@ test("published tool schemas type every enum node", () => {
       walk(item, `${path}.${key}`, seen)
     }
   }
-  for (const toolName of ["concord_product_view", "concord_work_browse", "concord_work_trace", "concord_knowledge", "concord_work_define", "concord_domain", "concord_work_initiative", "concord_work_transition", "concord_work_relate", "concord_work_compact"]) {
+  for (const toolName of ["concord_product_view", "concord_work_browse", "concord_work_trace", "concord_knowledge", "concord_work_define", "concord_domain", "concord_work_transition", "concord_work_relate", "concord_work_compact"]) {
     walk(adapter.publishedRequestSchema(toolName), toolName, new Set())
   }
   const workStartDefinition = { description: "", parameters: {}, jsonSchema: undefined as unknown }
@@ -229,7 +277,6 @@ test("all exported tools return one serialized Concord envelope", async () => {
     ["concord_knowledge", adapter.knowledge],
     ["concord_work_define", adapter.work_define],
     ["concord_domain", adapter.domain],
-    ["concord_work_initiative", adapter.work_initiative],
     ["concord_work_transition", adapter.work_transition],
     ["concord_work_relate", adapter.work_relate],
     ["concord_work_compact", adapter.work_compact],
@@ -249,6 +296,48 @@ test("all exported tools return one serialized Concord envelope", async () => {
     expect(validateGeneratedEnvelope(envelope), `${toolName} returned invalid envelope: ${hostResult.output}`).toBe(true)
     expect(envelope.tool).toBe(toolName)
   }
+})
+
+test("request-wrapped tools refuse a missing request wrapper before any host effect", async () => {
+  const tools = { product_view: adapter.product_view, work_browse: adapter.work_browse, work_trace: adapter.work_trace, knowledge: adapter.knowledge, work_define: adapter.work_define, domain: adapter.domain, work_transition: adapter.work_transition, work_relate: adapter.work_relate, work_compact: adapter.work_compact }
+  let calls = 0
+  adapter.configureConcordAdapter({ runner: { run: async () => { calls++; throw new Error("must not run") } } })
+  for (const [name, exportedTool] of Object.entries(tools)) {
+    const toolName = `concord_${name}`
+    const operation = contractOperations.find((candidate) => candidate.tool === toolName)!.id.split(".")[1]
+    for (const args of [{ operation, input: {} }, { operation, request: null }, { operation, request: [] }, {}, { request: null }, { request: [] }, { request: "invalid" }, { operation: "unknown" }, { operation: "x".repeat(65536) }, { operation: 1 }]) {
+      const result: any = await exportedTool.execute(args as any, contextFor())
+      const envelope = JSON.parse(result.output)
+      expect(envelope.error).toMatchObject({ kind: "invalid_input", effect_state: "none", retry_safe: false, recovery_action: { kind: "restart_query" } })
+      expect(envelope.error.message).toContain("request wrapper")
+      expect(envelope.tool).toBe(toolName)
+      expect(envelope.operation).toBe("operation" in args && args.operation === operation ? operation : "")
+      expect(validateGeneratedEnvelope(envelope), result.output).toBe(true)
+      if (envelope.operation === "") {
+        expect(envelope.query_id).toBeUndefined()
+        expect(validateGeneratedEnvelope({ ...envelope, origin: "core" })).toBe(false)
+        expect(validateGeneratedEnvelope({ ...envelope, query_id: "PM1.Q1" })).toBe(false)
+      }
+      for (const error of [{ kind: "transport_failure", recovery_action: { kind: "contact_operator" } }, { adapter_reason: "missing_binary" }, { effect_state: "possible" }, { retry_safe: true }, { recovery_action: { kind: "retry_same_request" } }]) {
+        expect(validateGeneratedEnvelope({ ...envelope, error: { ...envelope.error, ...error } })).toBe(false)
+      }
+    }
+  }
+  expect(calls).toBe(0)
+})
+
+test("a missing wrapper refusal carries the stale-release notice without a host effect", async () => {
+  await withReleaseLayout("v11.40.6", async () => {
+    let calls = 0
+    adapter.configureConcordAdapter({ runner: { run: async () => { calls++; throw new Error("must not run") } } })
+    const result: any = await adapter.work_browse.execute({ operation: "list", input: {} } as any, contextFor())
+    const envelope = JSON.parse(result.output)
+    expect(envelope.error).toMatchObject({ kind: "invalid_input", effect_state: "none", retry_safe: false, recovery_action: { kind: "restart_query" } })
+    expect(envelope.warnings).toHaveLength(1)
+    expect(envelope.warnings[0]).toMatchObject({ kind: "release_stale", source_id: "adapter", details: { pinned_release: "v11.40.3", installed_release: "v11.40.6", remedy: "restart this session to load the installed release" } })
+    expect(validateGeneratedEnvelope(envelope), result.output).toBe(true)
+    expect(calls).toBe(0)
+  })
 })
 
 test("request-wrapped tools accept the Code Mode double-wrapped argument shape", async () => {
@@ -465,17 +554,35 @@ test("a same-generation malformed response is still malformed_core_response", as
   expect(result.error.recovery_action.kind).toBe("retry_same_request")
 })
 
-// A read failure must never report a possible effect or a reconcile
-// recovery. entries is a read on a mutation-bearing tool, the shape where
-// that distinction is easiest to lose.
-test("a failed entries read never reports a possible effect", async () => {
+// A read failure on a mutation-bearing tool must never report a possible
+// effect or a reconcile recovery.
+test("a failed domain list read never reports a possible effect", async () => {
   adapter.configureConcordAdapter({ runner: runnerWithContext({ exitCode: 1, stdout: "", stderr: "core marshal failure" }) })
-  const result: any = await rawHostResult(adapter.work_initiative.execute(hostCall("entries", { initiative_work_id: "work-1" }), contextFor()))
+  const result: any = await rawHostResult(adapter.domain.execute(hostCall("list", { product_id: "product-1" }), contextFor()))
   assertAdapterEnvelope(result)
   expect(result.error.kind).toBe("transport_failure")
   expect(result.error.adapter_reason).toBe("io_failure")
   expect(result.error.effect_state).toBe("none")
   expect(result.error.recovery_action.kind).toBe("retry_same_request")
+})
+
+test("typed CLI input refusals report invalid_input and no effect", async () => {
+  for (const [tool, operation] of [[adapter.work_define, "capture"], [adapter.domain, "list"]] as const) {
+    adapter.configureConcordAdapter({ runner: runnerWithContext({ exitCode: 64, stdout: "", stderr: "concord invoke: missing required field input" }) })
+    const result: any = await rawHostResult(tool.execute(hostCall(operation, {}), contextFor()))
+    assertAdapterEnvelope(result)
+    expect(result.error).toMatchObject({ kind: "invalid_input", effect_state: "none", retry_safe: false, recovery_action: { kind: "restart_query" } })
+    expect(result.error.message).toContain("missing required field input")
+  }
+})
+
+test("validation text without the typed CLI signal cannot erase a possible effect", async () => {
+  for (const response of [{ exitCode: 1, stdout: "", stderr: "missing required field input" }, ...["not-json", "\n", " \t"].map((stdout) => ({ exitCode: 64, stdout, stderr: "missing required field input" }))]) {
+    adapter.configureConcordAdapter({ runner: runnerWithContext(response) })
+    const result: any = await rawHostResult(adapter.work_define.execute(hostCall("capture", {}), contextFor()))
+    expect(result.error.effect_state).toBe("possible")
+    expect(result.error.kind).not.toBe("invalid_input")
+  }
 })
 
 test("unknown-effect mutation errors do not expose failed response data", async () => {
@@ -1036,7 +1143,8 @@ test("host publication round-trips check predicate payloads unchanged", async ()
     },
   }
   const published: any = adapter.publishedRequestSchema("concord_work_transition")
-  const actionBranch: any = published.oneOf.find((branch: any) => branch.properties.operation.const === "workflow_action" && branch.properties.input.properties.action_id.const === "approve_contract").properties.input
+  const expandedPublished: any = expandedPublishedRequestSchema(published)
+  const actionBranch: any = expandedPublished.oneOf.find((branch: any) => branch.properties.operation.const === "workflow_action" && branch.properties.input.properties.action_id.const === "approve_contract").properties.input
   // CON-412: the items close per kind; each branch binds outcome_kind to
   // outcome_payload.kind and carries that branch's payload inline.
   const itemVariants = actionBranch.properties.fields.properties.outcome_predicates.items.oneOf
@@ -1053,32 +1161,37 @@ test("host publication round-trips check predicate payloads unchanged", async ()
   expect(sentInput).toEqual(input)
 })
 
-test("predicate host-round-trip asks and resubmits the exact restore challenge once", async () => {
+test("approval host-round-trip asks and resubmits the exact resolve challenge once", async () => {
   const input = {
-    predecessor_id: "work-a",
-    predecessor_expected_version: 3,
-    successor_id: "work-b",
-    successor_expected_version: 3,
-    reason: "restore superseded work",
-    idempotency_key: "restore-adapter-1",
+    from_work_id: "work-a",
+    to_work_id: "work-b",
+    from_expected_version: 3,
+    to_expected_version: 3,
+    from_contract_version: 1,
+    to_contract_version: 1,
+    resolution_kind: "supersedes",
+    reason: "replaced by the resolved item",
+    idempotency_key: "resolve-adapter-1",
   }
   const digest = `sha256:${"d".repeat(64)}`
-  const challenge = coreEnvelope("concord_work_relate", "restore_superseded", "error", {
+  const challenge = coreEnvelope("concord_work_relate", "resolve_overlap", "error", {
     error: {
       kind: "approval_required", retry_safe: false,
       recovery_action: { kind: "request_approval" }, effect_state: "none",
       consequence_summary: {
-        tool: "concord_work_relate", operation: "restore_superseded", consequence: "supersession",
+        tool: "concord_work_relate", operation: "resolve_overlap", consequence: "relation",
         operation_digest: digest,
         scope: ["product_id:product-a", "product_ids:product-a", "product_ids:product-b", "project_ids:ambient", "work_ids:work-a", "work_ids:work-b", "scope_version:1"],
-        versions: ["predecessor:3", "successor:3"], expires_at: "2026-09-14T12:10:00Z",
+        versions: ["from:3", "to:3"], expires_at: "2026-09-14T12:10:00Z",
       },
       details: {
         approval_ref: "e".repeat(64), operation_digest: digest,
+        summary: "resolve the overlap by superseding work-b with work-a",
+        resolution_kind: "supersedes", from_work_id: "work-a", to_work_id: "work-b",
       },
     },
   })
-  const success = coreEnvelope("concord_work_relate", "restore_superseded", "ok", {
+  const success = coreEnvelope("concord_work_relate", "resolve_overlap", "ok", {
     result: { changed_refs: [], next_valid_intents: [] },
     changed_refs: [],
     next_valid_intents: [],
@@ -1089,7 +1202,7 @@ test("predicate host-round-trip asks and resubmits the exact restore challenge o
     if (calls > 1) sentInputs.push(JSON.parse(raw).input)
     return calls === 2 ? challenge : success
   }) })
-  const result: any = await rawHostResult(adapter.work_relate.execute(hostCall("restore_superseded", input), contextFor(async () => { approvals++ })))
+  const result: any = await rawHostResult(adapter.work_relate.execute(hostCall("resolve_overlap", input), contextFor(async () => { approvals++ })))
   expect(result.outcome).toBe("ok")
   expect(approvals).toBe(1)
   expect(sentInputs).toEqual([input, { ...input, approval: { approval_ref: "e".repeat(64) } }])
@@ -1301,6 +1414,7 @@ test("worker recovery bounds a cooperative two-second host read with one caller 
     packet_digest: "sha256:" + "a".repeat(64), worker_worktree: directory,
     coordinator_session: "session-1", attempt_epoch: 1,
     dispatch_event_id: "original-dispatch", lifecycle_state: "dispatched",
+    packet_schema_version: "1.0", report_schema_version: "1.0",
     dispatch: {
       attempt_id: "attempt-1", lane_id: lane.id, lane_version: lane.version,
       lane_digest: lane.digest, packet_digest: "sha256:" + "a".repeat(64),
@@ -2759,78 +2873,68 @@ test("work start resume succeeds with a warning when the core refuses the landin
   expect(raw.output).toContain("replay work_start")
 })
 
-// The resume-time remote Linear check rides the work-resume result into the
-// envelope, so the resuming session sees remote drift before it acts. The
-// strict validator admits the exact section shape, keeps the envelope free
-// of the field when the core applied no remote check, and refuses anything
-// outside the contract.
-const linearRemoteOK = () => ({
-  authority: "ok" as const,
-  changed_since_recorded: true,
-  updated_at: "2026-09-28T12:00:00Z",
-  status: { expected: "state-in-progress", actual: "state-canceled", remote_state_type: "canceled", mismatch: true },
-  title: { remote: "Renamed by the coordinator", differs: true },
-  description: "New remote body",
-  description_truncated: false,
-  comments: { items: [{ author: "Dana", created_at: "2026-09-27T00:00:00Z", body: "Heads up" }], truncated: false },
+const recordedLinearIssue = () => ({
+  human_key: "EX-3",
+  remote_issue_uuid: "cccccccc-0000-0000-0000-000000000003",
+  url: "https://linear.app/example/issue/EX-3",
 })
 
-test("work start resume passes the linear_remote section through to the envelope", async () => {
+test("work start resume forwards the locally recorded linear_issue unchanged", async () => {
   bindRetargetRoute()
   const calls: RetargetCall[] = []
   adapter.configureConcordAdapter({ runner: resumeRunner(calls, {
-    "work-resume": () => ({ exitCode: 0, stdout: JSON.stringify({ ...resumeSuccess(), linear_remote: linearRemoteOK() }), stderr: "" }),
+    "work-resume": () => ({ exitCode: 0, stdout: JSON.stringify({ ...resumeSuccess(), linear_issue: recordedLinearIssue() }), stderr: "" }),
   }) })
   const result: any = await rawHostResult(adapter.work_start.execute({ work_id: "work-1" }, landedContextFor()))
   expect(result.outcome).toBe("ok")
-  expect(result.linear_remote).toEqual(linearRemoteOK())
-
-  const degradedCalls: RetargetCall[] = []
-  adapter.configureConcordAdapter({ runner: resumeRunner(degradedCalls, {
-    "work-resume": () => ({ exitCode: 0, stdout: JSON.stringify({ ...resumeSuccess(), linear_remote: { authority: "degraded", reason: "rate_limited" } }), stderr: "" }),
-  }) })
-  const degraded: any = await rawHostResult(adapter.work_start.execute({ work_id: "work-1" }, landedContextFor()))
-  expect(degraded.outcome).toBe("ok")
-  expect(degraded.linear_remote).toEqual({ authority: "degraded", reason: "rate_limited" })
-
-  // A linked item whose local state cannot be read degrades rather than
-  // dropping the section.
-  adapter.configureConcordAdapter({ runner: resumeRunner([], {
-    "work-resume": () => ({ exitCode: 0, stdout: JSON.stringify({ ...resumeSuccess(), linear_remote: { authority: "degraded", reason: "local_unavailable" } }), stderr: "" }),
-  }) })
-  const localDegraded: any = await rawHostResult(adapter.work_start.execute({ work_id: "work-1" }, landedContextFor()))
-  expect(localDegraded.outcome).toBe("ok")
-  expect(localDegraded.linear_remote).toEqual({ authority: "degraded", reason: "local_unavailable" })
-
-  // A resume that applied no remote check keeps the envelope free of the
-  // field, so unchanged resumes stay byte-identical.
-  const plainCalls: RetargetCall[] = []
-  adapter.configureConcordAdapter({ runner: resumeRunner(plainCalls) })
-  const plain: any = await rawHostResult(adapter.work_start.execute({ work_id: "work-1" }, landedContextFor()))
-  expect(plain.outcome).toBe("ok")
-  expect("linear_remote" in plain).toBe(false)
+  expect(result.linear_issue).toEqual(recordedLinearIssue())
+  expect(result.branch_freshness).toEqual(resumeSuccess().branch_freshness)
+  expect(calls.map(({ argv }) => argv[1])).toEqual(["project-resolve", "work-resume", "session-prepare", "claim-landing", "work-resume"])
 })
 
-test("work start resume refuses a malformed linear_remote section", async () => {
+test("work start resume omits linear_issue when no identity is recorded", async () => {
+  bindRetargetRoute()
+  adapter.configureConcordAdapter({ runner: resumeRunner([]) })
+  const result: any = await rawHostResult(adapter.work_start.execute({ work_id: "work-1" }, landedContextFor()))
+  expect(result.outcome).toBe("ok")
+  expect("linear_issue" in result).toBe(false)
+})
+
+test("work start resume refuses malformed recorded linear_issue before the move", async () => {
+  for (const linear_issue of [
+    null,
+    { human_key: "EX-3", url: recordedLinearIssue().url },
+    { ...recordedLinearIssue(), status: "in_progress" },
+    { ...recordedLinearIssue(), remote_issue_uuid: [] },
+    { ...recordedLinearIssue(), human_key: "invalid" },
+    { ...recordedLinearIssue(), url: "http://example.invalid/issue/EX-3" },
+  ]) {
+    bindRetargetRoute()
+    const calls: RetargetCall[] = []
+    adapter.configureConcordAdapter({ runner: resumeRunner(calls, {
+      "work-resume": () => ({ exitCode: 0, stdout: JSON.stringify({ ...resumeSuccess(), linear_issue }), stderr: "" }),
+    }) })
+    const result: any = await rawHostResult(adapter.work_start.execute({ work_id: "work-1" }, landedContextFor()))
+    expect(result.outcome, JSON.stringify(linear_issue)).toBe("error")
+    expect(result.error.kind).toBe("malformed_response")
+    expect(result.error.message).toContain("strict resume contract")
+    expect(calls.map(({ argv }) => argv[1])).toEqual(["project-resolve", "work-resume"])
+    expect(armedClaimedWorktree("session-1")).toBeNull()
+  }
+})
+
+test("work start resume refuses undeclared response sections before the move", async () => {
   bindRetargetRoute()
   const calls: RetargetCall[] = []
   adapter.configureConcordAdapter({ runner: resumeRunner(calls, {
-    "work-resume": () => ({ exitCode: 0, stdout: JSON.stringify({ ...resumeSuccess(), linear_remote: { authority: "ok", invented: true } }), stderr: "" }),
+    "work-resume": () => ({ exitCode: 0, stdout: JSON.stringify({ ...resumeSuccess(), unexpected_section: {} }), stderr: "" }),
   }) })
   const refused: any = await rawHostResult(adapter.work_start.execute({ work_id: "work-1" }, landedContextFor()))
   expect(refused.outcome).toBe("error")
   expect(refused.error.kind).toBe("malformed_response")
   expect(refused.error.message).toContain("strict resume contract")
-
-  // A degraded section may carry only its typed reason: a comparison field
-  // alongside it is outside the contract.
-  const shapeCalls: RetargetCall[] = []
-  adapter.configureConcordAdapter({ runner: resumeRunner(shapeCalls, {
-    "work-resume": () => ({ exitCode: 0, stdout: JSON.stringify({ ...resumeSuccess(), linear_remote: { authority: "degraded", reason: "timeout", status: {} } }), stderr: "" }),
-  }) })
-  const shaped: any = await rawHostResult(adapter.work_start.execute({ work_id: "work-1" }, landedContextFor()))
-  expect(shaped.outcome).toBe("error")
-  expect(shaped.error.kind).toBe("malformed_response")
+  expect(calls.map(({ argv }) => argv[1])).toEqual(["project-resolve", "work-resume"])
+  expect(armedClaimedWorktree("session-1")).toBeNull()
 })
 
 // The branch freshness sample rides the work-resume result into the envelope,

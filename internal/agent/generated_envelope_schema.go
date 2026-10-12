@@ -65,7 +65,45 @@ const GeneratedEnvelopeSchemaDocument = `{
     "base": {
       "allOf": [
         {
-          "$ref": "#/$defs/toolOperation"
+          "anyOf": [
+            {
+              "$ref": "#/$defs/toolOperation"
+            },
+            {
+              "not": {
+                "required": [
+                  "query_id"
+                ]
+              },
+              "properties": {
+                "error": {
+                  "properties": {
+                    "adapter_reason": {
+                      "const": "invalid_request_wrapper"
+                    }
+                  },
+                  "required": [
+                    "adapter_reason"
+                  ]
+                },
+                "operation": {
+                  "const": ""
+                },
+                "origin": {
+                  "const": "adapter"
+                },
+                "outcome": {
+                  "const": "error"
+                }
+              },
+              "required": [
+                "origin",
+                "outcome",
+                "operation",
+                "error"
+              ]
+            }
+          ]
         },
         {
           "if": {
@@ -205,42 +243,33 @@ const GeneratedEnvelopeSchemaDocument = `{
         },
         "operation": {
           "enum": [
-            "active_work",
-            "add_entry",
+            "",
             "attachments",
             "blocked",
             "blocked_sessions",
             "capture",
-            "change_requiredness",
             "client_policy_grant_request",
             "continuity",
-            "create",
             "detail",
-            "entries",
             "external_observations",
             "history",
-            "issue_adopt",
-            "lesson_publish",
+            "issue_link_record",
             "lifecycle",
-            "link",
             "list",
             "message_send",
             "message_withdraw",
             "messages",
-            "observation_dismiss",
             "observation_record",
             "observations",
             "overlaps",
-            "portfolio",
             "publish",
             "ready",
             "reconcile",
             "relations",
-            "remove_entry",
-            "reorder_entry",
             "research",
             "research_finding_record",
             "research_freshness_set",
+            "research_retire",
             "research_pack_create",
             "research_revision_append",
             "research_source_record",
@@ -251,16 +280,11 @@ const GeneratedEnvelopeSchemaDocument = `{
             "resource_claims",
             "resource_release",
             "resources",
-            "restore_superseded",
             "revise_intent",
-            "revise_narrative",
             "scope",
             "search",
             "set_memberships",
             "snapshot",
-            "supersede",
-            "unlink",
-            "unprocessed",
             "remove",
             "workflow_action",
             "correct_delivery",
@@ -309,7 +333,7 @@ const GeneratedEnvelopeSchemaDocument = `{
           "type": "string"
         },
         "query_id": {
-          "pattern": "^(PM1\\.Q(1[0-6]|[1-9])|CD-0030\\.R1|CD-0040\\.R1|CD-0096\\.R1|CD-0182\\.R1|C14\\.ProductRows|C15\\.Resources|C19\\.Continuity|C21\\.InitiativeEntries|C22\\.Domain(List|Detail|ActiveWork|Attachments|Overlaps))$",
+          "pattern": "^(PM1\\.Q(1[0-46]|[1-9])|CD-0030\\.R1|CD-0040\\.R1|CD-0096\\.R1|CD-0182\\.R1|C15\\.Resources|C19\\.Continuity|C22\\.Domain(List|Detail|Attachments|Overlaps))$",
           "type": "string"
         },
         "replayed": {
@@ -408,7 +432,6 @@ const GeneratedEnvelopeSchemaDocument = `{
             "concord_knowledge",
             "concord_work_define",
             "concord_domain",
-            "concord_work_initiative",
             "concord_work_transition",
             "concord_work_relate",
             "concord_work_compact"
@@ -534,6 +557,88 @@ const GeneratedEnvelopeSchemaDocument = `{
     "errorOutcome": {
       "allOf": [
         {
+          "if": {
+            "properties": {
+              "error": {
+                "anyOf": [
+                  {
+                    "properties": {
+                      "kind": {
+                        "const": "invalid_input"
+                      }
+                    },
+                    "required": [
+                      "kind"
+                    ]
+                  },
+                  {
+                    "properties": {
+                      "adapter_reason": {
+                        "enum": [
+                          "invalid_request_wrapper",
+                          "invalid_cli_input"
+                        ],
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "adapter_reason"
+                    ]
+                  }
+                ]
+              },
+              "origin": {
+                "const": "adapter"
+              }
+            },
+            "required": [
+              "origin",
+              "error"
+            ]
+          },
+          "then": {
+            "properties": {
+              "error": {
+                "properties": {
+                  "adapter_reason": {
+                    "enum": [
+                      "invalid_request_wrapper",
+                      "invalid_cli_input"
+                    ],
+                    "type": "string"
+                  },
+                  "effect_state": {
+                    "const": "none"
+                  },
+                  "kind": {
+                    "const": "invalid_input"
+                  },
+                  "recovery_action": {
+                    "properties": {
+                      "kind": {
+                        "const": "restart_query"
+                      }
+                    },
+                    "required": [
+                      "kind"
+                    ]
+                  },
+                  "retry_safe": {
+                    "const": false
+                  }
+                },
+                "required": [
+                  "kind",
+                  "adapter_reason",
+                  "effect_state",
+                  "retry_safe",
+                  "recovery_action"
+                ]
+              }
+            }
+          }
+        },
+        {
           "$ref": "#/$defs/base"
         },
         {
@@ -595,7 +700,8 @@ const GeneratedEnvelopeSchemaDocument = `{
                       "timeout",
                       "cancelled",
                       "operation_conflict",
-                      "unauthorized"
+                      "unauthorized",
+                      "invalid_input"
                     ],
                     "type": "string"
                   }
@@ -824,42 +930,32 @@ const GeneratedEnvelopeSchemaDocument = `{
         },
         "operation": {
           "enum": [
-            "active_work",
-            "add_entry",
             "attachments",
             "blocked",
             "blocked_sessions",
             "capture",
-            "change_requiredness",
             "client_policy_grant_request",
             "continuity",
-            "create",
             "detail",
-            "entries",
             "external_observations",
             "history",
-            "issue_adopt",
-            "lesson_publish",
+            "issue_link_record",
             "lifecycle",
-            "link",
             "list",
             "message_send",
             "message_withdraw",
             "messages",
-            "observation_dismiss",
             "observation_record",
             "observations",
             "overlaps",
-            "portfolio",
             "publish",
             "ready",
             "reconcile",
             "relations",
-            "remove_entry",
-            "reorder_entry",
             "research",
             "research_finding_record",
             "research_freshness_set",
+            "research_retire",
             "research_pack_create",
             "research_revision_append",
             "research_source_record",
@@ -870,16 +966,11 @@ const GeneratedEnvelopeSchemaDocument = `{
             "resource_claims",
             "resource_release",
             "resources",
-            "restore_superseded",
             "revise_intent",
-            "revise_narrative",
             "scope",
             "search",
             "set_memberships",
             "snapshot",
-            "supersede",
-            "unlink",
-            "unprocessed",
             "remove",
             "workflow_action",
             "correct_delivery",
@@ -903,7 +994,7 @@ const GeneratedEnvelopeSchemaDocument = `{
           "type": "string"
         },
         "query_id": {
-          "pattern": "^(PM1\\.Q(1[0-6]|[1-9])|CD-0030\\.R1|CD-0040\\.R1|CD-0096\\.R1|CD-0182\\.R1|C14\\.ProductRows|C15\\.Resources|C19\\.Continuity|C21\\.InitiativeEntries|C22\\.Domain(List|Detail|ActiveWork|Attachments|Overlaps))$",
+          "pattern": "^(PM1\\.Q(1[0-46]|[1-9])|CD-0030\\.R1|CD-0040\\.R1|CD-0096\\.R1|CD-0182\\.R1|C15\\.Resources|C19\\.Continuity|C22\\.Domain(List|Detail|Attachments|Overlaps))$",
           "type": "string"
         },
         "reason_code": {
@@ -929,7 +1020,6 @@ const GeneratedEnvelopeSchemaDocument = `{
             "concord_knowledge",
             "concord_work_define",
             "concord_domain",
-            "concord_work_initiative",
             "concord_work_transition",
             "concord_work_relate",
             "concord_work_compact"
@@ -993,10 +1083,11 @@ const GeneratedEnvelopeSchemaDocument = `{
                   "operation": {
                     "enum": [
                       "capture",
-                      "issue_adopt",
+                      "issue_link_record",
                       "observation_record",
                       "research_finding_record",
                       "research_freshness_set",
+                      "research_retire",
                       "research_pack_create",
                       "research_revision_append",
                       "research_source_record",
@@ -1006,43 +1097,6 @@ const GeneratedEnvelopeSchemaDocument = `{
                   },
                   "tool": {
                     "const": "concord_work_define",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "tool",
-                  "operation"
-                ]
-              },
-              "then": {
-                "not": {
-                  "required": [
-                    "items"
-                  ]
-                },
-                "required": [
-                  "result",
-                  "changed_refs",
-                  "next_valid_intents"
-                ]
-              }
-            },
-            {
-              "if": {
-                "properties": {
-                  "operation": {
-                    "enum": [
-                      "add_entry",
-                      "change_requiredness",
-                      "create",
-                      "remove_entry",
-                      "reorder_entry",
-                      "revise_narrative"
-                    ],
-                    "type": "string"
-                  },
-                  "tool": {
-                    "const": "concord_work_initiative",
                     "type": "string"
                   }
                 },
@@ -1117,17 +1171,13 @@ const GeneratedEnvelopeSchemaDocument = `{
                   "operation": {
                     "enum": [
                       "client_policy_grant_request",
-                      "link",
                       "message_send",
                       "message_withdraw",
                       "product_project_add",
                       "resource_claim",
                       "resource_release",
                       "resolve_overlap",
-                      "restore_superseded",
-                      "set_memberships",
-                      "supersede",
-                      "unlink"
+                      "set_memberships"
                     ],
                     "type": "string"
                   },
@@ -1159,7 +1209,6 @@ const GeneratedEnvelopeSchemaDocument = `{
                 "properties": {
                   "operation": {
                     "enum": [
-                      "lesson_publish",
                       "publish",
                       "reconcile"
                     ],
@@ -1167,39 +1216,6 @@ const GeneratedEnvelopeSchemaDocument = `{
                   },
                   "tool": {
                     "const": "concord_work_compact",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "tool",
-                  "operation"
-                ]
-              },
-              "then": {
-                "not": {
-                  "required": [
-                    "items"
-                  ]
-                },
-                "required": [
-                  "result",
-                  "changed_refs",
-                  "next_valid_intents"
-                ]
-              }
-            },
-            {
-              "if": {
-                "properties": {
-                  "operation": {
-                    "enum": [
-                      "observation_dismiss",
-                      "observation_record"
-                    ],
-                    "type": "string"
-                  },
-                  "tool": {
-                    "const": "concord_domain",
                     "type": "string"
                   }
                 },
@@ -1277,6 +1293,29 @@ const GeneratedEnvelopeSchemaDocument = `{
             "outcome"
           ],
           "type": "object"
+        },
+        {
+          "if": {
+            "required": [
+              "query_id"
+            ]
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "changed_refs"
+                  ]
+                },
+                {
+                  "required": [
+                    "next_valid_intents"
+                  ]
+                }
+              ]
+            }
+          }
         }
       ],
       "unevaluatedProperties": false
@@ -1551,24 +1590,6 @@ const GeneratedEnvelopeSchemaDocument = `{
         {
           "properties": {
             "operation": {
-              "const": "active_work"
-            },
-            "query_id": {
-              "const": "C22.DomainActiveWork"
-            },
-            "tool": {
-              "const": "concord_domain"
-            }
-          },
-          "required": [
-            "tool",
-            "operation",
-            "query_id"
-          ]
-        },
-        {
-          "properties": {
-            "operation": {
               "const": "attachments"
             },
             "query_id": {
@@ -1600,29 +1621,6 @@ const GeneratedEnvelopeSchemaDocument = `{
             "tool",
             "operation",
             "query_id"
-          ]
-        },
-        {
-          "not": {
-            "required": [
-              "query_id"
-            ]
-          },
-          "properties": {
-            "operation": {
-              "enum": [
-                "observation_record",
-                "observation_dismiss"
-              ],
-              "type": "string"
-            },
-            "tool": {
-              "const": "concord_domain"
-            }
-          },
-          "required": [
-            "tool",
-            "operation"
           ]
         },
         {
@@ -1929,8 +1927,9 @@ const GeneratedEnvelopeSchemaDocument = `{
                 "research_finding_record",
                 "research_source_record",
                 "research_freshness_set",
+                "research_retire",
                 "observation_record",
-                "issue_adopt"
+                "issue_link_record"
               ],
               "type": "string"
             },
@@ -1941,51 +1940,6 @@ const GeneratedEnvelopeSchemaDocument = `{
           "required": [
             "tool",
             "operation"
-          ]
-        },
-        {
-          "not": {
-            "required": [
-              "query_id"
-            ]
-          },
-          "properties": {
-            "operation": {
-              "enum": [
-                "create",
-                "add_entry",
-                "remove_entry",
-                "reorder_entry",
-                "change_requiredness",
-                "revise_narrative"
-              ],
-              "type": "string"
-            },
-            "tool": {
-              "const": "concord_work_initiative"
-            }
-          },
-          "required": [
-            "tool",
-            "operation"
-          ]
-        },
-        {
-          "properties": {
-            "operation": {
-              "const": "entries"
-            },
-            "query_id": {
-              "const": "C21.InitiativeEntries"
-            },
-            "tool": {
-              "const": "concord_work_initiative"
-            }
-          },
-          "required": [
-            "tool",
-            "operation",
-            "query_id"
           ]
         },
         {
@@ -2035,10 +1989,6 @@ const GeneratedEnvelopeSchemaDocument = `{
             "operation": {
               "enum": [
                 "set_memberships",
-                "link",
-                "unlink",
-                "supersede",
-                "restore_superseded",
                 "resolve_overlap",
                 "resource_claim",
                 "resource_release",
@@ -2068,8 +2018,7 @@ const GeneratedEnvelopeSchemaDocument = `{
             "operation": {
               "enum": [
                 "publish",
-                "reconcile",
-                "lesson_publish"
+                "reconcile"
               ],
               "type": "string"
             },
@@ -2080,24 +2029,6 @@ const GeneratedEnvelopeSchemaDocument = `{
           "required": [
             "tool",
             "operation"
-          ]
-        },
-        {
-          "properties": {
-            "operation": {
-              "const": "portfolio"
-            },
-            "query_id": {
-              "const": "C14.ProductRows"
-            },
-            "tool": {
-              "const": "concord_product_view"
-            }
-          },
-          "required": [
-            "tool",
-            "operation",
-            "query_id"
           ]
         },
         {
@@ -2164,24 +2095,6 @@ const GeneratedEnvelopeSchemaDocument = `{
             },
             "tool": {
               "const": "concord_work_trace"
-            }
-          },
-          "required": [
-            "tool",
-            "operation",
-            "query_id"
-          ]
-        },
-        {
-          "properties": {
-            "operation": {
-              "const": "unprocessed"
-            },
-            "query_id": {
-              "const": "PM1.Q15"
-            },
-            "tool": {
-              "const": "concord_knowledge"
             }
           },
           "required": [
@@ -2660,7 +2573,9 @@ const GeneratedEnvelopeSchemaDocument = `{
             "session_directory_unreadable",
             "worker_abandon_refused",
             "worker_abandon_receipt_failed",
-            "lane_tool_refusal"
+            "lane_tool_refusal",
+            "invalid_cli_input",
+            "invalid_request_wrapper"
           ],
           "type": "string"
         },
@@ -3103,7 +3018,7 @@ const GeneratedEnvelopeSchemaDocument = `{
           "type": "object"
         },
         "supported_budget_seconds": {
-          "description": "CD-0038 D3: the operation's declared seconds ceiling, typed on every budget_refused error so the recovery value a caller needs is never buried in details. Carried on no other kind. The maximum tracks the agent-tool-surface ceiling (CD-0038 D2 evidence-fixed exceptions; CON-317 fixes worktree_verify at 1800).",
+          "description": "CD-0038 D3: the operation's declared seconds ceiling, typed on every budget_refused error so the recovery value a caller needs is never buried in details. Carried on no other kind. The maximum tracks the agent-tool-surface ceiling (CD-0038 D2 evidence-fixed exceptions; worktree_verify is fixed at 1800).",
           "maximum": 1800,
           "minimum": 1,
           "type": "integer"

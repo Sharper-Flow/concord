@@ -1,7 +1,7 @@
 # Concord Specs-as-Laws: Conflict Surfacing & Evolution
 
 > **Status:** Aligned v2 under CD-0006, CD-0015, CD-0035, CD-0036, and
-> CD-0041. Those accepted decisions are binding; this companion explains them.
+> CD-0222. Those accepted decisions are binding; this companion explains them.
 > **Purpose:** How Concord makes pruned, architecture-bound specifications its
 > primary Product deliverable while preserving human legislative authority and
 > preventing silent scope cuts or contradictory concurrent work.
@@ -119,7 +119,7 @@ CD-0036 separates compatible amendment from breaking replacement:
 This rule removes the overwrite-or-replace guess from workflow authority. The
 operator's Git delta declares the answer, and Concord enforces its consequence.
 
-CD-0041 makes Product law architecture-bound and primary:
+CD-0222 makes Product law architecture-bound and primary:
 
 - every current specification and decision has exactly one home Domain;
 - every Product-changing work contract names one home Domain, all affected
@@ -168,8 +168,8 @@ record public lesson evidence only.
 ## 8. Implementation state
 
 CD-0035 capture-time governing-requirement enforcement and CD-0036 breaking-law
-cutovers are implemented. CD-0041 is accepted constitutional law, but its Domain
-identity, architecture-bound contract, overlap-resolution, Initiative migration,
+cutovers are implemented. CD-0222 is accepted constitutional law, but its Domain
+identity, architecture-bound contract, overlap-resolution,
 and read-surface mechanisms remain follow-up implementation work. Issue #192 does
 not claim those runtime outcomes are complete.
 
@@ -183,7 +183,7 @@ not claim those runtime outcomes are complete.
 | [`specs-as-laws.md`](./specs-as-laws.md) §2 | The guiding principle: specs are laws, the user is the legislator. |
 | [`decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md`](./decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md) | **Accepted CD-0012** — the counterpart direction. This document governs scope **contraction** under spec-law pressure; CD-0012 governs outcome **substitution and dilution**, reusing this document's three-option flow and audit shape. Nothing in this document is altered by it. |
 | [`decisions/CD-0036-breaking-law-cutovers.md`](./decisions/CD-0036-breaking-law-cutovers.md) | **Accepted CD-0036** — exact revision pins, compatible same-ID amendments, and strict quiescence on law supersession. |
-| [`decisions/CD-0041-architecture-bound-product-law.md`](./decisions/CD-0041-architecture-bound-product-law.md) | **Accepted CD-0041** — Domain-owned law, architecture-bound work contracts, concurrent-overlap resolution, Initiative's secondary role, and retained SQLite authority. |
+| [`decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md`](./decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md) | **Accepted CD-0222** — Domain-owned law, architecture-bound work contracts, concurrent-overlap resolution, and retained SQLite execution authority. CD-0213 places business grouping in Linear. |
 
 ---
 

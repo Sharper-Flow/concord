@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"unicode"
 )
 
 // WorkKind identifies a work class in the code-owned v1 workflow-definition
@@ -372,7 +373,7 @@ func (r *workflowDefinitionRegistry) Verify(ref string, version int64, digest st
 	if !ok {
 		return definitionFailure(KindDefinitionDigestMismatch, "pinned workflow definition is not registered")
 	}
-	computed, err := WorkflowDefinitionDigest(entry.Definition)
+	computed, err := workflowDefinitionDigestWithReference(entry.Definition, replayValidReference)
 	if err != nil {
 		return err
 	}
@@ -406,6 +407,10 @@ func validWorkflowID(value string) bool  { return workflowIDPattern.MatchString(
 func validWorkflowRef(value string) bool { return workflowRefPattern.MatchString(value) }
 
 func ValidateWorkflowDefinition(definition WorkflowDefinition) error {
+	return validateWorkflowDefinitionWithReference(definition, ValidReference)
+}
+
+func validateWorkflowDefinitionWithReference(definition WorkflowDefinition, validReference func(string) bool) error {
 	if !validWorkflowRef(definition.Ref) || definition.Version < 1 || definition.Version > 2147483647 || !validWorkKind(definition.WorkKind) {
 		return definitionFailure(KindInvalidDefinition, "definition identity or work kind is invalid")
 	}
@@ -504,7 +509,7 @@ func ValidateWorkflowDefinition(definition WorkflowDefinition) error {
 		return definitionFailure(KindInvalidDefinition, "definition evidence, outcome, rigor, staleness, or composition rules are invalid")
 	}
 	for _, rule := range definition.StalenessRules {
-		if !validWorkflowID(rule.ID) || !validWorkflowRef(rule.InputRef) && !ValidReference(rule.InputRef) || (rule.Severity != "warning" && rule.Severity != "block") {
+		if !validWorkflowID(rule.ID) || !validWorkflowRef(rule.InputRef) && !validReference(rule.InputRef) || (rule.Severity != "warning" && rule.Severity != "block") {
 			return definitionFailure(KindInvalidDefinition, "staleness rule is invalid")
 		}
 	}
@@ -546,7 +551,11 @@ func graphHasCycle(adjacency map[string][]string, steps map[string]WorkflowStep)
 const workflowDefinitionSchemaVersion = "1.3"
 
 func CanonicalWorkflowDefinition(definition WorkflowDefinition) ([]byte, error) {
-	if err := ValidateWorkflowDefinition(definition); err != nil {
+	return canonicalWorkflowDefinitionWithReference(definition, ValidReference)
+}
+
+func canonicalWorkflowDefinitionWithReference(definition WorkflowDefinition, validReference func(string) bool) ([]byte, error) {
+	if err := validateWorkflowDefinitionWithReference(definition, validReference); err != nil {
 		return nil, err
 	}
 	// json.Marshal follows the field order below. The digest is deliberately not
@@ -583,13 +592,27 @@ func CanonicalWorkflowDefinition(definition WorkflowDefinition) ([]byte, error) 
 	return json.Marshal(manifest)
 }
 
+// workflowDefinitionDigest hashes one canonical manifest. Every digest path
+// shares this helper so the hash never forks.
+func workflowDefinitionDigest(canonical []byte) string {
+	sum := sha256.Sum256(canonical)
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
 func WorkflowDefinitionDigest(definition WorkflowDefinition) (string, error) {
 	canonical, err := CanonicalWorkflowDefinition(definition)
 	if err != nil {
 		return "", err
 	}
-	sum := sha256.Sum256(canonical)
-	return "sha256:" + hex.EncodeToString(sum[:]), nil
+	return workflowDefinitionDigest(canonical), nil
+}
+
+func workflowDefinitionDigestWithReference(definition WorkflowDefinition, validReference func(string) bool) (string, error) {
+	canonical, err := canonicalWorkflowDefinitionWithReference(definition, validReference)
+	if err != nil {
+		return "", err
+	}
+	return workflowDefinitionDigest(canonical), nil
 }
 
 func normalizeWorkflowDefinition(definition WorkflowDefinition) WorkflowDefinition {
@@ -646,17 +669,18 @@ func normalizeWorkflowDefinition(definition WorkflowDefinition) WorkflowDefiniti
 	return definition
 }
 
-// BuiltinWorkflowDefinitions returns the current definition of each shipped
-// workflow family: the last element of its authored version chain. Frozen
-// version builders live in workflow_registry_versions.go and never acquire
-// current payload contracts.
+// BuiltinWorkflowDefinitions returns the three live authoring heads in chain
+// order. The frozen registry keeps every retired family registered; this
+// enumeration answers only what new authoring resolves to.
 func BuiltinWorkflowDefinitions() []WorkflowDefinition {
-	chains := workflowDefinitionChains()
-	currents := make([]WorkflowDefinition, 0, len(chains))
-	for _, chain := range chains {
-		currents = append(currents, chain[len(chain)-1])
+	heads := make([]WorkflowDefinition, 0, len(liveWorkflowAuthoringFamilies))
+	for _, chain := range workflowDefinitionChains() {
+		tail := chain[len(chain)-1]
+		if liveWorkflowAuthoringFamilies[tail.Ref] {
+			heads = append(heads, tail)
+		}
 	}
-	return currents
+	return heads
 }
 
 // builtinWorkflowDefinitionsWithHistory returns every registered built-in
@@ -672,7 +696,7 @@ func builtinWorkflowDefinitionsWithHistory() []WorkflowDefinition {
 }
 
 // BuiltinWorkflowDefinitionsWithHistory returns the immutable built-in
-// definitions that the contract generator must inspect for legacy payloads.
+// definitions that the contract generator inspects for frozen schema references.
 func BuiltinWorkflowDefinitionsWithHistory() []WorkflowDefinition {
 	return builtinWorkflowDefinitionsWithHistory()
 }
@@ -721,31 +745,27 @@ func NewBuiltinWorkflowRegistry() DefinitionRegistry {
 	return registry
 }
 
-var builtinWorkflowRegistry = NewBuiltinWorkflowRegistry()
+var builtinWorkflowRegistry = sync.OnceValue(NewBuiltinWorkflowRegistry)
 
-func BuiltinWorkflowRegistry() DefinitionRegistry { return builtinWorkflowRegistry }
+func BuiltinWorkflowRegistry() DefinitionRegistry { return builtinWorkflowRegistry() }
 
-// BuiltinWorkflowDefinitionForRef resolves the immutable built-in definition
-// selected by a work item. Capture and revise use this before opening their
-// mutation path so an unknown workflow family cannot leave partial work state.
+// BuiltinWorkflowDefinitionForRef resolves the current registered head of one
+// family from the full frozen registry, retired families included. Reads,
+// replays, and pins resolve through this lookup; the live authoring selector
+// narrows what new work may pin, never what a pin can resolve.
 func BuiltinWorkflowDefinitionForRef(ref string) (RegisteredDefinition, error) {
 	if !validWorkflowRef(ref) {
 		return RegisteredDefinition{}, definitionFailure(KindInvalidDefinition, "workflow type reference is invalid")
 	}
-	var latest RegisteredDefinition
-	for _, definition := range BuiltinWorkflowDefinitions() {
-		if definition.Ref == ref && definition.Version > latest.Definition.Version {
-			registered, ok := BuiltinWorkflowRegistry().Lookup(ref, definition.Version)
-			if !ok {
-				return RegisteredDefinition{}, definitionFailure(KindDefinitionDigestMismatch, "workflow type reference is not registered")
-			}
-			latest = registered
-		}
+	current, ok := builtinWorkflowCurrentVersions[ref]
+	if !ok {
+		return RegisteredDefinition{}, definitionFailure(KindDefinitionDigestMismatch, "workflow type reference is not registered")
 	}
-	if latest.Definition.Ref != "" {
-		return latest, nil
+	registered, ok := BuiltinWorkflowRegistry().Lookup(ref, current)
+	if !ok {
+		return RegisteredDefinition{}, definitionFailure(KindDefinitionDigestMismatch, "workflow type reference is not registered")
 	}
-	return RegisteredDefinition{}, definitionFailure(KindDefinitionDigestMismatch, "workflow type reference is not registered")
+	return registered, nil
 }
 
 // dispatchableStepKinds derives the workflow step kinds that may carry the
@@ -1185,12 +1205,30 @@ func validActionExecutionMode(value ActionExecutionMode) bool {
 // drift apart.
 const WorkflowPremiseMaxLength = 4096
 
-// ValidReference reports whether a workflow reference list item is storable.
+// ValidReference reports whether a new workflow reference is admissible.
 // The generated continuity read schema carries the same rule in
 // $defs/reference; internal/agent's round-trip test fails when the two drift
 // apart.
 func ValidReference(value string) bool {
+	if len(value) < 2 || len(value) > 128 {
+		return false
+	}
+	for _, char := range value {
+		if unicode.IsSpace(char) {
+			return false
+		}
+	}
+	return true
+}
+
+// replayValidReference preserves the reference rule that admitted stored events.
+func replayValidReference(value string) bool {
 	return len(value) >= 2 && len(value) <= 128 && !strings.ContainsAny(value, " \t\r\n")
+}
+
+// replayValidReferenceSchema preserves the prior Go RE2 ^\S+$ schema rule.
+func replayValidReferenceSchema(value string) bool {
+	return len(value) >= 2 && len(value) <= 128 && !strings.ContainsAny(value, " \t\n\f\r")
 }
 func containsString(values []string, want string) bool {
 	for _, value := range values {
@@ -1800,8 +1838,28 @@ var builtinActionPolicies = map[string]builtinActionPolicy{
 	"checkpoint_repair": actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionCheckpoint, ActionEventCheckpoint),
 	"start_refine":      actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionFenced, ActionEventGeneric),
 	"checkpoint_refine": actionPolicy(ActionExternalEffect, ActionApprovalNone, ActionCheckpoint, ActionEventCheckpoint),
-	"frame_research":    actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventGeneric),
-	"record_finding":    actionPolicy(ActionCrossAuthority, ActionApprovalNone, ActionAdvance, ActionEventGeneric),
+	// CD-0198 D2: the typed diagnosis record. The payload carries one
+	// required section per merged source action: the reproduction record,
+	// the CD-0156 alignment search whose searched/outcome/related_ids
+	// fields and legal input combinations the merged action carries
+	// unchanged, and the root-cause record. The projection fold writes the
+	// same workflow_backlog_alignment rows the alignment action wrote and
+	// creates no relation.
+	"record_diagnosis": actionPolicyWithCombinations(actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventTyped,
+		// The bounds match the searched floor the fold enforces through
+		// workflowString: a schema-valid section cannot be refused by the
+		// fold.
+		WorkflowPayloadField{Name: "reproduction", ValueType: PayloadString, Required: true, NonBlank: true, MinLength: workflowInt(2), MaxLength: workflowInt(4096)},
+		WorkflowPayloadField{Name: "searched", ValueType: PayloadString, Required: true, NonBlank: true, MinLength: workflowInt(2), MaxLength: workflowInt(4096)},
+		actionEnumField("outcome", true, "related_found", "none_found"),
+		actionIDListField("related_ids", false, 1, 64),
+		WorkflowPayloadField{Name: "root_cause", ValueType: PayloadString, Required: true, NonBlank: true, MinLength: workflowInt(2), MaxLength: workflowInt(4096)},
+	),
+		WorkflowPayloadCombination{Field: "outcome", Value: "related_found", Requires: []string{"related_ids"}, Remedy: "name the related work items the search found"},
+		WorkflowPayloadCombination{Field: "outcome", Value: "none_found", Forbids: []string{"related_ids"}, Remedy: "drop related_ids or record outcome related_found"},
+	),
+	"frame_research": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventGeneric),
+	"record_finding": actionPolicy(ActionCrossAuthority, ActionApprovalNone, ActionAdvance, ActionEventGeneric),
 	"revise_candidates": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionAdvance, ActionEventTyped,
 		actionIntegerField("contract_version", false, 2147483647),
 		actionEnumField("candidate_kind", false, "work_item", "product", "project"), actionRefField("candidate_ref", false),
@@ -1886,6 +1944,11 @@ var builtinActionPolicies = map[string]builtinActionPolicy{
 	"reject_worker_result": actionPolicy(ActionInternalSQLite, ActionApprovalNone, ActionHold, ActionEventGeneric,
 		actionRefField("attempt_id", true), actionIntegerField("attempt_epoch", true, 2147483647), actionStringField("diagnosis", true, 4096), actionStringField("strategy", true, 4096), actionIDListField("predicate_ids", true, 1, 8), actionListField("evidence_refs", true, 1, 32),
 		actionIDListField("open_finding_ids", false, 1, 32),
+		// CD-0198 D5: the optional retry dispatch intent. The member names
+		// only the lane; the store derives the fresh attempt and the packet
+		// from the recorded state the rejection commits. The pinned
+		// definition gates the route at apply time.
+		actionObjectField("retry", false, "reject_retry"),
 	),
 	"request_correction": actionPolicy(ActionInternalSQLite, ActionApprovalRequired, ActionHold, ActionEventGeneric,
 		actionStringField("diagnosis", true, 4096), actionStringField("strategy", true, 4096), actionListField("predicate_ids", true, 1, 8), actionListField("evidence_refs", true, 1, 32),

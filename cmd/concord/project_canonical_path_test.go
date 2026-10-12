@@ -71,18 +71,19 @@ func TestProjectCanonicalPathRefusals(t *testing.T) {
 	seedCLIProduct(t, dbPath, "product-bare", "project-bare")
 	t.Setenv(dbOverrideEnv, dbPath)
 	for _, tc := range []struct {
-		name    string
-		body    string
-		wantErr string
+		name     string
+		body     string
+		wantExit int
+		wantErr  string
 	}{
-		{"missing project_id", `{}`, "missing required field project_id"},
-		{"empty project_id", `{"project_id":""}`, "project_id is required"},
-		{"unknown project", `{"project_id":"project-unknown"}`, "no canonical_path locator"},
+		{"missing project_id", `{}`, 64, "missing required field project_id"},
+		{"empty project_id", `{"project_id":""}`, 1, "project_id is required"},
+		{"unknown project", `{"project_id":"project-unknown"}`, 1, "no canonical_path locator"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var out, errOut bytes.Buffer
-			if code := runWithInput([]string{"project-canonical-path"}, strings.NewReader(tc.body), &out, &errOut); code != 1 {
-				t.Fatalf("exit=%d stdout=%q, want 1", code, out.String())
+			if code := runWithInput([]string{"project-canonical-path"}, strings.NewReader(tc.body), &out, &errOut); code != tc.wantExit {
+				t.Fatalf("exit=%d stdout=%q, want %d", code, out.String(), tc.wantExit)
 			}
 			if !strings.Contains(errOut.String(), tc.wantErr) {
 				t.Fatalf("diagnostic=%q, want %q", errOut.String(), tc.wantErr)

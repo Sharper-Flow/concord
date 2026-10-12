@@ -2,6 +2,10 @@
   "evidence": [
     {
       "kind": "go_test",
+      "value": "internal/store.TestOwnerOracleRecovery"
+    },
+    {
+      "kind": "go_test",
       "value": "internal/store.TestWellFormedAdmissionStateHasNonContinuityExit"
     },
     {

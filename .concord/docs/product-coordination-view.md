@@ -2,26 +2,27 @@
 
 **Status:** Accepted C17 contract, amended by CD-0041; §5.2 amended
 2026-09-28 to carry the stored last-activity ordering rule of CD-0048 D3 as
-amended.
-**Implementation status:** Issue #51 wires the bounded S2 relation tree and ranked
-work projection. The replacement-ready floor is satisfied; see
-[`floor-readiness.v1.json`](./floor-readiness.v1.json).
+amended. Amended 2026-10-09: the launcher rendering of this view retired with
+the launcher TUI under CD-0219; the ranked-query contract continues under the
+product-memory query contract.
+**Readiness:** see [`floor-readiness.v1.json`](./floor-readiness.v1.json).
 
-This document binds the Product coordination view required by Priority 5 and launcher
-S2. It preserves the previously reviewed candidate behavior: two bounded modes over
-canonical Product-scoped reads, structural grouping only, stored-priority ranking,
-and visible incomplete coverage.
+This document bound the Product coordination view required by Priority 5 and
+launcher S2. It preserves the previously reviewed candidate behavior: two
+bounded modes over canonical Product-scoped reads, structural grouping only,
+stored-priority ranking, and visible incomplete coverage. The view's launcher
+rendering retired with the launcher TUI under CD-0219; the ranked-query reads
+continue under the product-memory query contract.
 
-Terminal-launcher interaction and prototype detail are explicitly reserved as
+Terminal-launcher interaction and prototype detail were explicitly reserved as
 implementation design by [`rollout-plan.md`](./rollout-plan.md) and CD-0006 D6, so a
-contract at this layer does not require a new decision record.
+contract at this layer did not require a new decision record.
 
 **CD-0041 amendment.** These two bounded work projections remain valid, but they
 are no longer the Product's primary architecture view. Product detail opens
-through Product → Domain. Each Domain shows current law, typed Domain relations,
-active architecture-bound work, and unresolved overlap before the work relation
-tree or ranked table. Q8 work relations remain a subordinate coordination view;
-Initiative grouping remains optional business context. Runtime support for the
+through Product → Domain. Canonical typed relations remain available through
+the bounded Domain-detail read. Q8 work relations remain a subordinate coordination view;
+Business grouping lives in Linear under CD-0213. Runtime support for the
 Domain/overlap layer is outstanding follow-up work and is not claimed by issue
 #51's existing implementation.
 
@@ -29,8 +30,7 @@ Domain/overlap layer is outstanding follow-up work and is not claimed by issue
 
 Selecting a Product row must open a coordination view, and before C17 no
 accepted document said what it renders. The binding inputs are Priority 5's
-visibility requirement, the accepted C14 Product row with its exclusions,
-and the canonical PM1 reads. This record accepts the coordination view: two
+visibility requirement and the canonical PM1 reads. This record accepts the coordination view: two
 bounded modes over canonical Product-scoped reads, structural grouping only,
 stored-priority ranking, and visible incomplete coverage. CD-0041 amends the
 shape: Product detail opens through Product to Domain first, and these two
@@ -49,14 +49,15 @@ Priority 5 in [`priorities.md`](./priorities.md) requires that dependencies and
 sequences are visible before they become blockers, and that the operator can see what
 is ready, what is blocked, and what is next.
 
-Accepted C14 in [`product-row-contract.md`](./product-row-contract.md) deliberately
-does not answer this. The row is an orientation and selection projection, not a
-Product dashboard. It carries at most one focus item and explicitly excludes the raw
-blocker graph. That is correct for a row and insufficient for coordination.
+The retired Product-row contract deliberately
+did not answer this. Its row was an orientation and selection projection, not a
+Product dashboard, with at most one focus item and no raw blocker graph. That is
+correct for a row and insufficient for coordination. The row's render and read
+retired (CD-0219, CD-0224), and the contract is deleted with them.
 
-C14 defers the rest in one sentence: selecting a row opens the Product or workflow
-detail where the remaining concerns belong. Before C17, no accepted document
-specified what that detail renders for coordination. C17 accepts that view here.
+Before C17, no accepted document
+specified what the coordination detail renders for coordination. C17 accepts that
+view here.
 
 ## 2. Accepted shape
 
@@ -103,7 +104,7 @@ terminality and defines no stored blocked flag, so no third state may be introdu
 
 ## 3. Reliance and coverage
 
-The view inherits the reliance discipline C14 already established:
+The view carries this reliance discipline:
 
 - One shared source and version watermark per render, with per-row reliance where
   sources differ.
@@ -117,13 +118,11 @@ The view inherits the reliance discipline C14 already established:
 
 | Accepted item | Status under this contract |
 |---|---|
-| CD-0108 in [`decisions/CD-0108-the-launcher-is-the-zlauncher-replacement.md`](./decisions/CD-0108-the-launcher-is-the-zlauncher-replacement.md) — the launcher is the primary operator surface and owns session bootstrap | Unchanged. This is a view inside the accepted launcher. |
-| C14 default Product row fields and exclusions | Unchanged. No field is added to the row. |
-| C14 exclusion of the raw blocker graph from the row | Honored. The graph appears only after selection. |
-| C14 finding that activity is not value or priority | Honored. Activity is not value and not priority: the work list's stored last-activity order (CD-0048 D3 as amended) is a display order, not a priority or value ranking, and activity is not a default column. |
+| CD-0108 in [`decisions/CD-0108-the-launcher-is-the-zlauncher-replacement.md`](./decisions/CD-0108-the-launcher-is-the-zlauncher-replacement.md) — the session entry route owns session bootstrap | The view retired with the launcher TUI; CD-0108 as amended carries the entry-route boundary. |
+| Product-row glance contract (deleted with its read under CD-0224) | Its exclusion discipline continues here: no field is added to a glance surface, the raw blocker graph appears only after selection, and activity is not value or priority — activity is not a default column, and the work list's stored last-activity display order (CD-0048 D3, vacated under CD-0219) was a display order, never a priority or value ranking. |
 | Query-contract deferral of cross-Product prioritization pending PM2 authority and portability | Honored. This view is single-Product only. |
 | R5 — active work first, history behind drill-down | Honored. Terminal and completed work is excluded. |
-| [`workflows.md`](./workflows.md) launcher responsibility — context-rich navigation with narrow actions | Honored. The view navigates and explains; it takes no substantive workflow action. |
+| [`workflows.md`](./workflows.md) launcher responsibility — context-rich navigation with narrow actions | Honored while the view stood: it navigated and explained; it took no substantive workflow action. |
 
 ## 5. Anti-requirements
 
@@ -134,17 +133,17 @@ unstable across runs.
 1. **No computed importance score.** Ranking uses the stored explicit priority rank. A
    model-assigned numeric importance is heuristic authority over correctness.
 2. **No activity-derived priority.** Computed importance and activity-derived
-   priority stay prohibited. **Amendment 2026-09-28:** the work list's display
-   order is the stored ordering rule of CD-0048 D3 as amended: stored
-   `last_activity_at` descending with an id tiebreak — a stored column the
-   event fold advances, ordered by the store alone, never a computed score
-   and never a priority or value ranking.
+   priority stay prohibited. **Amendment 2026-09-28, vacated 2026-10-09:** the
+   work-list display order this contract carried was the stored ordering rule
+   of CD-0048 D3. That ordering, its stored column, and its fold advance are
+   vacated with the launcher work list under CD-0219. No activity-derived
+   priority replaces them.
 3. **No thematic clustering.** Connected work subgraphs come from declared relation edges only.
 4. **No third blocked state.** No stalled, idle, or otherwise inferred category.
 5. **No silent truncation.** A result the query could not fully cover renders
    `unavailable`, never a shorter table presented as whole.
 6. **No dashboard drift.** Terminal counts, repository paths, velocity, percent
-   complete, estimates, owners, and assignments stay excluded, consistent with C14.
+   complete, estimates, owners, and assignments stay excluded.
 
 ## 6. Read path and bounds
 
@@ -184,7 +183,7 @@ law. Its implementation depends on the named bounded reads being available throu
 the production query surface. A practical order is:
 
 1. Q4, Q5, and Q8 read paths exist against real storage.
-2. The C14 Product row renders.
+2. The Product surface this view drills from renders.
 3. This view is built as the first drill-down consumer, which also exercises Q4, Q5,
    and Q8 against a real corpus.
 
@@ -194,7 +193,7 @@ the production query surface. A practical order is:
 |---|---|
 | Relation edges are under-declared, so the tree looks empty and invites heuristic inference | Empty renders as authoritative-empty with an explicit reason and never falls back to inferred edges |
 | Priority ranks are unset in early corpora, making ordering look arbitrary | Missing priority is a typed absent value ordered last, never a substituted guess |
-| Drill-down accretes fields until it becomes the dashboard C14 rejected | The anti-requirements form part of acceptance; any new field requires a named operator job plus prototype evidence |
+| Drill-down accretes fields until it becomes a dashboard | The anti-requirements form part of acceptance; any new field requires a named operator job plus prototype evidence |
 | A depth cap hides a real transitive blocker | Truncated traversal is marked explicitly at the boundary node, never silently cut |
 
 ## 10. Falsifiers
@@ -207,7 +206,7 @@ This contract must be revised or superseded when:
 - the two modes prove to be one view rather than two;
 - bounded single-Product scope proves insufficient and the cross-Product
   prioritization deferral has since been lifted; or
-- the ranked table duplicates the C14 focus item without adding a distinct operator
+- the ranked table duplicates a glance focus item without adding a distinct operator
   job.
 
 ## Acceptance criteria
@@ -239,22 +238,31 @@ This contract must be revised or superseded when:
 
 ## Verification
 
-No corpus scenario exercises the coordination view, so every criterion
-carries a typed exemption in the record naming the port test that proves
-the guarantee. `python3 scripts/check-doc-contract.py` validates those
-recorded exemptions.
+No corpus scenario exercises the coordination view, so criteria carry typed
+exemptions in the record. `python3 scripts/check-doc-contract.py` validates
+those recorded exemptions, and `python3 scripts/check-law-coverage.py` proves
+the recorded vacated states.
 
-- Criterion 1 is proved by `TestRelationTreeSurfacesCycles`
-  (`internal/launcher/storeport/port_test.go`).
-- Criterion 2 is proved by `TestRelationTreeResolvesSupersessionChainOnce`
-  (`internal/launcher/storeport/port_test.go`).
-- Criterion 3 is proved by `TestRelationTreeMarksDepthTruncationUnavailable`
-  (`internal/launcher/storeport/port_test.go`).
-- Criterion 4 is proved by
-  `TestRelationTreeKeepsStructuralComponentAndInverseOutOfCycleOracle`
-  (`internal/launcher/storeport/port_test.go`) together with
-  `TestProjectionIsDeterministicAndCarriesAttentionMarkers`
-  (`internal/launcher/model_test.go`).
+- Criterion 1 is vacated with the launcher view under CD-0219: the
+  relation-tree guarantee's proving surface retired with the launcher TUI,
+  and the view clause it served has no surviving reader.
+  `python3 scripts/check-law-coverage.py` proves the recorded out-of-scope
+  state.
+- Criterion 2 is vacated with the launcher view under CD-0219: the
+  relation-tree guarantee's proving surface retired with the launcher TUI,
+  and the view clause it served has no surviving reader.
+  `python3 scripts/check-law-coverage.py` proves the recorded out-of-scope
+  state.
+- Criterion 3 is vacated with the launcher view under CD-0219: the
+  relation-tree guarantee's proving surface retired with the launcher TUI,
+  and the view clause it served has no surviving reader.
+  `python3 scripts/check-law-coverage.py` proves the recorded out-of-scope
+  state.
+- Criterion 4 is vacated with the launcher view under CD-0219: the
+  relation-tree guarantee's proving surface retired with the launcher TUI,
+  and the view clause it served has no surviving reader.
+  `python3 scripts/check-law-coverage.py` proves the recorded out-of-scope
+  state.
 - Criterion 5 is proved by the bound `Q5-ready-ranking` scenario of
   `.concord/scenarios/product-memory-query.v1.json`, executed by
   `TestAcceptedQ1ToQ10Corpus` (`internal/store/query_corpus_test.go`).

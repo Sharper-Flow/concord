@@ -4,9 +4,9 @@
 
 Related to <issue key>
 
-<!-- One non-closing line naming this work item's confirmed Linear issue
-     (CD-0171 D8). Do not use a closing phrase such as Fixes: the Concord
-     outbox is the only writer of issue status. verify-pr-linear-link
+<!-- One non-closing line naming this work item's recorded Linear issue
+     (CD-0213 D5). Do not use a closing phrase such as Fixes: issue status
+     changes through the Linear MCP server or the operator. verify-pr-linear-link
      refuses a work/work-* pull request without this line. -->
 
 ## Scope and authority impact

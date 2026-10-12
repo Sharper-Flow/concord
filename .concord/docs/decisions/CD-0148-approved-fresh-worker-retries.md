@@ -42,11 +42,28 @@ substitutes for a basis nor opens the wall.
 The basis families are closed. Findings convergence requires a latest open
 findings set that is non-empty and a strict subset of the previous comparable
 reject `open_finding_ids`. The finding identifiers are stable, and the set
-holds 1 to 32 of them. Correction predicates require the `request_correction`
-predicate ids inside the open window. A latest failure supplies no findings
+holds 1 to 32 of them. On oracle-free histories, correction predicates
+require the `request_correction` predicate ids inside the open window.
+On oracle-capable histories, rejection and correction records carry the exact
+derived ranked-finding set; predicate IDs do not substitute for finding IDs.
+A latest failure supplies no findings
 basis, because a failure carries no findings. A contract supersession after
 the latest dispatch at any step is a changed approach, and a changed
 approach is a basis.
+
+Oracle finding IDs resolve through terminal event sequence and ordinal
+(CD-0197). Comparability retains the approved contract, job identity, owner
+obligations, and every previously required control byte-identically, including
+the pinned recipe, arguments, expected result, and evidence role. Each dropped
+finding requires supported resolution evidence. Added cases and controls can
+strengthen coverage. A new uncovered variant stays in the latest set, so
+replacement is not shrinkage. Receipt preservation alone is not progress.
+
+An oracle-defect closure supplies no `findings_shrinking` basis. A changed or
+re-pinned required recipe invalidates comparison and cannot mint shrink credit;
+escalation then requires the existing explicit contract-supersession
+`approach_changed` basis. Accepted `no_ship` findings remain debt, not productive
+acceptance or a third basis family. Historical pins retain their comparison.
 
 Each basis admits exactly one fresh fenced attempt, and the admitted
 dispatch consumes its basis. Findings convergence compares records at one
@@ -101,3 +118,4 @@ verdicts, completion, or resume a failed worker session.
 - Adapter tests prove approval forwarding and removal of a resume task identity.
 - Adapter tests prove approval forwarding stays below the limit, and a
   `missing_evidence` refusal fail-closes without an operator ask.
+- `TestOwnerOracleConvergence` and `TestOwnerOracleControlsRetained` cover supported strict subsets, recipe re-pins, and oracle-defect closures without widening the wall.

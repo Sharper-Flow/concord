@@ -49,9 +49,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:c0afc6ab0e762dc0a426b6302782763d5e1d28b62374a537f47af781b4eb7bff",
+  "sha256": "sha256:85ba1c701097d377579b012c8ba2c01a26344ff3d658a994ed264e6fd22f9ef7",
   "status": "accepted",
-  "summary": "Records completed worker-result disposition, bounded correction context, fresh attempt consumption, and a three-attempt escalation limit without changing historical pins.",
+  "summary": "Worker results receive one immutable disposition and fresh attempts consume bounded correction context. Oracle-capable rejections and correction requests bind the exact derived ranked-finding set, absent only when empty, and supported closures name canonical IDs and qualifying evidence. Omission or relabeling closes nothing. Shared context retains open blockers and earlier receipts as baselines, not current-subject proof. Historical pins and the existing retry wall remain intact.",
   "tags": [
     "workflow",
     "worker",

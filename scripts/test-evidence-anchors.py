@@ -504,6 +504,50 @@ def test_source_signature_of_a_missing_root_is_empty(tmp: Path) -> None:
     assert _candidate_signature(absent_root) == _baseline_signature(absent_root) == ()
 
 
+def test_go_test_projector_failure_is_reported_as_tool_failure() -> None:
+    from unittest import mock
+
+    findings: list[str] = []
+    with mock.patch.object(anchors, "go_test_asserts", side_effect=anchors.GoTestProjectionError("synthetic projector failure")):
+        try:
+            anchors.check_anchor({"kind": "go_test", "value": "internal/fixture.TestProof"}, "fixture", findings)
+        except anchors.GoTestProjectionError as exc:
+            raise AssertionError(f"projector failure escaped the anchor boundary: {exc}") from exc
+    assert findings == ["fixture: go_test projector failed: synthetic projector failure"], findings
+
+
+def test_go_test_projector_failure_does_not_repeat_for_each_anchor() -> None:
+    import subprocess
+    from unittest import mock
+
+    findings: list[str] = []
+    result = subprocess.CompletedProcess([], 0, "{broken", "")
+    with mock.patch.object(anchors, "_GO_TEST_SIGNATURE", None), mock.patch.object(anchors, "_GO_TEST_FACTS", {}), mock.patch.object(anchors.subprocess, "run", return_value=result) as run:
+        for name in ("TestFirst", "TestSecond"):
+            anchors.check_anchor({"kind": "go_test", "value": f"internal/fixture.{name}"}, name, findings)
+    assert run.call_count == 1, run.call_count
+    assert len(findings) == 2 and all("go_test projector failed:" in finding for finding in findings), findings
+
+
+def test_go_test_projector_failure_is_invalidated_by_source_change(tmp: Path) -> None:
+    import subprocess
+    from unittest import mock
+
+    failed = subprocess.CompletedProcess([], 1, "", "synthetic projector failure")
+    valid = subprocess.CompletedProcess([], 0, '{"schema_version":"1.0","packages":{"fixture":{"TestRestored":true}}}', "")
+    with mock.patch.object(anchors, "_GO_TEST_SIGNATURE", None), mock.patch.object(anchors, "_GO_TEST_FACTS", {}), mock.patch.object(anchors.subprocess, "run", side_effect=[failed, valid]) as run:
+        try:
+            anchors.go_test_exists("fixture", "TestRestored", tmp)
+        except anchors.GoTestProjectionError:
+            pass
+        else:
+            raise AssertionError("failed projector supplied declaration presence")
+        (tmp / "fixture").mkdir()
+        (tmp / "fixture/restored_test.go").write_text('package fixture\nimport "testing"\nfunc TestRestored(t *testing.T) { t.Fatal("proof") }\n')
+        assert anchors.go_test_exists("fixture", "TestRestored", tmp)
+    assert run.call_count == 2, run.call_count
+
+
 def main() -> int:
     import tempfile
 

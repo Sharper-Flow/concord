@@ -156,12 +156,20 @@ func TestRefineReviewEvidenceDispositionOpensContractCorrection(t *testing.T) {
 			if err := RebuildFromLog(context.Background(), s); err != nil {
 				t.Fatalf("replay evidence disposition and approved successor: %v", err)
 			}
+			pin, err = ReadWorkPin(context.Background(), s, workID)
+			if err != nil || !workPinContainsAction(pin.NextValidIntents, "supersede_contract") {
+				t.Fatalf("successor pass hides contract/design recovery: pin=%#v err=%v", pin, err)
+			}
 			if err := runVerdictActionAs(t, s, workID, "accept_worker_evidence", payload, 0, acceptor); err == nil {
 				t.Fatal("old review was accepted as a successor-contract report")
 			}
 			// The approved successor owns fresh refinement work, not an epoch
 			// reset used to escape an undispositioned report.
-			epoch = reviewGateStartStep(t, s, workID, "refine", "start_refine", fixture.owner)
+			previousEpoch := epoch
+			epoch = reviewGateStartStep(t, s, workID, "refine", "start_refine", acceptor)
+			if epoch <= previousEpoch {
+				t.Fatalf("successor contract reused refinement epoch %d, want after %d", epoch, previousEpoch)
+			}
 			version = verdictItemVersion(t, s, workID)
 
 			// An authorization closes correction before native dispatch exists.
@@ -350,6 +358,16 @@ func TestRefineReviewEvidenceCorrectionClosesOnFencedDispatch(t *testing.T) {
 			reviewID := "attempt:" + workID + ":review"
 			epoch := dispatchCheckpointReviewAttempt(t, fixture, workID, "refine", reviewID)
 			completion := reviewLaneVerdictCompleteEvent(workID, "fenced-review-completion-"+workID, reviewID, reviewGateLane(t, "review"), "ship", time.Unix(100, 0).UTC())
+			var payload WorkerCompletedPayload
+			if err := json.Unmarshal(completion.Payload, &payload); err != nil {
+				t.Fatal(err)
+			}
+			if payload.Review == nil || len(payload.Review.Findings) != 1 {
+				t.Fatal("the ship review fixture must contain exactly one advisory finding")
+			}
+			// The ship review's only finding is advisory, never a blocker.
+			payload.Review.Findings[0].Oracle = &WorkerOracleFinding{Classification: OracleClassificationFollowUp}
+			completion.Payload = mustJSONValue(payload)
 			jobBoundReviewCompletion(t, &completion, reviewID, s)
 			if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{completion}}); err != nil {
 				t.Fatal(err)

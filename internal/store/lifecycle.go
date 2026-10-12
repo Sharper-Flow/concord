@@ -467,29 +467,6 @@ func foldWorkMembershipsReplaced(ctx context.Context, tx *sql.Tx, event Event) e
 	if err := updateWorkVersion(ctx, tx, event, current.version, payload.ResultingVersion); err != nil {
 		return err
 	}
-	// A capture folds membership right after creation, and the owning Product
-	// resolves only once the membership rows exist, so the Linear outbox
-	// enqueues here rather than in the creation fold: an issue_create for a
-	// work item, or a project_create for an Initiative (CD-0171 D2). Every
-	// Linear configuration gap is a silent no-op inside. A later membership
-	// change can move a confirmed Linear issue between repositories and
-	// Initiatives (CD-0171 D3, D6), so the same guards gate one converging
-	// issue_update on that path too.
-	if payload.ExpectedVersion == 1 {
-		kind, kindErr := readWorkKind(ctx, tx, event.SubjectID)
-		if kindErr != nil {
-			return kindErr
-		}
-		if kind == "initiative" {
-			if err := enqueueLinearProjectCreateForCaptureTx(ctx, tx, event.SubjectID, event.OccurredAt); err != nil {
-				return err
-			}
-		} else if _, _, err := enqueueLinearIssueForCaptureTx(ctx, tx, event.SubjectID, event.OccurredAt); err != nil {
-			return err
-		}
-	} else if err := enqueueLinearIssueUpdateForEntryTx(ctx, tx, event.SubjectID, event.OccurredAt); err != nil && !linearCaptureConfigurationRefusal(err) {
-		return err
-	}
 	return nil
 }
 
@@ -540,10 +517,6 @@ func foldWorkTransitioned(ctx context.Context, tx *sql.Tx, event Event) error {
 				return err
 			}
 		}
-		kind, err := readWorkKind(ctx, tx, event.SubjectID)
-		if err != nil {
-			return err
-		}
 		var definitionRef string
 		var definitionVersion int64
 		var instanceState string
@@ -569,11 +542,6 @@ func foldWorkTransitioned(ctx context.Context, tx *sql.Tx, event Event) error {
 		}
 		if definition.OutcomeSchema.DecisionRecordRequired {
 			if err := requireBoundDecisionRecordTx(ctx, tx, event.SubjectID, definition); err != nil {
-				return err
-			}
-		}
-		if WorkKindRequiresDedicatedOperation(kind) {
-			if _, err := initiativeRequiredChildrenComplete(ctx, tx, event.SubjectID); err != nil {
 				return err
 			}
 		}
@@ -880,7 +848,7 @@ func foldRelationAdded(ctx context.Context, tx *sql.Tx, event Event) error {
 			return err
 		}
 		if fromKind == "initiative" || toKind == "initiative" {
-			return newFailure(KindRelationContractViolation, "fold_event", "Initiative parent edges must be created by Initiative entry events", false, "append an Initiative entry event")
+			return newFailure(KindRelationContractViolation, "fold_event", "Initiative work items are read-only under CD-0213: grouping lives in Linear", false, "group the work in Linear through the Linear MCP server")
 		}
 	}
 	current, err := readWork(ctx, tx, payload.From)
@@ -948,10 +916,6 @@ func foldRelationRemoved(ctx context.Context, tx *sql.Tx, event Event) error {
 		return newFailure(KindRelationContractViolation, "fold_event",
 			"overlap-resolution relations are owned by resolve_overlap", false,
 			"use resolve_overlap so operator approval, version pins, and lifecycle changes remain atomic")
-	case "includes":
-		return newFailure(KindRelationContractViolation, "fold_event",
-			"Initiative membership edges must be removed by Initiative entry removal events", false,
-			"append an Initiative entry removal event")
 	}
 	if payload.Kind == "parent" {
 		fromKind, err := readWorkKind(ctx, tx, payload.From)
@@ -963,7 +927,7 @@ func foldRelationRemoved(ctx context.Context, tx *sql.Tx, event Event) error {
 			return err
 		}
 		if fromKind == "initiative" || toKind == "initiative" {
-			return newFailure(KindRelationContractViolation, "fold_event", "Initiative parent edges must be removed by Initiative entry removal events", false, "append an Initiative entry removal event")
+			return newFailure(KindRelationContractViolation, "fold_event", "Initiative work items are read-only under CD-0213: grouping lives in Linear", false, "group the work in Linear through the Linear MCP server")
 		}
 	}
 	current, err := readWork(ctx, tx, payload.From)
@@ -1089,13 +1053,6 @@ func updateWorkLifecycle(ctx context.Context, tx *sql.Tx, event Event, lifecycle
 		if err := closeWorkflowInstanceForTerminalLifecycle(ctx, tx, event.SubjectID, lifecycle, now); err != nil {
 			return err
 		}
-	}
-	// A Linear configuration gap never fails the local transition: the
-	// capture fold absorbs the same refusals, the fold marks the linked
-	// work item's confirmed issue degraded, and the explicit enqueue verb
-	// and the drain keep reporting them.
-	if err := enqueueLinearIssueForLifecycleTx(ctx, tx, event.SubjectID, lifecycle, event.OccurredAt); err != nil && !linearCaptureConfigurationRefusal(err) {
-		return err
 	}
 	return nil
 }
@@ -1261,4 +1218,16 @@ func relationIdentity(ctx context.Context, tx *sql.Tx, event Event) (int64, erro
 			"retry once the event log is readable", err)
 	}
 	return relationID, nil
+}
+
+func readWorkKind(ctx context.Context, tx *sql.Tx, id string) (string, error) {
+	var kind string
+	err := tx.QueryRowContext(ctx, `SELECT kind FROM work_items WHERE id=?`, id).Scan(&kind)
+	if err == sql.ErrNoRows {
+		return "", newFailure(KindProjectionNotFound, "fold_event", "work item does not exist", false, "create the work item first")
+	}
+	if err != nil {
+		return "", wrapFailure(KindUnavailable, "fold_event", "cannot read work item kind", true, "retry once the database is readable", err)
+	}
+	return kind, nil
 }

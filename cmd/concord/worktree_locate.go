@@ -10,7 +10,7 @@ import (
 // runWorktreeLocate derives the three inputs a worktree_claim requires —
 // branch, base commit SHA, and absolute worktree path — from registered
 // authority and repository facts, read-only. It is the named owner of the
-// worktree locator policy (issue #316):
+// worktree locator policy:
 //
 //   - Branch: `work/<work_id>`. The work item's identity names the branch, so
 //     no second naming scheme exists to drift. A work ID that cannot form a

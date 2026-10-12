@@ -127,7 +127,7 @@ type ResearchRevision struct {
 	DoneWhen  string `json:"done_when"`
 	Method    string `json:"method"`
 	CreatedAt string `json:"created_at"`
-	// Freshness is this revision's authoritative state (issue #122).
+	// Freshness is this revision's authoritative state.
 	Freshness ResearchFreshness `json:"freshness"`
 	Findings  []ResearchFinding `json:"findings,omitempty"`
 	Sources   []ResearchSource  `json:"sources,omitempty"`
@@ -143,6 +143,31 @@ type ResearchPack struct {
 	UpdatedAt       string             `json:"updated_at"`
 	Revisions       []ResearchRevision `json:"revisions,omitempty"`
 	Consumers       []ResearchConsumer `json:"consumers,omitempty"`
+}
+
+// ResearchReadRequest selects a complete pack or one exact revision. FindingIDs
+// restricts that revision to selected findings and their linked sources.
+type ResearchReadRequest struct {
+	PackID     string
+	Revision   int64
+	FindingIDs []string
+	Limit      int
+}
+
+// ResearchPackDescriptor carries no nested research content.
+type ResearchPackDescriptor struct {
+	PackID          string            `json:"pack_id"`
+	OwnerWorkID     string            `json:"owner_work_id"`
+	CurrentRevision int64             `json:"current_revision"`
+	Freshness       ResearchFreshness `json:"freshness"`
+	ExpectedVersion int64             `json:"expected_version"`
+	CreatedAt       string            `json:"created_at"`
+	UpdatedAt       string            `json:"updated_at"`
+}
+
+type ResearchPackPage struct {
+	Packs      []ResearchPackDescriptor `json:"packs"`
+	NextCursor *string                  `json:"-"`
 }
 
 type CreateResearchPackRequest struct {
@@ -204,7 +229,7 @@ type SetResearchFreshnessRequest struct {
 	ExpectedVersion int64                    `json:"expected_version"`
 	Freshness       ResearchFreshness        `json:"freshness"`
 	// Revision targets the pinned revision whose freshness is set; 0 means
-	// the pack's current revision (issue #122).
+	// the pack's current revision.
 	Revision int64 `json:"revision,omitempty"`
 }
 

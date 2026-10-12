@@ -121,11 +121,7 @@ func ReadWorkPin(ctx context.Context, s *Store, workID string) (WorkPin, error) 
 	if s == nil || s.db == nil {
 		return pin, newFailure(KindUnavailable, "work_pin", "store is not open", false, "open the authority database")
 	}
-	ctx, err := prepareWorkNavigation(ctx, s, workID)
-	if err != nil {
-		return pin, err
-	}
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	tx, err := beginReadTx(ctx, s.db)
 	if err != nil {
 		return pin, wrapFailure(KindUnavailable, "work_pin", "cannot open a consistent work pin snapshot", true, "retry once the database is readable", err)
 	}
@@ -140,7 +136,7 @@ func ReadWorkPinTransactionTx(ctx context.Context, transaction *Transaction, wor
 	if err != nil {
 		return WorkPin{}, err
 	}
-	return ReadWorkPinTx(workContextNavigationTransactionContext(ctx, transaction), tx, workID)
+	return ReadWorkPinTx(ctx, tx, workID)
 }
 
 // ReadWorkPinTx derives a pin from the transaction supplied by its caller.
@@ -278,7 +274,7 @@ func workPinOutsideRepairDispositionTx(ctx context.Context, tx *sql.Tx, workID s
 // this read returns with a nil error, so it is assigned before any phase
 // that can return partial data.
 func workPinReadIdentityTx(ctx context.Context, tx *sql.Tx, workID string, pin *WorkPin) error {
-	if err := tx.QueryRowContext(ctx, `SELECT w.version,w.lifecycle,w.title,COALESCE(l.human_key,''),COALESCE(p.id,''),COALESCE(p.display_name,'') FROM work_items w LEFT JOIN linear_issue_links l ON l.work_id=w.id AND l.link_state='confirmed' LEFT JOIN work_projects wp ON wp.work_id=w.id AND wp.role='primary' LEFT JOIN projects p ON p.id=wp.project_id WHERE w.id=?`, workID).Scan(&pin.Version, &pin.Lifecycle, &pin.Title, &pin.LinearIssueKey, &pin.ProjectID, &pin.ProjectDisplayName); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT w.version,w.lifecycle,w.title,COALESCE(l.human_key,''),COALESCE(p.id,''),COALESCE(p.display_name,'') FROM work_items w LEFT JOIN linear_issue_links l ON l.work_id=w.id LEFT JOIN work_projects wp ON wp.work_id=w.id AND wp.role='primary' LEFT JOIN projects p ON p.id=wp.project_id WHERE w.id=?`, workID).Scan(&pin.Version, &pin.Lifecycle, &pin.Title, &pin.LinearIssueKey, &pin.ProjectID, &pin.ProjectDisplayName); err != nil {
 		if err == sql.ErrNoRows {
 			return newFailure(KindProjectionNotFound, "work_pin", "work item is not recorded", false, "reread_entities")
 		}
@@ -369,7 +365,7 @@ func workPinStepIntentsTx(ctx context.Context, tx *sql.Tx, workID string, pin *W
 	// nothing, so its acceptance is the non-delivery accept that binds the
 	// findings and leaves the debt; the pin offers the action and the
 	// delivery assertion stays refused.
-	if stepDeclaresAction(definition, pin.Step, "start_refine") && state.ReadyReviewAttemptID != "" {
+	if stepDeclaresAction(definition, pin.Step, "checkpoint_refine") && state.ReadyReviewAttemptID != "" {
 		if decision := workflowAdmit(definition, state, "accept_worker_result"); decision.FreshReviewRequired {
 			pin.NextValidIntents = append(pin.NextValidIntents, workPinIntentForAction(workflowActionDefinitionByID(definition, "accept_worker_result"), pin.Version, "post_rejection_review"))
 		}

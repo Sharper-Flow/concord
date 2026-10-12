@@ -27,8 +27,10 @@ exactly one of four states.
 **Unprocessed.** The manifest holds no record for the file. The document is
 not law for this Product, however much it reads like a specification. An
 agent must never treat an unprocessed document as authority. The negative is
-authoritative only through `concord_knowledge.unprocessed`; text search is not
-a substitute for it.
+authoritative only through `concord_knowledge.resolve_note` returning
+`knowledge_missing` for the record the document would need; text search is not
+a substitute for it. The enumeration of unprocessed documents is
+[`scripts/check-knowledge-closure.py`](../../scripts/check-knowledge-closure.py).
 
 **Law.** A record exists, its kind is law-bearing, and its status is
 `accepted`. Only `constitution`, `decision`, and `spec` can reach this state.
@@ -163,7 +165,7 @@ Two path constraints bind authorship directly.
 
 A `research` record cannot live under `.concord/docs/research/`. That directory is
 excluded from the closure walk and is ineligible as a record path. A research
-document that must hold a record has to live elsewhere under `docs/`.
+document that must hold a record has to live elsewhere under `.concord/docs/`.
 
 A `decision` record's path is bound to the decisions directory and the
 decision-number filename shape. The schema enforces it, so a decision filed

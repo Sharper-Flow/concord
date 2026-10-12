@@ -9,10 +9,10 @@
 
 ---
 
-## 0. SQLite engine and global physical authority resolved
+## 0. SQLite execution authority and Linear planning authority
 
 The storage-engine authority question is **resolved.** SQLite is Concord's sole
-durable authority: transactional state + durable event history,
+durable local execution authority: transactional state + durable event history,
 `synchronous=NORMAL`, WAL, and `busy_timeout=5000`; six binding invariants I1–I6
 map 1:1 to the Advance failure modes. **PM2 selects one global local SQLite
 authority per Concord installation/operator-machine; Product/Project remain logical
@@ -20,6 +20,13 @@ scopes.** Full records:
 [`decisions/CD-0002-concord-state-authority.md`](./decisions/CD-0002-concord-state-authority.md).
 [`product-memory-authority-scope.md`](./product-memory-authority-scope.md).
 Topology is **library-in-process — no daemon** (CD-0002 §2b).
+
+Linear owns planning through the Linear MCP server. Concord keeps managed
+execution contracts, sessions, worktrees, worker dispatch, evidence, and delivery
+receipts. A work unit can retain one reported issue identity (key, UUID, URL).
+The binary holds no Linear credential and makes no Linear API call. See
+[`CD-0213`](./decisions/CD-0213-linear-mcp-is-the-only-planning-authority.md) and
+[`managed-development-authority.md`](./managed-development-authority.md).
 
 An earlier private pre-public durability proposal is superseded. Its useful
 single-authoritative-log lesson carries forward, but Temporal is not adopted;
@@ -118,7 +125,7 @@ is stated once; companion documents reference this section rather than restating
 | 6 | **Honest partial completion** | postmortem C3 | Sub-step failures degrade the verdict. `Result` has a distinct `Partial` state, not an error buried in an errors array. No advisory-only error beside unqualified success. |
 | 7 | **Per-item budgets** | postmortem C5 | APIs accept per-item budgets. A budget is honored or refused (`BudgetRefused`), never silently clamped. Operations scale with data, not with a fixed ceiling. |
 | 8 | **Bounded writer admission** | Priority 2 | Many concurrent agents write to the same local state with zero escaped busy failures, zero lost or duplicated effects, and writer-admission wait bounded by the accepted target on the named acceptance population. Admission wait, commit duration, and escaped busy failure are measured and reported separately. Reads stay lock-free. Per-entity serialization, not a global mutex. See CD-0045 and CD-0011. |
-| 9 | **Bounded authoritative reads** | Priority 4 | Reads are lock-free, bounded by Product scope, and paginated/streamed. Authority/freshness is typed and never guessed; related-work blocking follows CD-0006 R3 and CD-0041's architecture-overlap policy. |
+| 9 | **Bounded authoritative reads** | Priority 4 | Reads are lock-free, bounded by Product scope, and paginated/streamed. Authority/freshness is typed and never guessed; related-work blocking follows CD-0006 R3 and CD-0222's architecture-overlap policy. |
 | 10 | **Typed degradation** | Priority 4 | Every read carries an authority tag (`authoritative` / `degraded` / `unreachable`). Silent non-authoritative substitution is forbidden. |
 | 11 | **Safe idle-boundary evolution** | Priority 2, 6 | Workflow and schema changes are safe for in-flight work. Active executions stay pinned to their definition; idle work picks up the new version. Updates are additive and versioned. |
 | 12 | **Architecture-bound Product truth** | Priority 1 | Every current law has one Domain home. Product-changing work pins its Domain/law footprint, and unresolved concurrent Domain overlap cannot enter Product truth. Git merge success and heuristics confer no authority. |
@@ -141,21 +148,41 @@ This table records accepted architecture decisions that previously remained open
 | **Evidence-resolution architecture** | **Resolved by CD-0008 D2:** immutable-subject binding records the attributable producer proof that authorized a transition; the producer remains verdict authority and current re-resolution is typed when unavailable. | [`decisions/CD-0008-concord-mechanism-hardening.md`](./decisions/CD-0008-concord-mechanism-hardening.md) §D2; [`design-constraints.md`](./design-constraints.md) Research backlog item 6. |
 | **Validation-failure isolation** | **Resolved by CD-0008 D3:** unreadable records contribute unknown; typed degraded omissions are allowed for independently provable positive reads, while safety conclusions fail closed only over their bounded dependency/touch closure. | [`decisions/CD-0008-concord-mechanism-hardening.md`](./decisions/CD-0008-concord-mechanism-hardening.md) §D3; [`design-constraints.md`](./design-constraints.md) Research backlog item 7. |
 | **Migrations / schema evolution** | **Resolved by CD-0008 D6:** typed ordered upcasters, projection schema versions, deterministic replay tests, fail-closed newer versions, pinned active workflow versions, point-in-time reconstruction, and falsifier-driven snapshots. | [`decisions/CD-0008-concord-mechanism-hardening.md`](./decisions/CD-0008-concord-mechanism-hardening.md) §D6; CD-0002 §7. |
-| **Product architecture and concurrent-law coordination** | **Resolved by CD-0041:** canonical Domains own law; Product-changing contracts declare architecture footprints; overlapping work requires a version-pinned resolution; Initiative is secondary context. | [`decisions/CD-0041-architecture-bound-product-law.md`](./decisions/CD-0041-architecture-bound-product-law.md). |
+| **Product architecture and concurrent-law coordination** | **Resolved by CD-0222:** canonical Domains own law; Product-changing contracts declare architecture footprints; overlapping work requires a version-pinned resolution. CD-0213 places business grouping in Linear. | [`decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md`](./decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md); [`decisions/CD-0213-linear-mcp-is-the-only-planning-authority.md`](./decisions/CD-0213-linear-mcp-is-the-only-planning-authority.md). |
 
-All rows in this table are resolved explicitly by PM1–PM10/CD-0005/CD-0008/CD-0041—not by
+All rows in this table are resolved explicitly by PM1–PM10/CD-0005/CD-0008/CD-0222—not by
 implication from Go, storage, or CLI choice.
 
 ---
 
-## 4. Relationship to other docs
+## 4. Entry points by responsibility
+
+One row per responsibility. Start at the cited entry, then use symbol and test
+search in the same package. Ordinary package docs and adjacent tests own the
+details; this table does not duplicate them.
+
+| Responsibility | Start here | Invariant and test owner |
+|---|---|---|
+| CLI routing and host bootstrap | `cmd/concord/main.go`, `cmd/concord/work_bootstrap.go`, `cmd/concord/session.go` | Command admission, session identity; same-package tests |
+| Agent authorization and mutation | `internal/agent/runtime.go`, `internal/agent/mutations.go` | `internal/agent/authority.go`; approval, replay, and budget tests |
+| Adapter transport and native workers | `adapter/opencode/concord.ts`, `adapter/opencode/dispatch.ts`, `adapter/opencode/packet.ts` | `dispatch.test.ts`, `lane_dispatch.test.ts`, report-protocol tests |
+| SQLite and event authority | `internal/store/doc.go`, `internal/store/store.go`, `internal/store/transaction.go`, `internal/store/events.go` | One pooled connection, append-only log; `txscope_test.go`, `tx_subprocess_guard_test.go` |
+| Work context and evidence | `internal/store/work_context.go`, `internal/store/worker_packet_binding.go`, `internal/store/worker_context_findings.go` | Declared sources, frontier, exact subject and attempt; adjacent tests |
+| Workflow action and protected writes | `internal/store/workflow_dispatch.go`, `internal/store/workflow_preflight.go`, `internal/store/workflow_domain_overlap.go` | Approved scope, law revision, and shared-write checks |
+| Sessions, worktrees, handoff | `internal/store/worktrees.go`, `internal/store/project_handoffs.go`, `internal/store/session_vacate.go` | Occupancy, same-Project incarnation, per-repository provenance; adjacent tests |
+| Research and knowledge law | `internal/store/research_types.go`, `internal/store/research_reads.go`, `internal/store/research_mutations.go`, `internal/store/law_boundary.go` | Version and source identity, consumer pins, staleness, accepted-law lookup |
+| Repository verification | `.github/workflows/ci.yml`, `scripts/check-json.py`, `bin/oc-test` | Required checks and targeted verification routing |
+
+---
+
+## 5. Relationship to other docs
 
 | Doc | Link | Relationship |
 |---|---|---|
 | [`priorities.md`](./priorities.md) | Canonical authority | Ranked priorities and operating envelope; this document follows them. |
 | [`design-constraints.md`](./design-constraints.md) | NFRs and constraints | §7 updated to reference this document. §5 read-path target retained. |
 | [`decisions/CD-0002-concord-state-authority.md`](./decisions/CD-0002-concord-state-authority.md) | State authority | Sole durable authority for SQLite; invariants I1–I6. |
-| [`decisions/CD-0041-architecture-bound-product-law.md`](./decisions/CD-0041-architecture-bound-product-law.md) | Product-law architecture | Adds canonical Domain identity, architecture-bound work contracts, overlap revalidation, and the Initiative migration while preserving SQLite. |
+| [`decisions/CD-0041-architecture-bound-product-law.md`](./decisions/CD-0041-architecture-bound-product-law.md) | Product-law architecture | Adds canonical Domain identity, architecture-bound work contracts, and overlap revalidation while preserving SQLite. |
 | [`storage-spine-slice.md`](./storage-spine-slice.md) | Implementation acceptance plan | Runs against accepted PM1–PM10 and CD-0002/CD-0006/CD-0007/CD-0008 mechanics; validates the accepted shape rather than choosing it. |
 | [`clarifications.md`](./clarifications.md) | Build-authorizing decisions | PM1–PM10 shape Product memory; TS1–TS9 shape the current agent tool surface; CD-0006/CD-0007/CD-0008/CD-0041 settle root policy, repository boundary, mechanism hardening, and Product-law architecture. |
 | [`rollout-plan.md`](./rollout-plan.md) | Entry conditions | Go-core direction is not an entry condition. |

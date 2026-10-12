@@ -10,8 +10,8 @@
 > research/investigation, architecture spike, ops runbook, static analysis, or
 > generic one-off. Database/configuration/infrastructure map to implementation or
 > ops until a distinct recurring lifecycle proves another type necessary.
-> **Primary surface:** The Product-first terminal launcher is the primary
-> operator surface; an admin panel or web UI is optional and secondary.
+> **Primary surface:** Defined by [`priorities.md`](./priorities.md); an admin
+> panel or web UI is optional and secondary.
 > **Origin:** User direction, 2026-07-25.
 
 ## TL;DR
@@ -22,8 +22,9 @@ work, break-fix, configuration, infrastructure, research, RCA, and static
 analysis through that one shape is wrong. Concord introduces a **full workflow
 coordination engine** with code-defined, versioned purpose-built types plus one
 generic type for true one-offs. Each type is shaped for its work kind.
-The primary operator interacts through a **Product-first terminal launcher**;
-optional grid/table views are projections, not the primary interface.
+The primary operator interacts through the `concord zl` launcher and its agent
+sessions until the Herdr cutover; optional grid/table views are
+projections, not the primary interface.
 
 The canonical Concord priorities are maintained in [`priorities.md`](./priorities.md); this document
 follows them without restating the ranked list.
@@ -32,17 +33,17 @@ follows them without restating the ranked list.
 
 ## 0. Audience and primary surface (resolved)
 
-- **Primary operator surface:** a Product-first terminal launcher that opens the
-  Product view directly from the shell.
-- **Launcher responsibility:** context-rich navigation and narrow open/start/resume/
-  launch actions. Substantive workflow decisions happen after selection.
+- **Primary operator surface:** follows [`priorities.md`](./priorities.md).
+  The `concord zl` entry starts named work directly from the shell.
+- **Entry responsibility:** narrow start/resume/launch actions. Substantive
+  workflow decisions happen after selection.
 - **Human questions:** provide purpose, relevant context, concrete examples, and
   consequences before asking one decision at a time.
 - **Web / admin panel:** optional; a grid/table projection for humans, not the
   daily operating surface.
-- **Terminal launcher:** the CD-0108 replacement owns the daily browse and
-  session bootstrap role. ZLauncher retires only after the replacement
-  acceptance test passes.
+- **Session entry:** CD-0108 owns session bootstrap until the terminal-layer
+  cutover. CD-0219 retires the interactive launcher TUI without transferring
+  its operator acceptance gate to the entry route.
 - **Agent surface:** CD-0005's eight scenario-validated tools through the accepted
   `concord.ts` custom-tool adapter and short-lived Go CLI. No plugin/MCP v1 and no
   separate human-only GUI required for correctness.
@@ -79,9 +80,9 @@ A **workflow type** is a purpose-built definition:
 | **Artifacts** | What it produces (a spec delta? a report? a runbook record? nothing durable?). |
 | **Completion criteria** | How it's "done" (a contract satisfied? a report submitted? a signal fired?). |
 | **Work kind** | What shape of work it's for (implementation, operations, database, break-fix, configuration, infrastructure, options research, evidence research, RCA, static-analysis variants, …). |
-| **Value statement** | One sentence stating the Initiative/work value: what it delivers and why it matters. |
+| **Value statement** | One sentence stating the work value: what it delivers and why it matters. |
 | **Outcome contract** | The premise, required end-state, and candidate set the type requires at approval. See §2.1a. |
-| **Product-truth effect** | Closed `changes_product_truth` classification. `true` requires CD-0041's architecture binding; `false` cannot write Domain identity, Domain relations, Product law, or Product behavior. |
+| **Product-truth effect** | Closed `changes_product_truth` classification. `true` requires CD-0222's architecture binding; `false` cannot write Domain identity, Domain relations, Product law, or Product behavior. |
 | **Staleness rule** | Whether execution is blocked while the workflow's inputs or upstream state are stale. |
 | **Active visibility** | Which gates/problems are surfaced by default vs. hidden behind history. |
 
@@ -91,7 +92,7 @@ operator named.
 
 ### 2.1 Value statement invariant
 
-Every Initiative and every work item must carry a **one-sentence value statement**,
+Every work item must carry a **one-sentence value statement**,
 recorded at creation and reviewed at each gate. It is not a marketing blurb; it
 answers:
 
@@ -136,7 +137,7 @@ See [`clarifications.md`](./clarifications.md) R3.
 
 See [`clarifications.md`](./clarifications.md) R2.
 
-CD-0041 adds one non-optional preflight for Product-changing workflow types. An
+CD-0222 adds one non-optional preflight for Product-changing workflow types. An
 approved contract carries one home Domain, all affected Domains, exact governing
 law revisions, authorized law/Domain/relation modifications, and law-linked
 verification obligations. Overlap with another nonterminal Product-changing
@@ -152,13 +153,13 @@ Default Concord views are intentionally minimal:
 - Completed history, archived work, and passive context are available through
   explicit drill-down, not cluttering the default Product view.
 
-This applies to the terminal launcher, any admin panel, and agent-tool read
+This applies to the session entry, any admin panel, and agent-tool read
 surfaces.
 
 ### 2.5 Product → Domain navigation
 
 Workflows are reached primarily by **Product → Domain**, not by a flat list of
-changes or Initiatives.
+changes or external planning groups.
 
 - A Product owns canonical Domains; Projects and resources attach without becoming
   architecture identity.
@@ -166,7 +167,7 @@ changes or Initiatives.
   decisions, resources, and recent changes.
 - A workflow or change is **architecture-bound history** from the Domain view, not the
   top-level browse path.
-- Initiative is a secondary business/outcome overlay across Domain-bound work.
+- Business grouping lives in Linear under CD-0213 and owns no architecture authority.
 
 ---
 
@@ -184,7 +185,7 @@ Concord covers the full spectrum of work a Product accumulates:
 | **Infrastructure** | Ops runbook | Azure jobs, crons, deployed services; signal-aware. |
 | **Options research** | Research / investigation | Compare alternatives; may resolve to "no change." |
 | **Evidence research** | Research / investigation | Gather source evidence for a decision. |
-| **Architectural decision / de-risking** | Architecture spike | Decides, rather than ships. Binding decision record; hard-blocks dependent Initiative entries. See [`architecture-spike.md`](./architecture-spike.md). |
+| **Architectural decision / de-risking** | Architecture spike | Decides, rather than ships. Binding decision record; hard-blocks dependent work. See [`architecture-spike.md`](./architecture-spike.md). |
 | **RCA (root-cause analysis)** | Investigation / static-analysis variant | Defect-driven; produces durable findings. |
 | **Static-analysis variants** | Purpose-built analysis workflows | Architecture-inconsistency, AI-slop, spec/impl drift, etc. |
 
@@ -199,13 +200,12 @@ implementation change.
 
 | Type | Work kind | Shape | Replaces / relates |
 |---|---|---|---|
-| **Initiative** | Product-scoped finite business/outcome context | Frame value/scope → order independent Domain-bound work → maintain shared active context → close only when required entries/conditions are terminal; no nested execution or architecture authority | CD-0041 and CD-0042: #196 establishes Initiative on the pre-go-live primary path; Initiative remains an ordinary work identity. |
 | **Implementation change** | Spec-driven code work | 7 gates, spec deltas, contract | The existing ADV workflow — kept as the heaviest type. |
 | **Research / investigation** | Open-ended; may never become a change | Lightweight; gateless or few steps; ordinary `kind=research` work owning a CD-0009 active research pack; produces findings and may conclude `no change` | Today forced into premature changes or lost. |
 | **Architecture spike** | Architectural decision / de-risking | Frame → research → options → optional throwaway POC → decision record → reviewer → user acceptance; flat (has tasks, no sub-spikes); no timebox | Peer to the implementation change. Distinct from research: research *may* resolve to "no change"; a spike *must* resolve to a decision, and that decision **binds until superseded**. Full model: [`architecture-spike.md`](./architecture-spike.md). |
 | **Static-analysis workflows** | Code-quality / architecture analysis | Coordinates an external analysis run and records its report and verdict | External analysis tools own scanner implementation; Concord owns the tracked workflow. |
 | **Ops runbook** | Operational procedure | Steps (plan/approval/execute/health/rollback/cleanup); evidence | inventory §2.4 / §3.5. |
-| **Break-fix workflow** | Defect / RCA | RCA → fix → verify; the Product's selected planning authority owns the defect | [Product-scoped planning and local-only operation](development-authority.md). |
+| **Break-fix workflow** | Defect / RCA | RCA → fix → verify; Linear owns the defect record | [Managed development authority](managed-development-authority.md). |
 | **Database workflow** | Schema/data migration | Ops-runbook shape with migration-specific rollback | Reuses ops runbook primitives. |
 | **Configuration workflow** | Infra/tooling config | Lightweight change or ops-runbook shape | Reproducible, auditable. |
 
@@ -278,5 +278,4 @@ and [CD-0055 D4](./decisions/CD-0055-repository-check-authority.md#d4-heuristic-
 ---
 
 *One workflow was a start. A plurality of purpose-built workflows is the goal —
-each work kind gets the shape it deserves, navigated from the Product-first
-terminal launcher.*
+each work kind gets the shape it deserves, entered through the session entry.*

@@ -84,24 +84,6 @@
               "const": "concord_domain"
             },
             "operation": {
-              "const": "active_work"
-            },
-            "query_id": {
-              "const": "C22.DomainActiveWork"
-            }
-          }
-        },
-        {
-          "required": [
-            "tool",
-            "operation",
-            "query_id"
-          ],
-          "properties": {
-            "tool": {
-              "const": "concord_domain"
-            },
-            "operation": {
               "const": "attachments"
             },
             "query_id": {
@@ -124,29 +106,6 @@
             },
             "query_id": {
               "const": "C22.DomainOverlaps"
-            }
-          }
-        },
-        {
-          "required": [
-            "tool",
-            "operation"
-          ],
-          "not": {
-            "required": [
-              "query_id"
-            ]
-          },
-          "properties": {
-            "tool": {
-              "const": "concord_domain"
-            },
-            "operation": {
-              "enum": [
-                "observation_record",
-                "observation_dismiss"
-              ],
-              "type": "string"
             }
           }
         },
@@ -461,55 +420,11 @@
                 "research_finding_record",
                 "research_source_record",
                 "research_freshness_set",
+                "research_retire",
                 "observation_record",
-                "issue_adopt"
+                "issue_link_record"
               ],
               "type": "string"
-            }
-          }
-        },
-        {
-          "required": [
-            "tool",
-            "operation"
-          ],
-          "not": {
-            "required": [
-              "query_id"
-            ]
-          },
-          "properties": {
-            "tool": {
-              "const": "concord_work_initiative"
-            },
-            "operation": {
-              "enum": [
-                "create",
-                "add_entry",
-                "remove_entry",
-                "reorder_entry",
-                "change_requiredness",
-                "revise_narrative"
-              ],
-              "type": "string"
-            }
-          }
-        },
-        {
-          "required": [
-            "tool",
-            "operation",
-            "query_id"
-          ],
-          "properties": {
-            "tool": {
-              "const": "concord_work_initiative"
-            },
-            "operation": {
-              "const": "entries"
-            },
-            "query_id": {
-              "const": "C21.InitiativeEntries"
             }
           }
         },
@@ -567,10 +482,6 @@
             "operation": {
               "enum": [
                 "set_memberships",
-                "link",
-                "unlink",
-                "supersede",
-                "restore_superseded",
                 "resolve_overlap",
                 "resource_claim",
                 "resource_release",
@@ -600,28 +511,9 @@
             "operation": {
               "enum": [
                 "publish",
-                "reconcile",
-                "lesson_publish"
+                "reconcile"
               ],
               "type": "string"
-            }
-          }
-        },
-        {
-          "required": [
-            "tool",
-            "operation",
-            "query_id"
-          ],
-          "properties": {
-            "tool": {
-              "const": "concord_product_view"
-            },
-            "operation": {
-              "const": "portfolio"
-            },
-            "query_id": {
-              "const": "C14.ProductRows"
             }
           }
         },
@@ -696,24 +588,6 @@
               "const": "CD-0040.R1"
             }
           }
-        },
-        {
-          "required": [
-            "tool",
-            "operation",
-            "query_id"
-          ],
-          "properties": {
-            "tool": {
-              "const": "concord_knowledge"
-            },
-            "operation": {
-              "const": "unprocessed"
-            },
-            "query_id": {
-              "const": "PM1.Q15"
-            }
-          }
         }
       ]
     },
@@ -766,7 +640,6 @@
             "concord_knowledge",
             "concord_work_define",
             "concord_domain",
-            "concord_work_initiative",
             "concord_work_transition",
             "concord_work_relate",
             "concord_work_compact"
@@ -775,42 +648,33 @@
         },
         "operation": {
           "enum": [
-            "active_work",
-            "add_entry",
+            "",
             "attachments",
             "blocked",
             "blocked_sessions",
             "capture",
-            "change_requiredness",
             "client_policy_grant_request",
             "continuity",
-            "create",
             "detail",
-            "entries",
             "external_observations",
             "history",
-            "issue_adopt",
-            "lesson_publish",
+            "issue_link_record",
             "lifecycle",
-            "link",
             "list",
             "message_send",
             "message_withdraw",
             "messages",
-            "observation_dismiss",
             "observation_record",
             "observations",
             "overlaps",
-            "portfolio",
             "publish",
             "ready",
             "reconcile",
             "relations",
-            "remove_entry",
-            "reorder_entry",
             "research",
             "research_finding_record",
             "research_freshness_set",
+            "research_retire",
             "research_pack_create",
             "research_revision_append",
             "research_source_record",
@@ -821,16 +685,11 @@
             "resource_claims",
             "resource_release",
             "resources",
-            "restore_superseded",
             "revise_intent",
-            "revise_narrative",
             "scope",
             "search",
             "set_memberships",
             "snapshot",
-            "supersede",
-            "unlink",
-            "unprocessed",
             "remove",
             "workflow_action",
             "correct_delivery",
@@ -855,7 +714,7 @@
         },
         "query_id": {
           "type": "string",
-          "pattern": "^(PM1\\.Q(1[0-6]|[1-9])|CD-0030\\.R1|CD-0040\\.R1|CD-0096\\.R1|CD-0182\\.R1|C14\\.ProductRows|C15\\.Resources|C19\\.Continuity|C21\\.InitiativeEntries|C22\\.Domain(List|Detail|ActiveWork|Attachments|Overlaps))$"
+          "pattern": "^(PM1\\.Q(1[0-46]|[1-9])|CD-0030\\.R1|CD-0040\\.R1|CD-0096\\.R1|CD-0182\\.R1|C15\\.Resources|C19\\.Continuity|C22\\.Domain(List|Detail|Attachments|Overlaps))$"
         },
         "outcome": {
           "enum": [
@@ -1023,7 +882,26 @@
       },
       "allOf": [
         {
-          "$ref": "#/$defs/toolOperation"
+          "anyOf": [
+            {
+              "$ref": "#/$defs/toolOperation"
+            },
+            {
+              "required": ["origin", "outcome", "operation", "error"],
+              "not": { "required": ["query_id"] },
+              "properties": {
+                "origin": { "const": "adapter" },
+                "outcome": { "const": "error" },
+                "operation": { "const": "" },
+                "error": {
+                  "required": ["adapter_reason"],
+                  "properties": {
+                    "adapter_reason": { "const": "invalid_request_wrapper" }
+                  }
+                }
+              }
+            }
+          ]
         },
         {
           "if": {
@@ -1247,7 +1125,6 @@
             "concord_knowledge",
             "concord_work_define",
             "concord_domain",
-            "concord_work_initiative",
             "concord_work_transition",
             "concord_work_relate",
             "concord_work_compact"
@@ -1256,42 +1133,32 @@
         },
         "operation": {
           "enum": [
-            "active_work",
-            "add_entry",
             "attachments",
             "blocked",
             "blocked_sessions",
             "capture",
-            "change_requiredness",
             "client_policy_grant_request",
             "continuity",
-            "create",
             "detail",
-            "entries",
             "external_observations",
             "history",
-            "issue_adopt",
-            "lesson_publish",
+            "issue_link_record",
             "lifecycle",
-            "link",
             "list",
             "message_send",
             "message_withdraw",
             "messages",
-            "observation_dismiss",
             "observation_record",
             "observations",
             "overlaps",
-            "portfolio",
             "publish",
             "ready",
             "reconcile",
             "relations",
-            "remove_entry",
-            "reorder_entry",
             "research",
             "research_finding_record",
             "research_freshness_set",
+            "research_retire",
             "research_pack_create",
             "research_revision_append",
             "research_source_record",
@@ -1302,16 +1169,11 @@
             "resource_claims",
             "resource_release",
             "resources",
-            "restore_superseded",
             "revise_intent",
-            "revise_narrative",
             "scope",
             "search",
             "set_memberships",
             "snapshot",
-            "supersede",
-            "unlink",
-            "unprocessed",
             "remove",
             "workflow_action",
             "correct_delivery",
@@ -1336,7 +1198,7 @@
         },
         "query_id": {
           "type": "string",
-          "pattern": "^(PM1\\.Q(1[0-6]|[1-9])|CD-0030\\.R1|CD-0040\\.R1|CD-0096\\.R1|CD-0182\\.R1|C14\\.ProductRows|C15\\.Resources|C19\\.Continuity|C21\\.InitiativeEntries|C22\\.Domain(List|Detail|ActiveWork|Attachments|Overlaps))$"
+          "pattern": "^(PM1\\.Q(1[0-46]|[1-9])|CD-0030\\.R1|CD-0040\\.R1|CD-0096\\.R1|CD-0182\\.R1|C15\\.Resources|C19\\.Continuity|C22\\.Domain(List|Detail|Attachments|Overlaps))$"
         },
         "reason_code": {
           "type": "string",
@@ -1584,7 +1446,9 @@
             "session_directory_unreadable",
             "worker_abandon_refused",
             "worker_abandon_receipt_failed",
-            "lane_tool_refusal"
+            "lane_tool_refusal",
+            "invalid_cli_input",
+            "invalid_request_wrapper"
           ],
           "type": "string"
         },
@@ -1907,7 +1771,7 @@
           }
         },
         "supported_budget_seconds": {
-          "description": "CD-0038 D3: the operation's declared seconds ceiling, typed on every budget_refused error so the recovery value a caller needs is never buried in details. Carried on no other kind. The maximum tracks the agent-tool-surface ceiling (CD-0038 D2 evidence-fixed exceptions; CON-317 fixes worktree_verify at 1800).",
+          "description": "CD-0038 D3: the operation's declared seconds ceiling, typed on every budget_refused error so the recovery value a caller needs is never buried in details. Carried on no other kind. The maximum tracks the agent-tool-surface ceiling (CD-0038 D2 evidence-fixed exceptions; worktree_verify is fixed at 1800).",
           "type": "integer",
           "minimum": 1,
           "maximum": 1800
@@ -2576,51 +2440,15 @@
                   "operation": {
                     "enum": [
                       "capture",
-                      "issue_adopt",
+                      "issue_link_record",
                       "observation_record",
                       "research_finding_record",
                       "research_freshness_set",
+                      "research_retire",
                       "research_pack_create",
                       "research_revision_append",
                       "research_source_record",
                       "revise_intent"
-                    ],
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "tool",
-                  "operation"
-                ]
-              },
-              "then": {
-                "required": [
-                  "result",
-                  "changed_refs",
-                  "next_valid_intents"
-                ],
-                "not": {
-                  "required": [
-                    "items"
-                  ]
-                }
-              }
-            },
-            {
-              "if": {
-                "properties": {
-                  "tool": {
-                    "const": "concord_work_initiative",
-                    "type": "string"
-                  },
-                  "operation": {
-                    "enum": [
-                      "add_entry",
-                      "change_requiredness",
-                      "create",
-                      "remove_entry",
-                      "reorder_entry",
-                      "revise_narrative"
                     ],
                     "type": "string"
                   }
@@ -2700,17 +2528,13 @@
                   "operation": {
                     "enum": [
                       "client_policy_grant_request",
-                      "link",
                       "message_send",
                       "message_withdraw",
                       "product_project_add",
                       "resource_claim",
                       "resource_release",
                       "resolve_overlap",
-                      "restore_superseded",
-                      "set_memberships",
-                      "supersede",
-                      "unlink"
+                      "set_memberships"
                     ],
                     "type": "string"
                   }
@@ -2742,7 +2566,6 @@
                   },
                   "operation": {
                     "enum": [
-                      "lesson_publish",
                       "publish",
                       "reconcile"
                     ],
@@ -2766,41 +2589,21 @@
                   ]
                 }
               }
-            },
-            {
-              "if": {
-                "properties": {
-                  "tool": {
-                    "const": "concord_domain",
-                    "type": "string"
-                  },
-                  "operation": {
-                    "enum": [
-                      "observation_dismiss",
-                      "observation_record"
-                    ],
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "tool",
-                  "operation"
-                ]
-              },
-              "then": {
-                "required": [
-                  "result",
-                  "changed_refs",
-                  "next_valid_intents"
-                ],
-                "not": {
-                  "required": [
-                    "items"
-                  ]
-                }
-              }
             }
           ]
+        },
+        {
+          "if": {
+            "required": ["query_id"]
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                { "required": ["changed_refs"] },
+                { "required": ["next_valid_intents"] }
+              ]
+            }
+          }
         }
       ],
       "unevaluatedProperties": false
@@ -2934,6 +2737,43 @@
     "errorOutcome": {
       "allOf": [
         {
+          "if": {
+            "required": ["origin", "error"],
+            "properties": {
+              "origin": { "const": "adapter" },
+              "error": {
+                "anyOf": [
+                  {
+                    "required": ["kind"],
+                    "properties": { "kind": { "const": "invalid_input" } }
+                  },
+                  {
+                    "required": ["adapter_reason"],
+                    "properties": { "adapter_reason": { "type": "string", "enum": ["invalid_request_wrapper", "invalid_cli_input"] } }
+                  }
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "error": {
+                "required": ["kind", "adapter_reason", "effect_state", "retry_safe", "recovery_action"],
+                "properties": {
+                  "kind": { "const": "invalid_input" },
+                  "adapter_reason": { "type": "string", "enum": ["invalid_request_wrapper", "invalid_cli_input"] },
+                  "effect_state": { "const": "none" },
+                  "retry_safe": { "const": false },
+                  "recovery_action": {
+                    "required": ["kind"],
+                    "properties": { "kind": { "const": "restart_query" } }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
           "$ref": "#/$defs/base"
         },
         {
@@ -3001,7 +2841,8 @@
                       "timeout",
                       "cancelled",
                       "operation_conflict",
-                      "unauthorized"
+                      "unauthorized",
+                      "invalid_input"
                     ],
                     "type": "string"
                   }

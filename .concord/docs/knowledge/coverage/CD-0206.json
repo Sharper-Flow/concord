@@ -2,6 +2,14 @@
   "evidence": [
     {
       "kind": "go_test",
+      "value": "internal/store.TestOwnerOracleConvergence"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestOwnerOracleRepairFamily"
+    },
+    {
+      "kind": "go_test",
       "value": "internal/store.TestInitialNoShipReviewHoldsDeliveryBehindTheObligation"
     },
     {

@@ -138,7 +138,7 @@ func WorkflowFailedWorkerRetryBinding(ctx context.Context, s *Store, registry De
 	// The admission fold runs in the caller's transaction, so the pool-backed
 	// read opens its own short read transaction around the same single
 	// implementation (the store connection invariant).
-	readTx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	readTx, err := beginReadTx(ctx, s.db)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, "workflow_correction", "cannot open the binding read transaction", true, "retry once the store is readable", err)
 	}
@@ -286,7 +286,7 @@ func validateRejectCorrectionPinValues(payload json.RawMessage, evidenceRefs []s
 	if err := validateWorkflowOpenFindingsPayload(fields); err != nil {
 		return err
 	}
-	fault := workflowCorrectionSchemaValuesFault(workflowFieldStrings(fields, "predicate_ids"), workflowFieldStrings(fields, "evidence_refs"), evidenceRefs)
+	fault := workflowCorrectionSchemaValuesFaultForAdmission(workflowFieldStrings(fields, "predicate_ids"), workflowFieldStrings(fields, "evidence_refs"), evidenceRefs)
 	if fault == "" {
 		return nil
 	}
@@ -500,22 +500,23 @@ func workflowCorrectionWindowBoundary(ctx context.Context, q queryer, workID str
 // projections use this history's obligation discharge rule (CD-0205 D4), not
 // the current attempt lifecycle, so historical reads keep replay parity.
 func workflowCorrectionWalk(ctx context.Context, q queryer, workID string, prefix int64, subject string) (*workflowCorrectionHistory, error) {
-	rows, err := q.QueryContext(ctx, `SELECT e.seq, e.kind, COALESCE(json_extract(e.payload,'$.attempt_id'),''), COALESCE(json_extract(e.payload,'$.worker_attempt_id'),''), COALESCE(json_extract(e.payload,'$.action_id'),''), COALESCE(json_extract(e.payload,'$.worker_job.job_id'),''), COALESCE(json_extract(e.payload,'$.worker_job.revision'),0), e.payload FROM domain_events e WHERE e.subject_type=? AND e.subject_id=? AND e.seq<=? AND ((e.kind=? AND json_extract(e.payload,'$.attempt_id') IS NOT NULL) OR (e.kind=? AND json_extract(e.payload,'$.action_id') IN ('record_worker_failure','reject_worker_result','request_correction','accept_worker_result','dispatch_worker')) OR e.kind=? OR e.kind=? OR e.kind=?) ORDER BY e.seq`, string(SubjectWorkItem), workID, prefix, WorkerDispatched, WorkflowActionCompleted, WorkerJobRecorded, WorkerFailed, WorkerCompleted)
+	rows, err := q.QueryContext(ctx, `SELECT e.seq, e.kind, COALESCE(json_extract(e.payload,'$.attempt_id'),''), COALESCE(json_extract(e.payload,'$.worker_attempt_id'),''), COALESCE(json_extract(e.payload,'$.action_id'),''), COALESCE(json_extract(e.payload,'$.worker_job.job_id'),''), COALESCE(json_extract(e.payload,'$.worker_job.revision'),0), COALESCE(json_extract(e.payload,'$.worker_job.digest'),''), e.payload FROM domain_events e WHERE e.subject_type=? AND e.subject_id=? AND e.seq<=? AND ((e.kind=? AND json_extract(e.payload,'$.attempt_id') IS NOT NULL) OR (e.kind=? AND json_extract(e.payload,'$.action_id') IN ('record_worker_failure','reject_worker_result','request_correction','accept_worker_result','dispatch_worker')) OR e.kind=? OR e.kind=? OR e.kind=?) ORDER BY e.seq`, string(SubjectWorkItem), workID, prefix, WorkerDispatched, WorkflowActionCompleted, WorkerJobRecorded, WorkerFailed, WorkerCompleted)
 	if err != nil {
 		return nil, wrapFailure(KindUnavailable, subject, "cannot read the correction window history", true, "retry once the workflow event log is readable", err)
 	}
 	defer func() { _ = rows.Close() }()
 	history := &workflowCorrectionHistory{
-		prefix:       prefix,
-		unresolved:   make(map[string]bool),
-		dispatchJob:  make(map[string]string),
-		materialized: make(map[string]bool),
-		obligations:  make(map[string]string),
-		nonSettling:  make(map[string]bool),
+		prefix:          prefix,
+		unresolved:      make(map[string]bool),
+		dispatchJob:     make(map[string]string),
+		dispatchBinding: make(map[string]WorkerJobBinding),
+		materialized:    make(map[string]bool),
+		obligations:     make(map[string]workflowJobObligationState),
+		nonSettling:     make(map[string]bool),
 	}
 	for rows.Next() {
 		var row workflowCorrectionHistoryRow
-		if err := rows.Scan(&row.seq, &row.kind, &row.dispatchAttempt, &row.actionAttempt, &row.actionID, &row.jobID, &row.jobRevision, &row.payload); err != nil {
+		if err := rows.Scan(&row.seq, &row.kind, &row.dispatchAttempt, &row.actionAttempt, &row.actionID, &row.jobID, &row.jobRevision, &row.jobDigest, &row.payload); err != nil {
 			return nil, wrapFailure(KindUnavailable, subject, "cannot scan the correction window history", true, "retry once the workflow event log is readable", err)
 		}
 		if err := history.observe(row, subject); err != nil {
@@ -529,15 +530,19 @@ func workflowCorrectionWalk(ctx context.Context, q queryer, workID string, prefi
 }
 
 type workflowCorrectionHistory struct {
-	prefix       int64
-	boundary     int64
-	unresolved   map[string]bool
-	dispatchJob  map[string]string
-	materialized map[string]bool
-	obligations  map[string]string
-	nonSettling  map[string]bool
-	records      []workflowCorrectionRecordState
-	completions  []workflowCorrectionDispatchCompletion
+	prefix      int64
+	boundary    int64
+	unresolved  map[string]bool
+	dispatchJob map[string]string
+	// dispatchBinding retains the full dispatched job binding of each
+	// attempt, so oracle-side comparability can compare the exact
+	// revisions two correction records were dispatched under.
+	dispatchBinding map[string]WorkerJobBinding
+	materialized    map[string]bool
+	obligations     map[string]workflowJobObligationState
+	nonSettling     map[string]bool
+	records         []workflowCorrectionRecordState
+	completions     []workflowCorrectionDispatchCompletion
 }
 
 type workflowCorrectionHistoryRow struct {
@@ -548,6 +553,7 @@ type workflowCorrectionHistoryRow struct {
 	actionID        string
 	jobID           string
 	jobRevision     int64
+	jobDigest       string
 	payload         string
 }
 
@@ -571,11 +577,11 @@ func (h *workflowCorrectionHistory) observe(row workflowCorrectionHistoryRow, su
 		h.fail(row.dispatchAttempt)
 	case string(WorkerDispatched):
 		h.materialized[row.dispatchAttempt] = true
-		h.bind(row.dispatchAttempt, row.jobID, row.jobRevision)
+		h.bind(row.dispatchAttempt, WorkerJobBinding{JobID: row.jobID, Revision: row.jobRevision, Digest: row.jobDigest})
 	case string(WorkerJobRecorded):
 		var recorded WorkerJobRecordedPayload
 		if err := json.Unmarshal([]byte(row.payload), &recorded); err == nil {
-			h.obligations[workerJobKey(recorded.JobID, recorded.Revision)] = workerJobObligationKey(recorded)
+			h.obligations[workerJobKey(recorded.JobID, recorded.Revision)] = workflowJobObligationState{base: workerJobObligationKey(recorded), oracle: recorded.AcceptanceOracle, contractVersion: recorded.ContractVersion}
 		}
 	}
 	if row.kind != string(WorkflowActionCompleted) {
@@ -586,7 +592,7 @@ func (h *workflowCorrectionHistory) observe(row workflowCorrectionHistoryRow, su
 		// Authorization owns the binding even without worker evidence. Only
 		// materialized completions can consume an unbound correction record.
 		if row.actionAttempt != "" {
-			h.bind(row.actionAttempt, row.jobID, row.jobRevision)
+			h.bind(row.actionAttempt, WorkerJobBinding{JobID: row.jobID, Revision: row.jobRevision, Digest: row.jobDigest})
 		}
 		h.completions = append(h.completions, workflowCorrectionDispatchCompletion{seq: row.seq, attempt: row.actionAttempt})
 	case "record_worker_failure", "reject_worker_result", "request_correction":
@@ -598,7 +604,11 @@ func (h *workflowCorrectionHistory) observe(row workflowCorrectionHistoryRow, su
 		if row.actionID != "request_correction" {
 			key = h.fail(row.actionAttempt)
 		}
-		h.records = append(h.records, workflowCorrectionRecordState{seq: row.seq, fields: fields, jobKey: key})
+		record := workflowCorrectionRecordState{seq: row.seq, fields: fields, jobKey: key}
+		if binding, bound := h.dispatchBinding[row.actionAttempt]; bound {
+			record.jobBinding = &binding
+		}
+		h.records = append(h.records, record)
 	case "accept_worker_result":
 		if !h.nonSettling[row.actionAttempt] && h.discharge(row.jobID, row.jobRevision) {
 			h.boundary = row.seq
@@ -607,12 +617,13 @@ func (h *workflowCorrectionHistory) observe(row workflowCorrectionHistoryRow, su
 	return nil
 }
 
-func (h *workflowCorrectionHistory) bind(attempt, jobID string, revision int64) {
-	if jobID == "" {
+func (h *workflowCorrectionHistory) bind(attempt string, binding WorkerJobBinding) {
+	if binding.JobID == "" {
 		return
 	}
 	if _, bound := h.dispatchJob[attempt]; !bound {
-		h.dispatchJob[attempt] = workerJobKey(jobID, revision)
+		h.dispatchJob[attempt] = workerJobKey(binding.JobID, binding.Revision)
+		h.dispatchBinding[attempt] = binding
 	}
 }
 
@@ -624,21 +635,42 @@ func (h *workflowCorrectionHistory) fail(attempt string) string {
 	return key
 }
 
+// workflowJobObligationState is one recorded revision's corrective
+// obligation: the base obligation key over objective, scope, predicates, and
+// checks, plus the recorded acceptance oracle. The oracle participates in
+// obligation identity: a renamed or rewritten oracle does not
+// reset earlier debt, and a newer revision satisfies an earlier revision's
+// unresolved debt only when the base obligation is unchanged and every
+// previous owner, case, and control is retained byte-identically under the
+// same recorded contract. A strengthened inventory may add cases and controls.
+type workflowJobObligationState struct {
+	base            string
+	oracle          *AcceptanceOracle
+	contractVersion int64
+}
+
 // discharge owns acceptance satisfaction for both projections. A reset needs
-// every debt cleared by the same job's equal recorded obligation; with no
-// job-bound debt, any acceptance resets the window (CD-0164 D2).
+// every debt cleared by the same job's equal base obligation with retained
+// oracle owners, cases, controls, and contract authority. With no job-bound
+// debt, any acceptance resets the window (CD-0164 D2). The accepted dispatch
+// binds the revision being compared; it does not supply semantic proof.
 func (h *workflowCorrectionHistory) discharge(jobID string, revision int64) bool {
 	if len(h.unresolved) == 0 {
 		return true
 	}
-	acceptedObligation := h.obligations[workerJobKey(jobID, revision)]
-	if jobID == "" || acceptedObligation == "" {
+	accepted := h.obligations[workerJobKey(jobID, revision)]
+	if jobID == "" || accepted.base == "" {
 		return false
 	}
 	for open := range h.unresolved {
-		if strings.HasPrefix(open, jobID+"|") && h.obligations[open] == acceptedObligation {
-			delete(h.unresolved, open)
+		if !strings.HasPrefix(open, jobID+"|") {
+			continue
 		}
+		prior := h.obligations[open]
+		if prior.base != accepted.base || (prior.oracle != nil && prior.contractVersion != accepted.contractVersion) || !oracleControlsRetained(prior.oracle, accepted.oracle) {
+			continue
+		}
+		delete(h.unresolved, open)
 	}
 	return len(h.unresolved) == 0
 }
@@ -681,13 +713,14 @@ func workerJobKey(jobID string, revision int64) string {
 	return jobID + "|" + strconv.FormatInt(revision, 10)
 }
 
-// workerJobObligationKey derives the obligation content of one recorded
-// revision: every content field that defines what the job owes, excluding the
-// identity fields (job id, revision, parent contract version) and the
-// coordinator's readiness assertion. Two revisions of one job carry the same
-// obligation exactly when this key equals, so an acceptance of a re-recorded
-// revision discharges the failed revision's corrective window while an
-// acceptance of a rewritten, unrelated revision cannot.
+// workerJobObligationKey derives the base obligation content of one recorded
+// revision: every content field that defines what the job owes, excluding
+// the identity fields (job id, revision, parent contract version), the
+// coordinator's readiness assertion, and the acceptance oracle — the oracle
+// joins obligation identity structurally in workflowJobObligationState, so
+// a strengthened-but-retaining oracle can satisfy old debt while a renamed
+// or control-rewritten oracle never resets it. Two revisions of one job
+// carry the same base obligation exactly when this key equals.
 func workerJobObligationKey(payload WorkerJobRecordedPayload) string {
 	obligation := struct {
 		Objective           string                  `json:"objective"`
@@ -931,12 +964,15 @@ func workflowLatestVerdictSequences(ctx context.Context, q queryer, workID strin
 }
 
 // workflowRefinementStepID returns the ID of the definition's refinement pass,
-// the step that declares start_refine, or "" when the pinned shape carries no
-// refinement step. The refinement pass is where a review result is accepted or
-// rejected, so the post-rejection review gate reads its history.
+// the step that declares checkpoint_refine, or "" when the pinned shape
+// carries no refinement step. The refinement pass is where a review result is
+// accepted or rejected, so the post-rejection review gate reads its history.
+// The checkpoint declares on the same step its callable start declared on
+// every version that shipped one, so the read is invariant across the
+// CD-0198 D3 derived-start pins.
 func workflowRefinementStepID(definition WorkflowDefinition) string {
 	for i := range definition.StepGraph.Steps {
-		if stepDeclaresAction(definition, definition.StepGraph.Steps[i].ID, "start_refine") {
+		if stepDeclaresAction(definition, definition.StepGraph.Steps[i].ID, "checkpoint_refine") {
 			return definition.StepGraph.Steps[i].ID
 		}
 	}
@@ -947,7 +983,7 @@ func workflowRefinementStepID(definition WorkflowDefinition) string {
 // whose advance carries an unreviewed repaired result toward delivery: the
 // refinement step that enters the delivery gate, and the gate itself.
 func workflowPostRejectionReviewStep(definition WorkflowDefinition, currentStep string) bool {
-	return stepDeclaresAction(definition, currentStep, "start_refine") || workflowStepIsDeliveryGate(workflowStep(definition, currentStep))
+	return stepDeclaresAction(definition, currentStep, "checkpoint_refine") || workflowStepIsDeliveryGate(workflowStep(definition, currentStep))
 }
 
 // workflowReviewSettlesDebt is the single owner of the review-verdict half of
@@ -1132,7 +1168,7 @@ func workflowDeliveryGateCorrectionContext(ctx context.Context, q queryer, workI
 		if !isDB {
 			return nil, newFailure(KindUnavailable, subject, "workflow action admission folds in the caller's transaction", false, "run the admission fold inside the mutation transaction")
 		}
-		readTx, beginErr := db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+		readTx, beginErr := beginReadTx(ctx, db)
 		if beginErr != nil {
 			return nil, wrapFailure(KindUnavailable, subject, "cannot open the read transaction", true, "retry once the store is readable", beginErr)
 		}
@@ -1477,7 +1513,10 @@ type workflowCorrectionRecordState struct {
 	fields workflowCorrectionCompletionFields
 	// jobKey names the recorded revision the failed attempt was dispatched
 	// under; empty when the attempt carried no job binding.
-	jobKey       string
+	jobKey string
+	// jobBinding retains the dispatched binding itself, so oracle-side
+	// comparability can compare the exact revisions two records hold.
+	jobBinding   *WorkerJobBinding
 	countThrough int64
 }
 
@@ -1612,7 +1651,7 @@ func correctionReferenceStrings(values []string) []string {
 	out := make([]string, 0, len(values))
 	seen := make(map[string]struct{}, len(values))
 	for _, value := range values {
-		if !ValidReference(value) {
+		if !replayValidReference(value) {
 			continue
 		}
 		if _, duplicate := seen[value]; duplicate {

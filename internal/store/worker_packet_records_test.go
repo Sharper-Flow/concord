@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"strings"
 	"testing"
 )
@@ -9,7 +10,16 @@ import (
 // fixture and applies edit to its inputs before dispatch.
 func recordsDispatchPacket(t *testing.T, f workContextFixture, attemptID string, edit func(inputs map[string]any)) map[string]any {
 	t.Helper()
-	packet := workContextDispatchPacket(t, f, attemptID, nil)
+	job := seedReadyWorkerJob(t, f)
+	view, err := readWorkContextView(context.Background(), f.store.DatabaseForTesting(), f.workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var claimed any
+	if view != nil {
+		claimed = view
+	}
+	packet := workContextDispatchPacket(t, f, attemptID, job, claimed)
 	if edit != nil {
 		edit(packet["inputs"].(map[string]any))
 	}

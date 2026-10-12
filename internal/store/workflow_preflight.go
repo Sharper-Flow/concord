@@ -49,7 +49,7 @@ func VerifyWorkflowDefinitionPin(registry DefinitionRegistry, pin WorkflowDefini
 	if !ok {
 		return RegisteredDefinition{}, workflowPinFailure("pinned workflow definition is unavailable")
 	}
-	computed, err := WorkflowDefinitionDigest(entry.Definition)
+	computed, err := workflowDefinitionDigestWithReference(entry.Definition, replayValidReference)
 	if err != nil {
 		return RegisteredDefinition{}, err
 	}
@@ -118,11 +118,7 @@ func WorkflowActionPreflightWithRegistry(ctx context.Context, s *Store, registry
 	if _, _, err := WorkflowActionDefinitionFor(ctx, s, registry, request.WorkID, request.ActionID); err != nil {
 		return err
 	}
-	ctx, err := prepareWorkNavigation(ctx, s, request.WorkID)
-	if err != nil {
-		return err
-	}
-	readTx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	readTx, err := beginReadTx(ctx, s.db)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "workflow_action_preflight", "cannot begin workflow admission read snapshot", true, "retry once the database is readable", err)
 	}
@@ -159,22 +155,11 @@ func authorizeWorkflowActionAtBoundaryCore(ctx context.Context, s *Store, regist
 	if registry == nil {
 		registry = BuiltinWorkflowRegistry()
 	}
-	var declaration workflowWorkContextRecordedPayload
-	_ = json.Unmarshal(request.Payload, &declaration)
-	navigation := WorkContextNavigationRequest{WorkIDs: []string{request.WorkID}}
-	for _, reading := range declaration.RequiredReading {
-		navigation.Sources = append(navigation.Sources, reading.Source)
-	}
-	ctx, err := s.EstablishWorkContextNavigationProof(ctx, navigation)
-	if err != nil {
-		return err
-	}
 	tx, err := s.beginDurableTx(ctx)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "workflow_action_boundary", "cannot begin owning action", true, "retry once the database is writable", err)
 	}
 	transaction := &Transaction{tx: tx.Tx}
-	transaction.navigation, _ = ctx.Value(workContextNavigationProofKey{}).(*workContextNavigationProof)
 	defer tx.finish(&retErr)
 	defer func() { transaction.tx = nil }()
 	scope, err := beginFold(ctx, tx.Tx)
@@ -340,7 +325,7 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 		return RegisteredDefinition{}, err
 	}
 	if staleRecovery {
-		if err := validateWorkflowContractRecoveryPayload(request.Payload); err != nil {
+		if err := validateWorkflowContractRecoveryPayload(entry.Definition, request.Payload); err != nil {
 			return RegisteredDefinition{}, err
 		}
 	} else if err := validateWorkflowActionEnvelopePayload(entry.Definition, request); err != nil {
@@ -459,6 +444,30 @@ func workflowEnvelopeProjectedPayload(definition WorkflowDefinition, actionID st
 	return merged
 }
 
+// workflowLivePayloadSchemaDocument returns the schema document that resolves
+// a LIVE payload's declared schema refs: the generated public authoring
+// document, for every definition. A live call answers to the current
+// published contract regardless of pin age — a retained pin dispatching live
+// carries the current published worker packet, not the frozen transport
+// schema the pin's recorded history was validated against. The preflight
+// picks the decoder by the live/replay role, never by pin age, so an
+// old-pin live dispatch admits the current published packet identity.
+// workflowReplayPayloadSchemaDocument returns the document that resolves a
+// RECORDED payload's declared schema refs: the frozen historical decoder
+// document, so recorded history replays against the exact frozen bytes its
+// writes answered to and a public authoring change cannot rewrite it. The
+// global engine cross-field rules stay outside both documents on the engine
+// registry.
+func workflowLivePayloadSchemaDocument() map[string]any {
+	return payloadschema.Document()
+}
+
+// workflowReplayPayloadSchemaDocument is the replay side of the invocation
+// role split: see workflowLivePayloadSchemaDocument.
+func workflowReplayPayloadSchemaDocument() map[string]any {
+	return payloadschema.HistoricalDocument()
+}
+
 // validateWorkflowActionEnvelopePayload validates the declared action payload
 // the way the envelope carries it, projecting the envelope-level
 // operator-decision values into the validation map when the declaration names
@@ -469,6 +478,14 @@ func validateWorkflowActionEnvelopePayload(definition WorkflowDefinition, reques
 }
 
 func validateWorkflowActionPayload(definition WorkflowDefinition, actionID string, payload json.RawMessage) error {
+	return validateWorkflowActionPayloadInDocument(workflowLivePayloadSchemaDocument(), definition, actionID, payload, ValidReference)
+}
+
+func validateWorkflowActionPayloadForReplay(definition WorkflowDefinition, actionID string, payload json.RawMessage) error {
+	return validateWorkflowActionPayloadInDocument(workflowReplayPayloadSchemaDocument(), definition, actionID, payload, replayValidReference)
+}
+
+func validateWorkflowActionPayloadInDocument(document map[string]any, definition WorkflowDefinition, actionID string, payload json.RawMessage, validReference func(string) bool) error {
 	if len(payload) == 0 {
 		payload = json.RawMessage(`{}`)
 	}
@@ -476,7 +493,7 @@ func validateWorkflowActionPayload(definition WorkflowDefinition, actionID strin
 	if err := decodePredicateStrict(payload, &fields); err != nil {
 		return newFailure(KindInvalidPayload, "workflow_action_preflight", "workflow action payload is not one strict JSON object", false, "supply the registered action payload")
 	}
-	if err := validateEvidenceBindingReferences(actionID, fields); err != nil {
+	if err := validateEvidenceBindingReferencesWithReference(actionID, fields, validReference); err != nil {
 		return err
 	}
 	var payloadDefinition WorkflowPayloadDefinition
@@ -560,10 +577,10 @@ func validateWorkflowActionPayload(definition WorkflowDefinition, actionID strin
 	// the structural refusal.
 	for _, name := range slices.Sorted(maps.Keys(fields)) {
 		field := allowed[name]
-		if !validateWorkflowPayloadValue(field, fields[name]) {
+		if !validateWorkflowPayloadValueWithReference(document, field, fields[name], validReference) {
 			return newFailure(KindInvalidPayload, "workflow_action_preflight", fmt.Sprintf("workflow action payload field %q has the wrong registered type or bounds for rule %s", name, workflowPayloadFieldRule(field)), false, "supply the declared action field type and bounds")
 		}
-		if err := validateWorkflowPayloadSchema(field, fields[name]); err != nil {
+		if err := validateWorkflowPayloadSchema(document, field, fields[name]); err != nil {
 			return err
 		}
 	}
@@ -755,7 +772,7 @@ func workflowPayloadKindMatchRefusal(actionID string, match WorkflowPayloadKindM
 	return newFailure(KindInvalidPayload, "workflow_action_preflight", fmt.Sprintf("%s field %q is %q but field %q carries %s %q", actionID, match.Field, fieldKind, match.Object, match.Discriminator, objectKind), false, remedy)
 }
 
-func validateEvidenceBindingReferences(actionID string, fields map[string]json.RawMessage) error {
+func validateEvidenceBindingReferencesWithReference(actionID string, fields map[string]json.RawMessage, validReference func(string) bool) error {
 	if actionID != "bind_evidence" {
 		return nil
 	}
@@ -765,8 +782,8 @@ func validateEvidenceBindingReferences(actionID string, fields map[string]json.R
 			continue
 		}
 		var value string
-		if json.Unmarshal(raw, &value) != nil || !ValidReference(value) {
-			return newFailure(KindInvalidPayload, "workflow_action_preflight", fmt.Sprintf("workflow action payload field %q must satisfy the reference rule: 2 to 128 bytes with no whitespace", name), false, "supply a whitespace-free reference no longer than 128 bytes")
+		if json.Unmarshal(raw, &value) != nil || !validReference(value) {
+			return newFailure(KindInvalidPayload, "workflow_action_preflight", fmt.Sprintf("workflow action payload field %q must satisfy the reference rule: 2 to 128 bytes with no Unicode White_Space", name), false, "supply a bounded reference with no Unicode White_Space")
 		}
 	}
 	return nil
@@ -778,10 +795,13 @@ func validateEvidenceBindingReferences(actionID string, fields map[string]json.R
 // has one enforcement authority and every refusal is one a published contract
 // states.
 //
-// A declared name that the generated document does not carry fails closed. A
-// declaration pointing at a schema nobody generated enforces nothing, and
-// silently passing it would admit a payload no contract checked.
-func validateWorkflowPayloadSchema(field WorkflowPayloadField, raw json.RawMessage) error {
+// The document argument is the decoding owner of the declaration: the public
+// authoring document for current declarations and the frozen historical
+// decoder for retained pins. A declared name that the owning
+// document does not carry fails closed. A declaration pointing at a schema
+// nobody generated enforces nothing, and silently passing it would admit a
+// payload no contract checked.
+func validateWorkflowPayloadSchema(document map[string]any, field WorkflowPayloadField, raw json.RawMessage) error {
 	if len(raw) == 0 {
 		return nil
 	}
@@ -789,12 +809,12 @@ func validateWorkflowPayloadSchema(field WorkflowPayloadField, raw json.RawMessa
 	// selects a built-in item kind, which validWorkflowPayloadListItem already
 	// applied; for an array it names a generated schema.
 	if field.ValueType == PayloadArray && field.ItemRef != "" {
-		return validateWorkflowPayloadItems(field, raw)
+		return validateWorkflowPayloadItems(document, field, raw)
 	}
 	if field.SchemaRef == "" {
 		return nil
 	}
-	if !payloadschema.Has(field.SchemaRef) {
+	if !payloadschema.HasIn(document, field.SchemaRef) {
 		return newFailure(KindInvalidPayload, "workflow_action_preflight", fmt.Sprintf("workflow action payload field %q declares schema %q, which is not generated", field.Name, field.SchemaRef), false, "regenerate the payload contracts or correct the declared schema reference")
 	}
 	// An array field frozen before item_ref could name a generated schema
@@ -802,10 +822,10 @@ func validateWorkflowPayloadSchema(field WorkflowPayloadField, raw json.RawMessa
 	// cannot be edited, so the element reading is preserved for them: it is the
 	// only reading under which they ever accepted a payload. A definition
 	// written now says which it means by choosing item_ref or schema_ref.
-	if field.ValueType == PayloadArray && !payloadschema.DescribesArray(field.SchemaRef) {
-		return validateWorkflowPayloadItems(WorkflowPayloadField{Name: field.Name, ValueType: PayloadArray, ItemRef: field.SchemaRef}, raw)
+	if field.ValueType == PayloadArray && !payloadschema.DescribesArrayIn(document, field.SchemaRef) {
+		return validateWorkflowPayloadItems(document, WorkflowPayloadField{Name: field.Name, ValueType: PayloadArray, ItemRef: field.SchemaRef}, raw)
 	}
-	if err := payloadschema.Validate(field.SchemaRef, raw); err != nil {
+	if err := payloadschema.ValidateInDocument(document, field.SchemaRef, raw); err != nil {
 		return newFailure(KindInvalidPayload, "workflow_action_preflight", fmt.Sprintf("workflow action payload field %q does not satisfy its declared schema %q: %v", field.Name, field.SchemaRef, err), false, "supply a value the declared field schema accepts")
 	}
 	return nil
@@ -813,8 +833,8 @@ func validateWorkflowPayloadSchema(field WorkflowPayloadField, raw json.RawMessa
 
 // validateWorkflowPayloadItems checks every element of an array field against
 // the schema its item reference names.
-func validateWorkflowPayloadItems(field WorkflowPayloadField, raw json.RawMessage) error {
-	if !payloadschema.Has(field.ItemRef) {
+func validateWorkflowPayloadItems(document map[string]any, field WorkflowPayloadField, raw json.RawMessage) error {
+	if !payloadschema.HasIn(document, field.ItemRef) {
 		return newFailure(KindInvalidPayload, "workflow_action_preflight", fmt.Sprintf("workflow action payload field %q declares item schema %q, which is not generated", field.Name, field.ItemRef), false, "regenerate the payload contracts or correct the declared item schema reference")
 	}
 	var items []json.RawMessage
@@ -822,7 +842,7 @@ func validateWorkflowPayloadItems(field WorkflowPayloadField, raw json.RawMessag
 		return newFailure(KindInvalidPayload, "workflow_action_preflight", fmt.Sprintf("workflow action payload field %q is not one JSON array", field.Name), false, "supply the declared action field type and bounds")
 	}
 	for index, item := range items {
-		if err := payloadschema.Validate(field.ItemRef, item); err != nil {
+		if err := payloadschema.ValidateInDocument(document, field.ItemRef, item); err != nil {
 			return newFailure(KindInvalidPayload, "workflow_action_preflight", fmt.Sprintf("workflow action payload field %q item %d does not satisfy its declared schema %q: %v", field.Name, index, field.ItemRef, err), false, "supply items the declared item schema accepts")
 		}
 	}
@@ -868,6 +888,14 @@ func workflowPayloadFieldRule(field WorkflowPayloadField) string {
 }
 
 func validateWorkflowPayloadValue(field WorkflowPayloadField, raw json.RawMessage) bool {
+	return validateWorkflowPayloadValueWithReference(payloadschema.Document(), field, raw, ValidReference)
+}
+
+// validateWorkflowPayloadValueWithReference enforces the declared value type
+// and bounds. The document resolves the schema an item_ref names; it is the
+// declaration's decoding owner — the public authoring document for current
+// declarations, the frozen historical decoder for retained pins.
+func validateWorkflowPayloadValueWithReference(document map[string]any, field WorkflowPayloadField, raw json.RawMessage, validReference func(string) bool) bool {
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.UseNumber()
 	var value any
@@ -884,7 +912,7 @@ func validateWorkflowPayloadValue(field WorkflowPayloadField, raw json.RawMessag
 		if !ok {
 			return false
 		}
-		if field.ValueType == PayloadRef && !ValidReference(text) {
+		if field.ValueType == PayloadRef && !validReference(text) {
 			return false
 		}
 		if field.ValueType == PayloadDigest && !workflowDigestPattern.MatchString(text) {
@@ -918,7 +946,7 @@ func validateWorkflowPayloadValue(field WorkflowPayloadField, raw json.RawMessag
 		seen := make(map[string]struct{}, len(values))
 		for _, item := range values {
 			text, ok := item.(string)
-			if !ok || !validWorkflowPayloadListItem(field.ItemRef, text) || len(field.Enum) != 0 && !containsString(field.Enum, text) {
+			if !ok || !validWorkflowPayloadListItemWithReference(document, field.ItemRef, text, validReference) || len(field.Enum) != 0 && !containsString(field.Enum, text) {
 				return false
 			}
 			if _, exists := seen[text]; exists {
@@ -964,7 +992,7 @@ func validateWorkflowPayloadValue(field WorkflowPayloadField, raw json.RawMessag
 	}
 }
 
-func validWorkflowPayloadListItem(itemRef, value string) bool {
+func validWorkflowPayloadListItemWithReference(document map[string]any, itemRef, value string, validReference func(string) bool) bool {
 	switch itemRef {
 	case "law_id":
 		runes := []rune(value)
@@ -974,13 +1002,13 @@ func validWorkflowPayloadListItem(itemRef, value string) bool {
 	case "proposal_text":
 		return validWorkflowProseItem(value, 512)
 	case "", "reference":
-		return ValidReference(value)
+		return validReference(value)
 	default:
-		if !payloadschema.Has(itemRef) {
+		if !payloadschema.HasIn(document, itemRef) {
 			return false
 		}
 		raw, err := json.Marshal(value)
-		return err == nil && payloadschema.Validate(itemRef, raw) == nil
+		return err == nil && payloadschema.ValidateInDocument(document, itemRef, raw) == nil
 	}
 }
 

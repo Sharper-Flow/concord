@@ -126,8 +126,21 @@ func appendEvent(ctx context.Context, tx *sql.Tx, e Event, allowCompletion bool)
 	if err != nil {
 		return 0, err
 	}
-	if prepared.registration.Authority == EventAppendAuthorityWorkflow && !allowCompletion {
-		return 0, workflowDispatcherRequired(e.Kind)
+	switch prepared.registration.Authority {
+	case EventAppendAuthorityRetired:
+		return 0, retiredEventAppendRefused(e.Kind)
+	case EventAppendAuthorityWorkflow:
+		if !allowCompletion {
+			return 0, workflowDispatcherRequired(e.Kind)
+		}
+	}
+	// The retirement can also be a property of the payload or the subject
+	// rather than of the event kind: a generic work.created whose upcast
+	// payload classifies as initiative, or any new event on an existing
+	// initiative work item, refuses here before the log row exists (CD-0213
+	// D4).
+	if err := refuseRetiredPlanningAppend(ctx, tx, e, prepared); err != nil {
+		return 0, err
 	}
 
 	res, err := tx.ExecContext(ctx, `

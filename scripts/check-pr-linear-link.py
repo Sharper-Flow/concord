@@ -90,7 +90,7 @@ def check_pr_link(head_ref: str, title: str, body: str) -> tuple[bool, str]:
     if not WORK_BRANCH.match(head_ref or ""):
         return True, f"head branch {head_ref!r} is not a Concord work branch; no linkage required"
     # Linear parses closing magic words in the PR title as well as the body,
-    # so a work-branch PR titled 'Fixes CON-427' would close its issue behind
+    # so a work-branch PR titled 'Fixes ENG-123' would close its issue behind
     # the outbox's back. Both surfaces get the same refusal.
     for where, text in (("title", title), ("body", body)):
         closing = closing_keys(text)

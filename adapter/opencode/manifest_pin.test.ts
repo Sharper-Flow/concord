@@ -55,6 +55,35 @@ describe("the manifest pin", () => {
 })
 
 describe("version-skew self-heal", () => {
+  test("a typed retry refusal preserves the first mutation's possible effect", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "manifest-pin-"))
+    writeFileSync(join(dir, "generated-contracts.ts"), `export const manifestDigest = "${foreignDigest}" as const\n`)
+    for (const [tool, toolName, operation, mutation] of [
+      [adapter.product_view, "concord_product_view", "resolve", false],
+      [adapter.work_define, "concord_work_define", "capture", true],
+      [adapter.work_transition, "concord_work_transition", "session_vacate", true],
+    ] as const) {
+      for (const stdout of ["", "\n", " \t"]) {
+        resetManifestPinForTesting()
+        setManifestSourceForTesting(join(dir, "generated-contracts.ts"))
+        let invokes = 0
+        adapter.configureConcordAdapter({ runner: { async run(argv: string[]) {
+          if (argv[1] === "project-resolve") return { exitCode: 0, stdout: JSON.stringify(contextResponse()), stderr: "" }
+          invokes++
+          if (invokes === 1) return { exitCode: 0, stdout: JSON.stringify({ ...coreEnvelope(toolName, operation, "ok", mutation ? { changed_refs: [] } : { result: { product_id: "product-1", projects: [], stage: "prototype" } }), manifest_digest: foreignDigest }), stderr: "" }
+          return { exitCode: 64, stdout, stderr: "missing required field input" }
+        } } })
+        const raw = await tool.execute(hostCall(operation, {}), contextFor())
+        const result: any = JSON.parse(typeof raw === "string" ? raw : raw.output)
+        expect(invokes).toBe(2)
+        const typedRefusal = !mutation && stdout === ""
+        expect(result.error.kind).toBe(mutation ? "operation_conflict" : typedRefusal ? "invalid_input" : "transport_failure")
+        expect(result.error.effect_state).toBe(mutation ? "possible" : "none")
+        expect(result.error.recovery_action.kind).toBe(typedRefusal ? "restart_query" : operation === "capture" ? "reconcile_operation" : "retry_same_request")
+      }
+    }
+  })
+
   test("a stale pin whose disk files match the core adopts and retries once", async () => {
     const dir = mkdtempSync(join(tmpdir(), "manifest-pin-"))
     writeFileSync(join(dir, "generated-contracts.ts"), `export const manifestDigest = "${foreignDigest}" as const\n`)

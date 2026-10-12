@@ -29,10 +29,9 @@ evidence, rejected shortcuts, and falsifiers, and carry no obligation.
 
 ## 1. Decision
 
-Concord v1 exposes **at most ten always-visible domain tools** to an agent. TS3
-and TS4 chose eight tools inside that cap; CD-0041 added two more under the
-accepted amendment recorded at the end of this record. Budget:
-`always_visible_tools: 10`. The canonical machine-readable count is the
+Concord exposes **at most nine always-visible domain tools** to an agent.
+CD-0213 removes the Initiative grouping tool; the Domain tool remains.
+Budget: `always_visible_tools: 9`. The canonical machine-readable count is the
 generated manifest's `surface.tool_count`
 ([`contracts/agent-tool-surface.v1.json`](../../contracts/agent-tool-surface.v1.json)),
 and `scripts/test-agent-contracts.py` fails if this document and the manifest
@@ -131,7 +130,7 @@ records, per scenario and candidate:
 
 1. Reject any candidate that fails a hard scenario oracle, crosses an authority or
    consequence boundary, requires callers to sequence domain invariants manually,
-   or exceeds ten always-visible tools.
+   or exceeds nine always-visible tools.
 2. For a deterministic corpus run, compare success and recovery counts directly.
    For stochastic evaluation, predeclare the model, run count, sampling settings,
    and confidence interval before comparing candidates; reject a candidate whose
@@ -195,20 +194,14 @@ it does not silently amend this budget.
 
 ## Approved amendments
 
-**2026-08-26 — the budget is amended from nine to ten under CD-0041.**
-CD-0041 added two always-visible tools through issues #196 and #197:
-`concord_domain` (Product → Domain navigation and Domain detail reads) and
-`concord_work_initiative` (the Initiative grouping surface). Each addition
-carried the full TS8 change evidence — named scenario, canonical manifest
-and generated artifacts updated together, strict schema and conformance
-proofs, and recorded operator acceptance (issue #195 for the overlap
-operation) — but the budget consequence was never recorded here, and TS2's
-own rule says expansion never silently amends this budget. The surface has
-therefore run ahead of this record since #197.
+**Planning retirement under [CD-0213](./decisions/CD-0213-linear-mcp-is-the-only-planning-authority.md).**
+The current budget is nine. Business grouping belongs to Linear through the
+Linear MCP server, not to a Concord Initiative tool. `concord_domain` retains
+its Domain navigation and detail intents. The removal changes neither the
+granularity rule nor the evidence and authority requirements for surviving tools.
 
-The operator approved recording the budget at ten rather than folding the
-surface back under nine. The budget's authority is now structural in both
-directions: the generator refuses any manifest whose `surface.tool_count`
+The budget's authority is structural in both directions: the generator refuses
+any manifest whose `surface.tool_count`
 disagrees with its actual tool list, and
 `scripts/test-agent-contracts.py` fails when this document's
 `always_visible_tools` value disagrees with the manifest. A future

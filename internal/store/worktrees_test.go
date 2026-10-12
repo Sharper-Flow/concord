@@ -146,7 +146,7 @@ func (g *fakeWorktreeGit) Run(_ context.Context, dir string, args ...string) ([]
 			return nil, fmt.Errorf("not a worktree")
 		}
 		return []byte(branch + "\n"), nil
-	case join == "rev-parse HEAD":
+	case join == "rev-parse HEAD" || join == "rev-parse --verify HEAD^{commit}":
 		branch, ok := g.worktrees[dir]
 		if !ok {
 			return nil, fmt.Errorf("not a worktree")
@@ -330,7 +330,7 @@ func (g *fakeWorktreeGit) Run(_ context.Context, dir string, args ...string) ([]
 		}
 		delete(g.worktrees, path)
 		return nil, nil
-	case join == "status --porcelain":
+	case join == "status --porcelain" || join == "status --porcelain=v1 -z --untracked-files=all":
 		if g.dirty[dir] {
 			return []byte("M file\n"), nil
 		}
@@ -559,6 +559,107 @@ func claimBranch() string { return "work/work-w" }
 
 func claimPath(s *Store) string {
 	return filepath.Join(filepath.Dir(s.Path()), "worktrees", "project-w", "work-w")
+}
+
+// modelHistoricalInitiative changes only the temporary projection to the kind
+// a pre-retirement capture folded. Live initiative capture remains forbidden.
+func modelHistoricalInitiative(t *testing.T, s *Store, workID string) {
+	t.Helper()
+	if _, err := s.db.Exec(`INSERT INTO fold_guard(active) VALUES(1);
+		UPDATE work_items SET kind='initiative' WHERE id=?;
+		DELETE FROM fold_guard`, workID); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRetiredInitiativeExecutionEntriesRefuseBeforeEffects(t *testing.T) {
+	for _, claimed := range []bool{false, true} {
+		for _, entry := range []string{"prepare", "claim", "claim-tx", "resume", "bootstrap-existing"} {
+			t.Run(fmt.Sprintf("%s/claimed=%t", entry, claimed), func(t *testing.T) {
+				s, git, repo := worktreeFixture(t)
+				ctx := context.Background()
+				req := baseClaim(git)
+				if claimed {
+					if _, err := s.ClaimWorktree(ctx, req); err != nil {
+						t.Fatal(err)
+					}
+				}
+				modelHistoricalInitiative(t, s, req.WorkID)
+				before := planningEventCount(t, s.db)
+				git.calls = nil
+				var err error
+				switch entry {
+				case "prepare":
+					var created *WorktreeClaimCreation
+					_, created, err = s.PrepareWorktreeClaimNative(ctx, req)
+					if created != nil {
+						t.Errorf("retired entry created native state: %+v", created)
+					}
+				case "claim":
+					_, err = s.ClaimWorktree(ctx, req)
+				case "claim-tx":
+					// A retired subject must refuse before even the bounded host
+					// process read; this PID has no process in the fixture.
+					req.HostPID = 2147483647
+					native := WorktreeClaimNative{Location: WorktreeLocation{Repo: repo, Path: claimPath(s), Branch: claimBranch(), BaseSHA: req.BaseSHA}}
+					err = s.Transact(ctx, func(tx *Transaction) error {
+						_, err := ClaimWorktreeTx(ctx, tx, req, native)
+						return err
+					})
+				case "resume":
+					_, err = s.ResumeWorktreeLocation(ctx, "product-w", req.ProjectID, req.WorkID)
+				case "bootstrap-existing":
+					_, err = s.BootstrapExistingWorktree(ctx, ExistingBootstrapRequest{ProductID: "product-w", ProjectID: req.ProjectID, WorkID: req.WorkID}, nil)
+				}
+				if len(git.calls) != 0 {
+					t.Errorf("retired entry invoked Git: %v", git.calls)
+				}
+				if !claimed {
+					if _, exists := git.worktrees[claimPath(s)]; exists {
+						t.Error("retired entry left a native worktree")
+					}
+					if _, exists := git.branches[claimBranch()]; exists {
+						t.Error("retired entry left a native branch")
+					}
+				}
+				if after := planningEventCount(t, s.db); after != before {
+					t.Errorf("retired entry appended events: before=%d after=%d", before, after)
+				}
+				assertRetiredPlanningRefusal(t, err)
+			})
+		}
+	}
+}
+
+func TestWorktreeAuditDoesNotStrandRetiredInitiative(t *testing.T) {
+	t.Parallel()
+	s, git, _ := worktreeFixture(t)
+	auditWork(t, s, git, "retired-audit", false)
+	auditWork(t, s, git, "actionable-audit", false)
+	modelHistoricalInitiative(t, s, "retired-audit")
+	before := planningEventCount(t, s.db)
+	audit, err := s.WorktreeAudit(context.Background(), WorktreeAuditRequest{ProductID: "product-w", Runner: git, DefaultRef: "origin/main"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	actionableFound, historicalClaimFound := false, false
+	for _, row := range audit.Drift {
+		if row.WorkID == "retired-audit" && row.Class == WorktreeDriftStrandedNeeded {
+			t.Error("retired initiative classified as stranded needed work")
+		}
+		if row.WorkID == "retired-audit" && row.Class == WorktreeDriftStaleClaim {
+			historicalClaimFound = true
+		}
+		if row.WorkID == "actionable-audit" && row.Class == WorktreeDriftStrandedNeeded {
+			actionableFound = true
+		}
+	}
+	if !actionableFound || !historicalClaimFound {
+		t.Fatalf("audit lost actionable work or historical claim visibility: %+v", audit.Drift)
+	}
+	if after := planningEventCount(t, s.db); after != before {
+		t.Fatalf("audit appended events: before=%d after=%d", before, after)
+	}
 }
 
 func TestClaimWorktreeCreatesVerifiesAndFolds(t *testing.T) {
@@ -1112,7 +1213,7 @@ func TestDestroyRefusesOccupiedWorktreeDespiteApproval(t *testing.T) {
 		t.Fatal(err)
 	}
 	seedWorktreeLifecycle(t, s)
-	_, err = s.DestroyWorktree(context.Background(), WorktreeDestroyRequest{
+	_, err = destroyWorktreeForTest(context.Background(), s, WorktreeDestroyRequest{
 		WorkID: "work-w", ProjectID: "project-w", DefaultRef: "origin/main",
 		ExpectedVersion: 4, PrincipalRef: "principal-1", RequestID: "destroy-occupied",
 		Now: time.Unix(30, 0).UTC(), Runner: git,
@@ -1141,7 +1242,7 @@ func TestDestroyReleasesRecordedStaleOccupancyWithApproval(t *testing.T) {
 		t.Fatal(err)
 	}
 	seedWorktreeLifecycle(t, s)
-	entry, err := s.DestroyWorktree(context.Background(), WorktreeDestroyRequest{
+	entry, err := destroyWorktreeForTest(context.Background(), s, WorktreeDestroyRequest{
 		WorkID: "work-w", ProjectID: "project-w", DefaultRef: "origin/main",
 		ExpectedVersion: 4, PrincipalRef: "principal-1", RequestID: "destroy-stale-occupancy",
 		Now: time.Unix(30, 0).UTC(), Runner: git,

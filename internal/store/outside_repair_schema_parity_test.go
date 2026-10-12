@@ -15,73 +15,36 @@ import (
 	"github.com/sharper-flow/concord/internal/payloadschema"
 )
 
-// CON-412 independent regression probes. This file carries no production
-// change and no reconstruction of any publication: the published boundary is
-// exercised by invoking the ORIGINAL production host publisher
+// Independent regression probes invoke the production host publisher
 // (adapter/opencode/concord.ts publishedRequestSchema) and the host validator
 // (adapter/opencode/dispatch.ts validateAgainstSchema) through Bun, exactly as
 // the host dispatch path does, and the core boundary is exercised through the
 // owning core validators with the live builtin registry's own declarations.
 //
-// The same source runs unchanged at the base commit (the pre-repair
-// mechanism) and on the repaired tree; every helper it calls
-// (BuiltinWorkflowDefinitionForRef, validateWorkflowPayloadValue,
-// validateWorkflowActionPayload, validateWorkflowContractRecoveryPayload,
-// payloadschema.Validate/Has) already exists at the base commit, and the Bun
-// entry points (publishedRequestSchema, validateAgainstSchema) exist there
-// under the same exported names. The probe resolves whichever publication
-// shape the production publisher of the current tree emits: the per-action
-// closed branches the current publisher emits, or the single shared union
-// input the original publisher emitted, without rebuilding either.
-//
-// At the base commit every failing assertion below fails BEHAVIORALLY — an
-// admission verdict that differs from the approved behavior, never a missing
-// schema keyword, variant name, or version marker:
-//
-//   - Unicode: the base core counted Unicode code points
-//     (validateWorkflowPayloadValue's len([]rune(text))) and the base
-//     publication carried code-point-equal minLength/maxLength, so both
-//     admitted a 4096-code-point 8192-byte "searched" string and both refused
-//     the two-byte one-code-point "é" at the declared two-unit floor. The
-//     approved UTF-8 byte representation admits "é" and refuses the 8192-byte
-//     string; both halves fail on the base tree and pass on the repair.
-//   - Outcome-kind equality: the base publication published outcome_kind and
-//     outcome_payload independently (a kind-agnostic items def and a union
-//     outcome_payload), so it admitted outcome_kind "exists" beside a check
-//     outcome_payload — an item the core's generated items def and the
-//     successor-contract validator refuse on the repair, and which the base
-//     fold itself refused at workflow.go's "malformed or mismatched" guard.
-//   - record_verdict alternative groups: the base core carried no cross-field
-//     declaration and the base publication was the union merge of the wire
-//     shapes, so both admitted a complete batch beside every partial entry
-//     group. The repair refuses each complete-plus-partial payload at payload
-//     validation and at the published closed branches.
-//
 // The Unicode probe also covers workflow reference list items, which the
 // store admits through ValidReference by UTF-8 bytes.
-//
-// Run on the repaired tree:
-//
-//	bin/oc-test targeted -- go test -count=1 ./internal/store -run '^TestOutsideRepair' -v
-//
-// Run unchanged on the base commit: check out the base, copy this file into
-// internal/store/, and run the same go test command — the Bun publisher of
-// that tree is invoked, and each named behavioral assertion fails there.
 
 // outsideRepairProbeScript is the bridge the tests drive: it imports the
 // production host publisher and validator by absolute path, resolves the
 // published work_transition fields node for one action from whichever shape
-// the publisher emits (per-action closed branches, a discriminator-shared
-// union, or allOf if/then conditions), and validates probe values against the
-// resolved published nodes with the host's own validator. Nothing here
-// rebuilds or approximates the publication.
+// the publisher emits (per-action closed branches, the compact factored
+// document with local references and a grouped action union, a
+// discriminator-shared union, or allOf if/then conditions), and validates
+// probe values against the resolved published nodes with the host's own
+// validator. Nothing here rebuilds or approximates the publication.
 func outsideRepairProbeScript(repoRoot string) string {
 	return fmt.Sprintf(`import { publishedRequestSchema } from %q;
+import { payloadSchemas } from %q;
 import { validateAgainstSchema } from %q;
 const schema = publishedRequestSchema("concord_work_transition");
-const branches = (schema.oneOf ?? []).filter((b) => b?.properties?.operation?.const === "workflow_action");
+const resolveBranch = (b) => (b && typeof b.$ref === "string") ? schema.$defs?.[b.$ref.replace("#/$defs/", "")] : b;
+const operationBranches = (schema.oneOf ?? []).map(resolveBranch).filter((b) => typeof b?.properties?.operation?.const === "string");
+const branches = (schema.oneOf ?? []).map(resolveBranch).filter((b) => b?.properties?.operation?.const === "workflow_action");
 if (branches.length === 0) throw new Error("published concord_work_transition names no workflow_action operation branch");
 const fieldsFor = (action) => {
+  for (const branch of operationBranches) {
+    if (branch.properties.operation.const === action && branch.properties.input?.properties) return branch.properties.input;
+  }
   for (const branch of branches) {
     const input = branch?.properties?.input;
     if (input?.properties?.action_id?.const === action && input?.properties?.fields) return input.properties.fields;
@@ -90,6 +53,13 @@ const fieldsFor = (action) => {
     const input = branch?.properties?.input;
     const discriminator = input?.properties?.action_id;
     if (Array.isArray(discriminator?.enum) && discriminator.enum.includes(action) && input?.properties?.fields) return input.properties.fields;
+  }
+  for (const branch of branches) {
+    const input = branch?.properties?.input;
+    for (const member of input?.oneOf ?? []) {
+      const variant = resolveBranch(member);
+      if (variant?.properties?.action_id?.const === action && variant?.properties?.fields) return variant.properties.fields;
+    }
   }
   for (const branch of branches) {
     const input = branch?.properties?.input;
@@ -103,10 +73,14 @@ const fieldsFor = (action) => {
 };
 const propertyNode = (node, name) => {
   if (!node || typeof node !== "object") return null;
+  if (typeof node.$ref === "string") {
+    node = schema.$defs?.[node.$ref.replace("#/$defs/", "")];
+    if (!node || typeof node !== "object") return null;
+  }
   if (node.properties && node.properties[name]) return node.properties[name];
   for (const keyword of ["oneOf", "anyOf"]) {
     for (const branch of node[keyword] ?? []) {
-      const found = propertyNode(branch, name);
+      const found = propertyNode(resolveBranch(branch), name);
       if (found) return found;
     }
   }
@@ -116,28 +90,36 @@ const propertyNode = (node, name) => {
   }
   return null;
 };
+// validateNode validates a resolved published node. The compact publication
+// interning leaves local references inside the node; the document's own
+// $defs table travels with it so the host validator resolves them. On a
+// fully inlined publication the added table is empty and inert.
+const validateNode = (node, value, failures) => validateAgainstSchema({ ...node, $defs: { ...(node.$defs ?? {}), ...(schema.$defs ?? {}) } }, value, failures);
 const probes = await new Response(Bun.stdin).json();
 const results = [];
 for (const probe of probes) {
   const failures = [];
   const fields = fieldsFor(probe.action);
   let admit = false;
-  if (!fields) {
+  if (probe.mode === "definition") {
+    const document = { $defs: payloadSchemas, $ref: "#/$defs/" + probe.definition };
+    admit = validateAgainstSchema(document, probe.value, failures);
+  } else if (!fields) {
     failures.push("published schema resolves no fields node for " + probe.action);
   } else if (probe.mode === "field") {
     const node = propertyNode(fields, probe.field);
     if (!node) {
       failures.push("published schema resolves no " + probe.field + " property for " + probe.action);
     } else {
-      admit = validateAgainstSchema(node, probe.value, failures);
+      admit = validateNode(node, probe.value, failures);
     }
   } else {
-    admit = validateAgainstSchema(fields, probe.fields, failures);
+    admit = validateNode(fields, probe.fields, failures);
   }
   results.push({ id: probe.id, admit: !!admit, failures: failures.slice(0, 4) });
 }
 console.log(JSON.stringify({ results }));
-`, filepath.Join(repoRoot, "adapter", "opencode", "concord.ts"), filepath.Join(repoRoot, "adapter", "opencode", "dispatch.ts"))
+`, filepath.Join(repoRoot, "adapter", "opencode", "concord.ts"), filepath.Join(repoRoot, "adapter", "opencode", "generated-contracts.ts"), filepath.Join(repoRoot, "adapter", "opencode", "dispatch.ts"))
 }
 
 // outsideRepairPublication is one published-boundary verdict: whether the
@@ -348,14 +330,17 @@ func TestOutsideRepairUnicodeParity(t *testing.T) {
 
 // TestOutsideRepairOutcomeKindParity pins the payload-only equality between
 // an outcome predicate's declared outcome_kind and its outcome_payload kind,
-// on the two wire forms that carry it: one outcome_predicates item on
-// approve_contract, and the single legacy outcome pair on supersede_contract.
-// The equality depends on no live context, so both admission boundaries must
-// hold it. Core validation refuses the mismatched item through the generated
-// items def (payloadschema.Validate, the same def the payload validators
-// bind) and the mismatched pair through the successor-contract payload
-// validator (validateWorkflowContractRecoveryPayload); the production host
-// publication must refuse both beside it. At the base commit all mismatch
+// on the wire forms that carry it: one outcome_predicates item on
+// approve_contract, the canonical outcome_predicates array on
+// supersede_contract, and the retained-pin outcome pair the engine recovery
+// declaration still enforces for replay. The equality depends on no live
+// context, so both admission boundaries must hold it. Core validation
+// refuses the mismatched item through the generated items def
+// (payloadschema.Validate, the same def the payload validators bind), the
+// canonical mismatched array through the successor-contract payload
+// validator over a pinned canonical head, and the mismatched pair through
+// the same validator's engine tier; the production host publication must
+// refuse the canonical forms beside them. At the base commit all mismatch
 // assertions fail: the base items def published outcome_kind and
 // outcome_payload independently and the base published successor fields
 // carried the same independence, so the publication admitted both mismatched
@@ -364,7 +349,7 @@ func TestOutsideRepairUnicodeParity(t *testing.T) {
 func TestOutsideRepairOutcomeKindParity(t *testing.T) {
 	t.Parallel()
 	const itemsRef = "workflow_action_outcome_predicates"
-	if !payloadschema.Has(itemsRef) {
+	if !payloadschema.HasIn(payloadschema.Document(), itemsRef) {
 		t.Fatalf("the core schema registry carries no %s def; the item probe cannot run", itemsRef)
 	}
 	checkPayload := func() map[string]any {
@@ -374,18 +359,31 @@ func TestOutsideRepairOutcomeKindParity(t *testing.T) {
 		return map[string]any{"predicate_id": "predicate:outside-repair", "ordinal": 0, "outcome_kind": kind, "outcome_payload": checkPayload()}
 	}
 	items := func(kind string) []any { return []any{predicate(kind)} }
-	pairFields := func(kind string) map[string]any {
+	// supersedeFields builds the canonical successor contract: the explicit
+	// outcome_predicates array is the one authorable outcome form
+	// (CD-0218 D1/D2), required and per-kind closed.
+	supersedeFields := func(kind string) map[string]any {
 		return map[string]any{
-			"contract_version": 2, "premise": "outside-repair successor premise", "outcome_kind": kind, "outcome_payload": checkPayload(),
+			"contract_version": 2, "premise": "outside-repair successor premise", "outcome_predicates": items(kind),
 			"required_evidence": []any{}, "route_conventions": []any{}, "spec_mandate": []any{}, "law_modifies": []any{},
 			"rigor_class": "prototype_internal", "supersede_reason": "outside-repair supersede reason", "audit_evidence": []any{"evidence:outside-repair"},
 		}
 	}
+	// retainedPinFields builds the legacy outcome pair the engine recovery
+	// declaration still carries for recorded history: a retained pin that
+	// replays under the paired shape answers to the kind-match rule.
+	retainedPinFields := func(kind string) map[string]any {
+		fields := supersedeFields(kind)
+		delete(fields, "outcome_predicates")
+		fields["outcome_kind"] = kind
+		fields["outcome_payload"] = checkPayload()
+		return fields
+	}
 	probes := []map[string]any{
 		{"id": "approve-item-mismatch", "mode": "field", "action": "approve_contract", "field": "outcome_predicates", "value": items("exists")},
 		{"id": "approve-item-control", "mode": "field", "action": "approve_contract", "field": "outcome_predicates", "value": items("check")},
-		{"id": "supersede-pair-mismatch", "mode": "fields", "action": "supersede_contract", "fields": pairFields("exists")},
-		{"id": "supersede-pair-control", "mode": "fields", "action": "supersede_contract", "fields": pairFields("check")},
+		{"id": "supersede-array-mismatch", "mode": "fields", "action": "supersede_contract", "fields": supersedeFields("exists")},
+		{"id": "supersede-array-control", "mode": "fields", "action": "supersede_contract", "fields": supersedeFields("check")},
 	}
 	published := outsideRepairPublishedVerdicts(t, probes)
 	require := func(id string) outsideRepairPublication {
@@ -408,34 +406,45 @@ func TestOutsideRepairOutcomeKindParity(t *testing.T) {
 	if verdict := require("approve-item-control"); !verdict.Admit {
 		t.Errorf("the published approve_contract outcome_predicates refuse the matching-kind control item: %v", verdict.Failures)
 	}
-	// The mismatched supersede single pair: outcome_kind "exists" beside the
-	// same check outcome_payload at the successor field level.
-	if err := validateWorkflowContractRecoveryPayload(outsideRepairRaw(t, pairFields("exists"))); err == nil {
-		t.Error("the successor-contract payload validator admits an outcome pair whose outcome_kind and outcome_payload.kind disagree")
-	} else if pairControl := validateWorkflowContractRecoveryPayload(outsideRepairRaw(t, pairFields("check"))); pairControl != nil {
-		t.Fatalf("the successor-contract payload validator refuses the matching-kind control pair: %v", pairControl)
+	// The canonical supersede array: one item whose outcome_kind "exists"
+	// disagrees with its check outcome_payload, against the pinned
+	// canonical head the live authoring selector resolves.
+	if err := validateWorkflowContractRecoveryPayload(currentWorkflowDefinition(t), outsideRepairRaw(t, supersedeFields("exists"))); err == nil {
+		t.Error("the successor-contract payload validator admits an outcome_predicates item whose outcome_kind and outcome_payload.kind disagree")
+	} else if arrayControl := validateWorkflowContractRecoveryPayload(currentWorkflowDefinition(t), outsideRepairRaw(t, supersedeFields("check"))); arrayControl != nil {
+		t.Fatalf("the successor-contract payload validator refuses the matching-kind control array: %v", arrayControl)
 	}
-	if verdict := require("supersede-pair-mismatch"); verdict.Admit {
-		t.Errorf("the published supersede_contract fields admit a mismatched outcome pair; failures: %v", verdict.Failures)
+	if verdict := require("supersede-array-mismatch"); verdict.Admit {
+		t.Errorf("the published supersede_contract fields admit a mismatched outcome item; failures: %v", verdict.Failures)
 	}
-	if verdict := require("supersede-pair-control"); !verdict.Admit {
-		t.Errorf("the published supersede_contract fields refuse the matching-kind control pair: %v", verdict.Failures)
+	if verdict := require("supersede-array-control"); !verdict.Admit {
+		t.Errorf("the published supersede_contract fields refuse the matching-kind control array: %v", verdict.Failures)
+	}
+	// The retained-pin outcome pair keeps its kind-match rule on the engine
+	// tier: the pair fields left canonical authoring, so the published
+	// canonical variant carries no pair leg and the equality is held by the
+	// recovery declaration replay reads.
+	if err := validateWorkflowContractRecoveryPayload(WorkflowDefinition{}, outsideRepairRaw(t, retainedPinFields("exists"))); err == nil {
+		t.Error("the engine recovery validator admits a retained-pin outcome pair whose outcome_kind and outcome_payload.kind disagree")
+	} else if pairControl := validateWorkflowContractRecoveryPayload(WorkflowDefinition{}, outsideRepairRaw(t, retainedPinFields("check"))); pairControl != nil {
+		t.Fatalf("the engine recovery validator refuses the matching-kind retained-pin control pair: %v", pairControl)
 	}
 }
 
 // TestOutsideRepairRecordVerdictGroupSubsets supplements the original
-// record_verdict behavioral comparison with the complete-plus-partial
-// alternatives of its actual multi-member group: the entry group
-// {predicate_id, verdict_kind, evaluation_evidence} beside the complete batch
-// group {verdicts}. A complete batch beside ANY proper subset of the entry
-// group — every one- and two-member subset, not only the single-member cases
-// — must be refused by core payload validation and by the production host
-// publication. At the base commit every refusal assertion fails: the base
-// core declared no cross-field rule and the base publication was the union
-// merge of the wire shapes, so both admitted each complete-plus-partial
-// payload. A partial entry group on its own is judged only for boundary
-// parity (the two admission boundaries must agree); the fold's deeper
-// verdict-shape refusal owns that payload's final fate on every tree.
+// record_verdict behavioral comparison with the canonical batch contract:
+// the verdicts batch is the one declared shape, and the entry group
+// {predicate_id, verdict_kind, evaluation_evidence} lives inside each batch
+// entry. The complete batch admits on both admission boundaries, and every
+// proper subset of the entry group is judged on both boundaries in every
+// position it can appear: inside the entry the schema's one required member
+// splits the subsets into legal minimal entries and refusals, and riding at
+// the top level — beside the batch or alone — every member refuses, because
+// the single form the engine declaration still names for replay carries no
+// canonical admission anywhere. At the base commit every refusal assertion
+// fails: the base core declared no cross-field rule and the base publication
+// was the union merge of the wire shapes, so both
+// admitted each complete-plus-partial payload.
 func TestOutsideRepairRecordVerdictGroupSubsets(t *testing.T) {
 	t.Parallel()
 	payload, definition := outsideRepairActionPayload(t, "record_verdict")
@@ -443,10 +452,11 @@ func TestOutsideRepairRecordVerdictGroupSubsets(t *testing.T) {
 	for _, field := range payload.Fields {
 		declared[field.Name] = true
 	}
-	for _, member := range []string{"predicate_id", "verdict_kind", "evaluation_evidence", "verdicts"} {
-		if !declared[member] {
-			t.Fatalf("the record_verdict payload declaration carries no %s member; the group probes cannot run", member)
-		}
+	if !declared["verdicts"] {
+		t.Fatalf("the record_verdict payload declaration carries no verdicts member; the batch probes cannot run")
+	}
+	if !payloadschema.HasIn(payloadschema.Document(), "workflow_verdict_batch_entry") {
+		t.Fatalf("the core schema registry carries no workflow_verdict_batch_entry def; the entry probes cannot run")
 	}
 	entryValue := func(member string) any {
 		switch member {
@@ -461,16 +471,16 @@ func TestOutsideRepairRecordVerdictGroupSubsets(t *testing.T) {
 		return nil
 	}
 	entryGroup := []string{"predicate_id", "verdict_kind", "evaluation_evidence"}
-	completeEntry := func() map[string]any {
-		fields := map[string]any{"contract_version": 1}
-		for _, member := range entryGroup {
-			fields[member] = entryValue(member)
-		}
-		return fields
-	}
 	completeBatch := func() map[string]any {
 		verdict := map[string]any{}
 		for _, member := range entryGroup {
+			verdict[member] = entryValue(member)
+		}
+		return map[string]any{"contract_version": 1, "verdicts": []any{verdict}}
+	}
+	entryCarrying := func(subset []string) map[string]any {
+		verdict := map[string]any{}
+		for _, member := range subset {
 			verdict[member] = entryValue(member)
 		}
 		return map[string]any{"contract_version": 1, "verdicts": []any{verdict}}
@@ -484,28 +494,15 @@ func TestOutsideRepairRecordVerdictGroupSubsets(t *testing.T) {
 		properSubsets = append(properSubsets, outsideRepairSubsets(entryGroup, size)...)
 	}
 	probes := []map[string]any{
-		{"id": "entry-complete-control", "mode": "fields", "action": "record_verdict", "fields": completeEntry()},
 		{"id": "batch-complete-control", "mode": "fields", "action": "record_verdict", "fields": completeBatch()},
 	}
-	batchPlusPartial := func(subset []string) map[string]any {
-		fields := completeBatch()
-		for _, member := range subset {
-			fields[member] = entryValue(member)
-		}
-		return fields
-	}
 	for _, subset := range properSubsets {
-		probes = append(probes, map[string]any{"id": "batch-plus-" + strings.Join(subset, "+"), "mode": "fields", "action": "record_verdict", "fields": batchPlusPartial(subset)})
-	}
-	partialAlone := func(subset []string) map[string]any {
-		fields := map[string]any{"contract_version": 1}
-		for _, member := range subset {
-			fields[member] = entryValue(member)
-		}
-		return fields
-	}
-	for _, subset := range properSubsets {
-		probes = append(probes, map[string]any{"id": "partial-alone-" + strings.Join(subset, "+"), "mode": "fields", "action": "record_verdict", "fields": partialAlone(subset)})
+		label := strings.Join(subset, "+")
+		probes = append(probes,
+			map[string]any{"id": "entry-carrying-" + label, "mode": "fields", "action": "record_verdict", "fields": entryCarrying(subset)},
+			map[string]any{"id": "batch-plus-" + label, "mode": "fields", "action": "record_verdict", "fields": batchPlusTopLevel(subset, completeBatch, entryValue)},
+			map[string]any{"id": "top-level-" + label, "mode": "fields", "action": "record_verdict", "fields": topLevelOnly(subset)},
+		)
 	}
 	published := outsideRepairPublishedVerdicts(t, probes)
 	require := func(id string) outsideRepairPublication {
@@ -515,33 +512,80 @@ func TestOutsideRepairRecordVerdictGroupSubsets(t *testing.T) {
 		}
 		return verdict
 	}
-	if err := core(completeEntry()); err != nil {
-		t.Fatalf("core payload validation refuses the complete entry group: %v", err)
-	}
-	if verdict := require("entry-complete-control"); !verdict.Admit {
-		t.Errorf("the published record_verdict fields refuse the complete entry group: %v", verdict.Failures)
-	}
 	if err := core(completeBatch()); err != nil {
-		t.Fatalf("core payload validation refuses the complete batch group: %v", err)
+		t.Fatalf("core payload validation refuses the complete batch: %v", err)
 	}
 	if verdict := require("batch-complete-control"); !verdict.Admit {
-		t.Errorf("the published record_verdict fields refuse the complete batch group: %v", verdict.Failures)
+		t.Errorf("the published record_verdict fields refuse the complete batch: %v", verdict.Failures)
 	}
 	for _, subset := range properSubsets {
 		label := strings.Join(subset, "+")
-		if err := core(batchPlusPartial(subset)); err == nil {
+		// The entry's own schema carries the discipline inside the batch:
+		// predicate_id is the one required member, so a subset that
+		// includes it is a legal minimal entry both boundaries admit, and
+		// a subset that omits it is a partial entry both refuse.
+		entryErr := core(entryCarrying(subset))
+		entryVerdict := require("entry-carrying-" + label)
+		if containsString(subset, "predicate_id") {
+			if entryErr != nil {
+				t.Errorf("core payload validation refuses the legal minimal entry {%s}: %v", label, entryErr)
+			}
+			if !entryVerdict.Admit {
+				t.Errorf("the published record_verdict fields refuse the legal minimal entry {%s}; failures: %v", label, entryVerdict.Failures)
+			}
+		} else {
+			if entryErr == nil {
+				t.Errorf("core payload validation admits a batch entry carrying the partial entry group {%s}", label)
+			}
+			if entryVerdict.Admit {
+				t.Errorf("the published record_verdict fields admit a batch entry carrying the partial entry group {%s}; failures: %v", label, entryVerdict.Failures)
+			}
+		}
+		// The remnant rides beside the batch: the closed canonical field
+		// list refuses every entry-level field at the top level.
+		if err := core(batchPlusTopLevel(subset, completeBatch, entryValue)); err == nil {
 			t.Errorf("core payload validation admits the complete batch beside the partial entry group {%s}", label)
 		}
 		if verdict := require("batch-plus-" + label); verdict.Admit {
 			t.Errorf("the published record_verdict fields admit the complete batch beside the partial entry group {%s}; failures: %v", label, verdict.Failures)
 		}
-		// Boundary parity on the partial group alone: whatever the two
-		// boundaries decide, they decide it together.
-		coreAdmits := core(partialAlone(subset)) == nil
-		if verdict := require("partial-alone-" + label); verdict.Admit != coreAdmits {
-			t.Errorf("the partial entry group {%s} alone: core validation admits=%v while the published fields admit=%v; failures: %v", label, coreAdmits, verdict.Admit, verdict.Failures)
+		// The remnant alone: the single form left the canonical declared
+		// set, so both boundaries refuse it together.
+		if err := core(topLevelOnly(subset)); err == nil {
+			t.Errorf("core payload validation admits the partial entry group {%s} alone", label)
+		}
+		if verdict := require("top-level-" + label); verdict.Admit {
+			t.Errorf("the published record_verdict fields admit the partial entry group {%s} alone; failures: %v", label, verdict.Failures)
 		}
 	}
+}
+
+// batchPlusTopLevel clones the complete batch and adds the given entry-group
+// members at the top level, where the canonical declaration declares none of
+// them.
+func batchPlusTopLevel(subset []string, completeBatch func() map[string]any, entryValue func(string) any) map[string]any {
+	fields := completeBatch()
+	for _, member := range subset {
+		fields[member] = entryValue(member)
+	}
+	return fields
+}
+
+// topLevelOnly carries the given entry-group members alone at the top level,
+// the single-form position the canonical declaration retired.
+func topLevelOnly(subset []string) map[string]any {
+	fields := map[string]any{"contract_version": 1}
+	for _, member := range subset {
+		switch member {
+		case "predicate_id":
+			fields[member] = "predicate:outside-repair-subset"
+		case "verdict_kind":
+			fields[member] = "ok"
+		case "evaluation_evidence":
+			fields[member] = []any{"evidence:outside-repair-subset"}
+		}
+	}
+	return fields
 }
 
 // outsideRepairSubsets returns every subset of the given size of the names,

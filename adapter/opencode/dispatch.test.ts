@@ -1,6 +1,5 @@
-import { test, expect } from "bun:test"
+import { afterAll, afterEach, describe, test, expect } from "bun:test"
 import { createHash, randomUUID } from "node:crypto"
-import { mkdtemp } from "node:fs/promises"
 import fs from "node:fs"
 import * as os from "node:os"
 import path from "node:path"
@@ -28,6 +27,36 @@ import { armClaimedWorktree, clearClaimedWorktree, recordUnlandedClaimedWorktree
 import type { CredentialStore } from "./credentials"
 
 const isRecord = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === "object" && !Array.isArray(value)
+
+const testDirectories: string[] = []
+async function mkdtemp(prefix: string): Promise<string> {
+  const directory = await fs.promises.mkdtemp(prefix)
+  testDirectories.push(directory)
+  return directory
+}
+afterEach(async () => {
+  await Promise.all(testDirectories.splice(0).map(directory => fs.promises.rm(directory, { recursive: true, force: true })))
+})
+
+describe("temporary fixture cleanup", () => {
+  const roots: string[] = []
+  afterAll(() => {
+    try {
+      expect(roots.filter(root => fs.existsSync(root))).toEqual([])
+    } finally {
+      for (const root of roots) fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+  test("removes a successful test's workspace", async () => {
+    roots.push(await mkdtemp(path.join(os.tmpdir(), "provenance-cleanup-")))
+    fs.writeFileSync(path.join(roots[0], "fixture"), "fixture")
+  })
+  test.failing("removes all workspaces after an assertion failure", async () => {
+    roots.push(await mkdtemp(path.join(os.tmpdir(), "provenance-cleanup-")))
+    roots.push(await mkdtemp(path.join(os.tmpdir(), "provenance-cleanup-")))
+    expect(true).toBe(false)
+  })
+})
 
 // The adapter signs worker evidence with its registered client key (CD-0044).
 // Tests supply a deterministic seed so dispatch does not reach the host
@@ -219,31 +248,27 @@ test("an omitted or nonexistent worker directory refuses before authorization", 
 })
 
 test("a worker directory retargeted during authorization is refused", async () => {
-  const root = fs.mkdtempSync(path.join(process.cwd(), "concord-dispatch-"))
+  const root = await mkdtemp(path.join(process.cwd(), "concord-dispatch-"))
   const claimed = path.join(root, "claimed")
   const other = path.join(root, "other")
   const alias = path.join(root, "alias")
   for (const directory of [claimed, other]) fs.mkdirSync(directory)
   fs.symlinkSync(claimed, alias)
-  try {
-    const windows = new DispatchWindows()
-    const result = await dispatchWorker(packet(), {
-      authorize: async () => {
-        fs.unlinkSync(alias)
-        fs.symlinkSync(other, alias)
-        return coreOk()
-      },
-      packetDigest: PACKET_DIGEST,
-      sessionID: SESSION,
-      windows,
-      workerDirectory: alias,
-    })
-    expect(result.outcome).toBe("error")
-    expect(result.error?.message).toMatch(/does not match the active claimed worktree/i)
-    expect(windows.has(SESSION)).toBe(false)
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true })
-  }
+  const windows = new DispatchWindows()
+  const result = await dispatchWorker(packet(), {
+    authorize: async () => {
+      fs.unlinkSync(alias)
+      fs.symlinkSync(other, alias)
+      return coreOk()
+    },
+    packetDigest: PACKET_DIGEST,
+    sessionID: SESSION,
+    windows,
+    workerDirectory: alias,
+  })
+  expect(result.outcome).toBe("error")
+  expect(result.error?.message).toMatch(/does not match the active claimed worktree/i)
+  expect(windows.has(SESSION)).toBe(false)
 })
 
 test("unknown lane identity fails closed before a window opens", async () => {
@@ -259,7 +284,7 @@ test("unknown lane identity fails closed before a window opens", async () => {
 // The host's fresh session-directory answer must match it before the window
 // opens.
 test("dispatch refuses when the host answer disagrees with the armed claimed worktree", async () => {
-  const root = fs.mkdtempSync(path.join(process.cwd(), "concord-dispatch-"))
+  const root = await mkdtemp(path.join(process.cwd(), "concord-dispatch-"))
   fs.mkdirSync(path.join(root, "claimed"))
   fs.mkdirSync(path.join(root, "stale"))
   const claimed = fs.realpathSync(path.join(root, "claimed"))
@@ -289,7 +314,6 @@ test("dispatch refuses when the host answer disagrees with the armed claimed wor
   } finally {
     process.chdir(previousDirectory)
     clearClaimedWorktree(SESSION)
-    fs.rmSync(root, { recursive: true, force: true })
   }
 })
 
@@ -299,7 +323,7 @@ test("dispatch refuses when the host answer disagrees with the armed claimed wor
 // sibling execution instance is refused at bind and the process cwd blocks
 // nothing.
 test("a sibling process cwd does not block dispatch and bind refuses the sibling execution instance", async () => {
-  const root = fs.mkdtempSync(path.join(process.cwd(), "concord-dispatch-"))
+  const root = await mkdtemp(path.join(process.cwd(), "concord-dispatch-"))
   fs.mkdirSync(path.join(root, "managed", "claimed"), { recursive: true })
   fs.mkdirSync(path.join(root, "managed", "sibling"))
   const claimed = fs.realpathSync(path.join(root, "managed", "claimed"))
@@ -333,7 +357,6 @@ test("a sibling process cwd does not block dispatch and bind refuses the sibling
   } finally {
     process.chdir(previousDirectory)
     clearClaimedWorktree(SESSION)
-    fs.rmSync(root, { recursive: true, force: true })
   }
 })
 
@@ -342,7 +365,7 @@ test("a sibling process cwd does not block dispatch and bind refuses the sibling
 // worktree. The process directory is not execution evidence, so a trunk cwd
 // never blocks a dispatch whose host answers land on the claim.
 test("dispatch proceeds when the process cwd is the project trunk with an armed claim", async () => {
-  const root = fs.mkdtempSync(path.join(process.cwd(), "concord-dispatch-"))
+  const root = await mkdtemp(path.join(process.cwd(), "concord-dispatch-"))
   fs.mkdirSync(path.join(root, "managed", "claimed"), { recursive: true })
   fs.mkdirSync(path.join(root, "trunk"))
   const claimed = fs.realpathSync(path.join(root, "managed", "claimed"))
@@ -368,7 +391,6 @@ test("dispatch proceeds when the process cwd is the project trunk with an armed 
   } finally {
     process.chdir(previousDirectory)
     clearClaimedWorktree(SESSION)
-    fs.rmSync(root, { recursive: true, force: true })
   }
 })
 
@@ -399,7 +421,7 @@ test("dispatch proceeds when the host answer agrees with the armed claimed workt
 // the effective tool context does. The calling tool context is where this
 // dispatch actually executes, so it must sit inside the armed claim.
 test("dispatch refuses when the calling tool context sits outside the armed claimed worktree", async () => {
-  const root = fs.mkdtempSync(path.join(process.cwd(), "concord-dispatch-context-"))
+  const root = await mkdtemp(path.join(process.cwd(), "concord-dispatch-context-"))
   fs.mkdirSync(path.join(root, "claimed"))
   fs.mkdirSync(path.join(root, "elsewhere"))
   const claimed = fs.realpathSync(path.join(root, "claimed"))
@@ -430,12 +452,11 @@ test("dispatch refuses when the calling tool context sits outside the armed clai
     expect(windows.has(SESSION)).toBe(false)
   } finally {
     clearClaimedWorktree(SESSION)
-    fs.rmSync(root, { recursive: true, force: true })
   }
 })
 
 test("dispatch proceeds when the calling tool context resolves inside the armed claimed worktree", async () => {
-  const root = fs.mkdtempSync(path.join(process.cwd(), "concord-dispatch-context-"))
+  const root = await mkdtemp(path.join(process.cwd(), "concord-dispatch-context-"))
   fs.mkdirSync(path.join(root, "claimed"))
   const claimed = fs.realpathSync(path.join(root, "claimed"))
   const windows = new DispatchWindows()
@@ -456,7 +477,6 @@ test("dispatch proceeds when the calling tool context resolves inside the armed 
     expect(windows.has(SESSION)).toBe(true)
   } finally {
     clearClaimedWorktree(SESSION)
-    fs.rmSync(root, { recursive: true, force: true })
   }
 })
 
@@ -465,7 +485,7 @@ test("dispatch proceeds when the calling tool context resolves inside the armed 
 // session directory refuses before the core is asked at all — with no armed
 // claim, unlanded record, or durable worktree to lean on.
 test("a tool context outside the host session directory authorizes nothing in the core", async () => {
-  const root = fs.mkdtempSync(path.join(process.cwd(), "concord-dispatch-preflight-"))
+  const root = await mkdtemp(path.join(process.cwd(), "concord-dispatch-preflight-"))
   fs.mkdirSync(path.join(root, "claimed"))
   fs.mkdirSync(path.join(root, "elsewhere"))
   const claimed = fs.realpathSync(path.join(root, "claimed"))
@@ -494,7 +514,6 @@ test("a tool context outside the host session directory authorizes nothing in th
     expect(windows.has(SESSION)).toBe(false)
   } finally {
     resetClaimedWorktrees()
-    fs.rmSync(root, { recursive: true, force: true })
   }
 })
 
@@ -502,7 +521,7 @@ test("a tool context outside the host session directory authorizes nothing in th
 // session directory, with no claim record needed: the core is asked exactly
 // once and the window opens.
 test("a tool context matching the host session directory authorizes and opens the window", async () => {
-  const root = fs.mkdtempSync(path.join(process.cwd(), "concord-dispatch-preflight-"))
+  const root = await mkdtemp(path.join(process.cwd(), "concord-dispatch-preflight-"))
   fs.mkdirSync(path.join(root, "claimed"))
   const claimed = fs.realpathSync(path.join(root, "claimed"))
   const windows = new DispatchWindows()
@@ -526,7 +545,6 @@ test("a tool context matching the host session directory authorizes and opens th
   } finally {
     resetClaimedWorktrees()
     windows.close(SESSION)
-    fs.rmSync(root, { recursive: true, force: true })
   }
 })
 
@@ -534,7 +552,7 @@ test("a tool context matching the host session directory authorizes and opens th
 // before arming, so no armed claim exists to gate this session. The unlanded
 // record fails the dispatch gate closed until the tool context lands.
 test("dispatch refuses while a metadata-only refusal leaves the claimed worktree unlanded", async () => {
-  const root = fs.mkdtempSync(path.join(process.cwd(), "concord-dispatch-unlanded-"))
+  const root = await mkdtemp(path.join(process.cwd(), "concord-dispatch-unlanded-"))
   fs.mkdirSync(path.join(root, "claimed"))
   fs.mkdirSync(path.join(root, "elsewhere"))
   const claimed = fs.realpathSync(path.join(root, "claimed"))
@@ -563,14 +581,13 @@ test("dispatch refuses while a metadata-only refusal leaves the claimed worktree
     expect(windows.has(SESSION)).toBe(false)
   } finally {
     clearClaimedWorktree(SESSION)
-    fs.rmSync(root, { recursive: true, force: true })
   }
 })
 
 // Without a context answer the landing cannot be proved, so the refused-start
 // state stays refused.
 test("dispatch fails closed for an unlanded claim when no tool context is supplied", async () => {
-  const root = fs.mkdtempSync(path.join(process.cwd(), "concord-dispatch-unlanded-"))
+  const root = await mkdtemp(path.join(process.cwd(), "concord-dispatch-unlanded-"))
   fs.mkdirSync(path.join(root, "claimed"))
   const claimed = fs.realpathSync(path.join(root, "claimed"))
   const windows = new DispatchWindows()
@@ -591,14 +608,13 @@ test("dispatch fails closed for an unlanded claim when no tool context is suppli
     expect(windows.has(SESSION)).toBe(false)
   } finally {
     clearClaimedWorktree(SESSION)
-    fs.rmSync(root, { recursive: true, force: true })
   }
 })
 
 // The dispatch gate opens exactly when the tool context resolves inside the
 // recorded claimed worktree, before any work_start replay arms the claim.
 test("dispatch proceeds once the tool context resolves inside the unlanded claimed worktree", async () => {
-  const root = fs.mkdtempSync(path.join(process.cwd(), "concord-dispatch-unlanded-"))
+  const root = await mkdtemp(path.join(process.cwd(), "concord-dispatch-unlanded-"))
   fs.mkdirSync(path.join(root, "claimed"))
   const claimed = fs.realpathSync(path.join(root, "claimed"))
   const windows = new DispatchWindows()
@@ -619,7 +635,6 @@ test("dispatch proceeds once the tool context resolves inside the unlanded claim
     expect(windows.has(SESSION)).toBe(true)
   } finally {
     clearClaimedWorktree(SESSION)
-    fs.rmSync(root, { recursive: true, force: true })
   }
 })
 
@@ -629,7 +644,7 @@ test("dispatch proceeds once the tool context resolves inside the unlanded claim
 // answers and the tool context agreeing on the PRIOR directory cannot open a
 // window while the newer move is unresolved.
 test("dispatch refuses while a newer unlanded move stands despite a prior armed claim", async () => {
-  const root = fs.mkdtempSync(path.join(process.cwd(), "concord-dispatch-unlanded-"))
+  const root = await mkdtemp(path.join(process.cwd(), "concord-dispatch-unlanded-"))
   fs.mkdirSync(path.join(root, "claimed"))
   fs.mkdirSync(path.join(root, "previous"))
   const claimed = fs.realpathSync(path.join(root, "claimed"))
@@ -656,7 +671,6 @@ test("dispatch refuses while a newer unlanded move stands despite a prior armed 
     expect(windows.has(SESSION)).toBe(false)
   } finally {
     clearClaimedWorktree(SESSION)
-    fs.rmSync(root, { recursive: true, force: true })
   }
 })
 
@@ -665,7 +679,7 @@ test("dispatch refuses while a newer unlanded move stands despite a prior armed 
 // Cap eviction would forget an unresolved move and dispatch would authorize
 // on lost in-memory state, so the record must survive map pressure.
 test("an unlanded record survives map pressure until its move lands", async () => {
-  const root = fs.mkdtempSync(path.join(process.cwd(), "concord-dispatch-unlanded-"))
+  const root = await mkdtemp(path.join(process.cwd(), "concord-dispatch-unlanded-"))
   fs.mkdirSync(path.join(root, "claimed"))
   const claimed = fs.realpathSync(path.join(root, "claimed"))
   const windows = new DispatchWindows()
@@ -687,7 +701,6 @@ test("an unlanded record survives map pressure until its move lands", async () =
     expect(windows.has(SESSION)).toBe(false)
   } finally {
     resetClaimedWorktrees()
-    fs.rmSync(root, { recursive: true, force: true })
   }
 })
 
@@ -697,7 +710,7 @@ test("an unlanded record survives map pressure until its move lands", async () =
 // against, and the calling tool context must resolve inside it even with no
 // claim record left in this process.
 test("dispatch fails closed on the authorized claimed worktree after both claim maps are empty", async () => {
-  const root = fs.mkdtempSync(path.join(process.cwd(), "concord-dispatch-unlanded-"))
+  const root = await mkdtemp(path.join(process.cwd(), "concord-dispatch-unlanded-"))
   fs.mkdirSync(path.join(root, "claimed"))
   fs.mkdirSync(path.join(root, "elsewhere"))
   const claimed = fs.realpathSync(path.join(root, "claimed"))
@@ -727,14 +740,13 @@ test("dispatch fails closed on the authorized claimed worktree after both claim 
     expect(windows.has(SESSION)).toBe(false)
   } finally {
     resetClaimedWorktrees()
-    fs.rmSync(root, { recursive: true, force: true })
   }
 })
 
 // The durable gate fails closed without a context answer too: an authorized
 // dispatch cannot prove its landing from host metadata alone.
 test("the authorized claimed worktree gate refuses when no tool context is supplied", async () => {
-  const root = fs.mkdtempSync(path.join(process.cwd(), "concord-dispatch-unlanded-"))
+  const root = await mkdtemp(path.join(process.cwd(), "concord-dispatch-unlanded-"))
   fs.mkdirSync(path.join(root, "claimed"))
   const claimed = fs.realpathSync(path.join(root, "claimed"))
   const windows = new DispatchWindows()
@@ -756,14 +768,13 @@ test("the authorized claimed worktree gate refuses when no tool context is suppl
     expect(windows.has(SESSION)).toBe(false)
   } finally {
     resetClaimedWorktrees()
-    fs.rmSync(root, { recursive: true, force: true })
   }
 })
 
 // The durable gate opens exactly when the tool context resolves inside the
 // claimed worktree the core authorized, with no in-memory claim record needed.
 test("dispatch proceeds when the tool context resolves inside the authorized claimed worktree", async () => {
-  const root = fs.mkdtempSync(path.join(process.cwd(), "concord-dispatch-unlanded-"))
+  const root = await mkdtemp(path.join(process.cwd(), "concord-dispatch-unlanded-"))
   fs.mkdirSync(path.join(root, "claimed"))
   const claimed = fs.realpathSync(path.join(root, "claimed"))
   const windows = new DispatchWindows()
@@ -786,7 +797,6 @@ test("dispatch proceeds when the tool context resolves inside the authorized cla
   } finally {
     resetClaimedWorktrees()
     windows.close(SESSION)
-    fs.rmSync(root, { recursive: true, force: true })
   }
 })
 
@@ -796,7 +806,7 @@ test("dispatch proceeds when the tool context resolves inside the authorized cla
 test("an authorized dispatch opens one window and returns a directive", async () => {
   const windows = new DispatchWindows()
   clearClaimedWorktree(SESSION)
-  const root = fs.mkdtempSync(path.join(process.cwd(), "concord-dispatch-"))
+  const root = await mkdtemp(path.join(process.cwd(), "concord-dispatch-"))
   const claimed = path.join(root, "unarmed")
   fs.mkdirSync(claimed)
   try {
@@ -817,7 +827,6 @@ test("an authorized dispatch opens one window and returns a directive", async ()
     expect(windows.has(SESSION)).toBe(true)
   } finally {
     clearClaimedWorktree(SESSION)
-    fs.rmSync(root, { recursive: true, force: true })
   }
 })
 
@@ -1504,7 +1513,6 @@ test("worker evidence uses the supplied worker directory for provenance", async 
   } finally {
     if (previous === undefined) delete process.env.OPENCODE_CONFIG_DIR
     else process.env.OPENCODE_CONFIG_DIR = previous
-    await fs.promises.rm(parent, { recursive: true, force: true })
   }
 })
 
@@ -1822,8 +1830,6 @@ test("host prompt provenance admits the complete 32-source manifest at the store
     expect((await computeHostPromptProvenance("research", worktree)).digest).toBe(first.digest)
   } finally {
     restoreEnv()
-    await fs.promises.rm(configDir, { recursive: true, force: true })
-    await fs.promises.rm(worktree, { recursive: true, force: true })
   }
 })
 
@@ -1837,8 +1843,6 @@ test("host prompt provenance refuses a complete manifest past the 32-source stor
     await expectProvenanceRefusal(worktree)
   } finally {
     restoreEnv()
-    await fs.promises.rm(configDir, { recursive: true, force: true })
-    await fs.promises.rm(worktree, { recursive: true, force: true })
   }
 })
 
@@ -1860,8 +1864,6 @@ test("host prompt provenance refuses when 70 declared instruction files exceed t
     await expectProvenanceRefusal(worktree)
   } finally {
     restoreEnv()
-    await fs.promises.rm(configDir, { recursive: true, force: true })
-    await fs.promises.rm(worktree, { recursive: true, force: true })
   }
 })
 
@@ -1876,8 +1878,6 @@ test("host prompt provenance refuses a glob past 32 matches rather than admittin
     await expectProvenanceRefusal(worktree)
   } finally {
     restoreEnv()
-    await fs.promises.rm(configDir, { recursive: true, force: true })
-    await fs.promises.rm(worktree, { recursive: true, force: true })
   }
 })
 
@@ -1897,8 +1897,6 @@ test("host prompt provenance refuses a source path past the 512-byte identity bo
     expect(String(refused)).toContain(oversize)
   } finally {
     restoreEnv()
-    await fs.promises.rm(configDir, { recursive: true, force: true })
-    await fs.promises.rm(worktree, { recursive: true, force: true })
   }
 })
 
@@ -1917,8 +1915,6 @@ test("overlapping glob and literal instruction entries bind one source per file"
     expect(new Set(identities).size).toBe(32)
   } finally {
     restoreEnv()
-    await fs.promises.rm(configDir, { recursive: true, force: true })
-    await fs.promises.rm(worktree, { recursive: true, force: true })
   }
 })
 
@@ -1936,8 +1932,6 @@ test("one config file reached through two candidate routes is named once", async
     expect(named.filter(candidate => candidate === `${configDir}/opencode.json`)).toHaveLength(1)
   } finally {
     restoreEnv()
-    await fs.promises.rm(configDir, { recursive: true, force: true })
-    await fs.promises.rm(worktree, { recursive: true, force: true })
   }
 })
 
@@ -1973,8 +1967,6 @@ test("a provenance manifest over the store bound refuses dispatch before authori
     expect(windows.has(SESSION)).toBe(false)
   } finally {
     restoreEnv()
-    await fs.promises.rm(configDir, { recursive: true, force: true })
-    await fs.promises.rm(worktree, { recursive: true, force: true })
   }
 })
 
@@ -2015,8 +2007,6 @@ test("completion records the manifest the dispatch captured, not a recomputation
     expect((dispatchEvent?.payload.host_provenance as { digest?: string } | undefined)?.digest).toBe(record!.provenance!.digest)
   } finally {
     restoreEnv()
-    await fs.promises.rm(configDir, { recursive: true, force: true })
-    await fs.promises.rm(worktree, { recursive: true, force: true })
   }
 })
 
@@ -2041,8 +2031,6 @@ test("a completion with no captured manifest computes it and records no evidence
     expect(verbs).toEqual([])
   } finally {
     restoreEnv()
-    await fs.promises.rm(configDir, { recursive: true, force: true })
-    await fs.promises.rm(worktree, { recursive: true, force: true })
   }
 })
 
@@ -2069,8 +2057,6 @@ test("a refused readback that cannot bind provenance records no born-failed evid
     expect(verbs).toEqual([])
   } finally {
     restoreEnv()
-    await fs.promises.rm(configDir, { recursive: true, force: true })
-    await fs.promises.rm(worktree, { recursive: true, force: true })
   }
 })
 

@@ -2,6 +2,34 @@
   "evidence": [
     {
       "kind": "go_test",
+      "value": "internal/store.TestOwnerOracleGraph"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestOwnerOracleAuthorAuthorityJoins"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestOwnerOracleImmutableRevisionAndReplay"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestOwnerOracleRequiredOnOracleCapablePin"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestOwnerOracleLegacyPinStaysOracleFree"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestOwnerOracleJobDebt"
+    },
+    {
+      "kind": "adapter_test",
+      "value": "adapter/opencode/oracle.test.ts#dispatch refuses an unverifiable oracle before the authorization call"
+    },
+    {
+      "kind": "go_test",
       "value": "internal/store.TestWorkerJobDispatchRequiresRecordedRevision"
     },
     {

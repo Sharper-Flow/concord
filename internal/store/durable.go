@@ -39,17 +39,18 @@ type writeTx struct {
 	durable *atomic.Uint64
 }
 
-// beginWriteTx opens a write transaction on the store, durable when durable is
-// true.
-func beginWriteTx(ctx context.Context, s *Store, durable bool) (*writeTx, error) {
-	if !durable {
-		tx, err := s.db.BeginTx(ctx, nil)
+// beginWriteTx owns write admission for live stores, migrations and scratch
+// reconstruction. A non-nil counter selects FULL durability on the pinned
+// connection and records successful durable commits.
+func beginWriteTx(ctx context.Context, db *sql.DB, durable *atomic.Uint64) (*writeTx, error) {
+	if durable == nil {
+		tx, err := db.BeginTx(ctx, nil)
 		if err != nil {
 			return nil, err
 		}
 		return &writeTx{Tx: tx, ctx: ctx}, nil
 	}
-	conn, err := s.db.Conn(ctx)
+	conn, err := db.Conn(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -68,7 +69,7 @@ func beginWriteTx(ctx context.Context, s *Store, durable bool) (*writeTx, error)
 	if err != nil {
 		return nil, errors.Join(err, releaseDurableConn(conn))
 	}
-	return &writeTx{Tx: tx, ctx: ctx, conn: conn, durable: &s.durableCommits}, nil
+	return &writeTx{Tx: tx, ctx: ctx, conn: conn, durable: durable}, nil
 }
 
 // Commit commits the transaction. For a durable transaction a nil error means
@@ -157,9 +158,16 @@ func discardConn(conn *sql.Conn) {
 	_ = conn.Close()
 }
 
+func (s *Store) beginStoreWriteTx(ctx context.Context, durable bool) (*writeTx, error) {
+	if durable {
+		return s.beginDurableTx(ctx)
+	}
+	return beginWriteTx(ctx, s.db, nil)
+}
+
 // beginDurableTx opens a durable write transaction on the store.
 func (s *Store) beginDurableTx(ctx context.Context) (*writeTx, error) {
-	return beginWriteTx(ctx, s, true)
+	return beginWriteTx(ctx, s.db, &s.durableCommits)
 }
 
 // DurableCommits reports how many durable transactions this store handle has

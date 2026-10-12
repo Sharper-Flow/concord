@@ -10,7 +10,7 @@ import ConcordAdapterPlugin from "./concord-plugin"
 import { directoryIdentity, dispatchWindows, DispatchWindowError, TASK_TOOL_ID } from "./dispatch-window"
 import { hostControlPlane, MOVE_SESSION_ROUTE, MoveSessionUnavailable } from "./move-session"
 import { enqueueWorkNotice } from "./concord"
-import { hostToolSchemas } from "./generated-contracts"
+import { contractOperations, hostToolSchemas } from "./generated-contracts"
 import { bindCiWatchClient, ciWatchSettled, configureCiWatch, type VerbSpawner } from "./ci-watch"
 import { configureCoreBinary } from "./dispatch"
 import { armTurnMoveBoundary, questionRequiresNormalChat, resetTurnMoveBoundaries } from "./turn-move-boundary"
@@ -164,15 +164,48 @@ describe("plugin entry registers the session compacting hook", () => {
   })
 })
 
-test("work start definition hook leaves other tool definitions unchanged", async () => {
+test("the definition hook leaves tools no hook owns unchanged", async () => {
   const plugin = await ConcordAdapterPlugin()
   const output = { description: "another tool", parameters: {}, jsonSchema: { type: "object" } }
   const schema = output.jsonSchema
   const hook = Reflect.get(plugin, "tool.definition")
   expect(typeof hook).toBe("function")
-  await hook({ toolID: "concord_work_trace" }, output)
+  // "bash" is no Concord tool: neither the request hook, the work start
+  // hook, nor the ci watch hook may touch its definition.
+  await hook({ toolID: "bash" }, output)
   expect(output.jsonSchema).toBe(schema)
   expect(output.description).toBe("another tool")
+})
+
+test("a request tool publishes the hoisted argument root through the host definition hook", async () => {
+  const plugin = await ConcordAdapterPlugin()
+  const output = {
+    description: plugin.tool.concord_work_trace.description,
+    parameters: { untouched: true } as Record<string, unknown>,
+    jsonSchema: { type: "object", properties: { request: { type: "object" } }, required: ["request"] },
+  }
+  const hook = Reflect.get(plugin, "tool.definition")
+  await hook({ toolID: "concord_work_trace" }, output)
+  const published = JSON.parse(JSON.stringify(output.jsonSchema))
+  // The final registered root carries the request body under properties.request
+  // and the request definitions at the root, so every local reference the
+  // compact request makes resolves at the root the provider sees.
+  expect(published.type).toBe("object")
+  expect(published.required).toEqual(["request"])
+  expect(Object.keys(published.properties)).toEqual(["request"])
+  expect(published.$defs).toBeObject()
+  expect(Object.keys(published.$defs).length).toBeGreaterThan(0)
+  expect(Object.hasOwn(published.properties.request, "$defs")).toBe(false)
+  expect(published.properties.request.required).toEqual(["operation", "input"])
+  expect(published.properties.request.oneOf).toHaveLength(
+    contractOperations.filter((operation: any) => operation.tool === "concord_work_trace").length,
+  )
+  // The hoisted definitions are the ones the registration schema's compact
+  // request names, and the publication replaces only the definition schema.
+  const { $defs } = plugin.tool.concord_work_trace.args.request as Record<string, any>
+  expect(Object.keys(published.$defs).sort()).toEqual(Object.keys($defs ?? {}).sort())
+  expect(output.parameters).toEqual({ untouched: true })
+  expect(output.description).toBe(plugin.tool.concord_work_trace.description)
 })
 
 test("published work start schemas cannot mutate runtime validation", async () => {

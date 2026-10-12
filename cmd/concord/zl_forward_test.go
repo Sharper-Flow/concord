@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sharper-flow/concord/internal/linearclient"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -189,14 +188,54 @@ func TestRunZLForwardingLandsSecondaryProjectInItsOwnProduct(t *testing.T) {
 	}
 }
 
+func TestRunZLForwardingResolvesRecordedLinearIssueKey(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "concord.db")
+	seedCLIProduct(t, dbPath, "fwd-alpha-product", "fwd-alpha-project")
+	seedCLIProduct(t, dbPath, "fwd-zeta-product", "fwd-zeta-project")
+	seedForwardingCLIWork(t, dbPath, "fwd-work", "fwd-zeta-project", "fwd-alpha-project")
+	s, err := store.Open(context.Background(), dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Transact(context.Background(), func(tx *store.Transaction) error {
+		_, err := store.RecordLinearIssueLinkTx(context.Background(), tx, store.LinearIssueLink{WorkID: "fwd-work", RemoteIssueUUID: "fwd-issue-1", HumanKey: "FWD-1", URL: "https://linear.app/example/issue/FWD-1"})
+		return err
+	}); err != nil {
+		s.Close()
+		t.Fatal(err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(dbOverrideEnv, dbPath)
+	t.Setenv(selectedProductEnv, "fwd-alpha-product")
+	t.Setenv("CONCORD_PRODUCT_ID", "")
+	for _, tc := range []struct {
+		name string
+		args []string
+		want forwardedHandoff
+	}{
+		{"primary Project", []string{"FWD-1"}, forwardedHandoff{product: "fwd-zeta-product", work: "fwd-work"}},
+		{"explicit Project", []string{"FWD-1", "--project", "fwd-alpha-project"}, forwardedHandoff{product: "fwd-alpha-product", work: "fwd-work", project: "fwd-alpha-project"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			calls := captureForwardSession(t)
+			var out, errOut bytes.Buffer
+			if code := runZLForwarding(tc.args, strings.NewReader(""), &out, &errOut); code != 0 {
+				t.Fatalf("runZLForwarding exit = %d, stderr = %q", code, errOut.String())
+			}
+			if len(*calls) != 1 || (*calls)[0] != tc.want {
+				t.Fatalf("forwarded handoffs = %+v, want [%+v]", *calls, tc.want)
+			}
+		})
+	}
+}
+
 func TestRunZLForwardingRefusesProjectForUnlinkedLinearIssue(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "concord.db")
 	seedCLIProduct(t, dbPath, "fwd-alpha-product", "fwd-alpha-project")
 	t.Setenv(dbOverrideEnv, dbPath)
 	t.Setenv(selectedProductEnv, "fwd-alpha-product")
-	// A regression that skips the guard must fail here without a remote call.
-	t.Setenv(linearclient.EnvAPIKey, "")
-	t.Setenv(linearclient.EnvEndpoint, "https://linear.invalid/graphql")
 	calls := captureForwardSession(t)
 	var out, errOut bytes.Buffer
 	if code := runZLForwarding([]string{"FWD-404", "--project", "fwd-alpha-project"}, strings.NewReader(""), &out, &errOut); code != 1 {
@@ -205,8 +244,8 @@ func TestRunZLForwardingRefusesProjectForUnlinkedLinearIssue(t *testing.T) {
 	if len(*calls) != 0 {
 		t.Fatalf("forwarded handoffs = %+v, want none", *calls)
 	}
-	if !strings.Contains(errOut.String(), "--project needs a Linear issue already linked") {
-		t.Fatalf("stderr = %q, want the linked-issue refusal", errOut.String())
+	if !strings.Contains(errOut.String(), "no work item records Linear issue FWD-404") || !strings.Contains(errOut.String(), "concord_work_define.issue_link_record") {
+		t.Fatalf("stderr = %q, want the recorded-issue refusal and recovery operation", errOut.String())
 	}
 	s, err := store.Open(context.Background(), dbPath)
 	if err != nil {
@@ -218,7 +257,7 @@ func TestRunZLForwardingRefusesProjectForUnlinkedLinearIssue(t *testing.T) {
 		t.Fatal(err)
 	}
 	if works != 0 {
-		t.Fatalf("work_items = %d, want 0: the refusal must precede adoption effects", works)
+		t.Fatalf("work_items = %d, want 0: the refusal must not create managed work", works)
 	}
 }
 
@@ -231,11 +270,10 @@ func TestResolveZLLinearReferenceFollowsLandingProject(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.RecordLinearLink(context.Background(), "fwd-work", "fwd-issue-1", "FWD-1", "https://linear.app/example/issue/FWD-1", "", "", store.LinearLinkPending); err != nil {
-		s.Close()
-		t.Fatal(err)
-	}
-	if err := s.RecordLinearLink(context.Background(), "fwd-work", "fwd-issue-1", "FWD-1", "https://linear.app/example/issue/FWD-1", "", "", store.LinearLinkConfirmed); err != nil {
+	if err := s.Transact(context.Background(), func(tx *store.Transaction) error {
+		_, err := store.RecordLinearIssueLinkTx(context.Background(), tx, store.LinearIssueLink{WorkID: "fwd-work", RemoteIssueUUID: "fwd-issue-1", HumanKey: "FWD-1", URL: "https://linear.app/example/issue/FWD-1"})
+		return err
+	}); err != nil {
 		s.Close()
 		t.Fatal(err)
 	}

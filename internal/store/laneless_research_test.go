@@ -8,12 +8,8 @@ import (
 	"time"
 )
 
-// Issue #970: a lane-less workflow never runs a fenced action, so no start or
-// dispatch ever assigned an executing actor. Every record_verdict fold then
-// failed the distinctness JOIN with "executing actor tuple is incomplete",
-// stranding research items that reached conclude with all content recorded.
-//
-// The definition-selected fold now pins the selecting session as the
+// A lane-less workflow never runs a fenced action. The definition-selected
+// fold pins the selecting session as the
 // executing actor, and instances whose projection predates that pin derive
 // the same identity from the immutable definition event.
 
@@ -151,7 +147,7 @@ func TestLanelessResearchSelectorCannotVerdictOwnDelivery(t *testing.T) {
 	}
 }
 
-// Instances pinned before the fix carry an empty executor projection. The
+// Legacy instances carry an empty executor projection. The
 // distinctness checks derive the selector from the immutable definition
 // event, so an operator-signed verdict completes without a rebuild.
 func TestLegacyInstanceDerivesSelectorForDistinctness(t *testing.T) {
@@ -159,8 +155,8 @@ func TestLegacyInstanceDerivesSelectorForDistinctness(t *testing.T) {
 	const workID = "issue970-legacy-derivation"
 	s, owner := seedLanelessResearchItem(t, workID)
 
-	// Recreate the pre-fix projection: an instance whose executor was never
-	// assigned. This is the state of the live items that reported #970.
+	// Recreate the empty-executor projection: an instance whose executor was never
+	// assigned.
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE workflow_instances SET execution_actor_ref=NULL WHERE work_id=?; DELETE FROM fold_guard`, workID); err != nil {
 		t.Fatal(err)
 	}

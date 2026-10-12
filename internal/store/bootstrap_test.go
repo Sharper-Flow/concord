@@ -775,6 +775,34 @@ func TestResumeWorktreeLocationRefusals(t *testing.T) {
 	}
 }
 
+func TestBootstrapExistingRetiredInitiativeCreatesNoNativeState(t *testing.T) {
+	t.Parallel()
+	s, _ := seedRetiredPlanningHistory(t)
+	repo := initBootstrapStoreRepo(t)
+	ctx := context.Background()
+	if err := s.AddProjectLocator(ctx, "project", ProjectLocator{ID: "retired-repo", Kind: LocatorCanonicalPath, Value: repo}, 1); err != nil {
+		t.Fatal(err)
+	}
+	before := planningEventCount(t, s.db)
+	phases := 0
+	_, err := s.BootstrapExistingWorktree(ctx, ExistingBootstrapRequest{ProductID: "product", ProjectID: "project", WorkID: "retired-initiative"}, func(string) error { phases++; return nil })
+	if phases != 0 {
+		t.Errorf("retired bootstrap entered %d creation phases", phases)
+	}
+	path := filepath.Join(filepath.Dir(s.Path()), "worktrees", "project", "retired-initiative")
+	if _, statErr := os.Stat(path); !os.IsNotExist(statErr) {
+		t.Errorf("retired bootstrap left a native directory: %v", statErr)
+	}
+	branches, gitErr := (ExecGitRunner{}).Run(ctx, repo, "branch", "--list", "work/retired-initiative")
+	if gitErr != nil || strings.TrimSpace(string(branches)) != "" {
+		t.Errorf("retired bootstrap left a native branch: %q err=%v", branches, gitErr)
+	}
+	if after := planningEventCount(t, s.db); after != before {
+		t.Errorf("retired bootstrap appended events: before=%d after=%d", before, after)
+	}
+	assertRetiredPlanningRefusal(t, err)
+}
+
 func TestBootstrapExistingWorktreeReusesReclaimedCaptureIdentity(t *testing.T) {
 	t.Parallel()
 	repo := initBootstrapStoreRepo(t)

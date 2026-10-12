@@ -3,8 +3,8 @@
 
 A satisfied item must cite at least one anchor from the shared `evidence_anchors`
 machinery — `go_test`, `scenario`, `validator`, or `generated`. A repository
-path is not an anchor: paths are exactly what the old validator accepted, and
-accepting them here would restate the defect in new syntax (issue #187). A
+path is not an anchor: a path can be cited while the claim it backs is never
+checked. Accepting a path would let an unverified claim read as proven. A
 satisfied claim is only as load-bearing as the executable check that backs
 it, so the validator proves the anchor resolves and, for the executable kinds,
 that a required workflow invokes it.
@@ -343,7 +343,7 @@ def validate_evidence(evidence: object, prefix: str, findings: list[str]) -> boo
 
     Returns False if the array itself is malformed (length, type) so the
     caller can skip per-entry checks. Each entry must be an anchor object —
-    a string is a finding per issue #187, "it cannot become satisfied from a
+    a string is a finding: "it cannot become satisfied from a
     cited path alone". Anchors are resolved by the shared `check_anchor`
     so the proof machinery is the same as the law-coverage plane.
     """

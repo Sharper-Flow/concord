@@ -3,9 +3,7 @@ package main
 import (
 	"context"
 	"crypto/ed25519"
-	"crypto/sha256"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -20,13 +18,7 @@ import (
 	"strings"
 	"time"
 
-	tea "charm.land/bubbletea/v2"
-
 	"github.com/sharper-flow/concord/internal/agent"
-	"github.com/sharper-flow/concord/internal/launcher"
-	"github.com/sharper-flow/concord/internal/launcher/render/bubbletea"
-	"github.com/sharper-flow/concord/internal/launcher/storeport"
-	"github.com/sharper-flow/concord/internal/linearclient"
 	"github.com/sharper-flow/concord/internal/predecessor"
 	"github.com/sharper-flow/concord/internal/store"
 	"github.com/sharper-flow/concord/internal/version"
@@ -65,19 +57,14 @@ func runWithInput(args []string, in io.Reader, out, errOut io.Writer) int {
 	if code, handled := runCommandHelpRoute(args, out, errOut); handled {
 		return code
 	}
-	// The launcher is a terminal command, not a JSON command. Route it before
-	// any stdin read so bytes intended for the TUI can never be parsed as JSON.
-	if len(args) > 0 && args[0] == "launcher" {
-		return runLauncherCommand(args[1:], in, out, errOut, terminalStreams(in, out))
-	}
 	if len(args) == 0 {
-		return runBareInvocation(in, out, errOut, terminalStreams(in, out))
+		writeUsage(errOut)
+		return 2
 	}
 	if len(args) > 0 && args[0] == "zl" {
 		return runZLForwarding(args[1:], in, out, errOut)
 	}
-	// Session boot is a TTY command invoked by the identity-only launcher.
-	// It derives continuity in the core before OpenCode receives any prompt.
+	// Session boot derives continuity before OpenCode receives any prompt.
 	if len(args) > 0 && args[0] == "session" {
 		return runSessionCommand(args[1:], in, out, errOut, terminalStreams(in, out), hostSessionDirectory, hostSessionHostCommand, DeriveSessionBoot, runOpenCode, hostLaneAgentIdentity, hostOrchestratorIdentity)
 	}
@@ -159,6 +146,14 @@ func formatRequiredFields(fields []commandField) string {
 	return strings.Join(formatted, ", ")
 }
 
+func invokeOperationEnums() string {
+	operations := make([]string, 0, len(agent.ContractOperations))
+	for _, operation := range agent.ContractOperations {
+		operations = append(operations, operation.ID)
+	}
+	return "tool.operation: " + strings.Join(operations, " | ")
+}
+
 // commandSpecs is the single source of truth for operator tokenization and
 // help. The hyphenated and two-word forms are deliberate, exact forms; no
 // other aliases are accepted.
@@ -167,27 +162,17 @@ func formatRequiredFields(fields []commandField) string {
 // bootstrap test. Agent invoke fields remain owned by their generated
 // transport contracts.
 var commandSpecs = []commandSpec{
-	{Canonical: "invoke", RequiredFields: requiredFields(nestedField("call_envelope", "schema_version", "request_id", "client_ref", "principal_ref", "session_ref", "agent_ref", "directory", "worktree", "ambient_project_id", "scope_version", "manifest_digest"), field("tool"), field("operation"), field("input")), Optional: "call_envelope.selected_product_id, call_envelope.host_assertion_digest, call_envelope.host_approval_assertion", Enums: "tool.operation: concord_product_view.resolve | concord_product_view.snapshot | concord_product_view.portfolio | concord_work_browse.list | concord_work_browse.blocked | concord_work_browse.ready | concord_work_browse.scope | concord_work_trace.history | concord_work_trace.continuity | concord_work_trace.relations | concord_knowledge.search | concord_knowledge.resolve_note | concord_knowledge.unprocessed | concord_work_define.capture | concord_work_define.revise_intent | concord_work_transition.lifecycle | concord_work_transition.workflow_action | concord_work_transition.correct_delivery | concord_work_transition.session_vacate | concord_work_transition.project_handoff_record | concord_work_transition.project_handoff_consume | concord_work_trace.project_retirement | concord_work_relate.set_memberships | concord_work_relate.link | concord_work_relate.unlink | concord_work_relate.supersede | concord_work_compact.publish | concord_work_compact.reconcile"},
+	{Canonical: "invoke", RequiredFields: requiredFields(nestedField("call_envelope", "schema_version", "request_id", "client_ref", "principal_ref", "session_ref", "agent_ref", "directory", "worktree", "ambient_project_id", "scope_version", "manifest_digest"), field("tool"), field("operation"), field("input")), Optional: "call_envelope.selected_product_id, call_envelope.host_assertion_digest, call_envelope.host_approval_assertion; pre-dispatch decode refusals exit 64; worktree_verify input uses command OR oracle (phase prepare | execute), never both; worktree_inspect mode oracle_output uses run_ref, stream stdout | stderr, offset, length (1-16384 raw bytes), never path or idempotency_key; exact fields and exclusions follow the generated agent contracts", Enums: invokeOperationEnums()},
 	{Canonical: "worker-dispatch", RequiredFields: requiredFields(field("event_id"), field("work_id"), field("attempt_id"), field("lane_id"), field("lane_version"), field("lane_digest"), field("packet_schema_version"), field("report_schema_version"), field("packet_digest")), Optional: "readback_model (host-reported executing model); terminal ('failed') with terminal_failure_kind and terminal_detail for an attempt born failed, such as a lost or ambiguous readback; host_provenance.digest (sha256), host_provenance.sources[] (kind: agent_definition | agents_md | instruction_file | unenumerated; path; sha256) — required for v3 evidence (CD-0034); worker_job (job_id, revision, digest) — required on a job-bound attempt (CD-0205)", Enums: "none"},
 	{Canonical: "worker-complete", RequiredFields: requiredFields(field("event_id"), field("work_id"), field("attempt_id"), field("readback_model"), field("report_schema_version"), field("evidence_origin")), Optional: "worker_directory, base_comparison, review, worker_job — required on a job-bound attempt, evidence[] — required when evidence_origin is reported, context_findings[] (0-16 typed claims, 16 KiB)", Enums: "evidence_origin: reported | legacy_unavailable; evidence[].obligation: bounded_findings | commands | contract_findings | exit_codes | failure_classification | files_touched | severity | source_citations | uncertainties | unresolved_issues | verification_commands | visual_artifacts; reported evidence must discharge every declared obligation; base_comparison.checks[]: pass | fail | not_run; review: ship | no_ship, findings severity P0-P3, confidence low | medium | high; ship refuses P0, no_ship refuses zero findings; a lane requiring the typed review block refuses a completion without it and a free-text severity entry beside it; the block discharges severity; context_findings[].kind: observation | inference | hypothesis | rejected_approach | open_question | contradiction | direction"},
 	{Canonical: "worker-fail", RequiredFields: requiredFields(field("event_id"), field("work_id"), field("attempt_id"), field("readback_model"), field("failure_kind"), field("detail")), Optional: "context_findings[] (as worker-complete; worker_error only)", Enums: "failure_kind: fallback_blocked | worker_error | invalid_report | abandoned"},
 	{Canonical: "worker-abandon", RequiredFields: requiredFields(field("event_id"), field("work_id"), field("attempt_id"), field("detail")), Optional: "none", Enums: "the host signs a worker-fail assertion with failure_kind abandoned; readback_model is derived from the dispatched attempt"},
-	{Canonical: "client-register", TwoWord: "client register", RequiredFields: requiredFields(field("client_ref"), field("key_id"), field("principal_ref"), field("public_key"), field("capabilities"), field("product_scope"), field("project_scope"), field("agent_scope")), Optional: "none", Enums: "capabilities: product_read | work_define | work_transition | work_relate | work_compact | work_initiative | cross_scope | research | worker_evidence | worker_dispatch; public_key: base64 Ed25519; agent_scope: the agent references this client may present"},
-	{Canonical: "client-policy-update", TwoWord: "client policy-update", RequiredFields: requiredFields(field("client_ref"), field("principal_ref"), field("capabilities"), field("product_scope"), field("project_scope"), field("agent_scope")), Optional: "none", Enums: "capabilities: product_read | work_define | work_transition | work_relate | work_compact | work_initiative | cross_scope | research | worker_evidence | worker_dispatch; agent_scope: the agent references this client may present"},
-	{Canonical: "client-policy-expand", TwoWord: "client policy-expand", RequiredFields: requiredFields(field("client_ref")), Optional: "capabilities, product_scope, project_scope, agent_scope — additive union; every existing grant and the stored principal are preserved (CD-0097 D6)", Enums: "capabilities: product_read | work_define | work_transition | work_relate | work_compact | work_initiative | cross_scope | research | worker_evidence | worker_dispatch"},
+	{Canonical: "client-register", TwoWord: "client register", RequiredFields: requiredFields(field("client_ref"), field("key_id"), field("principal_ref"), field("public_key"), field("capabilities"), field("product_scope"), field("project_scope"), field("agent_scope")), Optional: "none", Enums: "capabilities: product_read | work_define | work_transition | work_relate | work_compact | cross_scope | research | worker_evidence | worker_dispatch; public_key: base64 Ed25519; agent_scope: the agent references this client may present"},
+	{Canonical: "client-policy-update", TwoWord: "client policy-update", RequiredFields: requiredFields(field("client_ref"), field("principal_ref"), field("capabilities"), field("product_scope"), field("project_scope"), field("agent_scope")), Optional: "none", Enums: "capabilities: product_read | work_define | work_transition | work_relate | work_compact | cross_scope | research | worker_evidence | worker_dispatch; agent_scope: the agent references this client may present"},
+	{Canonical: "client-policy-expand", TwoWord: "client policy-expand", RequiredFields: requiredFields(field("client_ref")), Optional: "capabilities, product_scope, project_scope, agent_scope — additive union; every existing grant and the stored principal are preserved (CD-0097 D6)", Enums: "capabilities: product_read | work_define | work_transition | work_relate | work_compact | cross_scope | research | worker_evidence | worker_dispatch"},
 	{Canonical: "client-key-rotate", TwoWord: "client key-rotate", RequiredFields: requiredFields(field("client_ref"), field("key_id"), field("public_key")), Optional: "none", Enums: "public_key: base64 Ed25519"},
 	{Canonical: "client-revoke", TwoWord: "client revoke", RequiredFields: requiredFields(field("client_ref")), Optional: "none", Enums: "none"},
 	{Canonical: "product-create", TwoWord: "product create", RequiredFields: requiredFields(field("product_id"), field("display_name"), field("stage_maturity"), field("stage_audience_commitment"), field("project_id"), field("project_display_name"), field("role")), Optional: "reason", Enums: "stage_maturity: prototype | alpha | beta | production | deprecated; stage_audience_commitment: operator_only | limited | public; role: primary | secondary"},
-	{Canonical: "product-mode-set", TwoWord: "product mode-set", RequiredFields: requiredFields(field("product_id"), field("planning_mode"), field("expected_version"), field("reason")), Optional: "none", Enums: "planning_mode: local_only | linear_enabled"},
-	{Canonical: "linear-health", TwoWord: "linear health", RequiredFields: requiredFields(field("product_id")), Optional: "none", Enums: "none"},
-	{Canonical: "linear-divergence", TwoWord: "linear divergence", RequiredFields: requiredFields(field("product_id")), Optional: "none", Enums: "none"},
-	{Canonical: "linear-unlinked-remote-in-progress", TwoWord: "linear unlinked-remote-in-progress", RequiredFields: requiredFields(field("product_id")), Optional: "none", Enums: "none"},
-	{Canonical: "linear-issue-enqueue", TwoWord: "linear issue-enqueue", RequiredFields: requiredFields(field("product_id"), field("work_id"), field("op_kind")), Optional: "remote_issue_uuid (required for issue_adopt), audit_comment (required for issue_audit_comment)", Enums: "op_kind: issue_create | issue_update | issue_adopt | issue_audit_comment"},
-	{Canonical: "linear-outbox-drain", TwoWord: "linear outbox-drain", RequiredFields: requiredFields(field("product_id")), Optional: "max_operations", Enums: "none"},
-	{Canonical: "linear-outbox-disposition", TwoWord: "linear outbox-disposition", RequiredFields: requiredFields(field("product_id"), field("reason")), Optional: "operation_ids (defaults to all undisposed failed rows)", Enums: "disposition: acknowledged"},
-	{Canonical: "linear-backfill", TwoWord: "linear backfill", RequiredFields: requiredFields(field("product_id")), Optional: "none", Enums: "none"},
-	{Canonical: "linear-connection-update", TwoWord: "linear connection-update", RequiredFields: requiredFields(field("event_id"), field("resource_id"), field("product_id"), field("expected_resource_version")), Optional: "team_id, status_ids, label_ids", Enums: "status_ids: needed | in_progress | completed | cancelled | superseded; label_ids: task | bug | decision | research | other | expedite | optional | project:<project_id>"},
-	{Canonical: "linear-initiative-import", TwoWord: "linear initiative-import", RequiredFields: requiredFields(field("product_id"), field("linear_project_id")), Optional: "none", Enums: "linear_project_id: Linear Project uuid"},
 	{Canonical: "resource-create", TwoWord: "resource create", RequiredFields: requiredFields(field("event_id"), field("resource_id"), field("product_id"), field("display_name"), field("class"), field("kind"), field("purpose"), field("stage_maturity"), field("stage_audience_commitment"), field("environments"), field("expected_product_version")), Optional: "locator_absence_reason, metadata_schema_version, metadata, owner_purpose, owner_environments", Enums: "stage_maturity: prototype | alpha | beta | production | deprecated; stage_audience_commitment: operator_only | limited | public"},
 	{Canonical: "resource-share", TwoWord: "resource share", RequiredFields: requiredFields(field("event_id"), field("resource_id"), field("product_id"), field("expected_resource_version")), Optional: "purpose, environments", Enums: "none"},
 	{Canonical: "domain-project-attachments-replace", TwoWord: "domain project-attachments-replace", RequiredFields: requiredFields(field("event_id"), field("product_id"), field("domain_id"), field("expected_version"), field("attachments")), Optional: "attachments (replaces the full edge set)", Enums: "attachments[].role: primary | secondary"},
@@ -208,13 +193,13 @@ var commandSpecs = []commandSpec{
 	{Canonical: "worktree-locate", RequiredFields: requiredFields(field("project_id"), field("work_id")), Optional: "ref (a rev-syntax ref; defaults to HEAD, the default branch under the trunk-stays-on-default rule)", Enums: "none"},
 	{Canonical: "claim-landing", RequiredFields: requiredFields(field("work_id"), field("session_ref"), field("landed_directory")), Optional: "none", Enums: "none"},
 	{Canonical: "vacate-landing", RequiredFields: requiredFields(field("work_id"), field("session_ref"), field("landed_directory")), Optional: "none", Enums: "none"},
-	{Canonical: "work-bootstrap", RequiredFields: requiredFields(field("product_id"), field("project_id"), field("title"), field("value_statement"), field("kind"), field("task"), field("idempotency_key")), Optional: "priority, urgency, tags, workflow_type_ref, external_ref, governing_requirements, ref (default branch resolved after identity), defect_intake (required for bug), host_pid (required with session_ref); deterministic refusals exit 2", Enums: "kind: task | bug | decision | research | other; urgency: standard | expedite"},
-	{Canonical: "work-resume", RequiredFields: requiredFields(field("product_id"), field("project_id"), field("work_id")), Optional: "deterministic refusals exit 2", Enums: "none"},
+	{Canonical: "work-bootstrap", RequiredFields: requiredFields(field("product_id"), field("project_id"), field("title"), field("value_statement"), field("kind"), field("task"), field("idempotency_key")), Optional: "priority, urgency, tags, workflow_type_ref, external_ref, governing_requirements, ref (default branch resolved after identity), defect_intake (required for bug), host_pid (required with session_ref); handler refusals exit 2; required-field refusals exit 64", Enums: "kind: task | bug | decision | research | other; urgency: standard | expedite"},
+	{Canonical: "work-resume", RequiredFields: requiredFields(field("product_id"), field("project_id"), field("work_id")), Optional: "handler refusals exit 2; required-field refusals exit 64", Enums: "none"},
 	{Canonical: "receipt", RequiredFields: requiredFields(field("work_id")), Optional: "none", Enums: "prints the product-owned closure receipt markdown (CD-0169) for a completed work item; empty output when the item is not completed"},
 	{Canonical: "work-shelve", RequiredFields: requiredFields(field("operation_id"), field("idempotency_key"), field("work_id"), field("expected_version"), field("handoff")), Optional: "product_id, linear, actor, safety evidence", Enums: "reason is fixed to shelved; no sixth lifecycle state"},
 	{Canonical: "work-cancel", RequiredFields: requiredFields(field("operation_id"), field("idempotency_key"), field("work_id"), field("expected_version"), field("handoff")), Optional: "product_id, linear, actor, safety evidence", Enums: "reason is fixed to cancelled; removal is not archival"},
 	{Canonical: "ci-wait", RequiredFields: requiredFields(field("selector"), field("repo")), Optional: "mode (pr checks|merge), time_seconds_max, state_file", Enums: "selector.kind: pr|sha|run; mode: checks|merge"},
-	{Canonical: "session-prepare", RequiredFields: requiredFields(field("product_id"), field("work_id"), field("agent")), Optional: "task (max 8192 bytes; none on resume); agent is the active agent; refusals exit 2", Enums: "none"},
+	{Canonical: "session-prepare", RequiredFields: requiredFields(field("product_id"), field("work_id"), field("agent")), Optional: "task (max 8192 bytes; none on resume); agent is the active agent; handler refusals exit 2; required-field refusals exit 64", Enums: "none"},
 	{Canonical: "outside-repair", RequiredFields: requiredFields(field("work_id"), field("agent")), Optional: "none; requires an active outside-repair hold and a controlling TTY; JSON stdout names the exact directory and argv; host I/O uses /dev/tty", Enums: "none"},
 	{Canonical: "project-resolve", TwoWord: "project resolve", RequiredFields: requiredFields(field("directory")), Optional: "worktree (defaults to directory)", Enums: "none"},
 	{Canonical: "restore", RequiredFields: requiredFields(field("source"), field("destination")), Optional: "none", Enums: "source: existing verified backup snapshot path; destination: absolute clean path that does not yet exist and is not the live database"},
@@ -256,12 +241,10 @@ func writeUsage(out io.Writer) {
 	_, _ = fmt.Fprintln(out, "Usage:")
 	_, _ = fmt.Fprintln(out, "  concord --help")
 	_, _ = fmt.Fprintln(out, "  concord --version")
-	_, _ = fmt.Fprintln(out, "  concord launcher   # interactive TTY; does not read JSON stdin")
-	_, _ = fmt.Fprintln(out, "  concord launcher --list   # bounded candidate JSON")
-	_, _ = fmt.Fprintln(out, "  concord zl <work> -- <prompt>   # start or resume without the UI")
+	_, _ = fmt.Fprintln(out, "  concord zl <work> -- <prompt>   # start or resume a session")
 	_, _ = fmt.Fprintln(out, "  concord zl <work> --project <project>   # land in that member Project of the work")
 	_, _ = fmt.Fprintln(out, "  concord zl --resume-last   # resume the last workspace")
-	_, _ = fmt.Fprintln(out, "  concord session    # internal TTY bootstrap; launcher identity env required")
+	_, _ = fmt.Fprintln(out, "  concord session    # internal TTY bootstrap; session identity env required")
 	_, _ = fmt.Fprintln(out, "  concord continuity-block <directory>   # read-only continuity packet for the session directory")
 	_, _ = fmt.Fprintln(out, "  concord host-lease < JSON stdin      # record this host session's release lease (adapter-invoked)")
 	_, _ = fmt.Fprintln(out, "  concord host-leases                  # print live release leases; prunes stale ones")
@@ -270,6 +253,7 @@ func writeUsage(out io.Writer) {
 	_, _ = fmt.Fprintln(out, "  concord recover-fold-guard < JSON stdin   # offline: clear a stranded fold guard and rebuild projections from the log")
 	_, _ = fmt.Fprintln(out, "  concord ci-wait < JSON stdin         # one bounded slice of a GitHub CI wait (CD-0160)")
 	_, _ = fmt.Fprintln(out, "")
+	_, _ = fmt.Fprintln(out, "Required-field refusals exit 64 before dispatch.")
 	_, _ = fmt.Fprintln(out, "Commands read one strict JSON object from stdin:")
 	for _, spec := range commandSpecs {
 		writeCommandSection(out, spec)
@@ -369,18 +353,6 @@ func runCommandHelpRoute(args []string, out, errOut io.Writer) (int, bool) {
 	return 0, false
 }
 
-type firstRunPort struct{}
-
-func (firstRunPort) Read(context.Context, launcher.ReadRequest) (launcher.Snapshot, error) {
-	return launcher.Snapshot{Screen: launcher.ScreenPortfolio, Coverage: "first_run", FirstRun: true, StatusMessage: "initialize the Concord authority database through operator setup"}, nil
-}
-
-// Candidates satisfies launcher.Port; unparam cannot see the cross-package
-// interface binding, so the fixed signature and nil error stay.
-func (firstRunPort) Candidates(context.Context, int) ([]launcher.Candidate, error) { //nolint:unparam // launcher.Port interface method
-	return storeport.ScanRootCandidates(), nil
-}
-
 func terminalStreams(in io.Reader, out io.Writer) bool {
 	input, inOK := in.(*os.File)
 	output, outOK := out.(*os.File)
@@ -390,101 +362,6 @@ func terminalStreams(in io.Reader, out io.Writer) bool {
 	inInfo, inErr := input.Stat()
 	outInfo, outErr := output.Stat()
 	return inErr == nil && outErr == nil && inInfo.Mode()&os.ModeCharDevice != 0 && outInfo.Mode()&os.ModeCharDevice != 0
-}
-
-// runBareInvocation is the bare `concord` dispatch. The launcher is the
-// operator's daily entry surface, so bare invocation starts it on a TTY. Off a
-// TTY there is no interactive surface to hand over, so it prints usage and
-// exits 2 instead of reading stdin as JSON.
-func runBareInvocation(in io.Reader, out, errOut io.Writer, terminal bool) int {
-	if !terminal {
-		writeUsage(errOut)
-		return 2
-	}
-	return runLauncherCommand(nil, in, out, errOut, terminal)
-}
-
-func runLauncherCommand(args []string, in io.Reader, out, errOut io.Writer, terminal bool) int {
-	list := false
-	if len(args) == 1 {
-		switch {
-		case args[0] == "--list": // #nosec G602 -- args has length 1, checked by this branch.
-			list = true
-		case args[0] == "--resume-last": // #nosec G602 -- args has length 1, checked by this branch.
-			return runZLForwarding(args, in, out, errOut)
-		}
-	}
-	if len(args) != 0 && !list {
-		writeDiagnostic(errOut, "concord launcher: unsupported arguments; launcher accepts no JSON stdin arguments")
-		return 2
-	}
-	if list {
-		return runLauncherList(out, errOut)
-	}
-	if !terminal {
-		writeDiagnostic(errOut, "concord launcher requires an interactive TTY (use an internal terminal harness for tests)")
-		return 2
-	}
-	path, err := databasePath()
-	if err != nil {
-		writeDiagnostic(errOut, err.Error())
-		return 1
-	}
-	var port launcher.ReadPort
-	var closeStore func()
-	if _, statErr := os.Stat(path); os.IsNotExist(statErr) {
-		port = firstRunPort{}
-		closeStore = func() {}
-	} else if statErr != nil {
-		writeDiagnostic(errOut, "concord launcher: database path is unavailable: "+statErr.Error())
-		return 1
-	} else {
-		s, openErr := openStoreForCommand(context.Background(), path)
-		if openErr != nil {
-			writeDiagnostic(errOut, openErr.Error())
-			return 1
-		}
-		port = storeport.New(s)
-		closeStore = func() { _ = s.Close() }
-	}
-	defer closeStore()
-	core := launcher.New(port)
-	// The model retains a failed explicit read as typed unavailable state for rendering.
-	_ = core.Enter(context.Background())
-	profile := bubbletea.Profile{Color: os.Getenv("NO_COLOR") == ""}
-	model := bubbletea.New(core, context.Background(), profile)
-	program := tea.NewProgram(model, tea.WithInput(in), tea.WithOutput(out))
-	if _, err := program.Run(); err != nil {
-		writeDiagnostic(errOut, "concord launcher: "+err.Error())
-		return 1
-	}
-	return 0
-}
-
-func runLauncherList(out, errOut io.Writer) int {
-	path, err := databasePath()
-	if err != nil {
-		writeDiagnostic(errOut, err.Error())
-		return 1
-	}
-	if _, statErr := os.Stat(path); os.IsNotExist(statErr) {
-		return writeJSON(out, storeport.ScanRootCandidates(), errOut)
-	} else if statErr != nil {
-		writeDiagnostic(errOut, "concord launcher: database path is unavailable: "+statErr.Error())
-		return 1
-	}
-	s, err := openStoreForCommand(context.Background(), path)
-	if err != nil {
-		writeDiagnostic(errOut, err.Error())
-		return 1
-	}
-	defer func() { _ = s.Close() }()
-	candidates, err := storeport.New(s).Candidates(context.Background(), 100)
-	if err != nil {
-		writeDiagnostic(errOut, "concord launcher --list: "+err.Error())
-		return 1
-	}
-	return writeJSON(out, candidates, errOut)
 }
 
 // parseZLForwarding splits zl arguments into the explicit --project selector
@@ -585,7 +462,7 @@ func runZLForwarding(args []string, in io.Reader, out, errOut io.Writer) int {
 // the handoff runZLForwarding derives without executing a host.
 var forwardSession = launchForwardedSession
 
-// inheritedForwardedProduct reads the launcher's inherited Product selection.
+// inheritedForwardedProduct reads the inherited Product selection.
 // runZLForwarding passes it to the landing-Project resolver, which honors it
 // only when it names one of the landing Project's Products; it never decides
 // the scope on its own.
@@ -632,45 +509,18 @@ func resolveZLLinearReference(issueKey, issueURL, project, preferredProduct stri
 		return "", "", err
 	}
 	defer func() { _ = s.Close() }()
-	// The unlinked question stays separate from the landing-Project Product
-	// rule, so the adoption fallback fires only when no confirmed link
-	// exists and never swallows a Product-scope refusal.
-	work, err := s.ResolveLauncherLinearIssueWork(context.Background(), issueKey, issueURL)
-	if err == nil {
-		product, err := s.ResolveLauncherWorkProduct(context.Background(), work, project, preferredProduct)
-		if err != nil {
-			return "", "", err
+	// Concord makes no Linear call (CD-0213 D7): an issue no work item
+	// records resolves nothing, and the agent records the identity first.
+	work, err := s.ResolveLinearIssueWork(context.Background(), issueKey, issueURL)
+	if err != nil {
+		var failure *store.Failure
+		if errors.As(err, &failure) && failure.Kind == store.KindUnknownScope {
+			return "", "", fmt.Errorf("no work item records Linear issue %s; capture the work and record the issue with concord_work_define.issue_link_record", issueKey)
 		}
-		return work, product, nil
-	}
-	var failure *store.Failure
-	if !errors.As(err, &failure) || failure.Kind != store.KindUnknownScope {
 		return "", "", err
 	}
-	// Adoption creates the work in the selected Product's primary Project, so
-	// no named Project can own its landing yet. Refuse before any remote read
-	// or durable effect rather than launch into a Project the operator did
-	// not name.
-	if project != "" {
-		return "", "", errors.New("--project needs a Linear issue already linked to a work item; start the unlinked issue without --project")
-	}
-	if preferredProduct == "" {
-		return "", "", errors.New("an unlinked Linear issue requires CONCORD_PRODUCT_ID")
-	}
-	product := preferredProduct
-	client, err := linearclient.FromEnv()
+	product, err := s.ResolveLandingProjectProduct(context.Background(), work, project, preferredProduct)
 	if err != nil {
-		return "", "", err
-	}
-	issue, err := client.GetIssue(context.Background(), issueKey)
-	if err != nil {
-		return "", "", err
-	}
-	work, err = s.EnsureLinearIssueWork(context.Background(), product, issue.ID, issue.Title, issue.Description)
-	if err != nil {
-		return "", "", err
-	}
-	if _, err := s.EnqueueLinearIssueAdoption(context.Background(), product, work, issue.ID); err != nil {
 		return "", "", err
 	}
 	return work, product, nil
@@ -678,7 +528,7 @@ func resolveZLLinearReference(issueKey, issueURL, project, preferredProduct stri
 
 // resolveForwardedProduct derives the forwarded session's Product from the
 // landing Project: the Project the operator named, else the work's primary
-// Project. preferredProduct is the launcher's inherited selection; the
+// Project. preferredProduct is the inherited selection; the
 // landing Project owns the scope, so it applies only when it names one of
 // that Project's Products.
 func resolveForwardedProduct(work, project, preferredProduct string) (string, error) {
@@ -697,11 +547,11 @@ func resolveForwardedProduct(work, project, preferredProduct string) (string, er
 		return "", err
 	}
 	defer func() { _ = s.Close() }()
-	return s.ResolveLauncherWorkProduct(context.Background(), work, project, preferredProduct)
+	return s.ResolveLandingProjectProduct(context.Background(), work, project, preferredProduct)
 }
 
 func launchForwardedSession(product, work, prompt, project string, in io.Reader, out, errOut io.Writer) int {
-	cmd, err := bubbletea.SessionCommand(launcher.SessionHandoff{ProductID: product, WorkID: work, Prompt: prompt, ProjectID: project, Agent: launcher.DefaultSessionAgent})
+	cmd, err := sessionCommand(sessionHandoff{ProductID: product, WorkID: work, Prompt: prompt, ProjectID: project, Agent: defaultSessionAgent})
 	if err != nil {
 		writeDiagnostic(errOut, "concord zl: "+err.Error())
 		return 1
@@ -715,6 +565,10 @@ func launchForwardedSession(product, work, prompt, project string, in io.Reader,
 }
 
 const dbOverrideEnv = "CONCORD_DB_PATH"
+
+// inputRefusalExit is the CLI transport signal for validation that precedes
+// dispatch. Store, handler, and output failures must not use this exit code.
+const inputRefusalExit = 64
 
 // workerPacketDigestPattern bounds the dispatch evidence's packet_digest to
 // the sha256:hex shape the core's canonicalJSON pipeline produces. The CLI
@@ -740,7 +594,7 @@ func runStoreFreeJSONCommand(name string, args []string, in io.Reader, out, errO
 	}
 	if err := validateRequiredCommandFields(name, raw); err != nil {
 		writeOperatorDiagnostic(errOut, name, err.Error())
-		return 1
+		return inputRefusalExit
 	}
 	return handler(raw, out, errOut)
 }
@@ -759,7 +613,7 @@ func runJSONCommand(command string, args []string, in io.Reader, out, errOut io.
 	}
 	if err := validateRequiredCommandFields(command, raw); err != nil {
 		writeOperatorDiagnostic(errOut, command, err.Error())
-		return 1
+		return inputRefusalExit
 	}
 	// Predecessor inventory reads only the operator-supplied snapshot file and
 	// writes nothing to the Concord store, so it routes around the database
@@ -827,7 +681,7 @@ func runJSONCommand(command string, args []string, in io.Reader, out, errOut io.
 		}
 		return writeJSON(out, receipt, errOut)
 	case "session-prepare":
-		return runSessionPrepare(raw, s, out, errOut, hostLaneAgentIdentity, hostSessionHostCommand, hostOrchestratorIdentity, DeriveSessionBoot)
+		return runSessionPrepare(raw, s, out, errOut, hostLaneAgentIdentity, hostSessionPrepareRegistry, hostOrchestratorIdentity, DeriveSessionBoot)
 	case "outside-repair":
 		return runOutsideRepairCommand(raw, s, defaultOutsideRepairDeps(), out, errOut)
 	case "receipt":
@@ -1068,6 +922,11 @@ func runWorkerCommand(command string, raw []byte, s *store.Store, service *agent
 // same durable transaction as new evidence or an exact existing-event match.
 // A match appends nothing and consumes no second dispatch authorization.
 func applyWorkerEvidence(ctx context.Context, command string, s *store.Store, service *agent.Service, assertion agent.WorkerEvidenceAssertion, binding agent.WorkerEvidenceBinding, event store.Event, out, errOut io.Writer) int {
+	if err := s.RequireActionableWork(ctx, binding.WorkID, command); err != nil {
+		writeOperatorDiagnostic(errOut, command, err.Error())
+		writeWorkerEvidenceFailure(out, errOut, err, nil)
+		return 1
+	}
 	// CD-0179 D3: an abandoned close releases a legacy occupancy row only on
 	// the lease-set proof, so the verb reads the live host lease set before
 	// the transaction opens and carries the observation to the fold gate on
@@ -1148,7 +1007,7 @@ func applyWorkerEvidence(ctx context.Context, command string, s *store.Store, se
 			eventIDs = result.EventIDs
 			return nil
 		}
-		result, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{event}})
+		result, err := store.ApplyWorkerEvidenceOperationTx(ctx, tx, event)
 		if err != nil {
 			return err
 		}
@@ -1259,1114 +1118,9 @@ func runInvoke(raw []byte, s *store.Store, service *agent.Service, out, errOut i
 	response, err := agent.Invoke(context.Background(), s, service, raw)
 	if err != nil {
 		writeDiagnostic(errOut, err.Error())
-		return 1
+		return inputRefusalExit
 	}
 	return writeJSON(out, response, errOut)
-}
-
-// runProductModeSet handles the Linear Phase 0 operator verb that records a
-// Product's CD-0121 planning-mode selection.
-func runProductModeSet(ctx context.Context, s *store.Store, raw []byte, command string, out, errOut io.Writer) int {
-	var request struct {
-		ProductID       string `json:"product_id"`
-		PlanningMode    string `json:"planning_mode"`
-		ExpectedVersion int64  `json:"expected_version"`
-		Reason          string `json:"reason"`
-	}
-	if err := decodeObject(raw, &request); err != nil {
-		writeOperatorDiagnostic(errOut, command, err.Error())
-		return 1
-	}
-	result, err := s.SetProductPlanningMode(ctx, request.ProductID, request.PlanningMode, request.Reason, "operator", request.ExpectedVersion)
-	if err != nil {
-		writeOperatorDiagnostic(errOut, command, err.Error())
-		return 1
-	}
-	return writeOperatorResult(command, s, result.EventIDs, []operatorRef{{EntityKind: store.SubjectProduct, ID: request.ProductID}}, out, errOut)
-}
-
-func runLinearConnectionUpdate(ctx context.Context, s *store.Store, raw []byte, command string, clock func() time.Time, out, errOut io.Writer) int {
-	var request struct {
-		EventID                 string            `json:"event_id"`
-		ResourceID              string            `json:"resource_id"`
-		ProductID               string            `json:"product_id"`
-		TeamID                  string            `json:"team_id"`
-		StatusIDs               map[string]string `json:"status_ids"`
-		LabelIDs                map[string]string `json:"label_ids"`
-		ExpectedResourceVersion int64             `json:"expected_resource_version"`
-	}
-	if err := decodeObject(raw, &request); err != nil {
-		writeOperatorDiagnostic(errOut, command, err.Error())
-		return 1
-	}
-	if err := s.UpdateLinearConnection(ctx, store.LinearConnectionUpdateRequest{
-		EventID: request.EventID, ResourceID: request.ResourceID, ProductID: request.ProductID,
-		TeamID: request.TeamID, StatusIDs: request.StatusIDs, LabelIDs: request.LabelIDs,
-		ExpectedResourceVersion: request.ExpectedResourceVersion, Actor: "operator", OccurredAt: clock().UTC(),
-	}); err != nil {
-		writeOperatorDiagnostic(errOut, command, err.Error())
-		return 1
-	}
-	return writeOperatorResult(command, s, []string{request.EventID}, []operatorRef{{EntityKind: store.SubjectProduct, ID: request.ProductID}}, out, errOut)
-}
-
-// runLinearHealth handles the Linear Phase 0 operator verb that reads one
-// Product's bounded integration health.
-func runLinearHealth(ctx context.Context, s *store.Store, raw []byte, command string, out, errOut io.Writer) int {
-	var request struct {
-		ProductID string `json:"product_id"`
-	}
-	if err := decodeObject(raw, &request); err != nil {
-		writeOperatorDiagnostic(errOut, command, err.Error())
-		return 1
-	}
-	health, err := s.ReadLinearIntegrationHealth(ctx, request.ProductID)
-	if err != nil {
-		writeOperatorDiagnostic(errOut, command, err.Error())
-		return 1
-	}
-	return writeJSON(out, map[string]any{"ok": true, "health": health}, errOut)
-}
-
-// linearStatusDiverged is the one lifecycle-to-status comparison: the remote
-// state id disagrees with the lifecycle-mapped expected status id exactly
-// when the two ids differ. The operator divergence report and the
-// resume-time remote check both apply this rule so the mapping cannot drift
-// into two copies.
-func linearStatusDiverged(expectedStatusID, actualStatusID string) bool {
-	return expectedStatusID != actualStatusID
-}
-
-type linearDivergenceResult struct {
-	WorkID          string `json:"work_id"`
-	RemoteIssueUUID string `json:"remote_issue_uuid"`
-	Lifecycle       string `json:"lifecycle"`
-	ExpectedStatus  string `json:"expected_status_id,omitempty"`
-	ActualStatus    string `json:"actual_status_id,omitempty"`
-	RemoteStateType string `json:"remote_state_type,omitempty"`
-	Outcome         string `json:"outcome"`
-	Detail          string `json:"detail,omitempty"`
-}
-
-// linearDivergenceRowCap bounds the non-matched rows the divergence report
-// lists. Counts stay complete for every confirmed link; the cap keeps the
-// answer inside the agent envelope for a Product with hundreds of links.
-const linearDivergenceRowCap = 100
-
-// runLinearDivergence reads the confirmed links' issue states in batches and
-// reports remote state that does not match the Product's declared
-// local-to-Linear status mapping. Matched links are counted and never listed;
-// the non-matched rows are capped at linearDivergenceRowCap with an omitted
-// count. It never writes either lifecycle and it stays separate from local
-// health.
-func runLinearDivergence(ctx context.Context, s *store.Store, raw []byte, command string, out, errOut io.Writer) int {
-	var request struct {
-		ProductID string `json:"product_id"`
-	}
-	if err := decodeObject(raw, &request); err != nil {
-		writeOperatorDiagnostic(errOut, command, err.Error())
-		return 1
-	}
-	if _, err := s.ResolveLinearPlanningTarget(ctx, request.ProductID); err != nil {
-		writeOperatorDiagnostic(errOut, command, err.Error())
-		return 1
-	}
-	connection, err := s.ReadLinearConnection(ctx, request.ProductID)
-	if err != nil {
-		writeOperatorDiagnostic(errOut, command, err.Error())
-		return 1
-	}
-	client, err := linearclient.FromEnv()
-	if err != nil {
-		writeOperatorDiagnostic(errOut, command, err.Error()+"; set CONCORD_LINEAR_API_KEY in the process environment")
-		return 1
-	}
-	linked, err := s.ReadConfirmedLinearLinkedWorkForProduct(ctx, request.ProductID)
-	if err != nil {
-		writeOperatorDiagnostic(errOut, command, err.Error())
-		return 1
-	}
-	outcomes := make([]linearDivergenceResult, len(linked))
-	uuids := make([]string, 0, len(linked))
-	for i, item := range linked {
-		result := linearDivergenceResult{
-			WorkID: item.WorkID, RemoteIssueUUID: item.RemoteIssueUUID, Lifecycle: item.Lifecycle,
-			ExpectedStatus: connection.StatusIDs[item.Lifecycle],
-		}
-		if result.ExpectedStatus == "" {
-			result.Outcome = "unmapped"
-			result.Detail = "the Product has no Linear status mapping for the local lifecycle"
-		} else {
-			uuids = append(uuids, item.RemoteIssueUUID)
-		}
-		outcomes[i] = result
-	}
-	states, batchFailures := client.GetIssuesByIDs(ctx, uuids)
-	failedDetail := make(map[string]string, len(batchFailures))
-	for _, failure := range batchFailures {
-		for _, id := range failure.IDs {
-			failedDetail[id] = failure.Err.Error()
-		}
-	}
-	matched, diverged, unmapped, failed := 0, 0, 0, 0
-	rows := make([]linearDivergenceResult, 0)
-	for i := range outcomes {
-		result := &outcomes[i]
-		switch {
-		case result.Outcome == "unmapped":
-			unmapped++
-		case failedDetail[result.RemoteIssueUUID] != "":
-			result.Outcome = "failed"
-			result.Detail = failedDetail[result.RemoteIssueUUID]
-			failed++
-		default:
-			issue, ok := states[result.RemoteIssueUUID]
-			if !ok {
-				result.Outcome = "failed"
-				result.Detail = "linear holds no issue for the linked uuid"
-				failed++
-				break
-			}
-			result.ActualStatus = issue.StateID
-			result.RemoteStateType = issue.StateType
-			if linearStatusDiverged(result.ExpectedStatus, issue.StateID) {
-				result.Outcome = "diverged"
-				diverged++
-			} else {
-				result.Outcome = "matched"
-				matched++
-			}
-		}
-		if result.Outcome != "matched" {
-			rows = append(rows, *result)
-		}
-	}
-	omitted := 0
-	if len(rows) > linearDivergenceRowCap {
-		omitted = len(rows) - linearDivergenceRowCap
-		rows = rows[:linearDivergenceRowCap]
-	}
-	return writeJSON(out, map[string]any{
-		"ok": true, "product_id": request.ProductID, "checked": len(linked),
-		"matched": matched, "diverged": diverged, "unmapped": unmapped, "failed": failed,
-		"divergences": rows, "omitted": omitted,
-	}, errOut)
-}
-
-// runLinearUnlinkedRemoteInProgress sweeps every In Progress issue on the
-// Product's Linear team and reports each one that holds no local link row.
-// The sweep answers without the caller naming an issue, so an issue created
-// directly in Linear or left by a pre-cutover import is detectable. It never
-// adopts an issue and never writes lifecycle: Concord stays authoritative and
-// Linear stays the mirror.
-func runLinearUnlinkedRemoteInProgress(ctx context.Context, s *store.Store, raw []byte, command string, out, errOut io.Writer) int {
-	var request struct {
-		ProductID string `json:"product_id"`
-	}
-	if err := decodeObject(raw, &request); err != nil {
-		writeOperatorDiagnostic(errOut, command, err.Error())
-		return 1
-	}
-	if _, err := s.ResolveLinearPlanningTarget(ctx, request.ProductID); err != nil {
-		writeOperatorDiagnostic(errOut, command, err.Error())
-		return 1
-	}
-	connection, err := s.ReadLinearConnection(ctx, request.ProductID)
-	if err != nil {
-		writeOperatorDiagnostic(errOut, command, err.Error())
-		return 1
-	}
-	if connection.State != store.LinearConnectionDeclared || connection.TeamID == "" {
-		writeOperatorDiagnostic(errOut, command, "the sweep reads one Linear team; declare the Product's Linear connection with a team id first")
-		return 1
-	}
-	client, err := linearclient.FromEnv()
-	if err != nil {
-		writeOperatorDiagnostic(errOut, command, err.Error()+"; set CONCORD_LINEAR_API_KEY in the process environment")
-		return 1
-	}
-	issues, err := client.ListTeamStartedIssues(ctx, connection.TeamID)
-	if err != nil {
-		writeOperatorDiagnostic(errOut, command, err.Error())
-		return 1
-	}
-	uuids := make([]string, 0, len(issues))
-	for _, issue := range issues {
-		uuids = append(uuids, issue.ID)
-	}
-	linked, err := s.LinkedRemoteIssueUUIDs(ctx, uuids)
-	if err != nil {
-		writeOperatorDiagnostic(errOut, command, err.Error())
-		return 1
-	}
-	unlinked := make([]map[string]any, 0)
-	for _, issue := range issues {
-		if linked[issue.ID] {
-			continue
-		}
-		unlinked = append(unlinked, map[string]any{
-			"remote_issue_uuid": issue.ID,
-			"human_key":         issue.Identifier,
-			"url":               issue.URL,
-			"title":             issue.Title,
-			"state_id":          issue.StateID,
-			"state_type":        issue.StateType,
-		})
-	}
-	return writeJSON(out, map[string]any{
-		"ok": true, "product_id": request.ProductID, "team_id": connection.TeamID,
-		"checked": len(issues), "unlinked": unlinked,
-	}, errOut)
-}
-
-func runLinearOutboxDisposition(ctx context.Context, s *store.Store, raw []byte, command string, out, errOut io.Writer) int {
-	var request struct {
-		ProductID    string   `json:"product_id"`
-		Disposition  string   `json:"disposition"`
-		OperationIDs []string `json:"operation_ids"`
-		Reason       string   `json:"reason"`
-	}
-	if err := decodeObject(raw, &request); err != nil {
-		writeOperatorDiagnostic(errOut, command, err.Error())
-		return 1
-	}
-	if request.Disposition == "" {
-		request.Disposition = "acknowledged"
-	}
-	if request.Disposition != "acknowledged" {
-		writeOperatorDiagnostic(errOut, command, "accepted values: disposition: acknowledged")
-		return 1
-	}
-	dispositions, err := s.AcknowledgeFailedLinearOperations(ctx, request.ProductID, request.OperationIDs, request.Reason)
-	if err != nil {
-		writeOperatorDiagnostic(errOut, command, err.Error())
-		return 1
-	}
-	return writeJSON(out, map[string]any{"ok": true, "disposition": request.Disposition, "count": len(dispositions), "operations": dispositions}, errOut)
-}
-
-// runLinearIssueEnqueue handles the Phase 1 verb that queues one outbound
-// issue operation for a work item under the Product's planning authority.
-func runLinearIssueEnqueue(ctx context.Context, s *store.Store, raw []byte, command string, out, errOut io.Writer) int {
-	var request struct {
-		ProductID       string `json:"product_id"`
-		WorkID          string `json:"work_id"`
-		OpKind          string `json:"op_kind"`
-		RemoteIssueUUID string `json:"remote_issue_uuid"`
-		AuditComment    string `json:"audit_comment"`
-	}
-	if err := decodeObject(raw, &request); err != nil {
-		writeOperatorDiagnostic(errOut, command, err.Error())
-		return 1
-	}
-	if request.OpKind != store.LinearOpIssueCreate && request.OpKind != store.LinearOpIssueUpdate && request.OpKind != store.LinearOpIssueAdopt && request.OpKind != store.LinearOpIssueAuditComment {
-		writeOperatorDiagnostic(errOut, command, "accepted values: op_kind: issue_create | issue_update | issue_adopt | issue_audit_comment")
-		return 1
-	}
-	if request.OpKind == store.LinearOpIssueAuditComment {
-		if strings.TrimSpace(request.AuditComment) == "" {
-			writeOperatorDiagnostic(errOut, command, "issue_audit_comment requires the sourced audit_comment body it publishes")
-			return 1
-		}
-		if _, err := s.ResolveLinearPlanningTarget(ctx, request.ProductID); err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
-			return 1
-		}
-		entry, err := s.EnqueueLinearIssueAuditComment(ctx, request.ProductID, request.WorkID, request.AuditComment)
-		if err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
-			return 1
-		}
-		return writeJSON(out, map[string]any{"ok": true, "operation": map[string]any{
-			"operation_id": entry.OperationID, "work_id": entry.WorkID, "op_kind": entry.OpKind, "state": "queued",
-		}}, errOut)
-	}
-	if request.OpKind == store.LinearOpIssueAdopt {
-		if request.RemoteIssueUUID == "" {
-			writeOperatorDiagnostic(errOut, command, "issue_adopt requires the remote_issue_uuid of the existing Linear issue")
-			return 1
-		}
-		if _, err := s.ResolveLinearPlanningTarget(ctx, request.ProductID); err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
-			return 1
-		}
-		entry, err := s.EnqueueLinearIssueAdoption(ctx, request.ProductID, request.WorkID, request.RemoteIssueUUID)
-		if err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
-			return 1
-		}
-		return writeJSON(out, map[string]any{"ok": true, "operation": map[string]any{
-			"operation_id": entry.OperationID, "work_id": entry.WorkID, "op_kind": entry.OpKind, "state": "queued",
-		}}, errOut)
-	}
-	if _, err := s.ResolveLinearPlanningTarget(ctx, request.ProductID); err != nil {
-		writeOperatorDiagnostic(errOut, command, err.Error())
-		return 1
-	}
-	entry, err := s.EnqueueLinearIssueForProduct(ctx, request.ProductID, request.WorkID, request.OpKind)
-	if err != nil {
-		writeOperatorDiagnostic(errOut, command, err.Error())
-		return 1
-	}
-	return writeJSON(out, map[string]any{"ok": true, "operation": map[string]any{
-		"operation_id": entry.OperationID, "work_id": entry.WorkID, "op_kind": entry.OpKind, "state": "queued",
-	}}, errOut)
-}
-
-// runLinearBackfill handles the verb that queues issue_create operations for
-// work items a capture predating the capture-time enqueue left unlinked.
-// Publication stays with the operator-run linear outbox-drain command.
-func runLinearBackfill(ctx context.Context, s *store.Store, raw []byte, command string, out, errOut io.Writer) int {
-	var request struct {
-		ProductID string `json:"product_id"`
-	}
-	if err := decodeObject(raw, &request); err != nil {
-		writeOperatorDiagnostic(errOut, command, err.Error())
-		return 1
-	}
-	operations, err := s.BackfillLinearIssueCreates(ctx, request.ProductID)
-	if err != nil {
-		writeOperatorDiagnostic(errOut, command, err.Error())
-		return 1
-	}
-	queued := make([]map[string]any, 0, len(operations))
-	for _, entry := range operations {
-		queued = append(queued, map[string]any{"operation_id": entry.OperationID, "work_id": entry.WorkID, "op_kind": entry.OpKind, "state": "queued"})
-	}
-	return writeJSON(out, map[string]any{"ok": true, "enqueued": len(queued), "operations": queued}, errOut)
-}
-
-// runLinearOutboxDrain handles the Phase 1 verb that drains claimed outbox
-// operations to Linear. Credential custody (CD-0121 D3): the key comes from
-// CONCORD_LINEAR_API_KEY and never reaches the database, an event, or output.
-func runLinearOutboxDrain(ctx context.Context, s *store.Store, raw []byte, command string, out, errOut io.Writer) int {
-	var request struct {
-		ProductID     string `json:"product_id"`
-		MaxOperations int64  `json:"max_operations"`
-	}
-	if err := decodeObject(raw, &request); err != nil {
-		writeOperatorDiagnostic(errOut, command, err.Error())
-		return 1
-	}
-	if request.MaxOperations == 0 {
-		request.MaxOperations = 10
-	}
-	if _, err := s.ResolveLinearPlanningTarget(ctx, request.ProductID); err != nil {
-		writeOperatorDiagnostic(errOut, command, err.Error())
-		return 1
-	}
-	mode, err := s.ReadProductPlanningMode(ctx, request.ProductID)
-	if err != nil {
-		writeOperatorDiagnostic(errOut, command, err.Error())
-		return 1
-	}
-	if mode.PlanningMode == store.PlanningModeLocalOnly {
-		writeOperatorDiagnostic(errOut, command, "planning mode is local_only; set planning_mode to linear_enabled before draining")
-		return 1
-	}
-	client, err := linearclient.FromEnv()
-	if err != nil {
-		writeOperatorDiagnostic(errOut, command, err.Error()+"; set CONCORD_LINEAR_API_KEY in the process environment")
-		return 1
-	}
-	claimed, err := s.ClaimLinearOperationsForProduct(ctx, request.ProductID, request.MaxOperations)
-	if err != nil {
-		writeOperatorDiagnostic(errOut, command, err.Error())
-		return 1
-	}
-	type drained struct {
-		OperationID string `json:"operation_id"`
-		Outcome     string `json:"outcome"`
-		Identifier  string `json:"identifier,omitempty"`
-		Detail      string `json:"detail,omitempty"`
-	}
-	results := make([]drained, 0, len(claimed))
-	// rateLimited marks the first send result Linear deferred. The pass stops
-	// there: the deferred operation and every unsent claim return to queued
-	// with the claim's attempt released, and the link-refresh sweep waits for
-	// a later drain instead of spending more of the drained quota.
-	var (
-		rateLimited       bool
-		rateLimitedID     string
-		rateLimitedDetail string
-		unsentClaims      []string
-	)
-	for _, op := range claimed {
-		if rateLimited {
-			unsentClaims = append(unsentClaims, op.OperationID)
-			results = append(results, drained{OperationID: op.OperationID, Outcome: "queued", Detail: "Linear rate limit reached before this operation was sent"})
-			continue
-		}
-		var payload linearDrainPayload
-		if err := json.Unmarshal(op.Payload, &payload); err != nil {
-			_ = s.FailLinearOperation(ctx, op.OperationID, "permanent", "payload does not decode")
-			results = append(results, drained{OperationID: op.OperationID, Outcome: "failed", Detail: "payload does not decode"})
-			continue
-		}
-		connection, connectionErr := s.ReadLinearConnection(ctx, request.ProductID)
-		if connectionErr != nil {
-			const detail = "cannot read the current Linear connection before sending the operation"
-			_ = s.FailLinearOperation(ctx, op.OperationID, "retryable", detail)
-			results = append(results, drained{OperationID: op.OperationID, Outcome: "retryable", Detail: detail})
-			continue
-		}
-		if payload.ConnectionVersion < 1 || payload.ConnectionVersion != connection.Version {
-			const detail = "Linear connection changed after this operation was queued; run concord linear backfill for the current destination"
-			_ = s.FailLinearOperation(ctx, op.OperationID, "permanent", detail)
-			results = append(results, drained{OperationID: op.OperationID, Outcome: "failed", Detail: detail})
-			continue
-		}
-		if payload.ProductID == "" || payload.ProductID != request.ProductID {
-			const detail = "operation has no immutable Product owner; re-enqueue it for the requested Product"
-			_ = s.FailLinearOperation(ctx, op.OperationID, "permanent", detail)
-			results = append(results, drained{OperationID: op.OperationID, Outcome: "failed", Detail: detail})
-			continue
-		}
-		teamID := payload.TeamID
-		if teamID == "" {
-			teamID = connection.TeamID
-		}
-		if op.OpKind == store.LinearOpIssueUpdate {
-			stale, staleErr := s.HasNewerLinearIssueUpdate(ctx, op.OperationID)
-			if staleErr != nil {
-				const detail = "cannot inspect newer Linear updates before sending the operation"
-				_ = s.FailLinearOperation(ctx, op.OperationID, "retryable", detail)
-				results = append(results, drained{OperationID: op.OperationID, Outcome: "retryable", Detail: detail})
-				continue
-			}
-			if stale {
-				const detail = "older Linear update was superseded by a newer queued update"
-				if err := s.CompleteSupersededLinearOperation(ctx, op.OperationID); err != nil {
-					_ = s.FailLinearOperation(ctx, op.OperationID, "retryable", err.Error())
-					results = append(results, drained{OperationID: op.OperationID, Outcome: "retryable", Detail: err.Error()})
-					continue
-				}
-				results = append(results, drained{OperationID: op.OperationID, Outcome: "done", Detail: detail})
-				continue
-			}
-		}
-		var (
-			issue    linearclient.Issue
-			revision string
-			derr     error
-			// sentProjectID is the owning Initiative's Project the operation
-			// put on the wire: the completion compares it against the link's
-			// state at completion time, so a project_create that lands inside
-			// the drain-to-completion window still converges (CD-0171 review
-			// correction).
-			sentProjectID string
-		)
-		if op.OpKind == store.LinearOpProjectCreate || op.OpKind == store.LinearOpProjectUpdate {
-			project, projectState, perr := drainProject(ctx, s, client, op, payload, teamID)
-			if perr != nil {
-				if linearRateLimitedErr(perr) {
-					rateLimited = true
-					rateLimitedID = op.OperationID
-					rateLimitedDetail = perr.Error()
-					results = append(results, drained{OperationID: op.OperationID, Outcome: "rate_limited", Detail: perr.Error()})
-					continue
-				}
-				class := "permanent"
-				if linearclient.IsRetryable(perr) {
-					class = "retryable"
-				}
-				_ = s.FailLinearOperation(ctx, op.OperationID, class, perr.Error())
-				results = append(results, drained{OperationID: op.OperationID, Outcome: class, Detail: perr.Error()})
-				continue
-			}
-			if err := s.CompleteLinearProjectOperation(ctx, op.OperationID, project.ID, project.Name, project.URL, projectState); err != nil {
-				class := linearCompletionFailureClass(err)
-				_ = s.FailLinearOperation(ctx, op.OperationID, class, err.Error())
-				results = append(results, drained{OperationID: op.OperationID, Outcome: class, Detail: err.Error()})
-				continue
-			}
-			// A completed project_create recorded the link and queued its
-			// confirmed entry updates inside the completion transaction:
-			// no separate refresh call can fail
-			// after the Project exists without a retry path.
-			results = append(results, drained{OperationID: op.OperationID, Outcome: "done", Identifier: project.Name})
-			continue
-		}
-		switch op.OpKind {
-		case store.LinearOpIssueUpdate:
-			issue, revision, sentProjectID, derr = drainUpdate(ctx, s, client, op, payload, connection)
-		case store.LinearOpIssueAdopt:
-			issue, derr = drainAdopt(ctx, client, payload, teamID)
-		case store.LinearOpIssueAuditComment:
-			issue, derr = drainAuditComment(ctx, s, client, op, payload)
-		default:
-			// The create resolves the owning
-			// Initiative's confirmed Project at drain time. The payload
-			// snapshot goes stale whenever the Initiative's project_create
-			// completes after the issue was queued; reading the link here
-			// lets either claim order land the issue in its Project.
-			projectID, resolveErr := s.ResolveLinearProjectIDForWork(ctx, op.WorkID)
-			if resolveErr != nil {
-				const detail = "cannot read the owning Initiative's Linear Project link before sending the create"
-				_ = s.FailLinearOperation(ctx, op.OperationID, "retryable", detail)
-				results = append(results, drained{OperationID: op.OperationID, Outcome: "retryable", Detail: detail})
-				continue
-			}
-			sentProjectID = projectID
-			issue, derr = drainCreate(ctx, client, payload, teamID, projectID)
-		}
-		if derr != nil {
-			if linearRateLimitedErr(derr) {
-				rateLimited = true
-				rateLimitedID = op.OperationID
-				rateLimitedDetail = derr.Error()
-				results = append(results, drained{OperationID: op.OperationID, Outcome: "rate_limited", Detail: derr.Error()})
-				continue
-			}
-			class := "permanent"
-			if linearclient.IsRetryable(derr) {
-				class = "retryable"
-			}
-			_ = s.FailLinearOperation(ctx, op.OperationID, class, derr.Error())
-			results = append(results, drained{OperationID: op.OperationID, Outcome: class, Detail: derr.Error()})
-			continue
-		}
-		// A drain that performed no remote issue read — the comment-only
-		// route — leaves the timestamp empty, and the completion keeps the
-		// recorded freshness instead of claiming an observation it did not
-		// make.
-		remoteUpdatedAt := ""
-		if !issue.UpdatedAt.IsZero() {
-			remoteUpdatedAt = issue.UpdatedAt.UTC().Format(time.RFC3339Nano)
-		}
-		identity := store.LinearRemoteIdentity{
-			RemoteUUID:      issue.ID,
-			HumanKey:        issue.Identifier,
-			URL:             issue.URL,
-			RemoteUpdatedAt: remoteUpdatedAt,
-		}
-		switch {
-		case op.OpKind == store.LinearOpIssueCreate:
-			// Creation writes the remote title and description, so its
-			// completion records their digest.
-			identity.ContentHash = linearContentHash(payload.Title, payload.Description)
-		case revision != "":
-			// The update published the approved later composition as a
-			// revision comment, so its completion records that digest. A
-			// routing-only update claims no content and leaves the recorded
-			// digest standing.
-			identity.ContentHash = revision
-		}
-		// Create and update completions compare the sent Project against the
-		// link read inside the same transaction and enqueue the converging
-		// update when the project_create landed mid-drain (CD-0171 review
-		// correction). Adoption runs the same full-state convergence against
-		// the adopted issue's own text, so an unlabeled adopted issue receives
-		// its repository and optional labels and its Initiative's Project
-		// through one queued issue_update.
-		var completeErr error
-		if op.OpKind == store.LinearOpIssueAdopt {
-			completeErr = s.CompleteLinearIssueAdoption(ctx, op.OperationID, identity, issue.Title, issue.Description)
-		} else {
-			completeErr = s.CompleteLinearIssueOperation(ctx, op.OperationID, identity, sentProjectID)
-		}
-		if completeErr != nil {
-			class := linearCompletionFailureClass(completeErr)
-			_ = s.FailLinearOperation(ctx, op.OperationID, class, completeErr.Error())
-			results = append(results, drained{OperationID: op.OperationID, Outcome: class, Detail: completeErr.Error()})
-			continue
-		}
-		detail := ""
-		if revision != "" {
-			detail = "published managed revision comment " + revision
-		}
-		results = append(results, drained{OperationID: op.OperationID, Outcome: "done", Identifier: issue.Identifier, Detail: detail})
-	}
-	var linkRefreshes []linearLinkRefreshResult
-	if rateLimited {
-		if err := s.RequeueLinearOperationsForRateLimit(ctx, rateLimitedID, rateLimitedDetail, unsentClaims); err != nil {
-			writeOperatorDiagnostic(errOut, command, err.Error())
-			return 1
-		}
-	} else {
-		linkRefreshes = refreshLinearLinkIdentities(ctx, s, client, request.ProductID)
-	}
-	return writeJSON(out, map[string]any{"ok": true, "drained": len(results), "operations": results, "link_refreshes": linkRefreshes}, errOut)
-}
-
-// linearRateLimitedErr reports whether Linear deferred the request itself.
-// Every further send in the same window meets the same refusal, so the drain
-// releases the remaining claims instead of burning quota and attempts on it.
-func linearRateLimitedErr(err error) bool {
-	var failure *linearclient.Failure
-	return errors.As(err, &failure) && failure.Kind == linearclient.KindRateLimited
-}
-
-type linearLinkRefreshResult struct {
-	WorkID          string `json:"work_id,omitempty"`
-	RemoteIssueUUID string `json:"remote_issue_uuid,omitempty"`
-	Outcome         string `json:"outcome"`
-	HumanKey        string `json:"human_key,omitempty"`
-	URL             string `json:"url,omitempty"`
-	Detail          string `json:"detail,omitempty"`
-}
-
-// linearCompletionFailureClass classifies a CompleteLinearOperation error
-// after the provider effect already succeeded. The provider call cannot be
-// undone, so an unknown failure kind must not requeue the operation onto
-// another provider call: only a typed store failure that declares its own
-// repeat safe is retryable.
-func linearCompletionFailureClass(err error) string {
-	var failure *store.Failure
-	if errors.As(err, &failure) && failure.RetrySafe {
-		return "retryable"
-	}
-	return "permanent"
-}
-
-// linearLinkRefreshInterval bounds how often one confirmed link's identity is
-// re-checked against Linear. Linear allows 2500 requests per hour; an
-// interval-aligned sweep costs about one request per link per hour, so the
-// sweep stays a small fraction of the quota however often the drain runs.
-const linearLinkRefreshInterval = time.Hour
-
-func refreshLinearLinkIdentities(ctx context.Context, s *store.Store, client *linearclient.Client, productID string) []linearLinkRefreshResult {
-	staleBefore := time.Now().UTC().Add(-linearLinkRefreshInterval).Format(time.RFC3339Nano)
-	links, err := s.ReadConfirmedLinearLinksForProduct(ctx, productID, staleBefore)
-	if err != nil {
-		return []linearLinkRefreshResult{{Outcome: "failed", Detail: err.Error()}}
-	}
-	results := make([]linearLinkRefreshResult, 0, len(links))
-	for i, link := range links {
-		result := linearLinkRefreshResult{WorkID: link.WorkID, RemoteIssueUUID: link.RemoteIssueUUID}
-		issue, err := client.GetIssue(ctx, link.RemoteIssueUUID)
-		if err != nil {
-			result.Outcome = "failed"
-			result.Detail = err.Error()
-			results = append(results, result)
-			// A rate-limit refusal answers for every request this sweep would
-			// make next. Spending more of the drained quota on the same
-			// refusal cannot refresh a link, so the sweep stops and the links
-			// it never attempted report skipped.
-			if linearRateLimitedErr(err) {
-				for _, remaining := range links[i+1:] {
-					results = append(results, linearLinkRefreshResult{WorkID: remaining.WorkID, RemoteIssueUUID: remaining.RemoteIssueUUID, Outcome: "skipped", Detail: "Linear rate limit reached; refresh deferred to a later drain"})
-				}
-				return results
-			}
-			continue
-		}
-		if issue.ID != link.RemoteIssueUUID {
-			result.Outcome = "failed"
-			result.Detail = fmt.Sprintf("Linear issue lookup for %s returned UUID %s", link.RemoteIssueUUID, issue.ID)
-			results = append(results, result)
-			continue
-		}
-		if issue.Identifier == link.HumanKey && issue.URL == link.URL {
-			if err := s.MarkLinearLinkRefreshed(ctx, link.WorkID); err != nil {
-				result.Outcome = "failed"
-				result.Detail = err.Error()
-				results = append(results, result)
-				continue
-			}
-			result.Outcome = "unchanged"
-			results = append(results, result)
-			continue
-		}
-		if err := s.RefreshConfirmedLinearLink(ctx, link.WorkID, issue.Identifier, issue.URL); err != nil {
-			result.Outcome = "failed"
-			result.Detail = err.Error()
-			results = append(results, result)
-			continue
-		}
-		result.Outcome = "updated"
-		result.HumanKey = issue.Identifier
-		result.URL = issue.URL
-		results = append(results, result)
-	}
-	return results
-}
-
-// linearDrainPayload is the JSON convention every outbox payload carries.
-type linearDrainPayload struct {
-	ClientUUID  string `json:"client_uuid"`
-	ProductID   string `json:"product_id"`
-	Title       string `json:"title"`
-	Description string `json:"description"`
-	// Content is the Initiative narrative a project operation writes to the
-	// Linear Project's markdown content field (CD-0171 d3).
-	Content string `json:"content,omitempty"`
-	TeamID  string `json:"team_id"`
-	// The payload never carries the issue's Linear Project: the create and
-	// update drains resolve the owning Initiative's confirmed Project at
-	// send time (CD-0171 D2, D6), so no enqueue-time snapshot can go stale.
-	ConnectionVersion int64    `json:"connection_version"`
-	Lifecycle         string   `json:"lifecycle,omitempty"`
-	StatusID          string   `json:"status_id,omitempty"`
-	Priority          int      `json:"priority,omitempty"`
-	LabelIDs          []string `json:"label_ids,omitempty"`
-	RemoteIssueUUID   string   `json:"remote_issue_uuid,omitempty"`
-	AuditComment      string   `json:"audit_comment,omitempty"`
-}
-
-// drainProject executes one Initiative Project operation. The drain sends the
-// Initiative's current title, value statement, and narrative — read at drain
-// time, not the enqueue-time payload snapshot — so a revision that lands after
-// enqueue still ships. The update keeps description=statement, which
-// flattens a long Linear description a pre-import Project left behind once,
-// at the first convergence, and rides content only when the Initiative holds
-// a narrative: an empty narrative omits content, so Linear keeps its current
-// markdown. A create sends the
-// Concord-generated UUID as ProjectCreateInput.id so a replayed drain
-// converges on the same remote Project (CD-0171 d2). An update addresses the
-// recorded remote Project.
-func drainProject(ctx context.Context, s *store.Store, client *linearclient.Client, op store.ClaimedLinearOperation, payload linearDrainPayload, teamID string) (linearclient.Project, store.LinearInitiativeProjectState, error) {
-	state, err := s.ReadLinearInitiativeProjectState(ctx, op.WorkID)
-	if err != nil {
-		return linearclient.Project{}, store.LinearInitiativeProjectState{}, err
-	}
-	if op.OpKind == store.LinearOpProjectCreate {
-		if payload.ClientUUID == "" || state.Title == "" || teamID == "" {
-			return linearclient.Project{}, store.LinearInitiativeProjectState{}, fmt.Errorf("project_create needs a client uuid, a name, and the Product's team")
-		}
-		// The client UUID is stable per Initiative (CD-0171 D2): an earlier
-		// attempt may have created the Project remotely before the operation
-		// failed locally. The get finds that Project and the drain adopts it
-		// instead of minting a duplicate; a miss or a failed get falls
-		// through to the create, whose replayed UUID converges on the same
-		// Project. The adoption reports the remote fields as the sent state:
-		// an adopted Project may predate the Initiative's current revision,
-		// and only a sent state taken from the remote lets the completion
-		// detect that distance and queue the converging project_update — a
-		// sent state taken from the Initiative would compare the state with
-		// itself and drop the revision silently.
-		if adopted, adoptErr := client.GetProject(ctx, payload.ClientUUID); adoptErr == nil {
-			return adopted, store.LinearInitiativeProjectState{Title: adopted.Name, ValueStatement: adopted.Description, Narrative: adopted.Content}, nil
-		}
-		project, err := client.CreateProject(ctx, linearclient.CreateProjectInput{ID: payload.ClientUUID, TeamIDs: []string{teamID}, Name: state.Title, Description: state.ValueStatement, Content: state.Narrative})
-		return project, state, err
-	}
-	link, err := s.ReadLinearProjectLink(ctx, op.WorkID)
-	if err != nil {
-		return linearclient.Project{}, store.LinearInitiativeProjectState{}, err
-	}
-	if link.RemoteProjectUUID == "" {
-		return linearclient.Project{}, store.LinearInitiativeProjectState{}, fmt.Errorf("the Initiative's project link has no remote project to update")
-	}
-	project, err := client.UpdateProject(ctx, link.RemoteProjectUUID, linearclient.UpdateProjectInput{Name: state.Title, Description: state.ValueStatement, Content: state.Narrative})
-	return project, state, err
-}
-
-// drainUpdate resolves the linked remote identity and executes issueUpdate.
-// The update carries the issue's full Project and Concord-managed label
-// state, both resolved at drain time: the owning
-// Initiative's confirmed Project sets projectId, no Initiative Project sends
-// an explicit null so Linear clears the field (CD-0171 D4, D6), and remote
-// labels under the project:* and optional connection keys that the payload no
-// longer desires ride removedLabelIds (CD-0171 D3, D5). Labels outside those
-// keys are never Concord's to remove. The resolved Project rides the return
-// value so the completion can compare it against the link's state at
-// completion time and queue the converging update when the project_create
-// landed inside the drain-to-completion window. Linear's issueUpdate carries
-// no conditional-write guard, so a post-create content write can erase a
-// human edit that lands between a remote read and the write. Updates
-// therefore synchronize the managed routing fields only (project, state,
-// labels) and never send the generated title or description to the issue
-// body. When the composed content diverges from the digest of what Concord
-// last published, the drain posts the approved revision on the linked issue
-// as a comment — durable Linear planning context that replaces no one's text
-// — and returns its digest so the completion records it. A repeated drain
-// finds the digests equal and publishes nothing. The comment id is the
-// operation's client UUID. Linear stores that UUID as the comment's own id
-// and refuses a repeated insert instead of upserting. A retry after a lost
-// response meets a duplicate-entity conflict: the drain resolves it by UUID,
-// verifies it sits on the linked issue, and converges instead of duplicating
-// or failing an effect that is already visible. An empty recorded digest
-// marks an issue whose body Concord never authored — explicit adoption — so
-// there is no Concord-published content to revise and the update stays
-// routing-only. A failed comment fails the operation, leaving the revision
-// explicitly unsynchronized rather than reporting a stale issue as done.
-func drainUpdate(ctx context.Context, s *store.Store, client *linearclient.Client, op store.ClaimedLinearOperation, payload linearDrainPayload, connection store.LinearConnection) (linearclient.Issue, string, string, error) {
-	link, err := s.ReadLinearLink(ctx, op.WorkID)
-	if err != nil {
-		return linearclient.Issue{}, "", "", err
-	}
-	if link.RemoteIssueUUID == "" || link.RemoteIssueUUID == payload.ClientUUID {
-		return linearclient.Issue{}, "", "", fmt.Errorf("link has no confirmed remote issue to update")
-	}
-	// The payload snapshot goes stale whenever the owning Initiative's
-	// project_create completes after the update was queued; the link's state
-	// at send time decides the field, and its absence clears it.
-	projectIDValue, projectErr := s.ResolveLinearProjectIDForWork(ctx, op.WorkID)
-	if projectErr != nil {
-		return linearclient.Issue{}, "", "", projectErr
-	}
-	var projectID *string
-	if projectIDValue != "" {
-		projectID = &projectIDValue
-	}
-	input := linearclient.UpdateIssueInput{ProjectID: projectID, StatusID: payload.StatusID, AddedLabelIDs: payload.LabelIDs}
-	desired := make(map[string]bool, len(payload.LabelIDs))
-	for _, labelID := range payload.LabelIDs {
-		desired[labelID] = true
-	}
-	managed := make(map[string]bool)
-	for key, labelID := range connection.LabelIDs {
-		if key == store.LinearLabelOptionalKey || strings.HasPrefix(key, store.LinearLabelProjectPrefix) {
-			managed[labelID] = true
-		}
-	}
-	if len(managed) > 0 {
-		current, labelErr := client.GetIssueLabelIDs(ctx, link.RemoteIssueUUID)
-		if labelErr != nil {
-			return linearclient.Issue{}, "", "", labelErr
-		}
-		for _, labelID := range current {
-			if managed[labelID] && !desired[labelID] {
-				input.RemovedLabelIDs = append(input.RemovedLabelIDs, labelID)
-			}
-		}
-	}
-	issue, err := client.UpdateIssue(ctx, link.RemoteIssueUUID, input)
-	if err != nil {
-		return linearclient.Issue{}, "", "", err
-	}
-	digest := linearContentHash(payload.Title, payload.Description)
-	if link.ContentHash == "" || link.ContentHash == digest {
-		return issue, "", projectIDValue, nil
-	}
-	comment := linearclient.CommentCreateInput{
-		ID:      payload.ClientUUID,
-		IssueID: link.RemoteIssueUUID,
-		Body:    linearRevisionComment(payload.Title, payload.Description, digest),
-	}
-	if err := client.CreateComment(ctx, comment); err != nil {
-		// Linear refuses a repeated insert on the comment's UUID instead of
-		// upserting, so a conflict names a comment a previous attempt of this
-		// operation already stored. Converge only after the read-back proves
-		// the stored comment is this operation's: its id answers this
-		// operation's UUID, it sits on the linked issue, and its stored body
-		// matches the exact revision. Any other answer is a
-		// divergence the operation must not claim as its own publication.
-		if !linearclient.IsDuplicateEntity(err) {
-			return linearclient.Issue{}, "", "", fmt.Errorf("publish managed revision comment: %w", err)
-		}
-		stored, cerr := client.GetComment(ctx, payload.ClientUUID)
-		if cerr != nil {
-			// The conflict proved the comment exists, so the lookup failure
-			// decides retryability, as in drainCreate.
-			return linearclient.Issue{}, "", "", fmt.Errorf("publish managed revision comment: resolve stored comment: %w", cerr)
-		}
-		if stored.ID != payload.ClientUUID {
-			return linearclient.Issue{}, "", "", fmt.Errorf("publish managed revision comment: lookup for %s returned comment id %s", payload.ClientUUID, stored.ID)
-		}
-		if stored.IssueID != link.RemoteIssueUUID {
-			return linearclient.Issue{}, "", "", fmt.Errorf("publish managed revision comment: comment %s sits on issue %s, not the linked issue", stored.ID, link.RemoteIssueUUID)
-		}
-		if stored.Body != comment.Body {
-			return linearclient.Issue{}, "", "", fmt.Errorf("publish managed revision comment: stored body differs for comment %s; revision digest %s is not verified", stored.ID, digest)
-		}
-	}
-	return issue, digest, projectIDValue, nil
-}
-
-// drainAuditComment publishes one independent audit update as a comment on
-// the linked remote issue. The route is comment-only by construction: it
-// sends no issueUpdate, so the human-owned issue title and description are
-// structurally untouched. The comment id is the operation's client UUID, so
-// a retry after a lost response meets Linear's duplicate-entity refusal and
-// converges only after a read-back proves the stored comment is this
-// operation's: same id, same issue, same exact body. The returned issue view
-// is the stored link identity, not a remote read, so its zero timestamp
-// records no claimed freshness. The payload pins the confirmed issue the
-// audit was queued for, and the drain refuses an unpinned payload, an
-// unconfirmed link, or a link that now names another issue: a queued audit
-// follows its recorded destination, never the link's current target.
-func drainAuditComment(ctx context.Context, s *store.Store, client *linearclient.Client, op store.ClaimedLinearOperation, payload linearDrainPayload) (linearclient.Issue, error) {
-	if payload.RemoteIssueUUID == "" {
-		return linearclient.Issue{}, fmt.Errorf("audit operation payload pins no remote issue; queue the audit again against the confirmed link")
-	}
-	link, err := s.ReadLinearLink(ctx, op.WorkID)
-	if err != nil {
-		return linearclient.Issue{}, err
-	}
-	if link.LinkState != store.LinearLinkConfirmed {
-		return linearclient.Issue{}, fmt.Errorf("linear link state is %s, not %s; the audit publishes only against a confirmed identity", link.LinkState, store.LinearLinkConfirmed)
-	}
-	if link.RemoteIssueUUID != payload.RemoteIssueUUID {
-		return linearclient.Issue{}, fmt.Errorf("linear link now names issue %s, but this audit operation was queued for pinned issue %s; retargeted audits are refused", link.RemoteIssueUUID, payload.RemoteIssueUUID)
-	}
-	comment := linearclient.CommentCreateInput{
-		ID:      payload.ClientUUID,
-		IssueID: link.RemoteIssueUUID,
-		Body:    linearAuditCommentBody(payload.AuditComment),
-	}
-	if err := client.CreateComment(ctx, comment); err != nil {
-		if !linearclient.IsDuplicateEntity(err) {
-			return linearclient.Issue{}, fmt.Errorf("publish audit comment: %w", err)
-		}
-		stored, cerr := client.GetComment(ctx, payload.ClientUUID)
-		if cerr != nil {
-			// The conflict proved the comment exists, so the lookup failure
-			// decides retryability, as in drainCreate.
-			return linearclient.Issue{}, fmt.Errorf("publish audit comment: resolve stored comment: %w", cerr)
-		}
-		if stored.ID != payload.ClientUUID {
-			return linearclient.Issue{}, fmt.Errorf("publish audit comment: lookup for %s returned comment id %s", payload.ClientUUID, stored.ID)
-		}
-		if stored.IssueID != link.RemoteIssueUUID {
-			return linearclient.Issue{}, fmt.Errorf("publish audit comment: comment %s sits on issue %s, not the linked issue", stored.ID, stored.IssueID)
-		}
-		if stored.Body != comment.Body {
-			return linearclient.Issue{}, fmt.Errorf("publish audit comment: stored body differs for comment %s; the audit is not verified as published", stored.ID)
-		}
-	}
-	return linearclient.Issue{ID: link.RemoteIssueUUID, Identifier: link.HumanKey, URL: link.URL}, nil
-}
-
-// drainCreate executes issueCreate and converges a repeated create. Linear
-// stores the sent client UUID as the issue's own UUID and refuses a second
-// insert instead of upserting, so a duplicate-entity conflict means a
-// previous attempt of this operation already created the issue — the
-// lost-response case the durable retry exists for. Resolution reads the
-// issue by the operation's own UUID: any other identifier would adopt an
-// issue this operation did not create. projectID is the owning Initiative's
-// Linear Project the drain resolved at send time (CD-0171 D6), not an
-// enqueue-time snapshot.
-func drainCreate(ctx context.Context, client *linearclient.Client, payload linearDrainPayload, teamID, projectID string) (linearclient.Issue, error) {
-	issue, err := client.CreateIssue(ctx, linearclient.CreateIssueInput{
-		ID: payload.ClientUUID, TeamID: teamID, ProjectID: projectID, Title: payload.Title, Description: payload.Description, LabelIDs: payload.LabelIDs, StatusID: payload.StatusID, Priority: payload.Priority,
-	})
-	if err == nil || !linearclient.IsDuplicateEntity(err) {
-		return issue, err
-	}
-	resolved, rerr := client.GetIssue(ctx, payload.ClientUUID)
-	if rerr != nil {
-		// The issue exists remotely (the conflict proved it) but cannot be
-		// resolved right now. Returning the resolution error preserves its
-		// retryability: the retry re-creates, meets the same conflict, and
-		// resolves again.
-		return linearclient.Issue{}, rerr
-	}
-	if resolved.Issue.ID != payload.ClientUUID {
-		return linearclient.Issue{}, fmt.Errorf("resolved issue %s does not match client UUID %s", resolved.Issue.ID, payload.ClientUUID)
-	}
-	return resolved.Issue, nil
-}
-
-// linearRevisionDigestMarker renders the exact digest line a revision
-// comment carries. The convergence check compares the entire stored body
-// against the rendered comment rather than trusting this marker alone.
-func linearRevisionDigestMarker(digest string) string {
-	return "Revision digest: `" + digest + "`"
-}
-
-// linearRevisionComment renders the durable Linear planning context for an
-// approved later composition. The issue body keeps the creation-time
-// composition and every human edit; this comment carries the current managed
-// title and description, and its trailing digest names the exact composition
-// so a reader can match it against the drain result and the stored link.
-func linearRevisionComment(title, description, digest string) string {
-	var body strings.Builder
-	body.WriteString("## Managed revision\n\n")
-	body.WriteString("Concord composed new managed planning content for this issue. The issue body stays as its human editors wrote it, so the approved revision is published here instead.\n\n")
-	body.WriteString("**Managed title:** " + title + "\n")
-	if trimmed := strings.TrimSpace(description); trimmed != "" {
-		body.WriteString("\n" + trimmed + "\n")
-	}
-	body.WriteString("\n" + linearRevisionDigestMarker(digest) + "\n")
-	return body.String()
-}
-
-// linearAuditCommentBody renders one independent audit update. The typed
-// header separates it from a managed revision, and the opening line records
-// the ownership rule the route enforces: the store keeps the supplied audit
-// text verbatim, so every correction inside it carries its own source.
-func linearAuditCommentBody(audit string) string {
-	var body strings.Builder
-	body.WriteString("## Independent audit\n\n")
-	body.WriteString("Concord published this audit update as a comment. The issue title and description stay as their human editors wrote them.\n\n")
-	body.WriteString(strings.TrimSpace(audit) + "\n")
-	return body.String()
-}
-
-// drainAdopt resolves the named existing issue and verifies it belongs to the
-// Product's configured team before the completion records the link.
-func drainAdopt(ctx context.Context, client *linearclient.Client, payload linearDrainPayload, teamID string) (linearclient.Issue, error) {
-	if payload.RemoteIssueUUID == "" {
-		return linearclient.Issue{}, fmt.Errorf("adoption names no remote issue to resolve")
-	}
-	resolved, err := client.GetIssue(ctx, payload.RemoteIssueUUID)
-	if err != nil {
-		return linearclient.Issue{}, err
-	}
-	if teamID == "" {
-		return linearclient.Issue{}, fmt.Errorf("adoption cannot verify issue %s because the Product declares no Linear team", resolved.Identifier)
-	}
-	if resolved.TeamID != teamID {
-		return linearclient.Issue{}, fmt.Errorf("issue %s belongs to team %s, not the Product's configured team %s", resolved.Identifier, resolved.TeamID, teamID)
-	}
-	return resolved.Issue, nil
-}
-
-// linearContentHash digests the synchronized content so a later reconciliation
-// pass can detect divergence.
-func linearContentHash(title, description string) string {
-	sum := sha256.Sum256([]byte(title + "\n" + description))
-	return "sha256:" + hex.EncodeToString(sum[:])
-}
-
-// runLinearInitiativeImport handles the one-way import verb: it reads one
-// Linear Project through the first-party GraphQL client (CD-0171 D7) and
-// records it as a Concord Initiative. The import never writes back to
-// Linear.
-func runLinearInitiativeImport(ctx context.Context, s *store.Store, raw []byte, command string, out, errOut io.Writer) int {
-	var request struct {
-		ProductID       string `json:"product_id"`
-		LinearProjectID string `json:"linear_project_id"`
-	}
-	if err := decodeObject(raw, &request); err != nil {
-		writeOperatorDiagnostic(errOut, command, err.Error())
-		return 1
-	}
-	if request.LinearProjectID == "" {
-		writeOperatorDiagnostic(errOut, command, "linear_project_id is required (a Linear Project uuid)")
-		return 1
-	}
-	if _, err := s.ResolveLinearPlanningTarget(ctx, request.ProductID); err != nil {
-		writeOperatorDiagnostic(errOut, command, err.Error())
-		return 1
-	}
-	client, err := linearclient.FromEnv()
-	if err != nil {
-		writeOperatorDiagnostic(errOut, command, err.Error()+"; set CONCORD_LINEAR_API_KEY in the process environment")
-		return 1
-	}
-	project, err := client.GetProject(ctx, request.LinearProjectID)
-	if err != nil {
-		writeOperatorDiagnostic(errOut, command, err.Error())
-		return 1
-	}
-	// CD-0171 D1: the import binds a Linear Project to the Product's Linear
-	// team, so a project that belongs to another team refuses instead of
-	// silently planning a foreign team's work under this Product.
-	connection, err := s.ReadLinearConnection(ctx, request.ProductID)
-	if err != nil {
-		writeOperatorDiagnostic(errOut, command, err.Error())
-		return 1
-	}
-	if !slices.Contains(project.TeamIDs, connection.TeamID) {
-		refusal := &store.Failure{
-			Kind:           store.KindInvalidRelation,
-			Op:             "linear-initiative-import",
-			Detail:         fmt.Sprintf("Linear Project %s belongs to teams %v, not the Product's connection team %s", project.ID, project.TeamIDs, connection.TeamID),
-			RetrySafe:      true,
-			RecoveryAction: "import a Linear Project that belongs to the Product's connection team, or update the connection's team_id",
-		}
-		writeOperatorDiagnostic(errOut, command, refusal.Error())
-		return 1
-	}
-	imported, err := s.ImportLinearInitiative(ctx, request.ProductID, project.ID, project.Name, project.Summary, project.Description, project.Content, project.URL)
-	if err != nil {
-		writeOperatorDiagnostic(errOut, command, err.Error())
-		return 1
-	}
-	return writeJSON(out, map[string]any{"ok": true, "initiative": imported}, errOut)
 }
 
 // runProductKnowledgeConfiguration executes the four operator verbs that
@@ -2585,26 +1339,6 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 			return 1
 		}
 		return writeOperatorResult(command, s, result.EventIDs, []operatorRef{{EntityKind: store.SubjectProduct, ID: request.ProductID}, {EntityKind: store.SubjectProject, ID: request.ProjectID}}, out, errOut)
-	case "product-mode-set":
-		return runProductModeSet(ctx, s, raw, command, out, errOut)
-	case "linear-connection-update":
-		return runLinearConnectionUpdate(ctx, s, raw, command, clock, out, errOut)
-	case "linear-health":
-		return runLinearHealth(ctx, s, raw, command, out, errOut)
-	case "linear-divergence":
-		return runLinearDivergence(ctx, s, raw, command, out, errOut)
-	case "linear-unlinked-remote-in-progress":
-		return runLinearUnlinkedRemoteInProgress(ctx, s, raw, command, out, errOut)
-	case "linear-issue-enqueue":
-		return runLinearIssueEnqueue(ctx, s, raw, command, out, errOut)
-	case "linear-outbox-drain":
-		return runLinearOutboxDrain(ctx, s, raw, command, out, errOut)
-	case "linear-outbox-disposition":
-		return runLinearOutboxDisposition(ctx, s, raw, command, out, errOut)
-	case "linear-backfill":
-		return runLinearBackfill(ctx, s, raw, command, out, errOut)
-	case "linear-initiative-import":
-		return runLinearInitiativeImport(ctx, s, raw, command, out, errOut)
 	case "resource-create":
 		var request struct {
 			EventID                 string          `json:"event_id"`

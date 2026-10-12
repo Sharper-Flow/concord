@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"sync"
 )
 
 // LaneDefinition is the generated, immutable contract for one worker lane.
@@ -120,7 +121,7 @@ func NewBuiltinLaneRegistry() LaneRegistry {
 	return LaneRegistry{entries: entries}
 }
 
-var builtinLaneRegistry = NewBuiltinLaneRegistry()
+var builtinLaneRegistry = sync.OnceValue(NewBuiltinLaneRegistry)
 
 func BuiltinLaneDefinitions() []LaneDefinition {
 	result := make([]LaneDefinition, 0, len(generatedLaneDefinitions))
@@ -145,7 +146,7 @@ func (r LaneRegistry) Lookup(id string, version int64, digest string) (LaneDefin
 }
 
 func LookupLane(id string, version int64, digest string) (LaneDefinition, error) {
-	return builtinLaneRegistry.Lookup(id, version, digest)
+	return builtinLaneRegistry().Lookup(id, version, digest)
 }
 
 func ValidateLaneDefinition(definition LaneDefinition) error {

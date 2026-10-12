@@ -17,7 +17,7 @@ import (
 // observations are comparable.
 //
 // Capabilities granted: product_read, work_define, work_transition,
-// work_relate, and work_initiative. work_compact is deliberately excluded
+// work_relate. work_compact is deliberately excluded
 // because the AJ3/AJ4/AJ5 mutation corpus exercises only the mutation
 // families covered by these bindings.
 func agentJobsMutationPM1Fixture(t *testing.T) (*store.Store, *Service, Authority, ed25519.PrivateKey, pm1fixture.Corpus) {
@@ -34,7 +34,7 @@ func agentJobsMutationPM1Fixture(t *testing.T) (*store.Store, *Service, Authorit
 	if err := pm1fixture.Seed(context.Background(), s, corpus); err != nil {
 		t.Fatalf("pm1fixture.Seed: %v", err)
 	}
-	service, _, grant := newAuthorizedService(t, s, "client-mutation", "human-operator", []Capability{"product_read", "work_define", "work_transition", "work_relate", "work_compact", "work_initiative"}, []string{"prod-alpha", "prod-beta"}, []string{"proj-web", "proj-api", "proj-shared"}, store.ProjectResolution{ProjectID: "proj-web"})
+	service, _, grant := newAuthorizedService(t, s, "client-mutation", "human-operator", []Capability{"product_read", "work_define", "work_transition", "work_relate", "work_compact"}, []string{"prod-alpha", "prod-beta"}, []string{"proj-web", "proj-api", "proj-shared"}, store.ProjectResolution{ProjectID: "proj-web"})
 	grant.SessionRef = "session-mutation"
 	grant.AgentRef = "agent-engineer"
 	privateKey := mustKey(t)
@@ -111,23 +111,9 @@ func readTransitionEvents(t *testing.T, s *store.Store, workID string) (count in
 	return count, latestEvidenceRefs
 }
 
-// readRelationsFor returns only relations whose from/to/kind matches
-// the filter — bindings use this to assert a single new edge landed
-// without scanning the whole table.
-func readRelationsFor(t *testing.T, s *store.Store, from, to string) (count int) {
-	t.Helper()
-	var n int
-	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM relations WHERE work_id_from=? AND work_id_to=? AND kind='blocks'`, from, to).Scan(&n); err != nil {
-		t.Fatalf("read relations for %s->%s: %v", from, to, err)
-	}
-	return n
-}
-
 // deriveWorkBlocked reports whether the given work item has at least one
 // active blocks relation from a needed/in_progress peer. It is the
-// derivation the Q4/Q5 read queries use; bindings assert against the
-// SAME query so that AJ5-add-dependency's derived_blocked=true
-// assertion is genuinely observed, not read from a stored column.
+// derivation the Q4/Q5 read queries use, not a stored blocked column.
 func deriveWorkBlocked(t *testing.T, s *store.Store, workID string) bool {
 	t.Helper()
 	var blocked bool

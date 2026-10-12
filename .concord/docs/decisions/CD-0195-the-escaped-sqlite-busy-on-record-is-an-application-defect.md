@@ -50,7 +50,7 @@ work `work-bb6e60b8c80d974be982a51f`.
 
 Cleared along the way. In `WAL` mode readers do not block writers, so the
 read-only probes run during capture are an unlikely holder, and they are not
-formally excluded. `modernc.org/sqlite` v1.59.0 embeds SQLite 3.53.4, which
+formally excluded. [`modernc.org/sqlite`](https://pkg.go.dev/modernc.org/sqlite) v1.59.0 embeds SQLite 3.53.4, which
 carries the WAL-reset fix from 3.51.3, so the engine version is not
 implicated.
 

@@ -42,19 +42,15 @@ Use Concord's typed tool surface for Concord state. The operation manifest is
 the contract: unknown tools, operations, and digests fail closed. No shell
 fallback, alias, or down-conversion may write refused Concord state.
 
-The Product's planning mode routes planned work and defects
-(`.concord/docs/development-authority.md`). For a Linear-enabled Product, capture a work
-item, then `concord linear issue-enqueue` and `concord linear outbox-drain`
-create the Linear issue. A queued or failed creation is not a confirmed issue,
-and missing Linear access never falls back to GitHub. For a local-only Product,
-the local work item is the planning record. An existing GitHub issue keeps its
-identity through its confirmed reciprocal Linear link. After cutover, create
-new planned work through Linear and never fall back to GitHub. None of this
-needs `concord_work_start`, and issue reporting grants no Concord workflow,
-implementation, or lane authority. The body of each pull request you open for
-managed work carries one non-closing `Related to <issue key>` line naming that
-work item's confirmed Linear issue; the work pin's `linear_issue_key` holds
-the key.
+Linear is the sole planning authority. Read and write planning facts through
+the Linear MCP server under `.concord/docs/managed-development-authority.md`
+and CD-0213. Concord keeps explicitly managed execution, not a planning copy.
+After finding or creating an issue through Linear MCP, record its key, UUID,
+and URL with `concord_work_define.issue_link_record`. The binary makes no
+Linear API call and holds no Linear credential. Missing Linear access does
+not permit another planning route. Issue reporting grants no Concord workflow,
+implementation, or lane authority. Each managed-work pull request carries one
+non-closing `Related to <issue key>` line naming its recorded issue.
 
 Re-read the continuity trace before any consequential action. A boot packet
 states authority at the watermark it was built, and the watermark moves.

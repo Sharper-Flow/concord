@@ -3,7 +3,7 @@
 > **Status:** Public constitutional planning authority, amended by CD-0041; implementation remains staged by accepted readiness rules.\
 > **Codename:** Concord (concordance: bringing scattered work into one view).\
 > **Created:** 2026-07-25, from predecessor-state analysis and product-design work.\
-> **Authority:** After bootstrap, the public `Sharper-Flow/concord` repository is the authority for this document and its accepted companions. This file is the **sole canonical source** for the six ranked priorities, the operating envelope, and the predecessor relationship. Companion documents link here; they do not redefine the order.
+> **Authority:** After bootstrap, the public [`Sharper-Flow/concord`](https://github.com/Sharper-Flow/concord) repository is the authority for this document and its accepted companions. This file is the **sole canonical source** for the six ranked priorities, the operating envelope, and the predecessor relationship. Companion documents link here; they do not redefine the order.
 
 ---
 
@@ -26,7 +26,7 @@ Concord is permanently scoped to one operator per installation, while remaining 
 - **One operator per installation.** Another human may run an independent Concord installation against shared git knowledge, but live workflow memory is not shared.
 - **Many concurrent OpenCode TUIs.** Multiple agents run in parallel against the same local state.
 - **Agents are first-class machine participants.** Agents read, write, and execute alongside the operator; they are not second-class consumers of a human-oriented GUI.
-- **Primary operator surface is a Product-first terminal launcher.** The operator starts, navigates, and acts from a launcher that is organized by Product, not by project or repository.
+- **Primary operator surface is the `concord zl` launcher together with the agent sessions it opens until the Herdr cutover.** Herdr replaces this surface at cutover.
 - **Web UI is optional.** A browser-based view may appear later, but it is not the design center.
 - **No team-server ambition.** Shared assignments, boards, identity, permissions, and multi-human live workflow coordination are non-goals. Git shares durable Product knowledge between independent installations.
 
@@ -84,7 +84,7 @@ accepted law.
 - Semantic analysis may suggest duplicate or conflicting law for operator review;
   it never owns persistence, supersession, or blocking.
 
-See [`decisions/CD-0041-architecture-bound-product-law.md`](./decisions/CD-0041-architecture-bound-product-law.md),
+See [`decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md`](./decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md),
 [`specs-as-laws.md`](./specs-as-laws.md), and
 [`product-data-model.md`](./product-data-model.md).
 
@@ -159,7 +159,7 @@ in one place.
 - Reads are bounded, fast, and scoped to a Product.
 - Staleness is reviewed before action, with execution blocked according to risk.
 - Continuity is preserved across agent sessions and worktree switches.
-- The terminal launcher is the primary visibility surface.
+- Until the Herdr cutover, the `concord zl` launcher and its agent sessions form the primary visibility surface. Herdr replaces this surface at cutover.
 - Specs, decisions, runbooks, and durable workflow documents remain browsable
   through their Domain home; knowledge does not live only in chat history or a
   flat workflow list.
@@ -187,7 +187,7 @@ visible before they become blockers or contradictory Product truth.
 - Cross-project and cross-Domain dependencies are first-class.
 - The operator sees what is ready, what is blocked, what overlaps, and what is next.
 - Agents operate inside a Product and Domain context rather than hopping between disconnected projects.
-- Initiative is an optional business/outcome overlay and owns no architectural or law authority.
+- Business grouping lives in Linear under CD-0213 and owns no architectural or law authority.
 
 ### 6. Workflow versatility
 
@@ -212,7 +212,7 @@ See [`workflows.md`](./workflows.md).
 
 ## First-usable floor
 
-Concord's first usable form is a **complete, replacement-ready coordination surface** for one operator and many agents on one machine, anchored to a **Product-first terminal launcher**. It must cover the full operational scope that Advance currently provides for this operator (Product-scoped planning, visibility, implementation changes, research/investigation tracking, ops runbooks, and durable product knowledge) while materially improving every one of the six priorities.
+Concord's first usable form is a **complete, replacement-ready coordination surface** for one operator and many agents on one machine. Until the Herdr cutover, its primary operator surface is the `concord zl` launcher together with the agent sessions it opens. Herdr replaces this surface at cutover. It must cover the full operational scope that Advance currently provides for this operator (Product-scoped planning, visibility, implementation changes, research/investigation tracking, ops runbooks, and durable product knowledge) while materially improving every one of the six priorities.
 
 Incremental design, build, replay, and evaluation are allowed, but a partial slice cannot be called usable or replacement-ready. Replacement readiness is an evidence claim, not migration activity.
 
@@ -225,7 +225,7 @@ It becomes usable when:
 1. The operator can see, plan, and act across the full Product scope from the launcher through Product → Domain context. Per CD-0021, "across the full Product scope" means every Product is reachable from the launcher, not that a result set spans Products. Per the same decision, "plan" is satisfied by reaching work and opening a session that authors it. The launcher is read-only by C18, so work creation keeps one write authority.
 2. Agents can read, write, and execute within that Product and Domain context through tools.
 3. Every supported work kind (implementation, research, ops, etc.) has a defined workflow type and completion evidence.
-4. Required authority/freshness is explicit, CD-0006 R3's accepted cross-workflow impact policy is enforced, and CD-0041's architecture-overlap policy prevents unresolved concurrent Product-changing work from holding execution authority.
+4. Required authority/freshness is explicit, CD-0006 R3's accepted cross-workflow impact policy is enforced, and CD-0222's architecture-overlap policy prevents unresolved concurrent Product-changing work from holding execution authority.
 5. Concord-owned data and workflow boundaries satisfy Priority 2 (bounded writer admission, no hand-repair, safe evolution).
 6. The Advance surfaces that Concord consumes are stable enough to serve as evidence, and Concord can replace them without losing operational coverage.
 
@@ -238,11 +238,11 @@ operations need their own demand, local scope, and evidence.
 
 | Question | Why it matters | Current direction, if any |
 |---|---|---|
-| **Storage model for Concord-owned state** | Foundation for Priority 2 and the derived projections serving Priority 1. | **Resolved** — CD-0002 + accepted PM2/PM3 (2026-08-05) establish one global local SQLite DB, append-only `domain_events` authority, and explicit typed projections updated in one transaction. Accepted PM6/PM7 (2026-08-05/06) add git-proof-backed durable notes plus bounded lazy projection pruning without event deletion. CD-0041 retains this authority under CD-0011's falsifiers. |
+| **Storage model for Concord-owned state** | Foundation for Priority 2 and the derived projections serving Priority 1. | **Resolved** — CD-0002 + accepted PM2/PM3 (2026-08-05) establish one global local SQLite DB, append-only `domain_events` authority, and explicit typed projections updated in one transaction. Accepted PM6/PM7 (2026-08-05/06) add git-proof-backed durable notes plus bounded lazy projection pruning without event deletion. CD-0222 retains this authority under CD-0011's falsifiers. |
 | **Workflow evolution semantics** | Affects Priority 2, 3, and 6. | **Resolved by CD-0006:** Concord owns full coordination; purpose-built types are code-defined and versioned, with one generic one-off type. Work composes through forward-linked successors with independent authority/recovery. |
 | **Read-path implementation language** | Affects Priority 4. | **Go** — the Concord core is Go from day one. See [`core-architecture.md`](./core-architecture.md). Latency target (sub-100ms) remains; language is no longer conditional. |
-| **Where the Product entity lives** | Affects architecture and storage. | **Resolved by CD-0007:** standalone `Sharper-Flow/concord` Product/repository, Go module `github.com/sharper-flow/concord`; implementation authority moves there after the audited public bootstrap. |
-| **Product row fields** | Affects what the operator sees in the launcher. | **Resolved by C14 (2026-08-06):** identity, declared stage, reliance, typed action counts, and one deterministic focus item. See [`product-row-contract.md`](./product-row-contract.md). |
+| **Where the Product entity lives** | Affects architecture and storage. | **Resolved by CD-0007:** standalone [`Sharper-Flow/concord`](https://github.com/Sharper-Flow/concord) Product/repository, Go module [`github.com/sharper-flow/concord`](https://github.com/Sharper-Flow/concord); implementation authority moves there after the audited public bootstrap. |
+| **Product row fields** | Affects what the operator sees in the launcher. | No Product glance surface exists: the row's render and read retired (CD-0219, CD-0224) and the contract is deleted with them. A future glance surface needs its own decision (CD-0224). |
 | **External-system membership model** | Affects how azure jobs, crons, etc. attach to a Product. | Treat as opaque signals pulled into the dashboard, not as first-class Concord-owned state. See [`product-data-model.md`](./product-data-model.md). |
 | **Research trackable shape** | Affects Priority 6. | **Resolved by CD-0009:** independent research uses ordinary `kind=research` work; embedded research stays inside its owner; retention-bounded active packs are context/output, not another trackable. |
 | **Managed-resource inventory shape** | Affects the ownership model and storage. Sharing a resource across Products is a stated requirement; per-resource stage depends on the answer. | **Resolved by C15 (2026-08-06):** first-class resource registry, singular owner Product, consumer links, explicit stage, typed locators and work links. See [`managed-resource-inventory.md`](./managed-resource-inventory.md). |
@@ -250,7 +250,7 @@ operations need their own demand, local scope, and evidence.
 | **Cross-workflow impact/freshness** | Prevents one workflow from acting after related work invalidates its assumptions. | **Resolved by CD-0006 R3 and amended by CD-0041:** declared edges, completion notices, bounded consequential-boundary checks, hard-edge-plus-breaking blocking, deterministic version fallback, and explicit version-pinned resolution for concurrent work whose affected Domains overlap. |
 | **Goal-to-outcome binding** | Affects Priority 3. *Intent fidelity* and *no silent drift* stay inert until a stated goal is checkable against what was actually delivered. | **Resolved by CD-0012 (2026-08-08):** three-part outcome contract (premise, required end-state, candidate set) approved at planning beside the CD-0006 D10 spec mandate; a weaker delivered end-state fails; mid-execution discoveries forward-link rather than substitute. See [`decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md`](./decisions/CD-0012-bind-stated-goals-to-delivered-outcomes.md). |
 | **Agent context continuity** | A lossy working-window boundary must not silently drop law, approvals, workflow position, or evidence. | **Resolved by CD-0016 (2026-08-11):** durable bounded checkpoints and monotonic boundaries; pinned state is re-derived on every call; summaries are advisory and typed restart is unimplemented pending issue #120. |
-| **Replacement relation home** | Affects Priority 1 and 2. | **Bounded by CD-0041 and PM4:** Domain `replaces` and work-item `supersedes` remain current. No generic Product, Project, resource, or workflow replacement home is implied. |
+| **Replacement relation home** | Affects Priority 1 and 2. | **Bounded by CD-0222 and PM4:** Domain `replaces` and work-item `supersedes` remain current. No generic Product, Project, resource, or workflow replacement home is implied. |
 
 ---
 

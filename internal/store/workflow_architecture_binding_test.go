@@ -82,6 +82,7 @@ func architectureValidationFixtureWithProductKey(t *testing.T, workID, productKe
 		{`INSERT INTO domain_registries(product_id,home_project_id,home_locator_id,product_key,root_domain_id,schema_version,content_hash,scanned_commit_oid) VALUES('product','project','workflow-law-locator',?,'root','1.0',?,'test')`, []any{productKey, hash}},
 		{`INSERT INTO domains(home_project_id,home_locator_id,product_id,domain_id,name,purpose,status,registry_content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','product','root','Root','Product law','current',?,'test')`, []any{hash}},
 		{`INSERT INTO domains(home_project_id,home_locator_id,product_id,domain_id,name,purpose,parent_domain_id,status,registry_content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','product','child','Child','Child law','root','current',?,'test')`, []any{hash}},
+		{`INSERT INTO domain_architecture_relations(home_project_id,home_locator_id,product_id,source_domain_id,kind,target_domain_id,registry_content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','product','child','depends_on','root',?,'test')`, []any{hash}},
 		{`INSERT INTO law_domain_homes(home_project_id,home_locator_id,law_id,product_id,domain_id,law_content_hash,scanned_commit_oid) SELECT 'project','workflow-law-locator','spec:one','product','child',content_hash,'test' FROM law_subjects WHERE home_project_id='project' AND home_locator_id='workflow-law-locator' AND law_id='spec:one'`, nil},
 	}
 	for _, statement := range statements {
@@ -163,6 +164,58 @@ func TestArchitectureBindingCurrentValidationFailures(t *testing.T) {
 				t.Fatal("invalid current binding accepted")
 			}
 			tx.Rollback()
+		})
+	}
+}
+
+func TestArchitectureBindingRelationTupleMembership(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name    string
+		update  string
+		kind    string
+		refused bool
+	}{
+		{name: "canonical dependency", kind: "depends_on"},
+		{name: "canonical symmetric pair", update: `UPDATE domain_architecture_relations SET kind='shares_contract_with'`, kind: "shares_contract_with"},
+		{name: "canonical replacement", update: `UPDATE domain_architecture_relations SET kind='replaces',state='retired'`, kind: "replaces"},
+		{name: "absent tuple", update: `DELETE FROM domain_architecture_relations`, kind: "depends_on", refused: true},
+		{name: "different kind", kind: "replaces", refused: true},
+		{name: "reversed direction", update: `UPDATE domain_architecture_relations SET source_domain_id='root',target_domain_id='child'`, kind: "depends_on", refused: true},
+		{name: "different Product", update: `UPDATE domain_architecture_relations SET product_id='other-product'`, kind: "depends_on", refused: true},
+		{name: "different registry hash", update: `UPDATE domain_architecture_relations SET registry_content_hash='sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc'`, kind: "depends_on", refused: true},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			ctx := context.Background()
+			workID := "architecture-relation-membership"
+			s, definition, binding, mandate, revisions, _ := architectureValidationFixture(t, workID)
+			binding.DomainRelationModifies[0].Kind = testCase.kind
+			tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer tx.Rollback()
+			if testCase.update != "" {
+				if err := enterFold(ctx, tx); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := tx.ExecContext(ctx, testCase.update); err != nil {
+					t.Fatal(err)
+				}
+				if err := leaveFold(ctx, tx); err != nil {
+					t.Fatal(err)
+				}
+			}
+			err = validateArchitectureBindingTx(ctx, tx, workID, definition, &binding, mandate, []string{}, revisions)
+			if testCase.refused {
+				var failure *Failure
+				if !failureAs(err, &failure) || failure.Kind != KindUnknownScope || failure.Op != "workflow_architecture_binding" {
+					t.Fatalf("relation refusal=%+v err=%v, want typed unknown scope", failure, err)
+				}
+			} else if err != nil {
+				t.Fatalf("canonical relation rejected: %v", err)
+			}
 		})
 	}
 }
@@ -304,6 +357,7 @@ func TestProductChangingContractPersistsArchitectureBindingAndReadSurfaces(t *te
 		{`INSERT INTO domain_registries(product_id,home_project_id,home_locator_id,product_key,root_domain_id,schema_version,content_hash,scanned_commit_oid) VALUES('product','project','workflow-law-locator','product','root','1.0',?,'test')`, []any{hash}},
 		{`INSERT INTO domains(home_project_id,home_locator_id,product_id,domain_id,name,purpose,status,registry_content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','product','root','Root','Product law','current',?,'test')`, []any{hash}},
 		{`INSERT INTO domains(home_project_id,home_locator_id,product_id,domain_id,name,purpose,parent_domain_id,status,registry_content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','product','child','Child','Child law','root','current',?,'test')`, []any{hash}},
+		{`INSERT INTO domain_architecture_relations(home_project_id,home_locator_id,product_id,source_domain_id,kind,target_domain_id,registry_content_hash,scanned_commit_oid) VALUES('project','workflow-law-locator','product','child','depends_on','root',?,'test')`, []any{hash}},
 		{`INSERT INTO law_domain_homes(home_project_id,home_locator_id,law_id,product_id,domain_id,law_content_hash,scanned_commit_oid) SELECT 'project','workflow-law-locator','spec:one','product','child',content_hash,'test' FROM law_subjects WHERE home_project_id='project' AND home_locator_id='workflow-law-locator' AND law_id='spec:one'`, nil},
 	}
 	for _, statement := range seedSQL {
@@ -340,6 +394,38 @@ func TestProductChangingContractPersistsArchitectureBindingAndReadSurfaces(t *te
 		"work_id": workID, "expected_version": int64(4), "resulting_version": int64(5), "contract_version": int64(1), "premise": "bind Product law", "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:architecture", "immutable_subject_ref": "commit:architecture", "expected_result": "pass"}, "required_evidence": []string{"verification", "review"}, "route_conventions": []string{}, "spec_mandate": []string{"spec:one", "law:new"}, "law_modifies": []string{}, "law_revisions": []WorkflowLawRevision{{LawID: "spec:one", ContentHash: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}, "law_boundary_version": 1, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite", "architecture_binding": binding,
 	})
 	event.PayloadVersion = 3
+	var approvalFields map[string]any
+	if err := json.Unmarshal(event.Payload, &approvalFields); err != nil {
+		t.Fatal(err)
+	}
+	missingRelationBinding := binding
+	missingRelationBinding.DomainRelationModifies = []WorkflowDomainRelationModification{{SourceDomainID: "child", Kind: "replaces", TargetDomainID: "root"}}
+	approvalFields["architecture_binding"] = missingRelationBinding
+	absentApproval := workflowEventWithActor("architecture-binding-absent-approval", WorkflowContractApproved, workID, event.Actor, approvalFields)
+	absentApproval.PayloadVersion = 3
+	assertAbsentRelationAtomic := func(event Event, version int64, contracts int) {
+		t.Helper()
+		var eventsBefore int
+		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=?`, workID).Scan(&eventsBefore); err != nil {
+			t.Fatal(err)
+		}
+		err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}})
+		var failure *Failure
+		if !failureAs(err, &failure) || failure.Kind != KindUnknownScope || failure.Op != "workflow_architecture_binding" {
+			t.Fatalf("absent canonical relation refusal=%+v err=%v, want typed unknown scope", failure, err)
+		}
+		var count, eventsAfter int
+		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_contracts WHERE work_id=?`, workID).Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id=?`, workID).Scan(&eventsAfter); err != nil {
+			t.Fatal(err)
+		}
+		if count != contracts || readWorkVersion(t, s, workID) != version || eventsBefore != eventsAfter {
+			t.Fatalf("absent relation changed state: contracts=%d, events=%d->%d", count, eventsBefore, eventsAfter)
+		}
+	}
+	assertAbsentRelationAtomic(absentApproval, 4, 0)
 	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{event}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 4}}); err != nil {
 		t.Fatalf("bound approval rejected: %v", err)
 	}
@@ -370,6 +456,19 @@ func TestProductChangingContractPersistsArchitectureBindingAndReadSurfaces(t *te
 		"work_id": workID, "expected_version": int64(5), "resulting_version": int64(6), "previous_contract_version": int64(1), "new_contract_version": int64(2), "supersede_reason": "revised Domain footprint", "audit_evidence": []string{"audit:architecture-v2"}, "successor_contract": successor,
 	})
 	supersede.PayloadVersion = 1
+	var supersedeFields map[string]any
+	if err := json.Unmarshal(supersede.Payload, &supersedeFields); err != nil {
+		t.Fatal(err)
+	}
+	absentSuccessor := map[string]any{}
+	for key, value := range successor {
+		absentSuccessor[key] = value
+	}
+	absentSuccessor["architecture_binding"] = missingRelationBinding
+	supersedeFields["successor_contract"] = absentSuccessor
+	absentSupersede := workflowEventWithActor("architecture-binding-absent-supersede", WorkflowContractSuperseded, workID, event.Actor, supersedeFields)
+	absentSupersede.PayloadVersion = 1
+	assertAbsentRelationAtomic(absentSupersede, 5, 1)
 	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{supersede}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 5}}); err != nil {
 		t.Fatalf("bound successor rejected: %v", err)
 	}
@@ -400,6 +499,9 @@ func TestProductChangingContractPersistsArchitectureBindingAndReadSurfaces(t *te
 	}
 	before, err := WorkflowProjectionHash(ctx, s)
 	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); DELETE FROM domain_architecture_relations WHERE product_id='product'; DELETE FROM fold_guard`); err != nil {
 		t.Fatal(err)
 	}
 	if err := RebuildFromLog(ctx, s); err != nil {

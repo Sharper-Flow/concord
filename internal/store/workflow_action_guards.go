@@ -83,7 +83,24 @@ func guardRejectWorkerResultRecovery(g *workflowActionGuardContext) error {
 	if !g.correctionRecovery {
 		return newFailure(KindInvalidOperation, "workflow_action", "worker result rejection is unavailable without a completed result", false, "accept or reject the completed worker result")
 	}
-	return nil
+	// On an oracle-capable history the rejection's open finding
+	// set must exactly equal the derived open set — omission never closes
+	// a finding. Oracle-free histories keep the legacy optional field.
+	return g.validateCorrectionOpenFindings()
+}
+
+// validateCorrectionOpenFindings is the derived-set equality both correction
+// surfaces share: the payload's open_finding_ids must equal the
+// lineage's derived open set whenever the work's history ever dispatched
+// under an oracle-bearing job revision.
+func (g *workflowActionGuardContext) validateCorrectionOpenFindings() error {
+	fields, fieldsErr := workflowActionObject(g.defaultedPayload())
+	if fieldsErr != nil {
+		return fieldsErr
+	}
+	supplied := workflowFieldStrings(fields, "open_finding_ids")
+	_, present := fields["open_finding_ids"]
+	return validateCorrectionOpenFindingsTx(g.ctx, g.tx, g.request.WorkID, supplied, present)
 }
 
 func guardRequestCorrectionRecovery(g *workflowActionGuardContext) error {
@@ -99,7 +116,13 @@ func guardRequestCorrectionRecovery(g *workflowActionGuardContext) error {
 	if state.CorrectionRequestContext == nil {
 		return workflowCorrectionRequestUnavailableFailure("workflow_action", state.CorrectionRequestMissing)
 	}
-	return validateCorrectionRequestPayload(g.ctx, g.tx, g.request.WorkID, g.request.Payload, "workflow_action", state.CorrectionRequestContext)
+	if err := validateCorrectionRequestPayload(g.ctx, g.tx, g.request.WorkID, g.request.Payload, "workflow_action", state.CorrectionRequestContext); err != nil {
+		return err
+	}
+	// A correction request on an oracle-capable history carries
+	// the same derived open finding set a rejection does, and the folded
+	// convergence comparison prefers it over the legacy predicate list.
+	return g.validateCorrectionOpenFindings()
 }
 
 // runWorkflowActionGuard runs the request's guard when one is declared for
@@ -1034,7 +1057,7 @@ func guardPostRejectionReviewGate(g *workflowActionGuardContext) error {
 	// admits reads its target from the route table.
 	switch g.request.ActionID {
 	case "accept_worker_result":
-		if !stepDeclaresAction(g.entry.Definition, g.currentStep, "start_refine") {
+		if !stepDeclaresAction(g.entry.Definition, g.currentStep, "checkpoint_refine") {
 			return nil
 		}
 	case "record_delivery":
@@ -1279,17 +1302,6 @@ func assembleWorkflowActionEventsTx(ctx context.Context, tx *sql.Tx, in workflow
 	if !ok {
 		return out, newFailure(KindInvariantViolation, "workflow_action", "workflow action execution mode is not declared", false, "repair the pinned workflow definition")
 	}
-	var workflowActionEpoch int64
-	var epochErr error
-	if builtinActionPolicies[in.request.ActionID].EventShape == ActionEventCheckpoint && executionMode != ActionFenced {
-		workflowActionEpoch, epochErr = workflowCheckpointAttemptEpoch(ctx, tx, in.entry.Definition, in.step, in.request.WorkID, in.currentStep, 0)
-	} else {
-		workflowActionEpoch, epochErr = workflowActionStartEpochForDispatch(ctx, tx, in.request.WorkID, in.currentStep, executionMode == ActionFenced)
-	}
-	if epochErr != nil {
-		return out, epochErr
-	}
-	out.attemptEpoch = workflowActionEpoch
 	actor := in.eventActor
 	events := []Event{}
 	versionCursor := in.request.ExpectedVersion
@@ -1301,6 +1313,32 @@ func assembleWorkflowActionEventsTx(ctx context.Context, tx *sql.Tx, in workflow
 		events = append(events, workflowTypedEvent(in.request.OperationID+":operator", WorkflowActorRecorded, in.request.WorkID, in.operatorRef, in.request.Now, versionCursor, map[string]any{"actor_ref": in.operatorRef, "principal_ref": in.request.OperatorActor.PrincipalRef, "client_ref": in.request.OperatorActor.ClientRef, "agent_ref": in.request.OperatorActor.AgentRef, "session_ref": in.request.OperatorActor.SessionRef, "actor_class": string(ActorOperator)}))
 		versionCursor++
 	}
+	var workflowActionEpoch int64
+	var epochErr error
+	if builtinActionPolicies[in.request.ActionID].EventShape == ActionEventCheckpoint && executionMode != ActionFenced {
+		// CD-0198 D3: the step's first admitted qualifying checkpoint
+		// derives the step start in the same operation, before the
+		// epoch-dependent checkpoint fold. A refused action never reaches
+		// this assembly, so a derivation is atomic with its action, and the
+		// started event's fold opens the same fence and epoch a callable
+		// start opened.
+		derivedEpoch, derivedStart, deriveErr := workflowDerivedCheckpointStartTx(ctx, tx, in.entry.Definition, in.request, in.currentStep, actor, versionCursor)
+		if deriveErr != nil {
+			return out, deriveErr
+		}
+		if derivedStart != nil {
+			events = append(events, *derivedStart)
+			workflowActionEpoch = derivedEpoch
+		} else {
+			workflowActionEpoch, epochErr = workflowCheckpointAttemptEpoch(ctx, tx, in.entry.Definition, in.step, in.request.WorkID, in.currentStep, 0)
+		}
+	} else {
+		workflowActionEpoch, epochErr = workflowActionStartEpochForDispatch(ctx, tx, in.request.WorkID, in.currentStep, executionMode == ActionFenced)
+	}
+	if epochErr != nil {
+		return out, epochErr
+	}
+	out.attemptEpoch = workflowActionEpoch
 	if executionMode == ActionFenced {
 		resultVersion := versionCursor + 1
 		startPayload, _ := json.Marshal(map[string]any{
@@ -1539,8 +1577,12 @@ func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoc
 			// CON-887: the packet must consume the current work-context
 			// view the same way it consumes the current correction — the
 			// spawn compares the pinned bytes against current state.
-			if err := validateWorkerPacketWorkContext(in.ctx, in.tx, in.request.WorkID, packetRaw); err != nil {
-				return events, "", err
+			admittedContext, contextErr := admittedWorkerPacketWorkContext(in.ctx, in.tx, in.request.WorkID, packetRaw)
+			if contextErr != nil {
+				return events, "", contextErr
+			}
+			if admittedContext != nil && admittedContext.SubjectCommit != "" {
+				completionValues["worker_subject_commit"] = admittedContext.SubjectCommit
 			}
 			// CON-883: the packet must carry the latest context
 			// checkpoint the same way it consumes the current correction,
@@ -1609,7 +1651,12 @@ func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoc
 		completionValues["correction_predicate_ids"] = workflowFieldStrings(fields, "predicate_ids")
 		completionValues["correction_evidence_refs"] = workflowFieldStrings(fields, "evidence_refs")
 	}
-	if in.request.ActionID == "reject_worker_result" {
+	// The derived open finding set serializes onto the correction
+	// record of both surfaces. A rejection carries it directly; a
+	// correction request carries it beside the predicate list the legacy
+	// comparison reads, and the folded convergence comparison prefers it
+	// whenever the request recorded one.
+	if in.request.ActionID == "reject_worker_result" || in.request.ActionID == "request_correction" {
 		if _, present := fields["open_finding_ids"]; present {
 			completionValues["correction_open_finding_ids"] = workflowFieldStrings(fields, "open_finding_ids")
 		}

@@ -76,6 +76,11 @@ evidence paths win, because they are checked.
 
 Turning intent into durable, reviewable commitment before implementation.
 
+Planning facts live in Linear through the Linear MCP server under
+[CD-0213](./decisions/CD-0213-linear-mcp-is-the-only-planning-authority.md).
+The covered paths below concern Concord's managed execution records and contracts,
+not a local planning backlog or remote issue writer.
+
 | Outcome | State | Evidence or reason |
 |---|---|---|
 | Capture a unit of work with value statement, kind, priority, urgency, tags, and Project membership | Covered | `internal/agent/mutations.go` (`concord_work_define.capture`) |
@@ -85,8 +90,8 @@ Turning intent into durable, reviewable commitment before implementation.
 | Triage a defect before committing to a fix shape | Covered | `break_fix` workflow definition (reproduce → diagnose → repair → verify), `internal/store/workflow_registry.go` |
 | Declare which laws a unit of work is mandated by, and which it amends | Covered | CD-0015; `spec_mandate` / `law_modifies` in `internal/store/workflow_completion.go` |
 | Block planning and completion on unknown laws or unresolved law conflicts | Covered | CD-0015; `internal/store/workflow_completion.go` |
-| Frame an initiative that spans several units of work, with a narrative and an ordered entry set | Covered | `concord_work_initiative.create`, entry mutations, narrative revision, and bounded `entries` read in `internal/agent/mutations.go`, `internal/agent/runtime.go`, and `contracts/agent-tool-surface.v1.json`; `TestDispatchInitiativeSurfaceUsesInitiativeEventsAndBoundedEntriesRead` proves the reachable event and read path. |
-| Track lightweight future work that is not yet ready to start | Excluded | CD-0009 rejects additional trackable kinds. Early-lifecycle work items carry this, and a separate backlog entity would reintroduce the trackable proliferation the decision closes. |
+| Frame an initiative that spans several units of work, with a narrative and an ordered entry set | Excluded | CD-0213 places Projects, Initiatives, grouping, and ordering in Linear through the Linear MCP server. Concord has no Initiative authoring or entry projection. |
+| Track lightweight future work that is not yet ready to start | Excluded | CD-0213 places the planning backlog in Linear through the Linear MCP server. Concord's managed work records are execution state, not a future-work planning copy. |
 | Audit drift between recorded law and current implementation | Covered | Manifest records carry `evidence` paths; `scripts/check-knowledge-index.py` fails when an evidence path rots (CD-0026). Structural reachability, not semantic verification. |
 | Resolve an ambiguous requirement into a decidable operator choice before commitment | Covered | `operator_question` projection with closed choices and action mapping, `internal/store/workflow_operator.go`; `confirm_premise` requires `selected_choice=confirm` and the matching `decision_context_digest` ([`workflow-engine-contract.md`](./workflow-engine-contract.md) §8.1) |
 
@@ -96,7 +101,7 @@ Seeing the state of the portfolio without blind spots, across sessions.
 
 | Outcome | State | Evidence or reason |
 |---|---|---|
-| See every Product as a row with focus, attention, and actionable counts | Covered | C14; `internal/store/product_row.go`, `internal/portfolio/read.go` |
+| See every Product as a row with focus, attention, and actionable counts | Excluded | CD-0224 retires the C14 row's last live surface (`concord_product_view.portfolio`), and CD-0219 already retired the launcher render, so no runtime path produces the row; the `QueryProductRows` projection is removed. The C14 contract is deleted with its read (CD-0219 D2, CD-0224), and Product visibility comes from `concord_product_view.snapshot` plus the ready and blocked queues (`internal/store/query.go`). |
 | Get a bounded Product snapshot with lifecycle counts and staleness | Covered | Q2, `internal/store/query.go` |
 | List and filter work in a Product or Project with stable pagination | Covered | Q3, `internal/store/query.go` |
 | See what is blocked and why | Covered | Q4, `internal/store/query.go` |
@@ -104,10 +109,10 @@ Seeing the state of the portfolio without blind spots, across sessions.
 | Look up work across Projects | Covered | Q6, `internal/store/query.go` |
 | Read the typed history of one unit of work | Covered | Q7, `internal/store/query.go` |
 | Read the typed relation graph around one unit of work | Covered | Q8, `internal/store/query.go` |
-| Navigate portfolio → Product → work from a terminal surface | Covered | `internal/launcher/model.go`, `internal/launcher/render/bubbletea/` |
-| See the full Product scope from the operator surface | Excluded | Per CD-0021 D2, "across the full Product scope" means every Product is reachable from the launcher, which the S1 portfolio delivers. Result sets spanning Products stay excluded by C18 §12 anti-requirement 11 and CD-0014. |
-| Create work from the operator surface without agent authorization | Excluded | Per CD-0021 D1, the operator plans by reaching work in the launcher and opening a session that authors it. The launcher stays read-only and work creation keeps a single write authority. |
-| See which concurrent agent sessions are active and which are blocked on an operator decision | Covered | `concord_product_view.blocked_sessions` (PM1.Q12) resolves active approval challenges to session, agent, worktree, consequence, and block age (`internal/store/blocked_sessions.go`); the launcher's approval-gated focus row routes to the oldest waiting session. |
+| Navigate portfolio → Product → work from a terminal surface | Excluded | Per CD-0219, the interactive terminal browse surface retired with the launcher TUI; the operator enters work by naming it to `concord zl` or `concord session`, and no Concord surface browses portfolio → Product → work interactively. |
+| See the full Product scope from the operator surface | Excluded | Per CD-0021 D2, "across the full Product scope" means every Product is reachable from the entry route, which the store query family delivers to agent and CLI readers. Result sets spanning Products stay excluded by C18 §12 anti-requirement 11 and CD-0014. |
+| Create work from the operator surface without agent authorization | Excluded | Per CD-0021 D1, the operator plans by reaching work through the entry route and opening a session that authors it. The entry stays read-only and work creation keeps a single write authority. |
+| See which concurrent agent sessions are active and which are blocked on an operator decision | Covered | `concord_product_view.blocked_sessions` (PM1.Q12) resolves active approval challenges to session, agent, worktree, consequence, and block age (`internal/store/blocked_sessions.go`); the session entry resolves the oldest waiting session for the work it starts. |
 
 ## 3. Implementation changes
 
@@ -146,7 +151,7 @@ Commissioning, validating, and reusing investigation so work does not start blin
 | Persist a reusable research pack with revisions, findings, sources, and consumer bindings | Covered | `concord_work_define.research_pack_create` and its authoring operations (CD-0025) reach the pack-operation boundary; `concord_work_trace.research` reads it back (`internal/agent/mutations.go`). |
 | Prove a consumer read a sufficiently fresh research revision before relying on it | Covered | `workflow_action` declares research bindings; the engine validates, binds the consumer, and refuses required reliance on non-current freshness inside the action's transaction (`internal/agent/research_surface_test.go`, CD-0025). |
 | Detect that a recorded plan has gone stale against current reality, and revise it | Covered | Staleness rules and `replace_outcome` / `supersede_contract` in `internal/store/workflow_revision.go` |
-| Record post-completion learning about how the work itself went | Covered | A reflection is a lesson with a `reflection` tag, recorded through `concord_work_compact.lesson_publish` (CD-0026 D3), dispatched in `internal/agent/mutations.go`. |
+| Record post-completion learning about how the work itself went | Covered | A reflection is a lesson with a `reflection` tag, authored as a file with its record and coverage shards and published through a reviewed pull request (CD-0026 D3); the record's evidence paths stay audited by `scripts/check-knowledge-index.py`. |
 | Scout unrealized opportunities and leverage points during discovery | Excluded | [`capability-placement.md`](./capability-placement.md) §3: heuristic analysis tooling is an external native authority. Same basis as §3's quality-scanner row — Concord commissions such investigation through the `research` workflow and records its findings; it does not implement the heuristic. |
 
 ## 5. Ops runbooks
@@ -172,13 +177,14 @@ Knowledge that outlives the change that produced it.
 |---|---|---|
 | Publish a canonical durable note to a deterministic home, with publish proof | Covered | PM6; `internal/store/git_knowledge.go` |
 | Verify a published note still matches its recorded digest | Covered | `VerifyCommittedNote`, `internal/store/git_knowledge.go` |
-| Search durable knowledge by kind, tag, text, and time window | Covered | Q9, `internal/store/knowledge_query.go` |
+| Search durable knowledge by kind, tag, and text | Covered | Q9, `internal/store/knowledge_query.go` |
+| Filter durable knowledge search by a time window | Excluded | CD-0020 D2 excludes a time-window filter from Q9. Law lookup has no time job, and each Q9 result still carries its record date. |
 | Resolve the canonical note for a completed unit of work | Covered | Q10, `internal/store/knowledge_query.go` |
 | Keep specifications as binding law with typed relations between them | Covered | CD-0015; `.concord/docs/decisions/CD-0015-typed-law-relations.md` |
 | Bind a law change to the work that justified it, so law and history move together | Covered | `law_modifies` amendment path, `internal/store/workflow_completion.go` |
-| Preserve the provenance link between a unit of work and its external tracking record | Covered | `external_ref` on capture, `internal/agent/mutations.go` |
-| Capture a per-change learning and promote the durable ones to project scope | Covered | `concord_work_compact.lesson_publish` records a lesson per change under operator approval; explicit scopes promote it to project/Product reach through the existing scope-filtered reads (CD-0026 D1/D2), dispatched in `internal/agent/mutations.go`. |
-| Preserve provenance when an item is promoted into an initiative | Covered | `concord_work_initiative.add_entry` folds the dedicated `includes` relation and ordered `initiative_entries` projection through `store.InitiativeEntryEvent`; the scoped agent boundary test in `internal/agent/mutation_dispatch_test.go` verifies removal clears the relation without changing the child, against the dispatch in `internal/agent/mutations.go`. |
+| Preserve the provenance link between a unit of work and its external tracking record | Covered | CD-0213's record-only `concord_work_define.issue_link_record` stores the reported key, UUID, and URL without remote confirmation (`internal/store/linear_issue_link.go`, `internal/agent/issue_link_record_test.go`). |
+| Capture a per-change learning and promote the durable ones to project scope | Covered | A lesson per change is authored as a file with an explicit-scope coverage shard and published through a reviewed pull request; explicit scopes reach project/Product through the existing scope-filtered reads (CD-0026 D1/D2; `.concord/docs/decisions/CD-0026-learning-capture.md`). |
+| Preserve provenance when an item is promoted into an initiative | Excluded | CD-0213 places grouping and membership changes in Linear through the Linear MCP server. Concord retains the work unit's recorded issue identity, not an Initiative promotion operation or membership history projection. |
 | Audit instruction and guidance prose against executable anchors | Covered | CD-0026 D4: manifest records name implementation evidence and `scripts/check-knowledge-index.py` fails in CI when a named path rots, so guidance cannot silently outlive the code it describes. |
 
 ## 7. Cross-cutting
@@ -201,11 +207,11 @@ Territory that appears across all six and is an outcome in its own right.
 
 | State | Count |
 |---|---|
-| Covered | 62 |
+| Covered | 58 |
 | Not covered | 0 |
-| Excluded with reason | 12 |
+| Excluded with reason | 17 |
 
-**Total enumerated outcomes: 74.**
+**Total enumerated outcomes: 75.**
 
 No enumerated outcome remains not covered: the floor bar (covered with evidence or
 excluded with an accepted reason) is met. The clustering list is retained below
@@ -222,8 +228,9 @@ The not-covered entries clustered as follows while the floor was open:
    by issue #88 (§5).
 
 The operator-surface and isolation groups are gone: CD-0021 resolved the former as
-deliberate exclusions; issues #124 and #125 covered the latter; and CD-0024 makes
-initiative coordination reachable.
+deliberate exclusions; the latter is covered. CD-0213 excludes
+Concord Initiative authoring and membership from runtime coverage; Linear MCP
+owns those planning outcomes.
 
 ## Predecessor surfaces consumed as evidence
 

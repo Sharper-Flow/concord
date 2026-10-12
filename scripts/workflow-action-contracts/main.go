@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"flag"
 	"fmt"
 	"os"
 	"reflect"
@@ -10,11 +11,26 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 )
 
+// payloadVariant is one exact closed contract an action admits. A variant
+// carries the store-side payload and the public authoring payload together:
+// the pair is what a registering definition declared, so the projected
+// alternative never mixes halves of two definitions.
+type payloadVariant struct {
+	Payload       store.WorkflowPayloadDefinition `json:"payload"`
+	PublicPayload store.WorkflowPayloadDefinition `json:"public_payload"`
+}
+
 type actionContract struct {
-	ID             string                            `json:"id"`
-	Payload        store.WorkflowPayloadDefinition   `json:"payload"`
-	PublicPayload  store.WorkflowPayloadDefinition   `json:"public_payload"`
-	LegacyPayloads []store.WorkflowPayloadDefinition `json:"legacy_payloads"`
+	ID string `json:"id"`
+	// Variants are the exact closed payload alternatives the action's
+	// current contracts declare: one per distinct (payload, public payload)
+	// pair among the live definition heads and the engine-owned recovery
+	// list. Variants may differ only by whole fields; every field two
+	// variants both name must be declared identically, or collection
+	// refuses. The published authoring schema offers the variants as
+	// alternatives; the store still validates each call against the exact
+	// definition version the work item pins.
+	Variants []payloadVariant `json:"variants"`
 	// CrossField projects the engine registry's cross-field declaration for
 	// this action — the same single declaration workflowActionCrossField
 	// resolves for core validation. It rides the action contract, never the
@@ -29,67 +45,275 @@ type workflowOutcomeContract struct {
 	DecisionRecordRequired bool     `json:"decision_record_required"`
 }
 
+// schemaRefProjection names the payload schema refs the registry declares,
+// split by decoding owner. Current refs belong to live authoring and resolve
+// through the public authoring document. Historical refs belong to retained
+// registry versions and resolve through the frozen historical decoder
+// document, so a later public authoring change cannot break historical
+// payload validation.
+type schemaRefProjection struct {
+	Current    []string `json:"current"`
+	Historical []string `json:"historical"`
+}
+
 type contractProjection struct {
 	SchemaVersion string                         `json:"schema_version"`
 	Actions       []actionContract               `json:"actions"`
 	Workflows     []workflowOutcomeContract      `json:"workflows"`
 	Teaching      store.WorkflowContractTeaching `json:"teaching"`
+	SchemaRefs    schemaRefProjection            `json:"schema_refs"`
 }
 
-func main() {
-	payloads := map[string]actionContract{}
-	addAction := func(action store.WorkflowActionDefinition) {
-		publicPayload := action.Payload
+// canonicalPayload normalizes a payload for comparison: a nil field list
+// and an empty field list declare the same contract, and definitions built
+// by different eras of the chain builders express both.
+func canonicalPayload(payload store.WorkflowPayloadDefinition) store.WorkflowPayloadDefinition {
+	if payload.Fields == nil {
+		payload.Fields = []store.WorkflowPayloadField{}
+	}
+	return payload
+}
+
+// schemaIdentityDrift reports whether two declarations of one field differ
+// only in the generated schema identity they declare. Versioned decoder
+// identities are the sanctioned case: current heads of different generations
+// declare the same wire field against different decoder identities, and the
+// projection publishes the declarations as the closed variants it already
+// carries. Any other difference stays a conflict.
+func schemaIdentityDrift(left, right store.WorkflowPayloadField) bool {
+	strippedLeft, strippedRight := left, right
+	strippedLeft.SchemaRef, strippedRight.SchemaRef = "", ""
+	strippedLeft.ItemRef, strippedRight.ItemRef = "", ""
+	return reflect.DeepEqual(strippedLeft, strippedRight) && (left.SchemaRef != right.SchemaRef || left.ItemRef != right.ItemRef)
+}
+
+// conflictingSharedField returns the first shared field two current payload
+// declarations carry with a difference that is not a schema-identity drift.
+// Schema-identity drift keeps both variants: the store validates each call
+// against the exact definition version the work item pins, and the frozen
+// historical decoder owns the replay side of each identity.
+func conflictingSharedField(a, b store.WorkflowPayloadDefinition) string {
+	for _, left := range a.Fields {
+		for _, right := range b.Fields {
+			if left.Name == right.Name && !reflect.DeepEqual(left, right) && !schemaIdentityDrift(left, right) {
+				return left.Name
+			}
+		}
+	}
+	return ""
+}
+
+// canonicalCrossFieldForAction projects the engine cross-field declaration
+// onto the exact field set every authoring payload half of the action
+// declares. The projected rules must agree across all
+// halves, or the action's core and public contracts would publish
+// different rules from one declaration.
+func canonicalCrossFieldForAction(actionID string, variants []payloadVariant) (store.WorkflowActionCrossField, error) {
+	first := true
+	var projected store.WorkflowActionCrossField
+	for _, variant := range variants {
+		for _, payload := range []store.WorkflowPayloadDefinition{variant.Payload, variant.PublicPayload} {
+			cross, err := store.WorkflowActionCanonicalCrossFieldRules(actionID, payload.Fields)
+			if err != nil {
+				return store.WorkflowActionCrossField{}, err
+			}
+			if first {
+				projected, first = cross, false
+				continue
+			}
+			if !reflect.DeepEqual(projected, cross) {
+				return store.WorkflowActionCrossField{}, fmt.Errorf("action %s carries inconsistent canonical cross-field declarations across its authoring payloads", actionID)
+			}
+		}
+	}
+	return projected, nil
+}
+
+// collectActionContracts folds the live definition heads and the canonical
+// recovery list into the projection's action contracts. Nothing else
+// contributes: retired published actions (CD-0218 D1/D2) and every retained
+// version's historical payload layout stay out of the authoring surface,
+// whose replay side is owned by the frozen historical decoder. Cross-field
+// rules project onto each action's declared fields, so
+// a canonical head whose payload narrows a rule's subject no longer
+// publishes the vacuous half of the engine declaration. Order is
+// deterministic: variants keep registration order (current families, then
+// the recovery list).
+func collectActionContracts(current []store.WorkflowDefinition, recovery []store.WorkflowActionDefinition) (map[string]actionContract, error) {
+	contracts := map[string]actionContract{}
+	addCurrent := func(action store.WorkflowActionDefinition) error {
+		public := action.Payload
 		if action.PublicPayload != nil {
-			publicPayload = *action.PublicPayload
+			public = *action.PublicPayload
 		}
-		// The cross-field rules ride the engine registry declaration,
-		// resolved through the same accessor core validation reads — the
-		// registry action declaration is the single owner the published
-		// variants generate their closed branches from (CON-412).
-		contract := actionContract{ID: action.ID, Payload: action.Payload, PublicPayload: publicPayload, LegacyPayloads: []store.WorkflowPayloadDefinition{}, CrossField: store.WorkflowActionCrossFieldRules(action.ID)}
-		if previous, ok := payloads[action.ID]; ok && !reflect.DeepEqual(previous, contract) {
-			fmt.Fprintf(os.Stderr, "action %s has inconsistent current payload contracts\n", action.ID)
-			os.Exit(1)
+		variant := payloadVariant{Payload: canonicalPayload(action.Payload), PublicPayload: canonicalPayload(public)}
+		contract, ok := contracts[action.ID]
+		if !ok {
+			contract = actionContract{ID: action.ID, Variants: []payloadVariant{}}
 		}
-		payloads[action.ID] = contract
+		for _, existing := range contract.Variants {
+			if reflect.DeepEqual(existing, variant) {
+				contracts[action.ID] = contract
+				return nil
+			}
+			if field := conflictingSharedField(existing.Payload, variant.Payload); field != "" {
+				return fmt.Errorf("action %s has inconsistent current payload contracts: field %s is declared differently across current definitions", action.ID, field)
+			}
+			if field := conflictingSharedField(existing.PublicPayload, variant.PublicPayload); field != "" {
+				return fmt.Errorf("action %s has inconsistent current payload contracts: field %s is declared differently across current public payload contracts", action.ID, field)
+			}
+		}
+		contract.Variants = append(contract.Variants, variant)
+		contracts[action.ID] = contract
+		return nil
 	}
-	for _, definition := range store.BuiltinWorkflowDefinitions() {
+	for _, definition := range current {
 		for _, action := range definition.ActionDefinitions {
-			addAction(action)
-		}
-	}
-	for _, action := range store.BuiltinWorkflowRecoveryActionDefinitions() {
-		addAction(action)
-	}
-	for _, definition := range store.BuiltinWorkflowDefinitionsWithHistory() {
-		for _, action := range definition.ActionDefinitions {
-			contract, ok := payloads[action.ID]
-			if !ok || !action.Payload.Closed || len(action.Payload.Fields) != 0 {
-				continue
-			}
-			if reflect.DeepEqual(contract.Payload, action.Payload) {
-				continue
-			}
-			seen := false
-			for _, legacy := range contract.LegacyPayloads {
-				if reflect.DeepEqual(legacy, action.Payload) {
-					seen = true
-					break
-				}
-			}
-			if !seen {
-				contract.LegacyPayloads = append(contract.LegacyPayloads, action.Payload)
-				payloads[action.ID] = contract
+			if err := addCurrent(action); err != nil {
+				return nil, err
 			}
 		}
 	}
-	ids := make([]string, 0, len(payloads))
-	for id := range payloads {
+	for _, action := range recovery {
+		if err := addCurrent(action); err != nil {
+			return nil, err
+		}
+	}
+	ids := make([]string, 0, len(contracts))
+	for id := range contracts {
 		ids = append(ids, id)
 	}
 	sort.Strings(ids)
+	for _, id := range ids {
+		contract := contracts[id]
+		cross, err := canonicalCrossFieldForAction(id, contract.Variants)
+		if err != nil {
+			return nil, err
+		}
+		contract.CrossField = cross
+		contracts[id] = contract
+	}
+	return contracts, nil
+}
+
+// payloadSchemaRefs collects the distinct schema_ref/item_ref names one
+// payload declaration carries, in sorted order.
+func payloadSchemaRefs(payload store.WorkflowPayloadDefinition) []string {
+	refs := map[string]bool{}
+	for _, field := range payload.Fields {
+		if field.SchemaRef != "" {
+			refs[field.SchemaRef] = true
+		}
+		if field.ItemRef != "" {
+			refs[field.ItemRef] = true
+		}
+	}
+	return sortedRefNames(refs)
+}
+
+func sortedRefNames(refs map[string]bool) []string {
+	names := make([]string, 0, len(refs))
+	for name := range refs {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// collectSchemaRefs splits the registry's declared payload schema refs by
+// decoding owner: current definitions and the engine recovery list declare
+// current refs; retained registry versions (every registered version below
+// its family's current head) declare historical refs.
+func collectSchemaRefs(current []store.WorkflowDefinition, recovery []store.WorkflowActionDefinition, history []store.WorkflowDefinition) schemaRefProjection {
+	currentRefs := map[string]bool{}
+	historicalRefs := map[string]bool{}
+	for _, definition := range current {
+		for _, action := range definition.ActionDefinitions {
+			for _, ref := range payloadSchemaRefs(action.Payload) {
+				currentRefs[ref] = true
+			}
+		}
+	}
+	for _, action := range recovery {
+		for _, ref := range payloadSchemaRefs(action.Payload) {
+			currentRefs[ref] = true
+		}
+	}
+	currentPins := map[string]bool{}
+	for _, definition := range current {
+		currentPins[definition.Ref+"/"+fmt.Sprint(definition.Version)] = true
+	}
+	for _, definition := range history {
+		if currentPins[definition.Ref+"/"+fmt.Sprint(definition.Version)] {
+			continue
+		}
+		for _, action := range definition.ActionDefinitions {
+			for _, ref := range payloadSchemaRefs(action.Payload) {
+				historicalRefs[ref] = true
+			}
+		}
+	}
+	return schemaRefProjection{Current: sortedRefNames(currentRefs), Historical: sortedRefNames(historicalRefs)}
+}
+
+// nativeStatusProjection is the read-only historical native-run status
+// metadata the status closure check consumes: the sorted union of the
+// status enums the compiled registry's native-run action declarations
+// carry. Retired public actions stay out of the authoring surface, so this
+// projection adds no action; it only names what the compiled declarations
+// still admit on the replay side.
+type nativeStatusProjection struct {
+	Statuses []string `json:"statuses"`
+}
+
+// collectNativeRunStatuses folds the status enums of every registered
+// definition — current heads and every retained version — into one sorted
+// union. A "status" string enum field is declared only by the native-run
+// payload builder, so the union needs no action list, and dropping one
+// enum value from a declaration drops that value from the union.
+func collectNativeRunStatuses(definitions []store.WorkflowDefinition) []string {
+	statuses := map[string]bool{}
+	for _, definition := range definitions {
+		for _, action := range definition.ActionDefinitions {
+			for _, field := range action.Payload.Fields {
+				if field.Name != "status" || field.ValueType != store.PayloadString || len(field.Enum) == 0 {
+					continue
+				}
+				for _, value := range field.Enum {
+					statuses[value] = true
+				}
+			}
+		}
+	}
+	return sortedRefNames(statuses)
+}
+
+func main() {
+	nativeStatuses := flag.Bool("native-statuses", false, "print the native-run status union the compiled registry declares instead of the action contract projection")
+	flag.Parse()
+	if *nativeStatuses {
+		encoder := json.NewEncoder(os.Stdout)
+		encoder.SetEscapeHTML(false)
+		projection := nativeStatusProjection{Statuses: collectNativeRunStatuses(store.BuiltinWorkflowDefinitionsWithHistory())}
+		if err := encoder.Encode(projection); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
 	definitions := store.BuiltinWorkflowDefinitions()
+	recovery := store.BuiltinWorkflowCanonicalRecoveryActionDefinitions()
+	history := store.BuiltinWorkflowDefinitionsWithHistory()
+	contracts, err := collectActionContracts(definitions, recovery)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	ids := make([]string, 0, len(contracts))
+	for id := range contracts {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
 	refs := make([]string, 0, len(definitions))
 	byRef := map[string]store.WorkflowDefinition{}
 	for _, definition := range definitions {
@@ -119,9 +343,9 @@ func main() {
 			DecisionRecordRequired: definition.OutcomeSchema.DecisionRecordRequired,
 		})
 	}
-	projection := contractProjection{SchemaVersion: "1.0", Actions: make([]actionContract, 0, len(ids)), Workflows: workflows, Teaching: store.WorkflowContractTeachingRules()}
+	projection := contractProjection{SchemaVersion: "2.0", Actions: make([]actionContract, 0, len(ids)), Workflows: workflows, Teaching: store.WorkflowContractTeachingRules(), SchemaRefs: collectSchemaRefs(definitions, recovery, history)}
 	for _, id := range ids {
-		projection.Actions = append(projection.Actions, payloads[id])
+		projection.Actions = append(projection.Actions, contracts[id])
 	}
 	encoder := json.NewEncoder(os.Stdout)
 	encoder.SetEscapeHTML(false)

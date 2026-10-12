@@ -55,7 +55,7 @@ func ReconstructSubjectAt(ctx context.Context, s *Store, subject SubjectRef, asO
 			"supply a recognized subject type and non-empty ID")
 	}
 
-	liveTx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	liveTx, err := beginReadTx(ctx, s.db)
 	if err != nil {
 		return snapshot, wrapFailure(KindUnavailable, "reconstruct_subject", "cannot begin live diagnostic read", true,
 			"retry once the database is readable", err)
@@ -75,7 +75,7 @@ func ReconstructSubjectAt(ctx context.Context, s *Store, subject SubjectRef, asO
 		return snapshot, err
 	}
 	defer func() { _ = scratch.Close() }()
-	tx, err := scratch.db.BeginTx(ctx, nil)
+	tx, err := beginOrdinaryTx(ctx, scratch.db)
 	if err != nil {
 		return snapshot, wrapFailure(KindUnavailable, "reconstruct_subject", "cannot begin scratch reconstruction", true,
 			"retry once the temporary database is available", err)
@@ -332,7 +332,7 @@ func populateReconstructionSnapshot(ctx context.Context, s *Store, snapshot *Rec
 			return newFailure(KindProjectionNotFound, "reconstruct_subject", "Project was not created by the requested sequence", false, "choose a later sequence")
 		}
 		snapshot.Project = &project
-		memberships, err := s.ProductsForProject(ctx, snapshot.Subject.ID)
+		memberships, err := productsForProject(ctx, s.db, snapshot.Subject.ID)
 		if err != nil {
 			return err
 		}
@@ -351,9 +351,6 @@ func populateReconstructionSnapshot(ctx context.Context, s *Store, snapshot *Rec
 			return err
 		}
 		work.Projects = projects
-		work.Active = work.Lifecycle == "in_progress"
-		work.Terminal = work.Lifecycle == "completed" || work.Lifecycle == "cancelled" || work.Lifecycle == "superseded"
-		work.Ready = work.Lifecycle == "needed"
 		snapshot.WorkProjects = work.Projects
 		snapshot.Relations, err = reconstructionRelations(ctx, s.db, snapshot.Subject.ID)
 		if err != nil {

@@ -1,6 +1,14 @@
 {
   "evidence": [
     {
+      "kind": "go_test",
+      "value": "internal/store.TestOwnerOracleImmutableProjection"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestOwnerOracleRepairFamily"
+    },
+    {
       "kind": "validator",
       "value": "scripts/test-generate-agent-lanes.py"
     },

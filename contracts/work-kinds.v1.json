@@ -28,19 +28,19 @@
       "agent_capture": "refused",
       "refusal": {
         "message": "obsolete work kind is not accepted",
-        "recovery": "use Initiative through the dedicated Initiative operation"
+        "recovery": "group the work in Linear through the Linear MCP server"
       }
     },
     {
       "kind": "initiative",
-      "summary": "An ordered container of member work items. Created only by the Initiative operation, which owns its membership rows.",
+      "summary": "A read-only historical container. Historical capture still folds during replay; no agent may capture or revise it. Grouping lives in Linear under CD-0213.",
       "stored": true,
       "fold_create": "allowed",
       "fold_revise": "refused",
       "agent_capture": "refused",
       "refusal": {
-        "message": "initiative work kind is reserved for the dedicated Initiative operation",
-        "recovery": "use Initiative through the dedicated Initiative operation"
+        "message": "initiative work kind is read-only under CD-0213",
+        "recovery": "group the work in Linear through the Linear MCP server"
       }
     },
     {

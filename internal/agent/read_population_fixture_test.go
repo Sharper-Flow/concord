@@ -17,8 +17,7 @@ import (
 
 // The read population fixture exists so the agent read surface can be
 // dispatched against a store that looks like a working operator store rather
-// than a single-row stub. The scale matches the C14 Product-row performance
-// fixture (100 Products, 700 work items), and on top of that each read family
+// than a single-row stub. At 100 Products and 700 work items, each read family
 // gets the rows its result schema declares: Domains carrying decision, spec,
 // and constitution law, an Initiative with entries, knowledge notes and law in
 // a committed Git home, work and Domain observations, a research pack, and a
@@ -30,7 +29,6 @@ const (
 	readPopulationKnowledgeHome = "proj-knowledge"
 	readPopulationWork          = "work-population"
 	readPopulationPeer          = "work-population-2"
-	readPopulationInitiative    = "population-initiative"
 	readPopulationRootDomain    = "product-root:population"
 	readPopulationChildDomain   = "sync"
 	readPopulationConstitution  = "CONST-0001"
@@ -38,25 +36,22 @@ const (
 	readPopulationSpec          = "SPEC-0201"
 	readPopulationLesson        = "knowledge-lesson-population"
 	readPopulationResource      = "population-queue"
-	readPopulationUnprocessed   = ".concord/docs/notes/unprocessed-observation.md"
 
 	readPopulationProducts       = 100
 	readPopulationWorkPerProduct = 7
 )
 
 // readPopulationBlockedSessionRef is the session_ref of the active approval
-// challenge the fixture seeds. The portfolio witness requires the focus's
-// blocked_sessions to name this session, so the routing detail is tied to the
-// seeded row rather than to any session the producer happened to carry.
+// challenge the fixture seeds. The blocked_sessions witness ties its routing
+// detail to this row rather than any session the producer happened to carry.
 const readPopulationBlockedSessionRef = "session-population"
 
 type readPopulationFixture struct {
-	store      *store.Store
-	service    *Service
-	grant      Authority
-	workID     string
-	initiative string
-	domainID   string
+	store    *store.Store
+	service  *Service
+	grant    Authority
+	workID   string
+	domainID string
 }
 
 // seedReadPopulationFixture builds the population-scale store. Every step uses
@@ -86,7 +81,7 @@ func seedReadPopulationFixture(t *testing.T) readPopulationFixture {
 	fx.seedResearchPack(t)
 
 	fx.service, _, fx.grant = newAuthorizedService(t, s, "client-1", "human-1",
-		[]Capability{"product_read", "work_define", "work_transition", "work_relate", "work_initiative"},
+		[]Capability{"product_read", "work_define", "work_transition", "work_relate"},
 		[]string{readPopulationProduct}, []string{readPopulationProject},
 		store.ProjectResolution{ProjectID: readPopulationProject})
 	fx.grant.SessionRef = "session-population"
@@ -95,19 +90,16 @@ func seedReadPopulationFixture(t *testing.T) readPopulationFixture {
 	// identity from the relation-creating event count, so the bulk-seeded
 	// blocker edges must land only after the last folded relation, or they
 	// would occupy the identity the fold assigns.
-	fx.initiative = fx.seedInitiative(t)
 	fx.seedWorktreeClaim(t)
 	fx.seedPopulationRows(t)
-	seedApprovalGatedFocus(t, s)
-	seedReadPopulationProductRows(t, s)
+	seedReadPopulationProducts(t, s)
 	return fx
 }
 
-// seedReadPopulationProductRows bulk-inserts the C14 population shape: 100
+// seedReadPopulationProducts bulk-inserts the population shape: 100
 // Products, two Projects each, seven work items per Product, memberships,
-// blocker edges, and one workflow instance per Product. The shape mirrors the
-// store's own seedProductRowPerformanceFixture at the same scale.
-func seedReadPopulationProductRows(t *testing.T, s *store.Store) {
+// blocker edges, and one workflow instance per Product.
+func seedReadPopulationProducts(t *testing.T, s *store.Store) {
 	t.Helper()
 	definition, err := store.BuiltinWorkflowDefinitionForRef("workflow.implementation")
 	if err != nil {
@@ -150,58 +142,6 @@ func seedReadPopulationProductRows(t *testing.T, s *store.Store) {
 	if _, err := s.DatabaseForTesting().ExecContext(context.Background(), statements.String()); err != nil {
 		t.Fatal(err)
 	}
-}
-
-// seedApprovalGatedFocus pins the focus work's workflow instance to the
-// approval checkpoint of the definition the instance is already pinned to:
-// the first human-checkpoint step carrying an approval-required action, the
-// shape productRowStepRequiresApprovalCached treats as approval-gated. The
-// producer then ranks approval_required first and fills focus.blocked_sessions
-// from the active challenge seeded beside the focus rows (issue #72). The
-// update lands after every dispatch-based seed, so only the read phase sees
-// the checkpoint state.
-func seedApprovalGatedFocus(t *testing.T, s *store.Store) {
-	t.Helper()
-	ctx := context.Background()
-	var ref, digest, currentStep string
-	var version int64
-	if err := s.DatabaseForTesting().QueryRowContext(ctx,
-		`SELECT definition_ref,definition_version,definition_digest,current_step FROM workflow_instances WHERE work_id=?`,
-		readPopulationWork).Scan(&ref, &version, &digest, &currentStep); err != nil {
-		t.Fatal(err)
-	}
-	registered, err := store.VerifyWorkflowDefinitionPin(store.BuiltinWorkflowRegistry(), store.WorkflowDefinitionPin{Ref: ref, Version: version, Digest: digest})
-	if err != nil {
-		t.Fatal(err)
-	}
-	checkpoint := approvalCheckpointStep(registered.Definition)
-	if checkpoint == "" {
-		t.Fatalf("pinned workflow definition %s declares no human-checkpoint step with an approval-required action", ref)
-	}
-	execPopulationStatement(t, s, `UPDATE workflow_instances SET current_step=? WHERE work_id=?`, checkpoint, readPopulationWork)
-}
-
-// approvalCheckpointStep names the first step of the definition whose kind is
-// a human checkpoint and which carries an approval-required action, or the
-// empty string when the definition declares none.
-func approvalCheckpointStep(definition store.WorkflowDefinition) string {
-	approvalRequired := make(map[string]bool, len(definition.ActionDefinitions))
-	for _, action := range definition.ActionDefinitions {
-		if action.Approval == store.ActionApprovalRequired {
-			approvalRequired[action.ID] = true
-		}
-	}
-	for _, step := range definition.StepGraph.Steps {
-		if step.Kind != store.WorkflowStepHumanCheckpoint {
-			continue
-		}
-		for _, action := range step.Actions {
-			if approvalRequired[action] {
-				return step.ID
-			}
-		}
-	}
-	return ""
 }
 
 // seedReadPopulationFocusWork creates the nonterminal work item every
@@ -258,9 +198,6 @@ func (fx readPopulationFixture) seedKnowledgeHome(t *testing.T) {
 		constitutionPath: "The child Domain owns population constitution law.\n",
 		decisionPath:     "The child Domain owns synchronization decisions.\n",
 		specPath:         "The child Domain owns the synchronization specification.\n",
-		// No manifest record, disposition, or exclusion names this file, so the
-		// unprocessed read answers it as one unprocessed path.
-		readPopulationUnprocessed: "An unprocessed observation awaiting formalization.\n",
 		lessonPath: "---\n" +
 			"id: " + readPopulationLesson + "\n" +
 			"type: lesson\n" +
@@ -438,24 +375,6 @@ func (fx readPopulationFixture) seedResearchPack(t *testing.T) {
 	}
 }
 
-// seedInitiative creates the Initiative through the real dispatch path and
-// adds the focus work as its one entry, so the entries read derives its
-// Product and carries a row.
-func (fx readPopulationFixture) seedInitiative(t *testing.T) string {
-	t.Helper()
-	env := fx.envelope(t)
-	create := dispatchMutation(t, fx.store, fx.service, InvokeRequest{Tool: "concord_work_initiative", Operation: "create", Input: json.RawMessage(`{"title":"Population initiative","value_statement":"Coordinate the population fixture","project_ids":["proj-web"],"idempotency_key":"population-initiative-create"}`)}, env)
-	if create.Outcome != OutcomeOK || create.ChangedRefs == nil || len(*create.ChangedRefs) != 1 {
-		t.Fatalf("initiative create outcome=%s changed=%+v err=%+v", create.Outcome, create.ChangedRefs, create.Error)
-	}
-	initiativeID := (*create.ChangedRefs)[0].ID
-	add := dispatchMutation(t, fx.store, fx.service, InvokeRequest{Tool: "concord_work_initiative", Operation: "add_entry", Input: json.RawMessage(`{"initiative_work_id":"` + initiativeID + `","child_work_id":"` + fx.workID + `","expected_version":2,"position":0,"required":true,"idempotency_key":"population-initiative-add"}`)}, fx.envelope(t))
-	if add.Outcome != OutcomeOK {
-		t.Fatalf("initiative add_entry outcome=%s err=%+v", add.Outcome, add.Error)
-	}
-	return initiativeID
-}
-
 // seedWorktreeClaim registers the focus Project's source repository and claims
 // the focus work's canonical worktree through the real dispatch path, so the
 // inspect read walks an actual Git worktree.
@@ -497,7 +416,7 @@ func (fx readPopulationFixture) envelope(t *testing.T) CallEnvelope {
 // row: a peer work item bound to the child Domain, Domain attachments and
 // observations, a relation edge, a peer message, a resource claim, an external
 // observation, an active approval challenge, a summary context boundary, and
-// one unmanifested markdown file in the knowledge home. Mutations and folds run
+// knowledge records in the knowledge home. Mutations and folds run
 // through the store's own APIs; the two fold-guarded SQL statements seed
 // authorization-shaped rows no public store API authors, mirroring the store
 // fixtures the bulk Product rows and workflow contracts already follow.
@@ -509,9 +428,9 @@ func (fx readPopulationFixture) seedPopulationRows(t *testing.T) {
 }
 
 // seedPopulationPeerWork creates a second work item bound to the child Domain
-// beside the focus work, then links it, messages it, and claims a resource
-// through the real dispatch path. The shared binding gives the Domain overlap
-// read an unresolved pair, and the link gives the relations read an edge.
+// beside the focus work, then folds a relation, messages it, and claims a resource.
+// The shared binding gives the Domain overlap read an unresolved pair, and the
+// folded relation gives the relations read an edge.
 func (fx readPopulationFixture) seedPopulationPeerWork(t *testing.T) {
 	t.Helper()
 	ctx := context.Background()
@@ -526,9 +445,19 @@ func (fx readPopulationFixture) seedPopulationPeerWork(t *testing.T) {
 
 	_, focusVersion := readWorkFromStore(t, fx.store, fx.workID)
 	_, peerVersion := readWorkFromStore(t, fx.store, readPopulationPeer)
-	link := dispatchMutation(t, fx.store, fx.service, InvokeRequest{Tool: "concord_work_relate", Operation: "link", Input: json.RawMessage(`{"from_work_id":"` + fx.workID + `","to_work_id":"` + readPopulationPeer + `","from_expected_version":` + strconv.FormatInt(focusVersion, 10) + `,"to_expected_version":` + strconv.FormatInt(peerVersion, 10) + `,"kind":"blocks","reason":"population relation row","idempotency_key":"population-link"}`)}, fx.envelope(t))
-	if link.Outcome != OutcomeOK {
-		t.Fatalf("population link outcome=%s err=%+v", link.Outcome, link.Error)
+	payload, err := json.Marshal(map[string]any{
+		"from": fx.workID, "to": readPopulationPeer, "kind": "blocks", "reason": "population relation row",
+		"expected_version": focusVersion, "resulting_version": focusVersion + 1,
+		"to_expected_version": peerVersion, "to_resulting_version": peerVersion + 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ApplyOperation(ctx, fx.store, store.Operation{
+		Events:           []store.Event{{EventID: "population-relation", Kind: "relation.added", SubjectType: store.SubjectWorkItem, SubjectID: fx.workID, Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: payload}},
+		ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, fx.workID): focusVersion, store.VersionRef(store.SubjectWorkItem, readPopulationPeer): peerVersion},
+	}); err != nil {
+		t.Fatalf("fold population relation: %v", err)
 	}
 	_, peerVersion = readWorkFromStore(t, fx.store, readPopulationPeer)
 	send := dispatchMutation(t, fx.store, fx.service, InvokeRequest{Tool: "concord_work_relate", Operation: "message_send", Input: json.RawMessage(`{"work_id":"` + readPopulationPeer + `","recipient_work_id":"` + fx.workID + `","body":"population message row","expected_version":` + strconv.FormatInt(peerVersion, 10) + `,"idempotency_key":"population-message"}`)}, fx.envelope(t))
@@ -571,9 +500,13 @@ func (fx readPopulationFixture) seedPopulationDomainRows(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("seed population resource attachments: %v", err)
 	}
-	observation := dispatchMutation(t, fx.store, fx.service, InvokeRequest{Tool: "concord_domain", Operation: "observation_record", Input: json.RawMessage(`{"product_id":"prod-alpha","domain_id":"sync","statement":"population domain observation","idempotency_key":"population-domain-observation"}`)}, fx.envelope(t))
-	if observation.Outcome != OutcomeOK {
-		t.Fatalf("population domain observation_record outcome=%s err=%+v", observation.Outcome, observation.Error)
+	if err := store.ApplyOperation(ctx, fx.store, store.Operation{Events: []store.Event{{
+		EventID: "population-domain-observation", Kind: "domain.observation_recorded",
+		SubjectType: store.SubjectProduct, SubjectID: readPopulationProduct, Actor: "agent",
+		OccurredAt: fixedTime(), PayloadVersion: 1,
+		Payload: json.RawMessage(`{"observation_id":"dob:0000000000000001","product_id":"prod-alpha","domain_id":"sync","statement":"population domain observation","refs":[],"tags":[]}`),
+	}}}); err != nil {
+		t.Fatalf("fold population Domain observation: %v", err)
 	}
 }
 

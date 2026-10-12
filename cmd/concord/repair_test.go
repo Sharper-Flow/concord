@@ -45,6 +45,14 @@ func newRepairFixture(t *testing.T, installerContent string) *repairFixture {
 	}
 	digest := sha256.Sum256([]byte(installerContent))
 	fixture.argvPath = filepath.Join(fixture.root, "argv")
+	workspaceRoot := t.TempDir()
+	t.Setenv("TMPDIR", workspaceRoot)
+	t.Cleanup(func() {
+		entries, err := os.ReadDir(workspaceRoot)
+		if err != nil || len(entries) != 0 {
+			t.Errorf("repair workspace cleanup: entries=%v, error=%v", entries, err)
+		}
+	})
 	archive := filepath.Join(fixture.artifactDir, "concord-v9.9.9.tar.gz")
 	if err := os.WriteFile(archive, []byte("release archive bytes"), 0o644); err != nil {
 		t.Fatal(err)
@@ -124,6 +132,76 @@ func TestRepairBacksUpTheWorkDatabaseBeforeRepair(t *testing.T) {
 	entries, err := os.ReadDir(filepath.Join(fixture.dataRoot, "backups"))
 	if err != nil || len(entries) == 0 {
 		t.Fatalf("no pre-repair backup was written under the data root: %v", err)
+	}
+}
+
+func TestRepairSnapshotRefusesInvalidSourceBeforeInstaller(t *testing.T) {
+	for _, invalid := range []string{"directory", "stat-error"} {
+		t.Run(invalid, func(t *testing.T) {
+			marker := filepath.Join(t.TempDir(), "installer-ran")
+			fixture := newRepairFixture(t, "#!/bin/sh\ntouch \""+marker+"\"\nexit 0\n")
+			path := filepath.Join(fixture.dataRoot, "store.db")
+			if invalid == "directory" {
+				if err := os.Mkdir(path, 0o700); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				if err := os.WriteFile(path, []byte("not a directory"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				t.Setenv(dbOverrideEnv, filepath.Join(path, "database"))
+			}
+			var code int
+			var errOut *bytes.Buffer
+			if invalid == "stat-error" {
+				// A nested override changes the manifest root, so test its stat error directly.
+				var out bytes.Buffer
+				errOut = &bytes.Buffer{}
+				code = backupBeforeRepair(&out, errOut, fixture.dataRoot, "v9.9.9")
+			} else {
+				code, _, errOut = runRepairStdin(t, `{"artifact_dir":"`+filepath.ToSlash(fixture.artifactDir)+`"}`)
+			}
+			if code != 1 || !strings.Contains(errOut.String(), "snapshot") || !strings.Contains(errOut.String(), filepath.Join(fixture.dataRoot, "backups", "pre-repair-")) {
+				t.Errorf("invalid source must refuse repair and name snapshot path: %d %s", code, errOut)
+			}
+			if _, err := os.Stat(marker); !os.IsNotExist(err) {
+				t.Fatalf("repair invoked the installer after snapshot refusal: %v", err)
+			}
+		})
+	}
+}
+
+func TestRepairSnapshotDoesNotMigratePendingBreakingStore(t *testing.T) {
+	path, root, before := snapshotUpgradeFixture(t)
+	var out, errOut bytes.Buffer
+	if code := backupBeforeRepair(&out, &errOut, root, "v-test"); code != 0 {
+		t.Fatalf("backup of pending-breaking source failed: %s", &errOut)
+	}
+	destination := strings.TrimSpace(strings.TrimPrefix(out.String(), "repair: database backup at "))
+	manifest, err := store.VerifyBackup(context.Background(), destination)
+	if err != nil || manifest.SchemaVersion != before.SchemaVersion {
+		t.Fatalf("repair snapshot changed schema or failed verification: %+v %v", manifest, err)
+	}
+	after, err := store.PlanUpgradeReadiness(context.Background(), path)
+	if err != nil || after.SchemaVersion != before.SchemaVersion {
+		t.Fatalf("repair migrated its source: %+v %v", after, err)
+	}
+}
+
+func TestRepairRemovesWorkspaceWhenInstallerFails(t *testing.T) {
+	fixture := newRepairFixture(t, "#!/bin/sh\nexit 23\n")
+	code, _, errOut := runRepairStdin(t, `{"artifact_dir":"`+filepath.ToSlash(fixture.artifactDir)+`"}`)
+	if code != 23 {
+		t.Fatalf("installer failure code = %d, want 23: %s", code, errOut.String())
+	}
+}
+
+func TestRepairRemovesWorkspaceWhenInterpreterCannotStart(t *testing.T) {
+	fixture := newRepairFixture(t, "#!/bin/sh\nexit 0\n")
+	repairInterpreter = filepath.Join(fixture.root, "missing-python")
+	code, _, errOut := runRepairStdin(t, `{"artifact_dir":"`+filepath.ToSlash(fixture.artifactDir)+`"}`)
+	if code != 1 || !strings.Contains(errOut.String(), "cannot run the verified installer") {
+		t.Fatalf("missing interpreter: code=%d, error=%s", code, errOut.String())
 	}
 }
 

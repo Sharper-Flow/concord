@@ -18,9 +18,9 @@ declares a narrower type. `@opencode-ai/plugin@1.18.23` declares `ToolResult`
 as a string, or an object carrying a string `output`.
 
 The pinned host does not tolerate the wider value. At
-`packages/opencode/src/tool/registry.ts:155` core reads
+[`packages/opencode/src/tool/registry.ts:155`](https://github.com/anomalyco/opencode/blob/ef2880f379129aa048be9e9353e30aa168d42c17/packages/opencode/src/tool/registry.ts#L155) core reads
 `typeof result === "string" ? result : result.output`. It passes that value to
-`truncate.output` at line 159. `packages/opencode/src/tool/truncate.ts:85`
+`truncate.output` at line 159. [`packages/opencode/src/tool/truncate.ts:85`](https://github.com/anomalyco/opencode/blob/ef2880f379129aa048be9e9353e30aa168d42c17/packages/opencode/src/tool/truncate.ts#L85)
 declares the parameter `text: string` and line 90 calls `text.split("\n")`.
 The function holds no guard for an absent value.
 

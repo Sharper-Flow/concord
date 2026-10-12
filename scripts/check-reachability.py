@@ -24,8 +24,7 @@ attached rather than an absence nobody noticed.
 
 A deliberate act still needs an owner. An `outstanding` exception names the
 issue that owns closing it, and scripts/coverage_state.py rejects a pointer
-whose issue has closed — without that check, #219 closed and this manifest kept
-citing it for four days while every run stayed green (#451).
+whose issue has closed.
 """
 from __future__ import annotations
 

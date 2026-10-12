@@ -31,14 +31,14 @@ follows them without restating the ranked list.
 
 ### 1.1 Spec law, browsable by Product and Domain
 - The spec system (capabilities → requirements → scenarios) is **navigable by
-  Product → Domain**. Open Concord → see the Product → Domain hierarchy and
-  typed architecture relations → drill into a Domain's current capabilities,
+  Product → Domain**. Open Concord → reach current Domain law and unresolved
+  work overlap → drill into a Domain's current capabilities,
   requirements, scenarios, decisions, and deltas.
 - Public predecessor evidence proved the value of bounded spec list/show/search;
   Concord redesigns that outcome as a Domain-bound, browsable surface rather than
   calling or mirroring predecessor runtime state.
-- The primary operator surface is the **Product-first terminal launcher**, not a
-  web admin panel. Any grid/table view is an optional projection.
+- The primary operator surface follows [`priorities.md`](./priorities.md).
+  Any grid/table view is an optional projection.
 - Connects to [`specs-as-laws.md`](./specs-as-laws.md): the laws are **visible**,
   not hidden. A legislator can't govern what they can't read.
 
@@ -50,7 +50,7 @@ follows them without restating the ranked list.
   document trail, end to end.
 - Not opaque files; **navigable, linked, queryable**.
 - They are reached from the **Product → Domain** view, not from a flat list or
-  Initiative hierarchy.
+  an external planning hierarchy.
 
 ### 1.3 Lifecycle truth, factored
 - See [`clarifications.md`](./clarifications.md) R3.
@@ -116,10 +116,10 @@ guesses. CD-0006 R3's declared edges, completion notices, boundary verdicts, and
 version stamps are authoritative; browse views must not invent or silently clear
 impact state.
 
-CD-0041 adds the active architecture footprint: affected Domains, exact law pins,
+CD-0222 adds the active architecture footprint: affected Domains, exact law pins,
 write overlaps, and the current version-pinned resolution. The default Domain
-view surfaces unresolved overlap as a blocking problem. Initiative membership is
-display context only and never clears that state.
+view surfaces unresolved overlap as a blocking problem. Business grouping lives
+in Linear through the Linear MCP server under CD-0213 and never clears that state.
 
 ---
 

@@ -158,16 +158,17 @@ func TestFailedReviewCheckpointCorrectionBoundaryApprovesExactOperatorOnly(t *te
 	// 1062 shape behind the amended admission.
 	attemptID := "attempt:work-1:failed-review"
 	lane := deliveryRecoveryLane(t, "review")
-	reviewPacket := bindPacketToRecordedState(t, s, map[string]any{"schema_version": "1.0", "attempt_id": attemptID, "lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest, "work_id": "work-1", "step_id": "acceptance", "inputs": map[string]any{"task": "review the delivered subject at the acceptance checkpoint", "constraints": []string{"preserve the approved contract"}}})
+	reviewPacket := bindPacketToRecordedState(t, s, map[string]any{"schema_version": store.WorkerPacketSchemaVersion, "attempt_id": attemptID, "lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest, "work_id": "work-1", "step_id": "acceptance", "inputs": map[string]any{"task": "review the delivered subject at the acceptance checkpoint", "constraints": []string{"preserve the approved contract"}}})
 	if dispatched := invoke(map[string]any{"work_id": "work-1", "expected_version": workVersion(t, s, "work-1"), "action_id": "dispatch_worker", "fields": map[string]any{"attempt_id": attemptID, "worker_packet": reviewPacket}, "idempotency_key": "checkpoint-review-dispatch"}); dispatched.Outcome != OutcomeOK {
 		t.Fatalf("checkpoint review dispatch: %+v", dispatched.Error)
 	}
+	// The worker session's lane dispatch precedes its terminal fact; the
+	// canonical head then derives the workflow failure record from the
+	// attempt's own terminal event through the live worker-evidence seam
+	// (CD-0198 D5). The closed live union publishes no record_worker_failure
+	// authoring shape (CD-0218 D2).
 	var packetDigest string
-	var reviewEpoch int64
 	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.worker_packet_digest') FROM domain_events WHERE subject_id='work-1' AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' ORDER BY seq DESC LIMIT 1`, store.WorkflowActionCompleted).Scan(&packetDigest); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.attempt_epoch') FROM domain_events WHERE subject_id='work-1' AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' ORDER BY seq DESC LIMIT 1`, store.WorkflowActionStarted).Scan(&reviewEpoch); err != nil {
 		t.Fatal(err)
 	}
 	laneDispatch := store.Event{EventID: "checkpoint-review-dispatch-" + attemptID, Kind: store.WorkerDispatched, SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: 2, Payload: retryJSON(store.WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, PacketDigest: packetDigest, ReadbackModel: "openai/gpt-5.6-luna", PacketSchemaVersion: store.WorkerPacketSchemaVersion, ReportSchemaVersion: store.WorkerReportSchemaVersion})}
@@ -180,19 +181,16 @@ func TestFailedReviewCheckpointCorrectionBoundaryApprovesExactOperatorOnly(t *te
 		if _, err := store.AppendLaneActorDispatchTx(ctx, tx, enriched); err != nil {
 			return err
 		}
-		_, err = store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{laneFailure}})
+		_, err = store.ApplyWorkerEvidenceOperationTx(ctx, tx, laneFailure)
 		return err
 	}); err != nil {
 		t.Fatalf("seed the failed review lane report: %v", err)
 	}
 	reviewer := store.WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/reviewer", SessionRef: "session/work-1-reviewer", ActorClass: store.ActorAgent}
 	runVerificationStoreAction(t, s, "record_verdict", map[string]any{
-		"contract_version": 1, "predicate_id": "predicate:primary", "verdict_kind": "outcome_mismatch",
-		"evaluation_evidence": []string{"evidence:checkpoint-review"}, "incomparable_with_approved": true,
+		"contract_version": 1, "verdicts": []map[string]any{{"predicate_id": "predicate:primary", "verdict_kind": "outcome_mismatch",
+			"evaluation_evidence": []string{"evidence:checkpoint-review"}, "incomparable_with_approved": true}},
 	}, reviewer, nil, "checkpoint-mismatch")
-	if recorded := invoke(map[string]any{"work_id": "work-1", "expected_version": workVersion(t, s, "work-1"), "action_id": "record_worker_failure", "fields": map[string]any{"attempt_id": attemptID, "attempt_epoch": reviewEpoch}, "idempotency_key": "checkpoint-review-record"}); recorded.Outcome != OutcomeOK {
-		t.Fatalf("record_worker_failure at the acceptance checkpoint: %+v", recorded.Error)
-	}
 
 	// The payload gates fire before the approval wall: a predicate without a
 	// current non-ok verdict and unbound evidence are refused by name.

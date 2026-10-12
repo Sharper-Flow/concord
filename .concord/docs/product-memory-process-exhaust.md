@@ -5,7 +5,7 @@
 > **Decision:** PM9; binding CD-0002 amendment.
 > **Binding inputs:** PM1 Q7/Q9/Q10, accepted PM2–PM8, CD-0002 I1–I6,
 > PM6 publish proof, and PM7 retention.
-> **Does not decide:** PM10 backup/restore, C14/C15, TS1–TS9, external CI retention,
+> **Does not decide:** PM10 backup/restore, C15, TS1–TS9, external CI retention,
 > or a durable WIP-byte store.
 
 ## Context
@@ -36,11 +36,18 @@ the only receipt needed:
 3. PM6's verified compaction-link event records the canonical note locator/proof; and
 4. PM7's optional prune event records the later projection boundary.
 
-Process exhaust—sub-agent reports, briefing digests, tool logs, retry traces,
-intermediate snapshots, WIP test output, and screenshots—remains producer-owned and
-outside Concord. It may be discarded by that producer after the PM6 durable sequence
-commits. Concord does not discover, copy, enumerate, attest to, retain, or prove
-deletion of those bytes.
+External process exhaust—sub-agent reports, briefing digests, tool logs, retry
+traces, intermediate snapshots, WIP test output, and screenshots—remains
+producer-owned outside Concord. Its producer may discard it after the PM6
+sequence commits. Concord neither imports those bytes nor proves their deletion.
+
+Native oracle streams are core-owned verification observations under CD-0096 D3,
+not imported external process exhaust. The existing verify lease retains one
+bounded raw stdout `BLOB` and one raw stderr `BLOB` until lease/work deletion.
+These bytes grant no knowledge, independent evidence, or acceptance authority.
+They enter no generic metadata, concise note, or separate process-exhaust store.
+This narrow native retention changes neither the PM6 receipt sequence nor the
+salvage obligation for external reports and traces. PM7 owns its deletion boundary.
 
 ### Required acceptance synchronization
 
@@ -144,7 +151,7 @@ into a storage, backup, and GC obligation.
 
 ## 8. Explicit deferrals and reopen criteria
 
-PM9 does not decide PM10 recovery, external CI retention, C14/C15, or TS surfaces.
+PM9 does not decide PM10 recovery, external CI retention, C15, or TS surfaces.
 
 Reopen PM9 only when a recurring, named reader must determine a fact that the terminal
 event, approved note, verified locator, ordinary external link, and bounded state cannot

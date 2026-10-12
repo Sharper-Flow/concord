@@ -22,9 +22,13 @@ not history, however old it is.
 Never delete tests, validation, error handling, or observability to reduce the
 size of something.
 
-Comments state what the code does now and why it is not obvious. They are not a
-changelog. Write no diff labels, no account of what the code used to be, and no
-reference to the conversation that produced it.
+Commit only durable content. A committed comment or document states intent, a
+constraint that is not obvious, or Product law. It carries only what the code,
+types, tests, and generated contracts cannot show. Change history and
+provenance, such as issue, pull request, and work identifiers, belong in
+commits, pull requests, and work records. Write no diff labels, no account of
+earlier versions of the code, and no reference to the conversation that
+produced it.
 
 Leave what you touch better than you found it, within the work you were asked to
 do. Fix the same fault where it recurs nearby. Raise anything wider separately

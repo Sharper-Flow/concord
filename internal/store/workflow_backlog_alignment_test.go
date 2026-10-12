@@ -7,12 +7,10 @@ import (
 	"time"
 )
 
-// CD-0156: Concord mandates the backlog check. The alignment step is spliced
-// into workflow.implementation between proposal and discovery, and into
-// workflow.break_fix between reproduce and diagnose. The step declares one
-// advance action, record_alignment, so the single forward edge cannot be
-// crossed without the search, and the search becomes structural rather than
-// discretionary.
+// CD-0156 mandates the backlog check. The canonical implementation head
+// places alignment between proposal and design, with record_alignment as
+// its only advance action. Break-fix records the check in its merged
+// diagnosis step under CD-0198 D2.
 
 // alignmentAdvanceExits returns every action on the alignment step whose
 // execution mode advances the step.
@@ -37,14 +35,18 @@ func alignmentAdvanceExits(t *testing.T, definition WorkflowDefinition, stepID s
 
 func TestAlignmentStepHasOnlyRecordAlignmentAsItsAdvanceExit(t *testing.T) {
 	t.Parallel()
+	// CD-0198 D2 narrows the step-shape obligation to
+	// workflow.implementation: break_fix folds the alignment step into the
+	// merged diagnosis step, whose shape the CD-0198 tests hold. The
+	// canonical implementation head removes the discovery step, so the
+	// alignment step's single forward exit lands on design.
 	cases := []struct {
 		ref         string
 		afterStep   string
 		nextStep    string
 		wantVersion int64
 	}{
-		{"workflow.implementation", "proposal", "discovery", 26},
-		{"workflow.break_fix", "reproduce", "diagnose", 23},
+		{"workflow.implementation", "proposal", "design", 30},
 	}
 	for _, testCase := range cases {
 		registered, err := BuiltinWorkflowDefinitionForRef(testCase.ref)
@@ -176,8 +178,8 @@ func TestRecordAlignmentRefusesInconsistentOutcomeAndRelatedIds(t *testing.T) {
 	if err := s.DatabaseForTesting().QueryRow(`SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&step); err != nil {
 		t.Fatal(err)
 	}
-	if step != "discovery" {
-		t.Fatalf("after record_alignment the workflow sits at %q, want discovery", step)
+	if step != "design" {
+		t.Fatalf("after record_alignment the workflow sits at %q, want design", step)
 	}
 	var searchedRecorded, outcome string
 	var related []string
@@ -235,11 +237,11 @@ func TestPriorPinnedDefinitionVersionsReplayUnchanged(t *testing.T) {
 	}
 	for pin, digest := range workflowDefinitionVersionPins {
 		ref, version := pin[0], pin[1]
-		entry, ok := builtinWorkflowRegistry.Lookup(ref, pinVersion(t, version))
+		entry, ok := BuiltinWorkflowRegistry().Lookup(ref, pinVersion(t, version))
 		if !ok {
 			t.Fatalf("%s version %s is not registered", ref, version)
 		}
-		if err := builtinWorkflowRegistry.Verify(ref, pinVersion(t, version), digest); err != nil {
+		if err := BuiltinWorkflowRegistry().Verify(ref, pinVersion(t, version), digest); err != nil {
 			t.Fatalf("%s version %s pin does not verify: %v", ref, version, err)
 		}
 		if pinVersion(t, version) >= current[ref] {
@@ -268,7 +270,7 @@ func TestPriorPinnedDefinitionVersionsReplayUnchanged(t *testing.T) {
 		if !held {
 			t.Fatalf("%s version %d is a CD-0156 predecessor without a digest pin", ref, definition.Version)
 		}
-		if err := builtinWorkflowRegistry.Verify(ref, definition.Version, digest); err != nil {
+		if err := BuiltinWorkflowRegistry().Verify(ref, definition.Version, digest); err != nil {
 			t.Fatalf("%s version %d does not verify: %v", ref, definition.Version, err)
 		}
 	}
@@ -294,7 +296,8 @@ func TestWorkRemovalClearsBacklogAlignmentAtBothEnds(t *testing.T) {
 			request.WorkID = testCase.removed
 			request.OperationID = "remove-align-" + testCase.removed
 			request.IdempotencyKey = "remove-align-key-" + testCase.removed
-			if _, err := s.ShelveWork(ctx, request); err != nil {
+			request.Reason = "shelved"
+			if _, err := s.RemoveWork(ctx, request); err != nil {
 				t.Fatalf("removing %s left a backlog alignment row behind: %v", testCase.removed, err)
 			}
 			var rows int

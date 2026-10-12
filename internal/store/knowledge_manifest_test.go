@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -443,15 +444,16 @@ func TestQueryQ9StructuredTextRankingIsCursorSafe(t *testing.T) {
 	if err != nil || len(first.Items) != 1 || first.Items[0].ID != "sqlite" || first.NextCursor == nil {
 		t.Fatalf("first page = %#v, err %v", first, err)
 	}
-	firstCursor, err := decodeKnowledgeCursor(*first.NextCursor, Q9Request{Text: "SQLITE", Limit: 1, Home: home}, nil, nil)
-	if err != nil || firstCursor.Version != 2 || firstCursor.MatchClass != 0 {
+	digest := knowledgeSourceSetDigest([]KnowledgeHome{home})
+	firstCursor, err := decodeFederatedKnowledgeCursor(*first.NextCursor, Q9Request{Text: "SQLITE", Limit: 1, Home: home}, nil, nil, digest)
+	if err != nil || firstCursor.Version != 3 || firstCursor.MatchClass != 0 {
 		t.Fatalf("first cursor = %#v, err %v", firstCursor, err)
 	}
 	second, err := s.QueryQ9(ctx, Q9Request{Text: "SQLITE", Limit: 1, Cursor: *first.NextCursor, Home: home})
 	if err != nil || len(second.Items) != 1 || second.Items[0].ID != "newer-text" || second.NextCursor == nil {
 		t.Fatalf("second page = %#v, err %v", second, err)
 	}
-	secondCursor, err := decodeKnowledgeCursor(*second.NextCursor, Q9Request{Text: "SQLITE", Limit: 1, Home: home}, nil, nil)
+	secondCursor, err := decodeFederatedKnowledgeCursor(*second.NextCursor, Q9Request{Text: "SQLITE", Limit: 1, Home: home}, nil, nil, digest)
 	if err != nil || secondCursor.MatchClass != 1 {
 		t.Fatalf("second cursor = %#v, err %v", secondCursor, err)
 	}
@@ -463,12 +465,46 @@ func TestQueryQ9StructuredTextRankingIsCursorSafe(t *testing.T) {
 	if err != nil || len(fourth.Items) != 0 || fourth.NextCursor != nil {
 		t.Fatalf("fourth page = %#v, err %v", fourth, err)
 	}
-	legacy, err := encodeKnowledgeCursor(knowledgeCursor{Version: 1, Text: "SQLITE", HomeProjectID: home.HomeProjectID, HomeLocatorID: home.HomeLocatorID, HeadRef: home.HeadRef, CompletedAt: first.Items[0].CompletedAt, ID: first.Items[0].ID})
+	for _, version := range []int{1, 2} {
+		legacy := base64.RawURLEncoding.EncodeToString([]byte(fmt.Sprintf(`{"version":%d,"Text":"SQLITE","HomeProjectID":"project","HomeLocatorID":"locator","HeadRef":"HEAD","match_class":0,"CompletedAt":"2026-08-08T00:00:00Z","ID":"sqlite"}`, version)))
+		_, err = s.QueryQ9(ctx, Q9Request{Text: "SQLITE", Limit: 1, Cursor: legacy, Home: home})
+		assertFailureKind(t, err, KindInvalidCursor)
+	}
+	_, err = s.QueryQ9(ctx, Q9Request{Text: "SQLITE", Limit: 1, Cursor: withCursorKey(t, *first.NextCursor, "Since", "2026-08-09T00:00:00Z"), Home: home})
+	assertFailureKind(t, err, KindInvalidCursor)
+	_, err = s.QueryQ9(ctx, Q9Request{Text: "SQLITE", Limit: 1, Cursor: withCursorSuffix(t, *first.NextCursor, " {}"), Home: home})
+	assertFailureKind(t, err, KindInvalidCursor)
+}
+
+// withCursorSuffix appends bytes after a knowledge cursor's JSON object. A
+// cursor is one JSON value; trailing data is a malformed cursor.
+func withCursorSuffix(t *testing.T, raw, suffix string) string {
+	t.Helper()
+	b, err := base64.RawURLEncoding.DecodeString(raw)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = s.QueryQ9(ctx, Q9Request{Text: "SQLITE", Limit: 1, Cursor: legacy, Home: home})
-	assertFailureKind(t, err, KindInvalidCursor)
+	return base64.RawURLEncoding.EncodeToString(append(b, suffix...))
+}
+
+// withCursorKey re-encodes a knowledge cursor with one extra key, the shape
+// of a cursor minted under a retired filter. Q9 dropped its time window
+// (CD-0020 D2); a cursor bound to a window must not resume a windowless query.
+func withCursorKey(t *testing.T, raw, key, value string) string {
+	t.Helper()
+	b, err := base64.RawURLEncoding.DecodeString(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fields map[string]any
+	if err := json.Unmarshal(b, &fields); err != nil {
+		t.Fatal(err)
+	}
+	fields[key] = value
+	if b, err = json.Marshal(fields); err != nil {
+		t.Fatal(err)
+	}
+	return base64.RawURLEncoding.EncodeToString(b)
 }
 
 func TestQueryQ9StructuredTextExactFieldsAreCaseInsensitiveAndUnique(t *testing.T) {

@@ -14,14 +14,25 @@ import (
 
 func TestBuiltinWorkflowRegistryHasTheSevenContractFamilies(t *testing.T) {
 	t.Parallel()
-	defs := BuiltinWorkflowDefinitions()
+	// The live selector publishes exactly the three authoring heads; the
+	// frozen enumeration keeps all seven family heads registered for decode
+	// and replay, and the shape assertions below run against that frozen set.
+	live := BuiltinWorkflowDefinitions()
+	liveRefs := make([]string, len(live))
+	for index, definition := range live {
+		liveRefs[index] = definition.Ref
+	}
+	if !reflect.DeepEqual(liveRefs, []string{"workflow.implementation", "workflow.break_fix", "workflow.research"}) {
+		t.Fatalf("live authoring heads = %v, want the three retained families in chain order", liveRefs)
+	}
+	defs := builtinWorkflowFrozenHeads()
 	if len(defs) != 7 {
-		t.Fatalf("built-in definition count = %d, want 7", len(defs))
+		t.Fatalf("frozen definition count = %d, want 7", len(defs))
 	}
 	registry := NewWorkflowDefinitionRegistry()
 	wantSteps := map[string][]string{
-		"workflow.implementation":     {"proposal", "alignment", "discovery", "design", "planning", "execution", "refine", "delivery", "acceptance", "release"},
-		"workflow.break_fix":          {"reproduce", "alignment", "diagnose", "planning", "repair", "refine", "delivery", "verify", "complete"},
+		"workflow.implementation":     {"proposal", "alignment", "design", "planning", "execution", "refine", "delivery", "acceptance", "release"},
+		"workflow.break_fix":          {"diagnosis", "planning", "repair", "refine", "delivery", "verify", "complete"},
 		"workflow.research":           {"frame", "investigate", "findings", "conclude", "complete"},
 		"workflow.architecture_spike": {"frame", "research", "options", "poc_optional", "decision_record", "review", "acceptance", "complete"},
 		"workflow.ops_runbook":        {"plan", "approval", "execute", "health", "rollback_optional", "cleanup", "complete"},
@@ -29,9 +40,9 @@ func TestBuiltinWorkflowRegistryHasTheSevenContractFamilies(t *testing.T) {
 		"workflow.generic_one_off":    {"define", "execute", "verify", "complete"},
 	}
 	wantActions := map[string][]string{
-		"workflow.implementation":     {"record_proposal", "record_alignment", "record_discovery", "record_design", "approve_contract", "start_execution", "checkpoint_execution", "bind_evidence", "declare_impact", "link_successor", "record_delivery", "start_refine", "checkpoint_refine", "record_verdict", "confirm_premise", "complete", "checkpoint_context", "cross_context_boundary", "accept_worker_result", "record_worker_failure", "dispatch_worker", "request_correction", "accept_worker_evidence", "record_worker_job", "record_work_context"},
-		"workflow.break_fix":          {"record_reproduction", "record_alignment", "record_root_cause", "approve_contract", "start_repair", "checkpoint_repair", "bind_evidence", "link_successor", "record_delivery", "start_refine", "checkpoint_refine", "record_verdict", "confirm_premise", "complete", "checkpoint_context", "cross_context_boundary", "accept_worker_result", "record_worker_failure", "dispatch_worker", "request_correction", "accept_worker_evidence", "record_worker_job", "record_work_context"},
-		"workflow.research":           {"frame_research", "approve_contract", "record_finding", "revise_candidates", "bind_evidence", "record_report", "link_successor", "record_conclusion", "record_verdict", "confirm_premise", "complete", "checkpoint_context", "cross_context_boundary", "accept_worker_result", "record_worker_failure", "dispatch_worker", "accept_worker_evidence", "record_work_context"},
+		"workflow.implementation":     {"record_proposal", "record_alignment", "record_design", "approve_contract", "start_execution", "checkpoint_execution", "bind_evidence", "declare_impact", "link_successor", "record_delivery", "checkpoint_refine", "record_verdict", "confirm_premise", "complete", "checkpoint_context", "cross_context_boundary", "accept_worker_result", "dispatch_worker", "request_correction", "accept_worker_evidence", "record_worker_job", "record_work_context"},
+		"workflow.break_fix":          {"record_diagnosis", "approve_contract", "checkpoint_repair", "bind_evidence", "link_successor", "record_delivery", "checkpoint_refine", "record_verdict", "confirm_premise", "complete", "checkpoint_context", "cross_context_boundary", "accept_worker_result", "dispatch_worker", "request_correction", "accept_worker_evidence", "record_worker_job", "record_work_context"},
+		"workflow.research":           {"frame_research", "approve_contract", "record_finding", "revise_candidates", "bind_evidence", "record_report", "link_successor", "record_conclusion", "record_verdict", "confirm_premise", "complete", "checkpoint_context", "cross_context_boundary", "accept_worker_result", "dispatch_worker", "accept_worker_evidence", "record_work_context"},
 		"workflow.architecture_spike": {"frame_question", "approve_contract", "record_research", "bind_evidence", "record_option", "start_poc", "checkpoint_poc", "discard_poc", "record_delivery", "record_decision", "record_verdict", "accept_decision", "confirm_premise", "complete", "checkpoint_context", "cross_context_boundary", "accept_worker_result", "record_worker_failure", "dispatch_worker", "accept_worker_evidence", "record_work_context"},
 		"workflow.ops_runbook":        {"approve_contract", "approve_operation", "start_run", "checkpoint_run", "bind_evidence", "add_condition", "resolve_condition", "cancel_condition", "record_delivery", "record_health", "record_verdict", "rollback_run", "cleanup_run", "confirm_premise", "complete", "checkpoint_context", "cross_context_boundary", "accept_worker_result", "record_worker_failure", "dispatch_worker", "accept_worker_evidence", "record_work_context"},
 		"workflow.static_analysis":    {"approve_contract", "declare_scope", "run_analysis", "checkpoint_analysis", "record_delivery", "record_report", "bind_evidence", "record_verdict", "confirm_premise", "complete", "checkpoint_context", "cross_context_boundary", "accept_worker_result", "record_worker_failure", "dispatch_worker", "accept_worker_evidence", "record_work_context"},
@@ -41,8 +52,8 @@ func TestBuiltinWorkflowRegistryHasTheSevenContractFamilies(t *testing.T) {
 		"workflow.implementation": "release", "workflow.break_fix": "complete", "workflow.research": "complete", "workflow.architecture_spike": "complete", "workflow.ops_runbook": "complete", "workflow.static_analysis": "complete", "workflow.generic_one_off": "complete",
 	}
 	wantEdges := map[string][]WorkflowEdge{
-		"workflow.implementation":     {{"proposal", "alignment", WorkflowEdgeForward}, {"alignment", "discovery", WorkflowEdgeForward}, {"discovery", "design", WorkflowEdgeForward}, {"design", "planning", WorkflowEdgeForward}, {"planning", "execution", WorkflowEdgeForward}, {"execution", "refine", WorkflowEdgeForward}, {"refine", "delivery", WorkflowEdgeForward}, {"delivery", "acceptance", WorkflowEdgeForward}, {"acceptance", "release", WorkflowEdgeForward}, {"execution", "execution", WorkflowEdgeRetry}, {"acceptance", "refine", WorkflowEdgeFailure}},
-		"workflow.break_fix":          {{"reproduce", "alignment", WorkflowEdgeForward}, {"alignment", "diagnose", WorkflowEdgeForward}, {"diagnose", "planning", WorkflowEdgeForward}, {"planning", "repair", WorkflowEdgeForward}, {"repair", "refine", WorkflowEdgeForward}, {"refine", "delivery", WorkflowEdgeForward}, {"delivery", "verify", WorkflowEdgeForward}, {"verify", "complete", WorkflowEdgeForward}, {"repair", "repair", WorkflowEdgeRetry}, {"verify", "refine", WorkflowEdgeFailure}},
+		"workflow.implementation":     {{"proposal", "alignment", WorkflowEdgeForward}, {"alignment", "design", WorkflowEdgeForward}, {"design", "planning", WorkflowEdgeForward}, {"planning", "execution", WorkflowEdgeForward}, {"execution", "refine", WorkflowEdgeForward}, {"refine", "delivery", WorkflowEdgeForward}, {"delivery", "acceptance", WorkflowEdgeForward}, {"acceptance", "release", WorkflowEdgeForward}, {"execution", "execution", WorkflowEdgeRetry}, {"acceptance", "refine", WorkflowEdgeFailure}},
+		"workflow.break_fix":          {{"diagnosis", "planning", WorkflowEdgeForward}, {"planning", "repair", WorkflowEdgeForward}, {"repair", "refine", WorkflowEdgeForward}, {"refine", "delivery", WorkflowEdgeForward}, {"delivery", "verify", WorkflowEdgeForward}, {"verify", "complete", WorkflowEdgeForward}, {"repair", "repair", WorkflowEdgeRetry}, {"verify", "refine", WorkflowEdgeFailure}},
 		"workflow.research":           {{"frame", "investigate", WorkflowEdgeForward}, {"investigate", "findings", WorkflowEdgeForward}, {"findings", "conclude", WorkflowEdgeForward}, {"conclude", "complete", WorkflowEdgeForward}},
 		"workflow.architecture_spike": {{"frame", "research", WorkflowEdgeForward}, {"research", "options", WorkflowEdgeForward}, {"options", "poc_optional", WorkflowEdgeForward}, {"poc_optional", "decision_record", WorkflowEdgeForward}, {"decision_record", "review", WorkflowEdgeForward}, {"review", "acceptance", WorkflowEdgeForward}, {"acceptance", "complete", WorkflowEdgeForward}, {"options", "decision_record", WorkflowEdgeOptional}, {"poc_optional", "poc_optional", WorkflowEdgeRetry}},
 		"workflow.ops_runbook":        {{"plan", "approval", WorkflowEdgeForward}, {"approval", "execute", WorkflowEdgeForward}, {"execute", "health", WorkflowEdgeForward}, {"health", "rollback_optional", WorkflowEdgeForward}, {"rollback_optional", "cleanup", WorkflowEdgeForward}, {"cleanup", "complete", WorkflowEdgeForward}, {"health", "cleanup", WorkflowEdgeOptional}, {"execute", "execute", WorkflowEdgeRetry}},
@@ -131,8 +142,10 @@ func TestRefinementStepsRequireArtifactEvidenceAndHaveNoSkipEdge(t *testing.T) {
 		if !containsString(evidenceStrings(definition.RequiredEvidenceKinds), string(EvidenceArtifact)) {
 			t.Fatalf("%s definition evidence = %v, want artifact", definition.Ref, definition.RequiredEvidenceKinds)
 		}
-		if !reflect.DeepEqual(refine.Actions[:4], []string{"start_refine", "checkpoint_refine", "bind_evidence", "record_delivery"}) {
-			t.Fatalf("%s refine actions = %v, want fenced, checkpoint, evidence, delivery", definition.Ref, refine.Actions)
+		// The derived-start shape: the qualifying checkpoint opens the fence,
+		// and the evidence, delivery, and continuity actions follow it.
+		if !reflect.DeepEqual(refine.Actions[:4], []string{"checkpoint_refine", "bind_evidence", "record_delivery", "checkpoint_context"}) {
+			t.Fatalf("%s refine actions = %v, want derived-start checkpoint, evidence, delivery, continuity", definition.Ref, refine.Actions)
 		}
 		var delivery WorkflowStep
 		for _, candidate := range definition.StepGraph.Steps {
@@ -173,7 +186,7 @@ func TestBuiltinWorkflowDefinitionsMatchExactPhaseBContractMetadata(t *testing.T
 		"workflow.static_analysis":    {evidence: []EvidenceKind{EvidenceArtifact, EvidenceReview}, outcome: WorkflowOutcomeSchema{DefaultKind: PredicateCheck, AllowedKinds: []PredicateKind{PredicateExists, PredicateAbsent, PredicateCheck}, AllowedOutcomeTokens: []string{}}, success: []WorkKind{WorkKindImplementation, WorkKindBreakFix, WorkKindResearch}, approval: map[string]ActionApproval{"approve_contract": ActionApprovalRequired, "confirm_premise": ActionApprovalRequired}, external: map[string]ActionConsequence{"run_analysis": ActionExternalEffect, "checkpoint_analysis": ActionExternalEffect}},
 		"workflow.generic_one_off":    {evidence: []EvidenceKind{EvidenceArtifact}, outcome: WorkflowOutcomeSchema{DefaultKind: PredicateOutcome, AllowedKinds: []PredicateKind{PredicateExists, PredicateAbsent, PredicateOutcome, PredicateCheck}, AllowedOutcomeTokens: []string{"no_change", "accepted_decision", "insufficient_evidence", "resolved", "remediated", "report_recorded", "completed", "operator_defined"}}, success: []WorkKind{WorkKindImplementation, WorkKindBreakFix, WorkKindResearch, WorkKindArchitectureSpike, WorkKindOpsRunbook, WorkKindStaticAnalysis, WorkKindGenericOneOff}, approval: map[string]ActionApproval{"approve_contract": ActionApprovalRequired, "confirm_premise": ActionApprovalRequired}, external: map[string]ActionConsequence{"start_action": ActionExternalEffect, "checkpoint_action": ActionExternalEffect}},
 	}
-	for _, definition := range BuiltinWorkflowDefinitions() {
+	for _, definition := range builtinWorkflowFrozenHeads() {
 		wantDefinition, ok := want[definition.Ref]
 		if !ok {
 			t.Fatalf("missing exact metadata expectation for %s", definition.Ref)
@@ -231,7 +244,11 @@ func TestBuiltinWorkflowResolverReturnsTheShippedDefinition(t *testing.T) {
 				}
 			}
 			kindAdmits := step.Kind == WorkflowStepInternalSQLite || step.Kind == WorkflowStepCrossAuthority || step.Kind == WorkflowStepExternalEffect
-			if admitted != (kindAdmits && !terminalStep && !gated && step.ID != "alignment" && step.ID != "delivery") {
+			// The merged break_fix diagnosis step joins the alignment
+			// exemption: its only advance exit is record_diagnosis, so a
+			// dispatched attempt cannot accept its way past the sections
+			// (CD-0198 D2).
+			if admitted != (kindAdmits && !terminalStep && !gated && step.ID != "alignment" && step.ID != "delivery" && step.ID != "diagnosis") {
 				t.Fatalf("%s step %s acceptance declaration=%t for kind %s", latest.Ref, step.ID, admitted, step.Kind)
 			}
 		}
@@ -442,19 +459,19 @@ func TestWorkflowOutcomeStrengthAndActorDistinctness(t *testing.T) {
 	}
 	executing := WorkflowActor{PrincipalRef: "p1", ClientRef: "c1", AgentRef: "a1", SessionRef: "s1", ActorClass: ActorAgent}
 	verdict := executing
-	if err := ValidateDistinctWorkflowActors(executing, verdict, false); err == nil {
+	if err := validateDistinctWorkflowActorsForReplay(executing, verdict, false); err == nil {
 		t.Fatal("same executing and verdict actor accepted")
 	}
 	operatorVerdict := executing
 	operatorVerdict.ActorClass = ActorOperator
-	if err := ValidateDistinctWorkflowActors(executing, operatorVerdict, false); err != nil {
+	if err := validateDistinctWorkflowActorsForReplay(executing, operatorVerdict, false); err != nil {
 		t.Fatalf("operator verdict was not distinct from agent executor: %v", err)
 	}
 }
 
 func TestWorkflowOutcomeEvaluationUsesPinnedDefinitionAndAuthoritativeCheckStrength(t *testing.T) {
 	t.Parallel()
-	_, registry, pin := phaseBDefinition(t, 0)
+	_, registry, pin := phaseBDefinition(t, "workflow.implementation", 30)
 	approved := OutcomePredicate{Kind: PredicateCheck, CheckRef: "check:workflow-proof", ImmutableSubjectRef: "commit:aaaaaaaa", ExpectedResult: "pass"}
 	for _, testCase := range []struct {
 		name         string
@@ -476,7 +493,7 @@ func TestWorkflowOutcomeEvaluationUsesPinnedDefinitionAndAuthoritativeCheckStren
 	if _, err := EvaluateWorkflowOutcome(approved, approved, WorkflowOutcomeEvaluationContext{}); err == nil {
 		t.Fatal("generic evaluation path without registry was accepted")
 	}
-	_, researchRegistry, researchPin := phaseBDefinition(t, 2)
+	_, researchRegistry, researchPin := phaseBDefinition(t, "workflow.research", 17)
 	spikeToken := OutcomePredicate{Kind: PredicateOutcome, Allowed: []string{"accepted_decision"}}
 	if _, err := EvaluateWorkflowOutcome(spikeToken, spikeToken, WorkflowOutcomeEvaluationContext{Registry: researchRegistry, DefinitionPin: researchPin}); err == nil {
 		t.Fatal("research definition accepted an architecture-spike token")
@@ -486,7 +503,7 @@ func TestWorkflowOutcomeEvaluationUsesPinnedDefinitionAndAuthoritativeCheckStren
 	// record the record_decision fold wrote, so evaluation without the lookup
 	// fails closed, a missing row or out-of-set token is an outcome mismatch,
 	// and the bound token joins the approved allowed set.
-	spikeDefinition, spikeRegistry, spikePin := phaseBDefinition(t, 3)
+	spikeDefinition, spikeRegistry, spikePin := phaseBDefinition(t, "workflow.architecture_spike", 17)
 	if err := ValidateWorkflowPredicateForDefinition(spikeDefinition, spikeToken); err != nil {
 		t.Fatalf("spike outcome predicate without an inline decision record was refused: %v", err)
 	}
@@ -599,9 +616,13 @@ func (r phaseBCheckResolver) Compare(string, string, string) (WorkflowStrength, 
 	return r.strength, nil
 }
 
-func phaseBDefinition(t *testing.T, index int) (WorkflowDefinition, DefinitionRegistry, WorkflowDefinitionPin) {
+func phaseBDefinition(t *testing.T, ref string, version int64) (WorkflowDefinition, DefinitionRegistry, WorkflowDefinitionPin) {
 	t.Helper()
-	definition := BuiltinWorkflowDefinitions()[index]
+	entry, ok := BuiltinWorkflowRegistry().Lookup(ref, version)
+	if !ok {
+		t.Fatalf("%s v%d is not registered", ref, version)
+	}
+	definition := entry.Definition
 	registry := NewWorkflowDefinitionRegistry()
 	registered, err := registry.Register(definition)
 	if err != nil {

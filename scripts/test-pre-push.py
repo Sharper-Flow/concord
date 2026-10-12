@@ -237,9 +237,9 @@ class HookConfigDriftTest(unittest.TestCase):
             findings = checker.check(root=fixture.root)
             self.assertTrue(any("no_auto_install" in finding for finding in findings), findings)
 
-    def test_parallel_pre_push_is_required(self) -> None:
+    def test_serial_pre_push_is_required(self) -> None:
         with SyntheticRoot() as fixture:
-            fixture.mutate_hook(lambda doc: doc["pre-push"].update(parallel=False))
+            fixture.mutate_hook(lambda doc: doc["pre-push"].update(parallel=True))
             findings = checker.check(root=fixture.root)
             self.assertTrue(any("parallel" in finding for finding in findings), findings)
 
@@ -479,7 +479,7 @@ class RealToolQuotingTest(unittest.TestCase):
             "assert_lefthook_installed": True,
             "no_auto_install": True,
             "pre-push": {
-                "parallel": True,
+                "parallel": False,
                 "commands": {
                     "forward": {
                         "glob": "scripts/*.py",

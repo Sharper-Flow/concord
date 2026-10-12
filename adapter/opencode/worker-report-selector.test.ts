@@ -2,8 +2,8 @@ import { test, expect } from "bun:test"
 import { createHash } from "node:crypto"
 import { readWorkerReportTexts, selectWorkerReport, WORKER_REPORT_PROTOCOL } from "./worker-report-protocol.js"
 
-// Selector unit tests for the shared report-protocol owner (CON-891 design
-// section 3). These exercise only the selector's own contract: designated
+// Selector unit tests for the shared report-protocol owner.
+// These exercise only the selector's own contract: designated
 // `concord-worker-result-v1` frames, the historical legacy enumeration, byte
 // exactness, and refusal kinds. Dispatch admission, schemas, and packet
 // integration live in worker-report-protocol.test.ts and dispatch.test.ts.

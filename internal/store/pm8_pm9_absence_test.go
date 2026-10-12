@@ -9,19 +9,19 @@ import (
 )
 
 // allowedByteColumns is the complete set of byte-typed columns the schema is
-// permitted to declare. All three hold fixed-size authority material rather
-// than stored content: an Ed25519 public key, a grant hash, and a 32-byte
-// installation key whose length the schema itself constrains.
+// permitted to declare: fixed-size authority material and the two bounded
+// native producer streams PM8 section 1.1 permits for the lease/work lifetime.
 //
 // The list is exhaustive on purpose. PM8 forbids a content-addressed evidence
-// or blob store, and a byte store needs somewhere to put bytes, so a new
-// byte-typed column is the structural signature of one. Whoever adds the next
-// BLOB column has to state here why it is not the store PM8 refuses.
+// or blob store. Only the two named stream columns may hold producer output;
+// any other byte column must remain fixed-size authority material.
 var allowedByteColumns = map[string]string{
 	"agent_client_keys.public_key": "Ed25519 public key for client assertion verification",
 	"agent_grants.grant_hash":      "hash of an issued grant token, never the token",
 
-	"agent_installation_keys.key_bytes": "32-byte installation key, length-checked by the schema",
+	"agent_installation_keys.key_bytes":  "32-byte installation key, length-checked by the schema",
+	"worktree_verify_leases.stdout_blob": "PM8 section 1.1: native producer stdout, at most 2 MiB, deleted with the lease/work, observation only",
+	"worktree_verify_leases.stderr_blob": "PM8 section 1.1: native producer stderr, at most 2 MiB, deleted with the lease/work, observation only",
 }
 
 // forbiddenReceiptShapes names what a separate process-exhaust store, an

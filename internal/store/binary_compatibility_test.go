@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sharper-flow/concord/internal/version"
 )
@@ -114,7 +115,35 @@ func TestBinaryCompatibilityAdmitsHistoricalPinsAndLaterAdditiveSchema(t *testin
 	}
 	path := s.path
 	_ = s.Close()
+	// A plain open stays permissive while a nonterminal work pins old
+	// authoring: recorded history keeps opening and reading. Activation is
+	// the gate that refuses the active old pin, and it writes nothing.
 	opened, err := Open(context.Background(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = PlanUpgradeReadiness(context.Background(), path)
+	assertFailureKind(t, err, KindSchemaUnsupported)
+	if !strings.Contains(err.Error(), "predates the canonical authoring contract") {
+		t.Fatalf("active old-authoring pin refusal = %v, want the authoring cutover refusal", err)
+	}
+	odb := opened.DatabaseForTesting()
+	var pending int
+	if err := odb.QueryRow(`SELECT COUNT(*) FROM schema_migrations WHERE version=?`, CurrentSchemaVersion()+1).Scan(&pending); err != nil || pending != 1 {
+		t.Fatalf("refused readiness must leave the pending additive migration: count=%d error=%v", pending, err)
+	}
+	// Terminal work opens, reads, and rebuilds: the historical pin plus the
+	// later additive schema stays a compatible pair. work_items is fold-only,
+	// so the terminal disposition lands through the fold.
+	if err := ApplyOperation(context.Background(), opened, Operation{Events: []Event{{
+		EventID: "work-skew-cancel", Kind: "work.transitioned", SubjectType: SubjectWorkItem, SubjectID: "work-skew",
+		Actor: "operator", OccurredAt: time.Unix(20, 0).UTC(), PayloadVersion: 1,
+		Payload: jsonRaw(`{"from":"needed","to":"cancelled","reason":"fixture retirement","expected_version":1,"resulting_version":2}`),
+	}}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, "work-skew"): 1}}); err != nil {
+		t.Fatal(err)
+	}
+	_ = opened.Close()
+	opened, err = Open(context.Background(), path)
 	if err != nil {
 		t.Fatal(err)
 	}

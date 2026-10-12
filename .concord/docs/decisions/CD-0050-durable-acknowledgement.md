@@ -92,7 +92,7 @@ commit, before success returns to the caller — of exactly these families:
 | Family | Sites | Why it is consequential |
 |---|---|---|
 | Grant, client, and approval authority | `internal/store/agent_authority.go`: register/update-policy/rotate/revoke trusted client, persist/consume/revoke grant, approval and challenge revocation | These mint, consume, and destroy authority. Acknowledged loss of a revocation or a grant's use-count after power failure is unsafe and not safely re-issuable. |
-| Workflow action dispatch boundary | `internal/store/workflow_preflight.go` `AuthorizeWorkflowActionAtBoundaryTx` | One transaction encloses condition resolution, grant and approval consumption, the fence-claim row, and terminal completion for the `complete` action. Its acknowledgement is the moment execution authority is granted or a terminal effect lands; product-changing terminal actions bind Domain law (CD-0036, CD-0041). |
+| Workflow action dispatch boundary | `internal/store/workflow_preflight.go` `AuthorizeWorkflowActionAtBoundaryTx` | One transaction encloses condition resolution, grant and approval consumption, the fence-claim row, and terminal completion for the `complete` action. Its acknowledgement is the moment execution authority is granted or a terminal effect lands; product-changing terminal actions bind Domain law (CD-0036, CD-0222). |
 | Standalone workflow completion | `internal/store/workflow_completion.go` `CompleteWorkflowWithRegistry` | The completion entry point reachable outside the dispatch boundary; same terminal authority. |
 | Cross-authority steps | `internal/agent/mutations.go` `mutateCompaction`: `ClaimStepAuthorized` before the git cross-authority dispatch, `CompleteStep` after it, on both publish and reconcile paths | Losing the fence claim to power loss could permit a duplicate dispatch on retry; losing the completion misstates a cross-authority effect. |
 | Worker evidence | `cmd/concord/main.go` `applyWorkerEvidence` (worker-dispatch, worker-complete, worker-fail) | CD-0044 binds these appends to signed attempt assertions; their acknowledgement is the durable record of what a worker did. |
@@ -167,4 +167,5 @@ layer that acknowledges.
 - `gofmt -l .`, `go vet ./...`, `bin/oc-test targeted -- ./internal/store`,
   `./internal/agent`, `./cmd/concord`, `check-store-boundary.py`,
   `check-json.py`, `check-public-content.py` pass.
-- `.concord/docs/concord-knowledge-index.v1.json` records CD-0050 once.
+- The record shard `.concord/docs/knowledge/records/CD-0050.json` records CD-0050 once,
+  composed by `scripts/knowledge_index.py`.

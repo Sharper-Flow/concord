@@ -56,6 +56,12 @@ CI_JOB_IDS = (
     "verify-tooling",
     "verify-go",
     "verify-tests",
+    "verify-tests-rest",
+    "verify-tests-store-1",
+    "verify-tests-store-2",
+    "verify-tests-store-3",
+    "verify-tests-cli-1",
+    "verify-tests-cli-2",
     "verify-race",
     "verify-acceptance",
 )
@@ -216,15 +222,12 @@ class ReleaseWorkflowDriftTests(unittest.TestCase):
         self.assertIn("git fetch origin main --quiet", refresh)
         self.assertIn("git fetch origin '+refs/heads/*:refs/remotes/origin/*' --quiet", refresh)
         self.assertIn("python3 scripts/check-cd-allocation.py --no-fetch", refresh)
-        self.assertIn(
-            'python3 scripts/check-domain-registry.py --base-ref "$NAVIGATION_BASE_REF" && '
-            'python3 scripts/generate-domain-navigation.py --check --base-ref "$NAVIGATION_BASE_REF"',
-            refresh,
-        )
+        self.assertNotIn("check-domain-registry.py", refresh)
+        self.assertNotIn("generate-domain-navigation.py", refresh)
         envs = [step.get("env") for step in run_steps if isinstance(step.get("env"), dict)]
-        self.assertTrue(
-            any(env.get("NAVIGATION_BASE_REF") == "${{ github.event.before }}" for env in envs),
-            "refresh must compare against the main push's before SHA",
+        self.assertFalse(
+            any("NAVIGATION_BASE_REF" in env for env in envs),
+            "the retired navigation ratchet must not return through the refresh environment",
         )
 
     def test_admission_gate_runs_always_and_binds_every_dependency_result(self) -> None:

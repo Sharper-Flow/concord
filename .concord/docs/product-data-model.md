@@ -11,8 +11,8 @@
 > **Product → Domain**, with current law and architecture-bound work together.
 > **Origin:** User direction, 2026-07-25. Lifecycle stage (§8) and shared resources
 > (§9) added by user direction, 2026-07-31; resource-first C15 shape accepted
-> 2026-08-06; Domain and Initiative shape
-> accepted by CD-0041 on 2026-08-18.
+> 2026-08-06; Domain shape accepted by CD-0041 on 2026-08-18.
+> CD-0213 places planning and business grouping in Linear through the Linear MCP server.
 
 ## TL;DR
 
@@ -30,8 +30,8 @@ carry (§10).
 
 Product-changing work additionally binds to one home Domain, every affected
 Domain, exact governing law revisions, authorized law changes, and verification
-obligations. Initiative supplies business/outcome context only; it never owns
-architecture or law.
+obligations. Business grouping lives in Linear through the Linear MCP server;
+Concord keeps managed execution and at most one recorded issue identity per work unit.
 
 The canonical Concord priorities are maintained in [`priorities.md`](./priorities.md); this document
 follows them without restating the ranked list.
@@ -89,9 +89,9 @@ Product-internal architecture through which law and work are organized.
 - Domain identity, hierarchy, and architecture relations are declared in the
   Product's Git knowledge manifest. SQLite projects that law and owns only local
   stage/Project/resource attachments. Neither side infers identity from paths,
-  tags, repository names, or Initiative membership.
+  tags, repository names, or planning groups.
 - A Domain may have zero or one parent Domain. The `subdomain_of` hierarchy is
-  acyclic; additional architecture relations follow CD-0041's endpoint-specific
+  acyclic; additional architecture relations follow CD-0222's endpoint-specific
   grammar.
 - Example: "Alpha → Sync Domain → accepted sync law, active changes, cron
   resource, sync API dependency, and `alpha-sync` Project."
@@ -100,7 +100,7 @@ Product-internal architecture through which law and work are organized.
 
 `component` is a retired authority term. It may appear in historical records or
 ordinary UI prose during migration, but no second component identity or generic
-grouping store survives the CD-0041 target state.
+grouping store survives the CD-0222 target state.
 
 ---
 
@@ -108,7 +108,7 @@ grouping store survives the CD-0041 target state.
 
 - Everything a Product owns is **co-located and navigable together**. An agent
   working on a Product immediately sees its Domains and, through them, current
-  law, Projects, managed resources, active work, evidence, initiatives, and ops.
+  law, Projects, managed resources, active work, evidence, and ops.
 - *"Where things belong"* must be **obvious** — no hunting across disconnected
   systems to learn what a Product comprises.
 - This is a **first-class design goal**, not a nice-to-have. The data model
@@ -122,7 +122,7 @@ grouping store survives the CD-0041 target state.
 Both query directions are first-class:
 
 - **Product → members:** *"What does Alpha own?"* → its Domains, Projects,
-  resources, current law, active work, initiatives, and ops.
+  resources, current law, active work, and ops.
 - **Member → Product:** *"Which Product owns this azure job / repo / SaaS?"* →
   Alpha.
 
@@ -152,7 +152,7 @@ Product {
       current_law_refs, active_workflows, recent_changes, stage_override? }
   ],
   domain_relations,
-  ...wishlist, ops, initiatives scoped to this Product
+  ...ops scoped to this Product
 }
 
 ManagedResource {
@@ -163,14 +163,14 @@ ManagedResource {
 
 `stage` is decided (§8). Product↔Project membership follows accepted PM5. Non-Project
 resource identity and attachments follow accepted C15. Domain replacement and
-work-item supersession keep their bounded owners in CD-0041 and PM4.
+work-item supersession keep their bounded owners in CD-0222 and PM4.
 
-CD-0041 amends CD-0009's predecessor shape. Initiative is a derived Product view over
-canonical `work_items.kind = initiative`, PM5 scope, and the bounded
-Initiative-entry projection. Product does not embed mutable Initiative records,
-and Initiative is not a second Product, Domain, or architecture authority.
-CD-0042 makes this a direct pre-go-live replacement: #196 deletes the predecessor runtime
-forms instead of preserving aliases, upcasters, or a compatibility window.
+CD-0041 and CD-0213 amend CD-0009's predecessor shape. Business grouping lives in
+Linear. Product embeds no grouping record, and grouping is not a second Product,
+Domain, or architecture authority.
+[CD-0213 D8](./decisions/CD-0213-linear-mcp-is-the-only-planning-authority.md#d8-history-stays-replayable)
+keeps the event log immutable and historical planning events replayable while
+refusing new planning appends.
 
 Member records carry **identity + role + metadata** — not credentials, not live
 connections.
@@ -180,16 +180,17 @@ connections.
 ## 6. Primary navigation: Product → Domain
 
 Durable Concord knowledge is navigated primarily by **Product → Domain**, not by
-a flat list of changes, workflows, or initiatives.
+a flat list of changes or workflows.
 
-- Open a Product and see its Domain hierarchy and typed architecture relations.
+- Open a Product and reach its Domain law and unresolved work overlap.
+- Exact Domain-detail reads retain canonical relation tuples for governed work.
 - Drill into a Domain to see its current law, dependencies, active workflows,
-  evidence, decisions, resources, wishlist, recent changes, and operational
+  evidence, decisions, resources, recent changes, and operational
   signals.
 - A change or workflow is **architecture-bound history** from the Domain; it is not the
   top-level browse path.
-- An Initiative may group work across Domains for business/outcome context, but
-  it never replaces Domain navigation or supplies architecture truth.
+- Linear Projects and Initiatives may group planning work across Domains, but
+  Concord has no grouping projection. Linear grouping supplies no architecture truth.
 - Completed history, archived work, and passive context are available through
   explicit drill-down, not in the default view.
 
@@ -318,10 +319,10 @@ cost or billing attribution is not part of this model.
 
 ## 10. Bounded replacement relations
 
-> **Status:** Bounded existing mechanisms. CD-0041 owns Domain replacement and
+> **Status:** Bounded existing mechanisms. CD-0222 owns Domain replacement and
 > PM4 owns work-item supersession.
 
-CD-0041 defines the Product-internal Domain `replaces` relation and its
+CD-0222 defines the Product-internal Domain `replaces` relation and its
 version-pinned overlap controls. PM4 defines work-item `supersedes`, including
 the atomic terminal transition. These relations have separate owners and
 semantics.
@@ -345,7 +346,7 @@ to another touched resource or Product.
 ## 12. Open questions
 
 C1, C15, C16, and Domain authority are accepted by CD-0007, the managed-resource
-contract, CD-0006, and CD-0041 respectively. The remaining model-internal open
+contract, CD-0006, and CD-0222 respectively. The remaining model-internal open
 question is:
 
 1. **Typing depth.** Are members typed further (e.g. infra sub-kinds:
@@ -362,7 +363,7 @@ question is:
 | `feature-inventory.md` §3.3 | Signal ingestion is the *live* layer; ownership is the *declarative* layer. Distinct. |
 | `feature-inventory.md` §3.17 | Lifecycle stage + proportional-rigor governance — §8 and §11 detail its model. |
 | `feature-inventory.md` §3.18 | Managed-resource inventory with cross-Product linking — §9 and accepted C15 define the resource-first shape. |
-| `decisions/CD-0041-architecture-bound-product-law.md` | Domain `replaces` and PM4 work-item `supersedes` remain bounded relation mechanisms. |
+| `decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md` | Domain `replaces` and PM4 work-item `supersedes` remain bounded relation mechanisms. |
 | `priorities.md` §3 | Proportional rigor is the quality attribute that §8 supplies the input for. |
 | `design-constraints.md` §4 | The ownership record is Concord-owned state → lock-free, append-only, no repair. Stage transitions are appends (§8.5). |
 | `self-documentation.md` §1 | The browse surface uses Product → Domain navigation. |

@@ -64,7 +64,12 @@ func TestRefusedWorkerProvenanceRecoversWithoutAcceptedEvidence(t *testing.T) {
 			if err != nil || after.Version != before.Version || countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM domain_events`) != beforeEvents {
 				t.Fatalf("refused dispatch changed durable state: before=%d after=%d error=%v", before.Version, after.Version, err)
 			}
-			attempt, err := s.WorkerAttemptByID(ctx, failedID)
+			var attempt store.WorkerAttempt
+			err = s.Transact(ctx, func(tx *store.Transaction) error {
+				var txErr error
+				attempt, txErr = store.WorkerAttemptByIDTx(ctx, tx, failedID)
+				return txErr
+			})
 			if err != nil || attempt.LifecycleState != "in_flight" || attempt.ReadbackModel != "" {
 				t.Fatalf("refused dispatch admitted readback: attempt=%#v error=%v", attempt, err)
 			}
@@ -80,8 +85,15 @@ func TestRefusedWorkerProvenanceRecoversWithoutAcceptedEvidence(t *testing.T) {
 				t.Fatal("refused completion persisted evidence")
 			}
 			// The host's terminal evidence precedes the typed abandonment receipt.
+			// The canonical head derives the workflow failure record from the
+			// attempt's own terminal event through the live worker-evidence seam
+			// (CD-0198 D5); the closed live union publishes no
+			// record_worker_failure authoring shape (CD-0218 D2).
 			failure := store.Event{EventID: "abandon-refused-provenance", Kind: store.WorkerFailed, SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: retryJSON(store.WorkerFailedPayload{AttemptID: failedID, FailureKind: store.WorkerFailureAbandoned, Detail: "host provenance refused; worker report remains unaccepted"})}
-			if err := store.ApplyOperation(ctx, s, store.Operation{Events: []store.Event{failure}}); err != nil {
+			if err := s.Transact(ctx, func(tx *store.Transaction) error {
+				_, err := store.ApplyWorkerEvidenceOperationTx(ctx, tx, failure)
+				return err
+			}); err != nil {
 				t.Fatalf("close authorized attempt: %v", err)
 			}
 			scopeVersion, _, err = s.ScopeVersion(ctx, "project-1")
@@ -95,22 +107,21 @@ func TestRefusedWorkerProvenanceRecoversWithoutAcceptedEvidence(t *testing.T) {
 			if receipt.Outcome != OutcomeOK {
 				t.Fatalf("abandonment receipt: %+v", receipt.Error)
 			}
-			pin, err := store.ReadWorkPin(ctx, s, "work-1")
-			if err != nil {
-				t.Fatal(err)
-			}
-			// A distinct coordinator records the failure; recovery does not
-			// confer verdict authority on the actor that opened the attempt.
+			// A distinct coordinator retries after the derived disposition.
+			// The derived record keeps the dispatch authorization's actor.
 			grant.SessionRef = "session-recovery"
-			env = mutationEnvelope(grant, scopeVersion)
-			disposition := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: retryJSON(map[string]any{
-				"work_id": "work-1", "expected_version": pin.Version, "action_id": "record_worker_failure", "idempotency_key": "record-refused-provenance",
-				"fields": map[string]any{"attempt_id": failedID, "attempt_epoch": 1},
-			})}, env)
-			if disposition.Outcome != OutcomeOK {
-				t.Fatalf("failure disposition without dispatch evidence: %+v", disposition.Error)
+			pin, pinErr := store.ReadWorkPin(ctx, s, "work-1")
+			if pinErr != nil {
+				t.Fatal(pinErr)
 			}
-			attempt, err = s.WorkerAttemptByID(ctx, failedID)
+			if pin.Correction == nil || pin.Correction.Disposition != "failed" {
+				t.Fatalf("derived failure disposition = %+v, want the failed correction record", pin.Correction)
+			}
+			err = s.Transact(ctx, func(tx *store.Transaction) error {
+				var txErr error
+				attempt, txErr = store.WorkerAttemptByIDTx(ctx, tx, failedID)
+				return txErr
+			})
 			if err != nil || attempt.LifecycleState != "failed" || attempt.FailureKind != store.WorkerFailureAbandoned || attempt.ReadbackModel != "" {
 				t.Fatalf("failure disposition changed the honest closure: attempt=%#v error=%v", attempt, err)
 			}

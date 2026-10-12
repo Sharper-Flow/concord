@@ -51,11 +51,11 @@ func TestReadWorkClosureCarriesTheClosureFacts(t *testing.T) {
 	if err := applyWorkEvent(t, s, relationAddedEvent("closure-rel-1", "raised_from", firstFollowUp, workID, firstVersion, firstVersion+1), workVersion(firstFollowUp, firstVersion)); err != nil {
 		t.Fatalf("first raised_from refused: %v", err)
 	}
-	if err := s.RecordLinearLink(ctx, firstFollowUp, "remote-closure-1", "CON-777", "", "", "", LinearLinkPending); err != nil {
-		t.Fatalf("pending link refused: %v", err)
-	}
-	if err := s.RecordLinearLink(ctx, firstFollowUp, "remote-closure-1", "CON-777", "", "", "", LinearLinkConfirmed); err != nil {
-		t.Fatalf("confirmed link refused: %v", err)
+	if err := s.Transact(ctx, func(tr *Transaction) error {
+		_, err := RecordLinearIssueLinkTx(ctx, tr, LinearIssueLink{WorkID: firstFollowUp, RemoteIssueUUID: "remote-closure-1", HumanKey: "CON-777", URL: "https://linear.app/example/issue/CON-777"})
+		return err
+	}); err != nil {
+		t.Fatalf("link refused: %v", err)
 	}
 
 	closure, err := ReadWorkClosure(ctx, s, workID)
@@ -139,7 +139,7 @@ func TestReadWorkClosureDegradesToThePinAlone(t *testing.T) {
 // undeclared field, and a recorded out_of_scope list survives a rebuild.
 func TestRecordProposalOutOfScopeAcrossPinnedAndCurrentVersions(t *testing.T) {
 	t.Parallel()
-	current, ok := builtinWorkflowRegistry.Lookup("workflow.implementation", 22)
+	current, ok := BuiltinWorkflowRegistry().Lookup("workflow.implementation", 22)
 	if !ok {
 		t.Fatal("workflow.implementation v22 is not registered")
 	}
@@ -158,7 +158,7 @@ func TestRecordProposalOutOfScopeAcrossPinnedAndCurrentVersions(t *testing.T) {
 	if err := validateWorkflowActionPayload(current.Definition, "record_proposal", tooWide); err == nil {
 		t.Fatal("the current version admitted more than sixteen out_of_scope entries")
 	}
-	pinned, ok := builtinWorkflowRegistry.Lookup("workflow.implementation", 21)
+	pinned, ok := BuiltinWorkflowRegistry().Lookup("workflow.implementation", 21)
 	if !ok {
 		t.Fatal("workflow.implementation v21 is not registered")
 	}

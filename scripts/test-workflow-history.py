@@ -20,7 +20,7 @@ import xml.etree.ElementTree as ET
 
 import git_environment
 
-# CON-896: this suite reads Git in the real checkout, so a hook that launched
+# This suite reads Git in the real checkout, so a hook that launched
 # it must not redirect those reads into another repository.
 git_environment.scrub_inherited()
 

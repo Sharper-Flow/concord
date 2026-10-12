@@ -129,7 +129,10 @@ func TestReviewRewrittenRevisionResetsFailedJob(t *testing.T) {
 	applyRecordWorkerFailureForTest(t, s, id, f.owner, "attempt:"+id+":1", latestStepStartEpoch(t, s, id, "repair"), readWorkVersion(t, s, id), "review-rewritten-failure")
 	pin := issue1013Pin(t, s, id)
 	issue1013StartRepair(t, s, id, f.owner, pin.Version, latestStepStartEpoch(t, s, id, "repair")+1)
-	if err := recordWorkerJobActionForTest(t, s, id, f.owner, map[string]any{
+	// The rewritten revision keeps its unrelated objective; the oracle the
+	// pin requires travels with it as fixture bookkeeping, not as the
+	// obligation the acceptance discharges.
+	if err := recordWorkerJobFieldsForTest(t, s, id, f.owner, map[string]any{
 		"job_id": job.JobID, "objective": "Perform an unrelated documentation task, not the failed repair",
 		"stopping_condition": "Report the document title", "checks": []string{}, "ready": true, "readiness_evidence": []string{"evidence:new-document-task"},
 	}); err != nil {
@@ -234,7 +237,10 @@ func TestWitnessRewrittenJobKeepsExactRetryBinding(t *testing.T) {
 	applyRecordWorkerFailureForTest(t, s, id, f.owner, "attempt:"+id+":1", latestStepStartEpoch(t, s, id, "repair"), readWorkVersion(t, s, id), "witness-binding-fail")
 	pin := issue1013Pin(t, s, id)
 	issue1013StartRepair(t, s, id, f.owner, pin.Version, latestStepStartEpoch(t, s, id, "repair")+1)
-	if err := recordWorkerJobActionForTest(t, s, id, f.owner, map[string]any{
+	// The rewritten revision keeps its unrelated objective; the oracle the
+	// pin requires travels with it as fixture bookkeeping, not as the
+	// obligation the acceptance discharges.
+	if err := recordWorkerJobFieldsForTest(t, s, id, f.owner, map[string]any{
 		"job_id": job.JobID, "objective": "An unrelated rewritten task", "stopping_condition": "An unrelated outcome",
 		"ready": true, "readiness_evidence": []string{"evidence:witness-ready"},
 	}); err != nil {

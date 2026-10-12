@@ -147,7 +147,7 @@ func (s *Store) ValidateBootstrapOrigin(ctx context.Context, projectID, path str
 	if strings.TrimSpace(string(status)) != "" {
 		return origin, newFailure(KindInvalidOperation, "work_bootstrap", "cannot chain from dirty worktree of "+origin.WorkID, false, "commit or discard the origin changes before starting new work")
 	}
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	tx, err := beginReadTx(ctx, s.db)
 	if err != nil {
 		return origin, wrapFailure(KindUnavailable, "work_bootstrap", "cannot read the linked bootstrap origin", true, "retry the same operation", err)
 	}
@@ -198,12 +198,15 @@ func (s *Store) ResumeWorktreeLocation(ctx context.Context, productID, projectID
 	if productID == "" || projectID == "" || workID == "" {
 		return entry, newFailure(KindInvalidOperation, "work_resume", "resume requires the Product, Project, and work identity", false, "supply all three identities")
 	}
-	var lifecycle string
-	if err := s.db.QueryRowContext(ctx, `SELECT lifecycle FROM work_items WHERE id=?`, workID).Scan(&lifecycle); err != nil {
+	var lifecycle, kind string
+	if err := s.db.QueryRowContext(ctx, `SELECT lifecycle,kind FROM work_items WHERE id=?`, workID).Scan(&lifecycle, &kind); err != nil {
 		if err == sql.ErrNoRows {
 			return entry, newFailure(KindUnknownScope, "work_resume", "work item does not exist", false, "check the work identity before resuming")
 		}
 		return entry, wrapFailure(KindUnavailable, "work_resume", "cannot read the work item", true, "retry once the database is readable", err)
+	}
+	if err := requireActionableWorkKind(kind, "work_resume"); err != nil {
+		return entry, err
 	}
 	if isTerminalLifecycle(lifecycle) {
 		return entry, newFailure(KindInvalidOperation, "work_resume", "cannot resume terminal work item "+workID+" ("+lifecycle+")", false, "resume live work or capture new work instead")
@@ -1312,9 +1315,13 @@ func (s *Store) prepareBootstrapMode(ctx context.Context, req BootstrapRequest, 
 			// them with typed workflow absence.
 			workflowRef := req.WorkflowTypeRef
 			if workflowRef == "" {
-				workflowRef = DefaultWorkflowRefForKind(req.Kind)
+				var refErr error
+				workflowRef, refErr = DefaultWorkflowRefForKind(req.Kind)
+				if refErr != nil {
+					return out, refErr
+				}
 			}
-			definition, definitionErr := BuiltinWorkflowDefinitionForRef(workflowRef)
+			definition, definitionErr := LiveWorkflowDefinitionForRef(workflowRef)
 			if definitionErr != nil {
 				return out, definitionErr
 			}
@@ -1363,13 +1370,6 @@ func replayExistingBootstrapTx(ctx context.Context, tx *sql.Tx, req BootstrapReq
 	var activeFailure *Failure
 	if !errors.As(activeErr, &activeFailure) || activeFailure.Kind != KindProjectionNotFound {
 		return bootstrapPrepared{}, false, activeErr
-	}
-	var activeElsewhere bool
-	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM worktree_entries e JOIN worktree_claims c ON c.op_id=e.claim_op_id WHERE c.work_id=? AND e.state='active')`, workID).Scan(&activeElsewhere); err != nil {
-		return bootstrapPrepared{}, false, err
-	}
-	if activeElsewhere {
-		return bootstrapPrepared{}, false, newFailure(KindUnknownScope, "work_bootstrap", "work item has an active worktree in another Project", false, "resume from the Project that owns the active worktree")
 	}
 	return bootstrapPrepared{}, false, nil
 }

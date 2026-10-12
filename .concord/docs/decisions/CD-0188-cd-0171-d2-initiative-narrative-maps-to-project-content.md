@@ -1,6 +1,6 @@
 # CD-0188: CD-0171 D2 maps the Initiative narrative to Project content
 
-- **Status:** Accepted
+- **Status:** Superseded by CD-0213
 - **Date:** 2026-09-28
 - **Scope:** The Linear field CD-0171 D2 names for the Initiative narrative
 - **Amends:** CD-0171 D2 at its third sentence ("The Initiative narrative

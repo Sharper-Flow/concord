@@ -9,10 +9,6 @@
       "value": "internal/store.TestAmendmentPathAcceptsDerivedConflictAndRefusesLegislated"
     },
     {
-      "kind": "go_test",
-      "value": "internal/store.TestPublishLessonRecordAssignsTheDerivedTier"
-    },
-    {
       "kind": "validator",
       "value": "scripts/check-knowledge-index.py"
     }

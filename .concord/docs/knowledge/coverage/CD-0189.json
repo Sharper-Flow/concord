@@ -42,7 +42,7 @@
     },
     {
       "kind": "go_test",
-      "value": "cmd/concord.TestSessionPrepareVerifiesTheConfiguredCommandDocument"
+      "value": "cmd/concord.TestSessionPrepareProbesTheCallingHostOnce"
     },
     {
       "kind": "go_test",

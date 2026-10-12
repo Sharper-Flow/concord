@@ -2,6 +2,16 @@ package store
 
 import "testing"
 
+// Shape coverage includes the retired families' last registered definitions.
+func builtinWorkflowFrozenHeads() []WorkflowDefinition {
+	chains := workflowDefinitionChains()
+	heads := make([]WorkflowDefinition, 0, len(chains))
+	for _, chain := range chains {
+		heads = append(heads, chain[len(chain)-1])
+	}
+	return heads
+}
+
 // Appending a promotion to a family chain retains the outgoing version and
 // publishes the new current in the same act. Retention is a property of the
 // promotion, not of a separately maintained list, so the registry's own
@@ -28,13 +38,14 @@ func TestWorkflowPromotionAppendsRetainTheOutgoingVersion(t *testing.T) {
 	}
 }
 
-// The currents are derived once: BuiltinWorkflowDefinitions is each family
+// The currents are derived once: the frozen enumeration is each family
 // chain's last element, so a promotion cannot publish a version the chain
-// does not carry.
+// does not carry. The live enumeration is the frozen tails of the three
+// authoring families, in chain order.
 func TestBuiltinDefinitionsAreTheChainTails(t *testing.T) {
 	t.Parallel()
 	chains := workflowDefinitionChains()
-	currents := BuiltinWorkflowDefinitions()
+	currents := builtinWorkflowFrozenHeads()
 	if len(currents) != len(chains) {
 		t.Fatalf("current count = %d, want one per family chain (%d)", len(currents), len(chains))
 	}
@@ -43,5 +54,47 @@ func TestBuiltinDefinitionsAreTheChainTails(t *testing.T) {
 		if currents[i].Ref != tail.Ref || currents[i].Version != tail.Version {
 			t.Fatalf("current %d = %s v%d, want the chain tail %s v%d", i, currents[i].Ref, currents[i].Version, tail.Ref, tail.Version)
 		}
+	}
+	live := BuiltinWorkflowDefinitions()
+	if len(live) != 3 {
+		t.Fatalf("live head count = %d, want the three authoring families", len(live))
+	}
+	for i, chain := range chains[:3] {
+		tail := chain[len(chain)-1]
+		if live[i].Ref != tail.Ref || live[i].Version != tail.Version {
+			t.Fatalf("live head %d = %s v%d, want the authoring chain tail %s v%d", i, live[i].Ref, live[i].Version, tail.Ref, tail.Version)
+		}
+	}
+}
+
+// Store open answers pin compatibility from builtinWorkflowCurrentVersions
+// instead of building the chains. The table must name exactly the
+// versions the registry registers, so a promotion that forgets the table
+// fails here rather than refusing its own pins at open.
+func TestBuiltinWorkflowCurrentVersionsMatchChains(t *testing.T) {
+	t.Parallel()
+	registry := BuiltinWorkflowRegistry()
+	current := map[string]int64{}
+	for _, definition := range builtinWorkflowDefinitionsWithHistory() {
+		if definition.Version > current[definition.Ref] {
+			current[definition.Ref] = definition.Version
+		}
+	}
+	if len(current) != len(builtinWorkflowCurrentVersions) {
+		t.Fatalf("builtinWorkflowCurrentVersions names %d families, chains register %d: %v", len(builtinWorkflowCurrentVersions), len(current), current)
+	}
+	for ref, version := range current {
+		if builtinWorkflowCurrentVersions[ref] != version {
+			t.Fatalf("builtinWorkflowCurrentVersions[%q] = %d, chains register through version %d", ref, builtinWorkflowCurrentVersions[ref], version)
+		}
+		for candidate := int64(0); candidate <= version+1; candidate++ {
+			_, registered := registry.Lookup(ref, candidate)
+			if got := builtinWorkflowVersionRegistered(ref, candidate); got != registered {
+				t.Fatalf("builtinWorkflowVersionRegistered(%q, %d) = %v, registry Lookup = %v", ref, candidate, got, registered)
+			}
+		}
+	}
+	if builtinWorkflowVersionRegistered("workflow.unknown", 1) {
+		t.Fatal("an unknown workflow family must not be registered")
 	}
 }

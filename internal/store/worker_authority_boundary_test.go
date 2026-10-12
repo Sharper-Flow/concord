@@ -187,12 +187,15 @@ func TestAcceptWorkerResultSucceedsWhenLaneIsExecutingActor(t *testing.T) {
 	}
 }
 
-// seedAcceptedPOCLane stages the production POC topology through the owner's
-// acceptance: architecture_spike v7, the owner drives poc_optional, a lane is
-// dispatched as the executing actor, and the owner accepts its result. The
-// workflow lands on decision_record with the lane still pinned as the
-// executing actor and the disposed attempt behind it.
-func seedAcceptedPOCLane(t *testing.T, workID string) (*Store, WorkflowActor, string, string) {
+// seedAcceptedFixtureLane stages the production accept topology on the
+// retained fixture family: the owner drives execution, a lane is dispatched
+// as the executing actor, and the owner accepts its result through the public
+// action. The workflow lands on the acceptance checkpoint with the lane still
+// pinned as the executing actor and the accepted attempt disposed behind it.
+// The retired architecture-spike pin this fixture family replaces refuses
+// every public action; TestArchivedSpikeRefusesPublicWorkflowActions holds
+// that refusal.
+func seedAcceptedFixtureLane(t *testing.T, workID string) (*Store, WorkflowActor, string, string, WorkflowActor) {
 	t.Helper()
 	ctx := context.Background()
 	s := openTemp(t)
@@ -203,10 +206,6 @@ func seedAcceptedPOCLane(t *testing.T, workID string) (*Store, WorkflowActor, st
 	if err != nil {
 		t.Fatal(err)
 	}
-	definition, ok := BuiltinWorkflowRegistry().Lookup("workflow.architecture_spike", 7)
-	if !ok {
-		t.Fatal("workflow.architecture_spike v7 is not registered")
-	}
 	lane := BuiltinLaneDefinitions()[0]
 	attemptID := "attempt:" + workID
 	laneActor := WorkflowActor{PrincipalRef: "principal:operator", ClientRef: "client:concord", AgentRef: "agent/lane:" + lane.ID, SessionRef: "session/" + attemptID, ActorClass: ActorAgent}
@@ -214,54 +213,100 @@ func seedAcceptedPOCLane(t *testing.T, workID string) (*Store, WorkflowActor, st
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{
-		workflowEvent("poc-owner-actor", WorkflowActorRecorded, workID, map[string]any{"work_id": workID, "expected_version": 2, "resulting_version": 3, "actor_ref": ownerRef, "principal_ref": owner.PrincipalRef, "client_ref": owner.ClientRef, "agent_ref": owner.AgentRef, "session_ref": owner.SessionRef, "actor_class": "agent"}),
-		workflowEvent("poc-definition", WorkflowDefinitionSelected, workID, map[string]any{"work_id": workID, "expected_version": 3, "resulting_version": 4, "ref": definition.Definition.Ref, "version": definition.Definition.Version, "digest": definition.Digest, "work_kind": string(definition.Definition.WorkKind)}),
-	}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 2}}); err != nil {
+	setup := workflowExecutionSetupEvents(t, "lane", workID, ownerRef, owner, laneRef, laneActor, lane)
+	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: setup, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 2}}); err != nil {
 		t.Fatal(err)
 	}
-	setWorkflowStepForOperatorVerdictTest(t, s, workID, "poc_optional")
-	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{
-		workflowEventWithActor("poc-start", WorkflowActionStarted, workID, ownerRef, map[string]any{"work_id": workID, "expected_version": 4, "resulting_version": 5, "step_id": "poc_optional", "action_id": "start_poc", "attempt_epoch": 1, "accepted_inputs_digest": "sha256:" + strings.Repeat("a", 64), "idempotency_identity": "poc:start", "actor_ref": ownerRef, "execution_model": preferredModelForLane(lane)}),
-		workflowEvent("poc-lane-actor", WorkflowActorRecorded, workID, map[string]any{"work_id": workID, "expected_version": 5, "resulting_version": 6, "actor_ref": laneRef, "principal_ref": laneActor.PrincipalRef, "client_ref": laneActor.ClientRef, "agent_ref": laneActor.AgentRef, "session_ref": laneActor.SessionRef, "actor_class": "agent"}),
-	}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 4}}); err != nil {
+	// The contract the acceptance checkpoint evaluates against, carrying no
+	// extra evidence requirements beyond the accepted attempt. The single
+	// outcome pair folds into the derived predicate:primary, the same
+	// machinery seedV2CompletionReady uses.
+	contract := workflowEventWithActor("lane-contract", WorkflowContractApproved, workID, ownerRef, map[string]any{"work_id": workID, "expected_version": 10, "resulting_version": 11, "contract_version": 1, "premise": "deliver the checked change", "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:lane", "immutable_subject_ref": "commit:" + workID, "expected_result": "pass"}, "required_evidence": []string{}, "route_conventions": []string{}, "spec_mandate": []string{}, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite"})
+	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{contract}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 10}}); err != nil {
 		t.Fatal(err)
 	}
-	dispatch := Event{EventID: "poc-dispatch", Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:host", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 4, Payload: mustJSONValue(map[string]any{
+	// The operator actor the confirmation's verified approval names.
+	operator := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/operator", SessionRef: "session/" + workID + "-operator", ActorClass: ActorOperator}
+	operatorRef, err := WorkflowActorRef(operator)
+	if err != nil {
+		t.Fatal(err)
+	}
+	operatorEvent := workflowEventWithActor("lane-operator-actor", WorkflowActorRecorded, workID, operatorRef, map[string]any{"work_id": workID, "expected_version": 11, "resulting_version": 12, "actor_ref": operatorRef, "principal_ref": operator.PrincipalRef, "client_ref": operator.ClientRef, "agent_ref": operator.AgentRef, "session_ref": operator.SessionRef, "actor_class": "operator"})
+	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{operatorEvent}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 11}}); err != nil {
+		t.Fatal(err)
+	}
+	dispatch := Event{EventID: "lane-dispatch", Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:host", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 4, Payload: mustJSONValue(map[string]any{
 		"attempt_id": attemptID, "lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest,
 		"capability_class": lane.CapabilityClass, "packet_schema_version": WorkerPacketSchemaVersion, "report_schema_version": WorkerReportSchemaVersion,
 		"packet_digest": "sha256:" + strings.Repeat("b", 64), "readback_model": preferredModelForLane(lane), "lane_actor_ref": laneRef,
 	})}
-	completed := Event{EventID: "poc-completed", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:host", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion})}
+	completed := Event{EventID: "lane-completed", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:host", OccurredAt: time.Unix(3, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion})}
 	if err := ApplyOperation(ctx, s, Operation{Events: []Event{dispatch, completed}}); err != nil {
-		t.Fatalf("recording the POC lane attempt: %v", err)
+		t.Fatalf("recording the lane attempt: %v", err)
 	}
-	if err := runVerdictActionAs(t, s, workID, "accept_worker_result", mustJSONValue(map[string]any{"attempt_id": attemptID, "attempt_epoch": 1}), 0, owner); err != nil {
-		t.Fatalf("owner accepting the POC lane result was refused: %v", err)
+	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if got := currentStep(t, s, workID); got != "decision_record" {
-		t.Fatalf("accepted POC lane result advanced to %q, want decision_record", got)
+	_, err = applyWorkflowActionRawTx(ctx, tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+		WorkID: workID, ExpectedVersion: 12, ActionID: "accept_worker_result", Payload: mustJSONValue(map[string]any{"attempt_id": attemptID, "attempt_epoch": 1}), Actor: owner,
+		AcceptedInputsDigest: "sha256:" + strings.Repeat("f", 64), IdempotencyIdentity: "lane:accept", OperationID: "lane:accept",
+		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "lane:accept", RequestID: "request:lane:accept", ContractDigest: testManifestDigest, Now: time.Unix(4, 0).UTC(),
+	})
+	if err != nil {
+		_ = tx.Rollback()
+		t.Fatalf("owner accepting the lane result was refused: %v", err)
 	}
-	return s, owner, ownerRef, laneRef
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	if got := currentStep(t, s, workID); got != "acceptance" {
+		t.Fatalf("accepted lane result advanced to %q, want acceptance", got)
+	}
+	return s, owner, ownerRef, laneRef, operator
 }
 
 // The owner that accepted a lane's result drives the step the acceptance
-// advanced to. An architecture spike's POC lane hands decision_record back to
-// the owner, and record_decision is a checkpoint-event action, so the owner
-// must be able to record it once the lane attempt is disposed.
-func TestOwnerRecordsDecisionAfterAcceptingPOCLane(t *testing.T) {
+// advanced to, through the route the independence law provides. The
+// acceptance is execution history, so the accepting session cannot evaluate
+// the delivery it accepted; a distinct reviewer records the verdict, and the
+// owner's operator-approved premise confirmation is the step's advance exit.
+func TestOwnerAdvancesPremiseAfterAcceptingLaneResult(t *testing.T) {
 	t.Parallel()
-	workID := "authority-poc-decision"
-	s, owner, _, _ := seedAcceptedPOCLane(t, workID)
-	decision := mustJSONValue(map[string]any{
-		"question": "Which route?", "options_considered": []string{"route-a", "route-b"}, "decision": "accepted_decision",
-		"rationale": "The POC proved route-a.", "consequences": []string{"route-a ships"}, "inputs": []string{"poc-report"}, "poc_findings": "route-a passed every check",
-	})
-	if err := runVerdictActionAs(t, s, workID, "record_decision", decision, 0, owner); err != nil {
-		t.Fatalf("owner recording the decision after accepting the POC lane was refused: %v", err)
+	ctx := context.Background()
+	workID := "authority-lane-owner-verdict"
+	s, owner, _, _, operator := seedAcceptedFixtureLane(t, workID)
+	before := readWorkVersion(t, s, workID)
+	verdict := mustJSONValue(map[string]any{"contract_version": 1, "predicate_id": "predicate:primary", "verdict_kind": "ok"})
+	acceptorErr := runVerdictActionAs(t, s, workID, "record_verdict", verdict, 0, owner)
+	var failure *Failure
+	if !errors.As(acceptorErr, &failure) || failure.Kind != KindUnauthorized || !strings.Contains(failure.Detail, "executing actor cannot evaluate its own delivery") {
+		t.Fatalf("acceptor recording the verdict = %v, want the self-evaluation refusal", acceptorErr)
 	}
-	if got := currentStep(t, s, workID); got != "review" {
-		t.Fatalf("recorded decision advanced to %q, want review", got)
+	if got := readWorkVersion(t, s, workID); got != before {
+		t.Fatalf("refused acceptor verdict moved the version to %d, want %d", got, before)
+	}
+	reviewer := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/reviewer", SessionRef: "session/" + workID + "-reviewer", ActorClass: ActorAgent}
+	reviewerRef, err := WorkflowActorRef(reviewer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reviewerVersion := readWorkVersion(t, s, workID)
+	reviewerEvent := workflowEventWithActor("lane-reviewer-"+workID, WorkflowActorRecorded, workID, reviewerRef, map[string]any{"work_id": workID, "expected_version": reviewerVersion, "resulting_version": reviewerVersion + 1, "actor_ref": reviewerRef, "principal_ref": reviewer.PrincipalRef, "client_ref": reviewer.ClientRef, "agent_ref": reviewer.AgentRef, "session_ref": reviewer.SessionRef, "actor_class": "agent"})
+	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{reviewerEvent}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): reviewerVersion}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := runVerdictActionAs(t, s, workID, "record_verdict", verdict, 0, reviewer); err != nil {
+		t.Fatalf("independent reviewer recording the verdict was refused: %v", err)
+	}
+	if got := currentStep(t, s, workID); got != "acceptance" {
+		t.Fatalf("recorded verdict moved to %q, want acceptance", got)
+	}
+	if err := runIssue933OperatorAction(t, s, workID, "confirm_premise", mustJSONValue(map[string]any{"contract_version": 1}), owner, operator); err != nil {
+		t.Fatalf("owner advancing the premise after accepting the lane was refused: %v", err)
+	}
+	if got := currentStep(t, s, workID); got != "release" {
+		t.Fatalf("confirmed premise advanced to %q, want release", got)
 	}
 }
 
@@ -269,10 +314,10 @@ func TestOwnerRecordsDecisionAfterAcceptingPOCLane(t *testing.T) {
 // session ended drives the step the acceptance advanced to. Sessions derive
 // distinct actors, so the writing authority cannot rest on the one session
 // that disposed of the lane attempt.
-func TestResumedSessionRecordsDecisionAfterAnotherSessionAccepted(t *testing.T) {
+func TestResumedSessionRecordsVerdictAfterAnotherSessionAccepted(t *testing.T) {
 	t.Parallel()
-	workID := "authority-poc-resumed-session"
-	s, owner, ownerRef, _ := seedAcceptedPOCLane(t, workID)
+	workID := "authority-lane-resumed-session"
+	s, owner, ownerRef, _, _ := seedAcceptedFixtureLane(t, workID)
 	resumed := owner
 	resumed.SessionRef = "session/resumed-" + workID
 	resumedRef, err := WorkflowActorRef(resumed)
@@ -282,22 +327,19 @@ func TestResumedSessionRecordsDecisionAfterAnotherSessionAccepted(t *testing.T) 
 	if resumedRef == ownerRef {
 		t.Fatal("the resumed session derived the accepting session's actor")
 	}
-	decision := mustJSONValue(map[string]any{
-		"question": "Which route?", "options_considered": []string{"route-a", "route-b"}, "decision": "accepted_decision",
-		"rationale": "The POC proved route-a.", "consequences": []string{"route-a ships"}, "inputs": []string{"poc-report"}, "poc_findings": "route-a passed every check",
-	})
-	if err := runVerdictActionAs(t, s, workID, "record_decision", decision, 0, resumed); err != nil {
-		t.Fatalf("resumed session recording the decision after another session accepted the POC lane was refused: %v", err)
+	verdict := mustJSONValue(map[string]any{"contract_version": 1, "predicate_id": "predicate:primary", "verdict_kind": "ok"})
+	if err := runVerdictActionAs(t, s, workID, "record_verdict", verdict, 0, resumed); err != nil {
+		t.Fatalf("resumed session recording the verdict after another session accepted the lane was refused: %v", err)
 	}
-	if got := currentStep(t, s, workID); got != "review" {
-		t.Fatalf("recorded decision advanced to %q, want review", got)
+	if got := currentStep(t, s, workID); got != "acceptance" {
+		t.Fatalf("recorded verdict moved to %q, want acceptance", got)
 	}
 }
 
 // A resumed coordinator session records a checkpoint-shaped step action on an
 // item that never dispatched a lane, where the selecting session is still the
-// pinned executor.
-func TestResumedSessionRecordsDecisionWithoutALane(t *testing.T) {
+// item's only recorded actor.
+func TestResumedSessionRecordsVerdictWithoutALane(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	workID := "authority-no-lane-resumed-session"
@@ -309,28 +351,26 @@ func TestResumedSessionRecordsDecisionWithoutALane(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	definition, ok := BuiltinWorkflowRegistry().Lookup("workflow.architecture_spike", 7)
-	if !ok {
-		t.Fatal("workflow.architecture_spike v7 is not registered")
-	}
+	digest := workflowFixtureDefinition(t, 2).Digest
 	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{
 		workflowEvent("no-lane-owner-actor", WorkflowActorRecorded, workID, map[string]any{"work_id": workID, "expected_version": 2, "resulting_version": 3, "actor_ref": ownerRef, "principal_ref": owner.PrincipalRef, "client_ref": owner.ClientRef, "agent_ref": owner.AgentRef, "session_ref": owner.SessionRef, "actor_class": "agent"}),
-		workflowEventWithActor("no-lane-definition", WorkflowDefinitionSelected, workID, ownerRef, map[string]any{"work_id": workID, "expected_version": 3, "resulting_version": 4, "ref": definition.Definition.Ref, "version": definition.Definition.Version, "digest": definition.Digest, "work_kind": string(definition.Definition.WorkKind)}),
+		workflowEventWithActor("no-lane-definition", WorkflowDefinitionSelected, workID, ownerRef, map[string]any{"work_id": workID, "expected_version": 3, "resulting_version": 4, "ref": workflowFixtureRef, "version": 2, "digest": digest, "work_kind": workflowFixtureWorkKind}),
 	}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 2}}); err != nil {
 		t.Fatal(err)
 	}
-	setWorkflowStepForOperatorVerdictTest(t, s, workID, "decision_record")
+	contract := workflowEventWithActor("no-lane-contract", WorkflowContractApproved, workID, ownerRef, map[string]any{"work_id": workID, "expected_version": 4, "resulting_version": 5, "contract_version": 1, "premise": "deliver the checked change", "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:no-lane", "immutable_subject_ref": "commit:" + workID, "expected_result": "pass"}, "required_evidence": []string{"verification", "review"}, "route_conventions": []string{}, "spec_mandate": []string{}, "rigor_class": "prototype_internal", "consequence_class": "internal_sqlite"})
+	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{contract}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 4}}); err != nil {
+		t.Fatal(err)
+	}
+	setWorkflowStepForOperatorVerdictTest(t, s, workID, "acceptance")
 	resumed := owner
 	resumed.SessionRef = "session/resumed-" + workID
-	decision := mustJSONValue(map[string]any{
-		"question": "Which route?", "options_considered": []string{"route-a", "route-b"}, "decision": "accepted_decision",
-		"rationale": "The research settled route-a.", "consequences": []string{"route-a ships"}, "inputs": []string{"research-pack"}, "poc_findings": "No POC built.",
-	})
-	if err := runVerdictActionAs(t, s, workID, "record_decision", decision, 0, resumed); err != nil {
-		t.Fatalf("resumed session recording the decision on an item with no lane was refused: %v", err)
+	verdict := mustJSONValue(map[string]any{"contract_version": 1, "predicate_id": "predicate:primary", "verdict_kind": "ok"})
+	if err := runVerdictActionAs(t, s, workID, "record_verdict", verdict, 0, resumed); err != nil {
+		t.Fatalf("resumed session recording the verdict on an item with no lane was refused: %v", err)
 	}
-	if got := currentStep(t, s, workID); got != "review" {
-		t.Fatalf("recorded decision advanced to %q, want review", got)
+	if got := currentStep(t, s, workID); got != "acceptance" {
+		t.Fatalf("recorded verdict moved to %q, want acceptance", got)
 	}
 }
 
@@ -339,16 +379,16 @@ func TestResumedSessionRecordsDecisionWithoutALane(t *testing.T) {
 // may not append checkpoint events, and the refusal mutates nothing.
 func TestDisposedLaneCheckpointRefused(t *testing.T) {
 	t.Parallel()
-	workID := "authority-poc-disposed-lane"
-	s, _, _, laneRef := seedAcceptedPOCLane(t, workID)
+	workID := "authority-lane-disposed-checkpoint"
+	s, _, _, laneRef, _ := seedAcceptedFixtureLane(t, workID)
 	before := readWorkVersion(t, s, workID)
 	beforeCheckpoints := countWorkflowCheckpoints(t, s, workID)
-	disposed := workflowEventWithActor("poc-disposed-checkpoint", WorkflowActionCheckpointed, workID, laneRef, map[string]any{
+	disposed := workflowEventWithActor("lane-disposed-checkpoint", WorkflowActionCheckpointed, workID, laneRef, map[string]any{
 		"work_id": workID, "expected_version": before, "resulting_version": before + 1,
-		"step_id": "decision_record", "step_kind": string(WorkflowStepHumanCheckpoint), "attempt_epoch": 1,
-		"checkpoint_payload": map[string]any{"action_id": "record_decision", "question": "Which route?", "options_considered": []string{"route-a", "route-b"}, "decision": "accepted_decision", "rationale": "The POC proved route-a.", "consequences": []string{"route-a ships"}, "inputs": []string{"poc-report"}, "poc_findings": "route-a passed every check"},
-		"resume_cursor":      "cursor:disposed", "actor_ref": laneRef, "request_id": "request:poc-disposed-checkpoint",
-		"checkpoint_id": "checkpoint:poc-disposed", "accepted_inputs_digest": "sha256:" + strings.Repeat("c", 64), "idempotency_identity": "poc-disposed-checkpoint",
+		"step_id": "acceptance", "step_kind": string(WorkflowStepHumanCheckpoint), "attempt_epoch": 1,
+		"checkpoint_payload": map[string]any{"action_id": "record_verdict", "cursor": "disposed"},
+		"resume_cursor":      "cursor:disposed", "actor_ref": laneRef, "request_id": "request:lane-disposed-checkpoint",
+		"checkpoint_id": "checkpoint:lane-disposed", "accepted_inputs_digest": "sha256:" + strings.Repeat("c", 64), "idempotency_identity": "lane-disposed-checkpoint",
 	})
 	err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{disposed}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): before}})
 	var failure *Failure
@@ -369,8 +409,8 @@ func TestDisposedLaneCheckpointRefused(t *testing.T) {
 // executor that tries to evaluate its own delivery.
 func TestIndependenceUnchangedAfterAccept(t *testing.T) {
 	t.Parallel()
-	workID := "authority-poc-independence"
-	s, _, _, laneRef := seedAcceptedPOCLane(t, workID)
+	workID := "authority-lane-independence"
+	s, _, _, laneRef, _ := seedAcceptedFixtureLane(t, workID)
 	var executing string
 	if err := s.DatabaseForTesting().QueryRow(`SELECT execution_actor_ref FROM workflow_instances WHERE work_id=?`, workID).Scan(&executing); err != nil {
 		t.Fatal(err)
@@ -379,12 +419,13 @@ func TestIndependenceUnchangedAfterAccept(t *testing.T) {
 		t.Fatalf("acceptance moved execution_actor_ref to %q, want %q", executing, laneRef)
 	}
 	before := readWorkVersion(t, s, workID)
-	verdict := workflowEventWithActor("poc-disposed-verdict", WorkflowVerdictRecorded, workID, laneRef, map[string]any{
+	verdict := workflowEventWithActor("lane-disposed-verdict", WorkflowVerdictRecorded, workID, laneRef, map[string]any{
 		"work_id": workID, "expected_version": before, "resulting_version": before + 1,
-		"contract_version": 1, "predicate_id": "predicate:poc", "verdict_kind": "ok",
-		"verdict_actor_ref": laneRef, "evaluation_evidence": []string{"evidence:poc"},
+		"contract_version": 1, "predicate_id": "predicate:primary", "verdict_kind": "ok",
+		"verdict_actor_ref": laneRef, "evaluation_evidence": []string{"evidence:lane"},
 		"incomparable_with_approved": false,
 	})
+	verdict.PayloadVersion = 2
 	err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{verdict}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): before}})
 	var failure *Failure
 	if !errors.As(err, &failure) || failure.Kind != KindUnauthorized {
@@ -392,6 +433,70 @@ func TestIndependenceUnchangedAfterAccept(t *testing.T) {
 	}
 	if got := readWorkVersion(t, s, workID); got != before {
 		t.Fatalf("disposed lane verdict version=%d, want %d", got, before)
+	}
+}
+
+// The architecture-spike topology this file historically exercised through
+// public actions is a retired family now. Its recorded instances still fold
+// for replay, and every public action on a nonterminal archived instance —
+// the lane acceptance and the decision record included — refuses before any
+// write.
+func TestArchivedSpikeRefusesPublicWorkflowActions(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	workID := "authority-archived-spike"
+	s := openTemp(t)
+	seedWork(t, s, workID)
+	seedWorkflowLaw(t, s)
+	owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/" + workID, ActorClass: ActorAgent}
+	ownerRef, err := WorkflowActorRef(owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	definition, ok := BuiltinWorkflowRegistry().Lookup("workflow.architecture_spike", 7)
+	if !ok {
+		t.Fatal("workflow.architecture_spike v7 is not registered")
+	}
+	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{
+		workflowEvent("archived-owner-actor", WorkflowActorRecorded, workID, map[string]any{"work_id": workID, "expected_version": 2, "resulting_version": 3, "actor_ref": ownerRef, "principal_ref": owner.PrincipalRef, "client_ref": owner.ClientRef, "agent_ref": owner.AgentRef, "session_ref": owner.SessionRef, "actor_class": "agent"}),
+		workflowEvent("archived-definition", WorkflowDefinitionSelected, workID, map[string]any{"work_id": workID, "expected_version": 3, "resulting_version": 4, "ref": definition.Definition.Ref, "version": definition.Definition.Version, "digest": definition.Digest, "work_kind": string(definition.Definition.WorkKind)}),
+	}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 2}}); err != nil {
+		t.Fatal(err)
+	}
+	setWorkflowStepForOperatorVerdictTest(t, s, workID, "poc_optional")
+	before := readWorkVersion(t, s, workID)
+
+	assertArchivedRefusal := func(label string, err error) {
+		t.Helper()
+		var failure *Failure
+		if !errors.As(err, &failure) || failure.Kind != KindInvalidOperation || !strings.Contains(failure.Detail, "workflow.architecture_spike is archived: new public workflow actions are refused") {
+			t.Fatalf("%s = %v, want the archived-family invalid_operation refusal", label, err)
+		}
+	}
+	acceptErr := func() error {
+		tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
+		if err != nil {
+			return err
+		}
+		defer tx.Rollback()
+		_, err = applyWorkflowActionRawTx(ctx, tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+			WorkID: workID, ExpectedVersion: before, ActionID: "accept_worker_result", Payload: mustJSONValue(map[string]any{"attempt_id": "attempt:" + workID, "attempt_epoch": 1}), Actor: owner,
+			AcceptedInputsDigest: "sha256:" + strings.Repeat("f", 64), IdempotencyIdentity: "archived:accept", OperationID: "archived:accept",
+			PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: "archived:accept", RequestID: "request:archived:accept", ContractDigest: testManifestDigest, Now: time.Unix(4, 0).UTC(),
+		})
+		return err
+	}()
+	assertArchivedRefusal("archived lane acceptance", acceptErr)
+	decision := mustJSONValue(map[string]any{
+		"question": "Which route?", "options_considered": []string{"route-a", "route-b"}, "decision": "accepted_decision",
+		"rationale": "The POC proved route-a.", "consequences": []string{"route-a ships"}, "inputs": []string{"poc-report"}, "poc_findings": "route-a passed every check",
+	})
+	assertArchivedRefusal("archived decision record", runVerdictActionAs(t, s, workID, "record_decision", decision, 0, owner))
+	if got := readWorkVersion(t, s, workID); got != before {
+		t.Fatalf("archived refusals moved the version to %d, want %d", got, before)
+	}
+	if got := currentStep(t, s, workID); got != "poc_optional" {
+		t.Fatalf("archived refusals moved the step to %q, want poc_optional", got)
 	}
 }
 
@@ -1037,15 +1142,15 @@ func TestAcceptWorkerResultAdvancesCurrentNonExternalDispatchStep(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	definition, err := BuiltinWorkflowDefinitionForRef("workflow.break_fix")
+	definition, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
 	if err != nil {
 		t.Fatal(err)
 	}
 	setup := []Event{
 		workflowEvent("internal-worker-actor", WorkflowActorRecorded, workID, map[string]any{"work_id": workID, "expected_version": 2, "resulting_version": 3, "actor_ref": workerRef, "principal_ref": worker.PrincipalRef, "client_ref": worker.ClientRef, "agent_ref": worker.AgentRef, "session_ref": worker.SessionRef, "actor_class": "agent"}),
 		workflowEvent("internal-owner-actor", WorkflowActorRecorded, workID, map[string]any{"work_id": workID, "expected_version": 3, "resulting_version": 4, "actor_ref": ownerRef, "principal_ref": owner.PrincipalRef, "client_ref": owner.ClientRef, "agent_ref": owner.AgentRef, "session_ref": owner.SessionRef, "actor_class": "agent"}),
-		workflowEvent("internal-definition", WorkflowDefinitionSelected, workID, map[string]any{"work_id": workID, "expected_version": 4, "resulting_version": 5, "ref": definition.Definition.Ref, "version": definition.Definition.Version, "digest": definition.Digest, "work_kind": "break_fix"}),
-		workflowEventWithActor("internal-start", WorkflowActionStarted, workID, workerRef, map[string]any{"work_id": workID, "expected_version": 5, "resulting_version": 6, "step_id": "reproduce", "action_id": "dispatch_worker", "attempt_epoch": 1, "accepted_inputs_digest": "sha256:" + strings.Repeat("i", 64), "idempotency_identity": "internal-start", "actor_ref": workerRef}),
+		workflowEvent("internal-definition", WorkflowDefinitionSelected, workID, map[string]any{"work_id": workID, "expected_version": 4, "resulting_version": 5, "ref": definition.Definition.Ref, "version": definition.Definition.Version, "digest": definition.Digest, "work_kind": "implementation"}),
+		workflowEventWithActor("internal-start", WorkflowActionStarted, workID, workerRef, map[string]any{"work_id": workID, "expected_version": 5, "resulting_version": 6, "step_id": "proposal", "action_id": "dispatch_worker", "attempt_epoch": 1, "accepted_inputs_digest": "sha256:" + strings.Repeat("i", 64), "idempotency_identity": "internal-start", "actor_ref": workerRef}),
 	}
 	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: setup, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): 2}}); err != nil {
 		t.Fatal(err)
@@ -1085,9 +1190,8 @@ func TestAcceptWorkerResultAdvancesCurrentNonExternalDispatchStep(t *testing.T) 
 	if result.ResultingVersion != 8 {
 		t.Fatalf("accept result version=%d, want 8", result.ResultingVersion)
 	}
-	// The acceptance advances reproduce to its next step, which CD-0156 makes
-	// the alignment step; the item still cannot reach diagnose without
-	// record_alignment.
+	// The acceptance advances proposal to its next step, the alignment step;
+	// the item still cannot reach discovery without record_alignment.
 	if got := currentStep(t, s, workID); got != "alignment" {
 		t.Fatalf("accepted worker result current_step=%q, want alignment", got)
 	}
@@ -1668,7 +1772,10 @@ func TestWorkerCompletedJobBindingRefusedAtLegacySourceVersion(t *testing.T) {
 // dispatch fold persisted, so a completion whose report_schema_version
 // disagrees with the attempt refuses. A 1.0 pair that finishes with a 1.1
 // report (or the inverse) is the precise mixed legacy/current shape the
-// store must reject.
+// store must reject. The retired pairs seed through the replay context —
+// the lawful recorded-history route after the 2.0 cutover refuses them on
+// the live boundary — and the fold-level comparison runs identically on
+// replay, which is the rule under test.
 func TestWorkerCompletedRefusesMixedReportSchemaPair(t *testing.T) {
 	t.Parallel()
 	lane := BuiltinLaneDefinitions()[0]
@@ -1677,35 +1784,52 @@ func TestWorkerCompletedRefusesMixedReportSchemaPair(t *testing.T) {
 	// The mixed-shape scenario must drive both attempts through the dispatch
 	// fold (the worker_attempts row is fold-only). The legacy-pair dispatch
 	// admits the 1.0/1.0 identities when worker_job is absent; the current
-	// dispatch records 1.1/1.1.
+	// dispatch records the current pair.
+	seedRetiredPairDispatch := func(t *testing.T, s *Store, workID, eventID, attemptID string) {
+		t.Helper()
+		dispatch := Event{EventID: eventID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketDigest: "sha256:" + strings.Repeat("d", 64), PacketSchemaVersion: WorkerPacketSchemaVersionLegacy, ReportSchemaVersion: WorkerReportSchemaVersionLegacy})}
+		if err := s.Transact(context.Background(), func(tx *Transaction) error {
+			sqlTx, err := transactionSQL(tx, "worker_pair_seed")
+			if err != nil {
+				return err
+			}
+			_, err = applyOperationTx(workflowReplayContext(context.Background()), sqlTx, Operation{Events: []Event{dispatch}}, newFoldScope(sqlTx), false)
+			return err
+		}); err != nil {
+			t.Fatalf("retired-pair dispatch seed refused: %v", err)
+		}
+	}
+	appendRetiredPairCompletion := func(t *testing.T, s *Store, workID, eventID, attemptID string, reportVersion string) error {
+		t.Helper()
+		completed := Event{EventID: eventID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(4, 0).UTC(), PayloadVersion: current, Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: reportVersion, EvidenceOrigin: WorkerEvidenceLegacyUnavailable})}
+		err := s.Transact(context.Background(), func(tx *Transaction) error {
+			sqlTx, err := transactionSQL(tx, "worker_pair_seed")
+			if err != nil {
+				return err
+			}
+			_, err = applyOperationTx(workflowReplayContext(context.Background()), sqlTx, Operation{Events: []Event{completed}}, newFoldScope(sqlTx), false)
+			return err
+		})
+		return err
+	}
 
 	// Same-identity pair lands: a 1.0/1.0 attempt admits a 1.0 completion.
 	s, _ := seedDispatchedWorkerAtExecution(t, "matched-pair-legacy")
-	legacyDispatch := Event{EventID: "matched-pair-legacy-dispatch", Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: "matched-pair-legacy", Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: "dispatch-matched-pair-legacy-2", LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketDigest: "sha256:" + strings.Repeat("d", 64), PacketSchemaVersion: WorkerPacketSchemaVersionLegacy, ReportSchemaVersion: WorkerReportSchemaVersionLegacy})}
-	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{legacyDispatch}}); err != nil {
-		t.Fatalf("legacy-pair dispatch refused: %v", err)
-	}
-	completedSame := Event{EventID: "matched-pair-legacy-ok", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: "matched-pair-legacy", Actor: "worker:test", OccurredAt: time.Unix(4, 0).UTC(), PayloadVersion: current, Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: "dispatch-matched-pair-legacy-2", ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersionLegacy, EvidenceOrigin: WorkerEvidenceLegacyUnavailable})}
-	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{completedSame}}); err != nil {
+	seedRetiredPairDispatch(t, s, "matched-pair-legacy", "matched-pair-legacy-dispatch", "dispatch-matched-pair-legacy-2")
+	if err := appendRetiredPairCompletion(t, s, "matched-pair-legacy", "matched-pair-legacy-ok", "dispatch-matched-pair-legacy-2", WorkerReportSchemaVersionLegacy); err != nil {
 		t.Fatalf("matched 1.0 pair completion refused: %v", err)
 	}
 
-	// Legacy attempt + current completion: dispatch recorded 1.0/1.0 on the
+	// Legacy attempt + job-capable completion: dispatch recorded 1.0/1.0 on the
 	// row; a completion that claims the job-capable 1.1 refuses closed.
 	legacyAttemptID := "dispatch-mixed-pair-legacy-claim"
-	legacyDispatch2 := Event{EventID: "mixed-pair-legacy-claim-dispatch", Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: "matched-pair-legacy", Actor: "worker:test", OccurredAt: time.Unix(5, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: legacyAttemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketDigest: "sha256:" + strings.Repeat("d", 64), PacketSchemaVersion: WorkerPacketSchemaVersionLegacy, ReportSchemaVersion: WorkerReportSchemaVersionLegacy})}
-	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{legacyDispatch2}}); err != nil {
-		t.Fatalf("legacy-pair dispatch 2 refused: %v", err)
-	}
-	completedMismatch := Event{EventID: "mixed-pair-legacy-mismatch", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: "matched-pair-legacy", Actor: "worker:test", OccurredAt: time.Unix(6, 0).UTC(), PayloadVersion: current, Payload: mustJSONValue(WorkerCompletedPayload{AttemptID: legacyAttemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion, EvidenceOrigin: WorkerEvidenceLegacyUnavailable})}
-	if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{completedMismatch}}); err == nil {
+	seedRetiredPairDispatch(t, s, "matched-pair-legacy", "mixed-pair-legacy-claim-dispatch", legacyAttemptID)
+	if err := appendRetiredPairCompletion(t, s, "matched-pair-legacy", "mixed-pair-legacy-mismatch", legacyAttemptID, WorkerReportSchemaVersionPrior); err == nil {
 		t.Fatalf("worker.completed with report_schema_version %q accepted against an attempt row at %q; want refusal",
-			WorkerReportSchemaVersion, WorkerReportSchemaVersionLegacy)
-	} else if !strings.Contains(err.Error(), "report_schema_version") {
-		t.Fatalf("refusal detail = %v, want the matched-pair detail", err)
+			WorkerReportSchemaVersionPrior, WorkerReportSchemaVersionLegacy)
 	}
 
-	// Inverse: a current 1.1/1.1 attempt refuses a completion that claims 1.0.
+	// Inverse: a current 2.0/2.0 attempt refuses a completion that claims 1.0.
 	s2, _ := seedDispatchedWorkerAtExecution(t, "mixed-pair-current")
 	currentDispatch := Event{EventID: "mixed-pair-current-dispatch", Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: "mixed-pair-current", Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: "dispatch-mixed-pair-current-2", LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketDigest: "sha256:" + strings.Repeat("e", 64), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion})}
 	if err := ApplyOperation(context.Background(), s2, Operation{Events: []Event{currentDispatch}}); err != nil {

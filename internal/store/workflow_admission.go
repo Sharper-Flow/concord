@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"fmt"
 )
 
 // WorkflowReviewDebt names the unresolved refinement review state the admission
@@ -38,7 +39,7 @@ type WorkflowAdmissionState struct {
 	// and recovery actions. Only the operator-only outside-repair APIs clear it.
 	OutsideRepairActive bool
 	// RefinementWorkflow reports whether the pinned definition declares the
-	// refinement review shape: a step that declares start_refine. The
+	// refinement review shape: a step that declares checkpoint_refine. The
 	// post-rejection review debt and its settling review belong to that
 	// shape (CD-0197), not to a work kind.
 	RefinementWorkflow bool
@@ -138,6 +139,14 @@ type WorkflowAdmissionState struct {
 	// FailedRetryApproved carries the exact approval for an ordinary failed
 	// retry. An escalated retry instead needs RetryConvergence.
 	FailedRetryApproved bool
+	// OracleOpenFindings is the count of the derived open ranked findings
+	// of an oracle-capable pin: the folded admission state stays
+	// a comparable value, so it carries the bound the dispatch refusal
+	// reads while the identity set itself is derived per surface from the
+	// one lineage reader. Zero on every pin that predates the acceptance
+	// oracle; dispatch refuses while the count exceeds
+	// WorkflowOpenOracleFindingsLimit instead of truncating blockers.
+	OracleOpenFindings int
 	// DispatchHold reports a dispatched worker holding the step's advance.
 	DispatchHold bool
 	// EvidenceRecoveryRoute reports an outstanding contract evidence
@@ -263,14 +272,7 @@ func loadWorkflowAdmissionStateTx(ctx context.Context, q queryer, workID string,
 	// refusing, so the loader stays total over the projection the recovery
 	// owns and every action still reaches its typed route.
 	duplicatedProjection := state.ActiveContracts > 1
-	// The staleness boundary reads through the mutation transaction the
-	// admission sites already hold; a pool-backed queryer cannot answer it
-	// inside one fold, so the loader refuses rather than read past the tx.
-	lawTx, isTx := q.(*sql.Tx)
-	if !isTx {
-		return WorkflowAdmissionState{}, nil, nil, newFailure(KindUnavailable, subject, "workflow action admission folds in the caller's transaction", false, "run the admission fold inside the mutation transaction")
-	}
-	lawErr := checkWorkflowLawRevisionStalenessAdmittingTx(ctx, lawTx, workID, workflowStalePinAdmitNone)
+	lawErr := checkWorkflowLawRevisionStalenessAdmittingTx(ctx, q, workID, workflowStalePinAdmitNone)
 	// The staleness boundary's overlap half resolves the one active contract,
 	// so under a duplicated projection it raises the duplicate invariant the
 	// supersede recovery owns. The count itself classifies the recovery, so
@@ -280,7 +282,7 @@ func loadWorkflowAdmissionStateTx(ctx context.Context, q queryer, workID string,
 	}
 	state.LawPinStaleError = lawErr
 	state.LawPinStale = lawErr != nil && workflowContractRecoveryStaleness(lawErr, workID)
-	state.LawPinSelfError = checkWorkflowLawRevisionStalenessAdmittingTx(ctx, lawTx, workID, workflowStalePinAdmitOwnMarker)
+	state.LawPinSelfError = checkWorkflowLawRevisionStalenessAdmittingTx(ctx, q, workID, workflowStalePinAdmitOwnMarker)
 	if state.LawPinSelfError != nil && duplicatedProjection && workflowDuplicateContractProjection(state.LawPinSelfError) {
 		state.LawPinSelfError = nil
 	}
@@ -383,6 +385,9 @@ func loadWorkflowAdmissionStateTx(ctx context.Context, q queryer, workID string,
 		return WorkflowAdmissionState{}, nil, nil, wallErr
 	}
 	state.NonProgressAttempts = nonProgress
+	if err := loadWorkflowOracleAdmissionTx(ctx, q, workID, definition, &state); err != nil {
+		return WorkflowAdmissionState{}, nil, nil, err
+	}
 	if !state.CorrectionEscalated {
 		continued, continuedErr := workflowCorrectionWindowContinued(ctx, q, workID, subject)
 		if continuedErr != nil {
@@ -509,6 +514,15 @@ func workflowAdmit(definition WorkflowDefinition, state WorkflowAdmissionState, 
 		decision.Failure = newFailure(KindInvalidOperation, "workflow_action", "terminal workflow instance is immutable", false, "start a successor workflow")
 		return decision
 	}
+	// A nonterminal instance under an archived family refuses every public
+	// action here — the recovery routes included — before any write. Terminal
+	// instances keep the terminal-immutability answer above.
+	if workflowFamilyArchived(definition.Ref) {
+		decision.Failure = newFailure(KindInvalidOperation, "workflow_action",
+			"workflow family "+definition.Ref+" is archived: new public workflow actions are refused", false,
+			"read the recorded history, or start retained-family work")
+		return decision
+	}
 	consequence := workflowActionConsequence(definition, actionID)
 	if workflowImpactBoundary(actionID, consequence) {
 		if state.BreakingNotices != 0 {
@@ -527,6 +541,14 @@ func workflowAdmit(definition WorkflowDefinition, state WorkflowAdmissionState, 
 	if actionID == "dispatch_worker" {
 		if state.DesignStale {
 			decision.Failure = newFailure(KindMissingEvidence, "worker_dispatch", "contract correction invalidated the recorded design", false, "use supersede_contract with design_record before worker dispatch")
+			return decision
+		}
+		// More than 32 genuine open oracle blockers is an
+		// explicit no-dispatch bound refusal. Blockers are never silently
+		// omitted to satisfy the bound; recovery is an approved scope or
+		// contract revision, or stopping the work.
+		if state.OracleOpenFindings > WorkflowOpenOracleFindingsLimit {
+			decision.Failure = newFailure(KindLimitExceeded, "worker_dispatch", fmt.Sprintf("the work holds %d open oracle blockers above the %d-ID bound; dispatch is refused rather than truncating the set", state.OracleOpenFindings, WorkflowOpenOracleFindingsLimit), false, "close findings through supported closures or an approved scope/contract revision, or stop the work")
 			return decision
 		}
 		if state.retryEscalated() && !state.RetryConvergence.valid() {
@@ -554,7 +576,7 @@ func workflowAdmit(definition WorkflowDefinition, state WorkflowAdmissionState, 
 		return decision
 	}
 	if state.RefinementWorkflow && state.ReviewDebt == ReviewDebtOutstanding {
-		refineStep := stepDeclaresAction(definition, state.Step, "start_refine")
+		refineStep := stepDeclaresAction(definition, state.Step, "checkpoint_refine")
 		switch actionID {
 		case "record_delivery":
 			if state.ReviewStep {
@@ -757,7 +779,7 @@ func workflowAdmitSupersede(definition WorkflowDefinition, state WorkflowAdmissi
 
 // stalenessRefusal returns the staleness boundary's refusal for one action's
 // stale-pin admission class, or nil when the action's class admits. The
-// attempt-disposition actions admit the subject's own stale pin (CD-0041 D7).
+// attempt-disposition actions admit the subject's own stale pin (CD-0222 D7).
 func (s WorkflowAdmissionState) stalenessRefusal(actionID string) error {
 	if workflowActionStalePinAdmission(actionID) != workflowStalePinAdmitNone {
 		return s.LawPinSelfError

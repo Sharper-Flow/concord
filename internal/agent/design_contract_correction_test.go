@@ -18,13 +18,13 @@ func TestContractCorrectionDoesNotPinAnObsoleteDesign(t *testing.T) {
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(grant, scopeVersion)
-	for _, action := range []string{"record_proposal", "record_alignment", "record_discovery", "record_design"} {
+	for _, action := range []string{"record_proposal", "record_alignment", "record_design"} {
 		invokeWorkflowIssue31Action(t, s, service, env, action, version, "design-correction-"+action)
 		version = workflowIssue31Version(t, s)
 	}
 	fields := workflowContractFieldsFixture()
 	fields["architecture_binding"] = workflowArchitectureBindingFixture()
-	approved, version := approvedOpsAction(t, s, service, grant, privateKey, env, version, "approve_contract", fields, "design-correction-approve")
+	approved, version := approvedWorkflowContract(t, s, service, grant, privateKey, env, version, fields, "design-correction-approve")
 	if approved.Outcome != OutcomeOK {
 		t.Fatalf("approve contract: %+v", approved.Error)
 	}
@@ -79,7 +79,7 @@ func TestContractCorrectionDoesNotPinAnObsoleteDesign(t *testing.T) {
 		payload, err := json.Marshal(map[string]any{
 			"work_id": "work-1", "expected_version": version, "action_id": "dispatch_worker", "idempotency_key": key,
 			"fields": map[string]any{"attempt_id": "attempt:" + key, "worker_packet": bindPacketToRecordedState(t, s, map[string]any{
-				"schema_version": "1.0", "attempt_id": "attempt:" + key, "lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest,
+				"schema_version": store.WorkerPacketSchemaVersion, "attempt_id": "attempt:" + key, "lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest,
 				"work_id": "work-1", "step_id": "execution", "inputs": map[string]any{"task": "Verify the corrected design"},
 			})},
 		})

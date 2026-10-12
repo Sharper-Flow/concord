@@ -6,9 +6,9 @@ import (
 )
 
 // Rebuild snapshot authority for direct-table state the event log never
-// restores. bootstrap_operations, worktree_verify_leases, and
-// linear_outbox_dispositions record live operations; domains and
-// domain_registries are Git-derived knowledge projections. All five hold
+// restores. bootstrap_operations and worktree_verify_leases record live
+// operations; domains and domain_registries are Git-derived knowledge
+// projections. All four hold
 // foreign keys into fold projections (work_items, products, projects), so the
 // rebuild stages their rows in temporary tables before the projection clears
 // and restores them byte-for-byte once the replay has rebuilt every
@@ -17,7 +17,6 @@ import (
 var operationalRebuildTables = []string{
 	"bootstrap_operations",
 	"worktree_verify_leases",
-	"linear_outbox_dispositions",
 	"domains",
 	"domain_registries",
 }

@@ -111,6 +111,13 @@ def _matching_parenthesis(text: str, opening: int) -> int:
     return -1
 
 
+def _declaration_name(declaration: str) -> str | None:
+    match = re.match(r"\s*(?:\"([^\"]+)\"|`([^`]+)`|([A-Za-z_][A-Za-z0-9_]*))", declaration)
+    if not match:
+        return None
+    return next(value for value in match.groups() if value is not None)
+
+
 def _split_top_level(text: str) -> list[str]:
     parts: list[str] = []
     start = 0
@@ -171,6 +178,7 @@ def _discover(source: str) -> tuple[dict[str, Column], list[Trigger]]:
             (r"\bDROP\s+TABLE\s+(?:IF\s+EXISTS\s+)?([A-Za-z_][A-Za-z0-9_]*|\"[^\"]+\"|`[^`]+`)\s*;", "drop"),
             (r"\bALTER\s+TABLE\s+([A-Za-z_][A-Za-z0-9_]*|\"[^\"]+\"|`[^`]+`)\s+RENAME\s+TO\s+([A-Za-z_][A-Za-z0-9_]*|\"[^\"]+\"|`[^`]+`)\s*;", "rename"),
             (r"\bALTER\s+TABLE\s+([A-Za-z_][A-Za-z0-9_]*|\"[^\"]+\"|`[^`]+`)\s+ADD\s+COLUMN\s+(.+?);", "add"),
+            (r"\bALTER\s+TABLE\s+([A-Za-z_][A-Za-z0-9_]*|\"[^\"]+\"|`[^`]+`)\s+DROP\s+COLUMN\s+([A-Za-z_][A-Za-z0-9_]*|\"[^\"]+\"|`[^`]+`)\s*;", "drop_column"),
         ):
             events.extend(
                 (match.start(), kind, match)
@@ -194,13 +202,25 @@ def _discover(source: str) -> tuple[dict[str, Column], list[Trigger]]:
                 new = _unquote(match.group(2))
                 if old in tables:
                     tables[new] = tables.pop(old)
-            else:
+            elif kind == "add":
                 assert isinstance(match, re.Match)
                 table = _unquote(match.group(1))
                 if table in tables:
                     body, line = tables[table]
                     addition = section[match.start(2) : match.end(2)].strip()
                     tables[table] = (f"{body},\n{addition}", line)
+            else:
+                assert kind == "drop_column" and isinstance(match, re.Match)
+                table = _unquote(match.group(1))
+                column = _unquote(match.group(2))
+                if table in tables:
+                    body, line = tables[table]
+                    remaining = [
+                        declaration
+                        for declaration in _split_top_level(body)
+                        if _declaration_name(declaration) != column
+                    ]
+                    tables[table] = (",\n".join(remaining), line)
 
         trigger_start = re.compile(
             r"\bCREATE\s+TRIGGER\s+(?:IF\s+NOT\s+EXISTS\s+)?([A-Za-z_][A-Za-z0-9_]*|\"[^\"]+\"|`[^`]+`).*?\bON\s+([A-Za-z_][A-Za-z0-9_]*|\"[^\"]+\"|`[^`]+`)",
@@ -238,10 +258,9 @@ def _discover(source: str) -> tuple[dict[str, Column], list[Trigger]]:
     columns: dict[str, Column] = {}
     for table, (body, line) in tables.items():
         for declaration in _split_top_level(body):
-            match = re.match(r"\s*(?:\"([^\"]+)\"|`([^`]+)`|([A-Za-z_][A-Za-z0-9_]*))\b", declaration)
-            if not match:
+            name = _declaration_name(declaration)
+            if name is None:
                 continue
-            name = next(value for value in match.groups() if value is not None)
             if name.upper() in {"PRIMARY", "UNIQUE", "CHECK", "FOREIGN", "CONSTRAINT"}:
                 continue
             key = f"{table}.{name}"

@@ -134,11 +134,11 @@ func bindOutsideRepositoryFixture(t *testing.T, s *store.Store) {
 	}
 }
 
-// seedOutsideLinearLink attaches the confirmed external Linear ref the PR
-// body linkage check binds.
+// seedOutsideLinearLink attaches the recorded external Linear identity the
+// PR body linkage check binds.
 func seedOutsideLinearLink(t *testing.T, s *store.Store) {
 	t.Helper()
-	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO linear_issue_links(work_id, remote_issue_uuid, human_key, url, remote_updated_at, content_hash, link_state, created_at, updated_at) VALUES('work-1', 'outside-fixture-issue-uuid-1', ?, 'https://linear.app/sharper-flow/issue/con-869', '', '', 'confirmed', '2026-09-28T00:00:00Z', '2026-09-28T00:00:00Z'); DELETE FROM fold_guard`, outsideFakeIssueKey); err != nil {
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO linear_issue_links(work_id, remote_issue_uuid, human_key, url, created_at, updated_at) VALUES('work-1', 'outside-fixture-issue-uuid-1', ?, 'https://linear.app/sharper-flow/issue/con-869', '2026-09-28T00:00:00Z', '2026-09-28T00:00:00Z'); DELETE FROM fold_guard`, outsideFakeIssueKey); err != nil {
 		t.Fatal(err)
 	}
 }

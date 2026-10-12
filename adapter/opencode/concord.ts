@@ -4,7 +4,7 @@ import { clientRef, type CredentialStore } from "./credentials"
 import { contractOperations, hostToolDescriptions, hostToolSchemas, maxEnvelopeBytes, payloadSchemas, workflowActionPublicVariants } from "./generated-contracts"
 import { activeManifestDigest, adoptManifestDigest, resolveDiskManifestDigest } from "./manifest-pin"
 import { validateGeneratedEnvelope, validateGeneratedPayload, envelopeFailurePath, payloadFailurePath } from "./generated-contract-tests"
-import { dispatchLaneWorker, type LaneDispatchInput } from "./lane_dispatch"
+import { dispatchLaneWorker, dispatchRetriedLaneWorker, type LaneDispatchInput } from "./lane_dispatch"
 import { abandonWorkerAttempt, hostSessionReader, type WorkerRecoveryContext } from "./dispatch"
 import { reconcileRetainedWorker } from "./worker_recovery"
 import { dispatchWindows, staleReleaseDispatchRefusal, dispatchDirectoryMismatch } from "./dispatch-window"
@@ -30,9 +30,29 @@ type ToolContext = {
   ask: (request: { permission: string; patterns: string[]; always: string[]; metadata: { [key: string]: any } }) => Promise<void>
 }
 type ToolResult = string | { output: string; title?: string; metadata?: Record<string, unknown>; attachments?: unknown[] }
-function tool<T>(definition: T): T { return definition }
+const requestToolNames = new WeakMap<object, string>()
+function tool<T extends { args: object; execute: (args: any, context: ToolContext) => Promise<ToolResult> }>(definition: T): T {
+  const toolName = requestToolNames.get(definition.args)
+  if (!toolName) return definition
+  const execute = definition.execute
+  return { ...definition, execute: async (args: any, context: ToolContext): Promise<ToolResult> => {
+    const request: unknown = args?.request
+    if (request === null || typeof request !== "object" || Array.isArray(request)) {
+      const operation = typeof args?.operation === "string" && contractOperations.some((candidate) => candidate.tool === toolName && candidate.id === `${toolName}.${args.operation}`) ? args.operation : ""
+      const requestID = `${context.sessionID}-${context.messageID}`
+      const envelope = adapterError(toolName, operation, requestID, "invalid_input", "invalid_request_wrapper", "Missing or invalid request wrapper: submit {request: {operation, input}}.", "none", "restart_query")
+      envelope.error.retry_safe = false
+      const { envelope: settled, extraWarnings } = withReleaseStaleness(envelope, releaseStaleness())
+      return appendWarnings(encodeHostResult(toolName, operation, requestID, settled), extraWarnings)
+    }
+    return execute(args, context)
+  } }
+}
 
 const MAX_STDERR = 8192
+// cmd/concord's inputRefusalExit names a refusal before dispatch, not a
+// generic process failure. A previous mutation call can still have an effect.
+const CLI_INPUT_REFUSAL_EXIT = 64
 const MAX_WORK_START_OUTPUT_BYTES = 16_384
 const MAX_SALVAGE_BYTES = 16_384
 
@@ -165,15 +185,8 @@ function schemaName(ref: string): string {
   return name
 }
 
-// publishClosedSchema projects one authored closed schema into the published
-// view by inlining every $ref against the generated payload definitions and
-// otherwise preserving the authored structure exactly: required sets, const
-// and enum discriminators, bounds, and legal input combinations (oneOf/anyOf/
-// allOf/if/then/not) all survive. The previous flattenHostSchema merged
-// combinator branches into one union object, which dropped each workflow
-// action's conditional requireds and cross-field exclusions; publication now
-// emits one closed branch per operation and per action variant, so no merge
-// step exists to lose them (CON-412).
+// Resolve authored references before projection. Required sets, selectors,
+// bounds, exclusions, and annotations remain constraints of the published view.
 function publishClosedSchema(value: unknown, resolving = new Set<string>()): JSONSchema {
   if (Array.isArray(value) || typeof value !== "object" || value === null) return {}
   const schema = value as JSONSchema
@@ -220,40 +233,116 @@ function publishClosedSchema(value: unknown, resolving = new Set<string>()): JSO
   return result as JSONSchema
 }
 
+// Only schema-valued positions are traversed. Property maps and annotation
+// objects cannot become references: their keys are not schema keywords.
+function mapPublicationChildren(schema: JSONSchema, visit: (child: JSONSchema) => JSONSchema): JSONSchema {
+  const result = { ...schema }
+  for (const key of ["properties", "patternProperties"]) {
+    const value = schema[key]
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      result[key] = Object.fromEntries(Object.entries(value).map(([name, child]) => [name, visit(child as JSONSchema)]))
+    }
+  }
+  for (const key of ["items", "if", "then", "else", "not", "additionalProperties", "propertyNames", "contains"]) {
+    const value = schema[key]
+    if (value && typeof value === "object") result[key] = Array.isArray(value) ? value.map((child) => visit(child as JSONSchema)) : visit(value as JSONSchema)
+  }
+  for (const key of ["allOf", "anyOf", "oneOf", "prefixItems"]) {
+    if (Array.isArray(schema[key])) result[key] = (schema[key] as JSONSchema[]).map(visit)
+  }
+  return result
+}
+
+// A containing object and a selected oneOf member both apply. Identical
+// properties and common requireds therefore need only one constraint owner.
+// Closed children still declare shared property names with empty schemas,
+// because additionalProperties does not inherit names from its parent.
+function factorPublication(schema: JSONSchema): JSONSchema {
+  const node = mapPublicationChildren(schema, factorPublication)
+  const branches = node.oneOf as JSONSchema[] | undefined
+  if (!Array.isArray(branches) || branches.length < 2 || !branches.every((branch) => branch.type === "object" && branch.properties)) return node
+  const properties = node.properties as Record<string, JSONSchema> | undefined
+  const shared: Record<string, JSONSchema> = {}
+  const firstProperties = branches[0].properties as Record<string, JSONSchema>
+  for (const [key, value] of Object.entries(firstProperties)) {
+    if (branches.every((branch) => JSON.stringify((branch.properties as Record<string, JSONSchema>)[key]) === JSON.stringify(value)) &&
+        (!properties?.[key] || JSON.stringify(properties[key]) === "{}" || JSON.stringify(properties[key]) === JSON.stringify(value))) shared[key] = value
+  }
+  const commonRequired = ((branches[0].required as string[] | undefined) ?? []).filter((key) => branches.every((branch) => (branch.required as string[] | undefined)?.includes(key)))
+  const required = [...new Set([...((node.required as string[] | undefined) ?? []), ...commonRequired])]
+  const parent: JSONSchema = { ...node, type: "object", properties: { ...properties, ...shared }, ...(required.length ? { required } : {}) }
+  parent.oneOf = branches.map((branch) => {
+    const child: JSONSchema = { ...branch, properties: { ...(branch.properties as Record<string, JSONSchema>), ...Object.fromEntries(Object.keys(shared).map((key) => [key, {}])) } }
+    delete child.type
+    if (Array.isArray(child.required)) {
+      const remaining = (child.required as string[]).filter((key) => !required.includes(key))
+      if (remaining.length) child.required = remaining
+      else delete child.required
+    }
+    if (parent.additionalProperties === false && JSON.stringify(Object.keys(parent.properties as object).sort()) === JSON.stringify(Object.keys(child.properties as object).sort())) delete child.additionalProperties
+    return child
+  })
+  return parent
+}
+
+// Each publication owns its definition table. Only identical repeated schema
+// nodes large enough to outweigh a local pointer/table entry are interned.
+// Children are interned first, so definition dependencies form an acyclic DAG.
+function internPublication(schema: JSONSchema): JSONSchema {
+  const counts = new Map<string, number>()
+  const count = (node: JSONSchema): JSONSchema => {
+    const key = JSON.stringify(node)
+    counts.set(key, (counts.get(key) ?? 0) + 1)
+    mapPublicationChildren(node, count)
+    return node
+  }
+  count(schema)
+  const names = new Map<string, string>()
+  const definitions: Record<string, JSONSchema> = {}
+  const intern = (node: JSONSchema): JSONSchema => {
+    const key = JSON.stringify(node)
+    if (names.has(key)) return { $ref: `#/$defs/${names.get(key)}` }
+    const body = mapPublicationChildren(node, intern)
+    // Provider validators require reference targets to carry a concrete
+    // schema, not a bare combinator. Keep those unions inline.
+    if (Object.keys(body).every((keyword) => ["oneOf", "anyOf", "allOf"].includes(keyword))) return body
+    const name = `d${names.size}`
+    const pointer = { $ref: `#/$defs/${name}` }
+    const occurrences = counts.get(key) ?? 0
+    const bytes = Buffer.byteLength(JSON.stringify(body), "utf8")
+    const pointerBytes = Buffer.byteLength(JSON.stringify(pointer), "utf8")
+    const entryBytes = Buffer.byteLength(JSON.stringify(name), "utf8") + 2
+    if (occurrences * bytes <= bytes + occurrences * pointerBytes + entryBytes) return body
+    names.set(key, name)
+    definitions[name] = body
+    return pointer
+  }
+  const result = intern(schema)
+  return Object.keys(definitions).length ? { ...result, $defs: definitions } : result
+}
+
 export function publishedRequestSchema(toolName: string): JSONSchema {
   const operations = contractOperations.filter((operation: any) => operation.tool === toolName)
   if (operations.length === 0) throw new Error(`tool ${toolName} has no generated operations`)
-  // The host receives one closed branch per operation — and for
-  // workflow_action, one closed branch per action variant from the generated
-  // registry projection. Each branch names its discriminator with a const and
-  // states the required set and the admitted fields exactly as the core's
-  // admission enforces them. Never a merged union: a caller reads what the
-  // chosen operation or action requires and refuses instead of what a sibling
-  // owns, and the discriminators keep every branch mutually exclusive.
-  const branchFor = (operationName: string, inputSchemaName: string): JSONSchema => ({
+  const branchFor = (operationName: string, input: JSONSchema): JSONSchema => ({
     type: "object",
     additionalProperties: false,
     required: ["operation", "input"],
     properties: {
       operation: { type: "string", const: operationName },
-      input: publishClosedSchema((payloadSchemas as Record<string, unknown>)[inputSchemaName]),
+      input,
     },
   })
-  const branches: JSONSchema[] = []
-  for (const operation of operations as any[]) {
+  const branches = operations.map((operation: any) => {
     const operationName = operation.id.slice(operation.id.indexOf(".") + 1)
-    if (operation.id === "concord_work_transition.workflow_action") {
-      for (const variant of workflowActionPublicVariants) {
-        branches.push({
-          ...branchFor(operationName, variant.schema),
-          description: `workflow_action action ${variant.action_id}: closed action-discriminated variant`,
-        })
-      }
-    } else {
-      branches.push(branchFor(operationName, schemaName(operation.input_schema)))
-    }
-  }
-  return {
+    if (operation.id !== "concord_work_transition.workflow_action") return branchFor(operationName, publishClosedSchema((payloadSchemas as Record<string, unknown>)[schemaName(operation.input_schema)]))
+    const variants = workflowActionPublicVariants.map((variant) => {
+      const input = publishClosedSchema((payloadSchemas as Record<string, unknown>)[variant.schema])
+      return { ...input, description: [input.description, `workflow_action action ${variant.action_id}: closed action-discriminated variant`].filter(Boolean).join("\n") }
+    })
+    return branchFor(operationName, { type: "object", oneOf: variants })
+  })
+  return internPublication(factorPublication({
     type: "object",
     additionalProperties: false,
     required: ["operation", "input"],
@@ -262,11 +351,25 @@ export function publishedRequestSchema(toolName: string): JSONSchema {
       input: { type: "object" },
     },
     oneOf: branches,
-  }
+  }))
+}
+
+// OpenCode wraps plain argument entries in properties. JSON pointers resolve
+// against that complete argument root, not the nested request document, so the
+// definition hook moves its table to the root without changing runtime args.
+export async function publishRequestDefinition(
+  input: { toolID: string },
+  output: { description: string; parameters: unknown; jsonSchema?: unknown },
+): Promise<void> {
+  if (!contractOperations.some((operation) => operation.tool === input.toolID)) return
+  const { $defs, ...request } = publishedRequestSchema(input.toolID)
+  output.jsonSchema = { type: "object", properties: { request }, required: ["request"], ...($defs ? { $defs } : {}) }
 }
 
 function argsSchema(toolName: string): any {
-  return { request: publishedRequestSchema(toolName) }
+  const args = { request: publishedRequestSchema(toolName) }
+  requestToolNames.set(args, toolName)
+  return args
 }
 
 // The registration map exposes every declared field. The definition hook
@@ -526,6 +629,7 @@ async function invokeConcordOperationRaw(toolName: string, args: HostToolArgs, c
   let result: any
   try { result = await run(args.input) } catch (error) { return invokeRunnerFailureEnvelope(toolName, operation, requestID, error, context.abort, false) }
   if (result.exitCode !== 0 && !result.stdout.trim()) {
+    if (result.exitCode === CLI_INPUT_REFUSAL_EXIT && result.stdout === "") return cliInputRefusal(toolName, operation, requestID, result.stderr)
     const [kind, reason, effect, recovery] = unknownOutcomeClassification(toolName, operation, true)
     return adapterError(toolName, operation, requestID, kind, reason, outcomeMessage(result.stderr.slice(0, MAX_STDERR)), effect, recovery)
   }
@@ -564,6 +668,7 @@ async function invokeConcordOperationRaw(toolName: string, args: HostToolArgs, c
       let retryResult: any
       try { retryResult = await run(args.input) } catch (error) { return invokeRunnerFailureEnvelope(toolName, operation, requestID, error, context.abort, true) }
       if (retryResult.exitCode !== 0 && !retryResult.stdout.trim()) {
+        if (retryResult.exitCode === CLI_INPUT_REFUSAL_EXIT && retryResult.stdout === "" && !operationIsMutation(toolName, operation)) return cliInputRefusal(toolName, operation, requestID, retryResult.stderr)
         const [kind, reason, effect, recovery] = unknownOutcomeClassification(toolName, operation, true)
         return adapterError(toolName, operation, requestID, kind, reason, outcomeMessage(retryResult.stderr.slice(0, MAX_STDERR)), effect, recovery)
       }
@@ -663,6 +768,12 @@ async function invokeConcordOperationRaw(toolName: string, args: HostToolArgs, c
     }
   }
   return response as CoreConcordEnvelope;
+}
+
+function cliInputRefusal(toolName: string, operation: string, requestID: string, stderr: string): CoreConcordEnvelope {
+  const envelope = adapterError(toolName, operation, requestID, "invalid_input", "invalid_cli_input", stderr.slice(0, 1000), "none", "restart_query")
+  envelope.error.retry_safe = false
+  return envelope
 }
 
 function requestWorkID(args: HostToolArgs): string | undefined {
@@ -915,25 +1026,8 @@ type WorkStartCaptureArgs = {
 // session's Project.
 type WorkStartArgs = WorkStartCaptureArgs | { work_id: string; project_id?: string }
 
-// LinearRemoteComment is one remote comment created after the recorded
-// remote freshness, with its body already bounded by the core.
-type LinearRemoteComment = { author: string; created_at: string; body: string }
-
-// LinearRemoteSection mirrors the resume-time remote Linear check the core
-// attaches to a work-resume result. Degraded authority carries only the
-// typed reason; ok carries the full comparison. The core writes nothing on
-// this path, so the section is information the resuming session reads.
-type LinearRemoteSection = {
-  authority: "ok" | "degraded"
-  reason?: string
-  changed_since_recorded?: boolean
-  updated_at?: string
-  status?: { expected: string; actual: string; remote_state_type: string; mismatch: boolean }
-  title?: { remote: string; differs: boolean }
-  description?: string
-  description_truncated?: boolean
-  comments?: { items: LinearRemoteComment[]; truncated: boolean; reason?: string }
-}
+// RecordedLinearIssueSection carries only the identity held by the local store.
+type RecordedLinearIssueSection = { human_key: string; remote_issue_uuid: string; url: string }
 
 // ProjectHandoffSection is the bounded addressed handoff a Project-selected
 // work-resume renders (CD-0182 amendment): the durable handoff identity, the
@@ -960,7 +1054,7 @@ type WorkStartResume = {
   work_id: string
   worktree: { set_id: string; path: string; branch: string; base_sha: string; state: "active" }
   branch_freshness: BranchFreshness
-  linear_remote?: LinearRemoteSection
+  linear_issue?: RecordedLinearIssueSection
   project_handoff?: ProjectHandoffSection
 }
 
@@ -1006,7 +1100,7 @@ type WorkStartEnvelope = {
   agent?: string
   session_id?: string | null
   output?: string
-  linear_remote?: LinearRemoteSection
+  linear_issue?: RecordedLinearIssueSection
   project_handoff?: ProjectHandoffSection
   branch_freshness?: BranchFreshness
   launch?: WorkStartLaunch
@@ -1080,8 +1174,8 @@ function validateWorkStartPrepared(value: unknown, bootstrap: { product_id: stri
 // child. It mirrors validateWorkStartBootstrap minus the capture-only fields
 // (operation id, replay flag, work version): the active-entry read records
 // nothing, while missing-entry bootstrap keeps those fields outside this
-// shared resume response. linear_remote is the optional remote Linear check
-// section: absent exactly when the resume applies no remote check.
+// shared resume response.
+// linear_issue is the optional locally recorded issue identity.
 // branch_freshness is the typed behind-the-default sample the resume always
 // carries; a fetch or probe failure degrades it to the typed unknown.
 // project_handoff is the optional bounded addressed handoff the core renders
@@ -1093,7 +1187,7 @@ function validateWorkStartPrepared(value: unknown, bootstrap: { product_id: stri
 function validateWorkStartResume(value: unknown): value is WorkStartResume {
   if (!record(value)) return false
   const baseKeys = ["schema_version", "product_id", "project_id", "work_id", "worktree", "branch_freshness"]
-  const optionalKeys = ["linear_remote", "project_handoff"]
+  const optionalKeys = ["linear_issue", "project_handoff"]
   if (!baseKeys.every((key) => key in value)) return false
   const extraKeys = Object.keys(value).filter((key) => !baseKeys.includes(key))
   if (extraKeys.some((key) => !optionalKeys.includes(key))) return false
@@ -1105,8 +1199,16 @@ function validateWorkStartResume(value: unknown): value is WorkStartResume {
     && nonEmptyString(worktree.branch) && typeof worktree.base_sha === "string" && /^[0-9a-f]{40}$/.test(worktree.base_sha) && worktree.state === "active"
   if (!worktreeOk) return false
   if (!validateBranchFreshness(value.branch_freshness)) return false
-  if ("linear_remote" in value && !validateLinearRemoteSection(value.linear_remote)) return false
+  if ("linear_issue" in value && !validateRecordedLinearIssueSection(value.linear_issue)) return false
   return !("project_handoff" in value) || validateProjectHandoffSection(value.project_handoff)
+}
+
+function validateRecordedLinearIssueSection(value: unknown): value is RecordedLinearIssueSection {
+  if (!record(value) || !exactKeys(value, ["human_key", "remote_issue_uuid", "url"])) return false
+  const fields = payloadSchemas.work_define_issue_link_record_input.properties
+  return validateAgainstSchema(fields.human_key, value.human_key)
+    && validateAgainstSchema(fields.remote_issue_uuid, value.remote_issue_uuid)
+    && validateAgainstSchema(fields.url, value.url)
 }
 
 // validateProjectHandoffSection is the strict shape for the rendered bounded
@@ -1165,39 +1267,6 @@ export function validateBranchFreshness(value: unknown): value is BranchFreshnes
     return exactKeys(value, ["status", "reason"]) && typeof value.reason === "string" && branchFreshnessReasons.has(value.reason)
   }
   return false
-}
-
-const linearRemoteReasons = new Set(["missing_credentials", "unauthorized", "rate_limited", "timeout", "unavailable", "not_found", "local_unavailable"])
-
-function validateLinearRemoteComment(value: unknown): value is LinearRemoteComment {
-  return record(value) && exactKeys(value, ["author", "created_at", "body"])
-    && typeof value.author === "string" && typeof value.created_at === "string" && typeof value.body === "string"
-}
-
-// validateLinearRemoteSection is the strict shape for the remote Linear
-// check section. Degraded authority carries only its typed reason; ok
-// carries the full comparison with the comments reason as the one optional
-// key. Exact keys keep the contract closed on both sides.
-function validateLinearRemoteSection(value: unknown): boolean {
-  if (!record(value)) return false
-  if (value.authority === "degraded") {
-    return exactKeys(value, ["authority", "reason"]) && typeof value.reason === "string" && linearRemoteReasons.has(value.reason)
-  }
-  if (value.authority !== "ok") return false
-  if (!exactKeys(value, ["authority", "changed_since_recorded", "updated_at", "status", "title", "description", "description_truncated", "comments"])) return false
-  if (typeof value.changed_since_recorded !== "boolean" || typeof value.updated_at !== "string" || typeof value.description !== "string" || typeof value.description_truncated !== "boolean") return false
-  const status = value.status
-  if (!record(status) || !exactKeys(status, ["expected", "actual", "remote_state_type", "mismatch"])) return false
-  if (typeof status.expected !== "string" || typeof status.actual !== "string" || typeof status.remote_state_type !== "string" || typeof status.mismatch !== "boolean") return false
-  const title = value.title
-  if (!record(title) || !exactKeys(title, ["remote", "differs"]) || typeof title.remote !== "string" || typeof title.differs !== "boolean") return false
-  const comments = value.comments
-  if (!record(comments)) return false
-  const commentKeys = Object.keys(comments)
-  if (commentKeys.length !== 2 && commentKeys.length !== 3) return false
-  if (typeof comments.truncated !== "boolean" || !Array.isArray(comments.items) || !comments.items.every(validateLinearRemoteComment)) return false
-  if (!("reason" in comments)) return commentKeys.length === 2
-  return commentKeys.length === 3 && typeof comments.reason === "string" && linearRemoteReasons.has(comments.reason)
 }
 
 function boundedUTF8(value: string, maxBytes: number): string {
@@ -1483,24 +1552,6 @@ async function writeSessionGoalTitle(sessionID: string, title: string, context: 
 // warning, never a bypass: the core's managed-execution admission gate stays
 // closed until the bind stands.
 
-// Per-session record of the handoff this session consumed after placement.
-// One entry per session; a newer consume replaces the older record. The map
-// is lifecycle-bounded like the armed claims: its exits are a host process
-// restart or resetConsumedProjectHandoffs in tests.
-type ConsumedHandoff = { workID: string; handoffID: string }
-
-const consumedHandoffs = new Map<string, ConsumedHandoff>()
-
-// consumedProjectHandoff answers the consumed handoff record for one session,
-// or null when the session consumed none.
-export function consumedProjectHandoff(sessionID: string): ConsumedHandoff | null {
-  return sessionID ? consumedHandoffs.get(sessionID) ?? null : null
-}
-
-export function resetConsumedProjectHandoffs(): void {
-  consumedHandoffs.clear()
-}
-
 // projectHandoffConsumeKey derives the automatic consume idempotency key from
 // the complete consume identity — work and handoff — through a JSON encoding
 // the digest unambiguously decodes back into exactly one identity pair. Every
@@ -1533,7 +1584,6 @@ export async function consumeAddressedProjectHandoff(workID: string, handoffID: 
   if (envelope.outcome === "ok") {
     const result = envelope.result as { handoff_id?: string } | undefined
     if (typeof result?.handoff_id === "string" && result.handoff_id) {
-      consumedHandoffs.set(context.sessionID, { workID, handoffID: result.handoff_id })
       return { consumed: true, handoffID: result.handoff_id }
     }
     return { consumed: false, handoffID: "", message: "the addressed handoff consume answered ok without a handoff id" }
@@ -1594,7 +1644,7 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext, warni
       throw new AdapterFailure("unreachable", "managed_scope_unavailable", error instanceof Error ? error.message : String(error), "none", "contact_operator")
     }
     let prepareTask: string
-    let resumeRemote: LinearRemoteSection | undefined
+    let recordedIssue: RecordedLinearIssueSection | undefined
     let renderedHandoff: ProjectHandoffSection | undefined
     let resumeFreshness: BranchFreshness | undefined
     if (resume) {
@@ -1609,7 +1659,7 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext, warni
       try { resumedValue = singleJSON(resumed.stdout) } catch (error) { throw new AdapterFailure("malformed_response", "malformed_resume_response", String(error), "none", "retry_same_request") }
       if (!validateWorkStartResume(resumedValue) || resumedValue.product_id !== productID || resumedValue.project_id !== projectID || resumedValue.work_id !== workID) throw new AdapterFailure("malformed_response", "malformed_resume_response", "work-resume response failed the strict resume contract", "none", "retry_same_request")
       target = resumedValue
-      resumeRemote = resumedValue.linear_remote
+      recordedIssue = resumedValue.linear_issue
       renderedHandoff = resumedValue.project_handoff
       resumeFreshness = resumedValue.branch_freshness
       prepareTask = ""
@@ -1788,9 +1838,7 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext, warni
       output: renderedHandoff
         ? `${moveNoticeText(target.worktree.path, dispatchRequiresNextTurn(context.sessionID))} Bounded job: ${renderedHandoff.bounded_job} Next action: ${renderedHandoff.next_action}`
         : moveNoticeText(target.worktree.path, dispatchRequiresNextTurn(context.sessionID)),
-      // The remote Linear check rides the resume result into the envelope so
-      // the resuming session sees remote drift before it acts.
-      ...(resumeRemote ? { linear_remote: resumeRemote } : {}),
+      ...(recordedIssue ? { linear_issue: recordedIssue } : {}),
       // The consumed handoff's bounded job rides the result so the receiving
       // session holds its repository job and exact next action without the
       // operator copying context (CD-0182 amendment).
@@ -1811,7 +1859,6 @@ export const work_trace = tool({ description: "Concord work trace", args: argsSc
 export const knowledge = tool({ description: "Concord knowledge", args: argsSchema("concord_knowledge"), execute: laneGuarded("concord_knowledge", (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_knowledge", hostRequest(args), context)) })
 export const work_define = tool({ description: "Concord work define", args: argsSchema("concord_work_define"), execute: laneGuarded("concord_work_define", (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_work_define", hostRequest(args), context)) })
 export const domain = tool({ description: "Concord domain", args: argsSchema("concord_domain"), execute: laneGuarded("concord_domain", (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_domain", hostRequest(args), context)) })
-export const work_initiative = tool({ description: "Concord work initiative", args: argsSchema("concord_work_initiative"), execute: laneGuarded("concord_work_initiative", (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTool("concord_work_initiative", hostRequest(args), context)) })
 const guardedWorkTransition = laneGuarded("concord_work_transition", (args: HostToolCall, context: ToolContext): Promise<ToolResult> => executeHostTransition(hostRequest(args), context))
 export const work_transition = tool({ description: "Concord work transition. Use operation workflow_action for declared workflow actions. Use operation worker_abandon with the attempt and lane identity to close a dispatched attempt with no report. Use operation worker_reconcile to recover the original retained completed Task without a new worker run. Use action_id dispatch_worker with fields.lane_id for the native worker route. Route discovery does not prove admission at the current workflow step.", args: argsSchema("concord_work_transition"), execute: async (args: HostToolCall, context: ToolContext): Promise<ToolResult> => {
   const request = hostRequest(args)
@@ -1831,14 +1878,10 @@ export const work_relate = tool({
   description: "Concord work relate",
   args: argsSchema("concord_work_relate"),
   execute: laneGuarded("concord_work_relate", async (args: HostToolCall, context: ToolContext): Promise<ToolResult> => {
-    // Same shape as the transition tool: a supersede that terminalizes the
-    // work whose worktree this session runs in carries a vacate_target the
-    // adapter applies before the result is reported (CD-0179).
     const staleness = releaseStaleness()
     const request = hostRequest(args)
     const envelope = await invokeConcordOperation("concord_work_relate", request, context)
-    const vacated = await vacateTerminalWorktree("concord_work_relate", request, context, envelope)
-    const { envelope: settled, extraWarnings } = withReleaseStaleness(vacated, staleness)
+    const { envelope: settled, extraWarnings } = withReleaseStaleness(envelope, staleness)
     const warnings = operationIsMutation("concord_work_relate", request.operation) ? await workStateReporter.report(settled, context) : []
     return appendMoveNotice(appendWarnings(await encodeHostToolResult("concord_work_relate", request, context, settled), [...warnings, ...extraWarnings]), context)
   }),
@@ -2495,15 +2538,53 @@ async function executeWorkTransition(args: HostToolArgs, context: ToolContext, s
     args = { ...args, input: { ...(record(args.input) ? args.input : {}), host_pid: process.pid } }
   }
   const envelope = await invokeConcordOperation("concord_work_transition", args, context)
+  if (args?.operation === "workflow_action") {
+    const launched = await launchRetriedWorkerDispatch(args, context, envelope)
+    if (launched !== null) return launched
+  }
   const settled = await vacateTerminalWorktree("concord_work_transition", args, context, envelope)
   const landed = await moveSessionToClaimedWorktree(args, context, settled)
   return landed
 }
 
+// launchRetriedWorkerDispatch routes a combined rejection's committed retry
+// dispatch through the one post-commit host launch owner (CD-0198 D5). The
+// core's response carries the exact admitted retry dispatch — the derived
+// packet, the minted attempt identity, the digest the fresh window opened
+// for, and the claimed worktree — and this boundary arms the launch window
+// from those values alone. An envelope that carries no retry members (a
+// rejection-only response, an error such as the escalation wall, or any
+// other action) returns null and the ordinary path continues untouched; no
+// launch is attempted for a response that did not commit one.
+//
+// CD-0198 D5: the acknowledged output preserves the committed rejection's
+// mutation receipt beside the Task directive the launch owner produces:
+// changed_refs, next_valid_intents, and the core result receipt ride the
+// launch envelope under their core names. The copies come from the core
+// envelope the invoke boundary already validated against the generated
+// contracts, so no second validator runs; retry_worker_packet stays off the
+// copy because the launch consumed those exact bytes into the armed window
+// and the digest names the durable copy the store holds.
+async function launchRetriedWorkerDispatch(args: HostToolArgs, context: ToolContext, envelope: unknown): Promise<HostConcordEnvelope | null> {
+  if (!record(args?.input) || args.input.action_id !== "reject_worker_result") return null
+  if (!record(envelope) || envelope.outcome !== "ok") return null
+  const result = record(envelope.result) ? envelope.result : null
+  if (!result || result.retry_worker_packet === null || typeof result.retry_worker_packet !== "object") return null
+  const attemptID = typeof result.retry_attempt_id === "string" ? result.retry_attempt_id : ""
+  const digest = typeof result.worker_packet_digest === "string" ? result.worker_packet_digest : ""
+  const worktree = typeof result.worker_worktree === "string" ? result.worker_worktree : ""
+  const launch = await dispatchRetriedLaneWorker({ packet: result.retry_worker_packet, packetDigest: digest, attemptID, authorizedWorktree: worktree }, { context, credentials: credentialsOverride ?? undefined })
+  if (!record(launch)) return launch as HostConcordEnvelope
+  const receipt = Array.isArray(envelope.changed_refs) ? envelope.changed_refs : undefined
+  const intents = Array.isArray(envelope.next_valid_intents) ? envelope.next_valid_intents : undefined
+  const { retry_worker_packet: _consumed, ...resultReceipt } = result
+  return { ...launch, changed_refs: receipt, next_valid_intents: intents, result: resultReceipt } as HostConcordEnvelope
+}
+
 // vacateTerminalWorktree moves a session out of a work item's worktree after
-// the work reached a terminal state (complete, cancel, supersede). The core
-// attaches vacate_target to the transition result only when the calling
-// session's linked worktree is that work item's active worktree, so the hook
+// the work reached a terminal state (complete, cancel). The core attaches
+// vacate_target to the transition result only when the calling session's
+// linked worktree is that work item's active worktree, so the hook
 // never releases another work item's occupancy. The vacate runs first — it
 // records the relocation request and resolves the registered main checkout —
 // the move follows it, and the verified landing the move readback earns
@@ -2517,8 +2598,7 @@ async function executeWorkTransition(args: HostToolArgs, context: ToolContext, s
 // reach it; a vacate refused before the commit keeps the worktree retry.
 export async function vacateTerminalWorktree(toolName: string, args: HostToolArgs, context: ToolContext, envelope: HostConcordEnvelope): Promise<HostConcordEnvelope> {
   const transitioned = args?.operation === "lifecycle" && record(args.input) && ["completed", "cancelled"].includes(String(args.input.target))
-  const superseded = toolName === "concord_work_relate" && args?.operation === "supersede"
-  if (!transitioned && !superseded) return envelope
+  if (!transitioned) return envelope
   if (!record(envelope) || envelope.outcome !== "ok") return envelope
   const target = record(envelope.result) ? envelope.result.vacate_target : undefined
   if (!record(target) || typeof target.work_id !== "string" || typeof target.destination_directory !== "string") return envelope

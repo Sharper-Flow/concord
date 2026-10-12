@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/sharper-flow/concord/internal/payloadschema"
-	"github.com/sharper-flow/concord/internal/portfolio"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -86,8 +85,7 @@ type pageInput struct {
 // effectiveLimit resolves the unified TS3 §3 pagination alias: the top-level
 // limit wins when both it and page.limit are nonzero, and 0 means the
 // operation's server default. Every paginated read handler selects its
-// effective limit through this one expression, mirroring the pattern
-// readKnowledgeUnprocessed established. Each alias field is omitempty so a
+// effective limit through this one expression. Each alias field is omitempty so a
 // call that does not send it marshals to the same cursor binding bytes as
 // before, and in-flight cursors survive the alias.
 func effectiveLimit(topLevel int, page pageInput) int {
@@ -139,12 +137,6 @@ type blockedSessionsInput struct {
 	Limit     int       `json:"limit,omitempty"`
 }
 
-type productRowPortfolioInput struct {
-	ProductID string                         `json:"product_id"`
-	Page      pageInput                      `json:"page"`
-	Limit     int                            `json:"limit,omitempty"`
-	Source    *store.ProductRowRelianceInput `json:"source"`
-}
 type workListInput struct {
 	ProductID     string    `json:"product_id"`
 	ProjectIDs    []string  `json:"project_ids"`
@@ -208,7 +200,11 @@ type worktreeInspectInput struct {
 	Mode   string `json:"mode"`
 	// Path is the relative file selector for file mode. It selects inside
 	// the identity-derived worktree (CD-0096 D2), never a worktree path.
-	Path string `json:"path"`
+	Path   string `json:"path"`
+	RunRef string `json:"run_ref"`
+	Stream string `json:"stream"`
+	Offset int64  `json:"offset"`
+	Length int64  `json:"length"`
 }
 
 type researchReadInput struct {
@@ -217,6 +213,13 @@ type researchReadInput struct {
 	WorkID    string    `json:"work_id"`
 	Page      pageInput `json:"page"`
 	Limit     int       `json:"limit,omitempty"`
+	// ResultVersion selects the result contract: 0 and 1 keep the legacy full
+	// research_pack result; 2 is the canonical read (exact revision and
+	// finding selection, or the owner descriptor page). The runtime, not the
+	// schema, refuses the combinations the flat input cannot express.
+	ResultVersion int      `json:"result_version,omitempty"`
+	Revision      int64    `json:"revision,omitempty"`
+	FindingIDs    []string `json:"finding_ids,omitempty"`
 }
 
 type historyInput struct {
@@ -253,9 +256,6 @@ type workIDInput struct {
 	WorkID string      `json:"work_id"`
 	Budget budgetInput `json:"budget"`
 }
-type initiativeEntriesInput struct {
-	InitiativeWorkID string `json:"initiative_work_id"`
-}
 type domainReadInput struct {
 	ProductID string    `json:"product_id"`
 	DomainID  string    `json:"domain_id"`
@@ -269,8 +269,6 @@ type knowledgeSearchInput struct {
 	Kinds     []string `json:"kinds"`
 	Tags      []string `json:"tags"`
 	Text      string   `json:"text"`
-	Since     *string  `json:"since"`
-	Until     *string  `json:"until"`
 	// AllowDegraded opts the caller in to CD-0008 D3 degraded enumeration: a
 	// knowledge index behind the git head answers with authority "degraded" plus
 	// omissions instead of failing closed. Default false keeps the fail-closed
@@ -282,13 +280,6 @@ type knowledgeSearchInput struct {
 type knowledgeResolveInput struct {
 	WorkID      string `json:"work_id"`
 	KnowledgeID string `json:"knowledge_id"`
-}
-
-type knowledgeUnprocessedInput struct {
-	ProductID string    `json:"product_id"`
-	ProjectID string    `json:"project_id"`
-	Page      pageInput `json:"page"`
-	Limit     int       `json:"limit,omitempty"`
 }
 
 type runtime struct {
@@ -382,16 +373,8 @@ func DispatchWithRegistry(ctx context.Context, s *store.Store, authority *Servic
 	}
 	inv := Invocation{ClientRef: env.ClientRef, PrincipalRef: env.PrincipalRef, SessionRef: env.SessionRef, AgentRef: env.AgentRef, Directory: env.Directory, Worktree: env.Worktree, ManifestDigest: env.ManifestDigest, HostAssertionDigest: env.HostAssertionDigest, RequiredCapability: op.Capability, RequiredOperation: request.Operation, ProductID: env.SelectedProductID}
 	if op.Kind != OperationRead && op.ID != "concord_work_transition.workflow_action" {
-		identity, identityExtractErr := extractMutationWorkIdentity(request.Input)
-		if identityExtractErr != nil {
+		if _, identityExtractErr := extractMutationWorkIdentity(request.Input); identityExtractErr != nil {
 			return base, identityExtractErr
-		}
-		if identity.RelationID != "" {
-			endpoints, endpointErr := s.RelationEndpoints(ctx, identity.RelationID)
-			if endpointErr != nil {
-				return failureEnvelope(base, endpointErr), nil
-			}
-			identity.WorkIDs = append(identity.WorkIDs, endpoints...)
 		}
 		identityInv := inv
 		identityInv.ProductID, identityInv.ProjectID = "", ""
@@ -434,46 +417,6 @@ func DispatchWithRegistry(ctx context.Context, s *store.Store, authority *Servic
 		return r.mutate(ctx, base, request.Input, grant, op)
 	}
 	return r.read(ctx, base, request.Input, op.QueryID)
-}
-
-func prepareMutationNavigation(ctx context.Context, s *store.Store, raw json.RawMessage) (context.Context, error) {
-	identity, err := extractMutationWorkIdentity(raw)
-	if err != nil {
-		return ctx, err
-	}
-	if identity.RelationID != "" {
-		endpoints, err := s.RelationEndpoints(ctx, identity.RelationID)
-		if err != nil {
-			return ctx, err
-		}
-		identity.WorkIDs = append(identity.WorkIDs, endpoints...)
-	}
-	var fields struct {
-		ProjectIDs  []string `json:"project_ids"`
-		ProjectID   string   `json:"project_id"`
-		Memberships []struct {
-			ProjectID string `json:"project_id"`
-		} `json:"memberships"`
-		Fields struct {
-			RequiredReading []struct {
-				Source store.WorkContextReadingSource `json:"source"`
-			} `json:"required_reading"`
-		} `json:"fields"`
-	}
-	if err := json.Unmarshal(raw, &fields); err != nil {
-		return ctx, err
-	}
-	request := store.WorkContextNavigationRequest{WorkIDs: identity.WorkIDs, ProjectIDs: fields.ProjectIDs}
-	if fields.ProjectID != "" {
-		request.ProjectIDs = append(request.ProjectIDs, fields.ProjectID)
-	}
-	for _, membership := range fields.Memberships {
-		request.ProjectIDs = append(request.ProjectIDs, membership.ProjectID)
-	}
-	for _, reading := range fields.Fields.RequiredReading {
-		request.Sources = append(request.Sources, reading.Source)
-	}
-	return s.EstablishWorkContextNavigationProof(ctx, request)
 }
 
 // budgetFailure carries the distinction applyBudget must report: a
@@ -547,29 +490,31 @@ func validateRequestedScope(ctx context.Context, s *store.Store, env CallEnvelop
 		return err
 	}
 	workIDs := identity.WorkIDs
-	if identity.RelationID != "" {
-		endpoints, endpointErr := s.RelationEndpoints(ctx, identity.RelationID)
-		if endpointErr != nil {
-			return endpointErr
+	// A pack_id names content owned by one immutable work item, so these
+	// operations are authorized as references to that owner.
+	switch request.Tool + "." + request.Operation {
+	case "concord_work_trace.research", "concord_work_define.research_revision_append", "concord_work_define.research_finding_record", "concord_work_define.research_source_record", "concord_work_define.research_freshness_set":
+		var in struct {
+			PackID string `json:"pack_id"`
 		}
-		workIDs = append(workIDs, endpoints...)
+		if err := json.Unmarshal(request.Input, &in); err != nil {
+			return err
+		}
+		if in.PackID != "" {
+			owners, err := s.ResearchPackOwnerWorkIDs(ctx, []string{in.PackID})
+			if err != nil {
+				return err
+			}
+			workIDs = append(workIDs, owners...)
+		}
 	}
 	if len(workIDs) > 0 {
 		scopes, err := s.ProductsForWorkIDs(ctx, workIDs)
 		if err != nil {
 			return err
 		}
-		for _, id := range workIDs {
-			products, ok := scopes[id]
-			if !ok {
-				return newRuntimeFailure("unknown_scope", "work reference is not in Product scope", "reread_entities", false)
-			}
-			if !scopeIntersects(products, grant.ProductScope) {
-				return newRuntimeFailure("unauthorized", "work reference is outside authorized Product scope", "contact_operator", false)
-			}
-			if kind != OperationRead && env.SelectedProductID != "" && !contains(products, env.SelectedProductID) && !containsCapability(grant.Capabilities, Capability("cross_scope")) {
-				return newRuntimeFailure("unauthorized", "cross-Product mutation requires cross_scope capability", "contact_operator", false)
-			}
+		if err := validateWorkReferenceScope(env, grant, kind, workIDs, scopes); err != nil {
+			return err
 		}
 	}
 	if raw, ok := fields["knowledge_id"]; ok {
@@ -617,9 +562,52 @@ func validateRequestedScope(ctx context.Context, s *store.Store, env CallEnvelop
 	return nil
 }
 
+// validateWorkReferenceScope is the one Product policy for a work reference:
+// a direct work ID or a research pack owner. Every
+// referenced work's Products must intersect the grant, and a mutation outside
+// the selected Product also needs cross_scope.
+func validateWorkReferenceScope(env CallEnvelope, grant Authority, kind OperationKind, workIDs []string, scopes map[string][]string) error {
+	for _, id := range workIDs {
+		products, ok := scopes[id]
+		if !ok {
+			return newRuntimeFailure("unknown_scope", "work reference is not in Product scope", "reread_entities", false)
+		}
+		if !scopeIntersects(products, grant.ProductScope) {
+			return newRuntimeFailure("unauthorized", "work reference is outside authorized Product scope", "contact_operator", false)
+		}
+		if kind != OperationRead && env.SelectedProductID != "" && !contains(products, env.SelectedProductID) && !containsCapability(grant.Capabilities, Capability("cross_scope")) {
+			return newRuntimeFailure("unauthorized", "cross-Product mutation requires cross_scope capability", "contact_operator", false)
+		}
+	}
+	return nil
+}
+
+// authorizeWorkflowActionTx authorizes the caller inside the action
+// transaction, then authorizes the owner of every declared research binding
+// under that grant, before the action writes a binding or an idempotency
+// receipt. A retained pin with no new declaration is not rechecked.
+func (r runtime) authorizeWorkflowActionTx(ctx context.Context, tx *store.Transaction, host store.ResolvedProjectHost, inv Invocation, bindings []researchBindingInput) error {
+	grant, err := r.Authority.AuthorizeTx(ctx, tx, host, inv)
+	if err != nil {
+		return err
+	}
+	ids := make([]string, 0, len(bindings))
+	for _, binding := range bindings {
+		ids = append(ids, binding.PackID)
+	}
+	owners, err := store.ResearchPackOwnerWorkIDsTx(ctx, tx, ids)
+	if err != nil {
+		return err
+	}
+	scopes, err := store.ProductsForWorkIDsTx(ctx, tx, owners)
+	if err != nil {
+		return err
+	}
+	return validateWorkReferenceScope(r.Envelope, grant, OperationMutation, owners, scopes)
+}
+
 type mutationWorkIdentity struct {
-	WorkIDs    []string
-	RelationID string
+	WorkIDs []string
 }
 
 func extractMutationWorkIdentity(raw []byte) (mutationWorkIdentity, error) {
@@ -628,7 +616,7 @@ func extractMutationWorkIdentity(raw []byte) (mutationWorkIdentity, error) {
 		return mutationWorkIdentity{}, err
 	}
 	var result mutationWorkIdentity
-	for _, field := range []string{"work_id", "initiative_work_id", "child_work_id", "from_work_id", "to_work_id", "predecessor_id", "successor_id", "replacement_successor_id"} {
+	for _, field := range []string{"work_id", "initiative_work_id", "child_work_id", "from_work_id", "to_work_id"} {
 		if value, ok := fields[field]; ok {
 			var id string
 			if json.Unmarshal(value, &id) == nil && id != "" {
@@ -642,9 +630,6 @@ func extractMutationWorkIdentity(raw []byte) (mutationWorkIdentity, error) {
 			return mutationWorkIdentity{}, err
 		}
 		result.WorkIDs = append(result.WorkIDs, ids...)
-	}
-	if value, ok := fields["relation_id"]; ok {
-		_ = json.Unmarshal(value, &result.RelationID)
 	}
 	return result, nil
 }
@@ -996,10 +981,6 @@ func mapFailureKind(kind store.FailureKind) string {
 		return "invalid_transition"
 	case store.KindInvalidRelation, store.KindCycleDetected, store.KindRelationConflict, store.KindRelationNotFound, store.KindRelationContractViolation, store.KindSupersessionTargetAlreadySuperseded, store.KindSupersessionSecondSuccessor:
 		return "invalid_relation"
-	case store.KindInitiativeScopeViolation:
-		return "invariant_violation"
-	case store.KindInitiativeEntryConflict:
-		return "invalid_relation"
 	case store.KindMembershipInvariant, store.KindMembershipConflict:
 		return "invariant_violation"
 	case store.KindInvalidNoteProof, store.KindKnowledgeMissing:
@@ -1194,8 +1175,6 @@ func (r runtime) readResult(ctx context.Context, base Envelope, input []byte, qu
 		return r.readProductResolve(ctx, base, input)
 	case "concord_product_view.snapshot":
 		return r.readProductSnapshot(ctx, base, input)
-	case "concord_product_view.portfolio":
-		return r.readProductPortfolio(ctx, base, input)
 	case "concord_product_view.blocked_sessions":
 		return r.readProductBlockedSessions(ctx, base, input)
 	case "concord_product_view.resources":
@@ -1230,15 +1209,11 @@ func (r runtime) readResult(ctx context.Context, base Envelope, input []byte, qu
 		return r.readTraceRelations(ctx, base, input)
 	case "concord_work_trace.project_retirement":
 		return r.readTraceProjectRetirement(ctx, base, input)
-	case "concord_work_initiative.entries":
-		return r.readInitiativeEntries(ctx, base, input, queryID)
 	case "concord_knowledge.search":
 		return r.readKnowledgeSearch(ctx, base, input)
 	case "concord_knowledge.resolve_note":
 		return r.readKnowledgeResolveNote(ctx, base, input)
-	case "concord_knowledge.unprocessed":
-		return r.readKnowledgeUnprocessed(ctx, base, input)
-	case "concord_domain.list", "concord_domain.detail", "concord_domain.active_work", "concord_domain.attachments", "concord_domain.overlaps":
+	case "concord_domain.list", "concord_domain.detail", "concord_domain.attachments", "concord_domain.overlaps":
 		return r.readDomain(ctx, base, input, queryID)
 	default:
 		return base, errors.New("unsupported read operation")
@@ -1528,13 +1503,6 @@ func (r runtime) q2(base Envelope, q store.Q2Result) (Envelope, error) {
 	return r.resultEnvelope(base, q.ResultMeta, r.scope(q.ResultMeta), map[string]any{"counts": map[string]int{"needed": q.LifecycleCounts["needed"], "in_progress": q.LifecycleCounts["in_progress"], "completed": q.LifecycleCounts["completed"], "cancelled": q.LifecycleCounts["cancelled"]}, "previews": items})
 }
 
-func (r runtime) productRows(base Envelope, q store.ProductRowResult) (Envelope, error) {
-	payload, err := portfolio.Payload(q)
-	if err != nil {
-		return base, err
-	}
-	return r.resultEnvelope(base, q.ResultMeta, r.scope(q.ResultMeta), json.RawMessage(payload))
-}
 func (r runtime) q3(base Envelope, q store.Q3Result) (Envelope, error) {
 	items := make([]workSummary, 0, len(q.Items))
 	for _, w := range q.Items {

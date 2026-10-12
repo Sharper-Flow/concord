@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -80,8 +81,28 @@ func TestRecordDeliveryExitsTheStepTheSessionExecuted(t *testing.T) {
 	if step := currentStep(); step != "refine" {
 		t.Fatalf("record_delivery left the step at %q, want refine", step)
 	}
-	if err := try("start_refine", map[string]any{}); err != nil {
-		t.Fatalf("start_refine refused: %v", err)
+	// CD-0198 D3: the current head derives the refine start from the
+	// qualifying checkpoint; the callable start is gone from it.
+	refineEntry := "start_refine"
+	{
+		var definitionVersion int64
+		if err := s.DatabaseForTesting().QueryRow(`SELECT definition_version FROM workflow_instances WHERE work_id=?`, "work-1").Scan(&definitionVersion); err != nil {
+			t.Fatal(err)
+		}
+		if pinned, ok := store.BuiltinWorkflowRegistry().Lookup("workflow.break_fix", definitionVersion); ok {
+			declares := false
+			for _, step := range pinned.Definition.StepGraph.Steps {
+				if slices.Contains(step.Actions, "start_refine") {
+					declares = true
+				}
+			}
+			if !declares {
+				refineEntry = "checkpoint_refine"
+			}
+		}
+	}
+	if err := try(refineEntry, map[string]any{}); err != nil {
+		t.Fatalf("%s refused: %v", refineEntry, err)
 	}
 	if err := try("bind_evidence", map[string]any{"evidence_kind": "artifact"}); err != nil {
 		t.Fatalf("refine artifact binding refused: %v", err)
@@ -115,8 +136,8 @@ func TestRecordDeliveryRequiresTheFencedStart(t *testing.T) {
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(grant, scopeVersion)
-	workID := captureCompositionWork(t, ctx, s, service, env, "Delivery without start", "task", "workflow.generic_one_off", "delivery-no-start")
-	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1); UPDATE workflow_instances SET current_step='execute' WHERE work_id=?; DELETE FROM fold_guard`, workID); err != nil {
+	workID := captureCompositionWork(t, ctx, s, service, env, "Delivery without start", "task", "workflow.implementation", "delivery-no-start")
+	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1); UPDATE workflow_instances SET current_step='refine' WHERE work_id=?; DELETE FROM fold_guard`, workID); err != nil {
 		t.Fatal(err)
 	}
 	version := agentCompositionWorkVersion(t, s, workID)

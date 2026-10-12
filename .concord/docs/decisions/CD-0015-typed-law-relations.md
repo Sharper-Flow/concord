@@ -66,7 +66,7 @@ manifest delta that removes or resolves the conflict.
 Amended 2026-10-01 by CD-0200 D6: over a registered source set, a mandated
 bare law ID resolves across every verified source, refuses as ambiguous when
 two sources hold it, and names the resolving source's repository in the law
-context. A source-qualified `project_id/law_id` reference resolves only
+context. A source-qualified `<project_id>/<law_id>` reference resolves only
 through that Project's canonical knowledge locator.
 
 Heuristics may suggest conflicts in memory or UI, but they never persist rows,

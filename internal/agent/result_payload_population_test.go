@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"maps"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -179,7 +180,7 @@ func fullyPopulatedResearchPack(t *testing.T) store.ResearchPack {
 	}); err != nil {
 		t.Fatalf("bind research consumer: %v", err)
 	}
-	got, err := store.GetResearchPack(ctx, s, pack.PackID, 100)
+	got, err := s.ReadResearchPack(ctx, store.ResearchReadRequest{PackID: pack.PackID, Limit: 100})
 	if err != nil {
 		t.Fatalf("read research pack: %v", err)
 	}
@@ -199,12 +200,11 @@ func fullyPopulatedResearchPack(t *testing.T) store.ResearchPack {
 type domainReadPayloads struct {
 	list        store.DomainListPayload
 	detail      store.DomainDetailPayload
-	activeWork  store.DomainActiveWorkPayload
 	attachments store.DomainAttachmentsPayload
 	overlaps    store.DomainOverlapsPayload
 }
 
-// fullyPopulatedDomainPayloads runs all five Domain reads against a store
+// fullyPopulatedDomainPayloads runs the Domain reads against a store
 // carrying the maximally populated registry, then projects each result the way
 // dispatch does. Taking the values from the store rather than from a literal is
 // what keeps the fixture from drifting away from what the reads produce.
@@ -244,10 +244,6 @@ func fullyPopulatedDomainPayloads(t *testing.T) domainReadPayloads {
 	if err != nil {
 		t.Fatal(err)
 	}
-	activeWork, err := s.QueryDomainActiveWork(ctx, store.DomainActiveWorkRequest{Product: product, Domain: domain})
-	if err != nil {
-		t.Fatal(err)
-	}
 	attachments, err := s.QueryDomainAttachments(ctx, store.DomainAttachmentsRequest{Product: product, Domain: domain})
 	if err != nil {
 		t.Fatal(err)
@@ -256,11 +252,10 @@ func fullyPopulatedDomainPayloads(t *testing.T) domainReadPayloads {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertDomainReadsArePopulated(t, detail, activeWork, attachments, overlaps)
+	assertDomainReadsArePopulated(t, detail, attachments, overlaps)
 	return domainReadPayloads{
 		list:        store.NewDomainListPayload(list),
 		detail:      store.NewDomainDetailPayload(detail),
-		activeWork:  store.NewDomainActiveWorkPayload(activeWork),
 		attachments: store.NewDomainAttachmentsPayload(attachments),
 		overlaps:    store.NewDomainOverlapsPayload(overlaps),
 	}
@@ -269,7 +264,7 @@ func fullyPopulatedDomainPayloads(t *testing.T) domainReadPayloads {
 // assertDomainReadsArePopulated refuses a vacuous fixture. Every member below is
 // optional in its schema, so a read that left it empty would validate without
 // ever exercising the declaration under test.
-func assertDomainReadsArePopulated(t *testing.T, detail store.DomainDetailResult, activeWork store.DomainActiveWorkResult, attachments store.DomainAttachmentsResult, overlaps store.DomainOverlapsResult) {
+func assertDomainReadsArePopulated(t *testing.T, detail store.DomainDetailResult, attachments store.DomainAttachmentsResult, overlaps store.DomainOverlapsResult) {
 	t.Helper()
 	if detail.Domain.ParentID == "" {
 		t.Fatal("detail Domain has no parent, so parent_domain_id is unexercised")
@@ -280,13 +275,10 @@ func assertDomainReadsArePopulated(t *testing.T, detail store.DomainDetailResult
 	if len(detail.Relations) == 0 || len(detail.Relations[0].GoverningLaws) == 0 {
 		t.Fatalf("detail governing law is unexercised: %#v", detail.Relations)
 	}
-	if len(activeWork.Work) == 0 {
-		t.Fatal("active work is empty, so the work item members are unexercised")
-	}
 	if len(attachments.Attachments.ProjectEdges) == 0 || len(attachments.Attachments.ResourceEdges) == 0 {
 		t.Fatalf("attachment edges are unexercised: %#v", attachments.Attachments)
 	}
-	// CD-0041 D4 gives the relation bounded purpose and environment metadata.
+	// CD-0222 D4 gives the relation bounded purpose and environment metadata.
 	// A populated edge that carried neither would satisfy the length check
 	// above while proving nothing about the fields the read now declares.
 	resourceEdge := attachments.Attachments.ResourceEdges[0]
@@ -322,7 +314,6 @@ func TestFullyPopulatedResultPayloadsValidate(t *testing.T) {
 		{name: "work_trace research", tool: "concord_work_trace", operation: "research", payload: fullyPopulatedResearchPack(t)},
 		{name: "domain list", tool: "concord_domain", operation: "list", payload: domain.list},
 		{name: "domain detail", tool: "concord_domain", operation: "detail", payload: domain.detail},
-		{name: "domain active_work", tool: "concord_domain", operation: "active_work", payload: domain.activeWork},
 		{name: "domain attachments", tool: "concord_domain", operation: "attachments", payload: domain.attachments},
 		{name: "domain overlaps", tool: "concord_domain", operation: "overlaps", payload: domain.overlaps},
 	} {
@@ -505,42 +496,48 @@ func payloadSchemaDefs(t *testing.T) map[string]map[string]any {
 	return defs
 }
 
-var fixturePatternValues = []struct {
-	pattern *regexp.Regexp
-	value   string
-}{
-	{regexp.MustCompile(`sha256`), "sha256:" + strings.Repeat("0", 64)},
-	{regexp.MustCompile(`\^check:`), "check:mutation.result.conformance"},
-	{regexp.MustCompile(`\^approval:`), "approval:conformance"},
-	{regexp.MustCompile(`\^actor:`), "actor:" + strings.Repeat("0", 64)},
-	{regexp.MustCompile(`\[A-Za-z0-9._-\]\+/\[A-Za-z0-9._-\]\+\$`), "conformance/examples"},
-	{regexp.MustCompile(`\^\[0-9a-f\]\{40(,64)?\}`), "7b83cbf41af2f9fa7990294a41a50cb75a1d6d1e"},
-	{regexp.MustCompile(`\^finding:`), "finding:1:0"},
-	{regexp.MustCompile(`\\S\+\$`), "ref-1"},
+// fixtureStringCandidates is the finite catalog of string values the fixture
+// builder can offer. Selection matches each candidate against the schema's
+// own pattern; the catalog carries no opinion about what a pattern's text
+// looks like.
+var fixtureStringCandidates = []string{
+	"sha256:" + strings.Repeat("0", 64),
+	"check:mutation.result.conformance",
+	"approval:conformance",
+	"actor:" + strings.Repeat("0", 64),
+	"7b83cbf41af2f9fa7990294a41a50cb75a1d6d1e",
+	"finding:1:0",
+	"case:conformance",
+	"control:conformance",
+	"owner:conformance",
+	"predicate:conformance",
+	"conformance/examples",
+	"ref-1",
+	"conformance",
+	"TestConformance",
 }
 
 // fixtureString answers one string value that satisfies the schema node's
-// pattern, format, and bounds. A pattern the table cannot satisfy fails the
-// test loudly: a fixture the builder cannot build must never masquerade as a
-// passing conformance check.
+// pattern, format, and bounds. A pattern no catalog candidate satisfies fails
+// the test loudly: a fixture the builder cannot build must never masquerade as
+// a passing conformance check.
 func fixtureString(t *testing.T, schema map[string]any) string {
 	t.Helper()
 	value := "conformance"
 	if pattern, ok := schema["pattern"].(string); ok {
+		compiled, err := regexp.Compile(pattern)
+		if err != nil {
+			t.Fatalf("schema pattern %q does not compile: %v", pattern, err)
+		}
 		value = ""
-		for _, entry := range fixturePatternValues {
-			if entry.pattern.MatchString(pattern) {
-				value = entry.value
+		for _, candidate := range fixtureStringCandidates {
+			if compiled.MatchString(candidate) {
+				value = candidate
 				break
 			}
 		}
 		if value == "" {
-			// A patternless default the common identifier patterns accept.
-			value = "conformance"
-		}
-		matched, err := regexp.MatchString(pattern, value)
-		if err != nil || !matched {
-			t.Fatalf("fixture value %q does not satisfy schema pattern %q", value, pattern)
+			t.Fatalf("no fixture candidate satisfies schema pattern %q", pattern)
 		}
 	}
 	if schema["format"] == "date-time" {
@@ -577,6 +574,19 @@ func fixtureNumber(t *testing.T, schema map[string]any) json.Number {
 	return value
 }
 
+func mergeFixtureSchema(base, constraints map[string]any) map[string]any {
+	merged := maps.Clone(base)
+	for key, value := range constraints {
+		if nested, ok := value.(map[string]any); ok {
+			if original, ok := merged[key].(map[string]any); ok {
+				value = mergeFixtureSchema(original, nested)
+			}
+		}
+		merged[key] = value
+	}
+	return merged
+}
+
 // schemaFixtureValue synthesizes one fully populated value for a schema node:
 // every declared object member, bound-respecting arrays, and bound-respecting scalars.
 // Optional members are populated on purpose, matching this file's fixture
@@ -592,7 +602,9 @@ func schemaFixtureValue(t *testing.T, schema map[string]any, defs map[string]map
 		if !ok {
 			t.Fatalf("schema ref %q does not resolve in the generated document", ref)
 		}
-		return schemaFixtureValue(t, target, defs, depth+1)
+		siblings := maps.Clone(schema)
+		delete(siblings, "$ref")
+		return schemaFixtureValue(t, mergeFixtureSchema(target, siblings), defs, depth+1)
 	}
 	if constValue, ok := schema["const"]; ok {
 		return constValue
@@ -666,6 +678,19 @@ func schemaFixtureValue(t *testing.T, schema map[string]any, defs map[string]map
 			if member == "boolean" {
 				return true
 			}
+			// A nullable array member (the ranked finding view's
+			// evidence_refs) fixtures as its array arm; null is the absent
+			// arm and the object walker only builds populated shapes.
+			if member == "array" {
+				items, ok := schema["items"].(map[string]any)
+				if !ok {
+					t.Fatalf("array schema at depth %d carries no items", depth)
+				}
+				if upper, ok := schema["maxItems"].(json.Number); ok && upper.String() == "0" {
+					return []any{}
+				}
+				return []any{schemaFixtureValue(t, items, defs, depth+1)}
+			}
 		}
 		t.Fatalf("schema type union %v has no fixture rule", kind)
 	default:
@@ -685,11 +710,20 @@ func schemaFixtureObject(t *testing.T, schema map[string]any, defs map[string]ma
 		}
 		out[name] = schemaFixtureValue(t, member, defs, depth+1)
 	}
+	if patterns, ok := schema["patternProperties"].(map[string]any); ok {
+		for pattern, node := range patterns {
+			name := fixtureString(t, map[string]any{"pattern": pattern})
+			out[name] = schemaFixtureValue(t, node.(map[string]any), defs, depth+1)
+		}
+	}
 	rootDefs := make(map[string]any, len(defs))
 	for name, node := range defs {
 		rootDefs[name] = node
 	}
 	branches, _ := schema["allOf"].([]any)
+	if _, ok := schema["if"]; ok {
+		branches = append(slices.Clone(branches), schema)
+	}
 	for _, node := range branches {
 		branch, ok := node.(map[string]any)
 		if !ok {
@@ -730,8 +764,7 @@ func schemaFixtureObject(t *testing.T, schema map[string]any, defs map[string]ma
 			if !ok {
 				t.Fatalf("conditional property %s is not a schema object", name)
 			}
-			constrained := maps.Clone(member)
-			maps.Copy(constrained, bounds)
+			constrained := mergeFixtureSchema(member, bounds)
 			out[name] = schemaFixtureValue(t, constrained, defs, depth+1)
 		}
 	}
@@ -771,7 +804,6 @@ func readPopulationInputs(fx readPopulationFixture) map[string]string {
 	return map[string]string{
 		"concord_product_view.resolve":             `{"product_id":"prod-alpha"}`,
 		"concord_product_view.snapshot":            `{"product_id":"prod-alpha"}`,
-		"concord_product_view.portfolio":           `{"product_id":"prod-alpha","page":{"cursor":null,"limit":20}}`,
 		"concord_product_view.blocked_sessions":    `{"product_id":"prod-alpha"}`,
 		"concord_product_view.resources":           `{"product_id":"prod-alpha","page":{"cursor":null,"limit":20}}`,
 		"concord_work_browse.list":                 `{"product_id":"prod-alpha","page":{"cursor":null,"limit":20}}`,
@@ -788,14 +820,11 @@ func readPopulationInputs(fx readPopulationFixture) map[string]string {
 		"concord_work_trace.relations":             `{"work_id":"` + fx.workID + `"}`,
 		"concord_work_trace.continuity":            `{"work_id":"` + fx.workID + `","page":{"cursor":null,"limit":20}}`,
 		"concord_work_trace.project_retirement":    `{"work_id":"` + fx.workID + `"}`,
-		"concord_work_trace.research":              `{"product_id":"prod-alpha","work_id":"` + fx.workID + `","page":{"cursor":null,"limit":20}}`,
+		"concord_work_trace.research":              `{"product_id":"prod-alpha","work_id":"` + fx.workID + `","result_version":2,"page":{"cursor":null,"limit":20}}`,
 		"concord_knowledge.search":                 `{"product_id":"prod-alpha","page":{"cursor":null,"limit":20}}`,
 		"concord_knowledge.resolve_note":           `{"work_id":"` + fx.workID + `"}`,
-		"concord_knowledge.unprocessed":            `{"product_id":"prod-alpha"}`,
-		"concord_work_initiative.entries":          `{"initiative_work_id":"` + fx.initiative + `"}`,
 		"concord_domain.list":                      `{"product_id":"prod-alpha","page":{"cursor":null,"limit":20}}`,
 		"concord_domain.detail":                    `{"product_id":"prod-alpha","domain_id":"` + fx.domainID + `"}`,
-		"concord_domain.active_work":               `{"product_id":"prod-alpha","domain_id":"` + fx.domainID + `","page":{"cursor":null,"limit":20}}`,
 		"concord_domain.attachments":               `{"product_id":"prod-alpha","domain_id":"` + fx.domainID + `"}`,
 		"concord_domain.overlaps":                  `{"product_id":"prod-alpha"}`,
 	}
@@ -806,6 +835,15 @@ func readPopulationInputs(fx readPopulationFixture) map[string]string {
 // fixture seeds specific rows names them here; a producer that drops those rows
 // fails the test even though its payload still validates.
 var readPopulationWitnesses = map[string]func(t *testing.T, result json.RawMessage){
+	"concord_work_trace.research": func(t *testing.T, result json.RawMessage) {
+		var page researchOwnerReadV2
+		if err := json.Unmarshal(result, &page); err != nil {
+			t.Fatal(err)
+		}
+		if page.ResultVersion != 2 || len(page.Packs) != 1 || page.Packs[0].OwnerWorkID != readPopulationWork || page.Packs[0].CurrentRevision != 1 {
+			t.Fatalf("research owner page lost seeded pack identity: %s", result)
+		}
+	},
 	// Constitution records are law-bearing, so domain.detail must return them
 	// beside decisions and specifications rather than filter them out.
 	"concord_domain.detail": func(t *testing.T, result json.RawMessage) {
@@ -827,46 +865,24 @@ var readPopulationWitnesses = map[string]func(t *testing.T, result json.RawMessa
 			}
 		}
 	},
-	// The fixture's portfolio focus is the approval-gated work item, so the
-	// portfolio read must carry the focus.blocked_sessions routing detail the
-	// schema declares: the seeded active challenge session. A missing focus,
-	// a different attention kind, or an empty member all fail here, so the
-	// declaration cannot pass on an empty value.
-	"concord_product_view.portfolio": func(t *testing.T, result json.RawMessage) {
+	// The approval challenge's routing detail must name the seeded session.
+	"concord_product_view.blocked_sessions": func(t *testing.T, result json.RawMessage) {
 		var page struct {
-			Rows []struct {
-				ProductID string `json:"product_id"`
-				Focus     *struct {
-					WorkID          string `json:"work_id"`
-					AttentionKind   string `json:"attention_kind"`
-					BlockedSessions []struct {
-						SessionRef string `json:"session_ref"`
-					} `json:"blocked_sessions"`
-				} `json:"focus"`
-			} `json:"rows"`
+			Sessions []struct {
+				SessionRef  string `json:"session_ref"`
+				AgentRef    string `json:"agent_ref"`
+				Consequence string `json:"consequence"`
+			} `json:"sessions"`
 		}
 		if err := json.Unmarshal(result, &page); err != nil {
-			t.Fatalf("decode portfolio result: %v", err)
+			t.Fatalf("decode blocked_sessions result: %v", err)
 		}
-		gated := 0
-		for _, row := range page.Rows {
-			if row.Focus == nil || row.Focus.AttentionKind != store.ProductRowAttentionApprovalRequired {
-				continue
-			}
-			gated++
-			if row.Focus.WorkID != readPopulationWork {
-				t.Fatalf("approval_required focus names %q, want the fixture focus work %q", row.Focus.WorkID, readPopulationWork)
-			}
-			if len(row.Focus.BlockedSessions) == 0 {
-				t.Fatalf("approval-gated focus on %s carries no blocked sessions; the active challenge row did not populate focus.blocked_sessions", row.ProductID)
-			}
-			if row.Focus.BlockedSessions[0].SessionRef != readPopulationBlockedSessionRef {
-				t.Fatalf("blocked session %q is not the seeded challenge session %q", row.Focus.BlockedSessions[0].SessionRef, readPopulationBlockedSessionRef)
+		for _, session := range page.Sessions {
+			if session.SessionRef == readPopulationBlockedSessionRef && session.AgentRef == "agent-1" && session.Consequence == "lifecycle" {
+				return
 			}
 		}
-		if gated == 0 {
-			t.Fatal("portfolio names no approval_required focus; the fixture lost its approval-gated focus work")
-		}
+		t.Fatalf("blocked_sessions omits the seeded challenge session, agent, and consequence: %s", result)
 	},
 }
 
@@ -878,7 +894,6 @@ var readPopulationWitnesses = map[string]func(t *testing.T, result json.RawMessa
 var readPopulationRows = map[string][]string{
 	"concord_product_view.resolve":             {"projects"},
 	"concord_product_view.snapshot":            {"previews"},
-	"concord_product_view.portfolio":           {"rows"},
 	"concord_product_view.blocked_sessions":    {"sessions"},
 	"concord_product_view.resources":           {"resources"},
 	"concord_work_browse.list":                 {"items"},
@@ -894,13 +909,10 @@ var readPopulationRows = map[string][]string{
 	"concord_work_trace.relations":             {"edges"},
 	"concord_work_trace.continuity":            {"boundaries.items"},
 	"concord_work_trace.project_retirement":    {"blockers"},
-	"concord_work_trace.research":              {"revisions"},
+	"concord_work_trace.research":              {"packs"},
 	"concord_knowledge.search":                 {"items"},
-	"concord_knowledge.unprocessed":            {"paths"},
-	"concord_work_initiative.entries":          {"entries"},
 	"concord_domain.list":                      {"domains"},
 	"concord_domain.detail":                    {"current_law", "relations", "observations"},
-	"concord_domain.active_work":               {"work"},
 	"concord_domain.attachments":               {"attachments.project_attachments", "attachments.resource_attachments"},
 	"concord_domain.overlaps":                  {"pairs"},
 }
@@ -989,6 +1001,16 @@ func TestAllReadEnvelopesValidateAtPopulationScale(t *testing.T) {
 			for _, path := range rows {
 				if populationRowPathLength(t, response.Result, op.ID, path) == 0 {
 					t.Fatalf("%s answers an empty row collection at %q; extend seedReadPopulationFixture or exempt the read with a reason", op.ID, path)
+				}
+			}
+			if op.ID == "concord_work_trace.research" {
+				var page researchOwnerReadV2
+				if err := json.Unmarshal(response.Result, &page); err != nil {
+					t.Fatal(err)
+				}
+				pack, err := fx.store.ReadResearchPack(context.Background(), store.ResearchReadRequest{PackID: page.Packs[0].PackID})
+				if err != nil || len(pack.Revisions) != 1 || len(pack.Revisions[0].Findings) == 0 || len(pack.Revisions[0].Sources) == 0 {
+					t.Fatalf("descriptor no longer resolves seeded research content: %+v %v", pack, err)
 				}
 			}
 		})

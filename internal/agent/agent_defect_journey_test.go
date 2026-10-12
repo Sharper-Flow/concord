@@ -177,7 +177,7 @@ func TestPublicDefectJourneyThroughRealResearchCompletion(t *testing.T) {
 	verifier.Worktree = worktree
 	verifierEnv := mutationEnvelope(verifier, scopeVersion)
 	verifierEnv.Worktree = worktree
-	if response := action(verifierEnv, rcaID, "record_verdict", map[string]any{"contract_version": 1, "predicate_id": "predicate:primary", "verdict_kind": "ok", "evaluation_evidence": []string{reportEvidence}}, "defect-journey-verdict"); response.Outcome != OutcomeOK {
+	if response := action(verifierEnv, rcaID, "record_verdict", map[string]any{"contract_version": 1, "verdicts": []map[string]any{{"predicate_id": "predicate:primary", "verdict_kind": "ok", "evaluation_evidence": []string{reportEvidence}}}}, "defect-journey-verdict"); response.Outcome != OutcomeOK {
 		t.Fatalf("independent record_verdict=%+v", response.Error)
 	}
 

@@ -21,12 +21,12 @@ import {
   knowledge,
   work_define,
   domain,
-  work_initiative,
   work_transition,
   work_relate,
   work_compact,
   work_start,
   publishWorkStartDefinition,
+  publishRequestDefinition,
   takeWorkNotices,
   configureSessionOpener,
 } from "./concord"
@@ -101,7 +101,6 @@ export default async function ConcordAdapterPlugin(input?: Partial<PluginInput>,
       concord_knowledge: knowledge,
       concord_work_define: work_define,
       concord_domain: domain,
-      concord_work_initiative: work_initiative,
       concord_work_transition: work_transition,
       concord_work_relate: work_relate,
       concord_work_compact: work_compact,
@@ -138,6 +137,7 @@ export default async function ConcordAdapterPlugin(input?: Partial<PluginInput>,
       definitionInput: { toolID: string },
       output: { description: string; parameters: unknown; jsonSchema?: unknown },
     ) => {
+      await publishRequestDefinition(definitionInput, output)
       await publishWorkStartDefinition(definitionInput, output)
       await publishCiWatchDefinition(definitionInput, output)
     },

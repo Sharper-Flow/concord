@@ -129,7 +129,7 @@ func CompleteWorkflowTxWithRegistry(ctx context.Context, tx *sql.Tx, registry De
 	// the lifecycle route and supersession stays atomic with its relation, so
 	// the completion names completed or refuses before any effect.
 	if payload.TerminalState != "completed" {
-		return newFailure(KindInvalidPayload, "complete_workflow", "workflow completion closes only as completed", false, "cancel through the lifecycle route or supersede through relate.supersede")
+		return newFailure(KindInvalidPayload, "complete_workflow", "workflow completion closes only as completed", false, "cancel through the lifecycle route or resolve an overlap with resolution_kind supersedes")
 	}
 	if err := workflowBase(event, payload.WorkflowVersionFields); err != nil {
 		return err
@@ -325,9 +325,8 @@ func CompleteWorkflowTxWithRegistry(ctx context.Context, tx *sql.Tx, registry De
 		return workflowClauseError(err, 7)
 	}
 	// CD-0183 D3: the workflow's terminal state closes the work item
-	// lifecycle in this same transaction, so the lifecycle and the Linear
-	// status follow the workflow instead of stranding in_progress after a
-	// recorded completion. The completion fold has already marked the
+	// lifecycle in this same transaction, so the lifecycle follows the
+	// workflow instead of stranding in_progress after a recorded completion. The completion fold has already marked the
 	// instance terminal, so the terminal-lifecycle close keeps that record:
 	// workflow.completed remains the only fold that may mark an instance
 	// completed. Replay folds the logged transition exactly as it folded
@@ -829,7 +828,7 @@ func workflowActorsDistinct(ctx context.Context, tx *sql.Tx, workID, verdictActo
 		return newFailure(KindUnauthorized, operation, "verdict actor tuple is incomplete", false, "contact_operator")
 	}
 	verdict.Model = verdictModel
-	if err := ValidateDistinctWorkflowActors(executing, verdict, requireModelDistinct); err != nil {
+	if err := validateDistinctWorkflowActorsForReplay(executing, verdict, requireModelDistinct); err != nil {
 		return err
 	}
 	return nil

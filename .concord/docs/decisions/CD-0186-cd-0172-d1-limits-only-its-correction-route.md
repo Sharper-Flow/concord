@@ -39,10 +39,10 @@ records the two review attempts that hit this conflict.
 CD-0172 D1's sentence "Any other work kind or step refuses" limits the
 complete-step correction route that D1 admits. It does not refuse the
 stale-law or stale Domain registry re-pin that ordinary stale recovery admits
-at the complete step of a workflow kind with no correction route (CD-0041 D7).
+at the complete step of a workflow kind with no correction route (CD-0222 D7).
 
 That re-pin keeps its pre-CD-0172 admission at any running step of any
-workflow kind. CD-0172 amends neither CD-0041 D7 nor stale recovery, so its
+workflow kind. CD-0172 amends neither CD-0222 D7 nor stale recovery, so its
 route-scoping sentence does not reach them.
 
 ## Alternatives considered

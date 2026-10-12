@@ -73,8 +73,8 @@ even though Kanban's WIP-override mechanism does not (Concord has no WIP limit).
 Every ready, list, blocked, and launcher query prepends `urgency` to its existing
 `ORDER BY`. An `expedite` item outranks every `standard` item regardless of
 `priority`; within each band, the existing `priority ASC, created_at DESC, id ASC`
-ordering is preserved unchanged. The product-row focus (C14) prepends urgency to its
-existing attention-kind-then-priority ranking.
+ordering is preserved unchanged. The product-row focus query prepended urgency to its
+attention-kind-then-priority ranking and retired with the Product-row read (CD-0224).
 
 This preserves C17 §5.1: ranking still uses stored declared fields. The urgency band
 is a declared value, not a computed score; the sort orders on it the same way it
@@ -92,8 +92,9 @@ other relation.
 
 `raised_from` is an ordinary relation kind. It is not special-cased: it has no Epic
 guard (unlike `parent`), no composite-operation path (unlike `supersedes`), and no
-exemption from the cycle check (unlike `implements`). It is created and removed by the
-existing `work_relate.link` and `work_relate.unlink` operations. It records provenance
+exemption from the fold's cycle check (unlike `implements`). It is created only by capture's
+`raised_from_work_id` input: the `work.created` fold inserts the relation row, that
+input appends no `relation.added` event, and no operation removes it. It records provenance
 only; it asserts no dependency, no hierarchy, and no replacement.
 
 One symmetric kind is sufficient for the motivating pairings — an ops task beside a
@@ -116,13 +117,11 @@ CD-0041 later makes that judgement structural without adding assignment or a
 lease: Product-changing contracts declare affected Domains, and overlapping work
 requires an operator-approved resolution pinned to both contract versions.
 
-### D5. The launcher displays the band; it does not dispatch
+### D5. The entry route does not dispatch
 
-The launcher renders the urgency band in the existing S2 ranked table and S3 detail
-header, alongside the existing priority column. An `expedite` item is visibly
-distinct from a `standard` item in the ranked list. The launcher performs no new
-action: the operator's existing `l` handoff path is how a second agent session starts.
-C18's read-only contract is honored without amendment.
+The entry route performs no dispatch action. The operator names work to
+`concord zl`, which starts a session through Concord's session bootstrap.
+CD-0108 D4 keeps that entry route store-write-free.
 
 ## Operational usage note
 
@@ -175,7 +174,7 @@ happen to be in the same area — the edge records provenance, not topic similar
   free 201-position integer, strengthening C17 §5.1 compliance.
 - Provenance is queryable: "what raised this item?" and "what did this item raise?"
   are answered by traversing typed edges, not by reading descriptions.
-- No assignment, claim, or fence keeps the C14/C17/C18 exclusion boundary clean.
+- No assignment, claim, or fence keeps the C17/C18 exclusion boundary clean.
 - The path from "agent raises expedited work" to "operator hands it to a second
   agent" uses only surfaces that exist today.
 
@@ -216,12 +215,12 @@ happen to be in the same area — the edge records provenance, not topic similar
   digest-pinned.
 - `work_items.urgency` column added by a forward migration with default `standard`;
   the decode rejects events with an unknown urgency value.
-- Every ready (PM1.Q5), list (PM1.Q3), blocked (PM1.Q4), launcher, and product-row
-  query prepends urgency to its `ORDER BY`; deterministic tests assert expedite sorts
-  above standard and within-band ordering is preserved.
-- `raised_from` is created and removed by `work_relate.link` / `work_relate.unlink`,
-  enforces acyclicity via `relationWouldCycle`, and is confirmed NOT to exclude the
-  target from PM1.Q5.
+- Every ready (PM1.Q5), list (PM1.Q3), and blocked (PM1.Q4) query prepends urgency
+  to its `ORDER BY`; deterministic tests assert expedite sorts above standard and
+  within-band ordering is preserved.
+- `raised_from` is created by capture's `raised_from_work_id` input inside the
+  `work.created` fold, appends no `relation.added` event, and is confirmed NOT to
+  exclude the target from PM1.Q5.
 - Deterministic tests assert: an agent capturing with `urgency: expedite` and
   `raised_from` provenance produces an item that sorts above standard items in the
   ready queue and carries a queryable provenance edge.

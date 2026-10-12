@@ -6,7 +6,6 @@ import (
 	"errors"
 	"time"
 
-	"github.com/sharper-flow/concord/internal/portfolio"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -65,18 +64,6 @@ func (r runtime) readProductSnapshot(ctx context.Context, base Envelope, input [
 		return failureEnvelope(base, err), nil
 	}
 	return r.q2(base, q)
-}
-
-func (r runtime) readProductPortfolio(ctx context.Context, base Envelope, input []byte) (Envelope, error) {
-	var in productRowPortfolioInput
-	if err := decodeOperationInput(input, &in); err != nil {
-		return base, err
-	}
-	q, err := portfolio.Read(ctx, r.Store, store.ProductRowRequest{Product: in.ProductID, Limit: effectiveLimit(in.Limit, in.Page), Cursor: cursorValue(in.Page), Source: in.Source})
-	if err != nil {
-		return failureEnvelope(base, err), nil
-	}
-	return r.productRows(base, q)
 }
 
 func (r runtime) readProductBlockedSessions(ctx context.Context, base Envelope, input []byte) (Envelope, error) {
@@ -306,14 +293,17 @@ func (r runtime) readWorktreeInspect(ctx context.Context, base Envelope, input [
 	if err := decodeOperationInput(input, &in); err != nil {
 		return base, err
 	}
-	// CD-0096 D3 Inspect: the worktree resolves through the session's
-	// Project anchor and the work item's folded entry. No path input
-	// exists, no lease is taken, and the persistent target never moves.
+	// CD-0096 D3 Inspect: both active-tree inspection and retained output
+	// resolve through the work and ambient Project. The store owns their
+	// separate lookup rules; this read takes no lease or idempotency record.
 	project := r.Envelope.AmbientProjectID
 	if project == "" {
 		return coreError(base, "unknown_scope", "worktree tiers resolve through the session's Project; this session holds none", "refresh_context", false), nil
 	}
-	inspect, err := r.Store.InspectWorktree(ctx, store.WorktreeInspectRequest{WorkID: in.WorkID, ProjectID: project, Mode: in.Mode, Path: in.Path})
+	inspect, err := r.Store.InspectWorktree(ctx, store.WorktreeInspectRequest{
+		WorkID: in.WorkID, ProjectID: project, Mode: in.Mode, Path: in.Path,
+		RunRef: in.RunRef, Stream: in.Stream, Offset: in.Offset, Length: in.Length,
+	})
 	if err != nil {
 		return failureEnvelope(base, err), nil
 	}
@@ -427,6 +417,24 @@ func (r runtime) readTraceContinuity(ctx context.Context, base Envelope, input [
 	return response, nil
 }
 
+// researchPackReadV2 is the version 2 pack read result: the full pack when no
+// selector was sent, or only the chosen revision and its selected findings and
+// provenance when one was.
+type researchPackReadV2 struct {
+	ResultVersion int                `json:"result_version"`
+	Pack          store.ResearchPack `json:"pack"`
+}
+
+// researchOwnerReadV2 is the version 2 owner read: bounded pack descriptors in
+// the store's stable order. The authenticated continuation rides the envelope,
+// never the payload.
+type researchOwnerReadV2 struct {
+	ResultVersion int                            `json:"result_version"`
+	Packs         []store.ResearchPackDescriptor `json:"packs"`
+}
+
+// readTraceResearch returns bare full packs at version 1. Exact selections and
+// owner descriptor pages require an explicit version 2 result.
 func (r runtime) readTraceResearch(ctx context.Context, base Envelope, input []byte) (Envelope, error) {
 	var in researchReadInput
 	if err := decodeOperationInput(input, &in); err != nil {
@@ -435,24 +443,66 @@ func (r runtime) readTraceResearch(ctx context.Context, base Envelope, input []b
 	if (in.PackID == "") == (in.WorkID == "") {
 		return coreError(base, "invalid_input", "research read requires exactly one of pack_id or work_id", "resolve_ambiguity", false), nil
 	}
-	var pack store.ResearchPack
-	var readErr error
+	if in.PackID != "" && cursorValue(in.Page) != "" {
+		return coreError(base, "invalid_input", "research pack reads take no continuation cursor", "restart_query", false), nil
+	}
+	version := in.ResultVersion
+	if version == 0 {
+		version = 1
+	}
+	if in.WorkID != "" && version != 2 {
+		return coreError(base, "invalid_input", "research owner descriptor pages require result_version 2", "resolve_ambiguity", false), nil
+	}
+	if (in.Revision != 0 || len(in.FindingIDs) > 0) && (in.PackID == "" || version != 2) {
+		return coreError(base, "invalid_input", "revision and finding_ids selectors require pack_id with result_version 2", "resolve_ambiguity", false), nil
+	}
+	if len(in.FindingIDs) > 0 && in.Revision <= 0 {
+		return coreError(base, "invalid_input", "finding_ids require an explicit positive revision", "resolve_ambiguity", false), nil
+	}
+	limit := effectiveLimit(in.Limit, in.Page)
 	if in.PackID != "" {
-		pack, readErr = store.GetResearchPack(ctx, r.Store, in.PackID, effectiveLimit(in.Limit, in.Page))
-	} else {
-		packs, listErr := store.ResearchPacksByOwner(ctx, r.Store, in.WorkID, effectiveLimit(in.Limit, in.Page))
-		if listErr != nil {
-			return failureEnvelope(base, listErr), nil
+		pack, readErr := r.Store.ReadResearchPack(ctx, store.ResearchReadRequest{PackID: in.PackID, Revision: in.Revision, FindingIDs: in.FindingIDs, Limit: limit})
+		if readErr != nil {
+			return failureEnvelope(base, readErr), nil
 		}
-		if len(packs) == 0 {
-			return coreError(base, "unknown_scope", "no active research pack for that work item", "reread_entities", false), nil
+		meta := store.ResultMeta{QueryID: "PM1.Q11", ContractVersion: "PM1/1.0", ResolvedScope: store.ResolvedScope{WorkID: pack.OwnerWorkID}, SourceVersionWatermark: pack.CurrentRevision, Authority: "authoritative", Freshness: store.Freshness{ObservedAt: pack.UpdatedAt}, OrderingKeys: []string{"pack:" + pack.PackID}}
+		if version == 1 {
+			return r.resultEnvelope(base, meta, r.scope(store.ResultMeta{}), pack)
 		}
-		pack = packs[0]
+		return r.resultEnvelope(base, meta, r.scope(store.ResultMeta{}), researchPackReadV2{ResultVersion: 2, Pack: pack})
 	}
-	if readErr != nil {
-		return failureEnvelope(base, readErr), nil
+	bindingInput := in
+	bindingInput.Page.Cursor = nil
+	binding, _ := json.Marshal(bindingInput)
+	inner, err := r.unwrapCursor(ctx, cursorValue(in.Page), string(binding), "research_owner")
+	if err != nil {
+		return failureEnvelope(base, err), nil
 	}
-	return r.resultEnvelope(base, store.ResultMeta{QueryID: "PM1.Q11", ContractVersion: "PM1/1.0", ResolvedScope: store.ResolvedScope{WorkID: pack.OwnerWorkID}, SourceVersionWatermark: pack.CurrentRevision, Authority: "authoritative", Freshness: store.Freshness{ObservedAt: pack.UpdatedAt}, OrderingKeys: []string{"pack:" + pack.PackID}}, r.scope(store.ResultMeta{}), pack)
+	// The watermark travels in the result meta so wrapCursor and unwrapCursor
+	// bind to the same domain sequence. Research mutations do not advance it,
+	// so a list that changes between pages stays readable through the
+	// store's owner-bounded inner cursor.
+	watermark, err := r.Store.DomainEventWatermark(ctx)
+	if err != nil {
+		return failureEnvelope(base, err), nil
+	}
+	page, listErr := r.Store.ResearchPacksByOwner(ctx, in.WorkID, limit, inner)
+	if listErr != nil {
+		return failureEnvelope(base, listErr), nil
+	}
+	packs := page.Packs
+	if packs == nil {
+		packs = []store.ResearchPackDescriptor{}
+	}
+	meta := store.ResultMeta{QueryID: "PM1.Q11", ContractVersion: "PM1/1.0", ResolvedScope: store.ResolvedScope{WorkID: in.WorkID}, Authority: "authoritative", Freshness: store.Freshness{ObservedAt: r.Authority.now().UTC().Format(time.RFC3339Nano)}, OrderingKeys: []string{"updated_at DESC, pack_id ASC"}, SourceVersionWatermark: watermark}
+	if page.NextCursor != nil {
+		meta.NextCursor = page.NextCursor
+	}
+	response, err := r.resultEnvelope(base, meta, r.scope(meta), researchOwnerReadV2{ResultVersion: 2, Packs: packs})
+	if err != nil {
+		return failureEnvelope(base, err), nil
+	}
+	return r.wrapCursor(ctx, response, string(binding), "research_owner")
 }
 
 func (r runtime) readTraceRelations(ctx context.Context, base Envelope, input []byte) (Envelope, error) {
@@ -487,37 +537,6 @@ func (r runtime) readTraceProjectRetirement(ctx context.Context, base Envelope, 
 		return failureEnvelope(base, err), nil
 	}
 	return r.resultEnvelope(base, store.ResultMeta{QueryID: "CD-0182.R1", ContractVersion: "CD-0182/1.0", ResolvedScope: store.ResolvedScope{WorkID: in.WorkID, ProjectIDs: []string{project}}, Authority: "authoritative", Freshness: store.Freshness{ObservedAt: r.Authority.now().UTC().Format(time.RFC3339Nano)}, OrderingKeys: []string{"retirement:" + in.WorkID}}, r.scope(store.ResultMeta{}), retirement)
-}
-
-func (r runtime) readInitiativeEntries(ctx context.Context, base Envelope, input []byte, queryID string) (Envelope, error) {
-	var in initiativeEntriesInput
-	if err := decodeOperationInput(input, &in); err != nil {
-		return base, err
-	}
-	summary, err := r.Store.ReadWorkItemSummary(ctx, in.InitiativeWorkID)
-	if err != nil {
-		var failure *store.Failure
-		if errors.As(err, &failure) && failure.Kind == store.KindProjectionNotFound {
-			return coreError(base, "unknown_scope", "Initiative does not exist", "reread_entities", false), nil
-		}
-		return failureEnvelope(base, err), nil
-	}
-	if summary.Kind != "initiative" {
-		return coreError(base, "invariant_violation", "entry read target is not an Initiative", "reread_entities", false), nil
-	}
-	products, err := r.Store.ProductsForWorkIDs(ctx, []string{in.InitiativeWorkID})
-	if err != nil {
-		return failureEnvelope(base, err), nil
-	}
-	if len(products[in.InitiativeWorkID]) != 1 {
-		return coreError(base, "invariant_violation", "Initiative does not derive exactly one Product", "reread_entities", false), nil
-	}
-	entries, err := r.Store.ReadInitiativeEntries(ctx, in.InitiativeWorkID)
-	if err != nil {
-		return failureEnvelope(base, err), nil
-	}
-	meta := store.ResultMeta{QueryID: queryID, ContractVersion: "C21/1.0", ResolvedScope: store.ResolvedScope{ProductID: products[in.InitiativeWorkID][0], WorkID: in.InitiativeWorkID}, Authority: "authoritative", Freshness: store.Freshness{ObservedAt: time.Now().UTC().Format(time.RFC3339Nano)}, OrderingKeys: []string{"position", "child_work_id"}}
-	return r.resultEnvelope(base, meta, r.scope(meta), map[string]any{"entries": entries, "narrative": summary.Narrative})
 }
 
 func (r runtime) readKnowledgeSearch(ctx context.Context, base Envelope, input []byte) (Envelope, error) {
@@ -567,7 +586,7 @@ func (r runtime) readKnowledgeSearch(ctx context.Context, base Envelope, input [
 			}
 		}
 	}
-	q, err := r.Store.QueryQ9(ctx, store.Q9Request{Product: in.ProductID, Project: in.ProjectID, Domain: in.DomainID, Kinds: knowledgeKinds(in.Kinds), Tags: in.Tags, Text: in.Text, Since: deref(in.Since), Until: deref(in.Until), Limit: effectiveLimit(in.Limit, in.Page), Cursor: inner, Home: home, AllowDegraded: in.AllowDegraded})
+	q, err := r.Store.QueryQ9(ctx, store.Q9Request{Product: in.ProductID, Project: in.ProjectID, Domain: in.DomainID, Kinds: knowledgeKinds(in.Kinds), Tags: in.Tags, Text: in.Text, Limit: effectiveLimit(in.Limit, in.Page), Cursor: inner, Home: home, AllowDegraded: in.AllowDegraded})
 	if err != nil {
 		return failureEnvelope(base, err), nil
 	}
@@ -588,46 +607,6 @@ func (r runtime) readKnowledgeResolveNote(ctx context.Context, base Envelope, in
 		return failureEnvelope(base, err), nil
 	}
 	return r.q10(base, q)
-}
-
-func (r runtime) readKnowledgeUnprocessed(ctx context.Context, base Envelope, input []byte) (Envelope, error) {
-	var in knowledgeUnprocessedInput
-	if err := decodeOperationInput(input, &in); err != nil {
-		return base, err
-	}
-	if in.ProductID == "" {
-		in.ProductID = r.Envelope.SelectedProductID
-	}
-	var home store.KnowledgeHome
-	var homeErr error
-	if in.ProductID != "" || in.ProjectID != "" {
-		home, homeErr = r.Store.ResolveKnowledgeQueryHome(ctx, in.ProductID, in.ProjectID, store.KnowledgeHome{}, "PM1.Q15")
-	} else {
-		home, homeErr = r.knowledgeHome(ctx)
-	}
-	if homeErr != nil {
-		return failureEnvelope(base, homeErr), nil
-	}
-	paths, err := r.Store.ReadUnprocessedKnowledgeDocs(ctx, home)
-	if err != nil {
-		return failureEnvelope(base, err), nil
-	}
-	limit := effectiveLimit(in.Limit, in.Page)
-	if limit == 0 || limit > 100 {
-		limit = 100
-	}
-	if len(paths) > limit {
-		paths = paths[:limit]
-	}
-	meta := store.ResultMeta{
-		QueryID:         "PM1.Q15",
-		ContractVersion: "PM1/1.0",
-		ResolvedScope:   store.ResolvedScope{ProductID: in.ProductID, ProjectID: in.ProjectID},
-		Authority:       "authoritative",
-		Freshness:       store.Freshness{ObservedAt: time.Now().UTC().Format(time.RFC3339Nano)},
-		OrderingKeys:    []string{"path"},
-	}
-	return r.resultEnvelope(base, meta, r.scope(meta), map[string]any{"paths": paths})
 }
 
 func (r runtime) readDomain(ctx context.Context, base Envelope, input []byte, queryID string) (Envelope, error) {
@@ -671,19 +650,6 @@ func (r runtime) readDomain(ctx context.Context, base Envelope, input []byte, qu
 			return failureEnvelope(base, err), nil
 		}
 		return r.resultEnvelope(base, result.ResultMeta, r.scope(result.ResultMeta), store.NewDomainDetailPayload(result))
-	case "active_work":
-		if in.DomainID == "" {
-			return coreError(base, "invalid_input", "active Domain work requires domain_id", "reread_entities", false), nil
-		}
-		result, err := r.Store.QueryDomainActiveWork(ctx, store.DomainActiveWorkRequest{Product: product, Domain: in.DomainID, Limit: effectiveLimit(in.Limit, in.Page), Cursor: deref(in.Page.Cursor)})
-		if err != nil {
-			return failureEnvelope(base, err), nil
-		}
-		response, err := r.resultEnvelope(base, result.ResultMeta, r.scope(result.ResultMeta), store.NewDomainActiveWorkPayload(result))
-		if err != nil {
-			return response, err
-		}
-		return r.wrapCursor(ctx, response, queryID+":"+product+":"+in.DomainID, "work")
 	case "attachments":
 		if in.DomainID == "" {
 			return coreError(base, "invalid_input", "Domain attachments require domain_id", "reread_entities", false), nil

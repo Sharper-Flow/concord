@@ -140,6 +140,7 @@ ADAPTER_FILES = (
     "manifest-pin.ts",
     "move-notice.ts",
     "move-session.ts",
+    "oracle-readiness.ts",
     "packet.ts",
     "project-link.ts",
     "task-result.ts",
@@ -149,12 +150,12 @@ ADAPTER_FILES = (
     "workflow-status.ts",
 )
 INSTRUCTION_FILES = (
-    "README.md",
     "asking.md",
     "change.md",
     "completion.md",
     "continuation.md",
     "evidence.md",
+    "records.md",
     "voice.md",
 )
 AGENT_FILES = (

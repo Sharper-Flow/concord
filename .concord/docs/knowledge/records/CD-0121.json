@@ -32,8 +32,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:cf57bbb011e460b416dde48a45131d821bc112d55f8cf1706f4f54a92ac7e3bb",
-  "status": "accepted",
+  "sha256": "sha256:274e6fd386a817921c066063e1d38cb940bdc6933d2569108d3089289c3ba417",
+  "status": "superseded",
+  "successor": "CD-0213",
   "summary": "Makes Linear optional per Product, permits local-only planning without an external issue prerequisite, preserves other authority boundaries, and separates policy adoption from verified integration activation.",
   "tags": [
     "authority",

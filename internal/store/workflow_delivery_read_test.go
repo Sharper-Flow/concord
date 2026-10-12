@@ -115,32 +115,3 @@ func TestWorkflowCompletionRefusedAtDeliveryGate(t *testing.T) {
 		t.Fatalf("refusal remedy = %+v, want not_terminal naming record_delivery then workflow_action complete", failure)
 	}
 }
-
-func TestProductRowsCountParkedDeliveries(t *testing.T) {
-	t.Parallel()
-	s := deliveryGateFixture(t)
-	result, err := s.QueryProductRows(context.Background(), ProductRowRequest{Product: "p-deliv"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(result.Rows) != 1 {
-		t.Fatalf("want one Product row, got %d", len(result.Rows))
-	}
-	values := result.Rows[0].ActionCounts.Values
-	if values == nil {
-		t.Fatal("action counts are unavailable")
-	}
-	if values.ParkedDeliveries != 1 {
-		t.Fatalf("want one parked delivery, got %d", values.ParkedDeliveries)
-	}
-	if err := transitionDeliverWork(t, s, "cancelled", "abandoned"); err != nil {
-		t.Fatal(err)
-	}
-	result, err = s.QueryProductRows(context.Background(), ProductRowRequest{Product: "p-deliv"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if values = result.Rows[0].ActionCounts.Values; values == nil || values.ParkedDeliveries != 0 {
-		t.Fatalf("a terminal item must leave the parked count, got %+v", values)
-	}
-}

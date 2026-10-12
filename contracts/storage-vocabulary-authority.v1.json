@@ -185,21 +185,6 @@
       "authority": "check"
     },
     {
-      "table": "linear_issue_links",
-      "column": "link_state",
-      "authority": "check"
-    },
-    {
-      "table": "linear_outbox",
-      "column": "op_kind",
-      "authority": "check"
-    },
-    {
-      "table": "linear_outbox",
-      "column": "state",
-      "authority": "check"
-    },
-    {
       "table": "managed_resources",
       "column": "class",
       "authority": "check"
@@ -227,11 +212,6 @@
     {
       "table": "product_projects",
       "column": "role",
-      "authority": "check"
-    },
-    {
-      "table": "products",
-      "column": "planning_mode",
       "authority": "check"
     },
     {

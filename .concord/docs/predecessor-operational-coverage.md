@@ -228,7 +228,7 @@ The not-covered entries clustered as follows while the floor was open:
    by issue #88 (§5).
 
 The operator-surface and isolation groups are gone: CD-0021 resolved the former as
-deliberate exclusions; issues #124 and #125 covered the latter. CD-0213 excludes
+deliberate exclusions; the latter is covered. CD-0213 excludes
 Concord Initiative authoring and membership from runtime coverage; Linear MCP
 owns those planning outcomes.
 

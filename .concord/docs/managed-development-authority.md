@@ -3,9 +3,7 @@
 **Status:** Accepted under CD-0213. Supersedes
 [`development-authority.md`](development-authority.md).
 **Approval date:** 2026-10-09.
-**Approval:** Operator approval under
-[Concord (CON) issue 801](https://linear.app/sharper-flow/issue/CON-801) for
-Linear as the only planning authority.
+**Approval:** Operator approval for Linear as the only planning authority.
 
 ## Context
 

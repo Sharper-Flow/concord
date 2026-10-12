@@ -3,7 +3,7 @@
 - **Law ID:** compaction-retention-policy
 - **Status:** Accepted
 - **Date:** 2026-10-09
-- **Approval:** `CON-816` A1 under operator delegation on 2026-10-09, without calendar expiration.
+- **Approval:** Under operator delegation on 2026-10-09, without calendar expiration.
 - **Supersedes:** [PM7](compaction-retention-policy.md)
 - **Related:** [CD-0215](decisions/CD-0215-retained-research-context.md),
   [CD-0216](decisions/CD-0216-research-surface-and-explicit-retirement.md),

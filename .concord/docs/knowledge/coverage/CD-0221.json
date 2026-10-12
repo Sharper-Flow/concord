@@ -1,5 +1,5 @@
 {
   "id": "CD-0221",
-  "reason": "Focused enforcement regressions pass; full-corpus verification awaits approved law dispositions for the remaining citations.",
+  "reason": "Focused enforcement regressions and checked-revision corpus validation pass; this citation repair does not claim coverage grading.",
   "state": "unmeasured"
 }

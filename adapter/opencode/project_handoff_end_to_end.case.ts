@@ -146,6 +146,7 @@ async function fakeHostControlPlane(seed: Array<[string, string]>, runner: Dispa
   })
   configureConcordAdapter({ runner, credentials: { async getPrivateKey() { return PRIVATE_SEED } } })
   return await ConcordAdapterPlugin({
+    directory: seed[0][1],
     client: {
       _client: {
         get: async ({ url, path }: { url?: string; path?: Record<string, unknown> }) => {
@@ -688,7 +689,7 @@ routeDeclaration(RESTART_WITNESS, async () => {
     expect(completion.outcome, JSON.stringify(completion)).toBe("ok")
     const dispatchEvent = dbValue(dbPath, `SELECT event_id,payload FROM domain_events WHERE kind='worker.dispatched' AND subject_id='${workID}'`)
     const provenance = JSON.parse(dispatchEvent.payload).host_provenance.sources
-    expect(provenance).toContainEqual(expect.objectContaining({ kind: "file", path: join(fixture.receiveWorktree, "AGENTS.md") }))
+    expect(provenance).toContainEqual(expect.objectContaining({ kind: "agents_md", path: join(fixture.receiveWorktree, "AGENTS.md") }))
     expect(provenance.some((source: JSONRecord) => source.path === join(fixture.sourceWorktree, "AGENTS.md"))).toBe(false)
     host.sessions[RECEIVE_SESSION].messages = [{ info: { id: "original-parent-message", sessionID: RECEIVE_SESSION, role: "assistant" }, parts: [{ id: "original-handoff-task-part", sessionID: RECEIVE_SESSION, type: "tool", tool: TASK_TOOL_ID, state: { status: "completed", input: args, output: output.output } }] }]
     fixture.originalParentMessages = host.sessions[RECEIVE_SESSION].messages

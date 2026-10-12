@@ -237,7 +237,8 @@ func TestMessageBroadcastReceiptVersionsAndRecipientBounds(t *testing.T) {
 				if response.Outcome != OutcomeError || response.Error == nil {
 					t.Fatalf("zero-recipient broadcast=%+v", response)
 				}
-				if version, versionErr := s.WorkVersion(ctx, "work-sender"); versionErr != nil || version != 2 {
+				var version int64
+				if versionErr := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id=?`, "work-sender").Scan(&version); versionErr != nil || version != 2 {
 					t.Fatalf("zero-recipient version=%d err=%v", version, versionErr)
 				}
 				return
@@ -249,7 +250,8 @@ func TestMessageBroadcastReceiptVersionsAndRecipientBounds(t *testing.T) {
 			if (*response.ChangedRefs)[0] != (ChangedRef{EntityKind: "work_item", ID: "work-sender", Version: wantVersion}) {
 				t.Fatalf("broadcast refs=%+v want version %s", *response.ChangedRefs, wantVersion)
 			}
-			if version, versionErr := s.WorkVersion(ctx, "work-sender"); versionErr != nil || version != int64(2+testCase.recipients) {
+			var version int64
+			if versionErr := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id=?`, "work-sender").Scan(&version); versionErr != nil || version != int64(2+testCase.recipients) {
 				t.Fatalf("broadcast stored version=%d err=%v", version, versionErr)
 			}
 		})

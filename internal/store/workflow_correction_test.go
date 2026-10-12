@@ -427,7 +427,7 @@ func TestCorrectionDispatchClearsPinContextForLaterLane(t *testing.T) {
 		t.Fatal(err)
 	}
 	reviewer := acceptReturnRouteWorker(t, fixture, workID, ownerRef)
-	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:return-route","verdict_kind":"outcome_mismatch","incomparable_with_approved":true}`), 0, reviewer); err != nil {
+	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"verdicts":[{"predicate_id":"predicate:return-route","verdict_kind":"outcome_mismatch","incomparable_with_approved":true}]}`), 0, reviewer); err != nil {
 		t.Fatalf("record non-ok verdict: %v", err)
 	}
 	correction := json.RawMessage(`{"diagnosis":"the repaired subject still reproduces the defect","strategy":"repeat the repair external effect","predicate_ids":["predicate:return-route"],"evidence_refs":["evidence:return-route-verification"]}`)
@@ -720,7 +720,7 @@ func TestVerificationCorrectionWallArmsOnTheFourthRequest(t *testing.T) {
 		if err := runVerdictActionAs(t, s, workID, "accept_worker_result", json.RawMessage(`{"attempt_id":"`+attemptID+`","attempt_epoch":`+fmt.Sprint(attemptEpoch)+`}`), 0, acceptor); err != nil {
 			t.Fatalf("cycle %d accept worker result: %v", cycle, err)
 		}
-		if err := runVerdictActionAs(t, s, workID, "start_refine", json.RawMessage(`{}`), 0, acceptor); err != nil {
+		if err := runVerdictActionAs(t, s, workID, refineRecoveryRefineEntry(t, s, workID), json.RawMessage(`{}`), 0, acceptor); err != nil {
 			t.Fatalf("cycle %d start refinement: %v", cycle, err)
 		}
 		// The current definitions gate the refine exit on a green verify run
@@ -740,7 +740,7 @@ func TestVerificationCorrectionWallArmsOnTheFourthRequest(t *testing.T) {
 			// later verdict needs one fresh declared delivery loop.
 			runCorrectionWorkerLoop(count)
 		}
-		if err := runVerdictActionAs(t, fixture.store, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:return-route","verdict_kind":"outcome_mismatch","evaluation_evidence":["evidence:return-route-verification"],"incomparable_with_approved":true}`), 0, reviewer); err != nil {
+		if err := runVerdictActionAs(t, fixture.store, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"verdicts":[{"predicate_id":"predicate:return-route","verdict_kind":"outcome_mismatch","evaluation_evidence":["evidence:return-route-verification"],"incomparable_with_approved":true}]}`), 0, reviewer); err != nil {
 			t.Fatalf("cycle %d mismatch verdict: %v", count, err)
 		}
 		payload := json.RawMessage(`{"diagnosis":"the delivered subject still fails","strategy":"repeat the external effect","predicate_ids":["predicate:return-route"],"evidence_refs":["evidence:return-route-verification"]}`)
@@ -884,6 +884,16 @@ func issue1013RecordWorkerDispatch(t *testing.T, s *Store, workID, attemptID str
 
 func issue1013StartRepair(t *testing.T, s *Store, workID string, owner WorkflowActor, expectedVersion, attemptEpoch int64) {
 	t.Helper()
+	// CD-0198 D3: on a derived-start pin the callable start is gone, and the
+	// following dispatch opens the fresh epoch itself, so no raw start is
+	// crafted here.
+	entry, err := VerifyWorkflowInstanceDefinition(context.Background(), s, BuiltinWorkflowRegistry(), workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if workflowDerivedStepStartActive(entry.Definition) {
+		return
+	}
 	actorRef, err := WorkflowActorRef(owner)
 	if err != nil {
 		t.Fatal(err)
@@ -971,7 +981,9 @@ func completeCompleteStepReview(t *testing.T, fixture workflowReturnRouteFixture
 	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{reviewerEvent}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
 		t.Fatalf("record the reviewer actor: %v", err)
 	}
-	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:return-route","verdict_kind":"ok"}`), 0, reviewer); err != nil {
+	// The canonical heads author the batched verdict alone, so the gate
+	// fixture's healthy verdict rides the one-entry batch.
+	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"verdicts":[{"predicate_id":"predicate:return-route","verdict_kind":"ok"}]}`), 0, reviewer); err != nil {
 		t.Fatalf("record the healthy verdict: %v", err)
 	}
 	if err := runIssue933OperatorAction(t, s, workID, "confirm_premise", json.RawMessage(`{"contract_version":1}`), fixture.owner, fixture.operator); err != nil {
@@ -1116,7 +1128,17 @@ func TestCompleteStepContractCorrectionReturnsBreakFixToRepair(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	issue1013StartRepair(t, s, workID, fixture.owner, readWorkVersion(t, s, workID), latestStepStartEpoch(t, s, workID, "repair")+1)
+	entry, entryErr := VerifyWorkflowInstanceDefinition(ctx, s, BuiltinWorkflowRegistry(), workID)
+	if entryErr != nil {
+		t.Fatal(entryErr)
+	}
+	if workflowDerivedStepStartActive(entry.Definition) {
+		if err := runVerdictActionAs(t, s, workID, "checkpoint_repair", json.RawMessage(`{}`), 0, fixture.owner); err != nil {
+			t.Fatalf("the correction re-entry derives the repair start: %v", err)
+		}
+	} else {
+		issue1013StartRepair(t, s, workID, fixture.owner, readWorkVersion(t, s, workID), latestStepStartEpoch(t, s, workID, "repair")+1)
+	}
 	epoch := latestStepStartEpoch(t, s, workID, "repair")
 	deliverAt := func(stepID string, attemptEpoch int64) {
 		t.Helper()
@@ -1189,7 +1211,7 @@ func TestCompleteStepContractCorrectionReturnsBreakFixToRepair(t *testing.T) {
 	// The fresh verdict under the successor is born bound: its minted
 	// bindings land after the cutoff, one per required kind, and they are the
 	// fresh evidence the path back to completion requires.
-	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":2,"predicate_id":"predicate:return-route","verdict_kind":"ok"}`), 0, reviewer); err != nil {
+	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":2,"verdicts":[{"predicate_id":"predicate:return-route","verdict_kind":"ok"}]}`), 0, reviewer); err != nil {
 		t.Fatalf("record the fresh verdict under the successor: %v", err)
 	}
 	outstanding, outstandingErr = outstandingWorkflowEvidenceRequirementsForWork(ctx, s.db, workID, pinned.Definition)
@@ -1369,8 +1391,11 @@ func TestCompleteStepContractCorrectionRefusals(t *testing.T) {
 		recordCompleteStepContradictionObservation(t, s, workID, owner)
 		err := issue1013Preflight(t, s, workID, "supersede_contract", completeStepSuccessorPayload(workID), owner)
 		var failure *Failure
-		if !errors.As(err, &failure) || failure.Kind != KindInvalidOperation || failure.Detail != "contract recovery is available only for a stale workflow contract" {
-			t.Fatalf("preflight on the static-analysis shape = %v, want the shape refusal", err)
+		// The retired family refuses public execution before the shape
+		// question; the route-table probe above still proves its complete
+		// step carries no correction return.
+		if !errors.As(err, &failure) || failure.Kind != KindInvalidOperation || !strings.Contains(failure.Detail, "workflow.static_analysis is archived") {
+			t.Fatalf("preflight on the static-analysis shape = %v, want the archived-family refusal", err)
 		}
 	})
 

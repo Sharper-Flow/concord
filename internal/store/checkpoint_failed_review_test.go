@@ -61,7 +61,7 @@ func seedCheckpointFailedReview(t *testing.T, workID string) (workflowReturnRout
 	t.Helper()
 	fixture := seedWorkflowReturnRouteFixtureRequiring(t, workID, "workflow.break_fix", "verify", []string{"verification"}, []string{"verification", "artifact"})
 	reviewer := checkpointReviewReviewer(t, fixture.store, workID)
-	if err := runVerdictActionAs(t, fixture.store, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:return-route","verdict_kind":"ok","evaluation_evidence":["evidence:return-route-verification"]}`), 0, reviewer); err != nil {
+	if err := runVerdictActionAs(t, fixture.store, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"verdicts":[{"predicate_id":"predicate:return-route","verdict_kind":"ok","evaluation_evidence":["evidence:return-route-verification"]}]}`), 0, reviewer); err != nil {
 		t.Fatalf("record_verdict refused: %v", err)
 	}
 	attemptID := "attempt:" + workID + ":failed-review"
@@ -179,10 +179,12 @@ func TestEffectStepStaleCompletedAttemptCannotAdvance(t *testing.T) {
 	lane := reviewGateLane(t, "review")
 
 	// The first window opens, its worker dispatches, and the report lands
-	// completed but unaccepted.
+	// completed but unaccepted. The derived-start head opens the repair
+	// window through the qualifying checkpoint, whose started event fences
+	// the step exactly as the callable start did.
 	version := verdictItemVersion(t, s, workID)
 	start := workflowEventWithActor("effect-stale-start-"+workID, WorkflowActionStarted, workID, ownerRef, map[string]any{
-		"work_id": workID, "expected_version": version, "resulting_version": version + 1, "step_id": "repair", "action_id": "start_repair", "attempt_epoch": 1,
+		"work_id": workID, "expected_version": version, "resulting_version": version + 1, "step_id": "repair", "action_id": "checkpoint_repair", "attempt_epoch": 1,
 		"accepted_inputs_digest": "sha256:" + strings.Repeat("a", 64), "idempotency_identity": "start:" + workID, "actor_ref": ownerRef,
 	})
 	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{start}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {

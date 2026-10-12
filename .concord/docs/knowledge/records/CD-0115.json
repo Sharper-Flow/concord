@@ -22,7 +22,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:71225a5f9301030a01dc62e3532ab391f6c84aa2544593714787ef6a19408cc2",
+  "sha256": "sha256:22b46edaa6e2d609e51b27b7a3a374f627913668f92a341ab7f2d16d4d22de56",
   "status": "accepted",
   "summary": "A builtin workflow definition a release shipped is immutable at its version: a content change ships as a new version in the same release, the registry compiles every released version so a pin on any of them verifies forever, and workflow_definition_version_pins_test.go pins every registered digest so an in-place edit fails before release. The mechanism shipped in #863; this record makes the discipline law.",
   "tags": [

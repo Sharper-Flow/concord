@@ -98,10 +98,10 @@ The predecessor promoted per-change wisdom into durable, searchable project
 learnings. Concord's shape already shipped as CD-0026 and is not standalone —
 it is part of the knowledge authority:
 
-- **Lessons are a first-class knowledge kind**, published through
-  `concord_work_compact.lesson_publish` with operator approval (D7's accepted
-  durable reader), landing in the Product's git knowledge home and indexed by
-  the knowledge manifest
+- **Lessons are a first-class knowledge kind**, authored as files with their
+  record shards and published through a reviewed pull request (CD-0026 D1),
+  landing in the Product's git knowledge home and indexed by the knowledge
+  manifest
   (`TestManifestRebuildIndexesDecisionSpecLessonAndQ10Proof`).
 - **Deliberately not carried:** unpromoted per-change wisdom — the transient
   working layer. CD-0009 already fixes active working context as bounded and

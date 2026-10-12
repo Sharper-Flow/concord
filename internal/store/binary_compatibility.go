@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"sort"
+	"strings"
 
 	"github.com/sharper-flow/concord/internal/version"
 )
@@ -87,6 +89,130 @@ func checkWorkflowBinaryCompatibility(ctx context.Context, q queryer) error {
 			fmt.Sprintf("workflow definition %s version %d is not registered by this binary", unsupported.Ref, unsupported.Version))
 	}
 	return nil
+}
+
+// checkWorkflowAuthoringCutover is the readiness half of the authoring
+// retirement. A store whose nonterminal work still pins retired or old
+// authoring — through the work's instance row or its active contract —
+// refuses activation: either half can still mutate the work. The work item's
+// lifecycle is the terminal authority: workflow_instance states such as
+// outside_repair are held dispositions, not terminal ones, so an item still
+// in progress blocks wherever its instance state sits. Terminal work opens,
+// reads, and rebuilds. Plain opens stay permissive so recorded history and
+// the frozen journal witnesses open, read, and rebuild; the per-mutation
+// refusal lives in the workflow admission.
+func checkWorkflowAuthoringCutover(ctx context.Context, q queryer) error {
+	pin, classification, err := firstCutoverBlockedPin(ctx, q)
+	if err != nil {
+		return err
+	}
+	if pin != nil {
+		return binaryCompatibilityFailure(ctx, q, "workflow", pin.Ref, pin.Version, pin.Digest,
+			fmt.Sprintf("workflow definition %s version %d %s; a nonterminal work item still pins it through its instance or active contract", pin.Ref, pin.Version, classification))
+	}
+	return nil
+}
+
+// firstCutoverBlockedPin answers the first nonterminal-work authoring pin: an
+// archived family at any version, or a retained family below the canonical
+// authoring shape, whichever of the work's instance row or its active
+// contract (superseded_by IS NULL) carries it. A superseded contract row is
+// closed history whose work has moved on; only the active contract can still
+// mutate. The old-authoring side reads the registered definition's own
+// payload — the batch-only record_verdict declaration — through the registry
+// history, never a hand-maintained version table. Versions above the
+// registered heads are the registration scan's refusal at open.
+func firstCutoverBlockedPin(ctx context.Context, q queryer) (*WorkflowDefinitionPin, string, error) {
+	queries := make([]string, 0, 2)
+	instancePresent, err := columnPresent(ctx, q, "workflow_instances", "definition_ref")
+	if err != nil {
+		return nil, "", err
+	}
+	if instancePresent {
+		queries = append(queries, `SELECT i.definition_ref,i.definition_version,i.definition_digest
+			FROM workflow_instances i JOIN work_items w ON w.id=i.work_id
+			WHERE i.definition_ref IN `+authoringFamilySQLList()+`
+			  AND w.lifecycle NOT IN `+terminalLifecycleSQLList())
+	}
+	contractPresent, err := columnPresent(ctx, q, "workflow_contracts", "definition_version")
+	if err != nil {
+		return nil, "", err
+	}
+	if contractPresent {
+		activePresent, err := columnPresent(ctx, q, "workflow_contracts", "superseded_by")
+		if err != nil {
+			return nil, "", err
+		}
+		// A store predating the supersession column holds no closed row: every
+		// pinned contract was the work's only contract and is active.
+		activeClause := ""
+		if activePresent {
+			activeClause = " AND c.superseded_by IS NULL"
+		}
+		queries = append(queries, `SELECT c.definition_ref,c.definition_version,c.definition_digest
+			FROM workflow_contracts c JOIN work_items w ON w.id=c.work_id
+			WHERE c.definition_ref IN `+authoringFamilySQLList()+`
+			  AND c.definition_ref <> '' AND c.definition_version > 0`+activeClause+`
+			  AND w.lifecycle NOT IN `+terminalLifecycleSQLList())
+	}
+	if len(queries) == 0 {
+		return nil, "", nil
+	}
+	query := queries[0]
+	if len(queries) == 2 {
+		query += " UNION " + queries[1]
+	}
+	rows, err := q.QueryContext(ctx, "SELECT definition_ref,definition_version,definition_digest FROM ("+query+") ORDER BY definition_ref,definition_version,definition_digest") //nolint:gosec // table names come only from the closed list above.
+	if err != nil {
+		return nil, "", compatibilityReadFailure(err)
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var pin WorkflowDefinitionPin
+		if err := rows.Scan(&pin.Ref, &pin.Version, &pin.Digest); err != nil {
+			return nil, "", compatibilityReadFailure(err)
+		}
+		if workflowFamilyArchived(pin.Ref) {
+			return &pin, "is archived", nil
+		}
+		if !liveWorkflowAuthoringFamilies[pin.Ref] {
+			continue
+		}
+		entry, ok := BuiltinWorkflowRegistry().Lookup(pin.Ref, pin.Version)
+		if !ok {
+			continue
+		}
+		if workflowCanonicalAuthoringActive(entry.Definition) {
+			continue
+		}
+		return &pin, "predates the canonical authoring contract", nil
+	}
+	if err := rows.Err(); err != nil {
+		return nil, "", compatibilityReadFailure(err)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, "", compatibilityReadFailure(err)
+	}
+	return nil, "", nil
+}
+
+// authoringFamilySQLList renders the retired and live authoring families as a
+// parenthesised SQL literal list. The set is the two closed family maps, never
+// caller input.
+func authoringFamilySQLList() string {
+	refs := make([]string, 0, len(archivedWorkflowFamilies)+len(liveWorkflowAuthoringFamilies))
+	for ref := range archivedWorkflowFamilies {
+		refs = append(refs, ref)
+	}
+	for ref := range liveWorkflowAuthoringFamilies {
+		refs = append(refs, ref)
+	}
+	sort.Strings(refs)
+	quoted := make([]string, len(refs))
+	for i, ref := range refs {
+		quoted[i] = "'" + ref + "'"
+	}
+	return "(" + strings.Join(quoted, ",") + ")"
 }
 
 // registryHolds is the slow path for a pin outside the built-in current

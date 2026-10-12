@@ -58,6 +58,16 @@ def check(root: Path) -> list[str]:
     surface = load_json(root, SURFACE, findings)
     if not isinstance(surface, dict):
         return findings
+    declared = surface.get("consequences")
+    if not isinstance(declared, list) or not declared or not all(isinstance(value, str) and value for value in declared):
+        findings.append("surface-vocabulary: consequences must be a non-empty array of non-empty strings")
+        return findings
+    declared_set = set(declared)
+    if len(declared) != len(declared_set):
+        findings.append("surface-vocabulary: consequences must be unique")
+        return findings
+    # The declared vocabulary includes values retained in historical approval rows.
+    expected = sorted(declared_set)
     operations = surface.get("operations")
     if not isinstance(operations, list):
         findings.append("surface-vocabulary: operations must be an array")
@@ -69,12 +79,15 @@ def check(root: Path) -> list[str]:
         operation.get("consequence")
         for operation in operations
     ]
-    if not consequences or not all(isinstance(value, str) for value in consequences):
+    if not consequences or not all(isinstance(value, str) and value for value in consequences):
         findings.append("surface-vocabulary: operations must declare non-empty string consequences")
         return findings
-    expected = sorted(set(consequences))
-    if not expected or len(expected) != len(set(expected)):
-        findings.append(f"surface-vocabulary: consequence set is not non-empty and unique: {expected}")
+    for operation in operations:
+        if operation["consequence"] not in declared_set:
+            findings.append(
+                f"migration-consequence-closure: operation {operation.get('id')} "
+                f"uses undeclared consequence {operation['consequence']!r}"
+            )
 
     try:
         source = (root / SCHEMA_SOURCE).read_text(encoding="utf-8")

@@ -30,8 +30,31 @@ func TestHistoricalReproDecisionDeclaration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := validateWorkflowActionPayload(d.Definition, "record_decision", raw); err != nil {
-		t.Errorf("REPRO: decision record rejected by its declaration: %v", err)
+	// The live authoring document no longer resolves the retired action's
+	// declared schemas, so the recorded bytes refuse live authoring.
+	if err := validateWorkflowActionPayload(d.Definition, "record_decision", raw); err == nil {
+		t.Error("REPRO: retired decision record stayed authorable through the live document")
+	}
+	// The fold validates the recorded fields through their pinned declaration.
+	s := openTemp(t)
+	const workID = "historical-declaration-fold"
+	seedStepWork(t, s, workID)
+	initializeStepWorkflow(t, s, workID, d.Definition)
+	envelope, err := json.Marshal(map[string]any{"action_id": "record_decision", "fields": historicalDecisionFields()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = s.Transact(context.Background(), func(tx *Transaction) error {
+		if err := enterFold(context.Background(), tx.tx); err != nil {
+			return err
+		}
+		if err := foldWorkflowDecisionRecord(context.Background(), tx.tx, Event{SubjectID: workID, OccurredAt: time.Unix(100, 0)}, envelope); err != nil {
+			return err
+		}
+		return leaveFold(context.Background(), tx.tx)
+	})
+	if err != nil {
+		t.Errorf("REPRO: fold rejected the recorded decision shape: %v", err)
 	}
 }
 

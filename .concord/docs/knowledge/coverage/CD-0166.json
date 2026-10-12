@@ -22,10 +22,6 @@
     },
     {
       "kind": "go_test",
-      "value": "internal/store.TestProductRowsCountParkedDeliveries"
-    },
-    {
-      "kind": "go_test",
       "value": "internal/store.TestPostRejectionReviewGateHoldsBreakFixDelivery"
     },
     {

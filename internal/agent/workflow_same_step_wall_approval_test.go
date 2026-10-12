@@ -16,12 +16,15 @@ import (
 // challenge; a supplied operator approval has no effect; a superseded
 // contract derives the approach_changed basis and admits one fresh dispatch
 // without any challenge; the interrupted dispatch consumes the basis, so the
-// blind re-dispatch refuses until a fresh supersession re-opens the wall.
+// blind re-dispatch refuses, and the ordinary stale-law re-pin — the Git home
+// superseding the law the active contract mandates — derives the renewed
+// basis without any correction record or approval challenge.
 func TestSameStepWallWithoutCorrectionRecordStaysConvergenceGated(t *testing.T) {
 	s, service, grant, privateKey := mutationDispatchFixture(t, []Capability{"work_transition", "worker_dispatch"})
 	worktree := seedGenericOneOffVerifyWorkflow(t, s, grant)
 	grant.Worktree = worktree
 	seedGenericOneOffVerifyWall(t, s, grant, worktree)
+	seedVerifyWallLawPins(t, s)
 	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
 	if err != nil {
 		t.Fatal(err)
@@ -62,7 +65,7 @@ func TestSameStepWallWithoutCorrectionRecordStaysConvergenceGated(t *testing.T) 
 	if refused.Error == nil || refused.Error.Kind != "missing_evidence" {
 		t.Fatalf("same-step retry without a basis = %+v, want missing_evidence", refused.Error)
 	}
-	if !strings.Contains(refused.Error.Message, "worker correction reached the three-attempt limit without a convergence basis: 3 non-progress attempts since the last accepted productive result (step verify)") {
+	if !strings.Contains(refused.Error.Message, "worker correction reached the three-attempt limit without a convergence basis: 3 non-progress attempts since the last accepted productive result (step refine)") {
 		t.Fatalf("same-step refusal does not name the counted population: %q", refused.Error.Message)
 	}
 	if refused.Error.RecoveryAction.Kind != "provide_evidence" {
@@ -112,8 +115,23 @@ func TestSameStepWallWithoutCorrectionRecordStaysConvergenceGated(t *testing.T) 
 
 	// A superseded contract after the latest dispatch is a changed
 	// approach: the store derives the basis, the pin flips its reason, and
-	// the boundary admits the dispatch with no approval at all.
-	supersedeVerifyWallContract(t, s, owner, workVersion(t, s, "work-1"), 2, "the same-step wall demanded a changed approach")
+	// the boundary admits the dispatch with no approval at all. The wall
+	// step itself is not a correction checkpoint on the retained family, so
+	// the ordinary recovery the instance actually admits runs from the
+	// producer step whose pass never started: the fixture parks the
+	// instance at execution through the fold-guarded fixture pattern, where
+	// the unstarted pass admits the operator supersession with no
+	// correction record and no failed attempt (CD-0133 D1's pre-pass
+	// correction admission).
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE workflow_instances SET current_step='execution' WHERE work_id='work-1'; DELETE FROM fold_guard`); err != nil {
+		t.Fatalf("park the instance at the producer step: %v", err)
+	}
+	if pin.Correction != nil {
+		t.Fatalf("the wall left a correction record behind: %+v", pin.Correction)
+	}
+	// The successor retains the accepted law pin the fixture projected, so
+	// the ordinary stale-law recovery can own the later renewal.
+	supersedeVerifyWallContractWithLawPins(t, s, owner, workVersion(t, s, "work-1"), 2, []string{verifyWallLawID}, "the same-step wall demanded a changed approach")
 	pin, err = store.ReadWorkPin(context.Background(), s, "work-1")
 	if err != nil {
 		t.Fatal(err)
@@ -179,10 +197,16 @@ func TestSameStepWallWithoutCorrectionRecordStaysConvergenceGated(t *testing.T) 
 		t.Fatalf("blind re-dispatch changed the work version %d -> %d", version, after)
 	}
 
-	// A fresh supersession derives a fresh basis: each basis buys exactly
-	// one more fresh fenced attempt, and the whole journey minted no
-	// approval challenge.
-	supersedeVerifyWallContract(t, s, owner, workVersion(t, s, "work-1"), 3, "the interrupted converging retry needed a renewed approach")
+	// A fresh basis re-opens the wall for exactly one more fresh fenced
+	// attempt. The interrupted window holds the epoch's first actual
+	// authority, so the pre-pass admission is spent and no second park
+	// re-opens it; the ordinary stale-law recovery owns the renewal
+	// instead. The honest Git-law rescan supersedes the law the active
+	// contract pins, and the operator re-pin mandates the accepted
+	// successor — no correction record, no forced epoch, no approval
+	// challenge anywhere in the journey.
+	staleVerifyWallLawProjection(t, s)
+	supersedeVerifyWallContractWithLawPins(t, s, owner, workVersion(t, s, "work-1"), 3, []string{verifyWallLawSuccessorID}, "the interrupted converging retry needed a renewed approach")
 	_, renewedRaw := verifyWallDispatchInput(t, s, secondID, "same-step-convergence-5", nil)
 	env.RequestID = "request:same-step-convergence-5"
 	renewed := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: renewedRaw}, env)

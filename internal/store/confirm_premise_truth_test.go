@@ -33,7 +33,7 @@ func seedConfirmPremiseDeliverables(t *testing.T, s *Store, workID string) {
 	if err := runVerdictAction(t, s, workID, "bind_evidence", json.RawMessage(`{"evidence_kind":"verification","immutable_subject_ref":"evidence:confirm-verification"}`), 0); err != nil {
 		t.Fatalf("bind verification evidence: %v", err)
 	}
-	if err := runVerdictAction(t, s, workID, "record_verdict", json.RawMessage(`{"predicate_id":"predicate:confirm","verdict_kind":"ok"}`), 0); err != nil {
+	if err := runVerdictAction(t, s, workID, "record_verdict", json.RawMessage(`{"verdicts":[{"predicate_id":"predicate:confirm","verdict_kind":"ok"}]}`), 0); err != nil {
 		t.Fatalf("record verdict: %v", err)
 	}
 }

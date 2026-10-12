@@ -47,6 +47,49 @@ class ApprovalConsequenceFixture(unittest.TestCase):
     def test_clean_fixture_passes(self) -> None:
         self.assertEqual(self.findings(), [])
 
+    def test_unused_declared_consequence_passes(self) -> None:
+        surface = self.read_surface()
+        unused = surface["consequences"][0]
+        operations = surface["operations"]
+        surface["operations"] = [operation for operation in operations if operation["consequence"] != unused]
+        self.assertLess(len(surface["operations"]), len(operations))
+        self.assertTrue(surface["operations"])
+        self.write_surface(surface)
+        self.assertEqual(self.findings(), [])
+
+    def test_undeclared_operation_consequence_is_reported(self) -> None:
+        surface = self.read_surface()
+        operation = surface["operations"][0]
+        operation["consequence"] = "undeclared"
+        self.write_surface(surface)
+        self.assertIn(
+            f"migration-consequence-closure: operation {operation['id']} uses undeclared consequence 'undeclared'",
+            self.findings(),
+        )
+
+    def test_missing_declaration_is_reported(self) -> None:
+        surface = self.read_surface()
+        del surface["consequences"]
+        self.write_surface(surface)
+        self.assertTrue(any(item.startswith("surface-vocabulary:") for item in self.findings()))
+
+    def test_duplicate_declaration_is_reported(self) -> None:
+        surface = self.read_surface()
+        surface["consequences"].append(surface["consequences"][0])
+        self.write_surface(surface)
+        self.assertIn("surface-vocabulary: consequences must be unique", self.findings())
+
+    def test_malformed_declaration_is_reported(self) -> None:
+        for declaration in (None, "read", {}, [], ["read", 1], ["read", None], [""]):
+            with self.subTest(declaration=declaration):
+                surface = self.read_surface()
+                surface["consequences"] = declaration
+                self.write_surface(surface)
+                self.assertIn(
+                    "surface-vocabulary: consequences must be a non-empty array of non-empty strings",
+                    self.findings(),
+                )
+
     def test_dropped_research_from_check_is_reported(self) -> None:
         source = self.root / "internal/store/schema.go"
         text = source.read_text(encoding="utf-8").replace("'recovery','research','claim'", "'recovery','claim'", 1)

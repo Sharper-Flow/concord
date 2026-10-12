@@ -21,9 +21,9 @@ import (
 // declaredActionPayloads collects every action payload declaration the
 // registry and the recovery definitions own, keyed by action ID. It reads
 // the same source the contract projection reads — the current builtin
-// definitions (so record_verdict carries its restated batched payload) plus
-// the recovery registry — so the differential judges the shape publication
-// actually advertises.
+// definitions (so record_verdict carries its canonical batch payload) plus
+// the canonical recovery list the generator folds into the projection — so
+// the differential judges the shape publication actually advertises.
 func declaredActionPayloads(t *testing.T) map[string]WorkflowPayloadDefinition {
 	t.Helper()
 	payloads := map[string]WorkflowPayloadDefinition{}
@@ -32,7 +32,7 @@ func declaredActionPayloads(t *testing.T) map[string]WorkflowPayloadDefinition {
 			payloads[action.ID] = action.Payload
 		}
 	}
-	for _, action := range BuiltinWorkflowRecoveryActionDefinitions() {
+	for _, action := range BuiltinWorkflowCanonicalRecoveryActionDefinitions() {
 		payloads[action.ID] = action.Payload
 	}
 	return payloads
@@ -45,11 +45,19 @@ func TestDeclaredCrossFieldRulesAreRegistryValid(t *testing.T) {
 	declared := 0
 	for actionID := range declaredActionPayloads(t) {
 		cross := workflowActionCrossField(actionID)
-		if !validateCrossFieldDeclaration(declaredActionPayloads(t)[actionID].Fields, cross) {
-			t.Fatalf("%s declares cross-field rules the registry refuses", actionID)
-		}
 		if len(cross.Combinations) != 0 || len(cross.Alternatives) != 0 {
 			declared++
+		}
+		// The authoring payload answers to the canonical projection — the
+		// same projection the generator publishes — so the declared fields
+		// and the rules the publication names must stay registry-valid
+		// together.
+		projected, err := WorkflowActionCanonicalCrossFieldRules(actionID, declaredActionPayloads(t)[actionID].Fields)
+		if err != nil {
+			t.Fatalf("canonical cross-field projection for %s refused: %v", actionID, err)
+		}
+		if !validateCrossFieldDeclaration(declaredActionPayloads(t)[actionID].Fields, projected) {
+			t.Fatalf("%s declares cross-field rules the registry refuses", actionID)
 		}
 	}
 	if declared == 0 {
@@ -111,6 +119,16 @@ func TestDeclaredCrossFieldRulesMatchCoreAndPublishedVerdicts(t *testing.T) {
 		if len(cross.Combinations) == 0 && len(cross.Alternatives) == 0 {
 			continue
 		}
+		// The published variants generate from the canonical projection of
+		// the engine declaration onto the declared fields, so the
+		// differential enumerates the same rules the publication names:
+		// canonical record_verdict drops the single-form group, and the
+		// canonical recovery contract drops the legacy outcome pair.
+		projected, err := WorkflowActionCanonicalCrossFieldRules(actionID, payload.Fields)
+		if err != nil {
+			t.Fatalf("canonical cross-field projection for %s refused: %v", actionID, err)
+		}
+		cross = projected
 		variantName := "work_transition_action_variant_" + actionID
 		variant := firstCallResolve(defs, map[string]any{"$ref": "#/$defs/" + variantName})
 		if _, hasVariant := variant["properties"]; !hasVariant {
@@ -129,7 +147,10 @@ func TestDeclaredCrossFieldRulesMatchCoreAndPublishedVerdicts(t *testing.T) {
 				t.Fatal(err)
 			}
 			if actionID == "supersede_contract" {
-				return validateWorkflowContractRecoveryPayload(encoded)
+				// A canonical head pins the canonical recovery fields, so
+				// the core validator reads the same declaration the
+				// published variant generates from.
+				return validateWorkflowContractRecoveryPayload(currentWorkflowDefinition(t), encoded)
 			}
 			return validateWorkflowActionPayload(WorkflowDefinition{ActionDefinitions: []WorkflowActionDefinition{{ID: actionID, Payload: payload}}}, actionID, encoded)
 		}

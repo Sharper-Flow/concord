@@ -6,9 +6,7 @@
   },
   "date": "2026-08-29T00:00:00Z",
   "doc_contract_profile": "legacy",
-  "evidence": [
-    ".concord/docs/product-row-contract.md"
-  ],
+  "evidence": [],
   "home_domain_id": "operator-surface",
   "id": "CD-0083",
   "kind": "decision",

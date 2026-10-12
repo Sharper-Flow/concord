@@ -8,7 +8,7 @@
 > custom-tool, plugin, permission, and MCP documentation reviewed 2026-08-06.
 > **Does not decide:** TS7 result/error field layout, TS8 digest identity/change
 > evidence, TS9 pre-go-live measurements, adapter package/repository name, UI styling,
-> C14, or C15.
+> or C15.
 
 ## Context
 

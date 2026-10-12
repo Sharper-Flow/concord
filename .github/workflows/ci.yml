@@ -277,7 +277,7 @@ jobs:
       - name: Test reachability and complexity checkers
         run: python3 scripts/test-reachability.py && python3 scripts/test-complexity.py && python3 scripts/test-evidence-anchors.py
 
-  # Full suite without the race detector, split across runners (CON-906).
+  # Full suite without the race detector, split across runners.
   # internal/store alone took 798 s and cmd/concord 439 s of one 14-minute
   # job, so each runs as shards that scripts/go-test-shard.py deals from
   # `go test -list`. verify-tests-rest runs every other package, and

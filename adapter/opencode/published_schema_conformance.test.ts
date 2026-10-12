@@ -10,7 +10,7 @@ const adapter = await import("./concord")
 // first call. This conformance suite proves, per operation, that the schema
 // the host publishes admits the same minimal calls the generated fixture
 // corpus proves the core admits, and refuses the fields the core refuses.
-// Publication is compact (CON-812): local references and factored unions,
+// Publication is compact: local references and factored unions,
 // so branch selection runs on the legacy-effective view the expansion
 // helper resolves from the actual published document, and every verdict
 // below is taken on the raw compact document and on the final hooked
@@ -278,7 +278,7 @@ test("published outcome kinds refuse outcome_kind and outcome_payload.kind disag
   }, failures), failures.join("; ")).toBe(true)
 })
 
-// --- The CON-812 parity oracle ---------------------------------------------
+// --- The parity oracle -----------------------------------------------------
 //
 // The compact publication must stay semantically lossless against the
 // authored payload contract. Two independent authorities decide every

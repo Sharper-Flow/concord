@@ -352,7 +352,7 @@ pane: Concord | CON-42 | execution | Shorten the zellij tab name
 ```
 
 The tab carries one stub: the recorded `linear_issue_key` when present,
-for example `CON-304`, and the project stub otherwise, for
+and the project stub otherwise, for
 example `toolbox`. The pane frame carries the full work state: project display
 name, identifier, step, and work title joined with ` | ` and cut at 64 code
 points. Absent fields drop from the pane name.

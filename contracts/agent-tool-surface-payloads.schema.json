@@ -18847,7 +18847,7 @@
       ],
       "properties": {
         "schema_version": {
-          "description": "The live dispatch_worker surface records only the current card-free packet revision (CON-899). Released 1.0/1.1 histories replay through the versioned lane packet contract, never through this gate; an old host quoting a retired identity is refused typed before the authorization exists.",
+          "description": "The live dispatch_worker surface records only the current card-free packet revision. Released 1.0/1.1 histories replay through the versioned lane packet contract, never through this gate; an old host quoting a retired identity is refused typed before the authorization exists.",
           "type": "string",
           "enum": [
             "2.0"
@@ -18919,11 +18919,11 @@
             },
             "work_context": {
               "$ref": "#/$defs/work_context_view2",
-              "description": "CON-887: the current work-context view the work pin carried when the packet was built. The core refuses a dispatch whose packet does not consume the current view byte-for-byte."
+              "description": "The current work-context view the work pin carried when the packet was built. The core refuses a dispatch whose packet does not consume the current view byte-for-byte."
             },
             "checkpoint": {
               "$ref": "#/$defs/continuity_checkpoint",
-              "description": "CON-883: the latest context checkpoint the pinned continuity projection carried when the packet was built. The core refuses a dispatch whose packet does not carry the latest checkpoint byte-for-byte."
+              "description": "The latest context checkpoint the pinned continuity projection carried when the packet was built. The core refuses a dispatch whose packet does not carry the latest checkpoint byte-for-byte."
             },
             "constraints": {
               "type": "array",
@@ -19026,7 +19026,7 @@
           "items": {
             "$ref": "#/$defs/worker_oracle_receipt"
           },
-          "description": "The prior typed control-execution receipts this work retained (CON-890), in log order: reported regression baselines with their exact identities, never current-subject acceptance."
+          "description": "The prior typed control-execution receipts this work retained, in log order: reported regression baselines with their exact identities, never current-subject acceptance."
         },
         "subject_commit": {
           "type": "string",

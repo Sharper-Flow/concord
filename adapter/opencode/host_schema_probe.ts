@@ -66,7 +66,7 @@ function inspect(value: unknown, path = "$", seen = new Set<unknown>(), insideNo
     if (key === "~standard" || key === "def") fail(`published schema contains Zod implementation key ${path}.${key}`)
     if (key === "definitions") fail(`published schema contains host-unsafe definitions at ${path}`)
     if (key === "allOf") fail(`published schema contains host-unsafe ${key} at ${path}`)
-    // CON-812: publication factors shared structure into local references.
+    // Publication factors shared structure into local references.
     // Only the local form is admitted here; each final registered root
     // proves below that every reference it carries resolves acyclically
     // inside its own definitions table.

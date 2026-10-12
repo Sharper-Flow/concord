@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Print the `go test -run` pattern for one shard of a package's tests (CON-906).
+"""Print the `go test -run` pattern for one shard of a package's tests.
 
 `internal/store` alone took 798 s of the 14 min `verify-tests` job, so CI runs
 that package, and `cmd/concord`, as several jobs. Each job asks this script

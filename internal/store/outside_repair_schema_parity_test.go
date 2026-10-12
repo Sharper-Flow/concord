@@ -15,60 +15,14 @@ import (
 	"github.com/sharper-flow/concord/internal/payloadschema"
 )
 
-// CON-412 independent regression probes. This file carries no production
-// change and no reconstruction of any publication: the published boundary is
-// exercised by invoking the ORIGINAL production host publisher
+// Independent regression probes invoke the production host publisher
 // (adapter/opencode/concord.ts publishedRequestSchema) and the host validator
 // (adapter/opencode/dispatch.ts validateAgainstSchema) through Bun, exactly as
 // the host dispatch path does, and the core boundary is exercised through the
 // owning core validators with the live builtin registry's own declarations.
 //
-// The same source runs unchanged at the base commit (the pre-repair
-// mechanism) and on the repaired tree; every helper it calls
-// (BuiltinWorkflowDefinitionForRef, validateWorkflowPayloadValue,
-// validateWorkflowActionPayload, validateWorkflowContractRecoveryPayload,
-// payloadschema.Validate/Has) already exists at the base commit, and the Bun
-// entry points (publishedRequestSchema, validateAgainstSchema) exist there
-// under the same exported names. The probe resolves whichever publication
-// shape the production publisher of the current tree emits: the per-action
-// closed branches, the compact factored-and-interned document whose
-// references resolve against the document's own $defs table (CON-812), or
-// the single shared union input the original publisher emitted, without
-// rebuilding either.
-//
-// At the base commit every failing assertion below fails BEHAVIORALLY — an
-// admission verdict that differs from the approved behavior, never a missing
-// schema keyword, variant name, or version marker:
-//
-//   - Unicode: the base core counted Unicode code points
-//     (validateWorkflowPayloadValue's len([]rune(text))) and the base
-//     publication carried code-point-equal minLength/maxLength, so both
-//     admitted a 4096-code-point 8192-byte "searched" string and both refused
-//     the two-byte one-code-point "é" at the declared two-unit floor. The
-//     approved UTF-8 byte representation admits "é" and refuses the 8192-byte
-//     string; both halves fail on the base tree and pass on the repair.
-//   - Outcome-kind equality: the base publication published outcome_kind and
-//     outcome_payload independently (a kind-agnostic items def and a union
-//     outcome_payload), so it admitted outcome_kind "exists" beside a check
-//     outcome_payload — an item the core's generated items def and the
-//     successor-contract validator refuse on the repair, and which the base
-//     fold itself refused at workflow.go's "malformed or mismatched" guard.
-//   - record_verdict alternative groups: the base core carried no cross-field
-//     declaration and the base publication was the union merge of the wire
-//     shapes, so both admitted a complete batch beside every partial entry
-//     group. The repair refuses each complete-plus-partial payload at payload
-//     validation and at the published closed branches.
-//
 // The Unicode probe also covers workflow reference list items, which the
 // store admits through ValidReference by UTF-8 bytes.
-//
-// Run on the repaired tree:
-//
-//	bin/oc-test targeted -- go test -count=1 ./internal/store -run '^TestOutsideRepair' -v
-//
-// Run unchanged on the base commit: check out the base, copy this file into
-// internal/store/, and run the same go test command — the Bun publisher of
-// that tree is invoked, and each named behavioral assertion fails there.
 
 // outsideRepairProbeScript is the bridge the tests drive: it imports the
 // production host publisher and validator by absolute path, resolves the

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for the CI test-shard pattern (CON-906)."""
+"""Tests for the CI test-shard pattern."""
 
 from __future__ import annotations
 

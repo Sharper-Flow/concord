@@ -7,7 +7,7 @@ const adapter = await import("./concord")
 
 // The published surface is deterministic: `publishedRequestSchema` is the
 // same production function the plugin tool hook registers through `argsSchema`.
-// Publication is compact (CON-812): one branch per operation with the
+// Publication is compact: one branch per operation with the
 // workflow actions grouped under their operation, local `#/$defs/`
 // references, and factored unions; `expandedPublishedRequestSchema` resolves
 // that document for structural inspection. `publishRequestDefinition` hoists
@@ -106,7 +106,7 @@ test("published byte sizes are pinned in UTF-8 bytes", () => {
 // Registered request tools publish through the production definition hook,
 // with definitions hoisted to the argument root. Work start and CI watch
 // keep their own hooks. Both identified populations must stay below the
-// serving budget (CON-812).
+// serving budget.
 test("all registered parameter schemas stay below the serving budget", async () => {
   const registered = new Map<string, number>()
   for (const tool of tools) {

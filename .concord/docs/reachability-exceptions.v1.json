@@ -84,7 +84,7 @@
       "functions": [
         "internal/agent.InvokeWithRegistry"
       ],
-      "reason": "Production never injects a definition registry: cmd/concord enters through Invoke, which dispatches on the builtin registry. This seam exists so the workflow corpus boundary runner can drive a scenario registry through the real byte-oriented boundary instead of reaching past it. Issue #450 removed the divergence it was filed for by routing runInvoke through Invoke; the injection point is the deliberate remainder, not an unreached surface."
+      "reason": "Production never injects a definition registry: cmd/concord enters through Invoke, which dispatches on the builtin registry. This seam lets the workflow corpus boundary runner drive a scenario registry through the real byte-oriented boundary instead of reaching past it. The tested seam remains until its disposition is decided."
     },
     {
       "id": "contract-generator-history-source",
@@ -161,7 +161,7 @@
         "internal/store.requiredResearchFreshness",
         "internal/store.validateResearchIdentity"
       ],
-      "reason": "CD-0025 governs research-pack lifecycle, consumer binding, and fail-closed freshness. Production mutations use the WithinTx forms; research_test.go, research_retirement_test.go, and agent research_surface_test.go exercise these plain forms and their pooled-transaction idempotent replay. CON-816 (https://linear.app/sharper-flow/issue/CON-816/keep-and-optimize-research-pack-management-fix-lifecycle-and-retention) owns folding them into the WithinTx forms. Retain these tested forms until that owner settles their lifecycle and retention; their runtime unreachability does not authorize deletion of the protected research mechanism."
+      "reason": "CD-0025 governs research-pack lifecycle, consumer binding, and fail-closed freshness. Production mutations use the WithinTx forms; research_test.go, research_retirement_test.go, and agent research_surface_test.go exercise these plain forms and their pooled-transaction idempotent replay. The tested plain forms remain until their disposition is decided; runtime unreachability does not authorize deletion of the protected research mechanism."
     },
     {
       "id": "law-boundary-pooled-test-seams",
@@ -203,7 +203,7 @@
         "internal/store.overdueAwaitsInProduct",
         "internal/store.unreadMessageCount"
       ],
-      "reason": "The work-message, await-health, removal-audit, liveness, worker-job, Domain-observation, and Project-stage tests exercise these coordination seams and their private helpers. Runtime paths use transaction-scoped or composite forms. CON-902 (https://linear.app/sharper-flow/issue/CON-902/delete-redundant-workflow-ceremony-retain-minimal-authorized-agent) owns their delete-or-keep decision. Retain the tested coordination surface until that owner distinguishes redundant ceremony from required agent-session coordination; this exception grants no runtime authority."
+      "reason": "The work-message, await-health, removal-audit, liveness, worker-job, Domain-observation, and Project-stage tests exercise these coordination seams and their private helpers. Runtime paths use transaction-scoped or composite forms. The tested coordination surface remains until its disposition is decided; this exception grants no runtime authority."
     }
   ]
 }

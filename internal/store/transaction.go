@@ -95,8 +95,8 @@ func (s *Store) transact(ctx context.Context, durable bool, fn func(*Transaction
 	return nil
 }
 
-// readSnapshot owns a deferred read scope for transaction-taking projection
-// readers. The callback never commits; rollback releases its snapshot and
+// readSnapshot owns a deferred read scope for projection readers.
+// The callback never commits; rollback releases its snapshot and
 // invalidates the transaction even when the callback fails or panics.
 func (s *Store) readSnapshot(ctx context.Context, fn func(queryer) error) (retErr error) {
 	if s == nil || s.db == nil {

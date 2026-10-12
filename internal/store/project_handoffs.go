@@ -698,7 +698,7 @@ func readProjectHandoffTx(ctx context.Context, q queryer, workID, handoffID stri
 // claim the occupancy row stands on: a landing recorded for a superseded
 // claim — after a reclaim, or a vacate plus re-claim — proves nothing about
 // the current claim. It returns an empty Project when no verified placement
-// stands. It runs inside the caller's transaction.
+// stands.
 func verifiedSessionPlacementTx(ctx context.Context, q queryer, workID, sessionRef string) (string, error) {
 	var projectID string
 	err := q.QueryRowContext(ctx, `SELECT c.project_id
@@ -845,8 +845,8 @@ const (
 //
 // The git/filesystem preservation probe must run outside any SQL
 // transaction, so the derivation reads in two snapshots: the phase-one
-// handoff facts, then the probe, then the final transaction. The final
-// transaction revalidates the phase-one snapshot against the committed
+// handoff facts, then the probe, then the final read snapshot. The final
+// read snapshot revalidates the phase-one snapshot against the committed
 // state — the active contract version, the selected handoff identity and
 // frontier, the preserved artifact references, and the claimed source
 // worktree — because the probe proved a fact about THAT selection and THAT
@@ -861,7 +861,7 @@ func EvaluateProjectSessionRetirement(ctx context.Context, s *Store, workID, pro
 	if workID == "" || projectID == "" || sessionRef == "" {
 		return out, newFailure(KindInvalidOperation, "project_retirement", "the retirement read requires the work, Project, and session identities", false, "read the retirement state with the session's authenticated identities")
 	}
-	// Phase one: the read transaction gathers the recorded facts, including
+	// Phase one: the read snapshot gathers the recorded facts, including
 	// the claimed source worktree path the preservation probe needs.
 	var handoffFacts projectRetirementHandoffFacts
 	err := s.readSnapshot(ctx, func(q queryer) error {
@@ -894,7 +894,7 @@ func EvaluateProjectSessionRetirement(ctx context.Context, s *Store, workID, pro
 		s.retireProbeInterleave()
 	}
 	// Phase three: the remaining facts are projection reads, and the same
-	// final transaction revalidates the phase-one snapshot the probe proved.
+	// final read snapshot revalidates the phase-one snapshot the probe proved.
 	var execution projectRetirementExecutionFacts
 	var recheck projectRetirementHandoffFacts
 	err = s.readSnapshot(ctx, func(q queryer) error {
@@ -1060,8 +1060,7 @@ func readRetirementExecutionFactsTx(ctx context.Context, q queryer, workID, sess
 }
 
 // sessionClaimedWorktreeTx resolves the active claimed worktree path of one
-// work and Project, or an empty string when none is active. It runs inside
-// the caller's transaction.
+// work and Project, or an empty string when none is active.
 func sessionClaimedWorktreeTx(ctx context.Context, q queryer, workID, projectID string) (string, error) {
 	var path string
 	err := q.QueryRowContext(ctx, `SELECT e.path FROM worktree_entries e JOIN worktree_claims c ON c.op_id=e.claim_op_id
@@ -1114,8 +1113,7 @@ func readSessionClaimedWorktreeTx(ctx context.Context, q queryer, workID, projec
 // attribution, and a positively identified attempt of ANOTHER session never
 // blocks this session's readiness. Nonterminal workflow actions the
 // session's actors started (a started action with no later completed or
-// failed event for the same step and attempt epoch) also block. It runs
-// inside the caller's transaction.
+// failed event for the same step and attempt epoch) also block.
 func sessionOwnedExecutionStoppedTx(ctx context.Context, q queryer, workID, sessionRef string) (bool, error) {
 	return workExecutionStoppedTx(ctx, q, workID, sessionRef)
 }
@@ -1205,8 +1203,7 @@ func workExecutionStoppedTx(ctx context.Context, q queryer, workID, sessionRef s
 // landing released the rows its request's claim held, so rows that stand
 // after it belong to a later claim, and the old landing proves nothing about
 // this retirement. A pending request, a version 1 release, no request at
-// all, or renewed occupancy reports the blocker text instead. It runs inside
-// the caller's transaction.
+// all, or renewed occupancy reports the blocker text instead.
 func sessionVacateLandingStateTx(ctx context.Context, q queryer, workID, sessionRef string) (bool, string, error) {
 	_, seq, version, err := latestSessionVacateRequestTx(ctx, q, workID, sessionRef)
 	if err != nil {
@@ -1276,7 +1273,7 @@ func PendingProjectHandoffTx(ctx context.Context, tx *sql.Tx, workID string) (*P
 // resurrects it, and
 // a handoff recorded under a superseded contract can never be consumed, so
 // resume renders nothing for it. Visibility here never consumes or
-// authorizes. It runs inside the caller's transaction.
+// authorizes.
 func PendingProjectHandoffForProjectTx(ctx context.Context, q queryer, workID, projectID, sessionRef string) (*ProjectHandoff, error) {
 	version, contractErr := activeWorkflowContractVersion(ctx, q, workID, "project_handoff")
 	if contractErr == sql.ErrNoRows {
@@ -1319,8 +1316,8 @@ func PendingProjectHandoffForProjectTx(ctx context.Context, q queryer, workID, p
 	return nil, nil
 }
 
-// ReadPendingProjectHandoffForProject is the transaction-taking wrapper the
-// boot/resume flow reads the addressed bounded job through. The session
+// ReadPendingProjectHandoffForProject opens a deferred read snapshot for the
+// boot/resume flow to read the addressed bounded job. The session
 // reference is the authenticated receiving session the resume carries; it
 // decides whose consumed bind renders again, and an empty reference renders
 // recorded handoffs only.

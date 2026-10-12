@@ -484,8 +484,8 @@ func sessionVacateReplayOccupiedFailure(ctx context.Context, transaction *Transa
 // sessionVacateLandedAfterTx reports whether a verified vacate landing of
 // one work item and session stands recorded after the given event sequence.
 // A landing recorded after a vacate request is the landing that completed it,
-// so the request is no longer pending. It runs inside the caller's
-// transaction so the read observes the caller's own uncommitted events.
+// so the request is no longer pending. A write caller passes its transaction
+// so the read observes that caller's uncommitted events.
 func sessionVacateLandedAfterTx(ctx context.Context, q queryer, workID, sessionRef string, afterSeq int) (bool, error) {
 	var landed int
 	err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM domain_events WHERE kind='work.session_vacate_landed' AND subject_id=? AND json_extract(payload,'$.session_ref')=? AND seq>?)`, workID, sessionRef, afterSeq).Scan(&landed)
@@ -499,8 +499,8 @@ func sessionVacateLandedAfterTx(ctx context.Context, q queryer, workID, sessionR
 // and session with its event sequence and payload version: the sequence
 // orders the request against the landing events that could complete it, and
 // the version separates a pending relocation request from a request that
-// already released on fold. It runs inside the caller's transaction so the
-// read observes the caller's own uncommitted events.
+// already released on fold. A write caller passes its transaction so the
+// read observes that caller's uncommitted events.
 func latestSessionVacateRequestTx(ctx context.Context, q queryer, workID, sessionRef string) (sessionVacatedPayload, int, int, error) {
 	var raw string
 	var seq, payloadVersion int

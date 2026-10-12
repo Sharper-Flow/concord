@@ -86,7 +86,8 @@ health. A work item without verified active or waiting evidence reports
   projection removal, audit retention, replay absence, and idempotent retry.
 - `internal/store.TestWorkRemovalRefusesMissingSafetyEvidence` verifies a required
   removal gate.
-- `go test ./internal/store -run 'TestProductRow|TestWorkRemoval|TestMigrateV80'`
-  verifies removal, migration, and the single Product-row liveness query.
+- `go test ./internal/store -run 'TestWorkRemoval|TestMigrateV80'`
+  verifies removal and migration; the Product-row liveness query retired
+  with the row under CD-0224.
 - `python3 scripts/generate-agent-contracts.py --check` verifies generated
   contract projections after this decision is indexed.

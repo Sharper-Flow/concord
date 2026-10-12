@@ -816,8 +816,3 @@ func workLivenessFromCounts(workID string, attempts, openAttempts, failed, openW
 	}
 	return out
 }
-
-func workLivenessPtrFromCounts(workID string, attempts, openAttempts, failed, openWaits, unboundedWaits, decisions int64, latest sql.NullString) *WorkLiveness {
-	value := workLivenessFromCounts(workID, attempts, openAttempts, failed, openWaits, unboundedWaits, decisions, latest)
-	return &value
-}

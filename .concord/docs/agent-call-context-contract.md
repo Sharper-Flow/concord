@@ -8,7 +8,7 @@
 > Concord's ambient-context/native-authority constraints.
 > **Does not decide:** transport/adapter implementation (TS6), result/error field
 > layout (TS7), manifest identity/change evidence (TS8), measurement evidence (TS9), user-interface
-> rendering, C14, or C15.
+> rendering, or C15.
 
 ## Context
 

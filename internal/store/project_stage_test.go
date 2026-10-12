@@ -149,3 +149,9 @@ func countProjectStageEvents(t *testing.T, s *Store) int {
 	}
 	return count
 }
+
+func projectStageChangedEvent(projectID, eventID, maturity string) Event {
+	return operationEvent(eventID, "project.stage_changed", SubjectProject, projectID, map[string]any{
+		"stage_maturity_override": maturity, "stage_audience_commitment_override": "public",
+	})
+}

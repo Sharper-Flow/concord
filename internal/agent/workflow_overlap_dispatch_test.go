@@ -148,6 +148,66 @@ func TestResolveOverlapApprovalBindsDirectionKindVersionsAndPersistsConsumedAppr
 	}
 }
 
+func TestResolveOverlapBlocksRemovesWorkFromReady(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s, service, _, privateKey, env, input := seedAgentOverlapFixture(t)
+	// The peer has an execution-start claim but awaits its next work step.
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE work_items SET lifecycle='needed' WHERE id='work-2'; DELETE FROM fold_guard`); err != nil {
+		t.Fatal(err)
+	}
+	for _, column := range tableColumns(t, s.DatabaseForTesting()) {
+		switch column {
+		case "blocked", "ready", "blocking", "is_blocked", "blocked_by":
+			t.Fatalf("readiness must be derived, found stored column %q", column)
+		}
+	}
+	before, err := s.QueryQ5(ctx, store.Q5Request{Product: "product-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(before.Items) != 1 || before.Items[0].ID != "work-2" || deriveWorkBlocked(t, s, "work-2") {
+		t.Fatalf("peer was not ready before resolution: %+v", before.Items)
+	}
+	input = []byte(strings.Replace(string(input), `"resolution_kind":"compatible_with"`, `"resolution_kind":"blocks"`, 1))
+	first := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_relate", Operation: "resolve_overlap", Input: input}, env)
+	if first.Error == nil || first.Error.Kind != "approval_required" {
+		t.Fatalf("blocks resolution approval=%+v", first.Error)
+	}
+	challengeRef, ok := first.Error.Details["approval_ref"].(string)
+	if !ok || challengeRef == "" {
+		t.Fatalf("blocks resolution challenge=%+v", first.Error.Details)
+	}
+	approvedInput, err := injectApproval(input, challengeRef)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scope := map[string]any{"product_id": "product-1", "product_ids": []string{"product-1"}, "project_ids": []string{"project-1"}, "work_ids": []string{"work-1", "work-2"}, "scope_version": env.ScopeVersion}
+	versions := map[string]any{"from": int64(2), "to": int64(2), "from_contract": int64(1), "to_contract": int64(1)}
+	digest := mutationDigest("concord_work_relate", "resolve_overlap", env, approvedInput)
+	env.HostApproval = signedHostApproval(privateKey, challengeRef, digest, scope, versions, env.SessionRef, env.AgentRef, env.Worktree, fixedTime(), nonceForChallenge(challengeRef))
+	request := InvokeRequest{Tool: "concord_work_relate", Operation: "resolve_overlap", Input: approvedInput}
+	approved := dispatchMutation(t, s, service, request, env)
+	if approved.Outcome != OutcomeOK {
+		t.Fatalf("approved blocks resolution=%+v", approved.Error)
+	}
+	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM relations WHERE kind='blocks' AND work_id_from='work-1' AND work_id_to='work-2' AND resolution_id IS NOT NULL`); got != 1 {
+		t.Fatalf("resolution blocks rows=%d, want 1", got)
+	}
+	after, err := s.QueryQ5(ctx, store.Q5Request{Product: "product-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after.Items) != 0 || !deriveWorkBlocked(t, s, "work-2") {
+		t.Fatalf("resolution did not remove the blocked peer from ready: %+v", after.Items)
+	}
+	beforeEvents := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM domain_events`)
+	replay := dispatchMutation(t, s, service, request, env)
+	if replay.Outcome != OutcomeOK || !replay.Replayed || countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM domain_events`) != beforeEvents {
+		t.Fatalf("blocks resolution replay=%+v", replay)
+	}
+}
+
 // breakFixFixtureDigest resolves the registered break-fix digest the overlap
 // fixture's synthetic instance pins, so pin reads verify the fixture.
 func breakFixFixtureDigest(t *testing.T) string {

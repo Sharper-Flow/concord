@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -11,13 +10,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/sharper-flow/concord/internal/pm1fixture"
-	"github.com/sharper-flow/concord/internal/portfolio"
 	"github.com/sharper-flow/concord/internal/store"
 	"github.com/sharper-flow/concord/internal/store/storetest"
 )
@@ -77,170 +74,6 @@ func TestSupersedeContractPayloadIsRepresentableAtAgentBoundary(t *testing.T) {
 	}
 	if err := ValidateOperationPayload("concord_work_transition", "workflow_action", payload, false); err != nil {
 		t.Fatalf("supersede_contract payload is not representable at the agent boundary: %v", err)
-	}
-}
-
-func TestSeededProductPortfolioParityAcrossEnvelopeAndStore(t *testing.T) {
-	t.Parallel()
-	s, err := storetest.OpenNamed(t.TempDir(), "portfolio.db")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
-	seedPortfolioParityFixture(t, s)
-
-	request := store.ProductRowRequest{Limit: 3, Source: &store.ProductRowRelianceInput{Authority: store.ProductRowAuthorityAuthoritative, ObservedAt: fixedTime().Format(time.RFC3339Nano)}}
-	result, err := portfolio.Read(context.Background(), s, request)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(result.Rows) != 3 || result.NextCursor == nil {
-		t.Fatalf("seeded page=%#v", result)
-	}
-	// A fixed source observation makes row reliance comparable across reads.
-	direct, err := s.QueryProductRows(context.Background(), request)
-	if err != nil {
-		t.Fatal(err)
-	}
-	assertPortfolioCarriesStoreRows(t, result, direct)
-	response, err := (runtime{}).productRows(NewBase("parity", "concord_product_view", "portfolio"), result)
-	if err != nil {
-		t.Fatal(err)
-	}
-	assertProductPortfolioEnvelopeMeta(t, response, result)
-	wantPayload, err := portfolio.Payload(result)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(response.Result, wantPayload) {
-		t.Fatalf("authoritative payload bytes drifted:\n got %s\nwant %s", response.Result, wantPayload)
-	}
-	var envelopeBody struct {
-		ObservedAt string             `json:"observed_at"`
-		Rows       []store.ProductRow `json:"rows"`
-	}
-	if err := json.Unmarshal(response.Result, &envelopeBody); err != nil {
-		t.Fatal(err)
-	}
-	if envelopeBody.ObservedAt != result.ObservedAt || !reflect.DeepEqual(envelopeBody.Rows, result.Rows) {
-		t.Fatalf("envelope changed the production result: body=%#v result=%#v", envelopeBody, result)
-	}
-
-	for _, authority := range []string{store.ProductRowAuthorityDegraded, store.ProductRowAuthorityUnreachable} {
-		request := store.ProductRowRequest{Limit: 3, Source: &store.ProductRowRelianceInput{Authority: authority, ObservedAt: fixedTime().Format(time.RFC3339Nano), Reason: "test-unavailable", Omissions: []string{"work_snapshot"}}}
-		degraded, err := portfolio.Read(context.Background(), s, request)
-		if err != nil {
-			t.Fatal(err)
-		}
-		response, err := (runtime{}).productRows(NewBase("parity-"+authority, "concord_product_view", "portfolio"), degraded)
-		if err != nil {
-			t.Fatal(err)
-		}
-		assertProductPortfolioEnvelopeMeta(t, response, degraded)
-		wantPayload, err := portfolio.Payload(degraded)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if !bytes.Equal(response.Result, wantPayload) {
-			t.Fatalf("%s payload bytes drifted:\n got %s\nwant %s", authority, response.Result, wantPayload)
-		}
-		var envelopeUnavailable struct {
-			ObservedAt string             `json:"observed_at"`
-			Rows       []store.ProductRow `json:"rows"`
-		}
-		if err := json.Unmarshal(response.Result, &envelopeUnavailable); err != nil {
-			t.Fatal(err)
-		}
-		if !reflect.DeepEqual(envelopeUnavailable.Rows, degraded.Rows) || envelopeUnavailable.ObservedAt != degraded.ObservedAt {
-			t.Fatalf("%s envelope changed unavailable production result", authority)
-		}
-		directUnavailable, err := s.QueryProductRows(context.Background(), request)
-		if err != nil {
-			t.Fatal(err)
-		}
-		assertPortfolioCarriesStoreRows(t, degraded, directUnavailable)
-		for i, row := range degraded.Rows {
-			if row.ActionCounts.State != store.ProductRowCountsUnavailable || row.ActionCounts.Values != nil || row.ActionCounts.Unavailable == nil || row.ActionCounts.Unavailable.Reason != "test-unavailable" || !reflect.DeepEqual(row.ActionCounts.Unavailable.Omissions, []string{"work_snapshot"}) {
-				t.Fatalf("%s row lost unavailable state: %#v", authority, row)
-			}
-			if row.Reliance.Authority != authority || row.Reliance.Reason != "test-unavailable" || !reflect.DeepEqual(row.Reliance.Omissions, []string{"work_snapshot"}) {
-				t.Fatalf("%s row %d lost the declared reliance: %#v", authority, i, row.Reliance)
-			}
-		}
-	}
-}
-
-func assertProductPortfolioEnvelopeMeta(t *testing.T, response Envelope, result store.ProductRowResult) {
-	t.Helper()
-	if response.QueryID != result.QueryID || response.ManifestDigest != ManifestDigest || response.Authority != AuthorityLevel(result.Authority) || response.Outcome != OutcomeOK {
-		t.Fatalf("envelope identity/meta drifted: response=%#v result=%#v", response, result)
-	}
-	expectedFreshness := &Freshness{ObservedAt: parseTime(result.Freshness.ObservedAt), Age: result.Freshness.Age, Stale: result.Freshness.Stale}
-	if !reflect.DeepEqual(response.Freshness, expectedFreshness) {
-		t.Fatalf("freshness drifted: got=%#v want=%#v", response.Freshness, expectedFreshness)
-	}
-	expectedWatermark := []Watermark{{SourceKind: "product_memory", SourceID: "sqlite", Version: fmt.Sprint(result.SourceVersionWatermark)}}
-	if !reflect.DeepEqual(response.SourceVersionWatermark, expectedWatermark) {
-		t.Fatalf("watermark drifted: got=%#v want=%#v", response.SourceVersionWatermark, expectedWatermark)
-	}
-	expectedScope := (&runtime{}).scope(result.ResultMeta)
-	if !reflect.DeepEqual(response.ResolvedScope, expectedScope) {
-		t.Fatalf("resolved scope drifted: got=%#v want=%#v", response.ResolvedScope, expectedScope)
-	}
-	if !reflect.DeepEqual(response.OrderingKeys, result.OrderingKeys) || !reflect.DeepEqual(response.NextCursor, result.NextCursor) {
-		t.Fatalf("pagination metadata drifted: response ordering=%#v cursor=%#v result ordering=%#v cursor=%#v", response.OrderingKeys, response.NextCursor, result.OrderingKeys, result.NextCursor)
-	}
-	expectedOmissions := notices(result.Omissions)
-	expectedWarnings := notices(result.Warnings)
-	if !reflect.DeepEqual(response.Omissions, expectedOmissions) || !reflect.DeepEqual(response.Warnings, expectedWarnings) {
-		t.Fatalf("notices drifted: got omissions=%#v warnings=%#v want omissions=%#v warnings=%#v", response.Omissions, response.Warnings, expectedOmissions, expectedWarnings)
-	}
-}
-
-// assertPortfolioCarriesStoreRows proves the portfolio/store boundary: the
-// application read returns exactly the store rows and the same identity and
-// authority metadata, so nothing between the store and the envelope
-// re-derives or reshapes the result. Freshness is stamped per read, so the
-// two reads are compared by presence of their stamps rather than by bytes.
-func assertPortfolioCarriesStoreRows(t *testing.T, result portfolio.Result, direct store.ProductRowResult) {
-	t.Helper()
-	if !reflect.DeepEqual(direct.Rows, result.Rows) {
-		t.Fatalf("portfolio rows drifted from the store read:\n got %#v\nwant %#v", result.Rows, direct.Rows)
-	}
-	if direct.QueryID != result.QueryID || direct.ContractVersion != result.ContractVersion || direct.Authority != result.Authority ||
-		direct.SourceVersionWatermark != result.SourceVersionWatermark || !reflect.DeepEqual(direct.OrderingKeys, result.OrderingKeys) ||
-		!reflect.DeepEqual(direct.ResolvedScope, result.ResolvedScope) || !reflect.DeepEqual(direct.NextCursor, result.NextCursor) {
-		t.Fatalf("portfolio metadata drifted from the store read: got=%#v want=%#v", result.ResultMeta, direct.ResultMeta)
-	}
-	if result.Freshness.ObservedAt == "" || direct.Freshness.ObservedAt == "" {
-		t.Fatalf("boundary reads lost their freshness stamps: %#v / %#v", result.Freshness, direct.Freshness)
-	}
-}
-
-func seedPortfolioParityFixture(t *testing.T, s *store.Store) {
-	t.Helper()
-	ctx := context.Background()
-	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES (1)`); err != nil {
-		t.Fatal(err)
-	}
-	defer func() {
-		if _, err := s.DatabaseForTesting().ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
-			t.Errorf("remove fold guard: %v", err)
-		}
-	}()
-	_, err := s.DatabaseForTesting().ExecContext(ctx, `
-		INSERT INTO products(id,display_name,stage_maturity,stage_audience_commitment,version,created_at,updated_at) VALUES
-		 ('product-active','Active','production','public',1,'2026-08-10T00:00:00Z','2026-08-10T00:00:00Z'),
-		 ('product-quiet','Quiet','prototype','operator_only',1,'2026-08-10T00:00:00Z','2026-08-10T00:00:00Z'),
-		 ('product-duplicate-a','Duplicate','alpha','limited',1,'2026-08-10T00:00:00Z','2026-08-10T00:00:00Z'),
-		 ('product-duplicate-b','Duplicate','beta','public',1,'2026-08-10T00:00:00Z','2026-08-10T00:00:00Z');
-		INSERT INTO projects(id,display_name,version,created_at,updated_at) VALUES ('project-active','Active Project',1,'2026-08-10T00:00:00Z','2026-08-10T00:00:00Z');
-		INSERT INTO product_projects(product_id,project_id,role) VALUES ('product-active','project-active','primary');
-		INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at,terminal_time) VALUES ('work-active','task','Active focus','in_progress',1,1,'2026-08-10T00:00:00Z','2026-08-10T00:00:00Z',NULL);
-		INSERT INTO work_projects(work_id,project_id,role) VALUES ('work-active','project-active','primary');
-	`)
-	if err != nil {
-		t.Fatal(err)
 	}
 }
 

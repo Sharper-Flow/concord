@@ -108,11 +108,11 @@ func TestRegressionDefect2_SupersededLifecycleInWorkSummaryValidates(t *testing.
 // honored by the work_transition_lifecycle_input schema. Without this test,
 // a future widening of #/$defs/lifecycle alone would silently permit an
 // agent to request a direct transition to "superseded", violating
-// AJ5-atomic-supersession's atomicity requirement.
+// the overlap resolution's atomic supersession requirement.
 //
 // Pre-fix failure mode (after only widening lifecycle, without the new def):
 // ValidateOperationPayload for concord_work_transition.lifecycle would accept
-// target="superseded", violating the AJ5 invariant that supersession is
+// target="superseded", violating the invariant that supersession is
 // atomic with its supersedes relation. The split restores the structural
 // guarantee; the runtime guard in mutations.go remains as defense-in-depth.
 func TestRegressionDefect2_TransitionTargetRejectsSuperseded(t *testing.T) {
@@ -342,63 +342,35 @@ func TestRegressionDefect4_VersionConflictEnvelopeValidates(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Defect 5 — cycle refusal must carry a typed Violations list
-// structurally, not just a prose description in error.message.
-// ---------------------------------------------------------------------------
-//
-// Pre-fix failure mode (D5): the relation-cycle refusal at
-// store/lifecycle.go:558 sets error message
-// "blocks relation would create a cycle" but never populates a typed
-// carrier for the offending edge. TypedError.Violations is therefore
-// empty and agents had to regex the prose — which broke under any
-// wording change and made the cycle edge unreachable structurally.
-//
-// Post-fix: every KindCycleDetected refusal in the relation path now
-// carries []string{"<kind>:<from>-><to>"} on store.Failure.Violations,
-// and the runtime maps it into TypedError.Violations at the agent
-// boundary.
-
-// TestRegressionDefect5_CycleRefusalCarriesTypedViolations drives
-// concord_work_relate.link with a pair of work items that already form
-// a blocks edge in reverse, expecting the cycle detector to refuse.
-// The test asserts that the typed Violations entry is non-empty AND
-// names the offending edge structurally — without that the runner has
-// no machine-readable way to know which edge caused the cycle.
+// Cycle refusals on resolve_overlap carry the offending edge structurally.
+// The existing reverse blocks edge comes from the retained journal fold.
 func TestRegressionDefect5_CycleRefusalCarriesTypedViolations(t *testing.T) {
 	t.Parallel()
-	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_relate"})
-	// Seed work-2 so the cycle has two distinct endpoints, and seed
-	// the work-1 → work-2 blocks edge so a reverse edge would cycle.
-	// Seed work-2 so the cycle has two distinct endpoints, and seed
-	// the work-1 → work-2 blocks edge so a reverse edge would cycle.
-	// Each step is its own ApplyOperation so the version checks line
-	// up with the durable log (the seeded events bump versions
-	// incrementally, and ApplyOperation only accepts one expected
-	// version per subject per batch).
-	if err := store.ApplyOperation(context.Background(), s, store.Operation{Events: []store.Event{
-		{EventID: "d5-work-2-created", Kind: "work.created", SubjectType: store.SubjectWorkItem, SubjectID: "work-2", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 2, Payload: json.RawMessage(`{"work_kind":"task","title":"D5 second work","priority":1}`)},
-		{EventID: "d5-work-2-membership", Kind: "work.memberships_replaced", SubjectType: store.SubjectWorkItem, SubjectID: "work-2", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"memberships":[{"project_id":"project-1","role":"primary"}],"expected_version":1,"resulting_version":2}`)},
-	}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, "work-2"): 0}}); err != nil {
-		t.Fatal(err)
-	}
+	s, service, _, privateKey, env, _ := seedAgentOverlapFixture(t)
 	if err := store.ApplyOperation(context.Background(), s, store.Operation{Events: []store.Event{
 		{EventID: "d5-work-1-blocks-work-2", Kind: "relation.added", SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"from":"work-1","to":"work-2","kind":"blocks","reason":"seed","expected_version":2,"resulting_version":3,"to_expected_version":2,"to_resulting_version":3}`)},
 	}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, "work-1"): 2, store.VersionRef(store.SubjectWorkItem, "work-2"): 2}}); err != nil {
 		t.Fatal(err)
 	}
-	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
+	input := []byte(`{"from_work_id":"work-2","to_work_id":"work-1","from_expected_version":3,"to_expected_version":3,"from_contract_version":1,"to_contract_version":1,"resolution_kind":"blocks","reason":"cycle","idempotency_key":"d5-cycle"}`)
+	first := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_relate", Operation: "resolve_overlap", Input: input}, env)
+	if first.Error == nil || first.Error.Kind != "approval_required" {
+		t.Fatalf("cycle resolution approval=%+v", first.Error)
+	}
+	challengeRef, ok := first.Error.Details["approval_ref"].(string)
+	if !ok || challengeRef == "" {
+		t.Fatalf("cycle resolution challenge=%+v", first.Error.Details)
+	}
+	approvedInput, err := injectApproval(input, challengeRef)
 	if err != nil {
 		t.Fatal(err)
 	}
-	env := mutationEnvelope(grant, scopeVersion)
-	// Attempt to add the reverse blocks edge — work-2 → work-1 — which
-	// would close the cycle work-1 → work-2 → work-1.
-	resp, err := Dispatch(context.Background(), s, service, InvokeRequest{
-		Tool:      "concord_work_relate",
-		Operation: "link",
-		Input:     json.RawMessage(`{"from_work_id":"work-2","to_work_id":"work-1","from_expected_version":3,"to_expected_version":3,"kind":"blocks","reason":"cycle","idempotency_key":"d5-cycle"}`),
-	}, env)
+	scope := map[string]any{"product_id": "product-1", "product_ids": []string{"product-1"}, "project_ids": []string{"project-1"}, "work_ids": []string{"work-2", "work-1"}, "scope_version": env.ScopeVersion}
+	versions := map[string]any{"from": int64(3), "to": int64(3), "from_contract": int64(1), "to_contract": int64(1)}
+	digest := mutationDigest("concord_work_relate", "resolve_overlap", env, approvedInput)
+	env.HostApproval = signedHostApproval(privateKey, challengeRef, digest, scope, versions, env.SessionRef, env.AgentRef, env.Worktree, fixedTime(), nonceForChallenge(challengeRef))
+	beforeEvents := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM domain_events`)
+	resp, err := Dispatch(context.Background(), s, service, InvokeRequest{Tool: "concord_work_relate", Operation: "resolve_overlap", Input: approvedInput}, env)
 	if err != nil {
 		t.Fatalf("dispatch returned err=%v", err)
 	}
@@ -420,5 +392,11 @@ func TestRegressionDefect5_CycleRefusalCarriesTypedViolations(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("error.violations missing blocks:work-2->work-1: %v", resp.Error.Violations)
+	}
+	if countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM domain_events`) != beforeEvents || countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM workflow_overlap_resolutions`) != 0 || countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM relations`) != 1 {
+		t.Fatal("cycle refusal committed a partial resolution")
+	}
+	if workVersion(t, s, "work-1") != 3 || workVersion(t, s, "work-2") != 3 {
+		t.Fatal("cycle refusal changed endpoint versions")
 	}
 }

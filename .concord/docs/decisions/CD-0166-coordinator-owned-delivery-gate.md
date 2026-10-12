@@ -108,14 +108,13 @@ untouched.
 - `TestWorkflowDefinitionVersionPinsHold` and
   `TestBuiltinDefinitionsCoverExactlyThePinnedVersions` prove prior digests
   replay unchanged and the version chain covers every pinned definition.
-- `TestWorkflowReadParksDeliveryAtGate` proves the read projection parks an
-  item on the gate with a duration.
+- `TestWorkflowReadParksDeliveryAtGate` proves the read projection parks one
+  parked delivery for a gated item and carries its duration; the Product-row
+  count retired with the row under CD-0224.
 - `TestWorkflowReadMarksUnreconciledAfterCancellation` proves a cancelled
   item reads as unreconciled.
 - `TestWorkflowCompletionRefusedAtDeliveryGate` proves the completed
   transition refuses at the gate and names the unreconciled delivery.
-- `TestProductRowsCountParkedDeliveries` proves the Product row counts one
-  parked delivery for a live item and none for a terminal one.
 - `TestPostRejectionReviewGateHoldsBreakFixDelivery` proves the rejected
   review holds every advance toward delivery and a fresh accepted review
   clears it.

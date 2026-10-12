@@ -40,10 +40,6 @@
     },
     {
       "kind": "refines",
-      "target_id": "C14"
-    },
-    {
-      "kind": "refines",
       "target_id": "C17"
     }
   ],

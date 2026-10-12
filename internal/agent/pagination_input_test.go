@@ -24,7 +24,6 @@ import (
 var paginationBaseInputs = map[string]map[string]any{
 	"concord_product_view.resolve":             {},
 	"concord_product_view.snapshot":            {},
-	"concord_product_view.portfolio":           {},
 	"concord_product_view.blocked_sessions":    {"product_id": "prod-alpha"},
 	"concord_product_view.resources":           {},
 	"concord_work_browse.list":                 {},
@@ -40,9 +39,7 @@ var paginationBaseInputs = map[string]map[string]any{
 	"concord_work_trace.continuity":            {"work_id": "work-done"},
 	"concord_work_trace.research":              {"product_id": "prod-alpha", "work_id": "work-done"},
 	"concord_knowledge.search":                 {},
-	"concord_knowledge.unprocessed":            {},
 	"concord_domain.list":                      {"product_id": "prod-alpha"},
-	"concord_domain.active_work":               {"product_id": "prod-alpha", "domain_id": "agent-surface"},
 }
 
 // paginatedReadOperations derives the paginated read set from the generated

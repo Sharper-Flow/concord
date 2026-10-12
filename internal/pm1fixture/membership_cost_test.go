@@ -70,12 +70,11 @@ func TestMembershipCostsOneVersionForAnyProjectCount(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	multiVersion, err := s.WorkVersion(ctx, multi)
-	if err != nil {
+	var multiVersion, singleVersion int64
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT version FROM work_items WHERE id=?`, multi).Scan(&multiVersion); err != nil {
 		t.Fatal(err)
 	}
-	singleVersion, err := s.WorkVersion(ctx, single)
-	if err != nil {
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT version FROM work_items WHERE id=?`, single).Scan(&singleVersion); err != nil {
 		t.Fatal(err)
 	}
 	if multiVersion != singleVersion {

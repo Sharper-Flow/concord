@@ -240,7 +240,7 @@
    "id": "fc2-domain-read-surface",
    "condition": "fc2",
    "title": "Agents can read complete bounded Domain context",
-   "requirement": "The agent read surface returns bounded Domain identity, current law, typed architecture relations, active work, evidence, decisions, attachments, and unresolved overlap with explicit authority and coverage.",
+   "requirement": "The agent read surface returns bounded Domain identity, current law, typed architecture relations, evidence, decisions, attachments, and unresolved overlap with explicit authority and coverage.",
    "state": "satisfied",
    "evidence": [
     {
@@ -254,10 +254,6 @@
     {
      "kind": "go_test",
      "value": "internal/agent.TestAgentDomainRelationsAreAuthoritativeEmptyNotUnavailable"
-    },
-    {
-     "kind": "go_test",
-     "value": "internal/agent.TestAgentDomainActiveWorkReturnsDomainBoundWorkWithCoverage"
     },
     {
      "kind": "go_test",

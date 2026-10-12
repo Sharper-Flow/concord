@@ -21,7 +21,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:36dd2a9d9b38ab94dc070a3d390f2ae7b011fa5e9ed0dd598380ea0844237bf4",
+  "sha256": "sha256:106c6c3bd97df71d4a85b944ec0e9a36f3a5e5419a8441f08a9909d080a5b869",
   "status": "accepted",
   "summary": "Closed two-band urgency enum (standard/expedite) prepended to ranking with priority retained as within-band tiebreak, plus a typed non-blocking acyclic raised_from provenance relation; no assignment, claim, or parallel-safety mechanism.",
   "tags": [

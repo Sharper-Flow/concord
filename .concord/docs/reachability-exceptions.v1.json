@@ -113,7 +113,7 @@
         "internal/store.InspectWorkflowActionAdmission",
         "internal/store.InspectWorkflowDomainOverlap"
       ],
-      "reason": "Production reaches workflow admission and Domain overlap through the dispatcher, which already holds the write transaction and calls workflowActionPreflightTx and CheckWorkflowDomainOverlapTx directly. Those two need a transaction the caller owns, so a test in another package cannot reach them, and internal/store/boundary_test.go forbids that caller from opening one through the raw database. The two exported functions open one transaction of their own — admission through the registry preflight's read snapshot, Domain overlap through Transact — and defer to the same implementation, so admission keeps a single set of rules instead of an untransacted second copy."
+      "reason": "These exported inspection seams let tests in other packages read workflow admission and Domain overlap without opening raw database transactions, which internal/store/boundary_test.go forbids. InspectWorkflowActionAdmission uses the builtin registry preflight's deferred read snapshot. InspectWorkflowDomainOverlap uses readSnapshot with a queryer-only callback. Both reuse the admission derivations that mutation boundaries apply inside their write transactions, so inspection does not acquire the write lock or duplicate the rules."
     },
     {
       "id": "knowledge-manifest-current-tier-bindings",

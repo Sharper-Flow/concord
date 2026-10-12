@@ -65,6 +65,11 @@ func foldTx() { os.RemoveAll("path") }`},
 func plans(s *Store) { s.Transact(nil, func(tx *Transaction) error { exec.Command("git", "status"); return nil }) }`},
 		{"TransactDurable closure spawns a subprocess", `package store
 func plans(s *Store) { s.TransactDurable(nil, func(tx *Transaction) error { exec.Command("git", "status"); return nil }) }`},
+		{"readSnapshot closure spawns a subprocess", `package store
+func plans(s *Store) { s.readSnapshot(nil, func(q queryer) error { exec.Command("git", "status"); return nil }) }`},
+		{"readSnapshot closure reaches a subprocess through a helper", `package store
+func plans(s *Store) { s.readSnapshot(nil, func(q queryer) error { return probe() }) }
+func probe() error { exec.Command("git", "status"); return nil }`},
 		{"write transaction reaches a git runner", `package store
 func violates(tx *writeTx, r GitRunner) { r.Run(nil, "dir", "status") }`},
 		{"agent effect closure reaches a git runner", `package store
@@ -357,7 +362,7 @@ func (g *txSubprocessGraph) classifyBody(fn *txSubprocessFunc, pkg string, alias
 			walk(n.Body, holding || txSubprocessHoldingParams(n.Type.Params))
 			return
 		case *ast.CallExpr:
-			if selector, ok := n.Fun.(*ast.SelectorExpr); ok && (selector.Sel.Name == "Transact" || selector.Sel.Name == "TransactDurable") {
+			if txScopeIsTransactCall(n) {
 				for _, arg := range n.Args {
 					if lit, ok := arg.(*ast.FuncLit); ok {
 						fn.txHolding = true

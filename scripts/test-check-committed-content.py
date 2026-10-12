@@ -10,6 +10,7 @@ from __future__ import annotations
 import contextlib
 import importlib.util
 import io
+import json
 import subprocess
 import tempfile
 import unittest
@@ -156,6 +157,65 @@ class CommittedContentTests(unittest.TestCase):
         self.assertFlags("bin/tool", 2, "planning-identifier", findings)
         self.assertEqual(len(findings), 3, findings)
 
+    def test_json_description_and_reason_strings_are_inspected_recursively(self):
+        self.write(
+            "contracts/example.json",
+            json.dumps({
+                "description": f"Tracked by {KEY}.",
+                "nested": [{"reason": "This used to be a wrapper."}],
+                "title": KEY,
+                "enum": [KEY],
+                "value": f'An example: "description": "{KEY}"',
+                "not_prose": {"description": {"const": KEY}, "reason": [KEY]},
+            }, indent=2) + "\n",
+        )
+        findings = self.findings()
+        self.assertFlags("contracts/example.json", 2, "planning-identifier", findings)
+        self.assertFlags("contracts/example.json", 5, "history-narration", findings)
+        self.assertEqual(len(findings), 2, findings)
+
+    def test_json_escaped_keys_and_values_and_same_line_fields_are_decoded(self):
+        self.write(
+            "contracts/compact.json",
+            '{"descrip\\u0074ion": "CON\\u002d4242", "reason": "formerly a wrapper"}\n',
+        )
+        findings = self.findings()
+        self.assertFlags("contracts/compact.json", 1, "planning-identifier", findings)
+        self.assertFlags("contracts/compact.json", 1, "history-narration", findings)
+        self.assertEqual(len(findings), 2, findings)
+
+    def test_json_only_added_prose_is_inspected_and_split_properties_keep_line_numbers(self):
+        git(self.root, "switch", "--quiet", "main")
+        self.write("contracts/example.json", '{\n  "description": "' + KEY + '",\n  "value":\n    "' + KEY + '"\n}\n')
+        self.commit("existing JSON")
+        git(self.root, "switch", "--quiet", "feature")
+        git(self.root, "merge", "--quiet", "main")
+        self.write("contracts/example.json", '{\n  "description": "' + KEY + '",\n  "value":\n    "durable value"\n}\n')
+        self.assertEqual(self.findings(), [])
+        self.write("contracts/example.json", '{\n  "description": "' + KEY + '",\n  "reason":\n    "' + KEY + '"\n}\n')
+        findings = self.findings()
+        self.assertFlags("contracts/example.json", 3, "planning-identifier", findings)
+        self.assertEqual(len(findings), 1, findings)
+        self.write("contracts/example.json", '{\n  "description": "' + KEY + '",\n  "reason":\n    "' + WORK + '"\n}\n')
+        findings = self.findings()
+        self.assertFlags("contracts/example.json", 3, "planning-identifier", findings)
+        self.assertFlags("contracts/example.json", 4, "planning-identifier", findings)
+        self.assertEqual(len(findings), 2, findings)
+
+    def test_json_linear_issue_urls_are_flagged_but_documentation_urls_are_not(self):
+        self.write("contracts/example.json", json.dumps({
+            "description": "See https://linear.app/example/issue/ENG-42/scope.",
+            "reason": "See https://linear.app/docs/github.",
+        }, indent=2) + "\n")
+        findings = self.findings()
+        self.assertFlags("contracts/example.json", 2, "planning-identifier", findings)
+        self.assertEqual(len(findings), 1, findings)
+
+    def test_malformed_json_fails_closed(self):
+        self.write("contracts/example.json", '{"description": "unfinished"')
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(checker.main(["--root", str(self.root), "--base-ref", "main"]), 2)
+
     def test_exempt_paths_and_uninspected_kinds_are_never_flagged(self):
         line = f"Tracked by {KEY} and {WORK}; this used to be #12.\n"
         for path in (
@@ -168,7 +228,7 @@ class CommittedContentTests(unittest.TestCase):
             ".concord/docs/agent-lanes-contract.md",
             "cmd/concord/testdata/case.md",
             ".concord/scenarios/example.md",
-            "contracts/example.json",
+            "contracts/example.txt",
         ):
             self.write(path, line)
         self.assertEqual(self.findings(), [])

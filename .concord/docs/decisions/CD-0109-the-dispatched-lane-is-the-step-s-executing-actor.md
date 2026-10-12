@@ -28,8 +28,8 @@ that same owner. No actor can satisfy both, so the action was unsatisfiable
 by construction.
 
 The boundary test never caught this because its fixture built the topology
-the law intended — a distinct `agent/worker` actor starting the step, a
-distinct `agent/owner` accepting — while production always had the
+the law intended — a distinct worker actor starting the step, a
+distinct owner actor accepting — while production always had the
 orchestrator start the step and never recorded the lane as any workflow
 actor at all. The guard was enforced against an arrangement that only
 existed in the fixture.

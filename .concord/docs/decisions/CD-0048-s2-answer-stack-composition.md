@@ -27,7 +27,7 @@
 
 ## Context
 
-The interactive terminal launcher retired under CD-0219: `internal/launcher`,
+The interactive terminal launcher retired under CD-0219: internal/launcher,
 the `concord launcher` verb, and the bare-invocation TUI route are deleted,
 and bare `concord` prints usage. The S2 answer-stack clauses of this record
 are vacated with the screen they rendered.

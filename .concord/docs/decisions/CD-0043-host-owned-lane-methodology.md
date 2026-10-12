@@ -131,7 +131,8 @@ requiring the split.
 ## Verification
 
 - `.concord/docs/decisions/CD-0043-host-owned-lane-methodology.md` exists with status
-  `accepted` and is indexed exactly once in `.concord/docs/concord-knowledge-index.v1.json`.
+  `accepted` and is indexed exactly once as the record shard
+  `.concord/docs/knowledge/records/CD-0043.json`, composed by `scripts/knowledge_index.py`.
 - `skills/` contains only `README.md`.
 - `contracts/agent-lane-packet.schema.json` gains no property.
 - `contracts/agent-lanes.v1.json` keeps its current version, and

@@ -3,7 +3,7 @@
 > **Status:** Public constitutional planning authority, amended by CD-0041; implementation remains staged by accepted readiness rules.\
 > **Codename:** Concord (concordance: bringing scattered work into one view).\
 > **Created:** 2026-07-25, from predecessor-state analysis and product-design work.\
-> **Authority:** After bootstrap, the public `Sharper-Flow/concord` repository is the authority for this document and its accepted companions. This file is the **sole canonical source** for the six ranked priorities, the operating envelope, and the predecessor relationship. Companion documents link here; they do not redefine the order.
+> **Authority:** After bootstrap, the public [`Sharper-Flow/concord`](https://github.com/Sharper-Flow/concord) repository is the authority for this document and its accepted companions. This file is the **sole canonical source** for the six ranked priorities, the operating envelope, and the predecessor relationship. Companion documents link here; they do not redefine the order.
 
 ---
 
@@ -241,7 +241,7 @@ operations need their own demand, local scope, and evidence.
 | **Storage model for Concord-owned state** | Foundation for Priority 2 and the derived projections serving Priority 1. | **Resolved** — CD-0002 + accepted PM2/PM3 (2026-08-05) establish one global local SQLite DB, append-only `domain_events` authority, and explicit typed projections updated in one transaction. Accepted PM6/PM7 (2026-08-05/06) add git-proof-backed durable notes plus bounded lazy projection pruning without event deletion. CD-0222 retains this authority under CD-0011's falsifiers. |
 | **Workflow evolution semantics** | Affects Priority 2, 3, and 6. | **Resolved by CD-0006:** Concord owns full coordination; purpose-built types are code-defined and versioned, with one generic one-off type. Work composes through forward-linked successors with independent authority/recovery. |
 | **Read-path implementation language** | Affects Priority 4. | **Go** — the Concord core is Go from day one. See [`core-architecture.md`](./core-architecture.md). Latency target (sub-100ms) remains; language is no longer conditional. |
-| **Where the Product entity lives** | Affects architecture and storage. | **Resolved by CD-0007:** standalone `Sharper-Flow/concord` Product/repository, Go module `github.com/sharper-flow/concord`; implementation authority moves there after the audited public bootstrap. |
+| **Where the Product entity lives** | Affects architecture and storage. | **Resolved by CD-0007:** standalone [`Sharper-Flow/concord`](https://github.com/Sharper-Flow/concord) Product/repository, Go module [`github.com/sharper-flow/concord`](https://github.com/Sharper-Flow/concord); implementation authority moves there after the audited public bootstrap. |
 | **Product row fields** | Affects what the operator sees in the launcher. | No Product glance surface exists: the row's render and read retired (CD-0219, CD-0224) and the contract is deleted with them. A future glance surface needs its own decision (CD-0224). |
 | **External-system membership model** | Affects how azure jobs, crons, etc. attach to a Product. | Treat as opaque signals pulled into the dashboard, not as first-class Concord-owned state. See [`product-data-model.md`](./product-data-model.md). |
 | **Research trackable shape** | Affects Priority 6. | **Resolved by CD-0009:** independent research uses ordinary `kind=research` work; embedded research stays inside its owner; retention-bounded active packs are context/output, not another trackable. |

@@ -155,7 +155,7 @@ CD-0002 I2/I3/I5 and recreate a second state authority.
 
 | Source | Source-backed pattern | Relevance/caveat |
 |---|---|---|
-| Plane public source (`apps/api/plane/db/models`) | explicit Workspace/Project/Issue model modules | Open source; supports comparison with a typed core, not Concord DDL or a claim about Plane's event authority |
+| Plane public source ([`apps/api/plane/db/models`](https://github.com/makeplane/plane)) | explicit Workspace/Project/Issue model modules | Open source; supports comparison with a typed core, not Concord DDL or a claim about Plane's event authority |
 | Bugzilla schema/source | explicit Product/Component/Bug tables; typed dependency/duplicate tables; generic field/activity extension | Mature issue model; its mutable-current-state authority is weaker than CD-0002 |
 | Beads/Dolt source | public issue/dependency/label and ready/blocked-query implementation | Different engine; supporting comparison only, not authority or storage-shape proof |
 | Fossil ticket docs | generic ticket-change artifacts are truth; typed ticket tables are reconstructable projections | Closest source-backed analogue for generic log + typed projections |
@@ -198,16 +198,16 @@ Reopen PM3 if research or implementation evidence shows:
   state with the explicit typed projection set in §2. Keep D1's typed-edge
   integrity rule; generalize its facet principle into §4's typed-core/extension
   boundary. Keep one generic event log, D2 short-lived CLI, and D3
-  `modernc.org/sqlite`.
+  [`modernc.org/sqlite`](https://pkg.go.dev/modernc.org/sqlite).
 - **CD-0002 I2/I3 do not change.** Clarify operationally that `domain_events` is
   generic authority and typed tables are total deterministic projections.
 - PM4/PM5 are accepted; the PM1–PM5 storage design sequence is complete.
 
 ## 10. Primary sources
 
-- Plane source: https://github.com/makeplane/plane (`apps/api/plane/db/models`)
+- Plane source: [`apps/api/plane/db/models`](https://github.com/makeplane/plane)
 - Bugzilla schema/source: https://schema.bugzilla.org/?action=single&version=5.2 and https://github.com/bugzilla/bugzilla
-- Beads source: https://github.com/gastownhall/beads (`internal/storage/dolt`)
+- Beads source: [`internal/storage/dolt`](https://github.com/gastownhall/beads)
 - Fossil ticket design: https://fossil-scm.org/doc/trunk/www/tickets.wiki
 - Linear public model/API: https://linear.app/docs/api-and-webhooks
 - SQLite generated columns: https://sqlite.org/gencol.html

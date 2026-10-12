@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import subprocess
 import sys
 import tempfile
 from io import StringIO
@@ -33,9 +34,25 @@ SPEC.loader.exec_module(checker)
 
 def sandbox() -> Path:
     root = Path(tempfile.mkdtemp(prefix="dc-"))
+    subprocess.run(["git", "init", "-q", str(root)], check=True, capture_output=True)
     docs = root / "docs"
     docs.mkdir()
     (root / "manifest.json").write_text("{}", encoding="utf-8")
+    # Outline and grammar fixtures also supply the concrete citations they name.
+    fixture_tests = (
+        "TestFixture", "TestFirstOutcome", "TestSecondOutcome", "TestWheneverQueueing",
+        "TestCurrentDecision", "TestSpecOutline", "TestOrderCheck", "TestFirstEntry",
+        "TestBothOutcomes", "TestReclaimWorktreeKeepsLiveOccupantRefusal",
+    )
+    write_spec(
+        root, "internal/store/citation_fixture_test.go",
+        'package store\nimport "testing"\n' + "\n".join(
+            f'func {name}(t *testing.T) {{ t.Fatal("synthetic proof") }}'
+            for name in fixture_tests
+        ),
+    )
+    write_spec(root, "scripts/check-doc-contract.py", "# synthetic validator\n")
+    write_spec(root, "adapter/opencode/concord.test.ts", "// synthetic adapter proof\n")
     return root
 
 
@@ -2675,6 +2692,272 @@ def test_anchor_rule_keeps_the_count_comparison() -> None:
     assert not any(
         "verification-entry-unanchored" in line for line in stdout.splitlines()
     ), stdout
+
+
+def citation_fixture(body: str) -> tuple[Path, dict]:
+    root = sandbox()
+    path = "docs/citation.md"
+    write_spec(root, path, "# Citation\n\n" + body + "\n")
+    item = record(path)
+    item.update(kind="decision", doc_contract_profile="legacy")
+    item.pop("criterion_bindings")
+    contract = {
+        "enforced": True,
+        "decision": {"required_sections": [], "ac_required": False},
+        "banned_phrases": [],
+    }
+    return root, manifest_with(root, [item], contract)
+
+
+def test_current_citation_rejects_missing_path() -> None:
+    root, manifest = citation_fixture("The owner is `retired/owner.go`.")
+    code, output, error = run_checker(root, manifest)
+    assert code == 1, (code, output, error)
+    assert "law-reference-path: docs/citation.md:3" in output, output
+    assert "retired/owner.go" in output, output
+
+
+def test_current_citation_rejects_missing_test() -> None:
+    root, manifest = citation_fixture("The proof is `internal/fixture.TestMissing`.")
+    code, output, error = run_checker(root, manifest)
+    assert code == 1, (code, output, error)
+    assert "law-reference-test: docs/citation.md:3" in output, output
+    assert "internal/fixture.TestMissing" in output, output
+
+
+def test_current_citation_rejects_ignored_symlink_to_candidate() -> None:
+    root, manifest = citation_fixture("The owner is `internal/store/ignored.go`.")
+    write_spec(root, ".gitignore", "internal/store/ignored.go\n")
+    (root / "internal/store/ignored.go").symlink_to("citation_fixture_test.go")
+    code, output, error = run_checker(root, manifest)
+    assert code == 1, (code, output, error)
+    assert "missing candidate target: internal/store/ignored.go" in output, output
+
+
+def test_current_citation_ignores_command_selector_values() -> None:
+    root, manifest = citation_fixture(
+        "The checks are `go test -run suite/case ./internal/store` and "
+        "`bun test -t suite/case adapter/opencode/concord.test.ts`."
+    )
+    code, output, error = run_checker(root, manifest)
+    assert code == 0, (code, output, error)
+
+
+def test_current_citation_ignores_command_file_option_values() -> None:
+    for option in (
+        "go test -exec ./missing/runner.sh",
+        "go test -test.cpuprofile missing/profile.out",
+        "go test -pgo missing/profile.pgo",
+        "bun test --preload missing/setup.ts",
+        "bun test --coverage-dir missing/coverage",
+        "bun test --reporter-outfile missing/report.xml",
+    ):
+        target = "./internal/store" if option.startswith("go") else "adapter/opencode/concord.test.ts"
+        root, manifest = citation_fixture(f"The check is `{option} {target}`.")
+        code, output, error = run_checker(root, manifest)
+        assert code == 0, (option, code, output, error)
+        root, manifest = citation_fixture(f"The check is `{option} missing/proof`.")
+        code, output, error = run_checker(root, manifest)
+        assert code == 1, (option, code, output, error)
+        assert "missing candidate target: missing/proof" in output, output
+        assert "missing candidate target: missing/" not in output.replace("missing candidate target: missing/proof", ""), output
+
+
+def test_current_citation_resolves_paths_directories_and_line_suffixes() -> None:
+    root, manifest = citation_fixture(
+        "The owners are `internal/store/citation_fixture_test.go:1-3`, "
+        "`./internal/store/`, and `../scripts/check-doc-contract.py`."
+    )
+    code, output, error = run_checker(root, manifest)
+    assert code == 0, (code, output, error)
+
+
+def test_current_citation_rejects_deleted_whole_root() -> None:
+    root, manifest = citation_fixture("The owner is `retired/owner.go`.")
+    target = write_spec(root, "retired/owner.go", "package retired\n")
+    subprocess.run(["git", "add", "--", "retired/owner.go"], cwd=root, check=True)
+    assert run_checker(root, manifest)[0] == 0
+    target.unlink()
+    target.parent.rmdir()
+    code, output, error = run_checker(root, manifest)
+    assert code == 1, (code, output, error)
+    assert "missing candidate target: retired/owner.go" in output, output
+
+
+def test_current_citation_rejects_repository_escape_and_empty_directory() -> None:
+    root, manifest = citation_fixture("The owners are `../../outside.go` and `empty/`.")
+    (root / "empty").mkdir()
+    code, output, error = run_checker(root, manifest)
+    assert code == 1, (code, output, error)
+    assert "citation escapes repository: ../../outside.go" in output, output
+    assert "missing candidate target: empty/" in output, output
+
+
+def test_current_citation_does_not_infer_absence_from_prose() -> None:
+    root, manifest = citation_fixture("The file `retired/owner.go` is deleted.")
+    code, output, error = run_checker(root, manifest)
+    assert code == 1, (code, output, error)
+    assert "missing candidate target: retired/owner.go" in output, output
+
+
+def test_current_citation_excludes_templates_fences_links_and_comments() -> None:
+    root, manifest = citation_fixture(
+        "The removed owner remains absent.\n"
+        "The examples are `<root>/owner.go`, `retired/*.go`, and `./...`.\n"
+        "The external source is [`foreign/owner.go`](https://example.com/source).\n"
+        "The inline note <!-- `retired/owner.go` --> is not law.\n"
+        "```go\n`retired/code.go`\n```\n"
+        "~~~go\n`retired/other.go`\n~~~"
+    )
+    code, output, error = run_checker(root, manifest)
+    assert code == 0, (code, output, error)
+
+
+def test_current_citation_excludes_defined_reference_link_labels() -> None:
+    for label in (
+        "[`foreign/owner.go`][source]",
+        "[`foreign/owner.go`][]",
+        "[`foreign/owner.go`]",
+    ):
+        key = "source" if label.endswith("[source]") else "`foreign/owner.go`"
+        root, manifest = citation_fixture(
+            f"The external owner is {label}.\n\n[{key}]: https://example.com/source"
+        )
+        code, output, error = run_checker(root, manifest)
+        assert code == 0, (label, code, output, error)
+
+
+def test_current_citation_keeps_undefined_reference_labels_as_citations() -> None:
+    root, manifest = citation_fixture(
+        "The owner is [`retired/owner.go`][source].\n\n"
+        "```md\n[source]: https://example.com/source\n```"
+    )
+    code, output, error = run_checker(root, manifest)
+    assert code == 1, (code, output, error)
+    assert "missing candidate target: retired/owner.go" in output, output
+
+
+def test_current_citation_undefined_suffix_prevents_shortcut_link() -> None:
+    root, manifest = citation_fixture(
+        "The owner is [`retired/owner.go`][undefined].\n\n"
+        "[`retired/owner.go`]: https://example.com/source"
+    )
+    code, output, error = run_checker(root, manifest)
+    assert code == 1, (code, output, error)
+    assert "missing candidate target: retired/owner.go" in output, output
+
+
+def test_reference_link_target_stays_with_markdown_link_checker() -> None:
+    spec = importlib.util.spec_from_file_location("doc_links", SCRIPT.with_name("check-doc-links.py"))
+    assert spec and spec.loader
+    links = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(links)
+    root, _ = citation_fixture(
+        "The owner is [`other/owner.go`][SoUrCe].\n\n"
+        "[source]: ../retired/proof.go"
+    )
+    output, error = StringIO(), StringIO()
+    with mock.patch.object(links, "ROOT", root), mock.patch.object(sys, "stdout", output), mock.patch.object(sys, "stderr", error):
+        code = links.main()
+    assert code == 1, (code, output.getvalue(), error.getvalue())
+    assert "docs/citation.md:3: missing link target: ../retired/proof.go" in output.getvalue(), output.getvalue()
+
+
+def test_unused_reference_definition_target_stays_with_markdown_link_checker() -> None:
+    spec = importlib.util.spec_from_file_location("doc_links", SCRIPT.with_name("check-doc-links.py"))
+    assert spec and spec.loader
+    links = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(links)
+    root, _ = citation_fixture("[`retired/owner.go`]: ../retired/proof.go")
+    output, error = StringIO(), StringIO()
+    with mock.patch.object(links, "ROOT", root), mock.patch.object(sys, "stdout", output), mock.patch.object(sys, "stderr", error):
+        code = links.main()
+    assert code == 1, (code, output.getvalue(), error.getvalue())
+    assert "docs/citation.md:3: missing link target: ../retired/proof.go" in output.getvalue(), output.getvalue()
+
+
+def test_current_citation_selects_all_accepted_law_kinds_without_outline_exemption() -> None:
+    for kind in ("constitution", "decision", "spec"):
+        root, manifest = citation_fixture("The owner is `retired/owner.go`.")
+        manifest["records"][0]["kind"] = kind
+        code, output, error = run_checker(root, manifest)
+        assert code == 1, (kind, code, output, error)
+        assert "law-reference-path:" in output, output
+
+
+def test_current_citation_skips_published_and_superseded_records() -> None:
+    for status in ("published", "superseded"):
+        root, manifest = citation_fixture("The owner is `retired/owner.go`.")
+        manifest["records"][0]["status"] = status
+        code, output, error = run_checker(root, manifest)
+        assert code == 0, (status, code, output, error)
+
+
+def test_current_citation_preserves_report_mode() -> None:
+    root, manifest = citation_fixture("The owner is `retired/owner.go`.")
+    code, output, error = run_checker(root, manifest, ["--report-only"])
+    assert code == 0, (code, output, error)
+    assert "missing candidate target" in output, output
+    assert "report-only mode" in error, error
+
+
+def test_current_citation_resolves_bounded_command_operands() -> None:
+    for command, target in (
+        ("python3 scripts/missing.py --check", "scripts/missing.py"),
+        ("bun test adapter/missing.test.ts", "adapter/missing.test.ts"),
+        ("bun test missing.test.ts", "missing.test.ts"),
+        ("go test -race -count=1 ./retired/pkg", "./retired/pkg"),
+    ):
+        root, manifest = citation_fixture(f"The check is `{command}`.")
+        code, output, error = run_checker(root, manifest)
+        assert code == 1, (command, code, output, error)
+        assert "missing candidate target: " + target in output, output
+
+
+def test_current_citation_presence_does_not_claim_coverage_assertions() -> None:
+    root, manifest = citation_fixture("The test is `internal/fixture.TestSilent`.")
+    write_spec(root, "internal/fixture/silent_test.go", 'package fixture\nimport "testing"\nfunc TestSilent(t *testing.T) {}\n')
+    code, output, error = run_checker(root, manifest)
+    assert code == 0, (code, output, error)
+    with mock.patch.object(checker.evidence_anchors, "ROOT", root):
+        assert not checker.evidence_anchors.go_test_asserts("internal/fixture", "TestSilent")
+
+
+def test_current_citation_projector_failure_is_not_missing_test() -> None:
+    root, manifest = citation_fixture("The tests are `internal/fixture.TestMissing` and `internal/fixture.TestOther`.")
+    real_run = subprocess.run
+    calls = []
+
+    def malformed_projector(argv, **kwargs):
+        if argv[0] == "go":
+            calls.append(argv)
+            return subprocess.CompletedProcess(argv, 0, "{broken", "")
+        return real_run(argv, **kwargs)
+
+    with mock.patch.object(subprocess, "run", side_effect=malformed_projector):
+        code, output, error = run_checker(root, manifest)
+    assert code == 1, (code, output, error)
+    assert "law-reference-tool:" in output, output
+    assert "law-reference-test:" not in output, output
+    assert len(calls) == 1, calls
+
+
+def test_current_citation_inventory_failure_is_not_missing_path() -> None:
+    root, manifest = citation_fixture("The owner is `internal/store/citation_fixture_test.go`.")
+    with mock.patch.object(checker.LawReferences, "candidate_files", side_effect=OSError("synthetic inventory failure")):
+        code, output, error = run_checker(root, manifest)
+    assert code == 1, (code, output, error)
+    assert "law-reference-tool:" in output, output
+    assert "law-reference-path:" not in output, output
+
+
+def test_current_citation_rejects_test_declared_only_in_ignored_file() -> None:
+    root, manifest = citation_fixture("The test is `internal/fixture.TestIgnored`.")
+    write_spec(root, ".gitignore", "internal/fixture/ignored_test.go\n")
+    write_spec(root, "internal/fixture/ignored_test.go", 'package fixture\nimport "testing"\nfunc TestIgnored(t *testing.T) { t.Fatal("ignored") }\n')
+    code, output, error = run_checker(root, manifest)
+    assert code == 1, (code, output, error)
+    assert "missing Go test: internal/fixture.TestIgnored" in output, output
 
 
 def main() -> int:

@@ -14,12 +14,12 @@
 
 ## Context
 
-`.concord/docs/concord-knowledge-index.v1.json` was a generated aggregate of the record
+[`docs/concord-knowledge-index.v1.json`](https://github.com/Sharper-Flow/concord/blob/9a4df6bf20dd3b7083a9226851212f2338c353c9/docs/concord-knowledge-index.v1.json) was a generated aggregate of the record
 shards under `.concord/docs/knowledge/records/`, committed beside them. The store read
 it at a commit, fourteen scripts read it from the working tree, and lesson
 publication rewrote it. Its records were sorted by id, so two branches that
 each added a record inserted on adjacent lines and git reported a conflict
-every time. The same held for `.concord/docs/law-coverage.v1.json` and its shards under
+every time. The same held for [`docs/law-coverage.v1.json`](https://github.com/Sharper-Flow/concord/blob/9a4df6bf20dd3b7083a9226851212f2338c353c9/docs/law-coverage.v1.json) and its shards under
 `.concord/docs/knowledge/coverage/`. GitHub's merge queue runs no generator and honors
 no merge driver, so the conflict had no queue-side cure: every second landing
 rebased, regenerated, and pushed again.
@@ -109,8 +109,8 @@ Scenario: A prepared commit is not a published lesson
 
 ## Consequences
 
-`.concord/docs/concord-knowledge-index.v1.json` and `.concord/docs/law-coverage.v1.json` leave
-the repository. `scripts/generate-knowledge-index.py --update` and
+The repository carries neither .concord/docs/concord-knowledge-index.v1.json
+nor .concord/docs/law-coverage.v1.json. `scripts/generate-knowledge-index.py --update` and
 `scripts/generate-law-coverage.py --update` normalise shards and write no file
 beside them. `scripts/renumber-cd.py` regenerates nothing that lists records.
 The Go aggregate marshaler and its byte-format tests are removed, since no

@@ -56,7 +56,7 @@ The agent surface retires ten operations: `concord_domain.active_work`,
 compatibility path remains.
 
 The Product-row glance contract retires with its read. Its file
-`.concord/docs/product-row-contract.md`, its knowledge record, and its
+.concord/docs/product-row-contract.md, its knowledge record, and its
 coverage record are deleted, the way CD-0219 D2 deletes the launcher
 contracts whose subject retired. No C14 statement governs a live surface:
 the launcher render and the `concord_product_view.portfolio` read are both

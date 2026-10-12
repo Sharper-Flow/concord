@@ -61,7 +61,7 @@ Each surface change must provide:
 
 The named domain-overlap proof is
 `AJ5-resolve-domain-overlap`, bound to
-`TestAgentJobsCorpus/AJ5-resolve-domain-overlap`. It proves that an ordinary
+`internal/agent.TestAgentJobsCorpus`, scenario `AJ5-resolve-domain-overlap`. It proves that an ordinary
 relation does not grant overlap authority and that `resolve_overlap` consumes an
 operator approval pinned to both work and workflow-contract versions.
 

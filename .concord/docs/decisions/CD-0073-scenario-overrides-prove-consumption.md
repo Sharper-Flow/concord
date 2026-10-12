@@ -42,7 +42,7 @@ The AJ6 keys are worse than unread. Both are false:
    fact in invented vocabulary.
 
 2. **`canonical_home_project: "proj-api"`** contradicts what the system does.
-   `pm1fixture.SeedKnowledge` registers `proj-web/repo-alpha-web` as the only
+   `pm1fixture.SeedKnowledge` registers [`proj-web/repo-alpha-web`](../../../internal/pm1fixture/pm1.go) as the only
    `product_knowledge_homes` row, and `ResolveCompactionHome` returns that single
    candidate. The home belongs to `proj-web`. `proj-api` exists as a project and
    is `work-cancelled`'s primary project, but it carries no `canonical_path`
@@ -134,7 +134,7 @@ them would preserve two false statements in the oracle for their narrative value
 ## Verification
 
 - The guard is proved against the real defect: restoring AJ6's two keys fails
-  `TestAgentJobsCorpus/AJ6-compact-terminal-work` with both key names in the
+  `internal/agent.TestAgentJobsCorpus`, scenario `AJ6-compact-terminal-work`, with both key names in the
   message.
 - `TestFixtureOverrideConsumptionIsProven` exercises the tracker in isolation,
   covering an unread key, an undeclared key, a mistyped key, and a scenario with

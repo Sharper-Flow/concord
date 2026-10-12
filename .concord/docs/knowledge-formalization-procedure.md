@@ -165,7 +165,7 @@ Two path constraints bind authorship directly.
 
 A `research` record cannot live under `.concord/docs/research/`. That directory is
 excluded from the closure walk and is ineligible as a record path. A research
-document that must hold a record has to live elsewhere under `docs/`.
+document that must hold a record has to live elsewhere under `.concord/docs/`.
 
 A `decision` record's path is bound to the decisions directory and the
 decision-number filename shape. The schema enforces it, so a decision filed

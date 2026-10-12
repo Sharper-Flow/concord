@@ -137,7 +137,8 @@ records why the outcome holds without a wait the route does not offer.
   removed with the route it proved, so no satisfied item cites deleted evidence.
 - `python3 scripts/check-floor-readiness.py` passes, which it cannot do while an
   evidence anchor names a test this record deletes.
-- `.concord/docs/law-coverage.v1.json` records CD-0098 as proved once the tests above
+- The coverage shard `.concord/docs/knowledge/coverage/CD-0098.json`, composed by
+  `scripts/knowledge_index.py`, records CD-0098 as proved once the tests above
   pass.
 - `python3 scripts/check-doc-contract.py`, `python3 scripts/check-json.py`,
   `python3 scripts/check-doc-links.py`, `python3 scripts/check-knowledge-index.py`,

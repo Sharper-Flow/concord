@@ -700,7 +700,9 @@ routeDeclaration(RESTART_WITNESS, async () => {
   } else {
     expect(phase).toBe("recover")
     if (process.env.HANDOFF_WITNESS_SENSITIVITY === "mismatched-task") {
-      host.sessions[RECEIVE_SESSION].messages[0].parts[0].state.input.prompt += "stale original Task"
+      // Valid JSON with unchanged content must still preserve the original
+      // serialized Task bytes before recovery can accept its evidence.
+      host.sessions[RECEIVE_SESSION].messages[0].parts[0].state.input.prompt += "\n"
     }
     const context = contextFor(RECEIVE_SESSION, fixture.receiveWorktree)
     const result = parseToolResult(await work_transition.execute({ request: { operation: "worker_reconcile", input: { work_id: workID, attempt_id: fixture.attemptID, task_part_id: "original-handoff-task-part", idempotency_key: "handoff-original-report-reconcile" } } } as any, context))

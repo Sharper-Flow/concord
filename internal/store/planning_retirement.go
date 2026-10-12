@@ -6,6 +6,45 @@ import (
 	"errors"
 )
 
+// CD-0213 D8 keeps Initiative records and edges readable but gives them no
+// execution behavior: neither selectable work nor operative blockers.
+// Queries qualify this constant predicate with their fixed table alias.
+const retiredInitiativeWorkKind = "initiative"
+const actionableWorkKindSQL = "kind <> '" + retiredInitiativeWorkKind + "'"
+
+func actionableWorkKind(kind string) bool {
+	return kind != retiredInitiativeWorkKind
+}
+
+func requireActionableWorkKind(kind, operation string) error {
+	if !actionableWorkKind(kind) {
+		return newFailure(KindInvalidOperation, operation,
+			"initiative work kind is read-only under CD-0213 D4/D8 and cannot enter execution", false,
+			"group the work in Linear through the Linear MCP server")
+	}
+	return nil
+}
+
+// RequireActionableWork refuses execution of a historical read-only kind before
+// a caller probes or changes native state. Historical reads do not use this gate.
+func (s *Store) RequireActionableWork(ctx context.Context, workID, operation string) error {
+	if s == nil || s.db == nil {
+		return newFailure(KindUnavailable, operation, "store is not open", false, "open the authority database")
+	}
+	return requireActionableWork(ctx, s.db, workID, operation)
+}
+
+func requireActionableWork(ctx context.Context, q queryer, workID, operation string) error {
+	var kind string
+	if err := q.QueryRowContext(ctx, `SELECT kind FROM work_items WHERE id=?`, workID).Scan(&kind); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return newFailure(KindUnknownScope, operation, "work item does not exist", false, "check the work identity before execution")
+		}
+		return wrapFailure(KindUnavailable, operation, "cannot read the work item kind", true, "retry once the database is readable", err)
+	}
+	return requireActionableWorkKind(kind, operation)
+}
+
 // CD-0213 D8 retires the planning-mirror event kinds. domain_events is
 // append-only and replay refuses an unregistered kind, so each retired kind
 // stays registered: its payload still validates and its fold still advances
@@ -43,7 +82,7 @@ func refuseRetiredPlanningAppend(ctx context.Context, tx *sql.Tx, event Event, p
 		if err := decodePayload(prepared.current, &payload); err != nil {
 			return err
 		}
-		if payload.WorkKind == "initiative" {
+		if !actionableWorkKind(payload.WorkKind) {
 			return retiredInitiativeWriteRefused(event.Kind)
 		}
 		return nil
@@ -57,7 +96,7 @@ func refuseRetiredPlanningAppend(ctx context.Context, tx *sql.Tx, event Event, p
 		return wrapFailure(KindUnavailable, "append_event", "cannot read the subject work kind", true,
 			"retry once the database is readable", err)
 	}
-	if kind == "initiative" {
+	if !actionableWorkKind(kind) {
 		return retiredInitiativeWriteRefused(event.Kind)
 	}
 	return nil

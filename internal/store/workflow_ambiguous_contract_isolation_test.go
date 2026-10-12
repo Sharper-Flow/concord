@@ -41,21 +41,10 @@ func TestOverlapFootprintTreatsAnAmbiguousPeerAsHoldingNoClaim(t *testing.T) {
 // A Domain read joins the active contract, so an ambiguous item would appear
 // twice and misreport the Domain. The read omits it and names it, rather than
 // refusing the whole Product.
-func TestDomainReadsOmitTheAmbiguousItemAndKeepTheRest(t *testing.T) {
+func TestDomainOverlapsOmitTheAmbiguousItemAndKeepTheRest(t *testing.T) {
 	ctx := context.Background()
 	s, _ := seedOverlapProjection(t, "omission-left", "omission-right", false)
 	duplicateActiveContractForTest(ctx, t, s, "omission-right")
-
-	work, err := s.QueryDomainActiveWork(ctx, DomainActiveWorkRequest{Product: "product", Domain: "child"})
-	if err != nil {
-		t.Fatalf("Domain active work refused because one item was ambiguous: %v", err)
-	}
-	if len(work.Work) != 1 || work.Work[0].WorkID != "omission-left" {
-		t.Fatalf("active work = %#v, want only omission-left", work.Work)
-	}
-	if !omissionNames(work.Omissions, "omission-right") {
-		t.Fatalf("omissions do not name the excluded item: %#v", work.Omissions)
-	}
 
 	overlaps, err := s.QueryDomainOverlaps(ctx, DomainOverlapsRequest{Product: "product"})
 	if err != nil {

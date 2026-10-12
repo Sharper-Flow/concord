@@ -4776,7 +4776,7 @@ CREATE UNIQUE INDEX worktree_claims_one_active_branch ON worktree_claims(reposit
 	// outcome records the declaration alone, and the closed check keeps
 	// a found outcome from recording a match-less row. It creates no
 	// relation: the relation kind is a semantic judgement that stays
-	// with concord_work_relate.link and resolve_overlap.
+	// with resolve_overlap.
 	{
 		Version:  94,
 		Name:     "workflow_backlog_alignment_projection",

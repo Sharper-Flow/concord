@@ -61,6 +61,14 @@ func TestReviseIntentCarriesTheSameFamilyForward(t *testing.T) {
 	if _, version, _ := agentInstancePin(t, s, workID); version != 12 {
 		t.Fatalf("stranded pin = v%d, want v12", version)
 	}
+	// The strand holds a step both the outgoing and the current definition
+	// declare, so the carry forward refuses for the version alone, not for
+	// a graph the current head folded away (CD-0198 D2 merged the break_fix
+	// diagnosis steps). The guarded fixture write parks the instance at the
+	// planning step.
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE workflow_instances SET current_step='planning' WHERE work_id=?; DELETE FROM fold_guard`, workID); err != nil {
+		t.Fatal(err)
+	}
 	var expectedVersion int64
 	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id=?`, workID).Scan(&expectedVersion); err != nil {
 		t.Fatal(err)

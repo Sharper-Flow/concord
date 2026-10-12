@@ -31,7 +31,6 @@ func TestKnowledgeReadEnvelopeMarshalsWithRealisticIdentifiers(t *testing.T) {
 	}{
 		{"concord_knowledge", "search", `{"product_id":"prod-alpha","kinds":["decision","lesson"],"page":{"cursor":null,"limit":10}}`},
 		{"concord_knowledge", "resolve_note", `{"knowledge_id":"knowledge-decision"}`},
-		{"concord_knowledge", "unprocessed", `{"product_id":"prod-alpha"}`},
 	} {
 		resp := dispatchRead(t, s, service, InvokeRequest{Tool: tc.tool, Operation: tc.op, Input: json.RawMessage(tc.input)}, env)
 		if resp.Outcome != OutcomeOK {
@@ -92,7 +91,6 @@ func TestDomainReadsMarshalWithAmbiguousContractOmission(t *testing.T) {
 		operation string
 		input     string
 	}{
-		{"active_work", `{"product_id":"product-1","domain_id":"` + singleDomainRootID + `","page":{"cursor":null,"limit":10}}`},
 		{"overlaps", `{"product_id":"product-1"}`},
 	} {
 		resp := dispatchRead(t, s, service, InvokeRequest{Tool: "concord_domain", Operation: tc.operation, Input: json.RawMessage(tc.input)}, env)
@@ -122,34 +120,25 @@ func containsNoticeKind(notices []Notice, want string) bool {
 	return false
 }
 
-// A tool may carry reads and mutations. The envelope validator answers the
-// mutation-metadata question per operation, and the generated TS7 schema is
-// a separate gate reached only at marshal, so a read can pass the
-// structural check and still fail MarshalJSON. This enumerates the surface:
-// for each read on a tool that also has a mutation, a minimal ok read
-// envelope must marshal, and the schema check is only exercised by the
-// marshal itself.
-func TestEveryReadOnAMixedToolMarshalsAsARead(t *testing.T) {
+// Every declared read must marshal without mutation metadata through both
+// the per-operation envelope validator and the generated TS7 schema gate.
+func TestEveryReadOperationMarshalsAsARead(t *testing.T) {
 	t.Parallel()
-	mutating := map[string]bool{}
-	for _, op := range ContractOperations {
-		if op.Kind == OperationMutation {
-			mutating[op.Tool] = true
-		}
-	}
 	checked := 0
 	for _, op := range ContractOperations {
-		if op.Kind != OperationRead || !mutating[op.Tool] {
+		if op.Kind != OperationRead {
 			continue
 		}
 		checked++
-		e := Envelope{SchemaVersion: "1.0", ManifestDigest: ManifestDigest, RequestID: "r", Origin: "core", Tool: op.Tool, Operation: op.Operation, QueryID: op.QueryID, Outcome: OutcomeOK, Authority: AuthorityAuthoritative, SourceVersionWatermark: []Watermark{}, OrderingKeys: []string{}, Omissions: []Notice{}, Warnings: []Notice{}, EvidenceRefs: []EvidenceRef{}, Items: []json.RawMessage{json.RawMessage(`{}`)}}
-		if _, err := json.Marshal(e); err != nil {
-			t.Errorf("%s.%s is a read on a mixed tool and does not marshal as a read: %v", op.Tool, op.Operation, err)
-		}
+		t.Run(op.Tool+"."+op.Operation, func(t *testing.T) {
+			e := Envelope{SchemaVersion: "1.0", ManifestDigest: ManifestDigest, RequestID: "r", Origin: "core", Tool: op.Tool, Operation: op.Operation, QueryID: op.QueryID, Outcome: OutcomeOK, Authority: AuthorityAuthoritative, SourceVersionWatermark: []Watermark{}, OrderingKeys: []string{}, Omissions: []Notice{}, Warnings: []Notice{}, EvidenceRefs: []EvidenceRef{}, Items: []json.RawMessage{json.RawMessage(`{}`)}}
+			if _, err := json.Marshal(e); err != nil {
+				t.Fatalf("read does not marshal without mutation metadata: %v", err)
+			}
+		})
 	}
 	if checked == 0 {
-		t.Fatal("no read on a mixed tool found; the surface changed shape")
+		t.Fatal("no declared read operation found")
 	}
 }
 

@@ -606,3 +606,93 @@ func TestResolveCommitSHARunnerRejectsHostileRefs(t *testing.T) {
 		t.Fatalf("valid symbolic ref: sha=%q err=%v", sha, err)
 	}
 }
+
+func locatorReplayStore(t *testing.T) *Store {
+	t.Helper()
+	s := openTemp(t)
+	ctx := context.Background()
+	if err := ApplyOperation(ctx, s, Operation{Events: []Event{locatorProductEvent("product-a"), locatorProjectEvent("project-a"), locatorMembershipEvent("product-a", "project-a")}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProduct, "product-a"): 0, VersionRef(SubjectProject, "project-a"): 0}}); err != nil {
+		t.Fatal(err)
+	}
+	return s
+}
+
+func recordedLocatorEvent(id, kind, value, normalized string) Event {
+	payload, _ := json.Marshal(map[string]any{
+		"project_id": "project-a", "locator_id": id, "kind": kind,
+		"value": value, "normalized_value": normalized,
+		"expected_version": 1, "resulting_version": 2,
+	})
+	return Event{EventID: "locator-" + id, Kind: "project.locator_added", SubjectType: SubjectProject, SubjectID: "project-a", Actor: "operator", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 1, Payload: payload}
+}
+
+// TestRecordedLocatorReplaySurvivesTemporaryPathRemoval proves journal replay
+// is pure: a recorded canonical_path locator folds from its recorded bytes even
+// when no host filesystem trace of the recorded path remains.
+func TestRecordedLocatorReplaySurvivesTemporaryPathRemoval(t *testing.T) {
+	t.Parallel()
+	s := locatorReplayStore(t)
+	ctx := context.Background()
+	root := t.TempDir()
+	if err := s.AddProjectLocator(ctx, "project-a", ProjectLocator{ID: "path-a", Kind: LocatorCanonicalPath, Value: root}, 1); err != nil {
+		t.Fatal(err)
+	}
+	recorded, err := s.ProjectLocators(ctx, "project-a")
+	if err != nil || len(recorded) != 1 || recorded[0].NormalizedValue == "" {
+		t.Fatalf("recorded locators=%+v err=%v", recorded, err)
+	}
+	if err := os.RemoveAll(root); err != nil {
+		t.Fatal(err)
+	}
+	if err := RebuildFromLog(ctx, s); err != nil {
+		t.Fatalf("rebuild refused after the recorded path vanished: %v", err)
+	}
+	rebuilt, err := s.ProjectLocators(ctx, "project-a")
+	if err != nil || len(rebuilt) != 1 || rebuilt[0].NormalizedValue != recorded[0].NormalizedValue {
+		t.Fatalf("rebuilt locators=%+v err=%v (recorded %+v)", rebuilt, err, recorded)
+	}
+}
+
+// TestRecordedCanonicalPathNegativeControls proves the fold still refuses a
+// recorded canonical_path payload whose normalized value is missing, relative,
+// unclean, or carries NUL, without touching the host filesystem.
+func TestRecordedCanonicalPathNegativeControls(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct{ name, value, normalized string }{
+		{name: "missing normalized", value: "/tmp/repo", normalized: ""},
+		{name: "relative normalized", value: "/tmp/repo", normalized: "tmp/repo"},
+		{name: "unclean normalized", value: "/tmp/repo", normalized: "/tmp//repo"},
+		{name: "trailing slash normalized", value: "/tmp/repo", normalized: "/tmp/repo/"},
+		{name: "nul in normalized", value: "/tmp/repo", normalized: "/tmp/\x00repo"},
+		{name: "nul in value", value: "/tmp/\x00repo", normalized: "/tmp/repo"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := locatorReplayStore(t)
+			err := ApplyOperation(context.Background(), s, Operation{Events: []Event{recordedLocatorEvent("path-tampered", string(LocatorCanonicalPath), tc.value, tc.normalized)}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProject, "project-a"): 1}})
+			assertFailureKind(t, err, KindInvalidPayload)
+		})
+	}
+}
+
+// TestRecordedRemoteNormalizationDeterministic proves remote fold validation is
+// unchanged: remote normalization is pure, so a tampered recorded normalized
+// value still refuses the fold.
+func TestRecordedRemoteNormalizationDeterministic(t *testing.T) {
+	t.Parallel()
+	s := locatorReplayStore(t)
+	err := ApplyOperation(context.Background(), s, Operation{Events: []Event{recordedLocatorEvent("remote-tampered", string(LocatorGitRemote), "https://example.com/org/repo", "https://example.com/other/repo")}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectProject, "project-a"): 1}})
+	if err == nil || !strings.Contains(err.Error(), "normalization is not deterministic") {
+		t.Fatalf("tampered remote normalization err=%v", err)
+	}
+}
+
+// TestLiveLocatorAdditionStillRefusesAbsentPath proves the live mutation path
+// keeps its host check: adding a canonical_path locator to an absent path
+// refuses with the unreachable kind.
+func TestLiveLocatorAdditionStillRefusesAbsentPath(t *testing.T) {
+	t.Parallel()
+	s := locatorReplayStore(t)
+	absent := filepath.Join(t.TempDir(), "absent")
+	err := s.AddProjectLocator(context.Background(), "project-a", ProjectLocator{Kind: LocatorCanonicalPath, Value: absent}, 1)
+	assertFailureKind(t, err, KindGitUnreachable)
+}

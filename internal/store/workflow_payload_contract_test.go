@@ -74,8 +74,12 @@ func TestCurrentActionPayloadContractsRefuseCrossActionAndInvalidFields(t *testi
 		rule    string
 	}{
 		{
-			name:    "transferred record discovery diagnostic",
-			action:  "record_discovery",
+			// record_discovery left the canonical implementation head, so the
+			// transfer discipline moves to the diagnostic action the head
+			// still declares: record_proposal must refuse record_design's
+			// field.
+			name:    "transferred record design diagnostic",
+			action:  "record_proposal",
 			payload: `{"touched_refs":["secret:must-not-echo"]}`,
 			field:   "touched_refs",
 			rule:    "declared",
@@ -95,11 +99,24 @@ func TestCurrentActionPayloadContractsRefuseCrossActionAndInvalidFields(t *testi
 			rule:    "ref",
 		},
 		{
+			// The canonical record_verdict declaration carries the verdicts
+			// batch alone, so the declared bound the refusal names is the
+			// batch's own min_items=1.
 			name:    "wrong registered bound",
 			action:  "record_verdict",
-			payload: `{"predicate_id":"predicate:one","evaluation_evidence":[]}`,
-			field:   "evaluation_evidence",
+			payload: `{"verdicts":[]}`,
+			field:   "verdicts",
 			rule:    "min_items=1",
+		},
+		{
+			// The batch entry keeps its own evidence bound: the generated
+			// entry schema refuses an empty evaluation_evidence inside the
+			// verdicts item.
+			name:    "wrong registered item bound",
+			action:  "record_verdict",
+			payload: `{"verdicts":[{"predicate_id":"predicate:one","evaluation_evidence":[]}]}`,
+			field:   "evaluation_evidence",
+			rule:    "minimum of 1",
 		},
 	}
 	for _, test := range tests {
@@ -124,7 +141,7 @@ func TestContractPremiseRejectsBlankAndFallbackText(t *testing.T) {
 	}
 	for _, premise := range []string{"   ", "workflow premise"} {
 		payload := `{"contract_version":2,"premise":"` + premise + `","outcome_predicates":[{"predicate_id":"predicate:one","ordinal":0,"outcome_kind":"check","outcome_payload":{"kind":"check","check_ref":"check:test","immutable_subject_ref":"commit:test","expected_result":"pass"}}],"required_evidence":[],"route_conventions":[],"spec_mandate":[],"law_modifies":[],"rigor_class":"prototype_internal","supersede_reason":"replace the contract","audit_evidence":["evidence:test"]}`
-		if err := validateWorkflowContractRecoveryPayload(json.RawMessage(payload)); err == nil {
+		if err := validateWorkflowContractRecoveryPayload(WorkflowDefinition{}, json.RawMessage(payload)); err == nil {
 			t.Fatalf("supersede_contract accepted premise %q", premise)
 		}
 	}
@@ -235,7 +252,10 @@ func TestDispatchWorkerIntentNamesThePublicAdapterField(t *testing.T) {
 func TestActionPayloadListItemSchemasMatchPreflight(t *testing.T) {
 	t.Parallel()
 	definition := currentWorkflowDefinition(t)
-	if err := validateWorkflowActionPayload(definition, "record_verdict", json.RawMessage(`{"predicate_id":"predicate:one","evaluation_evidence":["artifact:path/with/slash"]}`)); err != nil {
+	// The canonical record_verdict batch carries the entry's evaluation
+	// evidence through the generated reference schema: the slash the
+	// reference rule admits must survive the item boundary.
+	if err := validateWorkflowActionPayload(definition, "record_verdict", json.RawMessage(`{"verdicts":[{"predicate_id":"predicate:one","evaluation_evidence":["artifact:path/with/slash"]}]}`)); err != nil {
 		t.Fatalf("workflow reference accepted by the generated reference schema was refused: %v", err)
 	}
 	longLawID := "spec:" + strings.Repeat("a", 124)

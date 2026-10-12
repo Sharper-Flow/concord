@@ -44,6 +44,7 @@ const (
 	WorkflowProposalRecorded            = "workflow.proposal_recorded"
 	WorkflowDesignRecorded              = "workflow.design_recorded"
 	WorkflowBacklogAlignmentRecorded    = "workflow.backlog_alignment_recorded"
+	WorkflowDiagnosisRecorded           = "workflow.diagnosis_recorded"
 	WorkflowDeliveryCorrected           = "workflow.delivery_corrected"
 	WorkflowCompleted                   = "workflow.completed"
 	WorkflowOutsideRepairDispositionSet = "workflow.outside_repair_disposition_set"
@@ -164,6 +165,19 @@ type workflowBacklogAlignmentRecordedPayload struct {
 	Searched   string   `json:"searched"`
 	Outcome    string   `json:"outcome"`
 	RelatedIDs []string `json:"related_ids,omitempty"`
+}
+
+// workflowDiagnosisRecordedPayload is the typed record_diagnosis event
+// (CD-0198 D2): one required section per merged source action, and the
+// alignment section's fields keep the shape the alignment event carried so
+// the projection fold writes identical rows.
+type workflowDiagnosisRecordedPayload struct {
+	WorkflowVersionFields
+	Reproduction string   `json:"reproduction"`
+	Searched     string   `json:"searched"`
+	Outcome      string   `json:"outcome"`
+	RelatedIDs   []string `json:"related_ids,omitempty"`
+	RootCause    string   `json:"root_cause"`
 }
 
 type workflowActorRecordedPayload struct {
@@ -1477,16 +1491,78 @@ func foldWorkflowBacklogAlignmentRecorded(ctx context.Context, tx *sql.Tx, event
 	if err := advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields); err != nil {
 		return err
 	}
-	recordedAt := event.OccurredAt.UTC().Format(time.RFC3339Nano)
-	if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_backlog_alignment(work_id,related_work_id,searched,outcome,recorded_at,recorded_by) VALUES(?,NULL,?,?,?,?)`, event.SubjectID, p.Searched, p.Outcome, recordedAt, event.Actor); err != nil {
+	return writeWorkflowBacklogAlignmentRowsTx(ctx, tx, event.SubjectID, p.Searched, p.Outcome, p.RelatedIDs, event.OccurredAt, event.Actor)
+}
+
+// writeWorkflowBacklogAlignmentRowsTx writes the CD-0156 fold-only alignment
+// projection rows for one recorded search: the declaration row and, when the
+// search found related work, one row per named work id. The CD-0198 D2
+// diagnosis fold reuses it, so the merged record writes exactly the rows the
+// alignment action wrote.
+func writeWorkflowBacklogAlignmentRowsTx(ctx context.Context, tx *sql.Tx, workID, searched, outcome string, relatedIDs []string, at time.Time, actor string) error {
+	recordedAt := at.UTC().Format(time.RFC3339Nano)
+	if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_backlog_alignment(work_id,related_work_id,searched,outcome,recorded_at,recorded_by) VALUES(?,NULL,?,?,?,?)`, workID, searched, outcome, recordedAt, actor); err != nil {
 		return workflowProjectionError(err, "cannot record workflow backlog alignment")
 	}
-	for _, relatedID := range p.RelatedIDs {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_backlog_alignment(work_id,related_work_id,searched,outcome,recorded_at,recorded_by) VALUES(?,?,?,?,?,?)`, event.SubjectID, relatedID, p.Searched, p.Outcome, recordedAt, event.Actor); err != nil {
+	for _, relatedID := range relatedIDs {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_backlog_alignment(work_id,related_work_id,searched,outcome,recorded_at,recorded_by) VALUES(?,?,?,?,?,?)`, workID, relatedID, searched, outcome, recordedAt, actor); err != nil {
 			return workflowProjectionError(err, "cannot record a workflow backlog alignment match")
 		}
 	}
 	return nil
+}
+
+// foldWorkflowDiagnosisRecorded writes the CD-0198 D2 merged diagnosis
+// record. The alignment section answers to the record_alignment registry
+// declaration — the same cross-field rules the alignment fold evaluates —
+// and the projection rows are the alignment fold's own; the reproduction and
+// root-cause sections ride the event the action recorded. No relation is
+// created.
+func foldWorkflowDiagnosisRecorded(ctx context.Context, tx *sql.Tx, event Event) error {
+	var p workflowDiagnosisRecordedPayload
+	if err := decodeWorkflowPayload(event, &p); err != nil {
+		return err
+	}
+	if err := workflowBase(event, p.WorkflowVersionFields); err != nil {
+		return err
+	}
+	if !workflowString(p.Reproduction, 4096) || !workflowString(p.RootCause, 4096) {
+		return newFailure(KindInvalidPayload, "fold_event", "diagnosis_recorded has invalid reproduction or root-cause sections", false, "record every required diagnosis section")
+	}
+	if !workflowString(p.Searched, 4096) || !contains([]string{"related_found", "none_found"}, p.Outcome) {
+		return newFailure(KindInvalidPayload, "fold_event", "diagnosis_recorded has invalid search or outcome fields", false, "supply the search scope and a closed outcome")
+	}
+	alignmentFields := map[string]json.RawMessage{"outcome": []byte(`"` + p.Outcome + `"`)}
+	if len(p.RelatedIDs) != 0 {
+		alignmentFields["related_ids"] = mustJSONRawMessageOrEmpty(p.RelatedIDs)
+	}
+	if rule, _, requires, violated := workflowPayloadCombinationViolation(workflowActionCrossField("record_alignment"), alignmentFields); violated {
+		if requires {
+			return newFailure(KindInvalidPayload, "fold_event", "diagnosis_recorded outcome "+rule.Value+" requires one to sixty-four unique related ids", false, "name the related work items the search found")
+		}
+		return newFailure(KindInvalidPayload, "fold_event", "diagnosis_recorded outcome "+rule.Value+" cannot carry related_ids", false, "drop related_ids or record outcome related_found")
+	}
+	if p.Outcome == "related_found" && !workflowList(p.RelatedIDs, 64, 1) {
+		return newFailure(KindInvalidPayload, "fold_event", "diagnosis_recorded outcome related_found requires one to sixty-four unique related ids", false, "name the related work items the search found")
+	}
+	if err := advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields); err != nil {
+		return err
+	}
+	return writeWorkflowBacklogAlignmentRowsTx(ctx, tx, event.SubjectID, p.Searched, p.Outcome, p.RelatedIDs, event.OccurredAt, event.Actor)
+}
+
+// mustJSONRawMessageOrEmpty encodes the related-id list for the fold's
+// cross-field evaluation: absent for an empty list, so an outcome that
+// forbids the field never sees a present empty array.
+func mustJSONRawMessageOrEmpty(relatedIDs []string) json.RawMessage {
+	if len(relatedIDs) == 0 {
+		return nil
+	}
+	encoded, err := json.Marshal(relatedIDs)
+	if err != nil {
+		return nil
+	}
+	return encoded
 }
 
 func foldWorkflowActorRecorded(ctx context.Context, tx *sql.Tx, event Event) error {
@@ -1659,9 +1735,35 @@ func foldWorkflowActionCheckpointed(ctx context.Context, tx *sql.Tx, event Event
 		return newFailure(KindIllegalLifecycleTransition, "fold_event", "checkpoint does not match the latest workflow action start epoch", false, "checkpoint the current workflow action attempt")
 	}
 	fenced := step != nil && workflowStepFences(entry.Definition, *step)
-	admitted, err := workflowCheckpointWriterAdmitted(ctx, tx, event.SubjectID, executionActor, p.ActorRef, fenced, event.Seq)
-	if err != nil {
-		return err
+	var admitted bool
+	if !fenced {
+		admitted, err = workflowCheckpointWriterAdmitted(ctx, tx, event.SubjectID, executionActor, p.ActorRef, false, event.Seq)
+		if err != nil {
+			return err
+		}
+	} else {
+		checkpointFields, checkpointFieldsErr := workflowActionObject(p.CheckpointPayload)
+		if checkpointFieldsErr != nil {
+			return checkpointFieldsErr
+		}
+		deriving, deriveErr := workflowDerivedStartPairAuthored(ctx, tx, entry.Definition, event.SubjectID, currentStep, workflowFieldStringDefault(checkpointFields, "action_id", ""), p.AttemptEpoch, event.Seq, p.ActorRef, event.EventID)
+		if deriveErr != nil {
+			return deriveErr
+		}
+		if deriving {
+			// The checkpoint that its own derived start opened (CD-0198 D3):
+			// the started fold already authenticated this actor and bound
+			// the step fence from it, so the checkpoint-writer rule that
+			// governs review and context events does not judge the
+			// derivation pair. Every later checkpoint at the step answers
+			// to the rule with the fence in place.
+			admitted = true
+		} else {
+			admitted, err = workflowCheckpointWriterAdmitted(ctx, tx, event.SubjectID, executionActor, p.ActorRef, true, event.Seq)
+			if err != nil {
+				return err
+			}
+		}
 	}
 	if !admitted {
 		return newFailure(KindUnauthorized, "fold_event", "checkpoint actor does not hold the workflow writing authority", false, "checkpoint through the workflow actor that holds the writing authority")
@@ -2094,6 +2196,15 @@ func admitWorkflowActionOffStep(ctx context.Context, tx *sql.Tx, event Event, p 
 		workerFailureRecovery, recoveryErr = workflowWorkerFailureRecoveryMayFold(ctx, tx, event.SubjectID, entry.Definition, currentStep, "fold_event")
 		if recoveryErr != nil {
 			return recoveryErr
+		}
+		if !workerFailureRecovery {
+			// CD-0198 D5: the terminal event's own derivation pair folds
+			// without the recovery route — the record derives from the
+			// attempt's terminal event, not from a coordinator call.
+			workerFailureRecovery, recoveryErr = workflowDerivedWorkerFailurePairAdmitsFold(ctx, tx, entry.Definition, event, p)
+			if recoveryErr != nil {
+				return recoveryErr
+			}
 		}
 	}
 	if p.ActionID == "reject_worker_result" && stepDeclaresAction(entry.Definition, currentStep, "dispatch_worker") {
@@ -2592,6 +2703,18 @@ func workflowStepPassBoundary(ctx context.Context, q queryer, definition Workflo
 	if err := q.QueryRowContext(ctx, query, args...).Scan(&entrySeq); err != nil {
 		return 0, false, wrapFailure(KindUnavailable, subject, "cannot inspect the workflow step's latest entry", true, "retry once the workflow event log is readable", err)
 	}
+	if workflowDerivedStepStartActive(definition) {
+		// A successor contract opens fresh work at the held step. Its typed
+		// supersession event is not an action completion, but the next
+		// qualifying action must claim a new epoch rather than reuse the
+		// predecessor contract's start and verification cutoff. Released
+		// callable-start pins keep their original pass-boundary rule.
+		var supersededSeq int64
+		if err := q.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND seq>?`, string(SubjectWorkItem), workID, WorkflowContractSuperseded, startSeq).Scan(&supersededSeq); err != nil {
+			return 0, false, wrapFailure(KindUnavailable, subject, "cannot inspect the workflow step's contract entry", true, "retry once the workflow event log is readable", err)
+		}
+		entrySeq = max(entrySeq, supersededSeq)
+	}
 	if entrySeq > startSeq {
 		return entrySeq, true, nil
 	}
@@ -2609,6 +2732,33 @@ func advancingWorkflowActions(definition WorkflowDefinition) []string {
 		}
 	}
 	return advancing
+}
+
+// workflowDerivedStartPairAuthored reports whether the checkpoint event at
+// beforeSeq is the one its own derived start opened (CD-0198 D3). Only a
+// derived-start pin qualifies, and the step's latest start must be the start
+// event the checkpoint's own operation wrote (opid:started beside
+// opid:checkpoint) naming the same qualifying action, epoch, and actor. A
+// dispatch start, a callable start on a released pin, and every later
+// checkpoint answer to the checkpoint-writer rule; the started fold
+// authenticated the actor for the derivation pair alone.
+func workflowDerivedStartPairAuthored(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, workID, stepID, actionID string, epoch int64, beforeSeq int64, actorRef, checkpointEventID string) (bool, error) {
+	if !workflowDerivedStepStartActive(definition) || workflowDerivedStartCheckpoints[actionID] != stepID {
+		return false, nil
+	}
+	startSeq, startEpoch, found, err := latestWorkflowActionStartAt(ctx, tx, workID, stepID, beforeSeq)
+	if err != nil || !found || startEpoch != epoch {
+		return false, err
+	}
+	var startedEventID, startedAction, startedActor string
+	if err := tx.QueryRowContext(ctx, `SELECT event_id,COALESCE(json_extract(payload,'$.action_id'),''),COALESCE(json_extract(payload,'$.actor_ref'),'') FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND seq=?`, workID, startSeq).Scan(&startedEventID, &startedAction, &startedActor); err != nil {
+		return false, workflowProjectionError(err, "cannot read the derived step start")
+	}
+	operationID := strings.TrimSuffix(checkpointEventID, ":checkpoint")
+	if operationID == checkpointEventID || startedEventID != operationID+":started" || startedAction != actionID {
+		return false, nil
+	}
+	return startedActor == actorRef, nil
 }
 
 func latestWorkflowActionStartEpoch(ctx context.Context, tx *sql.Tx, workID, stepID string, beforeSeq int64) (int64, bool, error) {
@@ -2750,6 +2900,81 @@ func workflowActionStartEpochForDispatch(ctx context.Context, tx *sql.Tx, workID
 	return latestEpoch, nil
 }
 
+// workflowDerivedStartCheckpoints names the checkpoint whose admission
+// claims a derived step start (CD-0198 D3): the checkpoint matching the
+// step whose callable start the derived-start pins removed. dispatch_worker
+// needs no entry — a fenced dispatch opens the attempt epoch itself — and a
+// context checkpoint, job record, evidence bind, result rejection, or
+// delivery never appears here, so none of them can manufacture a start.
+var workflowDerivedStartCheckpoints = map[string]string{
+	"checkpoint_repair": "repair",
+	"checkpoint_refine": "refine",
+}
+
+// workflowDerivedStepStartActive reports whether a pinned definition
+// derives the repair/refine step starts from the first admitted qualifying
+// action (CD-0198 D3). Earlier versions keep the callable starts and the
+// behavior and digest they shipped with.
+func workflowDerivedStepStartActive(definition WorkflowDefinition) bool {
+	switch definition.Ref {
+	case "workflow.implementation":
+		return definition.Version >= 28
+	case "workflow.break_fix":
+		return definition.Version >= 25
+	default:
+		return false
+	}
+}
+
+// workflowDerivedCheckpointStartTx derives the step start a qualifying
+// checkpoint claims (CD-0198 D3). On a derived-start pin, when the matching
+// step holds no action start yet, the checkpoint opens the step's first
+// attempt: the returned event folds through the same started-event fold a
+// callable start uses, fencing the step from the checkpoint's own actor and
+// opening epoch 1, and the checkpoint carries that epoch. A step that
+// already started — by a dispatch or an earlier qualifying checkpoint —
+// returns no event, and the caller reads the existing epoch, so a repeated
+// qualifying action never resets the fence or its cutoff.
+func workflowDerivedCheckpointStartTx(ctx context.Context, tx *sql.Tx, definition WorkflowDefinition, request WorkflowActionExecutionRequest, currentStep, actor string, expectedVersion int64) (int64, *Event, error) {
+	if !workflowDerivedStepStartActive(definition) || workflowDerivedStartCheckpoints[request.ActionID] != currentStep {
+		return 0, nil, nil
+	}
+	// The step's first qualifying action of the CURRENT pass derives the
+	// start: a fresh entry has no start at all, and a step re-entered
+	// through a declared return edge — a correction route — opened a new
+	// pass whose advancing entry postdates the previous pass's start, so
+	// its first qualifying action claims the next epoch exactly as the
+	// callable start did. A repeated qualifying action inside one pass
+	// finds its own pass's start and reuses the epoch.
+	latestStartSeq, _, startFound, err := latestWorkflowActionStartAt(ctx, tx, request.WorkID, currentStep, 0)
+	if err != nil {
+		return 0, nil, err
+	}
+	if startFound {
+		passSeq, active, passErr := workflowStepPassBoundary(ctx, tx, definition, request.WorkID, currentStep, "workflow_action")
+		if passErr != nil {
+			return 0, nil, passErr
+		}
+		if !active || passSeq <= latestStartSeq {
+			return 0, nil, nil
+		}
+	}
+	epoch, err := workflowActionStartEpochForDispatch(ctx, tx, request.WorkID, currentStep, true)
+	if err != nil {
+		return 0, nil, err
+	}
+	startPayload, err := json.Marshal(map[string]any{
+		"work_id": request.WorkID, "expected_version": expectedVersion, "resulting_version": expectedVersion + 1,
+		"step_id": currentStep, "action_id": request.ActionID, "attempt_epoch": epoch,
+		"accepted_inputs_digest": request.AcceptedInputsDigest, "idempotency_identity": request.IdempotencyIdentity, "actor_ref": actor,
+	})
+	if err != nil {
+		return 0, nil, workflowProjectionError(err, "cannot encode the derived step start")
+	}
+	event := Event{EventID: request.OperationID + ":started", Kind: WorkflowActionStarted, SubjectType: SubjectWorkItem, SubjectID: request.WorkID, Actor: actor, OccurredAt: request.Now, PayloadVersion: 1, Payload: startPayload}
+	return epoch, &event, nil
+}
+
 func latestWorkflowActionStartAt(ctx context.Context, q queryer, workID, stepID string, beforeSeq int64) (int64, int64, bool, error) {
 	query := `SELECT seq,payload FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.step_id')=?`
 	args := []any{string(SubjectWorkItem), workID, WorkflowActionStarted, stepID}
@@ -2776,6 +3001,17 @@ func latestWorkflowActionStartAt(ctx context.Context, q queryer, workID, stepID 
 func validateWorkerAttemptAction(ctx context.Context, tx *sql.Tx, event Event, payload workflowActionCompletedPayload, definition WorkflowDefinition, currentStep, requiredLifecycle string) error {
 	step := workflowStep(definition, currentStep)
 	allowed := step != nil && definitionStepAllows(definition, currentStep, payload.ActionID)
+	// derivedPair marks the CD-0198 D5 derivation pair: the completing event
+	// is the workflow failure record the attempt's own terminal event
+	// derives. The pair's actor is already authenticated by that terminal
+	// fold, and the executor-distinctness law below serves verdict
+	// independence, not the engine's own disposition of the worker's terminal
+	// fact — so the pair alone skips it, exactly as the CD-0198 D3 pair skips
+	// the checkpoint-writer rule. The pair check runs beside the recovery
+	// route, not behind it: on a derived-failure pin the recovery admits the
+	// record first, and the pair identity — not the admitting route — is
+	// what the skip keys on.
+	derivedPair := false
 	if !allowed && payload.ActionID == "accept_worker_evidence" {
 		if err := validateRefineReviewEvidenceAttempt(ctx, tx, event.SubjectID, definition, currentStep, payload.WorkerAttemptID, payload.AttemptEpoch, "fold_event", event.Seq); err != nil {
 			return err
@@ -2788,6 +3024,14 @@ func validateWorkerAttemptAction(ctx context.Context, tx *sql.Tx, event Event, p
 		if recoveryErr != nil {
 			return recoveryErr
 		}
+		// CD-0198 D5: the terminal event's own derivation pair folds without
+		// the recovery route — the record derives from the attempt's terminal
+		// event, not from a coordinator call.
+		derivedPair, recoveryErr = workflowDerivedWorkerFailurePairAdmitsFold(ctx, tx, definition, event, payload)
+		if recoveryErr != nil {
+			return recoveryErr
+		}
+		allowed = allowed || derivedPair
 	}
 	if !allowed && payload.ActionID == "reject_worker_result" && stepDeclaresAction(definition, currentStep, "dispatch_worker") {
 		var recoveryErr error
@@ -2861,8 +3105,10 @@ func validateWorkerAttemptAction(ctx context.Context, tx *sql.Tx, event Event, p
 	if payload.ActorRef != event.Actor {
 		return newFailure(KindUnauthorized, "fold_event", "worker result actor must match the authenticated event actor", false, "record the worker result through the authenticated workflow owner")
 	}
-	if err := workflowActorsDistinct(ctx, tx, event.SubjectID, payload.ActorRef, "", false, "fold_event"); err != nil {
-		return err
+	if !derivedPair {
+		if err := workflowActorsDistinct(ctx, tx, event.SubjectID, payload.ActorRef, "", false, "fold_event"); err != nil {
+			return err
+		}
 	}
 	return nil
 }

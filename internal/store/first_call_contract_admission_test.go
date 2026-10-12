@@ -312,7 +312,7 @@ func TestFirstCallApproveContractAdmitsFromPublishedVariant(t *testing.T) {
 	// Advance to the planning step through the same real action owners the
 	// semantic-event test uses; these calls are scaffolding, not the surface
 	// under proof.
-	for _, action := range []string{"record_proposal", "record_alignment", "record_discovery", "record_design"} {
+	for _, action := range []string{"record_proposal", "record_alignment", "record_design"} {
 		version = issue31WorkflowAction(t, s, workID, version, action, "first-call-"+action, actor)
 	}
 
@@ -475,13 +475,16 @@ func firstCallBreakFixSeed(t *testing.T, workID string) (*Store, WorkflowActor, 
 	if registered.Definition.ChangesProductTruth == nil || !*registered.Definition.ChangesProductTruth {
 		t.Fatal("the pinned break-fix definition is not Product-changing; the fixture cannot exercise the binding guards")
 	}
-	var version int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id=?`, workID).Scan(&version); err != nil {
-		t.Fatal(err)
-	}
-	for _, action := range []string{"record_reproduction", "record_alignment", "record_root_cause"} {
-		version = issue31WorkflowAction(t, s, workID, version, action, "first-call-bf-"+action, actor)
-	}
+	// CD-0198 D2: the merged diagnosis record replaces the three separate
+	// records, so the none_found combination the published variant admits
+	// rides record_diagnosis's sections.
+	version := issue31WorkflowActionWithPayload(t, s, workID, func() int64 {
+		var current int64
+		if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id=?`, workID).Scan(&current); err != nil {
+			t.Fatal(err)
+		}
+		return current
+	}(), "record_diagnosis", "first-call-bf-record_diagnosis", actor, diagnosisPayload("the defect reproduces from a clean store", "The bounded backlog search statement.", "none_found", nil, "the cause is not a duplicate"))
 	pin, err := ReadWorkPin(context.Background(), s, workID)
 	if err != nil {
 		t.Fatal(err)
@@ -627,11 +630,11 @@ func TestFirstCallSupersedeContractAdmitsFromPublishedVariant(t *testing.T) {
 
 	// Nested kind-equality mutants (CON-412): outcome_kind and
 	// outcome_payload.kind are payload-only values that must hold one
-	// value. The equality is declared in the engine cross-field
-	// kind-match (workflowActionCrossField for supersede_contract) and the
-	// published items and pair branches close per kind, so the publication
-	// refuses first and whole-store admission refuses at payload
-	// validation.
+	// value. The canonical supersede authoring surface carries the
+	// outcome_predicates array alone, whose published items branches close
+	// per kind; the pair fields survive only on the engine recovery
+	// declaration that retained-pin replay reads, whose kind-match rule
+	// owns the pair equality there.
 
 	// Item mismatch: outcome_kind exists beside a check outcome_payload.
 	// Built outside supersedeInput because the published per-kind items
@@ -652,9 +655,12 @@ func TestFirstCallSupersedeContractAdmitsFromPublishedVariant(t *testing.T) {
 	err = runIssue933OperatorAction(t, s, workID, "supersede_contract", fieldsOf(itemMismatch), owner, operator)
 	firstCallRequireRefusal(t, err, `does not satisfy its declared schema "workflow_action_outcome_predicates"`)
 
-	// Pair mismatch: the legacy outcome pair group with outcome_kind exists
-	// beside a check outcome_payload. The engine kind-match declaration
-	// owns the refusal; the published pair branches close per kind.
+	// Pair mismatch: the retired outcome pair group with outcome_kind
+	// exists beside a check outcome_payload. On the canonical head the pair
+	// fields are no longer declared, so the canonical field guard owns the
+	// whole-store refusal; the engine tier still binds the pair for
+	// retained-pin replay, and its kind-match rule owns the pair equality
+	// there.
 	pairMismatch := firstCallActionInput(t, defs, "work_transition_action_variant_supersede_contract", workID, pin.Version, map[string]any{
 		"contract_version":     2,
 		"required_evidence":    *pin.Obligations,
@@ -669,7 +675,12 @@ func TestFirstCallSupersedeContractAdmitsFromPublishedVariant(t *testing.T) {
 		t.Fatal("published supersede variant admitted an outcome pair whose outcome_kind and outcome_payload.kind disagree")
 	}
 	err = runIssue933OperatorAction(t, s, workID, "supersede_contract", fieldsOf(pairMismatch), owner, operator)
-	firstCallRequireRefusal(t, err, `carries kind "check"`)
+	firstCallRequireRefusal(t, err, "successor contract contains an undeclared or invalid field")
+	if err := validateWorkflowContractRecoveryPayload(WorkflowDefinition{}, fieldsOf(pairMismatch)); err == nil {
+		t.Fatal("the engine recovery validator admitted a retained-pin outcome pair whose outcome_kind and outcome_payload.kind disagree")
+	} else {
+		firstCallRequireRefusal(t, err, `carries kind "check"`)
+	}
 
 	// The unchanged successor admits on its first submission after every
 	// mutant was refused without effect.
@@ -682,10 +693,10 @@ func TestFirstCallSupersedeContractAdmitsFromPublishedVariant(t *testing.T) {
 		t.Fatalf("active successor contract version=%d err=%v, want 2", successorVersion, err)
 	}
 
-	// Valid per-kind pair fixture (CON-412): the outcome pair group with
-	// matching kinds — outcome_kind check beside a check outcome_payload —
-	// is a legal successor form. The published per-kind pair branch admits
-	// it, and whole-store admission records the supersession.
+	// The retired per-kind pair form — matching kinds, outcome_kind check
+	// beside a check outcome_payload — refuses on both boundaries without
+	// durable effect: the pair left canonical authoring (CD-0218 D1/D2),
+	// and no synthetic outcome fallback is authorable.
 	pairValid := firstCallActionInput(t, defs, "work_transition_action_variant_supersede_contract", workID, verdictItemVersion(t, s, workID), map[string]any{
 		"contract_version":     3,
 		"required_evidence":    *pin.Obligations,
@@ -696,13 +707,34 @@ func TestFirstCallSupersedeContractAdmitsFromPublishedVariant(t *testing.T) {
 	delete(pairValidFields, "outcome_predicates")
 	pairValidFields["outcome_kind"] = "check"
 	pairValidFields["outcome_payload"] = map[string]any{"kind": "check", "check_ref": "check:pair-valid", "immutable_subject_ref": "commit:" + workID, "expected_result": "pass"}
-	if err := payloadschema.Validate("work_transition_action_variant_supersede_contract", mustJSONRaw(t, pairValid)); err != nil {
-		t.Fatalf("published supersede variant refused the per-kind pair successor: %v", err)
+	if err := payloadschema.Validate("work_transition_action_variant_supersede_contract", mustJSONRaw(t, pairValid)); err == nil {
+		t.Fatal("published supersede variant admitted the retired outcome pair form")
 	}
-	if err := runIssue933OperatorAction(t, s, workID, "supersede_contract", fieldsOf(pairValid), owner, operator); err != nil {
-		t.Fatalf("first-call per-kind pair supersede_contract refused: %v", err)
+	if err := runIssue933OperatorAction(t, s, workID, "supersede_contract", fieldsOf(pairValid), owner, operator); err == nil {
+		t.Fatal("whole-store admission admitted the retired outcome pair form")
+	}
+	if err := s.DatabaseForTesting().QueryRow(`SELECT contract_version FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, workID).Scan(&successorVersion); err != nil || successorVersion != 2 {
+		t.Fatalf("retired pair refusal changed durable state: successor contract version=%d err=%v, want 2", successorVersion, err)
+	}
+
+	// The canonical array form carries the second supersession the pair
+	// form used to: a matching-kind outcome_predicates item records the
+	// contract version 3 successor on the first submission assembled from
+	// the published variant.
+	second := firstCallActionInput(t, defs, "work_transition_action_variant_supersede_contract", workID, verdictItemVersion(t, s, workID), map[string]any{
+		"contract_version": 3,
+		"outcome_predicates": []map[string]any{{
+			"predicate_id": "predicate:first-call-supersede", "ordinal": 0, "outcome_kind": "check",
+			"outcome_payload": map[string]any{"kind": "check", "check_ref": "check:first-call-supersede", "immutable_subject_ref": "commit:" + workID, "expected_result": "pass"},
+		}},
+		"required_evidence":    *pin.Obligations,
+		"spec_mandate":         []string{"spec:one", "law:successor"},
+		"architecture_binding": successorBinding(),
+	})
+	if err := runIssue933OperatorAction(t, s, workID, "supersede_contract", fieldsOf(second), owner, operator); err != nil {
+		t.Fatalf("second canonical supersede_contract refused: %v", err)
 	}
 	if err := s.DatabaseForTesting().QueryRow(`SELECT contract_version FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL`, workID).Scan(&successorVersion); err != nil || successorVersion != 3 {
-		t.Fatalf("active pair-form successor contract version=%d err=%v, want 3", successorVersion, err)
+		t.Fatalf("active canonical successor contract version=%d err=%v, want 3", successorVersion, err)
 	}
 }

@@ -5,15 +5,14 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
-	"strconv"
 	"strings"
 )
 
 // Bounded Product → Domain reads. These are the primary navigation path for
-// current Domains, their current law, typed architecture relations, active
-// Domain-bound work, local attachments, and unresolved Domain overlap. The
-// Git-derived registry is the only authority; a Product without a projected
-// registry refuses with a typed failure rather than an empty page.
+// current Domains, their current law, typed architecture relations, local
+// attachments, and unresolved Domain overlap. The Git-derived registry is the
+// only authority; a Product without a projected registry refuses with a typed
+// failure rather than an empty page.
 
 const (
 	domainListDefaultLimit = 20
@@ -85,30 +84,6 @@ type DomainDetailResult struct {
 	CurrentLaw   []DomainLawRecord    `json:"current_law"`
 	Relations    []DomainRelationView `json:"relations"`
 	Observations []DomainObservation  `json:"observations"`
-}
-
-type DomainActiveWorkItem struct {
-	WorkID          string       `json:"work_id"`
-	Kind            string       `json:"kind"`
-	Title           string       `json:"title"`
-	Lifecycle       string       `json:"lifecycle"`
-	Priority        int64        `json:"priority"`
-	ContractVersion int64        `json:"contract_version"`
-	HomeDomain      bool         `json:"home_domain"`
-	Liveness        WorkLiveness `json:"liveness"`
-}
-
-type DomainActiveWorkRequest struct {
-	Product string
-	Domain  string
-	Limit   int
-	Cursor  string
-}
-
-type DomainActiveWorkResult struct {
-	ResultMeta
-	Registry *DomainRegistryView    `json:"registry"`
-	Work     []DomainActiveWorkItem `json:"work"`
 }
 
 type DomainAttachmentView struct {
@@ -187,15 +162,6 @@ type DomainDetailPayload struct {
 
 func NewDomainDetailPayload(result DomainDetailResult) DomainDetailPayload {
 	return DomainDetailPayload{Registry: result.Registry, Domain: result.Domain, CurrentLaw: sliceOrEmpty(result.CurrentLaw), Relations: sliceOrEmpty(result.Relations), Observations: sliceOrEmpty(result.Observations)}
-}
-
-type DomainActiveWorkPayload struct {
-	Registry *DomainRegistryView    `json:"registry"`
-	Work     []DomainActiveWorkItem `json:"work"`
-}
-
-func NewDomainActiveWorkPayload(result DomainActiveWorkResult) DomainActiveWorkPayload {
-	return DomainActiveWorkPayload{Registry: result.Registry, Work: sliceOrEmpty(result.Work)}
 }
 
 // DomainResourceAttachmentPayload is the read projection of a resource
@@ -448,10 +414,10 @@ func queryDomainDetail(ctx context.Context, q queryer, req DomainDetailRequest) 
 	}
 	relRows.Close()
 
-	// CD-0068 D6: the open observations join the existing Domain surface, so
+	// CD-0224: the open observations join the existing Domain surface, so
 	// the operator meets them where the next decision about the Domain is
 	// made. They are not authority — the result stays authoritative on law and
-	// relations, and an observation satisfies nothing (CD-0068 D5).
+	// relations, and an observation satisfies nothing.
 	observations, err := observationsForDomain(ctx, q, req.Product, req.Domain, DomainObservationOpenWindow)
 	if err != nil {
 		return out, err
@@ -459,98 +425,6 @@ func queryDomainDetail(ctx context.Context, q queryer, req DomainDetailRequest) 
 	out.Observations = observations
 
 	out.ResultMeta = ResultMeta{QueryID: "C22.DomainDetail", ContractVersion: "C22/1.0", ResolvedScope: ResolvedScope{ProductID: req.Product, DomainID: req.Domain}, Authority: "authoritative", OrderingKeys: []string{"kind", "source_domain_id", "target_domain_id"}}
-	return out, nil
-}
-
-// QueryDomainActiveWork returns the nonterminal work whose current contract is
-// bound to the Domain, distinguishing the architectural home from affected
-// footprint. Ordering is priority, then stable work ID.
-func (s *Store) QueryDomainActiveWork(ctx context.Context, req DomainActiveWorkRequest) (DomainActiveWorkResult, error) {
-	var out DomainActiveWorkResult
-	if s == nil || s.db == nil {
-		return out, newFailure(KindUnavailable, "C22.DomainActiveWork", "store is not open", false, "open a store before reading Domains")
-	}
-	return queryDomainActiveWork(ctx, s.db, req)
-}
-
-func queryDomainActiveWork(ctx context.Context, q queryer, req DomainActiveWorkRequest) (DomainActiveWorkResult, error) {
-	var out DomainActiveWorkResult
-	omissions, err := duplicateActiveContractOmissions(ctx, q, req.Product)
-	if err != nil {
-		return out, err
-	}
-	registry, err := readDomainRegistry(ctx, q, req.Product)
-	if err != nil {
-		return out, err
-	}
-	if _, err := domainExistsCurrent(ctx, q, req.Product, req.Domain); err != nil {
-		return out, err
-	}
-	limit := req.Limit
-	if limit == 0 {
-		limit = domainListDefaultLimit
-	}
-	if limit < 1 || limit > domainListMaxLimit {
-		return out, newFailure(KindInvalidFilter, "C22.DomainActiveWork", "active work limit is out of bounds", false, "use a limit between 1 and 100")
-	}
-	cursorPriority, cursorID, err := decodeDomainCursor(req.Cursor)
-	if err != nil {
-		return out, err
-	}
-	var cursorPriorityInt int64
-	if cursorPriority != "" {
-		parsed, parseErr := strconv.ParseInt(cursorPriority, 10, 64)
-		if parseErr != nil {
-			return out, newFailure(KindInvalidFilter, "C22", "active work cursor is malformed", false, "continue from the previous page cursor")
-		}
-		cursorPriorityInt = parsed
-	}
-	out.Work = []DomainActiveWorkItem{}
-	rows, err := q.QueryContext(ctx, `
-		SELECT w.id,w.kind,w.title,w.lifecycle,w.priority,c.contract_version,
-			(b.home_domain_id=?) AS is_home
-		FROM workflow_contracts c
-		JOIN workflow_architecture_bindings b ON b.work_id=c.work_id AND b.contract_version=c.contract_version
-		JOIN work_items w ON w.id=c.work_id
-		WHERE c.superseded_by IS NULL AND w.lifecycle NOT IN ('completed','cancelled','superseded')
-		  AND (SELECT count(*) FROM workflow_contracts c3 WHERE c3.work_id=c.work_id AND c3.superseded_by IS NULL)=1
-		  AND (b.home_domain_id=? OR EXISTS (SELECT 1 FROM workflow_contract_affected_domains a WHERE a.work_id=c.work_id AND a.contract_version=c.contract_version AND a.domain_id=?))
-		  AND (w.priority,w.id) > (?,?)
-		ORDER BY w.priority,w.id LIMIT ?`,
-		req.Domain, req.Domain, req.Domain, cursorPriorityInt, cursorID, limit+1)
-	if err != nil {
-		return out, wrapFailure(KindUnavailable, "C22.DomainActiveWork", "cannot read Domain-bound work", true, "retry once the workflow projection is readable", err)
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var item DomainActiveWorkItem
-		var isHome int
-		if err := rows.Scan(&item.WorkID, &item.Kind, &item.Title, &item.Lifecycle, &item.Priority, &item.ContractVersion, &isHome); err != nil {
-			return out, wrapFailure(KindUnavailable, "C22.DomainActiveWork", "cannot decode Domain-bound work", true, "retry once the workflow projection is readable", err)
-		}
-		item.HomeDomain = isHome == 1
-		out.Work = append(out.Work, item)
-	}
-	if err := rows.Err(); err != nil {
-		return out, wrapFailure(KindUnavailable, "C22.DomainActiveWork", "cannot enumerate Domain-bound work", true, "retry once the workflow projection is readable", err)
-	}
-	if err := rows.Close(); err != nil {
-		return out, wrapFailure(KindUnavailable, "C22.DomainActiveWork", "cannot close Domain-bound work read", true, "retry once the workflow projection is readable", err)
-	}
-	for i := range out.Work {
-		out.Work[i].Liveness, err = deriveWorkLivenessQ(ctx, q, out.Work[i].WorkID)
-		if err != nil {
-			return out, err
-		}
-	}
-	if len(out.Work) > limit {
-		out.Work = out.Work[:limit]
-		last := out.Work[len(out.Work)-1]
-		next := encodeDomainCursor(strconv.FormatInt(last.Priority, 10), last.WorkID)
-		out.NextCursor = &next
-	}
-	out.Registry = registry
-	out.ResultMeta = ResultMeta{QueryID: "C22.DomainActiveWork", ContractVersion: "C22/1.0", ResolvedScope: ResolvedScope{ProductID: req.Product, DomainID: req.Domain}, Authority: "authoritative", OrderingKeys: []string{"priority", "work_id"}, Omissions: omissions}
 	return out, nil
 }
 

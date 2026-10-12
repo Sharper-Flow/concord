@@ -1,6 +1,6 @@
 package store
 
-// This file carries the in-process launcher forwarding reads: the
+// This file carries the session forwarding reads: the
 // landing-Project Product rule the session entry route applies when it
 // starts or resumes a session for selected work. It deliberately is not a
 // new Product-memory query; each read is one bounded transaction.
@@ -10,13 +10,13 @@ import (
 	"database/sql"
 )
 
-// ResolveLauncherWorkProduct selects the Product scope for direct work
+// ResolveLandingProjectProduct selects the Product scope for direct work
 // forwarding from the landing Project: the Project the session names, else
 // the work's primary Project. The entry route does not write a remembered
 // Product to the store. preferredProduct is an inherited selection; the
 // landing Project owns the scope, so it is honored only when it is one of
 // the landing Project's Products.
-func (s *Store) ResolveLauncherWorkProduct(ctx context.Context, workID, projectID, preferredProduct string) (string, error) {
+func (s *Store) ResolveLandingProjectProduct(ctx context.Context, workID, projectID, preferredProduct string) (string, error) {
 	if workID == "" {
 		return "", unknownScope("launcher.forward", "work forwarding requires a work")
 	}
@@ -90,20 +90,20 @@ func landingProjectProductsTx(ctx context.Context, tx *sql.Tx, projectID string)
 	return products, nil
 }
 
-// ResolveLauncherLinearIssueWork resolves the work item that records the
+// ResolveLinearIssueWork resolves the work item that records the
 // Linear issue, so a caller can answer "is this issue recorded" separately
 // from the landing-Project Product rule. The only unknown-scope refusal it
 // returns is the unrecorded case.
-func (s *Store) ResolveLauncherLinearIssueWork(ctx context.Context, humanKey, issueURL string) (string, error) {
+func (s *Store) ResolveLinearIssueWork(ctx context.Context, humanKey, issueURL string) (string, error) {
 	tx, err := beginRead(ctx, s, "launcher.forward")
 	if err != nil {
 		return "", err
 	}
 	defer tx.Rollback()
-	return launcherLinkedWorkTx(ctx, tx, humanKey, issueURL)
+	return resolveLinearIssueWorkTx(ctx, tx, humanKey, issueURL)
 }
 
-func launcherLinkedWorkTx(ctx context.Context, tx *sql.Tx, humanKey, issueURL string) (string, error) {
+func resolveLinearIssueWorkTx(ctx context.Context, tx *sql.Tx, humanKey, issueURL string) (string, error) {
 	var workID string
 	err := tx.QueryRowContext(ctx, `SELECT work_id FROM linear_issue_links
 		WHERE human_key=? OR url=?

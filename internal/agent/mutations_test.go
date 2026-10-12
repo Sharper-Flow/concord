@@ -10,6 +10,75 @@ import (
 	"github.com/sharper-flow/concord/internal/store/storetest"
 )
 
+func TestWorkflowActionRefusesRetiredInitiativeBeforeNativePlanning(t *testing.T) {
+	for _, actionID := range []string{"approve_contract", "dispatch_worker"} {
+		t.Run(actionID, func(t *testing.T) {
+			s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition"})
+			version := seedAgentWorkflow(t, s, grant)
+			// Model the historical kind in the temporary projection. Capture of
+			// a new initiative is independently refused at the append boundary.
+			if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
+				UPDATE work_items SET kind='initiative' WHERE id='work-1';
+				DELETE FROM fold_guard`); err != nil {
+				t.Fatal(err)
+			}
+			before := countWorkflowEvents(t, s)
+			challengesBefore := countWorkflowApprovalChallenges(t, s)
+			probeCalls := 0
+			service.ProjectHostProber = func(context.Context, string, string) (store.ResolvedProjectHost, error) {
+				probeCalls++
+				return probedHost(), nil
+			}
+			scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			env := mutationEnvelope(grant, scopeVersion)
+			r := runtime{Store: s, Authority: service, Envelope: env, Tool: "concord_work_transition", Operation: "workflow_action"}
+			raw, err := json.Marshal(actionMutationInput{WorkID: "work-1", ExpectedVersion: version, ActionID: actionID, IdempotencyKey: "retired-" + actionID})
+			if err != nil {
+				t.Fatal(err)
+			}
+			response, err := r.mutateWorkflowAction(context.Background(), Envelope{}, raw, grant, ContractOperation{})
+			if err != nil || response.Error == nil || response.Error.Kind != "invalid_input" || !strings.Contains(response.Error.Message, "CD-0213") {
+				t.Errorf("response=%+v err=%v, want retired-kind refusal", response.Error, err)
+			}
+			if probeCalls != 0 || countWorkflowEvents(t, s) != before || countWorkflowApprovalChallenges(t, s) != challengesBefore {
+				t.Fatalf("retired action reached native planning: probes=%d events=%d->%d challenges=%d->%d", probeCalls, before, countWorkflowEvents(t, s), challengesBefore, countWorkflowApprovalChallenges(t, s))
+			}
+		})
+	}
+}
+
+func TestWorkflowActionPreflightRefusesRetiredInitiative(t *testing.T) {
+	s, _, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition"})
+	version := seedAgentWorkflow(t, s, grant)
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
+		UPDATE work_items SET kind='initiative' WHERE id='work-1';
+		DELETE FROM fold_guard`); err != nil {
+		t.Fatal(err)
+	}
+	before := countWorkflowEvents(t, s)
+	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := mutationEnvelope(grant, scopeVersion)
+	for _, actionID := range []string{"approve_contract", "dispatch_worker"} {
+		t.Run(actionID, func(t *testing.T) {
+			raw, err := json.Marshal(actionMutationInput{WorkID: "work-1", ExpectedVersion: version, ActionID: actionID, IdempotencyKey: "retired-preflight-" + actionID})
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = preflightWorkflowActionRequestWithRegistry(context.Background(), s, raw, env, grant, store.BuiltinWorkflowRegistry())
+			refusal := failureEnvelope(Envelope{}, err)
+			if refusal.Error == nil || refusal.Error.Kind != "invalid_input" || !strings.Contains(refusal.Error.Message, "CD-0213") || countWorkflowEvents(t, s) != before {
+				t.Fatalf("preflight error=%v events=%d->%d", err, before, countWorkflowEvents(t, s))
+			}
+		})
+	}
+}
+
 // The operator's task instruction is scattered state when capture refuses it:
 // the host surface accepts task at capture, so the agent-side payload schema
 // is the only refusing gate, and a one-call capture could not carry the

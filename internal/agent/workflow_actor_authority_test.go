@@ -81,6 +81,188 @@ func TestCaptureWorkflowTypeInitializesAndDispatchesFirstAction(t *testing.T) {
 	}
 }
 
+// TestCaptureLiveAuthoringSelectorRefusesRetiredFamiliesAndUnnamedDecisionKinds
+// is the CD-0218 D1 public refusal witness the decision record names: the
+// retired families refuse capture and revise before any write, decision and
+// other captures refuse until the capture names a retained family, the three
+// kind defaults pin their family's current head, and an explicit retained
+// family captures without touching the operator kind vocabulary.
+func TestCaptureLiveAuthoringSelectorRefusesRetiredFamiliesAndUnnamedDecisionKinds(t *testing.T) {
+	t.Parallel()
+	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_define", "work_transition"})
+	snapshot := func() (works, instances, events int) {
+		t.Helper()
+		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM work_items`).Scan(&works); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_instances`).Scan(&instances); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events`).Scan(&events); err != nil {
+			t.Fatal(err)
+		}
+		return works, instances, events
+	}
+	// Every dispatch re-reads the scope version first: each accepted capture
+	// bumps it, so a stale envelope would refuse a later capture.
+	capture := func(kind, ref, key string, defectIntake bool) Envelope {
+		t.Helper()
+		freshScope, _, scopeErr := s.ScopeVersion(context.Background(), "project-1")
+		if scopeErr != nil {
+			t.Fatal(scopeErr)
+		}
+		freshEnv := mutationEnvelope(grant, freshScope)
+		raw := `{"title":"Live authoring probe","value_statement":"Probe the live authoring selector","kind":"` + kind + `","project_ids":["project-1"],`
+		if ref != "" {
+			raw += `"workflow_type_ref":"` + ref + `",`
+		}
+		if defectIntake {
+			raw += `"defect_intake":{"failure_shape":"live-authoring-selector-probe","reproduction":"Capture with kind bug pins the break-fix head through the live selector.","searched":"Searched the fixture store for an earlier same-shape capture; none exists.","related_defect_ids":[]},`
+		}
+		raw += `"idempotency_key":"` + key + `"}`
+		captured, dispatchErr := Dispatch(context.Background(), s, service, InvokeRequest{Tool: "concord_work_define", Operation: "capture", Input: json.RawMessage(raw)}, freshEnv)
+		if dispatchErr != nil {
+			t.Fatal(dispatchErr)
+		}
+		return captured
+	}
+	baselineWorks, baselineInstances, baselineEvents := snapshot()
+
+	for _, ref := range []string{"workflow.architecture_spike", "workflow.ops_runbook", "workflow.static_analysis", "workflow.generic_one_off"} {
+		refused := capture("task", ref, "retired-"+ref, false)
+		// The boundary renders the authoring refusal as invariant_violation;
+		// the message is the typed answer and must name the family.
+		if refused.Outcome != OutcomeError || refused.Error == nil || refused.Error.Kind != "invariant_violation" {
+			t.Fatalf("retired capture %s = %+v, want the archived-authoring refusal", ref, refused.Error)
+		}
+		if !strings.Contains(refused.Error.Message, ref) {
+			t.Fatalf("retired capture refusal %q must name the family", refused.Error.Message)
+		}
+		if works, instances, events := snapshot(); works != baselineWorks || instances != baselineInstances || events != baselineEvents {
+			t.Fatalf("retired capture %s wrote state: works=%d/%d instances=%d/%d events=%d/%d", ref, baselineWorks, works, baselineInstances, instances, baselineEvents, events)
+		}
+	}
+
+	// Decision and other work carries no implicit family: the unnamed kind
+	// refuses with the typed workflow_authoring answer and commits nothing.
+	for _, kind := range []string{"decision", "other"} {
+		refused := capture(kind, "", "unnamed-"+kind, false)
+		// The boundary renders the unnamed-kind authoring refusal as
+		// invalid_input; the message is the typed workflow_authoring answer.
+		if refused.Outcome != OutcomeError || refused.Error == nil || refused.Error.Kind != "invalid_input" {
+			t.Fatalf("unnamed %s capture = %+v, want the explicit-family refusal", kind, refused.Error)
+		}
+		if !strings.Contains(refused.Error.Message, "explicit retained workflow family") {
+			t.Fatalf("unnamed %s refusal %q must name the explicit-family rule", kind, refused.Error.Message)
+		}
+		if works, instances, events := snapshot(); works != baselineWorks || instances != baselineInstances || events != baselineEvents {
+			t.Fatalf("unnamed %s capture wrote state: works=%d/%d instances=%d/%d events=%d/%d", kind, baselineWorks, works, baselineInstances, instances, baselineEvents, events)
+		}
+	}
+
+	// The kind defaults pin their family's current head; an explicit retained
+	// family captures exactly what the caller named. The operator kind stays
+	// its own vocabulary: a decision work item is still kind decision. The
+	// bug capture carries its defect intake admission.
+	capturedWorks := map[string]string{}
+	for _, happy := range []struct {
+		kind, ref, wantRef string
+		wantVersion        int64
+		defectIntake       bool
+	}{
+		{kind: "task", ref: "", wantRef: "workflow.implementation", wantVersion: 30},
+		{kind: "bug", ref: "", wantRef: "workflow.break_fix", wantVersion: 27, defectIntake: true},
+		{kind: "research", ref: "", wantRef: "workflow.research", wantVersion: 17},
+		{kind: "decision", ref: "workflow.break_fix", wantRef: "workflow.break_fix", wantVersion: 27},
+		{kind: "other", ref: "workflow.research", wantRef: "workflow.research", wantVersion: 17},
+	} {
+		happy := happy
+		t.Run("capture-"+happy.kind+"-"+happy.ref, func(t *testing.T) {
+			captured := capture(happy.kind, happy.ref, "happy-"+happy.kind+"-"+happy.ref, happy.defectIntake)
+			if captured.Outcome != OutcomeOK || len(*captured.ChangedRefs) != 1 {
+				t.Fatalf("capture kind=%s ref=%q response=%+v err=%v", happy.kind, happy.ref, captured, captured.Error)
+			}
+			workID := (*captured.ChangedRefs)[0].ID
+			var pinnedRef string
+			var pinnedVersion int64
+			if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref,definition_version FROM workflow_instances WHERE work_id=?`, workID).Scan(&pinnedRef, &pinnedVersion); err != nil {
+				t.Fatal(err)
+			}
+			if pinnedRef != happy.wantRef || pinnedVersion != happy.wantVersion {
+				t.Fatalf("capture kind=%s ref=%q pinned %s v%d, want %s v%d", happy.kind, happy.ref, pinnedRef, pinnedVersion, happy.wantRef, happy.wantVersion)
+			}
+			var workKind string
+			if err := s.DatabaseForTesting().QueryRow(`SELECT kind FROM work_items WHERE id=?`, workID).Scan(&workKind); err != nil {
+				t.Fatal(err)
+			}
+			if workKind != happy.kind {
+				t.Fatalf("captured work kind=%q, want the operator kind %q unchanged", workKind, happy.kind)
+			}
+			capturedWorks[happy.kind+"|"+happy.ref] = workID
+		})
+	}
+
+	// A revise that names a retired family refuses before any write, and the
+	// same revise through the live selector re-pins the fresh instance. The
+	// target is the decision work the happy captures created.
+	target, ok := capturedWorks["decision|workflow.break_fix"]
+	if !ok {
+		t.Fatal("the explicit decision capture left no work id to revise")
+	}
+	var beforeVersion int64
+	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id=?`, target).Scan(&beforeVersion); err != nil {
+		t.Fatal(err)
+	}
+	_, _, beforeEvents := snapshot()
+	workVersionOf := func(id string) int64 {
+		t.Helper()
+		var version int64
+		if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id=?`, id).Scan(&version); err != nil {
+			t.Fatal(err)
+		}
+		return version
+	}
+	revise := func(ref, key string) Envelope {
+		t.Helper()
+		freshScope, _, scopeErr := s.ScopeVersion(context.Background(), "project-1")
+		if scopeErr != nil {
+			t.Fatal(scopeErr)
+		}
+		freshEnv := mutationEnvelope(grant, freshScope)
+		raw := `{"work_id":"` + target + `","expected_version":` + strconv.FormatInt(beforeVersion, 10) + `,"title":"Live authoring probe","value_statement":"Probe the live authoring selector","kind":"decision","reason":"retarget the family"`
+		if ref != "" {
+			raw += `,"workflow_type_ref":"` + ref + `"`
+		}
+		raw += `,"idempotency_key":"` + key + `"}`
+		response, dispatchErr := Dispatch(context.Background(), s, service, InvokeRequest{Tool: "concord_work_define", Operation: "revise_intent", Input: json.RawMessage(raw)}, freshEnv)
+		if dispatchErr != nil {
+			t.Fatal(dispatchErr)
+		}
+		return response
+	}
+	retired := revise("workflow.generic_one_off", "revise-retired-ref")
+	if retired.Outcome != OutcomeError || retired.Error == nil || retired.Error.Kind != "invariant_violation" || !strings.Contains(retired.Error.Message, "workflow.generic_one_off") {
+		t.Fatalf("retired revise = %+v, want the archived-authoring refusal naming the family", retired.Error)
+	}
+	if gotVersion := workVersionOf(target); gotVersion != beforeVersion {
+		t.Fatalf("retired revise moved the work from %d to %d", beforeVersion, gotVersion)
+	}
+	if _, _, gotEvents := snapshot(); gotEvents != beforeEvents {
+		t.Fatalf("retired revise wrote %d events over baseline %d", gotEvents, beforeEvents)
+	}
+	repinned := revise("workflow.research", "revise-explicit-family")
+	if repinned.Outcome != OutcomeOK {
+		t.Fatalf("explicit retained revise = %+v err=%v", repinned, repinned.Error)
+	}
+	var pinnedRef string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref FROM workflow_instances WHERE work_id=?`, target).Scan(&pinnedRef); err != nil {
+		t.Fatal(err)
+	}
+	if pinnedRef != "workflow.research" {
+		t.Fatalf("repinned family = %s, want workflow.research", pinnedRef)
+	}
+}
+
 func TestOperatorQuestionPremiseSummaryUsesSchemaRuneBound(t *testing.T) {
 	t.Parallel()
 	choice := map[string]any{"id": "confirm", "label": "Confirm", "description": "Continue", "action_id": "confirm_premise"}
@@ -146,7 +328,9 @@ func TestConfirmPremiseInvokeDerivesOperatorFromSignedApproval(t *testing.T) {
 	}
 	env := mutationEnvelope(grant, scopeVersion)
 	evaluatorEnv := mutationEnvelope(issue31EvaluatorGrant(t, service, privateKey), scopeVersion)
-	for _, actionID := range []string{"record_proposal", "record_alignment", "record_discovery", "record_design"} {
+	// The canonical head removed the discovery marker: alignment feeds design
+	// directly, so the pre-contract walk is proposal, alignment, design.
+	for _, actionID := range []string{"record_proposal", "record_alignment", "record_design"} {
 		invokeWorkflowIssue31Action(t, s, service, env, actionID, workflowIssue31Version(t, s), "issue31-"+actionID)
 	}
 	approve := workflowContractActionInput(t, "issue31-approve", "")
@@ -157,7 +341,7 @@ func TestConfirmPremiseInvokeDerivesOperatorFromSignedApproval(t *testing.T) {
 	challengeRef, _ := challenge.Error.Details["approval_ref"].(string)
 	digest := mutationDigest("concord_work_transition", "workflow_action", env, approve)
 	scope := map[string]any{"product_id": "product-1", "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}, "scope_version": scopeVersion}
-	versions := map[string]any{"work": 11}
+	versions := map[string]any{"work": 10}
 	env.HostApproval = signedHostApproval(privateKey, challengeRef, digest, scope, versions, grant.SessionRef, grant.AgentRef, grant.Worktree, fixedTime(), "issue31-approve-nonce")
 	approved := workflowContractActionInput(t, "issue31-approve", challengeRef)
 	response := invokeWorkflowIssue31(t, s, service, env, approved)
@@ -240,7 +424,7 @@ func TestConfirmPremiseInvokeToleratesEmptyHostPrincipal(t *testing.T) {
 	}
 	env := mutationEnvelope(grant, scopeVersion)
 	evaluatorEnv := mutationEnvelope(issue31EvaluatorGrant(t, service, privateKey), scopeVersion)
-	for _, actionID := range []string{"record_proposal", "record_alignment", "record_discovery", "record_design"} {
+	for _, actionID := range []string{"record_proposal", "record_alignment", "record_design"} {
 		invokeWorkflowIssue31Action(t, s, service, env, actionID, workflowIssue31Version(t, s), "empty-principal-"+actionID)
 	}
 	approve := workflowContractActionInput(t, "empty-principal-approve", "")
@@ -251,7 +435,7 @@ func TestConfirmPremiseInvokeToleratesEmptyHostPrincipal(t *testing.T) {
 	challengeRef, _ := challenge.Error.Details["approval_ref"].(string)
 	digest := mutationDigest("concord_work_transition", "workflow_action", env, approve)
 	scope := map[string]any{"product_id": "product-1", "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}, "scope_version": scopeVersion}
-	versions := map[string]any{"work": 11}
+	versions := map[string]any{"work": 10}
 	env.HostApproval = signedHostApproval(privateKey, challengeRef, digest, scope, versions, grant.SessionRef, grant.AgentRef, grant.Worktree, fixedTime(), "empty-principal-approve-nonce")
 	approved := workflowContractActionInput(t, "empty-principal-approve", challengeRef)
 	if response := invokeWorkflowIssue31(t, s, service, env, approved); response.Outcome != OutcomeOK {
@@ -302,11 +486,11 @@ func invokeWorkflowIssue31Action(t *testing.T, s *store.Store, service *Service,
 	if actionID == "record_proposal" {
 		fields = `,"fields":{"problem":"The bounded problem statement.","affected":["The affected system."],"stakes":"The bounded stakes statement.","user_outcomes":["The expected user outcome."]}`
 	}
-	if actionID == "record_discovery" {
-		fields = `,"fields":{}`
-	}
 	if actionID == "record_verdict" {
-		fields = `,"fields":{"predicate_id":"predicate:primary"}`
+		// The canonical head declares the verdicts batch alone: the batch
+		// entry keeps the entry semantics the single form bound (one
+		// predicate, defaulted ok kind, minted evidence).
+		fields = `,"fields":{"verdicts":[{"predicate_id":"predicate:primary"}]}`
 	}
 	input := json.RawMessage(`{"work_id":"work-1","expected_version":` + strconv.FormatInt(version, 10) + `,"action_id":"` + actionID + `"` + fields + `,"idempotency_key":"` + key + `"}`)
 	response := invokeWorkflowIssue31(t, s, service, env, input)
@@ -595,7 +779,7 @@ func prepareIssue31Confirm(t *testing.T) (*store.Store, *Service, Authority, ed2
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(grant, scopeVersion)
-	for _, actionID := range []string{"record_proposal", "record_alignment", "record_discovery", "record_design"} {
+	for _, actionID := range []string{"record_proposal", "record_alignment", "record_design"} {
 		invokeWorkflowIssue31Action(t, s, service, env, actionID, workflowIssue31Version(t, s), "prepare-"+actionID)
 	}
 	approve := workflowContractActionInput(t, "prepare-approve", "")
@@ -606,7 +790,7 @@ func prepareIssue31Confirm(t *testing.T) (*store.Store, *Service, Authority, ed2
 	challengeRef, _ := challenge.Error.Details["approval_ref"].(string)
 	scope := map[string]any{"product_id": "product-1", "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}, "scope_version": scopeVersion}
 	approveDigest := mutationDigest("concord_work_transition", "workflow_action", env, approve)
-	env.HostApproval = signedHostApproval(privateKey, challengeRef, approveDigest, scope, map[string]any{"work": 11}, grant.SessionRef, grant.AgentRef, grant.Worktree, fixedTime(), "prepare-approve-nonce")
+	env.HostApproval = signedHostApproval(privateKey, challengeRef, approveDigest, scope, map[string]any{"work": 10}, grant.SessionRef, grant.AgentRef, grant.Worktree, fixedTime(), "prepare-approve-nonce")
 	approved := workflowContractActionInput(t, "prepare-approve", challengeRef)
 	if response := invokeWorkflowIssue31(t, s, service, env, approved); response.Outcome != OutcomeOK {
 		t.Fatalf("contract approval response=%+v", response)

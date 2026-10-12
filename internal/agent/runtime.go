@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/sharper-flow/concord/internal/payloadschema"
-	"github.com/sharper-flow/concord/internal/portfolio"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -86,8 +85,7 @@ type pageInput struct {
 // effectiveLimit resolves the unified TS3 §3 pagination alias: the top-level
 // limit wins when both it and page.limit are nonzero, and 0 means the
 // operation's server default. Every paginated read handler selects its
-// effective limit through this one expression, mirroring the pattern
-// readKnowledgeUnprocessed established. Each alias field is omitempty so a
+// effective limit through this one expression. Each alias field is omitempty so a
 // call that does not send it marshals to the same cursor binding bytes as
 // before, and in-flight cursors survive the alias.
 func effectiveLimit(topLevel int, page pageInput) int {
@@ -139,12 +137,6 @@ type blockedSessionsInput struct {
 	Limit     int       `json:"limit,omitempty"`
 }
 
-type productRowPortfolioInput struct {
-	ProductID string                         `json:"product_id"`
-	Page      pageInput                      `json:"page"`
-	Limit     int                            `json:"limit,omitempty"`
-	Source    *store.ProductRowRelianceInput `json:"source"`
-}
 type workListInput struct {
 	ProductID     string    `json:"product_id"`
 	ProjectIDs    []string  `json:"project_ids"`
@@ -290,13 +282,6 @@ type knowledgeResolveInput struct {
 	KnowledgeID string `json:"knowledge_id"`
 }
 
-type knowledgeUnprocessedInput struct {
-	ProductID string    `json:"product_id"`
-	ProjectID string    `json:"project_id"`
-	Page      pageInput `json:"page"`
-	Limit     int       `json:"limit,omitempty"`
-}
-
 type runtime struct {
 	Store           *store.Store
 	Authority       *Service
@@ -388,16 +373,8 @@ func DispatchWithRegistry(ctx context.Context, s *store.Store, authority *Servic
 	}
 	inv := Invocation{ClientRef: env.ClientRef, PrincipalRef: env.PrincipalRef, SessionRef: env.SessionRef, AgentRef: env.AgentRef, Directory: env.Directory, Worktree: env.Worktree, ManifestDigest: env.ManifestDigest, HostAssertionDigest: env.HostAssertionDigest, RequiredCapability: op.Capability, RequiredOperation: request.Operation, ProductID: env.SelectedProductID}
 	if op.Kind != OperationRead && op.ID != "concord_work_transition.workflow_action" {
-		identity, identityExtractErr := extractMutationWorkIdentity(request.Input)
-		if identityExtractErr != nil {
+		if _, identityExtractErr := extractMutationWorkIdentity(request.Input); identityExtractErr != nil {
 			return base, identityExtractErr
-		}
-		if identity.RelationID != "" {
-			endpoints, endpointErr := s.RelationEndpoints(ctx, identity.RelationID)
-			if endpointErr != nil {
-				return failureEnvelope(base, endpointErr), nil
-			}
-			identity.WorkIDs = append(identity.WorkIDs, endpoints...)
 		}
 		identityInv := inv
 		identityInv.ProductID, identityInv.ProjectID = "", ""
@@ -531,13 +508,6 @@ func validateRequestedScope(ctx context.Context, s *store.Store, env CallEnvelop
 			workIDs = append(workIDs, owners...)
 		}
 	}
-	if identity.RelationID != "" {
-		endpoints, endpointErr := s.RelationEndpoints(ctx, identity.RelationID)
-		if endpointErr != nil {
-			return endpointErr
-		}
-		workIDs = append(workIDs, endpoints...)
-	}
 	if len(workIDs) > 0 {
 		scopes, err := s.ProductsForWorkIDs(ctx, workIDs)
 		if err != nil {
@@ -593,7 +563,7 @@ func validateRequestedScope(ctx context.Context, s *store.Store, env CallEnvelop
 }
 
 // validateWorkReferenceScope is the one Product policy for a work reference:
-// a direct work ID, a relation endpoint, or a research pack owner. Every
+// a direct work ID or a research pack owner. Every
 // referenced work's Products must intersect the grant, and a mutation outside
 // the selected Product also needs cross_scope.
 func validateWorkReferenceScope(env CallEnvelope, grant Authority, kind OperationKind, workIDs []string, scopes map[string][]string) error {
@@ -637,8 +607,7 @@ func (r runtime) authorizeWorkflowActionTx(ctx context.Context, tx *store.Transa
 }
 
 type mutationWorkIdentity struct {
-	WorkIDs    []string
-	RelationID string
+	WorkIDs []string
 }
 
 func extractMutationWorkIdentity(raw []byte) (mutationWorkIdentity, error) {
@@ -647,7 +616,7 @@ func extractMutationWorkIdentity(raw []byte) (mutationWorkIdentity, error) {
 		return mutationWorkIdentity{}, err
 	}
 	var result mutationWorkIdentity
-	for _, field := range []string{"work_id", "initiative_work_id", "child_work_id", "from_work_id", "to_work_id", "predecessor_id", "successor_id", "replacement_successor_id"} {
+	for _, field := range []string{"work_id", "initiative_work_id", "child_work_id", "from_work_id", "to_work_id"} {
 		if value, ok := fields[field]; ok {
 			var id string
 			if json.Unmarshal(value, &id) == nil && id != "" {
@@ -661,9 +630,6 @@ func extractMutationWorkIdentity(raw []byte) (mutationWorkIdentity, error) {
 			return mutationWorkIdentity{}, err
 		}
 		result.WorkIDs = append(result.WorkIDs, ids...)
-	}
-	if value, ok := fields["relation_id"]; ok {
-		_ = json.Unmarshal(value, &result.RelationID)
 	}
 	return result, nil
 }
@@ -1209,8 +1175,6 @@ func (r runtime) readResult(ctx context.Context, base Envelope, input []byte, qu
 		return r.readProductResolve(ctx, base, input)
 	case "concord_product_view.snapshot":
 		return r.readProductSnapshot(ctx, base, input)
-	case "concord_product_view.portfolio":
-		return r.readProductPortfolio(ctx, base, input)
 	case "concord_product_view.blocked_sessions":
 		return r.readProductBlockedSessions(ctx, base, input)
 	case "concord_product_view.resources":
@@ -1249,9 +1213,7 @@ func (r runtime) readResult(ctx context.Context, base Envelope, input []byte, qu
 		return r.readKnowledgeSearch(ctx, base, input)
 	case "concord_knowledge.resolve_note":
 		return r.readKnowledgeResolveNote(ctx, base, input)
-	case "concord_knowledge.unprocessed":
-		return r.readKnowledgeUnprocessed(ctx, base, input)
-	case "concord_domain.list", "concord_domain.detail", "concord_domain.active_work", "concord_domain.attachments", "concord_domain.overlaps":
+	case "concord_domain.list", "concord_domain.detail", "concord_domain.attachments", "concord_domain.overlaps":
 		return r.readDomain(ctx, base, input, queryID)
 	default:
 		return base, errors.New("unsupported read operation")
@@ -1541,13 +1503,6 @@ func (r runtime) q2(base Envelope, q store.Q2Result) (Envelope, error) {
 	return r.resultEnvelope(base, q.ResultMeta, r.scope(q.ResultMeta), map[string]any{"counts": map[string]int{"needed": q.LifecycleCounts["needed"], "in_progress": q.LifecycleCounts["in_progress"], "completed": q.LifecycleCounts["completed"], "cancelled": q.LifecycleCounts["cancelled"]}, "previews": items})
 }
 
-func (r runtime) productRows(base Envelope, q store.ProductRowResult) (Envelope, error) {
-	payload, err := portfolio.Payload(q)
-	if err != nil {
-		return base, err
-	}
-	return r.resultEnvelope(base, q.ResultMeta, r.scope(q.ResultMeta), json.RawMessage(payload))
-}
 func (r runtime) q3(base Envelope, q store.Q3Result) (Envelope, error) {
 	items := make([]workSummary, 0, len(q.Items))
 	for _, w := range q.Items {

@@ -65,13 +65,9 @@ func readInstanceStep(t *testing.T, s *Store, workID string) string {
 func TestWorkflowInstanceStartsAtItsDefinitionStartStep(t *testing.T) {
 	t.Parallel()
 	want := map[string]string{
-		"workflow.implementation":     "proposal",
-		"workflow.break_fix":          "reproduce",
-		"workflow.research":           "frame",
-		"workflow.architecture_spike": "frame",
-		"workflow.ops_runbook":        "plan",
-		"workflow.static_analysis":    "scope",
-		"workflow.generic_one_off":    "define",
+		"workflow.implementation": "proposal",
+		"workflow.break_fix":      "diagnosis",
+		"workflow.research":       "frame",
 	}
 	for _, definition := range BuiltinWorkflowDefinitions() {
 		s := openTemp(t)
@@ -95,13 +91,9 @@ func TestWorkflowInstanceStartsAtItsDefinitionStartStep(t *testing.T) {
 func TestWorkflowContractStepIsDerivedFromTheDefinition(t *testing.T) {
 	t.Parallel()
 	want := map[string]string{
-		"workflow.implementation":     "planning",
-		"workflow.break_fix":          "planning",
-		"workflow.research":           "frame",
-		"workflow.architecture_spike": "frame",
-		"workflow.ops_runbook":        "plan",
-		"workflow.static_analysis":    "scope",
-		"workflow.generic_one_off":    "define",
+		"workflow.implementation": "planning",
+		"workflow.break_fix":      "planning",
+		"workflow.research":       "frame",
 	}
 	for _, definition := range BuiltinWorkflowDefinitions() {
 		got, err := workflowDefinitionContractStep(definition)
@@ -122,26 +114,21 @@ func TestRepinWritesTheNewDefinitionStartStep(t *testing.T) {
 	s := openTemp(t)
 	defer s.Close()
 	seedStepWork(t, s, "work-repin")
-	var generic, implementation WorkflowDefinition
-	for _, definition := range BuiltinWorkflowDefinitions() {
-		switch definition.Ref {
-		case "workflow.generic_one_off":
-			generic = definition
-		case "workflow.implementation":
-			implementation = definition
-		}
-	}
-	initializeStepWorkflow(t, s, "work-repin", generic)
-	if got := readInstanceStep(t, s, "work-repin"); got != "define" {
-		t.Fatalf("initial step = %q, want define", got)
-	}
-	registered, err := BuiltinWorkflowRegistry().Register(implementation)
+	research, err := BuiltinWorkflowDefinitionForRef("workflow.research")
 	if err != nil {
 		t.Fatal(err)
 	}
+	implementation, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	initializeStepWorkflow(t, s, "work-repin", research.Definition)
+	if got := readInstanceStep(t, s, "work-repin"); got != "frame" {
+		t.Fatalf("initial step = %q, want frame", got)
+	}
 	ctx := context.Background()
 	if err := s.Transact(ctx, func(transaction *Transaction) error {
-		return RepinWorkflowTx(ctx, transaction, WorkflowRepinRequest{WorkID: "work-repin", EventID: "work-repin-repin", Definition: registered, Actor: stepFixtureActor(), Now: time.Unix(9, 0).UTC()})
+		return RepinWorkflowTx(ctx, transaction, WorkflowRepinRequest{WorkID: "work-repin", EventID: "work-repin-repin", Definition: implementation, Actor: stepFixtureActor(), Now: time.Unix(9, 0).UTC()})
 	}); err != nil {
 		t.Fatal(err)
 	}

@@ -88,6 +88,55 @@ type workflowRecoveryRouteTuple struct {
 	WorkflowID string
 }
 
+// workflowRecoveryRouteDisposition names what the battery does with one
+// tuple. Live rows are the canonical heads the public boundary serves:
+// batched verdicts, explicit outcome predicates, derived starts, and the
+// typed diagnosis are the only authoring shapes the closed input union
+// admits (CD-0218 D1/D2). Recorded-history rows are retained-family pins
+// the binary keeps readable at their exact released versions; their public
+// journeys rode shapes the live union no longer publishes, so their frozen
+// route tables stay covered by the static guard alone. Archived-refusal
+// rows are the retired families: every public mutation on a nonterminal
+// archived instance refuses with zero effects (CD-0218 D1).
+type workflowRecoveryRouteDisposition string
+
+const (
+	recoveryRouteLive            workflowRecoveryRouteDisposition = "live"
+	recoveryRouteRecordedHistory workflowRecoveryRouteDisposition = "recorded-history"
+	recoveryRouteArchivedRefusal workflowRecoveryRouteDisposition = "archived-refusal"
+)
+
+// workflowRecoveryCanonicalHeads names the canonical authoring heads the
+// live journeys run on; the store's live-authoring owner pins the same
+// versions.
+var workflowRecoveryCanonicalHeads = map[string]int64{
+	"workflow.implementation": 30,
+	"workflow.break_fix":      27,
+	"workflow.research":       17,
+}
+
+// workflowRecoveryArchivedFamilies names the families whose live authoring
+// CD-0218 D1 retired; the frozen registry keeps every released pin readable.
+var workflowRecoveryArchivedFamilies = map[string]bool{
+	"workflow.architecture_spike": true,
+	"workflow.ops_runbook":        true,
+	"workflow.static_analysis":    true,
+	"workflow.generic_one_off":    true,
+}
+
+// workflowRecoveryRouteDispositionOf derives one tuple's disposition from
+// the registry facts the store owns, so the battery cannot drift from the
+// live selector by tagging rows by hand.
+func workflowRecoveryRouteDispositionOf(tuple workflowRecoveryRouteTuple) workflowRecoveryRouteDisposition {
+	if workflowRecoveryArchivedFamilies[tuple.Ref] {
+		return recoveryRouteArchivedRefusal
+	}
+	if head, live := workflowRecoveryCanonicalHeads[tuple.Ref]; !live || tuple.Version != head {
+		return recoveryRouteRecordedHistory
+	}
+	return recoveryRouteLive
+}
+
 // workflowRecoveryRouteTuples is the unhealthy-route table enumerated by the
 // public journey and its coverage guard. Historical pins and frozen v13 trips
 // run alongside the worker-job pins; complete-step supersessions have their
@@ -331,6 +380,84 @@ func workflowRecoveryRouteTuples() []workflowRecoveryRouteTuple {
 			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
 			RecordWorkerJob:  true,
 			WorkflowID:       "implementation-v27-release",
+		},
+		// The CD-0198 heads republish the same recovery tables; their
+		// journeys enter the producer and refinement steps through the
+		// qualifying checkpoints the derived-start pins admit.
+		{
+			Ref: "workflow.implementation", Version: 28,
+			Step: "acceptance", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execution",
+			ProducerStep: "execution", DeliveryStep: "execution", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "start_execution",
+			VerdictStep: "acceptance", BindStep: "execution", BindKind: store.EvidenceArtifact,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
+			RecordWorkerJob:  true,
+			WorkflowID:       "implementation-v28-acceptance",
+		},
+		{
+			Ref: "workflow.implementation", Version: 28,
+			Step: "release", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execution",
+			ProducerStep: "execution", DeliveryStep: "execution", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "start_execution",
+			VerdictStep: "release", BindStep: "execution", BindKind: store.EvidenceArtifact,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
+			RecordWorkerJob:  true,
+			WorkflowID:       "implementation-v28-release",
+		},
+		{
+			Ref: "workflow.break_fix", Version: 25,
+			Step: "verify", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "repair",
+			ProducerStep: "repair", DeliveryStep: "repair", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "checkpoint_repair",
+			VerdictStep: "verify", BindStep: "repair", BindKind: store.EvidenceVerification,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceVerification},
+			RecordWorkerJob:  true,
+			WorkflowID:       "break_fix-v25-verify",
+		},
+		{
+			Ref: "workflow.break_fix", Version: 25,
+			Step: "complete", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "repair",
+			ProducerStep: "repair", DeliveryStep: "repair", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "checkpoint_repair",
+			VerdictStep: "complete", BindStep: "repair", BindKind: store.EvidenceVerification,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceVerification},
+			RecordWorkerJob:  true,
+			WorkflowID:       "break_fix-v25-complete",
+		},
+		// The CD-0198 D5 heads republish the same recovery tables; their
+		// journeys enter the producer and refinement steps through the
+		// qualifying checkpoints the derived-start pins admit.
+		{
+			Ref: "workflow.implementation", Version: 29,
+			Step: "acceptance", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execution",
+			ProducerStep: "execution", DeliveryStep: "execution", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "start_execution",
+			VerdictStep: "acceptance", BindStep: "execution", BindKind: store.EvidenceArtifact,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
+			RecordWorkerJob:  true,
+			WorkflowID:       "implementation-v29-acceptance",
+		},
+		{
+			Ref: "workflow.implementation", Version: 29,
+			Step: "release", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execution",
+			ProducerStep: "execution", DeliveryStep: "execution", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "start_execution",
+			VerdictStep: "release", BindStep: "execution", BindKind: store.EvidenceArtifact,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
+			RecordWorkerJob:  true,
+			WorkflowID:       "implementation-v29-release",
+		},
+		{
+			Ref: "workflow.break_fix", Version: 26,
+			Step: "verify", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "repair",
+			ProducerStep: "repair", DeliveryStep: "repair", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "checkpoint_repair",
+			VerdictStep: "verify", BindStep: "repair", BindKind: store.EvidenceVerification,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceVerification},
+			RecordWorkerJob:  true,
+			WorkflowID:       "break_fix-v26-verify",
+		},
+		{
+			Ref: "workflow.break_fix", Version: 26,
+			Step: "complete", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "repair",
+			ProducerStep: "repair", DeliveryStep: "repair", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "checkpoint_repair",
+			VerdictStep: "complete", BindStep: "repair", BindKind: store.EvidenceVerification,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceVerification},
+			RecordWorkerJob:  true,
+			WorkflowID:       "break_fix-v26-complete",
 		},
 		{
 			Ref: "workflow.break_fix", Version: 24,
@@ -581,6 +708,62 @@ func workflowRecoveryRouteTuples() []workflowRecoveryRouteTuple {
 			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
 			WorkflowID:       "generic_one_off-v16-complete",
 		},
+		// The CD-0218 canonical heads carry the live journeys: batched
+		// verdicts, explicit outcome predicates, derived repair/refine starts,
+		// the typed diagnosis, and no discovery marker. Their entries ride the
+		// qualifying checkpoints the derived-start pins admit.
+		{
+			Ref: "workflow.implementation", Version: 30,
+			Step: "acceptance", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execution",
+			ProducerStep: "execution", DeliveryStep: "execution", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "start_execution",
+			VerdictStep: "acceptance", BindStep: "execution", BindKind: store.EvidenceArtifact,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
+			RecordWorkerJob:  true,
+			WorkflowID:       "implementation-v30-acceptance",
+		},
+		{
+			Ref: "workflow.implementation", Version: 30,
+			Step: "release", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execution",
+			ProducerStep: "execution", DeliveryStep: "execution", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "start_execution",
+			VerdictStep: "release", BindStep: "execution", BindKind: store.EvidenceArtifact,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
+			RecordWorkerJob:  true,
+			WorkflowID:       "implementation-v30-release",
+		},
+		{
+			Ref: "workflow.break_fix", Version: 27,
+			Step: "verify", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "repair",
+			ProducerStep: "repair", DeliveryStep: "repair", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "checkpoint_repair",
+			VerdictStep: "verify", BindStep: "repair", BindKind: store.EvidenceVerification,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceVerification},
+			RecordWorkerJob:  true,
+			WorkflowID:       "break_fix-v27-verify",
+		},
+		{
+			Ref: "workflow.break_fix", Version: 27,
+			Step: "complete", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "repair",
+			ProducerStep: "repair", DeliveryStep: "repair", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "checkpoint_repair",
+			VerdictStep: "complete", BindStep: "repair", BindKind: store.EvidenceVerification,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceVerification},
+			RecordWorkerJob:  true,
+			WorkflowID:       "break_fix-v27-complete",
+		},
+		{
+			Ref: "workflow.research", Version: 17,
+			Step: "conclude", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "investigate",
+			ProducerStep: "investigate", DeliveryStep: "investigate", ProducerAction: "dispatch_worker", DeliveryLane: "research", DeliveryAction: "",
+			VerdictStep: "conclude", BindStep: "investigate", BindKind: store.EvidenceArtifact,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
+			WorkflowID:       "research-v17-conclude",
+		},
+		{
+			Ref: "workflow.research", Version: 17,
+			Step: "complete", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "investigate",
+			ProducerStep: "investigate", DeliveryStep: "investigate", ProducerAction: "dispatch_worker", DeliveryLane: "research", DeliveryAction: "",
+			VerdictStep: "complete", BindStep: "investigate", BindKind: store.EvidenceArtifact,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
+			WorkflowID:       "research-v17-complete",
+		},
 	}
 	return tuples
 }
@@ -593,16 +776,34 @@ func workflowRecoveryRouteTuples() []workflowRecoveryRouteTuple {
 // (ref, version) fails the test before the journey runs.
 func TestWorkflowRecoveryRoutesDeclareEveryEvaluatorStep(t *testing.T) {
 	tuples := workflowRecoveryRouteTuples()
-	if len(tuples) != 58 {
-		t.Fatalf("recovery-route journey table carries %d tuples, want 58 (16 authored unhealthy routes + 2 frozen v13 routes + 4 CD-0205 worker-job authors + 16 premise-floor versions + 16 CON-887 context versions + 4 CON-890 oracle versions)", len(tuples))
+	if len(tuples) != 72 {
+		t.Fatalf("recovery-route journey table carries %d tuples, want 72 (66 baseline rows + the six CD-0218 canonical-head rows)", len(tuples))
 	}
 	seen := map[string]bool{}
+	live, history, refusals := 0, 0, 0
 	for _, tuple := range tuples {
 		if tuple.Action != "request_correction" {
 			t.Errorf("%s tuple action=%q, want request_correction", tuple.WorkflowID, tuple.Action)
 		}
 		if tuple.Target == tuple.Step {
 			t.Errorf("%s tuple target=%q equals step", tuple.WorkflowID, tuple.Target)
+		}
+		switch workflowRecoveryRouteDispositionOf(tuple) {
+		case recoveryRouteLive:
+			live++
+			if head := workflowRecoveryCanonicalHeads[tuple.Ref]; tuple.Version != head {
+				t.Errorf("%s live tuple pins %s v%d, want the canonical head v%d", tuple.WorkflowID, tuple.Ref, tuple.Version, head)
+			}
+		case recoveryRouteRecordedHistory:
+			history++
+			if workflowRecoveryArchivedFamilies[tuple.Ref] {
+				t.Errorf("%s history tuple pins an archived family", tuple.WorkflowID)
+			}
+		case recoveryRouteArchivedRefusal:
+			refusals++
+			if !workflowRecoveryArchivedFamilies[tuple.Ref] {
+				t.Errorf("%s refusal tuple pins a live family", tuple.WorkflowID)
+			}
 		}
 		// The frozen v13 and the new v14 share the same (ref,
 		// step, trigger) keys because v13 resolves through the
@@ -663,6 +864,12 @@ func TestWorkflowRecoveryRoutesDeclareEveryEvaluatorStep(t *testing.T) {
 			t.Errorf("%s declares no route for (step=%q, trigger=%q)", tuple.WorkflowID, tuple.Step, tuple.Trigger)
 		}
 	}
+	// The disposition split is the CD-0218 battery shape: six live canonical
+	// journeys, the retained-family released pins as recorded history, and
+	// the 32 retired-family rows as archived-refusal coverage.
+	if live != 6 || history != 34 || refusals != 32 {
+		t.Fatalf("journey table dispositions: live=%d history=%d refusals=%d, want 6/34/32", live, history, refusals)
+	}
 	for _, tuple := range workflowRecoveryRouteSupersedeTuples() {
 		key := tuple.Ref + "|v" + strconv.FormatInt(tuple.Version, 10) + "|" + tuple.Step + "|" + string(store.WorkflowRecoveryTriggerDisprovedPremiseAtComplete)
 		if seen[key] {
@@ -678,25 +885,155 @@ func TestWorkflowRecoveryRoutesDeclareEveryEvaluatorStep(t *testing.T) {
 		for _, route := range definition.RecoveryRoutes {
 			key := definition.Ref + "|v" + strconv.FormatInt(definition.Version, 10) + "|" + route.Step + "|" + string(route.Trigger)
 			if !seen[key] {
-				t.Errorf("declared route %s has no public-tool journey", key)
+				t.Errorf("declared route %s has no journey-table row", key)
 			}
 		}
 	}
 }
 
 // TestWorkflowRecoveryRoutesJourneyAdmitsEveryDeclaredRoute is the
-// table-driven public-tool regression: each declared tuple drives the
-// real Concord mutation boundary through the exact journey CD-0143,
-// CD-0164, CD-0201, and CD-0204 name, asserting that the engine admits
-// every step and that the artifact comes from a causal fresh dispatch
-// at the declared target. The D7 coverage guard is the same test: a
-// failure on any tuple is a failure of the suite, not a skip.
+// table-driven public-tool regression. Live tuples drive the real Concord
+// mutation boundary through the exact journey CD-0143, CD-0164, CD-0201,
+// and CD-0204 name, asserting that the engine admits every step and that
+// the artifact comes from a causal fresh dispatch at the declared target.
+// Archived tuples drive the CD-0218 D1 refusal battery: the same public
+// boundary refuses every nonterminal archived-family mutation with zero
+// effects. Recorded-history tuples carry no executable journey — the live
+// union no longer publishes the shapes their released journeys rode — so
+// the static coverage guard above holds their declared routes at the exact
+// released pins. The D7 coverage guard is the same test: a failure on any
+// tuple is a failure of the suite, not a skip.
 func TestWorkflowRecoveryRoutesJourneyAdmitsEveryDeclaredRoute(t *testing.T) {
 	for _, tuple := range workflowRecoveryRouteTuples() {
 		tuple := tuple
-		t.Run(tuple.WorkflowID, func(t *testing.T) {
-			runWorkflowRecoveryRouteJourney(t, tuple)
-		})
+		switch workflowRecoveryRouteDispositionOf(tuple) {
+		case recoveryRouteLive:
+			t.Run(tuple.WorkflowID, func(t *testing.T) {
+				runWorkflowRecoveryRouteJourney(t, tuple)
+			})
+		case recoveryRouteArchivedRefusal:
+			t.Run(tuple.WorkflowID, func(t *testing.T) {
+				runWorkflowRecoveryRouteArchivedRefusal(t, tuple)
+			})
+		case recoveryRouteRecordedHistory:
+			t.Run(tuple.WorkflowID, func(t *testing.T) {
+				runWorkflowRecoveryRouteRecordedHistory(t, tuple)
+			})
+		}
+	}
+}
+
+// runWorkflowRecoveryRouteRecordedHistory keeps the released retained pin's
+// recorded-reader expectations: the exact released version stays registered,
+// resolves its declared route at the pinned step and trigger, and the pin's
+// definition digest still verifies against the registry's own bytes. The
+// retired public journey shapes it used to drive are frozen history, never
+// a live authoring permission (CD-0218 D4).
+func runWorkflowRecoveryRouteRecordedHistory(t *testing.T, tuple workflowRecoveryRouteTuple) {
+	t.Helper()
+	entry, ok := store.BuiltinWorkflowRegistry().Lookup(tuple.Ref, tuple.Version)
+	if !ok {
+		t.Fatalf("released pin %s v%d is no longer registered", tuple.Ref, tuple.Version)
+	}
+	hit := false
+	for _, route := range entry.Definition.RecoveryRoutes {
+		if route.Step == tuple.Step && route.Trigger == tuple.Trigger {
+			if route.Action != tuple.Action || route.Target != tuple.Target {
+				t.Fatalf("%s recorded route %+v drifted from the tuple's (%s, %s)", tuple.WorkflowID, route, tuple.Action, tuple.Target)
+			}
+			hit = true
+		}
+	}
+	if !hit {
+		t.Fatalf("%s recorded route table lost (%s, %s)", tuple.WorkflowID, tuple.Step, tuple.Trigger)
+	}
+	digest, err := store.WorkflowDefinitionDigest(entry.Definition)
+	if err != nil {
+		t.Fatalf("digest the released pin %s v%d: %v", tuple.Ref, tuple.Version, err)
+	}
+	if digest != entry.Digest {
+		t.Fatalf("released pin %s v%d recomputed %s, want the recorded %s", tuple.Ref, tuple.Version, digest, entry.Digest)
+	}
+}
+
+// runWorkflowRecoveryRouteArchivedRefusal is the CD-0218 D1 public refusal
+// witness: a nonterminal instance pinned to an archived family refuses the
+// route's correction action through the real mutation boundary, names the
+// archived family, and commits nothing — no events beyond the synthesized
+// pre-cut initialization, no step move, no version bump, no contract rows.
+func runWorkflowRecoveryRouteArchivedRefusal(t *testing.T, tuple workflowRecoveryRouteTuple) {
+	t.Helper()
+	ctx := context.Background()
+	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition", "work_define"})
+	worktree := recoveryDomainRepository(t, s)
+
+	entry, ok := store.BuiltinWorkflowRegistry().Lookup(tuple.Ref, tuple.Version)
+	if !ok {
+		t.Fatalf("archived pin %s v%d is no longer registered", tuple.Ref, tuple.Version)
+	}
+	// The nonterminal archived instance is the state a serving release
+	// leaves behind; the live selector refuses new captures of the family,
+	// so the fixture synthesizes the instance at the initialization seam.
+	grantActor := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
+	if err := s.Transact(ctx, func(tx *store.Transaction) error {
+		return store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: "work-1", Definition: entry, Actor: grantActor, Now: fixedTime()})
+	}); err != nil {
+		t.Fatalf("initialize archived workflow %s v%d: %v", tuple.Ref, tuple.Version, err)
+	}
+	grant.Worktree = worktree
+	state := func() (step string, version int64, events int64, contracts int64) {
+		t.Helper()
+		if err := s.DatabaseForTesting().QueryRow(`SELECT current_step FROM workflow_instances WHERE work_id='work-1'`).Scan(&step); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id='work-1'`).Scan(&version); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_id='work-1'`).Scan(&events); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM workflow_contracts WHERE work_id='work-1'`).Scan(&contracts); err != nil {
+			t.Fatal(err)
+		}
+		return step, version, events, contracts
+	}
+	beforeStep, beforeVersion, beforeEvents, beforeContracts := state()
+
+	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := mutationEnvelope(grant, scopeVersion)
+	// checkpoint_context is the step action every released graph declares at
+	// its start step, so availability passes and the archived-family gate is
+	// what refuses — the same action the store's refusal witness uses.
+	refusalAction := map[string]any{
+		"work_id": "work-1", "expected_version": beforeVersion, "action_id": "checkpoint_context", "idempotency_key": tuple.WorkflowID + "-archived-refusal",
+		"fields": map[string]any{"active_unit": "archived " + tuple.WorkflowID, "hypothesis": "the recorded state still mutates", "diagnosis": "the archived family refuses the public action", "strategy": "read the recorded history, or start retained-family work", "touched_refs": []string{"internal/agent/workflow_recovery_routes_agent_test.go"}, "evidence_refs": []string{"evidence:" + tuple.WorkflowID}, "pending_questions": []string{}, "pending_decisions": []string{}},
+	}
+	response, dispatchErr := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: retryJSON(refusalAction)}, env)
+	if dispatchErr != nil {
+		t.Fatalf("archived action dispatch: %v", dispatchErr)
+	}
+	if response.Outcome != OutcomeError || response.Error == nil || response.Error.Kind != "invalid_input" {
+		t.Fatalf("archived %s action = %+v, want the archived-family refusal", tuple.Ref, response.Error)
+	}
+	if !strings.Contains(response.Error.Message, tuple.Ref) {
+		t.Fatalf("archived refusal %q must name the archived family", response.Error.Message)
+	}
+	// The read-only preflight answers the same refusal, so the agent can
+	// classify the parked instance before it attempts anything.
+	if err := store.InspectWorkflowActionAdmission(ctx, s, store.WorkflowActionPreflightRequest{WorkID: "work-1", ActionID: "checkpoint_context", Payload: retryJSON(refusalAction["fields"]), Actor: grantActor}); err == nil {
+		t.Fatal("archived-family preflight admitted the action")
+	}
+	afterStep, afterVersion, afterEvents, afterContracts := state()
+	if afterStep != beforeStep || afterVersion != beforeVersion || afterEvents != beforeEvents || afterContracts != beforeContracts {
+		t.Fatalf("refused archived mutation moved state: step %s/%s version %d/%d events %d/%d contracts %d/%d", beforeStep, afterStep, beforeVersion, afterVersion, beforeEvents, afterEvents, beforeContracts, afterContracts)
+	}
+	// The recorded history stays readable at its exact released pin.
+	pin, err := store.VerifyWorkflowInstanceDefinition(ctx, s, store.BuiltinWorkflowRegistry(), "work-1")
+	if err != nil || pin.Definition.Ref != tuple.Ref || pin.Definition.Version != tuple.Version {
+		t.Fatalf("archived pin read = %+v, %v, want the released %s v%d", pin, err, tuple.Ref, tuple.Version)
 	}
 }
 
@@ -772,15 +1109,12 @@ func runWorkflowRecoveryRouteJourney(t *testing.T, tuple workflowRecoveryRouteTu
 }
 
 // recoveryPredicate returns the predicate kind and payload the verdict
-// references for the tuple's family. architecture_spike and research
-// use a typed outcome predicate; every other family uses a check
-// predicate the agent's bind_evidence can satisfy.
+// references for the tuple's family. Research uses a typed outcome
+// predicate; implementation and break_fix use a check predicate the
+// agent's bind_evidence can satisfy.
 func recoveryPredicate(tuple workflowRecoveryRouteTuple) (string, map[string]any) {
 	if tuple.Ref == "workflow.research" {
 		return "outcome", map[string]any{"kind": "outcome", "allowed": []string{"report_recorded"}}
-	}
-	if tuple.Ref == "workflow.architecture_spike" {
-		return "outcome", map[string]any{"kind": "outcome", "allowed": []string{"accepted_decision"}}
 	}
 	return "check", map[string]any{"kind": "check", "check_ref": "check:regroute", "immutable_subject_ref": "commit:regroute", "expected_result": "pass"}
 }
@@ -814,10 +1148,6 @@ func runWorkerRecoveryJourney(t *testing.T, tuple workflowRecoveryRouteTuple, s 
 		evaluator = "conclude"
 	case "workflow.implementation":
 		evaluator = "acceptance"
-	case "workflow.ops_runbook":
-		evaluator = "health"
-	case "workflow.static_analysis", "workflow.architecture_spike":
-		evaluator = "review"
 	}
 	park := func(step string) {
 		t.Helper()
@@ -888,88 +1218,9 @@ func runWorkerRecoveryJourney(t *testing.T, tuple workflowRecoveryRouteTuple, s 
 		t.Fatalf("fresh production reached %s, want ordinary evaluator %s", got, evaluator)
 	}
 	freshEvidence := "attempt:" + tuple.WorkflowID + ":fresh"
-	if tuple.Ref == "workflow.architecture_spike" {
-		freshEvidence = "attempt:" + tuple.WorkflowID + ":fresh-review"
-		lane := recoveryProducerLane(t, "review")
-		pin, err := store.ReadWorkPin(ctx, s, "work-1")
-		if err != nil {
-			t.Fatal(err)
-		}
-		inputs := map[string]any{"task": "Review the fresh decision against the successor premise"}
-		if pin.Correction != nil {
-			inputs["correction"] = pin.Correction
-		}
-		packet := bindPacketToRecordedState(t, s, map[string]any{
-			"schema_version": store.WorkerPacketSchemaVersion, "attempt_id": freshEvidence, "lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest,
-			"work_id": "work-1", "step_id": "review", "inputs": inputs,
-		})
-		requireRecoveryOK(t, "dispatch decision review", invoke(map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "dispatch_worker", "fields": map[string]any{"attempt_id": freshEvidence, "worker_packet": packet}, "idempotency_key": tuple.WorkflowID + "-dispatch-decision-review"}))
-		appendLaneCompletion(t, s, grant, lane, freshEvidence, "fresh-review")
-		requireRecoveryOK(t, "accept decision review evidence", invoke(map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "accept_worker_evidence", "fields": map[string]any{"attempt_id": freshEvidence, "attempt_epoch": attemptEpoch(t, s, freshEvidence)}, "idempotency_key": tuple.WorkflowID + "-accept-decision-review"}))
-		// Direct decision checkpoints keep their own identities. The
-		// independent review has a separate, first dispatch epoch.
-		var freshDispatchSeq int64
-		if err := s.DatabaseForTesting().QueryRow(`SELECT seq FROM domain_events WHERE subject_id='work-1' AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=? ORDER BY seq DESC LIMIT 1`, store.WorkflowActionCompleted, freshEvidence).Scan(&freshDispatchSeq); err != nil {
-			t.Fatalf("read architecture fresh dispatch seq: %v", err)
-		}
-		var correctionSeq int64
-		if err := s.DatabaseForTesting().QueryRow(`SELECT seq FROM domain_events WHERE subject_id='work-1' AND kind=? AND json_extract(payload,'$.action_id')='request_correction' ORDER BY seq DESC LIMIT 1`, store.WorkflowActionCompleted).Scan(&correctionSeq); err != nil {
-			t.Fatalf("read architecture correction seq: %v", err)
-		}
-		if freshDispatchSeq <= correctionSeq {
-			t.Fatalf("architecture fresh checkpoint seq %d is not after correction seq %d", freshDispatchSeq, correctionSeq)
-		}
-		freshEpoch := attemptEpoch(t, s, freshEvidence)
-		if freshEpoch != 1 {
-			t.Fatalf("independent review epoch = %d, want its own first epoch", freshEpoch)
-		}
-		var epochs string
-		var checkpointSeq int64
-		if err := s.DatabaseForTesting().QueryRow(`SELECT json_group_array(attempt_epoch),MAX(seq) FROM
-			(SELECT seq,json_extract(payload,'$.attempt_epoch') AS attempt_epoch FROM domain_events
-			WHERE subject_id='work-1' AND kind=? AND json_extract(payload,'$.step_id')='decision_record' ORDER BY seq)`, store.WorkflowActionCheckpointed).Scan(&epochs, &checkpointSeq); err != nil {
-			t.Fatal(err)
-		}
-		if epochs != "[1,2]" || checkpointSeq <= correctionSeq {
-			t.Fatalf("decision checkpoints: epochs=%s seq=%d, want [1,2] with fresh checkpoint after correction %d", epochs, checkpointSeq, correctionSeq)
-		}
-	}
 	publicRecoveryVerdict(t, s, service, grant, privateKey, tuple.WorkflowID+"-healthy", 2, "ok", freshEvidence)
-	if tuple.Ref == "workflow.static_analysis" {
-		requireRecoveryOK(t, "bind independent review", invoke(map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "bind_evidence", "fields": map[string]any{"evidence_kind": "review", "immutable_subject_ref": "evidence:" + tuple.WorkflowID + "-healthy"}, "idempotency_key": tuple.WorkflowID + "-bind-review"}))
-	}
 	if got := stepOf(t, s); got != evaluator {
 		t.Fatalf("healthy verdict moved evaluator to %s", got)
-	}
-	if tuple.Ref == "workflow.architecture_spike" {
-		requireRecoveryOK(t, "accept decision", approvedRecoveryAction(t, s, service, env, map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "accept_decision", "fields": map[string]any{"evidence_kind": "approval", "immutable_subject_ref": freshEvidence}, "idempotency_key": tuple.WorkflowID + "-accept-decision"}))
-	}
-	if tuple.Ref == "workflow.ops_runbook" {
-		for _, stage := range []struct{ action, status string }{{"record_health", "healthy"}, {"rollback_run", "rolled_back"}} {
-			fields := opsRunbookStartFields(t, tuple, stage.action)
-			fields["status"] = stage.status
-			response := invoke(map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": stage.action, "fields": fields, "idempotency_key": tuple.WorkflowID + "-" + stage.action})
-			if stage.action == "rollback_run" {
-				if response.Error == nil || response.Error.Kind != "operation_conflict" || response.Error.EffectState != "partial" {
-					t.Fatalf("rollback must report its partial native effect: %+v", response)
-				}
-			} else {
-				requireRecoveryOK(t, stage.action, response)
-			}
-		}
-		requireRecoveryOK(t, "record rollback delivery", invoke(map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "record_delivery", "fields": map[string]any{"delivery_artifact": "artifact:rollback", "delivery_state": "asserted"}, "idempotency_key": tuple.WorkflowID + "-rollback-delivery"}))
-		fields := opsRunbookStartFields(t, tuple, "cleanup")
-		fields["status"] = "cleaned"
-		requireRecoveryOK(t, "cleanup_run", invoke(map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "cleanup_run", "fields": fields, "idempotency_key": tuple.WorkflowID + "-cleanup"}))
-		var observationID string
-		if err := s.DatabaseForTesting().QueryRow(`SELECT observation_id FROM workflow_native_runs WHERE work_id='work-1' AND run_id=? AND phase='cleanup'`, fields["run_id"]).Scan(&observationID); err != nil {
-			t.Fatal(err)
-		}
-		verification := externalVerificationInput(tuple.WorkflowID+"-verify-native", observationID)
-		verification["work_id"] = "work-1"
-		verification["external"].(map[string]any)["verified_at"] = fixedTime().Format(time.RFC3339Nano)
-		requireRecoveryOK(t, "verify native record", dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_define", Operation: "observation_record", Input: retryJSON(verification)}, env))
-		requireRecoveryOK(t, "bind native evidence", invoke(map[string]any{"work_id": "work-1", "expected_version": version(), "action_id": "bind_evidence", "fields": map[string]any{"evidence_kind": "native_run", "immutable_subject_ref": observationID}, "idempotency_key": tuple.WorkflowID + "-bind-native"}))
 	}
 	_, root := recoveryRegistry(t, s)
 	observation := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_define", Operation: "observation_record", Input: retryJSON(map[string]any{
@@ -1123,18 +1374,29 @@ func publicRecoveryVerdict(t *testing.T, s *store.Store, service *Service, produ
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(verifier, scopeVersion)
+	// The canonical heads declare the verdicts batch alone. A one-entry
+	// batch carries the same independent actor, kind, and bound evidence
+	// the single form bound: the entry semantics are the frozen ones
+	// (CD-0198 D1, CD-0218 D2).
 	response := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: retryJSON(map[string]any{
 		"work_id": "work-1", "expected_version": workVersion(t, s, "work-1"), "action_id": "record_verdict", "idempotency_key": key,
-		"fields": map[string]any{"contract_version": contract, "predicate_id": "predicate:primary", "verdict_kind": kind, "evaluation_evidence": []string{evidence}},
+		"fields": map[string]any{"contract_version": contract, "verdicts": []map[string]any{{"predicate_id": "predicate:primary", "verdict_kind": kind, "evaluation_evidence": []string{evidence}}}},
 	})}, env)
 	requireRecoveryOK(t, "independent public "+kind+" verdict", response)
 	var recordedActor string
 	var recordedContract int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.verdict_actor_ref'),json_extract(payload,'$.contract_version') FROM domain_events WHERE subject_id='work-1' AND kind=? ORDER BY seq DESC LIMIT 1`, store.WorkflowVerdictRecorded).Scan(&recordedActor, &recordedContract); err != nil {
+	var recordedKind string
+	var recordedEvidence string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.verdict_actor_ref'),json_extract(payload,'$.contract_version'),json_extract(payload,'$.verdict_kind'),json_extract(payload,'$.evaluation_evidence') FROM domain_events WHERE subject_id='work-1' AND kind=? ORDER BY seq DESC LIMIT 1`, store.WorkflowVerdictRecorded).Scan(&recordedActor, &recordedContract, &recordedKind, &recordedEvidence); err != nil {
 		t.Fatal(err)
 	}
 	if recordedActor != store.DeriveWorkflowActorRef(verifier.PrincipalRef, verifier.ClientRef, verifier.AgentRef, verifier.SessionRef) || recordedContract != contract {
 		t.Fatalf("verdict actor=%s contract=%d, want independent verifier contract=%d", recordedActor, recordedContract, contract)
+	}
+	// The one-entry batch retains the entry's own kind and evidence: the
+	// batch never flattens an entry into a call-level shape.
+	if recordedKind != kind || !strings.Contains(recordedEvidence, evidence) {
+		t.Fatalf("recorded verdict entry kind=%s evidence=%s, want kind=%s evidence containing %s", recordedKind, recordedEvidence, kind, evidence)
 	}
 }
 
@@ -1165,24 +1427,13 @@ func runJourneyDeliveryAndAdvance(t *testing.T, tuple workflowRecoveryRouteTuple
 	}
 	// Gated start action before the dispatch. The deliverer's
 	// DeliveryAction is empty for families that don't require a
-	// gated start (research, break_fix at verify). For the
-	// architecture_spike family, the correction returns to
-	// decision_record (not poc_optional), so the start_poc call
-	// only runs for the "first" suffix when the work item is at
-	// poc_optional; the "fresh" suffix jumps straight to
-	// record_decision at decision_record. For ops_runbook, the
-	// start_run action requires the full native_run field set
-	// (run_id, native_subject_ref, status, evidence_ref,
-	// evidence_digest) that the existing nativeFields helper
-	// provides.
+	// gated start (research) and names the qualifying checkpoint
+	// (checkpoint_repair) or the retained execution start
+	// (start_execution) for the derived-start heads.
 	if tuple.DeliveryAction != "" && stepOf(t, s) == deliveryStep {
-		startFields := map[string]any{}
-		if tuple.Ref == "workflow.ops_runbook" {
-			startFields = opsRunbookStartFields(t, tuple, suffix)
-		}
 		start := invoke(map[string]any{
 			"work_id": "work-1", "expected_version": version(), "action_id": tuple.DeliveryAction,
-			"fields": startFields, "idempotency_key": "regroute-" + tuple.WorkflowID + "-" + suffix + "-start",
+			"fields": map[string]any{}, "idempotency_key": "regroute-" + tuple.WorkflowID + "-" + suffix + "-start",
 		})
 		if start.Outcome != OutcomeOK {
 			t.Fatalf("%s %s at %q: %+v", suffix, tuple.DeliveryAction, deliveryStep, start.Error)
@@ -1196,108 +1447,66 @@ func runJourneyDeliveryAndAdvance(t *testing.T, tuple workflowRecoveryRouteTuple
 	if tuple.RecordWorkerJob {
 		recordRecoveryWorkerJob(t, s, service, env, "job:"+tuple.WorkflowID+":"+suffix)
 	}
-	// For the architecture_spike family, the "fresh" suffix lands
-	// at decision_record (the correction's declared target). The
-	// fresh production's typed artifact is record_decision, not a
-	// worker dispatch, so the journey skips the dispatch + accept
-	// + completion cycle and records the decision directly.
-	if tuple.Ref != "workflow.architecture_spike" || suffix != "fresh" {
-		dispatch := invoke(map[string]any{
-			"work_id": "work-1", "expected_version": version(), "action_id": "dispatch_worker",
-			"fields": map[string]any{
-				"attempt_id": attemptID,
-				"worker_packet": bindPacketToRecordedState(t, s, map[string]any{
-					"schema_version": store.WorkerPacketSchemaVersion, "attempt_id": attemptID, "lane_id": deliveryLane.ID, "lane_version": deliveryLane.Version, "lane_digest": deliveryLane.Digest,
-					"work_id": "work-1", "step_id": deliveryStep, "inputs": inputs,
-				}),
-			},
-			"idempotency_key": "regroute-" + tuple.WorkflowID + "-" + suffix + "-dispatch",
-		})
-		if dispatch.Outcome != OutcomeOK {
-			t.Fatalf("%s dispatch_worker at %q: %+v", suffix, deliveryStep, dispatch.Error)
+	dispatch := invoke(map[string]any{
+		"work_id": "work-1", "expected_version": version(), "action_id": "dispatch_worker",
+		"fields": map[string]any{
+			"attempt_id": attemptID,
+			"worker_packet": bindPacketToRecordedState(t, s, map[string]any{
+				"schema_version": store.WorkerPacketSchemaVersion, "attempt_id": attemptID, "lane_id": deliveryLane.ID, "lane_version": deliveryLane.Version, "lane_digest": deliveryLane.Digest,
+				"work_id": "work-1", "step_id": deliveryStep, "inputs": inputs,
+			}),
+		},
+		"idempotency_key": "regroute-" + tuple.WorkflowID + "-" + suffix + "-dispatch",
+	})
+	if dispatch.Outcome != OutcomeOK {
+		t.Fatalf("%s dispatch_worker at %q: %+v", suffix, deliveryStep, dispatch.Error)
+	}
+	appendLaneCompletion(t, s, grant, deliveryLane, attemptID, suffix)
+	epoch := attemptEpoch(t, s, attemptID)
+	if epoch == 0 {
+		t.Fatalf("%s attempt epoch is 0, want a dispatch epoch", suffix)
+	}
+	accept := invoke(map[string]any{
+		"work_id": "work-1", "expected_version": version(), "action_id": "accept_worker_result",
+		"fields":          map[string]any{"attempt_id": attemptID, "attempt_epoch": epoch},
+		"idempotency_key": "regroute-" + tuple.WorkflowID + "-" + suffix + "-accept",
+	})
+	if accept.Outcome != OutcomeOK {
+		t.Fatalf("%s accept_worker_result at %q: %+v", suffix, deliveryStep, accept.Error)
+	}
+	if suffix == "fresh" {
+		var cutoff, dispatchSeq, acceptSeq int64
+		var capability string
+		if err := s.DatabaseForTesting().QueryRow(`SELECT MAX(seq) FROM domain_events WHERE subject_id='work-1' AND (kind=? OR (kind=? AND json_extract(payload,'$.action_id')='request_correction'))`, store.WorkflowContractSuperseded, store.WorkflowActionCompleted).Scan(&cutoff); err != nil {
+			t.Fatal(err)
 		}
-		appendLaneCompletion(t, s, grant, deliveryLane, attemptID, suffix)
-		epoch := attemptEpoch(t, s, attemptID)
-		if epoch == 0 {
-			t.Fatalf("%s attempt epoch is 0, want a dispatch epoch", suffix)
+		if err := s.DatabaseForTesting().QueryRow(`SELECT seq,json_extract(payload,'$.worker_capability_class') FROM domain_events WHERE subject_id='work-1' AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=?`, store.WorkflowActionCompleted, attemptID).Scan(&dispatchSeq, &capability); err != nil {
+			t.Fatal(err)
 		}
-		accept := invoke(map[string]any{
-			"work_id": "work-1", "expected_version": version(), "action_id": "accept_worker_result",
-			"fields":          map[string]any{"attempt_id": attemptID, "attempt_epoch": epoch},
-			"idempotency_key": "regroute-" + tuple.WorkflowID + "-" + suffix + "-accept",
-		})
-		if accept.Outcome != OutcomeOK {
-			t.Fatalf("%s accept_worker_result at %q: %+v", suffix, deliveryStep, accept.Error)
+		if err := s.DatabaseForTesting().QueryRow(`SELECT seq FROM domain_events WHERE subject_id='work-1' AND kind=? AND json_extract(payload,'$.action_id')='accept_worker_result' AND json_extract(payload,'$.worker_attempt_id')=?`, store.WorkflowActionCompleted, attemptID).Scan(&acceptSeq); err != nil {
+			t.Fatal(err)
 		}
-		if suffix == "fresh" {
-			var cutoff, dispatchSeq, acceptSeq int64
-			var capability string
-			if err := s.DatabaseForTesting().QueryRow(`SELECT MAX(seq) FROM domain_events WHERE subject_id='work-1' AND (kind=? OR (kind=? AND json_extract(payload,'$.action_id')='request_correction'))`, store.WorkflowContractSuperseded, store.WorkflowActionCompleted).Scan(&cutoff); err != nil {
-				t.Fatal(err)
-			}
-			if err := s.DatabaseForTesting().QueryRow(`SELECT seq,json_extract(payload,'$.worker_capability_class') FROM domain_events WHERE subject_id='work-1' AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=?`, store.WorkflowActionCompleted, attemptID).Scan(&dispatchSeq, &capability); err != nil {
-				t.Fatal(err)
-			}
-			if err := s.DatabaseForTesting().QueryRow(`SELECT seq FROM domain_events WHERE subject_id='work-1' AND kind=? AND json_extract(payload,'$.action_id')='accept_worker_result' AND json_extract(payload,'$.worker_attempt_id')=?`, store.WorkflowActionCompleted, attemptID).Scan(&acceptSeq); err != nil {
-				t.Fatal(err)
-			}
-			if dispatchSeq <= cutoff || acceptSeq <= dispatchSeq || !slices.Contains([]string{"implementation", "design", "research"}, capability) {
-				t.Fatalf("fresh producing acceptance: cutoff=%d dispatch=%d accept=%d capability=%s", cutoff, dispatchSeq, acceptSeq, capability)
-			}
-		}
-		if tuple.RecordWorkerJob {
-			requireRecoveryLocalAcceptance(t, s, deliveryStep, attemptID)
-			bindRecoveryIntegration(t, s, invoke, version, tuple.WorkflowID+"-"+suffix+"-producer")
-			delivery := invoke(map[string]any{
-				"work_id": "work-1", "expected_version": version(), "action_id": "record_delivery",
-				"fields":          map[string]any{"delivery_artifact": "artifact:" + tuple.WorkflowID + ":" + suffix, "delivery_state": "asserted"},
-				"idempotency_key": "regroute-" + tuple.WorkflowID + "-" + suffix + "-delivery",
-			})
-			if delivery.Outcome != OutcomeOK {
-				t.Fatalf("%s record_delivery: %+v", suffix, delivery.Error)
-			}
-			if got := stepOf(t, s); got != "refine" {
-				t.Fatalf("%s delivery reached %s, want refine", suffix, got)
-			}
-		}
-		if suffix == "first" && tuple.ProducerAction != "record_decision" {
-			return // Initial accepted result; the fixture parks at the evaluator next.
+		if dispatchSeq <= cutoff || acceptSeq <= dispatchSeq || !slices.Contains([]string{"implementation", "design", "research"}, capability) {
+			t.Fatalf("fresh producing acceptance: cutoff=%d dispatch=%d accept=%d capability=%s", cutoff, dispatchSeq, acceptSeq, capability)
 		}
 	}
-
-	// For families where the producer step records a typed artifact
-	// (architecture_spike: record_decision, static_analysis:
-	// record_delivery), the journey records the artifact at the
-	// producer step after the accept. The artifact advances the
-	// workflow to the next step on the path to the verdict step.
-	switch tuple.ProducerAction {
-	case "record_decision":
-		decisionFields := map[string]any{
-			"question":           "decide the " + suffix + " premise at " + tuple.ProducerStep,
-			"options_considered": []string{"accepted_decision"},
-			"decision":           "accepted_decision",
-			"rationale":          "the fresh decision answers the premise the prior decision left open",
-			"consequences":       []string{"the workflow advances to review with a fresh decision record"},
-			"inputs":             []string{"evidence:" + tuple.WorkflowID + ":" + string(tuple.BindKind)},
-			"poc_findings":       "none",
-		}
-		decision := invoke(map[string]any{
-			"work_id": "work-1", "expected_version": version(), "action_id": "record_decision",
-			"fields":          decisionFields,
-			"idempotency_key": "regroute-" + tuple.WorkflowID + "-" + suffix + "-decision",
-		})
-		if decision.Outcome != OutcomeOK {
-			t.Fatalf("%s record_decision at %q: %+v", suffix, tuple.ProducerStep, decision.Error)
-		}
-	case "record_delivery":
+	if tuple.RecordWorkerJob {
+		requireRecoveryLocalAcceptance(t, s, deliveryStep, attemptID)
+		bindRecoveryIntegration(t, s, invoke, version, tuple.WorkflowID+"-"+suffix+"-producer")
 		delivery := invoke(map[string]any{
 			"work_id": "work-1", "expected_version": version(), "action_id": "record_delivery",
 			"fields":          map[string]any{"delivery_artifact": "artifact:" + tuple.WorkflowID + ":" + suffix, "delivery_state": "asserted"},
 			"idempotency_key": "regroute-" + tuple.WorkflowID + "-" + suffix + "-delivery",
 		})
 		if delivery.Outcome != OutcomeOK {
-			t.Fatalf("%s record_delivery at %q: %+v", suffix, tuple.ProducerStep, delivery.Error)
+			t.Fatalf("%s record_delivery: %+v", suffix, delivery.Error)
 		}
+		if got := stepOf(t, s); got != "refine" {
+			t.Fatalf("%s delivery reached %s, want refine", suffix, got)
+		}
+	}
+	if suffix == "first" {
+		return // Initial accepted result; the fixture parks at the evaluator next.
 	}
 
 	// Advance through admitted actions, without fixture step switches.
@@ -1369,7 +1578,25 @@ func advanceWorkerRecovery(t *testing.T, tuple workflowRecoveryRouteTuple, s *st
 		if got := stepOf(t, s); got != "refine" {
 			t.Fatalf("repair acceptance reached %s, want refine", got)
 		}
-		action("start_refine", map[string]any{})
+		// CD-0198 D3: the current heads derive the refine start from the
+		// qualifying checkpoint; released pins keep the callable start.
+		refineEntry := "start_refine"
+		var definitionVersion int64
+		if err := s.DatabaseForTesting().QueryRow(`SELECT definition_version FROM workflow_instances WHERE work_id=?`, "work-1").Scan(&definitionVersion); err != nil {
+			t.Fatal(err)
+		}
+		if pinned, ok := store.BuiltinWorkflowRegistry().Lookup(tuple.Ref, definitionVersion); ok {
+			declares := false
+			for _, step := range pinned.Definition.StepGraph.Steps {
+				if slices.Contains(step.Actions, "start_refine") {
+					declares = true
+				}
+			}
+			if !declares {
+				refineEntry = "checkpoint_refine"
+			}
+		}
+		action(refineEntry, map[string]any{})
 		lane := recoveryProducerLane(t, "review")
 		attempt := "attempt:" + tuple.WorkflowID + ":" + suffix + ":review"
 		if tuple.RecordWorkerJob {
@@ -1397,11 +1624,6 @@ func advanceWorkerRecovery(t *testing.T, tuple workflowRecoveryRouteTuple, s *st
 	case "workflow.research":
 		if got := stepOf(t, s); got != "findings" {
 			t.Fatalf("research acceptance reached %s, want findings", got)
-		}
-		action("record_report", map[string]any{"evidence_kind": "artifact", "immutable_subject_ref": "report:" + tuple.WorkflowID + ":" + suffix})
-	case "workflow.static_analysis":
-		if got := stepOf(t, s); got != "report" {
-			t.Fatalf("analysis acceptance reached %s, want report", got)
 		}
 		action("record_report", map[string]any{"evidence_kind": "artifact", "immutable_subject_ref": "report:" + tuple.WorkflowID + ":" + suffix})
 	}
@@ -1563,6 +1785,36 @@ func workflowRecoveryRouteSupersedeTuples() []workflowRecoveryRouteSupersedeTupl
 			RecordWorkerJob: true,
 			WorkflowID:      "break_fix-v24-complete-supersede",
 		},
+		// The CD-0198 heads republish the same complete-step supersede
+		// routes; their journeys follow the same local-accept +
+		// record_delivery integration the oracle authors do.
+		{
+			Ref: "workflow.implementation", Version: 28,
+			Step: "release", Target: "execution",
+			RecordWorkerJob: true,
+			WorkflowID:      "implementation-v28-release-supersede",
+		},
+		{
+			Ref: "workflow.break_fix", Version: 25,
+			Step: "complete", Target: "repair",
+			RecordWorkerJob: true,
+			WorkflowID:      "break_fix-v25-complete-supersede",
+		},
+		// The CD-0198 D5 heads republish the same complete-step supersede
+		// routes; their journeys follow the same local-accept +
+		// record_delivery integration the CD-0198 D2/D3 authors do.
+		{
+			Ref: "workflow.implementation", Version: 29,
+			Step: "release", Target: "execution",
+			RecordWorkerJob: true,
+			WorkflowID:      "implementation-v29-release-supersede",
+		},
+		{
+			Ref: "workflow.break_fix", Version: 26,
+			Step: "complete", Target: "repair",
+			RecordWorkerJob: true,
+			WorkflowID:      "break_fix-v26-complete-supersede",
+		},
 		// The CON-887 work-context versions republish the same complete-step
 		// supersede routes; their journeys follow the same local-accept +
 		// record_delivery integration the v25/v22 premise-floor authors do.
@@ -1578,23 +1830,69 @@ func workflowRecoveryRouteSupersedeTuples() []workflowRecoveryRouteSupersedeTupl
 			RecordWorkerJob: true,
 			WorkflowID:      "break_fix-v23-complete-supersede",
 		},
+		// The CD-0218 canonical heads carry the live complete-step
+		// supersede journeys: the successor authors explicit outcome
+		// predicates alone and the post-supersede verdicts ride the
+		// batched form.
+		{
+			Ref: "workflow.implementation", Version: 30,
+			Step: "release", Target: "execution",
+			RecordWorkerJob: true,
+			WorkflowID:      "implementation-v30-release-supersede",
+		},
+		{
+			Ref: "workflow.break_fix", Version: 27,
+			Step: "complete", Target: "repair",
+			RecordWorkerJob: true,
+			WorkflowID:      "break_fix-v27-complete-supersede",
+		},
 	}
 }
 
+// workflowRecoveryRouteSupersedeIsLive reports whether the supersede
+// tuple's released journey still runs through the public boundary: only
+// the canonical heads author the shapes the live union publishes.
+func workflowRecoveryRouteSupersedeIsLive(tuple workflowRecoveryRouteSupersedeTuple) bool {
+	head, ok := workflowRecoveryCanonicalHeads[tuple.Ref]
+	return ok && tuple.Version == head
+}
+
 // TestWorkflowRecoveryRoutesCompleteStepSupersedeAdmitsEveryDeclaredRoute
-// drives both implementation.release and break_fix.complete through
-// the public supersede journey: a nonterminal work item at the
-// complete step with a healthy verdict, a same-work observation
-// recorded after the verdict, the reserved complete_step_correction
-// route convention on the successor, and the engine's return to the
-// declared external-effect target. The test fails (not skips) if
-// either family cannot complete the journey.
+// drives implementation.release and break_fix.complete through the
+// public supersede journey on the canonical heads: a nonterminal work
+// item at the complete step with a healthy verdict, a same-work
+// observation recorded after the verdict, the reserved
+// complete_step_correction route convention on the successor, and the
+// engine's return to the declared external-effect target. The released
+// pins keep their recorded supersede routes readable through the static
+// guard; their journeys rode shapes the live union no longer publishes.
+// The test fails (not skips) if either canonical family cannot complete
+// the journey.
 func TestWorkflowRecoveryRoutesCompleteStepSupersedeAdmitsEveryDeclaredRoute(t *testing.T) {
 	for _, tuple := range workflowRecoveryRouteSupersedeTuples() {
 		tuple := tuple
 		t.Run(tuple.WorkflowID, func(t *testing.T) {
+			if !workflowRecoveryRouteSupersedeIsLive(tuple) {
+				runWorkflowRecoveryRouteSupersedeRecordedHistory(t, tuple)
+				return
+			}
 			runWorkflowRecoveryRouteSupersede(t, tuple)
 		})
+	}
+}
+
+// runWorkflowRecoveryRouteSupersedeRecordedHistory keeps the released
+// supersede route's recorded-reader expectations: the exact released pin
+// stays registered and declares the complete-step correction route the
+// tuple names.
+func runWorkflowRecoveryRouteSupersedeRecordedHistory(t *testing.T, tuple workflowRecoveryRouteSupersedeTuple) {
+	t.Helper()
+	entry, ok := store.BuiltinWorkflowRegistry().Lookup(tuple.Ref, tuple.Version)
+	if !ok {
+		t.Fatalf("released pin %s v%d is no longer registered", tuple.Ref, tuple.Version)
+	}
+	if !slices.Contains(entry.Definition.RecoveryRoutes, store.WorkflowRecoveryRoute{Step: tuple.Step, Trigger: store.WorkflowRecoveryTriggerDisprovedPremiseAtComplete, Action: "supersede_contract", Target: tuple.Target}) {
+		t.Fatalf("%s released pin lost its recorded supersede route", tuple.WorkflowID)
 	}
 }
 
@@ -1676,9 +1974,13 @@ func runWorkflowRecoveryRouteSupersede(t *testing.T, tuple workflowRecoveryRoute
 		t.Fatalf("bind supersede evidence: %+v", bindResp.Error)
 	}
 	verifier := store.WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/supersede-verifier", SessionRef: "session/" + tuple.WorkflowID + "-supersede-verifier", ActorClass: store.ActorAgent}
+	// The canonical heads author the verdicts batch alone; the store-level
+	// seed records the same entry the public boundary would.
 	runVerificationStoreAction(t, s, "record_verdict", map[string]any{
-		"contract_version": 1, "predicate_id": "predicate:primary",
-		"verdict_kind": "ok", "evaluation_evidence": []string{"evidence:" + tuple.WorkflowID + ":supersede"},
+		"contract_version": 1, "verdicts": []map[string]any{{
+			"predicate_id": "predicate:primary", "verdict_kind": "ok",
+			"evaluation_evidence": []string{"evidence:" + tuple.WorkflowID + ":supersede"},
+		}},
 	}, verifier, nil, tuple.WorkflowID+"-supersede-verdict")
 	// The contract is made stale by duplicating it: a second
 	// active contract projection makes the work's contract
@@ -1799,7 +2101,36 @@ func runWorkflowRecoveryRouteSupersede(t *testing.T, tuple workflowRecoveryRoute
 // re-fences the same start the ordinary unhealthy route's correction
 // returns to, so runJourneyDeliveryAndAdvance accepts it through its
 // existing gated-start dispatch path.
-func supersedeStartAction(ref string) string {
+func supersedeStartActionFor(t *testing.T, ref string, s *store.Store) string {
+	t.Helper()
+	testJourneyStore = s
+	return supersedeStartAction(t, ref)
+}
+
+var testJourneyStore *store.Store
+
+func supersedeStartAction(t *testing.T, ref string) string {
+	t.Helper()
+	// CD-0198 D3: the derived-start heads take the producer step through
+	// the qualifying checkpoint; the callable start survives on released
+	// pins only.
+	if ref == "workflow.break_fix" {
+		var definitionVersion int64
+		if err := testJourneyStore.DatabaseForTesting().QueryRow(`SELECT definition_version FROM workflow_instances WHERE work_id=?`, "work-1").Scan(&definitionVersion); err != nil {
+			t.Fatal(err)
+		}
+		if pinned, ok := store.BuiltinWorkflowRegistry().Lookup(ref, definitionVersion); ok {
+			declares := false
+			for _, step := range pinned.Definition.StepGraph.Steps {
+				if slices.Contains(step.Actions, "start_repair") {
+					declares = true
+				}
+			}
+			if !declares {
+				return "checkpoint_repair"
+			}
+		}
+	}
 	switch ref {
 	case "workflow.implementation":
 		return "start_execution"
@@ -1890,7 +2221,7 @@ func runWorkflowRecoveryRouteSupersedeContinuation(t *testing.T, tuple workflowR
 		DeliveryStep:     tuple.Target,
 		ProducerAction:   "dispatch_worker",
 		DeliveryLane:     "implement",
-		DeliveryAction:   supersedeStartAction(tuple.Ref),
+		DeliveryAction:   supersedeStartActionFor(t, tuple.Ref, s),
 		VerdictStep:      supersedeEvaluatorStep(tuple.Ref),
 		BindStep:         bindStep,
 		BindKind:         store.EvidenceVerification,
@@ -1945,27 +2276,6 @@ func stepDeclaresConfirmPremise(t *testing.T, tuple workflowRecoveryRouteTuple, 
 		}
 	}
 	return false
-}
-
-// opsRunbookStartFields returns the native_run field set the
-// start_run action at the ops_runbook execute step requires: run_id,
-// native_subject_ref, status, evidence_ref, evidence_digest,
-// asserted_at. The shape mirrors the nativeFields helper the
-// existing agent_jobs_operational_bindings_test.go uses.
-func opsRunbookStartFields(t *testing.T, tuple workflowRecoveryRouteTuple, suffix string) map[string]any {
-	t.Helper()
-	runID := "run:" + tuple.WorkflowID + ":" + suffix
-	subject := "subject:" + tuple.WorkflowID
-	evidenceRef := "https://evidence.invalid/runs/" + runID + "/start"
-	evidenceDigest := "sha256:" + strings.Repeat("1", 64)
-	return map[string]any{
-		"run_id":             runID,
-		"native_subject_ref": subject,
-		"status":             "started",
-		"evidence_ref":       evidenceRef,
-		"evidence_digest":    evidenceDigest,
-		"asserted_at":        fixedTime().Format("2006-01-02T15:04:05Z"),
-	}
 }
 
 // recoveryProducerLane resolves the producer lane the tuple names.

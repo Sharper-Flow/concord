@@ -76,7 +76,7 @@ func TestOpsRunbookConditionResolutionAcrossHealthDispatch(t *testing.T) {
 	// Resolving the condition is a versioned write on the open projection;
 	// the health record is the exit.
 	beforeResolve := readWorkVersion(t, s, workID)
-	applyWorkflowTestConditionResolved(t, s, workID, ownerRef, "condition:health", authorityOp, authorityEvidence)
+	applyWorkflowTestConditionResolved(t, s, workID, ownerRef, "condition:health", authorityEvidence)
 	if afterResolve := readWorkVersion(t, s, workID); afterResolve <= beforeResolve {
 		t.Fatalf("resolve_condition resulting version=%d, want an advanced version", afterResolve)
 	}
@@ -123,7 +123,7 @@ func TestExternalConditionHoldBlocksConsequentialExecution(t *testing.T) {
 	}
 	assertWorkflowTestConditionState(t, s, workID, "condition:hold", "open")
 
-	applyWorkflowTestConditionResolved(t, s, workID, ownerRef, "condition:hold", authorityOp, authorityEvidence)
+	applyWorkflowTestConditionResolved(t, s, workID, ownerRef, "condition:hold", authorityEvidence)
 	assertWorkflowTestConditionState(t, s, workID, "condition:hold", "resolved")
 	applyStartForTest(t, s, workID, owner, readWorkVersion(t, s, workID), "condition-release-start")
 	if got := currentStep(t, s, workID); got != "execution" {
@@ -195,7 +195,7 @@ func applyWorkflowTestConditionAdded(t *testing.T, s *Store, workID, actorRef, c
 // applyWorkflowTestConditionResolved records the typed condition-resolved
 // event on the recorded route. The evidence must be bound to the stored
 // authority operation, the same rule the public resolve_condition satisfies.
-func applyWorkflowTestConditionResolved(t *testing.T, s *Store, workID, actorRef, conditionID, authorityOp, authorityEvidence string) {
+func applyWorkflowTestConditionResolved(t *testing.T, s *Store, workID, actorRef, conditionID, authorityEvidence string) {
 	t.Helper()
 	version := readWorkVersion(t, s, workID)
 	payload := map[string]any{

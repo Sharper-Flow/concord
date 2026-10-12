@@ -183,12 +183,13 @@ func TestJoinComposesWorkerActionsOnAdmittedStepKinds(t *testing.T) {
 
 func TestCurrentJoinComposesTheWorkerFailureRecordWithTheDispatchPair(t *testing.T) {
 	t.Parallel()
-	// CD-0198 D5: implementation v29 and break_fix v26 derive the workflow
-	// failure record from the attempt's own terminal event, so their current
-	// heads carry the dispatch/accept pair without the callable failure
-	// record. Every other current head keeps the worker trio all-or-none per
-	// step; the released v28/v25 heads keep the trio they shipped.
-	derivedFailure := map[string]bool{"workflow.implementation": true, "workflow.break_fix": true}
+	// CD-0198 D5: implementation v30, break_fix v27, and research v17 derive
+	// the workflow failure record from the attempt's own terminal event, so
+	// their current heads carry the dispatch/accept pair without the callable
+	// failure record. Every other current head keeps the worker trio
+	// all-or-none per step; the released v28/v25/v16 heads keep the trio they
+	// shipped.
+	derivedFailure := map[string]bool{"workflow.implementation": true, "workflow.break_fix": true, "workflow.research": true}
 	for _, definition := range BuiltinWorkflowDefinitions() {
 		derives := derivedFailure[definition.Ref]
 		if !derives && !containsString(definition.AvailableActions, "record_worker_failure") {
@@ -232,6 +233,7 @@ func TestCurrentJoinComposesTheWorkerFailureRecordWithTheDispatchPair(t *testing
 	}{
 		{"workflow.implementation", 28},
 		{"workflow.break_fix", 25},
+		{"workflow.research", 16},
 	} {
 		released, ok := BuiltinWorkflowRegistry().Lookup(pin.ref, pin.version)
 		if !ok {
@@ -403,7 +405,7 @@ func TestAcceptanceReviewRoundTrip(t *testing.T) {
 	// The verdict is in, and the confirmation still refuses: the
 	// contract-required review kind is unbound, the wedge CON-517 recorded.
 	reviewer := checkpointReviewReviewer(t, s, workID)
-	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:return-route","verdict_kind":"ok","evaluation_evidence":["evidence:return-route-verification"]}`), 0, reviewer); err != nil {
+	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"verdicts":[{"predicate_id":"predicate:return-route","verdict_kind":"ok","evaluation_evidence":["evidence:return-route-verification"]}]}`), 0, reviewer); err != nil {
 		t.Fatalf("record_verdict refused: %v", err)
 	}
 	err := runIssue933OperatorAction(t, s, workID, "confirm_premise", json.RawMessage(`{"contract_version":1}`), fixture.owner, fixture.operator)

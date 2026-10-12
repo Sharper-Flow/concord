@@ -15838,42 +15838,7 @@
               "required": [
                 "searched",
                 "outcome"
-              ],
-              "not": {
-                "type": "object",
-                "additionalProperties": false,
-                "maxProperties": 32,
-                "properties": {
-                  "searched": {
-                    "type": "string",
-                    "maxLength": 4096,
-                    "x-maxBytes": 4096,
-                    "minLength": 1,
-                    "x-minBytes": 2,
-                    "pattern": "\\S",
-                    "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string."
-                  },
-                  "outcome": {
-                    "type": "string",
-                    "const": "related_found"
-                  },
-                  "related_ids": {
-                    "type": "array",
-                    "uniqueItems": true,
-                    "items": {
-                      "$ref": "#/$defs/id"
-                    },
-                    "minItems": 1,
-                    "maxItems": 64,
-                    "description": "record_alignment couples outcome and related_ids: outcome related_found requires a non-empty related_ids list, and outcome none_found must omit related_ids entirely; the store refuses any other combination."
-                  }
-                },
-                "required": [
-                  "searched",
-                  "outcome",
-                  "related_ids"
-                ]
-              }
+              ]
             }
           ]
         }
@@ -19787,62 +19752,7 @@
                 "searched",
                 "outcome",
                 "root_cause"
-              ],
-              "not": {
-                "type": "object",
-                "additionalProperties": false,
-                "maxProperties": 32,
-                "properties": {
-                  "reproduction": {
-                    "type": "string",
-                    "maxLength": 4096,
-                    "x-maxBytes": 4096,
-                    "minLength": 1,
-                    "x-minBytes": 2,
-                    "pattern": "\\S",
-                    "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string."
-                  },
-                  "searched": {
-                    "type": "string",
-                    "maxLength": 4096,
-                    "x-maxBytes": 4096,
-                    "minLength": 1,
-                    "x-minBytes": 2,
-                    "pattern": "\\S",
-                    "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string."
-                  },
-                  "outcome": {
-                    "type": "string",
-                    "const": "related_found"
-                  },
-                  "related_ids": {
-                    "type": "array",
-                    "uniqueItems": true,
-                    "items": {
-                      "$ref": "#/$defs/id"
-                    },
-                    "minItems": 1,
-                    "maxItems": 64,
-                    "description": "record_alignment couples outcome and related_ids: outcome related_found requires a non-empty related_ids list, and outcome none_found must omit related_ids entirely; the store refuses any other combination."
-                  },
-                  "root_cause": {
-                    "type": "string",
-                    "maxLength": 4096,
-                    "x-maxBytes": 4096,
-                    "minLength": 1,
-                    "x-minBytes": 2,
-                    "pattern": "\\S",
-                    "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string."
-                  }
-                },
-                "required": [
-                  "reproduction",
-                  "searched",
-                  "outcome",
-                  "related_ids",
-                  "root_cause"
-                ]
-              }
+              ]
             }
           ]
         }

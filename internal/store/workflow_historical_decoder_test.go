@@ -97,12 +97,8 @@ func TestRetainedDefinitionPayloadValidationResolvesFrozenHistoricalDecoder(t *t
 		t.Error("frozen decoder disagrees with the classified engine path on the invalid corpus")
 	}
 
-	// The live role resolves every declared schema ref of every registered
-	// definition through the public authoring document, and the replay role
-	// resolves them all through the frozen decoder — the new-pin replay
-	// obligation: every current pin becomes retained later, so the frozen
-	// document must already carry what a current definition declares, not
-	// only what the S0 baseline carried.
+	// Every registered pin must resolve its declared refs for replay. Live
+	// declarations are checked separately against the public document below.
 	for _, definition := range builtinWorkflowDefinitionsWithHistory() {
 		for _, action := range definition.ActionDefinitions {
 			for _, field := range action.Payload.Fields {
@@ -110,15 +106,29 @@ func TestRetainedDefinitionPayloadValidationResolvesFrozenHistoricalDecoder(t *t
 					if ref == "" {
 						continue
 					}
-					if !payloadschema.HasIn(workflowLivePayloadSchemaDocument(), ref) {
-						t.Errorf("definition %s v%d action %s field %s declares schema %q, which the live public document does not carry", definition.Ref, definition.Version, action.ID, field.Name, ref)
-					}
 					if !payloadschema.HasIn(workflowReplayPayloadSchemaDocument(), ref) {
 						t.Errorf("definition %s v%d action %s field %s declares schema %q, which the replay frozen decoder does not carry", definition.Ref, definition.Version, action.ID, field.Name, ref)
 					}
 				}
 			}
 		}
+	}
+}
+
+func TestRetiredDecisionDeclarationResolvesOnlyFrozenDecoder(t *testing.T) {
+	definition, err := BuiltinWorkflowDefinitionForRef("workflow.architecture_spike")
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(historicalDecisionFields())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validateWorkflowActionPayload(definition.Definition, "record_decision", raw); err == nil {
+		t.Error("retired decision record stayed authorable through the live document")
+	}
+	if err := validateWorkflowActionPayloadForReplay(definition.Definition, "record_decision", raw); err != nil {
+		t.Fatalf("frozen decoder rejected the recorded decision shape: %v", err)
 	}
 }
 

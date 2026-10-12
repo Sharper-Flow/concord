@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"flag"
 	"fmt"
 	"os"
 	"reflect"
@@ -255,7 +256,51 @@ func collectSchemaRefs(current []store.WorkflowDefinition, recovery []store.Work
 	return schemaRefProjection{Current: sortedRefNames(currentRefs), Historical: sortedRefNames(historicalRefs)}
 }
 
+// nativeStatusProjection is the read-only historical native-run status
+// metadata the status closure check consumes: the sorted union of the
+// status enums the compiled registry's native-run action declarations
+// carry. Retired public actions stay out of the authoring surface, so this
+// projection adds no action; it only names what the compiled declarations
+// still admit on the replay side.
+type nativeStatusProjection struct {
+	Statuses []string `json:"statuses"`
+}
+
+// collectNativeRunStatuses folds the status enums of every registered
+// definition — current heads and every retained version — into one sorted
+// union. A "status" string enum field is declared only by the native-run
+// payload builder, so the union needs no action list, and dropping one
+// enum value from a declaration drops that value from the union.
+func collectNativeRunStatuses(definitions []store.WorkflowDefinition) []string {
+	statuses := map[string]bool{}
+	for _, definition := range definitions {
+		for _, action := range definition.ActionDefinitions {
+			for _, field := range action.Payload.Fields {
+				if field.Name != "status" || field.ValueType != store.PayloadString || len(field.Enum) == 0 {
+					continue
+				}
+				for _, value := range field.Enum {
+					statuses[value] = true
+				}
+			}
+		}
+	}
+	return sortedRefNames(statuses)
+}
+
 func main() {
+	nativeStatuses := flag.Bool("native-statuses", false, "print the native-run status union the compiled registry declares instead of the action contract projection")
+	flag.Parse()
+	if *nativeStatuses {
+		encoder := json.NewEncoder(os.Stdout)
+		encoder.SetEscapeHTML(false)
+		projection := nativeStatusProjection{Statuses: collectNativeRunStatuses(store.BuiltinWorkflowDefinitionsWithHistory())}
+		if err := encoder.Encode(projection); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
 	definitions := store.BuiltinWorkflowDefinitions()
 	recovery := store.BuiltinWorkflowCanonicalRecoveryActionDefinitions()
 	history := store.BuiltinWorkflowDefinitionsWithHistory()

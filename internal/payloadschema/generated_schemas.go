@@ -13055,41 +13055,6 @@ const GeneratedPayloadSchemaDocument = `{
             {
               "additionalProperties": false,
               "maxProperties": 32,
-              "not": {
-                "additionalProperties": false,
-                "maxProperties": 32,
-                "properties": {
-                  "outcome": {
-                    "const": "related_found",
-                    "type": "string"
-                  },
-                  "related_ids": {
-                    "description": "record_alignment couples outcome and related_ids: outcome related_found requires a non-empty related_ids list, and outcome none_found must omit related_ids entirely; the store refuses any other combination.",
-                    "items": {
-                      "$ref": "#/$defs/id"
-                    },
-                    "maxItems": 64,
-                    "minItems": 1,
-                    "type": "array",
-                    "uniqueItems": true
-                  },
-                  "searched": {
-                    "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
-                    "maxLength": 4096,
-                    "minLength": 1,
-                    "pattern": "\\S",
-                    "type": "string",
-                    "x-maxBytes": 4096,
-                    "x-minBytes": 2
-                  }
-                },
-                "required": [
-                  "searched",
-                  "outcome",
-                  "related_ids"
-                ],
-                "type": "object"
-              },
               "properties": {
                 "outcome": {
                   "const": "none_found",
@@ -13642,61 +13607,6 @@ const GeneratedPayloadSchemaDocument = `{
             {
               "additionalProperties": false,
               "maxProperties": 32,
-              "not": {
-                "additionalProperties": false,
-                "maxProperties": 32,
-                "properties": {
-                  "outcome": {
-                    "const": "related_found",
-                    "type": "string"
-                  },
-                  "related_ids": {
-                    "description": "record_alignment couples outcome and related_ids: outcome related_found requires a non-empty related_ids list, and outcome none_found must omit related_ids entirely; the store refuses any other combination.",
-                    "items": {
-                      "$ref": "#/$defs/id"
-                    },
-                    "maxItems": 64,
-                    "minItems": 1,
-                    "type": "array",
-                    "uniqueItems": true
-                  },
-                  "reproduction": {
-                    "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
-                    "maxLength": 4096,
-                    "minLength": 1,
-                    "pattern": "\\S",
-                    "type": "string",
-                    "x-maxBytes": 4096,
-                    "x-minBytes": 2
-                  },
-                  "root_cause": {
-                    "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
-                    "maxLength": 4096,
-                    "minLength": 1,
-                    "pattern": "\\S",
-                    "type": "string",
-                    "x-maxBytes": 4096,
-                    "x-minBytes": 2
-                  },
-                  "searched": {
-                    "description": "The store counts this field's length in UTF-8 bytes: x-maxBytes and x-minBytes carry the enforcing byte bounds, and the code-point minLength/maxLength are derived from them so they never refuse a core-admitted string.",
-                    "maxLength": 4096,
-                    "minLength": 1,
-                    "pattern": "\\S",
-                    "type": "string",
-                    "x-maxBytes": 4096,
-                    "x-minBytes": 2
-                  }
-                },
-                "required": [
-                  "reproduction",
-                  "searched",
-                  "outcome",
-                  "related_ids",
-                  "root_cause"
-                ],
-                "type": "object"
-              },
               "properties": {
                 "outcome": {
                   "const": "none_found",

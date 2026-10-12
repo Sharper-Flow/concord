@@ -35,10 +35,7 @@ func TestHistoricalReproDecisionDeclaration(t *testing.T) {
 	if err := validateWorkflowActionPayload(d.Definition, "record_decision", raw); err == nil {
 		t.Error("REPRO: retired decision record stayed authorable through the live document")
 	}
-	if err := validateWorkflowActionPayloadForReplay(d.Definition, "record_decision", raw); err != nil {
-		t.Fatalf("frozen decoder rejected the recorded decision shape: %v", err)
-	}
-	// The recorded fields envelope must also satisfy its projection fold.
+	// The fold validates the recorded fields through their pinned declaration.
 	s := openTemp(t)
 	const workID = "historical-declaration-fold"
 	seedStepWork(t, s, workID)

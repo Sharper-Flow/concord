@@ -1056,7 +1056,7 @@ const GeneratedPayloadSchemaDocument = `{
             },
             "work_context": {
               "$ref": "#/$defs/work_context_view",
-              "description": "CON-887: the current work-context view the tx-scoped reader assembles. Absent when the work holds no declaration and no terminal-report findings; a view past its bounds leaves this absent and the dedicated context read owns the refusal."
+              "description": "The current work-context view the tx-scoped reader assembles. Absent when the work holds no declaration and no terminal-report findings; a view past its bounds leaves this absent and the dedicated context read owns the refusal."
             },
             "work_pin": {
               "$ref": "#/$defs/work_pin"
@@ -6560,7 +6560,7 @@ const GeneratedPayloadSchemaDocument = `{
         },
         "oracle": {
           "$ref": "#/$defs/worker_oracle_finding",
-          "description": "The typed oracle tie of a ranked review finding (CON-890): classification plus the owner, predicate/law, case, and control references that bind it."
+          "description": "The typed oracle tie of a ranked review finding: classification plus the owner, predicate/law, case, and control references that bind it."
         },
         "ordinal": {
           "minimum": 0,
@@ -6587,7 +6587,7 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "integer"
         },
         "source_kind": {
-          "description": "Present only on a ranked review finding (CON-890): the entry carries an oracle tie and rides the open-set lineage, never the generic worker-claim notebook.",
+          "description": "Present only on a ranked review finding: the entry carries an oracle tie and rides the open-set lineage, never the generic worker-claim notebook.",
           "enum": [
             "review_finding"
           ],
@@ -6599,7 +6599,7 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "string"
         },
         "status": {
-          "description": "A finding is a reported claim, never acceptance. The open status names a ranked review finding the lineage currently holds open (CON-890): still a claim, and open.",
+          "description": "A finding is a reported claim, never acceptance. The open status names a ranked review finding the lineage currently holds open: still a claim, and open.",
           "enum": [
             "reported",
             "open"
@@ -6754,7 +6754,7 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "array"
         },
         "oracle_receipts": {
-          "description": "The prior typed control-execution receipts this work retained (CON-890), in log order: reported regression baselines with their exact identities, never current-subject acceptance.",
+          "description": "The prior typed control-execution receipts this work retained, in log order: reported regression baselines with their exact identities, never current-subject acceptance.",
           "items": {
             "$ref": "#/$defs/worker_oracle_receipt"
           },
@@ -6820,7 +6820,7 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "array"
         },
         "oracle_receipts": {
-          "description": "The prior typed control-execution receipts this work retained (CON-890), in log order: reported regression baselines with their exact identities, never current-subject acceptance.",
+          "description": "The prior typed control-execution receipts this work retained, in log order: reported regression baselines with their exact identities, never current-subject acceptance.",
           "items": {
             "$ref": "#/$defs/worker_oracle_receipt"
           },
@@ -8013,7 +8013,7 @@ const GeneratedPayloadSchemaDocument = `{
           "$ref": "#/$defs/operator_decision_withheld"
         },
         "work_context": {
-          "description": "CON-887: the current work-context view the tx-scoped reader assembles. Absent when the work holds no declaration and no terminal-report findings; a view past its bounds leaves this absent and the dispatch admission owns the refusal.",
+          "description": "The current work-context view the tx-scoped reader assembles. Absent when the work holds no declaration and no terminal-report findings; a view past its bounds leaves this absent and the dispatch admission owns the refusal.",
           "oneOf": [
             {
               "$ref": "#/$defs/work_context_view"
@@ -15513,7 +15513,7 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "worker_acceptance_oracle": {
       "additionalProperties": false,
-      "description": "The CON-890 owner-level acceptance oracle: typed immutable worker-job content. Owners with obligations, a finite case inventory, and executable controls with exact evidence requirements. The store validates the closed graph and its authority joins; the serialized oracle content is bounded by the store at 32 KiB and refused whole on overflow, never truncated.",
+      "description": "The owner-level acceptance oracle: typed immutable worker-job content. Owners with obligations, a finite case inventory, and executable controls with exact evidence requirements. The store validates the closed graph and its authority joins; the serialized oracle content is bounded by the store at 32 KiB and refused whole on overflow, never truncated.",
       "properties": {
         "cases": {
           "items": {
@@ -15799,7 +15799,7 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "worker_oracle_finding": {
       "additionalProperties": false,
-      "description": "The typed oracle tie of one review finding (CON-890): a closed classification plus the owner, predicate/law, case, and control references that bind it. Classification and severity are different dimensions; the tie records no acceptance.",
+      "description": "The typed oracle tie of one review finding: a closed classification plus the owner, predicate/law, case, and control references that bind it. Classification and severity are different dimensions; the tie records no acceptance.",
       "properties": {
         "case_ids": {
           "items": {
@@ -15924,7 +15924,7 @@ const GeneratedPayloadSchemaDocument = `{
     },
     "worker_oracle_mechanism": {
       "additionalProperties": false,
-      "description": "The source-level owner of one obligation (CON-890): the Project that owns the repository, one contained source path, and the symbol or entry point that owns the behavior. A directory name alone does not identify a mechanism.",
+      "description": "The source-level owner of one obligation: the Project that owns the repository, one contained source path, and the symbol or entry point that owns the behavior. A directory name alone does not identify a mechanism.",
       "properties": {
         "entry_point": {
           "maxLength": 512,
@@ -16036,7 +16036,7 @@ const GeneratedPayloadSchemaDocument = `{
           }
         }
       ],
-      "description": "One typed control-execution receipt (CON-890), mirroring contracts/agent-lane-report.schema.json $defs/oracle_receipt exactly: reported evidence, never native-run authority. A retained receipt is a prior-subject regression baseline; subject_commit is the host-derived raw OID, filled only from the packet's core work context. A timeout is unavailable evidence, not a measured failure.",
+      "description": "One typed control-execution receipt, mirroring contracts/agent-lane-report.schema.json $defs/oracle_receipt exactly: reported evidence, never native-run authority. A retained receipt is a prior-subject regression baseline; subject_commit is the host-derived raw OID, filled only from the packet's core work context. A timeout is unavailable evidence, not a measured failure.",
       "properties": {
         "case_ids": {
           "items": {
@@ -16155,7 +16155,7 @@ const GeneratedPayloadSchemaDocument = `{
             },
             "checkpoint": {
               "$ref": "#/$defs/continuity_checkpoint",
-              "description": "CON-883: the latest context checkpoint the pinned continuity projection carried when the packet was built. The core refuses a dispatch whose packet does not carry the latest checkpoint byte-for-byte."
+              "description": "The latest context checkpoint the pinned continuity projection carried when the packet was built. The core refuses a dispatch whose packet does not carry the latest checkpoint byte-for-byte."
             },
             "constraints": {
               "items": {
@@ -16203,7 +16203,7 @@ const GeneratedPayloadSchemaDocument = `{
             },
             "work_context": {
               "$ref": "#/$defs/work_context_view",
-              "description": "CON-887: the current work-context view the work pin carried when the packet was built. The core refuses a dispatch whose packet does not consume the current view byte-for-byte."
+              "description": "The current work-context view the work pin carried when the packet was built. The core refuses a dispatch whose packet does not consume the current view byte-for-byte."
             },
             "work_record": {
               "$ref": "#/$defs/worker_packet_work_record"
@@ -16230,7 +16230,7 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "integer"
         },
         "schema_version": {
-          "description": "The live dispatch_worker surface records only the current card-free packet revision (CON-899). Released 1.0/1.1 histories replay through the versioned lane packet contract, never through this gate; an old host quoting a retired identity is refused typed before the authorization exists.",
+          "description": "The live dispatch_worker surface records only the current card-free packet revision. Released 1.0/1.1 histories replay through the versioned lane packet contract, never through this gate; an old host quoting a retired identity is refused typed before the authorization exists.",
           "enum": [
             "2.0"
           ],
@@ -16270,7 +16270,7 @@ const GeneratedPayloadSchemaDocument = `{
             },
             "checkpoint": {
               "$ref": "#/$defs/continuity_checkpoint",
-              "description": "CON-883: the latest context checkpoint the pinned continuity projection carried when the packet was built. The core refuses a dispatch whose packet does not carry the latest checkpoint byte-for-byte."
+              "description": "The latest context checkpoint the pinned continuity projection carried when the packet was built. The core refuses a dispatch whose packet does not carry the latest checkpoint byte-for-byte."
             },
             "constraints": {
               "items": {
@@ -16318,7 +16318,7 @@ const GeneratedPayloadSchemaDocument = `{
             },
             "work_context": {
               "$ref": "#/$defs/work_context_view2",
-              "description": "CON-887: the current work-context view the work pin carried when the packet was built. The core refuses a dispatch whose packet does not consume the current view byte-for-byte."
+              "description": "The current work-context view the work pin carried when the packet was built. The core refuses a dispatch whose packet does not consume the current view byte-for-byte."
             },
             "work_record": {
               "$ref": "#/$defs/worker_packet_work_record"
@@ -16345,7 +16345,7 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "integer"
         },
         "schema_version": {
-          "description": "The live dispatch_worker surface records only the current card-free packet revision (CON-899). Released 1.0/1.1 histories replay through the versioned lane packet contract, never through this gate; an old host quoting a retired identity is refused typed before the authorization exists.",
+          "description": "The live dispatch_worker surface records only the current card-free packet revision. Released 1.0/1.1 histories replay through the versioned lane packet contract, never through this gate; an old host quoting a retired identity is refused typed before the authorization exists.",
           "enum": [
             "2.0"
           ],
@@ -16592,7 +16592,7 @@ const GeneratedPayloadSchemaDocument = `{
       "properties": {
         "acceptance_oracle": {
           "$ref": "#/$defs/worker_acceptance_oracle",
-          "description": "The CON-890 owner-level acceptance oracle of this immutable revision. Optional and omitted on every revision a pre-oracle definition recorded; required by oracle-capable definition versions. It enters the job digest and reaches every admitted lane through this same copy."
+          "description": "The owner-level acceptance oracle of this immutable revision. Optional and omitted on every revision a pre-oracle definition recorded; required by oracle-capable definition versions. It enters the job digest and reaches every admitted lane through this same copy."
         },
         "checks": {
           "items": {
@@ -16804,7 +16804,7 @@ const GeneratedPayloadSchemaDocument = `{
               "type": "string"
             },
             "packet_schema_version": {
-              "description": "The packet identity the original dispatch recorded (CD-0205, CON-899): \"1.0\" never carried inputs.worker_job, \"1.1\" is the released job-capable packet, and \"2.0\" is the current card-free pair the live producer records. The core quotes the stored dispatch; the caller supplies no replacement.",
+              "description": "The packet identity the original dispatch recorded (CD-0205): \"1.0\" never carried inputs.worker_job, \"1.1\" is the released job-capable packet, and \"2.0\" is the current card-free pair the live producer records. The core quotes the stored dispatch; the caller supplies no replacement.",
               "enum": [
                 "1.0",
                 "1.1",
@@ -16883,7 +16883,7 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "string"
         },
         "packet_schema_version": {
-          "description": "The retained packet schema identity the original dispatch recorded (CON-899): the adapter selects the historical reader by this pair, never by today's current revision.",
+          "description": "The retained packet schema identity the original dispatch recorded: the adapter selects the historical reader by this pair, never by today's current revision.",
           "enum": [
             "1.0",
             "1.1",

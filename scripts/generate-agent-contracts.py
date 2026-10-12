@@ -1407,12 +1407,12 @@ WORKER_PACKET_INPUT_ALIAS_OVERRIDES = {
 }
 WORKER_PACKET_INPUT_PUBLISHED_TEXT = {
     "work_context": (
-        "CON-887: the current work-context view the work pin carried when the "
+        "The current work-context view the work pin carried when the "
         "packet was built. The core refuses a dispatch whose packet does not "
         "consume the current view byte-for-byte."
     ),
     "checkpoint": (
-        "CON-883: the latest context checkpoint the pinned continuity "
+        "The latest context checkpoint the pinned continuity "
         "projection carried when the packet was built. The core refuses a "
         "dispatch whose packet does not carry the latest checkpoint "
         "byte-for-byte."

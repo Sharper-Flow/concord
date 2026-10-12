@@ -64,9 +64,12 @@ func TestSupersedeContractPayloadIsRepresentableAtAgentBoundary(t *testing.T) {
 	payload, err := json.Marshal(map[string]any{
 		"work_id": "work-stale", "expected_version": 7, "action_id": "supersede_contract", "idempotency_key": "supersede-contract",
 		"fields": map[string]any{
-			"contract_version": 2, "premise": "continue under the accepted successor law", "outcome_kind": "check",
-			"outcome_payload":   map[string]any{"kind": "check", "check_ref": "check:successor", "immutable_subject_ref": "commit:successor", "expected_result": "pass"},
-			"required_evidence": []string{"verification"}, "route_conventions": []string{}, "spec_mandate": []string{"spec:successor"}, "law_modifies": []string{}, "rigor_class": "prototype_internal", "supersede_reason": "replace the stale contract", "audit_evidence": []string{"evidence:audit"},
+			// The canonical authoring shape carries explicit outcome
+			// predicates alone; the legacy outcome pair left the union
+			// (CD-0218 D2).
+			"contract_version": 2, "premise": "continue under the accepted successor law",
+			"outcome_predicates": []map[string]any{{"predicate_id": "predicate:successor", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:successor", "immutable_subject_ref": "commit:successor", "expected_result": "pass"}}},
+			"required_evidence":  []string{"verification"}, "route_conventions": []string{}, "spec_mandate": []string{"spec:successor"}, "law_modifies": []string{}, "rigor_class": "prototype_internal", "supersede_reason": "replace the stale contract", "audit_evidence": []string{"evidence:audit"},
 		},
 	})
 	if err != nil {

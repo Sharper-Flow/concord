@@ -9,6 +9,12 @@ import (
 	"time"
 )
 
+// TestDecisionRecordCurrentBoundsMatchFold pins the declared decision-record
+// bounds against the fold that replays them. record_decision's decision-text
+// item schema lives in the frozen replay decoder, so both gates validate
+// through validateWorkflowActionPayloadForReplay — the decoder the fold's
+// own declared-bounds branch binds — and never through the live authoring
+// document the archived family no longer declares.
 func TestDecisionRecordCurrentBoundsMatchFold(t *testing.T) {
 	ctx := context.Background()
 	s := openTemp(t)
@@ -20,7 +26,7 @@ func TestDecisionRecordCurrentBoundsMatchFold(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := validateWorkflowActionPayload(d, "record_decision", raw); err != nil {
+	if err := validateWorkflowActionPayloadForReplay(d, "record_decision", raw); err != nil {
 		t.Fatal(err)
 	}
 	envelope, _ := json.Marshal(map[string]any{"action_id": "record_decision", "fields": fields})
@@ -38,7 +44,7 @@ func TestDecisionRecordCurrentBoundsMatchFold(t *testing.T) {
 	for _, text := range []string{"x", strings.Repeat("x", 129)} {
 		fields["options_considered"] = []string{text}
 		raw, _ := json.Marshal(fields)
-		if err := validateWorkflowActionPayload(d, "record_decision", raw); err == nil {
+		if err := validateWorkflowActionPayloadForReplay(d, "record_decision", raw); err == nil {
 			t.Errorf("accepted out-of-bounds item length %d", len(text))
 		}
 	}
@@ -78,22 +84,25 @@ func TestV5DeclaredDecisionBoundsMatchFold(t *testing.T) {
 }
 
 func TestNativeTimestampOptionalButValidatedWhenPresent(t *testing.T) {
+	// The retained ops-runbook pin resolves asserted_at's declared schema in
+	// the frozen replay document, so validation runs the way the fold reads
+	// it.
 	d := opsRunbookTimestampV7()
 	fields := map[string]any{"run_id": "run-test", "native_subject_ref": "native:test", "status": "started", "evidence_ref": "artifact:test", "evidence_digest": "sha256:" + strings.Repeat("a", 64)}
 	raw, _ := json.Marshal(fields)
-	if err := validateWorkflowActionPayload(d, "start_run", raw); err != nil {
+	if err := validateWorkflowActionPayloadForReplay(d, "start_run", raw); err != nil {
 		t.Fatalf("omitted timestamp refused: %v", err)
 	}
 	for _, text := range []string{"invalid", "2026-02-30T00:00:00Z"} {
 		fields["asserted_at"] = text
 		raw, _ := json.Marshal(fields)
-		if err := validateWorkflowActionPayload(d, "start_run", raw); err == nil {
+		if err := validateWorkflowActionPayloadForReplay(d, "start_run", raw); err == nil {
 			t.Errorf("accepted %q", text)
 		}
 	}
 	fields["asserted_at"] = "2026-09-14T00:00:00.123456789+02:30"
 	raw, _ = json.Marshal(fields)
-	if err := validateWorkflowActionPayload(d, "start_run", raw); err != nil {
+	if err := validateWorkflowActionPayloadForReplay(d, "start_run", raw); err != nil {
 		t.Fatal(err)
 	}
 }

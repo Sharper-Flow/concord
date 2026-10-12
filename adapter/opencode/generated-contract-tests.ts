@@ -187,13 +187,10 @@ export function advertisedAdmissionTeachingGaps(published: unknown): string[] {
       gaps.push(`outcome_predicates description does not teach the delivery-decidable rule (CD-0184) on action ${input?.properties?.action_id?.const}`);
     }
   }
-  const waitCarriers = actionInputs.filter((input) => input.properties.fields.properties.expected_within_seconds !== undefined);
-  for (const input of waitCarriers) {
-    const wait: unknown = input.properties.fields.properties.expected_within_seconds?.description;
-    if (wait !== "CD-0184: this wait bounds an event a declared authority can resolve while the item is open. Do not hold the item open to observe production over a time window. Capture that observation as a follow-up work item and link it raised_from the delivering item.") {
-      gaps.push(`expected_within_seconds description does not teach the delivery-decidable rule (CD-0184) on action ${input?.properties?.action_id?.const}`);
-    }
-  }
+  // The CD-0184 wait-rule teaching retired with add_condition (CD-0218 D1):
+  // no live action declares expected_within_seconds, so no wait carrier
+  // check exists. require_delivery_rule_teaching refuses a stale projection
+  // that revives the retired variant.
   return gaps;
 }
 function pass(evaluated: Iterable<string> = []): Validation { return { valid: true, evaluated: new Set(evaluated), path: null }; }
@@ -257,4 +254,4 @@ function validateSchema(schema: any, value: unknown, root: Record<string, unknow
   return pass(evaluated);
 }
 
-export const PINNED_PUBLISHED_TOTAL_BYTES = 129359;
+export const PINNED_PUBLISHED_TOTAL_BYTES = 107506;

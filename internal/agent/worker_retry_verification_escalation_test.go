@@ -165,7 +165,7 @@ func runVerificationCorrectionWall(t *testing.T, definitionVersion int64) {
 			// route is closed: the latest record is now the failure, and no
 			// request pair can derive a basis. The next dispatch refuses, and
 			// no ordinary approval route appears either.
-			recordFailureForEscalatedRetry(t, s, service, grant, retryID, seedEpoch+1)
+			recordWorkflowFailureForPin(t, s, grant, retryID, seedEpoch+1, "escalated-retry-"+strconv.FormatInt(seedEpoch+1, 10))
 			rearmed := verifyWallPinCorrection(t, s)
 			if rearmed.Disposition != "failed" || rearmed.Escalated || rearmed.AttemptCount != 1 || rearmed.FailedAttemptID != retryID || rearmed.FailedAttemptEpoch != seedEpoch+1 {
 				t.Fatalf("correction after the converging retry failed = %+v, want the unescalated failed record bound to %s at epoch %d", rearmed, retryID, seedEpoch+1)
@@ -310,11 +310,11 @@ func seedEscalatedVerificationWorkerMutation(t *testing.T, s *store.Store, servi
 		if executionDelivery.Outcome != OutcomeOK {
 			t.Fatalf("seed verification execution delivery %d: %+v", cycle, executionDelivery.Error)
 		}
-		version = workVersion(t, s, "work-1")
-		refineStart := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: json.RawMessage(`{"work_id":"work-1","expected_version":` + strconv.FormatInt(version, 10) + `,"action_id":"start_refine","idempotency_key":"verification-refine-start-` + strconv.FormatInt(cycle, 10) + `"}`)}, env)
-		if refineStart.Outcome != OutcomeOK {
-			t.Fatalf("seed verification refine start %d: %+v", cycle, refineStart.Error)
-		}
+		// The released pins (v26 oracle-free, v27 oracle) keep their callable
+		// refinement entry store-executable; the closed live union publishes
+		// no start_refine authoring shape, so the public boundary cannot
+		// author it (CD-0218 D2/D4).
+		runVerificationStoreAction(t, s, "start_refine", map[string]any{}, owner, nil, "verification-refine-start-"+strconv.FormatInt(cycle, 10))
 		// The refine exit consumes a green verify run bound in the epoch
 		// (CD-0192); the seed supplies one and binds its operation ref.
 		proofRef := agentSeedRefineProofRun(t, s, "work-1", fmt.Sprintf("%064x", cycle))

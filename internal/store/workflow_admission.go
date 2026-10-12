@@ -521,6 +521,15 @@ func workflowAdmit(definition WorkflowDefinition, state WorkflowAdmissionState, 
 		decision.Failure = newFailure(KindInvalidOperation, "workflow_action", "terminal workflow instance is immutable", false, "start a successor workflow")
 		return decision
 	}
+	// A nonterminal instance under an archived family refuses every public
+	// action here — the recovery routes included — before any write. Terminal
+	// instances keep the terminal-immutability answer above.
+	if workflowFamilyArchived(definition.Ref) {
+		decision.Failure = newFailure(KindInvalidOperation, "workflow_action",
+			"workflow family "+definition.Ref+" is archived: new public workflow actions are refused", false,
+			"read the recorded history, or start retained-family work")
+		return decision
+	}
 	consequence := workflowActionConsequence(definition, actionID)
 	if workflowImpactBoundary(actionID, consequence) {
 		if state.BreakingNotices != 0 {

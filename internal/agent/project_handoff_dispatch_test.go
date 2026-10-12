@@ -145,10 +145,9 @@ func handoffDispatchFixture(t *testing.T) (*store.Store, *Service, *Service, Cal
 	stepFields := map[string]map[string]any{
 		"record_proposal":  {"problem": "The bounded problem statement.", "affected": []string{"The affected system."}, "stakes": "The bounded stakes statement.", "user_outcomes": []string{"The expected user outcome."}},
 		"record_alignment": {"searched": "The bounded backlog search statement.", "outcome": "none_found"},
-		"record_discovery": {},
 		"record_design":    {"approach": "The recorded approach is the implementation boundary.", "decisions": []map[string]any{{"id": "decision:handoff", "question": "What crosses into execution?", "choice": "The typed design record.", "rationale": "The worker must receive the approved decision.", "rejected": []any{}}}, "touched_refs": []string{"path:handoff"}},
 	}
-	for _, action := range []string{"record_proposal", "record_alignment", "record_discovery", "record_design"} {
+	for _, action := range []string{"record_proposal", "record_alignment", "record_design"} {
 		stepped := handoffInvoke(t, s, sourceService, sourceEnv, "workflow_action", map[string]any{
 			"work_id": "work-1", "expected_version": version, "action_id": action,
 			"fields": stepFields[action], "idempotency_key": "handoff-" + action,

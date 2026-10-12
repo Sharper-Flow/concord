@@ -1196,13 +1196,19 @@ func resolveLawContextDomains(ctx context.Context, tx *sql.Tx, productID string,
 // set, and the exactly-one outcome group all come from
 // workflowContractRecoveryActionDefinition, so no handwritten field-name list
 // or outcome-shape branch can drift from the declaration the published
-// variant generates from (CON-412).
-func validateWorkflowContractRecoveryPayload(raw json.RawMessage) error {
+// variant generates from. On a canonical authoring head the
+// outcome group is the explicit predicate array alone: the legacy outcome
+// pair refuses and the array is required, so the successor's end state is
+// always the one the caller supplied.
+func validateWorkflowContractRecoveryPayload(definition WorkflowDefinition, raw json.RawMessage) error {
 	fields, err := workflowActionObject(raw)
 	if err != nil {
 		return err
 	}
 	declaration := workflowContractRecoveryActionDefinition().Payload
+	if workflowCanonicalAuthoringActive(definition) {
+		declaration.Fields = workflowCanonicalContractRecoveryPayloadFields()
+	}
 	crossField := workflowActionCrossField("supersede_contract")
 	allowed := make(map[string]WorkflowPayloadField)
 	for _, field := range declaration.Fields {

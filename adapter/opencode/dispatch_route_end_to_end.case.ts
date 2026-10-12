@@ -839,7 +839,7 @@ routeDeclaration("composes implementation and independent review through one ord
     // submits its own verdict, the adapter mints the operator challenge, the
     // host approval signs it, and the verdict records under the operator
     // identity rather than a distinct agent session.
-    response = await invoke("concord_work_transition", { operation: "workflow_action", input: { work_id: workID, expected_version: verifyVersion, action_id: "record_verdict", idempotency_key: "e2e-record-verdict", fields: { contract_version: 1, predicate_id: predicate.predicate_id, evaluation_evidence: [packet.attempt_id] } } }, context)
+    response = await invoke("concord_work_transition", { operation: "workflow_action", input: { work_id: workID, expected_version: verifyVersion, action_id: "record_verdict", idempotency_key: "e2e-record-verdict", fields: { contract_version: 1, verdicts: [{ predicate_id: predicate.predicate_id, evaluation_evidence: [packet.attempt_id] }] } } }, context)
     expect(response.outcome, JSON.stringify(response)).toBe("ok")
     const verdictActor = dbValue(dbPath, `SELECT json_extract(payload,'$.verdict_actor_ref') AS actor FROM domain_events WHERE subject_id='${workID}' AND kind='workflow.verdict_recorded' ORDER BY seq DESC LIMIT 1`).actor as string
     const verdictActorClass = dbValue(dbPath, `SELECT actor_class FROM workflow_actors WHERE actor_ref='${verdictActor}'`).actor_class as string

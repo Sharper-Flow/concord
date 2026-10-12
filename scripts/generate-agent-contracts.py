@@ -32,12 +32,6 @@ DELIVERY_RULE_PREDICATE_DESCRIPTION = (
     "it raised_from the delivering item before that item completes. A one-shot "
     "live check that verification can decide at delivery stays allowed."
 )
-DELIVERY_RULE_WAIT_DESCRIPTION = (
-    "CD-0184: this wait bounds an event a declared authority can resolve while "
-    "the item is open. Do not hold the item open to observe production over a "
-    "time window. Capture that observation as a follow-up work item and link "
-    "it raised_from the delivering item."
-)
 
 # The published request document is compact: local #/$defs references and
 # factored object unions (shared property constraints and required fields at
@@ -155,23 +149,46 @@ export function expandedPublishedRequestSchema(published: unknown): unknown {
 
 ADD_CONDITION_VARIANTS = ("work_transition_action_variant_add_condition", "work_transition_action_public_variant_add_condition")
 
+# The closed set of published actions CD-0218 D1/D2 retires from live
+# authoring: the 22 retired-family action IDs and the 6 ceremony/derived
+# IDs. The projection derives their absence from this published set — there
+# is no special case that re-admits a retired shape, and a stale projected
+# def for one is a generation failure.
+RETIRED_PUBLISHED_ACTIONS = frozenset({
+    # Retired with the four families (CD-0218 D1).
+    "accept_decision", "add_condition", "approve_operation", "cancel_condition",
+    "checkpoint_action", "checkpoint_analysis", "checkpoint_poc", "checkpoint_run",
+    "cleanup_run", "declare_scope", "discard_poc", "frame_question",
+    "record_decision", "record_health", "record_option", "record_research",
+    "resolve_condition", "rollback_run", "run_analysis", "start_action",
+    "start_poc", "start_run",
+    # Retired by the derived diagnosis/starts/failure/retry forms (CD-0218 D2).
+    "record_reproduction", "record_root_cause", "start_repair", "start_refine",
+    "record_worker_failure", "record_discovery",
+})
+# The approved live public action target: 58 prior public IDs − 28 retired
+# published IDs + record_diagnosis.
+LIVE_ACTION_TARGET = 31
+
 
 def require_delivery_rule_teaching(defs: dict) -> None:
     """CD-0184: the projected authoring schema must teach that acceptance is
     decidable at delivery, so generation fails before any artifact lands when
-    a projection drops the rule."""
+    a projection drops the rule.
+
+    The rule's live owner is the outcome_predicates array shared by
+    approve_contract and supersede_contract. The wait-rule teaching retired
+    with add_condition (CD-0218 D1): the wait variant's absence is derived
+    from the retired published actions, so a projected def for it is a stale
+    copy the projection must refuse, never a silently skipped check.
+    """
     items = defs.get("workflow_action_outcome_predicates")
     text = items.get("description") if isinstance(items, dict) else None
     if text != DELIVERY_RULE_PREDICATE_DESCRIPTION:
         fail("workflow_action_outcome_predicates does not teach the CD-0184 delivery-decidable rule")
-    variants = [definition for name, definition in defs.items() if name in ADD_CONDITION_VARIANTS and isinstance(definition, dict)]
-    if not variants:
-        fail("the projected workflow action input names no add_condition variant for the delivery-rule teaching")
-    for variant in variants:
-        wait = variant.get("properties", {}).get("fields", {}).get("properties", {}).get("expected_within_seconds")
-        wait_text = wait.get("description") if isinstance(wait, dict) else None
-        if wait_text != DELIVERY_RULE_WAIT_DESCRIPTION:
-            fail("add_condition expected_within_seconds does not teach the CD-0184 delivery-decidable rule")
+    stale = sorted(name for name in ADD_CONDITION_VARIANTS if name in defs)
+    if stale:
+        fail(f"retired published action add_condition remains projected: {', '.join(stale)} (CD-0218 D1)")
 
 SCHEMA_KEYWORDS = {"$schema", "$id", "$defs", "$ref", "title", "description", "type", "properties", "patternProperties", "propertyNames", "required", "additionalProperties", "unevaluatedProperties", "items", "contains", "minItems", "maxItems", "uniqueItems", "minLength", "maxLength", "pattern", "format", "minimum", "maximum", "enum", "const", "oneOf", "anyOf", "allOf", "not", "if", "then", "else", "default", "minProperties", "maxProperties", "x-maxBytes", "x-minBytes"}
 
@@ -314,7 +331,7 @@ def load_workflow_action_contracts() -> tuple[list[dict], list[dict], dict, dict
         check=True,
     )
     projection = json.loads(result.stdout)
-    if set(projection) != {"schema_version", "actions", "workflows", "teaching", "schema_refs"} or projection["schema_version"] != "1.0":
+    if set(projection) != {"schema_version", "actions", "workflows", "teaching", "schema_refs"} or projection["schema_version"] != "2.0":
         fail("workflow action contract projection is invalid")
     schema_refs = projection["schema_refs"]
     if set(schema_refs) != {"current", "historical"}:
@@ -332,8 +349,14 @@ def load_workflow_action_contracts() -> tuple[list[dict], list[dict], dict, dict
     actions = projection["actions"]
     if not actions or len({action.get("id") for action in actions}) != len(actions):
         fail("workflow action contract projection has no unique actions")
+    live_ids = [action.get("id") for action in actions]
+    retired = sorted(set(live_ids) & RETIRED_PUBLISHED_ACTIONS)
+    if retired:
+        fail(f"retired published actions remain authorable in the live projection (CD-0218 D1/D2): {', '.join(retired)}")
+    if len(live_ids) != LIVE_ACTION_TARGET:
+        fail(f"the live action projection carries {len(live_ids)} actions, want the approved target {LIVE_ACTION_TARGET}")
     for action in actions:
-        if set(action) != {"id", "variants", "legacy_payloads", "cross_field"}:
+        if set(action) != {"id", "variants", "cross_field"}:
             fail("workflow action contract projection contains an open record")
         if not action["variants"]:
             fail(f"workflow action contract projection names no variant: {action.get('id')}")
@@ -346,13 +369,6 @@ def load_workflow_action_contracts() -> tuple[list[dict], list[dict], dict, dict
                 if variant[payload_key].get("closed") is not True:
                     fail(f"current workflow action {payload_key} is not closed: {action.get('id')}")
                 validate_workflow_cross_field(action, variant[payload_key])
-        if not isinstance(action["legacy_payloads"], list):
-            fail(f"legacy workflow action payloads are not a list: {action.get('id')}")
-        for legacy in action["legacy_payloads"]:
-            if set(legacy) - {"closed", "fields"}:
-                fail(f"legacy workflow action payload is an open record: {action.get('id')}")
-            if legacy.get("closed") is not True:
-                fail(f"legacy workflow action payload is not closed: {action.get('id')}")
     workflows = projection["workflows"]
     if not workflows or len({workflow.get("ref") for workflow in workflows}) != len(workflows):
         fail("workflow outcome contract projection has no unique workflows")
@@ -439,20 +455,25 @@ def freeze_historical_decoder(schema_refs: dict) -> int:
     public authoring changes. Existing frozen definitions are
     never rewritten: a re-freeze only adds the closure definitions the
     registry newly declares, so the frozen baseline can never silently
-    re-derive from a changed public document.
+    re-derive from a changed public document. The closure resolves each name
+    through the frozen bytes when they exist — narrowing live authoring
+    may retire a name from the public document while
+    retained pins still declare it — and through the current document only
+    for names the freeze newly adds.
     """
     payload_defs = json.loads(PAYLOAD.read_text()).get("$defs", {})
-    union = sorted(set(schema_refs["current"]) | set(schema_refs["historical"]))
-    closure = schema_ref_closure(payload_defs, union)
     frozen: dict = {}
     if HISTORICAL_DECODER.is_file():
         frozen = json.loads(HISTORICAL_DECODER.read_text())
         if not isinstance(frozen.get("$defs"), dict):
             fail("historical decoder document carries no $defs object")
     existing = frozen.setdefault("$defs", {})
+    resolution = {**payload_defs, **existing}
+    union = sorted(set(schema_refs["current"]) | set(schema_refs["historical"]))
+    closure = schema_ref_closure(resolution, union)
     added = [name for name in closure if name not in existing]
     for name in added:
-        existing[name] = payload_defs[name]
+        existing[name] = resolution[name]
     if not existing:
         fail("the historical decoder freeze would be empty")
     # The document stays keyword-pure: its provenance is the freeze evidence
@@ -539,16 +560,43 @@ def workflow_allowed_tokens_description(workflows: list[dict]) -> str:
             fail(f"workflow {ref} allows the outcome predicate kind without pinned outcome tokens")
     clauses = []
     for workflow in with_tokens:
-        clause = f"{workflow['ref']} admits " + ", ".join(workflow["allowed_outcome_tokens"])
-        if workflow["decision_record_required"]:
-            clause += " (decision_record required)"
-        clauses.append(clause)
+        clauses.append(f"{workflow['ref']} admits " + ", ".join(workflow["allowed_outcome_tokens"]))
     if without:
         clauses.append(", ".join(without) + " admit no outcome tokens (only exists, absent and check predicate kinds)")
     return (
-        "The store pins which outcome tokens the contract of the work item being "
-        "approved may carry, per its workflow type: " + "; ".join(clauses) + "."
+        "The store pins which outcome tokens the contract of the work item being approved "
+        "may carry, per its workflow type: " + "; ".join(clauses) + "."
     )
+
+
+def narrow_live_outcome_union(defs: dict, workflows: list[dict]) -> None:
+    """Narrow the projected outcome union to what the live heads pin (S4).
+
+    The published authoring outcome carries only the outcome tokens some
+    live workflow head pins — the research trio today — and never a
+    decision_record: new contract authoring names explicit outcome
+    predicates only (CD-0218 D1). The frozen historical decoder keeps the
+    full retired vocabulary, so retained pins replay unchanged. A live head
+    demanding a decision_record or a token outside its pins fails
+    generation instead of publishing a shape admission would refuse.
+    """
+    outcome = defs.get("workflow_outcome_outcome")
+    if not isinstance(outcome, dict) or not isinstance(outcome.get("properties"), dict):
+        fail("the projected workflow_outcome_outcome schema is unavailable for live narrowing")
+    live_tokens = sorted({token for workflow in workflows for token in workflow["allowed_outcome_tokens"]})
+    if not live_tokens:
+        fail("no live workflow pins outcome tokens; the projected outcome union would be empty")
+    allowed = outcome["properties"].get("allowed")
+    if not isinstance(allowed, dict) or not isinstance(allowed.get("items"), dict):
+        fail("the projected workflow_outcome_outcome schema names no allowed token array")
+    allowed["items"]["enum"] = live_tokens
+    allowed["maxItems"] = len(live_tokens)
+    if any(workflow.get("decision_record_required") for workflow in workflows):
+        fail("a live workflow head requires a decision_record; new authoring projects no decision_record (CD-0218 D1)")
+    outcome["properties"].pop("decision_record", None)
+    # Projection is idempotent: the drop also clears a stale copy the
+    # previous document generation may still carry.
+    defs.pop("workflow_outcome_decision_record", None)
 
 
 # A workflow action field whose value an author writes against a shared
@@ -1150,6 +1198,11 @@ def project_workflow_action_schema(document: dict, actions: list[dict], workflow
     common_required = ["work_id", "expected_version", "action_id", "idempotency_key"]
 
     outcome_payload = install_workflow_outcome_schema(defs)
+    # S4 narrows the live outcome union before any branch copy is taken: the
+    # published tokens are exactly what the live heads pin, and the
+    # decision_record authoring surface retires (CD-0218 D1). The frozen
+    # historical decoder keeps the full retired vocabulary for replay.
+    narrow_live_outcome_union(defs, workflows)
     defs["workflow_action_outcome"] = copy.deepcopy(outcome_payload)
     defs["workflow_contract_version"] = {"$ref": "#/$defs/version"}
     # The pinned-token annotation lands on the outcome def BEFORE any branch
@@ -1226,9 +1279,9 @@ def project_workflow_action_schema(document: dict, actions: list[dict], workflow
             "result_ref": {"type": "string", "minLength": 1, "maxLength": 512},
         },
     }
-    defs["decision_record_text"] = {"type": "string", "minLength": 2, "maxLength": 128}
-    defs["native_report_timestamp"] = {"type": "string", "minLength": 20, "maxLength": 64, "format": "date-time"}
-    design_action = next(action for action in actions if action["id"] == "record_design")
+    design_action = next((action for action in actions if action["id"] == "record_design"), None)
+    if design_action is None:
+        fail("the live projection names no record_design action; the design-content def has no live owner")
     defs["workflow_design_content"] = workflow_payload_object_schema(single_variant(design_action)["payload"], defs)
 
     outer_properties = copy.deepcopy(common)
@@ -1236,36 +1289,31 @@ def project_workflow_action_schema(document: dict, actions: list[dict], workflow
     # projects the action's declared envelope fields to the envelope outer
     # level, so the work pin (required_fields), this envelope schema, and the
     # store validator read one declaration and cannot drift.
-    confirm_action = next(action for action in actions if action["id"] == "confirm_premise")
+    confirm_action = next((action for action in actions if action["id"] == "confirm_premise"), None)
+    if confirm_action is None:
+        fail("the live projection names no confirm_premise action; the envelope fields have no live owner")
     for field in single_variant(confirm_action)["payload"]["fields"]:
         if not field.get("envelope"):
             continue
         outer_properties[field["name"]] = workflow_payload_field_schema(field, defs)
     outer_properties["fields"] = {}
 
-    def legacy_condition(action: dict) -> dict | None:
-        # Historical execution compatibility: the core input still admits each
-        # action's legacy payload layouts through the same registry
-        # declaration, but the legacy branch is a separate definition that no
-        # published variant references — the surface never advertises legacy
-        # forms (CON-412).
-        # Envelope-carried fields keep their declared wire shape in every
-        # version; a historical fields object cannot replace that envelope.
-        if not action["legacy_payloads"] or any(field.get("envelope") for variant in action["variants"] for field in variant["payload"]["fields"]):
-            return None
-        def payload_branch(payload: dict) -> dict:
-            field_object = workflow_payload_object_schema(payload, defs, field_teaching)
-            branch = {"properties": {"fields": field_object}}
-            if "required" in field_object:
-                branch["required"] = ["fields"]
-            return branch
-        branches = [payload_branch(legacy) for legacy in action["legacy_payloads"]]
-        then = branches[0] if len(branches) == 1 else {"anyOf": branches}
-        return {"if": {"properties": {"action_id": {"const": action["id"]}}, "required": ["action_id"]}, "then": then}
+    # Projection starts from the previous document, so the retirement drops
+    # are explicit: a stale def would keep satisfying checks that read it
+    # while no validation path consumes it. Retired published actions keep
+    # no authoring variant, the legacy input union is gone entirely, and the
+    # retired decision/wait authoring defs lose their last owners
+    # (CD-0218 D1/D2). Historical layouts replay through the
+    # frozen historical decoder, never through this document.
+    for action_id in RETIRED_PUBLISHED_ACTIONS:
+        defs.pop("work_transition_action_variant_" + action_id, None)
+        defs.pop("work_transition_action_public_variant_" + action_id, None)
+    for stale in ("work_transition_action_legacy_input", "decision_record_text", "native_report_timestamp"):
+        defs.pop(stale, None)
 
     # Each action publishes its current closed fieldsets from the registry.
     # Cross-field rules apply inside each alternative; no field union invents
-    # a contract. Retained layouts stay on the core-only legacy input path.
+    # a contract.
     def action_variant(action: dict, payload_key: str, name: str) -> None:
         action_id = action["id"]
         properties = copy.deepcopy(outer_properties)
@@ -1286,11 +1334,6 @@ def project_workflow_action_schema(document: dict, actions: list[dict], workflow
             for payload in payloads:
                 validate_workflow_cross_field(action, payload)
                 branch = workflow_payload_object_schema(payload, defs, field_teaching, action["cross_field"])
-                if action_id == "add_condition":
-                    wait = branch.get("properties", {}).get("expected_within_seconds")
-                    if not isinstance(wait, dict):
-                        fail("add_condition payload names no expected_within_seconds field for the delivery-rule teaching")
-                    wait["description"] = DELIVERY_RULE_WAIT_DESCRIPTION
                 if branch not in branches:
                     branches.append(branch)
             field_object = closed_field_union(branches, defs, name)
@@ -1319,23 +1362,12 @@ def project_workflow_action_schema(document: dict, actions: list[dict], workflow
             action_variant(action, "public_payload", public_name)
         public_variants.append({"action_id": action_id, "schema": public_name})
 
-    # Core validation and host publication consume the same authored variants.
-    # The core input additionally admits historical payload layouts through a
-    # separate never-published legacy definition; the public input is exactly
-    # the published variants.
+    # Core validation and host publication consume the same authored
+    # variants from the live heads and the recovery list. No legacy input
+    # union exists: a historical payload layout replays through the frozen
+    # historical decoder and is authorable nowhere (CD-0218 D4).
     variant_wrapper = {"type": "object", "additionalProperties": False, "required": common_required, "properties": copy.deepcopy(outer_properties)}
-    legacy_conditions = [condition for condition in (legacy_condition(action) for action in actions) if condition is not None]
-    # The legacy definition must never admit an action the registry closes
-    # with its own variant: without this gate the legacy envelope — whose
-    # fields property is unconstrained — accepts any fields object for any
-    # current action, and the core union admits payloads every published
-    # variant refuses. The gate names exactly the actions that carry recorded
-    # legacy payload layouts, so historic execution stays admitted and current
-    # shapes answer only to their closed variants.
-    legacy_action_ids = sorted(condition["if"]["properties"]["action_id"]["const"] for condition in legacy_conditions)
-    legacy_gate = {"anyOf": [{"properties": {"action_id": {"type": "string", "enum": legacy_action_ids}}, "required": ["action_id"]}]} if legacy_action_ids else {"not": {}}
-    defs["work_transition_action_legacy_input"] = copy.deepcopy(variant_wrapper) | {"allOf": [legacy_gate] + legacy_conditions}
-    defs["work_transition_action_input"] = copy.deepcopy(variant_wrapper) | {"anyOf": current_variant_refs + [{"$ref": "#/$defs/work_transition_action_legacy_input"}]}
+    defs["work_transition_action_input"] = copy.deepcopy(variant_wrapper) | {"anyOf": current_variant_refs}
     defs["work_transition_action_public_input"] = copy.deepcopy(variant_wrapper) | {"anyOf": [{"$ref": f"#/$defs/{variant['schema']}"} for variant in public_variants]}
     require_delivery_rule_teaching(defs)
     return projected, public_variants
@@ -1929,13 +1961,10 @@ export function advertisedAdmissionTeachingGaps(published: unknown): string[] {{
       gaps.push(`outcome_predicates description does not teach the delivery-decidable rule (CD-0184) on action ${{input?.properties?.action_id?.const}}`);
     }}
   }}
-  const waitCarriers = actionInputs.filter((input) => input.properties.fields.properties.expected_within_seconds !== undefined);
-  for (const input of waitCarriers) {{
-    const wait: unknown = input.properties.fields.properties.expected_within_seconds?.description;
-    if (wait !== {json.dumps(DELIVERY_RULE_WAIT_DESCRIPTION)}) {{
-      gaps.push(`expected_within_seconds description does not teach the delivery-decidable rule (CD-0184) on action ${{input?.properties?.action_id?.const}}`);
-    }}
-  }}
+  // The CD-0184 wait-rule teaching retired with add_condition (CD-0218 D1):
+  // no live action declares expected_within_seconds, so no wait carrier
+  // check exists. require_delivery_rule_teaching refuses a stale projection
+  // that revives the retired variant.
   return gaps;
 }}
 function pass(evaluated: Iterable<string> = []): Validation {{ return {{ valid: true, evaluated: new Set(evaluated), path: null }}; }}

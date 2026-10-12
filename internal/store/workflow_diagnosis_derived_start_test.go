@@ -11,10 +11,10 @@ import (
 )
 
 // Typed diagnosis on workflow.break_fix and the derived repair/refine step
-// starts (CD-0198 D2/D3). The tests run against the current
-// definition heads; each expectation that names the new behavior is the
-// slice's acceptance clause, and each released-pin expectation is the frozen
-// boundary the slice must not move.
+// start (CD-0198 D2/D3). The tests run against the current definition
+// heads; each expectation that names the derived behavior is the suite's
+// acceptance clause, and each released-pin expectation is the frozen
+// boundary the suite must not move.
 
 func diagnosisS1Actor(workID, name string) WorkflowActor {
 	return WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/" + name, SessionRef: "session/" + workID + "-" + name, ActorClass: ActorAgent}
@@ -598,8 +598,8 @@ func TestConcurrentFirstQualifyingActionsYieldOneFence(t *testing.T) {
 	}
 }
 
-// TestCorrectedContractLivenessThroughProducerReturn proves the absorb:
-// after the declared producer return of a complete-step contract
+// TestCorrectedContractLivenessThroughProducerReturn proves the producer
+// absorb: after the declared producer return of a complete-step contract
 // correction, the corrected contract is live — source-qualified context, a
 // derived repair start, fresh check evidence, and the successor's verdict
 // reach completion — while the pre-correction bindings satisfy nothing.
@@ -686,7 +686,7 @@ func TestCorrectedContractLivenessThroughProducerReturn(t *testing.T) {
 		t.Fatalf("record_delivery through the delivery gate on the corrected contract: %v", err)
 	}
 	reviewer := diagnosisS1Actor(workID, "liveness-reviewer")
-	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":2,"predicate_id":"predicate:return-route","verdict_kind":"ok"}`), 0, reviewer); err != nil {
+	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":2,"verdicts":[{"predicate_id":"predicate:return-route","verdict_kind":"ok"}]}`), 0, reviewer); err != nil {
 		t.Fatalf("fresh verdict on the corrected contract: %v", err)
 	}
 	if err := runIssue933OperatorAction(t, s, workID, "confirm_premise", json.RawMessage(`{"contract_version":2}`), fixture.owner, fixture.operator); err != nil {

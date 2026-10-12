@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check native-run projections, payload closure, and literal migration coverage."""
+"""Check the native-run status closure, literal migration coverage, and runtime guards."""
 from __future__ import annotations
 
 import argparse
@@ -7,13 +7,15 @@ import json
 import re
 import subprocess
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
 VOCABULARY = Path("contracts/native-run-statuses.v1.json")
-SURFACE_SCHEMA = Path("contracts/agent-tool-surface-payloads.schema.json")
 SCHEMA_SOURCE = Path("internal/store/schema.go")
+
+NativeStatusLoader = Callable[[Path, list[str]], list[str] | None]
 
 
 def load_json(root: Path, relative: Path, findings: list[str]):
@@ -44,50 +46,44 @@ def trigger_block(sql: str, name: str) -> str | None:
     return match.group("body") if match else None
 
 
-def status_enum(surface: object, findings: list[str]) -> list[str]:
-    if not isinstance(surface, dict) or not isinstance(surface.get("$defs"), dict):
-        findings.append("schema-enum: workflow action schema definitions are missing")
-        return []
-    definitions = surface["$defs"]
-    statuses: set[str] = set()
-    seen_refs: set[str] = set()
+def load_native_statuses(root: Path, findings: list[str]) -> list[str] | None:
+    """Derive the native status union from the compiled historical registry.
 
-    def collect(node: object) -> None:
-        if isinstance(node, list):
-            for child in node:
-                collect(child)
-            return
-        if not isinstance(node, dict):
-            return
-        reference = node.get("$ref")
-        if isinstance(reference, str) and reference.startswith("#/$defs/"):
-            name = reference.removeprefix("#/$defs/")
-            if name not in seen_refs:
-                seen_refs.add(name)
-                collect(definitions.get(name))
-        properties = node.get("properties")
-        if isinstance(properties, dict):
-            fields = properties.get("fields")
-            if isinstance(fields, dict) and isinstance(fields.get("properties"), dict):
-                status = fields["properties"].get("status")
-                if isinstance(status, dict) and isinstance(status.get("enum"), list) and all(isinstance(item, str) for item in status["enum"]):
-                    statuses.update(status["enum"])
-            collect(properties)
-        for key in ("allOf", "anyOf", "oneOf", "if", "then", "else"):
-            collect(node.get(key))
-
-    collect(definitions.get("work_transition_action_input"))
-    if not statuses:
-        findings.append("schema-enum: workflow action status property is missing")
-    return sorted(statuses)
+    The registry's declaration metadata is the authority for which native
+    statuses still exist on the replay side, so the union comes from the
+    workflow-action-contracts projection's read-only metadata mode, never
+    from the public authoring schema or the frozen decoder.
+    """
+    try:
+        result = subprocess.run(
+            ["go", "run", "./scripts/workflow-action-contracts", "-native-statuses"],
+            cwd=root, capture_output=True, text=True, check=False, timeout=300,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        findings.append(f"native-status-projection: unable to run the projection command: {exc}")
+        return None
+    if result.returncode:
+        detail = result.stderr.strip() or result.stdout.strip() or f"exit status {result.returncode}"
+        findings.append(f"native-status-projection: {detail.replace(chr(10), ' ')}")
+        return None
+    try:
+        projection = json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        findings.append(f"native-status-projection: invalid JSON: {exc}")
+        return None
+    statuses = projection.get("statuses") if isinstance(projection, dict) else None
+    if not isinstance(statuses, list) or any(not isinstance(status, str) or not status for status in statuses):
+        findings.append("native-status-projection: projection carries no native status union")
+        return None
+    return statuses
 
 
-def check(root: Path) -> list[str]:
+def check(root: Path, load_statuses: NativeStatusLoader | None = None) -> list[str]:
     findings: list[str] = []
     run_generator(root, findings)
+    loader = load_statuses or load_native_statuses
     vocabulary = load_json(root, VOCABULARY, findings)
-    surface = load_json(root, SURFACE_SCHEMA, findings)
-    if not isinstance(vocabulary, dict) or not isinstance(surface, dict):
+    if not isinstance(vocabulary, dict):
         return findings
     phases = vocabulary.get("phases")
     if not isinstance(phases, list):
@@ -95,9 +91,11 @@ def check(root: Path) -> list[str]:
         return findings
     expected_pairs = {(phase["phase"], status["status"]) for phase in phases for status in phase["statuses"]}
     expected_statuses = sorted({status for _, status in expected_pairs})
-    actual_statuses = sorted(status_enum(surface, findings))
-    if actual_statuses != expected_statuses:
-        findings.append(f"status-union-closure: expected {expected_statuses}, got {actual_statuses}")
+    declared_statuses = loader(root, findings)
+    if declared_statuses is not None:
+        actual_statuses = sorted(set(declared_statuses))
+        if actual_statuses != expected_statuses:
+            findings.append(f"status-union-closure: expected {expected_statuses}, got {actual_statuses}")
     try:
         source = (root / SCHEMA_SOURCE).read_text(encoding="utf-8")
     except OSError as exc:

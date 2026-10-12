@@ -136,8 +136,8 @@ func TestRecordDeliveryRequiresTheFencedStart(t *testing.T) {
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(grant, scopeVersion)
-	workID := captureCompositionWork(t, ctx, s, service, env, "Delivery without start", "task", "workflow.generic_one_off", "delivery-no-start")
-	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1); UPDATE workflow_instances SET current_step='execute' WHERE work_id=?; DELETE FROM fold_guard`, workID); err != nil {
+	workID := captureCompositionWork(t, ctx, s, service, env, "Delivery without start", "task", "workflow.implementation", "delivery-no-start")
+	if _, err := s.DatabaseForTesting().ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1); UPDATE workflow_instances SET current_step='refine' WHERE work_id=?; DELETE FROM fold_guard`, workID); err != nil {
 		t.Fatal(err)
 	}
 	version := agentCompositionWorkVersion(t, s, workID)

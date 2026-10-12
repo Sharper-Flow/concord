@@ -12,10 +12,10 @@ import (
 )
 
 // The workflow failure record derives from the attempt's own terminal failed
-// event exactly once (CD-0198 D5), and a rejected result can carry its retry
-// dispatch through the one dispatch owner. Every expectation
-// that names the new behavior is the slice's acceptance clause; every
-// released-pin expectation is the frozen boundary the slice must not move.
+// event exactly once, and a rejected result can carry its retry dispatch
+// through the one dispatch owner (CD-0198 D5). Every expectation that names
+// the derived behavior is the suite's acceptance clause; every released-pin
+// expectation is the frozen boundary the suite must not move.
 
 // s2WorkerFailedLive ingests one live worker.failed event through the
 // store-owned worker-evidence seam — the boundary the worker-fail and

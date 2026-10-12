@@ -215,6 +215,143 @@ func TestPartialSatisfactionPreservesOtherUnresolvedJobs(t *testing.T) {
 	}
 }
 
+// TestUnrelatedAcceptedJobPreservesDerivedFailureBudget keeps the unresolved
+// job's budget across live terminal failures, unrelated local acceptance,
+// duplicate terminal reports, and rebuild (CD-0205 D4, CD-0198 D5).
+func TestUnrelatedAcceptedJobPreservesDerivedFailureBudget(t *testing.T) {
+	const workID = "correction-window-derived-budget"
+	// The scenario pins the current registered retained head through the same
+	// lookup the fixture resolves, and refuses to run when that head no longer
+	// derives the failure record: a head without the derivation would leave
+	// the live ingests recordless and every later assertion meaningless.
+	head, err := BuiltinWorkflowDefinitionForRef("workflow.break_fix")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !workflowDerivedWorkerFailureActive(head.Definition) {
+		t.Fatalf("retained head %s@%d does not derive the failure record from the terminal event", head.Definition.Ref, head.Definition.Version)
+	}
+	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
+	s := fixture.store
+	defer s.Close()
+	lane := reviewGateLane(t, "implementation")
+	dispatcher := diagnosisS1Actor(workID, "dispatcher")
+	dispatcherRef, err := WorkflowActorRef(dispatcher)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dispatcherVersion := verdictItemVersion(t, s, workID)
+	if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{workflowEventWithActor("derived-budget-worker-"+workID, WorkflowActorRecorded, workID, dispatcherRef, map[string]any{
+		"work_id": workID, "expected_version": dispatcherVersion, "resulting_version": dispatcherVersion + 1,
+		"actor_ref": dispatcherRef, "principal_ref": dispatcher.PrincipalRef, "client_ref": dispatcher.ClientRef,
+		"agent_ref": dispatcher.AgentRef, "session_ref": dispatcher.SessionRef, "actor_class": "agent",
+	})}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): dispatcherVersion}}); err != nil {
+		t.Fatal(err)
+	}
+	acceptor := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/derived-budget-acceptor", SessionRef: "session/" + workID + "-acceptor", ActorClass: ActorAgent}
+	jobA := &WorkerJobBinding{JobID: "job:derived-budget-a", Revision: 1}
+	unrelatedJob := &WorkerJobBinding{JobID: "job:derived-budget-b", Revision: 1}
+
+	// Job A's first attempt fails through the live terminal ingest: the
+	// derivation pairs exactly one record with the original event.
+	attempt1 := "attempt:" + workID + ":1"
+	dispatchJobBoundAttempt(t, s, workID, "repair", attempt1, nil, dispatcher, issue1013Pin(t, s, workID).Version, "derived-budget-1", jobA)
+	detailA := "the lane failed before a judgeable result existed"
+	if err := s2WorkerFailedLive(t, s, s2WorkerFailedEvent(workID, attempt1, "failed-"+workID+"-1", detailA, preferredModelForLane(lane))); err != nil {
+		t.Fatalf("the live terminal worker.failed ingest for %s: %v", attempt1, err)
+	}
+	records1 := s2DerivedFailureRecords(t, s, workID, attempt1)
+	if len(records1) != 1 || !strings.HasSuffix(records1[0]["event_id"].(string), ":workflow-failure") {
+		t.Fatalf("derived records for %s = %+v, want exactly one derived pair from the original terminal event", attempt1, records1)
+	}
+	pin := issue1013Pin(t, s, workID)
+	if pin.Correction == nil || pin.Correction.AttemptCount != 1 || pin.Correction.Escalated || pin.Correction.Disposition != "failed" || pin.Correction.FailedAttemptID != attempt1 || pin.Correction.Diagnosis != detailA {
+		t.Fatalf("correction after the derived failure = %#v, want the failed window on %s with one counted dispatch", pin.Correction, attempt1)
+	}
+
+	// An accepted result under a different job identity must not open a new
+	// counting window: both dispatches sit in the preserved window (CD-0164
+	// D1 counts every dispatch), and the unrelated acceptance resets nothing.
+	// The record is job-bound, so the anchor's count reads the full prefix.
+	attempt2 := "attempt:" + workID + ":2"
+	issue1013StartRepair(t, s, workID, dispatcher, pin.Version, latestStepStartEpoch(t, s, workID, "repair")+1)
+	pin = issue1013Pin(t, s, workID)
+	dispatchJobBoundAttempt(t, s, workID, "repair", attempt2, pin.Correction, dispatcher, pin.Version, "derived-budget-2", unrelatedJob)
+	completeAndAcceptAttempt(t, s, workID, attempt2, lane, acceptor)
+	if count := jobWindowCorrectionCount(t, s, workID); count != 2 {
+		t.Fatalf("correction count after the unrelated acceptance = %d, want 2 dispatches in the preserved window", count)
+	}
+	anchor, anchorErr := workflowCorrectionContextForDispatch(context.Background(), s.DatabaseForTesting(), workID, "repair", "")
+	if anchorErr != nil || anchor == nil || anchor.Escalated || anchor.FailedAttemptID != attempt1 || anchor.AttemptCount != 2 {
+		t.Fatalf("anchor correction after the unrelated acceptance = (%#v, %v), want the open window on %s with 2 counted dispatches", anchor, anchorErr, attempt1)
+	}
+
+	// A's retry is dispatched under A's original recorded revision and fails
+	// through its own terminal ingest again.
+	attempt3 := "attempt:" + workID + ":3"
+	issue1013StartRepair(t, s, workID, dispatcher, pin.Version, latestStepStartEpoch(t, s, workID, "repair")+1)
+	pin = issue1013Pin(t, s, workID)
+	dispatchJobBoundAttempt(t, s, workID, "repair", attempt3, pin.Correction, dispatcher, pin.Version, "derived-budget-3", jobA)
+	retryJob := s2DispatchJobBinding(t, s, workID, attempt3)
+	if retryJob == nil || retryJob.JobID != jobA.JobID || retryJob.Revision != jobA.Revision || retryJob.Digest != jobA.Digest {
+		t.Fatalf("retry dispatch binding = %#v, want A's original recorded revision %s@%d", retryJob, jobA.JobID, jobA.Revision)
+	}
+	detailRetry := "the retry failed before a judgeable result existed"
+	if err := s2WorkerFailedLive(t, s, s2WorkerFailedEvent(workID, attempt3, "failed-"+workID+"-3", detailRetry, preferredModelForLane(lane))); err != nil {
+		t.Fatalf("the live terminal worker.failed ingest for %s: %v", attempt3, err)
+	}
+	records3 := s2DerivedFailureRecords(t, s, workID, attempt3)
+	if len(records3) != 1 || records3[0]["step"] != "repair" || records3[0]["epoch"] != latestStepStartEpoch(t, s, workID, "repair") {
+		t.Fatalf("derived records for %s = %+v, want exactly one at the retry's own epoch", attempt3, records3)
+	}
+
+	// The budget stays keyed to A's original revision: the retry failure
+	// resets nothing, so the preserved window counts all three dispatches,
+	// and the failed anchor is the retry's own record under the same
+	// unresolved job revision — A's first failure record is not consumed.
+	pin = issue1013Pin(t, s, workID)
+	if pin.Correction == nil || pin.Correction.AttemptCount != 3 || !pin.Correction.Escalated || pin.Correction.FailedAttemptID != attempt3 || pin.Correction.Diagnosis != detailRetry {
+		t.Fatalf("correction after the retry failure = %#v, want the escalated window on %s carrying all 3 counted dispatches with no reset", pin.Correction, attempt3)
+	}
+	if count := jobWindowCorrectionCount(t, s, workID); count != 3 {
+		t.Fatalf("correction count after the retry failure = %d, want the 3 dispatches the preserved window holds", count)
+	}
+
+	// A duplicate terminal report derives nothing: the retry attempt's
+	// terminal fact is already recorded, and neither the records, the
+	// budget, nor the anchor move.
+	if err := s2WorkerFailedLive(t, s, s2WorkerFailedEvent(workID, attempt3, "failed-"+workID+"-3-duplicate", detailRetry, preferredModelForLane(lane))); err == nil {
+		t.Fatal("a duplicate terminal worker.failed report for the failed retry attempt was admitted")
+	}
+	if got := s2DerivedFailureRecords(t, s, workID, attempt3); len(got) != 1 {
+		t.Fatalf("derived records after the duplicate terminal report = %+v, want the one original", got)
+	}
+	if count := jobWindowCorrectionCount(t, s, workID); count != 3 {
+		t.Fatalf("correction count after the duplicate terminal report = %d, want the unchanged budget", count)
+	}
+	if pin := issue1013Pin(t, s, workID); pin.Correction == nil || pin.Correction.FailedAttemptID != attempt3 || pin.Correction.AttemptCount != 3 {
+		t.Fatalf("correction after the duplicate terminal report = %#v, want the unchanged window on %s", pin.Correction, attempt3)
+	}
+
+	// The rebuild folds the stored derivation to the same records and the
+	// same keyed budget.
+	if err := RebuildFromLog(context.Background(), s); err != nil {
+		t.Fatalf("rebuild from the log: %v", err)
+	}
+	for _, attempt := range []string{attempt1, attempt3} {
+		if got := s2DerivedFailureRecords(t, s, workID, attempt); len(got) != 1 || !strings.HasSuffix(got[0]["event_id"].(string), ":workflow-failure") {
+			t.Fatalf("rebuilt records for %s = %+v, want the one derived record rebuilt identically", attempt, got)
+		}
+	}
+	if count := jobWindowCorrectionCount(t, s, workID); count != 3 {
+		t.Fatalf("correction count after the rebuild = %d, want the same preserved budget", count)
+	}
+	pin = issue1013Pin(t, s, workID)
+	if pin.Correction == nil || pin.Correction.AttemptCount != 3 || !pin.Correction.Escalated || pin.Correction.Disposition != "failed" || pin.Correction.FailedAttemptID != attempt3 || pin.Correction.Diagnosis != detailRetry {
+		t.Fatalf("rebuilt correction = %#v, want the same escalated failed window on %s with 3 counted dispatches", pin.Correction, attempt3)
+	}
+}
+
 // jobWindowCorrectionCount reads the correction counting window through the
 // real derivation, so a test can assert the boundary itself and not only the
 // pin view built on it. The optional seq pins the walked prefix: deriving the

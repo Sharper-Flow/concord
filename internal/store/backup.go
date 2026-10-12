@@ -79,6 +79,26 @@ type BackupManifest struct {
 	BackupTime        string `json:"-"`
 }
 
+// BackupDatabase snapshots an existing database without migrating or repairing
+// its schema. The read-only source open cannot create a missing database. The
+// snapshot and manifest must pass the backup verb's verification rules.
+func BackupDatabase(ctx context.Context, path, destination string) (BackupManifest, error) {
+	if strings.TrimSpace(path) == "" {
+		return BackupManifest{}, newFailure(KindInvalidOperation, "backup", "source database path is empty", false, "supply an existing database path")
+	}
+	db, err := sql.Open(driverName, readOnlyDataSource(path))
+	if err != nil {
+		return BackupManifest{}, wrapFailure(KindUnavailable, "backup", "cannot open the source database read-only", false, "supply a readable database", err)
+	}
+	db.SetMaxOpenConns(1)
+	s := &Store{db: db, path: path}
+	defer func() { _ = s.Close() }()
+	if _, err := Backup(ctx, s, destination); err != nil {
+		return BackupManifest{}, err
+	}
+	return VerifyBackup(ctx, destination)
+}
+
 // Backup creates a self-contained SQLite snapshot with the Online Backup API.
 // The destination and its manifest must not already exist; a live database or
 // WAL copy is never used.
@@ -586,7 +606,7 @@ func cloneStringMap(input map[string]string) map[string]string {
 func manifestPath(destination string) string { return destination + ".manifest.json" }
 
 func readOnlyDataSource(path string) string {
-	return "file:" + path + "?mode=ro&_pragma=foreign_keys(1)"
+	return "file:" + escapeSQLiteURIPath(path) + "?mode=ro&_pragma=foreign_keys(1)"
 }
 
 func fileSHA256(path string) (string, error) {

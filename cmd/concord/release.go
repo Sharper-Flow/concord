@@ -282,6 +282,7 @@ func activationCommandFor(dataRoot string) string {
 type upgradePlanReport struct {
 	store.UpgradeReadiness
 	MaintenanceFence *hostlease.Fence `json:"maintenance_fence"`
+	SnapshotRequired bool             `json:"snapshot_required"`
 }
 
 func runUpgradeCommand(args []string, in io.Reader, out, errOut io.Writer) int {
@@ -333,7 +334,7 @@ func runUpgradeCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 		}
 		plan.MigrationCommand = shellWord(binary) + " upgrade"
 		plan.ActivationCommand = activationCommandFor(dataRoot)
-		return writeJSON(out, upgradePlanReport{UpgradeReadiness: plan, MaintenanceFence: fenceBefore}, errOut)
+		return writeJSON(out, upgradePlanReport{UpgradeReadiness: plan, MaintenanceFence: fenceBefore, SnapshotRequired: len(plan.PendingBreaking) > 0}, errOut)
 	}
 	// An incompatible migration runs only inside an explicit maintenance
 	// boundary: the fence excludes new session admission before the final
@@ -471,8 +472,33 @@ func runUpgradeCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 	for _, lease := range live {
 		held = append(held, store.HeldSchema{PID: lease.PID, ReleaseRoot: lease.ReleaseRoot, SchemaVersion: lease.SchemaVersion, Directory: lease.Directory, Worktree: lease.Worktree})
 	}
+	// A breaking step drops tables whose rows the event log cannot rebuild,
+	// so the store is snapshotted before it applies. A failed snapshot
+	// applies nothing.
+	snapshotPath := ""
+	if len(plan.PendingBreaking) > 0 {
+		if err := store.CheckUpgradeSessions(plan.PendingBreaking, held); err != nil {
+			closeOwnedFence()
+			writeOperatorDiagnostic(errOut, "upgrade", err.Error())
+			return 1
+		}
+		var present bool
+		snapshotPath, present, err = snapshotBeforeMutation(path, dataRoot, "upgrade", version.Value)
+		if err == nil && !present {
+			err = fmt.Errorf("source database %s disappeared before the snapshot", path)
+		}
+		if err != nil {
+			closeOwnedFence()
+			writeOperatorDiagnostic(errOut, "upgrade", fmt.Sprintf("snapshot %s failed; no migration was applied: %v", snapshotPath, err))
+			return 1
+		}
+	}
 	report, err := store.Upgrade(context.Background(), path, held)
 	if err != nil {
+		diagnostic := err.Error()
+		if snapshotPath != "" {
+			diagnostic += "\nverified database snapshot: " + snapshotPath
+		}
 		// The error may sit after the commit: Upgrade applies every
 		// migration and then finishes the open, and a post-commit
 		// finishOpen refusal does not uncommit a breaking step. Re-read
@@ -481,17 +507,17 @@ func runUpgradeCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 		// only the prepared candidate's activation may reopen admission.
 		if breakingCommittedAfterFailure(path, plan.PendingBreaking) {
 			if fence, fenceErr := hostlease.ReadFence(dataRoot); fenceErr == nil && fence != nil {
-				writeOperatorDiagnostic(errOut, "upgrade", err.Error()+
+				writeOperatorDiagnostic(errOut, "upgrade", diagnostic+
 					"\nthe incompatible migration committed before this failure; session admission stays excluded until the prepared release activates; activation command: "+
 					activationCommandFor(dataRoot))
 				return 1
 			}
-			writeOperatorDiagnostic(errOut, "upgrade", err.Error()+
+			writeOperatorDiagnostic(errOut, "upgrade", diagnostic+
 				"\nthe incompatible migration committed before this failure, but the admission fence is not observable; treat admission as excluded and re-run the activation")
 			return 1
 		}
 		closeOwnedFence()
-		writeOperatorDiagnostic(errOut, "upgrade", err.Error())
+		writeOperatorDiagnostic(errOut, "upgrade", diagnostic)
 		return 1
 	}
 	breakingCommitted := false
@@ -526,6 +552,9 @@ func runUpgradeCommand(args []string, in io.Reader, out, errOut io.Writer) int {
 		"from_version":   version.Value,
 		"schema_version": report.SchemaVersion,
 		"applied":        report.Applied,
+	}
+	if snapshotPath != "" {
+		result["backup"] = snapshotPath
 	}
 	if fence != nil {
 		result["maintenance"] = map[string]any{

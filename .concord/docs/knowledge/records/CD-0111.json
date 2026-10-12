@@ -12,7 +12,11 @@
     "scripts/install.py",
     "internal/store/schema.go",
     "internal/store/readiness.go",
-    "internal/hostlease/hostlease.go"
+    "internal/hostlease/hostlease.go",
+    "cmd/concord/snapshot.go",
+    "cmd/concord/upgrade_snapshot_cli_test.go",
+    "cmd/concord/upgrade_backup_cli_test.go",
+    "internal/store/backup.go"
   ],
   "home_domain_id": "operator-surface",
   "id": "CD-0111",
@@ -25,7 +29,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:911441c637c5dafab5b27f2c40f85e0cfd895d5ba3e9e43bdd25ee8b9325e2ea",
+  "sha256": "sha256:5f20bd50b5c398c83fec133ace2027d555a7291f45c56f6201f81da712e6e089",
   "status": "accepted",
   "summary": "A running session keeps the adapter and core pair it started with: the adapter invokes the core at its own release path, the installer retains a release while a live session references it, and a breaking store migration applies only through an explicit operator upgrade that refuses under a live older session. An installer facing a pending breaking step or unknown readiness prepares the candidate durably and names the exact migration and activation commands; the incompatible migration and its cleanup run inside a maintenance boundary whose session-admission exclusion is held through the final lease check, the migration, and the activation. No refusal names a session restart as its recovery.",
   "tags": [

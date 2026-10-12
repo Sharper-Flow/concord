@@ -64,6 +64,16 @@ while any live session holds a release older than the migration. The refusal
 names each session and the release it holds. The operator chooses when to run
 it.
 
+When the readiness plan lists pending breaking steps, the upgrade command
+takes and verifies a database snapshot in the same run, after the admission
+boundary is in place and before any migration. The final session checks must
+pass before the snapshot. It holds the maintenance lock and uses the backup
+verb's snapshot and verification rules. A snapshot or verification failure
+refuses the upgrade without applying any migration and names the cause and
+the snapshot path. The command reports the verified snapshot path on success.
+A plan-only run takes no snapshot and reports that the migration run will take
+one. A fresh store with no database file needs no snapshot.
+
 An unstamped development build is not a release. It applies no migration to an
 existing store at open or upgrade. It may fully migrate a fresh store and may
 operate a store that is already up to date. CD-0139 records this isolation rule.
@@ -216,6 +226,29 @@ Scenario: a breaking migration waits for the operator
   And the prepared release N+1 becomes the current release
   And a session that starts afterwards opens the store on release N+1
 
+Scenario: a breaking upgrade requires a verified snapshot
+  Given an existing store with a pending breaking migration
+  And no live session blocks the migration
+  When the operator runs the migration command
+  Then the command takes and verifies a snapshot before any migration
+  And the snapshot follows the admission boundary
+  And the snapshot contains the schema from before the migration
+  And the command reports the verified snapshot path
+  And the migration applies inside the maintenance boundary
+
+Scenario: a snapshot failure prevents migration
+  Given an existing store with a pending breaking migration
+  And the snapshot cannot be taken or verified
+  When the operator runs the migration command
+  Then the command refuses and names the cause and the snapshot path
+  And no migration applies
+
+Scenario: a breaking upgrade plan takes no snapshot
+  Given an existing store with a pending breaking migration
+  When the operator requests the read-only upgrade plan
+  Then the plan reports that the migration run will take a snapshot
+  And the command creates no snapshot and applies no migration
+
 Scenario: the maintenance boundary excludes session admission
   Given an installer prepared release N+1 for a breaking migration
   When the operator runs the prepared candidate's migration command
@@ -292,6 +325,11 @@ Scenario: the operator confirms an unfenceable tree is idle
 
 ## Verification
 
+- CLI tests prove a breaking upgrade takes and verifies a snapshot before
+  any migration, reports its path, and applies no migration if the snapshot
+  or verification fails. They prove plan-only runs create no snapshot and
+  a fresh store with no database file needs none. The shared snapshot owner
+  uses the backup verb's existing verification rules.
 - Adapter tests prove the core path is the generated release constant and
   that no call resolves `concord` through `PATH`. A refused admission under
   an open boundary carries the boundary's notice into the session.

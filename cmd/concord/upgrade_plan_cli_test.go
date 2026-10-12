@@ -553,6 +553,25 @@ func TestUpgradeKeepsTheFenceWhenFinishOpenFailsAfterACommit(t *testing.T) {
 	if !strings.Contains(errOut, "activation") {
 		t.Fatalf("the refusal must name the activation route: %s", errOut)
 	}
+	entries, err := os.ReadDir(filepath.Join(root, "backups"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var snapshots []string
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), "pre-upgrade-") && !strings.Contains(entry.Name(), ".json") && !strings.HasSuffix(entry.Name(), "-wal") && !strings.HasSuffix(entry.Name(), "-shm") {
+			snapshots = append(snapshots, filepath.Join(root, "backups", entry.Name()))
+		}
+	}
+	if len(snapshots) != 1 {
+		t.Fatalf("finish-open failure must retain one snapshot: %v", snapshots)
+	}
+	if _, err := store.VerifyBackup(context.Background(), snapshots[0]); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(errOut, snapshots[0]) {
+		t.Fatalf("finish-open failure must name retained snapshot: %s", errOut)
+	}
 }
 
 // A lease written before the fence protocol existed names a core that

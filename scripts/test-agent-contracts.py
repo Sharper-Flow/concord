@@ -390,6 +390,23 @@ class WorkerPacketMirrorProjectionTests(unittest.TestCase):
     def test_projection_is_idempotent_on_the_shipped_mirror(self):
         self.assertEqual(self.project(), payload_schema["$defs"]["worker_packet"]["properties"]["inputs"])
 
+    def test_live_projection_keeps_published_versioned_identities_frozen(self):
+        frozen = json.loads(generator.HISTORICAL_DECODER.read_text())["$defs"]
+        payload = copy.deepcopy(payload_schema)
+        identities = ("worker_packet2", "work_context_view2", "work_context_domain_group2")
+        for name in identities:
+            payload["$defs"][name] = copy.deepcopy(frozen[name])
+        packet = copy.deepcopy(packet_schema)
+        packet["properties"]["inputs"]["properties"]["focus"] = {"type": "string"}
+        packet["properties"]["inputs"]["properties"]["work_context"]["description"] = "Current canonical teaching."
+        generator.project_worker_packet_inputs(payload, packet)
+        live = payload["$defs"]["worker_packet"]["properties"]["inputs"]["properties"]
+        self.assertEqual(live["focus"], {"type": "string"})
+        self.assertEqual(live["work_context"]["description"], generator.WORKER_PACKET_INPUT_PUBLISHED_TEXT["work_context"])
+        for name in identities:
+            with self.subTest(identity=name):
+                self.assertEqual(payload["$defs"][name], frozen[name])
+
     def test_record_fields_keep_shared_aliases_and_canonical_teaching(self):
         projected = self.project()["properties"]
         canonical = packet_schema["properties"]["inputs"]["properties"]

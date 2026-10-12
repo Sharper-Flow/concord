@@ -1392,27 +1392,14 @@ WORKER_PACKET_INPUT_ALIASES = {
     "checkpoint": "continuity_checkpoint",
     "outcome_predicates": "worker_packet_outcome_predicates",
 }
-# Every packet def the projection derives inputs for. worker_packet is the
-# released dispatch surface; worker_packet2 is the versioned identity the
-# derived-failure heads record and replay. One projection owner keeps the two
-# from drifting on a canonical lane packet change.
-WORKER_PACKET_DEF_NAMES = ("worker_packet", "worker_packet2")
-# work_context splits by packet generation: the versioned packet2 identity
-# anchors the versioned work-context view (and through it the nav-free
-# domain group), while the released worker_packet surface anchors the shared
-# view. Every alias a generation does not override stays shared, so no
-# unchanged definition clones.
-WORKER_PACKET_INPUT_ALIAS_OVERRIDES = {
-    "worker_packet2": {"work_context": "work_context_view2"},
-}
 WORKER_PACKET_INPUT_PUBLISHED_TEXT = {
     "work_context": (
-        "CON-887: the current work-context view the work pin carried when the "
+        "The current work-context view the work pin carried when the "
         "packet was built. The core refuses a dispatch whose packet does not "
         "consume the current view byte-for-byte."
     ),
     "checkpoint": (
-        "CON-883: the latest context checkpoint the pinned continuity "
+        "The latest context checkpoint the pinned continuity "
         "projection carried when the packet was built. The core refuses a "
         "dispatch whose packet does not carry the latest checkpoint "
         "byte-for-byte."
@@ -1431,48 +1418,43 @@ def contains_schema_ref(node: object) -> bool:
 
 
 def project_worker_packet_inputs(payload: dict, lane_packet: dict) -> None:
-    """Derive the packet defs' inputs from the canonical lane packet.
+    """Derive the unversioned packet's inputs from the canonical lane packet.
 
     The canonical contract owns the field set and the required set; the
     payloads schema owns the shared def aliases the aliased fields anchor
     to. A canonical inputs change either lands here on regeneration or
     fails --check, so the published surface cannot again omit a wire field
-    the dispatcher sends. Every def the projection names carries the same
-    projected inputs: worker_packet is the released dispatch surface and
-    worker_packet2 is the versioned identity the derived-failure heads
-    record, so the two cannot drift apart on a canonical change. A
-    generation's alias overrides re-anchor only the definitions that
-    generation versions; everything else stays shared.
+    the dispatcher sends. Published versioned identities stay authored as
+    frozen inputs: canonical changes cannot rewrite the packet or context
+    identities that retained pins record and replay.
     """
     inputs = lane_packet.get("properties", {}).get("inputs")
     if not isinstance(inputs, dict) or inputs.get("type") != "object" or inputs.get("additionalProperties") is not False:
         fail("contracts/agent-lane-packet.schema.json: inputs is not a closed object")
     doc_defs = payload.get("$defs", {})
-    for packet_name in WORKER_PACKET_DEF_NAMES:
-        packet = doc_defs.get(packet_name)
-        if not isinstance(packet, dict) or not isinstance(packet.get("properties"), dict):
-            fail(f"contracts/agent-tool-surface-payloads.schema.json: $defs/{packet_name} is not an object with properties")
-        aliases = {**WORKER_PACKET_INPUT_ALIASES, **WORKER_PACKET_INPUT_ALIAS_OVERRIDES.get(packet_name, {})}
-        properties = {}
-        for name, schema in inputs.get("properties", {}).items():
-            alias = aliases.get(name)
-            if alias is not None:
-                if alias not in doc_defs:
-                    fail(f"worker_packet inputs alias for {name} names unknown def {alias}")
-                node = {"$ref": f"#/$defs/{alias}"}
-                published = WORKER_PACKET_INPUT_PUBLISHED_TEXT.get(name, schema.get("description"))
-                if published is not None:
-                    node["description"] = published
-                properties[name] = node
-                continue
-            if contains_schema_ref(schema):
-                fail(f"canonical lane packet inputs field {name} carries a $ref; anchor it through WORKER_PACKET_INPUT_ALIASES")
-            properties[name] = copy.deepcopy(schema)
-        projected = {"type": "object", "additionalProperties": False, "properties": properties}
-        required = list(inputs.get("required", []))
-        if required:
-            projected["required"] = required
-        packet["properties"]["inputs"] = projected
+    packet = doc_defs.get("worker_packet")
+    if not isinstance(packet, dict) or not isinstance(packet.get("properties"), dict):
+        fail("contracts/agent-tool-surface-payloads.schema.json: $defs/worker_packet is not an object with properties")
+    properties = {}
+    for name, schema in inputs.get("properties", {}).items():
+        alias = WORKER_PACKET_INPUT_ALIASES.get(name)
+        if alias is not None:
+            if alias not in doc_defs:
+                fail(f"worker_packet inputs alias for {name} names unknown def {alias}")
+            node = {"$ref": f"#/$defs/{alias}"}
+            published = WORKER_PACKET_INPUT_PUBLISHED_TEXT.get(name, schema.get("description"))
+            if published is not None:
+                node["description"] = published
+            properties[name] = node
+            continue
+        if contains_schema_ref(schema):
+            fail(f"canonical lane packet inputs field {name} carries a $ref; anchor it through WORKER_PACKET_INPUT_ALIASES")
+        properties[name] = copy.deepcopy(schema)
+    projected = {"type": "object", "additionalProperties": False, "properties": properties}
+    required = list(inputs.get("required", []))
+    if required:
+        projected["required"] = required
+    packet["properties"]["inputs"] = projected
 
 
 def check_schema_keywords(node, path="schema"):

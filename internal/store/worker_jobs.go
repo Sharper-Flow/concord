@@ -602,12 +602,11 @@ func requireWorkerJobRevisionReadyTx(ctx context.Context, q queryer, workID stri
 		return err
 	}
 	if oracle != nil {
-		var project string
 		var contractVersion int64
-		if err := q.QueryRowContext(ctx, `SELECT project_scope,contract_version FROM worker_job_revisions WHERE work_id=? AND job_id=? AND revision=?`, workID, binding.JobID, binding.Revision).Scan(&project, &contractVersion); err != nil {
+		if err := q.QueryRowContext(ctx, `SELECT contract_version FROM worker_job_revisions WHERE work_id=? AND job_id=? AND revision=?`, workID, binding.JobID, binding.Revision).Scan(&contractVersion); err != nil {
 			return err
 		}
-		return validateNativeJobPreparations(ctx, q, workID, project, contractVersion, oracle)
+		return validateNativeJobPreparations(ctx, q, workID, contractVersion, oracle)
 	}
 	return nil
 }

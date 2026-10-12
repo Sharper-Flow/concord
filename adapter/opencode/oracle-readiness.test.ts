@@ -66,6 +66,24 @@ test("no core-qualified subject requires existing verify recovery", async () => 
   expect(refusal!.message).toContain("worktree_verify")
 })
 
+test("control Project owns preparation independently of the job primary Project", async () => {
+  const candidate = packet()
+  candidate.inputs.worker_job!.project_scope = "primary-project"
+  expect(await verifyPacketOracleReadiness(candidate, { runner: runner(), directory: "/synthetic/tree", signal })).toBeNull()
+})
+
+test("preparation from the primary Project cannot replace the control Project", async () => {
+  const candidate = packet()
+  candidate.inputs.worker_job!.project_scope = "primary-project"
+  candidate.inputs.work_context!.oracle_preparations![0].project_id = "primary-project"
+  let probes = 0
+  const refusal = await verifyPacketOracleReadiness(candidate, { directory: "/synthetic/tree", signal,
+    runner: { async run() { probes++; return { exitCode: 0, stdout: "", stderr: "" } } } })
+  expect(refusal).not.toBeNull()
+  expect(refusal!.message).toContain("preparation")
+  expect(probes).toBe(0)
+})
+
 test("subject drift and dirty tree refuse before authorization", async () => {
   configureCoreBinary("concord-test")
   for (const probes of [runner("c".repeat(40)), runner(oid, "?? file\0"), runner(oid, " M tracked\0")]) {

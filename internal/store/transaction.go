@@ -28,10 +28,9 @@ func beginOrdinaryTx(ctx context.Context, db *sql.DB) (*sql.Tx, error) {
 // back to store-owned Tx methods, but cannot execute SQL or control its
 // lifecycle directly.
 type Transaction struct {
-	tx         *sql.Tx
-	clock      func() time.Time
-	path       string
-	navigation *workContextNavigationProof
+	tx    *sql.Tx
+	clock func() time.Time
+	path  string
 	// fold is the transaction's fold scope while a fold region is open on it.
 	// A region owner sets it after beginFold and mutation seams reuse it, so
 	// nested folds stay depth-counted on one scope.
@@ -78,7 +77,6 @@ func (s *Store) transact(ctx context.Context, durable bool, fn func(*Transaction
 		return wrapFailure(KindUnavailable, "transaction", "cannot begin transaction", true, "retry once the database is writable", err)
 	}
 	transaction := &Transaction{tx: tx.Tx, clock: s.Clock, path: s.Path()}
-	transaction.navigation, _ = ctx.Value(workContextNavigationProofKey{}).(*workContextNavigationProof)
 	defer tx.finish(&retErr)
 	defer func() { transaction.tx = nil }()
 	if err := fn(transaction); err != nil {

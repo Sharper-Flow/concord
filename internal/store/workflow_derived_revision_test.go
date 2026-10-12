@@ -19,9 +19,10 @@ func seedDerivedLawExtension(t *testing.T, s *Store) {
 	}
 }
 
-// runDerivedLawApproval drives one approve_contract on the generic one-off
-// workflow and reports the action error instead of failing on it, because
-// both the admitted and the refused path are the point of the test.
+// runDerivedLawApproval drives one approve_contract on the live
+// non-Product-changing workflow and reports the action error instead of
+// failing on it, because both the admitted and the refused path are the point
+// of the test.
 func runDerivedLawApproval(t *testing.T, s *Store, workID string, version int64, actor WorkflowActor, payload json.RawMessage) error {
 	t.Helper()
 	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
@@ -44,9 +45,13 @@ func runDerivedLawApproval(t *testing.T, s *Store, workID string, version int64,
 	return nil
 }
 
-func seedGenericOneOffWorkflow(t *testing.T, s *Store, workID string, actor WorkflowActor) int64 {
+// seedDerivedRevisionWorkflow puts a research instance at its frame step,
+// where approve_contract sits, and returns the version the approval drives.
+// The research family is the live authoring family whose contract does not
+// change Product truth, so the CD-0222 D5 boundaries bind to it unchanged.
+func seedDerivedRevisionWorkflow(t *testing.T, s *Store, workID string, actor WorkflowActor) int64 {
 	t.Helper()
-	registered, err := BuiltinWorkflowDefinitionForRef("workflow.generic_one_off")
+	registered, err := BuiltinWorkflowDefinitionForRef("workflow.research")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +70,7 @@ func seedGenericOneOffWorkflow(t *testing.T, s *Store, workID string, actor Work
 }
 
 // TestDerivedLawRevisionOnNonProductChangingContract holds the carve-out
-// CD-0041 D5 states and the CON-336 decision enacted: a contract that does
+// CD-0222 D5 states: a contract that does
 // not change Product truth may carry law_modifies naming only derived
 // records, the modification stays visible on the approved contract, and a
 // legislated name is still refused. The architecture binding refusal is
@@ -73,12 +78,12 @@ func seedGenericOneOffWorkflow(t *testing.T, s *Store, workID string, actor Work
 func TestDerivedLawRevisionOnNonProductChangingContract(t *testing.T) {
 	t.Parallel()
 	actor := WorkflowActor{PrincipalRef: "principal:derived-revision", ClientRef: "client:derived-revision", AgentRef: "agent:derived-revision", SessionRef: "session:derived-revision", ActorClass: ActorAgent}
-	docBytes, err := os.ReadFile("../../.concord/docs/decisions/CD-0041-architecture-bound-product-law.md")
+	docBytes, err := os.ReadFile("../../.concord/docs/decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(string(docBytes), "revise `derived` law in-contract") {
-		t.Fatal("CD-0041 D5 does not state the derived carve-out")
+		t.Fatal("CD-0222 D5 does not state the derived carve-out")
 	}
 
 	t.Run("derived only modification is admitted and recorded", func(t *testing.T) {
@@ -88,8 +93,8 @@ func TestDerivedLawRevisionOnNonProductChangingContract(t *testing.T) {
 		seedWork(t, s, workID)
 		seedWorkflowLaw(t, s)
 		seedDerivedLawExtension(t, s)
-		version := seedGenericOneOffWorkflow(t, s, workID, actor)
-		payload := json.RawMessage(`{"premise":"Revise the derived record inside this contract.","spec_mandate":["spec:one"],"law_modifies":["spec:one"],"outcome_predicates":[{"predicate_id":"predicate:primary","ordinal":0,"outcome_kind":"check","outcome_payload":{"kind":"check","check_ref":"check:derived-revision","immutable_subject_ref":"commit:derived-revision","expected_result":"pass"}}]}`)
+		version := seedDerivedRevisionWorkflow(t, s, workID, actor)
+		payload := json.RawMessage(`{"premise":"Revise the derived record inside this contract.","spec_mandate":["spec:one"],"law_modifies":["spec:one"],"outcome_predicates":[{"predicate_id":"predicate:primary","ordinal":0,"outcome_kind":"outcome","outcome_payload":{"kind":"outcome","allowed":["resolved"]}}]}`)
 		if err := runDerivedLawApproval(t, s, workID, version, actor, payload); err != nil {
 			t.Fatalf("a derived-only law_modifies was refused: %v", err)
 		}
@@ -109,8 +114,8 @@ func TestDerivedLawRevisionOnNonProductChangingContract(t *testing.T) {
 		seedWork(t, s, workID)
 		seedWorkflowLaw(t, s)
 		seedDerivedLawExtension(t, s)
-		version := seedGenericOneOffWorkflow(t, s, workID, actor)
-		payload := json.RawMessage(`{"premise":"Attempt to revise legislated law without a Product-changing workflow.","spec_mandate":["spec:legislated"],"law_modifies":["spec:legislated"],"outcome_predicates":[{"predicate_id":"predicate:primary","ordinal":0,"outcome_kind":"check","outcome_payload":{"kind":"check","check_ref":"check:derived-revision","immutable_subject_ref":"commit:derived-revision","expected_result":"pass"}}]}`)
+		version := seedDerivedRevisionWorkflow(t, s, workID, actor)
+		payload := json.RawMessage(`{"premise":"Attempt to revise legislated law without a Product-changing workflow.","spec_mandate":["spec:legislated"],"law_modifies":["spec:legislated"],"outcome_predicates":[{"predicate_id":"predicate:primary","ordinal":0,"outcome_kind":"outcome","outcome_payload":{"kind":"outcome","allowed":["resolved"]}}]}`)
 		err := runDerivedLawApproval(t, s, workID, version, actor, payload)
 		if err == nil {
 			t.Fatal("a legislated law_modifies was admitted on a non-Product-changing contract")
@@ -128,8 +133,8 @@ func TestDerivedLawRevisionOnNonProductChangingContract(t *testing.T) {
 		seedWork(t, s, workID)
 		seedWorkflowLaw(t, s)
 		seedDerivedLawExtension(t, s)
-		version := seedGenericOneOffWorkflow(t, s, workID, actor)
-		payload := json.RawMessage(`{"premise":"Attempt to carry a binding without Product truth.","spec_mandate":[],"law_modifies":[],"architecture_binding":{"domain_registry_content_hash":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","home_domain_id":"root","affected_domain_ids":["root"],"domain_modifies":[],"domain_relation_modifies":[],"law_additions":[],"verification_obligations":[]},"outcome_predicates":[{"predicate_id":"predicate:primary","ordinal":0,"outcome_kind":"check","outcome_payload":{"kind":"check","check_ref":"check:derived-revision","immutable_subject_ref":"commit:derived-revision","expected_result":"pass"}}]}`)
+		version := seedDerivedRevisionWorkflow(t, s, workID, actor)
+		payload := json.RawMessage(`{"premise":"Attempt to carry a binding without Product truth.","spec_mandate":[],"law_modifies":[],"architecture_binding":{"domain_registry_content_hash":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","home_domain_id":"root","affected_domain_ids":["root"],"domain_modifies":[],"domain_relation_modifies":[],"law_additions":[],"verification_obligations":[]},"outcome_predicates":[{"predicate_id":"predicate:primary","ordinal":0,"outcome_kind":"outcome","outcome_payload":{"kind":"outcome","allowed":["resolved"]}}]}`)
 		err := runDerivedLawApproval(t, s, workID, version, actor, payload)
 		if err == nil {
 			t.Fatal("an architecture binding was admitted on a non-Product-changing contract")

@@ -2,8 +2,8 @@ package agent
 
 import "testing"
 
-// CD-0041 retires component as an authority identity and #197 removes it from
-// the live agent surface. These assertions bind that prohibition at the
+// CD-0222 prohibits component as an authority identity on the live agent
+// surface. These assertions bind that prohibition at the
 // structural seam: every input that once carried component_id/component_ids
 // is a closed schema, so the retired identity cannot re-enter as an unknown
 // field, and the Domain replacements validate.
@@ -16,7 +16,7 @@ func TestComponentInputsAreProhibitedOnTheAgentSurface(t *testing.T) {
 		{"concord_work_define", "capture", `{"title":"T","value_statement":"V","kind":"task","project_ids":["project-1"],"component_id":"auth","idempotency_key":"probe"}`},
 		{"concord_work_define", "revise_intent", `{"work_id":"work-1","expected_version":1,"title":"T","value_statement":"V","kind":"task","reason":"probe","component_id":"auth","idempotency_key":"probe"}`},
 		{"concord_knowledge", "search", `{"page":{"cursor":null,"limit":20},"component_ids":["auth"]}`},
-		// CD-0041 D9 renamed the research scope wire from component_ids to
+		// CD-0222 D9 renamed the research scope wire from component_ids to
 		// domain_ids. The input $def research_scopes_input never declared
 		// component_ids, so additionalProperties:false refuses the retired
 		// field as an unknown key; the structural seam is the schema, not a
@@ -44,8 +44,8 @@ func TestResearchScopeDomainIDsAreAcceptedOnTheResultSurface(t *testing.T) {
 	}
 }
 
-// The Domain replacements carry the same closed-surface guarantee: the five
-// concord_domain reads validate, and knowledge search accepts domain_id.
+// Domain reads carry a closed-surface guarantee, and knowledge search accepts
+// domain_id.
 func TestDomainReadInputsValidate(t *testing.T) {
 	t.Parallel()
 	valid := []struct {
@@ -53,7 +53,6 @@ func TestDomainReadInputsValidate(t *testing.T) {
 	}{
 		{"concord_domain", "list", `{"product_id":"product-1","page":{"cursor":null,"limit":20}}`},
 		{"concord_domain", "detail", `{"product_id":"product-1","domain_id":"root"}`},
-		{"concord_domain", "active_work", `{"product_id":"product-1","domain_id":"root","page":{"cursor":null,"limit":20}}`},
 		{"concord_domain", "attachments", `{"product_id":"product-1","domain_id":"root"}`},
 		{"concord_domain", "overlaps", `{"product_id":"product-1","domain_id":"root"}`},
 		{"concord_knowledge", "search", `{"product_id":"product-1","domain_id":"root","page":{"cursor":null,"limit":20}}`},

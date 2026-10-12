@@ -7,7 +7,7 @@
 > and TS2 budget/granularity rules.
 > **Does not decide:** mutation tools (TS4), ambient context or authorization
 > envelope (TS5), transport (TS6), shared success/error envelope (TS7), schema
-> evolution (TS8), exact Product launcher fields (C14), or managed-resource shape
+> evolution (TS8), or managed-resource shape
 > (C15).
 > **Amended direction:** CD-0041 retires component as an authority identity, and
 > CD-0042 requires #197 to replace component filters/context directly with Domain
@@ -19,7 +19,7 @@
 TS1's jobs need a bounded read surface. The binding inputs are the accepted
 PM1 Q1 through Q10 and query corpus, TS1 jobs and scenarios, and TS2 budget
 and granularity rules. This record fixes the four always-visible read tools
-and their closed discriminated operation unions. CD-0041 retires component
+and their closed discriminated operation unions. CD-0222 retires component
 identity and CD-0042 replaces component filters with Domain on the
 pre-go-live primary path.
 ## Contract
@@ -65,8 +65,7 @@ scope, or what is happening across that Product now.
 
 `resolve` may use ambient context under TS5, but never guesses when a Project maps
 to multiple Products. `snapshot` is an aggregate orientation view—not an unbounded
-work listing and not a launcher-row contract. C14 separately chooses human glance
-fields.
+work listing and not a launcher-row contract.
 
 `resources` is the read half of the managed-resource inventory (C15 §5
 directions 1 and 2) and the identity half of external-system knowledge under
@@ -191,8 +190,8 @@ selection-rate comparison follows TS2's declared evaluation method.
 - Unbounded `include_all`, artifact-body, or recursive graph options.
 - Tool-local authority/freshness conventions that diverge from TS7.
 - A separate discovery/catalog/status tool in v1.
-- C14 launcher presentation fields or provisional C15 resource types smuggled into
-  this contract before their owning decisions.
+- Provisional C15 resource types smuggled into
+  this contract before their owning decision.
 
 ## 7. Falsifiers and amendment rule
 

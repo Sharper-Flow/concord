@@ -21,7 +21,7 @@ import (
 type CompactionBoundary int
 
 const (
-	// CompactionBoundaryRevalidated runs the CD-0041 D7 boundary check in the
+	// CompactionBoundaryRevalidated runs the CD-0222 D7 boundary check in the
 	// transaction that folds the link.
 	CompactionBoundaryRevalidated CompactionBoundary = iota
 	// CompactionBoundaryRecoveryExempt skips that check. Reconciling an
@@ -178,7 +178,7 @@ func PublishCompactionLink(ctx context.Context, s *Store, req CompactionLinkRequ
 	return nil
 }
 
-// publishCompactionLinkTx runs the CD-0041 D7 boundary check and the link fold
+// publishCompactionLinkTx runs the CD-0222 D7 boundary check and the link fold
 // in the caller's transaction, so a law cutover cannot land between them.
 //
 // The subject of a compaction link is terminal, so the Domain-overlap half of

@@ -10,16 +10,21 @@ import (
 
 // WorkerRecoveryContext carries recorded identity, never a new dispatch grant.
 // The original packet lives in the host transcript; its core-recorded digest
-// is checked at the existing signed worker-dispatch boundary.
+// is checked at the existing signed worker-dispatch boundary. PacketSchemaVersion
+// and ReportSchemaVersion are the retained pair the original dispatch recorded:
+// the adapter selects the historical reader by this identity, never by
+// today's current revision.
 type WorkerRecoveryContext struct {
-	PacketDigest       string                  `json:"packet_digest"`
-	Worktree           string                  `json:"worker_worktree"`
-	CoordinatorSession string                  `json:"coordinator_session"`
-	AttemptEpoch       int64                   `json:"attempt_epoch"`
-	DispatchEventID    string                  `json:"dispatch_event_id"`
-	TerminalEventID    string                  `json:"terminal_event_id,omitempty"`
-	LifecycleState     string                  `json:"lifecycle_state"`
-	Dispatch           WorkerDispatchedPayload `json:"dispatch"`
+	PacketDigest        string                  `json:"packet_digest"`
+	Worktree            string                  `json:"worker_worktree"`
+	CoordinatorSession  string                  `json:"coordinator_session"`
+	AttemptEpoch        int64                   `json:"attempt_epoch"`
+	DispatchEventID     string                  `json:"dispatch_event_id"`
+	TerminalEventID     string                  `json:"terminal_event_id,omitempty"`
+	LifecycleState      string                  `json:"lifecycle_state"`
+	PacketSchemaVersion string                  `json:"packet_schema_version"`
+	ReportSchemaVersion string                  `json:"report_schema_version"`
+	Dispatch            WorkerDispatchedPayload `json:"dispatch"`
 }
 
 // ValidateWorkerEvidenceReplayWindow checks the original window's identity and
@@ -104,6 +109,18 @@ func WorkerRecoveryContextTx(ctx context.Context, transaction *Transaction, work
 	if result.Dispatch.HostProvenance == nil || result.Dispatch.PacketDigest != window.PacketDigest || result.Dispatch.ReadbackModel == "" {
 		return result, newFailure(KindInvariantViolation, "worker_recovery", "recorded dispatch lacks matching packet, provenance, or model identity", false, "restore the original recorded proof; do not reconstruct provenance from changed files")
 	}
+	// The original lane definition and the retained schema pair are
+	// recovery prerequisites. An unresolvable lane digest, or a recorded pair
+	// no released revision ever produced, refuses typed before any recovery
+	// worker, replacement attempt, or recomputed digest can exist.
+	if _, laneErr := LookupLane(attempt.LaneID, attempt.LaneVersion, attempt.LaneDigest); laneErr != nil {
+		return result, wrapFailure(KindLaneDefinitionNotRegistered, "worker_recovery", "the recorded lane definition of the original attempt no longer resolves", false, "recover against the retained release that registered the original lane", laneErr)
+	}
+	if !workerMatchedSchemaVersions[result.Dispatch.PacketSchemaVersion] || !workerMatchedSchemaVersions[result.Dispatch.ReportSchemaVersion] || result.Dispatch.PacketSchemaVersion != result.Dispatch.ReportSchemaVersion {
+		return result, newFailure(KindInvariantViolation, "worker_recovery", "the recorded dispatch carries a packet/report schema pair no released revision produced", false, "restore the original recorded dispatch; never relabel or recompute retained schema identity")
+	}
+	result.PacketSchemaVersion = result.Dispatch.PacketSchemaVersion
+	result.ReportSchemaVersion = result.Dispatch.ReportSchemaVersion
 	if err := tx.QueryRowContext(ctx, `SELECT a.session_ref FROM domain_events d JOIN workflow_actors a ON a.actor_ref=json_extract(d.payload,'$.actor_ref') WHERE d.subject_type=? AND d.subject_id=? AND d.kind=? AND json_extract(d.payload,'$.action_id')='dispatch_worker' AND json_extract(d.payload,'$.worker_attempt_id')=? ORDER BY d.seq DESC LIMIT 1`, SubjectWorkItem, workID, WorkflowActionCompleted, attemptID).Scan(&result.CoordinatorSession); err != nil {
 		return result, err
 	}

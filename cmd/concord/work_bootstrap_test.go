@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sharper-flow/concord/internal/agent"
 	"github.com/sharper-flow/concord/internal/store"
 )
 
@@ -472,6 +473,101 @@ func TestSessionPrepareRefusesWrongDirectoryBeforeIdentity(t *testing.T) {
 		})
 	if code == 0 || identityCalls != 0 || !strings.Contains(errOut.String(), "claimed worktree") {
 		t.Fatalf("wrong-directory code=%d identity_calls=%d stderr=%q", code, identityCalls, errOut.String())
+	}
+}
+
+func modelCLIHistoricalInitiative(t *testing.T, s *store.Store, workID string) {
+	t.Helper()
+	// Model a projection folded from pre-retirement history in a temporary store.
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
+		UPDATE work_items SET kind='initiative' WHERE id=?;
+		DELETE FROM fold_guard`, workID); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSessionPrepareRefusesRetiredInitiativeBeforeCallbacks(t *testing.T) {
+	repo := initLocatorRepo(t)
+	dbPath := filepath.Join(t.TempDir(), "concord.db")
+	s := mustOpenStore(t, dbPath)
+	seedLocatorAuthority(t, s, repo)
+	result, err := s.BootstrapWorktree(context.Background(), bootstrapRequest(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(dbOverrideEnv, dbPath)
+	t.Chdir(result.Entry.Path)
+	modelCLIHistoricalInitiative(t, s, result.WorkID)
+	var before int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events`).Scan(&before); err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	var out, errOut bytes.Buffer
+	code := runSessionPrepare(commandSessionPrepareInput(t, result.WorkID, "run"), s, &out, &errOut,
+		func(string) error { calls++; return nil },
+		func(context.Context, string) (hostCommandResolution, error) {
+			calls++
+			return defaultHostResolution(), nil
+		},
+		func(context.Context, string, hostCommandResolution, string, string, string) (string, error) {
+			calls++
+			return "orchestrator", nil
+		},
+		func(context.Context, string, string, string) ([]byte, error) { calls++; return []byte(`{}`), nil })
+	var after int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events`).Scan(&after); err != nil {
+		t.Fatal(err)
+	}
+	if code != sessionPrepareRefusalExit || calls != 0 || after != before || out.Len() != 0 || !strings.Contains(errOut.String(), "CD-0213") {
+		t.Fatalf("code=%d callbacks=%d events=%d->%d stdout=%q stderr=%q", code, calls, before, after, out.String(), errOut.String())
+	}
+}
+
+func TestWorkerCommandsRefuseRetiredInitiativeBeforeAssertion(t *testing.T) {
+	for _, command := range []string{"worker-dispatch", "worker-complete", "worker-fail", "worker-abandon"} {
+		t.Run(command, func(t *testing.T) {
+			dbPath := freshMigratedCLIDatabase(t)
+			seedAuthorizedDispatchWindow(t, dbPath, "work-1", "attempt-1")
+			key := seedWorkerEvidenceClient(t)
+			lane := store.BuiltinLaneDefinitions()[0]
+			if command != "worker-dispatch" {
+				var out, errOut bytes.Buffer
+				raw := workerDispatchJSON(t, key, "seed-dispatch", "work-1", "attempt-1", lane, preferredLaneModel(lane), "nonce-retired-seed-dispatch")
+				if code := runWithInput([]string{"worker-dispatch"}, strings.NewReader(raw), &out, &errOut); code != 0 {
+					t.Fatalf("seed dispatch: code=%d stderr=%q", code, errOut.String())
+				}
+			}
+			s := mustOpenStore(t, dbPath)
+			modelCLIHistoricalInitiative(t, s, "work-1")
+			verb := command
+			if command == "worker-abandon" {
+				verb = agent.WorkerEvidenceVerbFail
+			}
+			request, assertion := workerEvidenceRequest(t, verb, lane, preferredLaneModel(lane), "nonce-retired-"+command)
+			if command == "worker-abandon" {
+				delete(request, "readback_model")
+				delete(request, "failure_kind")
+				assertion.ReadbackModel = ""
+				assertion.FailureKind = store.WorkerFailureAbandoned
+			}
+			request["assertion"] = signWorkerEvidence(t, key, assertion)
+			var before, after int
+			if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events`).Scan(&before); err != nil {
+				t.Fatal(err)
+			}
+			assertionCalls := 0
+			service := agent.NewService(s)
+			service.Now = func() time.Time { assertionCalls++; return time.Now().UTC() }
+			var out, errOut bytes.Buffer
+			code := runWorkerCommand(command, []byte(mustJSON(t, request)), s, service, time.Now, &out, &errOut)
+			if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events`).Scan(&after); err != nil {
+				t.Fatal(err)
+			}
+			if code != 1 || assertionCalls != 0 || after != before || !strings.Contains(errOut.String(), "CD-0213") {
+				t.Fatalf("code=%d assertion_calls=%d events=%d->%d stdout=%q stderr=%q", code, assertionCalls, before, after, out.String(), errOut.String())
+			}
+		})
 	}
 }
 

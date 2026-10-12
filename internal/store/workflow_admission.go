@@ -39,7 +39,7 @@ type WorkflowAdmissionState struct {
 	// and recovery actions. Only the operator-only outside-repair APIs clear it.
 	OutsideRepairActive bool
 	// RefinementWorkflow reports whether the pinned definition declares the
-	// refinement review shape: a step that declares start_refine. The
+	// refinement review shape: a step that declares checkpoint_refine. The
 	// post-rejection review debt and its settling review belong to that
 	// shape (CD-0197), not to a work kind.
 	RefinementWorkflow bool
@@ -521,6 +521,15 @@ func workflowAdmit(definition WorkflowDefinition, state WorkflowAdmissionState, 
 		decision.Failure = newFailure(KindInvalidOperation, "workflow_action", "terminal workflow instance is immutable", false, "start a successor workflow")
 		return decision
 	}
+	// A nonterminal instance under an archived family refuses every public
+	// action here — the recovery routes included — before any write. Terminal
+	// instances keep the terminal-immutability answer above.
+	if workflowFamilyArchived(definition.Ref) {
+		decision.Failure = newFailure(KindInvalidOperation, "workflow_action",
+			"workflow family "+definition.Ref+" is archived: new public workflow actions are refused", false,
+			"read the recorded history, or start retained-family work")
+		return decision
+	}
 	consequence := workflowActionConsequence(definition, actionID)
 	if workflowImpactBoundary(actionID, consequence) {
 		if state.BreakingNotices != 0 {
@@ -574,7 +583,7 @@ func workflowAdmit(definition WorkflowDefinition, state WorkflowAdmissionState, 
 		return decision
 	}
 	if state.RefinementWorkflow && state.ReviewDebt == ReviewDebtOutstanding {
-		refineStep := stepDeclaresAction(definition, state.Step, "start_refine")
+		refineStep := stepDeclaresAction(definition, state.Step, "checkpoint_refine")
 		switch actionID {
 		case "record_delivery":
 			if state.ReviewStep {
@@ -777,7 +786,7 @@ func workflowAdmitSupersede(definition WorkflowDefinition, state WorkflowAdmissi
 
 // stalenessRefusal returns the staleness boundary's refusal for one action's
 // stale-pin admission class, or nil when the action's class admits. The
-// attempt-disposition actions admit the subject's own stale pin (CD-0041 D7).
+// attempt-disposition actions admit the subject's own stale pin (CD-0222 D7).
 func (s WorkflowAdmissionState) stalenessRefusal(actionID string) error {
 	if workflowActionStalePinAdmission(actionID) != workflowStalePinAdmitNone {
 		return s.LawPinSelfError

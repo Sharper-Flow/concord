@@ -17,10 +17,6 @@
     },
     {
       "criterion": 4,
-      "scenario": "AJ5-atomic-supersession"
-    },
-    {
-      "criterion": 5,
       "scenario": "AJ5-resolve-domain-overlap"
     }
   ],
@@ -42,7 +38,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:3567463aebcd065e6919b4d5f2f3d0a5b1e84db20e4ce3fee0eda17a2bee135b",
+  "sha256": "sha256:bd3dc64f1b8dac0f60169281b4f5f206252194596d336bd35e7716fe6011c924",
   "status": "accepted",
   "summary": "Fixes the mutation tools, each committing one domain intent per SQLite transaction with sequenced git-first compaction.",
   "tags": [

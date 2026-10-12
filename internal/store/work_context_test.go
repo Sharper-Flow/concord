@@ -513,7 +513,7 @@ func TestRecordWorkContextFindingRefsSelectEarlierFindings(t *testing.T) {
 // The reader assembles the current view: the latest declaration anchor's
 // readings, its selected earlier findings, its new findings, and only the
 // terminal-report findings recorded after it — grouped by the contract's
-// affected-Domain order with the reserved empty domain_cards slot.
+// affected-Domain order.
 func TestReadWorkContextViewAssemblesAnchorRefsAndReports(t *testing.T) {
 	t.Parallel()
 	fixture := seedWorkContextFixture(t, "ctx-reader")
@@ -615,11 +615,6 @@ func TestReadWorkContextViewAssemblesAnchorRefsAndReports(t *testing.T) {
 	}
 	if len(child.FindingIDs) != 2 || len(root.FindingIDs) != 1 {
 		t.Fatalf("group finding ids = %+v / %+v, want two child findings and one root finding", child.FindingIDs, root.FindingIDs)
-	}
-	for _, group := range view.DomainGroups {
-		if group.DomainCards == nil || len(group.DomainCards) != 0 {
-			t.Fatalf("domain_cards = %+v, want the reserved empty slot", group.DomainCards)
-		}
 	}
 	for _, finding := range view.Findings {
 		if finding.Status != "reported" {

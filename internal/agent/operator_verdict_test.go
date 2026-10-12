@@ -25,22 +25,28 @@ func TestOperatorVerdictChallengeAfterInSessionDelivery(t *testing.T) {
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(grant, scopeVersion)
-	workID := captureCompositionWork(t, ctx, s, service, env, "Operator verdict challenge", "task", "workflow.generic_one_off", "operator-verdict-capture")
+	workID := captureCompositionWork(t, ctx, s, service, env, "Operator verdict challenge", "task", "workflow.implementation", "operator-verdict-capture")
 
 	signedAction := func(actionID string, fields map[string]any, key string) Envelope {
 		return signedWorkflowAction(ctx, t, s, service, env, grant, privateKey, workID, actionID, key, fields, grant.Worktree)
 	}
 
+	// The canonical head declares approve_contract behind the pre-contract
+	// walk, and the approval reads the Product knowledge home, so seed the
+	// committed fixture repository first.
+	recoveryDomainRepository(t, s)
+	advanceCapturedWorkToContract(t, s, service, env, workID, "operator-verdict")
 	contract := signedAction("approve_contract", map[string]any{
 		"premise": "The operator signs the verdict after an in-session delivery.", "contract_version": 1,
-		"required_evidence": []string{"verification"}, "route_conventions": []string{},
+		"architecture_binding": workflowArchitectureBindingForSeededRegistry(t, s),
+		"required_evidence":    []string{"verification"}, "route_conventions": []string{},
 		"outcome_predicates": []map[string]any{{"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:fixture", "immutable_subject_ref": "commit:fixture", "expected_result": "pass"}}},
 	}, "operator-verdict-contract")
 	if contract.Outcome != OutcomeOK {
 		t.Fatalf("approve_contract refused: %+v", contract.Error)
 	}
-	if started := signedAction("start_action", map[string]any{}, "operator-verdict-start"); started.Outcome != OutcomeOK {
-		t.Fatalf("start_action refused: %+v", started.Error)
+	if started := signedAction("start_execution", map[string]any{}, "operator-verdict-start"); started.Outcome != OutcomeOK {
+		t.Fatalf("start_execution refused: %+v", started.Error)
 	}
 	if bound := signedAction("bind_evidence", map[string]any{"evidence_kind": "verification", "evidence_ref": "evidence:operator-challenge"}, "operator-verdict-bind"); bound.Outcome != OutcomeOK {
 		t.Fatalf("bind_evidence refused: %+v", bound.Error)
@@ -48,11 +54,35 @@ func TestOperatorVerdictChallengeAfterInSessionDelivery(t *testing.T) {
 	if delivered := signedAction("record_delivery", map[string]any{"delivery_artifact": "artifact:operator-verdict", "delivery_state": "asserted"}, "operator-verdict-delivery"); delivered.Outcome != OutcomeOK {
 		t.Fatalf("record_delivery refused: %+v", delivered.Error)
 	}
+	// The canonical graph walks execution -> refine -> delivery ->
+	// acceptance: the refine entry is the derived checkpoint (CD-0198 D3),
+	// the refine exit consumes the proof bound in its epoch (CD-0192), and
+	// the delivery gate consumes qualifying core-owned verification. The
+	// verdict then rides the delivery step's advancing record_delivery exit.
+	// The proof and gate runs resolve the Project's default ref, and the
+	// contract approval reads the Product knowledge home, so seed the
+	// committed fixture repository and point the locator at it.
+	recoveryDomainRepository(t, s)
+	if refined := signedAction("checkpoint_refine", map[string]any{}, "operator-verdict-refine"); refined.Outcome != OutcomeOK {
+		t.Fatalf("checkpoint_refine refused: %+v", refined.Error)
+	}
+	proofRef := agentSeedRefineProofRun(t, s, workID, strings.Repeat("b", 64))
+	if bound := signedAction("bind_evidence", map[string]any{"evidence_kind": "verification", "evidence_ref": proofRef}, "operator-verdict-refine-proof"); bound.Outcome != OutcomeOK {
+		t.Fatalf("refine proof bind refused: %+v", bound.Error)
+	}
+	if delivered := signedAction("record_delivery", map[string]any{"delivery_artifact": "artifact:operator-verdict-refine", "delivery_state": "asserted"}, "operator-verdict-refine-delivery"); delivered.Outcome != OutcomeOK {
+		t.Fatalf("refine record_delivery refused: %+v", delivered.Error)
+	}
+	// The refine proof's verification binding already satisfies the
+	// contract's required evidence; the gate exit needs no recovery bind.
+	if gated := signedAction("record_delivery", map[string]any{"delivery_artifact": "artifact:operator-verdict-gate", "delivery_state": "asserted"}, "operator-verdict-gate-delivery"); gated.Outcome != OutcomeOK {
+		t.Fatalf("delivery gate record_delivery refused: %+v", gated.Error)
+	}
 
 	// The verdict from the delivering session mints the operator challenge,
 	// and the signed approval records the verdict.
 	verdict := signedAction("record_verdict", map[string]any{
-		"predicate_id": "predicate:primary", "verdict_kind": "ok", "evaluation_evidence": []string{"evidence:operator-challenge"},
+		"verdicts": []map[string]any{{"predicate_id": "predicate:primary", "verdict_kind": "ok", "evaluation_evidence": []string{"evidence:operator-challenge"}}},
 	}, "operator-verdict-verdict")
 	if verdict.Outcome != OutcomeOK {
 		t.Fatalf("operator-signed verdict refused: %+v", verdict.Error)
@@ -86,7 +116,7 @@ func TestOperatorVerdictChallengeAfterAcceptedWorkerResult(t *testing.T) {
 		t.Fatal(err)
 	}
 	env := mutationEnvelope(grant, scopeVersion)
-	workID := captureCompositionWork(t, ctx, s, service, env, "Verdict after acceptance", "task", "workflow.generic_one_off", "accept-e2e-capture")
+	workID := captureCompositionWork(t, ctx, s, service, env, "Verdict after acceptance", "task", "workflow.implementation", "accept-e2e-capture")
 
 	// Dispatch admission requires the host session to sit inside the work
 	// item's active worktree claim, compared by filesystem identity, so the
@@ -139,18 +169,24 @@ func TestOperatorVerdictChallengeAfterAcceptedWorkerResult(t *testing.T) {
 		return dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: raw}, reviewEnv)
 	}
 
+	recoveryDomainRepository(t, s)
+	advanceCapturedWorkToContract(t, s, service, env, workID, "accept-e2e")
 	contract := signedAction("approve_contract", map[string]any{
 		"premise": "A verdict after acceptance cites the accepted attempt.", "contract_version": 1,
-		"required_evidence": []string{"verification"}, "route_conventions": []string{},
+		"architecture_binding": workflowArchitectureBindingForSeededRegistry(t, s),
+		"required_evidence":    []string{"verification"}, "route_conventions": []string{},
 		"outcome_predicates": []map[string]any{{"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check", "check_ref": "check:fixture", "immutable_subject_ref": "commit:fixture", "expected_result": "pass"}}},
 	}, "accept-e2e-contract")
 	if contract.Outcome != OutcomeOK {
 		t.Fatalf("approve_contract refused: %+v", contract.Error)
 	}
-	if started := signedAction("start_action", map[string]any{}, "accept-e2e-start"); started.Outcome != OutcomeOK {
-		t.Fatalf("start_action refused: %+v", started.Error)
+	if started := signedAction("start_execution", map[string]any{}, "accept-e2e-start"); started.Outcome != OutcomeOK {
+		t.Fatalf("start_execution refused: %+v", started.Error)
 	}
 
+	// The job-capable canonical pin gates the dispatch on a ready
+	// worker-job revision recorded under the active contract (CD-0205).
+	recordReadyRetryJobForWork(t, s, service, env, workID, "job:"+workID+":accept-e2e")
 	var lane store.LaneDefinition
 	for _, candidate := range store.BuiltinLaneDefinitions() {
 		if candidate.ID == "verify" {
@@ -161,8 +197,8 @@ func TestOperatorVerdictChallengeAfterAcceptedWorkerResult(t *testing.T) {
 	dispatched := signedAction("dispatch_worker", map[string]any{
 		"attempt_id": attemptID,
 		"worker_packet": bindPacketToRecordedState(t, s, map[string]any{
-			"schema_version": "1.0", "attempt_id": attemptID, "lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest,
-			"work_id": workID, "step_id": "execute", "inputs": map[string]any{"task": "prove the acceptance binds evidence"},
+			"schema_version": store.WorkerPacketSchemaVersion, "attempt_id": attemptID, "lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest,
+			"work_id": workID, "step_id": "execution", "inputs": map[string]any{"task": "prove the acceptance binds evidence"},
 		}),
 	}, "accept-e2e-dispatch")
 	if dispatched.Outcome != OutcomeOK {
@@ -171,7 +207,10 @@ func TestOperatorVerdictChallengeAfterAcceptedWorkerResult(t *testing.T) {
 
 	// CD-0109: the dispatch route derives the lane actor and appends the
 	// actor/dispatch pair through the authoritative closed-shape route.
-	dispatchedEventPayload, err := json.Marshal(store.WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: "openai/test-model", PacketSchemaVersion: store.WorkerPacketSchemaVersion, ReportSchemaVersion: store.WorkerReportSchemaVersion, PacketDigest: "sha256:" + strings.Repeat("0", 64)})
+	// The lane dispatch carries the worker-job binding the dispatch_worker
+	// authorization recorded (CD-0205), so the fold admits the pair.
+	job := authorizedWorkerJobFor(t, s, workID, attemptID)
+	dispatchedEventPayload, err := json.Marshal(store.WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: "openai/test-model", PacketSchemaVersion: store.WorkerPacketSchemaVersion, ReportSchemaVersion: store.WorkerReportSchemaVersion, PacketDigest: "sha256:" + strings.Repeat("0", 64), WorkerJob: job})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -193,29 +232,68 @@ func TestOperatorVerdictChallengeAfterAcceptedWorkerResult(t *testing.T) {
 	for _, obligation := range lane.EvidenceObligations {
 		evidence = append(evidence, store.WorkerReportEvidence{Obligation: obligation, Detail: "discharged " + obligation})
 	}
-	completedPayload, err := json.Marshal(store.WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: "openai/test-model", ReportSchemaVersion: store.WorkerReportSchemaVersion, Evidence: evidence, EvidenceOrigin: store.WorkerEvidenceReported})
+	completedPayload, err := json.Marshal(store.WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: "openai/test-model", ReportSchemaVersion: store.WorkerReportSchemaVersion, Evidence: evidence, EvidenceOrigin: store.WorkerEvidenceReported, WorkerJob: job})
 	if err != nil {
 		t.Fatal(err)
 	}
-	completion := store.Event{EventID: "accept-e2e-worker-completed", Kind: store.WorkerCompleted, SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: 2, Payload: completedPayload}
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A job-bound completion declares its evidence origin and rides the
+	// payload version the job field requires (CD-0205).
+	completionPayloadVersion := 2
+	if job != nil {
+		completionPayloadVersion = store.WorkerEvidenceEventPayloadVersion(store.WorkerCompleted)
+	}
+	completion := store.Event{EventID: "accept-e2e-worker-completed", Kind: store.WorkerCompleted, SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: completionPayloadVersion, Payload: completedPayload}
 	if err := store.ApplyOperation(ctx, s, store.Operation{Events: []store.Event{completion}}); err != nil {
 		t.Fatalf("worker completion folded: %v", err)
 	}
 
-	accepted := signedAction("accept_worker_result", map[string]any{"attempt_id": attemptID, "attempt_epoch": 2}, "accept-e2e-accept")
+	var acceptEpochValue int64
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT json_extract(payload,'$.attempt_epoch') FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=? ORDER BY seq DESC LIMIT 1`, workID, store.WorkflowActionCompleted, attemptID).Scan(&acceptEpochValue); err != nil {
+		t.Fatal(err)
+	}
+	accepted := signedAction("accept_worker_result", map[string]any{"attempt_id": attemptID, "attempt_epoch": acceptEpochValue}, "accept-e2e-accept")
 	if accepted.Outcome != OutcomeOK {
 		t.Fatalf("accept_worker_result refused: %+v", accepted.Error)
 	}
 
+	// The job-bound accept is local acceptance and holds the step; the
+	// canonical walk exits through the delivery assertions to the verdict
+	// step (execution -> refine -> delivery -> acceptance).
+	integrationRef := agentSeedIntegrationVerifyRun(t, s, workID, "accept-e2e"+"-integration")
+	if bound := signedAction("bind_evidence", map[string]any{"evidence_kind": "verification", "evidence_ref": integrationRef}, "accept-e2e"+"-integration-bind"); bound.Outcome != OutcomeOK {
+		t.Fatalf("integration verification bind refused: %+v", bound.Error)
+	}
+	if delivered := signedAction("record_delivery", map[string]any{"delivery_artifact": "artifact:" + "accept-e2e" + "-execution", "delivery_state": "asserted"}, "accept-e2e"+"-execution-delivery"); delivered.Outcome != OutcomeOK {
+		t.Fatalf("execution record_delivery refused: %+v", delivered.Error)
+	}
+	if refined := signedAction("checkpoint_refine", map[string]any{}, "accept-e2e"+"-refine"); refined.Outcome != OutcomeOK {
+		t.Fatalf("checkpoint_refine refused: %+v", refined.Error)
+	}
+	proofRef := agentSeedRefineProofRun(t, s, workID, strings.Repeat("b", 64))
+	if bound := signedAction("bind_evidence", map[string]any{"evidence_kind": "verification", "evidence_ref": proofRef}, "accept-e2e"+"-refine-proof"); bound.Outcome != OutcomeOK {
+		t.Fatalf("refine proof bind refused: %+v", bound.Error)
+	}
+	if delivered := signedAction("record_delivery", map[string]any{"delivery_artifact": "artifact:" + "accept-e2e" + "-refine", "delivery_state": "asserted"}, "accept-e2e"+"-refine-delivery"); delivered.Outcome != OutcomeOK {
+		t.Fatalf("refine record_delivery refused: %+v", delivered.Error)
+	}
+	if gated := signedAction("record_delivery", map[string]any{"delivery_artifact": "artifact:" + "accept-e2e" + "-gate", "delivery_state": "asserted"}, "accept-e2e"+"-gate-delivery"); gated.Outcome != OutcomeOK {
+		t.Fatalf("delivery gate record_delivery refused: %+v", gated.Error)
+	}
 	var step string
 	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT current_step FROM workflow_instances WHERE work_id=?`, workID).Scan(&step); err != nil {
 		t.Fatal(err)
 	}
-	if step != "verify" {
-		t.Fatalf("current_step=%q, want verify", step)
+	if step != "acceptance" {
+		t.Fatalf("current_step=%q, want acceptance", step)
+	}
+	if bound := signedAction("bind_evidence", map[string]any{"evidence_kind": "review", "immutable_subject_ref": "evidence:accept-e2e-review"}, "accept-e2e-review-bind"); bound.Outcome != OutcomeOK {
+		t.Fatalf("review evidence bind refused: %+v", bound.Error)
 	}
 	operatorVerdict := signedAction("record_verdict", map[string]any{
-		"predicate_id": "predicate:primary", "verdict_kind": "ok", "evaluation_evidence": []string{attemptID},
+		"verdicts": []map[string]any{{"predicate_id": "predicate:primary", "verdict_kind": "ok", "evaluation_evidence": []string{attemptID}}},
 	}, "accept-e2e-operator-verdict")
 	if operatorVerdict.Outcome != OutcomeOK {
 		t.Fatalf("operator verdict challenge after accepted worker result refused: %+v", operatorVerdict.Error)
@@ -228,7 +306,7 @@ func TestOperatorVerdictChallengeAfterAcceptedWorkerResult(t *testing.T) {
 		t.Fatalf("operator verdict actor=%q, want the signed operator identity", operatorVerdictActor)
 	}
 	verdict := signedReviewAction("record_verdict", map[string]any{
-		"predicate_id": "predicate:primary", "verdict_kind": "ok", "evaluation_evidence": []string{attemptID},
+		"verdicts": []map[string]any{{"predicate_id": "predicate:primary", "verdict_kind": "ok", "evaluation_evidence": []string{attemptID}}},
 	}, "accept-e2e-verdict")
 	if verdict.Outcome != OutcomeOK {
 		t.Fatalf("verdict citing the accepted attempt refused: %+v", verdict.Error)

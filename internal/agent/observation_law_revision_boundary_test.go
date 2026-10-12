@@ -9,7 +9,7 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 )
 
-// CD-0041 D7: external observation capture and verification is the surface that
+// CD-0222 D7: external observation capture and verification is the surface that
 // accepts an attributed merge or ship result into Product truth, so it is a
 // consequential boundary and must validate law revision pins as well as active
 // Domain overlaps.
@@ -192,7 +192,7 @@ func scalarRow(t *testing.T, s *store.Store, query string, args ...any) int {
 	return count
 }
 
-// TestExternalObservationBoundaryRefusesStaleLawRevision proves the CD-0041 D7
+// TestExternalObservationBoundaryRefusesStaleLawRevision proves the CD-0222 D7
 // law-revision half runs at the boundary that accepts an attributed merge or
 // ship result, in the transaction that owns the observation write. Both
 // variants of that boundary are covered: the capture that admits the result

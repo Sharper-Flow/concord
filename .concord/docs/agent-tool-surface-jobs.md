@@ -288,11 +288,11 @@ definition, instruction, or invariant changed.
 
 **2026-08-19, issue #195 — `AJ5-resolve-domain-overlap` adds the TS8 major-change scenario.**
 
-CD-0041 makes unresolved concurrent Domain overlap a blocking Product-law fact.
+CD-0222 makes unresolved concurrent Domain overlap a blocking Product-law fact.
 Before the current manifest added the overlap operation, AJ5's ordinary relation could record a graph edge but
 could not bind operator approval to both work versions, both active contract versions,
 and one closed compatibility, sequence, merger, or supersession decision. Treating the
-ordinary edge as authority would violate AJ5's duplicate-authority oracle and CD-0041.
+ordinary edge as authority would violate AJ5's duplicate-authority oracle and CD-0222.
 
 The named failing scenario is therefore: authorize two overlapping Product-changing
 items to proceed concurrently using only the pre-5.0 AJ5 surface. No legitimate call

@@ -26,7 +26,7 @@ read. The binding inputs are the accepted PM1 query contract, PM2 global
 authority, PM3's hybrid explicit core, and CD-0002 invariants I1 through I6.
 This record decides the closed lifecycle state set, the allowed transitions,
 the derived work views, and the typed relation model with its graph rules.
-CD-0041 and CD-0042 extend the work-pair grammar with architecture-overlap
+CD-0222 and CD-0042 extend the work-pair grammar with architecture-overlap
 resolutions. CD-0213 places business grouping in Linear through the Linear
 MCP server; Concord keeps no grouping projection or membership authoring.
 ## Contract
@@ -105,16 +105,22 @@ new identity from the surviving planning record.
 
 For work item `W`:
 
+- `actionable(W)` iff its work kind is not retired from execution;
 - `terminal(W)` iff lifecycle is `completed`, `cancelled`, or `superseded`;
-- `active(W)` iff lifecycle is `in_progress`;
-- `blocked(W)` iff at least one nonterminal work item has a stored `blocks` edge to
-  `W`;
-- `ready(W)` iff lifecycle is `needed` and `blocked(W)` is false.
+- `active(W)` iff `actionable(W)` and lifecycle is `in_progress`;
+- `blocked(W)` iff `actionable(W)` and at least one actionable nonterminal work
+  item has a stored `blocks` edge to `W`;
+- `ready(W)` iff `actionable(W)`, lifecycle is `needed`, and `blocked(W)` is false.
+
+CD-0213 retires the `initiative` kind from execution. Its historical lifecycle
+and record remain readable, but actionable views do not select it.
 
 A terminal blocker resolves its outgoing blocking effect regardless of which
 terminal state it reached. History still explains whether it completed, was
-cancelled, or was superseded. Parent relations do not silently block children or
-auto-transition parents. Any progress roll-up is a derived read model.
+cancelled, or was superseded. Under CD-0213 D8, a blocker of a kind retired from
+execution has no blocking effect. Its stored edge stays readable as history.
+Parent relations do not silently block children or auto-transition parents.
+Any progress roll-up is a derived read model.
 
 PM1 ranking remains: explicit priority, creation time, stable ID. Lifecycle stage
 is displayed but does not silently rewrite business priority.
@@ -131,7 +137,7 @@ read names are part of the contract; callers never create mirrored rows.
 | `supersedes`: A supersedes B | B superseded-by A | A is B's canonical replacement | no self-edge, duplicate, cycle, or second direct successor for B |
 | `implements`: A implements B | B implemented-by A | A fulfills another work item | no self-edge or duplicate; no lifecycle effect |
 
-CD-0041's work-pair grammar adds version-pinned `compatible_with`, `merged_into`, and
+CD-0222's work-pair grammar adds version-pinned `compatible_with`, `merged_into`, and
 architecture-sequencing use of `blocks`/`depends_on`/`supersedes`; its
 implementation issue must update this table, schemas, events, and conformance in
 one major rather than partially accepting new relation strings.

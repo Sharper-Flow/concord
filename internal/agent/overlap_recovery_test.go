@@ -15,8 +15,6 @@ func TestMutationIsOverlapRecovery(t *testing.T) {
 		want      bool
 	}{
 		{name: "resolve_overlap is the primary recovery", tool: "concord_work_relate", operation: "resolve_overlap", raw: `{}`, want: true},
-		{name: "supersede is a named recovery", tool: "concord_work_relate", operation: "supersede", raw: `{}`, want: true},
-		{name: "restore_superseded is a named recovery", tool: "concord_work_relate", operation: "restore_superseded", raw: `{}`, want: true},
 		{name: "cancelling is the terminal_work recovery", tool: "concord_work_transition", operation: "lifecycle", raw: `{"target":"cancelled"}`, want: true},
 		{name: "completing is the terminal_work recovery", tool: "concord_work_transition", operation: "lifecycle", raw: `{"target":"completed"}`, want: true},
 		{name: "supersede_contract is the named contract-correction recovery", tool: "concord_work_transition", operation: "workflow_action", raw: `{"action_id":"supersede_contract"}`, want: true},
@@ -28,7 +26,6 @@ func TestMutationIsOverlapRecovery(t *testing.T) {
 		{name: "starting work is not a recovery", tool: "concord_work_transition", operation: "lifecycle", raw: `{"target":"in_progress"}`, want: false},
 		{name: "capture is not a recovery", tool: "concord_work_define", operation: "capture", raw: `{}`, want: false},
 		{name: "revising intent is not a recovery", tool: "concord_work_define", operation: "revise_intent", raw: `{}`, want: false},
-		{name: "linking is not a recovery", tool: "concord_work_relate", operation: "link", raw: `{}`, want: false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := mutationIsOverlapRecovery(tc.tool, tc.operation, []byte(tc.raw)); got != tc.want {

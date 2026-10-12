@@ -403,7 +403,7 @@ func staleRegistryPinRefusalNamesWork(err error, workID string) bool {
 }
 
 // workflowStalePinAdmission names the stale-pin refusals one boundary check
-// admits. The default holds every refusal (CD-0041 D7).
+// admits. The default holds every refusal (CD-0222 D7).
 type workflowStalePinAdmission int
 
 const (
@@ -502,7 +502,7 @@ func checkWorkflowDomainOverlapTxAdmitting(ctx context.Context, q queryer, workI
 			continue
 		}
 		// The peer's registry check never answers for the subject: a stale
-		// pin there marks the peer's own contract (CD-0041 D7), and its
+		// pin there marks the peer's own contract (CD-0222 D7), and its
 		// recovery route stays the peer's re-pin, so the marker's staleness
 		// falls through and the unresolved overlap below carries the four
 		// closed recovery routes instead. A peer footprint naming an unknown
@@ -808,7 +808,7 @@ func foldWorkflowOverlapResolved(ctx context.Context, tx *sql.Tx, event Event) e
 	}
 	// The registry comparison pins the event against the current Git-derived
 	// registry. The declarer's own stale pin still refuses the recording, so
-	// the marker's named subject re-pins its own contract first (CD-0041 D7).
+	// the marker's named subject re-pins its own contract first (CD-0222 D7).
 	// The peer's stale pin does not veto the recording: resolve_overlap is
 	// the D7-exempt recovery route, and the peer's stale pin opens the peer's
 	// recovery route, not a veto over this pair. A replay re-derives the

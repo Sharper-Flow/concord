@@ -204,28 +204,28 @@ func TestBadVerdictStalesArtifactUntilReproduced(t *testing.T) {
 	s := openTemp(t)
 	defer s.Close()
 	const workID = "stale-bad-verdict"
-	definition := mustBuiltinDefinition(t, "workflow.generic_one_off").Definition
-	if target := workflowUnhealthyVerdictRouteTarget(definition, "verify"); target != "execute" {
-		t.Fatalf("generic verify route target = %q, want execute", target)
+	definition := mustBuiltinDefinition(t, "workflow.implementation").Definition
+	if target := workflowUnhealthyVerdictRouteTarget(definition, "acceptance"); target != "execution" {
+		t.Fatalf("implementation acceptance route target = %q, want execution", target)
 	}
-	stalenessFixture(t, s, workID, "workflow.generic_one_off", definition.Version, "verify")
+	stalenessFixture(t, s, workID, definition.Ref, definition.Version, "acceptance")
 	stalenessSeedContract(t, s, workID)
-	// Production first: an accepted delivery at execute predates the bad
+	// Production first: an accepted delivery at execution predates the bad
 	// verdict, so the verdict alone decides staleness.
 	stalenessCapabilityDispatch(t, s, workID, "attempt:stale-1")
-	stalenessEvent(t, s, workID, string(WorkflowActionCompleted), stalenessActionPayload("execute", "dispatch_worker"))
-	stalenessEvent(t, s, workID, string(WorkflowActionCompleted), `{"step_id":"execute","action_id":"accept_worker_result","worker_attempt_id":"attempt:stale-1"}`)
+	stalenessEvent(t, s, workID, string(WorkflowActionCompleted), stalenessActionPayload("execution", "dispatch_worker"))
+	stalenessEvent(t, s, workID, string(WorkflowActionCompleted), `{"step_id":"execution","action_id":"accept_worker_result","worker_attempt_id":"attempt:stale-1"}`)
 	stalenessEvent(t, s, workID, string(WorkflowVerdictRecorded), stalenessVerdictPayload("bad"))
 	if state := foldStalenessState(t, s, workID, definition); !state.ArtifactStale {
-		t.Fatal("bad verdict at verify did not stale the artifact")
+		t.Fatal("bad verdict at acceptance did not stale the artifact")
 	}
 	// A fenced start at the target is start-only history: it never clears.
-	stalenessEvent(t, s, workID, string(WorkflowActionCompleted), stalenessActionPayload("execute", "start_action"))
+	stalenessEvent(t, s, workID, string(WorkflowActionCompleted), stalenessActionPayload("execution", "start_execution"))
 	if state := foldStalenessState(t, s, workID, definition); !state.ArtifactStale {
 		t.Fatal("fenced start cleared artifact staleness")
 	}
 	// A dispatch alone is not production either.
-	stalenessEvent(t, s, workID, string(WorkflowActionCompleted), `{"step_id":"execute","action_id":"dispatch_worker","worker_attempt_id":"attempt:stale-2"}`)
+	stalenessEvent(t, s, workID, string(WorkflowActionCompleted), `{"step_id":"execution","action_id":"dispatch_worker","worker_attempt_id":"attempt:stale-2"}`)
 	if state := foldStalenessState(t, s, workID, definition); !state.ArtifactStale {
 		t.Fatal("dispatch without an accepted delivery cleared artifact staleness")
 	}
@@ -236,7 +236,7 @@ func TestBadVerdictStalesArtifactUntilReproduced(t *testing.T) {
 	}
 	// The accepted delivery at the target is the fresh production.
 	stalenessCapabilityDispatch(t, s, workID, "attempt:stale-2")
-	stalenessEvent(t, s, workID, string(WorkflowActionCompleted), `{"step_id":"execute","action_id":"accept_worker_result","worker_attempt_id":"attempt:stale-2"}`)
+	stalenessEvent(t, s, workID, string(WorkflowActionCompleted), `{"step_id":"execution","action_id":"accept_worker_result","worker_attempt_id":"attempt:stale-2"}`)
 	if state := foldStalenessState(t, s, workID, definition); state.ArtifactStale {
 		t.Fatal("accepted delivery at the route target did not clear artifact staleness")
 	}
@@ -250,10 +250,10 @@ func TestSupersessionStalesArtifactUntilReproduced(t *testing.T) {
 	s := openTemp(t)
 	defer s.Close()
 	const workID = "stale-supersession"
-	definition := mustBuiltinDefinition(t, "workflow.generic_one_off").Definition
-	stalenessFixture(t, s, workID, "workflow.generic_one_off", definition.Version, "verify")
+	definition := mustBuiltinDefinition(t, "workflow.break_fix").Definition
+	stalenessFixture(t, s, workID, definition.Ref, definition.Version, "verify")
 	stalenessSeedContract(t, s, workID)
-	stalenessEvent(t, s, workID, string(WorkflowActionCompleted), stalenessActionPayload("execute", "record_delivery"))
+	stalenessEvent(t, s, workID, string(WorkflowActionCompleted), stalenessActionPayload("repair", "record_delivery"))
 	if state := foldStalenessState(t, s, workID, definition); state.ArtifactStale {
 		t.Fatal("production without a staleness cause folded stale")
 	}
@@ -261,7 +261,7 @@ func TestSupersessionStalesArtifactUntilReproduced(t *testing.T) {
 	if state := foldStalenessState(t, s, workID, definition); !state.ArtifactStale {
 		t.Fatal("successor contract did not stale the artifact")
 	}
-	stalenessEvent(t, s, workID, string(WorkflowActionCompleted), stalenessActionPayload("execute", "record_delivery"))
+	stalenessEvent(t, s, workID, string(WorkflowActionCompleted), stalenessActionPayload("repair", "record_delivery"))
 	if state := foldStalenessState(t, s, workID, definition); state.ArtifactStale {
 		t.Fatal("fresh delivery at the route target did not clear supersession staleness")
 	}
@@ -311,17 +311,18 @@ func TestResearchAndSpikeProducersClearStaleness(t *testing.T) {
 }
 
 // TestStaleArtifactRefusesOkVerdictAndPremise holds both admission halves:
-// while stale, record_verdict refuses a single ok and a batch containing ok,
-// admits the non-ok verdict, and confirm_premise refuses with the declared
-// route as the remedy — the generic shape whose verify step carries no
-// failure edge, where the old fold let the premise step forward.
+// while stale, record_verdict refuses a single ok entry and a batch
+// containing ok, admits the non-ok verdict, and confirm_premise refuses with
+// the declared route as the remedy — the retained break_fix shape whose
+// verify step confirms the premise with no forward escape past the stale
+// artifact.
 func TestStaleArtifactRefusesOkVerdictAndPremise(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)
 	defer s.Close()
 	const workID = "stale-refusals"
-	definition := mustBuiltinDefinition(t, "workflow.generic_one_off").Definition
-	stalenessFixture(t, s, workID, "workflow.generic_one_off", definition.Version, "verify")
+	definition := mustBuiltinDefinition(t, "workflow.break_fix").Definition
+	stalenessFixture(t, s, workID, definition.Ref, definition.Version, "verify")
 	stalenessSeedContract(t, s, workID)
 	stalenessEvent(t, s, workID, string(WorkflowVerdictRecorded), stalenessVerdictPayload("bad"))
 	state := foldStalenessState(t, s, workID, definition)
@@ -332,12 +333,13 @@ func TestStaleArtifactRefusesOkVerdictAndPremise(t *testing.T) {
 	if confirm.Admitted || confirm.Failure == nil || !strings.Contains(confirm.Failure.RecoveryAction, "request_correction") {
 		t.Fatalf("confirm_premise while stale = %+v, want the declared-route refusal", confirm)
 	}
-	// The guard refuses the single ok and a batch containing one ok, and
-	// admits the non-ok verdict, through the folded state it consumes.
+	// The guard refuses the single ok verdict (one canonical batch entry)
+	// and a batch containing one ok, and admits the non-ok verdict, through
+	// the folded state it consumes.
 	guard := &workflowActionGuardContext{
-		ctx: context.Background(), entry: mustBuiltinDefinition(t, "workflow.generic_one_off"),
+		ctx: context.Background(), entry: mustBuiltinDefinition(t, "workflow.break_fix"),
 		currentStep: "verify", admissionState: &state,
-		request: WorkflowActionExecutionRequest{WorkID: workID, ActionID: "record_verdict", Payload: json.RawMessage(`{"predicate_id":"predicate:primary","verdict_kind":"ok","contract_version":1}`)},
+		request: WorkflowActionExecutionRequest{WorkID: workID, ActionID: "record_verdict", Payload: json.RawMessage(`{"contract_version":1,"verdicts":[{"predicate_id":"predicate:primary","verdict_kind":"ok"}]}`)},
 	}
 	if err := guardRecordVerdictArtifactFreshness(guard); err == nil || !strings.Contains(err.Error(), "stale") {
 		t.Fatalf("single ok verdict while stale = %v, want the staleness refusal", err)
@@ -347,46 +349,45 @@ func TestStaleArtifactRefusesOkVerdictAndPremise(t *testing.T) {
 	if err := guardRecordVerdictArtifactFreshness(guard); err == nil {
 		t.Fatal("batch containing an ok verdict while stale admitted")
 	}
-	nonOK := WorkflowActionExecutionRequest{WorkID: workID, ActionID: "record_verdict", Payload: json.RawMessage(`{"predicate_id":"predicate:primary","verdict_kind":"bad","contract_version":1}`)}
+	nonOK := WorkflowActionExecutionRequest{WorkID: workID, ActionID: "record_verdict", Payload: json.RawMessage(`{"contract_version":1,"verdicts":[{"predicate_id":"predicate:primary","verdict_kind":"bad"}]}`)}
 	guard.request = nonOK
 	if err := guardRecordVerdictArtifactFreshness(guard); err != nil {
 		t.Fatalf("non-ok verdict while stale refused: %v", err)
 	}
 	// After re-production the same ok verdict records: the refusal is the
 	// staleness alone, not the verdict shape.
-	stalenessEvent(t, s, workID, string(WorkflowActionCompleted), stalenessActionPayload("execute", "record_delivery"))
+	stalenessEvent(t, s, workID, string(WorkflowActionCompleted), stalenessActionPayload("repair", "record_delivery"))
 	fresh := foldStalenessState(t, s, workID, definition)
 	if fresh.ArtifactStale {
 		t.Fatal("reproduction did not clear staleness")
 	}
 	guard.admissionState = &fresh
-	guard.request = WorkflowActionExecutionRequest{WorkID: workID, ActionID: "record_verdict", Payload: json.RawMessage(`{"predicate_id":"predicate:primary","verdict_kind":"ok","contract_version":1}`)}
+	guard.request = WorkflowActionExecutionRequest{WorkID: workID, ActionID: "record_verdict", Payload: json.RawMessage(`{"contract_version":1,"verdicts":[{"predicate_id":"predicate:primary","verdict_kind":"ok"}]}`)}
 	if err := guardRecordVerdictArtifactFreshness(guard); err != nil {
 		t.Fatalf("ok verdict after reproduction refused: %v", err)
 	}
 }
 
-// TestRevisedContractOnReleasedPinNamesTheRoute is the CON-846 shape: a
-// released generic_one_off pin whose verify step holds an unhealthy verdict
-// under an approved successor contract resolves its correction through the
-// quarantined route table, where the deleted work-kind whitelist refused it.
+// TestRevisedContractOnReleasedPinNamesTheRoute proves a released research
+// pin resolves an unhealthy verdict under an approved successor contract
+// through the quarantined route table.
 func TestRevisedContractOnReleasedPinNamesTheRoute(t *testing.T) {
 	t.Parallel()
 	s := openTemp(t)
 	defer s.Close()
 	const workID = "stale-con861"
 	// A released table-less version: the quarantine owns its routes.
-	entry, ok := BuiltinWorkflowRegistry().Lookup("workflow.generic_one_off", 13)
+	entry, ok := BuiltinWorkflowRegistry().Lookup("workflow.research", 13)
 	if !ok {
-		t.Fatal("workflow.generic_one_off v13 is not registered")
+		t.Fatal("workflow.research v13 is not registered")
 	}
 	definition := entry.Definition
 	if len(definition.RecoveryRoutes) != 0 {
-		t.Fatal("generic v13 declares a table; the fixture needs the quarantined shape")
+		t.Fatal("research v13 declares a table; the fixture needs the quarantined shape")
 	}
-	stalenessFixture(t, s, workID, "workflow.generic_one_off", 13, "verify")
+	stalenessFixture(t, s, workID, "workflow.research", 13, "conclude")
 	stalenessSeedContract(t, s, workID)
-	stalenessSeedWorkerDelivery(t, s, workID, "attempt:con861")
+	stalenessEvent(t, s, workID, string(WorkflowActionCompleted), stalenessActionPayload("investigate", "record_finding"))
 	stalenessEvent(t, s, workID, string(WorkflowVerdictRecorded), stalenessVerdictPayload("bad"))
 	stalenessEvent(t, s, workID, string(WorkflowContractSuperseded), `{"new_contract_version":2}`)
 	state := foldStalenessState(t, s, workID, definition)
@@ -396,16 +397,16 @@ func TestRevisedContractOnReleasedPinNamesTheRoute(t *testing.T) {
 	if !state.CorrectionRequestRecovery || state.CorrectionRequestContext == nil {
 		t.Fatalf("correction request on the released pin = recovered %v context %v, want the declared route admitted", state.CorrectionRequestRecovery, state.CorrectionRequestContext)
 	}
-	if !strings.Contains(state.CorrectionRequestContext.Strategy, "execute") {
-		t.Fatalf("correction strategy = %q, want the route target execute", state.CorrectionRequestContext.Strategy)
+	if !strings.Contains(state.CorrectionRequestContext.Strategy, "investigate") {
+		t.Fatalf("correction strategy = %q, want the route target investigate", state.CorrectionRequestContext.Strategy)
 	}
 	decision := workflowAdmit(definition, state, "request_correction")
 	if !decision.Admitted {
 		t.Fatalf("request_correction on the released pin refused: %v", decision.Failure)
 	}
 	// The fold's return target is the same declared producer step.
-	if target := workflowCorrectionReturnTarget(definition, "verify"); target != "execute" {
-		t.Fatalf("correction return target = %q, want execute", target)
+	if target := workflowCorrectionReturnTarget(definition, "conclude"); target != "investigate" {
+		t.Fatalf("correction return target = %q, want investigate", target)
 	}
 }
 
@@ -437,11 +438,11 @@ func TestStaleOkVerdictNeedsUnhealthyVerdictForDeclaredRoute(t *testing.T) {
 	s := openTemp(t)
 	defer s.Close()
 	const workID = "stale-ok-reopen"
-	definition := mustBuiltinDefinition(t, "workflow.generic_one_off").Definition
-	stalenessFixture(t, s, workID, "workflow.generic_one_off", definition.Version, "verify")
+	definition := mustBuiltinDefinition(t, "workflow.implementation").Definition
+	stalenessFixture(t, s, workID, definition.Ref, definition.Version, "acceptance")
 	stalenessSeedContract(t, s, workID)
-	stalenessEvent(t, s, workID, string(WorkflowActionCompleted), stalenessActionPayload("execute", "record_delivery"))
-	stalenessSeedWorkerDelivery(t, s, workID, "attempt:stale-ok")
+	stalenessEvent(t, s, workID, string(WorkflowActionCompleted), stalenessActionPayload("execution", "record_delivery"))
+	stalenessSeedWorkerDeliveryAt(t, s, workID, "attempt:stale-ok", "execution")
 	stalenessEvent(t, s, workID, string(WorkflowVerdictRecorded), stalenessVerdictPayload("ok"))
 	if state := foldStalenessState(t, s, workID, definition); state.ArtifactStale {
 		t.Fatal("ok verdict without a staleness cause folded stale")
@@ -517,8 +518,8 @@ func TestProductionBindsToDispatchOriginAndCapability(t *testing.T) {
 	s := openTemp(t)
 	defer s.Close()
 	const workID = "stale-production-authority"
-	definition := mustBuiltinDefinition(t, "workflow.generic_one_off").Definition
-	stalenessFixture(t, s, workID, "workflow.generic_one_off", definition.Version, "verify")
+	definition := mustBuiltinDefinition(t, "workflow.implementation").Definition
+	stalenessFixture(t, s, workID, definition.Ref, definition.Version, "acceptance")
 	stalenessSeedContract(t, s, workID)
 	stalenessEvent(t, s, workID, string(WorkflowVerdictRecorded), stalenessVerdictPayload("bad"))
 	if state := foldStalenessState(t, s, workID, definition); !state.ArtifactStale {
@@ -527,31 +528,31 @@ func TestProductionBindsToDispatchOriginAndCapability(t *testing.T) {
 	// Evidence-only acceptance at the target, with its dispatch origin in
 	// place, is not production.
 	stalenessCapabilityDispatch(t, s, workID, "attempt:evidence-only")
-	stalenessEvent(t, s, workID, string(WorkflowActionCompleted), `{"step_id":"execute","action_id":"dispatch_worker","worker_attempt_id":"attempt:evidence-only"}`)
-	stalenessEvent(t, s, workID, string(WorkflowActionCompleted), `{"step_id":"execute","action_id":"accept_worker_evidence","worker_attempt_id":"attempt:evidence-only"}`)
+	stalenessEvent(t, s, workID, string(WorkflowActionCompleted), `{"step_id":"execution","action_id":"dispatch_worker","worker_attempt_id":"attempt:evidence-only"}`)
+	stalenessEvent(t, s, workID, string(WorkflowActionCompleted), `{"step_id":"execution","action_id":"accept_worker_evidence","worker_attempt_id":"attempt:evidence-only"}`)
 	if state := foldStalenessState(t, s, workID, definition); !state.ArtifactStale {
 		t.Fatal("evidence-only acceptance cleared artifact staleness")
 	}
 	// An accepted result whose dispatch originated at a step the route does
 	// not name is not production at the target.
 	stalenessCapabilityDispatch(t, s, workID, "attempt:off-target")
-	stalenessEvent(t, s, workID, string(WorkflowActionCompleted), `{"step_id":"verify","action_id":"dispatch_worker","worker_attempt_id":"attempt:off-target"}`)
-	stalenessEvent(t, s, workID, string(WorkflowActionCompleted), `{"step_id":"verify","action_id":"accept_worker_result","worker_attempt_id":"attempt:off-target"}`)
+	stalenessEvent(t, s, workID, string(WorkflowActionCompleted), `{"step_id":"acceptance","action_id":"dispatch_worker","worker_attempt_id":"attempt:off-target"}`)
+	stalenessEvent(t, s, workID, string(WorkflowActionCompleted), `{"step_id":"acceptance","action_id":"accept_worker_result","worker_attempt_id":"attempt:off-target"}`)
 	if state := foldStalenessState(t, s, workID, definition); !state.ArtifactStale {
 		t.Fatal("off-target accepted delivery cleared artifact staleness")
 	}
 	// An accepted result at the target with no capability dispatch behind
 	// its attempt is not production.
-	stalenessEvent(t, s, workID, string(WorkflowActionCompleted), `{"step_id":"execute","action_id":"dispatch_worker","worker_attempt_id":"attempt:no-capability"}`)
-	stalenessEvent(t, s, workID, string(WorkflowActionCompleted), `{"step_id":"execute","action_id":"accept_worker_result","worker_attempt_id":"attempt:no-capability"}`)
+	stalenessEvent(t, s, workID, string(WorkflowActionCompleted), `{"step_id":"execution","action_id":"dispatch_worker","worker_attempt_id":"attempt:no-capability"}`)
+	stalenessEvent(t, s, workID, string(WorkflowActionCompleted), `{"step_id":"execution","action_id":"accept_worker_result","worker_attempt_id":"attempt:no-capability"}`)
 	if state := foldStalenessState(t, s, workID, definition); !state.ArtifactStale {
 		t.Fatal("accept without a capability dispatch cleared artifact staleness")
 	}
 	// The positively bound delivery — dispatch origin at the target, the
 	// capability dispatch, the accepted result — produces.
 	stalenessCapabilityDispatch(t, s, workID, "attempt:fresh")
-	stalenessEvent(t, s, workID, string(WorkflowActionCompleted), `{"step_id":"execute","action_id":"dispatch_worker","worker_attempt_id":"attempt:fresh"}`)
-	stalenessEvent(t, s, workID, string(WorkflowActionCompleted), `{"step_id":"execute","action_id":"accept_worker_result","worker_attempt_id":"attempt:fresh"}`)
+	stalenessEvent(t, s, workID, string(WorkflowActionCompleted), `{"step_id":"execution","action_id":"dispatch_worker","worker_attempt_id":"attempt:fresh"}`)
+	stalenessEvent(t, s, workID, string(WorkflowActionCompleted), `{"step_id":"execution","action_id":"accept_worker_result","worker_attempt_id":"attempt:fresh"}`)
 	if state := foldStalenessState(t, s, workID, definition); state.ArtifactStale {
 		t.Fatal("positively bound delivery at the target did not clear artifact staleness")
 	}
@@ -566,22 +567,21 @@ func TestNonProducingCompletionsNeverClearStaleness(t *testing.T) {
 	s := openTemp(t)
 	defer s.Close()
 	const workID = "stale-nonproducing"
-	definition := mustBuiltinDefinition(t, "workflow.generic_one_off").Definition
-	stalenessFixture(t, s, workID, "workflow.generic_one_off", definition.Version, "verify")
+	definition := mustBuiltinDefinition(t, "workflow.implementation").Definition
+	stalenessFixture(t, s, workID, definition.Ref, definition.Version, "acceptance")
 	stalenessSeedContract(t, s, workID)
 	stalenessEvent(t, s, workID, string(WorkflowVerdictRecorded), stalenessVerdictPayload("bad"))
 	// A health reading completed at the target step is not production.
-	stalenessEvent(t, s, workID, string(WorkflowActionCompleted), stalenessActionPayload("execute", "record_health"))
+	stalenessEvent(t, s, workID, string(WorkflowActionCompleted), stalenessActionPayload("execution", "record_health"))
 	if state := foldStalenessState(t, s, workID, definition); !state.ArtifactStale {
 		t.Fatal("health reading at the target cleared artifact staleness")
 	}
-	// The blocklist era also counted every advance action of the producer;
-	// a checkpoint-style completion stays outside the positive set.
-	stalenessEvent(t, s, workID, string(WorkflowActionCompleted), stalenessActionPayload("execute", "link_successor"))
+	// A checkpoint-style completion stays outside the producing-action set.
+	stalenessEvent(t, s, workID, string(WorkflowActionCompleted), stalenessActionPayload("execution", "link_successor"))
 	if state := foldStalenessState(t, s, workID, definition); !state.ArtifactStale {
 		t.Fatal("successor link at the target cleared artifact staleness")
 	}
-	stalenessEvent(t, s, workID, string(WorkflowActionCompleted), stalenessActionPayload("execute", "record_delivery"))
+	stalenessEvent(t, s, workID, string(WorkflowActionCompleted), stalenessActionPayload("execution", "record_delivery"))
 	if state := foldStalenessState(t, s, workID, definition); state.ArtifactStale {
 		t.Fatal("delivery record at the target did not clear artifact staleness")
 	}
@@ -615,15 +615,15 @@ func TestSupersessionWithoutSuccessorStalesUntilReproduced(t *testing.T) {
 	s := openTemp(t)
 	defer s.Close()
 	const workID = "stale-supersede-no-successor"
-	definition := mustBuiltinDefinition(t, "workflow.generic_one_off").Definition
-	stalenessFixture(t, s, workID, "workflow.generic_one_off", definition.Version, "verify")
+	definition := mustBuiltinDefinition(t, "workflow.break_fix").Definition
+	stalenessFixture(t, s, workID, definition.Ref, definition.Version, "verify")
 	stalenessSeedContract(t, s, workID)
-	stalenessEvent(t, s, workID, string(WorkflowActionCompleted), stalenessActionPayload("execute", "record_delivery"))
+	stalenessEvent(t, s, workID, string(WorkflowActionCompleted), stalenessActionPayload("repair", "record_delivery"))
 	stalenessEvent(t, s, workID, string(WorkflowContractSuperseded), `{}`)
 	if state := foldStalenessState(t, s, workID, definition); !state.ArtifactStale {
 		t.Fatal("supersession without a successor did not stale the artifact")
 	}
-	stalenessEvent(t, s, workID, string(WorkflowActionCompleted), stalenessActionPayload("execute", "record_delivery"))
+	stalenessEvent(t, s, workID, string(WorkflowActionCompleted), stalenessActionPayload("repair", "record_delivery"))
 	if state := foldStalenessState(t, s, workID, definition); state.ArtifactStale {
 		t.Fatal("fresh production did not clear no-successor supersession staleness")
 	}

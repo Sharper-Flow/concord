@@ -156,12 +156,20 @@ func TestRefineReviewEvidenceDispositionOpensContractCorrection(t *testing.T) {
 			if err := RebuildFromLog(context.Background(), s); err != nil {
 				t.Fatalf("replay evidence disposition and approved successor: %v", err)
 			}
+			pin, err = ReadWorkPin(context.Background(), s, workID)
+			if err != nil || !workPinContainsAction(pin.NextValidIntents, "supersede_contract") {
+				t.Fatalf("successor pass hides contract/design recovery: pin=%#v err=%v", pin, err)
+			}
 			if err := runVerdictActionAs(t, s, workID, "accept_worker_evidence", payload, 0, acceptor); err == nil {
 				t.Fatal("old review was accepted as a successor-contract report")
 			}
 			// The approved successor owns fresh refinement work, not an epoch
 			// reset used to escape an undispositioned report.
-			epoch = reviewGateStartStep(t, s, workID, "refine", "start_refine", fixture.owner)
+			previousEpoch := epoch
+			epoch = reviewGateStartStep(t, s, workID, "refine", "start_refine", acceptor)
+			if epoch <= previousEpoch {
+				t.Fatalf("successor contract reused refinement epoch %d, want after %d", epoch, previousEpoch)
+			}
 			version = verdictItemVersion(t, s, workID)
 
 			// An authorization closes correction before native dispatch exists.

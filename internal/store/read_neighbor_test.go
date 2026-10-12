@@ -841,13 +841,13 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 		}},
 		{name: "Resources", run: func() error { _, err := s.Resources(ctx, ResourcesRequest{ProductID: "prod"}); return err }},
 		{name: "BlockedSessions", run: func() error { _, err := s.BlockedSessions(ctx, time.Now(), []string{"prod"}, 100); return err }},
-		{name: "ResolveLauncherWorkProduct", run: func() error { _, err := s.ResolveLauncherWorkProduct(ctx, "blocker", "proj", "prod"); return err }},
-		{name: "ResolveLauncherLinearIssue", run: func() error {
-			workID, err := s.ResolveLauncherLinearIssueWork(ctx, "SYN-1", "https://example.invalid/issues/SYN-1")
+		{name: "ResolveLandingProjectProduct", run: func() error { _, err := s.ResolveLandingProjectProduct(ctx, "blocker", "proj", "prod"); return err }},
+		{name: "ResolveLinearIssueProduct", run: func() error {
+			workID, err := s.ResolveLinearIssueWork(ctx, "SYN-1", "https://example.invalid/issues/SYN-1")
 			if err != nil {
 				return err
 			}
-			_, err = s.ResolveLauncherWorkProduct(ctx, workID, "proj", "prod")
+			_, err = s.ResolveLandingProjectProduct(ctx, workID, "proj", "prod")
 			return err
 		}},
 		{name: "ReadSessionClaimedWorktree", run: func() error {
@@ -865,8 +865,8 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 		{name: "InspectWorkflowDomainOverlap", run: func() error {
 			return InspectWorkflowDomainOverlap(ctx, s, "neighbor-work")
 		}},
-		{name: "ResolveLauncherLinearIssueWork", run: func() error {
-			_, err := s.ResolveLauncherLinearIssueWork(ctx, "SYN-1", "https://example.invalid/issues/SYN-1")
+		{name: "ResolveLinearIssueWork", run: func() error {
+			_, err := s.ResolveLinearIssueWork(ctx, "SYN-1", "https://example.invalid/issues/SYN-1")
 			return err
 		}},
 	}

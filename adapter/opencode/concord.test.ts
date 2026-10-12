@@ -1161,32 +1161,37 @@ test("host publication round-trips check predicate payloads unchanged", async ()
   expect(sentInput).toEqual(input)
 })
 
-test("predicate host-round-trip asks and resubmits the exact restore challenge once", async () => {
+test("approval host-round-trip asks and resubmits the exact resolve challenge once", async () => {
   const input = {
-    predecessor_id: "work-a",
-    predecessor_expected_version: 3,
-    successor_id: "work-b",
-    successor_expected_version: 3,
-    reason: "restore superseded work",
-    idempotency_key: "restore-adapter-1",
+    from_work_id: "work-a",
+    to_work_id: "work-b",
+    from_expected_version: 3,
+    to_expected_version: 3,
+    from_contract_version: 1,
+    to_contract_version: 1,
+    resolution_kind: "supersedes",
+    reason: "replaced by the resolved item",
+    idempotency_key: "resolve-adapter-1",
   }
   const digest = `sha256:${"d".repeat(64)}`
-  const challenge = coreEnvelope("concord_work_relate", "restore_superseded", "error", {
+  const challenge = coreEnvelope("concord_work_relate", "resolve_overlap", "error", {
     error: {
       kind: "approval_required", retry_safe: false,
       recovery_action: { kind: "request_approval" }, effect_state: "none",
       consequence_summary: {
-        tool: "concord_work_relate", operation: "restore_superseded", consequence: "supersession",
+        tool: "concord_work_relate", operation: "resolve_overlap", consequence: "relation",
         operation_digest: digest,
         scope: ["product_id:product-a", "product_ids:product-a", "product_ids:product-b", "project_ids:ambient", "work_ids:work-a", "work_ids:work-b", "scope_version:1"],
-        versions: ["predecessor:3", "successor:3"], expires_at: "2026-09-14T12:10:00Z",
+        versions: ["from:3", "to:3"], expires_at: "2026-09-14T12:10:00Z",
       },
       details: {
         approval_ref: "e".repeat(64), operation_digest: digest,
+        summary: "resolve the overlap by superseding work-b with work-a",
+        resolution_kind: "supersedes", from_work_id: "work-a", to_work_id: "work-b",
       },
     },
   })
-  const success = coreEnvelope("concord_work_relate", "restore_superseded", "ok", {
+  const success = coreEnvelope("concord_work_relate", "resolve_overlap", "ok", {
     result: { changed_refs: [], next_valid_intents: [] },
     changed_refs: [],
     next_valid_intents: [],
@@ -1197,7 +1202,7 @@ test("predicate host-round-trip asks and resubmits the exact restore challenge o
     if (calls > 1) sentInputs.push(JSON.parse(raw).input)
     return calls === 2 ? challenge : success
   }) })
-  const result: any = await rawHostResult(adapter.work_relate.execute(hostCall("restore_superseded", input), contextFor(async () => { approvals++ })))
+  const result: any = await rawHostResult(adapter.work_relate.execute(hostCall("resolve_overlap", input), contextFor(async () => { approvals++ })))
   expect(result.outcome).toBe("ok")
   expect(approvals).toBe(1)
   expect(sentInputs).toEqual([input, { ...input, approval: { approval_ref: "e".repeat(64) } }])
@@ -1409,6 +1414,7 @@ test("worker recovery bounds a cooperative two-second host read with one caller 
     packet_digest: "sha256:" + "a".repeat(64), worker_worktree: directory,
     coordinator_session: "session-1", attempt_epoch: 1,
     dispatch_event_id: "original-dispatch", lifecycle_state: "dispatched",
+    packet_schema_version: "1.0", report_schema_version: "1.0",
     dispatch: {
       attempt_id: "attempt-1", lane_id: lane.id, lane_version: lane.version,
       lane_digest: lane.digest, packet_digest: "sha256:" + "a".repeat(64),

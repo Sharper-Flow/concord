@@ -24,7 +24,7 @@ membership semantics, CD-0002 invariants I1 through I6, and the compaction
 design. This record fixes canonical note placement: one eligible git home
 selected deterministically from accepted membership, in-tree markdown notes
 with bounded front matter, a typed five-field locator, and the ordered
-publish protocol with its recovery seam. CD-0041 replaces component with
+publish protocol with its recovery seam. CD-0222 replaces component with
 Domain identifiers in new note front matter.
 ## Contract
 
@@ -95,7 +95,7 @@ setting W's primary Project through PM5, then retries idempotently.
 This rule is rebuild-stable because Product-home, primary-Project, and Project-level
 knowledge-locator designations are typed authoritative configuration—not process cwd,
 current repo, or free-form choice. PM6 defines these placement references; accepted
-C14 owns launcher presentation and accepted C15 owns non-Project resource shape.
+C15 owns non-Project resource shape.
 
 ## 4. Canonical note and durable locator
 

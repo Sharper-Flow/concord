@@ -18,14 +18,14 @@ Two ordered, build-authorizing backlogs now govern the foundation:
 - **PM1–PM10:** Product-memory and per-store decisions.
 - **TS1–TS9:** minimal agent tool-surface decisions.
 
-**PM1–PM10, TS1–TS9, C7, C14, C15, C20, and CD-0006 through CD-0042 are accepted.**
+**PM1–PM10, TS1–TS9, C7, C15, C20, and CD-0006 through CD-0042 are accepted.**
 Storage/core and agent-adapter/tool acceptance slices may begin once the implementation
 repo/package is chosen and separately authorized; pre-go-live changes remain subject
 to the deterministic TS9 evidence contract.
 CD-0006 fixes root policy, CD-0007 fixes the repository/public-migration contract, and
 CD-0008 fixes evidence binding, unreadable-record isolation, and the remaining runtime
 mechanics; CD-0009 fixes research work identity and active-pack
-retention as amended by CD-0041. CD-0041 makes Product law and architectural
+retention as amended by CD-0041. CD-0222 makes Product law and architectural
 concordance Priority 1, replaces opaque component authority with canonical
 Domains. CD-0213 places planning and business grouping in Linear through the
 Linear MCP server; Concord keeps managed execution and recorded issue identity.
@@ -74,8 +74,9 @@ re-litigate them silently.
 - **Effect:** `design-constraints.md` §6, `workflows.md` §0, `feature-inventory.md`
   §3.10, `self-documentation.md` §1.1, `vertical-integration.md` are aligned to
   this direction.
-- **Clarified by C14/CD-0006:** Product-row fields remain accepted; substantive
-  decisions happen inside the selected Product/workflow.
+- **Clarified by C14/CD-0006:** Product-row fields were accepted for the row
+  surfaces, which retired; substantive decisions happen inside the selected
+  Product/workflow.
 - **Decision:** CD-0108, as amended by CD-0219, keeps the non-interactive
   session entry route as the ZLauncher replacement. The entry route stays
   store-write-free and runs launch actions through Concord's session bootstrap.
@@ -250,14 +251,14 @@ re-litigate them silently.
 
 ### C17. What does the Product coordination drill-down render?
 - **Question:** After a Product row is selected, what does the coordination detail
-  show for dependencies, blockage, and next work? (`product-row-contract.md` §1,
-  `priorities.md` §5)
+  show for dependencies, blockage, and next work? (the retired Product-row
+  contract §1, `priorities.md` §5)
 - **Why:** Priority 5 requires that dependencies and sequences are visible before
   they become blockers, and that the operator sees what is ready, what is blocked,
-  and what is next. Accepted C14 deliberately answers none of this: the row is an
-  orientation projection with one focus item and explicitly excludes the raw blocker
-  graph. C14 defers the rest to Product/workflow detail in one sentence and no
-  accepted document specifies what that detail renders.
+  and what is next. The retired Product-row contract deliberately answered none of
+  this: the row was an orientation projection with one focus item and explicitly
+  excluded the raw blocker graph, and no accepted document specified what that
+  detail renders.
 - **Lean:** two modes over already-accepted canonical queries — a structural relation
   tree from Q8, and a ranked work table from Q5 joined with Q4 for blocked and blocker
   columns. Ranking uses the stored explicit priority rank; blocked stays PM4-derived
@@ -266,7 +267,7 @@ re-litigate them silently.
   prioritization remains deferred pending PM2 authority and portability.
 - **Decision (2026-08-11):** [`product-coordination-view.md`](./product-coordination-view.md).
   Accept two bounded Product-scoped modes: a structural Q8 relation tree and a Q5
-  ranked work table joined with Q4 blockage explanation. Adds no field to the C14 row;
+  ranked work table joined with Q4 blockage explanation. Adds no field to a Product glance row;
   terminal interaction and prototype detail remain implementation design per
   `rollout-plan.md` and CD-0006 D6.
 - **Unblocks:** the first Product coordination drill-down consumer. Storage and
@@ -430,20 +431,22 @@ re-litigate them silently.
 
 ---
 
-## ✅ Accepted Product-row decision
+## ✅ Accepted Product-row decision (retired)
 
 ### C14. Which fields appear on each Product row?
 - **Question:** What exactly belongs in the default Product-row glance view
   (terminal launcher, optional admin panel)?
 - **Why:** drives the launcher UX, the read-path projections, and the
   fast-portfolio dashboard.
-- **Direction (2026-08-06):** ✅ **Accepted.** The binding field set is
-  [`product-row-contract.md`](./product-row-contract.md): Product identity,
+- **Direction (2026-08-06):** ✅ **Accepted.** The binding field set was
+  `product-row-contract.md`: Product identity,
   declared stage, reliance state, five typed action counts, and one deterministic
   focus item. Unknown counts are unavailable—not zero; mixed stages are not ranked;
   terminal/resource/dashboard detail stays behind drill-down.
 - **Blocks:** cleared for Product-row projection implementation. Terminal interaction
   design remains a separate prototype concern.
+- **Retired:** the row's render and read retired (CD-0219, CD-0224); the contract
+  file, its knowledge record, and its coverage record are deleted.
 
 ---
 
@@ -567,9 +570,9 @@ fewest tools that complete canonical jobs reliably**, with bounded schemas.
 
 ## Recommended answering order
 
-**PM1–PM10, TS1–TS9, C14, C15, CD-0006, CD-0007, CD-0008, and CD-0082 are accepted.** PM
+**PM1–PM10, TS1–TS9, C15, CD-0006, CD-0007, CD-0008, and CD-0082 are accepted.** PM
 decisions authorize the storage/core acceptance slice; CD-0005 consolidates the
-accepted agent surface; C14/C15 fix Product-row and resource ownership projections;
+accepted agent surface; C15 fixes resource ownership projections;
 CD-0006/CD-0007/CD-0008/CD-0082 fix root policy, public authority boundaries,
 evidence binding, unreadable-record isolation, execution mechanics, and
 demand-driven migration/correction. PM1 remains the shared query/read-tool corpus.

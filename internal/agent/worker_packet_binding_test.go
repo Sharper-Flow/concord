@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sharper-flow/concord/internal/store"
 )
@@ -127,6 +128,37 @@ func recordReadyRetryJob(t *testing.T, s *store.Store, service *Service, env Cal
 	recordReadyRetryJobWithChecks(t, s, service, env, jobID, 1, nil)
 }
 
+// recordReadyRetryJobForWork records one dispatch-ready worker-job revision
+// for a captured work item whose id is not the work-1 fixture default, so a
+// job-capable canonical pin admits its dispatches.
+func recordReadyRetryJobForWork(t *testing.T, s *store.Store, service *Service, env CallEnvelope, workID, jobID string) {
+	t.Helper()
+	var version int64
+	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id=?`, workID).Scan(&version); err != nil {
+		t.Fatal(err)
+	}
+	fields := map[string]any{
+		"job_id": jobID, "objective": "Carry out the approved objective.",
+		"stopping_condition": "The approved objective's checks pass.",
+		"ready":              true, "readiness_evidence": []string{"contract:" + workID + ":1"},
+		// The verify lane is a verification worker job: its recorded checks
+		// cannot be empty (CD-0205).
+		"checks":            []string{"go vet ./..."},
+		"acceptance_oracle": agentOracleFieldsForWork(t, s, workID),
+	}
+	raw, err := json.Marshal(map[string]any{
+		"work_id": workID, "expected_version": version, "action_id": "record_worker_job", "idempotency_key": "record-ready-" + jobID,
+		"fields": fields,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: raw}, env)
+	if result.Outcome != OutcomeOK {
+		t.Fatalf("record the ready job for %s: %+v", workID, result.Error)
+	}
+}
+
 // recordReadyRetryJobUnderContract records one dispatch-ready worker-job
 // revision through the public record_worker_job action under the named active
 // contract version. A revision recorded under a predecessor contract stays
@@ -236,12 +268,29 @@ func oracleFixtureControlBundle(graph *store.AcceptanceOracle, controlID string)
 
 // oracleFixtureActiveClaim reads the active claim the fixture receipts bind,
 // the store's own active-entry selection for the primary Project, so a
-// receipt's path and branch name a live claim.
+// receipt's path and branch name a live claim. A fixture store that never
+// claimed the oracle fixture's work gets one synthetic active claim here,
+// so the subject fixture qualifies once regardless of the caller's journey.
 func oracleFixtureActiveClaim(t *testing.T, s *store.Store) (string, string) {
 	t.Helper()
+	return oracleFixtureActiveClaimFor(t, s, oracleFixtureWork)
+}
+
+func oracleFixtureActiveClaimFor(t *testing.T, s *store.Store, workID string) (string, string) {
+	t.Helper()
 	var path, branch string
+	err := s.DatabaseForTesting().QueryRow(`SELECT path,branch FROM worktree_entries WHERE set_id=? AND project_id=? AND state='active' LIMIT 1`,
+		store.WorktreeSetID(workID), oracleFixtureProject).Scan(&path, &branch)
+	if err == nil {
+		return path, branch
+	}
+	if _, execErr := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
+		INSERT INTO worktree_entries(set_id,project_id,claim_op_id,branch,base_sha,path,repository_id,state,verified_at) VALUES(?,?,?,?,?,?,?,'active',?);
+		DELETE FROM fold_guard`, store.WorktreeSetID(workID), oracleFixtureProject, "claim:oracle-fixture-"+workID, "work/oracle-fixture", strings.Repeat("a", 40), t.TempDir(), "repo:oracle-fixture", fixedTime().Format(time.RFC3339Nano)); execErr != nil {
+		t.Fatalf("seed the oracle fixture worktree claim: %v", execErr)
+	}
 	if err := s.DatabaseForTesting().QueryRow(`SELECT path,branch FROM worktree_entries WHERE set_id=? AND project_id=? AND state='active' LIMIT 1`,
-		store.WorktreeSetID(oracleFixtureWork), oracleFixtureProject).Scan(&path, &branch); err != nil {
+		store.WorktreeSetID(workID), oracleFixtureProject).Scan(&path, &branch); err != nil {
 		t.Fatalf("oracle fixture has no active worktree claim: %v", err)
 	}
 	return path, branch
@@ -252,8 +301,16 @@ func oracleFixtureActiveClaim(t *testing.T, s *store.Store) (string, string) {
 // way the store's current-subject read joins them. Later calls reuse it.
 func seedOracleVerifySubjectFixture(t *testing.T, s *store.Store) {
 	t.Helper()
+	seedOracleVerifySubjectForWork(t, s, oracleFixtureWork)
+}
+
+// seedOracleVerifySubjectForWork qualifies one work item's fixture subject
+// the same way, so a captured work item's recorded oracle binds its own
+// current subject rather than the shared fixture work's.
+func seedOracleVerifySubjectForWork(t *testing.T, s *store.Store, workID string) {
+	t.Helper()
 	db := s.DatabaseForTesting()
-	const leaseID = "fixture-subject-verify-" + oracleFixtureWork
+	leaseID := "fixture-subject-verify-" + workID
 	var existing int
 	if err := db.QueryRow(`SELECT count(*) FROM worktree_verify_leases WHERE lease_id=?`, leaseID).Scan(&existing); err != nil {
 		t.Fatal(err)
@@ -261,24 +318,24 @@ func seedOracleVerifySubjectFixture(t *testing.T, s *store.Store) {
 	if existing == 1 {
 		return
 	}
-	path, branch := oracleFixtureActiveClaim(t, s)
+	path, branch := oracleFixtureActiveClaimFor(t, s, workID)
 	command := []string{"git", "rev-parse", "--verify", "HEAD^{commit}"}
 	commandJSON, err := json.Marshal(command)
 	if err != nil {
 		t.Fatal(err)
 	}
-	result := store.WorktreeVerifyResult{WorkID: oracleFixtureWork, ProjectID: oracleFixtureProject, Branch: branch, Path: path,
+	result := store.WorktreeVerifyResult{WorkID: workID, ProjectID: oracleFixtureProject, Branch: branch, Path: path,
 		LeaseID: leaseID, OperationRef: "worktree_verify:" + leaseID, SubjectRef: "commit:" + oracleFixtureSubject, Command: command}
 	raw, err := json.Marshal(result)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(`INSERT INTO worktree_verify_leases(lease_id,work_id,project_id,principal_ref,client_ref,agent_ref,session_ref,path,command_json,acquired_at,state,released_at,exit_code,outcome,result_json) VALUES(?,?,?,?,?,?,?,?,?,'2026-10-09T00:00:00Z','released','2026-10-09T00:00:00Z',0,'completed',?)`,
-		leaseID, oracleFixtureWork, oracleFixtureProject, "principal/fixture", "client/fixture", "agent/fixture", "session/fixture", path, string(commandJSON), string(raw)); err != nil {
+		leaseID, workID, oracleFixtureProject, "principal/fixture", "client/fixture", "agent/fixture", "session/fixture", path, string(commandJSON), string(raw)); err != nil {
 		t.Fatalf("seed oracle verify subject lease: %v", err)
 	}
 	if _, err := db.Exec(`INSERT INTO durable_operations(op_id,attempt_epoch,work_id,workflow_type_ref,workflow_type_version,step_id,step_kind,accepted_inputs_digest,accepted_scope_snapshot,result_kind,result_payload,evidence_refs,changed_refs,principal_ref,request_id,observed_at,completed_at,contract_digest) VALUES(?,1,?,'worktree.verify',1,'worktree_verify','internal_sqlite','digest','{}','completed',?,'[]','[]','principal/fixture','request/oracle-subject','2026-10-09T00:00:00Z','2026-10-09T00:00:01Z','sha256:`+strings.Repeat("9", 64)+`')`,
-		"worktree_verify:"+leaseID, oracleFixtureWork, string(raw)); err != nil {
+		"worktree_verify:"+leaseID, workID, string(raw)); err != nil {
 		t.Fatalf("seed oracle verify subject producer: %v", err)
 	}
 }
@@ -290,6 +347,14 @@ func seedOracleVerifySubjectFixture(t *testing.T, s *store.Store) {
 // authority joins, so the readiness reference it returns is a qualified
 // ledger fixture. It exercises the authority joins, not native execution.
 func seedOraclePreparationReceiptFixture(t *testing.T, s *store.Store, contractVersion int64, subject string, control store.OracleControl, bundle store.NativeOracleControlBundle, bundleDigest string) string {
+	t.Helper()
+	return seedOraclePreparationReceiptForWork(t, s, oracleFixtureWork, contractVersion, subject, control, bundle, bundleDigest)
+}
+
+// seedOraclePreparationReceiptForWork records the exact native preparation
+// receipt against one work item, so a captured work's recorded oracle binds
+// its own readiness ledger row.
+func seedOraclePreparationReceiptForWork(t *testing.T, s *store.Store, receiptWork string, contractVersion int64, subject string, control store.OracleControl, bundle store.NativeOracleControlBundle, bundleDigest string) string {
 	t.Helper()
 	if len(control.Argv) != 6 || !strings.HasPrefix(control.Argv[4], "^(") || !strings.HasSuffix(control.Argv[4], ")$") {
 		t.Fatalf("oracle fixture control %s argv %q is not one closed native selector", control.ControlID, control.Argv)
@@ -306,7 +371,7 @@ func seedOraclePreparationReceiptFixture(t *testing.T, s *store.Store, contractV
 		}
 	}
 	names := slices.Sorted(maps.Keys(testSet))
-	id := "fixture-prepare-" + oracleFixtureWork + "-v" + strconv.FormatInt(contractVersion, 10) + "-" + strings.TrimPrefix(bundleDigest, "sha256:") + "-" + subject
+	id := "fixture-prepare-" + receiptWork + "-v" + strconv.FormatInt(contractVersion, 10) + "-" + strings.TrimPrefix(bundleDigest, "sha256:") + "-" + subject
 	ref := "worktree_verify:" + id
 	db := s.DatabaseForTesting()
 	var existing int
@@ -341,7 +406,7 @@ func seedOraclePreparationReceiptFixture(t *testing.T, s *store.Store, contractV
 	}
 	plan := map[string]any{
 		"request_id": id, "request": request,
-		"work_id": oracleFixtureWork, "project_id": oracleFixtureProject,
+		"work_id": receiptWork, "project_id": oracleFixtureProject,
 		"contract_version": contractVersion, "subject_commit": subject,
 		"bundle": bundle, "bundle_digest": bundleDigest,
 		"manifest": manifest, "manifest_file": manifestFile, "files": files, "environment": environment,
@@ -353,11 +418,11 @@ func seedOraclePreparationReceiptFixture(t *testing.T, s *store.Store, contractV
 		t.Fatal(err)
 	}
 	planSHA := oracleFixtureDigest(planRaw)
-	result := store.WorktreeVerifyResult{WorkID: oracleFixtureWork, ProjectID: oracleFixtureProject, Branch: branch, Path: path, LeaseID: id, OperationRef: ref, Command: slices.Clone(control.Argv)}
+	result := store.WorktreeVerifyResult{WorkID: receiptWork, ProjectID: oracleFixtureProject, Branch: branch, Path: path, LeaseID: id, OperationRef: ref, Command: slices.Clone(control.Argv)}
 	result.Oracle = &store.NativeOracleResult{
 		NativeOraclePreparation: store.NativeOraclePreparation{
 			Protocol: "native_oracle_v2", Phase: "prepare", Qualification: "ready",
-			RunRef: ref, WorkID: oracleFixtureWork, ProjectID: oracleFixtureProject,
+			RunRef: ref, WorkID: receiptWork, ProjectID: oracleFixtureProject,
 			ContractVersion: contractVersion, SubjectCommit: subject, BundleDigest: bundleDigest,
 			LogicalArgvDigest: oracleFixtureDigest(argvJSON), LogicalCwd: control.Cwd, RecipeSource: control.RecipeSource,
 			ManifestBlob: manifestFile.BlobOID, ManifestDigest: manifestFile.SHA256, Files: files,
@@ -374,7 +439,7 @@ func seedOraclePreparationReceiptFixture(t *testing.T, s *store.Store, contractV
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(`INSERT OR IGNORE INTO worktree_verify_leases(lease_id,work_id,project_id,principal_ref,client_ref,agent_ref,session_ref,path,command_json,acquired_at,state,released_at,exit_code,outcome,result_json,native_plan_json,native_plan_sha256,stdout_blob,stderr_blob) VALUES(?,?,?,?,?,?,?,?,?,'2026-10-09T00:00:00Z','released','2026-10-09T00:00:00Z',0,'completed',?,?,?,x'',x'')`,
-		id, oracleFixtureWork, oracleFixtureProject, "principal/fixture", "client/fixture", "agent/fixture", "session/fixture", path, "[]", string(raw), string(planRaw), planSHA); err != nil {
+		id, receiptWork, oracleFixtureProject, "principal/fixture", "client/fixture", "agent/fixture", "session/fixture", path, "[]", string(raw), string(planRaw), planSHA); err != nil {
 		t.Fatalf("seed oracle preparation receipt: %v", err)
 	}
 	return ref
@@ -389,12 +454,20 @@ func seedOraclePreparationReceiptFixture(t *testing.T, s *store.Store, contractV
 // exact native preparation join admits it.
 func agentOracleFieldsForTest(t *testing.T, s *store.Store) map[string]any {
 	t.Helper()
+	return agentOracleFieldsForWork(t, s, oracleFixtureWork)
+}
+
+// agentOracleFieldsForWork builds the fixture acceptance oracle against one
+// work item's own active contract, so a captured work item's recorded job
+// binds predicates its contract actually approved.
+func agentOracleFieldsForWork(t *testing.T, s *store.Store, workID string) map[string]any {
+	t.Helper()
 	db := s.DatabaseForTesting()
 	var contractVersion int64
-	if err := db.QueryRow(`SELECT contract_version FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL ORDER BY contract_version DESC LIMIT 1`, oracleFixtureWork).Scan(&contractVersion); err != nil {
+	if err := db.QueryRow(`SELECT contract_version FROM workflow_contracts WHERE work_id=? AND superseded_by IS NULL ORDER BY contract_version DESC LIMIT 1`, workID).Scan(&contractVersion); err != nil {
 		t.Fatal(err)
 	}
-	rows, err := db.Query(`SELECT predicate_id FROM workflow_contract_predicates WHERE work_id=? AND contract_version=? ORDER BY ordinal,predicate_id`, oracleFixtureWork, contractVersion)
+	rows, err := db.Query(`SELECT predicate_id FROM workflow_contract_predicates WHERE work_id=? AND contract_version=? ORDER BY ordinal,predicate_id`, workID, contractVersion)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -418,16 +491,16 @@ func agentOracleFieldsForTest(t *testing.T, s *store.Store) map[string]any {
 		t.Fatal("the oracle fixture requires an approved contract predicate")
 	}
 	var project, product, rootDomain string
-	if err := db.QueryRow(`SELECT project_id FROM work_projects WHERE work_id=? AND role='primary'`, oracleFixtureWork).Scan(&project); err != nil {
+	if err := db.QueryRow(`SELECT project_id FROM work_projects WHERE work_id=? AND role='primary'`, workID).Scan(&project); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.QueryRow(`SELECT pp.product_id FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=? AND wp.role='primary' LIMIT 1`, oracleFixtureWork).Scan(&product); err != nil {
+	if err := db.QueryRow(`SELECT pp.product_id FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=? AND wp.role='primary' LIMIT 1`, workID).Scan(&product); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.QueryRow(`SELECT root_domain_id FROM domain_registries WHERE product_id=?`, product).Scan(&rootDomain); err != nil {
 		t.Fatalf("read the fixture Domain registry for %s: %v", product, err)
 	}
-	seedOracleVerifySubjectFixture(t, s)
+	seedOracleVerifySubjectForWork(t, s, workID)
 	graph := store.AcceptanceOracle{
 		Owners: []store.OracleOwner{{
 			OwnerID: oracleFixtureOwnerID, DomainID: rootDomain,
@@ -459,7 +532,7 @@ func agentOracleFieldsForTest(t *testing.T, s *store.Store) map[string]any {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ref := seedOraclePreparationReceiptFixture(t, s, contractVersion, oracleFixtureSubject, graph.Controls[0], bundle, oracleFixtureDigest(bundleJSON))
+	ref := seedOraclePreparationReceiptForWork(t, s, workID, contractVersion, oracleFixtureSubject, graph.Controls[0], bundle, oracleFixtureDigest(bundleJSON))
 	graph.Controls[0].ReadinessEvidenceRefs = []string{ref}
 	raw, err := json.Marshal(graph)
 	if err != nil {
@@ -567,8 +640,12 @@ func TestOwnerOracleAgentFixtureTracksApprovedPredicatesAndRetainedReadiness(t *
 
 // recordReadyRetryJobWithChecks records one dispatch-ready worker-job
 // revision. A verification worker job requires nonempty checks; the helper
-// passes them through when the caller supplies them. On an oracle-capable
-// pin the recording carries the fixture oracle the definition requires.
+// passes them through when the caller supplies them. The closed live
+// record_worker_job variant projects the canonical oracle-capable head, so
+// the boundary always requires the acceptance oracle: an oracle-capable pin
+// records through the public boundary with the fixture oracle, while a
+// released oracle-free pin records through the store-level admit its frozen
+// payload declares (CD-0218 D2/D4).
 func recordReadyRetryJobWithChecks(t *testing.T, s *store.Store, service *Service, env CallEnvelope, jobID string, contractVersion int64, checks []string) {
 	t.Helper()
 	const workID = "work-1"
@@ -584,9 +661,30 @@ func recordReadyRetryJobWithChecks(t *testing.T, s *store.Store, service *Servic
 	if len(checks) > 0 {
 		fields["checks"] = checks
 	}
-	if oracleCapableAgentPin(t, s) {
-		fields["acceptance_oracle"] = agentOracleFieldsForTest(t, s)
+	if !oracleCapableAgentPin(t, s) {
+		// Released oracle-free pin: the live union publishes no job shape its
+		// frozen payload admits, so the store-level admit keeps the released
+		// behavior executable without a retired public authoring route.
+		raw, err := json.Marshal(fields)
+		if err != nil {
+			t.Fatal(err)
+		}
+		actor := store.WorkflowActor{PrincipalRef: env.PrincipalRef, ClientRef: env.ClientRef, AgentRef: env.AgentRef, SessionRef: env.SessionRef, ActorClass: store.ActorAgent}
+		operationID := "released-job-" + jobID + "-" + strconv.FormatInt(version, 10)
+		if err := s.Transact(context.Background(), func(tx *store.Transaction) error {
+			_, err := store.ApplyWorkflowActionTx(context.Background(), tx, store.BuiltinWorkflowRegistry(), store.WorkflowActionExecutionRequest{
+				WorkID: workID, ExpectedVersion: version, ActionID: "record_worker_job", Payload: raw, Actor: actor,
+				AcceptedInputsDigest: "sha256:" + strings.Repeat("f", 64) + operationID, IdempotencyIdentity: operationID, OperationID: operationID,
+				PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID, RequestID: "request:" + operationID,
+				ContractDigest: ManifestDigest, Now: fixedTime(),
+			})
+			return err
+		}); err != nil {
+			t.Fatalf("record the released-pin ready retry job: %v", err)
+		}
+		return
 	}
+	fields["acceptance_oracle"] = agentOracleFieldsForTest(t, s)
 	raw, err := json.Marshal(map[string]any{
 		"work_id": workID, "expected_version": version, "action_id": "record_worker_job", "idempotency_key": "record-ready-" + jobID,
 		"fields": fields,
@@ -637,7 +735,14 @@ func recordedWorkQuestion(t *testing.T, s *store.Store, workID string) string {
 // bound none or no authorization exists.
 func authorizedWorkerJob(t *testing.T, s *store.Store, attemptID string) *store.WorkerJobBinding {
 	t.Helper()
-	const workID = "work-1"
+	return authorizedWorkerJobFor(t, s, "work-1", attemptID)
+}
+
+// authorizedWorkerJobFor reads the worker-job binding one dispatch
+// authorization recorded, for work items whose id is not the work-1 fixture
+// default.
+func authorizedWorkerJobFor(t *testing.T, s *store.Store, workID, attemptID string) *store.WorkerJobBinding {
+	t.Helper()
 	var raw string
 	err := s.DatabaseForTesting().QueryRow(`SELECT COALESCE(json_extract(payload,'$.worker_job'),'') FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=? ORDER BY seq DESC LIMIT 1`, workID, store.WorkflowActionCompleted, attemptID).Scan(&raw)
 	if errors.Is(err, sql.ErrNoRows) || raw == "" {

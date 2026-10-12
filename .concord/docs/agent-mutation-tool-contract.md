@@ -8,7 +8,7 @@
 > rule, and the Advance postmortem.
 > **Does not decide:** request context/authorization/idempotency envelope (TS5),
 > transport (TS6), shared result/error schema (TS7), surface evolution (TS8),
-> measurement evidence (TS9), workflow-type registration/gate vocabulary, C14, or C15.
+> measurement evidence (TS9), workflow-type registration/gate vocabulary, or C15.
 > **Amended direction:** CD-0041 requires typed architecture binding for
 > Product-changing work; CD-0213 removes the Initiative route.
 > CD-0042 makes the generated current manifest the only pre-go-live surface
@@ -21,7 +21,7 @@ the accepted PM3 through PM7 domain operations, TS1 jobs and scenarios, TS2
 budget and granularity, the TS3 read surface, the capability-placement
 native-authority rule, and the Advance postmortem. This record fixes the four
 always-visible mutation tools, their operation tables, the batch boundary,
-and the inline-versus-durable execution rule. CD-0041 requires typed
+and the inline-versus-durable execution rule. CD-0222 requires typed
 architecture binding for Product-changing work; CD-0213 removes planning writes; CD-0042 makes the
 generated manifest the only pre-go-live surface identity.
 ## Contract
@@ -95,10 +95,13 @@ offered by the work item's accepted workflow definition.
 | `lifecycle` | work ID, expected version, target `needed|in_progress|completed|cancelled`, reason, required evidence/approval | Validate PM4 transition and workflow obligations; append event and update projection atomically. |
 | `workflow_action` | work ID, expected version, stable action ID offered by the current workflow version, required fields/evidence/approval | Execute the workflow-defined domain action atomically or reject it; action ID is authoritative data, not a caller-invented command. |
 
-`superseded` is excluded from direct lifecycle input. Supersession requires
-`concord_work_relate.supersede`, which commits the relation and terminal transition
-together. Reopening superseded work also belongs there because the edge must change
-in the same transaction.
+`superseded` is excluded from lifecycle input. The `supersede` operation
+retired: contract supersession goes through the operator-approved
+`supersede_contract` action, and an overlap resolution that terminalizes a
+work item goes through `concord_work_relate.resolve_overlap` with `supersedes`
+or `merged_into`, which commits the relation and the terminal transition
+together. Reopening superseded work has no operation; superseded work items
+and their events stay historical and replayable.
 
 `workflow_action` does not decide workflow registration or gate vocabulary. It is a
 stable indirection to an action already declared by the work item's pinned workflow
@@ -107,17 +110,13 @@ and which evidence/approval it requires.
 
 ### 2.3 `concord_work_relate`
 
-**Use when:** an agent must change which Projects one work item touches or create,
-remove, supersede, or restore a typed work relation.
+**Use when:** an agent must change which Projects one work item touches or resolve
+one concurrent Domain overlap.
 
 | Operation | Required domain input | Core effect |
 |---|---|---|
 | `set_memberships` | work ID, expected version, complete resulting Project membership set with optional singular primary | Validate at least one membership, uniqueness, Project identity, and primary cardinality; replace the set atomically and return bounded Product-scope impact. |
-| `link` | source/target work IDs and expected versions; kind `parent|blocks|implements` | Validate endpoints, duplicates, self-edge, and applicable cycle rules; create one canonical directed edge and event. |
-| `unlink` | canonical relation ID or source/target/kind plus expected versions; reason | Remove one accepted edge and append one event; inverse read names never create mirrored mutations. |
-| `resolve_overlap` | both work IDs/versions, both workflow-contract versions, closed resolution kind, reason, and operator approval | Resolve one concurrent Domain overlap and create its typed relation atomically. |
-| `supersede` | successor/predecessor IDs, both expected versions, reason/evidence | Create one canonical supersession edge and transition predecessor to `superseded` in one transaction. |
-| `restore_superseded` | predecessor ID/version, active supersession relation, current successor ID/version, optional replacement successor ID/version, replacement/removal instruction, reason/evidence | Validate every affected endpoint version, remove or replace the active edge, and transition predecessor to `needed` in one transaction. |
+| `resolve_overlap` | both work IDs/versions, both workflow-contract versions, resolution kind `compatible_with\|depends_on\|blocks\|merged_into\|supersedes`, reason, and an operator approval for every kind except `depends_on` | Resolve one concurrent Domain overlap and create its typed relation atomically; `supersedes` and `merged_into` commit the terminal transition in the same transaction. |
 
 Membership is complete-set replacement because add/remove patches can transiently
 violate at-least-one and primary-cardinality invariants or depend on call order.
@@ -129,7 +128,10 @@ one exercises arithmetic the product never performs. Test fixtures write
 `work.memberships_replaced` for that reason.
 
 Relation operations remain singular because each edge has its own graph oracle and
-version conflict. `depends_on` is an inverse read; callers create canonical `blocks`.
+version conflict. `depends_on` is an inverse read; `blocks` is written only by
+`resolve_overlap`. The other relation kinds have their own writers outside this
+tool: capture writes `raised_from` through `raised_from_work_id`, and the
+workflow `link_successor` action writes `forward_link`.
 
 ### 2.4 `concord_work_compact`
 
@@ -202,7 +204,7 @@ durable results include current step and a safe next action—never a bare "star
 |---|---|
 | `concord_work_define` | AJ3 capture and spec conflict |
 | `concord_work_transition` | AJ4 start, complete, missing evidence, stale version; AJ8 approval/evidence recording around native execution |
-| `concord_work_relate` | AJ5 dependency, cycle rejection, atomic supersession, operator-approved Domain-overlap resolution |
+| `concord_work_relate` | AJ5 operator-approved Domain-overlap resolution |
 | `concord_work_compact` | AJ6 publication and partial reconciliation |
 
 Native-run actions (`start_run`, `record_health`, `rollback_run`, `cleanup_run`)
@@ -286,19 +288,17 @@ or storage method is not sufficient evidence.
   Then the core blocks the terminal transition with a typed error and no
   event.
 
-- Given a valid supersession
-  When `concord_work_relate.supersede` commits
-  Then the edge and the predecessor's superseded state commit atomically, and
-  a cycle or second successor is refused.
-
 - Given two overlapping Product-changing items
-  When the agent links them with an ordinary relation
-  Then the link writes no overlap authority; only `resolve_overlap` with an
-  operator approval pinned to both work and contract versions resolves it.
+  When `concord_work_relate.resolve_overlap` resolves one
+  Then one typed relation of the resolved kind is created atomically with the
+  resolution; `supersedes` and `merged_into` terminalize the predecessor in
+  the same transaction, a resolution that would close a cycle or add a
+  second successor is refused, and every kind except `depends_on` demands
+  the operator approval pinned to both work and contract versions.
 
 ## Verification
 
-All five criteria are proved by scenarios of `.concord/scenarios/agent-jobs.v1.json`,
+All four criteria are proved by scenarios of `.concord/scenarios/agent-jobs.v1.json`,
 executed by `TestAgentJobsCorpus`
 (`internal/agent/agent_jobs_corpus_test.go`), with dispatch-layer proofs in
 `internal/agent/mutation_dispatch_test.go`.
@@ -309,8 +309,8 @@ executed by `TestAgentJobsCorpus`
 - Criterion 2 is proved by the bound `AJ4-stale-version` scenario.
 - Criterion 3 is proved by the bound `AJ4-completion-missing-evidence`
   scenario.
-- Criterion 4 is proved by the bound `AJ5-atomic-supersession` and
-  `AJ5-reject-cycle` scenarios.
-- Criterion 5 is proved by the bound `AJ5-resolve-domain-overlap` scenario,
-  which drives the real `concord_work_relate.resolve_overlap` dispatch and
-  proves the ordinary link writes no overlap authority.
+- Criterion 4 is proved by the bound `AJ5-resolve-domain-overlap` scenario,
+  which drives the real `concord_work_relate.resolve_overlap` dispatch, and
+  by `internal/store.TestOverlapTerminalResolutionRejectsCycle`,
+  `internal/store.TestOverlapTerminalResolutionRejectsSecondSuccessor`, and
+  `internal/store.TestOverlapBlocksRemovesWorkFromReady`.

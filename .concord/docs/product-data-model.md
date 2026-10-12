@@ -91,7 +91,7 @@ Product-internal architecture through which law and work are organized.
   stage/Project/resource attachments. Neither side infers identity from paths,
   tags, repository names, or planning groups.
 - A Domain may have zero or one parent Domain. The `subdomain_of` hierarchy is
-  acyclic; additional architecture relations follow CD-0041's endpoint-specific
+  acyclic; additional architecture relations follow CD-0222's endpoint-specific
   grammar.
 - Example: "Alpha → Sync Domain → accepted sync law, active changes, cron
   resource, sync API dependency, and `alpha-sync` Project."
@@ -100,7 +100,7 @@ Product-internal architecture through which law and work are organized.
 
 `component` is a retired authority term. It may appear in historical records or
 ordinary UI prose during migration, but no second component identity or generic
-grouping store survives the CD-0041 target state.
+grouping store survives the CD-0222 target state.
 
 ---
 
@@ -163,7 +163,7 @@ ManagedResource {
 
 `stage` is decided (§8). Product↔Project membership follows accepted PM5. Non-Project
 resource identity and attachments follow accepted C15. Domain replacement and
-work-item supersession keep their bounded owners in CD-0041 and PM4.
+work-item supersession keep their bounded owners in CD-0222 and PM4.
 
 CD-0041 and CD-0213 amend CD-0009's predecessor shape. Business grouping lives in
 Linear. Product embeds no grouping record, and grouping is not a second Product,
@@ -319,10 +319,10 @@ cost or billing attribution is not part of this model.
 
 ## 10. Bounded replacement relations
 
-> **Status:** Bounded existing mechanisms. CD-0041 owns Domain replacement and
+> **Status:** Bounded existing mechanisms. CD-0222 owns Domain replacement and
 > PM4 owns work-item supersession.
 
-CD-0041 defines the Product-internal Domain `replaces` relation and its
+CD-0222 defines the Product-internal Domain `replaces` relation and its
 version-pinned overlap controls. PM4 defines work-item `supersedes`, including
 the atomic terminal transition. These relations have separate owners and
 semantics.
@@ -346,7 +346,7 @@ to another touched resource or Product.
 ## 12. Open questions
 
 C1, C15, C16, and Domain authority are accepted by CD-0007, the managed-resource
-contract, CD-0006, and CD-0041 respectively. The remaining model-internal open
+contract, CD-0006, and CD-0222 respectively. The remaining model-internal open
 question is:
 
 1. **Typing depth.** Are members typed further (e.g. infra sub-kinds:
@@ -363,7 +363,7 @@ question is:
 | `feature-inventory.md` §3.3 | Signal ingestion is the *live* layer; ownership is the *declarative* layer. Distinct. |
 | `feature-inventory.md` §3.17 | Lifecycle stage + proportional-rigor governance — §8 and §11 detail its model. |
 | `feature-inventory.md` §3.18 | Managed-resource inventory with cross-Product linking — §9 and accepted C15 define the resource-first shape. |
-| `decisions/CD-0041-architecture-bound-product-law.md` | Domain `replaces` and PM4 work-item `supersedes` remain bounded relation mechanisms. |
+| `decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md` | Domain `replaces` and PM4 work-item `supersedes` remain bounded relation mechanisms. |
 | `priorities.md` §3 | Proportional rigor is the quality attribute that §8 supplies the input for. |
 | `design-constraints.md` §4 | The ownership record is Concord-owned state → lock-free, append-only, no repair. Stage transitions are appends (§8.5). |
 | `self-documentation.md` §1 | The browse surface uses Product → Domain navigation. |

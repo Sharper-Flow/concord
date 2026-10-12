@@ -188,7 +188,7 @@ drift. No fallback definition, newer version, or response-wording path is accept
 | `running` | `verifying` | all execution steps are complete and verdict is requested | internal-inline |
 | `verifying` | `completed` | ordered completion gate succeeds | one internal transaction |
 | `running`, `blocked`, `awaiting_condition`, `verifying` | `cancelled` | explicit authorized cancellation | fenced when an attempt is owned |
-| `planned`, `ready`, `running`, `verifying` | `superseded` | operator supersedes the contract/work item | internal-inline with successor link |
+| `planned`, `ready`, `running`, `verifying` | `superseded` | operator-approved `supersede_contract` supersedes the contract | internal-inline with successor link |
 
 An action failure appends `workflow.action_failed`; it does not invent a state.
 Recoverable failures leave the instance in `running` or `blocked` according to the
@@ -377,7 +377,7 @@ lease and its streams; worktree reclamation alone does not erase access.
 | definition selected | upsert the one instance definition pin; reject a change once an action has started; replay retains a recorded change with distinct contract definition pins so the ambiguous history remains diagnosable |
 | contract approved/superseded | insert the immutable contract version and its recorded law and definition pins; mark every exact predecessor named by a recovery event superseded |
 | candidate set revised | insert added candidates and delete only the named removed candidates for that contract; premise and outcome bytes are untouched |
-| backlog alignment recorded | insert the declaration row and, when the outcome is `related_found`, one row per named work id; the alignment action records the candidate set only and creates no relation, so relation creation stays with `concord_work_relate.link` and `resolve_overlap` |
+| backlog alignment recorded | insert the declaration row and, when the outcome is `related_found`, one row per named work id; the alignment action records the candidate set only and creates no relation, so work-to-work relation creation stays with `resolve_overlap`, capture's `raised_from` provenance, and the workflow `link_successor` action |
 | actor recorded | insert once; a different tuple for an existing `actor_ref` is event poison |
 | action started/checkpointed/completed/failed | update current step/state/checkpoint timestamps and insert/update checkpoint rows; `record_decision` extracts its typed decision-record checkpoint into `workflow_decision_records`; idempotency replay is a no-op |
 | evidence bound | append to existing evidence authority and make the binding visible to completion; it is not copied into a workflow-only authority |

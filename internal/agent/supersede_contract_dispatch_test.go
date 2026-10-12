@@ -30,7 +30,7 @@ func testSupersedeContractDispatch(t *testing.T, stage string) {
 	}
 	env := mutationEnvelope(grant, scopeVersion)
 
-	for _, actionID := range []string{"record_proposal", "record_alignment", "record_discovery", "record_design"} {
+	for _, actionID := range []string{"record_proposal", "record_alignment", "record_design"} {
 		invokeWorkflowIssue31Action(t, s, service, env, actionID, version, "supersede-"+actionID)
 		version = workflowIssue31Version(t, s)
 	}
@@ -40,7 +40,7 @@ func testSupersedeContractDispatch(t *testing.T, stage string) {
 	}
 	contractFields := workflowContractFieldsFixture()
 	contractFields["architecture_binding"] = binding
-	contract, version := approvedOpsAction(t, s, service, grant, privateKey, env, version, "approve_contract", contractFields, "supersede-approve-contract")
+	contract, version := approvedWorkflowContract(t, s, service, grant, privateKey, env, version, contractFields, "supersede-approve-contract")
 	if contract.Outcome != OutcomeOK {
 		t.Fatalf("approve_contract=%+v", contract.Error)
 	}
@@ -88,7 +88,7 @@ func testSupersedeContractDispatch(t *testing.T, stage string) {
 		payload, err := json.Marshal(map[string]any{
 			"work_id": "work-1", "expected_version": version, "action_id": "dispatch_worker", "idempotency_key": "pending-dispatch",
 			"fields": map[string]any{"attempt_id": "attempt:pending", "worker_packet": bindPacketToRecordedState(t, s, map[string]any{
-				"schema_version": "1.0", "attempt_id": "attempt:pending", "lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest,
+				"schema_version": store.WorkerPacketSchemaVersion, "attempt_id": "attempt:pending", "lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest,
 				"work_id": "work-1", "step_id": "execution", "inputs": map[string]any{"task": "verify the synthetic change"},
 			})},
 		})

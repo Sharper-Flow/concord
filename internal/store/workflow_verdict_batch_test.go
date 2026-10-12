@@ -69,6 +69,14 @@ func seedWorkflowVerdictBatchFixtureDefinition(t *testing.T, workID string, extr
 			t.Fatal(err)
 		}
 	}
+	return seedWorkflowVerdictBatchFixtureOn(t, workID, extraEvidence, requiredEvidence, predicates, registered, definitionRef)
+}
+
+// seedWorkflowVerdictBatchFixtureOn pins the batch fixture to one resolved
+// definition, so a test can exercise a wire shape on the exact historical pin
+// that authors it (CD-0218) while the production head keeps its own tests.
+func seedWorkflowVerdictBatchFixtureOn(t *testing.T, workID string, extraEvidence int, requiredEvidence []string, predicates []map[string]any, registered RegisteredDefinition, definitionRef string) workflowReturnRouteFixture {
+	t.Helper()
 	ctx := context.Background()
 	s := openTemp(t)
 	seedWork(t, s, workID)
@@ -197,7 +205,14 @@ func batchVerdictPredicateSet(workID string, count int) []map[string]any {
 func TestWorkflowVerdictBatchParityAndRebuild(t *testing.T) {
 	ctx := context.Background()
 	singleWork, batchWork := "batch-parity-single", "batch-parity-batch"
-	single := seedWorkflowVerdictBatchFixture(t, singleWork)
+	// The parity pair pins the last historical version whose record_verdict
+	// still authors the single wire shape beside the batch; the canonical
+	// head's batch-only contract carries its own tests.
+	pinned, ok := BuiltinWorkflowRegistry().Lookup("workflow.implementation", 29)
+	if !ok {
+		t.Fatal("implementation v29 left the registry")
+	}
+	single := seedWorkflowVerdictBatchFixtureOn(t, singleWork, 0, []string{"verification"}, batchVerdictContractPredicates(singleWork), pinned, "workflow.implementation")
 	batch := seedWorkflowVerdictBatchFixture(t, batchWork)
 
 	present := json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:batch-present","verdict_kind":"ok","evaluation_evidence":["evidence:return-route-verification"]}`)
@@ -534,9 +549,9 @@ func TestWorkflowVerdictBatchOmissionStaysMissing(t *testing.T) {
 		t.Fatalf("step after refused confirmation = %q, want acceptance", step)
 	}
 
-	third := json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:batch-third","verdict_kind":"ok","evaluation_evidence":["evidence:return-route-review"]}`)
+	third := json.RawMessage(`{"contract_version":1,"verdicts":[{"predicate_id":"predicate:batch-third","verdict_kind":"ok","evaluation_evidence":["evidence:return-route-review"]}]}`)
 	if err := runIssue933OperatorAction(t, fixture.store, workID, "record_verdict", third, fixture.owner, fixture.operator); err != nil {
-		t.Fatalf("single-form third verdict: %v", err)
+		t.Fatalf("batched third verdict: %v", err)
 	}
 	missing, err = missingPredicateVerdictsCtx(t, fixture.store, workID)
 	if err != nil {

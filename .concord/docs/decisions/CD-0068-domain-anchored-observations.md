@@ -1,6 +1,6 @@
 # CD-0068: Domain-Anchored Observations
 
-Status: accepted
+Status: Superseded by [CD-0224](CD-0224-ten-planning-and-browsing-operations-are-retired-from-the-agent-surface.md)
 Date: 2026-08-24
 
 ## Context
@@ -41,7 +41,7 @@ as `work_observations`.
 Rejected alternative: widening `work_observations.work_id` into a nullable
 typed subject with a discriminator column. Every existing reader would then
 test a case the work-anchored path never had, and the one-home invariant of
-CD-0041 D3 reads more clearly when a Domain-scoped row is keyed by Domain.
+CD-0222 D3 reads more clearly when a Domain-scoped row is keyed by Domain.
 
 ### D2. The open window is bounded, and a full window refuses
 
@@ -91,7 +91,7 @@ dedicated read. No new read operation is introduced.
 
 `QueryDomainActiveWork` orders by `priority, id`
 (internal/store/domain_reads.go:486). Whether a Domain also needs a declared
-sequence is a separate question with a separate failure mode, and CD-0041 D8
+sequence is a separate question with a separate failure mode, and CD-0222 D8
 denies Initiatives Domain identity for reasons this decision does not revisit.
 An observation anchor does not imply an ordering primitive.
 

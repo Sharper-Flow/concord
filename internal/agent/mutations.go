@@ -192,85 +192,6 @@ type researchSourceInput struct {
 	PublishedAt       string `json:"published_at"`
 	AccessedAt        string `json:"accessed_at"`
 }
-type lessonPublishInput struct {
-	WorkID            string               `json:"work_id"`
-	LessonID          string               `json:"lesson_id"`
-	Title             string               `json:"title"`
-	Summary           string               `json:"summary"`
-	Content           string               `json:"content"`
-	Tags              []string             `json:"tags"`
-	Scopes            *lessonScopesInput   `json:"scopes"`
-	Evidence          []string             `json:"evidence"`
-	Coverage          *lessonCoverageInput `json:"coverage"`
-	PublicationWorkID string               `json:"publication_work_id"`
-	IdempotencyKey    string               `json:"idempotency_key"`
-	Approval          *approvalInput       `json:"approval"`
-}
-type lessonScopesInput struct {
-	Mode       string   `json:"mode"`
-	ProductIDs []string `json:"product_ids"`
-	ProjectIDs []string `json:"project_ids"`
-	TagIDs     []string `json:"tag_ids"`
-}
-type lessonCoverageInput struct {
-	State    string                      `json:"state"`
-	Evidence []lessonCoverageAnchorInput `json:"evidence"`
-	Issue    *lessonIssueInput           `json:"issue"`
-	Reason   string                      `json:"reason"`
-}
-
-// lessonIssueInput is the law-coverage issue union: a positive integer issue
-// number or a Linear issue identifier, the two forms
-// contracts/law-coverage.schema.json admits for an outstanding record.
-type lessonIssueInput struct {
-	Number int64
-	Linear string
-}
-
-func (u *lessonIssueInput) UnmarshalJSON(data []byte) error {
-	refusal := "issue must be a positive integer or a Linear issue identifier"
-	if string(data) == "null" {
-		return fmt.Errorf("%s", refusal)
-	}
-	var number int64
-	if err := json.Unmarshal(data, &number); err == nil {
-		if number < 1 {
-			return fmt.Errorf("%s", refusal)
-		}
-		u.Number = number
-		return nil
-	}
-	var linear string
-	if err := json.Unmarshal(data, &linear); err != nil {
-		return fmt.Errorf("%s", refusal)
-	}
-	u.Linear = linear
-	return nil
-}
-
-type lessonCoverageAnchorInput struct {
-	Kind  string `json:"kind"`
-	Value string `json:"value"`
-}
-
-func (in *lessonCoverageInput) declaration() *store.LessonCoverageDeclaration {
-	if in == nil {
-		return nil
-	}
-	coverage := &store.LessonCoverageDeclaration{State: in.State, Reason: in.Reason}
-	if in.Issue != nil {
-		if in.Issue.Number >= 1 {
-			coverage.IssueNumber = in.Issue.Number
-		} else {
-			coverage.Issue = in.Issue.Linear
-		}
-	}
-	for _, anchor := range in.Evidence {
-		coverage.Evidence = append(coverage.Evidence, store.LessonCoverageAnchor{Kind: anchor.Kind, Value: anchor.Value})
-	}
-	return coverage
-}
-
 type resourceClaimInput struct {
 	WorkID          string         `json:"work_id"`
 	ResourceKey     string         `json:"resource_key"`
@@ -323,27 +244,6 @@ type observationRecordInput struct {
 	// non-authoritative and can only supply or withhold a precondition.
 	External *observationExternalInput `json:"external"`
 	Approval *approvalInput            `json:"approval"`
-}
-
-// CD-0068: the Domain-anchored twin of observationRecordInput. It carries no
-// external variant — CD-0040 attaches external capture to work, and CD-0068
-// widens only the anchor, not the observation's kinds.
-type domainObservationRecordInput struct {
-	ProductID      string         `json:"product_id"`
-	DomainID       string         `json:"domain_id"`
-	Statement      string         `json:"statement"`
-	Refs           []string       `json:"refs"`
-	Tags           []string       `json:"tags"`
-	IdempotencyKey string         `json:"idempotency_key"`
-	Approval       *approvalInput `json:"approval"`
-}
-
-type domainObservationDismissInput struct {
-	ProductID      string         `json:"product_id"`
-	DomainID       string         `json:"domain_id"`
-	ObservationID  string         `json:"observation_id"`
-	IdempotencyKey string         `json:"idempotency_key"`
-	Approval       *approvalInput `json:"approval"`
 }
 
 type observationExternalInput struct {
@@ -417,16 +317,6 @@ type clientPolicyGrantRequestInput struct {
 	IdempotencyKey string         `json:"idempotency_key"`
 	Approval       *approvalInput `json:"approval"`
 }
-type linkMutationInput struct {
-	FromWorkID          string         `json:"from_work_id"`
-	ToWorkID            string         `json:"to_work_id"`
-	FromExpectedVersion int64          `json:"from_expected_version"`
-	ToExpectedVersion   int64          `json:"to_expected_version"`
-	Kind                string         `json:"kind"`
-	Reason              string         `json:"reason"`
-	IdempotencyKey      string         `json:"idempotency_key"`
-	Approval            *approvalInput `json:"approval"`
-}
 type resolveOverlapMutationInput struct {
 	FromWorkID          string         `json:"from_work_id"`
 	ToWorkID            string         `json:"to_work_id"`
@@ -455,40 +345,6 @@ type correctDeliveryMutationInput struct {
 	DeliveryState        string         `json:"delivery_state"`
 	IdempotencyKey       string         `json:"idempotency_key"`
 	Approval             *approvalInput `json:"approval"`
-}
-type unlinkVersion struct {
-	WorkID  string `json:"work_id"`
-	Version int64  `json:"version"`
-}
-type unlinkMutationInput struct {
-	RelationID       string          `json:"relation_id"`
-	ExpectedVersions []unlinkVersion `json:"expected_versions"`
-	Reason           string          `json:"reason"`
-	IdempotencyKey   string          `json:"idempotency_key"`
-	Approval         *approvalInput  `json:"approval"`
-}
-type supersedeMutationInput struct {
-	PredecessorID       string         `json:"predecessor_id"`
-	SuccessorID         string         `json:"successor_id"`
-	PredecessorExpected int64          `json:"predecessor_expected_version"`
-	SuccessorExpected   int64          `json:"successor_expected_version"`
-	Reason              string         `json:"reason"`
-	IdempotencyKey      string         `json:"idempotency_key"`
-	Approval            *approvalInput `json:"approval"`
-	Evidence            []EvidenceRef  `json:"evidence"`
-}
-type restoreMutationInput struct {
-	PredecessorID          string         `json:"predecessor_id"`
-	PredecessorExpected    int64          `json:"predecessor_expected_version"`
-	SuccessorID            string         `json:"successor_id"`
-	SuccessorExpected      int64          `json:"successor_expected_version"`
-	ReplacementSuccessorID string         `json:"replacement_successor_id"`
-	ReplacementExpected    int64          `json:"replacement_successor_expected_version"`
-	Instruction            string         `json:"instruction"`
-	Reason                 string         `json:"reason"`
-	IdempotencyKey         string         `json:"idempotency_key"`
-	Approval               *approvalInput `json:"approval"`
-	Evidence               []EvidenceRef  `json:"evidence"`
 }
 type compactPublishInput struct {
 	WorkID          string         `json:"work_id"`
@@ -785,6 +641,9 @@ func preflightWorkflowActionRequestWithRegistry(ctx context.Context, s *store.St
 	if err := decodeOperationInput(raw, &in); err != nil {
 		return newRuntimeFailure("invalid_input", err.Error(), "reread_entities", false)
 	}
+	if err := s.RequireActionableWork(ctx, in.WorkID, "workflow_action"); err != nil {
+		return err
+	}
 	payload, err := workflowActionFields(in.Fields)
 	if err != nil {
 		return newRuntimeFailure("invalid_input", err.Error(), "reread_entities", false)
@@ -1077,10 +936,11 @@ func retryApprovalFenceTx(ctx context.Context, tx *store.Transaction, registry s
 	return nil
 }
 
-// sourceProofForAction prepares the Git facts each action's SQL boundary
-// consumes. It runs after replay and approval admission, with no transaction
-// open (CD-0195 D2). A non-nil envelope carries the refusal.
-func (r runtime) sourceProofForAction(ctx context.Context, base Envelope, actionID, workID string, raw []byte) (context.Context, *Envelope) {
+// knowledgeSourceProofForAction prepares the federated law source set the
+// approval, supersession, and completion gates verify inside their
+// transaction (CD-0200). It runs after replay and approval admission, with
+// no transaction open (CD-0195 D2). A non-nil envelope carries the refusal.
+func (r runtime) knowledgeSourceProofForAction(ctx context.Context, base Envelope, actionID, workID string) (context.Context, *Envelope) {
 	switch actionID {
 	case "approve_contract", "supersede_contract", "complete":
 		verifiedCtx, proofErr := r.Store.EstablishKnowledgeSourceSetProof(ctx, workID)
@@ -1090,12 +950,7 @@ func (r runtime) sourceProofForAction(ctx context.Context, base Envelope, action
 		}
 		ctx = verifiedCtx
 	}
-	prepared, err := prepareMutationNavigation(ctx, r.Store, raw)
-	if err != nil {
-		refusal := failureEnvelope(base, err)
-		return ctx, &refusal
-	}
-	return prepared, nil
+	return ctx, nil
 }
 
 func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []byte, grant Authority, op ContractOperation) (Envelope, error) {
@@ -1105,6 +960,9 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 	var in actionMutationInput
 	if err := decodeOperationInput(raw, &in); err != nil {
 		return coreError(base, "invalid_input", err.Error(), "reread_entities", false), nil
+	}
+	if err := r.Store.RequireActionableWork(ctx, in.WorkID, "workflow_action"); err != nil {
+		return failureEnvelope(base, err), nil
 	}
 	payload, err := workflowActionFields(in.Fields)
 	if err != nil {
@@ -1147,16 +1005,11 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 		if len(contractVersions) == 0 {
 			return coreError(base, "invalid_input", "supersede_contract requires an active workflow contract", "reread_entities", false), nil
 		}
-		if len(contractVersions) == 1 {
-			contractVersion = contractVersions[0]
-			versions["contract"] = contractVersion
-		} else {
-			// The request digest binds the complete predecessor list. The
-			// highest active version remains the scalar contract snapshot used
-			// by the existing approval schema without selecting authority.
-			contractVersion = contractVersions[len(contractVersions)-1]
-			versions["contract"] = contractVersion
-		}
+		// The request digest binds the complete predecessor list. The
+		// highest active version remains the scalar contract snapshot used
+		// by the existing approval schema without selecting authority.
+		contractVersion = contractVersions[len(contractVersions)-1]
+		versions["contract"] = contractVersion
 	}
 	if in.ActionID == "request_correction" {
 		version, err := r.Store.LatestWorkflowContractVersion(ctx, in.WorkID)
@@ -1302,7 +1155,7 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 	// mandated-law boundary inside their transaction, so their registered
 	// source set verifies before the transaction opens (store connection
 	// invariant); the returned context carries the proof.
-	verifiedCtx, proofEnvelope := r.sourceProofForAction(ctx, base, in.ActionID, in.WorkID, raw)
+	verifiedCtx, proofEnvelope := r.knowledgeSourceProofForAction(ctx, base, in.ActionID, in.WorkID)
 	if proofEnvelope != nil {
 		return *proofEnvelope, nil
 	}
@@ -1478,12 +1331,18 @@ func (r runtime) planCapture(ctx context.Context, base Envelope, raw []byte, dig
 	workID := "work-" + digest[7:31]
 	// C19 continuity is unconditional, so a capture that names no workflow pins
 	// the kind-driven default rather than leaving the work item without a
-	// workflow instance (#650).
+	// workflow instance. The live authoring selector resolves the ref,
+	// so a retired family or an unnamed decision/other kind refuses before
+	// any write.
 	workflowRef := in.WorkflowTypeRef
 	if workflowRef == "" {
-		workflowRef = store.DefaultWorkflowRefForKind(in.Kind)
+		var refErr error
+		workflowRef, refErr = store.DefaultWorkflowRefForKind(in.Kind)
+		if refErr != nil {
+			return failureEnvelope(base, refErr), nil, true
+		}
 	}
-	registeredDefinition, definitionErr := store.BuiltinWorkflowDefinitionForRef(workflowRef)
+	registeredDefinition, definitionErr := store.LiveWorkflowDefinitionForRef(workflowRef)
 	if definitionErr != nil {
 		return failureEnvelope(base, definitionErr), nil, true
 	}
@@ -1599,7 +1458,9 @@ func (r runtime) planReviseIntent(_ context.Context, base Envelope, raw []byte, 
 	var registeredDefinition store.RegisteredDefinition
 	if in.WorkflowTypeRef != "" {
 		var definitionErr error
-		registeredDefinition, definitionErr = store.BuiltinWorkflowDefinitionForRef(in.WorkflowTypeRef)
+		// The live authoring selector refuses a retired family before the
+		// revision plans any effect, so a re-pin cannot reach archived authoring.
+		registeredDefinition, definitionErr = store.LiveWorkflowDefinitionForRef(in.WorkflowTypeRef)
 		if definitionErr != nil {
 			return failureEnvelope(base, definitionErr), nil, true
 		}
@@ -1681,7 +1542,7 @@ func (r runtime) planLifecycle(_ context.Context, base Envelope, raw []byte, dig
 		return base, err, true
 	}
 	if in.Target == "superseded" {
-		return coreError(base, "invalid_input", "superseded is only available through relate.supersede", "reread_entities", false), nil, true
+		return coreError(base, "invalid_input", "superseded requires resolve_overlap with resolution_kind supersedes", "reread_entities", false), nil, true
 	}
 	// Terminal lifecycle transitions demand evidence before approval can be
 	// granted. Refuse the missing-evidence case structurally with a typed
@@ -1895,8 +1756,8 @@ func (r runtime) mutateResearchRetire(ctx context.Context, base Envelope, raw []
 		return Envelope{}, err
 	}
 	var response Envelope
-	durable, navigationPrepared := false, false
-	err = r.executeAdmittedMutation(&ctx, raw, &durable, &navigationPrepared, func(tx *store.Transaction) error {
+	durable := false
+	err = r.executeAdmittedMutation(&ctx, &durable, func(tx *store.Transaction) error {
 		inv := Invocation{ClientRef: r.Envelope.ClientRef, PrincipalRef: r.Envelope.PrincipalRef, SessionRef: r.Envelope.SessionRef, AgentRef: r.Envelope.AgentRef, Directory: r.Envelope.Directory, Worktree: r.Envelope.Worktree, ManifestDigest: r.Envelope.ManifestDigest, HostAssertionDigest: r.Envelope.HostAssertionDigest, RequiredCapability: op.Capability, RequiredOperation: r.Operation, ProductID: r.Envelope.SelectedProductID}
 		if inv.HostAssertionDigest == "" {
 			inv.HostAssertionDigest = digest
@@ -2036,70 +1897,6 @@ func (r runtime) mutateResearchRetire(ctx context.Context, base Envelope, raw []
 		return failureEnvelope(base, err), nil
 	}
 	return response, nil
-}
-
-// planLessonPublish plans concord_work_compact.lesson_publish.
-func (r runtime) planLessonPublish(ctx context.Context, base Envelope, raw []byte, _ string, _ Authority, _ ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
-	var in lessonPublishInput
-	if err := decodeOperationInput(raw, &in); err != nil {
-		return base, err, true
-	}
-	if in.Approval != nil {
-		plan.approval = in.Approval.ApprovalRef
-	}
-	plan.requiresApproval = true
-	// Self-publication legitimately names the same work in both roles.
-	workIDs := []string{in.WorkID}
-	if in.PublicationWorkID != "" {
-		workIDs = append(workIDs, in.PublicationWorkID)
-	}
-	plan.scope["work_ids"] = workIDs
-	workVersion, err := r.Store.WorkVersion(ctx, in.WorkID)
-	if err != nil {
-		return failureEnvelope(base, err), nil, true
-	}
-	plan.versions["work"] = workVersion
-	// The claimed knowledge-home worktree and the work-version read happen
-	// before the mutation transaction opens: the effect's transaction holds
-	// the write lock, and a second connection's read would deadlock.
-	lessonHome, homeErr := r.Store.ResolveLessonPublicationHome(ctx, in.WorkID, in.PublicationWorkID)
-	if homeErr != nil {
-		return failureEnvelope(base, homeErr), nil, true
-	}
-	// The delivery is prepared, not published: the intent inspects the
-	// claimed worktree that carries the prepared commit. The coordinator's
-	// merged pull request plus a post-merge knowledge read own the
-	// publication claim; a knowledge read before the merge cannot see a
-	// lesson that exists only on the prepared branch.
-	plan.intents = []NextIntent{{Tool: "concord_work_browse", Operation: "worktree_inspect", QueryID: "CD-0096.R1", ReasonCode: "verify_prepared_lesson_delivery", RequiredFields: []string{"work_id", "mode"}}}
-	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
-		// The effect boundary binds the write surface to the calling
-		// session's host-verified worktree: the resolved claim must be the
-		// worktree this grant was issued in, so a caller in one linked
-		// worktree can never aim a lesson commit at another work item's
-		// worktree (CD-0026 D1).
-		if !pathsEquivalent(lessonHome.RepoPath, grant.Worktree) {
-			return nil, nil, nil, store.NewLessonPublicationWorktreeRefusal()
-		}
-		scopes := store.KnowledgeRecordScopes{Mode: "home"}
-		if in.Scopes != nil {
-			scopes = store.KnowledgeRecordScopes{Mode: in.Scopes.Mode, ProductIDs: in.Scopes.ProductIDs, ProjectIDs: in.Scopes.ProjectIDs, TagIDs: in.Scopes.TagIDs}
-		}
-		published, pubErr := store.PublishLessonRecord(ctx, lessonHome, store.LessonPublication{
-			LessonID: in.LessonID, Title: in.Title, Summary: in.Summary, Content: in.Content,
-			Tags: in.Tags, Scopes: scopes, Evidence: in.Evidence, Coverage: in.Coverage.declaration(), Now: r.Authority.now(),
-		})
-		if pubErr != nil {
-			return nil, nil, nil, pubErr
-		}
-		changed := []ChangedRef{{EntityKind: "lesson", ID: published.Record.ID, Version: strconv.FormatInt(workVersion, 10)}}
-		// Prepared delivery evidence: the branch and the immutable commit the
-		// coordinator's pull request carries. This is not a publication claim.
-		delivery := map[string]any{"branch": published.Branch, "commit": published.CommitOID}
-		payloadBytes, _ := json.Marshal(map[string]any{"changed_refs": mutationResultChangedRefs(changed), "next_valid_intents": mutationResultIntents(plan.intents), "delivery": delivery})
-		return payloadBytes, []string{published.Record.ID}, changed, nil
-	}
-	return Envelope{}, nil, false
 }
 
 // planSingleWorkEvent plans a mutation whose whole effect is one event on
@@ -2364,68 +2161,6 @@ func (r runtime) planIssueLinkRecord(_ context.Context, base Envelope, raw []byt
 		}
 		changed := []ChangedRef{{EntityKind: "linear_issue_link", ID: link.WorkID, Version: "1"}}
 		return mutationPayload(changed, plan.intents), []string{link.WorkID}, changed, nil
-	}
-	return Envelope{}, nil, false
-}
-
-// planDomainObservationRecord plans concord_domain.observation_record.
-func (r runtime) planDomainObservationRecord(_ context.Context, base Envelope, raw []byte, digest string, _ Authority, _ ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
-	var in domainObservationRecordInput
-	if err := decodeOperationInput(raw, &in); err != nil {
-		return base, err, true
-	}
-	if in.Approval != nil {
-		plan.approval = in.Approval.ApprovalRef
-	}
-	product := in.ProductID
-	if product == "" {
-		product = r.Envelope.SelectedProductID
-	}
-	if product == "" || in.DomainID == "" {
-		return coreError(base, "unknown_scope", "recording a Domain observation requires a resolved Product and Domain", "reread_entities", false), nil, true
-	}
-	plan.scope["product_id"] = product
-	// CD-0068 D6: the observation is read back through the Domain surface
-	// it was recorded against, not through a dedicated read.
-	plan.intents = []NextIntent{{Tool: "concord_domain", Operation: "detail", QueryID: "C22.DomainDetail", ReasonCode: "verify_observation_visible", RequiredFields: []string{"domain_id"}}}
-	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
-		sum := sha256.Sum256([]byte(digest))
-		observationID := "dob:" + hex.EncodeToString(sum[:8])
-		payload, _ := json.Marshal(map[string]any{"observation_id": observationID, "product_id": product, "domain_id": in.DomainID, "statement": in.Statement, "refs": in.Refs, "tags": in.Tags})
-		if _, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{{EventID: digest + ":domain_observation", Kind: "domain.observation_recorded", SubjectType: store.SubjectProduct, SubjectID: product, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), PayloadVersion: 1, Payload: payload}}}); err != nil {
-			return nil, nil, nil, err
-		}
-		changed := []ChangedRef{{EntityKind: "domain_observation", ID: observationID, Version: "1"}}
-		return mutationPayload(changed, plan.intents), []string{observationID}, changed, nil
-	}
-	return Envelope{}, nil, false
-}
-
-// planDomainObservationDismiss plans concord_domain.observation_dismiss.
-func (r runtime) planDomainObservationDismiss(_ context.Context, base Envelope, raw []byte, digest string, _ Authority, _ ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
-	var in domainObservationDismissInput
-	if err := decodeOperationInput(raw, &in); err != nil {
-		return base, err, true
-	}
-	if in.Approval != nil {
-		plan.approval = in.Approval.ApprovalRef
-	}
-	product := in.ProductID
-	if product == "" {
-		product = r.Envelope.SelectedProductID
-	}
-	if product == "" || in.DomainID == "" || in.ObservationID == "" {
-		return coreError(base, "unknown_scope", "dismissing a Domain observation requires a resolved Product, Domain, and observation", "reread_entities", false), nil, true
-	}
-	plan.scope["product_id"] = product
-	plan.intents = []NextIntent{{Tool: "concord_domain", Operation: "detail", QueryID: "C22.DomainDetail", ReasonCode: "verify_observation_dismissed", RequiredFields: []string{"domain_id"}}}
-	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
-		payload, _ := json.Marshal(map[string]any{"observation_id": in.ObservationID, "product_id": product, "domain_id": in.DomainID})
-		if _, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{{EventID: digest + ":domain_observation_dismissed", Kind: "domain.observation_dismissed", SubjectType: store.SubjectProduct, SubjectID: product, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), PayloadVersion: 1, Payload: payload}}}); err != nil {
-			return nil, nil, nil, err
-		}
-		changed := []ChangedRef{{EntityKind: "domain_observation", ID: in.ObservationID, Version: "2"}}
-		return mutationPayload(changed, plan.intents), []string{in.ObservationID}, changed, nil
 	}
 	return Envelope{}, nil, false
 }
@@ -3979,8 +3714,7 @@ func (r runtime) mutateClientPolicyGrantRequest(ctx context.Context, base Envelo
 // A depends_on resolution is the one kind an agent may record without an
 // operator challenge: it constrains only the declaring work (the from side
 // waits while the peer proceeds), so a false declaration delays the
-// declarer and nothing else — the same trust planLink already grants an
-// agent-writable depends_on relation. Every other kind changes another
+// declarer and nothing else. Every other kind changes another
 // item's admission or identity — blocks frees the declarer and holds the
 // peer, compatible_with releases the gate for both sides, merged_into and
 // supersedes terminalize an item — and keeps the approval demand.
@@ -4060,88 +3794,6 @@ func (r runtime) planCorrectDelivery(_ context.Context, base Envelope, raw []byt
 	return Envelope{}, nil, false
 }
 
-// planLink plans concord_work_relate.link.
-func (r runtime) planLink(_ context.Context, base Envelope, raw []byte, digest string, _ Authority, _ ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
-	var in linkMutationInput
-	if err := decodeOperationInput(raw, &in); err != nil {
-		return base, err, true
-	}
-	if in.Kind == "supersedes" || in.Kind == "compatible_with" || in.Kind == "merged_into" {
-		return coreError(base, "invalid_relation", "operator-only overlap relations require relate.resolve_overlap", "reread_entities", false), nil, true
-	}
-	if in.Approval != nil {
-		plan.approval = in.Approval.ApprovalRef
-	}
-	plan.versions["from"] = in.FromExpectedVersion
-	plan.versions["to"] = in.ToExpectedVersion
-	plan.scope["work_ids"] = []string{in.FromWorkID, in.ToWorkID}
-	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
-		payload, _ := json.Marshal(map[string]any{"from": in.FromWorkID, "to": in.ToWorkID, "kind": in.Kind, "reason": in.Reason, "expected_version": in.FromExpectedVersion, "resulting_version": in.FromExpectedVersion + 1, "to_expected_version": in.ToExpectedVersion, "to_resulting_version": in.ToExpectedVersion + 1})
-		result, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{{EventID: digest + ":link", Kind: "relation.added", SubjectType: store.SubjectWorkItem, SubjectID: in.FromWorkID, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, in.FromWorkID): in.FromExpectedVersion, store.VersionRef(store.SubjectWorkItem, in.ToWorkID): in.ToExpectedVersion}})
-		if err != nil {
-			return nil, nil, nil, err
-		}
-		changed := []ChangedRef{{EntityKind: "work_item", ID: in.FromWorkID, Version: strconv.FormatInt(in.FromExpectedVersion+1, 10)}, {EntityKind: "work_item", ID: in.ToWorkID, Version: strconv.FormatInt(in.ToExpectedVersion+1, 10)}}
-		return mutationPayload(changed, plan.intents), result.EventIDs, changed, nil
-	}
-	return Envelope{}, nil, false
-}
-
-// planUnlink plans concord_work_relate.unlink.
-func (r runtime) planUnlink(ctx context.Context, base Envelope, raw []byte, digest string, _ Authority, _ ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
-	var in unlinkMutationInput
-	if err := decodeOperationInput(raw, &in); err != nil {
-		return base, err, true
-	}
-	if len(in.ExpectedVersions) == 0 {
-		return coreError(base, "invalid_input", "unlink requires endpoint versions", "reread_entities", false), nil, true
-	}
-	endpoints, endpointErr := r.Store.RelationEndpoints(ctx, in.RelationID)
-	if endpointErr != nil {
-		return failureEnvelope(base, endpointErr), nil, true
-	}
-	if in.Approval != nil {
-		plan.approval = in.Approval.ApprovalRef
-	}
-	plan.scope["work_ids"] = append([]string(nil), endpoints...)
-	for _, endpoint := range in.ExpectedVersions {
-		if endpoint.WorkID == endpoints[0] {
-			plan.versions["from"] = endpoint.Version
-		}
-		if endpoint.WorkID == endpoints[1] {
-			plan.versions["to"] = endpoint.Version
-		}
-	}
-	plan.intents = []NextIntent{{Tool: "concord_work_trace", Operation: "relations", QueryID: "PM1.Q8", ReasonCode: "inspect_relation_graph"}}
-	plan.effect = r.unlinkEffect(digest, in, endpoints, plan.intents)
-	return Envelope{}, nil, false
-}
-
-// planRestoreSuperseded plans concord_work_relate.restore_superseded.
-func (r runtime) planRestoreSuperseded(_ context.Context, base Envelope, raw []byte, digest string, _ Authority, _ ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
-	var in restoreMutationInput
-	if err := decodeOperationInput(raw, &in); err != nil {
-		return base, err, true
-	}
-	if in.Approval != nil {
-		plan.approval = in.Approval.ApprovalRef
-	}
-	plan.versions["predecessor"] = in.PredecessorExpected
-	plan.versions["successor"] = in.SuccessorExpected
-	plan.scope["work_ids"] = []string{in.PredecessorID, in.SuccessorID}
-	plan.intents = []NextIntent{{Tool: "concord_work_browse", Operation: "scope", QueryID: "PM1.Q6", ReasonCode: "inspect_restored_work"}}
-	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
-		payload, _ := json.Marshal(map[string]any{"superseded": in.PredecessorID, "replacement_successor": in.ReplacementSuccessorID, "reason": in.Reason, "expected_version": in.PredecessorExpected, "resulting_version": in.PredecessorExpected + 1, "successor_expected_version": in.SuccessorExpected, "successor_resulting_version": in.SuccessorExpected + 1})
-		result, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{{EventID: digest + ":restore", Kind: "work.reopened_from_superseded", SubjectType: store.SubjectWorkItem, SubjectID: in.PredecessorID, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, in.PredecessorID): in.PredecessorExpected, store.VersionRef(store.SubjectWorkItem, in.SuccessorID): in.SuccessorExpected}})
-		if err != nil {
-			return nil, nil, nil, err
-		}
-		changed := []ChangedRef{{EntityKind: "work_item", ID: in.PredecessorID, Version: strconv.FormatInt(in.PredecessorExpected+1, 10)}, {EntityKind: "work_item", ID: in.SuccessorID, Version: strconv.FormatInt(in.SuccessorExpected+1, 10)}}
-		return mutationPayload(changed, plan.intents), result.EventIDs, changed, nil
-	}
-	return Envelope{}, nil, false
-}
-
 // mutate dispatches one mutation operation to its handler. A handler answers
 // with a terminal envelope when the call is refused or fails before the
 // transaction (handled true), or populates the plan and lets the common tail
@@ -4167,7 +3819,7 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Au
 		return r.mutateClientPolicyGrantRequest(ctx, base, raw, grant, op)
 	}
 	digest := mutationDigest(r.Tool, r.Operation, r.Envelope, raw)
-	if r.Tool == "concord_work_compact" && op.ID != "concord_work_compact.lesson_publish" {
+	if r.Tool == "concord_work_compact" {
 		return r.mutateCompaction(ctx, base, raw, digest, op)
 	}
 	plan := newMutationPlan(r.Envelope, op)
@@ -4197,8 +3849,6 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Au
 		answer, err, handled = r.planResearchSourceRecord(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_define.research_freshness_set":
 		answer, err, handled = r.planResearchFreshnessSet(ctx, base, raw, digest, grant, op, plan)
-	case "concord_work_compact.lesson_publish":
-		answer, err, handled = r.planLessonPublish(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_relate.resource_claim":
 		answer, err, handled = r.planResourceClaim(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_relate.resource_release":
@@ -4211,10 +3861,6 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Au
 		answer, err, handled = r.planObservationRecord(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_define.issue_link_record":
 		answer, err, handled = r.planIssueLinkRecord(ctx, base, raw, digest, grant, op, plan)
-	case "concord_domain.observation_record":
-		answer, err, handled = r.planDomainObservationRecord(ctx, base, raw, digest, grant, op, plan)
-	case "concord_domain.observation_dismiss":
-		answer, err, handled = r.planDomainObservationDismiss(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_transition.worktree_claim":
 		answer, err, handled = r.planWorktreeClaim(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_transition.session_vacate":
@@ -4237,14 +3883,6 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Au
 		answer, err, handled = r.planSetMemberships(ctx, base, raw, digest, grant, op, plan)
 	case "concord_work_relate.resolve_overlap":
 		answer, err, handled = r.planResolveOverlap(ctx, base, raw, digest, grant, op, plan)
-	case "concord_work_relate.link":
-		answer, err, handled = r.planLink(ctx, base, raw, digest, grant, op, plan)
-	case "concord_work_relate.unlink":
-		answer, err, handled = r.planUnlink(ctx, base, raw, digest, grant, op, plan)
-	case "concord_work_relate.supersede":
-		answer, err, handled = r.planSupersede(ctx, base, raw, digest, grant, op, plan)
-	case "concord_work_relate.restore_superseded":
-		answer, err, handled = r.planRestoreSuperseded(ctx, base, raw, digest, grant, op, plan)
 	default:
 		return coreError(base, "invalid_input", "mutation operation is not implemented", "contact_operator", false), nil
 	}
@@ -4261,45 +3899,6 @@ func (r runtime) mutate(ctx context.Context, base Envelope, raw []byte, grant Au
 	plan.scope["product_ids"] = preflightProducts
 	base.EvidenceRefs = append([]EvidenceRef{}, plan.evidenceRefs...)
 	return r.executeMutation(ctx, base, raw, digest, plan.scope, plan.versions, plan.consequence, plan.approval, plan.requiresApproval, plan.governingConflict, plan.intents, plan.effect, plan.nativeCleanup, plan.nativeFinalize)
-}
-
-// planSupersede plans concord_work_relate.supersede.
-func (r runtime) planSupersede(_ context.Context, base Envelope, raw []byte, digest string, _ Authority, _ ContractOperation, plan *mutationPlan) (Envelope, error, bool) {
-	var in supersedeMutationInput
-	if err := decodeOperationInput(raw, &in); err != nil {
-		return base, err, true
-	}
-	if in.Approval != nil {
-		plan.approval = in.Approval.ApprovalRef
-	}
-	plan.versions["predecessor"] = in.PredecessorExpected
-	plan.versions["successor"] = in.SuccessorExpected
-	plan.scope["work_ids"] = []string{in.PredecessorID, in.SuccessorID}
-	plan.effect = func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
-		payload, _ := json.Marshal(map[string]any{"successor": in.SuccessorID, "superseded": in.PredecessorID, "reason": in.Reason, "expected_version": in.PredecessorExpected, "resulting_version": in.PredecessorExpected + 1, "successor_expected_version": in.SuccessorExpected, "successor_resulting_version": in.SuccessorExpected + 1})
-		result, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{{EventID: digest + ":supersede", Kind: "work.superseded", SubjectType: store.SubjectWorkItem, SubjectID: in.PredecessorID, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, in.PredecessorID): in.PredecessorExpected, store.VersionRef(store.SubjectWorkItem, in.SuccessorID): in.SuccessorExpected}})
-		if err != nil {
-			return nil, nil, nil, err
-		}
-		changed := []ChangedRef{{EntityKind: "work_item", ID: in.PredecessorID, Version: strconv.FormatInt(in.PredecessorExpected+1, 10)}, {EntityKind: "work_item", ID: in.SuccessorID, Version: strconv.FormatInt(in.SuccessorExpected+1, 10)}}
-		resultPayload := mutationPayload(changed, plan.intents)
-		// A supersede of the work whose worktree the calling session runs in
-		// names the vacate target, so the adapter moves the session to the
-		// registered main checkout after the transition (CD-0179). Advisory
-		// enrichment: the supersession is already applied in this
-		// transaction.
-		if vacate := r.terminalVacateTargetTx(ctx, tx, grant, in.PredecessorID); vacate != nil {
-			merged := map[string]any{}
-			if err := json.Unmarshal(resultPayload, &merged); err == nil {
-				merged["vacate_target"] = vacate
-				if payload, marshalErr := json.Marshal(merged); marshalErr == nil {
-					resultPayload = payload
-				}
-			}
-		}
-		return resultPayload, result.EventIDs, changed, nil
-	}
-	return Envelope{}, nil, false
 }
 
 func (r runtime) deriveMutationProducts(ctx context.Context, scope map[string]any) ([]string, error) {
@@ -4450,7 +4049,7 @@ func (r runtime) mutateCompaction(ctx context.Context, base Envelope, raw []byte
 		}
 		claimReq := store.ClaimRequest{OpID: opID, WorkID: workID, WorkflowTypeRef: "concord.pm6.compaction", WorkflowTypeVersion: 1, StepID: "git_proof", StepKind: store.StepCrossAuthority, AcceptedInputsDigest: digest, AcceptedScopeSnapshot: string(acceptedScope), PrincipalRef: grant.PrincipalRef, Tool: r.Tool, IdempotencyKey: key, RequestID: r.Envelope.RequestID, ObservedAt: r.Authority.now(), ApprovalRef: publish.Approval.ApprovalRef, ContractDigest: ManifestDigest}
 		claim, claimErr := store.ClaimStepAuthorized(ctx, r.Store, claimReq, func(tx *store.Transaction) error {
-			// CD-0041 D7: publication is consequential, so the claim refuses
+			// CD-0222 D7: publication is consequential, so the claim refuses
 			// before any git note is written when the contract's law revision
 			// pins or its active Domain overlaps no longer validate.
 			if err := store.CheckWorkflowConsequentialBoundaryTx(ctx, tx, workID); err != nil {
@@ -4593,7 +4192,7 @@ func (r runtime) mutateCompaction(ctx context.Context, base Envelope, raw []byte
 	payload := mutationPayload(changed, nil)
 	base.ResolvedScope = &Scope{ProductID: r.Envelope.SelectedProductID, ProjectIDs: []string{r.Envelope.AmbientProjectID}, WorkIDs: []string{reconcile.WorkID}, ScopeVersion: r.Envelope.ScopeVersion}
 	// Reconcile is the closed recovery choice for an orphaned note, so its link
-	// is exempt from the CD-0041 D7 boundary check. Guarding it would refuse the
+	// is exempt from the CD-0222 D7 boundary check. Guarding it would refuse the
 	// only way out of a pending compaction.
 	if linkErr := store.PublishCompactionLink(ctx, r.Store, store.CompactionLinkRequest{EventID: reconcile.OperationID + ":reconcile-link", WorkID: reconcile.WorkID, ExpectedVersion: workVersion, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), Home: home, CommitOID: note.CommitOID, NotePath: note.NotePath, ExpectedHash: proofDigest, Reason: "reconcile verified orphan note", Boundary: store.CompactionBoundaryRecoveryExempt}); linkErr != nil {
 		return pendingCompaction(base, reconcile.WorkID, step, "sqlite_link", []string{"operation_claimed", "git_proof"}, linkErr), nil
@@ -4932,9 +4531,8 @@ func (r runtime) mutationResult(base Envelope, payload json.RawMessage, changed 
 }
 
 var errApprovalDurabilityRequired = errors.New("approval authority requires a durable transaction")
-var errNavigationPreparationRequired = errors.New("admitted mutation requires pre-transaction navigation material")
 
-func (r runtime) executeAdmittedMutation(ctx *context.Context, raw []byte, durable, navigationPrepared *bool, mutation func(*store.Transaction) error) error {
+func (r runtime) executeAdmittedMutation(ctx *context.Context, durable *bool, mutation func(*store.Transaction) error) error {
 	transact := r.Store.Transact
 	if *durable {
 		transact = r.Store.TransactDurable
@@ -4944,13 +4542,6 @@ func (r runtime) executeAdmittedMutation(ctx *context.Context, raw []byte, durab
 		*durable = true
 		transact = r.Store.TransactDurable
 		err = transact(*ctx, mutation)
-	}
-	if err == errNavigationPreparationRequired {
-		*ctx, err = prepareMutationNavigation(*ctx, r.Store, raw)
-		if err == nil {
-			*navigationPrepared = true
-			err = transact(*ctx, mutation)
-		}
 	}
 	return err
 }
@@ -4966,7 +4557,6 @@ func mutationApprovalFailure(base Envelope, err error) Envelope {
 func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte, digest string, scope, versions map[string]any, consequence, approval string, requiresApproval bool, governingConflict []string, intents []NextIntent, effect mutationEffect, nativeCleanup func(ctx context.Context, cause error) error, nativeFinalize func(ctx context.Context) error) (Envelope, error) {
 	var response Envelope
 	var resultRejected bool
-	var navigationPrepared bool
 	// A native finalize defers the idempotency record until the committed
 	// event's native work completes, so a failed removal never leaves a
 	// cached success for the same key to replay (CD-0195 D2).
@@ -5015,9 +4605,6 @@ func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte,
 				return storeIdempotencyConflict(r.Operation, key)
 			}
 			if r.Operation != "session_vacate" && r.Operation != "project_handoff_consume" {
-				if !navigationPrepared {
-					return errNavigationPreparationRequired
-				}
 				var replayErr error
 				response, resultRejected, replayErr = r.replayCachedMutationTx(ctx, tx, base, prior, intents, store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: r.Operation, IdempotencyKey: key})
 				return replayErr
@@ -5031,7 +4618,7 @@ func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte,
 			// tail touches instead of inserting.
 			replay = true
 		}
-		// CD-0041 D7: every consequential boundary validates the contract's law
+		// CD-0222 D7: every consequential boundary validates the contract's law
 		// revision pins and its active Domain overlaps. The guarded set is the
 		// action classes D7 names, and no wider: D7 also holds that read-only
 		// inspection remains available, and an operation that records no
@@ -5074,10 +4661,7 @@ func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte,
 			scope["approval_ref"] = consumedApprovalRef
 		}
 		// Admission rolls back before native reads. The execution transaction
-		// repeats these authority checks and consumes approval only at commit.
-		if !navigationPrepared {
-			return errNavigationPreparationRequired
-		}
+		// consumes approval only at commit.
 		payload, eventIDs, changed, err := effect(ctx, tx, grant)
 		if err != nil {
 			return err
@@ -5117,7 +4701,7 @@ func (r runtime) executeMutation(ctx context.Context, base Envelope, raw []byte,
 		}
 		return store.InsertMutationIdempotencyTx(ctx, tx, insert)
 	}
-	err := r.executeAdmittedMutation(&ctx, raw, &durable, &navigationPrepared, mutation)
+	err := r.executeAdmittedMutation(&ctx, &durable, mutation)
 	transact := r.Store.Transact
 	if durable {
 		transact = r.Store.TransactDurable
@@ -5261,7 +4845,7 @@ func mutationScopeWorkIDs(scope map[string]any) []string {
 }
 
 // mutationRequiresConsequentialBoundary answers whether one mutation belongs to
-// an action class CD-0041 D7 names. The generated operation manifest already
+// an action class CD-0222 D7 names. The generated operation manifest already
 // classifies every operation's consequence, so the answer derives from that
 // declaration rather than from a second list beside it that can drift.
 //
@@ -5312,7 +4896,7 @@ func mutationIsOverlapRecovery(tool, operation string, raw []byte) bool {
 	if tool == "concord_work_transition" && (operation == "outside_repair" || operation == "outside_repair_reconcile") {
 		return true
 	}
-	if tool == "concord_work_relate" && (operation == "resolve_overlap" || operation == "supersede" || operation == "restore_superseded") {
+	if tool == "concord_work_relate" && (operation == "resolve_overlap") {
 		return true
 	}
 	// A statement observation asserts no Product change: it records prose
@@ -5336,7 +4920,7 @@ func mutationIsOverlapRecovery(tool, operation string, raw []byte) bool {
 	// changing what the contract modifies. Guarding it leaves a blocking pair
 	// resolvable only by the other party, so the gate refuses the escape it
 	// names. No other workflow action is exempt: the rest advance the pinned
-	// workflow, which is what CD-0041 D7 holds behind the boundary.
+	// workflow, which is what CD-0222 D7 holds behind the boundary.
 	if tool == "concord_work_transition" && operation == "workflow_action" {
 		var input struct {
 			ActionID string `json:"action_id"`
@@ -5426,48 +5010,6 @@ func idempotencyKey(raw []byte) string {
 func marshalEventIDs(ids []string) string { b, _ := json.Marshal(ids); return string(b) }
 func storeIdempotencyConflict(operation, key string) error {
 	return store.IdempotencyConflict(operation, key)
-}
-
-func (r runtime) unlinkEffect(digest string, in unlinkMutationInput, preflightEndpoints []string, intents []NextIntent) mutationEffect {
-	return func(ctx context.Context, tx *store.Transaction, grant Authority) (json.RawMessage, []string, []ChangedRef, error) {
-		relationID, err := strconv.ParseInt(in.RelationID, 10, 64)
-		if err != nil {
-			return nil, nil, nil, fmt.Errorf("invalid relation ID")
-		}
-		relation, err := store.RelationByIDTx(ctx, tx, relationID)
-		if err != nil {
-			return nil, nil, nil, err
-		}
-		from, to, kind := relation.FromWorkID, relation.ToWorkID, relation.Kind
-		if len(preflightEndpoints) != 2 || from != preflightEndpoints[0] || to != preflightEndpoints[1] {
-			return nil, nil, nil, newRuntimeFailure("version_conflict", "relation endpoints changed after scope preflight", "reread_entities", false)
-		}
-		byWork, err := store.ProductsForWorkIDsTx(ctx, tx, []string{from, to})
-		if err != nil {
-			return nil, nil, nil, err
-		}
-		for _, products := range byWork {
-			for _, product := range products {
-				if !contains(grant.ProductScope, product) || (r.Envelope.SelectedProductID != "" && product != r.Envelope.SelectedProductID && !containsCapability(grant.Capabilities, Capability("cross_scope"))) {
-					return nil, nil, nil, newRuntimeFailure("unauthorized", "relation endpoint is outside authorized Product scope", "contact_operator", false)
-				}
-			}
-		}
-		versions := map[string]int64{}
-		for _, item := range in.ExpectedVersions {
-			versions[item.WorkID] = item.Version
-		}
-		if len(versions) < 2 {
-			return nil, nil, nil, fmt.Errorf("unlink requires both endpoint versions")
-		}
-		payload, _ := json.Marshal(map[string]any{"from": from, "to": to, "kind": kind, "reason": in.Reason, "expected_version": versions[from], "resulting_version": versions[from] + 1, "to_expected_version": versions[to], "to_resulting_version": versions[to] + 1})
-		result, err := store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{{EventID: digest + ":unlink", Kind: "relation.removed", SubjectType: store.SubjectWorkItem, SubjectID: from, Actor: grant.PrincipalRef, OccurredAt: r.Authority.now(), PayloadVersion: 1, Payload: payload}}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, from): versions[from], store.VersionRef(store.SubjectWorkItem, to): versions[to]}})
-		if err != nil {
-			return nil, nil, nil, err
-		}
-		changed := []ChangedRef{{EntityKind: "work_item", ID: from, Version: strconv.FormatInt(versions[from]+1, 10)}, {EntityKind: "work_item", ID: to, Version: strconv.FormatInt(versions[to]+1, 10)}}
-		return mutationPayload(changed, intents), result.EventIDs, changed, nil
-	}
 }
 
 type researchPackCreateMutation struct {

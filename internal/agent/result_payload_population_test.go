@@ -200,12 +200,11 @@ func fullyPopulatedResearchPack(t *testing.T) store.ResearchPack {
 type domainReadPayloads struct {
 	list        store.DomainListPayload
 	detail      store.DomainDetailPayload
-	activeWork  store.DomainActiveWorkPayload
 	attachments store.DomainAttachmentsPayload
 	overlaps    store.DomainOverlapsPayload
 }
 
-// fullyPopulatedDomainPayloads runs all five Domain reads against a store
+// fullyPopulatedDomainPayloads runs the Domain reads against a store
 // carrying the maximally populated registry, then projects each result the way
 // dispatch does. Taking the values from the store rather than from a literal is
 // what keeps the fixture from drifting away from what the reads produce.
@@ -245,10 +244,6 @@ func fullyPopulatedDomainPayloads(t *testing.T) domainReadPayloads {
 	if err != nil {
 		t.Fatal(err)
 	}
-	activeWork, err := s.QueryDomainActiveWork(ctx, store.DomainActiveWorkRequest{Product: product, Domain: domain})
-	if err != nil {
-		t.Fatal(err)
-	}
 	attachments, err := s.QueryDomainAttachments(ctx, store.DomainAttachmentsRequest{Product: product, Domain: domain})
 	if err != nil {
 		t.Fatal(err)
@@ -257,11 +252,10 @@ func fullyPopulatedDomainPayloads(t *testing.T) domainReadPayloads {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertDomainReadsArePopulated(t, detail, activeWork, attachments, overlaps)
+	assertDomainReadsArePopulated(t, detail, attachments, overlaps)
 	return domainReadPayloads{
 		list:        store.NewDomainListPayload(list),
 		detail:      store.NewDomainDetailPayload(detail),
-		activeWork:  store.NewDomainActiveWorkPayload(activeWork),
 		attachments: store.NewDomainAttachmentsPayload(attachments),
 		overlaps:    store.NewDomainOverlapsPayload(overlaps),
 	}
@@ -270,7 +264,7 @@ func fullyPopulatedDomainPayloads(t *testing.T) domainReadPayloads {
 // assertDomainReadsArePopulated refuses a vacuous fixture. Every member below is
 // optional in its schema, so a read that left it empty would validate without
 // ever exercising the declaration under test.
-func assertDomainReadsArePopulated(t *testing.T, detail store.DomainDetailResult, activeWork store.DomainActiveWorkResult, attachments store.DomainAttachmentsResult, overlaps store.DomainOverlapsResult) {
+func assertDomainReadsArePopulated(t *testing.T, detail store.DomainDetailResult, attachments store.DomainAttachmentsResult, overlaps store.DomainOverlapsResult) {
 	t.Helper()
 	if detail.Domain.ParentID == "" {
 		t.Fatal("detail Domain has no parent, so parent_domain_id is unexercised")
@@ -281,13 +275,10 @@ func assertDomainReadsArePopulated(t *testing.T, detail store.DomainDetailResult
 	if len(detail.Relations) == 0 || len(detail.Relations[0].GoverningLaws) == 0 {
 		t.Fatalf("detail governing law is unexercised: %#v", detail.Relations)
 	}
-	if len(activeWork.Work) == 0 {
-		t.Fatal("active work is empty, so the work item members are unexercised")
-	}
 	if len(attachments.Attachments.ProjectEdges) == 0 || len(attachments.Attachments.ResourceEdges) == 0 {
 		t.Fatalf("attachment edges are unexercised: %#v", attachments.Attachments)
 	}
-	// CD-0041 D4 gives the relation bounded purpose and environment metadata.
+	// CD-0222 D4 gives the relation bounded purpose and environment metadata.
 	// A populated edge that carried neither would satisfy the length check
 	// above while proving nothing about the fields the read now declares.
 	resourceEdge := attachments.Attachments.ResourceEdges[0]
@@ -323,7 +314,6 @@ func TestFullyPopulatedResultPayloadsValidate(t *testing.T) {
 		{name: "work_trace research", tool: "concord_work_trace", operation: "research", payload: fullyPopulatedResearchPack(t)},
 		{name: "domain list", tool: "concord_domain", operation: "list", payload: domain.list},
 		{name: "domain detail", tool: "concord_domain", operation: "detail", payload: domain.detail},
-		{name: "domain active_work", tool: "concord_domain", operation: "active_work", payload: domain.activeWork},
 		{name: "domain attachments", tool: "concord_domain", operation: "attachments", payload: domain.attachments},
 		{name: "domain overlaps", tool: "concord_domain", operation: "overlaps", payload: domain.overlaps},
 	} {
@@ -814,7 +804,6 @@ func readPopulationInputs(fx readPopulationFixture) map[string]string {
 	return map[string]string{
 		"concord_product_view.resolve":             `{"product_id":"prod-alpha"}`,
 		"concord_product_view.snapshot":            `{"product_id":"prod-alpha"}`,
-		"concord_product_view.portfolio":           `{"product_id":"prod-alpha","page":{"cursor":null,"limit":20}}`,
 		"concord_product_view.blocked_sessions":    `{"product_id":"prod-alpha"}`,
 		"concord_product_view.resources":           `{"product_id":"prod-alpha","page":{"cursor":null,"limit":20}}`,
 		"concord_work_browse.list":                 `{"product_id":"prod-alpha","page":{"cursor":null,"limit":20}}`,
@@ -834,10 +823,8 @@ func readPopulationInputs(fx readPopulationFixture) map[string]string {
 		"concord_work_trace.research":              `{"product_id":"prod-alpha","work_id":"` + fx.workID + `","result_version":2,"page":{"cursor":null,"limit":20}}`,
 		"concord_knowledge.search":                 `{"product_id":"prod-alpha","page":{"cursor":null,"limit":20}}`,
 		"concord_knowledge.resolve_note":           `{"work_id":"` + fx.workID + `"}`,
-		"concord_knowledge.unprocessed":            `{"product_id":"prod-alpha"}`,
 		"concord_domain.list":                      `{"product_id":"prod-alpha","page":{"cursor":null,"limit":20}}`,
 		"concord_domain.detail":                    `{"product_id":"prod-alpha","domain_id":"` + fx.domainID + `"}`,
-		"concord_domain.active_work":               `{"product_id":"prod-alpha","domain_id":"` + fx.domainID + `","page":{"cursor":null,"limit":20}}`,
 		"concord_domain.attachments":               `{"product_id":"prod-alpha","domain_id":"` + fx.domainID + `"}`,
 		"concord_domain.overlaps":                  `{"product_id":"prod-alpha"}`,
 	}
@@ -878,46 +865,24 @@ var readPopulationWitnesses = map[string]func(t *testing.T, result json.RawMessa
 			}
 		}
 	},
-	// The fixture's portfolio focus is the approval-gated work item, so the
-	// portfolio read must carry the focus.blocked_sessions routing detail the
-	// schema declares: the seeded active challenge session. A missing focus,
-	// a different attention kind, or an empty member all fail here, so the
-	// declaration cannot pass on an empty value.
-	"concord_product_view.portfolio": func(t *testing.T, result json.RawMessage) {
+	// The approval challenge's routing detail must name the seeded session.
+	"concord_product_view.blocked_sessions": func(t *testing.T, result json.RawMessage) {
 		var page struct {
-			Rows []struct {
-				ProductID string `json:"product_id"`
-				Focus     *struct {
-					WorkID          string `json:"work_id"`
-					AttentionKind   string `json:"attention_kind"`
-					BlockedSessions []struct {
-						SessionRef string `json:"session_ref"`
-					} `json:"blocked_sessions"`
-				} `json:"focus"`
-			} `json:"rows"`
+			Sessions []struct {
+				SessionRef  string `json:"session_ref"`
+				AgentRef    string `json:"agent_ref"`
+				Consequence string `json:"consequence"`
+			} `json:"sessions"`
 		}
 		if err := json.Unmarshal(result, &page); err != nil {
-			t.Fatalf("decode portfolio result: %v", err)
+			t.Fatalf("decode blocked_sessions result: %v", err)
 		}
-		gated := 0
-		for _, row := range page.Rows {
-			if row.Focus == nil || row.Focus.AttentionKind != store.ProductRowAttentionApprovalRequired {
-				continue
-			}
-			gated++
-			if row.Focus.WorkID != readPopulationWork {
-				t.Fatalf("approval_required focus names %q, want the fixture focus work %q", row.Focus.WorkID, readPopulationWork)
-			}
-			if len(row.Focus.BlockedSessions) == 0 {
-				t.Fatalf("approval-gated focus on %s carries no blocked sessions; the active challenge row did not populate focus.blocked_sessions", row.ProductID)
-			}
-			if row.Focus.BlockedSessions[0].SessionRef != readPopulationBlockedSessionRef {
-				t.Fatalf("blocked session %q is not the seeded challenge session %q", row.Focus.BlockedSessions[0].SessionRef, readPopulationBlockedSessionRef)
+		for _, session := range page.Sessions {
+			if session.SessionRef == readPopulationBlockedSessionRef && session.AgentRef == "agent-1" && session.Consequence == "lifecycle" {
+				return
 			}
 		}
-		if gated == 0 {
-			t.Fatal("portfolio names no approval_required focus; the fixture lost its approval-gated focus work")
-		}
+		t.Fatalf("blocked_sessions omits the seeded challenge session, agent, and consequence: %s", result)
 	},
 }
 
@@ -929,7 +894,6 @@ var readPopulationWitnesses = map[string]func(t *testing.T, result json.RawMessa
 var readPopulationRows = map[string][]string{
 	"concord_product_view.resolve":             {"projects"},
 	"concord_product_view.snapshot":            {"previews"},
-	"concord_product_view.portfolio":           {"rows"},
 	"concord_product_view.blocked_sessions":    {"sessions"},
 	"concord_product_view.resources":           {"resources"},
 	"concord_work_browse.list":                 {"items"},
@@ -947,10 +911,8 @@ var readPopulationRows = map[string][]string{
 	"concord_work_trace.project_retirement":    {"blockers"},
 	"concord_work_trace.research":              {"packs"},
 	"concord_knowledge.search":                 {"items"},
-	"concord_knowledge.unprocessed":            {"paths"},
 	"concord_domain.list":                      {"domains"},
 	"concord_domain.detail":                    {"current_law", "relations", "observations"},
-	"concord_domain.active_work":               {"work"},
 	"concord_domain.attachments":               {"attachments.project_attachments", "attachments.resource_attachments"},
 	"concord_domain.overlaps":                  {"pairs"},
 }

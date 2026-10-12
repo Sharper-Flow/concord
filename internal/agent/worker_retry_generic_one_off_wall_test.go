@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -12,32 +14,32 @@ import (
 	"github.com/sharper-flow/concord/internal/store"
 )
 
-// seedGenericOneOffVerifyWorkflow initializes a generic_one_off instance for
-// work-1, pins it at the verify checkpoint under an approved contract, and
+// seedGenericOneOffVerifyWorkflow initializes an implementation instance for
+// work-1, pins it at the refine checkpoint under an approved contract, and
 // seeds the active worktree claim the fenced dispatch requires, so the
-// review-lane dispatch loop the escalation wall arms can run there.
+// review-lane dispatch loop the escalation wall arms can run there. The
+// retained v23 pin predates the worker-job dispatch gate, so the wall's
+// repeated unjobbed dispatches stay admitted, and it keeps the callable
+// record_worker_failure the wall dispositions ride; the archived
+// generic_one_off authoring left the live catalog (CD-0218 D1).
 func seedGenericOneOffVerifyWorkflow(t *testing.T, s *store.Store, grant Authority) string {
 	t.Helper()
-	return seedGenericOneOffWorkflowAtStep(t, s, grant, "verify")
+	return seedGenericOneOffWorkflowAtStep(t, s, grant, "refine")
 }
 
-// seedGenericOneOffWorkflowAtStep seeds the same generic_one_off fixture
+// seedGenericOneOffWorkflowAtStep seeds the same implementation v28 fixture
 // pinned at the named step, so a journey can spend its non-progress budget at
-// an external-effect step and read the wall at a checkpoint step.
+// a step and read the wall at a checkpoint step.
 func seedGenericOneOffWorkflowAtStep(t *testing.T, s *store.Store, grant Authority, step string) string {
 	t.Helper()
 	seedCurrentWorkflowDomainFixture(t, s)
-	lookup, err := store.BuiltinWorkflowDefinitionForRef("workflow.generic_one_off")
-	if err != nil {
-		t.Fatal(err)
-	}
-	registered, err := store.BuiltinWorkflowRegistry().Register(lookup.Definition)
-	if err != nil {
-		t.Fatal(err)
+	lookup, ok := store.BuiltinWorkflowRegistry().Lookup("workflow.implementation", 23)
+	if !ok {
+		t.Fatal("workflow.implementation v23 is not registered")
 	}
 	owner := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
 	if err := s.Transact(context.Background(), func(tx *store.Transaction) error {
-		return store.InitializeWorkflowTx(context.Background(), tx, store.WorkflowInitializationRequest{WorkID: "work-1", Definition: registered, Actor: owner, Now: fixedTime()})
+		return store.InitializeWorkflowTx(context.Background(), tx, store.WorkflowInitializationRequest{WorkID: "work-1", Definition: lookup, Actor: owner, Now: fixedTime()})
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -135,7 +137,7 @@ func verifyWallReviewLane(t *testing.T) store.LaneDefinition {
 // record when one stands: the fold refuses a packet that does not consume it.
 func verifyWallPacket(t *testing.T, s *store.Store, attemptID string, correction *store.WorkflowCorrectionContext) map[string]any {
 	t.Helper()
-	return verifyWallPacketForStep(t, s, attemptID, correction, "verify")
+	return verifyWallPacketForStep(t, s, attemptID, correction, "refine")
 }
 
 // verifyWallPacketForStep builds the same review-lane packet pinned to the
@@ -147,7 +149,7 @@ func verifyWallPacketForStep(t *testing.T, s *store.Store, attemptID string, cor
 	if correction != nil {
 		inputs["correction"] = correction
 	}
-	return bindPacketToRecordedState(t, s, map[string]any{"schema_version": "1.0", "attempt_id": attemptID, "lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest, "work_id": "work-1", "step_id": step, "inputs": inputs})
+	return bindPacketToRecordedState(t, s, map[string]any{"schema_version": store.WorkerPacketSchemaVersion, "attempt_id": attemptID, "lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest, "work_id": "work-1", "step_id": step, "inputs": inputs})
 }
 
 // applyVerifyWallDispatchAndFailure records the lane dispatch on the review
@@ -218,7 +220,7 @@ func verifyWallNoShipFinding() []store.WorkerReviewFinding {
 // dispatch start fenced. Call it immediately after the dispatch it names.
 func verifyWallAttemptEpoch(t *testing.T, s *store.Store) int64 {
 	t.Helper()
-	return verifyWallAttemptEpochAtStep(t, s, "verify")
+	return verifyWallAttemptEpochAtStep(t, s, "refine")
 }
 
 // verifyWallAttemptEpochAtStep reads the latest fenced dispatch start epoch
@@ -259,24 +261,125 @@ func rejectVerifyWallResult(t *testing.T, s *store.Store, grant Authority, attem
 	runGenericOneOffStoreAction(t, s, "reject_worker_result", fields, owner, "", "reject-"+attemptID)
 }
 
+// verifyWallLawHome is the one Git law home the pm1 fixture projected for the
+// wall work item's Product, so the law boundary resolves a mandated law
+// through it alone.
+const (
+	verifyWallLawHomeProject = "project-1"
+	verifyWallLawHomeLocator = "domain-locator-product-1"
+	verifyWallLawID          = "spec:one"
+	verifyWallLawSuccessorID = "spec:two"
+)
+
+// seedVerifyWallLawPins writes the accepted synthetic law the law-pinned
+// contract mandates into the fixture's Git law projection, outside the log
+// like the store's own law fixtures, and publishes the law document the bound
+// locator names inside the home checkout. The mandated law must predate the
+// supersession whose successor derives its revision pins from it.
+func seedVerifyWallLawPins(t *testing.T, s *store.Store) {
+	t.Helper()
+	seedVerifyWallLawDocument(t, s, ".concord/docs/spec.md")
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
+		INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('` + verifyWallLawHomeProject + `','` + verifyWallLawHomeLocator + `','` + verifyWallLawID + `','spec','accepted','.concord/docs/spec.md','Synthetic verify-wall law','sha256:` + strings.Repeat("b", 64) + `','test');
+		INSERT INTO law_domain_homes(home_project_id,home_locator_id,law_id,product_id,domain_id,law_content_hash,scanned_commit_oid,product_wide_rationale) VALUES('` + verifyWallLawHomeProject + `','` + verifyWallLawHomeLocator + `','` + verifyWallLawID + `','product-1','root','sha256:` + strings.Repeat("b", 64) + `','test','');
+		DELETE FROM fold_guard`); err != nil {
+		t.Fatalf("seed the verify-wall law projection: %v", err)
+	}
+}
+
+// staleVerifyWallLawProjection is the honest law rescan: the Git home
+// supersedes the mandated law under an accepted successor, and the projection
+// carries the supersession beside it. The active contract's pinned revision
+// reads stale on the next boundary scan — the ordinary stale-law recovery's
+// own admission ground, with no fixture flag and no forced epoch standing in.
+func staleVerifyWallLawProjection(t *testing.T, s *store.Store) {
+	t.Helper()
+	seedVerifyWallLawDocument(t, s, ".concord/docs/spec-two.md")
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
+		UPDATE law_subjects SET status='superseded' WHERE home_project_id='` + verifyWallLawHomeProject + `' AND home_locator_id='` + verifyWallLawHomeLocator + `' AND law_id='` + verifyWallLawID + `';
+		INSERT INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES('` + verifyWallLawHomeProject + `','` + verifyWallLawHomeLocator + `','` + verifyWallLawSuccessorID + `','spec','accepted','.concord/docs/spec-two.md','Synthetic verify-wall successor law','sha256:` + strings.Repeat("c", 64) + `','test');
+		INSERT INTO law_relations(home_project_id,home_locator_id,source_law_id,kind,target_law_id,scanned_commit_oid) VALUES('` + verifyWallLawHomeProject + `','` + verifyWallLawHomeLocator + `','` + verifyWallLawSuccessorID + `','supersedes','` + verifyWallLawID + `','test');
+		INSERT INTO law_domain_homes(home_project_id,home_locator_id,law_id,product_id,domain_id,law_content_hash,scanned_commit_oid,product_wide_rationale) VALUES('` + verifyWallLawHomeProject + `','` + verifyWallLawHomeLocator + `','` + verifyWallLawSuccessorID + `','product-1','root','sha256:` + strings.Repeat("c", 64) + `','test','');
+		DELETE FROM fold_guard`); err != nil {
+		t.Fatalf("rescan the verify-wall law projection: %v", err)
+	}
+}
+
+// seedVerifyWallLawDocument publishes one bound law document inside the pm1
+// fixture's home checkout, so the law context's confined locator stat opens
+// it the way a real checkout would.
+func seedVerifyWallLawDocument(t *testing.T, s *store.Store, path string) {
+	t.Helper()
+	var home string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT locator_value FROM project_locators WHERE project_id=? AND locator_id=? AND kind='canonical_path'`, verifyWallLawHomeProject, verifyWallLawHomeLocator).Scan(&home); err != nil {
+		t.Fatal(err)
+	}
+	full := filepath.Join(home, filepath.FromSlash(path))
+	if err := os.MkdirAll(filepath.Dir(full), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(full, []byte("# Synthetic verify-wall law\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // supersedeVerifyWallContract runs the operator-approved contract supersession
 // at store level, the changed approach the convergence basis reads. The
 // operator actor is the distinct identity the fold's operator guard demands,
 // and the store-level run mints nothing on the agent challenge table.
 func supersedeVerifyWallContract(t *testing.T, s *store.Store, owner store.WorkflowActor, version, next int64, reason string) {
 	t.Helper()
+	supersedeVerifyWallContractWithPredecessors(t, s, owner, version, next, nil, reason)
+}
+
+// supersedeVerifyWallContractWithPredecessors runs the same store-level
+// supersession with an explicit predecessor list: a duplicated active
+// projection (CD-0172 D6) names the retired rows the successor consumes,
+// where the derived route's singular reader refuses on duplicates.
+func supersedeVerifyWallContractWithPredecessors(t *testing.T, s *store.Store, owner store.WorkflowActor, version, next int64, predecessors []int64, reason string) {
+	t.Helper()
+	supersedeVerifyWallContractWithPredecessorsAndLawPins(t, s, owner, version, next, predecessors, nil, reason)
+}
+
+// supersedeVerifyWallContractWithLawPins is the canonical law-retaining case
+// of the same store-level supersession: the successor's spec_mandate carries
+// the named law pins, so a later Git-law rescan can supersede one and the
+// ordinary stale-law recovery owns the renewal. Every mandated law must stand
+// accepted in the fixture's Git law projection when the successor derives its
+// revision pins.
+func supersedeVerifyWallContractWithLawPins(t *testing.T, s *store.Store, owner store.WorkflowActor, version, next int64, mandate []string, reason string) {
+	t.Helper()
+	supersedeVerifyWallContractWithPredecessorsAndLawPins(t, s, owner, version, next, nil, mandate, reason)
+}
+
+func supersedeVerifyWallContractWithPredecessorsAndLawPins(t *testing.T, s *store.Store, owner store.WorkflowActor, version, next int64, predecessors []int64, mandate []string, reason string) {
+	t.Helper()
 	approvalRef := strings.Repeat("a", 64)
 	operator := store.WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "approval:" + approvalRef, SessionRef: "session/verify-wall-supersede", ActorClass: store.ActorOperator}
 	fields := map[string]any{
 		"contract_version": next,
-		"premise":          fmt.Sprintf("corrected verify objective %d: %s", next, reason),
-		"outcome_predicates": []map[string]any{{
-			"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "check",
-			"outcome_payload": map[string]any{"kind": "check", "check_ref": "check:workflow", "immutable_subject_ref": "commit:verify-review", "expected_result": "pass"},
-		}},
-		"required_evidence": []string{"artifact"}, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{},
-		"rigor_class": "prototype_internal", "supersede_reason": reason, "audit_evidence": []string{"evidence:verify-wall-supersede"},
 	}
+	if predecessors != nil {
+		fields["predecessor_contract_versions"] = predecessors
+	}
+	fields["premise"] = fmt.Sprintf("corrected verify objective %d: %s", next, reason)
+	fields["outcome_predicates"] = []map[string]any{{
+		"predicate_id": "predicate:primary", "ordinal": 0, "outcome_kind": "check",
+		"outcome_payload": map[string]any{"kind": "check", "check_ref": "check:workflow", "immutable_subject_ref": "commit:verify-review", "expected_result": "pass"},
+	}}
+	// The retained implementation family is Product-changing: the
+	// successor carries the complete architecture binding.
+	fields["architecture_binding"] = workflowArchitectureBindingFixture()
+	fields["required_evidence"] = []string{"artifact"}
+	fields["route_conventions"] = []string{}
+	fields["spec_mandate"] = mandate
+	if mandate == nil {
+		fields["spec_mandate"] = []string{}
+	}
+	fields["law_modifies"] = []string{}
+	fields["rigor_class"] = "prototype_internal"
+	fields["supersede_reason"] = reason
+	fields["audit_evidence"] = []string{"evidence:verify-wall-supersede"}
 	raw, err := json.Marshal(fields)
 	if err != nil {
 		t.Fatal(err)
@@ -316,7 +419,7 @@ func verifyWallChallenges(t *testing.T, s *store.Store) int {
 // version, the recorded lane packet, and the standing correction record.
 func verifyWallDispatchInput(t *testing.T, s *store.Store, attemptID, key string, correction *store.WorkflowCorrectionContext) (map[string]any, []byte) {
 	t.Helper()
-	return verifyWallDispatchInputForStep(t, s, attemptID, key, correction, "verify")
+	return verifyWallDispatchInputForStep(t, s, attemptID, key, correction, "refine")
 }
 
 // verifyWallDispatchInputForStep builds the same boundary input with the
@@ -514,7 +617,7 @@ func TestGenericOneOffEscalatedWallAdmitsOnlyBehindStoreConvergence(t *testing.T
 	if refused.Error == nil || refused.Error.Kind != "missing_evidence" {
 		t.Fatalf("escalated retry without a basis = %+v, want missing_evidence", refused.Error)
 	}
-	if !strings.Contains(refused.Error.Message, "worker correction reached the three-attempt limit without a convergence basis: 3 non-progress attempts since the last accepted productive result (step verify)") {
+	if !strings.Contains(refused.Error.Message, "worker correction reached the three-attempt limit without a convergence basis: 3 non-progress attempts since the last accepted productive result (step refine)") {
 		t.Fatalf("escalated refusal does not name the counted population: %q", refused.Error.Message)
 	}
 	if refused.Error.RecoveryAction.Kind != "provide_evidence" {
@@ -626,6 +729,11 @@ func TestGenericOneOffEscalatedWallAdmitsOnlyBehindStoreConvergence(t *testing.T
 		t.Fatalf("blind re-dispatch changed the work version %d -> %d", version, after)
 	}
 
+	// The interrupted attempt's terminal fact lands and the released pin's
+	// store-level record disposition follows; the recorded failed correction
+	// is what stales the contract for the renewed supersession.
+	recordWorkflowFailureForPin(t, s, grant, retryID, 0, "verify-wall-interrupted")
+
 	// A fresh supersession derives a fresh basis, and each basis buys
 	// exactly one more fresh fenced attempt.
 	supersedeVerifyWallContract(t, s, owner, workVersion(t, s, "work-1"), 3, "the interrupted converging retry needed a renewed approach")
@@ -704,7 +812,7 @@ func TestGenericOneOffFindingsConvergenceAdmitsOneEscalatedRetry(t *testing.T) {
 				}
 				// The rejected rounds are the counted population now, so
 				// the refusal names all three non-progress attempts.
-				if !strings.Contains(attempt.Error.Message, "worker correction reached the three-attempt limit without a convergence basis: 3 non-progress attempts since the last accepted productive result (step verify)") {
+				if !strings.Contains(attempt.Error.Message, "worker correction reached the three-attempt limit without a convergence basis: 3 non-progress attempts since the last accepted productive result (step refine)") {
 					t.Fatalf("refusal does not name the counted population: %q", attempt.Error.Message)
 				}
 				if got := verifyWallChallenges(t, s); got != 0 {
@@ -764,7 +872,7 @@ func mustScopeVersion(t *testing.T, s *store.Store) string {
 // still admits over the spent budget, with no approval challenge.
 func TestGenericOneOffNonProgressBudgetSpansStepsAndNoShipAcceptances(t *testing.T) {
 	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition", "worker_dispatch"})
-	worktree := seedGenericOneOffWorkflowAtStep(t, s, grant, "execute")
+	worktree := seedGenericOneOffWorkflowAtStep(t, s, grant, "execution")
 	grant.Worktree = worktree
 	env := mutationEnvelope(grant, mustScopeVersion(t, s))
 	owner := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
@@ -790,7 +898,7 @@ func TestGenericOneOffNonProgressBudgetSpansStepsAndNoShipAcceptances(t *testing
 	runGenericOneOffStoreAction(t, s, "dispatch_worker", map[string]any{
 		"attempt_id": third, "worker_packet": verifyWallPacketForStep(t, s, third, nil, "execute"),
 	}, owner, worktree, "noship-dispatch-3")
-	thirdEpoch := verifyWallAttemptEpochAtStep(t, s, "execute")
+	thirdEpoch := verifyWallAttemptEpochAtStep(t, s, "execution")
 	recordGenericOneOffWorkerDispatch(t, s, grant, third, "noship-materialize-3")
 	recordGenericOneOffWorkerReviewCompletion(t, s, third, "no_ship", verifyWallNoShipFinding())
 	pin, err := store.ReadWorkPin(context.Background(), s, "work-1")
@@ -811,7 +919,7 @@ func TestGenericOneOffNonProgressBudgetSpansStepsAndNoShipAcceptances(t *testing
 	if refused.Error == nil || refused.Error.Kind != "missing_evidence" {
 		t.Fatalf("retry behind the mixed non-progress population = %+v, want missing_evidence", refused.Error)
 	}
-	if !strings.Contains(refused.Error.Message, "worker correction reached the three-attempt limit without a convergence basis: 3 non-progress attempts since the last accepted productive result (step execute)") {
+	if !strings.Contains(refused.Error.Message, "worker correction reached the three-attempt limit without a convergence basis: 3 non-progress attempts since the last accepted productive result (step execution)") {
 		t.Fatalf("refusal does not name the mixed non-progress population: %q", refused.Error.Message)
 	}
 	if refused.Error.RecoveryAction.Kind != "provide_evidence" {
@@ -831,15 +939,15 @@ func TestGenericOneOffNonProgressBudgetSpansStepsAndNoShipAcceptances(t *testing
 	// binds the findings and advances the step, but renews no budget, and
 	// the step entry it lands on renews none either.
 	runGenericOneOffStoreAction(t, s, "accept_worker_result", map[string]any{"attempt_id": third, "attempt_epoch": thirdEpoch}, owner, "", "accept-noship-3")
-	if step := verifyWallCurrentStep(t, s); step != "verify" {
-		t.Fatalf("accepted no_ship review left the instance at step %q, want the advanced verify step", step)
+	if step := verifyWallCurrentStep(t, s); step != "refine" {
+		t.Fatalf("accepted no_ship review left the instance at step %q, want the advanced refine step", step)
 	}
 	if got := verifyWallChallenges(t, s); got != 0 {
 		t.Fatalf("no_ship acceptance minted %d approval challenges, want 0", got)
 	}
 	version = workVersion(t, s, "work-1")
 	fourthID := "attempt:work-1:verify-wall-5"
-	_, spentRaw := verifyWallDispatchInputForStep(t, s, fourthID, "noship-convergence-2", nil, "verify")
+	_, spentRaw := verifyWallDispatchInputForStep(t, s, fourthID, "noship-convergence-2", nil, "refine")
 	env.RequestID = "request:noship-convergence-2"
 	spent := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: spentRaw}, env)
 	if spent.Error == nil || spent.Error.Kind != "missing_evidence" {
@@ -847,7 +955,7 @@ func TestGenericOneOffNonProgressBudgetSpansStepsAndNoShipAcceptances(t *testing
 	}
 	// The budget was spent at execute and the refusal names it at the new
 	// step: the population counts across steps and nothing renewed it.
-	if !strings.Contains(spent.Error.Message, "worker correction reached the three-attempt limit without a convergence basis: 3 non-progress attempts since the last accepted productive result (step verify)") {
+	if !strings.Contains(spent.Error.Message, "worker correction reached the three-attempt limit without a convergence basis: 3 non-progress attempts since the last accepted productive result (step refine)") {
 		t.Fatalf("refusal after the no_ship acceptance does not name the spent population: %q", spent.Error.Message)
 	}
 	if got := verifyWallChallenges(t, s); got != 0 {
@@ -864,7 +972,7 @@ func TestGenericOneOffNonProgressBudgetSpansStepsAndNoShipAcceptances(t *testing
 	// superseded approach opens the wall for exactly one fresh attempt
 	// without any approval challenge.
 	supersedeVerifyWallContract(t, s, owner, workVersion(t, s, "work-1"), 2, "the spent non-progress budget demanded a changed approach")
-	_, admittedRaw := verifyWallDispatchInputForStep(t, s, fourthID, "noship-convergence-3", nil, "verify")
+	_, admittedRaw := verifyWallDispatchInputForStep(t, s, fourthID, "noship-convergence-3", nil, "refine")
 	env.RequestID = "request:noship-convergence-3"
 	admitted := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: admittedRaw}, env)
 	if admitted.Outcome != OutcomeOK {

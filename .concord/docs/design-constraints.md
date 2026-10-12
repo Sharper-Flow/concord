@@ -39,7 +39,7 @@ snapshots never masquerade as current authority.
 
 **Implication.** CD-0006 R3 retains declared `modifies` and hard/soft
 `depends_on` edges, completion-time breaking/non-breaking notices, and bounded
-downstream checks. CD-0041 adds a typed architecture binding to every
+downstream checks. CD-0222 adds a typed architecture binding to every
 Product-changing contract. Intersecting affected Domains require a resolution
 pinned to both contract versions before both items hold execution authority;
 exact law/Domain/relation writes are marked as write overlap. The check reruns
@@ -332,7 +332,7 @@ traceability and implementation conformance, not as active blockers.
 | Constraint | Touched priority | Companion doc |
 |---|---|---|
 | §1 concurrency | 2, 5 | [`product-data-model.md`](./product-data-model.md) |
-| §2 law/architecture impact | 1, 3, 4, 5 | [`decisions/CD-0041-architecture-bound-product-law.md`](./decisions/CD-0041-architecture-bound-product-law.md) |
+| §2 law/architecture impact | 1, 3, 4, 5 | [`decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md`](./decisions/CD-0222-architecture-bound-product-law-with-package-boundary-code-ownership.md) |
 | §3 idle-boundary updates | 2, 6 | [`workflows.md`](./workflows.md) |
 | §4 bounded writer admission / no repair | 2 | [`clarifications.md`](./clarifications.md) C2 |
 | §5 fast read-path | 4 | [`rollout-plan.md`](./rollout-plan.md) |

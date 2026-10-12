@@ -15,7 +15,7 @@ import (
 // refusal: the subject's own pin check passes, so the boundary's answer is
 // the unresolved-overlap refusal with its four recovery routes, exactly as it
 // is for an unresolved overlap beside a current-pinned peer. The stranded
-// peer's marker keeps opening the peer's own re-pin route (CD-0041 D7), and a
+// peer's marker keeps opening the peer's own re-pin route (CD-0222 D7), and a
 // recorded resolution admits the subject's dispatch.
 func TestStaleRegistryRescanStrandsCurrentPinDispatchBesideStalePeer(t *testing.T) {
 	const workID = "stale-registry-current-pin-dispatch"

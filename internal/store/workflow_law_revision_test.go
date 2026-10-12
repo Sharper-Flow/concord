@@ -36,7 +36,7 @@ func TestWorkflowContractRecoveryPayloadAcceptsPredicateArray(t *testing.T) {
 		"required_evidence":  []string{"verification"}, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{},
 		"rigor_class": "prototype_internal", "supersede_reason": "correct the accepted premise", "audit_evidence": []string{"evidence:audit"},
 	})
-	if err := validateWorkflowContractRecoveryPayload(raw); err != nil {
+	if err := validateWorkflowContractRecoveryPayload(WorkflowDefinition{}, raw); err != nil {
 		t.Fatalf("predicate-array successor payload refused: %v", err)
 	}
 	legacyAndArray := mustJSONValue(map[string]any{
@@ -44,7 +44,7 @@ func TestWorkflowContractRecoveryPayloadAcceptsPredicateArray(t *testing.T) {
 		"outcome_kind": "check", "outcome_payload": map[string]any{"kind": "check"}, "required_evidence": []string{}, "route_conventions": []string{}, "spec_mandate": []string{}, "law_modifies": []string{},
 		"rigor_class": "prototype_internal", "supersede_reason": "ambiguous", "audit_evidence": []string{"evidence:audit"},
 	})
-	if err := validateWorkflowContractRecoveryPayload(legacyAndArray); err == nil {
+	if err := validateWorkflowContractRecoveryPayload(WorkflowDefinition{}, legacyAndArray); err == nil {
 		t.Fatal("successor payload accepted both outcome shapes")
 	}
 }

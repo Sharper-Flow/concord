@@ -21,7 +21,7 @@
   record
 - **Related:** CD-0014, CD-0108, CD-0219
 - **Preserves:** the store materialization contracts the record documented —
-  `internal/store/product_row.go`, `internal/store/domain_reads.go`,
+  `internal/store/domain_reads.go`,
   `cmd/concord/session.go` — and the versioned-write meaning of `updated_at`
 - **Supersedes:** nothing
 
@@ -33,10 +33,11 @@ and bare `concord` prints usage. The S2 answer-stack clauses of this record
 are vacated with the screen they rendered.
 
 The store materialization the record documented keeps its owning contracts.
-`internal/store/product_row.go` derives the five-tier Product attention kind.
+The five-tier Product attention kind retired with the Product-row read under
+CD-0224, and no live query derives it.
 `internal/store/domain_reads.go` resolves the governing Domain and its
 architecture overlap. `cmd/concord/session.go` carries the session input, and
-`internal/store/launcher_query.go` keeps the bounded forwarding reads the
+`internal/store/landing_project_query.go` keeps the bounded forwarding reads the
 session entry route applies. No fold-maintained last-activity stamp survives:
 migration 109 drops the `work_items.last_activity_at` column the 2026-09-28
 amendment carried, so no release's writes can drift a stored stamp behind the

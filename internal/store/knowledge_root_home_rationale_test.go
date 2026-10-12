@@ -8,7 +8,7 @@ import (
 )
 
 // The root Domain is the only home a record can carry without deciding
-// anything, and CD-0041 D2 makes it legitimate for Product-wide law. Those two
+// anything, and CD-0222 D2 makes it legitimate for Product-wide law. Those two
 // facts together mean a record that defaulted to the root and a record that
 // belongs there are indistinguishable once written. CD-0059 reached the root
 // exactly that way.

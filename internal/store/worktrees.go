@@ -580,9 +580,8 @@ type WorktreeClaimCreation struct {
 // transaction re-validates the durable state against it and records the
 // verified locator.
 type WorktreeClaimNative struct {
-	Location   WorktreeLocation
-	Facts      worktreeFacts
-	navigation *workContextNavigationProof
+	Location WorktreeLocation
+	Facts    worktreeFacts
 	// CreatedBranch records whether this operation created the branch itself,
 	// as opposed to adopting one a prior attempt left behind. Compensation
 	// may remove only what this operation created.
@@ -657,7 +656,6 @@ func ClaimWorktreeTx(ctx context.Context, transaction *Transaction, req Worktree
 	if req.Now.IsZero() {
 		req.Now = transaction.now()
 	}
-	transaction.navigation = mergeWorkContextNavigationProof(transaction.navigation, native.navigation)
 	return claimWorktreeStoreTx(ctx, tx, req, native)
 }
 
@@ -673,6 +671,9 @@ func (s *Store) PrepareWorktreeClaimNative(ctx context.Context, req WorktreeClai
 	}
 	if !worktreeSHAPattern.MatchString(req.BaseSHA) {
 		return native, nil, newFailure(KindInvalidOperation, "worktree_claim", "base is not a full commit SHA", false, "pin the exact base commit SHA")
+	}
+	if err := s.RequireActionableWork(ctx, req.WorkID, "worktree_claim"); err != nil {
+		return native, nil, err
 	}
 	runner := req.Runner
 	if runner == nil {
@@ -729,7 +730,6 @@ func (s *Store) PrepareWorktreeClaimNative(ctx context.Context, req WorktreeClai
 	}
 	native.Facts = facts
 	if created {
-		native.navigation = prepareClaimNavigation(ctx, s, req, location.Path)
 		return native, nil, nil
 	}
 	// A branch left by a prior failed claim can be adopted only when it
@@ -763,7 +763,6 @@ func (s *Store) PrepareWorktreeClaimNative(ctx context.Context, req WorktreeClai
 		return native, createdTree, newFailure(KindGitUnreachable, "worktree_claim", "created worktree did not verify against the pinned intent", false, "contact_operator")
 	}
 	native.Facts = facts
-	native.navigation = prepareClaimNavigation(ctx, s, req, location.Path)
 	return native, createdTree, nil
 }
 
@@ -773,6 +772,9 @@ func (s *Store) PrepareWorktreeClaimNative(ctx context.Context, req WorktreeClai
 // (CD-0195 D2).
 func claimWorktreeStoreTx(ctx context.Context, tx *sql.Tx, req WorktreeClaimRequest, native WorktreeClaimNative) (WorktreeClaimResult, error) {
 	out := WorktreeClaimResult{}
+	if err := requireActionableWork(ctx, tx, req.WorkID, "worktree_claim"); err != nil {
+		return out, err
+	}
 	location := native.Location
 	derivedBranch, derivedPath, repoRoot := location.Branch, location.Path, location.Repo
 	if err := validateWorktreeProjectMembershipTx(ctx, tx, req.WorkID, req.ProjectID, "worktree_claim"); err != nil {
@@ -4408,7 +4410,7 @@ func readWorktreeAuditRows(ctx context.Context, db *sql.DB, productID string) (w
 		return out, err
 	}
 	out.entries = entries
-	stranded, err := collectAuditQuery(ctx, db, "cannot read work lifecycle", `SELECT w.id FROM work_items w JOIN worktree_entries e ON e.set_id=?||w.id JOIN product_projects pp ON pp.project_id=e.project_id WHERE pp.product_id=? AND e.state='active' AND w.lifecycle='needed'`, []any{worktreeSetPrefix, productID}, func(r *sql.Rows) (string, error) {
+	stranded, err := collectAuditQuery(ctx, db, "cannot read work lifecycle", `SELECT w.id FROM work_items w JOIN worktree_entries e ON e.set_id=?||w.id JOIN product_projects pp ON pp.project_id=e.project_id WHERE pp.product_id=? AND e.state='active' AND w.lifecycle='needed' AND w.`+actionableWorkKindSQL, []any{worktreeSetPrefix, productID}, func(r *sql.Rows) (string, error) {
 		var id string
 		if err := r.Scan(&id); err != nil {
 			return "", err

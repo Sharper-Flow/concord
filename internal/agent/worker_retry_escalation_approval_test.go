@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"crypto/ed25519"
 	"encoding/json"
 	"fmt"
 	"strconv"
@@ -28,7 +29,7 @@ import (
 // stored convergence basis admits.
 func TestEscalatedFailedCorrectionWallAdmitsOnlyBehindApproachConvergence(t *testing.T) {
 	s, service, grant, privateKey := mutationDispatchFixture(t, []Capability{"work_transition", "worker_dispatch"})
-	version, failedAttemptID, worktree := seedEscalatedFailedWorkerMutation(t, s, service, grant)
+	version, failedAttemptID, worktree := seedEscalatedFailedWorkerMutation(t, s, service, grant, privateKey)
 	grant.Worktree = worktree
 	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
 	if err != nil {
@@ -36,9 +37,10 @@ func TestEscalatedFailedCorrectionWallAdmitsOnlyBehindApproachConvergence(t *tes
 	}
 	env := mutationEnvelope(grant, scopeVersion)
 	owner := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
-	if got := verifyWallChallenges(t, s); got != 0 {
-		t.Fatalf("fixture minted %d approval challenges, want 0", got)
-	}
+	// The seed's second and third below-wall retries consume the ordinary
+	// failed-retry approvals; the wall itself must mint nothing beyond that
+	// baseline.
+	seedChallenges := verifyWallChallenges(t, s)
 
 	// The armed wall keeps no approvable identity: the retry approval binding
 	// the ordinary failed-retry route mints is absent behind the escalation.
@@ -75,7 +77,7 @@ func TestEscalatedFailedCorrectionWallAdmitsOnlyBehindApproachConvergence(t *tes
 	if ref, ok := refused.Error.Details["approval_ref"].(string); ok && ref != "" {
 		t.Fatalf("escalated refusal carries approval_ref %q, but no challenge was minted", ref)
 	}
-	if got := verifyWallChallenges(t, s); got != 0 {
+	if got := verifyWallChallenges(t, s); got != seedChallenges {
 		t.Fatalf("escalated refusal minted %d approval challenges, want 0", got)
 	}
 	if got := verifyWallDispatchCompletions(t, s, retryID); got != 0 {
@@ -98,14 +100,16 @@ func TestEscalatedFailedCorrectionWallAdmitsOnlyBehindApproachConvergence(t *tes
 		t.Fatal(err)
 	}
 	scope := map[string]any{"product_id": "product-1", "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}, "failed_attempt_id": failedAttemptID, "scope_version": scopeVersion}
-	versions := map[string]any{"work": version, "contract": int64(1), "failed_attempt_epoch": int64(3)}
+	// The supplied approval binds the identity the pre-CON885 wall would have
+	// minted a challenge for: the failed attempt's own derived window epoch.
+	versions := map[string]any{"work": version, "contract": int64(1), "failed_attempt_epoch": attemptEpoch(t, s, failedAttemptID)}
 	env.HostApproval = signedHostApproval(privateKey, strings.Repeat("b", 64), mutationDigest("concord_work_transition", "workflow_action", env, approvedRaw), scope, versions, grant.SessionRef, grant.AgentRef, grant.Worktree, fixedTime(), "escalated-convergence-unused-approval")
 	env.RequestID = "request:escalated-convergence-2"
 	bypass := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: approvedRaw}, env)
 	if bypass.Error == nil || bypass.Error.Kind != "missing_evidence" {
 		t.Fatalf("escalated retry behind a supplied approval = %+v, want missing_evidence", bypass.Error)
 	}
-	if got := verifyWallChallenges(t, s); got != 0 {
+	if got := verifyWallChallenges(t, s); got != seedChallenges {
 		t.Fatalf("supplied approval minted %d approval challenges, want 0", got)
 	}
 	if after := workVersion(t, s, "work-1"); after != version {
@@ -147,14 +151,16 @@ func TestEscalatedFailedCorrectionWallAdmitsOnlyBehindApproachConvergence(t *tes
 	if admitted.Outcome != OutcomeOK {
 		t.Fatalf("converging escalated retry without any approval = %+v", admitted.Error)
 	}
-	if got := verifyWallChallenges(t, s); got != 0 {
+	if got := verifyWallChallenges(t, s); got != seedChallenges {
 		t.Fatalf("converging escalated retry minted %d approval challenges, want 0", got)
 	}
 	if got := verifyWallDispatchCompletions(t, s, retryID); got != 1 {
 		t.Fatalf("converging escalated retry recorded %d dispatch completions, want 1", got)
 	}
-	if epoch := escalatedDispatchEpoch(t, s); epoch != 4 {
-		t.Fatalf("converging escalated retry epoch=%d, want the fresh fenced epoch 4", epoch)
+	// The basis buys exactly one fresh fenced epoch: the next one after the
+	// seed's failed attempt. Refused wall dispatches claim no epoch.
+	if epoch := escalatedDispatchEpoch(t, s); epoch != attemptEpoch(t, s, failedAttemptID)+1 {
+		t.Fatalf("converging escalated retry epoch=%d, want the fresh fenced epoch after the seed's %d", epoch, attemptEpoch(t, s, failedAttemptID))
 	}
 	basis := verifyWallRecordedConvergence(t, s, retryID)
 	if basis.Basis != "approach_changed" || basis.SupersededSeq == 0 || basis.PreviousRecordSeq != 0 || basis.LatestRecordSeq != 0 {
@@ -194,7 +200,7 @@ func TestEscalatedFailedCorrectionWallAdmitsOnlyBehindApproachConvergence(t *tes
 	if blind.Error == nil || blind.Error.Kind != "missing_evidence" {
 		t.Fatalf("blind re-dispatch after the consumed basis = %+v, want missing_evidence", blind.Error)
 	}
-	if got := verifyWallChallenges(t, s); got != 0 {
+	if got := verifyWallChallenges(t, s); got != seedChallenges {
 		t.Fatalf("blind re-dispatch minted %d approval challenges, want 0", got)
 	}
 	if got := verifyWallDispatchCompletions(t, s, secondID); got != 0 {
@@ -205,12 +211,17 @@ func TestEscalatedFailedCorrectionWallAdmitsOnlyBehindApproachConvergence(t *tes
 	}
 
 	// The admitted attempt fails and the failure records: the correction
-	// re-arms at four counted failures bound to the new attempt identity, and
-	// the wall still keeps no approval binding.
-	recordFailureForEscalatedRetry(t, s, service, grant, retryID, 4)
+	// re-arms at four counted failures bound to the new attempt identity at
+	// the attempt's own fenced epoch, and the wall still keeps no approval
+	// binding.
+	recordWorkflowFailureForPin(t, s, grant, retryID, 0, "escalated-retry")
 	rearmed := verifyWallPinCorrection(t, s)
-	if rearmed.Disposition != "failed" || !rearmed.Escalated || rearmed.AttemptCount != 4 || rearmed.FailedAttemptID != retryID || rearmed.FailedAttemptEpoch != 4 {
-		t.Fatalf("re-armed correction = %+v, want four counted failures bound to %s at epoch 4", rearmed, retryID)
+	if rearmed.Disposition != "failed" || !rearmed.Escalated || rearmed.AttemptCount != 4 || rearmed.FailedAttemptID != retryID {
+		t.Fatalf("re-armed correction = %+v, want four counted failures bound to %s", rearmed, retryID)
+	}
+	retryAttemptEpoch := attemptEpoch(t, s, retryID)
+	if rearmed.FailedAttemptEpoch != retryAttemptEpoch {
+		t.Fatalf("re-armed correction epoch %d, want the admitted attempt's own fenced epoch %d", rearmed.FailedAttemptEpoch, retryAttemptEpoch)
 	}
 	if binding, err := store.WorkflowFailedWorkerRetryBinding(context.Background(), s, nil, "work-1"); err != nil || binding != nil {
 		t.Fatalf("retry approval binding behind the re-armed wall = %+v err=%v, want none", binding, err)
@@ -233,11 +244,14 @@ func TestEscalatedFailedCorrectionWallAdmitsOnlyBehindApproachConvergence(t *tes
 	if renewed.Outcome != OutcomeOK {
 		t.Fatalf("renewed converging retry = %+v", renewed.Error)
 	}
-	if got := verifyWallChallenges(t, s); got != 0 {
+	if got := verifyWallChallenges(t, s); got != seedChallenges {
 		t.Fatalf("the whole escalated journey minted %d approval challenges, want 0", got)
 	}
-	if epoch := escalatedDispatchEpoch(t, s); epoch != 5 {
-		t.Fatalf("renewed converging retry epoch=%d, want the fresh fenced epoch 5", epoch)
+	// The renewed basis buys the next fresh fenced epoch after the failed
+	// converging retry's own.
+	renewedWantEpoch := attemptEpoch(t, s, retryID) + 1
+	if epoch := escalatedDispatchEpoch(t, s); epoch != renewedWantEpoch {
+		t.Fatalf("renewed converging retry epoch=%d, want the fresh fenced epoch %d", epoch, renewedWantEpoch)
 	}
 	renewedBasis := verifyWallRecordedConvergence(t, s, secondID)
 	if renewedBasis.Basis != "approach_changed" || renewedBasis.SupersededSeq <= basis.SupersededSeq {
@@ -283,7 +297,7 @@ func escalatedDispatchEpoch(t *testing.T, s *store.Store) int64 {
 // so the fourth dispatch faces the escalated wall with a durable failed
 // attempt identity. The wall itself owns no approval binding under CON885,
 // so the seed pins only the correction record.
-func seedEscalatedFailedWorkerMutation(t *testing.T, s *store.Store, service *Service, grant Authority) (int64, string, string) {
+func seedEscalatedFailedWorkerMutation(t *testing.T, s *store.Store, service *Service, grant Authority, privateKey ed25519.PrivateKey) (int64, string, string) {
 	t.Helper()
 	if got := seedAgentWorkflow(t, s, grant); got != 4 {
 		t.Fatalf("workflow seed version=%d, want 4", got)
@@ -310,11 +324,7 @@ func seedEscalatedFailedWorkerMutation(t *testing.T, s *store.Store, service *Se
 	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worktree_entries WHERE set_id=? AND state='active'`, store.WorktreeSetID("work-1")).Scan(&claimed); err != nil || claimed != 1 {
 		t.Fatalf("escalated worktree claim count=%d err=%v", claimed, err)
 	}
-	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	recordReadyRetryJob(t, s, service, mutationEnvelope(grant, scopeVersion), "job:retry-objective")
+	grant.Worktree = path
 	version := workVersion(t, s, "work-1")
 	attemptID := ""
 	for cycle := int64(1); cycle <= 3; cycle++ {
@@ -327,20 +337,82 @@ func seedEscalatedFailedWorkerMutation(t *testing.T, s *store.Store, service *Se
 		if start.Outcome != OutcomeOK {
 			t.Fatalf("seed escalated start %d: %+v", cycle, start.Error)
 		}
-		applyEscalatedWorkerDispatchAndFailure(t, s, grant, attemptID, "escalated")
+		// Each cycle executes its own recorded job: an accepted job is
+		// satisfied and never redispatches, and a failed attempt leaves its
+		// revision ready, so the cycle's dispatch binds a fresh one.
+		recordReadyRetryJob(t, s, service, mutationEnvelope(grant, scopeVersion), "job:escalated-"+strconv.FormatInt(cycle, 10))
+		env := mutationEnvelope(grant, scopeVersion)
 		version = workVersion(t, s, "work-1")
-		record := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: retryJSON(map[string]any{"work_id": "work-1", "expected_version": version, "action_id": "record_worker_failure", "fields": map[string]any{"attempt_id": attemptID, "attempt_epoch": cycle}, "idempotency_key": "escalated-record-" + strconv.FormatInt(cycle, 10)})}, mutationEnvelope(grant, scopeVersion))
-		if record.Outcome != OutcomeOK {
-			t.Fatalf("seed escalated failure record %d: %+v", cycle, record.Error)
+		// After a failed correction the dispatch packet consumes the live
+		// correction context the pin carries; cycle 1 carries none. The
+		// packet selects the freshly recorded ready job explicitly, as the
+		// adapter does, so earlier failed revisions never shadow it.
+		pin, pinErr := store.ReadWorkPin(context.Background(), s, "work-1")
+		if pinErr != nil {
+			t.Fatal(pinErr)
 		}
-		version = workVersion(t, s, "work-1")
+		lane := retryLane(t)
+		inputs := map[string]any{"task": "carry out the escalated objective", "constraints": []string{"preserve the approved contract"}}
+		if pin.Correction != nil {
+			inputs["correction"] = pin.Correction
+		}
+		snapshot, snapshotErr := store.ReadWorkflowContinuity(context.Background(), s, store.ContinuityRequest{Work: "work-1"})
+		if snapshotErr != nil {
+			t.Fatal(snapshotErr)
+		}
+		if len(snapshot.ReadyWorkerJobs) == 0 {
+			t.Fatalf("seed escalated dispatch %d: no ready worker job to select", cycle)
+		}
+		selected, selectErr := json.Marshal(snapshot.ReadyWorkerJobs[len(snapshot.ReadyWorkerJobs)-1])
+		if selectErr != nil {
+			t.Fatal(selectErr)
+		}
+		inputs["worker_job"] = json.RawMessage(selected)
+		packet := bindPacketToRecordedState(t, s, map[string]any{"schema_version": store.WorkerPacketSchemaVersion, "attempt_id": attemptID, "lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest, "work_id": "work-1", "step_id": "execution", "inputs": inputs})
+		input := map[string]any{
+			"work_id": "work-1", "expected_version": version, "action_id": "dispatch_worker", "idempotency_key": "escalated-dispatch-" + strconv.FormatInt(cycle, 10),
+			"fields": map[string]any{"attempt_id": attemptID, "worker_packet": packet},
+		}
+		raw, marshalErr := json.Marshal(input)
+		if marshalErr != nil {
+			t.Fatal(marshalErr)
+		}
+		dispatched := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: raw}, env)
+		if dispatched.Outcome == OutcomeError && dispatched.Error != nil && dispatched.Error.Kind == "approval_required" {
+			// A retry after a failed correction consumes the ordinary
+			// below-wall failed-retry approval, signed against the exact
+			// bindings the challenge minted.
+			challengeRef, refOK := dispatched.Error.Details["approval_ref"].(string)
+			if !refOK || challengeRef == "" {
+				t.Fatalf("seed escalated retry challenge %d: %+v", cycle, dispatched.Error)
+			}
+			scope, versions := challengeApprovalBindings(t, dispatched.Error.ConsequenceSummary)
+			approvedRaw := retryJSON(cloneWithApproval(t, input, challengeRef))
+			env.HostApproval = signedHostApproval(privateKey, challengeRef, mutationDigest("concord_work_transition", "workflow_action", env, approvedRaw), scope, versions, grant.SessionRef, grant.AgentRef, grant.Worktree, fixedTime(), nonceForChallenge(challengeRef))
+			dispatched = dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: approvedRaw}, env)
+			env.HostApproval = nil
+		}
+		if dispatched.Outcome != OutcomeOK {
+			t.Fatalf("seed escalated dispatch %d: %+v", cycle, dispatched.Error)
+		}
+		version = recordWorkflowFailureForPin(t, s, grant, attemptID, 0, "escalated-seed-"+strconv.FormatInt(cycle, 10))
 	}
 	pin, err := store.ReadWorkPin(context.Background(), s, "work-1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if pin.Correction == nil || !pin.Correction.Escalated || pin.Correction.AttemptCount != 3 || pin.Correction.FailedAttemptID != attemptID || pin.Correction.FailedAttemptEpoch != 3 {
-		t.Fatalf("escalated correction = %#v, want three failed attempts", pin.Correction)
+	// The derived failure record binds the dispatch window's own epoch, not
+	// a literal cycle count: the substance is three counted failed attempts
+	// bound to the third attempt's identity and its fenced epoch.
+	// Behind the escalated wall the retry approval binding is absent (the
+	// wall owns no approvable identity), so the fenced epoch comes from the
+	// failed attempt's own worker-attempt row.
+	failedAttemptEpoch := attemptEpoch(t, s, attemptID)
+	if pin.Correction == nil || !pin.Correction.Escalated || pin.Correction.AttemptCount != 3 || pin.Correction.FailedAttemptID != attemptID {
+		t.Fatalf("escalated correction = %#v, want three failed attempts bound to %s", pin.Correction, attemptID)
+	}
+	if pin.Correction.FailedAttemptEpoch != failedAttemptEpoch {
+		t.Fatalf("escalated correction epoch %d, want the third attempt's own fenced epoch %d", pin.Correction.FailedAttemptEpoch, failedAttemptEpoch)
 	}
 	return version, attemptID, path
 }
@@ -406,25 +478,60 @@ func applyEscalatedWorkerDispatchAndFailure(t *testing.T, s *store.Store, grant 
 		if _, err := store.AppendLaneActorDispatchTx(context.Background(), tx, enriched); err != nil {
 			return err
 		}
-		_, err = store.ApplyOperationTx(context.Background(), tx, store.Operation{Events: []store.Event{failure}})
+		// The live worker-evidence seam: on a canonical head the terminal
+		// fact derives the workflow failure record in the same commit
+		// (CD-0198 D5); on a released pin the event lands unchanged and the
+		// store-level record disposition follows.
+		_, err = store.ApplyWorkerEvidenceOperationTx(context.Background(), tx, failure)
 		return err
 	}); err != nil {
 		t.Fatalf("seed escalated dispatch and failure for %s: %v", attemptID, err)
 	}
 }
 
-func recordFailureForEscalatedRetry(t *testing.T, s *store.Store, service *Service, grant Authority, attemptID string, epoch int64) {
+// recordWorkflowFailureForPin records the workflow failure record the
+// failed attempt owes and returns the work version after it. The canonical
+// implementation heads derive the record from the attempt's own terminal
+// event through the live worker-evidence seam (CD-0198 D5). A released pin
+// keeps its callable record_worker_failure behavior store-executable; the
+// closed live union publishes no authoring shape for the retired call
+// (CD-0218 D2/D4).
+func recordWorkflowFailureForPin(t *testing.T, s *store.Store, grant Authority, attemptID string, epoch int64, suffix string) int64 {
 	t.Helper()
-	// The worker session records its lane dispatch and its failure before the
-	// agent reports the failed attempt to the workflow.
-	applyEscalatedWorkerDispatchAndFailure(t, s, grant, attemptID, "escalated-retry")
-	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
-	if err != nil {
+	var pinnedRef string
+	var pinnedVersion int64
+	if err := s.DatabaseForTesting().QueryRow(`SELECT definition_ref,definition_version FROM workflow_instances WHERE work_id='work-1'`).Scan(&pinnedRef, &pinnedVersion); err != nil {
 		t.Fatal(err)
 	}
-	version := workVersion(t, s, "work-1")
-	record := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: retryJSON(map[string]any{"work_id": "work-1", "expected_version": version, "action_id": "record_worker_failure", "fields": map[string]any{"attempt_id": attemptID, "attempt_epoch": epoch}, "idempotency_key": "escalated-retry-record-" + attemptID})}, mutationEnvelope(grant, scopeVersion))
-	if record.Outcome != OutcomeOK {
-		t.Fatalf("record escalated retry failure: %+v", record.Error)
+	derivedHead := map[string]int64{"workflow.implementation": 29, "workflow.break_fix": 26, "workflow.research": 17}[pinnedRef]
+	if pinnedVersion >= derivedHead && derivedHead > 0 {
+		// The canonical head derives the record: the store's own live-authoring
+		// tests pin the derivation rule (implementation v29+, break_fix v26+,
+		// research v17+), and this fixture's pin rides it. The worker
+		// session's lane dispatch precedes its terminal fact, and the seam
+		// derives the record in the same commit.
+		applyEscalatedWorkerDispatchAndFailure(t, s, grant, attemptID, "escalated-derived-"+suffix)
+		return workVersion(t, s, "work-1")
 	}
+	// The worker session records its lane dispatch and its failure before
+	// the released pin's store-level record disposition lands.
+	applyEscalatedWorkerDispatchAndFailure(t, s, grant, attemptID, suffix)
+	if epoch == 0 {
+		epoch = escalatedDispatchEpoch(t, s)
+	}
+	actor := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
+	version := workVersion(t, s, "work-1")
+	operationID := "escalated-record-" + suffix + "-" + attemptID
+	if err := s.Transact(context.Background(), func(tx *store.Transaction) error {
+		_, err := store.ApplyWorkflowActionTx(context.Background(), tx, store.BuiltinWorkflowRegistry(), store.WorkflowActionExecutionRequest{
+			WorkID: "work-1", ExpectedVersion: version, ActionID: "record_worker_failure", Payload: retryJSON(map[string]any{"attempt_id": attemptID, "attempt_epoch": epoch}), Actor: actor,
+			AcceptedInputsDigest: "sha256:" + strings.Repeat("f", 64) + operationID, IdempotencyIdentity: operationID, OperationID: operationID,
+			PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID, RequestID: "request:" + operationID,
+			ContractDigest: ManifestDigest, Now: fixedTime(),
+		})
+		return err
+	}); err != nil {
+		t.Fatalf("released-pin failure record for %s: %v", attemptID, err)
+	}
+	return workVersion(t, s, "work-1")
 }

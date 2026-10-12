@@ -47,8 +47,10 @@ func TestWorkerRetryMutationRequiresExactApprovalAndFreshAttempt(t *testing.T) {
 
 	approvedInput := cloneWithApproval(t, input, challengeRef)
 	approvedRaw, _ := json.Marshal(approvedInput)
-	scope := map[string]any{"product_id": "product-1", "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}, "failed_attempt_id": attemptID, "scope_version": scopeVersion}
-	versions := map[string]any{"work": version, "contract": 1, "failed_attempt_epoch": 1}
+	// The approval signs exactly what the challenge minted: the derived
+	// failure record binds the dispatch window's own epoch, so a literal
+	// epoch guess breaks the equality the approval validates.
+	scope, versions := challengeApprovalBindings(t, challenge.Error.ConsequenceSummary)
 	env.HostApproval = signedHostApproval(privateKey, challengeRef, mutationDigest("concord_work_transition", "workflow_action", env, approvedRaw), scope, versions, grant.SessionRef, grant.AgentRef, grant.Worktree, fixedTime(), nonceForChallenge(challengeRef))
 	approved := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: approvedRaw}, env)
 	if approved.Outcome != OutcomeError || approved.Error == nil || !strings.Contains(approved.Error.Message, "fresh attempt identity") {
@@ -87,7 +89,8 @@ func TestWorkerRetryMutationRequiresExactApprovalAndFreshAttempt(t *testing.T) {
 	}
 	freshApproved := cloneWithApproval(t, freshInput, freshRef)
 	freshApprovedRaw, _ := json.Marshal(freshApproved)
-	env.HostApproval = signedHostApproval(privateKey, freshRef, mutationDigest("concord_work_transition", "workflow_action", env, freshApprovedRaw), scope, versions, grant.SessionRef, grant.AgentRef, grant.Worktree, fixedTime(), nonceForChallenge(freshRef))
+	freshScope, freshVersions := challengeApprovalBindings(t, freshChallenge.Error.ConsequenceSummary)
+	env.HostApproval = signedHostApproval(privateKey, freshRef, mutationDigest("concord_work_transition", "workflow_action", env, freshApprovedRaw), freshScope, freshVersions, grant.SessionRef, grant.AgentRef, grant.Worktree, fixedTime(), nonceForChallenge(freshRef))
 	valid := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: freshApprovedRaw}, env)
 	if valid.Outcome != OutcomeOK {
 		t.Fatalf("fresh approved retry = %+v", valid.Error)
@@ -96,8 +99,14 @@ func TestWorkerRetryMutationRequiresExactApprovalAndFreshAttempt(t *testing.T) {
 	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.attempt_epoch') FROM domain_events WHERE kind=? AND subject_id='work-1' AND json_extract(payload,'$.action_id')='dispatch_worker' ORDER BY seq DESC LIMIT 1`, store.WorkflowActionStarted).Scan(&retryEpoch); err != nil {
 		t.Fatal(err)
 	}
-	if retryEpoch != 2 {
-		t.Fatalf("fresh approved retry epoch=%d, want 2", retryEpoch)
+	// The seed's public dispatch opens the failed attempt's own fenced
+	// epoch; the fresh approved retry opens the next one.
+	binding, err := store.WorkflowFailedWorkerRetryBinding(context.Background(), s, nil, "work-1")
+	if err != nil || binding == nil {
+		t.Fatalf("failed retry binding after the approved retry = %+v err=%v", binding, err)
+	}
+	if retryEpoch != binding.FailedAttemptEpoch+1 {
+		t.Fatalf("fresh approved retry epoch=%d, want the next fenced epoch after the failed %d", retryEpoch, binding.FailedAttemptEpoch)
 	}
 }
 
@@ -300,7 +309,7 @@ func seedWorkerRetryMutationFixture(t *testing.T, s *store.Store, grant Authorit
 func seedFailedWorkerRetryMutation(t *testing.T, s *store.Store, service *Service, grant Authority) (int64, string, string) {
 	t.Helper()
 	path := seedWorkerRetryMutationFixture(t, s, grant)
-	lane := retryLane(t)
+	grant.Worktree = path
 	attemptID := "attempt:work-1:failed"
 	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
 	if err != nil {
@@ -311,41 +320,45 @@ func seedFailedWorkerRetryMutation(t *testing.T, s *store.Store, service *Servic
 		t.Fatalf("seed retry start: %+v", start.Error)
 	}
 	recordReadyRetryJob(t, s, service, mutationEnvelope(grant, scopeVersion), "job:retry-objective")
-	dispatch := store.Event{EventID: "retry-dispatch", Kind: store.WorkerDispatched, SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: 2, Payload: retryJSON(store.WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, PacketDigest: "sha256:" + strings.Repeat("b", 64), ReadbackModel: "openai/gpt-5.6-luna", PacketSchemaVersion: store.WorkerPacketSchemaVersion, ReportSchemaVersion: store.WorkerReportSchemaVersion})}
+	// The canonical head derives the workflow failure record from the
+	// attempt's own terminal event (CD-0198 D5): the public dispatch opens
+	// the fenced window and the live worker-evidence seam lands the
+	// terminal fact with the record it owes, exactly once. The worker
+	// session's own lane dispatch precedes its terminal fact.
+	env := mutationEnvelope(grant, scopeVersion)
+	version := workVersion(t, s, "work-1")
+	dispatch := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: retryJSON(map[string]any{
+		"work_id": "work-1", "expected_version": version, "action_id": "dispatch_worker", "idempotency_key": "retry-failed-dispatch",
+		"fields": map[string]any{"attempt_id": attemptID, "worker_packet": retryMutationPacket(t, s, attemptID, nil)},
+	})}, env)
+	if dispatch.Outcome != OutcomeOK {
+		t.Fatalf("seed retry dispatch: %+v", dispatch.Error)
+	}
+	lane := retryLane(t)
+	job := authorizedWorkerJob(t, s, attemptID)
+	laneDispatch := store.Event{EventID: "retry-dispatch", Kind: store.WorkerDispatched, SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: 2, Payload: retryJSON(store.WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, PacketDigest: "sha256:" + strings.Repeat("b", 64), ReadbackModel: "openai/gpt-5.6-luna", PacketSchemaVersion: store.WorkerPacketSchemaVersion, ReportSchemaVersion: store.WorkerReportSchemaVersion, WorkerJob: job})}
 	failure := store.Event{EventID: "retry-failed", Kind: store.WorkerFailed, SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: retryJSON(store.WorkerFailedPayload{AttemptID: attemptID, ReadbackModel: "openai/gpt-5.6-luna", FailureKind: store.WorkerFailureWorkerError, Detail: "synthetic failure"})}
 	if err := s.Transact(context.Background(), func(tx *store.Transaction) error {
-		enriched, err := store.PrepareLaneActorDispatch(context.Background(), tx, dispatch, grant.PrincipalRef, grant.ClientRef)
+		enriched, err := store.PrepareLaneActorDispatch(context.Background(), tx, laneDispatch, grant.PrincipalRef, grant.ClientRef)
 		if err != nil {
 			return err
 		}
 		if _, err := store.AppendLaneActorDispatchTx(context.Background(), tx, enriched); err != nil {
 			return err
 		}
-		_, err = store.ApplyOperationTx(context.Background(), tx, store.Operation{Events: []store.Event{failure}})
+		_, err = store.ApplyWorkerEvidenceOperationTx(context.Background(), tx, failure)
 		return err
 	}); err != nil {
 		t.Fatalf("seed retry failure: %v", err)
 	}
-	var failureVersion int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id='work-1'`).Scan(&failureVersion); err != nil {
-		t.Fatal(err)
-	}
-	scopeVersion, _, err = s.ScopeVersion(context.Background(), "project-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	record := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: retryJSON(map[string]any{"work_id": "work-1", "expected_version": failureVersion, "action_id": "record_worker_failure", "fields": map[string]any{"attempt_id": attemptID, "attempt_epoch": 1}, "idempotency_key": "retry-record-failure"})}, mutationEnvelope(grant, scopeVersion))
-	if record.Outcome != OutcomeOK {
-		t.Fatalf("seed retry failure record: %+v", record.Error)
-	}
 	if binding, err := store.WorkflowFailedWorkerRetryBinding(context.Background(), s, nil, "work-1"); err != nil || binding == nil {
 		t.Fatalf("retry binding=%+v err=%v", binding, err)
 	}
-	var version int64
-	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id='work-1'`).Scan(&version); err != nil {
+	var failedVersion int64
+	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id='work-1'`).Scan(&failedVersion); err != nil {
 		t.Fatal(err)
 	}
-	return version, attemptID, path
+	return failedVersion, attemptID, path
 }
 
 func retryJSON(value any) json.RawMessage {
@@ -360,7 +373,7 @@ func retryMutationPacket(t *testing.T, s *store.Store, attemptID string, correct
 	if correction != nil {
 		inputs["correction"] = correction
 	}
-	return bindPacketToRecordedState(t, s, map[string]any{"schema_version": "1.0", "attempt_id": attemptID, "lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest, "work_id": "work-1", "step_id": "execution", "inputs": inputs})
+	return bindPacketToRecordedState(t, s, map[string]any{"schema_version": store.WorkerPacketSchemaVersion, "attempt_id": attemptID, "lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest, "work_id": "work-1", "step_id": "execution", "inputs": inputs})
 }
 
 func retryLane(t *testing.T) store.LaneDefinition {

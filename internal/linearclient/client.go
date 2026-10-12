@@ -1,15 +1,15 @@
 // Package linearclient is Concord's first-party Linear GraphQL client. It
-// exists to serve the Phase 1 outbox drain (issue 990): create and update
-// issues with a client-supplied UUID so an ambiguous outcome is re-drained
-// under the same identity instead of blind-retried.
+// reads issue state from Linear: one request per call, with a typed Failure
+// for every refusal shape the HTTP transport and the GraphQL layer can
+// produce, so a caller can tell a permanent refusal from an unknown outcome.
 //
-// The client makes exactly one attempt per call. Retries belong to the outbox,
-// which is the durable retry owner; a transport failure here means the outcome
-// is unknown, and the drain re-claims the operation on its next pass.
+// The client makes exactly one attempt per call and never retries. A
+// transport failure means the outcome is unknown; the caller owns what
+// happens next.
 //
-// Credential custody (CD-0121 D3): the API key is read from the process
-// environment at client construction and never logged, persisted, or echoed in
-// an error. The endpoint default is the public Linear GraphQL URL and may be
+// Credential custody: the API key is read from the process environment at
+// client construction and never logged, persisted, or echoed in an error.
+// The endpoint default is the public Linear GraphQL URL and may be
 // overridden for tests.
 package linearclient
 
@@ -17,7 +17,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -35,8 +34,8 @@ const EnvEndpoint = "CONCORD_LINEAR_ENDPOINT"
 // DefaultEndpoint is the public Linear GraphQL API.
 const DefaultEndpoint = "https://api.linear.app/graphql"
 
-// FailureKind classifies one client failure so the outbox drain can choose a
-// retryable or permanent outcome.
+// FailureKind classifies one client failure so a caller can tell a permanent
+// refusal from an unknown outcome.
 type FailureKind string
 
 const (
@@ -51,14 +50,11 @@ const (
 	KindTransport FailureKind = "transport"
 	// KindMalformedResponse means the response body did not decode.
 	KindMalformedResponse FailureKind = "malformed_response"
-	// KindGraphqlError means Linear answered with a GraphQL-level error or a
-	// mutation that reported success=false.
+	// KindGraphqlError means Linear answered with a GraphQL-level error.
 	KindGraphqlError FailureKind = "graphql_error"
-	// KindDuplicateEntity means a create named a client UUID that already
-	// exists remotely. Linear stores the sent id as the entity's own UUID and
-	// refuses a second insert instead of upserting. The caller owns
-	// convergence: resolve the entity by that UUID, verify it is the intended
-	// one, and treat the operation as delivered.
+	// KindDuplicateEntity means an error reports Linear's insert conflict on an
+	// id that already exists remotely. The failure detail carries the conflict
+	// message and the colliding id.
 	KindDuplicateEntity FailureKind = "duplicate_entity"
 )
 
@@ -73,64 +69,6 @@ func (f *Failure) Error() string {
 	return fmt.Sprintf("linearclient: %s: %s", f.Kind, f.Detail)
 }
 
-// CreateIssueInput carries the fields the drain supplies on issue creation. ID
-// is the client UUID: Linear's IssueCreateInput.id, stored as the issue's own
-// UUID. A repeated create with the same id answers KindDuplicateEntity and
-// stores nothing new; the caller converges by resolving that UUID.
-type CreateIssueInput struct {
-	ID        string `json:"id"`
-	TeamID    string `json:"teamId"`
-	ProjectID string `json:"projectId,omitempty"`
-	Title     string `json:"title"`
-	// Description carries the complete managed body. GraphQL creation must
-	// not assume Linear applies a team's default issue template on top of
-	// it; whatever the intake should publish is composed at enqueue time.
-	Description string   `json:"description"`
-	LabelIDs    []string `json:"labelIds,omitempty"`
-	// StatusID lands the card in the workflow state its work item holds at
-	// creation. Linear documents an unspecified state as the team's default
-	// (or Triage); stateId is the field name issueUpdate already uses.
-	StatusID string `json:"stateId,omitempty"`
-	// Priority seeds Linear's triage ordering exactly once, at creation, from
-	// the work item's declared urgency band: expedite sends 1 (Urgent) and
-	// standard sends 3 (Medium). Linear owns the priority after creation, so
-	// no update path resends it. The work item's local -100..100 priority
-	// integer is separate sequencing (CD-0018) and never rides this field.
-	Priority int `json:"priority,omitempty"`
-}
-
-// UpdateIssueInput carries the mutable fields the drain synchronizes. It has
-// no priority field by design: creation seeded the priority once, and Linear
-// owns backlog triage from then on.
-type UpdateIssueInput struct {
-	Title       string `json:"title,omitempty"`
-	Description string `json:"description,omitempty"`
-	// ProjectID is the issue's full Project state, not a change request: the
-	// owning Initiative's Linear Project uuid, or nil to send an explicit
-	// null. Linear reads the explicit null as "clear the field" (CD-0171 D4,
-	// D6), so an issue whose last Initiative entry left loses its Project
-	// instead of keeping a stale one.
-	ProjectID *string `json:"projectId"`
-	StatusID  string  `json:"stateId,omitempty"`
-	// AddedLabelIDs and RemovedLabelIDs carry the label delta. RemovedLabelIDs
-	// exists on Linear's IssueUpdateInput ([UUID!]); without it a label under
-	// the project:* or optional keys that stopped applying would linger on the
-	// remote issue forever (CD-0171 D3, D5).
-	AddedLabelIDs   []string `json:"addedLabelIds,omitempty"`
-	RemovedLabelIDs []string `json:"removedLabelIds,omitempty"`
-}
-
-// CommentCreateInput carries the fields the drain supplies when it publishes
-// a managed revision comment on an issue it may not rewrite. ID is the client
-// UUID: Linear's CommentCreateInput.id, stored as the comment's own UUID. A
-// repeated create with the same id answers KindDuplicateEntity and stores no
-// duplicate; the caller converges by resolving that UUID.
-type CommentCreateInput struct {
-	ID      string `json:"id"`
-	IssueID string `json:"issueId"`
-	Body    string `json:"body"`
-}
-
 // Issue is the remote issue identity and content returned by Linear.
 type Issue struct {
 	ID          string    `json:"id"`
@@ -139,53 +77,6 @@ type Issue struct {
 	Title       string    `json:"title"`
 	Description string    `json:"description"`
 	UpdatedAt   time.Time `json:"updatedAt"`
-}
-
-// Project is the remote Linear project identity and content. Content is the
-// project's markdown document; Summary is the short statement field the
-// initiative import maps to the Concord value statement; Description is
-// Linear's legacy project text, which a project without content may hold as
-// a long document. TeamIDs lists the teams the project belongs to, so the
-// initiative import can verify the project belongs to the Product's
-// connection team before binding it (CD-0171 D1). Only GetProject populates
-// Summary and TeamIDs.
-type Project struct {
-	ID          string    `json:"id"`
-	Name        string    `json:"name"`
-	Summary     string    `json:"summary"`
-	Description string    `json:"description"`
-	Content     string    `json:"content"`
-	URL         string    `json:"url"`
-	UpdatedAt   time.Time `json:"updatedAt"`
-	TeamIDs     []string  `json:"teamIds,omitempty"`
-}
-
-// CreateProjectInput carries the fields the drain supplies on project
-// creation. ID is the Concord-generated UUID v4: Linear's
-// ProjectCreateInput.id, which makes a replayed create converge on the same
-// remote project instead of duplicating it (CD-0171 d2).
-type CreateProjectInput struct {
-	ID          string   `json:"id"`
-	TeamIDs     []string `json:"teamIds"`
-	Name        string   `json:"name"`
-	Description string   `json:"description,omitempty"`
-	Content     string   `json:"content,omitempty"`
-}
-
-// UpdateProjectInput carries the mutable project fields the drain
-// synchronizes for an Initiative. Description is a full-state field and
-// always rides: it carries the value statement, so the first convergence
-// flattens a long Linear description a pre-import Project left behind.
-// Content rides only when the caller holds a narrative: an omitted content
-// keeps the remote markdown, because the drain never clears the Project doc
-// — an Initiative with no narrative has nothing to say about it.
-// Name keeps omitempty: a Linear Project requires a name, and an Initiative
-// always has a title, so an omitted name can only mean a caller that never
-// intended to send one.
-type UpdateProjectInput struct {
-	Name        string `json:"name,omitempty"`
-	Description string `json:"description"`
-	Content     string `json:"content,omitempty"`
 }
 
 // ResolvedIssue is one fetched issue together with its owning team and state,
@@ -197,7 +88,8 @@ type ResolvedIssue struct {
 	StateType string
 }
 
-// Client talks to one Linear workspace over GraphQL with Bearer auth.
+// Client talks to one Linear workspace over GraphQL, authenticating with the
+// workspace API key.
 type Client struct {
 	endpoint string
 	apiKey   string
@@ -212,7 +104,7 @@ func WithEndpoint(endpoint string) option {
 }
 
 // New constructs a client for the given key. The key is never validated
-// locally; an empty key is refused because the drain must not send an
+// locally; an empty key is refused because the client must not send an
 // unauthenticated request.
 func New(apiKey string, options ...option) (*Client, error) {
 	if apiKey == "" {
@@ -299,95 +191,6 @@ func classifyGraphErrors(envelope graphResponse) *Failure {
 	return &Failure{Kind: KindGraphqlError, Detail: detail}
 }
 
-// CreateIssue executes issueCreate with the client UUID and returns the remote
-// identity.
-func (c *Client) CreateIssue(ctx context.Context, input CreateIssueInput) (Issue, error) {
-	var payload struct {
-		IssueCreate struct {
-			Success bool  `json:"success"`
-			Issue   Issue `json:"issue"`
-		} `json:"issueCreate"`
-	}
-	if err := c.call(ctx, "mutation($input: IssueCreateInput!) { issueCreate(input: $input) { success issue { id identifier url updatedAt } } }", map[string]any{"input": input}, &payload); err != nil {
-		return Issue{}, err
-	}
-	if !payload.IssueCreate.Success {
-		return Issue{}, &Failure{Kind: KindGraphqlError, Detail: "issueCreate reported success=false"}
-	}
-	return payload.IssueCreate.Issue, nil
-}
-
-// UpdateIssue executes issueUpdate against the remote issue UUID.
-func (c *Client) UpdateIssue(ctx context.Context, remoteUUID string, input UpdateIssueInput) (Issue, error) {
-	var payload struct {
-		IssueUpdate struct {
-			Success bool  `json:"success"`
-			Issue   Issue `json:"issue"`
-		} `json:"issueUpdate"`
-	}
-	if err := c.call(ctx, "mutation($id: String!, $input: IssueUpdateInput!) { issueUpdate(id: $id, input: $input) { success issue { id identifier url updatedAt } } }", map[string]any{"id": remoteUUID, "input": input}, &payload); err != nil {
-		return Issue{}, err
-	}
-	if !payload.IssueUpdate.Success {
-		return Issue{}, &Failure{Kind: KindGraphqlError, Detail: "issueUpdate reported success=false"}
-	}
-	return payload.IssueUpdate.Issue, nil
-}
-
-// CreateComment posts one comment on the remote issue and returns only the
-// delivery outcome: the issue body the comment belongs to is never read or
-// written here. A KindDuplicateEntity failure means a previous attempt with
-// this exact input already stored the comment.
-func (c *Client) CreateComment(ctx context.Context, input CommentCreateInput) error {
-	var payload struct {
-		CommentCreate struct {
-			Success bool `json:"success"`
-			Comment struct {
-				ID string `json:"id"`
-			} `json:"comment"`
-		} `json:"commentCreate"`
-	}
-	if err := c.call(ctx, "mutation($input: CommentCreateInput!) { commentCreate(input: $input) { success comment { id } } }", map[string]any{"input": input}, &payload); err != nil {
-		return err
-	}
-	if !payload.CommentCreate.Success {
-		return &Failure{Kind: KindGraphqlError, Detail: "commentCreate reported success=false"}
-	}
-	if payload.CommentCreate.Comment.ID != input.ID {
-		return &Failure{Kind: KindGraphqlError, Detail: "commentCreate returned a different comment identity"}
-	}
-	return nil
-}
-
-// CommentLocation is one existing comment's identity, the issue it sits on,
-// and its stored body, so a caller converging a repeated create can verify
-// the stored comment is the one its operation intended.
-type CommentLocation struct {
-	ID      string
-	IssueID string
-	Body    string
-}
-
-// GetComment resolves one comment by its UUID. Linear answers an unknown
-// comment with a GraphQL error, which maps to the permanent KindGraphqlError
-// failure.
-func (c *Client) GetComment(ctx context.Context, commentID string) (CommentLocation, error) {
-	var payload struct {
-		Comment struct {
-			ID      string `json:"id"`
-			IssueID string `json:"issueId"`
-			Body    string `json:"body"`
-		} `json:"comment"`
-	}
-	if err := c.call(ctx, "query($id: String!) { comment(id: $id) { id issueId body } }", map[string]any{"id": commentID}, &payload); err != nil {
-		return CommentLocation{}, err
-	}
-	if payload.Comment.ID == "" {
-		return CommentLocation{}, &Failure{Kind: KindGraphqlError, Detail: "comment query returned no comment"}
-	}
-	return CommentLocation{ID: payload.Comment.ID, IssueID: payload.Comment.IssueID, Body: payload.Comment.Body}, nil
-}
-
 // GetIssue fetches one existing issue by its UUID or human identifier. Linear
 // answers an unknown issue with a GraphQL error, which maps to the permanent
 // KindGraphqlError failure.
@@ -411,274 +214,6 @@ func (c *Client) GetIssue(ctx context.Context, remoteUUID string) (ResolvedIssue
 		return ResolvedIssue{}, &Failure{Kind: KindGraphqlError, Detail: "issue query returned no issue"}
 	}
 	return ResolvedIssue{Issue: payload.Issue.Issue, TeamID: payload.Issue.Team.ID, StateID: payload.Issue.State.ID, StateType: payload.Issue.State.Type}, nil
-}
-
-// RemoteComment is one comment read from an issue's comments connection.
-type RemoteComment struct {
-	ID        string
-	Body      string
-	CreatedAt time.Time
-	Author    string
-}
-
-// ListIssueComments returns up to limit comments of one issue created after
-// `after`, oldest first, and reports whether the connection held a further
-// page. A zero `after` keeps the oldest comments instead of narrowing the
-// window: Linear accepts the zero DateTime, and every comment follows it.
-// A response without the issue refuses exactly as GetIssue does, so a
-// vanished issue never reads as an empty comment page. The read exists for
-// the resume-time remote check; it never writes.
-func (c *Client) ListIssueComments(ctx context.Context, issueUUID string, after time.Time, limit int) ([]RemoteComment, bool, error) {
-	var payload struct {
-		Issue *struct {
-			Comments struct {
-				Nodes []struct {
-					ID        string    `json:"id"`
-					Body      string    `json:"body"`
-					CreatedAt time.Time `json:"createdAt"`
-					User      *struct {
-						Name        string `json:"name"`
-						DisplayName string `json:"displayName"`
-					} `json:"user"`
-				} `json:"nodes"`
-				PageInfo struct {
-					HasNextPage bool `json:"hasNextPage"`
-				} `json:"pageInfo"`
-			} `json:"comments"`
-		} `json:"issue"`
-	}
-	query := `query($id: String!, $after: DateTime!, $first: Int!) { issue(id: $id) { comments(first: $first, orderBy: createdAt, filter: { createdAt: { gt: $after } }) { nodes { id body createdAt user { name displayName } } pageInfo { hasNextPage } } } }`
-	if err := c.call(ctx, query, map[string]any{"id": issueUUID, "after": after.UTC().Format(time.RFC3339Nano), "first": limit}, &payload); err != nil {
-		return nil, false, err
-	}
-	if payload.Issue == nil {
-		return nil, false, &Failure{Kind: KindGraphqlError, Detail: "issue query returned no issue"}
-	}
-	comments := make([]RemoteComment, 0, len(payload.Issue.Comments.Nodes))
-	for _, node := range payload.Issue.Comments.Nodes {
-		author := ""
-		if node.User != nil {
-			author = node.User.Name
-			if author == "" {
-				author = node.User.DisplayName
-			}
-		}
-		comments = append(comments, RemoteComment{ID: node.ID, Body: node.Body, CreatedAt: node.CreatedAt, Author: author})
-	}
-	return comments, payload.Issue.Comments.PageInfo.HasNextPage, nil
-}
-
-// GetIssueLabelIDs fetches only the issue's current label ids, so the drain
-// can compute the Concord-managed labels that no longer apply without a full
-// issue read.
-func (c *Client) GetIssueLabelIDs(ctx context.Context, remoteUUID string) ([]string, error) {
-	var payload struct {
-		Issue struct {
-			Labels struct {
-				Nodes []struct {
-					ID string `json:"id"`
-				} `json:"nodes"`
-			} `json:"labels"`
-		} `json:"issue"`
-	}
-	if err := c.call(ctx, "query($id: String!) { issue(id: $id) { labels { nodes { id } } } }", map[string]any{"id": remoteUUID}, &payload); err != nil {
-		return nil, err
-	}
-	labels := make([]string, 0, len(payload.Issue.Labels.Nodes))
-	for _, node := range payload.Issue.Labels.Nodes {
-		labels = append(labels, node.ID)
-	}
-	return labels, nil
-}
-
-// CreateProject executes projectCreate with the Concord-generated UUID and
-// returns the remote project identity.
-func (c *Client) CreateProject(ctx context.Context, input CreateProjectInput) (Project, error) {
-	var payload struct {
-		ProjectCreate struct {
-			Success bool    `json:"success"`
-			Project Project `json:"project"`
-		} `json:"projectCreate"`
-	}
-	query := "mutation($input: ProjectCreateInput!) { projectCreate(input: $input) { success project { id name description content url updatedAt } } }"
-	if err := c.call(ctx, query, map[string]any{"input": input}, &payload); err != nil {
-		return Project{}, err
-	}
-	if !payload.ProjectCreate.Success {
-		return Project{}, &Failure{Kind: KindGraphqlError, Detail: "projectCreate reported success=false"}
-	}
-	return payload.ProjectCreate.Project, nil
-}
-
-// UpdateProject executes projectUpdate against the remote project UUID.
-func (c *Client) UpdateProject(ctx context.Context, projectUUID string, input UpdateProjectInput) (Project, error) {
-	var payload struct {
-		ProjectUpdate struct {
-			Success bool    `json:"success"`
-			Project Project `json:"project"`
-		} `json:"projectUpdate"`
-	}
-	query := "mutation($id: String!, $input: ProjectUpdateInput!) { projectUpdate(id: $id, input: $input) { success project { id name description content url updatedAt } } }"
-	if err := c.call(ctx, query, map[string]any{"id": projectUUID, "input": input}, &payload); err != nil {
-		return Project{}, err
-	}
-	if !payload.ProjectUpdate.Success {
-		return Project{}, &Failure{Kind: KindGraphqlError, Detail: "projectUpdate reported success=false"}
-	}
-	return payload.ProjectUpdate.Project, nil
-}
-
-// GetProject fetches one project by its UUID together with the teams it
-// belongs to. Linear answers an unknown project with a GraphQL error, which
-// maps to the permanent KindGraphqlError failure.
-func (c *Client) GetProject(ctx context.Context, projectUUID string) (Project, error) {
-	var payload struct {
-		Project struct {
-			Project
-			Teams struct {
-				Nodes []struct {
-					ID string `json:"id"`
-				} `json:"nodes"`
-			} `json:"teams"`
-		} `json:"project"`
-	}
-	query := "query($id: String!) { project(id: $id) { id name summary description content url updatedAt teams { nodes { id } } } }"
-	if err := c.call(ctx, query, map[string]any{"id": projectUUID}, &payload); err != nil {
-		return Project{}, err
-	}
-	if payload.Project.ID == "" {
-		return Project{}, &Failure{Kind: KindGraphqlError, Detail: "project query returned no project"}
-	}
-	project := payload.Project.Project
-	for _, node := range payload.Project.Teams.Nodes {
-		project.TeamIDs = append(project.TeamIDs, node.ID)
-	}
-	return project, nil
-}
-
-// issueStateBatchSize is the number of issue ids one batched state read
-// resolves. Fifty ids keep one request's complexity modest while a Product
-// with 500 confirmed links answers in ten requests.
-const issueStateBatchSize = 50
-
-// IssueBatchFailure reports one failed batch of GetIssuesByIDs together with
-// the ids it carried, so the caller can mark exactly those links failed
-// instead of discarding the batches that answered.
-type IssueBatchFailure struct {
-	IDs []string
-	Err *Failure
-}
-
-// GetIssuesByIDs resolves the current issue state for the given ids in
-// batches through Linear's issues(filter: { id: { in: $ids } }) query. The
-// variable is typed [ID!]! because Linear's IssueIDComparator.in is [ID!],
-// and includeArchived is set because Linear archives closed issues and
-// omits them from paginated reads by default. It
-// returns every issue the answered batches held and one IssueBatchFailure
-// per failed batch. An id a successful batch does not answer is absent from
-// the map: the filter returns only the issues Linear holds, so a deleted or
-// unknown id silently resolves to nothing rather than to an error.
-func (c *Client) GetIssuesByIDs(ctx context.Context, ids []string) (map[string]ResolvedIssue, []*IssueBatchFailure) {
-	states := make(map[string]ResolvedIssue, len(ids))
-	failures := make([]*IssueBatchFailure, 0)
-	for start := 0; start < len(ids); start += issueStateBatchSize {
-		end := start + issueStateBatchSize
-		if end > len(ids) {
-			end = len(ids)
-		}
-		batch := ids[start:end]
-		var payload struct {
-			Issues struct {
-				Nodes []struct {
-					Issue
-					State struct {
-						ID   string `json:"id"`
-						Type string `json:"type"`
-					} `json:"state"`
-					Team struct {
-						ID string `json:"id"`
-					} `json:"team"`
-				} `json:"nodes"`
-			} `json:"issues"`
-		}
-		query := fmt.Sprintf(`query($ids: [ID!]!) { issues(first: %d, includeArchived: true, filter: { id: { in: $ids } }) { nodes { id identifier url title updatedAt state { id type } team { id } } } }`, issueStateBatchSize)
-		if err := c.call(ctx, query, map[string]any{"ids": batch}, &payload); err != nil {
-			var failure *Failure
-			if !errors.As(err, &failure) {
-				failure = &Failure{Kind: KindGraphqlError, Detail: err.Error()}
-			}
-			failures = append(failures, &IssueBatchFailure{IDs: batch, Err: failure})
-			continue
-		}
-		for _, node := range payload.Issues.Nodes {
-			if node.ID == "" {
-				continue
-			}
-			states[node.ID] = ResolvedIssue{Issue: node.Issue, TeamID: node.Team.ID, StateID: node.State.ID, StateType: node.State.Type}
-		}
-	}
-	return states, failures
-}
-
-// startedIssuesPageSize is the page size the started-issue sweep requests.
-// Linear caps a connection page at 250; a smaller page keeps one team's In
-// Progress set streaming predictably.
-const startedIssuesPageSize = 100
-
-// maxStartedIssuePages bounds the pagination loop so a server that keeps
-// reporting a next page cannot spin forever. It holds 10,000 issues.
-const maxStartedIssuePages = 100
-
-// ListTeamStartedIssues returns every issue of one team whose workflow state
-// type is started, following the connection cursor until a page reports no
-// next page. Each issue carries its state identity so a caller can reason
-// about liveness without a second fetch per issue.
-func (c *Client) ListTeamStartedIssues(ctx context.Context, teamID string) ([]ResolvedIssue, error) {
-	var payload struct {
-		Issues struct {
-			Nodes []struct {
-				Issue
-				State struct {
-					ID   string `json:"id"`
-					Type string `json:"type"`
-				} `json:"state"`
-			} `json:"nodes"`
-			PageInfo struct {
-				HasNextPage bool   `json:"hasNextPage"`
-				EndCursor   string `json:"endCursor"`
-			} `json:"pageInfo"`
-		} `json:"issues"`
-	}
-	query := fmt.Sprintf(`query($teamId: ID!, $after: String) { issues(first: %d, after: $after, filter: { team: { id: { eq: $teamId } }, state: { type: { eq: "started" } } }) { nodes { id identifier url title updatedAt state { id type } } pageInfo { hasNextPage endCursor } } }`, startedIssuesPageSize)
-	issues := make([]ResolvedIssue, 0)
-	cursor := ""
-	for page := 0; ; page++ {
-		if page >= maxStartedIssuePages {
-			return nil, &Failure{Kind: KindMalformedResponse, Detail: fmt.Sprintf("issues pagination exceeded %d pages", maxStartedIssuePages)}
-		}
-		variables := map[string]any{"teamId": teamID}
-		// Linear rejects an empty `after` as an invalid pagination argument,
-		// so the first page must omit the cursor rather than send "".
-		if cursor != "" {
-			variables["after"] = cursor
-		}
-		if err := c.call(ctx, query, variables, &payload); err != nil {
-			return nil, err
-		}
-		for _, node := range payload.Issues.Nodes {
-			if node.ID == "" {
-				return nil, &Failure{Kind: KindMalformedResponse, Detail: "issues page returned a node without an id"}
-			}
-			issues = append(issues, ResolvedIssue{Issue: node.Issue, TeamID: teamID, StateID: node.State.ID, StateType: node.State.Type})
-		}
-		if !payload.Issues.PageInfo.HasNextPage {
-			return issues, nil
-		}
-		if payload.Issues.PageInfo.EndCursor == "" {
-			return nil, &Failure{Kind: KindMalformedResponse, Detail: "issues page reported a next page without an end cursor"}
-		}
-		cursor = payload.Issues.PageInfo.EndCursor
-	}
 }
 
 func (c *Client) call(ctx context.Context, query string, variables map[string]any, into any) error {
@@ -741,33 +276,4 @@ func (c *Client) call(ctx context.Context, query string, variables map[string]an
 		return &Failure{Kind: KindMalformedResponse, Detail: "response data does not match the expected shape"}
 	}
 	return nil
-}
-
-// IsRetryable reports whether the outbox should requeue after this failure.
-// Auth refusal is permanent; a duplicate-entity conflict is permanent for the
-// bare client because a blind resend cannot change the answer — convergence
-// belongs to the caller that verifies the existing entity; rate limiting and
-// unknown outcomes are retryable; a malformed body is retryable because the
-// request may not have executed.
-func IsRetryable(err error) bool {
-	var failure *Failure
-	if !errors.As(err, &failure) {
-		return false
-	}
-	switch failure.Kind {
-	case KindAuthRefused, KindGraphqlError, KindDuplicateEntity:
-		return false
-	case KindRateLimited, KindTransport, KindMalformedResponse:
-		return true
-	}
-	return false
-}
-
-// IsDuplicateEntity reports whether the failure is Linear's insert conflict
-// on a client UUID the caller supplied: an entity with that UUID already
-// exists remotely. The caller converges by resolving the UUID and verifying
-// the entity is the one its operation intended.
-func IsDuplicateEntity(err error) bool {
-	var failure *Failure
-	return errors.As(err, &failure) && failure.Kind == KindDuplicateEntity
 }

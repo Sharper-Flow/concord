@@ -6820,7 +6820,7 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "array"
         },
         "oracle_receipts": {
-          "description": "The prior typed control-execution receipts this work retained, in log order: reported regression baselines with their exact identities, never current-subject acceptance.",
+          "description": "The prior typed control-execution receipts this work retained (CON-890), in log order: reported regression baselines with their exact identities, never current-subject acceptance.",
           "items": {
             "$ref": "#/$defs/worker_oracle_receipt"
           },
@@ -16270,7 +16270,7 @@ const GeneratedPayloadSchemaDocument = `{
             },
             "checkpoint": {
               "$ref": "#/$defs/continuity_checkpoint",
-              "description": "The latest context checkpoint the pinned continuity projection carried when the packet was built. The core refuses a dispatch whose packet does not carry the latest checkpoint byte-for-byte."
+              "description": "CON-883: the latest context checkpoint the pinned continuity projection carried when the packet was built. The core refuses a dispatch whose packet does not carry the latest checkpoint byte-for-byte."
             },
             "constraints": {
               "items": {
@@ -16318,7 +16318,7 @@ const GeneratedPayloadSchemaDocument = `{
             },
             "work_context": {
               "$ref": "#/$defs/work_context_view2",
-              "description": "The current work-context view the work pin carried when the packet was built. The core refuses a dispatch whose packet does not consume the current view byte-for-byte."
+              "description": "CON-887: the current work-context view the work pin carried when the packet was built. The core refuses a dispatch whose packet does not consume the current view byte-for-byte."
             },
             "work_record": {
               "$ref": "#/$defs/worker_packet_work_record"
@@ -16345,7 +16345,7 @@ const GeneratedPayloadSchemaDocument = `{
           "type": "integer"
         },
         "schema_version": {
-          "description": "The live dispatch_worker surface records only the current card-free packet revision. Released 1.0/1.1 histories replay through the versioned lane packet contract, never through this gate; an old host quoting a retired identity is refused typed before the authorization exists.",
+          "description": "The live dispatch_worker surface records only the current card-free packet revision (CON-899). Released 1.0/1.1 histories replay through the versioned lane packet contract, never through this gate; an old host quoting a retired identity is refused typed before the authorization exists.",
           "enum": [
             "2.0"
           ],

@@ -184,26 +184,26 @@ var frozenBaselineDefs = map[string]string{
 	"version":                               "sha256:2a1379ebe9f4b632fbdf3732d4b86b26e9fbf2aa92cf2449dde7bf4dc122060f",
 	"work_context_domain_group":             "sha256:5bdb5615b00e283b951ced83e8b6fb4a696387d27f00986506dc11c1f264542b",
 	"work_context_finding":                  "sha256:8a66947002b961e03858a9b5fdd807973c3efc3d757d1e1a09258bc241aac45f",
-	"work_context_finding_view":             "sha256:7baf83c52db50be163621ea9c1eba60155790330c5e88d881daeaf4484bd6450",
+	"work_context_finding_view":             "sha256:752f9b31aa36f8f01c0ab56afaafeba9b4759d945324f9fdcb5955a1c9420fbd",
 	"work_context_reading":                  "sha256:5a32fcbb72cb1471a517df15c51fc4a8edf3938f18995bae2528c1ef608dc9b6",
 	"work_context_reading_source_knowledge": "sha256:e56b6eabe4aec84990624e06e0a6421580a68f64d0f9c5585d371c763b6c4096",
 	"work_context_reading_source_repository_file": "sha256:999572f6d25f887707f1e14aaba173cc854862931539ccde750652cde441b21c",
-	"work_context_view":                           "sha256:cfd503039f4f6d3de17f272130900cf2dfc0304a24c345c79ad317287748962b",
-	"worker_acceptance_oracle":                    "sha256:c638cfbf1c6e9fa774730304911c6bb43561c5701ed6f03fbcf48acffc2236dd",
+	"work_context_view":                           "sha256:21d1ddc8cbcbf687daff41865a552185c1cdf380df7da6607653b5d70aec62a8",
+	"worker_acceptance_oracle":                    "sha256:b84efd271e29beb56dcdca7781e0ae556d8c2152b05b5afffc39a991a3b11f53",
 	"worker_job_prerequisite":                     "sha256:51cbd4654c71ccb00e5f23247ca452b5934f26e21cdb96bc782acdecc60245e9",
 	"worker_job_text":                             "sha256:22ccdeb48f624bafdacfb712e743ec4657e45ec75873bfb84d42d95a29ada24c",
 	"worker_oracle_case":                          "sha256:90ffe0e7fbb40250d4af28f7309cfa324713eb813f6d3d8d85f8420bf5858349",
 	"worker_oracle_control":                       "sha256:f7544795b020683dd49756f1505d618840f73baf9c404dc70cffba3359467099",
-	"worker_oracle_finding":                       "sha256:11c754e18454f3491cdd748d8d641347fc45e8731a0cf3de0929e565bc3f3052",
+	"worker_oracle_finding":                       "sha256:3dc170ced6ba5d3753303b9a30300a65d4f5785d26b5dbff71244948c4c673e5",
 	"worker_oracle_law_binding":                   "sha256:82f667f3bb2febadff8c114b1874355a3f688637c2f0c9650483610c8b73e148",
-	"worker_oracle_mechanism":                     "sha256:acf506e33b5d7ab1e4ec7fdff31c58a9bdb8c849c4477e8157c412d4af54170c",
+	"worker_oracle_mechanism":                     "sha256:267ad25f1cccc23b0818f739b53171ad3c40f884cfde4ade5286c6cb53b4954e",
 	"worker_oracle_owner":                         "sha256:feb0cee5d1d2b7a5935b820e923331d525dca99dab3b2b85dfdf1143217dcacd",
-	"worker_oracle_receipt":                       "sha256:9b76157ba8b45f28db968271201f7b31782a8711fefe333cff2ff3d73be44b6f",
-	"worker_packet":                               "sha256:f2efb64652898438478e8f2093e97dcd76add600f23f022a345d4cc1861fccf9",
+	"worker_oracle_receipt":                       "sha256:c775a24c4965a6949fd0e57f6bfb33e989bc6021027e0e61369cab6b7e2b61df",
+	"worker_packet":                               "sha256:33ba1533be5063aca5530c88af9d3eeef20b54b1f2260c683753a64e053e7109",
 	"worker_packet_binding":                       "sha256:6e7d649d94120b359571fe60f6ecae2f8590aba1276b84c0896ec0bf8050cf98",
 	"worker_packet_outcome_predicates":            "sha256:be5f6d6af79ba7ec5d4a836506bf8d9f2ba04723f71b0b7b45aa1605f63e3244",
 	"worker_packet_work_record":                   "sha256:e94e0be17607a5c14e6376f23385dbef0cce0fcac26009ea38c627cc6d3c1aca",
-	"worker_packet_worker_job":                    "sha256:83b6c0681de34f4965350c04c1d10312abc48e17c16c7d37f9f7b162f9339e03",
+	"worker_packet_worker_job":                    "sha256:b8aeaed6941fef79cef5aff1269fccfd781eaf5fff7da710acb99bef12de37ed",
 	"workflow_action_outcome":                     "sha256:24ff00b2a31dd14f65fca5a6b28d5da6c8455a4071f04b566102a53dbc2091d9",
 	"workflow_action_outcome_predicates":          "sha256:988fd4543521ea1ec5d7a939a8c12d6cbb9f4f4b85234e1f4c13a3d913098af6",
 	"workflow_completion_payload":                 "sha256:d6b9e0ac022ea462702e1ff6a335bd6163c0b89bc7215d83ea332571ad403c60",
@@ -252,7 +252,7 @@ var newlyFrozenHistoricalDefs = map[string]string{
 // frozen bytes (a moved definition is named by its own digest), every other
 // carried definition must be an explicitly recorded newly frozen ref, and the
 // canonical digest over the original baseline subset equals the S0 baseline
-// digest 81339ce1…, ignoring only those recorded additions.
+// digest 81a335fd…, ignoring only those recorded additions.
 func TestHistoricalDecoderRetainsFrozenBaselineBytes(t *testing.T) {
 	document := HistoricalDocument()
 	defs, ok := document["$defs"].(map[string]any)
@@ -288,7 +288,7 @@ func TestHistoricalDecoderRetainsFrozenBaselineBytes(t *testing.T) {
 	if schema, ok := document["$schema"]; ok {
 		subsetDocument["$schema"] = schema
 	}
-	const expected = "sha256:81339ce1d8c300555ab0afb031dda6f0b97f41e25407f464a357a9d7c0dbc431"
+	const expected = "sha256:81a335fdb8348d9ce767be08a29d8c963b60f61e114ffe8a18f72889fa18d016"
 	digest := fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(canonicalJSON(t, subsetDocument))))
 	if digest != expected {
 		t.Fatalf("historical decoder baseline subset digest = %s, want %s", digest, expected)

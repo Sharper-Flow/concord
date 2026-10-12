@@ -88,20 +88,21 @@ func TestResearchAuthorBindProveAndRead(t *testing.T) {
 	}
 	packID := created.ChangedRefs[0].ID
 
-	// 2. Record a finding and a source on the pack.
-	if r := invoke("research_finding_record", map[string]any{
-		"pack_id": packID, "expected_version": 1,
-		"finding":         map[string]any{"finding_id": "f-1", "kind": "observation", "statement": "The store owns the pack-operation boundary.", "confidence": "high"},
-		"idempotency_key": "rs-finding-1",
-	}); r.Outcome != OutcomeOK {
-		t.Fatalf("finding record failed: %+v", r.Error)
-	}
+	// 2. Record a source, then cite it from the finding.
 	if r := invoke("research_source_record", map[string]any{
-		"pack_id": packID, "expected_version": 2,
+		"pack_id": packID, "expected_version": 1,
 		"source":          map[string]any{"source_id": "s-1", "kind": "source_code", "locator": "internal/store/research_mutations.go", "title": "Pack operation boundary", "publisher_or_author": "concord", "accessed_at": "2026-08-14T00:00:00Z"},
 		"idempotency_key": "rs-source-1",
 	}); r.Outcome != OutcomeOK {
 		t.Fatalf("source record failed: %+v", r.Error)
+	}
+	if r := invoke("research_finding_record", map[string]any{
+		"pack_id": packID, "expected_version": 2,
+		"finding":         map[string]any{"finding_id": "f-1", "kind": "observation", "statement": "The store owns the pack-operation boundary.", "confidence": "high"},
+		"source_ids":      []string{"s-1"},
+		"idempotency_key": "rs-finding-1",
+	}); r.Outcome != OutcomeOK {
+		t.Fatalf("finding record failed: %+v", r.Error)
 	}
 
 	// 3. Read the pack back through the trace surface.
@@ -112,6 +113,12 @@ func TestResearchAuthorBindProveAndRead(t *testing.T) {
 	var pack store.ResearchPack
 	if err := json.Unmarshal(read.Result, &pack); err != nil || pack.PackID != packID || pack.CurrentRevision != 1 {
 		t.Fatalf("read pack=%+v err=%v", pack, err)
+	}
+	if len(pack.Revisions) != 1 || len(pack.Revisions[0].Findings) != 1 {
+		t.Fatalf("read findings=%+v", pack.Revisions)
+	}
+	if got := pack.Revisions[0].Findings[0].SourceIDs; len(got) != 1 || got[0] != "s-1" {
+		t.Fatalf("read source_ids=%v, want [s-1]", got)
 	}
 
 	// 4. Declare reliance at a workflow boundary on a fresh pack: the action
@@ -154,6 +161,70 @@ func TestResearchAuthorBindProveAndRead(t *testing.T) {
 	}
 	if refused.Error == nil || refused.Error.Kind != "stale_requires_review" || !strings.Contains(refused.Error.Message, "stale") {
 		t.Fatalf("expected stale_requires_review refusal, got %+v", refused.Error)
+	}
+}
+
+func TestResearchFindingUnknownSourceHasNoEffects(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s, service, grant, _ := researchSurfaceFixture(t)
+	var pack store.ResearchPack
+	if err := s.Transact(ctx, func(tx *store.Transaction) error {
+		var err error
+		pack, err = store.CreateResearchPackWithinTx(ctx, tx, store.CreateResearchPackRequest{
+			OwnerWorkID: "work-1", Revision: storeResearchRevision(researchRevisionInput{Question: "Which source supports the finding?", Method: "source inspection"}), Freshness: store.ResearchCurrent,
+		})
+		if err != nil {
+			return err
+		}
+		_, err = store.RecordResearchSourceWithinTx(ctx, tx, store.ResearchSourceRequest{
+			PackID: pack.PackID, ExpectedVersion: 1,
+			Source: store.ResearchSource{SourceID: "s-1", Kind: store.SourceCode, Locator: "synthetic/source.go", Title: "Synthetic source", PublisherOrAuthor: "Synthetic fixture", AccessedAt: "2026-08-14T00:00:00Z"},
+		})
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	invoke := func(op string, input any) Envelope {
+		t.Helper()
+		raw, err := json.Marshal(input)
+		if err != nil {
+			t.Fatal(err)
+		}
+		response, err := Dispatch(ctx, s, service, InvokeRequest{Tool: toolForOperation(op), Operation: op, Input: raw}, mutationEnvelope(grant, scopeVersion))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return response
+	}
+	snapshot := func() (json.RawMessage, [3]int64) {
+		t.Helper()
+		read := invoke("research", map[string]any{"product_id": "product-1", "pack_id": pack.PackID})
+		if read.Outcome != OutcomeOK {
+			t.Fatalf("research read failed: %+v", read.Error)
+		}
+		var state [3]int64
+		if err := s.DatabaseForTesting().QueryRow(`SELECT (SELECT count(*) FROM domain_events), (SELECT count(*) FROM idempotency_records), (SELECT version FROM work_items WHERE id='work-1')`).Scan(&state[0], &state[1], &state[2]); err != nil {
+			t.Fatal(err)
+		}
+		return read.Result, state
+	}
+	beforePack, beforeState := snapshot()
+	refused := invoke("research_finding_record", map[string]any{
+		"pack_id": pack.PackID, "expected_version": 2,
+		"finding":    map[string]any{"finding_id": "f-1", "kind": "observation", "statement": "The synthetic source supports the finding.", "confidence": "high"},
+		"source_ids": []string{"s-1", "missing-source"}, "idempotency_key": "unknown-source",
+	})
+	if refused.Outcome != OutcomeError || refused.Error == nil || refused.Error.Kind != "unknown_scope" || refused.Error.EffectState != "none" || !strings.Contains(refused.Error.Message, "cannot cite a source that is absent from this revision") {
+		t.Fatalf("expected unknown-source refusal with no effects, got outcome=%s error=%+v", refused.Outcome, refused.Error)
+	}
+	afterPack, afterState := snapshot()
+	if !bytes.Equal(beforePack, afterPack) || beforeState != afterState {
+		t.Fatalf("refusal changed pack or durable state: pack %s -> %s, state %v -> %v", beforePack, afterPack, beforeState, afterState)
 	}
 }
 

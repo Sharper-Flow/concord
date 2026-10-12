@@ -108,7 +108,7 @@
             "enum": ["satisfied", "outstanding", "unmeasured", "out_of_scope"]
           },
           "evidence": {
-            "description": "Typed executable anchors that prove a satisfied state. Each anchor carries a closed {kind, value} pair from the closed set {go_test, scenario, validator, generated} and is resolved by the shared evidence_anchors machinery. Repository paths are not anchors: a satisfied item cannot be established from a cited path alone (issue #187). Required when satisfied; forbidden otherwise.",
+            "description": "Typed executable anchors that prove a satisfied state. Each anchor carries a closed {kind, value} pair from the closed set {go_test, scenario, validator, generated} and is resolved by the shared evidence_anchors machinery. Repository paths are not anchors: a satisfied item cannot be established from a cited path alone. Required when satisfied; forbidden otherwise.",
             "type": "array",
             "minItems": 1,
             "maxItems": 32,

@@ -299,11 +299,13 @@ func TestNativeOracleHangingTestDeadlineReleasesLease(t *testing.T) {
 	}
 }
 
-func TestNativeOracleTwoReadyRevisionsFailInvariant(t *testing.T) {
+// Two jobs may be ready at once. The work context then selects no job and
+// carries no preparations; it must not refuse the read.
+func TestNativeOracleTwoReadyJobsSelectNoPreparations(t *testing.T) {
 	f := newNativeOracleFixture(t)
 	preparations, err := readSelectedOraclePreparations(context.Background(), f.s.db, f.work)
-	if failureKind(err) != KindInvariantViolation {
-		t.Fatalf("two ready revisions: preparations=%d err=%v", len(preparations), err)
+	if err != nil || preparations != nil {
+		t.Fatalf("two ready jobs: preparations=%d err=%v, want none and no error", len(preparations), err)
 	}
 }
 

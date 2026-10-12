@@ -370,8 +370,11 @@ func readSelectedOraclePreparations(ctx context.Context, q queryer, work string)
 	var selected *WorkerJobRevisionView
 	for i := range jobs {
 		if jobs[i].Ready {
+			// Several jobs may be ready at once, so the context cannot
+			// select one. Dispatch admission still checks the bound job's
+			// preparations (requireWorkerJobRevisionReadyTx).
 			if selected != nil {
-				return nil, oracleFailure(KindInvariantViolation, "two worker-job revisions are ready at once", "resolve the job revisions so exactly one is ready, then read the work context")
+				return nil, nil
 			}
 			selected = &jobs[i]
 		}

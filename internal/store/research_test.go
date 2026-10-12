@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -1273,8 +1274,8 @@ func TestResearchSourceProvenanceSurvivesReopenAndConsumption(t *testing.T) {
 
 // A workflow action that declares research reliance is refused at the
 // declaration boundary when the pack is missing or a required binding pins a
-// stale revision. A retained terminal-owner pack stays pinnable (CD-0216). A
-// refusal records no consumer pin. A current required binding and a
+// stale or missing revision. A retained terminal-owner pack stays pinnable
+// (CD-0216). A refusal writes nothing. A current required binding and a
 // non-required stale binding each record exactly one pin.
 func TestResearchRelianceRefusesUnprovableBindingsAndPinsProvableOnes(t *testing.T) {
 	t.Parallel()
@@ -1293,12 +1294,14 @@ func TestResearchRelianceRefusesUnprovableBindingsAndPinsProvableOnes(t *testing
 		name        string
 		declaration ResearchBindingDeclaration
 		refusal     FailureKind
+		detail      string
 	}{
-		{"missing pack", ResearchBindingDeclaration{PackID: "no-such-pack", Revision: 1, UseRole: UseDecisionBasis, Required: true}, KindProjectionNotFound},
-		{"required stale", ResearchBindingDeclaration{PackID: stale.PackID, Revision: 1, UseRole: UseDecisionBasis, Required: true}, KindResearchConsumerBlocked},
-		{"required current", ResearchBindingDeclaration{PackID: current.PackID, Revision: 1, UseRole: UseDecisionBasis, Required: true}, ""},
-		{"optional stale", ResearchBindingDeclaration{PackID: stale.PackID, Revision: 1, UseRole: UseContext, Required: false}, ""},
-		{"retained terminal owner", ResearchBindingDeclaration{PackID: retained.PackID, Revision: 1, UseRole: UseDecisionBasis, Required: true}, ""},
+		{"missing pack", ResearchBindingDeclaration{PackID: "no-such-pack", Revision: 1, UseRole: UseDecisionBasis, Required: true}, KindProjectionNotFound, ""},
+		{"missing revision", ResearchBindingDeclaration{PackID: current.PackID, Revision: 2, UseRole: UseDecisionBasis, Required: true}, KindProjectionNotFound, "declared research revision does not exist"},
+		{"required stale", ResearchBindingDeclaration{PackID: stale.PackID, Revision: 1, UseRole: UseDecisionBasis, Required: true}, KindResearchConsumerBlocked, ""},
+		{"required current", ResearchBindingDeclaration{PackID: current.PackID, Revision: 1, UseRole: UseDecisionBasis, Required: true}, "", ""},
+		{"optional stale", ResearchBindingDeclaration{PackID: stale.PackID, Revision: 1, UseRole: UseContext, Required: false}, "", ""},
+		{"retained terminal owner", ResearchBindingDeclaration{PackID: retained.PackID, Revision: 1, UseRole: UseDecisionBasis, Required: true}, "", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
@@ -1306,12 +1309,29 @@ func TestResearchRelianceRefusesUnprovableBindingsAndPinsProvableOnes(t *testing
 				t.Fatal(err)
 			}
 			defer tx.Rollback()
+			var beforeChanges, beforeVersion int64
+			if err := tx.QueryRowContext(ctx, `SELECT total_changes(), COALESCE((SELECT expected_version FROM active_research_packs WHERE pack_id=?),0)`, tc.declaration.PackID).Scan(&beforeChanges, &beforeVersion); err != nil {
+				t.Fatal(err)
+			}
 			err = BindResearchRelianceTx(ctx, tx, "consumer", []ResearchBindingDeclaration{tc.declaration}, now)
 			if tc.refusal != "" {
 				if err == nil {
 					t.Fatalf("binding %+v was admitted, want %s", tc.declaration, tc.refusal)
 				}
 				assertFailureKind(t, err, tc.refusal)
+				if tc.detail != "" {
+					var failure *Failure
+					if !errors.As(err, &failure) || failure.Detail != tc.detail {
+						t.Fatalf("binding error=%v, want detail %q", err, tc.detail)
+					}
+				}
+				var afterChanges, afterVersion int64
+				if err := tx.QueryRowContext(ctx, `SELECT total_changes(), COALESCE((SELECT expected_version FROM active_research_packs WHERE pack_id=?),0)`, tc.declaration.PackID).Scan(&afterChanges, &afterVersion); err != nil {
+					t.Fatal(err)
+				}
+				if afterVersion != beforeVersion || afterChanges != beforeChanges {
+					t.Fatalf("refused binding changed version %d -> %d or database changes %d -> %d", beforeVersion, afterVersion, beforeChanges, afterChanges)
+				}
 			} else if err != nil {
 				t.Fatalf("binding %+v was refused: %v", tc.declaration, err)
 			}

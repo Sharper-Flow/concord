@@ -111,6 +111,56 @@ func TestDispatchProductResolveReturnsGeneratedPayload(t *testing.T) {
 	}
 }
 
+func TestRetiredPlanningOperationsRefuseBeforeEffects(t *testing.T) {
+	t.Parallel()
+	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"product_read", "work_define", "work_transition", "work_relate", "work_compact"})
+	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := mutationEnvelope(grant, scopeVersion)
+	// The event count catches durable writes, and the projection counts and
+	// work version catch partial work, contract, dispatch, relation, or
+	// observation writes.
+	snapshot := func() [9]int64 {
+		t.Helper()
+		var counts [9]int64
+		for i, table := range []string{"domain_events", "work_items", "workflow_instances", "workflow_contracts", "worker_attempts", "relations", "domain_observations", "durable_operations"} {
+			if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM ` + table).Scan(&counts[i]); err != nil {
+				t.Fatal(err)
+			}
+		}
+		counts[8] = workVersion(t, s, "work-1")
+		return counts
+	}
+	before := snapshot()
+	for _, pair := range []struct{ tool, operation string }{
+		{"concord_domain", "active_work"},
+		{"concord_domain", "observation_record"},
+		{"concord_domain", "observation_dismiss"},
+		{"concord_work_relate", "link"},
+		{"concord_work_relate", "unlink"},
+		{"concord_work_relate", "supersede"},
+		{"concord_work_relate", "restore_superseded"},
+		{"concord_product_view", "portfolio"},
+		{"concord_work_compact", "lesson_publish"},
+		{"concord_knowledge", "unprocessed"},
+	} {
+		t.Run(pair.tool+"."+pair.operation, func(t *testing.T) {
+			if _, ok := ValidateContractOperation(pair.tool, pair.operation); ok {
+				t.Fatal("retired operation is still registered")
+			}
+			_, err := Dispatch(context.Background(), s, service, InvokeRequest{Tool: pair.tool, Operation: pair.operation, Input: json.RawMessage(`{}`)}, env)
+			if err == nil || err.Error() != "unsupported tool operation" {
+				t.Fatalf("retired operation dispatch = %v, want unsupported tool operation", err)
+			}
+			if after := snapshot(); after != before {
+				t.Fatalf("retired operation changed state: before=%v after=%v", before, after)
+			}
+		})
+	}
+}
+
 func TestDecodeInvokeRequestRejectsInvalidTrailingJSON(t *testing.T) {
 	t.Parallel()
 	valid := `{"call_envelope":{"schema_version":"1.0","request_id":"request-1","unexpected_field":"value"},"tool":"concord_product_view","operation":"resolve","input":{}}`

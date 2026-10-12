@@ -167,7 +167,8 @@ func TestMigration124RetiresThePlanningMirror(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	index := planningRetirementMigrationIndex(t)
-	db := openMigratedTo(t, filepath.Join(t.TempDir(), "pre-124.db"), index)
+	path := filepath.Join(t.TempDir(), "pre-124.db")
+	db := openMigratedTo(t, path, index)
 	if _, err := db.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1);
 INSERT INTO work_items(id,kind,title,lifecycle,priority,version,created_at,updated_at,intent_json,narrative,urgency)
 VALUES('initiative-a','initiative','Initiative','needed',0,1,'t','t','{}','','standard'),
@@ -178,6 +179,10 @@ VALUES('child-a','uuid-confirmed','CON-1','https://linear.app/x/issue/CON-1','co
       ('initiative-a','uuid-pending','','','pending','t','t');
 DELETE FROM fold_guard;`); err != nil {
 		t.Fatal(err)
+	}
+	archive := filepath.Join(t.TempDir(), "planning-archive.db")
+	if _, err := BackupDatabase(ctx, path, archive); err != nil {
+		t.Fatalf("archive before planning retirement: %v", err)
 	}
 	if err := applyMigration(ctx, db, migrations[index]); err != nil {
 		t.Fatalf("migration 124: %v", err)
@@ -237,6 +242,24 @@ DELETE FROM fold_guard;`); err != nil {
 	}
 	if includes != 0 || blocks != 1 {
 		t.Fatalf("relations after migration: includes=%d blocks=%d; want 0 and 1", includes, blocks)
+	}
+	if _, err := VerifyBackup(ctx, archive); err != nil {
+		t.Fatalf("retained planning archive no longer verifies: %v", err)
+	}
+	archived, err := sql.Open(driverName, readOnlyDataSource(archive))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer archived.Close()
+	var archivedIncludes, archivedPending int
+	if err := archived.QueryRow(`SELECT count(*) FROM relations WHERE kind='includes' AND id=901`).Scan(&archivedIncludes); err != nil {
+		t.Fatal(err)
+	}
+	if err := archived.QueryRow(`SELECT count(*) FROM linear_issue_links WHERE work_id='initiative-a' AND remote_issue_uuid='uuid-pending' AND link_state='pending'`).Scan(&archivedPending); err != nil {
+		t.Fatal(err)
+	}
+	if archivedIncludes != 1 || archivedPending != 1 {
+		t.Fatalf("archive lost retired planning rows: includes=%d pending=%d, want 1 each", archivedIncludes, archivedPending)
 	}
 	var resolutionID string
 	if err := db.QueryRowContext(ctx, `SELECT resolution_id FROM relations WHERE id=2`).Scan(&resolutionID); err != nil || resolutionID != "resolution-a" {

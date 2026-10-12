@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 )
@@ -274,6 +275,123 @@ func TestOwnerOracleAuthorAuthorityJoins(t *testing.T) {
 			}
 		})
 	}
+}
+
+// The receiving Project owns both the active verify subject and the native
+// preparation. The job's derived Project scope remains the primary Project.
+func oracleMemberProjectFixture(t *testing.T) (*Store, WorkflowActor, string, map[string]any) {
+	t.Helper()
+	const workID = "oracle-member-project"
+	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
+	s := fixture.store
+	t.Cleanup(func() { _ = s.Close() })
+	if _, err := s.db.Exec(`INSERT INTO fold_guard(active) VALUES(1);
+		INSERT INTO projects(id,display_name,version,created_at,updated_at) VALUES('receiver','Receiver',1,'now','now');
+		INSERT INTO product_projects(product_id,project_id,role) VALUES('product','receiver','secondary');
+		INSERT INTO work_projects(work_id,project_id,role) VALUES(?,'receiver','secondary');
+		DELETE FROM fold_guard`, workID); err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	if err := s.AddProjectLocator(context.Background(), "receiver", ProjectLocator{ID: "receiver-repo", Kind: LocatorCanonicalPath, Value: root}, 1); err != nil {
+		t.Fatal(err)
+	}
+	git := newFakeWorktreeGit(root)
+	claim := baseClaim(git)
+	claim.WorkID, claim.ProjectID, claim.ExpectedVersion = workID, "receiver", verdictItemVersion(t, s, workID)
+	claim.OpID, claim.RequestID = "receiver-claim", "receiver-claim"
+	claimed, err := s.ClaimWorktree(context.Background(), claim)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(claimed.Entry.Path, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	req := verifyRequest(git, "receiver-subject", []string{"true"}, func(context.Context, string, []string, int) (int, []byte, bool, error) { return 0, nil, false, nil })
+	req.WorkID, req.ProjectID = workID, "receiver"
+	verified, err := s.VerifyWorktree(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current, err := readCurrentOracleSubject(context.Background(), s.db, workID); err != nil || current != strings.TrimPrefix(verified.SubjectRef, "commit:") || current == "" {
+		t.Fatalf("receiver current subject = %q, verify = %q, err = %v", current, verified.SubjectRef, err)
+	}
+	oracle := acceptanceOracleFieldsWithoutPreparationsForTest(t, s, workID)
+	oracle["owners"].([]map[string]any)[0]["mechanism"].(map[string]any)["project_id"] = "receiver"
+	oracle["controls"].([]map[string]any)[0]["recipe_source"].(map[string]any)["project_id"] = "receiver"
+	seedOraclePreparationFieldsFixture(t, s, workID, oracle)
+	return s, fixture.owner, workID, map[string]any{
+		"job_id": "job:receiver", "objective": "verify the receiving Project",
+		"stopping_condition": "the receiving control passes", "ready": true,
+		"readiness_evidence": []string{verified.OperationRef},
+		"acceptance_oracle":  oracle,
+	}
+}
+
+func TestOwnerOracleMemberProjectAuthorAdmission(t *testing.T) {
+	s, actor, workID, fields := oracleMemberProjectFixture(t)
+	t.Run("exact receiver preparation admits", func(t *testing.T) {
+		if err := recordWorkerJobActionForTest(t, s, workID, actor, fields); err != nil {
+			t.Fatalf("receiver's exact preparation refused: %v", err)
+		}
+	})
+	t.Run("different member preparation refuses without effects", func(t *testing.T) {
+		before := readWorkVersion(t, s, workID)
+		var eventsBefore, revisionsBefore int
+		if err := s.db.QueryRow(`SELECT count(*) FROM domain_events`).Scan(&eventsBefore); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.db.QueryRow(`SELECT count(*) FROM worker_job_revisions`).Scan(&revisionsBefore); err != nil {
+			t.Fatal(err)
+		}
+		fields["job_id"] = "job:foreign-member"
+		fields["acceptance_oracle"].(map[string]any)["controls"].([]map[string]any)[0]["recipe_source"].(map[string]any)["project_id"] = "project"
+		err := recordWorkerJobActionForTest(t, s, workID, actor, fields)
+		if failureKind(err) != KindInvalidPayload || !strings.Contains(err.Error(), "not its exact qualified native preparation") {
+			t.Fatalf("foreign member preparation error = %v", err)
+		}
+		var eventsAfter, revisionsAfter int
+		if err := s.db.QueryRow(`SELECT count(*) FROM domain_events`).Scan(&eventsAfter); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.db.QueryRow(`SELECT count(*) FROM worker_job_revisions`).Scan(&revisionsAfter); err != nil {
+			t.Fatal(err)
+		}
+		if after := readWorkVersion(t, s, workID); after != before || eventsAfter != eventsBefore || revisionsAfter != revisionsBefore {
+			t.Fatalf("refusal mutated version/events/revisions: %d/%d/%d -> %d/%d/%d", before, eventsBefore, revisionsBefore, after, eventsAfter, revisionsAfter)
+		}
+	})
+}
+
+func TestOwnerOracleMemberProjectPreparationReads(t *testing.T) {
+	s, _, workID, fields := oracleMemberProjectFixture(t)
+	var graph AcceptanceOracle
+	if err := json.Unmarshal(mustJSONValue(fields["acceptance_oracle"]), &graph); err != nil {
+		t.Fatal(err)
+	}
+	// Raw recording isolates dispatch and context reads from author admission.
+	payload := WorkerJobRecordedPayload{
+		JobID: "job:receiver", Revision: 1, ContractVersion: 1, ProjectScope: "project",
+		Objective: "verify the receiving Project", StoppingCondition: "the receiving control passes",
+		PathScope: []string{}, PredicateIDs: []string{}, Checks: []string{}, Prerequisites: []WorkerJobPrerequisite{}, UnresolvedRefs: []string{},
+		Readiness: &WorkerJobReadiness{Ready: true, Evidence: fields["readiness_evidence"].([]string)}, AcceptanceOracle: &graph,
+	}
+	payload.Digest = DeriveWorkerJobDigest(payload)
+	if err := applyWorkerJobEventForTest(t, s, workID, payload); err != nil {
+		t.Fatal(err)
+	}
+	binding := WorkerJobBinding{JobID: payload.JobID, Revision: payload.Revision, Digest: payload.Digest}
+	t.Run("dispatch joins receiver preparation", func(t *testing.T) {
+		if err := requireWorkerJobRevisionReadyTx(context.Background(), s.db, workID, binding); err != nil {
+			t.Fatalf("receiver dispatch readiness refused: %v", err)
+		}
+	})
+	t.Run("selected context retains receiver preparation", func(t *testing.T) {
+		preparations, err := readSelectedOraclePreparations(context.Background(), s.db, workID)
+		if err != nil || len(preparations) != 1 || preparations[0].ProjectID != "receiver" || preparations[0].RunRef != graph.Controls[0].ReadinessEvidenceRefs[0] {
+			t.Fatalf("selected preparations = %+v, err = %v", preparations, err)
+		}
+	})
 }
 
 // A pre-oracle pin keeps its oracle-free authoring route and refuses the

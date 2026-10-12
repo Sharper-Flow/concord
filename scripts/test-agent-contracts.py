@@ -66,6 +66,43 @@ class ManifestTamperTests(unittest.TestCase):
         value=copy.deepcopy(manifest); value["tools"][0]["operations"].append("concord_product_view.missing")
         with self.assertRaises(ValueError): generator.validate(value)
 
+class ToolDescriptionTests(unittest.TestCase):
+    def test_domain_description_matches_the_read_only_navigation_surface(self):
+        tool = next(tool for tool in manifest["tools"] if tool["id"] == "concord_domain")
+        self.assertEqual(tool["operations"], [
+            "concord_domain.list", "concord_domain.detail",
+            "concord_domain.attachments", "concord_domain.overlaps",
+        ])
+        self.assertEqual(tool["description"],
+                         "Navigate Product architecture: current Domains, current law, "
+                         "attachments, and unresolved overlap.")
+
+    def test_tool_descriptions_do_not_name_retired_operations(self):
+        retired = [
+            "concord_domain.active_work",
+            "concord_domain.observation_record",
+            "concord_domain.observation_dismiss",
+            "concord_work_relate.link",
+            "concord_work_relate.unlink",
+            "concord_work_relate.supersede",
+            "concord_work_relate.restore_superseded",
+            "concord_product_view.portfolio",
+            "concord_work_compact.lesson_publish",
+            "concord_knowledge.unprocessed",
+        ]
+        registered = {operation["id"] for operation in manifest["operations"]}
+        for operation in retired:
+            owner, name = operation.split(".")
+            with self.subTest(operation=operation):
+                self.assertNotIn(operation, registered)
+                for tool in manifest["tools"]:
+                    self.assertNotRegex(tool["description"],
+                                        re.compile(r"\b" + re.escape(operation) + r"\b", re.I))
+                    if tool["id"] == owner:
+                        self.assertNotRegex(tool["description"],
+                                            re.compile(r"\b" + re.escape(name) + r"\b", re.I))
+
+
 class ResultRequirednessTests(unittest.TestCase):
     def validate_result(self, result):
         payload = copy.deepcopy(payload_schema)

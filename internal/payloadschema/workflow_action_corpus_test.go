@@ -622,7 +622,10 @@ func TestWorkflowActionVariantCorpusParity(t *testing.T) {
 	document := Document()
 	defs, _ := document["$defs"].(map[string]any)
 	variantNames := []string{}
-	for name := range defs {
+	input := defs["work_transition_action_input"].(map[string]any)
+	for _, branch := range input["anyOf"].([]any) {
+		ref := branch.(map[string]any)["$ref"].(string)
+		name := strings.TrimPrefix(ref, "#/$defs/")
 		if strings.HasPrefix(name, "work_transition_action_variant_") {
 			variantNames = append(variantNames, name)
 		}

@@ -750,25 +750,11 @@ func workflowActionDefinitionByID(definition WorkflowDefinition, actionID string
 	return WorkflowActionDefinition{ID: actionID}
 }
 
-// workflowEvidenceBindingRecoveryAvailable reports whether bind_evidence is
-// admitted past its declared binding step for this work item. The fold admits
-// that recovery when the current step follows the binding step and the binding
-// satisfies an outstanding requirement, but the pin listed only declared step
-// actions. A caller that reaches a human checkpoint with a required evidence
-// kind unbound then sees no route out, which is the wedge the acceptance
-// deliverable gate refuses on. The conditions here are the fold's conditions,
-// so the pin never advertises an action the fold would refuse.
+// Discovery and mutation share the recovery eligibility owner.
 func workflowEvidenceBindingRecoveryAvailable(ctx context.Context, q queryer, definition WorkflowDefinition, workID, currentStep string) (bool, error) {
-	if stepDeclaresAction(definition, currentStep, "bind_evidence") {
-		return false, nil
-	}
-	bindingStep := workflowEvidenceBindingStep(definition, currentStep)
-	if bindingStep == "" || !workflowStepFollows(definition, bindingStep, currentStep) {
-		return false, nil
-	}
-	outstanding, err := outstandingWorkflowEvidenceRequirementsForWork(ctx, q, workID, definition)
+	recovery, err := workflowEvidenceBindingRecoveryEligibility(ctx, q, definition, workID, currentStep, 0)
 	if err != nil {
 		return false, err
 	}
-	return len(outstanding) != 0, nil
+	return recovery.Refusal == nil && len(recovery.Requirements) != 0, nil
 }

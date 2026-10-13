@@ -86,13 +86,26 @@ repository of the calling directory at each call, through the Project
 resolver of `internal/agent/authority.go`. A `worktree_claim` whose target
 Project lives in another repository refuses before the core creates a
 worktree. The refusal kind is `cross_repository_claim`, it is not
-retryable, and its remedy names the route in this rule.
+retryable, and its remedy names the route in this rule. The refusal carries
+a typed `session_placement` detail with the work identifier, target Project
+identifier, and target Project's registered canonical checkout directory.
+The directory never comes from the caller or the Git common directory.
+The host coordinator reuses a receiving session before it opens one. The
+receiving session resumes the work through `concord_work_start` in its own
+repository. Concord does not treat a placement answer as a verified landing.
 
 The adapter reads the message of every host move refusal and returns it
 unchanged. After this rule, a claim cannot reach the host cross-repository
 refusal, so the remaining move refusals keep their existing classification.
 
 Within one repository, the move route of CD-0098 and CD-0103 stays as it is.
+
+A central `concord-coordinator` may supervise local operators across authorized
+Projects through the host. It never moves across repository boundaries,
+claims their worktrees, or dispatches their lanes from its own instance.
+Repository-local `concord-operator` sessions hold the execution authority
+described by this clause. The central coordinator conveys references and
+attention, not substitute workflow or handoff evidence.
 
 ### D3. Occupancy is one row per session, and it ends with its host process
 

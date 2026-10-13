@@ -701,6 +701,34 @@ describe("host task failure", () => {
     expect(windows.inFlight(SESSION, "call-cancel")).toBeNull()
   })
 
+  test("two maximum host observations keep complete sources and balanced detail summaries", async () => {
+    const windows = new DispatchWindows()
+    windows.open(SESSION, packet(), PACKET_DIGEST, process.cwd())
+    await windows.bind(TASK_TOOL_ID, SESSION, {}, "call-cancel", async () => process.cwd(), process.cwd())
+    const failureInput: { value?: Record<string, unknown> } = {}
+    const options = cancelledSettleDeps(windows, workerFailRunner(failureInput))
+    const retry = "retry-start " + "🎉".repeat(509)
+    const terminal = "terminal-start " + "🎉".repeat(508)
+    await failDispatchedWorker({ type: "session.status", properties: {
+      sessionID: WORKER_SESSION, status: { type: "retry", message: retry },
+    } }, options)
+    await failDispatchedWorker({ type: "message.updated", properties: { info: {
+      id: "message-error", sessionID: WORKER_SESSION,
+      error: { name: "APIError", data: { message: terminal, statusCode: 429 } },
+    } } }, options)
+    const result = await failDispatchedWorker(failedEvent(), options)
+    const detail = failureInput.value?.detail as string
+    expect(Buffer.byteLength(detail, "utf8")).toBeLessThanOrEqual(4096)
+    expect(detail).toContain("host retry observation: retry-start")
+    expect(detail).toContain("host terminal observation: APIError: terminal-start")
+    expect(detail.split("[summary truncated]")).toHaveLength(3)
+    expect(Buffer.from(detail, "utf8").toString("utf8")).toBe(detail)
+    expect(result?.error?.details?.host_observations).toEqual([
+      expect.objectContaining({ tag: "retry", message: retry }),
+      expect.objectContaining({ tag: "terminal", message: terminal }),
+    ])
+  })
+
   test("a refused born-failed write retains settlement without retry", async () => {
     const windows = new DispatchWindows()
     windows.open(SESSION, packet(), PACKET_DIGEST, process.cwd())
@@ -972,5 +1000,18 @@ describe("structured host failure observations", () => {
       id: "message-error", sessionID: WORKER_SESSION, error: { name: "APIError", data: { message: "invalid code", statusCode: 700 } },
     } } }, { hostObservations: observations })
     expect(observations.take(WORKER_SESSION)).toEqual([])
+  })
+
+  test("an invalid new observation preserves the earlier valid source", () => {
+    const observations = new HostFailureObservations()
+    const valid = { tag: "terminal" as const, event_type: "message.updated" as const,
+      session_id: WORKER_SESSION, message_id: "message-error", error_name: "APIError",
+      message: "exact earlier observation", status_code: 429 }
+    observations.record(valid)
+    observations.record({ ...valid, message: "x".repeat(2049) })
+    observations.record({ ...valid, status_code: 700 })
+    expect(observations.take(WORKER_SESSION)).toEqual([
+      expect.objectContaining(valid),
+    ])
   })
 })

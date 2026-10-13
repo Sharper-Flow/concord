@@ -144,9 +144,6 @@ export class HostFailureObservations {
   readonly #held = new Map<string, HostFailureObservation[]>()
 
   record(input: Omit<HostFailureObservation, "source_digest">): void {
-    const held = (this.#held.get(input.session_id) ?? []).filter((entry) => entry.tag !== input.tag)
-    if (held.length > 0) this.#held.set(input.session_id, held)
-    else this.#held.delete(input.session_id)
     if (!boundedObservationText(input.session_id, MAX_HOST_OBSERVATION_REF_BYTES, true)
       || !boundedObservationText(input.message, MAX_HOST_OBSERVATION_BYTES, true)
       || (input.message_id !== undefined && !boundedObservationText(input.message_id, MAX_HOST_OBSERVATION_REF_BYTES, true))
@@ -169,6 +166,7 @@ export class HostFailureObservations {
       ...(input.next_retry !== undefined ? { next_retry: input.next_retry } : {}),
     }
     const source_digest = `sha256:${createHash("sha256").update(JSON.stringify(source)).digest("hex")}`
+    const held = (this.#held.get(input.session_id) ?? []).filter((entry) => entry.tag !== input.tag)
     this.#held.delete(input.session_id)
     this.#held.set(input.session_id, [...held, { ...source, source_digest }])
     while (this.#held.size > HostFailureObservations.CAPACITY) {
@@ -228,9 +226,20 @@ const TASK_CANCELLED_ERROR = "Task cancelled"
 // Rendering observations does not assert that either source caused cancellation.
 function cancelledDetail(error: string, observations: HostFailureObservation[]): string {
   if (error !== TASK_CANCELLED_ERROR) return error
-  return error + observations.map((entry) => {
+  const parts = observations.map((entry) => {
     const diagnostic = entry.error_name && entry.error_name !== entry.message ? `${entry.error_name}: ${entry.message}` : entry.message
-    return `; host ${entry.tag} observation: ${diagnostic}`
+    return { label: `; host ${entry.tag} observation: `, diagnostic }
+  })
+  const detail = error + parts.map(({ label, diagnostic }) => label + diagnostic).join("")
+  if (Buffer.byteLength(detail, "utf8") <= 4096) return detail
+  // The legacy detail is a summary with its own 4096-byte wire bound.
+  // Reserve every source label; the structured observations stay byte-exact.
+  const marker = " [summary truncated]"
+  const overhead = error + parts.map(({ label }) => label + marker).join("")
+  const budget = Math.floor((4096 - Buffer.byteLength(overhead, "utf8")) / parts.length)
+  return error + parts.map(({ label, diagnostic }) => {
+    const summary = boundedTextPrefix(diagnostic, budget)
+    return label + summary + (summary === diagnostic ? "" : marker)
   }).join("")
 }
 

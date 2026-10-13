@@ -510,7 +510,7 @@ const GeneratedPayloadSchemaDocument = `{
             "$ref": "#/$defs/domain_id"
           },
           "maxItems": 20,
-          "minItems": 1,
+          "minItems": 0,
           "type": "array",
           "uniqueItems": true
         },
@@ -1594,7 +1594,7 @@ const GeneratedPayloadSchemaDocument = `{
             "$ref": "#/$defs/id"
           },
           "maxItems": 32,
-          "minItems": 1,
+          "minItems": 0,
           "type": "array"
         },
         "shared_law_ids": {

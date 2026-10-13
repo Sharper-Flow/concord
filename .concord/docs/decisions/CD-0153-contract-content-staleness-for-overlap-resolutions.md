@@ -46,9 +46,10 @@ An earlier count cites 2,179 existing resolutions. The store currently contains
 or current.
 
 The amendment preserves all 2,513 rows as history. It does not bulk invalidate,
-rewrite, or migrate them. Each row is current unless a later revision changed
-the judged content in D1. A row already marked stale remains historical, and a
-row for which only unrelated contract content changed remains current.
+rewrite, or migrate them. An invalidation recorded before judged-content
+comparison took effect stays invalidated. Replay reproduces that invalidation
+from the event's original payload version. A content-neutral revision after that
+leaves a non-invalidated resolution current.
 
 ### D3. The execution-start boundary remains independent
 
@@ -64,8 +65,10 @@ for staleness.
 
 ### D4. Existing authority and resolution classes remain unchanged
 
-The five D6 resolution kinds remain `compatible_with`, `depends_on`, `blocks`,
-`merged_into`, and `supersedes`. Only the operator may approve a resolution.
+The five resolution kinds remain. Operator approval remains required for
+compatibility, blocking another item, merger, supersession, and scope-changing
+decisions. Pure `depends_on` only yields the declarer's place and does not require
+an operator signature. It grants no standing Domain compatibility waiver.
 D7's seven consequential action classes remain unchanged. CD-0036 remains the
 authority for breaking law cutovers and its strict quiescence rule.
 

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"sort"
 	"strings"
 )
 
@@ -500,10 +501,9 @@ func queryDomainAttachments(ctx context.Context, q queryer, req DomainAttachment
 	return out, nil
 }
 
-// QueryDomainOverlaps returns the bounded set of nonterminal Product-changing
-// contract pairs that share the Domain (or any Domain when empty) without a
-// current operator resolution. Pairs beyond the bound are flagged, never
-// silently truncated.
+// QueryDomainOverlaps reports exact shared-write pairs with at least one
+// execution-started side, including their current resolution. Its footprint
+// and freshness derivation are shared with consequential admission.
 func (s *Store) QueryDomainOverlaps(ctx context.Context, req DomainOverlapsRequest) (DomainOverlapsResult, error) {
 	var out DomainOverlapsResult
 	if s == nil || s.db == nil {
@@ -528,80 +528,50 @@ func queryDomainOverlaps(ctx context.Context, q queryer, req DomainOverlapsReque
 			return out, err
 		}
 	}
-	// Enumerate the nonterminal current contracts with their Domain footprint,
-	// mirroring the overlap check's authority join.
-	rows, err := q.QueryContext(ctx, `
-		SELECT c.work_id,c.contract_version,b.home_domain_id
-		FROM workflow_contracts c
-		JOIN workflow_architecture_bindings b ON b.work_id=c.work_id AND b.contract_version=c.contract_version
-		JOIN work_items w ON w.id=c.work_id
-		WHERE c.superseded_by IS NULL AND w.lifecycle NOT IN ('completed','cancelled','superseded')
-		  AND (SELECT count(*) FROM workflow_contracts c3 WHERE c3.work_id=c.work_id AND c3.superseded_by IS NULL)=1
-		  AND b.product_id=?
-		ORDER BY c.work_id`, req.Product)
-	if err != nil {
-		return out, wrapFailure(KindUnavailable, "C22.DomainOverlaps", "cannot read Domain footprints", true, "retry once the workflow projection is readable", err)
+	// Every subject keeps its prospective footprint. The shared peer reader
+	// requires execution start, so two unstarted subjects never form a pair.
+	var subjects []string
+	if err := readOverlapString(ctx, q, `SELECT DISTINCT c.work_id FROM workflow_contracts c JOIN workflow_architecture_bindings b ON b.work_id=c.work_id AND b.contract_version=c.contract_version JOIN work_items w ON w.id=c.work_id WHERE c.superseded_by IS NULL AND w.lifecycle NOT IN ('completed','cancelled','superseded') AND (SELECT count(*) FROM workflow_contracts c3 WHERE c3.work_id=c.work_id AND c3.superseded_by IS NULL)=1 AND b.product_id=? ORDER BY c.work_id`, &subjects, req.Product); err != nil {
+		return out, err
 	}
-	type footprintRow struct {
-		work, home string
-		version    int64
-	}
-	var footprints []footprintRow
-	for rows.Next() {
-		var f footprintRow
-		if err := rows.Scan(&f.work, &f.version, &f.home); err != nil {
-			rows.Close()
-			return out, wrapFailure(KindUnavailable, "C22.DomainOverlaps", "cannot decode Domain footprints", true, "retry once the workflow projection is readable", err)
-		}
-		footprints = append(footprints, f)
-	}
-	if err := rows.Err(); err != nil {
-		rows.Close()
-		return out, wrapFailure(KindUnavailable, "C22.DomainOverlaps", "cannot enumerate Domain footprints", true, "retry once the workflow projection is readable", err)
-	}
-	rows.Close()
-	domainsByWork := map[string][]string{}
-	lawsByWork := map[string][]string{}
-	for _, f := range footprints {
-		list := []string{f.home}
-		if err := readOverlapString(ctx, q, `SELECT domain_id FROM workflow_contract_affected_domains WHERE work_id=? AND contract_version=? ORDER BY domain_id`, &list, f.work, f.version); err != nil {
+	seen := map[[2]string]bool{}
+	for _, subject := range subjects {
+		self, peers, err := readWorkflowDomainOverlapCandidatesTx(ctx, q, subject)
+		if err != nil {
 			return out, err
 		}
-		domainsByWork[f.work] = sortedStrings(uniqueStringsStable(list))
-		var laws []string
-		if err := readOverlapString(ctx, q, `SELECT law_id FROM workflow_contract_law_modifications WHERE work_id=? AND contract_version=?`, &laws, f.work, f.version); err != nil {
-			return out, err
-		}
-		if err := readOverlapString(ctx, q, `SELECT law_id FROM workflow_contract_law_additions WHERE work_id=? AND contract_version=?`, &laws, f.work, f.version); err != nil {
-			return out, err
-		}
-		lawsByWork[f.work] = sortedStrings(uniqueStringsStable(laws))
-	}
-	for i := 0; i < len(footprints); i++ {
-		for j := i + 1; j < len(footprints); j++ {
-			left, right := footprints[i], footprints[j]
-			sharedDomains := intersectStrings(domainsByWork[left.work], domainsByWork[right.work])
-			if len(sharedDomains) == 0 {
+		for _, peer := range peers {
+			overlap, intersects := workflowDomainOverlapPair(self, peer)
+			if !intersects {
 				continue
 			}
-			if req.Domain != "" && !containsString(sharedDomains, req.Domain) {
+			key := [2]string{overlap.FromWorkID, overlap.ToWorkID}
+			if seen[key] || (req.Domain != "" && !containsString(overlap.SharedAffectedDomainIDs, req.Domain)) {
 				continue
 			}
-			if len(out.Pairs) >= domainOverlapPairLimit {
-				out.Truncated = true
-				break
-			}
-			pair := DomainOverlapPair{FromWorkID: left.work, ToWorkID: right.work, SharedDomainIDs: sharedDomains, SharedLawIDs: intersectStrings(lawsByWork[left.work], lawsByWork[right.work])}
-			var overlap WorkflowDomainOverlap
-			overlap.ProductID = req.Product
-			overlap.FromWorkID, overlap.ToWorkID = left.work, right.work
-			overlap.FromContractVersion, overlap.ToContractVersion = left.version, right.version
-			state, kind, err := overlapResolutionState(ctx, q, overlap)
+			seen[key] = true
+			state, kind, err := currentWorkflowOverlapResolutionTx(ctx, q, overlap)
 			if err != nil {
 				return out, err
 			}
-			pair.ResolutionState, pair.ResolutionKind = state, kind
-			out.Pairs = append(out.Pairs, pair)
+			if state == "unresolved" {
+				state = "absent"
+			}
+			out.Pairs = append(out.Pairs, DomainOverlapPair{FromWorkID: overlap.FromWorkID, ToWorkID: overlap.ToWorkID, SharedDomainIDs: overlap.SharedAffectedDomainIDs, SharedLawIDs: overlap.SharedLawIDs, ResolutionState: state, ResolutionKind: kind})
+			// A prospective subject can discover an earlier started peer after
+			// later-sorting pairs. Keep the smallest bounded canonical set.
+			sort.Slice(out.Pairs, func(i, j int) bool {
+				if out.Pairs[i].FromWorkID == out.Pairs[j].FromWorkID {
+					return out.Pairs[i].ToWorkID < out.Pairs[j].ToWorkID
+				}
+				return out.Pairs[i].FromWorkID < out.Pairs[j].FromWorkID
+			})
+			if len(out.Pairs) > domainOverlapPairLimit {
+				last := out.Pairs[domainOverlapPairLimit]
+				delete(seen, [2]string{last.FromWorkID, last.ToWorkID})
+				out.Pairs = out.Pairs[:domainOverlapPairLimit]
+				out.Truncated = true
+			}
 		}
 	}
 	out.Registry = registry
@@ -640,17 +610,4 @@ func readOverlapString(ctx context.Context, q queryer, query string, target *[]s
 		*target = append(*target, value)
 	}
 	return rows.Err()
-}
-
-func overlapResolutionState(ctx context.Context, q queryer, overlap WorkflowDomainOverlap) (string, string, error) {
-	var state, kind string
-	err := q.QueryRowContext(ctx, `SELECT CASE WHEN resolution_kind IN ('depends_on','blocks') THEN 'sequenced' ELSE 'current' END,resolution_kind FROM workflow_overlap_resolutions WHERE product_id=? AND ((from_work_id=? AND to_work_id=? AND from_contract_version=? AND to_contract_version=?) OR (from_work_id=? AND to_work_id=? AND from_contract_version=? AND to_contract_version=?)) AND invalidated_seq IS NULL ORDER BY event_seq DESC LIMIT 1`,
-		overlap.ProductID, overlap.FromWorkID, overlap.ToWorkID, overlap.FromContractVersion, overlap.ToContractVersion, overlap.ToWorkID, overlap.FromWorkID, overlap.ToContractVersion, overlap.FromContractVersion).Scan(&state, &kind)
-	if err == sql.ErrNoRows {
-		return "absent", "", nil
-	}
-	if err != nil {
-		return "", "", wrapFailure(KindUnavailable, "domain_read", "cannot read overlap resolution", true, "retry once the overlap projection is readable", err)
-	}
-	return state, kind, nil
 }

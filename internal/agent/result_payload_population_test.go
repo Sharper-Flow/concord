@@ -234,6 +234,23 @@ func fullyPopulatedDomainPayloads(t *testing.T) domainReadPayloads {
 	if err := pm1fixture.SeedDomainPayloadEvidence(ctx, s, options); err != nil {
 		t.Fatal(err)
 	}
+	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_instances(work_id,definition_ref,definition_version,definition_digest,current_step,instance_state,execution_started_at) VALUES('work-1','workflow.break_fix',9,?,'repair','running','2026-08-19T00:00:00Z')`, breakFixFixtureDigest(t)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
 	domain := pm1fixture.PayloadChildDomainID
 
 	list, err := s.QueryDomainList(ctx, store.DomainListRequest{Product: product})

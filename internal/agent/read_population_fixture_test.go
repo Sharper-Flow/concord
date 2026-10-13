@@ -429,8 +429,8 @@ func (fx readPopulationFixture) seedPopulationRows(t *testing.T) {
 
 // seedPopulationPeerWork creates a second work item bound to the child Domain
 // beside the focus work, then folds a relation, messages it, and claims a resource.
-// The shared binding gives the Domain overlap read an unresolved pair, and the
-// folded relation gives the relations read an edge.
+// The shared law write and started peer give the Domain overlap read a pair,
+// and the folded relation gives the relations read an edge.
 func (fx readPopulationFixture) seedPopulationPeerWork(t *testing.T) {
 	t.Helper()
 	ctx := context.Background()
@@ -469,6 +469,8 @@ func (fx readPopulationFixture) seedPopulationPeerWork(t *testing.T) {
 	if claim.Outcome != OutcomeOK {
 		t.Fatalf("population resource_claim outcome=%s err=%+v", claim.Outcome, claim.Error)
 	}
+	// The unresolved overlap must follow setup mutations that enforce admission.
+	execPopulationStatement(t, fx.store, `INSERT INTO workflow_instances(work_id,definition_ref,definition_version,definition_digest,current_step,instance_state,execution_started_at) VALUES(?,'workflow.break_fix',9,?,'repair','running','2026-08-19T00:00:00Z')`, readPopulationPeer, breakFixFixtureDigest(t))
 }
 
 // seedPopulationDomainRows attaches the home Project and one managed resource

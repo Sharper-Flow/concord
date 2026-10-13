@@ -3055,8 +3055,8 @@ func validateWorkerAttemptAction(ctx context.Context, tx *sql.Tx, event Event, p
 	if payload.WorkerAttemptID == "" {
 		return newFailure(KindInvalidPayload, "fold_event", payload.ActionID+" requires worker_attempt_id", false, "supply the exact worker attempt identity")
 	}
-	var attemptWorkID, lifecycle, readback string
-	if err := tx.QueryRowContext(ctx, `SELECT work_id,lifecycle_state,readback_model FROM worker_attempts WHERE attempt_id=?`, payload.WorkerAttemptID).Scan(&attemptWorkID, &lifecycle, &readback); err != nil {
+	var attemptWorkID, lifecycle, readback, capability string
+	if err := tx.QueryRowContext(ctx, `SELECT work_id,lifecycle_state,readback_model,capability_class FROM worker_attempts WHERE attempt_id=?`, payload.WorkerAttemptID).Scan(&attemptWorkID, &lifecycle, &readback, &capability); err != nil {
 		if err == sql.ErrNoRows {
 			return newFailure(KindProjectionNotFound, "fold_event", "worker attempt does not exist", false, "dispatch the worker attempt before recording its result")
 		}
@@ -3109,6 +3109,9 @@ func validateWorkerAttemptAction(ctx context.Context, tx *sql.Tx, event Event, p
 		if err := workflowActorsDistinct(ctx, tx, event.SubjectID, payload.ActorRef, "", false, "fold_event"); err != nil {
 			return err
 		}
+	}
+	if capability == "review" && (payload.ActionID == "accept_worker_evidence" || payload.ActionID == "accept_worker_result") {
+		return workflowAcceptanceSubjectCurrent(ctx, tx, event.SubjectID, []string{payload.WorkerAttemptID}, nil)
 	}
 	return nil
 }

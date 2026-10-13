@@ -167,7 +167,8 @@ type WorkflowAdmissionState struct {
 	// evidence kind bound. Nil when the deliverables stand or no premise
 	// question is open. The field name is the common case; any typed refusal
 	// of that gate lands here. workflowAdmit refuses confirm_premise on it, so the
-	// preflight and the work pin answer what the confirmation enforces.
+	// preflight and the work pin answer what the confirmation enforces. At the
+	// complete step it also carries the shared acceptance-subject refusal.
 	AcceptanceDeliverablesMissing error
 	// CompleteStepCorrection reports the shared complete-step correction
 	// admission passes at the pinned complete step.
@@ -423,6 +424,16 @@ func loadWorkflowAdmissionStateTx(ctx context.Context, q queryer, workID string,
 	// The operator question reads the active contract's premise, so a
 	// contractless or ambiguous projection has no question to answer.
 	state.PendingOperatorDecision = state.ActiveContracts == 1 && workflowOperatorDecisionPending(definition, currentStep)
+	if state.ActiveContracts == 1 {
+		subjectErr := workflowAcceptedSubjectCurrent(ctx, q, workID)
+		if subjectErr != nil {
+			var failure *Failure
+			if !failureAs(subjectErr, &failure) || failure.Kind != KindStaleRequiresReview {
+				return WorkflowAdmissionState{}, nil, nil, subjectErr
+			}
+			state.AcceptanceDeliverablesMissing = subjectErr
+		}
+	}
 	if state.PendingOperatorDecision {
 		if artifactErr := requireRecordedInvestigationArtifact(ctx, q, workID); artifactErr != nil {
 			var failure *Failure
@@ -442,7 +453,9 @@ func loadWorkflowAdmissionStateTx(ctx context.Context, q queryer, workID string,
 				if !failureAs(deliverablesErr, &failure) || failure.Kind == KindUnavailable {
 					return WorkflowAdmissionState{}, nil, nil, deliverablesErr
 				}
-				state.AcceptanceDeliverablesMissing = deliverablesErr
+				if state.AcceptanceDeliverablesMissing == nil {
+					state.AcceptanceDeliverablesMissing = deliverablesErr
+				}
 			}
 		}
 	}
@@ -606,6 +619,10 @@ func workflowAdmit(definition WorkflowDefinition, state WorkflowAdmissionState, 
 		decision.Failure = newFailure(KindStaleRequiresReview, "workflow_action", "the artifact the premise confirms is stale: it was not re-produced at its producer step", false, "request_correction to return to the declared producer step, or record a non-ok verdict")
 		return decision
 	}
+	if (actionID == "confirm_premise" || actionID == "complete") && state.AcceptanceDeliverablesMissing != nil {
+		decision.Failure = workflowFailureOf(state.AcceptanceDeliverablesMissing)
+		return decision
+	}
 	// The question-open answer is the admission's: confirm_premise is
 	// answered only through an open operator question, so the decision
 	// marks the question closed and refuses advertisement. The work pin
@@ -613,10 +630,6 @@ func workflowAdmit(definition WorkflowDefinition, state WorkflowAdmissionState, 
 	if actionID == "confirm_premise" && !state.PendingOperatorDecision {
 		decision.OperatorQuestionClosed = true
 		decision.Failure = newFailure(KindStaleRequiresReview, "workflow_action", "no operator question is open at the current workflow step", false, "record the investigation artifact the question requires, or take a declared route")
-		return decision
-	}
-	if actionID == "confirm_premise" && state.AcceptanceDeliverablesMissing != nil {
-		decision.Failure = workflowFailureOf(state.AcceptanceDeliverablesMissing)
 		return decision
 	}
 	if actionID == "request_correction" && !state.CorrectionRequestRecovery {

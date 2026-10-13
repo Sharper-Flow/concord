@@ -2244,45 +2244,33 @@ func admitWorkflowActionOffStep(ctx context.Context, tx *sql.Tx, event Event, p 
 		return nil
 	}
 	if !workerFailureRecovery && !correctionRecovery {
-		bindingStep := workflowEvidenceBindingStep(entry.Definition, currentStep)
-		if bindingStep == "" || !workflowStepFollows(entry.Definition, bindingStep, currentStep) {
-			return newFailure(KindIllegalLifecycleTransition, "fold_event", "recovery evidence binding is not past its declared binding step", false, "reread_entities")
+		var raw []byte
+		var bindingSeq int64
+		err := tx.QueryRowContext(ctx, `SELECT seq,payload FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND seq<? AND actor=? AND json_extract(payload,'$.resulting_version')=? ORDER BY seq DESC LIMIT 1`, event.SubjectID, WorkflowEvidenceBound, event.Seq, p.ActorRef, p.ExpectedVersion).Scan(&bindingSeq, &raw)
+		if err != nil && err != sql.ErrNoRows {
+			return wrapFailure(KindUnavailable, "fold_event", "cannot inspect recovery evidence binding", true, "retry once the workflow evidence projection is readable", err)
 		}
-		required, mandates, obligations, _, inputsErr := workflowEvidenceRequirementInputs(ctx, tx, event.SubjectID)
-		if inputsErr != nil {
-			return inputsErr
+		if err == sql.ErrNoRows {
+			return newFailure(KindMissingEvidence, "fold_event", "recovery evidence binding requires its own bound subject", false, "bind eligible recovery evidence before recording the action completion")
 		}
-		requirementBound := false
-		rows, rowsErr := tx.QueryContext(ctx, `SELECT payload FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? ORDER BY seq DESC`, event.SubjectID, WorkflowEvidenceBound)
-		if rowsErr != nil {
-			return wrapFailure(KindUnavailable, "fold_event", "cannot inspect recovery evidence requirements", true, "retry once the workflow evidence projection is readable", rowsErr)
+		var binding workflowEvidenceBoundPayload
+		if err := json.Unmarshal(raw, &binding); err != nil {
+			return newFailure(KindInvariantViolation, "fold_event", "recovery evidence binding payload is malformed", false, "reread_entities")
 		}
-		for rows.Next() {
-			var raw []byte
-			if scanErr := rows.Scan(&raw); scanErr != nil {
-				_ = rows.Close()
-				return wrapFailure(KindUnavailable, "fold_event", "cannot read recovery evidence binding", true, "retry once the workflow evidence projection is readable", scanErr)
-			}
-			var binding workflowEvidenceBoundPayload
-			if decodeErr := json.Unmarshal(raw, &binding); decodeErr != nil {
-				_ = rows.Close()
-				return newFailure(KindInvariantViolation, "fold_event", "recovery evidence binding payload is malformed", false, "reread_entities")
-			}
-			if contains(p.ResultEvidenceRefs, binding.ImmutableSubjectRef) && workflowEvidenceRequirementDeclared(binding.EvidenceKind, binding.ImmutableSubjectRef, required, mandates, entry.Definition, obligations) {
-				requirementBound = true
-				break
+		// The binding has already folded. Evaluate the shared eligibility at
+		// its input boundary, not against the requirement it just satisfied.
+		requirements, err := workflowEvidenceBindingRecoveryRequirements(ctx, tx, entry.Definition, event.SubjectID, currentStep, bindingSeq)
+		if err != nil {
+			return err
+		}
+		if contains(p.ResultEvidenceRefs, binding.ImmutableSubjectRef) {
+			for _, requirement := range requirements {
+				if (requirement.Kind == "" || requirement.Kind == binding.EvidenceKind) && (requirement.Reference == "" || requirement.Reference == binding.ImmutableSubjectRef) {
+					return nil
+				}
 			}
 		}
-		if rowsErr := rows.Err(); rowsErr != nil {
-			_ = rows.Close()
-			return wrapFailure(KindUnavailable, "fold_event", "cannot scan recovery evidence bindings", true, "retry once the workflow evidence projection is readable", rowsErr)
-		}
-		if closeErr := rows.Close(); closeErr != nil {
-			return wrapFailure(KindUnavailable, "fold_event", "cannot close recovery evidence bindings", true, "retry once the workflow evidence projection is readable", closeErr)
-		}
-		if !requirementBound {
-			return newFailure(KindMissingEvidence, "fold_event", "recovery evidence binding does not bind an outstanding contract evidence requirement", false, "bind an outstanding contract evidence requirement")
-		}
+		return newFailure(KindMissingEvidence, "fold_event", "recovery evidence binding does not bind eligible recovery evidence", false, "bind an outstanding requirement or verification of an unverdicted active check")
 	}
 	return nil
 }

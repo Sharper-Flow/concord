@@ -584,23 +584,19 @@ func workflowEvidenceRequirementInputs(ctx context.Context, q queryer, workID st
 // bindings recorded after its supersession, and a cutoff of zero admits the
 // whole history.
 func outstandingWorkflowEvidenceRequirements(ctx context.Context, q queryer, workID string, required, mandates []string, definition WorkflowDefinition, obligations []WorkflowVerificationObligation, cutoff int64) ([]workflowEvidenceRequirement, error) {
-	requirements := workflowEvidenceRequirementDefinitions(required, mandates, definition, obligations)
+	return unboundWorkflowEvidenceRequirements(ctx, q, workID, workflowEvidenceRequirementDefinitions(required, mandates, definition, obligations), cutoff, 0)
+}
+
+// beforeSeq excludes a binding whose completion event is being validated.
+// Zero reads the current history; cutoff still excludes disproved evidence.
+func unboundWorkflowEvidenceRequirements(ctx context.Context, q queryer, workID string, requirements []workflowEvidenceRequirement, cutoff, beforeSeq int64) ([]workflowEvidenceRequirement, error) {
 	outstanding := make([]workflowEvidenceRequirement, 0, len(requirements))
 	for _, requirement := range requirements {
-		var found bool
-		var err error
-		switch {
-		case requirement.Reference != "" && requirement.Kind != "":
-			found, err = workflowEvidenceTupleBound(ctx, q, workID, requirement.Kind, requirement.Reference, cutoff)
-		case requirement.Reference != "":
-			found, err = workflowEvidenceReferenceBound(ctx, q, workID, requirement.Reference, "workflow_action", cutoff)
-		default:
-			found, err = workflowEvidenceKindBound(ctx, q, workID, requirement.Kind, cutoff)
+		var found int
+		if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND seq>? AND (?=0 OR seq<?) AND (?='' OR json_extract(payload,'$.evidence_kind')=?) AND (?='' OR json_extract(payload,'$.immutable_subject_ref')=?))`, workID, WorkflowEvidenceBound, cutoff, beforeSeq, beforeSeq, requirement.Kind, requirement.Kind, requirement.Reference, requirement.Reference).Scan(&found); err != nil {
+			return nil, wrapFailure(KindUnavailable, "workflow_action", "cannot inspect workflow evidence requirement", true, "retry once the database is readable", err)
 		}
-		if err != nil {
-			return nil, err
-		}
-		if !found {
+		if found == 0 {
 			outstanding = append(outstanding, requirement)
 		}
 	}
@@ -625,19 +621,6 @@ func workflowEvidenceRequirementDefinitions(required, mandates []string, definit
 		requirements = append(requirements, workflowEvidenceRequirement{Kind: obligation.ObligationID, Reference: obligation.LawID})
 	}
 	return requirements
-}
-
-func workflowEvidenceRequirementDeclared(kind, reference string, required, mandates []string, definition WorkflowDefinition, obligations []WorkflowVerificationObligation) bool {
-	for _, requirement := range workflowEvidenceRequirementDefinitions(required, mandates, definition, obligations) {
-		if requirement.Kind != "" && requirement.Kind != kind {
-			continue
-		}
-		if requirement.Reference != "" && requirement.Reference != reference {
-			continue
-		}
-		return true
-	}
-	return false
 }
 
 func outstandingWorkflowEvidenceRequirementsForWork(ctx context.Context, q queryer, workID string, definition WorkflowDefinition) ([]workflowEvidenceRequirement, error) {

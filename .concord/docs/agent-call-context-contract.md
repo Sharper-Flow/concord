@@ -259,6 +259,12 @@ Idempotency identity remains reconstructable for as long as the referenced domai
 event or durable operation remains authoritative. No short time to live (TTL) may make a valid
 retry duplicate a durable effect.
 
+The replay window is the lifetime of that authority, not a calendar duration.
+A durable operation can own the committed result without a duplicate response
+copy in the replay index. Removing that copy must preserve the original scope,
+request digest, result classification, evidence, and no-second-effect guarantee.
+Every replay path reads the same authoritative result owner.
+
 ## 8. Request identity and audit
 
 `request_id` is unique per transport attempt and links logs/metrics. It does not

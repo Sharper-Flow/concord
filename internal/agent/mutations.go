@@ -523,35 +523,45 @@ func (r runtime) finishMutationReplay(ctx context.Context, response Envelope, ke
 }
 
 func (r runtime) replayWorkflowAction(ctx context.Context, base Envelope, step store.FenceResult) (Envelope, error) {
+	response := workflowActionReplayResult(base, step, r.Authority.now())
+	if response.Outcome != OutcomeOK {
+		return response, nil
+	}
+	changed := *response.ChangedRefs
+	payload, intents, err := r.enrichMutationPayloadRead(ctx, response.Result, changed)
+	if err != nil {
+		return Envelope{}, err
+	}
+	return r.mutationResult(response, payload, changed, intents), nil
+}
+
+// workflowActionReplayResult classifies the retained operation independently
+// of the projection reader used to enrich a completed response.
+func workflowActionReplayResult(base Envelope, step store.FenceResult, observed time.Time) Envelope {
 	state := OperationState(step.ResultKind)
 	if step.ResultKind == store.ResultFailedStale {
 		// failed_stale is a durable store classification, not a TS7 state.
 		state = OperationFailed
 	}
-	ref := OperationRef{ID: step.OpID, Kind: "workflow_action", Version: strconv.FormatInt(step.AttemptEpoch, 10), State: state, CurrentStep: step.StepID, UpdatedAt: time.Now().UTC()}
+	ref := OperationRef{ID: step.OpID, Kind: "workflow_action", Version: strconv.FormatInt(step.AttemptEpoch, 10), State: state, CurrentStep: step.StepID, UpdatedAt: observed}
 	switch step.ResultKind {
 	case store.ResultCompleted:
 		payload := json.RawMessage(step.ResultPayload)
 		if step.ContractDigest != ManifestDigest {
-			return coreError(base, "malformed_response", "durable workflow result manifest digest does not match the current contract", "contact_operator", false), nil
+			return coreError(base, "malformed_response", "durable workflow result manifest digest does not match the current contract", "contact_operator", false)
 		}
 		if err := ValidateOperationPayload(base.Tool, base.Operation, payload, true); err != nil {
-			return coreError(base, "malformed_response", fmt.Sprintf("durable workflow result is not a valid current result: %v", err), "contact_operator", false), nil
+			return coreError(base, "malformed_response", fmt.Sprintf("durable workflow result is not a valid current result: %v", err), "contact_operator", false)
 		}
-		refs := decodeWorkflowChangedRefs(step.ChangedRefs)
-		payload, intents, err := r.enrichMutationPayloadRead(ctx, payload, refs)
-		if err != nil {
-			return Envelope{}, err
-		}
-		return r.mutationResult(base, payload, refs, intents), nil
+		return NewOKMutation(base, payload, decodeWorkflowChangedRefs(step.ChangedRefs), nil)
 	case store.ResultPending:
-		return NewPending(base, ref, RecoveryAction{Kind: "reconcile_operation", RequiredRefs: []string{"operation_id"}}), nil
+		return NewPending(base, ref, RecoveryAction{Kind: "reconcile_operation", RequiredRefs: []string{"operation_id"}})
 	case store.ResultPartial:
-		return NewPartial(base, ref, []string{step.StepID}, TypedError{Kind: "operation_conflict", RetrySafe: true, RecoveryAction: RecoveryAction{Kind: "reconcile_operation"}, EffectState: EffectPartial}), nil
+		return NewPartial(base, ref, []string{step.StepID}, TypedError{Kind: "operation_conflict", RetrySafe: true, RecoveryAction: RecoveryAction{Kind: "reconcile_operation"}, EffectState: EffectPartial})
 	case store.ResultFailed, store.ResultFailedStale:
-		return NewPartial(base, ref, []string{step.StepID}, TypedError{Kind: "operation_conflict", RetrySafe: false, RecoveryAction: RecoveryAction{Kind: "reconcile_operation"}, EffectState: EffectPartial}), nil
+		return NewPartial(base, ref, []string{step.StepID}, TypedError{Kind: "operation_conflict", RetrySafe: false, RecoveryAction: RecoveryAction{Kind: "reconcile_operation"}, EffectState: EffectPartial})
 	default:
-		return coreError(base, "malformed_response", "durable workflow result classification is unsupported", "contact_operator", false), nil
+		return coreError(base, "malformed_response", "durable workflow result classification is unsupported", "contact_operator", false)
 	}
 }
 
@@ -845,20 +855,25 @@ func workflowActionFields(raw json.RawMessage) (json.RawMessage, error) {
 }
 
 func (r runtime) replayWorkflowActionTx(ctx context.Context, tx *store.Transaction, base Envelope, prior store.MutationIdempotencyRecord, scope map[string]any) (Envelope, error) {
-	var changed []ChangedRef
-	if err := json.Unmarshal([]byte(prior.ChangedRefs), &changed); err != nil {
-		return Envelope{}, newRuntimeFailure("invariant_violation", "stored workflow action changed references are unreadable", "contact_operator", false)
-	}
-	base.Replayed = true
-	base.ResolvedScope = scopeFromMap(scope)
-	replayedPayload, derivedIntents, err := r.enrichMutationPayloadTx(ctx, tx, json.RawMessage(prior.ResultPayload), changed)
+	step, err := store.StepTx(ctx, tx, prior.OperationID)
 	if err != nil {
 		return Envelope{}, err
 	}
-	return r.mutationResult(base, replayedPayload, changed, derivedIntents), nil
+	base.Replayed = true
+	base.ResolvedScope = scopeFromMap(scope)
+	response := workflowActionReplayResult(base, step, r.Authority.now())
+	if response.Outcome != OutcomeOK {
+		return response, nil
+	}
+	changed := *response.ChangedRefs
+	payload, intents, err := r.enrichMutationPayloadTx(ctx, tx, response.Result, changed)
+	if err != nil {
+		return Envelope{}, err
+	}
+	return r.mutationResult(response, payload, changed, intents), nil
 }
 
-func (r runtime) workflowActionReplayPreflight(ctx context.Context, base Envelope, digest string, scope map[string]any, grant Authority, in actionMutationInput, result *Envelope, resultRejected *bool) func(*store.Transaction) (bool, error) {
+func (r runtime) workflowActionReplayPreflight(ctx context.Context, base Envelope, digest string, grant Authority, in actionMutationInput, result *Envelope, resultRejected *bool) func(*store.Transaction) (bool, error) {
 	return func(tx *store.Transaction) (bool, error) {
 		prior, found, err := store.LookupMutationIdempotencyTx(ctx, tx, store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: "workflow_action", IdempotencyKey: in.IdempotencyKey})
 		if err != nil {
@@ -870,7 +885,14 @@ func (r runtime) workflowActionReplayPreflight(ctx context.Context, base Envelop
 		if prior.CanonicalDigest != digest {
 			return false, store.IdempotencyConflict("workflow_action", in.IdempotencyKey)
 		}
-		replayed, err := r.replayWorkflowActionTx(ctx, tx, base, prior, scope)
+		originalScope, err := authorizedScopeFromSnapshot(prior.AuthorizedScopeSnapshot)
+		if err != nil {
+			return false, newRuntimeFailure("unauthorized", "stored mutation scope is unreadable and cannot be re-authorized", "contact_operator", false)
+		}
+		if !scopeWithinAuthority(originalScope, grant) {
+			return false, newRuntimeFailure("unauthorized", "original mutation scope is no longer authorized by the current grant", "contact_operator", false)
+		}
+		replayed, err := r.replayWorkflowActionTx(ctx, tx, base, prior, originalScope)
 		if err != nil {
 			return false, err
 		}
@@ -1160,7 +1182,7 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 		return *proofEnvelope, nil
 	}
 	ctx = verifiedCtx
-	err = store.AuthorizeWorkflowActionAtBoundaryWithPreflightTx(ctx, r.Store, registry, store.WorkflowActionPreflightRequest{WorkID: in.WorkID, ExpectedVersion: in.ExpectedVersion, ActionID: in.ActionID, SelectedChoice: in.SelectedChoice, DecisionContextDigest: in.DecisionContextDigest, Payload: payload, Actor: actionRequest.Actor, SessionWorktree: r.Envelope.Worktree}, nil, time.Time{}, r.workflowActionReplayPreflight(ctx, base, digest, scope, grant, in, &result, &resultRejected), func(tx *store.Transaction) error {
+	err = store.AuthorizeWorkflowActionAtBoundaryWithPreflightTx(ctx, r.Store, registry, store.WorkflowActionPreflightRequest{WorkID: in.WorkID, ExpectedVersion: in.ExpectedVersion, ActionID: in.ActionID, SelectedChoice: in.SelectedChoice, DecisionContextDigest: in.DecisionContextDigest, Payload: payload, Actor: actionRequest.Actor, SessionWorktree: r.Envelope.Worktree}, nil, time.Time{}, r.workflowActionReplayPreflight(ctx, base, digest, grant, in, &result, &resultRejected), func(tx *store.Transaction) error {
 		if in.ActionID == "dispatch_worker" {
 			if err := retryApprovalFenceTx(ctx, tx, registry, in.WorkID, retryApproval, scope, versions); err != nil {
 				return err
@@ -1211,8 +1233,7 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 				"reporting_client": report.ReportingAuthorityRef,
 			}
 			result = NewPartial(base, ref, []string{report.Phase}, partialErr)
-			changedJSON, _ := json.Marshal(changed)
-			return store.UpdateMutationResultTx(ctx, tx, store.MutationResultUpdate{Key: store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: "workflow_action", IdempotencyKey: in.IdempotencyKey}, ResultEventIDs: marshalEventIDs(execution.EventIDs), ResultPayload: "{}", ChangedRefs: string(changedJSON), ObservedAt: r.Authority.now()})
+			return store.UpdateMutationEventRefsTx(ctx, tx, store.MutationEventRefsUpdate{Key: store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: "workflow_action", IdempotencyKey: in.IdempotencyKey}, ResultEventIDs: marshalEventIDs(execution.EventIDs), ObservedAt: r.Authority.now()})
 		}
 		resultPayload, derivedIntents, enrichErr := r.enrichMutationPayloadTx(ctx, tx, execution.Result, changed)
 		if enrichErr != nil {
@@ -1223,8 +1244,7 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 			resultRejected = true
 			return errors.New("mutation result rejected")
 		}
-		changedJSON, _ := json.Marshal(changed)
-		return store.UpdateMutationResultTx(ctx, tx, store.MutationResultUpdate{Key: store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: "workflow_action", IdempotencyKey: in.IdempotencyKey}, ResultEventIDs: marshalEventIDs(execution.EventIDs), ResultPayload: string(resultPayload), ChangedRefs: string(changedJSON), ObservedAt: r.Authority.now()})
+		return store.UpdateMutationEventRefsTx(ctx, tx, store.MutationEventRefsUpdate{Key: store.MutationIdempotencyKey{PrincipalRef: grant.PrincipalRef, Tool: r.Tool, OperationKind: "workflow_action", IdempotencyKey: in.IdempotencyKey}, ResultEventIDs: marshalEventIDs(execution.EventIDs), ObservedAt: r.Authority.now()})
 	})
 	if err != nil {
 		if resultRejected {

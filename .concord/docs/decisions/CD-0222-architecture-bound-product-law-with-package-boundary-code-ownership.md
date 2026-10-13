@@ -303,6 +303,8 @@ The derived overlap detail retains the shared affected Domains and marks the
 architecture class when a blocking write overlap also shares a Domain. Only a
 blocking write overlap requires a resolution before both items may hold
 execution authority.
+`concord_domain.overlaps` reports the pairs admission checks (exact shared write,
+at least one execution-started side) with admission's resolution freshness.
 The closed resolutions are:
 
 | Resolution | Record |
@@ -468,12 +470,17 @@ graph. Product law approval does not authorize live-state cutover.
 
 ## Required conformance
 
-1. Two work items with overlapping affected Domains cannot both enter execution
-   without a current, version-pinned resolution.
+1. Two items with an exact shared write cannot both gain execution authority
+   without a current compatible resolution. An execution claimant checks all
+   started same-Product peers, including peers in another Project or repository.
+   Proximity alone requires zero answers.
 2. Subject to D7's compatible-amendment rule, two contracts approved against the same law revision and landed sequentially
    cannot admit a jointly contradictory second result after the first changes the
    governing law or architecture graph.
-3. Revising either contract invalidates an existing compatibility decision.
+3. A revision changing judged content invalidates the prior judgment; a
+   content-neutral revision preserves it with its original recorded contract
+   versions. Reordering a set does not invalidate. A changed-then-reverted or
+   reopened claim cannot revive an invalidated resolution.
 4. A new overlap introduced while one item is executing blocks its next
    checkpoint/result acceptance without killing the host process.
 5. Every current spec and decision resolves to one home Domain; dangling or

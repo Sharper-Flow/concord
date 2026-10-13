@@ -49,12 +49,9 @@ function runner(head = oid, status = "", fail = false): DispatchRunner {
   } }
 }
 
-test("core subject must match observed clean HEAD", async () => {
-  expect(await verifyPacketOracleReadiness(packet(), { runner: runner(), directory: "/synthetic/tree", signal })).toBeNull()
-  for (const deps of [runner("c".repeat(40)), runner(oid, "?? file\0"), runner(oid, " M tracked\0"), runner(oid, "", true), runner("not-an-oid")]) {
-    const refusal = await verifyPacketOracleReadiness(packet(), { runner: deps, directory: "/synthetic/tree", signal })
-    expect(refusal).not.toBeNull()
-    expect(refusal!.message).toContain("worktree_verify")
+test("readiness leaves subject freshness to the core and runs no git", async () => {
+  for (const deps of [runner(), runner("c".repeat(40)), runner(oid, "?? file\0"), runner(oid, " M tracked\0"), runner(oid, "", true), runner("not-an-oid")]) {
+    expect(await verifyPacketOracleReadiness(packet(), { runner: deps, directory: "/synthetic/tree", signal })).toBeNull()
   }
 })
 
@@ -84,14 +81,14 @@ test("preparation from the primary Project cannot replace the control Project", 
   expect(probes).toBe(0)
 })
 
-test("subject drift and dirty tree refuse before authorization", async () => {
+test("subject drift and dirty tree authorize; the core owns their refusal", async () => {
   configureCoreBinary("concord-test")
   for (const probes of [runner("c".repeat(40)), runner(oid, "?? file\0"), runner(oid, " M tracked\0")]) {
     let authorizations = 0
     const result = await dispatchWorker(packet(), { runner: probes, workerDirectory: process.cwd(), sessionID: "session-subject", authorize: async () => { authorizations++; return { outcome: "ok" } } })
-    expect(authorizations).toBe(0)
-    expect(result.outcome).toBe("error")
-    expect(result.error?.message).toContain("worktree_verify")
+    // Readiness no longer refuses drift: authorization is reached, and the
+    // stubbed dispatch may stop later for reasons this check does not own.
+    expect(authorizations).toBe(1)
   }
   const missing = packet()
   delete missing.inputs.work_context!.subject_commit
@@ -124,11 +121,18 @@ test("qualified preparation refs and metadata are mandatory before any probe or 
   }
 })
 
-test("qualified preparation admission performs only clean HEAD reads and never auto-prepares", async () => {
+test("qualified preparation admission runs no git and never auto-prepares", async () => {
   const seen: string[][] = []
-  const git = runner()
   expect(await verifyPacketOracleReadiness(packet(), { directory: "/synthetic/tree", signal,
-    runner: { async run(argv, input, cancellation) { seen.push(argv); return git.run(argv, input, cancellation) } } })).toBeNull()
-  expect(seen.map((argv) => argv[3])).toEqual(["rev-parse", "status"])
-  for (const argv of seen) expect(argv[0]).toBe("git")
+    runner: { async run(argv, input, cancellation) { seen.push(argv); return { exitCode: 0, stdout: "", stderr: "" } } } })).toBeNull()
+  expect(seen).toEqual([])
+})
+
+test("the adapter readiness runner receives no HEAD or status calls; the core owns subject freshness", async () => {
+  const seen: string[][] = []
+  expect(await verifyPacketOracleReadiness(packet(), { directory: "/synthetic/tree", signal,
+    runner: { async run(argv, input, cancellation) { seen.push(argv); return { exitCode: 0, stdout: "", stderr: "" } } } })).toBeNull()
+  for (const argv of seen) {
+    expect(["rev-parse", "status"]).not.toContain(argv[3])
+  }
 })

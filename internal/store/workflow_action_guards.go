@@ -1619,6 +1619,14 @@ func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoc
 			if job != nil {
 				completionValues["worker_job"] = map[string]any{"job_id": job.JobID, "revision": job.Revision, "digest": job.Digest}
 			}
+			// The dispatch admission is the one live subject-freshness owner.
+			// It revalidates the sealed pre-transaction preparation with SQL
+			// only, refuses a live HEAD that does not match the admitted
+			// subject, and joins the accepted implementation delivery for a
+			// review dispatch, after the packet-shape checks above.
+			if err := admitWorkerDispatchSubjectFreshness(in.ctx, in.tx, in.request, in.entry.Definition, lane, admittedContext); err != nil {
+				return events, "", err
+			}
 		}
 		// The registry lane identity rides the completion so the fold can
 		// bind the attempt durably in flight from the record alone, without

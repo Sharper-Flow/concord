@@ -770,6 +770,24 @@ func seedDispatchFixture(t *testing.T, s *Store, workID string) cd0059DispatchSe
 // preflight machinery so the dispatch path is the only thing under test.
 func invokeWorkflowActionForCD0059(ctx context.Context, t *testing.T, s *Store, request WorkflowActionExecutionRequest) (WorkflowActionExecutionResult, error) {
 	t.Helper()
+	// Live dispatch assembly requires the sealed preparation the
+	// authenticated boundary prepares, so this invoker prepares one the same
+	// way when the caller has not supplied it. The fixture runner answers the
+	// work's qualified verify subject with a clean tree: a subject-less
+	// preparation probes nothing, and the real git behavior is the
+	// freshness tests' subject.
+	needsProof := request.ActionID == "dispatch_worker" || (request.ActionID == "reject_worker_result" && RejectRetryMemberPresent(request.Payload))
+	if needsProof && workerDispatchPreparationFrom(ctx) == nil {
+		subject, subjectErr := readCurrentOracleSubject(context.Background(), s.DatabaseForTesting(), request.WorkID)
+		if subjectErr != nil {
+			return WorkflowActionExecutionResult{}, subjectErr
+		}
+		preparation, preparationErr := PrepareWorkerDispatchFreshness(ctx, s, PrepareWorkerDispatchRequest{WorkID: request.WorkID, SessionWorktree: request.SessionWorktree, Runner: qualifiedSubjectRunner{head: subject}})
+		if preparationErr != nil {
+			return WorkflowActionExecutionResult{}, preparationErr
+		}
+		ctx = WithWorkerDispatchPreparation(ctx, preparation)
+	}
 	preflight := WorkflowActionPreflightRequest{
 		WorkID: request.WorkID, ExpectedVersion: request.ExpectedVersion, ActionID: request.ActionID,
 		SelectedChoice: request.SelectedChoice, DecisionContextDigest: request.DecisionContextDigest,

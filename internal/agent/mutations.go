@@ -1182,6 +1182,20 @@ func (r runtime) mutateWorkflowAction(ctx context.Context, base Envelope, raw []
 		return *proofEnvelope, nil
 	}
 	ctx = verifiedCtx
+	// The dispatch admission is the one live subject-freshness owner, so an
+	// ordinary dispatch and a combined rejection that carries a retry each
+	// prepare their one sealed proof here — after replay, budget, and
+	// approval handling, before the action transaction opens — and the
+	// admission revalidates it with SQL only. No Git runs under any SQL
+	// transaction, and a preparation refusal leaves the request with zero
+	// effects.
+	if in.ActionID == "dispatch_worker" || (in.ActionID == "reject_worker_result" && store.RejectRetryMemberPresent(payload)) {
+		preparation, preparationErr := store.PrepareWorkerDispatchFreshness(ctx, r.Store, store.PrepareWorkerDispatchRequest{WorkID: in.WorkID, SessionWorktree: r.Envelope.Worktree})
+		if preparationErr != nil {
+			return failureEnvelope(base, preparationErr), nil
+		}
+		ctx = store.WithWorkerDispatchPreparation(ctx, preparation)
+	}
 	err = store.AuthorizeWorkflowActionAtBoundaryWithPreflightTx(ctx, r.Store, registry, store.WorkflowActionPreflightRequest{WorkID: in.WorkID, ExpectedVersion: in.ExpectedVersion, ActionID: in.ActionID, SelectedChoice: in.SelectedChoice, DecisionContextDigest: in.DecisionContextDigest, Payload: payload, Actor: actionRequest.Actor, SessionWorktree: r.Envelope.Worktree}, nil, time.Time{}, r.workflowActionReplayPreflight(ctx, base, digest, grant, in, &result, &resultRejected), func(tx *store.Transaction) error {
 		if in.ActionID == "dispatch_worker" {
 			if err := retryApprovalFenceTx(ctx, tx, registry, in.WorkID, retryApproval, scope, versions); err != nil {

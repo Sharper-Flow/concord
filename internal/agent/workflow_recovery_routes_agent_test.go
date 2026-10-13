@@ -2350,7 +2350,11 @@ func appendLaneCompletion(t *testing.T, s *store.Store, grant Authority, lane st
 // requires a review block. The dispatch evidence carries the
 // worker-job binding the dispatch_worker authorization recorded
 // (CD-0205), so a job-bound pin admits the worker evidence without
-// forging a job the core did not authorize.
+// forging a job the core did not authorize. The completion lands at
+// the current payload version through the live terminal seam: an
+// implementation attempt carries the core delivery observation the
+// authenticated preparation sampled, and a review lane carries its
+// typed review block.
 func appendLaneCompletionWithVerdict(t *testing.T, s *store.Store, grant Authority, lane store.LaneDefinition, attemptID, suffix, reviewVerdict string) {
 	t.Helper()
 	ctx := context.Background()
@@ -2360,13 +2364,18 @@ func appendLaneCompletionWithVerdict(t *testing.T, s *store.Store, grant Authori
 		payload.WorkerJob = job
 	}
 	dispatch := store.Event{EventID: "regroute-dispatch-" + suffix + "-" + attemptID, Kind: store.WorkerDispatched, SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: 2, Payload: retryJSON(payload)}
-	completedPayload := store.WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: "openai/gpt-5.6-luna", ReportSchemaVersion: store.WorkerReportSchemaVersion}
-	if job != nil {
-		completedPayload.WorkerJob = job
+	if err := s.Transact(ctx, func(tx *store.Transaction) error {
+		enriched, err := store.PrepareLaneActorDispatch(ctx, tx, dispatch, grant.PrincipalRef, grant.ClientRef)
+		if err != nil {
+			return err
+		}
+		_, err = store.AppendLaneActorDispatchTx(ctx, tx, enriched)
+		return err
+	}); err != nil {
+		t.Fatalf("append lane dispatch for %s: %v", attemptID, err)
 	}
-	payloadVersion := 1
+	completedPayload := store.WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: "openai/gpt-5.6-luna", ReportSchemaVersion: store.WorkerReportSchemaVersion, WorkerJob: job}
 	if len(lane.RequiredReportBlocks) > 0 {
-		payloadVersion = 3
 		completedPayload.EvidenceOrigin = store.WorkerEvidenceLegacyUnavailable
 		completedPayload.Review = &store.WorkerReviewBlock{Verdict: reviewVerdict, Findings: []store.WorkerReviewFinding{{Severity: "P3", Confidence: "high", Detail: "the corrected producer attempt " + suffix}}}
 		if oracle := recordedAgentOracle(t, s, job); oracle != nil {
@@ -2375,33 +2384,7 @@ func appendLaneCompletionWithVerdict(t *testing.T, s *store.Store, grant Authori
 				Classification: store.OracleClassificationFollowUp,
 				OwnerID:        owner.OwnerID, PredicateIDs: owner.PredicateIDs,
 			}
-			payloadVersion = store.WorkerEvidenceEventPayloadVersion(store.WorkerCompleted)
 		}
 	}
-	// The worker_job field on the worker.completed event is reserved for
-	// payload version >= 4 (CD-0205): the fold uses the version to admit
-	// job-bound dispositions and refuses earlier payloads that carry
-	// the field, so a job-bearing completion must be written at v4+.
-	if job != nil && payloadVersion < 4 {
-		payloadVersion = 4
-	}
-	// A job-bound completion at v4+ must declare the evidence origin
-	// (CD-0205): the fold refuses payloads without it.
-	if payloadVersion >= 4 && completedPayload.EvidenceOrigin == "" {
-		completedPayload.EvidenceOrigin = store.WorkerEvidenceLegacyUnavailable
-	}
-	completion := store.Event{EventID: "regroute-completion-" + suffix + "-" + attemptID, Kind: store.WorkerCompleted, SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: payloadVersion, Payload: retryJSON(completedPayload)}
-	if err := s.Transact(ctx, func(tx *store.Transaction) error {
-		enriched, err := store.PrepareLaneActorDispatch(ctx, tx, dispatch, grant.PrincipalRef, grant.ClientRef)
-		if err != nil {
-			return err
-		}
-		if _, err := store.AppendLaneActorDispatchTx(ctx, tx, enriched); err != nil {
-			return err
-		}
-		_, err = store.ApplyOperationTx(ctx, tx, store.Operation{Events: []store.Event{completion}})
-		return err
-	}); err != nil {
-		t.Fatalf("append lane completion for %s: %v", attemptID, err)
-	}
+	agentWorkerCompletedThroughSeam(t, s, "work-1", attemptID, "regroute-completion-"+suffix+"-"+attemptID, completedPayload)
 }

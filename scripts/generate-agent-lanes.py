@@ -726,6 +726,27 @@ with a `domain_id` from the packet's Domains. The view carries at most
 """
 
 
+def review_subject_instructions(lane: dict) -> str:
+    # The core dispatch admission owns subject freshness; this worker read
+    # check is the approved backstop for drift after authorization. The
+    # review compares the dispatched worktree's HEAD and tree against the
+    # packet's typed subject and returns a failed report on mismatch.
+    if lane.get("capability_class") != "review":
+        return ""
+    return """
+## Dispatch subject
+
+`inputs.work_context.subject_commit`, when present, is the dispatch-owned raw
+OID identity this attempt reviews; never author or replace it. Before
+reviewing, run `git rev-parse --verify HEAD^{commit}` and
+`git status --porcelain=v1 -z --untracked-files=all` in the dispatched
+worktree. If HEAD is not exactly that `subject_commit`, or the tree is not
+clean, the checked-out change is not the subject the packet pins: return one
+report with `status` `failed` that names the observed HEAD and the mismatch.
+Never review a different commit, and never author `subject_commit`.
+"""
+
+
 def checkpoint_instructions() -> str:
     # CON-883: when the packet carries the latest context checkpoint, its
     # strategy and diagnosis are coordinator directions the worker follows
@@ -931,7 +952,7 @@ record workflow transitions, verdicts, completion, or spawn nested workers.
 {committed_content_instructions(lane)}{packet_refusal_instructions()}
 {law_conformance_instructions(lane)}
 {recorded_work_instructions()}
-{work_context_instructions(packet_schema)}
+{work_context_instructions(packet_schema)}{review_subject_instructions(lane)}
 {checkpoint_instructions()}
 {acceptance_oracle_instructions(packet_schema)}
 {objective_binding_instructions(packet_schema, premise_max_bytes)}

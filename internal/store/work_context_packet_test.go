@@ -5,8 +5,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"os/exec"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sharper-flow/concord/internal/payloadschema"
 )
@@ -413,4 +416,517 @@ func seedWorkContextOverflow(t *testing.T, fixture workContextFixture) {
 	}); err != nil {
 		t.Fatalf("third declaration refused: %v", err)
 	}
+}
+
+// TestDispatchSubjectFreshnessCoreOwned proves the core dispatch admission
+// owns subject freshness: when the admitted work-context view pins a
+// qualified subject, the claimed worktree's live clean HEAD must equal it
+// before any attempt, window, or start exists. A moved HEAD, a dirty or
+// untracked tree, and an unreachable git subject all refuse with zero
+// dispatch effects, and a subject-less non-oracle dispatch never probes.
+// freshnessDispatch prepares the one sealed dispatch proof against the real
+// claimed worktree and dispatches the packet through the action boundary
+// with it, exactly as the authenticated mutation boundary does.
+func freshnessDispatch(t *testing.T, f workContextFixture, attemptID string, packet map[string]any) error {
+	t.Helper()
+	preparation, err := PrepareWorkerDispatchFreshness(context.Background(), f.store, PrepareWorkerDispatchRequest{WorkID: f.workID, SessionWorktree: dispatchSessionWorktree(t, f.store, f.workID)})
+	if err != nil {
+		return err
+	}
+	ctx := WithWorkerDispatchPreparation(context.Background(), preparation)
+	packetBytes, marshalErr := json.Marshal(packet)
+	if marshalErr != nil {
+		t.Fatal(marshalErr)
+	}
+	payload, marshalErr := json.Marshal(map[string]any{"attempt_id": attemptID, "worker_packet": json.RawMessage(packetBytes)})
+	if marshalErr != nil {
+		t.Fatal(marshalErr)
+	}
+	_, err = invokeWorkflowActionForCD0059(ctx, t, f.store, WorkflowActionExecutionRequest{
+		WorkID: f.workID, ExpectedVersion: readWorkVersion(t, f.store, f.workID), ActionID: "dispatch_worker",
+		Payload: payload, SessionWorktree: dispatchSessionWorktree(t, f.store, f.workID),
+		Actor: f.owner, AcceptedInputsDigest: cd0059TestDigest(t, attemptID+"-inputs"),
+		IdempotencyIdentity: attemptID + "-op", OperationID: "op-" + attemptID, PrincipalRef: f.owner.PrincipalRef,
+		Tool: "concord_work_transition", IdempotencyKey: attemptID + "-key", RequestID: "req-" + attemptID,
+		AcceptedScope: `{}`, ContractDigest: testManifestDigest,
+	})
+	return err
+}
+
+func TestDispatchSubjectFreshnessCoreOwned(t *testing.T) {
+	t.Run("a moved HEAD refuses the dispatch", func(t *testing.T) {
+		fixture := seedWorkContextFixture(t, "ctx-freshness-moved")
+		defer fixture.store.Close()
+		s := fixture.store
+		claimDir, head := reviewSubjectClaim(t, s, fixture.workID)
+		job := seedReadyWorkerJob(t, fixture)
+		view, viewErr := readWorkContextView(context.Background(), s.DatabaseForTesting(), fixture.workID)
+		if viewErr != nil || view == nil || view.SubjectCommit != head {
+			t.Fatalf("admitted view subject = %q err = %v, want the qualified HEAD %q", viewSubject(view), viewErr, head)
+		}
+		run := func(args ...string) {
+			t.Helper()
+			cmd := exec.Command("git", append([]string{"-C", claimDir}, args...)...) //nolint:gosec // test-only git argv, fixed binary
+			var stderr bytes.Buffer
+			cmd.Stderr = &stderr
+			if err := cmd.Run(); err != nil {
+				t.Fatalf("move claimed HEAD %v: %v: %s", args, err, stderr.String())
+			}
+		}
+		if err := os.WriteFile(claimDir+"/moved.txt", []byte("the candidate moved on\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		run("add", "-A")
+		run("commit", "--allow-empty", "-m", "the candidate moved past the qualified subject")
+		err := freshnessDispatch(t, fixture, "attempt-freshness-moved", workContextDispatchPacket(t, fixture, "attempt-freshness-moved", job, view))
+		var failure *Failure
+		if !hasFailureKind(err, KindProjectionConflict) {
+			t.Fatalf("moved-HEAD dispatch error = %v, want %s refusing the stale subject", err, KindProjectionConflict)
+		}
+		_ = failure
+		if got := dispatchStartedCount(t, s, fixture.workID); got != 0 {
+			t.Fatalf("dispatch_worker starts = %d, want 0 on the freshness refusal", got)
+		}
+	})
+
+	t.Run("a dirty worktree refuses the dispatch", func(t *testing.T) {
+		fixture := seedWorkContextFixture(t, "ctx-freshness-dirty")
+		defer fixture.store.Close()
+		s := fixture.store
+		claimDir, head := reviewSubjectClaim(t, s, fixture.workID)
+		job := seedReadyWorkerJob(t, fixture)
+		view, viewErr := readWorkContextView(context.Background(), s.DatabaseForTesting(), fixture.workID)
+		if viewErr != nil || view == nil || view.SubjectCommit != head {
+			t.Fatalf("admitted view subject = %q err = %v, want the qualified HEAD %q", viewSubject(view), viewErr, head)
+		}
+		if err := os.WriteFile(claimDir+"/dirty.txt", []byte("untracked bytes\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		err := freshnessDispatch(t, fixture, "attempt-freshness-dirty", workContextDispatchPacket(t, fixture, "attempt-freshness-dirty", job, view))
+		if !hasFailureKind(err, KindProjectionConflict) {
+			t.Fatalf("dirty dispatch error = %v, want %s refusing the dirty tree", err, KindProjectionConflict)
+		}
+		if got := dispatchStartedCount(t, s, fixture.workID); got != 0 {
+			t.Fatalf("dispatch_worker starts = %d, want 0 on the freshness refusal", got)
+		}
+	})
+
+	t.Run("an unreachable git subject refuses the dispatch", func(t *testing.T) {
+		fixture := seedWorkContextFixture(t, "ctx-freshness-unreachable")
+		defer fixture.store.Close()
+		s := fixture.store
+		claimDir, head := reviewSubjectClaim(t, s, fixture.workID)
+		if err := os.RemoveAll(claimDir + "/.git"); err != nil {
+			t.Fatal(err)
+		}
+		job := seedReadyWorkerJob(t, fixture)
+		view, viewErr := readWorkContextView(context.Background(), s.DatabaseForTesting(), fixture.workID)
+		if viewErr != nil || view == nil || view.SubjectCommit != head {
+			t.Fatalf("admitted view subject = %q err = %v, want the qualified HEAD %q", viewSubject(view), viewErr, head)
+		}
+		err := freshnessDispatch(t, fixture, "attempt-freshness-unreachable", workContextDispatchPacket(t, fixture, "attempt-freshness-unreachable", job, view))
+		if !hasFailureKind(err, KindGitUnreachable) {
+			t.Fatalf("unreachable dispatch error = %v, want %s refusing the unobservable worktree", err, KindGitUnreachable)
+		}
+		if got := dispatchStartedCount(t, s, fixture.workID); got != 0 {
+			t.Fatalf("dispatch_worker starts = %d, want 0 on the freshness refusal", got)
+		}
+	})
+}
+
+// A subject-less non-oracle dispatch never probes: absence of a qualified
+// subject grants no freshness comparison and no native execution. The
+// historical implementation pin dispatches with no work context at all.
+func TestDispatchSubjectFreshnessSubjectLessProbesNothing(t *testing.T) {
+	s := openTemp(t)
+	defer s.Close()
+	workID := "work-freshness-subjectless"
+	seedGitClaimRepo(t, s, workID)
+	seed := seedDispatchFixture(t, s, workID)
+	attemptID := "attempt-freshness-subjectless"
+	packet := dispatchWorkerPacket(t, s, workID, "execution", attemptID)
+	if view, viewErr := readWorkContextView(context.Background(), s.DatabaseForTesting(), workID); viewErr != nil || view != nil {
+		t.Fatalf("fixture view = %+v err = %v, want no work context at all", view, viewErr)
+	}
+	seen := 0
+	preparation, err := PrepareWorkerDispatchFreshness(context.Background(), s, PrepareWorkerDispatchRequest{
+		WorkID: workID, SessionWorktree: dispatchSessionWorktree(t, s, workID),
+		Runner: probeCountingRunner{count: &seen},
+	})
+	if err != nil {
+		t.Fatalf("subject-less preparation refused: %v", err)
+	}
+	if seen != 0 {
+		t.Fatalf("subject-less preparation ran %d git probe call(s), want 0", seen)
+	}
+	if err := dispatchBindingAttemptCtx(t, s, seed, attemptID, packet, WithWorkerDispatchPreparation(context.Background(), preparation)); err != nil {
+		t.Fatalf("subject-less dispatch refused: %v", err)
+	}
+	if got := dispatchStartedCount(t, s, workID); got != 1 {
+		t.Fatalf("dispatch_worker starts = %d, want 1", got)
+	}
+}
+
+// probeCountingRunner counts the git calls one preparation makes.
+type probeCountingRunner struct{ count *int }
+
+func (r probeCountingRunner) Run(_ context.Context, _ string, _ ...string) ([]byte, error) {
+	*r.count++
+	return nil, nil
+}
+
+// dispatchBindingAttemptCtx dispatches one attempt through the action
+// boundary with a caller-supplied context, so a sealed preparation rides it.
+func dispatchBindingAttemptCtx(t *testing.T, s *Store, seed cd0059DispatchSeed, attemptID string, packet map[string]any, ctx context.Context) error {
+	t.Helper()
+	packetBytes, err := json.Marshal(packet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fieldsPayload, err := json.Marshal(map[string]any{"attempt_id": attemptID, "worker_packet": json.RawMessage(packetBytes)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = invokeWorkflowActionForCD0059(ctx, t, s, WorkflowActionExecutionRequest{
+		WorkID: seed.workID, ExpectedVersion: readWorkVersion(t, s, seed.workID), ActionID: "dispatch_worker",
+		Payload: fieldsPayload, SessionWorktree: dispatchSessionWorktree(t, s, seed.workID),
+		Actor: seed.ownerActor, AcceptedInputsDigest: cd0059TestDigest(t, attemptID+"-inputs"),
+		IdempotencyIdentity: attemptID + "-op", OperationID: "op-" + attemptID, PrincipalRef: seed.ownerActor.PrincipalRef,
+		Tool: "concord_work_transition", IdempotencyKey: attemptID + "-key", RequestID: "req-" + attemptID,
+		AcceptedScope: `{}`, ContractDigest: testManifestDigest,
+	})
+	return err
+}
+
+// A combined rejection that carries a retry prepares one proof before the
+// outer transaction, and the derived retry inside the transaction reuses
+// that same proof: an unchanged HEAD commits the rejection and its retry
+// dispatch together, and a moved HEAD refuses the whole operation with the
+// rejection uncommitted. Each subtest seeds its own work, because an
+// admitted rejection advances the workflow step.
+func TestDispatchSubjectFreshnessCombinedRejectRetrySharesProof(t *testing.T) {
+	setup := func(t *testing.T, workID string) (*Store, string, string, func(t *testing.T, attemptID string) error) {
+		t.Helper()
+		fixture := seedWorkContextFixture(t, workID)
+		s := fixture.store
+		claimDir, head := reviewSubjectClaim(t, s, fixture.workID)
+		view, viewErr := readWorkContextView(context.Background(), s.DatabaseForTesting(), fixture.workID)
+		if viewErr != nil || view == nil || view.SubjectCommit != head {
+			t.Fatalf("admitted view subject = %q err = %v, want the qualified HEAD %q", viewSubject(view), viewErr, head)
+		}
+		lane := laneForID(t, "implement")
+		job := reviewSubjectReadyRevision(t, fixture)
+		view, viewErr = readWorkContextView(context.Background(), s.DatabaseForTesting(), fixture.workID)
+		if viewErr != nil || view == nil || view.SubjectCommit != head {
+			t.Fatalf("admitted view subject = %q err = %v, want the qualified HEAD %q", viewSubject(view), viewErr, head)
+		}
+		if err := dispatchWorkContextAttempt(t, fixture, workContextDispatchPacket(t, fixture, "attempt-reject-retry-x", job, view)); err != nil {
+			t.Fatalf("implement dispatch refused: %v", err)
+		}
+		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{implementDispatchEvidenceEvent(fixture.workID, "attempt-reject-retry-x", lane, job)}}); err != nil {
+			t.Fatal(err)
+		}
+		completion := Event{EventID: "complete-" + workID + "-x", Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: fixture.workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(WorkerCompletedPayload{
+			AttemptID: "attempt-reject-retry-x", ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion,
+			EvidenceOrigin: WorkerEvidenceReported, Evidence: workerEvidenceForLane(lane), WorkerJob: &job,
+		})}
+		prepared, prepErr := PrepareWorkerTerminalDelivery(context.Background(), s, PrepareWorkerTerminalDeliveryRequest{WorkID: fixture.workID, AttemptID: "attempt-reject-retry-x", EventID: completion.EventID})
+		if prepErr != nil {
+			t.Fatalf("terminal delivery preparation refused: %v", prepErr)
+		}
+		workerTerminalEventThroughSeamCtx(t, WithWorkerTerminalPreparation(context.Background(), prepared), s, completion)
+		rejectWithRetry := func(t *testing.T, attemptID string) error {
+			t.Helper()
+			reviewSubjectRecordOperator(t, s, fixture.workID)
+			operator := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/operator", SessionRef: "session/" + fixture.workID + "-operator", ActorClass: ActorOperator}
+			version := readWorkVersion(t, s, fixture.workID)
+			payload, marshalErr := json.Marshal(map[string]any{
+				"attempt_id": attemptID, "attempt_epoch": int64(1),
+				"diagnosis": "the delivered change missed the recorded check", "strategy": "reproduce the check and repair the change",
+				"predicate_ids": []string{"predicate:work-context"}, "evidence_refs": []string{"evidence:" + attemptID + "-reject"},
+				"retry": map[string]any{"lane_id": "implement"},
+			})
+			if marshalErr != nil {
+				t.Fatal(marshalErr)
+			}
+			preparation, prepErr := PrepareWorkerDispatchFreshness(context.Background(), s, PrepareWorkerDispatchRequest{WorkID: fixture.workID, SessionWorktree: claimDir})
+			if prepErr != nil {
+				return prepErr
+			}
+			ctx := WithWorkerDispatchPreparation(context.Background(), preparation)
+			_, err := invokeWorkflowActionForCD0059(ctx, t, s, WorkflowActionExecutionRequest{
+				WorkID: fixture.workID, ExpectedVersion: version, ActionID: "reject_worker_result", Payload: payload,
+				SessionWorktree: claimDir, Actor: operator, AcceptedInputsDigest: cd0059TestDigest(t, attemptID+"-reject-inputs"),
+				IdempotencyIdentity: attemptID + "-reject-op", OperationID: "op-" + attemptID + "-reject", PrincipalRef: operator.PrincipalRef,
+				Tool: "concord_work_transition", IdempotencyKey: attemptID + "-reject-key", RequestID: "req-" + attemptID + "-reject",
+				AcceptedScope: `{}`, ContractDigest: testManifestDigest,
+			})
+			return err
+		}
+		return s, fixture.workID, claimDir, rejectWithRetry
+	}
+
+	t.Run("an unchanged HEAD commits the rejection and its retry dispatch together", func(t *testing.T) {
+		s, workID, _, rejectWithRetry := setup(t, "work-freshness-reject-retry-ok")
+		if err := rejectWithRetry(t, "attempt-reject-retry-x"); err != nil {
+			t.Fatalf("combined reject/retry refused an unchanged HEAD: %v", err)
+		}
+		var retryAttempts int
+		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_attempts WHERE work_id=? AND attempt_id=?`, workID, "op-attempt-reject-retry-x-reject:retry").Scan(&retryAttempts); err != nil {
+			t.Fatal(err)
+		}
+		if retryAttempts != 1 {
+			t.Fatalf("retry attempts = %d, want the one derived retry dispatch the same proof authorized", retryAttempts)
+		}
+	})
+
+	t.Run("a moved HEAD refuses the whole combined operation", func(t *testing.T) {
+		s, workID, claimDir, rejectWithRetry := setup(t, "work-freshness-reject-retry-refuse")
+		run := func(args ...string) {
+			t.Helper()
+			cmd := exec.Command("git", append([]string{"-C", claimDir}, args...)...) //nolint:gosec // test-only git argv, fixed binary
+			var stderr bytes.Buffer
+			cmd.Stderr = &stderr
+			if err := cmd.Run(); err != nil {
+				t.Fatalf("move claimed HEAD %v: %v: %s", args, err, stderr.String())
+			}
+		}
+		if err := os.WriteFile(claimDir+"/moved.txt", []byte("the candidate moved on\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		run("add", "-A")
+		run("commit", "--allow-empty", "-m", "the candidate moved past the qualified subject")
+		err := rejectWithRetry(t, "attempt-reject-retry-x")
+		if err == nil || !hasFailureKind(err, KindProjectionConflict) {
+			t.Fatalf("combined reject/retry error = %v, want %s refusing the whole operation", err, KindProjectionConflict)
+		}
+		var rejections, retryAttempts int
+		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='reject_worker_result'`, workID, WorkflowActionCompleted).Scan(&rejections); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_attempts WHERE work_id=? AND attempt_id LIKE '%:retry'`, workID).Scan(&retryAttempts); err != nil {
+			t.Fatal(err)
+		}
+		if rejections != 0 || retryAttempts != 0 {
+			t.Fatalf("the refused combined operation committed %d rejection(s) and %d retry attempt(s), want zero effects", rejections, retryAttempts)
+		}
+	})
+}
+
+// probeHoldingRunner holds the delivery probe while the test observes store
+// behavior, then answers the qualified subject with a clean tree, or lets
+// the probe deadline expire when holdForDeadline is set.
+type probeHoldingRunner struct {
+	s               *Store
+	release         chan struct{}
+	readCompleted   chan error
+	holdForDeadline bool
+	head            string
+}
+
+func (r probeHoldingRunner) Run(probeCtx context.Context, _ string, args ...string) ([]byte, error) {
+	go func() {
+		var version int64
+		r.readCompleted <- r.s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items LIMIT 1`).Scan(&version)
+	}()
+	if r.holdForDeadline {
+		<-probeCtx.Done()
+		return nil, probeCtx.Err()
+	}
+	select {
+	case <-r.release:
+	case <-probeCtx.Done():
+		return nil, probeCtx.Err()
+	}
+	if len(args) > 0 && args[0] == "status" {
+		return nil, nil
+	}
+	return []byte(r.head), nil
+}
+
+// TestDispatchSubjectFreshnessC1Boundaries proves the C1 obligations for the
+// dispatch surface: the probe phase holds no SQL connection, the fixed
+// deadline refuses with zero effects, and state that changes between the
+// pre-probe snapshot and the transactional revalidation refuses with zero
+// effects — for the ordinary dispatch and the combined rejection with retry.
+func TestDispatchSubjectFreshnessC1Boundaries(t *testing.T) {
+	setup := func(t *testing.T, workID string) (*Store, string, string, string, func(t *testing.T, attemptID string, runner GitRunner) error) {
+		t.Helper()
+		fixture := seedWorkContextFixture(t, workID)
+		s := fixture.store
+		claimDir, head := reviewSubjectClaim(t, s, fixture.workID)
+		fixtureSubject := head
+		view, viewErr := readWorkContextView(context.Background(), s.DatabaseForTesting(), fixture.workID)
+		if viewErr != nil || view == nil || view.SubjectCommit != head {
+			t.Fatalf("admitted view subject = %q err = %v, want the qualified HEAD %q", viewSubject(view), viewErr, head)
+		}
+		lane := laneForID(t, "implement")
+		job := reviewSubjectReadyRevision(t, fixture)
+		view, viewErr = readWorkContextView(context.Background(), s.DatabaseForTesting(), fixture.workID)
+		if viewErr != nil || view == nil || view.SubjectCommit != head {
+			t.Fatalf("admitted view subject = %q err = %v, want the qualified HEAD %q", viewSubject(view), viewErr, head)
+		}
+		if err := dispatchWorkContextAttempt(t, fixture, workContextDispatchPacket(t, fixture, "attempt-c1-x", job, view)); err != nil {
+			t.Fatalf("implement dispatch refused: %v", err)
+		}
+		if err := ApplyOperation(context.Background(), s, Operation{Events: []Event{implementDispatchEvidenceEvent(fixture.workID, "attempt-c1-x", lane, job)}}); err != nil {
+			t.Fatal(err)
+		}
+		completion := Event{EventID: "complete-c1-x-" + workID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: fixture.workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(WorkerCompletedPayload{
+			AttemptID: "attempt-c1-x", ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion,
+			EvidenceOrigin: WorkerEvidenceReported, Evidence: workerEvidenceForLane(lane), WorkerJob: &job,
+		})}
+		prepared, prepErr := PrepareWorkerTerminalDelivery(context.Background(), s, PrepareWorkerTerminalDeliveryRequest{WorkID: fixture.workID, AttemptID: "attempt-c1-x", EventID: completion.EventID})
+		if prepErr != nil {
+			t.Fatalf("terminal delivery preparation refused: %v", prepErr)
+		}
+		workerTerminalEventThroughSeamCtx(t, WithWorkerTerminalPreparation(context.Background(), prepared), s, completion)
+		rejectWithRetry := func(t *testing.T, attemptID string, runner GitRunner) error {
+			t.Helper()
+			reviewSubjectRecordOperator(t, s, fixture.workID)
+			operator := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/operator", SessionRef: "session/" + fixture.workID + "-operator", ActorClass: ActorOperator}
+			version := readWorkVersion(t, s, fixture.workID)
+			payload, marshalErr := json.Marshal(map[string]any{
+				"attempt_id": attemptID, "attempt_epoch": int64(1),
+				"diagnosis": "the delivered change missed the recorded check", "strategy": "reproduce the check and repair the change",
+				"predicate_ids": []string{"predicate:work-context"}, "evidence_refs": []string{"evidence:" + attemptID + "-reject"},
+				"retry": map[string]any{"lane_id": "implement"},
+			})
+			if marshalErr != nil {
+				t.Fatal(marshalErr)
+			}
+			preparation, prepErr := PrepareWorkerDispatchFreshness(context.Background(), s, PrepareWorkerDispatchRequest{WorkID: fixture.workID, SessionWorktree: claimDir, Runner: runner})
+			if prepErr != nil {
+				return prepErr
+			}
+			ctx := WithWorkerDispatchPreparation(context.Background(), preparation)
+			_, err := invokeWorkflowActionForCD0059(ctx, t, s, WorkflowActionExecutionRequest{
+				WorkID: fixture.workID, ExpectedVersion: version, ActionID: "reject_worker_result", Payload: payload,
+				SessionWorktree: claimDir, Actor: operator, AcceptedInputsDigest: cd0059TestDigest(t, attemptID+"-reject-inputs"),
+				IdempotencyIdentity: attemptID + "-reject-op", OperationID: "op-" + attemptID + "-reject", PrincipalRef: operator.PrincipalRef,
+				Tool: "concord_work_transition", IdempotencyKey: attemptID + "-reject-key", RequestID: "req-" + attemptID + "-reject",
+				AcceptedScope: `{}`, ContractDigest: testManifestDigest,
+			})
+			return err
+		}
+		return s, fixture.workID, claimDir, fixtureSubject, rejectWithRetry
+	}
+
+	t.Run("no sql connection is held while the subject probe runs", func(t *testing.T) {
+		s, workID, claimDir, subject, _ := setup(t, "work-c1-hold-ordinary")
+		release := make(chan struct{})
+		runner := probeHoldingRunner{s: s, release: release, readCompleted: make(chan error, 1), head: subject}
+		preparationErr := make(chan error, 1)
+		go func() {
+			_, err := PrepareWorkerDispatchFreshness(context.Background(), s, PrepareWorkerDispatchRequest{WorkID: workID, SessionWorktree: claimDir, Runner: runner})
+			preparationErr <- err
+		}()
+		select {
+		case readErr := <-runner.readCompleted:
+			if readErr != nil {
+				t.Fatalf("the independent SQL read failed while the probe held: %v", readErr)
+			}
+		case <-time.After(10 * time.Second):
+			t.Fatal("the independent SQL read never completed while the probe held; a store snapshot or write transaction spans the subprocess")
+		}
+		select {
+		case err := <-preparationErr:
+			t.Fatalf("the preparation finished before the probe released: %v", err)
+		default:
+		}
+		close(release)
+		if err := <-preparationErr; err != nil {
+			t.Fatalf("preparation refused after release: %v", err)
+		}
+		// The same holding shape covers the combined rejection's preparation.
+		s2, _, _, subject2, rejectWithRetry2 := setup(t, "work-c1-hold-combined")
+		release2 := make(chan struct{})
+		runner2 := probeHoldingRunner{s: s2, release: release2, readCompleted: make(chan error, 1), head: subject2}
+		rejectionErr := make(chan error, 1)
+		go func() {
+			rejectionErr <- rejectWithRetry2(t, "attempt-c1-x", runner2)
+		}()
+		select {
+		case readErr := <-runner2.readCompleted:
+			if readErr != nil {
+				t.Fatalf("the independent SQL read failed while the combined probe held: %v", readErr)
+			}
+		case <-time.After(10 * time.Second):
+			t.Fatal("the independent SQL read never completed while the combined probe held; a store snapshot or write transaction spans the subprocess")
+		}
+		close(release2)
+		if err := <-rejectionErr; err != nil {
+			t.Fatalf("the combined rejection refused after release: %v", err)
+		}
+	})
+
+	t.Run("the fixed probe deadline refuses with zero effects", func(t *testing.T) {
+		s, workID, claimDir, _, _ := setup(t, "work-c1-deadline-ordinary")
+		baseline := dispatchStartedCount(t, s, workID)
+		_, err := PrepareWorkerDispatchFreshness(context.Background(), s, PrepareWorkerDispatchRequest{WorkID: workID, SessionWorktree: claimDir, Runner: probeHoldingRunner{s: s, readCompleted: make(chan error, 1), holdForDeadline: true}})
+		if !hasFailureKind(err, KindTimeout) {
+			t.Fatalf("deadline preparation error = %v, want %s", err, KindTimeout)
+		}
+		if got := dispatchStartedCount(t, s, workID); got != baseline {
+			t.Fatalf("dispatch_worker starts = %d, want the setup baseline %d with no refusal effects", got, baseline)
+		}
+		s2, workID2, _, _, rejectWithRetry2 := setup(t, "work-c1-deadline-combined")
+		err = rejectWithRetry2(t, "attempt-c1-x", probeHoldingRunner{s: s2, readCompleted: make(chan error, 1), holdForDeadline: true})
+		if !hasFailureKind(err, KindTimeout) {
+			t.Fatalf("combined deadline error = %v, want %s", err, KindTimeout)
+		}
+		var rejections, retryAttempts int
+		if err := s2.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='reject_worker_result'`, workID2, WorkflowActionCompleted).Scan(&rejections); err != nil {
+			t.Fatal(err)
+		}
+		if err := s2.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_attempts WHERE work_id=? AND attempt_id LIKE '%:retry'`, workID2).Scan(&retryAttempts); err != nil {
+			t.Fatal(err)
+		}
+		if rejections != 0 || retryAttempts != 0 {
+			t.Fatalf("the deadline-refused combined operation committed %d rejection(s) and %d retry attempt(s), want zero effects", rejections, retryAttempts)
+		}
+	})
+
+	t.Run("identity drift between the snapshot and the admission refuses with zero effects", func(t *testing.T) {
+		s, workID, driftClaimDir, _, _ := setup(t, "work-c1-drift-ordinary")
+		preparation, prepErr := PrepareWorkerDispatchFreshness(context.Background(), s, PrepareWorkerDispatchRequest{WorkID: workID, SessionWorktree: driftClaimDir})
+		if prepErr != nil {
+			t.Fatalf("preparation refused: %v", prepErr)
+		}
+		job := reviewSubjectReadyRevision(t, workContextFixture{store: s, workID: workID, owner: WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/" + workID, ActorClass: ActorAgent}})
+		view, viewErr := readWorkContextView(context.Background(), s.DatabaseForTesting(), workID)
+		if viewErr != nil || view == nil {
+			t.Fatalf("admitted view = %+v err = %v, want a present view", view, viewErr)
+		}
+		owner := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/owner", SessionRef: "session/" + workID, ActorClass: ActorAgent}
+		// The work version moves after the sealed snapshot, and the packet is
+		// rebuilt from the moved state, so the freshness revalidation itself
+		// is the refusing guard, with zero dispatch effects.
+		version := readWorkVersion(t, s, workID)
+		ownerRef, err := WorkflowActorRef(owner)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := applyWorkflowTestOperation(context.Background(), s, Operation{Events: []Event{workflowEventWithActor(workID+":c1-drift-bump", WorkflowActorRecorded, workID, ownerRef, map[string]any{
+			"work_id": workID, "expected_version": version, "resulting_version": version + 1,
+			"actor_ref": ownerRef, "principal_ref": owner.PrincipalRef, "client_ref": owner.ClientRef,
+			"agent_ref": owner.AgentRef, "session_ref": owner.SessionRef, "actor_class": string(owner.ActorClass),
+		})}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
+			t.Fatal(err)
+		}
+		movedView, viewErr := readWorkContextView(context.Background(), s.DatabaseForTesting(), workID)
+		if viewErr != nil || movedView == nil {
+			t.Fatalf("moved view = %+v err = %v, want a present view", movedView, viewErr)
+		}
+		baseline := dispatchStartedCount(t, s, workID)
+		driftPacket := workContextDispatchPacket(t, workContextFixture{store: s, workID: workID, owner: owner}, "attempt-c1-drift", job, movedView)
+		driftPacket["inputs"].(map[string]any)["binding"].(map[string]any)["work_version"] = readWorkVersion(t, s, workID)
+		driftErr := dispatchBindingAttemptCtx(t, s, cd0059DispatchSeed{workID: workID, ownerActor: owner}, "attempt-c1-drift", driftPacket, WithWorkerDispatchPreparation(context.Background(), preparation))
+		if driftErr == nil || !hasFailureKind(driftErr, KindProjectionConflict) || !strings.Contains(driftErr.Error(), "changed under the dispatch subject observation") {
+			t.Fatalf("drift dispatch error = %v, want %s refusing the state changed under the sealed observation", driftErr, KindProjectionConflict)
+		}
+		if got := dispatchStartedCount(t, s, workID); got != baseline {
+			t.Fatalf("dispatch_worker starts = %d, want the setup baseline %d with no refusal effects", got, baseline)
+		}
+	})
 }

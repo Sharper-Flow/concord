@@ -60,20 +60,30 @@ func deliveryRecoveryPacket(t *testing.T, s *store.Store, workID, stepID, attemp
 }
 
 // deliveryRecoveryCompletion records the lane dispatch and the completed
-// report for one dispatched worker attempt.
+// report for one dispatched worker attempt. The completion lands at the
+// current payload version through the live terminal seam: the implementation
+// lane carries the core delivery observation the authenticated preparation
+// sampled, and a review lane carries its typed review block.
 func deliveryRecoveryCompletion(t *testing.T, s *store.Store, grant Authority, attemptID, capabilityClass string) {
 	t.Helper()
 	lane := deliveryRecoveryLane(t, capabilityClass)
 	job := authorizedWorkerJob(t, s, attemptID)
 	dispatch := store.Event{EventID: "delivery-recovery-dispatch-" + attemptID, Kind: store.WorkerDispatched, SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: 2, Payload: retryJSON(store.WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, PacketDigest: "sha256:" + strings.Repeat("c", 64), ReadbackModel: "openai/gpt-5.6-luna", PacketSchemaVersion: store.WorkerPacketSchemaVersion, ReportSchemaVersion: store.WorkerReportSchemaVersion, WorkerJob: job})}
-	payload := store.WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: "openai/gpt-5.6-luna", ReportSchemaVersion: store.WorkerReportSchemaVersion, WorkerJob: job}
-	payloadVersion := 1
+	if err := s.Transact(context.Background(), func(tx *store.Transaction) error {
+		enriched, err := store.PrepareLaneActorDispatch(context.Background(), tx, dispatch, grant.PrincipalRef, grant.ClientRef)
+		if err != nil {
+			return err
+		}
+		_, err = store.AppendLaneActorDispatchTx(context.Background(), tx, enriched)
+		return err
+	}); err != nil {
+		t.Fatalf("seed delivery recovery dispatch %s: %v", attemptID, err)
+	}
+	payload := store.WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: "openai/gpt-5.6-luna", ReportSchemaVersion: store.WorkerReportSchemaVersion, WorkerJob: job, EvidenceOrigin: store.WorkerEvidenceReported}
 	// A live completion on a lane that requires the typed review block
-	// carries it (CD-0197), whatever evidence origin it claims. An
-	// oracle-bound dispatch's review findings carry their oracle
-	// classification (CD-0198).
+	// carries it (CD-0197). An oracle-bound dispatch's review findings carry
+	// their oracle classification (CD-0198).
 	if len(lane.RequiredReportBlocks) > 0 {
-		payloadVersion = 3
 		payload.EvidenceOrigin = store.WorkerEvidenceLegacyUnavailable
 		payload.Review = &store.WorkerReviewBlock{Verdict: "no_ship", Findings: []store.WorkerReviewFinding{{Severity: "P0", Confidence: "high", Detail: "the refined result misses the approved contract"}}}
 		if job != nil {
@@ -83,29 +93,10 @@ func deliveryRecoveryCompletion(t *testing.T, s *store.Store, grant Authority, a
 					Classification: store.OracleClassificationFollowUp,
 					OwnerID:        owner.OwnerID, PredicateIDs: owner.PredicateIDs,
 				}
-				payloadVersion = store.WorkerEvidenceEventPayloadVersion(store.WorkerCompleted)
 			}
 		}
 	}
-	// A job-bound completion declares its evidence origin (CD-0205).
-	if job != nil && payloadVersion < 4 {
-		payloadVersion = 4
-		payload.EvidenceOrigin = store.WorkerEvidenceLegacyUnavailable
-	}
-	completion := store.Event{EventID: "delivery-recovery-completed-" + attemptID, Kind: store.WorkerCompleted, SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: payloadVersion, Payload: retryJSON(payload)}
-	if err := s.Transact(context.Background(), func(tx *store.Transaction) error {
-		enriched, err := store.PrepareLaneActorDispatch(context.Background(), tx, dispatch, grant.PrincipalRef, grant.ClientRef)
-		if err != nil {
-			return err
-		}
-		if _, err := store.AppendLaneActorDispatchTx(context.Background(), tx, enriched); err != nil {
-			return err
-		}
-		_, err = store.ApplyOperationTx(context.Background(), tx, store.Operation{Events: []store.Event{completion}})
-		return err
-	}); err != nil {
-		t.Fatalf("seed delivery recovery completion %s: %v", attemptID, err)
-	}
+	agentWorkerCompletedThroughSeam(t, s, "work-1", attemptID, "delivery-recovery-completed-"+attemptID, payload)
 }
 
 func TestDeliveryGateRecoveryAdmitsPinnedReturnThroughAgent(t *testing.T) {
@@ -307,4 +298,64 @@ func TestDeliveryGateRecoveryAdmitsPinnedReturnThroughAgent(t *testing.T) {
 	if pinnedVersion != pinned.Definition.Version || pinnedDigest != pinned.Digest {
 		t.Fatalf("pin after recovery = v%d %s, want the released v15 %s", pinnedVersion, pinnedDigest, pinned.Digest)
 	}
+}
+
+// agentWorkerCompletedThroughSeam records one completed report through the
+// live worker-evidence seam with the core delivery observation the
+// authenticated terminal preparation sampled outside the transaction. A
+// non-implementation attempt owes no observation and the preparation probes
+// nothing.
+func agentWorkerCompletedThroughSeam(t *testing.T, s *store.Store, workID, attemptID, eventID string, payload store.WorkerCompletedPayload) {
+	t.Helper()
+	ctx := context.Background()
+	if payload.EvidenceOrigin == "" {
+		payload.EvidenceOrigin = store.WorkerEvidenceReported
+	}
+	// A reported completion discharges every lane obligation; a legacy
+	// unavailable origin carries no reported evidence array.
+	if payload.EvidenceOrigin == store.WorkerEvidenceReported && len(payload.Evidence) == 0 {
+		payload.Evidence = agentEvidenceForLane(t, s, workID, attemptID)
+	}
+	completion := store.Event{EventID: eventID, Kind: store.WorkerCompleted, SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: store.WorkerEvidenceEventPayloadVersion(store.WorkerCompleted), Payload: retryJSON(payload)}
+	prepared, err := store.PrepareWorkerTerminalDelivery(ctx, s, store.PrepareWorkerTerminalDeliveryRequest{WorkID: workID, AttemptID: attemptID, EventID: eventID})
+	if err != nil {
+		t.Fatalf("terminal delivery preparation for %s: %v", attemptID, err)
+	}
+	preparedCtx := store.WithWorkerTerminalPreparation(ctx, prepared)
+	if err := s.Transact(preparedCtx, func(tx *store.Transaction) error {
+		_, inner := store.ApplyWorkerEvidenceOperationTx(preparedCtx, tx, completion)
+		return inner
+	}); err != nil {
+		t.Fatalf("completed report through the seam for %s: %v", attemptID, err)
+	}
+}
+
+// agentEvidenceForLane discharges every obligation the attempt's lane
+// declares, one entry each.
+func agentEvidenceForLane(t *testing.T, s *store.Store, workID, attemptID string) []store.WorkerReportEvidence {
+	t.Helper()
+	var class string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT capability_class FROM worker_attempts WHERE work_id=? AND attempt_id=?`, workID, attemptID).Scan(&class); err != nil {
+		t.Fatalf("read the attempt lane for %s: %v", attemptID, err)
+	}
+	var laneID string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT lane_id FROM worker_attempts WHERE work_id=? AND attempt_id=?`, workID, attemptID).Scan(&laneID); err != nil {
+		t.Fatalf("read the attempt lane id for %s: %v", attemptID, err)
+	}
+	var lane *store.LaneDefinition
+	for _, definition := range store.BuiltinLaneDefinitions() {
+		if definition.ID == laneID {
+			lane = &definition
+			break
+		}
+	}
+	if lane == nil {
+		t.Fatalf("lane %s is not registered", laneID)
+	}
+	_ = class
+	evidence := make([]store.WorkerReportEvidence, 0, len(lane.EvidenceObligations))
+	for _, obligation := range lane.EvidenceObligations {
+		evidence = append(evidence, store.WorkerReportEvidence{Obligation: obligation, Detail: "discharged " + obligation})
+	}
+	return evidence
 }

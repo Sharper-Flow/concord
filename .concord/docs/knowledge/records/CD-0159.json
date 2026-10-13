@@ -36,7 +36,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:f12f50fc6be5f0a7fd5b4502547879dab29edbbaf035ee8e82abc05dcf5ba6ad",
+  "sha256": "sha256:c3f8fea8aa76995a1e5d644b3a73e644818807fd99b2aa75b3973b798aee3181",
   "status": "accepted",
   "summary": "Records legislated or derived standing. Outside the closed 152-member default cohort, legislative standing requires an exact operator-approved Product-changing contract version. Decision and constitution records admit exists or absent subjects, law_additions, or law_modifies; other kinds admit only exists or absent subjects. Local stores refuse held negative evidence and report absent work as unverified without changing the tier. Derived-law revisions stay inside the contract. Outside-workflow approvals and predecessor imports remain derived.",
   "tags": [

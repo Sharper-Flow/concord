@@ -122,7 +122,7 @@ the touched law carries.
 ### D5. Defaults for existing records and for an import
 
 The 202 records at Git commit `fe69821f724bc8d40ec2730c9fd390bd80f1f527`
-took a default tier by kind under `docs/knowledge/records`.
+took a default tier by kind under docs/knowledge/records.
 The closed legislative default cohort contains exactly its 149 decision
 records and three constitutional records. D5 itself establishes their
 standing; the vehicle that applied it is `work-8d7bd788b2890355460bb5b7`

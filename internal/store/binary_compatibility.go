@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -102,98 +103,102 @@ func checkWorkflowBinaryCompatibility(ctx context.Context, q queryer) error {
 // the frozen journal witnesses open, read, and rebuild; the per-mutation
 // refusal lives in the workflow admission.
 func checkWorkflowAuthoringCutover(ctx context.Context, q queryer) error {
-	pin, classification, err := firstCutoverBlockedPin(ctx, q)
+	work, err := cutoverBlockedWork(ctx, q)
 	if err != nil {
 		return err
 	}
-	if pin != nil {
-		return binaryCompatibilityFailure(ctx, q, "workflow", pin.Ref, pin.Version, pin.Digest,
-			fmt.Sprintf("workflow definition %s version %d %s; a nonterminal work item still pins it through its instance or active contract", pin.Ref, pin.Version, classification))
+	if len(work) != 0 {
+		first := work[0]
+		return binaryCompatibilityFailure(ctx, q, "workflow", first.Pin.Ref, first.Pin.Version, first.Pin.Digest,
+			fmt.Sprintf("workflow definition %s version %d %s; nonterminal work item %s still pins it through its instance or active contract; re-run concord upgrade with {\"cancel_cutover_pinned_work\":true} to cancel every selected item inside the maintenance boundary after the verified snapshot", first.Pin.Ref, first.Pin.Version, first.Classification, first.WorkID))
 	}
 	return nil
 }
 
-// firstCutoverBlockedPin answers the first nonterminal-work authoring pin: an
-// archived family at any version, or a retained family below the canonical
-// authoring shape, whichever of the work's instance row or its active
-// contract (superseded_by IS NULL) carries it. A superseded contract row is
-// closed history whose work has moved on; only the active contract can still
-// mutate. The old-authoring side reads the registered definition's own
-// payload — the batch-only record_verdict declaration — through the registry
-// history, never a hand-maintained version table. Versions above the
-// registered heads are the registration scan's refusal at open.
-func firstCutoverBlockedPin(ctx context.Context, q queryer) (*WorkflowDefinitionPin, string, error) {
+type cutoverWork struct {
+	WorkID         string
+	Lifecycle      string
+	Version        int64
+	Pin            WorkflowDefinitionPin
+	Classification string
+}
+
+// cutoverBlockedWork selects nonterminal work with an archived-family pin or
+// pre-canonical authoring pin in its instance or active contract. Registry
+// content owns the classification. Closed contracts remain historical only.
+// Each work appears once, ordered by work ID; pin order breaks ties when both
+// surfaces block the same work.
+func cutoverBlockedWork(ctx context.Context, q queryer) ([]cutoverWork, error) {
 	queries := make([]string, 0, 2)
 	instancePresent, err := columnPresent(ctx, q, "workflow_instances", "definition_ref")
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 	if instancePresent {
-		queries = append(queries, `SELECT i.definition_ref,i.definition_version,i.definition_digest
+		queries = append(queries, `SELECT w.id,w.lifecycle,w.version,i.definition_ref,i.definition_version,i.definition_digest
 			FROM workflow_instances i JOIN work_items w ON w.id=i.work_id
 			WHERE i.definition_ref IN `+authoringFamilySQLList()+`
 			  AND w.lifecycle NOT IN `+terminalLifecycleSQLList())
 	}
 	contractPresent, err := columnPresent(ctx, q, "workflow_contracts", "definition_version")
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 	if contractPresent {
 		activePresent, err := columnPresent(ctx, q, "workflow_contracts", "superseded_by")
 		if err != nil {
-			return nil, "", err
+			return nil, err
 		}
-		// A store predating the supersession column holds no closed row: every
-		// pinned contract was the work's only contract and is active.
+		// Before supersession existed, every pinned contract was active.
 		activeClause := ""
 		if activePresent {
 			activeClause = " AND c.superseded_by IS NULL"
 		}
-		queries = append(queries, `SELECT c.definition_ref,c.definition_version,c.definition_digest
+		queries = append(queries, `SELECT w.id,w.lifecycle,w.version,c.definition_ref,c.definition_version,c.definition_digest
 			FROM workflow_contracts c JOIN work_items w ON w.id=c.work_id
 			WHERE c.definition_ref IN `+authoringFamilySQLList()+`
 			  AND c.definition_ref <> '' AND c.definition_version > 0`+activeClause+`
 			  AND w.lifecycle NOT IN `+terminalLifecycleSQLList())
 	}
+	selected := []cutoverWork{}
 	if len(queries) == 0 {
-		return nil, "", nil
+		return selected, nil
 	}
-	query := queries[0]
-	if len(queries) == 2 {
-		query += " UNION " + queries[1]
-	}
-	rows, err := q.QueryContext(ctx, "SELECT definition_ref,definition_version,definition_digest FROM ("+query+") ORDER BY definition_ref,definition_version,definition_digest") //nolint:gosec // table names come only from the closed list above.
+	query := strings.Join(queries, " UNION ")
+	rows, err := q.QueryContext(ctx, "SELECT id,lifecycle,version,definition_ref,definition_version,definition_digest FROM ("+query+") ORDER BY id,definition_ref,definition_version,definition_digest") //nolint:gosec // table names come only from the closed list above.
 	if err != nil {
-		return nil, "", compatibilityReadFailure(err)
+		return nil, compatibilityReadFailure(err)
 	}
 	defer func() { _ = rows.Close() }()
 	for rows.Next() {
-		var pin WorkflowDefinitionPin
-		if err := rows.Scan(&pin.Ref, &pin.Version, &pin.Digest); err != nil {
-			return nil, "", compatibilityReadFailure(err)
+		var work cutoverWork
+		if err := rows.Scan(&work.WorkID, &work.Lifecycle, &work.Version, &work.Pin.Ref, &work.Pin.Version, &work.Pin.Digest); err != nil {
+			return nil, compatibilityReadFailure(err)
 		}
-		if workflowFamilyArchived(pin.Ref) {
-			return &pin, "is archived", nil
-		}
-		if !liveWorkflowAuthoringFamilies[pin.Ref] {
+		if len(selected) > 0 && selected[len(selected)-1].WorkID == work.WorkID {
 			continue
 		}
-		entry, ok := BuiltinWorkflowRegistry().Lookup(pin.Ref, pin.Version)
-		if !ok {
-			continue
+		if workflowFamilyArchived(work.Pin.Ref) {
+			work.Classification = "is archived"
+		} else {
+			if !liveWorkflowAuthoringFamilies[work.Pin.Ref] {
+				continue
+			}
+			entry, ok := BuiltinWorkflowRegistry().Lookup(work.Pin.Ref, work.Pin.Version)
+			if !ok || workflowCanonicalAuthoringActive(entry.Definition) {
+				continue
+			}
+			work.Classification = "predates the canonical authoring contract"
 		}
-		if workflowCanonicalAuthoringActive(entry.Definition) {
-			continue
-		}
-		return &pin, "predates the canonical authoring contract", nil
+		selected = append(selected, work)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, "", compatibilityReadFailure(err)
+		return nil, compatibilityReadFailure(err)
 	}
 	if err := rows.Close(); err != nil {
-		return nil, "", compatibilityReadFailure(err)
+		return nil, compatibilityReadFailure(err)
 	}
-	return nil, "", nil
+	return selected, nil
 }
 
 // authoringFamilySQLList renders the retired and live authoring families as a
@@ -213,6 +218,76 @@ func authoringFamilySQLList() string {
 		quoted[i] = "'" + ref + "'"
 	}
 	return "(" + strings.Join(quoted, ",") + ")"
+}
+
+// cutoverCancellationAdmission predicts read-only refusals using the same
+// owners as ordinary event append and fold. Older schemas have no hold table.
+func cutoverCancellationAdmission(ctx context.Context, q queryer, work cutoverWork) error {
+	present, err := columnPresent(ctx, q, "outside_repair_dispositions", "state")
+	if err != nil {
+		return err
+	}
+	if present {
+		if err := requireNoOutsideRepairTx(ctx, q, work.WorkID, "fold_event"); err != nil {
+			return err
+		}
+	}
+	if err := refuseRemovedWorkTx(ctx, q, work.WorkID, "apply_operation"); err != nil {
+		return err
+	}
+	var kind string
+	if err := q.QueryRowContext(ctx, `SELECT kind FROM work_items WHERE id=?`, work.WorkID).Scan(&kind); err != nil {
+		return compatibilityReadFailure(err)
+	}
+	if !actionableWorkKind(kind) {
+		return retiredInitiativeWriteRefused("work.transitioned")
+	}
+	if !ordinaryTransitions[work.Lifecycle]["cancelled"] {
+		return illegalTransition(work.Lifecycle, "cancelled")
+	}
+	return nil
+}
+
+// cancelCutoverPinnedWork uses ordinary lifecycle events in one transaction.
+// The final predicate read is inside that transaction so an incomplete
+// disposition cannot commit any cancellation.
+func (s *Store) cancelCutoverPinnedWork(ctx context.Context) (*CutoverDisposition, error) {
+	tx, err := beginOrdinaryTx(ctx, s.db)
+	if err != nil {
+		return nil, wrapFailure(KindUnavailable, "upgrade", "cannot begin cutover disposition", true, "retry once the database is writable", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	selected, err := cutoverBlockedWork(ctx, tx)
+	if err != nil {
+		return nil, err
+	}
+	disposition := newCutoverDisposition()
+	disposition.include(selected)
+	for _, work := range selected {
+		payload, err := json.Marshal(workTransitionPayload{
+			From: work.Lifecycle, To: "cancelled",
+			Reason:          fmt.Sprintf("CD-0218 D5 cutover disposition: %s version %d %s (digest %s)", work.Pin.Ref, work.Pin.Version, work.Classification, work.Pin.Digest),
+			ExpectedVersion: work.Version, ResultingVersion: work.Version + 1,
+		})
+		if err != nil {
+			return nil, err
+		}
+		event := Event{
+			EventID: fmt.Sprintf("upgrade-cutover-cancel:%s:%d", work.WorkID, work.Version), Kind: "work.transitioned",
+			SubjectType: SubjectWorkItem, SubjectID: work.WorkID, Actor: "operator",
+			OccurredAt: s.now(), PayloadVersion: 1, Payload: payload,
+		}
+		if _, err := applyOperationTx(ctx, tx, Operation{Events: []Event{event}}, newFoldScope(tx), false); err != nil {
+			return nil, fmt.Errorf("cutover cancellation of work %s refused: %w", work.WorkID, err)
+		}
+	}
+	if err := checkWorkflowAuthoringCutover(ctx, tx); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, wrapFailure(KindUnavailable, "upgrade", "cannot commit cutover disposition", true, "inspect the store before retrying", err)
+	}
+	return disposition, nil
 }
 
 // registryHolds is the slow path for a pin outside the built-in current

@@ -34,7 +34,11 @@ import (
 // release pair coexists. A session keeps the pinned adapter/core pair it
 // started with (CD-0111 D1), and a pair whose surfaces disagree in ways the
 // manifest cannot see is refused by the digest check, not by this plan.
-func PlanUpgradeReadiness(ctx context.Context, path string) (UpgradeReadiness, error) {
+func PlanUpgradeReadiness(ctx context.Context, path string, options ...UpgradeOptions) (UpgradeReadiness, error) {
+	var disposition *CutoverDisposition
+	if upgradeCancelsCutover(options) {
+		disposition = newCutoverDisposition()
+	}
 	if strings.TrimSpace(path) == "" {
 		return UpgradeReadiness{}, newFailure(KindReadinessUnknown, "readiness",
 			"empty database path", false, "pass the store path to plan against")
@@ -46,6 +50,7 @@ func PlanUpgradeReadiness(ctx context.Context, path string) (UpgradeReadiness, e
 			// the first open creates it fully migrated. Refusing it would
 			// block every first install.
 			return UpgradeReadiness{
+				CutoverDisposition: disposition,
 				StorePresent:       false,
 				FreshStore:         true,
 				AppliedVersions:    []int{},
@@ -64,12 +69,13 @@ func PlanUpgradeReadiness(ctx context.Context, path string) (UpgradeReadiness, e
 		return UpgradeReadiness{}, err
 	}
 	defer func() { _ = db.Close() }()
-	applied, fresh, err := readAppliedFromDB(ctx, db, path)
+	applied, fresh, err := readAppliedFromDB(ctx, db, path, disposition)
 	if err != nil {
 		return UpgradeReadiness{}, err
 	}
 	if fresh {
 		return UpgradeReadiness{
+			CutoverDisposition: disposition,
 			StorePresent:       true,
 			FreshStore:         true,
 			AppliedVersions:    []int{},
@@ -87,6 +93,7 @@ func PlanUpgradeReadiness(ctx context.Context, path string) (UpgradeReadiness, e
 		return UpgradeReadiness{}, err
 	}
 	plan := UpgradeReadiness{
+		CutoverDisposition: disposition,
 		StorePresent:       true,
 		FreshStore:         false,
 		AppliedVersions:    appliedVersions(applied),
@@ -97,6 +104,10 @@ func PlanUpgradeReadiness(ctx context.Context, path string) (UpgradeReadiness, e
 		ActivationCommand:  activationCommand,
 	}
 	plan.SchemaVersion = schemaVersionOf(applied)
+	if disposition != nil && len(disposition.Blockers) > 0 {
+		plan.ActivationBlocked = true
+		plan.Blockers = append(plan.Blockers, disposition.Blockers...)
+	}
 	for _, m := range plan.PendingBreaking {
 		plan.ActivationBlocked = true
 		plan.Blockers = append(plan.Blockers, fmt.Sprintf(
@@ -135,7 +146,7 @@ func openReadonlyStore(path string) (*sql.DB, error) {
 // readAppliedFromDB answers the manifest questions inside one read
 // transaction, so a single snapshot answers every query: is the schema
 // manifest present, is the store fresh, and which migrations are applied.
-func readAppliedFromDB(ctx context.Context, db *sql.DB, path string) (map[int]appliedMigration, bool, error) {
+func readAppliedFromDB(ctx context.Context, db *sql.DB, path string, disposition *CutoverDisposition) (map[int]appliedMigration, bool, error) {
 	tx, err := beginReadTx(ctx, db)
 	if err != nil {
 		return nil, false, wrapFailure(KindReadinessUnknown, "readiness",
@@ -185,14 +196,70 @@ func readAppliedFromDB(ctx context.Context, db *sql.DB, path string) (map[int]ap
 	// The authoring-cutover gate answers the same read-only snapshot: a
 	// nonterminal work item pinned to retired or old authoring blocks
 	// activation until its disposition lands.
-	if err := checkWorkflowAuthoringCutover(ctx, tx); err != nil {
-		return nil, false, err
+	if disposition == nil {
+		if err := checkWorkflowAuthoringCutover(ctx, tx); err != nil {
+			return nil, false, err
+		}
+	} else {
+		selected, err := cutoverBlockedWork(ctx, tx)
+		if err != nil {
+			return nil, false, err
+		}
+		disposition.include(selected)
+		for _, work := range selected {
+			if err := cutoverCancellationAdmission(ctx, tx, work); err != nil {
+				var failure *Failure
+				if !failureAs(err, &failure) || failure.Kind == KindUnavailable {
+					return nil, false, err
+				}
+				disposition.Blockers = append(disposition.Blockers, fmt.Sprintf("cutover cancellation of work %s refused: %v", work.WorkID, err))
+			}
+		}
 	}
 	return applied, false, nil
 }
 
+// UpgradeOptions names operator-selected mutations at the upgrade boundary.
+// The CLI owns maintenance exclusion and the verified pre-mutation snapshot.
+type UpgradeOptions struct {
+	CancelCutoverPinnedWork bool
+}
+
+func upgradeCancelsCutover(options []UpgradeOptions) bool {
+	for _, option := range options {
+		if option.CancelCutoverPinnedWork {
+			return true
+		}
+	}
+	return false
+}
+
+// CutoverDisposition describes the work selected by the authoring-cutover
+// predicate, including selected work whose cancellation refuses admission.
+type CutoverDisposition struct {
+	WorkCount      int            `json:"work_count"`
+	ByLifecycle    map[string]int `json:"by_lifecycle"`
+	ByPinnedFamily map[string]int `json:"by_pinned_family"`
+	WorkIDs        []string       `json:"work_ids"`
+	Blockers       []string       `json:"blockers,omitempty"`
+}
+
+func newCutoverDisposition() *CutoverDisposition {
+	return &CutoverDisposition{ByLifecycle: map[string]int{}, ByPinnedFamily: map[string]int{}, WorkIDs: []string{}}
+}
+
+func (d *CutoverDisposition) include(selected []cutoverWork) {
+	for _, work := range selected {
+		d.WorkCount++
+		d.ByLifecycle[work.Lifecycle]++
+		d.ByPinnedFamily[work.Pin.Ref]++
+		d.WorkIDs = append(d.WorkIDs, work.WorkID)
+	}
+}
+
 // UpgradeReadiness is the read-only activation answer for one store path.
 type UpgradeReadiness struct {
+	CutoverDisposition *CutoverDisposition `json:"cutover_disposition,omitempty"`
 	// StorePresent reports whether the database file exists.
 	StorePresent bool `json:"store_present"`
 	// FreshStore reports a store this binary may migrate at open: no file,

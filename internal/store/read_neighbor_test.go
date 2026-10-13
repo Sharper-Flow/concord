@@ -792,7 +792,7 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 		}},
 
 		// Snapshot and launcher reads.
-		{name: "readAppliedFromDB", run: func() error { _, _, err := readAppliedFromDB(ctx, s.db, s.Path()); return err }},
+		{name: "readAppliedFromDB", run: func() error { _, _, err := readAppliedFromDB(ctx, s.db, s.Path(), nil); return err }},
 		{name: "ReconstructSubjectAt", scratch: true, run: func() error {
 			_, err := ReconstructSubjectAt(ctx, s, VersionRef(SubjectWorkItem, "blocker"), watermark, PurposeAudit)
 			return err

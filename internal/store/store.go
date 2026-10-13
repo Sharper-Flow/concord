@@ -184,7 +184,8 @@ type UpgradeReport struct {
 	// Applied lists the migration versions this call applied, in order.
 	Applied []int `json:"applied"`
 	// SchemaVersion is the highest applied migration after the call.
-	SchemaVersion int `json:"schema_version"`
+	SchemaVersion      int                 `json:"schema_version"`
+	CutoverDisposition *CutoverDisposition `json:"cutover_disposition,omitempty"`
 }
 
 // Upgrade applies every pending migration, breaking steps included. It refuses
@@ -192,7 +193,7 @@ type UpgradeReport struct {
 // breaking step, naming each session and the release it holds, and writes
 // nothing in that case. An unstamped build refuses pending migrations in an
 // existing store and applies them only to a fresh store.
-func Upgrade(ctx context.Context, path string, held []HeldSchema) (UpgradeReport, error) {
+func Upgrade(ctx context.Context, path string, held []HeldSchema, options ...UpgradeOptions) (UpgradeReport, error) {
 	s, err := openUnmigrated(ctx, path)
 	if err != nil {
 		return UpgradeReport{}, err
@@ -234,10 +235,17 @@ func Upgrade(ctx context.Context, path string, held []HeldSchema) (UpgradeReport
 			return UpgradeReport{}, err
 		}
 	}
+	var disposition *CutoverDisposition
+	if upgradeCancelsCutover(options) {
+		disposition, err = s.cancelCutoverPinnedWork(ctx)
+		if err != nil {
+			return UpgradeReport{}, err
+		}
+	}
 	if err := s.finishOpen(ctx); err != nil {
 		return UpgradeReport{}, err
 	}
-	report := UpgradeReport{Applied: []int{}}
+	report := UpgradeReport{Applied: []int{}, CutoverDisposition: disposition}
 	for _, m := range migrations {
 		if _, was := before[m.Version]; was {
 			continue

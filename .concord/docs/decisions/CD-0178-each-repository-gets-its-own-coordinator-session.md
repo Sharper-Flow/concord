@@ -100,6 +100,13 @@ refusal, so the remaining move refusals keep their existing classification.
 
 Within one repository, the move route of CD-0098 and CD-0103 stays as it is.
 
+A central `concord-coordinator` may supervise local operators across authorized
+Projects through the host. It never moves across repository boundaries,
+claims their worktrees, or dispatches their lanes from its own instance.
+Repository-local `concord-operator` sessions hold the execution authority
+described by this clause. The central coordinator conveys references and
+attention, not substitute workflow or handoff evidence.
+
 ### D3. Occupancy is one row per session, and it ends with its host process
 
 Concord records occupancy as a fact it owns: the session that claimed or

@@ -2261,12 +2261,15 @@ func admitWorkflowActionOffStep(ctx context.Context, tx *sql.Tx, event Event, p 
 		}
 		// The binding has already folded. Evaluate the shared eligibility at
 		// its input boundary, not against the requirement it just satisfied.
-		requirements, err := workflowEvidenceBindingRecoveryRequirements(ctx, tx, entry.Definition, event.SubjectID, currentStep, bindingSeq)
+		recovery, err := workflowEvidenceBindingRecoveryEligibility(ctx, tx, entry.Definition, event.SubjectID, currentStep, bindingSeq)
 		if err != nil {
 			return err
 		}
+		if recovery.Refusal != nil {
+			return recovery.Refusal
+		}
 		if contains(p.ResultEvidenceRefs, binding.ImmutableSubjectRef) {
-			for _, requirement := range requirements {
+			for _, requirement := range recovery.Requirements {
 				if (requirement.Kind == "" || requirement.Kind == binding.EvidenceKind) && (requirement.Reference == "" || requirement.Reference == binding.ImmutableSubjectRef) {
 					return nil
 				}

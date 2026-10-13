@@ -394,32 +394,41 @@ func workflowStepFollows(definition WorkflowDefinition, earlierStep, currentStep
 	return false
 }
 
-// workflowEvidenceBindingRecoveryRequirements is the tx-scoped eligibility
-// owner for recovery calls, discovery, and completed-action validation.
-func workflowEvidenceBindingRecoveryRequirements(ctx context.Context, q queryer, definition WorkflowDefinition, workID, currentStep string, beforeSeq int64) ([]workflowEvidenceRequirement, error) {
+type workflowEvidenceBindingRecoveryState struct {
+	Requirements []workflowEvidenceRequirement
+	// Refusal belongs to bind_evidence, not to another action whose admission
+	// happens to probe binding availability in the same snapshot.
+	Refusal *Failure
+}
+
+// workflowEvidenceBindingRecoveryEligibility is the tx-scoped owner for
+// recovery calls, discovery, and completed-action validation. Read failures
+// remain errors; a predicate refusal is a fact about this action's eligibility.
+func workflowEvidenceBindingRecoveryEligibility(ctx context.Context, q queryer, definition WorkflowDefinition, workID, currentStep string, beforeSeq int64) (workflowEvidenceBindingRecoveryState, error) {
+	var state workflowEvidenceBindingRecoveryState
 	bindingStep := workflowEvidenceRecoveryBindingStep(definition, currentStep)
 	if bindingStep == "" || !workflowStepFollows(definition, bindingStep, currentStep) {
-		return nil, nil
+		return state, nil
 	}
 	required, mandates, obligations, cutoff, err := workflowEvidenceRequirementInputs(ctx, q, workID)
 	if err != nil {
 		if workflowMissingContractProjection(err) {
-			return nil, nil
+			return state, nil
 		}
-		return nil, err
+		return state, err
 	}
 	requirements := workflowEvidenceRequirementDefinitions(required, mandates, definition, obligations)
 	contractVersion, err := activeWorkflowContractVersion(ctx, q, workID, "workflow_action")
 	if err != nil {
-		return nil, err
+		return state, err
 	}
 	predicates, err := readWorkflowContractPredicates(ctx, q, workID, contractVersion)
 	if err != nil {
-		return nil, err
+		return state, err
 	}
 	verdicts, err := latestWorkflowVerdictsBefore(ctx, q, workID, contractVersion, beforeSeq)
 	if err != nil {
-		return nil, err
+		return state, err
 	}
 	verdicted := make(map[string]bool, len(verdicts))
 	for _, verdict := range verdicts {
@@ -431,13 +440,15 @@ func workflowEvidenceBindingRecoveryRequirements(ctx context.Context, q queryer,
 		}
 		approved, decodeErr := DecodeWorkflowPredicate([]byte(predicate.OutcomePayload))
 		if decodeErr != nil || string(approved.Kind) != predicate.OutcomeKind {
-			return nil, newFailure(KindInvariantViolation, "workflow_action", "approved outcome predicate is malformed or mismatched", false, "reread_entities")
+			state.Refusal = newFailure(KindInvariantViolation, "workflow_action", "approved outcome predicate is malformed or mismatched", false, "reread_entities")
+			return state, nil
 		}
 		if approved.Kind == PredicateCheck {
 			requirements = append(requirements, workflowEvidenceRequirement{Kind: string(EvidenceVerification), Reference: approved.ImmutableSubjectRef})
 		}
 	}
-	return unboundWorkflowEvidenceRequirements(ctx, q, workID, requirements, cutoff, beforeSeq)
+	state.Requirements, err = unboundWorkflowEvidenceRequirements(ctx, q, workID, requirements, cutoff, beforeSeq)
+	return state, err
 }
 
 // guardRecoveryEvidenceBind admits an outstanding requirement or verification
@@ -467,11 +478,14 @@ func guardRecoveryEvidenceBind(ctx context.Context, q queryer, workID string, de
 			return false, newFailure(KindIllegalLifecycleTransition, subject, "recovery bind_evidence cannot reopen an already bound evidence tuple", false, fmt.Sprintf("use bind_evidence on step %q before advancing", bindingStep))
 		}
 	}
-	requirements, requirementsErr := workflowEvidenceBindingRecoveryRequirements(ctx, q, definition, workID, currentStep, 0)
+	recovery, requirementsErr := workflowEvidenceBindingRecoveryEligibility(ctx, q, definition, workID, currentStep, 0)
 	if requirementsErr != nil {
 		return false, requirementsErr
 	}
-	for _, requirement := range requirements {
+	if recovery.Refusal != nil {
+		return false, recovery.Refusal
+	}
+	for _, requirement := range recovery.Requirements {
 		if requirement.Kind != "" && requirement.Kind != kind {
 			continue
 		}

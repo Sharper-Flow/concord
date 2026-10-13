@@ -752,9 +752,9 @@ func workflowActionDefinitionByID(definition WorkflowDefinition, actionID string
 
 // Discovery and mutation share the recovery eligibility owner.
 func workflowEvidenceBindingRecoveryAvailable(ctx context.Context, q queryer, definition WorkflowDefinition, workID, currentStep string) (bool, error) {
-	outstanding, err := workflowEvidenceBindingRecoveryRequirements(ctx, q, definition, workID, currentStep, 0)
+	recovery, err := workflowEvidenceBindingRecoveryEligibility(ctx, q, definition, workID, currentStep, 0)
 	if err != nil {
 		return false, err
 	}
-	return len(outstanding) != 0, nil
+	return recovery.Refusal == nil && len(recovery.Requirements) != 0, nil
 }

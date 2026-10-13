@@ -344,6 +344,46 @@ func TestRecoveryRequiredKindStillNeedsDurableProducerAuthority(t *testing.T) {
 	t.Fatalf("verification kind satisfied without its durable producer authority; outstanding = %v", outstanding)
 }
 
+func TestRecoveryPredicateRefusalStaysLocalToBinding(t *testing.T) {
+	for _, test := range []struct{ name, kind, payload string }{
+		{"malformed", "check", `{"kind":"check"}`},
+		{"mismatched", "exists", `{"kind":"check","check_ref":"check:ci","immutable_subject_ref":"ci:result","expected_result":"pass"}`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			workID := "recovery-predicate-refusal-" + test.name
+			fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.implementation", "acceptance")
+			s := fixture.store
+			entry, err := VerifyWorkflowInstanceDefinition(ctx, s, BuiltinWorkflowRegistry(), workID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, _, before := WorkflowActionDefinitionFor(ctx, s, BuiltinWorkflowRegistry(), workID, "supersede_contract")
+			if before != nil {
+				t.Fatalf("discover correction before corrupting the predicate: %v", before)
+			}
+			if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1); UPDATE workflow_contract_predicates SET outcome_kind=?,outcome_payload=? WHERE work_id=? AND contract_version=1; DELETE FROM fold_guard`, test.kind, test.payload, workID); err != nil {
+				t.Fatal(err)
+			}
+			if available, err := workflowEvidenceBindingRecoveryAvailable(ctx, s.db, entry.Definition, workID, "acceptance"); available || err != nil {
+				t.Errorf("binding availability with a %s predicate = (%t, %v), want a hidden route without an action-independent failure", test.name, available, err)
+			}
+			if _, _, err := WorkflowActionDefinitionFor(ctx, s, BuiltinWorkflowRegistry(), workID, "supersede_contract"); err != nil {
+				t.Errorf("binding predicate validation blocked another action's discovery: %v", err)
+			}
+			payload := json.RawMessage(`{"evidence_kind":"verification","immutable_subject_ref":"ci:result"}`)
+			var failure *Failure
+			if _, err := guardRecoveryEvidenceBind(ctx, s.db, workID, entry.Definition, "acceptance", payload, "test"); !failureAs(err, &failure) || failure.Kind != KindInvariantViolation || failure.Detail != "approved outcome predicate is malformed or mismatched" {
+				t.Errorf("strict binding guard with a %s predicate = %v, want the predicate refusal", test.name, err)
+			}
+			assertRecoveryRefusalWithoutEffect(t, s, workID, KindInvariantViolation, func() error {
+				return runVerdictActionAs(t, s, workID, "bind_evidence", payload, 0, fixture.owner)
+			})
+		})
+	}
+}
+
 func TestBindEvidenceAdmittedPastBindingStepWhileMandateUnbound(t *testing.T) {
 	const workID = "mandate-recovery-admit"
 	s := seedMandateRecoveryItem(t, workID)

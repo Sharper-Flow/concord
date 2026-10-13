@@ -43,7 +43,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:14a3a42e11eb8d79b3db9413acec49de1ad2ef5ea1e8e4841993945faa55fbbd",
+  "sha256": "sha256:c8de76bb9fcfac9a3772704bee6f27111777e4b3102062f071320f60e9454196",
   "status": "accepted",
   "summary": "Immutable worker-job revisions bind every admitted lane end to end. Implementation v27 and break-fix v24 require one typed owner/case/control acceptance oracle in the job digest, with closed source and authority joins and retained readiness evidence. Earlier pins remain oracle-free. Local acceptance holds the step without delivery; whole-work delivery keeps complete parent admission and integration evidence. Earlier unresolved obligations require unchanged base content and byte-identical old controls; added coverage can strengthen them, but control deletion or recipe re-pinning cannot discharge debt or reset retries.",
   "tags": [

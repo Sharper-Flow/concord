@@ -66,11 +66,12 @@ each prerequisite revision is satisfied.
 
 Oracle readiness references support harness availability and a nonempty
 selector. Native preparation resolves the exact pinned recipe, cwd, declared
-case witnesses, and runtime environment. The closed native recipe families
-are `go_top_level_v1` and `target_runner_v1`. Target runners admit
-`pytest_uv`, `shell_check`, `python_check`, and `vitest_pnpm` drivers.
-The Project keeps its own language and tests; a Go module is not required
-for a target-runner recipe.
+case witnesses, and runtime environment. The producer and generated schema
+declare the closed set of supported recipe families, materializers, and runners.
+Changes to the supported set require an approved design and executable tests
+for the obligations below. Concrete members belong to code and schema, not law.
+The Project keeps its own language and tests. No unrelated module is required
+to satisfy a native recipe.
 
 Preparation materializes the recipe commit, not the candidate commit. Go
 preparation compiles without launching its test program. Target-runner
@@ -79,21 +80,22 @@ without invoking acceptance bodies. Collection may import code and run
 configuration or registration hooks from the pinned recipe snapshot. These
 actions grant neither verification evidence nor a worker attempt.
 
-The candidate's dependency manifest and lock inputs must equal the recipe's.
-Python binds `pyproject.toml` and `uv.lock`; pnpm binds `package.json` and
-`pnpm-lock.yaml`. Shell and Python checks bind their declared interpreter,
-external executable, and dependency inputs. Missing inputs or unequal pins
-produce `unavailable` until explicit preparation with an approved recipe pin.
+Each materializer owns the dependency manifest, lockfile, and cache-integrity
+proof for its inputs. Candidate dependency inputs must equal the pinned
+recipe bytes. A recipe with no dependencies must declare that state;
+missing or unequal declared inputs produce `unavailable`, not a download
+or readiness exception. Every runner pins its interpreter, executable inputs,
+collection behavior, exact witness population, and result grammar.
 
 The producer excludes ambient credentials, runner overrides, plugin autoload,
-and user configuration. Only the closed driver contract's declared inputs may
-add environment values.
+and user configuration. Only the closed materializer and runner contracts may
+add declared environment inputs.
 The producer resolves installed exact runtime versions and fingerprints their
 executables and consumed dependency inputs. It materializes dependencies from
 existing caches into per-run scratch with downloads disabled (offline mode)
 for that materialization. Lock verification and dependency-integrity checks are required.
 An offline or frozen option alone is not evidence of cached-byte integrity.
-Target-runner dependency materialization disables build and lifecycle scripts.
+Dependency materialization disables build and lifecycle scripts.
 A missing artifact, corrupt cache entry, unsupported runtime, or unverified
 dependency produces `unavailable`, not a download or readiness exception.
 Private dependency copies or a post-run integrity check must keep a run from

@@ -495,7 +495,7 @@ func TestRetainedOutcomeKeepsItsReasonWhenThePhasePersistFails(t *testing.T) {
 	}
 	outcomes, runErr := RunWorktreeNativeRemoval(context.Background(), ExecGitRunner{}, removal)
 	var failure *Failure
-	if !errors.As(runErr, &failure) || failure.Kind != KindProjectionConflict || !strings.Contains(failure.Detail, "moved from the tip the reclaim pinned") {
+	if !errors.As(runErr, &failure) || failure.Kind != KindProjectionConflict || !strings.Contains(failure.Detail, "moved from its pinned tip") {
 		t.Fatalf("the moved-tip protection must stay the run's reported error, got %v", runErr)
 	}
 	if len(outcomes) != 1 {

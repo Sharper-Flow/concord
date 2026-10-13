@@ -66,15 +66,63 @@ each prerequisite revision is satisfied.
 
 Oracle readiness references support harness availability and a nonempty
 selector. Native preparation resolves the exact pinned recipe, cwd, declared
-case witnesses, and build environment, then compiles without test execution.
-Its qualified lease record is readiness only, never verification authority.
+case witnesses, and runtime environment. The closed native recipe families
+are `go_top_level_v1` and `target_runner_v1`. Target runners admit
+`pytest_uv`, `shell_check`, `python_check`, and `vitest_pnpm` drivers.
+The Project keeps its own language and tests; a Go module is not required
+for a target-runner recipe.
+
+Preparation materializes the recipe commit, not the candidate commit. Go
+preparation compiles without launching its test program. Target-runner
+preparation proves the exact selected witness population or check availability
+without invoking acceptance bodies. Collection may import code and run
+configuration or registration hooks from the pinned recipe snapshot. These
+actions grant neither verification evidence nor a worker attempt.
+
+The candidate's dependency manifest and lock inputs must equal the recipe's.
+Python binds `pyproject.toml` and `uv.lock`; pnpm binds `package.json` and
+`pnpm-lock.yaml`. Shell and Python checks bind their declared interpreter,
+external executable, and dependency inputs. Missing inputs or unequal pins
+produce `unavailable` until explicit preparation with an approved recipe pin.
+
+The producer excludes ambient credentials, runner overrides, plugin autoload,
+and user configuration. Only the closed driver contract's declared inputs may
+add environment values.
+The producer resolves installed exact runtime versions and fingerprints their
+executables and consumed dependency inputs. It materializes dependencies from
+existing caches into per-run scratch with downloads disabled (offline mode)
+for that materialization. Lock verification and dependency-integrity checks are required.
+An offline or frozen option alone is not evidence of cached-byte integrity.
+Target-runner dependency materialization disables build and lifecycle scripts.
+A missing artifact, corrupt cache entry, unsupported runtime, or unverified
+dependency produces `unavailable`, not a download or readiness exception.
+Private dependency copies or a post-run integrity check must keep a run from
+changing shared dependency inputs without detection.
+
+Execution materializes the candidate commit and replaces harness, fixture,
+runner configuration, and support inputs with the pinned recipe bytes.
+The producer verifies subject blob identity and rechecks pinned file digests.
+It fingerprints consumed source, runtime, dependencies, and executable inputs
+before and after execution. A changed input cannot produce a qualified pass.
+
+The preparation lease supplies readiness only, never verification authority.
 Preparation precedes the ready job record; the native owner derives a digest
 over the exact owner, case, and control bundle except its readiness references.
 The recorded job must match that bundle and parent authority exactly.
-Dispatch requires preparation for the same candidate and build environment.
+Dispatch requires preparation bound to the same candidate and runtime environment.
 A readiness refusal creates no attempt and spends no dispatch budget.
 Unsupported recipes or unavailable inputs require explicit preparation recovery,
 not an invented reference, automatic execution, or a readiness exception.
+
+The following evidence limits apply to every recipe family, including Go:
+
+- Same-UID changes between digest observations can escape those observations.
+- Native test and collection processes have no enforced network isolation.
+- `PATH`, `LANG`, and `LC_ALL` remain inherited environment inputs.
+- Candidate initialization or shared-interpreter code can forge reporter output.
+
+Native observations do not attest protection against hostile candidate code.
+Independent semantic review and the existing acceptance authorities remain required.
 
 ### D2. A job-capable dispatch binds one ready revision end to end
 

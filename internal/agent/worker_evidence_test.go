@@ -334,22 +334,13 @@ func TestWorkerEvidenceBindingMismatchOnPacketDigest(t *testing.T) {
 	}
 }
 
-// ---- CON-787 phase 1: assertion v2 (signed observation digest) ----
-//
-// The phase-1 contract: a versionless assertion, or one carrying version 1,
-// is byte-exact v1 and may not carry an observation digest; version 2 signs
-// the worker-evidence-v2 prefix with observation_digest inserted between
-// packet_digest and issued_at, and the binding comparison must include the
-// version semantics and the digest. The CLI keeps building v1 bindings until
-// phase 2, so no live terminal claim is v2 yet.
-
 // workerEvidenceAuthClientRef is the trusted client the v2 authentication
 // fixtures register. Its private key stays in the test, unlike
 // testClientRegistration, which discards it.
-const workerEvidenceAuthClientRef = "con787-evidence-client"
+const workerEvidenceAuthClientRef = "worker-evidence-test-client"
 
 // workerEvidenceAssertionEnvelope is the assertion wire shape a CLI request
-// carries, including the phase-1 v2 members. The tests build and decode it
+// carries. The tests build and decode it
 // as JSON so every authentication behavior is exercised through the same
 // decode path the CLI uses.
 type workerEvidenceAssertionEnvelope struct {

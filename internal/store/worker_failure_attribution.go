@@ -243,15 +243,15 @@ func workerFailureBoundFailure(detail string) error {
 }
 
 // workerFailureBoundedText enforces one bounded UTF-8 string field.
-func workerFailureBoundedText(name, value string, min, max int) error {
+func workerFailureBoundedText(name, value string, minimum, maximum int) error {
 	if !utf8.ValidString(value) {
 		return workerFailureBoundFailure("failure_attribution " + name + " is not valid UTF-8")
 	}
-	if len(value) < min || len(value) > max {
-		if min == 0 {
-			return workerFailureBoundFailure("failure_attribution " + name + " must be at most " + strconv.Itoa(max) + " UTF-8 bytes")
+	if len(value) < minimum || len(value) > maximum {
+		if minimum == 0 {
+			return workerFailureBoundFailure("failure_attribution " + name + " must be at most " + strconv.Itoa(maximum) + " UTF-8 bytes")
 		}
-		return workerFailureBoundFailure("failure_attribution " + name + " must be between " + strconv.Itoa(min) + " and " + strconv.Itoa(max) + " UTF-8 bytes")
+		return workerFailureBoundFailure("failure_attribution " + name + " must be between " + strconv.Itoa(minimum) + " and " + strconv.Itoa(maximum) + " UTF-8 bytes")
 	}
 	return nil
 }

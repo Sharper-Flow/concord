@@ -1584,6 +1584,18 @@ func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoc
 			if admittedContext != nil && admittedContext.SubjectCommit != "" {
 				completionValues["worker_subject_commit"] = admittedContext.SubjectCommit
 			}
+			// The authorization records the source-event frontier of
+			// the admitted work-context view, so every terminal report can be
+			// attributed to the exact authorized input it consumed. A new
+			// authorization always records the field: the view's nonnegative
+			// frontier when a view is present, explicit zero when it is
+			// absent. Absence stays reserved for authorizations recorded
+			// before this field existed.
+			dispatchFrontier := int64(0)
+			if admittedContext != nil {
+				dispatchFrontier = admittedContext.SourceEventFrontier
+			}
+			completionValues["worker_context_frontier"] = dispatchFrontier
 			// CON-883: the packet must carry the latest context
 			// checkpoint the same way it consumes the current correction,
 			// so coordinator directions recorded before the spawn reach

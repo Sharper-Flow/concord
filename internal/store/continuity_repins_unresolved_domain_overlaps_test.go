@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// Issue #765: the pinned projection re-pins the Domain overlaps that will
+// The pinned projection re-pins the Domain overlaps that will
 // refuse this work's next consequential mutation.
 func TestContinuityRepinsUnresolvedDomainOverlaps(t *testing.T) {
 	t.Parallel()
@@ -27,10 +27,7 @@ func TestContinuityRepinsUnresolvedDomainOverlaps(t *testing.T) {
 	if overlap.FromWorkID != "continuity-overlap-left" || overlap.ToWorkID != "continuity-overlap-right" || overlap.ResolutionState != "unresolved" || len(overlap.RecoveryActions) == 0 {
 		t.Fatalf("overlap=%+v", overlap)
 	}
-	// An architecture-only overlap shares no laws or relations. Those lists
-	// must marshal as empty arrays, not null: the generated envelope schema
-	// types each one as an array, and a nil slice fails that validation at
-	// the continuity read.
+	// Absent intersections must marshal as empty arrays, not null.
 	encoded, err := json.Marshal(overlap)
 	if err != nil {
 		t.Fatal(err)

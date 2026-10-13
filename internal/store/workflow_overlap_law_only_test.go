@@ -48,4 +48,18 @@ func TestOverlapLawOnlyPairReportsEmptySharedDomains(t *testing.T) {
 	if !strings.Contains(string(encoded), `"shared_domain_ids":[]`) {
 		t.Fatalf("pair payload = %s, want \"shared_domain_ids\":[]", encoded)
 	}
+	snapshot, err := ReadWorkflowContinuity(context.Background(), s, ContinuityRequest{Work: "content-left", Limit: 20})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.UnresolvedOverlaps) != 1 || snapshot.UnresolvedOverlaps[0].SharedAffectedDomainIDs == nil || len(snapshot.UnresolvedOverlaps[0].SharedAffectedDomainIDs) != 0 {
+		t.Fatalf("law-only continuity must preserve an empty, non-null Domain list: %+v", snapshot.UnresolvedOverlaps)
+	}
+	encoded, err = json.Marshal(snapshot.UnresolvedOverlaps[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(encoded), `"shared_affected_domain_ids":[]`) {
+		t.Fatalf("continuity payload = %s, want \"shared_affected_domain_ids\":[]", encoded)
+	}
 }

@@ -112,8 +112,8 @@ func TestWorkflowDomainOverlapWriteIntersectionBlocks(t *testing.T) {
 	if !ok {
 		t.Fatal("shared law write must block execution authority")
 	}
-	if got := strings.Join(overlap.OverlapClasses, ","); got != "architecture,law_write" {
-		t.Fatalf("overlap classes = %q, want architecture,law_write", got)
+	if got := strings.Join(overlap.OverlapClasses, ","); got != "law_write" {
+		t.Fatalf("overlap classes = %q, want law_write", got)
 	}
 }
 
@@ -127,7 +127,7 @@ func TestWorkflowDomainOverlapDerivesTypedIntersectionsAndCompatibleResolution(t
 		t.Fatalf("expected typed overlap refusal, got %v", err)
 	}
 	overlap := failure.DomainOverlap.Overlaps[0]
-	if overlap.FromWorkID != "overlap-left" || overlap.ToWorkID != "overlap-right" || overlap.FromContractVersion != 1 || overlap.ToContractVersion != 1 || len(overlap.SharedAffectedDomainIDs) != 1 || len(overlap.SharedDomainModifications) != 1 || len(overlap.SharedRelationTuples) != 1 || overlap.OverlapClasses[0] != "architecture" {
+	if overlap.FromWorkID != "overlap-left" || overlap.ToWorkID != "overlap-right" || overlap.FromContractVersion != 1 || overlap.ToContractVersion != 1 || len(overlap.SharedAffectedDomainIDs) != 1 || len(overlap.SharedDomainModifications) != 1 || len(overlap.SharedRelationTuples) != 1 || strings.Join(overlap.OverlapClasses, ",") != "domain_write,domain_relation_write" {
 		t.Fatalf("unexpected deterministic overlap detail: %#v", overlap)
 	}
 	// The refusal must not advertise an approval it never challenges for.
@@ -309,7 +309,7 @@ func TestWorkflowDomainOverlapClassifiesLawDomainAndRelationWrites(t *testing.T)
 	if got := strings.Join(detail.SharedLawIDs, ","); got != "law:modified,law:shared" {
 		t.Fatalf("shared law writes = %q", got)
 	}
-	if got := strings.Join(detail.OverlapClasses, ","); got != "architecture,law_write,domain_write,domain_relation_write" {
+	if got := strings.Join(detail.OverlapClasses, ","); got != "law_write,domain_write,domain_relation_write" {
 		t.Fatalf("overlap classes = %q", got)
 	}
 	if detail.SharedAffectedDomainCount != 1 || detail.SharedLawCount != 2 || detail.SharedDomainModificationCount != 1 || detail.SharedRelationTupleCount != 1 || detail.DetailTruncated {
@@ -896,7 +896,7 @@ func TestWorkflowDomainOverlapCrossProcessWorker(t *testing.T) {
 // The agent envelope refuses a domain_overlap error carrying more than twenty
 // overlaps (internal/agent/envelope.go, domain overlap coupling). The producer
 // must therefore never emit more than that, whatever the byte budget allows.
-// Many small architecture-only overlaps fit well inside the byte budget, so a
+// Many small Domain-write overlaps fit well inside the byte budget, so a
 // byte-only bound keeps every entry and the refusal cannot be delivered.
 func TestOverlapFailureBoundHonorsEnvelopeCountCap(t *testing.T) {
 	overlaps := make([]WorkflowDomainOverlap, 0, 31)
@@ -904,10 +904,11 @@ func TestOverlapFailureBoundHonorsEnvelopeCountCap(t *testing.T) {
 		overlaps = append(overlaps, WorkflowDomainOverlap{
 			ProductID: "concord", FromWorkID: "work-self", ToWorkID: fmt.Sprintf("work-peer-%02d", i),
 			FromContractVersion: 1, ToContractVersion: 1,
-			SharedAffectedDomainIDs: []string{"agent-surface"},
-			OverlapClasses:          []string{"architecture"},
-			ResolutionState:         "unresolved",
-			RecoveryActions:         []string{"wait", "resolve_overlap", "terminal_work", "supersede_contract"},
+			SharedAffectedDomainIDs:   []string{"agent-surface"},
+			SharedDomainModifications: []string{"agent-surface"},
+			OverlapClasses:            []string{"domain_write"},
+			ResolutionState:           "unresolved",
+			RecoveryActions:           []string{"wait", "resolve_overlap", "terminal_work", "supersede_contract"},
 		})
 	}
 	failure := &DomainOverlapFailure{Overlaps: overlaps}

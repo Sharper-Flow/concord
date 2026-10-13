@@ -425,7 +425,7 @@ func TestDomainOverlapSequencedAndGloballyBoundedDetailsValidate(t *testing.T) {
 		ProductID: "product", FromWorkID: "from", ToWorkID: "to", FromContractVersion: 4, ToContractVersion: 7,
 		SharedAffectedDomainIDs: []string{longID}, SharedLawIDs: []string{longID}, SharedDomainModifications: []string{longID},
 		SharedRelationTuples: []DomainOverlapRelationTuple{{SourceDomainID: longID, Kind: "depends_on", TargetDomainID: longID}},
-		OverlapClasses:       []string{"architecture"}, ResolutionState: "sequenced", ResolutionKind: "depends_on",
+		OverlapClasses:       []string{"law_write", "domain_write", "domain_relation_write"}, ResolutionState: "sequenced", ResolutionKind: "depends_on",
 		RecoveryActions: []string{"wait", "resolve_overlap", "terminal_work"}, SharedAffectedDomainCount: 20, SharedLawCount: 20,
 		SharedDomainModificationCount: 20, SharedRelationTupleCount: 20, DetailTruncated: true,
 	}

@@ -183,7 +183,7 @@ func assertD7TypedRefusal(t *testing.T, err error, workID, otherID string) {
 	if strings.Join(overlap.RecoveryActions, ",") != strings.Join(wantRecovery, ",") {
 		t.Fatalf("refusal recovery choices=%v, want %v", overlap.RecoveryActions, wantRecovery)
 	}
-	if strings.Join(overlap.OverlapClasses, ",") != "architecture,law_write,domain_write" {
+	if strings.Join(overlap.OverlapClasses, ",") != "law_write,domain_write" {
 		t.Fatalf("refusal overlap classes=%v", overlap.OverlapClasses)
 	}
 }

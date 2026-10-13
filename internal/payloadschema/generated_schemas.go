@@ -454,7 +454,6 @@ const GeneratedPayloadSchemaDocument = `{
         "overlap_classes": {
           "items": {
             "enum": [
-              "architecture",
               "law_write",
               "domain_write",
               "domain_relation_write"
@@ -510,7 +509,7 @@ const GeneratedPayloadSchemaDocument = `{
             "$ref": "#/$defs/domain_id"
           },
           "maxItems": 20,
-          "minItems": 1,
+          "minItems": 0,
           "type": "array",
           "uniqueItems": true
         },
@@ -1594,7 +1593,7 @@ const GeneratedPayloadSchemaDocument = `{
             "$ref": "#/$defs/id"
           },
           "maxItems": 32,
-          "minItems": 1,
+          "minItems": 0,
           "type": "array"
         },
         "shared_law_ids": {

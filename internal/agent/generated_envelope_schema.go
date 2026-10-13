@@ -2714,7 +2714,6 @@ const GeneratedEnvelopeSchemaDocument = `{
                   "overlap_classes": {
                     "items": {
                       "enum": [
-                        "architecture",
                         "law_write",
                         "domain_write",
                         "domain_relation_write"

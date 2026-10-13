@@ -416,7 +416,7 @@ func workflowDomainOverlapPair(left, right workflowOverlapFootprint) (WorkflowDo
 	if len(sharedLaw) == 0 && len(sharedDomainModifications) == 0 && len(sharedRelations) == 0 {
 		return WorkflowDomainOverlap{}, false
 	}
-	classes := []string{"architecture"}
+	classes := []string{}
 	if len(sharedLaw) > 0 {
 		classes = append(classes, "law_write")
 	}

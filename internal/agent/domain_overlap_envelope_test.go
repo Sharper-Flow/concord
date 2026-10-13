@@ -61,11 +61,8 @@ func TestLawOnlyDomainOverlapRefusalIsDeliverable(t *testing.T) {
 	})
 }
 
-// An overlap that shares only Domains is the common case: the store's law,
-// modification, and relation lists are empty. The envelope contract requires
-// arrays for each, so a nil conversion marshals as null and the refusal the
-// gate decided cannot cross the agent boundary (issue #783).
-func TestArchitectureOnlyDomainOverlapRefusalIsDeliverable(t *testing.T) {
+// Empty shared-item lists must cross the refusal boundary as arrays, not null.
+func TestDomainWriteOverlapRefusalIsDeliverable(t *testing.T) {
 	t.Parallel()
 	failure := &store.Failure{
 		Kind:           store.KindDomainOverlap,
@@ -77,11 +74,13 @@ func TestArchitectureOnlyDomainOverlapRefusalIsDeliverable(t *testing.T) {
 			Overlaps: []store.WorkflowDomainOverlap{{
 				ProductID: "concord", FromWorkID: "work-a", ToWorkID: "work-b",
 				FromContractVersion: 1, ToContractVersion: 1,
-				SharedAffectedDomainIDs:   []string{"agent-surface"},
-				OverlapClasses:            []string{"architecture"},
-				ResolutionState:           "unresolved",
-				RecoveryActions:           []string{"wait", "resolve_overlap", "terminal_work", "supersede_contract"},
-				SharedAffectedDomainCount: 1,
+				SharedAffectedDomainIDs:       []string{"agent-surface"},
+				SharedDomainModifications:     []string{"agent-surface"},
+				OverlapClasses:                []string{"domain_write"},
+				ResolutionState:               "unresolved",
+				RecoveryActions:               []string{"wait", "resolve_overlap", "terminal_work", "supersede_contract"},
+				SharedAffectedDomainCount:     1,
+				SharedDomainModificationCount: 1,
 			}},
 			TotalOverlaps: 1, ReturnedOverlaps: 1,
 		},
@@ -92,7 +91,7 @@ func TestArchitectureOnlyDomainOverlapRefusalIsDeliverable(t *testing.T) {
 	}
 	raw, err := out.Encode()
 	if err != nil {
-		t.Fatalf("an architecture-only overlap refusal must be deliverable, got %v", err)
+		t.Fatalf("a Domain-write overlap refusal must be deliverable, got %v", err)
 	}
 	var decoded struct {
 		Error struct {
@@ -132,11 +131,13 @@ func TestDomainOverlapRefusalAboveEnvelopeCapIsRefused(t *testing.T) {
 		overlaps = append(overlaps, store.WorkflowDomainOverlap{
 			ProductID: "concord", FromWorkID: "work-self", ToWorkID: "work-peer",
 			FromContractVersion: 1, ToContractVersion: 1,
-			SharedAffectedDomainIDs:   []string{"agent-surface"},
-			OverlapClasses:            []string{"architecture"},
-			ResolutionState:           "unresolved",
-			RecoveryActions:           []string{"wait", "resolve_overlap", "terminal_work", "supersede_contract"},
-			SharedAffectedDomainCount: 1,
+			SharedAffectedDomainIDs:       []string{"agent-surface"},
+			SharedDomainModifications:     []string{"agent-surface"},
+			OverlapClasses:                []string{"domain_write"},
+			ResolutionState:               "unresolved",
+			RecoveryActions:               []string{"wait", "resolve_overlap", "terminal_work", "supersede_contract"},
+			SharedAffectedDomainCount:     1,
+			SharedDomainModificationCount: 1,
 		})
 	}
 	failure := &store.Failure{

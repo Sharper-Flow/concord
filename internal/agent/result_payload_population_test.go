@@ -115,7 +115,7 @@ func fullyPopulatedContinuitySnapshot() store.ContinuitySnapshot {
 			ProductID: "product-1", FromWorkID: "work-1", ToWorkID: "work-2", FromContractVersion: 1, ToContractVersion: 1,
 			SharedAffectedDomainIDs: []string{"domain-1"}, SharedLawIDs: []string{"spec-1"}, SharedDomainModifications: []string{"domain-1"},
 			SharedRelationTuples: []store.WorkflowDomainRelationTuple{{SourceDomainID: "domain-1", Kind: "depends_on", TargetDomainID: "domain-2"}},
-			OverlapClasses:       []string{"architecture"}, ResolutionState: "unresolved", RecoveryActions: []string{"wait"},
+			OverlapClasses:       []string{"law_write", "domain_write", "domain_relation_write"}, ResolutionState: "unresolved", RecoveryActions: []string{"wait"},
 			SharedAffectedDomainCount: 1, SharedLawCount: 1, SharedDomainModificationCount: 1, SharedRelationTupleCount: 1,
 		}},
 		CompatibleLawAmendments: []store.CompatibleLawAmendment{{LawID: "spec-1", PinnedHash: "sha256:" + repeatHex(), CurrentHash: "sha256:" + strings.Repeat("b", 64)}},
@@ -232,6 +232,23 @@ func fullyPopulatedDomainPayloads(t *testing.T) domainReadPayloads {
 	}
 	options := pm1fixture.DomainPayloadEvidenceOptions{Dir: t.TempDir(), ProductID: product, ProjectID: project, LocatorID: "payload-locator", WorkIDs: workIDs}
 	if err := pm1fixture.SeedDomainPayloadEvidence(ctx, s, options); err != nil {
+		t.Fatal(err)
+	}
+	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx, `INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_instances(work_id,definition_ref,definition_version,definition_digest,current_step,instance_state,execution_started_at) VALUES('work-1','workflow.break_fix',9,?,'repair','running','2026-08-19T00:00:00Z')`, breakFixFixtureDigest(t)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
 	domain := pm1fixture.PayloadChildDomainID

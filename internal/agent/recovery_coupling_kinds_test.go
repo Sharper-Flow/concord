@@ -21,20 +21,21 @@ import (
 
 // coupledDomainOverlap builds the smallest overlap block the envelope contract
 // accepts. It matches what boundWorkflowDomainOverlapFailure produces for one
-// unresolved architecture-only pair.
+// unresolved Domain-write pair.
 func coupledDomainOverlap() *DomainOverlap {
 	return &DomainOverlap{
 		Overlaps: []DomainOverlapDetail{{
 			ProductID: "prod-alpha", FromWorkID: "work-from", ToWorkID: "work-to",
 			FromContractVersion: 1, ToContractVersion: 1,
-			SharedAffectedDomainIDs:   []string{"root"},
-			SharedLawIDs:              []string{},
-			SharedDomainModifications: []string{},
-			SharedRelationTuples:      []DomainOverlapRelationTuple{},
-			OverlapClasses:            []string{"architecture"},
-			ResolutionState:           "unresolved",
-			RecoveryActions:           []string{"resolve_overlap"},
-			SharedAffectedDomainCount: 1,
+			SharedAffectedDomainIDs:       []string{"root"},
+			SharedLawIDs:                  []string{},
+			SharedDomainModifications:     []string{"root"},
+			SharedRelationTuples:          []DomainOverlapRelationTuple{},
+			OverlapClasses:                []string{"domain_write"},
+			ResolutionState:               "unresolved",
+			RecoveryActions:               []string{"resolve_overlap"},
+			SharedAffectedDomainCount:     1,
+			SharedDomainModificationCount: 1,
 		}},
 		TotalOverlaps: 1, ReturnedOverlaps: 1,
 	}
@@ -65,11 +66,13 @@ func storeOverlapFailure(proposed string) *store.Failure {
 			Overlaps: []store.WorkflowDomainOverlap{{
 				ProductID: "prod-alpha", FromWorkID: "work-from", ToWorkID: "work-to",
 				FromContractVersion: 1, ToContractVersion: 1,
-				SharedAffectedDomainIDs:   []string{"root"},
-				OverlapClasses:            []string{"architecture"},
-				ResolutionState:           "unresolved",
-				RecoveryActions:           []string{"resolve_overlap"},
-				SharedAffectedDomainCount: 1,
+				SharedAffectedDomainIDs:       []string{"root"},
+				SharedDomainModifications:     []string{"root"},
+				OverlapClasses:                []string{"domain_write"},
+				ResolutionState:               "unresolved",
+				RecoveryActions:               []string{"resolve_overlap"},
+				SharedAffectedDomainCount:     1,
+				SharedDomainModificationCount: 1,
 			}},
 			TotalOverlaps: 1, ReturnedOverlaps: 1,
 		},

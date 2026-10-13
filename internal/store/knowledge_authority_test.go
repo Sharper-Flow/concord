@@ -550,6 +550,42 @@ func TestSupersededContractClassifiesThroughItsOwnPin(t *testing.T) {
 	}
 }
 
+func TestCancelledWorkKeepsExactLegislativeAuthority(t *testing.T) {
+	t.Parallel()
+	for _, family := range []string{"workflow.implementation", "workflow.static_analysis"} {
+		t.Run(family, func(t *testing.T) {
+			s, home := authorityScenario(t, authorityManifestFixture{ID: "CD-8751", Kind: "decision", LegislatedBy: authoritySyntheticWork, Version: 1})
+			defer s.Close()
+			seedAuthorityWork(t, s, authoritySyntheticWork)
+			version, digest, changesProductTruth := authorityFamilyDefinition(t, family)
+			seedAuthorityContract(t, s, authoritySyntheticWork, 1, family, version, digest, []string{"CD-8751"}, nil)
+			db := s.DatabaseForTesting()
+			if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+				t.Fatal(err)
+			}
+			_, updateErr := db.Exec(`UPDATE work_items SET lifecycle='cancelled' WHERE id=?`, authoritySyntheticWork)
+			if _, err := db.Exec(`DELETE FROM fold_guard`); err != nil {
+				t.Errorf("remove fold guard: %v", err)
+			}
+			if updateErr != nil {
+				t.Fatal(updateErr)
+			}
+			err := s.RebuildKnowledgeIndex(context.Background(), home)
+			if !changesProductTruth {
+				assertFailureKind(t, err, KindInvalidNoteProof)
+				return
+			}
+			if err != nil {
+				t.Fatalf("cancellation must not erase an approved legislative contract: %v", err)
+			}
+			result, err := s.QueryQ10(context.Background(), Q10Request{KnowledgeID: "CD-8751", Product: "authority-product", Home: home})
+			if err != nil || result.UnverifiedAuthority != nil {
+				t.Fatalf("cancelled work is held history, not unverified absence: result=%+v err=%v", result, err)
+			}
+		})
+	}
+}
+
 func TestCorruptDefinitionPinRefusesStrictly(t *testing.T) {
 	t.Parallel()
 	s, home := authorityScenario(t, authorityManifestFixture{ID: "CD-8751", Kind: "decision", LegislatedBy: authoritySyntheticWork, Version: 1})

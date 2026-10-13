@@ -1139,6 +1139,28 @@ func TestWorktreeClaimRefusesCrossRepositoryBeforeCreation(t *testing.T) {
 	if response.Error.RetrySafe {
 		t.Fatalf("cross_repository_claim must not be retryable, got retry_safe=%v", response.Error.RetrySafe)
 	}
+	var placement struct {
+		Error struct {
+			SessionPlacement struct {
+				WorkID    string `json:"work_id"`
+				ProjectID string `json:"project_id"`
+				Directory string `json:"directory"`
+			} `json:"session_placement"`
+		} `json:"error"`
+	}
+	encoded, err := json.Marshal(response)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(encoded, &placement); err != nil {
+		t.Fatal(err)
+	}
+	if got := placement.Error.SessionPlacement; got.WorkID != "work-1" || got.ProjectID != "project-1x" || got.Directory != crossRepo {
+		t.Fatalf("session placement=%+v, want work-1/project-1x at registered checkout %s", got, crossRepo)
+	}
+	if strings.Contains(response.Error.Message, filepath.Join(crossRepo, ".git")) {
+		t.Fatalf("placement remedy names Git metadata instead of the checkout: %s", response.Error.Message)
+	}
 	if !strings.Contains(response.Error.Message, "one coordinator session per repository") {
 		t.Fatalf("error.message=%q, want the one-session-per-repository route", response.Error.Message)
 	}

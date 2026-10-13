@@ -642,8 +642,6 @@ function salvageDetails(raw: string): Record<string, unknown> | undefined {
   return salvaged ? { salvaged } : undefined
 }
 
-const coreErrorKinds = new Set(["unknown_scope", "ambiguous_scope", "stale_context", "unauthorized", "approval_required", "approval_invalid", "version_conflict", "idempotency_conflict", "operation_conflict", "resource_busy", "invalid_transition", "invalid_relation", "invariant_violation", "missing_evidence", "not_terminal", "outcome_mismatch", "stale_requires_review", "stale_law_revision", "domain_overlap", "degraded_not_allowed", "unreachable", "invalid_cursor", "limit_exceeded", "budget_refused", "invalid_input", "cancelled", "timeout", "transport_failure", "malformed_response", "internal_error"])
-
 // coreResponseFailure names what a contract-failing response broke on, or
 // returns null when the response satisfies the generated contract. The
 // identity stage reports the envelope itself, because a mismatch there
@@ -652,11 +650,7 @@ const coreErrorKinds = new Set(["unknown_scope", "ambiguous_scope", "stale_conte
 function coreResponseFailure(response: any, toolName: string, operation: string): string | null {
   if (!response || typeof response !== "object" || response.schema_version !== "1.0" || response.manifest_digest !== activeManifestDigest() || response.origin !== "core" || response.tool !== toolName || response.operation !== operation || !["ok", "pending", "partial", "error"].includes(response.outcome)) return "the envelope identity"
   if (!validateGeneratedEnvelope(response)) return `member ${envelopeFailurePath(response)} failed the generated envelope contract`
-  if (response.outcome === "error") {
-    if (!response.error) return "error is absent"
-    if (!coreErrorKinds.has(response.error.kind)) return `member error.kind failed the generated envelope contract: ${JSON.stringify(response.error.kind)} is not a core error kind`
-    return null
-  }
+  if (response.outcome === "error") return null
   if (response.result !== undefined) {
     const meta: any = contractOperations.find((item: any) => item.tool === toolName && item.id.endsWith(`.${operation}`))
     const resultName = meta?.result_schema?.split("/").pop()
@@ -1218,7 +1212,7 @@ type WorkStartResume = {
   product_id: string
   project_id: string
   work_id: string
-  worktree: { set_id: string; path: string; branch: string; base_sha: string; state: "active" }
+  worktree: { set_id: string; path: string; branch: string; base_sha: string; state: "active"; restored?: true; restored_tip?: string; restoration_warning?: string }
   branch_freshness: BranchFreshness
   linear_issue?: RecordedLinearIssueSection
   project_handoff?: ProjectHandoffSection
@@ -1359,11 +1353,15 @@ function validateWorkStartResume(value: unknown): value is WorkStartResume {
   if (extraKeys.some((key) => !optionalKeys.includes(key))) return false
   if (value.schema_version !== "1.0" || !nonEmptyString(value.product_id) || !nonEmptyString(value.project_id) || !nonEmptyString(value.work_id) || !record(value.worktree)) return false
   const worktree = value.worktree
-  const worktreeOk = exactKeys(worktree, ["set_id", "path", "branch", "base_sha", "state"])
+  const restoredKeys = ["restored", "restored_tip", "restoration_warning"]
+  const restorationPresent = restoredKeys.some((key) => key in worktree)
+  const worktreeKeys = ["set_id", "path", "branch", "base_sha", "state", ...(restorationPresent ? restoredKeys : [])]
+  const worktreeOk = exactKeys(worktree, worktreeKeys)
     && nonEmptyString(worktree.set_id)
     && typeof worktree.path === "string" && worktree.path.startsWith("/")
     && nonEmptyString(worktree.branch) && typeof worktree.base_sha === "string" && /^[0-9a-f]{40}$/.test(worktree.base_sha) && worktree.state === "active"
   if (!worktreeOk) return false
+  if (restorationPresent && (worktree.restored !== true || typeof worktree.restored_tip !== "string" || !/^[0-9a-f]{40}$/.test(worktree.restored_tip) || !nonEmptyString(worktree.restoration_warning) || Buffer.byteLength(worktree.restoration_warning) > 1000)) return false
   if (!validateBranchFreshness(value.branch_freshness)) return false
   if ("linear_issue" in value && !validateRecordedLinearIssueSection(value.linear_issue)) return false
   return !("project_handoff" in value) || validateProjectHandoffSection(value.project_handoff)
@@ -1832,6 +1830,7 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext, warni
       recordedIssue = resumedValue.linear_issue
       renderedHandoff = resumedValue.project_handoff
       resumeFreshness = resumedValue.branch_freshness
+      if (resumedValue.worktree.restored) warnings.push(`${resumedValue.worktree.restoration_warning} Restored tip: ${resumedValue.worktree.restored_tip}`)
       prepareTask = ""
     } else {
       const capture = args as WorkStartCaptureArgs
@@ -1962,6 +1961,7 @@ async function executeWorkStart(args: WorkStartArgs, context: ToolContext, warni
       try { refreshedValue = singleJSON(refreshed.stdout) } catch (error) { throw new WorkStartFailure("malformed_response", "malformed_resume_response", `the post-landing handoff re-read failed the strict resume contract: ${String(error)}`, "none", "retry_same_request") }
       if (!validateWorkStartResume(refreshedValue) || refreshedValue.product_id !== target.product_id || refreshedValue.project_id !== target.project_id || refreshedValue.work_id !== target.work_id) throw new WorkStartFailure("malformed_response", "malformed_resume_response", "the post-landing handoff re-read failed the strict resume contract", "none", "retry_same_request")
       renderedHandoff = refreshedValue.project_handoff
+      if (refreshedValue.worktree.restored) warnings.push(`${refreshedValue.worktree.restoration_warning} Restored tip: ${refreshedValue.worktree.restored_tip}`)
     }
     // The verified placement arms the receiving side of the Project-session
     // handoff (CD-0182 amendment): the addressed handoff binds to this

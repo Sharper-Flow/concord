@@ -98,7 +98,15 @@ as any work-selected session does.
 ### D3. The refusal remedy names one route, and the adapter carries it
 
 The `cross_repository_claim` refusal names `concord_work_start` with the
-`work_id` and the `project_id` of the target Project. The adapter's
+`work_id` and the `project_id` of the target Project. Its typed
+`session_placement` detail names the registered canonical checkout directory,
+not the Git common directory. The host coordinator uses that detail to
+reuse a receiving session or open one through its host session tools.
+The receiving session may resume with `work_id` alone: its calling directory
+resolves the member Project, and the resume verifies its worktree landing.
+Concord core neither chooses a terminal host nor opens a terminal session.
+
+Until the host launch layer is removed, the adapter's
 `concord_work_start` resume accepts the optional `project_id`.
 
 A selected Project whose canonical path is the calling Project's keeps the
@@ -119,8 +127,8 @@ definitions name the route of D3 and carry no claim-and-move text.
 
 ### D5. The Project-selected session carries a bounded addressed handoff
 
-A Project-selected session receives one bounded repository job and one
-explicit receiving Project on the same shared work item and active contract.
+A session placed in the receiving Project receives one bounded repository job.
+The job names its receiving Project, shared work item, and active contract.
 The source session records that job as a typed handoff on the work item.
 The record carries the changes, the verification results, the immutable
 artifact references, the open blockers, and the exact next action. The
@@ -154,8 +162,8 @@ changed artifacts verify preserved, its own open workers and nonterminal
 actions stopped, and its verified vacate landing released its occupancy.
 Unknown worker attribution blocks readiness. Retirement never completes or
 cancels the shared work, removes a worktree, or terminates a process. The
-continuity snapshot carries the newest unconsumed handoff, so a
-Project-selected boot names the bounded job without operator copying.
+continuity snapshot carries the newest unconsumed handoff.
+The receiving Project's resume names the bounded job without operator copying.
 
 ## Alternatives considered
 

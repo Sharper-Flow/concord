@@ -125,6 +125,12 @@ type RecoveryAction struct {
 	RequiredRefs []string `json:"required_refs,omitempty"`
 }
 
+type SessionPlacement struct {
+	WorkID    string `json:"work_id"`
+	ProjectID string `json:"project_id"`
+	Directory string `json:"directory"`
+}
+
 type StaleLawRevision struct {
 	OldLawID                     string   `json:"old_law_id"`
 	OldContentHash               string   `json:"old_content_hash"`
@@ -204,6 +210,7 @@ type TypedError struct {
 	StaleLawRevision    *StaleLawRevision    `json:"stale_law_revision,omitempty"`
 	DomainOverlap       *DomainOverlap       `json:"domain_overlap,omitempty"`
 	ExternalRefConflict *ExternalRefConflict `json:"external_ref_conflict,omitempty"`
+	SessionPlacement    *SessionPlacement    `json:"session_placement,omitempty"`
 	// ConsequenceSummary is the CD-0037 typed approval prompt. It is derived
 	// at challenge mint from the exact facts the challenge binds, so nothing
 	// it describes can change without invalidating the challenge itself. It
@@ -786,6 +793,12 @@ func validateError(err TypedError) error {
 	}
 	if len(err.Details) > 20 || !scalarDetails(err.Details) {
 		return errors.New("invalid error details")
+	}
+	if err.Kind == "cross_repository_claim" || err.SessionPlacement != nil {
+		placement := err.SessionPlacement
+		if err.Kind != "cross_repository_claim" || placement == nil || !bounded(placement.WorkID, 1, 128) || !bounded(placement.ProjectID, 1, 128) || !bounded(placement.Directory, 1, 4096) || !strings.HasPrefix(placement.Directory, "/") || strings.ContainsRune(placement.Directory, '\x00') {
+			return errors.New("session placement coupling violated")
+		}
 	}
 	if err.Kind == "stale_law_revision" {
 		if x := validateStaleLawRevisionCoupling(err.StaleLawRevision); x != nil {

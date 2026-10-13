@@ -1602,6 +1602,23 @@ test("overlap operation and refusal pass the generated adapter boundary", async 
   expect(stale.error.kind).toBe("stale_law_revision")
 })
 
+test("cross-repository placement passes the generated adapter boundary", async () => {
+  bindRetargetRoute()
+  const error = {
+    kind: "cross_repository_claim", retry_safe: false,
+    recovery_action: { kind: "use_declared_route", required_refs: ["concord_work_start"] }, effect_state: "none",
+    session_placement: { work_id: "work-1", project_id: "project-2", directory: "/example/second-repository" },
+  }
+  const refusal = coreEnvelope("concord_work_transition", "worktree_claim", "error", { error })
+  expect(validateGeneratedEnvelope(refusal)).toBe(true)
+  adapter.configureConcordAdapter({ runner: runnerWithContext(refusal) })
+  const result: any = await rawHostResult(adapter.work_transition.execute(hostCall("worktree_claim", { work_id: "work-1", project_id: "project-2", base_sha: "a".repeat(40), expected_version: 1, idempotency_key: "cross-repository-claim" }), contextFor()))
+  expect(result.error).toMatchObject({ kind: "cross_repository_claim", session_placement: error.session_placement })
+  expect(validateGeneratedEnvelope({ ...refusal, error: { ...error, session_placement: undefined } })).toBe(false)
+  expect(validateGeneratedEnvelope({ ...refusal, error: { ...error, kind: "invalid_input" } })).toBe(false)
+  expect(validateGeneratedEnvelope({ ...refusal, error: { ...error, session_placement: { ...error.session_placement, directory: ".git" } } })).toBe(false)
+})
+
 test("overlap approval asks with exact direction and resolution consequence", async () => {
   const digest = `sha256:${"c".repeat(64)}`
   const challenge = coreEnvelope("concord_work_relate", "resolve_overlap", "error", {
@@ -2568,6 +2585,38 @@ test("work start resume derives the entry by work_id and moves the session", asy
 // contact_operator, retry_safe false, the complete core diagnostic preserved,
 // no movement, and no claimed worktree armed — while an ordinary failure exit
 // keeps the declared retry route.
+test("work start resume refuses incomplete restoration facts before movement", async () => {
+  for (const fields of [
+    { restored: true },
+    { restored_tip: "b".repeat(40), restoration_warning: "loss warning" },
+    { restored: false, restored_tip: "b".repeat(40), restoration_warning: "loss warning" },
+    { restored: true, restored_tip: "not-a-commit", restoration_warning: "loss warning" },
+    { restored: true, restored_tip: "b".repeat(40), restoration_warning: "" },
+  ]) {
+    const { moved } = bindRetargetRoute()
+    const response = resumeSuccess()
+    adapter.configureConcordAdapter({ runner: resumeRunner([], {
+      "work-resume": () => ({ exitCode: 0, stdout: JSON.stringify({ ...response, worktree: { ...response.worktree, ...fields } }), stderr: "" }),
+    }) })
+    const result: any = await rawHostResult(adapter.work_start.execute({ work_id: "work-1" }, landedContextFor()))
+    expect(result.error.kind).toBe("malformed_response")
+    expect(moved).toEqual([])
+  }
+})
+
+test("work start resume reports restored work and the lost uncommitted changes", async () => {
+  bindRetargetRoute()
+  const response = resumeSuccess()
+  const warning = "The recorded worktree was restored from its surviving branch. Uncommitted changes in the lost directory are not recoverable."
+  adapter.configureConcordAdapter({ runner: resumeRunner([], {
+    "work-resume": () => ({ exitCode: 0, stdout: JSON.stringify({ ...response, worktree: { ...response.worktree, restored: true, restored_tip: "b".repeat(40), restoration_warning: warning } }), stderr: "" }),
+  }) })
+  const raw: any = await adapter.work_start.execute({ work_id: "work-1" }, landedContextFor())
+  expect(envelopeLine(raw.output)).toMatchObject({ outcome: "ok", work_id: "work-1" })
+  expect(raw.output).toContain(warning)
+  expect(raw.output).toContain("b".repeat(40))
+})
+
 test("work start resume classifies the typed refusal exit without retry or movement", async () => {
   const { moved } = bindRetargetRoute()
   const calls: RetargetCall[] = []

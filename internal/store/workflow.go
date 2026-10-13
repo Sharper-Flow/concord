@@ -404,7 +404,7 @@ func decodeWorkflowProposalContent(raw json.RawMessage) (workflowProposalContent
 		raw = json.RawMessage(`{}`)
 	}
 	var content workflowProposalContent
-	if err := decodePredicateStrict(raw, &content); err != nil {
+	if err := decodeWorkflowActionPayloadStrict(raw, &content); err != nil {
 		return content, newFailure(KindInvalidPayload, "workflow_proposal", "proposal payload is not one strict JSON object", false, "supply the closed proposal document")
 	}
 	if err := validateWorkflowProposalContent(content); err != nil {

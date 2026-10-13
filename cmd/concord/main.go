@@ -586,7 +586,7 @@ func runStoreFreeJSONCommand(name string, args []string, in io.Reader, out, errO
 		writeCommandUsageSection(errOut, name)
 		return 2
 	}
-	inputLimit := int64(agent.MaxEnvelopeBytes)
+	inputLimit := int64(agent.MaxRequestBytes)
 	raw, err := io.ReadAll(io.LimitReader(in, inputLimit+1))
 	if err != nil || int64(len(raw)) > inputLimit {
 		writeDiagnostic(errOut, fmt.Sprintf("input exceeds %d bytes", inputLimit))
@@ -605,7 +605,7 @@ func runJSONCommand(command string, args []string, in io.Reader, out, errOut io.
 		writeCommandUsageSection(errOut, command)
 		return 2
 	}
-	inputLimit := int64(agent.MaxEnvelopeBytes)
+	inputLimit := int64(agent.MaxRequestBytes)
 	raw, err := io.ReadAll(io.LimitReader(in, inputLimit+1))
 	if err != nil || int64(len(raw)) > inputLimit {
 		writeDiagnostic(errOut, fmt.Sprintf("input exceeds %d bytes", inputLimit))

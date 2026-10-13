@@ -1627,6 +1627,15 @@ func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoc
 			if err := admitWorkerDispatchSubjectFreshness(in.ctx, in.tx, in.request, in.entry.Definition, lane, admittedContext); err != nil {
 				return events, "", err
 			}
+			// One aggregate byte bound over the whole dispatch context the
+			// packet carries. The measurement is pure and runs once here,
+			// after the current-record and identity admissions and before any
+			// dispatch effect; the derived retry dispatch a combined
+			// rejection carries answers to the same bound through this same
+			// guard.
+			if err := refuseOverBoundDispatchContext(packetRaw); err != nil {
+				return events, "", err
+			}
 		}
 		// The registry lane identity rides the completion so the fold can
 		// bind the attempt durably in flight from the record alone, without

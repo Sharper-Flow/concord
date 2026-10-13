@@ -39,7 +39,7 @@ func validateWorkflowDesignContentWithReference(p workflowDesignContent, validRe
 
 func workflowDesignRecordedEvents(request WorkflowActionExecutionRequest, actor string, raw json.RawMessage, eventID string, expected int64) ([]Event, error) {
 	var content workflowDesignContent
-	if err := decodePredicateStrict(raw, &content); err != nil {
+	if err := decodeWorkflowActionPayloadStrict(raw, &content); err != nil {
 		return nil, newFailure(KindInvalidPayload, "workflow_action", "design record is not a closed typed document", false, "supply only approach, decisions and touched_refs")
 	}
 	if err := validateWorkflowDesignContent(content); err != nil {

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -927,6 +928,698 @@ func TestDispatchSubjectFreshnessC1Boundaries(t *testing.T) {
 		}
 		if got := dispatchStartedCount(t, s, workID); got != baseline {
 			t.Fatalf("dispatch_worker starts = %d, want the setup baseline %d with no refusal effects", got, baseline)
+		}
+	})
+}
+
+// ---- the aggregate dispatch context bound ----
+
+// aggregateBoundStatement composes one legal finding statement of exactly
+// 1024 bytes from a prefix the caller chooses. The escaped and multibyte
+// prefixes make the boundary exercise canonical JSON escaping and UTF-8
+// byte counting rather than rune counts.
+func aggregateBoundStatement(prefix string) string {
+	const want = 1024
+	base := prefix + " the retained finding measures UTF-8 bytes, never runes"
+	if len(base) > want {
+		panic("aggregate statement prefix exceeds the 1024-byte finding bound")
+	}
+	return base + strings.Repeat("n", want-len(base))
+}
+
+// aggregateBoundFindings builds 16 legal findings whose statements carry the
+// prefix content and whose subject and evidence references size the retained
+// entries. Every entry stays inside its per-entry bound; only the combined
+// population approaches the aggregate dispatch bound.
+func aggregateBoundFindings(statementPrefix, evidenceRefPrefix string) []map[string]any {
+	refs := []string{evidenceRefPrefix + "-a", evidenceRefPrefix + "-b"}
+	out := make([]map[string]any, 0, 16)
+	for i := 0; i < 16; i++ {
+		out = append(out, map[string]any{
+			"kind":          "observation",
+			"statement":     aggregateBoundStatement(statementPrefix),
+			"subject_ref":   strings.Repeat("s", 128),
+			"evidence_refs": refs,
+			"domain_id":     workContextTestChild,
+		})
+	}
+	// The first finding carries the escaped and multibyte content, so the
+	// boundary bytes are never a plain-ASCII-only construction.
+	out[0]["statement"] = aggregateBoundStatement(`escaped "quotes" \backslash\ ünïcödé 多言語`)
+	return out
+}
+
+// seedAggregateBoundDeclarations records the two retained declarations whose
+// 32 findings size the current view near the aggregate bound.
+func seedAggregateBoundDeclarations(t *testing.T, f workContextFixture, evidenceRefBytes int) {
+	t.Helper()
+	ref := strings.Repeat("e", evidenceRefBytes)
+	first := map[string]any{
+		"required_reading": []map[string]any{
+			workContextRepoReading(workContextTestRoot, workContextRootRationale),
+			workContextKnowledgeReading(workContextTestChild),
+		},
+		"finding_refs":     []string{},
+		"context_findings": aggregateBoundFindings("finding", ref),
+	}
+	if err := f.recordWorkContext(t, first); err != nil {
+		t.Fatalf("first aggregate declaration refused: %v", err)
+	}
+	var seqs []int64
+	rows, err := f.store.DatabaseForTesting().Query(`SELECT seq FROM domain_events WHERE subject_id=? AND kind=? ORDER BY seq`, f.workID, WorkflowWorkContextRecorded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for rows.Next() {
+		var seq int64
+		if err := rows.Scan(&seq); err != nil {
+			rows.Close()
+			t.Fatal(err)
+		}
+		seqs = append(seqs, seq)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if len(seqs) != 1 {
+		t.Fatalf("aggregate fixture declarations = %d, want the one seeded declaration", len(seqs))
+	}
+	refs := make([]string, 0, 16)
+	for ordinal := 0; ordinal < 16; ordinal++ {
+		refs = append(refs, fmt.Sprintf("finding:%d:%d", seqs[0], ordinal))
+	}
+	second := map[string]any{
+		"finding_refs":     refs,
+		"context_findings": aggregateBoundFindings("second finding", ref),
+	}
+	if err := f.recordWorkContext(t, second); err != nil {
+		t.Fatalf("second aggregate declaration refused: %v", err)
+	}
+}
+
+// seedAggregateBoundContext seeds the full boundary fixture: the claimed
+// worktree with its qualified subject, the ready job revision whose native
+// preparations ride the view, and the two retained declarations. It returns
+// the claimed worktree directory and the job binding the packets bind.
+func seedAggregateBoundContext(t *testing.T, f workContextFixture, evidenceRefBytes int) (string, WorkerJobBinding) {
+	t.Helper()
+	claimDir, _ := reviewSubjectClaim(t, f.store, f.workID)
+	job := reviewSubjectReadyRevision(t, f)
+	seedAggregateBoundDeclarations(t, f, evidenceRefBytes)
+	return claimDir, job
+}
+
+// recordAggregateCheckpoint records one checkpoint_context action with the
+// given bounded prose, through the same action route a coordinator uses.
+func recordAggregateCheckpoint(t *testing.T, f workContextFixture, hypothesis, diagnosis, strategy string) {
+	t.Helper()
+	if err := runVerdictActionAs(t, f.store, f.workID, "checkpoint_context", json.RawMessage(mustJSONValue(map[string]any{
+		"active_unit": "the bounded unit", "hypothesis": hypothesis, "diagnosis": diagnosis, "strategy": strategy,
+		"touched_refs": []string{"internal/store/work_context.go"}, "evidence_refs": []string{"evidence:checkpoint"}, "pending_questions": []string{}, "pending_decisions": []string{},
+	})), 0, f.owner); err != nil {
+		t.Fatalf("checkpoint_context refused: %v", err)
+	}
+}
+
+// aggregateBoundaryMembers reads the packet members from the same readers
+// the packet builders use.
+func aggregateBoundaryMembers(t *testing.T, f workContextFixture, correction any) map[string]any {
+	t.Helper()
+	view, err := readWorkContextView(context.Background(), f.store.DatabaseForTesting(), f.workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkpoint, err := readLatestContextCheckpointTx(context.Background(), f.store.DatabaseForTesting(), f.workID, "workflow_action")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return map[string]any{"work_context": view, "checkpoint": checkpoint, "correction": correction}
+}
+
+// aggregateBoundaryProbe measures the canonical combined object the
+// aggregate bound defines, composed from the members the caller names: each
+// present member is canonicalized through the shared encoder, the sorted
+// member object is assembled with its names and delimiters, and its UTF-8
+// bytes are counted. Absent members carry no value and contribute nothing.
+func aggregateBoundaryProbe(t *testing.T, members map[string]any) int {
+	t.Helper()
+	object := map[string]json.RawMessage{}
+	for name, value := range members {
+		if value == nil {
+			continue
+		}
+		raw, err := json.Marshal(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		canonical, err := canonicalJSON(raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		object[name] = canonical
+	}
+	assembled, err := json.Marshal(object)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return len(assembled)
+}
+
+// tuneAggregateCheckpointToTarget records checkpoints until the present
+// members measure exactly target bytes. The checkpoint's bounded prose
+// fields are the one-byte-granular pad: ASCII padding changes the canonical
+// member by exactly its byte length, so the boundary is landed by
+// construction, not by hoping fixture sizes align.
+func tuneAggregateCheckpointToTarget(t *testing.T, f workContextFixture, correction any, target int) *ContextCheckpoint {
+	t.Helper()
+	const fieldMax = 4090
+	parts := [3]string{"hypothesis", "diagnosis", "strategy"}
+	record := func() {
+		recordAggregateCheckpoint(t, f, parts[0], parts[1], parts[2])
+	}
+	record()
+	for iteration := 0; iteration < 6; iteration++ {
+		measured := aggregateBoundaryProbe(t, aggregateBoundaryMembers(t, f, correction))
+		delta := target - measured
+		if delta == 0 {
+			checkpoint, err := readLatestContextCheckpointTx(context.Background(), f.store.DatabaseForTesting(), f.workID, "workflow_action")
+			if err != nil {
+				t.Fatal(err)
+			}
+			return checkpoint
+		}
+		if delta < 0 {
+			// Digit-length drift on an already-padded record can overshoot
+			// by a byte or two: fall back to the short probe strings and
+			// re-approach.
+			parts = [3]string{"hypothesis", "diagnosis", "strategy"}
+			record()
+			continue
+		}
+		for field := 0; field < 3 && delta > 0; field++ {
+			add := min(delta, fieldMax-len(parts[field]))
+			parts[field] += strings.Repeat("p", add)
+			delta -= add
+		}
+		if delta > 0 {
+			t.Fatalf("aggregate probe measured %d bytes; the bounded checkpoint prose cannot pad the remaining %d bytes to %d — recalibrate the seeded context size", measured, delta, target)
+		}
+		record()
+	}
+	t.Fatalf("checkpoint tuning did not converge on %d bytes", target)
+	return nil
+}
+
+// aggregateDispatchPacket builds the closed implement-lane packet the repair
+// step dispatches, carrying the given checkpoint and correction members
+// (nil omits). The job revision is seeded by the caller because a fixture
+// may dispatch more than one attempt.
+func aggregateDispatchPacket(t *testing.T, f workContextFixture, attemptID string, job WorkerJobBinding, checkpoint, correction any) map[string]any {
+	t.Helper()
+	laneVersion, laneDigest := implementLaneIdentity()
+	task, binding := recordedPacketInputs(t, f.store, f.workID, "implement")
+	inputs := map[string]any{
+		"task":        task,
+		"binding":     binding,
+		"worker_job":  recordedPacketJobForTest(t, f.store, f.workID, job),
+		"constraints": []string{"do-not-modify-product-truth"},
+	}
+	for member, value := range recordedPacketRecords(t, f.store, f.workID) {
+		inputs[member] = value
+	}
+	delete(inputs, "work_context")
+	view, err := readWorkContextView(context.Background(), f.store.DatabaseForTesting(), f.workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view != nil {
+		inputs["work_context"] = view
+	}
+	if checkpoint != nil {
+		inputs["checkpoint"] = checkpoint
+	}
+	if correction != nil {
+		inputs["correction"] = correction
+	}
+	return map[string]any{
+		"schema_version": WorkerPacketSchemaVersion,
+		"attempt_id":     attemptID,
+		"lane_id":        "implement",
+		"lane_version":   laneVersion,
+		"lane_digest":    laneDigest,
+		"work_id":        f.workID,
+		"step_id":        "repair",
+		"inputs":         inputs,
+	}
+}
+
+// aggregateRejectResult records the operator's reject_worker_result for one
+// completed attempt, with the retry member only when withRetry is true.
+func aggregateRejectResult(t *testing.T, f workContextFixture, attemptID string, withRetry bool, diagnosis, strategy string) error {
+	t.Helper()
+	reviewSubjectRecordOperator(t, f.store, f.workID)
+	operator := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/operator", SessionRef: "session/" + f.workID + "-operator", ActorClass: ActorOperator}
+	payload := map[string]any{
+		"attempt_id": attemptID, "attempt_epoch": int64(1),
+		"diagnosis": diagnosis, "strategy": strategy,
+		"predicate_ids": []string{"predicate:work-context"}, "evidence_refs": []string{"evidence:" + attemptID + "-reject"},
+	}
+	if withRetry {
+		payload["retry"] = map[string]any{"lane_id": "implement"}
+	}
+	version := readWorkVersion(t, f.store, f.workID)
+	payloadBytes, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = invokeWorkflowActionForCD0059(context.Background(), t, f.store, WorkflowActionExecutionRequest{
+		WorkID: f.workID, ExpectedVersion: version, ActionID: "reject_worker_result", Payload: payloadBytes,
+		SessionWorktree: dispatchSessionWorktree(t, f.store, f.workID), Actor: operator,
+		AcceptedInputsDigest: cd0059TestDigest(t, attemptID+"-reject-inputs"),
+		IdempotencyIdentity:  attemptID + "-reject-op", OperationID: "op-" + attemptID + "-reject", PrincipalRef: operator.PrincipalRef,
+		Tool: "concord_work_transition", IdempotencyKey: attemptID + "-reject-key", RequestID: "req-" + attemptID + "-reject",
+		AcceptedScope: `{}`, ContractDigest: testManifestDigest,
+	})
+	return err
+}
+
+// aggregateCommittedRejections counts the committed reject_worker_result
+// completions and derived retry attempts, so a refusal can be proved atomic.
+func aggregateCommittedRejections(t *testing.T, s *Store, workID string) (int, int) {
+	t.Helper()
+	var rejections, retryAttempts int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='reject_worker_result'`, workID, WorkflowActionCompleted).Scan(&rejections); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_attempts WHERE work_id=? AND attempt_id LIKE '%:retry'`, workID).Scan(&retryAttempts); err != nil {
+		t.Fatal(err)
+	}
+	return rejections, retryAttempts
+}
+
+// aggregateAssemblyDispatch runs the dispatch admission's own completion
+// assembly — the unit the aggregate bound lives in — over a real transaction
+// on the fixture store, carrying the sealed freshness preparation the live
+// boundary prepares and the derived session identity the raw action route
+// computes. The store's whole-action-payload input bound refuses oversized
+// packets earlier on the full route; that bound owns a distinct population,
+// and the assembly reaches the aggregate admission with every other packet
+// admission live. It returns the refusal error, or the appended completion
+// events on success; the caller owns the transaction outcome.
+func aggregateAssemblyDispatch(t *testing.T, f workContextFixture, attemptID string, packet map[string]any) (error, []Event) {
+	t.Helper()
+	subject, subjectErr := readCurrentOracleSubject(context.Background(), f.store.DatabaseForTesting(), f.workID)
+	if subjectErr != nil {
+		return subjectErr, nil
+	}
+	preparation, prepErr := PrepareWorkerDispatchFreshness(context.Background(), f.store, PrepareWorkerDispatchRequest{
+		WorkID: f.workID, SessionWorktree: dispatchSessionWorktree(t, f.store, f.workID),
+		Runner: qualifiedSubjectRunner{head: subject},
+	})
+	if prepErr != nil {
+		return prepErr, nil
+	}
+	ctx := WithWorkerDispatchPreparation(context.Background(), preparation)
+	sessionWorktree := dispatchSessionWorktree(t, f.store, f.workID)
+	canonicalPath, canonicalErr := canonicalWorkerWorktreePath(sessionWorktree)
+	if canonicalErr != nil {
+		t.Fatalf("session worktree identity cannot be resolved: %v", canonicalErr)
+	}
+	version := readWorkVersion(t, f.store, f.workID)
+	packetBytes, marshalErr := json.Marshal(packet)
+	if marshalErr != nil {
+		t.Fatal(marshalErr)
+	}
+	payload, marshalErr := json.Marshal(map[string]any{"attempt_id": attemptID, "worker_packet": json.RawMessage(packetBytes)})
+	if marshalErr != nil {
+		t.Fatal(marshalErr)
+	}
+	entry, entryErr := BuiltinWorkflowDefinitionForRef("workflow.break_fix")
+	if entryErr != nil {
+		t.Fatal(entryErr)
+	}
+	tx, err := f.store.DatabaseForTesting().BeginTx(ctx, nil)
+	if err != nil {
+		return err, nil
+	}
+	defer tx.Rollback()
+	request := WorkflowActionExecutionRequest{
+		WorkID: f.workID, ExpectedVersion: version, ActionID: "dispatch_worker", Payload: payload,
+		SessionWorktree: sessionWorktree, SessionWorktreeIdentity: workerWorktreeIdentity(canonicalPath), Actor: f.owner,
+		AcceptedInputsDigest: cd0059TestDigest(t, attemptID+"-inputs"),
+		IdempotencyIdentity:  attemptID + "-op", OperationID: "op-" + attemptID, PrincipalRef: f.owner.PrincipalRef,
+		Tool: "concord_work_transition", IdempotencyKey: attemptID + "-key", RequestID: "req-" + attemptID,
+		AcceptedScope: `{}`, ContractDigest: testManifestDigest,
+	}
+	events, _, err := appendGenericWorkflowCompletion(workflowActionAssemblyInput{
+		ctx: ctx, tx: tx, entry: entry, request: request,
+		currentStep: "repair", payload: payload,
+		evidenceRefs: []string{"evidence:" + attemptID}, eventActor: "client:concord-1:principal/operator",
+	}, 1, []Event{})
+	if err != nil {
+		return err, nil
+	}
+	return nil, events
+}
+
+// TestDispatchContextAggregateBound proves the whole-dispatch-context bound:
+// the canonical JSON object of the packet's present work_context, checkpoint,
+// and correction members — member names and delimiters included — may reach
+// exactly 65,536 UTF-8 bytes and no more. The boundary is built from
+// individually legal retained entries (32 retained findings, the ready job's
+// native oracle preparations, bounded checkpoint prose), never one oversized
+// invalid string, and carries escaped and multibyte content so the count is
+// canonical UTF-8 bytes rather than rune counts or the raw packet's
+// whitespace. An over-bound dispatch refuses whole with zero dispatch
+// effects.
+func TestDispatchContextAggregateBound(t *testing.T) {
+	t.Run("exactly 65536 bytes admits", func(t *testing.T) {
+		fixture := seedWorkContextFixture(t, "ctx-agg-boundary-exact")
+		defer fixture.store.Close()
+		_, job := seedAggregateBoundContext(t, fixture, 120)
+		checkpoint := tuneAggregateCheckpointToTarget(t, fixture, nil, 65536)
+		err, events := aggregateAssemblyDispatch(t, fixture, "attempt-agg-exact", aggregateDispatchPacket(t, fixture, "attempt-agg-exact", job, checkpoint, nil))
+		if err != nil {
+			t.Fatalf("dispatch refused an aggregate exactly at the 65536-byte bound: %v", err)
+		}
+		if len(events) != 1 || events[0].Kind != WorkflowActionCompleted {
+			t.Fatalf("assembly appended %d event(s), want the one dispatch completion at exactly the bound", len(events))
+		}
+	})
+
+	t.Run("one byte over refuses whole with zero dispatch effects", func(t *testing.T) {
+		fixture := seedWorkContextFixture(t, "ctx-agg-boundary-over")
+		defer fixture.store.Close()
+		_, job := seedAggregateBoundContext(t, fixture, 120)
+		checkpoint := tuneAggregateCheckpointToTarget(t, fixture, nil, 65537)
+		err, events := aggregateAssemblyDispatch(t, fixture, "attempt-agg-over", aggregateDispatchPacket(t, fixture, "attempt-agg-over", job, checkpoint, nil))
+		var failure *Failure
+		if err == nil || !errors.As(err, &failure) || failure.Kind != KindLimitExceeded || !strings.Contains(failure.Detail, "65537") || !strings.Contains(failure.Detail, "65536") {
+			t.Fatalf("over-bound dispatch error = %v, want %s naming the measured 65537 bytes and the 65536-byte bound", err, KindLimitExceeded)
+		}
+		if len(events) != 0 {
+			t.Fatalf("assembly appended %d event(s), want zero on the aggregate refusal", len(events))
+		}
+		view, viewErr := readWorkContextView(context.Background(), fixture.store.DatabaseForTesting(), fixture.workID)
+		if viewErr != nil || view == nil || len(view.Findings) != 32 {
+			t.Fatalf("retained view after refusal = %d findings err %v, want the whole untrimmed 32-finding view", len(viewFindings(view)), viewErr)
+		}
+	})
+
+	t.Run("a packet with no context members admits", func(t *testing.T) {
+		s := openTemp(t)
+		defer s.Close()
+		workID := "work-agg-absent-members"
+		seedGitClaimRepo(t, s, workID)
+		seed := seedDispatchFixture(t, s, workID)
+		if view, viewErr := readWorkContextView(context.Background(), s.DatabaseForTesting(), workID); viewErr != nil || view != nil {
+			t.Fatalf("fixture view = %+v err = %v, want no context members at all", view, viewErr)
+		}
+		if err := dispatchBindingAttemptCtx(t, s, seed, "attempt-agg-absent", dispatchWorkerPacket(t, s, workID, "execution", "attempt-agg-absent"), context.Background()); err != nil {
+			t.Fatalf("dispatch refused a packet with no context members: %v", err)
+		}
+		if got := dispatchStartedCount(t, s, workID); got != 1 {
+			t.Fatalf("dispatch_worker starts = %d, want 1 without context members", got)
+		}
+	})
+
+	t.Run("all three members measure together at the bound", func(t *testing.T) {
+		setup := func(t *testing.T, workID string, target int) (error, []Event) {
+			t.Helper()
+			fixture := seedWorkContextFixture(t, workID)
+			defer fixture.store.Close()
+			_, _ = reviewSubjectClaim(t, fixture.store, fixture.workID)
+			job := reviewSubjectReadyRevision(t, fixture)
+			seedAggregateBoundDeclarations(t, fixture, 40)
+			recordAggregateCheckpoint(t, fixture, "hypothesis", "diagnosis", "strategy")
+			if err := dispatchWorkContextAttempt(t, fixture, aggregateDispatchPacket(t, fixture, "attempt-agg-a1", job, latestFixtureCheckpoint(t, fixture), nil)); err != nil {
+				t.Fatalf("first dispatch refused before the correction existed: %v", err)
+			}
+			completeAggregateAttempt(t, fixture, "attempt-agg-a1", job)
+			if err := aggregateRejectResult(t, fixture, "attempt-agg-a1", false, strings.Repeat("d", 4000), strings.Repeat("s", 4000)); err != nil {
+				t.Fatalf("rejection without the retry member refused: %v", err)
+			}
+			correction, err := workflowCorrectionContextForDispatch(context.Background(), fixture.store.DatabaseForTesting(), fixture.workID, "repair", "attempt-agg-a2")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if correction == nil {
+				t.Fatal("the rejection correction is not open for the next attempt; the all-three case cannot be built")
+			}
+			checkpoint := tuneAggregateCheckpointToTarget(t, fixture, correction, target)
+			return aggregateAssemblyDispatch(t, fixture, "attempt-agg-a2", aggregateDispatchPacket(t, fixture, "attempt-agg-a2", job, checkpoint, correction))
+		}
+		err, events := setup(t, "ctx-agg-all-three-exact", 65536)
+		if err != nil {
+			t.Fatalf("dispatch refused an all-three aggregate exactly at the bound: %v", err)
+		}
+		if len(events) != 1 || events[0].Kind != WorkflowActionCompleted {
+			t.Fatalf("assembly appended %d event(s), want the one dispatch completion at exactly the all-three bound", len(events))
+		}
+		err, events = setup(t, "ctx-agg-all-three-over", 65537)
+		var failure *Failure
+		if err == nil || !errors.As(err, &failure) || failure.Kind != KindLimitExceeded {
+			t.Fatalf("all-three over-bound dispatch error = %v, want %s refusing the whole request", err, KindLimitExceeded)
+		}
+		if len(events) != 0 {
+			t.Fatalf("assembly appended %d event(s), want zero on the all-three aggregate refusal", len(events))
+		}
+	})
+
+	t.Run("a full-route dispatch at exactly 65536 admits", func(t *testing.T) {
+		fixture := seedWorkContextFixture(t, "ctx-agg-full-route-exact")
+		defer fixture.store.Close()
+		_, job := seedAggregateBoundContext(t, fixture, 120)
+		checkpoint := tuneAggregateCheckpointToTarget(t, fixture, nil, 65536)
+		if err := dispatchWorkContextAttempt(t, fixture, aggregateDispatchPacket(t, fixture, "attempt-agg-full-route", job, checkpoint, nil)); err != nil {
+			t.Fatalf("the full dispatch route refused an aggregate exactly at the 65536-byte bound: %v", err)
+		}
+		if got := dispatchStartedCount(t, fixture.store, fixture.workID); got != 1 {
+			t.Fatalf("dispatch_worker starts = %d, want 1 for the admitted full-route dispatch", got)
+		}
+	})
+
+	t.Run("a known-valid smaller context passes the same full route", func(t *testing.T) {
+		fixture := seedWorkContextFixture(t, "ctx-agg-full-route-control")
+		defer fixture.store.Close()
+		_, job := seedAggregateBoundContext(t, fixture, 120)
+		recordAggregateCheckpoint(t, fixture, "hypothesis", "diagnosis", "strategy")
+		if measured := aggregateBoundaryProbe(t, aggregateBoundaryMembers(t, fixture, nil)); measured >= 65536 {
+			t.Fatalf("control fixture aggregate = %d bytes, want clearly under the bound", measured)
+		}
+		if err := dispatchWorkContextAttempt(t, fixture, aggregateDispatchPacket(t, fixture, "attempt-agg-control", job, latestFixtureCheckpoint(t, fixture), nil)); err != nil {
+			t.Fatalf("the full dispatch route refused a known-valid smaller context: %v", err)
+		}
+		if got := dispatchStartedCount(t, fixture.store, fixture.workID); got != 1 {
+			t.Fatalf("dispatch_worker starts = %d, want 1 for the admitted control", got)
+		}
+	})
+}
+
+// latestFixtureCheckpoint reads the fixture's latest checkpoint as the
+// packet member.
+func latestFixtureCheckpoint(t *testing.T, f workContextFixture) *ContextCheckpoint {
+	t.Helper()
+	checkpoint, err := readLatestContextCheckpointTx(context.Background(), f.store.DatabaseForTesting(), f.workID, "workflow_action")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if checkpoint == nil {
+		t.Fatal("fixture holds no latest checkpoint")
+	}
+	return checkpoint
+}
+
+// completeAggregateAttempt records the completed implement result for the
+// fixture's dispatched attempt through the one terminal derivation seam, the
+// same route the rejection fixtures use.
+func completeAggregateAttempt(t *testing.T, f workContextFixture, attemptID string, job WorkerJobBinding) {
+	t.Helper()
+	lane := laneForID(t, "implement")
+	if err := ApplyOperation(context.Background(), f.store, Operation{Events: []Event{implementDispatchEvidenceEvent(f.workID, attemptID, lane, job)}}); err != nil {
+		t.Fatal(err)
+	}
+	completion := Event{EventID: "complete-" + attemptID + "-" + f.workID, Kind: WorkerCompleted, SubjectType: SubjectWorkItem, SubjectID: f.workID, Actor: "worker:test", OccurredAt: time.Unix(2, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerCompleted), Payload: mustJSONValue(WorkerCompletedPayload{
+		AttemptID: attemptID, ReadbackModel: preferredModelForLane(lane), ReportSchemaVersion: WorkerReportSchemaVersion,
+		EvidenceOrigin: WorkerEvidenceReported, Evidence: workerEvidenceForLane(lane), WorkerJob: &job,
+	})}
+	prepared, prepErr := PrepareWorkerTerminalDelivery(context.Background(), f.store, PrepareWorkerTerminalDeliveryRequest{WorkID: f.workID, AttemptID: attemptID, EventID: completion.EventID})
+	if prepErr != nil {
+		t.Fatalf("terminal delivery preparation refused: %v", prepErr)
+	}
+	workerTerminalEventThroughSeamCtx(t, WithWorkerTerminalPreparation(context.Background(), prepared), f.store, completion)
+}
+
+// TestDispatchContextAggregateMeasurement pins the measurement the aggregate
+// bound defines, at the population the behavioral boundary tests cannot
+// reach with recorded state alone: canonical UTF-8 bytes of the sorted
+// member object, absent and null members contributing nothing, raw packet
+// whitespace uncounted, and nested oracle preparation and receipt bytes
+// included.
+func TestDispatchContextAggregateMeasurement(t *testing.T) {
+	t.Parallel()
+	measure := func(t *testing.T, packet string) int {
+		t.Helper()
+		measured, err := measureDispatchContextAggregateBytes(json.RawMessage(packet))
+		if err != nil {
+			t.Fatalf("measurement refused: %v", err)
+		}
+		return measured
+	}
+	compact := func(inputs string) string {
+		return `{"inputs":` + inputs + `}`
+	}
+
+	t.Run("absent members measure the two-byte empty object", func(t *testing.T) {
+		if got := measure(t, compact(`{}`)); got != 2 {
+			t.Fatalf("memberless measurement = %d, want the two bytes of the empty object", got)
+		}
+		if got := measure(t, compact(`{"task":"carry the objective"}`)); got != 2 {
+			t.Fatalf("non-context measurement = %d, want 2; only the three context members are measured", got)
+		}
+	})
+
+	t.Run("a present null member measures its canonical name and value", func(t *testing.T) {
+		if got := measure(t, compact(`{"work_context":null}`)); got != len(`{"work_context":null}`) {
+			t.Fatalf("present-null measurement = %d, want the %d canonical bytes of the present key; a present key is never absence", got, len(`{"work_context":null}`))
+		}
+		mixed := `{"checkpoint":{"s":"x"},"work_context":null}`
+		if got := measure(t, compact(`{"work_context":null,"checkpoint":{"s":"x"}}`)); got != len(mixed) {
+			t.Fatalf("null-plus-one measurement = %d, want the %d canonical bytes of both present members", got, len(mixed))
+		}
+	})
+
+	t.Run("the closed packet schema refuses a null member the owner owns", func(t *testing.T) {
+		registered, err := BuiltinWorkflowDefinitionForRef("workflow.break_fix")
+		if err != nil {
+			t.Fatal(err)
+		}
+		laneVersion, laneDigest := implementLaneIdentity()
+		for _, member := range []string{"work_context", "checkpoint", "correction"} {
+			packet := map[string]any{
+				"schema_version": WorkerPacketSchemaVersion, "attempt_id": "attempt-null-member",
+				"lane_id": "implement", "lane_version": laneVersion, "lane_digest": laneDigest,
+				"work_id": "work-null-member", "step_id": "repair",
+				"inputs": map[string]any{member: nil, "task": "carry the objective", "binding": map[string]any{"objective_source": "work_question", "work_version": 1, "contract_version": nil, "assigned_result": "files_touched"}},
+			}
+			packetBytes, marshalErr := json.Marshal(packet)
+			if marshalErr != nil {
+				t.Fatal(marshalErr)
+			}
+			payload, marshalErr := json.Marshal(map[string]any{"attempt_id": "attempt-null-member", "worker_packet": json.RawMessage(packetBytes)})
+			if marshalErr != nil {
+				t.Fatal(marshalErr)
+			}
+			validateErr := validateWorkflowActionPayload(registered.Definition, "dispatch_worker", payload)
+			if !hasFailureKind(validateErr, KindInvalidPayload) {
+				t.Fatalf("schema owner accepted a present null %s member: %v", member, validateErr)
+			}
+		}
+	})
+
+	t.Run("one member measures its canonical bytes", func(t *testing.T) {
+		if got := measure(t, compact(`{"checkpoint":{"a":"b"}}`)); got != len(`{"checkpoint":{"a":"b"}}`) {
+			t.Fatalf("one-member measurement = %d, want the member object with its name and delimiters", got)
+		}
+	})
+
+	t.Run("raw packet whitespace is not measured; canonical bytes are", func(t *testing.T) {
+		pretty := `{"inputs":{"checkpoint": { "a"  :  "b" } }}`
+		if got := measure(t, pretty); got != len(`{"checkpoint":{"a":"b"}}`) {
+			t.Fatalf("pretty-printed measurement = %d, want the canonical member bytes without the raw whitespace", got)
+		}
+	})
+
+	t.Run("multibyte content measures UTF-8 bytes, never runes", func(t *testing.T) {
+		statement := strings.Repeat("é", 10)
+		want := `{"work_context":{"statement":"` + statement + `"}}`
+		if got := measure(t, compact(`{"work_context":{"statement":"`+statement+`"}}`)); got != len(want) {
+			t.Fatalf("multibyte measurement = %d, want the %d UTF-8 bytes of the canonical member", got, len(want))
+		}
+		if got := measure(t, compact(`{"work_context":{"statement":"`+statement+`"}}`)); got == len([]rune(want)) {
+			t.Fatalf("multibyte measurement equals the rune count %d; the bound must count UTF-8 bytes", got)
+		}
+	})
+
+	t.Run("escaped content counts the canonical escaping", func(t *testing.T) {
+		want := `{"correction":{"diagnosis":"a \"quoted\" \\path\u003cb"}}`
+		if got := measure(t, compact(`{"correction":{"diagnosis":"a \"quoted\" \\path<b"}}`)); got != len(want) {
+			t.Fatalf("escaped measurement = %d, want the %d canonical bytes including HTML escaping", got, len(want))
+		}
+	})
+
+	t.Run("nested oracle preparation and receipt bytes are measured", func(t *testing.T) {
+		nested := `{"oracle_preparations":[{"recipe":"go test ./...","digest":"sha256:abcd"}],"oracle_receipts":[{"control":"control:check","state":"clean","commit":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}]}`
+		want := `{"work_context":` + nested + `}`
+		if got := measure(t, compact(`{"work_context":`+nested+`}`)); got != len(want) {
+			t.Fatalf("nested measurement = %d, want the %d bytes including every nested preparation and receipt", got, len(want))
+		}
+	})
+}
+
+// viewFindings keeps the nil-safe finding count the refusal assertions read.
+func viewFindings(view *WorkContextView) []WorkContextFindingView {
+	if view == nil {
+		return nil
+	}
+	return view.Findings
+}
+
+// TestRejectRetryContextAggregateBound proves the derived retry dispatch a
+// combined rejection carries answers to the same aggregate bound through the
+// one dispatch owner: an over-bound retry refuses the whole combined
+// operation atomically, so the rejection commits nothing, while a rejection
+// without the retry member commits at the same over-bound state — the bound
+// is a dispatch capacity, not a rejection wall.
+func TestRejectRetryContextAggregateBound(t *testing.T) {
+	setup := func(t *testing.T, workID string) (workContextFixture, func(t *testing.T, withRetry bool) error) {
+		t.Helper()
+		fixture := seedWorkContextFixture(t, workID)
+		_, job := seedAggregateBoundContext(t, fixture, 180)
+		recordAggregateCheckpoint(t, fixture, "hypothesis", "diagnosis", "strategy")
+		if err := dispatchWorkContextAttempt(t, fixture, aggregateDispatchPacket(t, fixture, "attempt-rr-a1", job, latestFixtureCheckpoint(t, fixture), nil)); err != nil {
+			t.Fatalf("first dispatch refused before the rejection existed: %v", err)
+		}
+		completeAggregateAttempt(t, fixture, "attempt-rr-a1", job)
+		reject := func(t *testing.T, withRetry bool) error {
+			t.Helper()
+			return aggregateRejectResult(t, fixture, "attempt-rr-a1", withRetry, strings.Repeat("d", 4000), strings.Repeat("s", 4000))
+		}
+		return fixture, reject
+	}
+
+	t.Run("an over-bound derived retry refuses the combined operation atomically", func(t *testing.T) {
+		fixture, reject := setup(t, "ctx-agg-retry-over")
+		defer fixture.store.Close()
+		// The rejection records the operator actor it cites before it runs;
+		// baseline the version after that recording so the assertion below
+		// measures the combined operation alone.
+		reviewSubjectRecordOperator(t, fixture.store, fixture.workID)
+		versionBefore := readWorkVersion(t, fixture.store, fixture.workID)
+		err := reject(t, true)
+		var failure *Failure
+		if err == nil || !errors.As(err, &failure) || failure.Kind != KindLimitExceeded || !strings.Contains(failure.Detail, "65536") || !strings.Contains(failure.Detail, "bytes of canonical JSON") {
+			t.Fatalf("combined reject/retry over-bound refusal = %v, want %s naming the measured canonical bytes and the 65536-byte bound", err, KindLimitExceeded)
+		}
+		rejections, retryAttempts := aggregateCommittedRejections(t, fixture.store, fixture.workID)
+		if rejections != 0 || retryAttempts != 0 {
+			t.Fatalf("the refused combined operation committed %d rejection(s) and %d retry attempt(s), want zero effects", rejections, retryAttempts)
+		}
+		if got := readWorkVersion(t, fixture.store, fixture.workID); got != versionBefore {
+			t.Fatalf("work version after the refused combined operation = %d, want %d", got, versionBefore)
+		}
+	})
+
+	t.Run("a rejection without the retry member commits at the same state", func(t *testing.T) {
+		fixture, reject := setup(t, "ctx-agg-retry-control")
+		defer fixture.store.Close()
+		if err := reject(t, false); err != nil {
+			t.Fatalf("rejection without the retry member refused: %v", err)
+		}
+		rejections, retryAttempts := aggregateCommittedRejections(t, fixture.store, fixture.workID)
+		if rejections != 1 || retryAttempts != 0 {
+			t.Fatalf("committed rejections = %d retry attempts = %d, want the one rejection and no retry", rejections, retryAttempts)
 		}
 	})
 }

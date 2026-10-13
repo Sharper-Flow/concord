@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -168,6 +169,33 @@ func TestDecodeInvokeRequestRejectsInvalidTrailingJSON(t *testing.T) {
 		if _, _, err := DecodeInvokeRequest([]byte(valid + suffix)); err == nil || !strings.Contains(err.Error(), "trailing JSON") {
 			t.Fatalf("suffix %q error = %v, want trailing JSON rejection", suffix, err)
 		}
+	}
+}
+
+// The request transport carries a dispatch whose packet holds the approved
+// 64 KiB context aggregate beside its other members, so the invoke request
+// decode admits requests above the 64 KiB response/envelope era and refuses
+// only past its own derived bound. The bound refuses whole; it never
+// truncates.
+func TestDecodeInvokeRequestAdmitsRequestCapacity(t *testing.T) {
+	t.Parallel()
+	big := make([]byte, 0, 96*1024)
+	big = append(big, `{"call_envelope":{"schema_version":"1.0","request_id":"request-1","client_ref":"client/concord-1","principal_ref":"principal/operator","session_ref":"session/s","agent_ref":"agent/a","directory":"/tmp/d","worktree":"/tmp/w","ambient_project_id":"project-1","scope_version":"sha256:0000000000000000000000000000000000000000000000000000000000000000","manifest_digest":"sha256:0000000000000000000000000000000000000000000000000000000000000000"},"tool":"concord_product_view","operation":"resolve","input":{"filler":"`...)
+	big = append(big, bytes.Repeat([]byte("x"), 80*1024)...)
+	big = append(big, `"}}`...)
+	request, envelope, err := DecodeInvokeRequest(big)
+	if err != nil {
+		t.Fatalf("invoke request within the request bound refused: %v", err)
+	}
+	if request.Tool != "concord_product_view" || envelope.RequestID != "request-1" {
+		t.Fatalf("decoded request = %q envelope request id = %q, want the carried values", request.Tool, envelope.RequestID)
+	}
+	oversize := append([]byte(nil), big...)
+	for len(oversize) <= MaxRequestBytes {
+		oversize = append(oversize, ' ')
+	}
+	if _, _, err := DecodeInvokeRequest(oversize); err == nil || !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("invoke request past the request bound error = %v, want the whole-request size refusal", err)
 	}
 }
 

@@ -550,6 +550,38 @@ test("core authorization refusal on dispatch_worker surfaces as unauthorized_dis
   expect(workflowCalls).toBe(1)
 })
 
+// A core aggregate dispatch-context bound refusal is a typed limit_exceeded.
+// The bound itself is store-owned; this asserts the adapter contract for that
+// refusal class — the cause and recovery surface unchanged, no worker spawns,
+// and no Task window arms. There is deliberately no adapter-side byte
+// measurement to parallel the core bound.
+test("a core aggregate context bound refusal surfaces without arming a Task window", async () => {
+  let spawned = 0
+  let workflowCalls = 0
+  const invoke = async (toolName: string, args: { operation: string }): Promise<unknown> => {
+    if (toolName === "concord_work_trace") return continuityEnvelope()
+    if (toolName === "concord_work_browse") return scopeEnvelope()
+    if (toolName === "concord_work_transition") {
+      workflowCalls++
+      return coreErrorEnvelope("limit_exceeded", "the dispatch context members measure 65537 bytes of canonical JSON, above the 65536-byte aggregate dispatch context bound; the request is refused whole and never trimmed")
+    }
+    throw new Error(`unscripted ${toolName}.${args.operation}`)
+  }
+  const runner: DispatchRunner = { async run() { spawned++; return { exitCode: 0, stdout: "", stderr: "" } } }
+  const windows = new DispatchWindows()
+  const result = await dispatchLaneWorker({ work_id: WORK_ID, expected_version: 1, idempotency_key: "idemp-agg-bound", lane_id: lane.id }, { context: contextFor(), invoke: invoke as any, runner, windows })
+  expect(result.outcome).toBe("error")
+  expect(result.error?.kind).toBe("error")
+  expect(result.error?.retry_safe).toBe(false)
+  expect(result.error?.recovery_action).toBe("reconcile_operation")
+  expect(result.error?.message).toContain("65537")
+  const core = (result.error?.details ?? {}) as Record<string, unknown>
+  expect((core.core_error as Record<string, unknown>).kind).toBe("limit_exceeded")
+  expect(workflowCalls).toBe(1)
+  expect(spawned).toBe(0)
+  expect(windows.has("session-1")).toBe(false)
+})
+
 for (const refusal of [
   { kind: "approval_invalid", recovery: "request_approval", retry: false },
   { kind: "internal_error", recovery: "contact_operator", retry: false },

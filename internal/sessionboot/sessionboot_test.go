@@ -126,7 +126,7 @@ func TestBuildStatesWorkflowAbsenceForInstanceLessWork(t *testing.T) {
 }
 
 func TestValidateRejectsOversizePacket(t *testing.T) {
-	raw := bytes.Repeat([]byte("x"), agent.MaxEnvelopeBytes+1)
+	raw := bytes.Repeat([]byte("x"), MaxBootPacketBytes+1)
 	if err := Validate(raw); err == nil || !strings.Contains(err.Error(), "exceeds") {
 		t.Fatalf("oversize packet err = %v", err)
 	}
@@ -173,8 +173,8 @@ func TestBuildFitsObservationWindowToPacketBound(t *testing.T) {
 	}
 	snapshot.ObservationsTotal = 40
 	full, _ := json.Marshal(agent.ContinuityPayload(snapshot))
-	// The packet bound is the session envelope bound, not the read bound.
-	if len(full) <= agent.MaxEnvelopeBytes {
+	// The packet bound is the session boot packet's own cap, not the read bound.
+	if len(full) <= MaxBootPacketBytes {
 		t.Fatalf("fixture does not overflow the packet: %d bytes", len(full))
 	}
 	raw, err := Build("product-1", snapshot)

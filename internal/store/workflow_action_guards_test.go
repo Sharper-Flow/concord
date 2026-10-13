@@ -289,6 +289,49 @@ func TestExternalCheckRecoveryCompletedEventUsesSharedEligibility(t *testing.T) 
 	}
 }
 
+func TestExternalCheckRecoveryReplaysBeforeLaterVerdict(t *testing.T) {
+	const workID = "external-check-replay"
+	ctx := context.Background()
+	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.implementation", "acceptance")
+	s := fixture.store
+	subject := "commit:" + workID
+	seedWorkflowAuthority(t, s, "external-check-replay-source", workID, "principal/check", "request/check", []string{subject})
+	bind := mustJSONValue(map[string]any{"evidence_kind": "verification", "immutable_subject_ref": subject, "producer_id": "principal/check", "producer_run_ref": "external-check-replay-source", "producer_watermark": "request/check"})
+	if err := runVerdictActionAs(t, s, workID, "bind_evidence", bind, 0, fixture.owner); err != nil {
+		t.Fatal(err)
+	}
+	verdict := mustJSONValue(map[string]any{"contract_version": 1, "verdicts": []map[string]any{{"predicate_id": "predicate:return-route", "verdict_kind": "ok", "evaluation_evidence": []string{subject}}}})
+	if err := runVerdictActionAs(t, s, workID, "record_verdict", verdict, 0, diagnosisS1Actor(workID, "reviewer")); err != nil {
+		t.Fatal(err)
+	}
+	if err := RebuildFromLog(ctx, s); err != nil {
+		t.Fatalf("rebuild the binding followed by a later verdict: %v", err)
+	}
+}
+
+func TestRecoveryRequiredKindStillNeedsDurableProducerAuthority(t *testing.T) {
+	const workID = "recovery-kind-authority"
+	ctx := context.Background()
+	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.implementation", "acceptance")
+	if _, err := fixture.store.DatabaseForTesting().Exec(`DELETE FROM durable_operations WHERE op_id=?`, "return-authority-verification-"+workID); err != nil {
+		t.Fatal(err)
+	}
+	entry, err := VerifyWorkflowInstanceDefinition(ctx, fixture.store, BuiltinWorkflowRegistry(), workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	outstanding, err := outstandingWorkflowEvidenceRequirementsForWork(ctx, fixture.store.db, workID, entry.Definition)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, requirement := range outstanding {
+		if requirement.Kind == "verification" && requirement.Reference == "" {
+			return
+		}
+	}
+	t.Fatalf("verification kind satisfied without its durable producer authority; outstanding = %v", outstanding)
+}
+
 func TestBindEvidenceAdmittedPastBindingStepWhileMandateUnbound(t *testing.T) {
 	const workID = "mandate-recovery-admit"
 	s := seedMandateRecoveryItem(t, workID)

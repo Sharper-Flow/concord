@@ -417,7 +417,7 @@ func workflowEvidenceBindingRecoveryRequirements(ctx context.Context, q queryer,
 	if err != nil {
 		return nil, err
 	}
-	verdicts, err := latestWorkflowVerdicts(ctx, q, workID, contractVersion)
+	verdicts, err := latestWorkflowVerdictsBefore(ctx, q, workID, contractVersion, beforeSeq)
 	if err != nil {
 		return nil, err
 	}

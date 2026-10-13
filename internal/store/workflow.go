@@ -2246,6 +2246,8 @@ func admitWorkflowActionOffStep(ctx context.Context, tx *sql.Tx, event Event, p 
 	if !workerFailureRecovery && !correctionRecovery {
 		var raw []byte
 		var bindingSeq int64
+		// The evidence constructor emits its binding immediately before the
+		// completion. Join that effect, not a tuple from an earlier action.
 		err := tx.QueryRowContext(ctx, `SELECT seq,payload FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND seq<? AND actor=? AND json_extract(payload,'$.resulting_version')=? ORDER BY seq DESC LIMIT 1`, event.SubjectID, WorkflowEvidenceBound, event.Seq, p.ActorRef, p.ExpectedVersion).Scan(&bindingSeq, &raw)
 		if err != nil && err != sql.ErrNoRows {
 			return wrapFailure(KindUnavailable, "fold_event", "cannot inspect recovery evidence binding", true, "retry once the workflow evidence projection is readable", err)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -143,6 +144,101 @@ func TestDerivedWorkerFailureRecordsOnceFromTheOriginalTerminalEvent(t *testing.
 	}
 	if rebuiltCorrection == nil || rebuiltCorrection.Disposition != "failed" || rebuiltCorrection.Diagnosis != detail {
 		t.Fatalf("rebuilt correction = %+v, want the same failed disposition and diagnosis", rebuiltCorrection)
+	}
+}
+
+func TestDerivedWorkerFailureMatchesManualCorrectionProjection(t *testing.T) {
+	for _, family := range []struct {
+		ref           string
+		manualVersion int64
+		step          string
+	}{
+		{ref: "workflow.implementation", manualVersion: 28, step: "execution"},
+		{ref: "workflow.break_fix", manualVersion: 25, step: "repair"},
+	} {
+		t.Run(family.ref, func(t *testing.T) {
+			workID := "failure-parity-" + strings.TrimPrefix(family.ref, "workflow.")
+			manual := seedHistoricalWorkflowReturnRouteFixture(t, workID, family.ref, family.manualVersion, family.step)
+			derived := seedWorkflowReturnRouteFixture(t, workID, family.ref, family.step)
+			fixtures := []workflowReturnRouteFixture{manual, derived}
+			jobs := []*WorkerJobBinding{{JobID: "job:" + workID}, {JobID: "job:" + workID}}
+			corrections := make([]*WorkflowCorrectionContext, len(fixtures))
+			lane := reviewGateLane(t, "implementation")
+
+			for round := int64(1); round <= 3; round++ {
+				attempt := fmt.Sprintf("attempt:%s:%d", workID, round)
+				terminalID := fmt.Sprintf("failed-%s-%d", workID, round)
+				detail := fmt.Sprintf("failure detail for fenced attempt %d", round)
+				for index, fixture := range fixtures {
+					s := fixture.store
+					dispatchJobBoundAttempt(t, s, workID, family.step, attempt, corrections[index], fixture.owner, 0, fmt.Sprintf("parity-dispatch-%d", round), jobs[index])
+					epoch := latestStepStartEpoch(t, s, workID, family.step)
+					if err := s2WorkerFailedLive(t, s, s2WorkerFailedEvent(workID, attempt, terminalID, detail, preferredModelForLane(lane))); err != nil {
+						t.Fatalf("path %d terminal failure %d: %v", index, round, err)
+					}
+					if index == 0 {
+						if records := s2DerivedFailureRecords(t, s, workID, attempt); len(records) != 0 {
+							t.Fatalf("released pin derived failure records: %+v", records)
+						}
+						if err := runVerdictActionAs(t, s, workID, "record_worker_failure", mustJSONValue(map[string]any{"attempt_id": attempt, "attempt_epoch": epoch}), 0, fixture.owner); err != nil {
+							t.Fatalf("manual failure record %d: %v", round, err)
+						}
+					}
+					correction, err := workflowCorrectionContext(context.Background(), s.db, workID, family.step)
+					if err != nil || correction == nil {
+						t.Fatalf("path %d correction %d = (%+v, %v)", index, round, correction, err)
+					}
+					// Source and evidence locators are route-local. Qualify them
+					// against the actual completion before comparing the context.
+					var sourceID, actor string
+					var sourceSeq int64
+					var raw []byte
+					if err := s.db.QueryRow(`SELECT event_id,seq,json_extract(payload,'$.actor_ref'),payload FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='record_worker_failure' AND json_extract(payload,'$.worker_attempt_id')=?`, workID, WorkflowActionCompleted, attempt).Scan(&sourceID, &sourceSeq, &actor, &raw); err != nil {
+						t.Fatal(err)
+					}
+					var fields workflowCorrectionCompletionFields
+					if err := json.Unmarshal(raw, &fields); err != nil {
+						t.Fatal(err)
+					}
+					if fields.CorrectionDiagnosis != "" || fields.CorrectionStrategy != "" || len(fields.CorrectionEvidence) != 0 || len(fields.ResultEvidence) != 1 || actor != s2ActorRef(t, fixture.owner) {
+						t.Fatalf("path %d completion does not carry the default-only failure record: %+v, actor %q", index, fields, actor)
+					}
+					if isDerived := strings.HasSuffix(sourceID, workflowDerivedWorkerFailureEventIDSuffix); isDerived != (index == 1) {
+						t.Fatalf("path %d source = %q, derived = %t", index, sourceID, isDerived)
+					}
+					if index == 1 && sourceID != terminalID+workflowDerivedWorkerFailureEventIDSuffix {
+						t.Fatalf("derived source = %q, want the original terminal pair", sourceID)
+					}
+					want := &WorkflowCorrectionContext{
+						Disposition: "failed", AttemptCount: round, AttemptLimit: 3, Escalated: round == 3,
+						PredicateIDs: []string{}, EvidenceRefs: fields.ResultEvidence,
+						Diagnosis: detail, Strategy: "retry with a fresh fenced attempt",
+						FailureKind: string(WorkerFailureWorkerError), FailureDetail: detail,
+						FailedAttemptID: attempt, FailedAttemptEpoch: round,
+						SourceEventID: sourceID, SourceEventSeq: sourceSeq,
+					}
+					if !reflect.DeepEqual(correction, want) {
+						t.Fatalf("path %d correction %d = %+v, want %+v", index, round, correction, want)
+					}
+					corrections[index] = correction
+					if err := RebuildFromLog(context.Background(), s); err != nil {
+						t.Fatalf("path %d rebuild %d: %v", index, round, err)
+					}
+					if rebuilt, err := workflowCorrectionContext(context.Background(), s.db, workID, family.step); err != nil || !reflect.DeepEqual(rebuilt, correction) {
+						t.Fatalf("path %d rebuilt correction %d = (%+v, %v), want %+v", index, round, rebuilt, err, correction)
+					}
+				}
+				manualContext, derivedContext := *corrections[0], *corrections[1]
+				// All remaining fields must match. The distinct locators above
+				// must keep naming each route's own immutable completion.
+				derivedContext.SourceEventID = manualContext.SourceEventID
+				derivedContext.SourceEventSeq = manualContext.SourceEventSeq
+				derivedContext.EvidenceRefs = manualContext.EvidenceRefs
+				if !reflect.DeepEqual(manualContext, derivedContext) {
+					t.Fatalf("round %d derived correction = %+v, manual = %+v", round, derivedContext, manualContext)
+				}
+			}
+		})
 	}
 }
 

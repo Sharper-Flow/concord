@@ -623,20 +623,6 @@ func workflowEvidenceRequirementDefinitions(required, mandates []string, definit
 	return requirements
 }
 
-func outstandingWorkflowEvidenceRequirementsForWork(ctx context.Context, q queryer, workID string, definition WorkflowDefinition) ([]workflowEvidenceRequirement, error) {
-	required, mandates, obligations, cutoff, err := workflowEvidenceRequirementInputs(ctx, q, workID)
-	if err != nil {
-		// A work item whose workflow runs without an approved contract carries
-		// no contract evidence requirements, so the admission surfaces that
-		// fold this read stay total instead of refusing the route.
-		if workflowMissingContractProjection(err) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	return outstandingWorkflowEvidenceRequirements(ctx, q, workID, required, mandates, definition, obligations, cutoff)
-}
-
 func workflowEvidenceTupleBound(ctx context.Context, q queryer, workID, kind, reference string, afterSeq int64) (bool, error) {
 	var count int
 	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND seq>? AND json_extract(payload,'$.evidence_kind')=? AND json_extract(payload,'$.immutable_subject_ref')=?`, workID, WorkflowEvidenceBound, afterSeq, kind, reference).Scan(&count); err != nil {

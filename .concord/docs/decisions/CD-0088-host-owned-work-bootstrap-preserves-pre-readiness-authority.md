@@ -68,6 +68,19 @@ with native Git state, then creates only the missing state. A native branch or
 worktree that survives interruption remains attached to its recorded operation and is
 not an orphan.
 
+A resume also probes an active entry whose directory is absent. The probe
+and restoration run outside every store transaction. Restoration uses only
+the entry's recorded path under the Concord worktree root and its recorded
+branch. It restores that branch's surviving tip, not the bootstrap base.
+It never removes or overwrites an existing directory, changes the branch
+tip, or creates a replacement claim. A successful restore reports its tip
+and states that lost uncommitted changes are not recoverable.
+
+A missing branch refuses with a typed failure. An existing directory that
+does not match the recorded worktree also refuses. Neither case permits
+automatic removal, a different path, or a new branch. A replay verifies
+the restored worktree and keeps the original work and claim identities.
+
 ### D3. Bootstrap authority is narrow
 
 `work-bootstrap` runs only from the requested Project default checkout. It can perform

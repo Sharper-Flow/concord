@@ -2319,6 +2319,39 @@ const GeneratedEnvelopeSchemaDocument = `{
           }
         },
         {
+          "else": {
+            "not": {
+              "required": [
+                "session_placement"
+              ]
+            }
+          },
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "cross_repository_claim"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "properties": {
+              "recovery_action": {
+                "properties": {
+                  "kind": {
+                    "const": "use_declared_route"
+                  }
+                }
+              }
+            },
+            "required": [
+              "session_placement"
+            ]
+          }
+        },
+        {
           "if": {
             "properties": {
               "kind": {
@@ -2992,6 +3025,33 @@ const GeneratedEnvelopeSchemaDocument = `{
         },
         "retry_safe": {
           "type": "boolean"
+        },
+        "session_placement": {
+          "additionalProperties": false,
+          "properties": {
+            "directory": {
+              "maxLength": 4096,
+              "minLength": 1,
+              "pattern": "^/[^\\x00]*$",
+              "type": "string"
+            },
+            "project_id": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            "work_id": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "work_id",
+            "project_id",
+            "directory"
+          ],
+          "type": "object"
         },
         "stale_law_revision": {
           "additionalProperties": false,

@@ -133,6 +133,151 @@ func TestAdapterCLIInputRefusalMarshals(t *testing.T) {
 	}
 }
 
+func TestAdapterEnvelopeAdmitsSchemaVocabulary(t *testing.T) {
+	type schemaNode struct {
+		Enum       []string              `json:"enum"`
+		Const      any                   `json:"const"`
+		Defs       map[string]schemaNode `json:"$defs"`
+		Properties map[string]schemaNode `json:"properties"`
+		AllOf      []schemaNode          `json:"allOf"`
+		If         *schemaNode           `json:"if"`
+		Then       *schemaNode           `json:"then"`
+	}
+	var schema schemaNode
+	if err := json.Unmarshal([]byte(GeneratedEnvelopeSchemaDocument), &schema); err != nil {
+		t.Fatal(err)
+	}
+	reasons := schema.Defs["typedError"].Properties["adapter_reason"].Enum
+	var kinds []string
+	for _, branch := range schema.Defs["errorOutcome"].AllOf {
+		if branch.If == nil || branch.Then == nil || branch.If.Properties["origin"].Const != "adapter" {
+			continue
+		}
+		if values := branch.Then.Properties["error"].Properties["kind"].Enum; len(values) > 0 {
+			if kinds != nil {
+				t.Fatal("schema declares multiple adapter kind enums")
+			}
+			kinds = values
+		}
+	}
+	if len(reasons) == 0 || len(kinds) == 0 {
+		t.Fatal("schema declares no adapter vocabulary")
+	}
+	assertAdmitted := func(t *testing.T, typed TypedError) {
+		t.Helper()
+		e := NewCoreError(NewBase("adapter-vocabulary", "concord_work_transition", "worker_abandon"), typed)
+		e.Origin, e.Authority = OriginAdapter, AuthorityUnreachable
+		if err := e.Validate(); err != nil {
+			t.Fatalf("schema-admitted adapter error refused: %v", err)
+		}
+	}
+	for _, reason := range reasons {
+		t.Run("reason/"+reason, func(t *testing.T) {
+			typed := TypedError{Kind: "transport_failure", RecoveryAction: RecoveryAction{Kind: "contact_operator"}, EffectState: EffectNone, AdapterReason: reason}
+			if reason == "invalid_cli_input" || reason == "invalid_request_wrapper" || reason == "invalid_tool_input" {
+				typed.Kind, typed.RecoveryAction.Kind = "invalid_input", "restart_query"
+			}
+			assertAdmitted(t, typed)
+		})
+	}
+	for _, kind := range kinds {
+		t.Run("kind/"+kind, func(t *testing.T) {
+			typed := TypedError{Kind: kind, AdapterReason: "malformed_core_response", EffectState: EffectNone, RecoveryAction: RecoveryAction{Kind: "contact_operator"}}
+			switch kind {
+			case "transport_failure":
+				typed.AdapterReason, typed.RecoveryAction.Kind = "session_directory_unreadable", "retry_same_request"
+			case "timeout":
+				typed.AdapterReason, typed.RecoveryAction.Kind = "timeout_no_effect", "retry_same_request"
+			case "cancelled":
+				typed.AdapterReason, typed.RecoveryAction.Kind = "cancelled_no_effect", "retry_same_request"
+			case "operation_conflict":
+				typed.AdapterReason, typed.RecoveryAction.Kind, typed.EffectState = "unknown_effect", "reconcile_operation", EffectPossible
+			case "invalid_input":
+				typed.AdapterReason, typed.RecoveryAction.Kind = "invalid_cli_input", "restart_query"
+			}
+			assertAdmitted(t, typed)
+		})
+	}
+}
+
+func TestAdapterEnvelopeRetainsSchemaRejections(t *testing.T) {
+	base := NewCoreError(NewBase("adapter-rejections", "concord_work_transition", "worker_abandon"), TypedError{Kind: "transport_failure", AdapterReason: "missing_binary", EffectState: EffectNone, RecoveryAction: RecoveryAction{Kind: "contact_operator"}})
+	base.Origin, base.Authority = OriginAdapter, AuthorityUnreachable
+	for name, mutate := range map[string]func(*Envelope){
+		"unknown kind":             func(e *Envelope) { e.Error.Kind = "unknown_error_kind" },
+		"unknown reason":           func(e *Envelope) { e.Error.AdapterReason = "unknown_adapter_reason" },
+		"removed grant reason":     func(e *Envelope) { e.Error.AdapterReason = "grant_bootstrap_failed" },
+		"removed occupancy reason": func(e *Envelope) { e.Error.AdapterReason = "session_occupancy_unreadable" },
+		"core reason":              func(e *Envelope) { e.Origin = OriginCore },
+		"core-only kind":           func(e *Envelope) { e.Error.Kind = "internal_error" },
+		"partial effect":           func(e *Envelope) { e.Error.EffectState = EffectPartial },
+		"authoritative adapter":    func(e *Envelope) { e.Authority = AuthorityAuthoritative },
+		"bootstrap effect":         func(e *Envelope) { e.Error.AdapterReason, e.Error.EffectState = "manifest_mismatch", EffectPossible },
+		"bootstrap kind":           func(e *Envelope) { e.Error.AdapterReason, e.Error.Kind = "manifest_mismatch", "malformed_response" },
+		"bootstrap recovery": func(e *Envelope) {
+			e.Error.AdapterReason, e.Error.RecoveryAction.Kind = "manifest_mismatch", "retry_same_request"
+		},
+		"timeout recovery":  func(e *Envelope) { e.Error.Kind, e.Error.AdapterReason = "timeout", "timeout_no_effect" },
+		"conflict recovery": func(e *Envelope) { e.Error.Kind, e.Error.AdapterReason = "operation_conflict", "unknown_effect" },
+		"input recovery":    func(e *Envelope) { e.Error.Kind, e.Error.AdapterReason = "invalid_input", "invalid_cli_input" },
+		"input retry": func(e *Envelope) {
+			e.Error.Kind, e.Error.AdapterReason, e.Error.RecoveryAction.Kind, e.Error.RetrySafe = "invalid_input", "invalid_request_wrapper", "restart_query", true
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			e := base
+			typed := *base.Error
+			e.Error = &typed
+			mutate(&e)
+			if err := e.Validate(); err == nil {
+				t.Fatal("invalid adapter envelope admitted")
+			}
+		})
+	}
+}
+
+func TestAdapterVacateGeneratedSchemaRecoveryScope(t *testing.T) {
+	// Test the generated schema independently of Go's core-only recovery coupling.
+	type schemaWire Envelope
+	validate := func(e Envelope) error {
+		t.Helper()
+		data, err := json.Marshal(schemaWire(e))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return ValidateGeneratedEnvelope(data)
+	}
+	for _, recovery := range []string{"retry_same_request", "contact_operator"} {
+		t.Run(recovery, func(t *testing.T) {
+			e := NewCoreError(NewBase("vacate-schema", "concord_work_transition", "session_vacate"), TypedError{Kind: "operation_conflict", AdapterReason: "unknown_effect", EffectState: EffectPossible, RecoveryAction: RecoveryAction{Kind: recovery}})
+			e.Origin, e.Authority = OriginAdapter, AuthorityUnreachable
+			if err := validate(e); err != nil {
+				t.Fatalf("adapter vacate recovery refused: %v", err)
+			}
+			e.Operation = "worker_abandon"
+			if err := validate(e); err == nil {
+				t.Fatal("vacate recovery admitted under another operation")
+			}
+			e.Operation, e.Origin, e.Authority, e.Error.AdapterReason = "session_vacate", OriginCore, AuthorityAuthoritative, ""
+			if err := validate(e); err == nil {
+				t.Fatal("vacate recovery admitted under core origin")
+			}
+			e.Error.RecoveryAction.Kind = "reconcile_operation"
+			if err := validate(e); err != nil {
+				t.Fatalf("core reconciliation refused: %v", err)
+			}
+			partial := NewPartial(NewBase("partial-schema", "concord_work_compact", "publish"), OperationRef{ID: "op-1", Kind: "publish", Version: "2", State: OperationPartial, CurrentStep: "sqlite", UpdatedAt: fixedTime()}, []string{"git"}, TypedError{Kind: "operation_conflict", EffectState: EffectPartial, RecoveryAction: RecoveryAction{Kind: recovery}})
+			if err := validate(partial); err == nil {
+				t.Fatal("partial conflict admitted without reconciliation")
+			}
+			partial.Error.RecoveryAction.Kind = "reconcile_operation"
+			if err := validate(partial); err != nil {
+				t.Fatalf("partial reconciliation refused: %v", err)
+			}
+		})
+	}
+}
+
 func TestAdapterWrapperRefusalMarshals(t *testing.T) {
 	e := NewCoreError(NewBase("wrapper-refusal", "concord_work_browse", "list"), TypedError{Kind: "invalid_input", RetrySafe: false, RecoveryAction: RecoveryAction{Kind: "restart_query"}, EffectState: EffectNone, AdapterReason: "invalid_request_wrapper"})
 	e.Origin, e.Authority = OriginAdapter, AuthorityUnreachable

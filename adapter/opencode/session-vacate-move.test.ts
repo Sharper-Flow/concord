@@ -99,7 +99,10 @@ describe("session_vacate moves only to the core-derived checkout", () => {
     const envelope = await moveSessionToRegisteredMainCheckout(args({ idempotency_key: "vacate-2", destination: "/other" }), context(), okEnvelope())
     expect(envelope.outcome).toBe("error")
     expect(calls).toBe(0)
-    if (envelope.outcome === "error") expect((envelope.error as { adapter_reason?: string }).adapter_reason).toBe("agent_named_destination")
+    if (envelope.outcome === "error") {
+      expect((envelope.error as { adapter_reason?: string }).adapter_reason).toBe("unknown_effect")
+      expect((envelope.error as { effect_state?: string }).effect_state).toBe("possible")
+    }
   })
 
   test("refuses a landing mismatch and records no vacate landing", async () => {
@@ -108,7 +111,7 @@ describe("session_vacate moves only to the core-derived checkout", () => {
     expect(envelope.outcome).toBe("error")
     if (envelope.outcome === "error") {
       const error = envelope.error as { adapter_reason?: string; effect_state?: string; recovery_action?: { kind?: string } }
-      expect(error.adapter_reason).toBe("vacate_destination_mismatch")
+      expect(error.adapter_reason).toBe("unknown_effect")
       // The relocation request committed, so the refusal reports a possible
       // effect and the occupancy stands. The adapter remembers the committed
       // destination, so the retry is reachable from wherever the host
@@ -146,7 +149,7 @@ describe("session_vacate moves only to the core-derived checkout", () => {
     expect(envelope.outcome).toBe("error")
     if (envelope.outcome === "error") {
       const error = envelope.error as { kind?: string; effect_state?: string; recovery_action?: { kind?: string }; message?: string }
-      expect(error.kind).toBe("malformed_response")
+      expect(error.kind).toBe("operation_conflict")
       expect(error.effect_state).toBe("possible")
       expect(error.recovery_action?.kind).toBe("retry_same_request")
       expect(error.message).toContain("replay session_vacate")
@@ -194,7 +197,7 @@ describe("session_vacate moves only to the core-derived checkout", () => {
     expect(envelope.outcome).toBe("error")
     if (envelope.outcome === "error") {
       const error = envelope.error as { adapter_reason?: string; effect_state?: string; message: string }
-      expect(error.adapter_reason).toBe("vacate_landing_refused")
+      expect(error.adapter_reason).toBe("unknown_effect")
       expect(error.effect_state).toBe("possible")
       expect(error.message).toContain("may be recorded")
       expect(error.message).not.toContain("is not recorded")

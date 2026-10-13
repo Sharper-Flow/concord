@@ -1510,13 +1510,13 @@ for (const blockedVerb of ["worker-dispatch", "worker-complete"]) {
       })
       expect(expired.outcome, JSON.stringify(expired)).toBe("error")
       expect(["context_read", "host_proof_read", "mutation_transport", "reconciliation_read", "receipt_read"]).toContain(phase)
-      if (phase === "context_read" || phase === "host_proof_read") {
+      if (phase === "context_read") {
         expect(expired.error.kind, JSON.stringify(expired)).toBe("timeout")
         expect(expired.error.effect_state).toBe("none")
       } else {
         expect(expired.error.kind, JSON.stringify(expired)).toBe("operation_conflict")
         expect(expired.error.effect_state).toBe("possible")
-        expect(expired.error.recovery_action.kind).toBe(phase === "receipt_read" ? "retry_same_request" : "reconcile_operation")
+        expect(expired.error.recovery_action.kind).toBe("reconcile_operation")
       }
       expect(signalCount).toBe(1)
       expect(elapsed).not.toBeNull()

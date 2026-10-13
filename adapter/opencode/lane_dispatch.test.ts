@@ -4,6 +4,7 @@ import * as os from "node:os"
 import path from "node:path"
 import { hostControlPlane, MANAGED_TASK_SCOPE_KEY } from "./move-session"
 import { resetClaimedWorktrees } from "./claimed-worktree"
+import { AdapterContractDefect } from "./adapter-contract-defect"
 
 beforeEach(() => {
   // Another file's landing tests can arm a claim that leaks into this run;
@@ -643,6 +644,33 @@ test("a retry-safe possible effect replays the identical request, then reconcile
   expect(dispatchInputs[1]).toEqual(dispatchInputs[0])
   expect(dispatchInputs[2]).toEqual(dispatchInputs[0])
   expect(spawned).toBe(0)
+})
+
+test("CON-913 dispatch and replay rethrow the same contract defect without opening a window", async () => {
+  for (const failAt of [1, 2]) {
+    const defect = new AdapterContractDefect("concord_work_transition.workflow_action request dispatch-913 failed at error; effect unknown, reconcile before retry")
+    const windows = new DispatchWindows()
+    let calls = 0
+    const invoke = async (toolName: string): Promise<unknown> => {
+      if (toolName === "concord_work_trace") return continuityEnvelope()
+      if (toolName === "concord_work_browse") return scopeEnvelope()
+      calls++
+      if (calls === failAt) throw defect
+      return envelope({
+        tool: "concord_work_transition", operation: "workflow_action", outcome: "error", authority: "unreachable", freshness: null,
+        error: { kind: "unreachable", retry_safe: true, recovery_action: { kind: "retry_same_request" }, effect_state: "possible", message: "durability checkpoint pending" },
+      })
+    }
+    let caught: unknown
+    try {
+      await dispatchLaneWorker({ work_id: WORK_ID, expected_version: 1, idempotency_key: `defect-913-${failAt}`, lane_id: lane.id }, { context: contextFor(), invoke: invoke as any, windows })
+    } catch (error) {
+      caught = error
+    }
+    expect(caught).toBe(defect)
+    expect(calls).toBe(failAt)
+    expect(windows.has("session-1")).toBe(false)
+  }
 })
 
 // When the replay reaches the committed authorization, the dispatch continues

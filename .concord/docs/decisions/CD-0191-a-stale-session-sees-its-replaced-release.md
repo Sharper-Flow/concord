@@ -57,9 +57,11 @@ core call, so no worker attempt opens on lane text the install replaced. The
 refusal rides the dispatch surface's adapter-gate envelope, the shape the
 turn-move gate already uses: `unauthorized_dispatch` with the
 `release_stale` boundary, and the `stale_context` refusal kind in the error
-details. The closed adapter-origin kind vocabulary of the tool envelope
-has no stale-context classification, and this decision changes no schema,
-so the classification rides the details member this surface owns.
+details. [TS7 section 9](../agent-result-envelope.md#9-adapter-failures-and-local-refusals)
+also admits adapter-origin authorization and recovery refusals, not only
+transport failures. It does not admit `stale_context` as an adapter-origin
+kind. This decision changes no schema, so the stale-context classification
+rides the details member the dispatch surface owns.
 
 Every other action keeps working. A stale session can finish its item,
 record its evidence, and reach a terminal state. Only new worker attempts

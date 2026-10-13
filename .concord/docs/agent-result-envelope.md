@@ -178,13 +178,18 @@ will succeed; `recovery_action` owns preparation.
 Error kind structurally constrains recovery: ambiguity resolves candidates; stale
 context refreshes; version/domain conflicts reread entities; approval/evidence errors
 request their missing proof; limit errors reduce the limit; budget refusal adjusts
-the budget; invalid cursors restart the query; operation conflicts reconcile;
-unreachable and internal failures contact the operator or use their
+the budget; invalid cursors restart the query; operation conflicts reconcile.
+An adapter-origin `session_vacate` error with reason `unknown_effect` and
+effect `possible` uses the state-driven replay from
+[CD-0190 D3](./decisions/CD-0190-cd-0179-d1-and-d4-release-at-the-verified-vacate-landing.md#d3-every-refusal-after-the-committed-request-reports-a-possible-effect-with-a-working-recovery).
+Its recovery is `retry_same_request`, or `contact_operator` when the replay
+is unreachable. Core-origin errors and other operations keep reconciliation.
+Unreachable and internal failures contact the operator or use their
 explicitly allowed same-request retry. An unauthorized refusal contacts the
 operator or names a declared route: `required_refs` lists the workflow
 actions in execution order. Cancellation/timeout may
 use an `error` outcome only when `effect_state=none`; possible effects become
-`operation_conflict` with reconciliation.
+`operation_conflict` with the recovery this section permits.
 
 `options` is the one affordance that names choices for the operator rather than
 recovery steps for the agent. It is permitted only on a governing-law conflict —
@@ -278,17 +283,28 @@ rejected result with a head, tail, middle, or other excerpt; legitimate partial
 coverage uses only the existing `partial`, `omissions`, pagination, and
 `evidence_refs` mechanisms.
 
-## 9. Adapter transport failures and pre-dispatch refusals
+## 9. Adapter failures and local refusals
 
-When no valid core envelope is available, TS6's adapter may construct only a minimal
-TS7 `error` envelope with `origin=adapter`, `authority=unreachable`, and one of:
+When no valid core envelope is available, TS6's adapter may construct a minimal
+TS7 `error` envelope with `origin=adapter` and `authority=unreachable`.
+Freshness is null and the source watermark is empty. Adapter origin includes
+transport failures, pre-dispatch input refusals, lane authorization refusals,
+and worker-recovery failures. It never claims core authority.
 
-- `transport_failure` — CLI missing/spawn/I/O failure;
-- `malformed_response` — stdout is not exactly one schema-valid envelope;
-- `timeout` — caller budget ended with no core durable outcome;
-- `invalid_input` — a missing or malformed host request wrapper, or a typed CLI input refusal before dispatch.
-  The effect is `none`, `retry_safe` is false, and recovery is `restart_query`; or
-- `cancelled` — cancellation completed before any authoritative effect.
+The [canonical envelope schema](../../contracts/agent-tool-envelope.schema.json)
+owns the machine vocabulary. [Section 5](#5-error-contract) constrains recovery for each kind.
+Adapter errors admit effect `none` or `possible`, never `partial`.
+The schema admits these adapter-origin kinds:
+
+| Kind | Meaning | Effect | Recovery |
+|---|---|---|---|
+| `transport_failure` | Host context, lease admission, binary, spawn, I/O, or bootstrap failure. | `none` | The typed action from section 5; bootstrap mismatch requires `contact_operator`. |
+| `malformed_response` | No schema-valid core response exists. | `none`; an uncertain effect follows the rule at the end of this section. | The typed action from section 5; uncertain effects require recovery before retry. |
+| `timeout` | The deadline ended with no authoritative effect. | `none` | `retry_same_request` |
+| `cancelled` | Cancellation completed with no authoritative effect. | `none` | `retry_same_request` |
+| `operation_conflict` | A failed operation needs reconciliation. | `none` or `possible` | `reconcile_operation`; an adapter `session_vacate` error with `unknown_effect` and `possible` uses the CD-0190 D3 replay or operator contact. |
+| `unauthorized` | The adapter refused lane tool authorization before dispatch. | `none` | `contact_operator` |
+| `invalid_input` | The host wrapper, tool arguments, or CLI input failed validation before dispatch. | `none`, with `retry_safe=false` | `restart_query` |
 
 If the wrapper refusal cannot resolve an accepted tool/operation pair, `operation` is
 the empty string and `query_id` is absent. Only this no-effect wrapper refusal may
@@ -303,11 +319,34 @@ remove that uncertainty. The adapter returns `operation_conflict` with recovery
 `reconcile_operation`, or `retry_same_request` for `session_vacate` under
 CD-0190 D3.
 
-Adapter errors also carry closed `adapter_reason`:
-`missing_binary|spawn_failure|io_failure|malformed_core_response|timeout_no_effect|cancelled_no_effect|manifest_mismatch|grant_bootstrap_failed|unknown_effect|invalid_request_wrapper|invalid_cli_input`.
-The adapter's own `adapter_contract_version` makes this envelope schema-valid before core
-invocation; `manifest_mismatch` fails closed and recovers by regenerating the current
-manifest and restarting the session, never by parsing arbitrary details.
+Every adapter error carries one closed `adapter_reason`. These reasons describe
+the producer's failure and recovery. They do not add schema couplings between
+a reason and a kind beyond the input and manifest rules named below.
+
+| Reason | Failure | Effect | Recovery |
+|---|---|---|---|
+| `missing_binary` | The CLI binary is unavailable. | `none` | `contact_operator` |
+| `spawn_failure` | The CLI transport cannot start. | `none` | `contact_operator` |
+| `io_failure` | The CLI transport cannot return a read or context result. | `none` | `retry_same_request` or `contact_operator` |
+| `malformed_core_response` | The response is not one valid core envelope. | `none` | `retry_same_request` or `contact_operator`, as the typed action states. |
+| `timeout_no_effect` | The deadline ended without an effect. | `none` | `retry_same_request` |
+| `cancelled_no_effect` | Cancellation ended without an effect. | `none` | `retry_same_request` |
+| `manifest_mismatch` | The core and adapter manifests disagree. | `none` | `contact_operator`: regenerate the current manifest and restart the session. |
+| `context_resolution_failed` | Host directory or ambient context resolution failed before invocation without a classified cause. | `none` | `contact_operator` |
+| `host_lease_missing` | The host lease admission gate refused invocation. | `none` | `contact_operator` |
+| `unknown_effect` | A mutation's effect remains uncertain. | `possible` | `reconcile_operation`; an adapter `session_vacate` uses the CD-0190 D3 replay, or `contact_operator` when replay is unreachable. |
+| `session_directory_unreadable` | The host cannot read the session directory. | `none` | `retry_same_request` |
+| `worker_abandon_refused` | The recovery operation refused abandonment. | `none` or `possible` | `reconcile_operation` |
+| `worker_abandon_receipt_failed` | Abandonment succeeded but its receipt failed. | `possible` | `reconcile_operation` |
+| `lane_tool_refusal` | A managed lane called a tool outside its authority. | `none` | `contact_operator` |
+| `invalid_cli_input` | The CLI refused input before dispatch. | `none`, with `retry_safe=false` | `restart_query` |
+| `invalid_request_wrapper` | The host request wrapper is absent or malformed. | `none`, with `retry_safe=false` | `restart_query` |
+| `invalid_tool_input` | Host tool arguments failed validation before dispatch. | `none`, with `retry_safe=false` | `restart_query` |
+
+`manifest_mismatch` requires kind `transport_failure`, effect `none`, and recovery `contact_operator`.
+The three input reasons require kind `invalid_input`, effect `none`, recovery `restart_query`, and
+`retry_safe=false`. Unknown reasons fail validation. The adapter's own
+`adapter_contract_version` validates the bootstrap envelope before core invocation.
 
 If an effect may have occurred, adapter returns `operation_conflict`/recovery to
 re-read or reconcile; it never guesses no effect. Raw stderr is bounded diagnostic

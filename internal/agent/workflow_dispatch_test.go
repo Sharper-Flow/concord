@@ -3,6 +3,8 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -41,6 +43,372 @@ func workVersionForWorkflow(t *testing.T, s *store.Store) (int64, error) {
 	var version int64
 	err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id='work-1'`).Scan(&version)
 	return version, err
+}
+
+func TestWorkflowReplayTransactionUsesDurableOwner(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition"})
+	version := seedAgentWorkflow(t, s, grant)
+	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := mutationEnvelope(grant, scopeVersion)
+	input := json.RawMessage(`{"work_id":"work-1","expected_version":` + strconv.FormatInt(version, 10) + `,"action_id":"record_proposal","fields":{"problem":"The bounded problem statement.","affected":["The affected system."],"stakes":"The bounded stakes statement.","user_outcomes":["The expected user outcome."]},"idempotency_key":"tx-replay-owner"}`)
+	first, err := Dispatch(ctx, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: input}, env)
+	if err != nil || first.Outcome != OutcomeOK {
+		t.Fatalf("initial workflow response=%+v err=%v", first, err)
+	}
+	// The boundary preflight sees this row when another request commits after
+	// the initial unlocked lookup. The result copy is not a result owner.
+	if _, err := s.DatabaseForTesting().Exec(`UPDATE idempotency_records SET result_payload='{}',changed_refs='[]' WHERE tool='concord_work_transition' AND operation_kind='workflow_action' AND idempotency_key='tx-replay-owner'`); err != nil {
+		t.Fatal(err)
+	}
+	before := workflowReplayEffectCounts(t, s)
+	commits := s.DurableCommits()
+	var in actionMutationInput
+	if err := json.Unmarshal(input, &in); err != nil {
+		t.Fatal(err)
+	}
+	r := runtime{Store: s, Authority: service, Envelope: env, Tool: "concord_work_transition", Operation: "workflow_action"}
+	var response Envelope
+	var rejected, mutated bool
+	err = store.AuthorizeWorkflowActionAtBoundaryWithPreflightTx(ctx, s, nil, store.WorkflowActionPreflightRequest{WorkID: in.WorkID, ExpectedVersion: in.ExpectedVersion, ActionID: in.ActionID}, nil, fixedTime(), r.workflowActionReplayPreflight(ctx, NewBase(env.RequestID, r.Tool, r.Operation), mutationDigest(r.Tool, r.Operation, env, input), grant, in, &response, &rejected), nil, func(*store.Transaction) error {
+		mutated = true
+		return nil
+	})
+	if mutated || workflowReplayEffectCounts(t, s) != before {
+		t.Fatalf("STOP: transaction replay repeated an effect: mutated=%t before=%+v after=%+v", mutated, before, workflowReplayEffectCounts(t, s))
+	}
+	if rejected {
+		if err == nil || response.Outcome != OutcomeError || response.Error == nil || response.Error.Kind != "malformed_response" {
+			t.Fatalf("STOP: replay did not return a typed refusal: response=%+v err=%v", response, err)
+		}
+		if s.DurableCommits() != commits || replayMetadataCount(t, s, "tx-replay-owner") != 0 {
+			t.Fatal("STOP: refused replay did not roll back")
+		}
+		t.Log("older-binary witness: malformed_response, rollback, no event, operation, attempt or dispatch; replay count unchanged")
+		t.Fatalf("transaction replay returned typed refusal instead of the durable result: %s", response.Error.Message)
+	}
+	if err != nil || response.Outcome != OutcomeOK || !response.Replayed || string(response.Result) != string(first.Result) {
+		t.Fatalf("transaction replay response=%+v err=%v, want original result=%s", response, err, first.Result)
+	}
+	if err := response.Validate(); err != nil {
+		t.Fatalf("replay envelope: %v", err)
+	}
+}
+
+type workflowReplayEffects struct {
+	Events, Operations, Attempts, Dispatches int
+	Version                                  int64
+}
+
+func workflowReplayEffectCounts(t *testing.T, s *store.Store) workflowReplayEffects {
+	t.Helper()
+	var counts workflowReplayEffects
+	for table, target := range map[string]*int{"domain_events": &counts.Events, "durable_operations": &counts.Operations, "worker_attempts": &counts.Attempts} {
+		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM ` + table).Scan(target); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM domain_events WHERE kind=?`, store.WorkerDispatched).Scan(&counts.Dispatches); err != nil {
+		t.Fatal(err)
+	}
+	counts.Version = workflowReplayWorkVersion(t, s)
+	return counts
+}
+
+func TestWorkflowReplayIndexStoresNoResponseCopy(t *testing.T) {
+	t.Parallel()
+	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition"})
+	version := seedAgentWorkflow(t, s, grant)
+	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := mutationEnvelope(grant, scopeVersion)
+	input := json.RawMessage(`{"work_id":"work-1","expected_version":` + strconv.FormatInt(version, 10) + `,"action_id":"record_proposal","fields":{"problem":"The bounded problem statement.","affected":["The affected system."],"stakes":"The bounded stakes statement.","user_outcomes":["The expected user outcome."]},"idempotency_key":"no-response-copy"}`)
+	response, err := Dispatch(context.Background(), s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: input}, env)
+	if err != nil || response.Outcome != OutcomeOK {
+		t.Fatalf("workflow response=%+v err=%v", response, err)
+	}
+	var payload, refs, events string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT result_payload,changed_refs,result_event_ids FROM idempotency_records WHERE idempotency_key='no-response-copy'`).Scan(&payload, &refs, &events); err != nil {
+		t.Fatal(err)
+	}
+	if payload != "{}" || refs != "[]" {
+		t.Fatalf("workflow response copy retained: payload bytes=%d refs=%s", len(payload), refs)
+	}
+	if events == "[]" || len(response.Result) <= len(payload) {
+		t.Fatalf("event references or response lost: events=%s response=%s", events, response.Result)
+	}
+	digest := mutationDigest("concord_work_transition", "workflow_action", env, input)
+	owner, err := store.Step(context.Background(), s, "workflow-"+digest[7:31])
+	if err != nil || owner.ResultKind != store.ResultCompleted || len(owner.ResultPayload) == 0 || len(owner.ChangedRefs) != 1 {
+		t.Fatalf("durable owner=%+v err=%v", owner, err)
+	}
+}
+
+func TestWorkflowReplayOwnerClassifications(t *testing.T) {
+	t.Parallel()
+	for _, vector := range []struct {
+		name, kind, ownerPayload, ownerDigest, scope string
+		missing                                      bool
+		want                                         Outcome
+	}{
+		{name: "completed", kind: "completed", want: OutcomeOK},
+		{name: "pending", kind: "pending", want: OutcomePending},
+		{name: "partial", kind: "partial", want: OutcomePartial},
+		{name: "failed", kind: "failed", want: OutcomePartial},
+		{name: "failed_stale", kind: "failed_stale", want: OutcomePartial},
+		{name: "malformed result", kind: "completed", ownerPayload: "{}", want: OutcomeError},
+		{name: "manifest mismatch", kind: "completed", ownerDigest: "sha256:" + strings.Repeat("0", 64), want: OutcomeError},
+		{name: "missing owner", kind: "completed", missing: true, want: OutcomeError},
+		{name: "unreadable scope", kind: "completed", scope: "not JSON", want: OutcomeError},
+		{name: "unauthorized original scope", kind: "completed", scope: `{"product_id":"another-product","project_ids":["project-1"]}`, want: OutcomeError},
+	} {
+		t.Run(vector.name, func(t *testing.T) {
+			s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition"})
+			version := seedAgentWorkflow(t, s, grant)
+			scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			env := mutationEnvelope(grant, scopeVersion)
+			raw := json.RawMessage(`{"work_id":"work-1","expected_version":4,"action_id":"record_proposal","fields":{"problem":"The bounded problem statement.","affected":["The affected system."],"stakes":"The bounded stakes statement.","user_outcomes":["The expected user outcome."]},"idempotency_key":"owner-classification"}`)
+			opID := seedCurrentWorkflowActionReplay(t, s, env, raw, vector.kind)
+			changed := ChangedRef{EntityKind: "work_item", ID: "work-1", Version: strconv.FormatInt(version, 10)}
+			refs, _ := json.Marshal([]string{`{"entity_kind":"work_item","id":"work-1","version":` + strconv.FormatInt(version, 10) + `}`})
+			payload, _ := json.Marshal(map[string]any{"changed_refs": mutationResultChangedRefs([]ChangedRef{changed}), "next_valid_intents": []any{}, "operation_id": opID})
+			if vector.ownerPayload != "" {
+				payload = []byte(vector.ownerPayload)
+			}
+			if _, err := s.DatabaseForTesting().Exec(`UPDATE durable_operations SET result_payload=?,changed_refs=? WHERE op_id=?`, string(payload), string(refs), opID); err != nil {
+				t.Fatal(err)
+			}
+			if vector.ownerDigest != "" {
+				if _, err := s.DatabaseForTesting().Exec(`UPDATE durable_operations SET contract_digest=? WHERE op_id=?`, vector.ownerDigest, opID); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if vector.missing {
+				if _, err := s.DatabaseForTesting().Exec(`DELETE FROM durable_operations WHERE op_id=?`, opID); err != nil {
+					t.Fatal(err)
+				}
+			}
+			// Historical copies are deliberately misleading. Neither replay path
+			// may use them even when the authoritative result is unavailable.
+			if _, err := s.DatabaseForTesting().Exec(`UPDATE idempotency_records SET result_payload='{"changed_refs":[],"next_valid_intents":[]}',changed_refs='[]' WHERE op_id=?`, opID); err != nil {
+				t.Fatal(err)
+			}
+			if vector.scope != "" {
+				if _, err := s.DatabaseForTesting().Exec(`UPDATE idempotency_records SET authorized_scope_snapshot=? WHERE op_id=?`, vector.scope, opID); err != nil {
+					t.Fatal(err)
+				}
+			}
+			before := workflowReplayEffectCounts(t, s)
+			public, err := Dispatch(context.Background(), s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: raw}, env)
+			if err != nil {
+				t.Fatal(err)
+			}
+			r := runtime{Store: s, Authority: service, Envelope: env, Tool: "concord_work_transition", Operation: "workflow_action"}
+			transaction := workflowTransactionReplay(t, r, grant, raw)
+			if transaction.Outcome != vector.want || transaction.Outcome != public.Outcome {
+				t.Fatalf("transaction=%+v public=%+v want=%s", transaction, public, vector.want)
+			}
+			if vector.want == OutcomeOK && string(transaction.Result) != string(public.Result) {
+				t.Fatalf("transaction result=%s public=%s", transaction.Result, public.Result)
+			}
+			if !sameWorkflowReplayError(transaction.Error, public.Error) || !reflect.DeepEqual(transaction.OperationRef, public.OperationRef) {
+				t.Fatalf("classification mismatch: transaction=%+v public=%+v", transaction, public)
+			}
+			if err := transaction.Validate(); err != nil {
+				t.Fatalf("transaction envelope: %v", err)
+			}
+			if workflowReplayEffectCounts(t, s) != before {
+				t.Fatal("replay changed events, operations, attempts, dispatches or work version")
+			}
+			if vector.want == OutcomeError && replayMetadataCount(t, s, "owner-classification") != 0 {
+				t.Fatal("refused replay changed metadata")
+			}
+		})
+	}
+}
+
+func sameWorkflowReplayError(left, right *TypedError) bool {
+	if left == nil || right == nil {
+		return left == right
+	}
+	return left.Kind == right.Kind && left.RetrySafe == right.RetrySafe && left.EffectState == right.EffectState && reflect.DeepEqual(left.RecoveryAction, right.RecoveryAction)
+}
+
+func workflowTransactionReplay(t *testing.T, r runtime, grant Authority, raw json.RawMessage) Envelope {
+	t.Helper()
+	var in actionMutationInput
+	if err := json.Unmarshal(raw, &in); err != nil {
+		t.Fatal(err)
+	}
+	base := NewBase(r.Envelope.RequestID, r.Tool, r.Operation)
+	var response Envelope
+	var rejected, mutated bool
+	err := store.AuthorizeWorkflowActionAtBoundaryWithPreflightTx(context.Background(), r.Store, nil, store.WorkflowActionPreflightRequest{WorkID: in.WorkID, ExpectedVersion: in.ExpectedVersion, ActionID: in.ActionID}, nil, fixedTime(), r.workflowActionReplayPreflight(context.Background(), base, mutationDigest(r.Tool, r.Operation, r.Envelope, raw), grant, in, &response, &rejected), nil, func(*store.Transaction) error {
+		mutated = true
+		return nil
+	})
+	if mutated {
+		t.Fatal("transaction replay reached the business mutation")
+	}
+	if err != nil && !rejected {
+		return failureEnvelope(base, err)
+	}
+	return response
+}
+
+func TestIdempotencyAuthorityLifetimeReplay(t *testing.T) {
+	t.Parallel()
+	for _, age := range []time.Duration{time.Hour, 30 * 24 * time.Hour, 10 * 365 * 24 * time.Hour} {
+		t.Run(age.String(), func(t *testing.T) {
+			r, grant, raw, first := committedWorkflowReplay(t)
+			stamp := fixedTime().Add(-age).Format(time.RFC3339Nano)
+			if _, err := r.Store.DatabaseForTesting().Exec(`UPDATE idempotency_records SET first_observed_at=?,last_observed_at=? WHERE idempotency_key='retained-replay'`, stamp, stamp); err != nil {
+				t.Fatal(err)
+			}
+			assertWorkflowReplayIdentity(t, r, grant, raw, first)
+			path := r.Store.Path()
+			if err := r.Store.Close(); err != nil {
+				t.Fatal(err)
+			}
+			reopened, err := store.Open(context.Background(), path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer reopened.Close()
+			service := NewService(reopened)
+			service.Now = fixedTime
+			service.ProjectHostProber = r.Authority.ProjectHostProber
+			service.ProjectHostMatcher = r.Authority.ProjectHostMatcher
+			r.Store, r.Authority = reopened, service
+			assertWorkflowReplayIdentity(t, r, grant, raw, first)
+		})
+	}
+}
+
+func TestReplayDeduplicationBackupRestoreRebuild(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	r, grant, raw, first := committedWorkflowReplay(t)
+	ownerID := "workflow-" + mutationDigest(r.Tool, r.Operation, r.Envelope, raw)[7:31]
+	ownerBefore, err := store.Step(ctx, r.Store, ownerID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	indexBefore := workflowReplayIndex(t, r.Store)
+	var watermark int64
+	if err := r.Store.DatabaseForTesting().QueryRow(`SELECT MAX(seq) FROM domain_events`).Scan(&watermark); err != nil {
+		t.Fatal(err)
+	}
+	before, err := store.ReconstructSubjectAt(ctx, r.Store, store.SubjectRef{Type: store.SubjectWorkItem, ID: "work-1"}, watermark, store.PurposeAudit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if workflowReplayIndex(t, r.Store) != indexBefore {
+		t.Fatal("reconstruction modified replay index")
+	}
+	if err := store.RebuildFromLog(ctx, r.Store); err != nil {
+		t.Fatal(err)
+	}
+	backup := filepath.Join(t.TempDir(), "backup.db")
+	if _, err := store.Backup(ctx, r.Store, backup); err != nil {
+		t.Fatal(err)
+	}
+	restoredPath := filepath.Join(t.TempDir(), "restored.db")
+	if _, err := store.RestoreBackup(ctx, backup, restoredPath); err != nil {
+		t.Fatal(err)
+	}
+	restored, err := store.Open(ctx, restoredPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer restored.Close()
+	service := NewService(restored)
+	service.Now = fixedTime
+	service.ProjectHostProber = r.Authority.ProjectHostProber
+	service.ProjectHostMatcher = r.Authority.ProjectHostMatcher
+	r.Store, r.Authority = restored, service
+	if workflowReplayIndex(t, restored) != indexBefore {
+		t.Fatal("rebuild, backup or restore changed replay index")
+	}
+	ownerAfter, err := store.Step(ctx, restored, ownerID)
+	if err != nil || !reflect.DeepEqual(ownerBefore, ownerAfter) {
+		t.Fatalf("durable owner changed: before=%+v after=%+v err=%v", ownerBefore, ownerAfter, err)
+	}
+	after, err := store.ReconstructSubjectAt(ctx, restored, store.SubjectRef{Type: store.SubjectWorkItem, ID: "work-1"}, watermark, store.PurposeAudit)
+	if err != nil || !reflect.DeepEqual(before, after) {
+		t.Fatalf("reconstruction changed after recovery: before=%+v after=%+v err=%v", before, after, err)
+	}
+	assertWorkflowReplayIdentity(t, r, grant, raw, first)
+}
+
+func committedWorkflowReplay(t *testing.T) (runtime, Authority, json.RawMessage, Envelope) {
+	t.Helper()
+	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_transition"})
+	ctx := context.Background()
+	if _, err := pm1fixture.SeedCommittedProductDomain(ctx, s, "product-1", "project-1", t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	definition, err := store.BuiltinWorkflowRegistry().Register(store.BuiltinWorkflowDefinitions()[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Transact(ctx, func(tx *store.Transaction) error {
+		return store.InitializeWorkflowTx(ctx, tx, store.WorkflowInitializationRequest{WorkID: "work-1", Definition: definition, Actor: store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}, Now: fixedTime()})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	version := workflowReplayWorkVersion(t, s)
+	scopeVersion, _, err := s.ScopeVersion(context.Background(), "project-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := mutationEnvelope(grant, scopeVersion)
+	raw := json.RawMessage(`{"work_id":"work-1","expected_version":` + strconv.FormatInt(version, 10) + `,"action_id":"record_proposal","fields":{"problem":"The bounded problem statement.","affected":["The affected system."],"stakes":"The bounded stakes statement.","user_outcomes":["The expected user outcome."]},"idempotency_key":"retained-replay"}`)
+	first, err := Dispatch(context.Background(), s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: raw}, env)
+	if err != nil || first.Outcome != OutcomeOK {
+		t.Fatalf("initial committed action=%+v err=%v", first, err)
+	}
+	return runtime{Store: s, Authority: service, Envelope: env, Tool: "concord_work_transition", Operation: "workflow_action"}, grant, raw, first
+}
+
+func assertWorkflowReplayIdentity(t *testing.T, r runtime, grant Authority, raw json.RawMessage, first Envelope) {
+	t.Helper()
+	before := workflowReplayEffectCounts(t, r.Store)
+	replay, err := Dispatch(context.Background(), r.Store, r.Authority, InvokeRequest{Tool: r.Tool, Operation: r.Operation, Input: raw}, r.Envelope)
+	if err != nil || replay.Outcome != OutcomeOK || !replay.Replayed || string(replay.Result) != string(first.Result) {
+		t.Fatalf("read replay=%+v err=%v", replay, err)
+	}
+	transaction := workflowTransactionReplay(t, r, grant, raw)
+	if transaction.Outcome != OutcomeOK || !transaction.Replayed || string(transaction.Result) != string(first.Result) {
+		t.Fatalf("transaction replay=%+v", transaction)
+	}
+	conflicting := json.RawMessage(strings.Replace(string(raw), "The bounded stakes statement.", "A different stakes statement.", 1))
+	conflict := workflowTransactionReplay(t, r, grant, conflicting)
+	publicConflict, err := Dispatch(context.Background(), r.Store, r.Authority, InvokeRequest{Tool: r.Tool, Operation: r.Operation, Input: conflicting}, r.Envelope)
+	if err != nil || conflict.Error == nil || conflict.Error.Kind != "idempotency_conflict" || publicConflict.Error == nil || publicConflict.Error.Kind != "idempotency_conflict" {
+		t.Fatalf("digest conflict: transaction=%+v public=%+v err=%v", conflict, publicConflict, err)
+	}
+	if workflowReplayEffectCounts(t, r.Store) != before {
+		t.Fatal("replay or conflicting digest produced another effect")
+	}
+}
+
+func workflowReplayIndex(t *testing.T, s *store.Store) string {
+	t.Helper()
+	var row string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT json_array(principal_ref,tool,operation_kind,idempotency_key,canonical_digest,op_id,result_event_ids,result_payload,changed_refs,authorized_scope_snapshot,first_observed_at,last_observed_at,replayed_count) FROM idempotency_records WHERE idempotency_key='retained-replay'`).Scan(&row); err != nil {
+		t.Fatal(err)
+	}
+	return row
 }
 
 func TestWorkflowActionDispatchUsesStrictPreflightAuthApprovalAndReplayPath(t *testing.T) {

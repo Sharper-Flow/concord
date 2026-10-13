@@ -11,6 +11,30 @@
     {
       "kind": "go_test",
       "value": "internal/agent.TestStaleUnchangedScopePermitsReadAndRejectsMutationBeforeAnyEffect"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestWorkflowReplayTransactionUsesDurableOwner"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestWorkflowReplayIndexStoresNoResponseCopy"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestWorkflowReplayOwnerClassifications"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestIdempotencyAuthorityLifetimeReplay"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/agent.TestReplayDeduplicationBackupRestoreRebuild"
+    },
+    {
+      "kind": "go_test",
+      "value": "internal/store.TestReplayNamespacesRemainPartitioned"
     }
   ],
   "id": "TS5",

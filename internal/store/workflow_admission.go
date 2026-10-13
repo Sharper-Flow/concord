@@ -421,43 +421,8 @@ func loadWorkflowAdmissionStateTx(ctx context.Context, q queryer, workID string,
 	} else {
 		state.EvidenceRecoveryRoute = evidenceRecovery
 	}
-	// The operator question reads the active contract's premise, so a
-	// contractless or ambiguous projection has no question to answer.
-	state.PendingOperatorDecision = state.ActiveContracts == 1 && workflowOperatorDecisionPending(definition, currentStep)
-	if state.ActiveContracts == 1 {
-		subjectErr := workflowAcceptedSubjectCurrent(ctx, q, workID)
-		if subjectErr != nil {
-			var failure *Failure
-			if !failureAs(subjectErr, &failure) || failure.Kind != KindStaleRequiresReview {
-				return WorkflowAdmissionState{}, nil, nil, subjectErr
-			}
-			state.AcceptanceDeliverablesMissing = subjectErr
-		}
-	}
-	if state.PendingOperatorDecision {
-		if artifactErr := requireRecordedInvestigationArtifact(ctx, q, workID); artifactErr != nil {
-			var failure *Failure
-			if failureAs(artifactErr, &failure) && failure.Kind == KindMissingEvidence {
-				state.PendingOperatorDecision = false
-			} else {
-				return WorkflowAdmissionState{}, nil, nil, artifactErr
-			}
-		}
-	}
-	if state.PendingOperatorDecision {
-		if action, _ := workflowOperatorQuestionAction(definition, currentStep); action == "confirm_premise" {
-			if deliverablesErr := requireAcceptanceDeliverables(ctx, q, workID); deliverablesErr != nil {
-				// A typed refusal is the confirmation's answer; only an
-				// unreadable projection fails the fold.
-				var failure *Failure
-				if !failureAs(deliverablesErr, &failure) || failure.Kind == KindUnavailable {
-					return WorkflowAdmissionState{}, nil, nil, deliverablesErr
-				}
-				if state.AcceptanceDeliverablesMissing == nil {
-					state.AcceptanceDeliverablesMissing = deliverablesErr
-				}
-			}
-		}
+	if err := loadWorkflowAcceptanceAdmission(ctx, q, workID, definition, &state); err != nil {
+		return WorkflowAdmissionState{}, nil, nil, err
 	}
 	if atComplete := workflowCompleteStepCorrectionStep(definition, currentStep); atComplete {
 		completeCorrection, completeErr := workflowCompleteStepCorrectionAvailable(ctx, q, workID, definition, currentStep, subject)
@@ -482,6 +447,48 @@ func loadWorkflowAdmissionStateTx(ctx context.Context, q queryer, workID string,
 	}
 	state.Mandate = mandate
 	return state, proofRuns, integrationRuns, nil
+}
+
+func loadWorkflowAcceptanceAdmission(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, state *WorkflowAdmissionState) error {
+	// The operator question reads the active contract's premise, so a
+	// contractless or ambiguous projection has no question to answer.
+	state.PendingOperatorDecision = state.ActiveContracts == 1 && workflowOperatorDecisionPending(definition, state.Step)
+	if state.ActiveContracts == 1 {
+		subjectErr := workflowAcceptedSubjectCurrent(ctx, q, workID)
+		if subjectErr != nil {
+			var failure *Failure
+			if !failureAs(subjectErr, &failure) || failure.Kind != KindStaleRequiresReview {
+				return subjectErr
+			}
+			state.AcceptanceDeliverablesMissing = subjectErr
+		}
+	}
+	if !state.PendingOperatorDecision {
+		return nil
+	}
+	if artifactErr := requireRecordedInvestigationArtifact(ctx, q, workID); artifactErr != nil {
+		var failure *Failure
+		if failureAs(artifactErr, &failure) && failure.Kind == KindMissingEvidence {
+			state.PendingOperatorDecision = false
+			return nil
+		}
+		return artifactErr
+	}
+	if action, _ := workflowOperatorQuestionAction(definition, state.Step); action != "confirm_premise" {
+		return nil
+	}
+	if deliverablesErr := requireAcceptanceDeliverables(ctx, q, workID); deliverablesErr != nil {
+		// A typed refusal is the confirmation's answer; only an
+		// unreadable projection fails the fold.
+		var failure *Failure
+		if !failureAs(deliverablesErr, &failure) || failure.Kind == KindUnavailable {
+			return deliverablesErr
+		}
+		if state.AcceptanceDeliverablesMissing == nil {
+			state.AcceptanceDeliverablesMissing = deliverablesErr
+		}
+	}
+	return nil
 }
 
 // workflowCorrectionWindowContinued reports whether a converged retry already

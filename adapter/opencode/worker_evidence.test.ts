@@ -324,3 +324,46 @@ test("completion refuses to sign without packetDigest", async () => {
   expect(result.error?.message).toContain("packet digest")
   expect(recorded).toHaveLength(0)
 })
+
+// Vector structure is not production signer parity or observation authenticity.
+type WorkerEvidenceVectorV2Case = {
+  verb: string
+  bound_fields: string[]
+  canonical_base64: string
+  assertion: { version: number; observation_digest: string; verb: string } & Record<string, unknown>
+}
+
+const v2VectorCases = (workerEvidenceVector as { v2_cases: WorkerEvidenceVectorV2Case[] }).v2_cases
+const V2_PREFIX = Buffer.from("worker-evidence-v2\0", "binary")
+
+test("v2 vector cases declare well-formed worker-evidence-v2 vector structure", () => {
+  expect(Array.isArray(v2VectorCases)).toBe(true)
+  expect(v2VectorCases.length).toBeGreaterThan(0)
+  const wantOrder = [
+    "client_ref", "verb", "work_id", "attempt_id", "lane_id", "lane_version",
+    "lane_digest", "readback_model", "failure_kind", "host_provenance_digest",
+    "packet_digest", "observation_digest", "issued_at", "nonce",
+  ]
+  for (const vectorCase of v2VectorCases) {
+    const raw = Buffer.from(vectorCase.canonical_base64, "base64")
+    expect(Buffer.compare(raw.subarray(0, V2_PREFIX.length), V2_PREFIX)).toBe(0)
+    const segments = raw.subarray(V2_PREFIX.length).toString("binary").split("|").filter((segment) => segment.length > 0)
+    const names = segments.map((segment) => segment.slice(0, segment.indexOf("=")))
+    expect(names).toEqual(wantOrder)
+    const signed: Record<string, string> = {}
+    for (const segment of segments) {
+      const name = segment.slice(0, segment.indexOf("="))
+      const declared = Number(segment.slice(segment.indexOf("=") + 1, segment.indexOf(":")))
+      const value = segment.slice(segment.indexOf(":") + 1)
+      expect(Buffer.byteLength(value, "utf8")).toBe(declared)
+      signed[name] = value
+    }
+    expect(signed["observation_digest"]).toMatch(/^sha256:[0-9a-f]{64}$/)
+    expect(vectorCase.assertion.version).toBe(2)
+    expect(vectorCase.assertion.observation_digest).toMatch(/^sha256:[0-9a-f]{64}$/)
+    expect(vectorCase.assertion.observation_digest).toBe(signed["observation_digest"])
+    expect(vectorCase.assertion.verb).toBe(vectorCase.verb)
+    expect(vectorCase.bound_fields).toContain("version")
+    expect(vectorCase.bound_fields).toContain("observation_digest")
+  }
+})

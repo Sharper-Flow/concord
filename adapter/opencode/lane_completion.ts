@@ -38,7 +38,7 @@ export interface LaneCompletionDeps {
   sessionReader?: SessionReader
   concordBinary?: string
   signal?: AbortSignal
-  providerCauses?: ProviderCauses
+  hostObservations?: HostFailureObservations
 }
 
 // The element the coordinator reads after the host's task wrapper. It carries
@@ -120,105 +120,118 @@ function object(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value)
 }
 
-// The host ends a provider-broken worker with the bare tool string "Task
-// cancelled", so the recorded failure detail loses the cause. The cause rides
-// the same event stream this module already drains: session.status retry
-// events carry the provider message the host retried on, and the child
-// session's terminal message carries a typed info.error. This hold keeps the
-// last observed cause per session identity until the cancelled Task settles,
-// so the failure record can name a rate limit instead of a bare cancel.
-//
-// The hold is keyed by session identity because a retry event and the
-// cancelled tool part name no shared call: the child session id is the only
-// join. Events for every session in this process pass through, so the hold is
-// capacity-bounded with oldest-entry eviction, and a settle consumes the entry
-// it read.
-export class ProviderCauses {
-  static readonly CAPACITY = 64
-  readonly #held = new Map<string, { retry?: string; info?: string }>()
+// Host observations describe transient source events, not cancellation causes.
+export interface HostFailureObservation {
+  tag: "retry" | "terminal"
+  event_type: "session.status" | "message.updated"
+  session_id: string
+  message_id?: string
+  error_name?: string
+  status_code?: number
+  retry_attempt?: number
+  next_retry?: number
+  message: string
+  source_digest: string
+}
 
-  record(sessionID: string, cause: { source: "retry"; message: string } | { source: "info"; message: string }): void {
-    const held = this.#held.get(sessionID) ?? {}
-    if (cause.source === "retry") held.retry = cause.message
-    else held.info = cause.message
-    // Re-insert to refresh recency, so a live worker session's cause survives
-    // eviction over idle identities.
-    this.#held.delete(sessionID)
-    this.#held.set(sessionID, held)
-    while (this.#held.size > ProviderCauses.CAPACITY) {
+const MAX_HOST_OBSERVATION_BYTES = 2_048
+const MAX_HOST_OBSERVATION_REF_BYTES = 128
+
+// One latest observation per source kind and child session. Settlement consumes
+// both sources; no message preference can turn a prior retry into a terminal fault.
+export class HostFailureObservations {
+  static readonly CAPACITY = 64
+  readonly #held = new Map<string, HostFailureObservation[]>()
+
+  record(input: Omit<HostFailureObservation, "source_digest">): void {
+    const held = (this.#held.get(input.session_id) ?? []).filter((entry) => entry.tag !== input.tag)
+    if (held.length > 0) this.#held.set(input.session_id, held)
+    else this.#held.delete(input.session_id)
+    if (!boundedObservationText(input.session_id, MAX_HOST_OBSERVATION_REF_BYTES, true)
+      || !boundedObservationText(input.message, MAX_HOST_OBSERVATION_BYTES, true)
+      || (input.message_id !== undefined && !boundedObservationText(input.message_id, MAX_HOST_OBSERVATION_REF_BYTES, true))
+      || (input.error_name !== undefined && !boundedObservationText(input.error_name, MAX_HOST_OBSERVATION_REF_BYTES, true))) return
+    if (input.status_code !== undefined && (!Number.isInteger(input.status_code) || input.status_code < 100 || input.status_code > 599)) return
+    if (input.tag === "retry") {
+      if (input.event_type !== "session.status" || input.message_id !== undefined || input.error_name !== undefined || input.status_code !== undefined) return
+      if (input.retry_attempt !== undefined && (!Number.isSafeInteger(input.retry_attempt) || input.retry_attempt < 1)) return
+      if (input.next_retry !== undefined && (!Number.isSafeInteger(input.next_retry) || input.next_retry < 0)) return
+    } else if (input.tag === "terminal") {
+      if (input.event_type !== "message.updated" || input.retry_attempt !== undefined || input.next_retry !== undefined) return
+    } else return
+    const source = {
+      tag: input.tag, event_type: input.event_type, session_id: input.session_id,
+      ...(input.message_id !== undefined ? { message_id: input.message_id } : {}),
+      ...(input.error_name !== undefined ? { error_name: input.error_name } : {}),
+      ...(input.status_code !== undefined ? { status_code: input.status_code } : {}),
+      message: input.message,
+      ...(input.retry_attempt !== undefined ? { retry_attempt: input.retry_attempt } : {}),
+      ...(input.next_retry !== undefined ? { next_retry: input.next_retry } : {}),
+    }
+    const source_digest = `sha256:${createHash("sha256").update(JSON.stringify(source)).digest("hex")}`
+    this.#held.delete(input.session_id)
+    this.#held.set(input.session_id, [...held, { ...source, source_digest }])
+    while (this.#held.size > HostFailureObservations.CAPACITY) {
       const oldest = this.#held.keys().next().value
       if (oldest === undefined) break
       this.#held.delete(oldest)
     }
   }
 
-  // take returns the session's provider cause — a retry message when one was
-  // observed, otherwise the terminal message error — and drops the entry, so
-  // one cancelled Task consumes one cause exactly once.
-  take(sessionID: string): string | null {
-    const held = this.#held.get(sessionID)
-    if (!held) return null
+  take(sessionID: string): HostFailureObservation[] {
+    const held = this.#held.get(sessionID) ?? []
     this.#held.delete(sessionID)
-    return held.retry ?? held.info ?? null
+    return held.map((entry) => ({ ...entry }))
   }
 }
 
-// sharedProviderCauses backs the production plugin: the event hook and the
-// cancelled-Task settle path run in the same module graph, so one instance
-// joins them without another shared mutable surface.
-const sharedProviderCauses = new ProviderCauses()
+function boundedObservationText(value: string, bytes: number, nonempty: boolean): boolean {
+  return (!nonempty || value.length > 0) && Buffer.byteLength(value, "utf8") <= bytes && Buffer.from(value, "utf8").toString("utf8") === value
+}
 
-// observeProviderCause records the provider cause an event carries, if any.
-// Event shapes follow the host's own event contract (EventSessionStatus and
-// EventMessageUpdated): a retry status carries the provider message verbatim,
-// and a message info error is a typed { name, data } record. An abort marker
-// is deliberately not a cause: the cancel string this module appends to must
-// say what ended the worker, and MessageAbortedError names the operator's
-// interrupt, not the provider fault the distinction exists to keep.
-function observeProviderCause(causes: ProviderCauses, event: Record<string, unknown>): void {
+const sharedHostObservations = new HostFailureObservations()
+
+function observeHostFailure(observations: HostFailureObservations, event: Record<string, unknown>): void {
   const properties = event.properties
   if (!object(properties)) return
   if (event.type === "session.status") {
     const status = properties.status
-    if (typeof properties.sessionID === "string" && object(status) && status.type === "retry" && typeof status.message === "string" && status.message.length > 0) {
-      causes.record(properties.sessionID, { source: "retry", message: status.message })
+    if (typeof properties.sessionID !== "string" || !object(status)) return
+    if (status.type === "retry" && typeof status.message === "string") {
+      observations.record({
+        tag: "retry", event_type: "session.status", session_id: properties.sessionID, message: status.message,
+        ...(typeof status.attempt === "number" ? { retry_attempt: status.attempt } : {}),
+        ...(typeof status.next === "number" ? { next_retry: status.next } : {}),
+      })
     }
     return
   }
   if (event.type === "message.updated") {
     const info = properties.info
-    if (object(info) && typeof info.sessionID === "string" && object(info.error) && info.error.name !== "MessageAbortedError") {
-      const message = providerErrorDiagnostic(info.error)
-      if (message !== null) causes.record(info.sessionID, { source: "info", message })
-    }
+    if (!object(info) || typeof info.sessionID !== "string" || !object(info.error) || info.error.name === "MessageAbortedError") return
+    const error = info.error
+    const data = object(error.data) ? error.data : undefined
+    const message = typeof data?.message === "string" ? data.message : typeof error.message === "string" ? error.message : typeof error.name === "string" ? error.name : undefined
+    if (message === undefined) return
+    observations.record({
+      tag: "terminal", event_type: "message.updated", session_id: info.sessionID, message,
+      ...(typeof info.id === "string" ? { message_id: info.id } : {}),
+      ...(typeof error.name === "string" ? { error_name: error.name } : {}),
+      ...(typeof data?.statusCode === "number" ? { status_code: data.statusCode } : {}),
+    })
   }
 }
 
-// providerErrorDiagnostic renders a typed message info error as one line:
-// the error name when the shape carries one, then its message. Returns null
-// when the record carries nothing readable.
-function providerErrorDiagnostic(error: Record<string, unknown>): string | null {
-  const name = typeof error.name === "string" && error.name.length > 0 ? error.name : undefined
-  const data = object(error.data) && typeof error.data.message === "string" && error.data.message.length > 0 ? error.data.message : undefined
-  const message = data ?? (typeof error.message === "string" && error.message.length > 0 ? error.message : undefined)
-  if (message === undefined) return name ?? null
-  return name === undefined || name === message ? message : `${name}: ${message}`
-}
-
-// The bare host cancel string the task tool leaves on an ended worker. Only
-// this string hides its cause; any other terminal part error already carries
-// one and stays verbatim.
+// Preserve other host terminal diagnostics verbatim.
 const TASK_CANCELLED_ERROR = "Task cancelled"
-// The appended cause is bounded so both the cancel string and the cause
-// survive the worker-fail detail fold's own 4096-byte bound intact.
-const MAX_PROVIDER_CAUSE_BYTES = 2_048
 
-// cancelledDetail appends the held provider cause to the bare host cancel
-// string. A cause observed for another session, or none at all, leaves the
-// detail exactly as the host wrote it.
-function cancelledDetail(error: string, cause: string | null): string {
-  if (error !== TASK_CANCELLED_ERROR || cause === null) return error
-  return `${error}; provider error during the worker session: ${boundedTextPrefix(cause, MAX_PROVIDER_CAUSE_BYTES)}`
+// Rendering observations does not assert that either source caused cancellation.
+function cancelledDetail(error: string, observations: HostFailureObservation[]): string {
+  if (error !== TASK_CANCELLED_ERROR) return error
+  return error + observations.map((entry) => {
+    const diagnostic = entry.error_name && entry.error_name !== entry.message ? `${entry.error_name}: ${entry.message}` : entry.message
+    return `; host ${entry.tag} observation: ${diagnostic}`
+  }).join("")
 }
 
 // Cancellation can end Task without tool.execute.after. Consume only the
@@ -229,11 +242,9 @@ function cancelledDetail(error: string, cause: string | null): string {
 // failSpawnWithoutPartEvent below.
 export async function failDispatchedWorker(event: unknown, deps: LaneCompletionDeps = {}): Promise<AgentResultEnvelope | null> {
   if (!object(event) || !object(event.properties)) return null
-  // Every host event reaches this entry through the plugin's event hook, so
-  // the provider cause a retry or terminal message carries is held here for
-  // the cancelled Task that may settle later on the same stream.
-  const causes = deps.providerCauses ?? sharedProviderCauses
-  observeProviderCause(causes, event)
+  // Transient observations stay separate until the exact child Task settles.
+  const observations = deps.hostObservations ?? sharedHostObservations
+  observeHostFailure(observations, event)
   if (event.type === "session.error") return failSpawnWithoutPartEvent(event.properties, deps)
   if (event.type !== "message.part.updated") return null
   const part = event.properties.part
@@ -252,11 +263,15 @@ export async function failDispatchedWorker(event: unknown, deps: LaneCompletionD
   if (!windows.claimSettlement(part.sessionID, part.callID)) return null
   const sessionID = part.sessionID
   const callID = part.callID
-  const detail = cancelledDetail(state.error, causes.take(metadata.sessionId))
+  const observed = observations.take(metadata.sessionId)
+  const detail = cancelledDetail(state.error, observed)
   try {
     const envelope = await failWorkerAttempt(lane, pending.packet, metadata.sessionId, detail, {
       credentials: deps.credentials, runner: deps.runner, evidenceRunner: deps.evidenceRunner, sessionReader: deps.sessionReader, concordBinary: deps.concordBinary, packetDigest: pending.packetDigest, workerDirectory: pending.workerDirectory, capturedProvenance: pending.provenance,
     }, deps.signal ?? new AbortController().signal, () => windows.finishSettlement(sessionID, callID))
+    if (envelope.error && observed.length > 0) {
+      envelope.error.details = { ...envelope.error.details, host_observations: observed }
+    }
     // A recorded failure already dropped the record with its claim. A refused
     // write left the record retained: the claim releases into the refused
     // state, so a repeat event cannot re-attempt the write and the

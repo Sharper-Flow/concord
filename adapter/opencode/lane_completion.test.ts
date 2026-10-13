@@ -9,7 +9,7 @@ import ConcordAdapterPlugin from "./concord-plugin"
 import { computeHostPromptProvenance, type AgentLanePacket, type DispatchRunner, type HostProvenance } from "./dispatch"
 import { DispatchWindows, TASK_TOOL_ID } from "./dispatch-window"
 import { agentLanes } from "./generated-agent-lanes"
-import { completeDispatchedWorker, failDispatchedWorker, ProviderCauses, type LaneCompletionDeps } from "./lane_completion"
+import { completeDispatchedWorker, failDispatchedWorker, HostFailureObservations, type LaneCompletionDeps } from "./lane_completion"
 import { hostControlPlane, SESSION_LIST_ROUTE, type SessionReader } from "./move-session"
 import type { CredentialStore } from "./credentials"
 
@@ -622,18 +622,15 @@ describe("host task failure", () => {
     expect(windows.inFlight(SESSION, "call-cancel")).toBeNull()
   })
 
-  // The host ends a provider-broken worker with the bare tool string "Task
-  // cancelled", so the provider cause must ride the event stream: a
-  // session.status retry event carries the provider message, and the settle
-  // appends the cause held for the child session to the recorded detail. The
-  // coordinator can then tell a rate limit from an interrupt or a crash.
+  // Retry and terminal errors remain separate host observations; neither message
+  // alone establishes what caused the Task cancellation.
   const cancelledSettleDeps = (windows: DispatchWindows, runner: DispatchRunner): LaneCompletionDeps => ({
     windows,
     credentials: testCredentials,
     runner,
     sessionReader: readerFor(exportedSession()),
     concordBinary: "concord",
-    providerCauses: new ProviderCauses(),
+    hostObservations: new HostFailureObservations(),
   })
 
   const workerFailRunner = (failureInput: { value?: Record<string, unknown> }): DispatchRunner => ({
@@ -661,7 +658,7 @@ describe("host task failure", () => {
     const result = await failDispatchedWorker(failedEvent(), options)
     expect(result?.error?.kind).toBe("error")
     expect(failureInput.value?.failure_kind).toBe("worker_error")
-    expect(failureInput.value?.detail).toBe("Task cancelled; provider error during the worker session: AI_APICallError: Rate limit reached for requests")
+    expect(failureInput.value?.detail).toBe("Task cancelled; host retry observation: AI_APICallError: Rate limit reached for requests")
     expect(windows.inFlight(SESSION, "call-cancel")).toBeNull()
   })
 
@@ -680,7 +677,7 @@ describe("host task failure", () => {
     const result = await failDispatchedWorker(failedEvent(), options)
     expect(result?.error?.kind).toBe("error")
     expect(failureInput.value?.failure_kind).toBe("worker_error")
-    expect(failureInput.value?.detail).toBe("Task cancelled; provider error during the worker session: APIError: Rate limit reached for requests")
+    expect(failureInput.value?.detail).toBe("Task cancelled; host terminal observation: APIError: Rate limit reached for requests")
     expect(windows.inFlight(SESSION, "call-cancel")).toBeNull()
   })
 
@@ -915,3 +912,65 @@ describe("plugin entry registers the completion hook", () => {
 // placeholder; the suite's files share one process in an order no file
 // controls, so this file leaves the lease state clean.
 afterAll(() => configureHostLease({ reset: true }))
+
+describe("structured host failure observations", () => {
+  test("retry and terminal observations retain their distinct source fields", async () => {
+    const observations = new HostFailureObservations()
+    const options = { hostObservations: observations }
+    await failDispatchedWorker({ type: "session.status", properties: {
+      sessionID: WORKER_SESSION, status: { type: "retry", attempt: 1, message: "retry observed", next: 3 },
+    } }, options)
+    await failDispatchedWorker({ type: "message.updated", properties: { info: {
+      id: "message-error", sessionID: WORKER_SESSION, error: {
+        name: "APIError", data: { message: "terminal error observed", statusCode: 429, isRetryable: false, responseBody: "not retained" },
+      },
+    } } }, options)
+    expect(observations.take(WORKER_SESSION)).toEqual([
+      { tag: "retry", event_type: "session.status", session_id: WORKER_SESSION, message: "retry observed", retry_attempt: 1, next_retry: 3, source_digest: expect.stringMatching(/^sha256:[a-f0-9]{64}$/) },
+      { tag: "terminal", event_type: "message.updated", session_id: WORKER_SESSION, message_id: "message-error", error_name: "APIError", status_code: 429, message: "terminal error observed", source_digest: expect.stringMatching(/^sha256:[a-f0-9]{64}$/) },
+    ])
+    expect(observations.take(WORKER_SESSION)).toEqual([])
+  })
+
+  test("an oversized observation refuses whole without a truncated diagnostic", async () => {
+    const observations = new HostFailureObservations()
+    await failDispatchedWorker({ type: "session.status", properties: {
+      sessionID: WORKER_SESSION, status: { type: "retry", message: "🎉".repeat(513) },
+    } }, { hostObservations: observations })
+    expect(observations.take(WORKER_SESSION)).toEqual([])
+  })
+
+  test("busy and idle status do not erase a prior retry observation", async () => {
+    const observations = new HostFailureObservations()
+    const options = { hostObservations: observations }
+    await failDispatchedWorker({ type: "session.status", properties: {
+      sessionID: WORKER_SESSION, status: { type: "retry", message: "retry observed" },
+    } }, options)
+    await failDispatchedWorker({ type: "session.status", properties: {
+      sessionID: WORKER_SESSION, status: { type: "busy" },
+    } }, options)
+    await failDispatchedWorker({ type: "session.status", properties: {
+      sessionID: WORKER_SESSION, status: { type: "idle" },
+    } }, options)
+    expect(observations.take(WORKER_SESSION)).toEqual([
+      expect.objectContaining({ tag: "retry", message: "retry observed" }),
+    ])
+  })
+
+  test("a consumed observation cannot cross a child-session identity", async () => {
+    const observations = new HostFailureObservations()
+    await failDispatchedWorker({ type: "message.updated", properties: { info: {
+      id: "message-error", sessionID: "ses_otherchild", error: { name: "APIError", data: { message: "other child fault", statusCode: 503 } },
+    } } }, { hostObservations: observations })
+    expect(observations.take(WORKER_SESSION)).toEqual([])
+    expect(observations.take("ses_otherchild")).toEqual([expect.objectContaining({ tag: "terminal", session_id: "ses_otherchild", message_id: "message-error", status_code: 503 })])
+  })
+
+  test("an invalid typed error code does not manufacture valid provider evidence", async () => {
+    const observations = new HostFailureObservations()
+    await failDispatchedWorker({ type: "message.updated", properties: { info: {
+      id: "message-error", sessionID: WORKER_SESSION, error: { name: "APIError", data: { message: "invalid code", statusCode: 700 } },
+    } } }, { hostObservations: observations })
+    expect(observations.take(WORKER_SESSION)).toEqual([])
+  })
+})

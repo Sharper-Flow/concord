@@ -2494,7 +2494,7 @@
         },
         "shared_affected_domain_ids": {
           "type": "array",
-          "minItems": 1,
+          "minItems": 0,
           "maxItems": 20,
           "uniqueItems": true,
           "items": {
@@ -8861,7 +8861,7 @@
         },
         "shared_domain_ids": {
           "type": "array",
-          "minItems": 1,
+          "minItems": 0,
           "maxItems": 32,
           "items": {
             "$ref": "#/$defs/id"

@@ -290,19 +290,18 @@ binding stays reserved for Product-changing contracts regardless of tier.
 
 ### D6. Architectural overlap is explicit before concurrent work proceeds
 
-For each nonterminal Product-changing work item that has started execution,
-Concord derives its active architecture footprint from the approved contract.
-An approved contract that has not started execution has no active footprint and
-does not block a peer. Two executing items block execution authority only when
-at least one exact write intersection exists: shared law additions or
-modifications, shared Domain modifications, or shared Domain-relation
-modifications. A shared `affected_domain_ids` value alone is architecture
-proximity and does not block execution authority.
+Concord derives a prospective architecture footprint from the subject's single
+approved contract. Active peer footprints belong only to nonterminal
+Product-changing items whose workflow instance has started execution. An approved
+but unstarted peer does not block. A subject claiming execution checks its
+prospective footprint against started peers before it gains authority.
 
-The derived overlap detail retains the shared affected Domains and marks the
-architecture class when a blocking write overlap also shares a Domain. Only a
-blocking write overlap requires a resolution before both items may hold
-execution authority.
+An overlap blocks only for an exact shared law addition or modification, Domain
+modification, or canonical Domain-relation tuple. Shared affected Domains alone
+require zero resolutions. Detail retains shared affected Domains and the three
+write classes: `law_write`, `domain_write`, and `domain_relation_write`.
+`concord_domain.overlaps` reports the pairs admission checks (exact shared write,
+at least one execution-started side) with admission's resolution freshness.
 The closed resolutions are:
 
 | Resolution | Record |
@@ -313,15 +312,21 @@ The closed resolutions are:
 | One intent replaces the other | `supersedes` |
 | One item ends | terminal lifecycle state |
 
-An overlap resolution records both work IDs and both approved contract versions.
-Changing either contract makes the resolution stale. An agent may explain an
-overlap and draft a resolution; only the operator may approve compatibility,
-merger, supersession, or a sequence that changes Product scope.
+An overlap resolution records both work IDs and the contract versions the
+judgment used. Those version pins remain immutable audit inputs. A later contract
+revision stales the resolution only if it changes a judged field: affected
+Domains, law additions or modifications, Domain modifications, or Domain-relation
+modifications. Set order alone is not a change. Law additions retain their
+home-Domain identity. An invalidated resolution does not become current when
+content later reverts. Reopen retains its independent invalidation duty.
 
-This is deliberately conservative. Same-Domain work may be compatible, but
-Concord records that conclusion rather than assuming it. The cost is a bounded
-decision; the avoided failure is two agents independently enacting contradictory
-Product truth.
+`compatible_with`, `blocks`, `merged_into`, and `supersedes` require operator
+approval for the exact pair, direction, consequence, and versions. `depends_on`
+needs no operator approval when it yields only the declarer's place: the declarer
+waits and the named leading peer proceeds. It cannot approve compatibility,
+change another item's identity, or authorize a sequence that changes Product
+scope. Scope-changing decisions still require the operator. All current-version
+checks for new resolutions remain.
 
 ### D7. Revalidation is transactional at every consequential action
 
@@ -468,12 +473,17 @@ graph. Product law approval does not authorize live-state cutover.
 
 ## Required conformance
 
-1. Two work items with overlapping affected Domains cannot both enter execution
-   without a current, version-pinned resolution.
+1. Two items with an exact shared write cannot both gain execution authority
+   without a current compatible resolution. An execution claimant checks all
+   started same-Product peers, including peers in another Project or repository.
+   Proximity alone requires zero answers.
 2. Subject to D7's compatible-amendment rule, two contracts approved against the same law revision and landed sequentially
    cannot admit a jointly contradictory second result after the first changes the
    governing law or architecture graph.
-3. Revising either contract invalidates an existing compatibility decision.
+3. A revision changing judged content invalidates the prior judgment; a
+   content-neutral revision preserves it with its original recorded contract
+   versions. Reordering a set does not invalidate. A changed-then-reverted or
+   reopened claim cannot revive an invalidated resolution.
 4. A new overlap introduced while one item is executing blocks its next
    checkpoint/result acceptance without killing the host process.
 5. Every current spec and decision resolves to one home Domain; dangling or

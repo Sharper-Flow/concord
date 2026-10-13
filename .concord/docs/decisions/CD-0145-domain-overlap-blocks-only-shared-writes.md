@@ -28,9 +28,10 @@ Domain-relation tuple. A shared affected Domain without a shared write does not
 block and does not require an operator-approved resolution.
 
 The overlap projection still computes shared affected Domains, shared law IDs,
-shared Domain modifications, and shared relation tuples. A blocking pair keeps
-the `architecture` class when it also shares an affected Domain, so refusal
-detail continues to describe the complete bounded surface.
+shared Domain modifications, and shared relation tuples. A blocking pair carries
+the `law_write`, `domain_write`, and `domain_relation_write` classes for its
+nonempty write intersections. Refusal detail describes the complete bounded
+surface.
 
 ### D2. Existing resolutions remain immutable history
 

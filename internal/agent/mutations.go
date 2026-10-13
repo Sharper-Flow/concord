@@ -2246,9 +2246,10 @@ func (r *runtime) refuseWhenCallingRepositoryDiffers(ctx context.Context, base E
 	// session opened through concord_work_start with the work and Project
 	// identities the message carries.
 	refused := coreErrorAction(base, string(store.KindCrossRepositoryClaim),
-		fmt.Sprintf("worktree_claim target Project %s lives in %s, but the calling session runs in %s; the host refuses a move across repositories, so one coordinator session per repository drives this Project from its own repository. Start a coordinator session in %s and resume this work there with concord_work_start carrying work_id %s and project_id %s",
-			projectID, targetRepo, callingRepo, targetRepo, workID, projectID),
+		fmt.Sprintf("worktree_claim target Project %s belongs to another repository; the host refuses a move across repositories, so one coordinator session per repository drives this Project from its own repository. Start a coordinator session in %s and resume this work there with concord_work_start carrying work_id %s and project_id %s",
+			projectID, projectRepo, workID, projectID),
 		RecoveryAction{Kind: "use_declared_route", RequiredRefs: []string{"concord_work_start"}}, false, nil)
+	refused.Error.SessionPlacement = &SessionPlacement{WorkID: workID, ProjectID: projectID, Directory: projectRepo}
 	return &refused
 }
 

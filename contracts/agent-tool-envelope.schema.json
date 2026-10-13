@@ -1560,6 +1560,16 @@
             "type": "string"
           }
         },
+        "session_placement": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["work_id", "project_id", "directory"],
+          "properties": {
+            "work_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+            "project_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+            "directory": { "type": "string", "minLength": 1, "maxLength": 4096, "pattern": "^/[^\\x00]*$" }
+          }
+        },
         "stale_law_revision": {
           "type": "object",
           "additionalProperties": false,
@@ -2084,6 +2094,23 @@
               }
             }
           }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "cross_repository_claim"
+              }
+            },
+            "required": ["kind"]
+          },
+          "then": {
+            "required": ["session_placement"],
+            "properties": {
+              "recovery_action": { "properties": { "kind": { "const": "use_declared_route" } } }
+            }
+          },
+          "else": { "not": { "required": ["session_placement"] } }
         },
         {
           "if": {

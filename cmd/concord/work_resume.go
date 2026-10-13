@@ -17,11 +17,11 @@ type workResumeInput struct {
 }
 
 type workResumeOutput struct {
-	SchemaVersion string            `json:"schema_version"`
-	ProductID     string            `json:"product_id"`
-	ProjectID     string            `json:"project_id"`
-	WorkID        string            `json:"work_id"`
-	Worktree      workBootstrapTree `json:"worktree"`
+	SchemaVersion string         `json:"schema_version"`
+	ProductID     string         `json:"product_id"`
+	ProjectID     string         `json:"project_id"`
+	WorkID        string         `json:"work_id"`
+	Worktree      workResumeTree `json:"worktree"`
 	// LinearIssue is the locally recorded identity, not remote planning state.
 	LinearIssue *linearIssueSection `json:"linear_issue,omitempty"`
 	// BranchFreshness reports how far the worktree's branch sits behind the
@@ -43,6 +43,11 @@ type linearIssueSection struct {
 	HumanKey        string `json:"human_key"`
 	RemoteIssueUUID string `json:"remote_issue_uuid"`
 	URL             string `json:"url"`
+}
+
+type workResumeTree struct {
+	workBootstrapTree
+	store.WorktreeRestoration
 }
 
 // projectHandoffSection is the boot/resume projection of one addressed
@@ -136,9 +141,17 @@ func runWorkResume(raw []byte, s *store.Store, out, errOut io.Writer) int {
 			return storeFailureExit(err)
 		}
 	}
+	restoration, err := s.RestoreResumeWorktree(ctx, input.WorkID, entry, nil)
+	if err != nil {
+		writeOperatorDiagnostic(errOut, "work-resume", err.Error())
+		return storeFailureExit(err)
+	}
 	output := workResumeOutput{
 		SchemaVersion: "1.0", ProductID: input.ProductID, ProjectID: input.ProjectID, WorkID: input.WorkID,
-		Worktree: workBootstrapTree{SetID: entry.SetID, Branch: entry.Branch, BaseSHA: entry.BaseSHA, Path: entry.Path, State: entry.State},
+		Worktree: workResumeTree{
+			workBootstrapTree:   workBootstrapTree{SetID: entry.SetID, Branch: entry.Branch, BaseSHA: entry.BaseSHA, Path: entry.Path, State: entry.State},
+			WorktreeRestoration: restoration,
+		},
 	}
 	link, err := s.ReadLinearLink(ctx, input.WorkID)
 	if err != nil {

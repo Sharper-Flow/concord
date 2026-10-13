@@ -212,7 +212,7 @@ describe("consumeAddressedProjectHandoff", () => {
     await fakeHost(coreRunner(refusalAnswer("operation_conflict", "answer lost", "retry_same_request"), captured, false, "concord core answer lost in transit\n"))
     const out = await consumeAddressedProjectHandoff("work-1", renderedHandoffID, context(), landingTransport())
     expect(out.consumed).toBe(false)
-    expect(out.message).toContain("malformed_response")
+    expect(out.message).toContain("operation_conflict")
     expect(out.handoffID).toBe("")
   })
 

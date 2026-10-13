@@ -525,26 +525,8 @@ func (e Envelope) validateError() error {
 	if e.Origin == OriginAdapter && e.Error.AdapterReason == "" {
 		return errors.New("adapter error reason missing")
 	}
-	if e.Origin == OriginAdapter {
-		allowedKinds := map[string]bool{"transport_failure": true, "malformed_response": true, "timeout": true, "cancelled": true, "operation_conflict": true, "invalid_input": true}
-		if !allowedKinds[e.Error.Kind] {
-			return errors.New("adapter error kind is not transport-safe")
-		}
-		if e.Error.AdapterReason == "manifest_mismatch" || e.Error.AdapterReason == "grant_bootstrap_failed" {
-			if e.Error.Kind != "transport_failure" {
-				return errors.New("adapter bootstrap failure must be transport_failure")
-			}
-		}
-	}
 	if e.Origin == OriginCore && e.Error.AdapterReason != "" {
 		return errors.New("core error contains adapter reason")
-	}
-	adapterRecovery := "contact_operator"
-	if e.Error.Kind == "invalid_input" {
-		adapterRecovery = "restart_query"
-	}
-	if e.Origin == OriginAdapter && (e.Error.EffectState != EffectNone || e.Error.RecoveryAction.Kind != adapterRecovery) {
-		return errors.New("adapter error effect or recovery is not fail-closed")
 	}
 	return nil
 }
@@ -787,12 +769,6 @@ func validateError(err TypedError) error {
 	for _, ref := range err.CurrentVersions {
 		if !bounded(ref.EntityKind, 1, 64) || !bounded(ref.ID, 1, 128) || !bounded(ref.Version, 1, 128) {
 			return errors.New("invalid current version reference")
-		}
-	}
-	if err.AdapterReason != "" {
-		adapterReasons := map[string]bool{"missing_binary": true, "spawn_failure": true, "io_failure": true, "malformed_core_response": true, "timeout_no_effect": true, "cancelled_no_effect": true, "manifest_mismatch": true, "grant_bootstrap_failed": true, "unknown_effect": true, "invalid_cli_input": true, "invalid_request_wrapper": true}
-		if !adapterReasons[err.AdapterReason] {
-			return fmt.Errorf("unknown adapter reason %q", err.AdapterReason)
 		}
 	}
 	if len(err.Details) > 20 || !scalarDetails(err.Details) {

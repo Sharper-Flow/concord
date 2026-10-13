@@ -22,6 +22,11 @@ in this test run:
   and host control plane exactly like the owning adapter suite. The adapter
   owns this input boundary (validateWorkStartArgs, before any host write or
   core call).
+- the same real adapter module also serves the changed closed-table input
+  tuples (CON-913 rows 15/22/23): three shared host-argument refusals on
+  concord_work_transition.worker_reconcile and .worker_abandon, captured
+  from the real work_transition tool before any core call. The production
+  capture is the evidence here; the double corpus is unchanged.
 - the recording double executes under bun from the same generated tool
   source run.py writes for a model run, against the real plugin tool module,
   so the served envelopes and the calls.jsonl trace are the double's real
@@ -78,6 +83,18 @@ PRODUCTION_RESUME_REFUSAL = {
     "kind": "resume_failure",
     "effect_state": "none",
     "recovery_action": {"kind": "contact_operator"},
+    "retry_safe": False,
+}
+# The changed adapter input rows (CON-913 rows 15/22/23): the closed table's
+# invalid_tool_input tuple the real adapter's work_transition tool now serves
+# for the shared host-argument refusals — restart_query recovery and the
+# factory-derived retry_safe false. Captured from the executed production
+# boundary below; it now matches the core's input refusal member for member,
+# which is the convergence the input coupling chose, not a shared constant.
+PRODUCTION_ADAPTER_TOOL_INPUT_REFUSAL = {
+    "kind": "invalid_input",
+    "effect_state": "none",
+    "recovery_action": {"kind": "restart_query"},
     "retry_safe": False,
 }
 MANIFEST_DIGEST = (REPO / "contracts" / "agent-tool-surface.digest").read_text().strip()
@@ -301,6 +318,22 @@ def start_corpus_args():
     }
 
 
+def transition_corpus_args():
+    """The changed adapter input rows (CON-913 rows 15/22/23) as driven
+    work_transition tool args, in execution order: each input fails the
+    generated payload contract or the lane registry, so the adapter serves
+    the table tuple before any core call. The first two miss required
+    members; the third passes the payload contract with a lane the adapter
+    does not recognize."""
+    return {
+        "trans-reconcile-malformed": {"request": {"operation": "worker_reconcile", "input": {}}},
+        "trans-abandon-malformed": {"request": {"operation": "worker_abandon", "input": {"work_id": WORK}}},
+        "trans-abandon-unknown-lane": {"request": {"operation": "worker_abandon", "input": {
+            "work_id": WORK, "attempt_id": "parity-attempt-1", "lane_id": "no-such-lane",
+            "detail": "synthetic abandon detail", "idempotency_key": "parity-abandon-key"}}},
+    }
+
+
 def execute_core_boundary_corpus(invoke):
     """The executed production core envelopes for the claim corpus, driven
     through one invoke(input_value, request_id) callable."""
@@ -343,12 +376,16 @@ def execute_adapter_corpus():
     """The executed production adapter envelopes for the start corpus."""
     root = Path(tempfile.mkdtemp(prefix="concord-parity-adapter-"))
     start_calls = "\n".join(
-        f'await call({json.dumps(label)}, {json.dumps(args)});'
+        f'await call({json.dumps(label)}, work_start, {json.dumps(args)});'
         for label, args in start_corpus_args().items())
+    transition_calls = "\n".join(
+        f'await call({json.dumps(label)}, work_transition, {json.dumps(args)});'
+        for label, args in transition_corpus_args().items())
     source = (ADAPTER_DRIVER
               .replace("{adapter}", str(ADAPTER))
               .replace("{dirty_stderr}", json.dumps(DIRTY_ORIGIN_STDERR))
-              .replace("{start_calls}", start_calls))
+              .replace("{start_calls}", start_calls)
+              .replace("{transition_calls}", transition_calls))
     run = run_bun(root, source)
     if run.returncode != 0:
         raise AssertionError(f"adapter driver failed:\n{run.stderr}")
@@ -436,7 +473,7 @@ async function call(name, tool, args) {
 ADAPTER_DRIVER = """
 import { configureCoreBinary } from "{adapter}/dispatch.ts";
 import { hostControlPlane } from "{adapter}/move-session.ts";
-import { configureConcordAdapter, work_start } from "{adapter}/concord.ts";
+import { configureConcordAdapter, work_start, work_transition } from "{adapter}/concord.ts";
 configureCoreBinary("concord");
 hostControlPlane().bind({
   get: async () => ({ data: { id: "parity-session", directory: "/synthetic/repo", metadata: { "concord.task_scope": "managed" } }, response: new Response(null, { status: 200 }) }),
@@ -453,14 +490,15 @@ configureConcordAdapter({ runner: { async run(argv, input) {
 } } });
 const context = { sessionID: "parity-session", messageID: "m1", agent: "coordinator-probe",
   directory: "/synthetic/repo", worktree: "/synthetic/repo", abort: new AbortController().signal };
-async function call(name, args) {
+async function call(name, tool, args) {
   const before = calls.length;
-  const result = await work_start.execute(args, context);
+  const result = await tool.execute(args, context);
   const output = typeof result === "string" ? result : result.output;
   const newline = output.indexOf("\\n");
   console.log(JSON.stringify({ tool: name, envelope: JSON.parse(newline === -1 ? output : output.slice(0, newline)), children: calls.slice(before) }));
 }
 {start_calls}
+{transition_calls}
 """
 
 
@@ -521,6 +559,38 @@ class ProductionAdapterBoundaryTests(unittest.TestCase):
         triple = {key: captured["error"][key] for key in ("kind", "effect_state", "recovery_action", "retry_safe")}
         self.assertTrue(structural_equal(triple, PRODUCTION_RESUME_REFUSAL),
                         json.dumps(captured, indent=1))
+
+
+class ProductionAdapterTransitionTupleTests(unittest.TestCase):
+    """The real adapter serves the changed closed-table input tuples (CON-913
+    rows 15/22/23) for the shared host-argument refusals, before any core
+    call."""
+
+    def observed(self):
+        return execute_adapter_corpus()
+
+    def test_host_argument_refusals_serve_the_changed_adapter_tool_input_tuple(self):
+        observation = self.observed()
+        for label in transition_corpus_args():
+            with self.subTest(corpus=label):
+                envelope = observation[label]["envelope"]
+                self.assertEqual(envelope.get("outcome"), "error")
+                captured = semantic_envelope(envelope)
+                triple = {key: captured["error"][key] for key in ("kind", "effect_state", "recovery_action", "retry_safe")}
+                self.assertTrue(structural_equal(triple, PRODUCTION_ADAPTER_TOOL_INPUT_REFUSAL),
+                                json.dumps(captured, indent=1))
+                self.assertEqual(envelope["error"].get("adapter_reason"), "invalid_tool_input")
+                # The refusal precedes every effect: no child command ran.
+                self.assertEqual(observation[label]["children"], [])
+
+    def test_captured_diagnostics_name_the_argument_defect(self):
+        observation = self.observed()
+        self.assertEqual(observation["trans-reconcile-malformed"]["envelope"]["error"]["message"],
+                         "worker_reconcile requires only the work, original attempt, retained Task part and idempotency key")
+        self.assertIn("failed the generated contract",
+                      observation["trans-abandon-malformed"]["envelope"]["error"]["message"])
+        self.assertIn("does not recognize lane",
+                      observation["trans-abandon-unknown-lane"]["envelope"]["error"]["message"])
 
 
 class RecordingDoubleParityTests(unittest.TestCase):

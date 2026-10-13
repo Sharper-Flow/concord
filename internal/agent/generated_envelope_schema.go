@@ -576,7 +576,8 @@ const GeneratedEnvelopeSchemaDocument = `{
                       "adapter_reason": {
                         "enum": [
                           "invalid_request_wrapper",
-                          "invalid_cli_input"
+                          "invalid_cli_input",
+                          "invalid_tool_input"
                         ],
                         "type": "string"
                       }
@@ -603,7 +604,8 @@ const GeneratedEnvelopeSchemaDocument = `{
                   "adapter_reason": {
                     "enum": [
                       "invalid_request_wrapper",
-                      "invalid_cli_input"
+                      "invalid_cli_input",
+                      "invalid_tool_input"
                     ],
                     "type": "string"
                   },
@@ -746,8 +748,7 @@ const GeneratedEnvelopeSchemaDocument = `{
                 "properties": {
                   "adapter_reason": {
                     "enum": [
-                      "manifest_mismatch",
-                      "grant_bootstrap_failed"
+                      "manifest_mismatch"
                     ],
                     "type": "string"
                   }
@@ -835,6 +836,44 @@ const GeneratedEnvelopeSchemaDocument = `{
               },
               "origin": {
                 "const": "core"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "error": {
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "transport_failure",
+                      "malformed_response"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind"
+                ]
+              },
+              "origin": {
+                "const": "adapter"
+              }
+            },
+            "required": [
+              "origin",
+              "error"
+            ]
+          },
+          "then": {
+            "properties": {
+              "error": {
+                "properties": {
+                  "effect_state": {
+                    "const": "none"
+                  }
+                }
               }
             }
           }
@@ -2427,29 +2466,6 @@ const GeneratedEnvelopeSchemaDocument = `{
           "if": {
             "properties": {
               "kind": {
-                "const": "operation_conflict"
-              }
-            },
-            "required": [
-              "kind"
-            ]
-          },
-          "then": {
-            "properties": {
-              "recovery_action": {
-                "properties": {
-                  "kind": {
-                    "const": "reconcile_operation"
-                  }
-                }
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "kind": {
                 "enum": [
                   "cancelled",
                   "timeout"
@@ -2567,15 +2583,16 @@ const GeneratedEnvelopeSchemaDocument = `{
             "timeout_no_effect",
             "cancelled_no_effect",
             "manifest_mismatch",
-            "grant_bootstrap_failed",
+            "context_resolution_failed",
+            "host_lease_missing",
             "unknown_effect",
-            "session_occupancy_unreadable",
             "session_directory_unreadable",
             "worker_abandon_refused",
             "worker_abandon_receipt_failed",
             "lane_tool_refusal",
             "invalid_cli_input",
-            "invalid_request_wrapper"
+            "invalid_request_wrapper",
+            "invalid_tool_input"
           ],
           "type": "string"
         },
@@ -3045,6 +3062,104 @@ const GeneratedEnvelopeSchemaDocument = `{
   },
   "$id": "https://raw.githubusercontent.com/Sharper-Flow/concord/main/contracts/agent-tool-envelope.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "error": {
+            "properties": {
+              "kind": {
+                "const": "operation_conflict"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          }
+        },
+        "required": [
+          "error"
+        ]
+      },
+      "then": {
+        "else": {
+          "properties": {
+            "error": {
+              "properties": {
+                "recovery_action": {
+                  "properties": {
+                    "kind": {
+                      "const": "reconcile_operation"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "if": {
+          "properties": {
+            "error": {
+              "properties": {
+                "adapter_reason": {
+                  "const": "unknown_effect"
+                },
+                "effect_state": {
+                  "const": "possible"
+                },
+                "kind": {
+                  "const": "operation_conflict"
+                }
+              },
+              "required": [
+                "kind",
+                "adapter_reason",
+                "effect_state"
+              ]
+            },
+            "operation": {
+              "const": "session_vacate"
+            },
+            "origin": {
+              "const": "adapter"
+            },
+            "outcome": {
+              "const": "error"
+            },
+            "tool": {
+              "const": "concord_work_transition"
+            }
+          },
+          "required": [
+            "origin",
+            "outcome",
+            "tool",
+            "operation",
+            "error"
+          ]
+        },
+        "then": {
+          "properties": {
+            "error": {
+              "properties": {
+                "recovery_action": {
+                  "properties": {
+                    "kind": {
+                      "enum": [
+                        "retry_same_request",
+                        "contact_operator"
+                      ],
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
   "oneOf": [
     {
       "$ref": "#/$defs/ok"

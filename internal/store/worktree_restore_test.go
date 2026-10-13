@@ -158,6 +158,30 @@ func (r restoreDirectoryAppearsRunner) Run(ctx context.Context, dir string, args
 	return (ExecGitRunner{}).Run(ctx, dir, args...)
 }
 
+type restoreAncestorFailureRunner struct{}
+
+func (restoreAncestorFailureRunner) Run(ctx context.Context, dir string, args ...string) ([]byte, error) {
+	if len(args) > 0 && args[0] == "merge-base" {
+		return (ExecGitRunner{}).Run(ctx, dir, "rev-parse", "--verify", "refs/heads/missing-restore^{commit}")
+	}
+	return (ExecGitRunner{}).Run(ctx, dir, args...)
+}
+
+func TestResumeRestoreDistinguishesGitFailureFromDivergence(t *testing.T) {
+	s, _, claimed := restoreFixture(t)
+	if err := os.RemoveAll(claimed.Entry.Path); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.RestoreResumeWorktree(context.Background(), claimed.WorkID, claimed.Entry, restoreAncestorFailureRunner{})
+	var failure *Failure
+	if got.Restored || !errors.As(err, &failure) || failure.Kind != KindGitUnreachable {
+		t.Fatalf("restoration=%+v err=%v, want git_unreachable rather than a divergence diagnosis", got, err)
+	}
+	if _, err := os.Lstat(claimed.Entry.Path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("failed Git probe created the worktree path: %v", err)
+	}
+}
+
 func TestResumeRestoreNeverOverwritesDirectoryAppearingDuringProbe(t *testing.T) {
 	s, _, claimed := restoreFixture(t)
 	if err := os.RemoveAll(claimed.Entry.Path); err != nil {

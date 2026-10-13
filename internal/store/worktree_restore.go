@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 )
@@ -14,8 +15,8 @@ type WorktreeRestoration struct {
 	RestorationWarning string `json:"restoration_warning,omitempty"`
 }
 
-// RestoreResumeWorktree restores native state only. All store reads finish
-// before Git runs; restoration neither opens a transaction nor replaces a claim.
+// RestoreResumeWorktree restores native state only. Git runs with no open store
+// transaction; restoration neither writes store state nor replaces a claim.
 func (s *Store) RestoreResumeWorktree(ctx context.Context, workID string, entry WorktreeEntry, runner GitRunner) (WorktreeRestoration, error) {
 	current, err := activeWorktreeEntryForProject(ctx, s.db, "work_resume", workID, entry.ProjectID)
 	if err != nil {
@@ -82,7 +83,11 @@ func restoreResumeWorktree(ctx context.Context, root, repo string, entry Worktre
 		return result, newFailure(KindProjectionNotFound, "work_resume", "the worktree and its branch are both gone: "+entry.Branch, false, "check for a preserved remote branch before reclaiming the absent entry and replaying work_start")
 	}
 	if _, err := runner.Run(ctx, repo, "merge-base", "--is-ancestor", entry.BaseSHA, tip); err != nil {
-		return result, restoreConflict("the recorded branch no longer contains the claim's base")
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+			return result, restoreConflict("the recorded branch no longer contains the claim's base")
+		}
+		return result, wrapFailure(KindGitUnreachable, "work_resume", "cannot verify the recorded branch's ancestry", true, "restore repository access before resuming", err)
 	}
 	// Reserve an absent directory exclusively before checkout. A directory
 	// another process creates meanwhile is never adopted or overwritten.

@@ -115,7 +115,7 @@ func TestDispatchApprovalChallengeRoundTripIsDurableAndSingleUse(t *testing.T) {
 	}
 }
 
-// TestLateHostApprovalNeedsOneChallenge is the CON-959 reproduction: the
+// TestLateHostApprovalNeedsOneChallenge reproduces the late-answer exchange: the
 // bounded host driver is the adapter bridge, so each approval_required
 // challenge asks the operator once and resubmits the identical marshaled
 // request, and an approval_invalid refusal sends the agent back to dispatch

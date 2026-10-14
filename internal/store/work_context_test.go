@@ -384,11 +384,20 @@ func (f workContextFixture) knowledgeReading() map[string]any {
 // the registry fixture above installed.
 func seedWorkContextFixture(t *testing.T, workID string) workContextFixture {
 	t.Helper()
-	ctx := context.Background()
 	registered, err := BuiltinWorkflowDefinitionForRef("workflow.break_fix")
 	if err != nil {
 		t.Fatal(err)
 	}
+	return seedWorkContextFixtureWithDefinition(t, workID, registered)
+}
+
+// seedWorkContextFixtureWithDefinition seeds the same fixture under an
+// explicit registered definition, so a suite can pin the latest head that
+// predates a later definition-gated requirement without changing the
+// fixture's own shape.
+func seedWorkContextFixtureWithDefinition(t *testing.T, workID string, registered RegisteredDefinition) workContextFixture {
+	t.Helper()
+	ctx := context.Background()
 	s := openTemp(t)
 	seedWork(t, s, workID)
 	seedWorkflowLaw(t, s)

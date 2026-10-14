@@ -691,3 +691,50 @@ func TestWorkerFailureAttributionBlockBoundRefusesWholeNeverTruncates(t *testing
 		t.Fatal("the block-bound refusal rewrote or truncated the attribution block")
 	}
 }
+
+// The nullable watermark shape (the integration settlement): the explicit
+// inputs_unavailable marker names the unavailable population beside the run
+// reference, is mutually exclusive with a nonempty input population, and
+// decodes strictly with the rest of the closed integration shape.
+func TestWorkerFailureIntegrationIdentityInputsUnavailable(t *testing.T) {
+	t.Parallel()
+	unavailable := func() *WorkerFailureIdentity {
+		return &WorkerFailureIdentity{
+			Kind: WorkerFailureIdentityIntegration,
+			Integration: &WorkerFailureIntegrationIdentity{
+				NativeRun:         WorkerFailureSubjectRef{Kind: WorkerFailureSubjectNativeRun, Locator: "run-legacy-1", Digest: testDigestG},
+				InputsUnavailable: true,
+			},
+		}
+	}
+	if err := validateWorkerFailureIdentity(unavailable()); err != nil {
+		t.Fatalf("the explicit unavailable population refused: %v", err)
+	}
+	block := &WorkerFailureAttribution{
+		Origin: WorkerFailureAttributionRecorded,
+		Observation: &WorkerFailureObservation{
+			Observer: WorkerFailureObserverCoordinator,
+			Phase:    WorkerFailurePhaseIntegration,
+			Cause:    WorkerFailureCauseImplementation,
+			Basis:    WorkerFailureBasisHypothesis,
+			Sources:  []WorkerFailureSource{{Kind: WorkerFailureSourceNativeRun, Locator: "run-legacy-1", Digest: testDigestG}},
+		},
+		Identity: unavailable(),
+	}
+	if err := ValidateWorkerFailureAttribution(block); err != nil {
+		t.Fatalf("the unavailable-population attribution block refused: %v", err)
+	}
+	conflict := unavailable()
+	conflict.Integration.InputResults = []WorkerFailureInputResult{{Job: workerFailureJobFixture(), ResultRef: "result-input-1"}}
+	err := validateWorkerFailureIdentity(conflict)
+	if !hasFailureKind(err, KindInvalidPayload) || !strings.Contains(err.Error(), "inputs_unavailable") {
+		t.Fatalf("unavailable marker beside a population error = %v, want the mutual-exclusion refusal", err)
+	}
+	decoded, err := DecodeWorkerFailureAttribution([]byte(`{"origin":"recorded","observation":{"observer":"coordinator","phase":"integration","cause":"implementation","basis":"hypothesis","sources":[{"kind":"native_run","locator":"run-legacy-1","digest":"` + testDigestG + `"}]},"identity":{"kind":"integration","integration":{"native_run":{"kind":"native_run","locator":"run-legacy-1","digest":"` + testDigestG + `"},"inputs_unavailable":true}}}`))
+	if err != nil {
+		t.Fatalf("the explicit unavailable decode refused: %v", err)
+	}
+	if !decoded.Identity.Integration.InputsUnavailable || len(decoded.Identity.Integration.InputResults) != 0 {
+		t.Fatalf("decoded integration=%+v, want inputs_unavailable with no population", decoded.Identity.Integration)
+	}
+}

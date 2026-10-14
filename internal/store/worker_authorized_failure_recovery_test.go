@@ -9,9 +9,12 @@ import (
 
 func seedAuthorizedFailedWorker(t *testing.T, workID string) (*Store, WorkflowActor, string) {
 	t.Helper()
-	entry, err := BuiltinWorkflowDefinitionForRef("workflow.implementation")
-	if err != nil {
-		t.Fatal(err)
+	// The latest implementation head that predates the attribution
+	// requirement: the authorized-abandonment baseline closes an in-flight
+	// authorization with no worker evidence to observe.
+	entry, ok := BuiltinWorkflowRegistry().Lookup("workflow.implementation", 30)
+	if !ok {
+		t.Fatal("workflow.implementation v30 is not registered")
 	}
 	return seedAuthorizedFailedWorkerWithDefinition(t, workID, entry)
 }
@@ -77,7 +80,7 @@ func seedAuthorizedFailedWorkerWithDefinition(t *testing.T, workID string, entry
 // unrelated success from discharging another job's obligation).
 func TestWitnessAbandonedJobFailureKeepsBindingThroughUnrelatedSuccess(t *testing.T) {
 	const workID = "witness-abandoned-job-unrelated-success"
-	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
+	fixture := seedHistoricalWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", 27, "repair")
 	s, owner := fixture.store, fixture.owner
 	defer s.Close()
 	worker := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/worker", SessionRef: "session/" + workID + "-worker", ActorClass: ActorAgent}
@@ -137,7 +140,7 @@ func TestWitnessAbandonedJobFailureKeepsBindingThroughUnrelatedSuccess(t *testin
 // still owns.
 func TestWitnessJobFailureBeforeDispositionKeepsWindowThroughUnrelatedSuccess(t *testing.T) {
 	const workID = "witness-unrecorded-job-failure"
-	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
+	fixture := seedHistoricalWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", 27, "repair")
 	s := fixture.store
 	defer s.Close()
 	worker := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/worker", SessionRef: "session/" + workID + "-worker", ActorClass: ActorAgent}
@@ -285,7 +288,11 @@ func TestAuthorizedWorkerFailureRecoveryRejectsWrongEpoch(t *testing.T) {
 func TestAuthorizedCheckpointFailureRecoveryNeedsNoDispatchEvidence(t *testing.T) {
 	const workID = "authorized-checkpoint-failure"
 	const attemptID = "attempt:authorized-checkpoint-failure"
-	fixture := seedWorkflowReturnRouteFixtureRequiring(t, workID, "workflow.break_fix", "verify", []string{"verification"}, []string{"verification", "artifact"})
+	breakFix, ok := BuiltinWorkflowRegistry().Lookup("workflow.break_fix", 27)
+	if !ok {
+		t.Fatal("workflow.break_fix v27 is not registered")
+	}
+	fixture := seedWorkflowReturnRouteFixtureWithDefinition(t, workID, breakFix, "verify", []string{"verification"}, []string{"verification", "artifact"})
 	s := fixture.store
 	// The review gate joins the accepted implementation delivery before the
 	// checkpoint review authorizes; the disposition assertion below stays
@@ -329,7 +336,7 @@ func testAuthorizedFailedRetryRegistryStaleness(t *testing.T, recordDisposition 
 	t.Helper()
 	const workID = "authorized-failed-retry-stale-registry"
 	const attemptID = "attempt:authorized-failed-retry-stale-registry"
-	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
+	fixture := seedHistoricalWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", 27, "repair")
 	s := fixture.store
 	laneVersion, laneDigest := registeredLaneIdentity(t, "implement")
 	breakFix, err := BuiltinWorkflowDefinitionForRef("workflow.break_fix")

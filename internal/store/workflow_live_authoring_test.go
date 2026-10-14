@@ -22,9 +22,9 @@ import (
 func TestLiveAuthoringSelectorPublishesThreeFamiliesAndRefusesRetiredOnes(t *testing.T) {
 	t.Parallel()
 	heads := map[string]int64{
-		"workflow.implementation": 30,
-		"workflow.break_fix":      27,
-		"workflow.research":       17,
+		"workflow.implementation": 31,
+		"workflow.break_fix":      28,
+		"workflow.research":       18,
 	}
 	for ref, want := range heads {
 		registered, err := LiveWorkflowDefinitionForRef(ref)
@@ -482,15 +482,15 @@ func TestCanonicalSupersedeRequiresExplicitOutcomePredicates(t *testing.T) {
 	}
 }
 
-func TestCanonicalResearchV17DerivesFailureWithVersionedPacket(t *testing.T) {
+func TestCanonicalResearchHeadDerivesFailureWithVersionedPacket(t *testing.T) {
 	t.Parallel()
 	registered, err := LiveWorkflowDefinitionForRef("workflow.research")
 	if err != nil {
 		t.Fatal(err)
 	}
 	definition := registered.Definition
-	if definition.Version != 17 {
-		t.Fatalf("canonical research head = v%d, want v17", definition.Version)
+	if definition.Version != 18 {
+		t.Fatalf("canonical research head = v%d, want v18", definition.Version)
 	}
 	if containsString(definition.AvailableActions, "record_worker_failure") {
 		t.Fatal("record_worker_failure is still advertised on the canonical research head")
@@ -554,9 +554,9 @@ func TestBuiltinWorkflowCurrentVersionsMatchLiveAuthoringHeads(t *testing.T) {
 	t.Parallel()
 	current := builtinWorkflowCurrentVersions
 	want := map[string]int64{
-		"workflow.implementation":     30,
-		"workflow.break_fix":          27,
-		"workflow.research":           17,
+		"workflow.implementation":     31,
+		"workflow.break_fix":          28,
+		"workflow.research":           18,
 		"workflow.architecture_spike": 17,
 		"workflow.ops_runbook":        18,
 		"workflow.static_analysis":    15,
@@ -780,9 +780,9 @@ func TestCutoverAllowsExactCanonicalHeadsAtReadiness(t *testing.T) {
 		version int64
 		workID  string
 	}{
-		{"workflow.implementation", 30, "canonical-impl-30"},
-		{"workflow.break_fix", 27, "canonical-break-27"},
-		{"workflow.research", 17, "canonical-research-17"},
+		{"workflow.implementation", 31, "canonical-impl-31"},
+		{"workflow.break_fix", 28, "canonical-break-28"},
+		{"workflow.research", 18, "canonical-research-18"},
 	} {
 		pinned, ok := BuiltinWorkflowRegistry().Lookup(head.ref, head.version)
 		if !ok {

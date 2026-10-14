@@ -510,12 +510,8 @@ func validateWorkflowActionPayloadInDocument(document map[string]any, definition
 			payloadDefinition = workerFailureRecoveryActionDefinition().Payload
 			found = true
 		}
-		if actionID == "reject_worker_result" {
-			payloadDefinition = workflowCorrectionActionDefinition().Payload
-			found = true
-		}
-		if actionID == "request_correction" {
-			payloadDefinition = workflowCorrectionRequestActionDefinition().Payload
+		if actionID == "reject_worker_result" || actionID == "request_correction" {
+			payloadDefinition = workflowCorrectionActionDefinitionFor(definition, actionID).Payload
 			found = true
 		}
 	}

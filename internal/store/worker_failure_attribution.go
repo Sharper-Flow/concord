@@ -2,34 +2,27 @@ package store
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"io"
+	"reflect"
 	"strconv"
+	"strings"
 	"unicode/utf8"
 )
 
-// The typed failure_attribution block carried on worker terminal and
-// coordinator correction records. This file owns the closed types, the byte
-// bounds, the canonical observation digest the signed evidence boundary
-// authenticates, and the strict decoder. It registers no event kind, folds
-// no payload, and wires no workflow route.
-//
 // The block has two parts: the producer observation, which records what the
 // observing boundary saw, and the core-derived identity, which only Concord
 // derives from the dispatch window and recorded revisions. A producer never
 // authors identity.
 //
-// Validation here is structural. It never asserts that a locator resolves,
-// that a digest matches the record it cites, that a job binding equals the
-// revision the dispatch recorded, or that any causal story is true: those
-// joins live with the event, attempt, job, and native-run owners. A
-// supported basis marks a source-backed assertion whose limits stay
-// visible; a typed terminal provider error permits the observed fault as
-// evidence and never by itself establishes terminal causality. The observed
-// subject is a typed immutable reference to an existing observed-delivery
-// event or native run — this file adds no subject-commit owner and copies
-// no commit field.
+// Structural validation and SQL joins establish source identity, not the
+// truth of a causal claim. A supported basis remains a producer assertion.
+// Subjects reference existing observed-delivery events or native runs;
+// attribution does not add another subject-commit owner.
 
 // Byte bounds. A block or observation past a bound is refused whole; causal
 // content is never truncated to fit.
@@ -340,10 +333,16 @@ type WorkerFailureInputResult struct {
 // WorkerFailureIntegrationIdentity is the core-derived identity of a
 // combined integration run: the native run that failed and the exact
 // accepted input population. An integration observation carries this
-// identity, not a fictitious single worker attempt.
+// identity, not a fictitious single worker attempt. A lease recorded before
+// the event watermark column carries no population: InputsUnavailable marks
+// that population explicitly unavailable, is mutually exclusive with a
+// nonempty InputResults list, and never stands for an empty accepted
+// population. No copied subject-commit field exists; the consumer resolves
+// the subject from the same lease result the NativeRun reference names.
 type WorkerFailureIntegrationIdentity struct {
-	NativeRun    WorkerFailureSubjectRef    `json:"native_run"`
-	InputResults []WorkerFailureInputResult `json:"input_results"`
+	NativeRun         WorkerFailureSubjectRef    `json:"native_run"`
+	InputResults      []WorkerFailureInputResult `json:"input_results"`
+	InputsUnavailable bool                       `json:"inputs_unavailable,omitempty"`
 }
 
 // WorkerFailureIdentity is the closed attempt/integration union of
@@ -617,14 +616,22 @@ func validateWorkerFailureAttemptIdentity(attempt *WorkerFailureAttemptIdentity)
 }
 
 // validateWorkerFailureIntegrationIdentity enforces the integration
-// variant: the exact combined native run and the exact accepted input
-// population, each job revision and result reference at most once.
+// variant: the exact combined native run and either the exact accepted
+// input population, each job revision and result reference at most once,
+// or the explicit inputs_unavailable marker for a lease whose watermark is
+// absent — never both.
 func validateWorkerFailureIntegrationIdentity(integration *WorkerFailureIntegrationIdentity) error {
 	if integration == nil {
 		return workerFailureBoundFailure("failure_attribution integration identity requires the integration variant")
 	}
 	if err := validateWorkerFailureSubjectRef(&integration.NativeRun, true); err != nil {
 		return err
+	}
+	if integration.InputsUnavailable {
+		if len(integration.InputResults) > 0 {
+			return workerFailureBoundFailure("failure_attribution inputs_unavailable excludes an input population; a lease without its event watermark names no accepted revisions")
+		}
+		return nil
 	}
 	if len(integration.InputResults) == 0 {
 		return workerFailureBoundFailure("failure_attribution integration must name the exact accepted input population; an empty input_results array is not the integration shape")
@@ -787,4 +794,785 @@ func DecodeWorkerFailureAttribution(raw json.RawMessage) (*WorkerFailureAttribut
 		return nil, err
 	}
 	return &block, nil
+}
+
+// workerFailureAttributionContent reports whether one decoded block carries
+// recorded content beside its origin: anything a source version below the
+// attribution boundary could never have carried legally.
+func workerFailureAttributionContent(block *WorkerFailureAttribution) bool {
+	return block != nil && (block.Observation != nil || block.Identity != nil)
+}
+
+// validateWorkerFailureAttributionSource enforces the source-version marker
+// rules one fold owes the attribution member. The recorded source payload
+// version is the marker that separates the upcast-generated legacy absence
+// from a forged new-legacy claim: below the capable version only the pure
+// legacy_unavailable marker may ride the event, any recorded content there
+// is smuggled bytes no store ever recorded, and at or above the capable
+// version the marker itself is the forgery.
+func validateWorkerFailureAttributionSource(block *WorkerFailureAttribution, sourceVersion, capableVersion int) error {
+	if block == nil {
+		return nil
+	}
+	belowBoundary := sourceVersion != 0 && sourceVersion < capableVersion
+	if belowBoundary {
+		if workerFailureAttributionContent(block) {
+			return workerFailureBoundFailure("failure_attribution content on a stored payload version below " + strconv.Itoa(capableVersion) + " is smuggled bytes no store ever recorded; the source version pins what the store could carry")
+		}
+		return nil
+	}
+	if block.Origin == WorkerFailureAttributionLegacyUnavailable {
+		return workerFailureBoundFailure("failure_attribution legacy_unavailable on an attribution-capable payload is a forged new-legacy claim; a capable terminal records its observation or none")
+	}
+	return ValidateWorkerFailureAttribution(block)
+}
+
+// workerFailureAttemptIdentity builds the core-derived attempt identity
+// from the authorization facts its callers read with SQL only: the attempt
+// identity, the lane the attempt recorded, the dispatch window's exact
+// epoch and packet digest, and the dispatched job revision — the explicit
+// no_job marker when the authorization bound none. The builder never reads:
+// every input is already resolved, so the live seam and the fold construct
+// the same identity from the same owners.
+func workerFailureAttemptIdentity(attemptID, laneID string, window WorkerDispatchWindow, job *WorkerJobBinding) *WorkerFailureIdentity {
+	identity := &WorkerFailureAttemptIdentity{
+		AttemptID:    attemptID,
+		LaneID:       laneID,
+		Epoch:        window.AttemptEpoch,
+		PacketDigest: window.PacketDigest,
+	}
+	if job != nil {
+		identity.Job = &WorkerJobBinding{JobID: job.JobID, Revision: job.Revision, Digest: job.Digest}
+	} else {
+		identity.NoJob = true
+	}
+	return &WorkerFailureIdentity{Kind: WorkerFailureIdentityAttempt, Attempt: identity}
+}
+
+// workerFailureTerminalObserverAdmits reports whether a worker terminal
+// event (worker.failed, or a born-failed worker.dispatched) may carry the
+// named observer. The coordinator observes through its own correction
+// records on workflow.action_completed, never through a worker terminal.
+func workerFailureTerminalObserverAdmits(observer string) bool {
+	return observer == WorkerFailureObserverHostAdapter || observer == WorkerFailureObserverWorkerReport
+}
+
+// workerFailureObservedDeliverySubjectQuery resolves the one completed
+// observed-delivery subject an attempt owns: the worker.completed event
+// whose core-observed delivery the store itself took. The most recent one
+// wins; a failed attempt has none.
+const workerFailureObservedDeliverySubjectQuery = `SELECT event_id, json_extract(payload,'$.observed_delivery') FROM domain_events
+WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.attempt_id')=?
+AND json_extract(payload,'$.observed_delivery') IS NOT NULL ORDER BY seq DESC LIMIT 1`
+
+// workerFailureObservedDeliverySubject resolves the typed subject reference
+// for a coordinator result_review observation: the attempt's completed
+// observed-delivery event, named by its event id with the digest over the
+// recorded delivery bytes. An attempt without one — a failed attempt, or a
+// completion that predates the delivery observation — carries no subject.
+func workerFailureObservedDeliverySubject(ctx context.Context, q queryer, workID, attemptID string) (*WorkerFailureSubjectRef, error) {
+	attempt, err := workerAttemptByIDCore(ctx, q, attemptID)
+	if err != nil {
+		return nil, err
+	}
+	if attempt.WorkID != workID || attempt.LifecycleState != "completed" {
+		return nil, nil
+	}
+	var eventID string
+	var raw sql.NullString
+	if err := q.QueryRowContext(ctx, workerFailureObservedDeliverySubjectQuery, string(SubjectWorkItem), workID, WorkerCompleted, attemptID).Scan(&eventID, &raw); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, wrapFailure(KindUnavailable, "worker_failure_attribution", "cannot read the attempt's observed delivery subject", true, "retry once the event log is readable", err)
+	}
+	var delivery WorkerObservedDelivery
+	if err := json.Unmarshal([]byte(raw.String), &delivery); err != nil {
+		return nil, newFailure(KindInvariantViolation, "worker_failure_attribution", "the attempt's observed delivery is not a readable delivery observation", false, "reconcile_operation")
+	}
+	encoded, err := json.Marshal(delivery)
+	if err != nil {
+		return nil, wrapFailure(KindInvariantViolation, "worker_failure_attribution", "cannot serialize the observed delivery subject", false, "reconcile_operation", err)
+	}
+	sum := sha256.Sum256(encoded)
+	return &WorkerFailureSubjectRef{Kind: WorkerFailureSubjectObservedDeliveryEvent, Locator: eventID, Digest: "sha256:" + hex.EncodeToString(sum[:])}, nil
+}
+
+// verifyWorkerFailureObservedDeliverySubject verifies one subject reference
+// against the log: the named event must exist as this attempt's completed
+// observed delivery, and a supplied digest must match the recorded delivery
+// bytes. A locator existence never creates the subject it names.
+func verifyWorkerFailureObservedDeliverySubject(ctx context.Context, q queryer, workID string, attemptID string, subject *WorkerFailureSubjectRef) error {
+	if subject == nil {
+		return nil
+	}
+	var raw sql.NullString
+	err := q.QueryRowContext(ctx, `SELECT json_extract(payload,'$.observed_delivery') FROM domain_events
+WHERE subject_type=? AND subject_id=? AND kind=? AND event_id=? AND json_extract(payload,'$.attempt_id')=? AND json_extract(payload,'$.observed_delivery') IS NOT NULL`,
+		string(SubjectWorkItem), workID, WorkerCompleted, subject.Locator, attemptID).Scan(&raw)
+	if err == sql.ErrNoRows {
+		return workerFailureBoundFailure("failure_attribution subject reference " + subject.Locator + " names no completed observed_delivery event of attempt " + attemptID)
+	}
+	if err != nil {
+		return wrapFailure(KindUnavailable, "worker_failure_attribution", "cannot read the referenced observed delivery subject", true, "retry once the event log is readable", err)
+	}
+	if subject.Digest == "" {
+		return nil
+	}
+	var delivery WorkerObservedDelivery
+	if err := json.Unmarshal([]byte(raw.String), &delivery); err != nil {
+		return newFailure(KindInvariantViolation, "worker_failure_attribution", "the referenced observed delivery is not a readable delivery observation", false, "reconcile_operation")
+	}
+	encoded, err := json.Marshal(delivery)
+	if err != nil {
+		return wrapFailure(KindInvariantViolation, "worker_failure_attribution", "cannot serialize the referenced observed delivery", false, "reconcile_operation", err)
+	}
+	sum := sha256.Sum256(encoded)
+	if subject.Digest != "sha256:"+hex.EncodeToString(sum[:]) {
+		return workerFailureBoundFailure("failure_attribution subject reference digest " + subject.Digest + " differs from the recorded observed delivery of " + subject.Locator)
+	}
+	return nil
+}
+
+// enrichWorkerFailureAttributionBlock applies the producer rules to one
+// caller-supplied block and derives the exact core identity beside it. The
+// producer records its observation only: a legacy origin, an authored
+// identity, or a missing observation refuses, and the observer must be one
+// of the two worker-terminal boundaries. The identity comes from the
+// authorization facts the caller read with SQL — never from the caller.
+func enrichWorkerFailureAttributionBlock(attemptID, laneID string, window WorkerDispatchWindow, job *WorkerJobBinding, block *WorkerFailureAttribution) (*WorkerFailureAttribution, error) {
+	if block == nil {
+		return nil, nil
+	}
+	if block.Origin != WorkerFailureAttributionRecorded {
+		return nil, workerFailureBoundFailure("failure_attribution origin is core-owned: the producer records its observation and the store derives the origin and identity")
+	}
+	if block.Identity != nil {
+		return nil, workerFailureBoundFailure("failure_attribution identity is core-derived from the dispatch authorization; no producer can author it")
+	}
+	if block.Observation == nil {
+		return nil, workerFailureBoundFailure("a recorded failure_attribution block must carry the producer observation")
+	}
+	if err := validateWorkerFailureObservation(block.Observation); err != nil {
+		return nil, err
+	}
+	if !workerFailureTerminalObserverAdmits(block.Observation.Observer) {
+		return nil, workerFailureBoundFailure("failure_attribution observer " + block.Observation.Observer + " cannot record a worker terminal; the coordinator attributes through its own correction records")
+	}
+	identity := workerFailureAttemptIdentity(attemptID, laneID, window, job)
+	return &WorkerFailureAttribution{Origin: WorkerFailureAttributionRecorded, Observation: block.Observation, Identity: identity}, nil
+}
+
+// enrichWorkerFailedAttributionTx is the terminal ingest's attribution
+// enrichment: one worker.failed observation arrives without identity and
+// the store derives the exact authorized attempt identity from the
+// attempt's own dispatch window, the attempt row, and the dispatched job
+// revision. A caller-authored identity or origin refuses with zero
+// effects; an event below the attribution version or without a block lands
+// unchanged.
+func enrichWorkerFailedAttributionTx(ctx context.Context, tx *sql.Tx, event Event) (Event, error) {
+	if event.Kind != WorkerFailed || event.PayloadVersion < workerFailedAttributionVersion {
+		return event, nil
+	}
+	var payload WorkerFailedPayload
+	if err := decodeClosedWorkerPayload(event, &payload); err != nil {
+		return Event{}, err
+	}
+	if payload.FailureAttribution == nil {
+		return event, nil
+	}
+	attempt, err := workerAttemptByIDCore(ctx, tx, payload.AttemptID)
+	if err != nil {
+		return Event{}, err
+	}
+	if attempt.WorkID != event.SubjectID {
+		return Event{}, invalidWorkerPayload("worker.failed subject does not own the worker attempt")
+	}
+	window, err := findAuthorizedDispatchWindowCore(ctx, tx, event.SubjectID, payload.AttemptID)
+	if err != nil {
+		var failure *Failure
+		if failureAs(err, &failure) && failure.Kind == KindUnauthorizedDispatch {
+			return Event{}, workerFailureBoundFailure("failure_attribution derives from the attempt's authorized dispatch window; attempt " + payload.AttemptID + " records none")
+		}
+		return Event{}, err
+	}
+	job, err := workflowDispatchedJobForAttempt(ctx, tx, event.SubjectID, payload.AttemptID)
+	if err != nil {
+		return Event{}, err
+	}
+	block, err := enrichWorkerFailureAttributionBlock(payload.AttemptID, attempt.LaneID, window, job, payload.FailureAttribution)
+	if err != nil {
+		return Event{}, err
+	}
+	payload.FailureAttribution = block
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return Event{}, wrapFailure(KindInvariantViolation, "worker_failure_attribution", "cannot encode the enriched failure payload", false, "repair the failure attribution block", err)
+	}
+	enriched := event
+	enriched.Payload = raw
+	return enriched, nil
+}
+
+// enrichWorkerBornFailedAttributionTx is the dispatch evidence route's
+// attribution enrichment for a born-failed terminal record: the observation
+// arrives without identity and the store derives it from the dispatch
+// authorization the window still records — the attempt's own epoch and
+// packet digest, the lane the payload records, and the worker-job binding
+// the authorization bound. An ordinary dispatch carries no block and lands
+// unchanged.
+func enrichWorkerBornFailedAttributionTx(ctx context.Context, q queryer, dispatch Event, payload *WorkerDispatchedPayload) error {
+	if payload.Terminal != "failed" || payload.FailureAttribution == nil {
+		if payload.FailureAttribution != nil {
+			return invalidWorkerPayload("worker.dispatched failure_attribution is reserved for a born-failed terminal record")
+		}
+		return nil
+	}
+	window, err := findAuthorizedDispatchWindowCore(ctx, q, dispatch.SubjectID, payload.AttemptID)
+	if err != nil {
+		var failure *Failure
+		if failureAs(err, &failure) && failure.Kind == KindUnauthorizedDispatch {
+			return workerFailureBoundFailure("failure_attribution derives from the attempt's authorized dispatch window; attempt " + payload.AttemptID + " records none")
+		}
+		return err
+	}
+	block, err := enrichWorkerFailureAttributionBlock(payload.AttemptID, payload.LaneID, window, payload.WorkerJob, payload.FailureAttribution)
+	if err != nil {
+		return err
+	}
+	payload.FailureAttribution = block
+	return nil
+}
+
+// workerFailureAttemptIdentityMismatch names the first field where a
+// recorded attempt identity differs from the identity the authorization
+// owners derive, or "" when they are exactly equal.
+func workerFailureAttemptIdentityMismatch(recorded, expected *WorkerFailureAttemptIdentity) string {
+	switch {
+	case recorded == nil || expected == nil:
+		return "identity"
+	case recorded.AttemptID != expected.AttemptID:
+		return "attempt_id"
+	case recorded.LaneID != expected.LaneID:
+		return "lane_id"
+	case recorded.Epoch != expected.Epoch:
+		return "epoch"
+	case recorded.PacketDigest != expected.PacketDigest:
+		return "packet_digest"
+	case (recorded.Job == nil) != (expected.Job == nil):
+		return "worker_job presence"
+	case recorded.Job != nil && *recorded.Job != *expected.Job:
+		return "worker_job revision"
+	case recorded.NoJob != expected.NoJob:
+		return "no_job marker"
+	}
+	return ""
+}
+
+// verifyWorkerFailureAttemptAttributionTx verifies one terminal's recorded
+// attribution against its authorization owners, with the same SQL reads the
+// live ingest used — identical live and on rebuild. The identity must equal
+// the attempt's own window, lane, and dispatched job revision exactly, the
+// observer must be one of the two worker-terminal boundaries with the
+// worker report confined to the worker_error kind it actually ran, and a
+// failed terminal names no observed subject: only a coordinator result_review
+// on the correction record resolves one.
+func verifyWorkerFailureAttemptAttributionTx(ctx context.Context, q queryer, workID, attemptID, laneID, failureKind string, block *WorkerFailureAttribution) error {
+	if block.Identity == nil || block.Identity.Kind != WorkerFailureIdentityAttempt || block.Identity.Attempt == nil {
+		return workerFailureBoundFailure("worker terminal failure_attribution carries recorded content without the core-derived attempt identity")
+	}
+	if block.Observation == nil || !workerFailureTerminalObserverAdmits(block.Observation.Observer) {
+		return workerFailureBoundFailure("worker terminal failure_attribution observer must be host_adapter or worker_report; the coordinator attributes through its own correction records")
+	}
+	if block.Observation.Observer == WorkerFailureObserverWorkerReport && failureKind != WorkerFailureWorkerError {
+		return workerFailureBoundFailure("a worker report observes only its own worker_error execution; a " + failureKind + " terminal is the host's record and cannot carry a worker report observation")
+	}
+	window, err := findAuthorizedDispatchWindowCore(ctx, q, workID, attemptID)
+	if err != nil {
+		var failure *Failure
+		if failureAs(err, &failure) && failure.Kind == KindUnauthorizedDispatch {
+			return workerFailureBoundFailure("worker terminal failure_attribution names no authorized dispatch window for attempt " + attemptID + "; the recorded identity cannot verify")
+		}
+		return err
+	}
+	job, err := workflowDispatchedJobForAttempt(ctx, q, workID, attemptID)
+	if err != nil {
+		return err
+	}
+	expected := workerFailureAttemptIdentity(attemptID, laneID, window, job)
+	if mismatch := workerFailureAttemptIdentityMismatch(block.Identity.Attempt, expected.Attempt); mismatch != "" {
+		return workerFailureBoundFailure("worker terminal failure_attribution identity " + mismatch + " does not equal the attempt's authorized dispatch window; a recorded block carries the exact core identity or none")
+	}
+	if block.Identity.Attempt.Subject != nil {
+		return workerFailureBoundFailure("worker terminal failure_attribution names an observed subject; a failed attempt records no delivery and only a coordinator result_review resolves one")
+	}
+	return nil
+}
+
+// verifyWorkflowActionCompletedAttributionMembersTx carries the fold's two
+// attribution members for one action_completed completion. The reference is
+// the derived record's alone: below the attribution version it is smuggled
+// bytes, a derived record born at the capable version names its terminal, and
+// a reference that names another terminal or an unreadable attribution
+// refuses. The block rides correction actions alone: below the attribution
+// version only the upcast's legacy marker may appear there, at or above it
+// the marker is a forged new-legacy claim, and recorded content verifies its
+// exact joins.
+func verifyWorkflowActionCompletedAttributionMembersTx(ctx context.Context, tx *sql.Tx, event Event, p workflowActionCompletedPayload) error {
+	if p.FailureAttributionRef != "" {
+		if event.replaySourcePayloadVersion != 0 && event.replaySourcePayloadVersion < workflowActionCompletedAttributionVersion {
+			return newFailure(KindInvalidPayload, "fold_event", "action_completed failure_attribution_ref is reserved for payload version >= 5", false, "record the terminal attribution reference on the current derived record")
+		}
+		if err := verifyDerivedFailureAttributionReferenceTx(ctx, tx, event, p); err != nil {
+			return err
+		}
+	} else if p.ActionID == "record_worker_failure" && strings.HasSuffix(event.EventID, workflowDerivedWorkerFailureEventIDSuffix) &&
+		(event.replaySourcePayloadVersion == 0 || event.replaySourcePayloadVersion >= workflowActionCompletedAttributionVersion) {
+		return newFailure(KindInvalidPayload, "fold_event", "a derived failure record on the attribution-capable payload names the terminal attribution reference it derives from", false, "derive the record from the terminal worker.failed event")
+	}
+	if p.FailureAttribution == nil {
+		return nil
+	}
+	if !workflowFailureAttributionCorrectionActions[p.ActionID] {
+		return newFailure(KindInvalidPayload, "fold_event", "action_completed failure_attribution is reserved for reject_worker_result and request_correction", false, "record the coordinator attribution on the correction completion that observed it")
+	}
+	if err := validateWorkerFailureAttributionSource(p.FailureAttribution, event.replaySourcePayloadVersion, workflowActionCompletedAttributionVersion); err != nil {
+		return newFailure(KindInvalidPayload, "fold_event", "action_completed failure_attribution: "+err.Error(), false, "record the coordinator attribution on the current correction completion")
+	}
+	if workerFailureAttributionContent(p.FailureAttribution) {
+		// The fold's own sequence is the citation bound: a stored source
+		// event recorded after the correction is a future citation the
+		// replay refuses exactly as the live derive refused it.
+		return verifyCoordinatorFailureAttributionTx(ctx, tx, event.SubjectID, p.ActionID, p.WorkerAttemptID, p.FailureAttribution, event.Seq)
+	}
+	return nil
+}
+
+// workerFailurePayloadDigest is the sha256 digest over one retained event's
+// full payload bytes, the content identity a result source's supplied digest
+// must match.
+func workerFailurePayloadDigest(payload string) string {
+	sum := sha256.Sum256([]byte(payload))
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+// workerFailureCompletedEventSource resolves one retained worker.completed
+// event of the work by its id beside its attempt identity and payload bytes,
+// bounded at beforeSeq (zero leaves the bound open, the pre-append derive's
+// own view). A source event recorded after the citing correction is a future
+// citation no fold accepts.
+func workerFailureCompletedEventSource(ctx context.Context, q queryer, workID, eventID string, beforeSeq int64) (payload string, attemptID string, found bool, err error) {
+	err = q.QueryRowContext(ctx, `SELECT payload, COALESCE(json_extract(payload,'$.attempt_id'),'') FROM domain_events
+WHERE subject_type=? AND subject_id=? AND kind=? AND event_id=? AND (?=0 OR seq<?)`,
+		string(SubjectWorkItem), workID, WorkerCompleted, eventID, beforeSeq, beforeSeq).Scan(&payload, &attemptID)
+	if err == sql.ErrNoRows {
+		return "", "", false, nil
+	}
+	if err != nil {
+		return "", "", false, wrapFailure(KindUnavailable, "worker_failure_attribution", "cannot read the cited completed event", true, "retry once the event log is readable", err)
+	}
+	return payload, attemptID, true, nil
+}
+
+// verifyWorkerFailureReviewResultSourceTx verifies one result_review source
+// against the reviewed attempt's own retained evidence, with the same SQL on
+// the live derive and on replay. The locator resolves either a
+// worker.completed event of the exact attempt — a supplied digest must match
+// its retained payload bytes — or an existing ranked finding whose minting
+// completion belongs to that attempt. A native_run source is the
+// integration phase's anchor and never a review citation.
+func verifyWorkerFailureReviewResultSourceTx(ctx context.Context, q queryer, workID, attemptID string, source WorkerFailureSource, beforeSeq int64) error {
+	if source.Kind == WorkerFailureSourceNativeRun {
+		return workerFailureBoundFailure("result_review cites its own completed evidence; a native_run source is the integration phase's anchor, not a review citation")
+	}
+	if source.Kind != WorkerFailureSourceResult {
+		return workerFailureBoundFailure("result_review cites result sources; " + source.Kind + " belongs to another boundary")
+	}
+	payload, sourceAttempt, found, err := workerFailureCompletedEventSource(ctx, q, workID, source.Locator, beforeSeq)
+	if err != nil {
+		return err
+	}
+	if !found {
+		return verifyWorkerFailureReviewFindingSourceTx(ctx, q, workID, attemptID, source, beforeSeq)
+	}
+	if sourceAttempt != attemptID {
+		return workerFailureBoundFailure("result source " + source.Locator + " is the completion of attempt " + sourceAttempt + "; result_review cites the exact attempt it reviews")
+	}
+	if source.Digest != "" && source.Digest != workerFailurePayloadDigest(payload) {
+		return workerFailureBoundFailure("result source " + source.Locator + " digest " + source.Digest + " differs from the retained payload bytes of the completed event")
+	}
+	return nil
+}
+
+// verifyWorkerFailureReviewFindingSourceTx resolves the finding-id arm of a
+// result_review source through the existing ranked-finding lineage owner:
+// the cited identity must be an existing ranked finding of this work whose
+// minting completion belongs to the reviewed attempt, at or before the
+// citation bound, with a supplied digest matching the minting event's
+// retained payload bytes.
+func verifyWorkerFailureReviewFindingSourceTx(ctx context.Context, q queryer, workID, attemptID string, source WorkerFailureSource, beforeSeq int64) error {
+	if !oracleFindingIDRefPattern.MatchString(source.Locator) {
+		return workerFailureBoundFailure("result source " + source.Locator + " names no completed event of " + workID + " and no ranked finding id; cite the reviewed attempt's completion or an existing ranked finding")
+	}
+	lineage, err := readWorkerOracleFindingLineageTx(ctx, q, workID)
+	if err != nil {
+		return err
+	}
+	finding, exists := lineage.findings[source.Locator]
+	if !exists {
+		return workerFailureBoundFailure("result source " + source.Locator + " names no existing ranked finding of this work")
+	}
+	if beforeSeq != 0 && finding.SourceEventSeq >= beforeSeq {
+		return workerFailureBoundFailure("result source " + source.Locator + " mints at a sequence after the correction it cites")
+	}
+	payload, sourceAttempt, found, err := workerFailureCompletedEventSource(ctx, q, workID, finding.SourceEventID, 0)
+	if err != nil {
+		return err
+	}
+	if !found {
+		return newFailure(KindInvariantViolation, "worker_failure_attribution", "ranked finding "+source.Locator+" names the retained completion "+finding.SourceEventID+" that no longer resolves", false, "reconcile_operation")
+	}
+	if sourceAttempt != attemptID {
+		return workerFailureBoundFailure("result source " + source.Locator + " mints from the completion of attempt " + sourceAttempt + "; result_review cites the exact attempt it reviews")
+	}
+	if source.Digest != "" && source.Digest != workerFailurePayloadDigest(payload) {
+		return workerFailureBoundFailure("result source " + source.Locator + " digest " + source.Digest + " differs from the retained payload bytes of its minting completion")
+	}
+	return nil
+}
+
+// verifyWorkerFailureIntegrationResultSourceTx verifies one integration
+// observation's result source: its locator must be an exact accepted input
+// reference of the derived population, and a supplied digest must match the
+// acceptance event's retained payload bytes, bounded at beforeSeq.
+func verifyWorkerFailureIntegrationResultSourceTx(ctx context.Context, q queryer, workID string, source WorkerFailureSource, inputRefs map[string]bool, beforeSeq int64) error {
+	if source.Kind != WorkerFailureSourceResult {
+		return nil
+	}
+	if !inputRefs[source.Locator] {
+		return workerFailureBoundFailure("integration result source " + source.Locator + " is not an accepted input reference of the cited run's population")
+	}
+	var payload string
+	err := q.QueryRowContext(ctx, `SELECT payload FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND event_id=? AND (?=0 OR seq<?)`,
+		string(SubjectWorkItem), workID, WorkflowActionCompleted, source.Locator, beforeSeq, beforeSeq).Scan(&payload)
+	if err == sql.ErrNoRows {
+		return workerFailureBoundFailure("integration result source " + source.Locator + " names no acceptance event at or before the correction")
+	}
+	if err != nil {
+		return wrapFailure(KindUnavailable, "worker_failure_attribution", "cannot read the cited acceptance event", true, "retry once the event log is readable", err)
+	}
+	if source.Digest != "" && source.Digest != workerFailurePayloadDigest(payload) {
+		return workerFailureBoundFailure("integration result source " + source.Locator + " digest " + source.Digest + " differs from the retained payload bytes of the acceptance event")
+	}
+	return nil
+}
+
+// verifyWorkerFailureReviewResultSources runs the result_review source joins
+// for one observation beside its derived attempt identity.
+func verifyWorkerFailureReviewResultSources(ctx context.Context, q queryer, workID, attemptID string, observation *WorkerFailureObservation, beforeSeq int64) error {
+	for _, source := range observation.Sources {
+		if err := verifyWorkerFailureReviewResultSourceTx(ctx, q, workID, attemptID, source, beforeSeq); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// verifyDerivedFailureAttributionReferenceTx verifies one derived failure
+// record's attribution reference: the record is the derivation pair's
+// alone, the reference names the same retained terminal worker.failed event
+// the event id suffix names, and that terminal's attempt is the record's
+// own. A reference that names another terminal, or a caller-authored event
+// carrying the reference without its derivation pair, refuses.
+func verifyDerivedFailureAttributionReferenceTx(ctx context.Context, tx *sql.Tx, event Event, p workflowActionCompletedPayload) error {
+	if !strings.HasSuffix(event.EventID, workflowDerivedWorkerFailureEventIDSuffix) {
+		return newFailure(KindInvalidPayload, "fold_event", "action_completed failure_attribution_ref rides only the derived failure record the terminal event's derivation authored", false, "derive the record from the terminal worker.failed event")
+	}
+	terminalEventID := strings.TrimSuffix(event.EventID, workflowDerivedWorkerFailureEventIDSuffix)
+	if p.FailureAttributionRef != terminalEventID {
+		return newFailure(KindInvalidPayload, "fold_event", "action_completed failure_attribution_ref "+p.FailureAttributionRef+" does not name the terminal event "+terminalEventID+" the derivation pair derives from", false, "derive the record from the terminal worker.failed event")
+	}
+	var attemptID string
+	err := tx.QueryRowContext(ctx, `SELECT json_extract(payload,'$.attempt_id') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND event_id=? AND seq<?`, string(SubjectWorkItem), event.SubjectID, WorkerFailed, terminalEventID, event.Seq).Scan(&attemptID)
+	if err == sql.ErrNoRows {
+		return newFailure(KindMissingEvidence, "fold_event", "action_completed failure_attribution_ref "+terminalEventID+" names no retained terminal worker.failed event", false, "derive the record from the terminal worker.failed event")
+	}
+	if err != nil {
+		return wrapFailure(KindUnavailable, "fold_event", "cannot read the referenced terminal failure event", true, "retry once the event log is readable", err)
+	}
+	if attemptID == "" || attemptID != p.WorkerAttemptID {
+		return newFailure(KindInvalidPayload, "fold_event", "action_completed failure_attribution_ref names a terminal whose attempt is not the record's attempt", false, "derive the record from the terminal worker.failed event")
+	}
+	// The reference resolves the terminal's attribution record through the
+	// event-based reader: a referenced terminal whose attribution bytes no
+	// longer decode refuses the derived record too, so the reference always
+	// names a readable attribution or an explicit absence.
+	if _, err := WorkerFailureAttributionForAttemptTx(ctx, tx, event.SubjectID, attemptID); err != nil {
+		return err
+	}
+	return nil
+}
+
+// verifyCoordinatorFailureAttributionTx verifies one coordinator correction
+// completion's recorded attribution against its owners. The attempt joins
+// and the subject reference read the event log and projections with the
+// same SQL on the live fold and on rebuild. The integration identity
+// re-derives from the cited run's verify lease. Rebuild reads that same
+// operational authority from its staged snapshot, so both folds verify the
+// exact population and run digest without current-host reads. beforeSeq is
+// the citing correction's own sequence: a stored source event recorded
+// after it is a future citation no fold accepts, and the pre-append derive
+// passes zero because the correction does not exist in the log yet.
+func verifyCoordinatorFailureAttributionTx(ctx context.Context, q queryer, workID, actionID, workerAttemptID string, block *WorkerFailureAttribution, beforeSeq int64) error {
+	if block.Observation == nil || block.Observation.Observer != WorkerFailureObserverCoordinator {
+		return workerFailureBoundFailure("failure_attribution on a correction completion observes as the coordinator; host and worker observations ride their own terminal records")
+	}
+	if block.Observation.Phase != WorkerFailurePhaseResultReview && block.Observation.Phase != WorkerFailurePhaseIntegration {
+		return workerFailureBoundFailure("failure_attribution on a correction completion observes the result_review or integration phase; " + block.Observation.Phase + " belongs to another boundary")
+	}
+	if block.Identity == nil {
+		return workerFailureBoundFailure("a correction completion's recorded failure_attribution carries the core-derived identity")
+	}
+	if block.Identity.Kind == WorkerFailureIdentityIntegration {
+		derived, err := deriveWorkerFailureIntegration(ctx, q, workID, block.Observation)
+		if err != nil {
+			return err
+		}
+		if !reflect.DeepEqual(derived, block.Identity) {
+			return workerFailureBoundFailure("failure_attribution integration identity does not equal the identity the cited combined run derives; the recorded population, run reference, and digest are the reader's answer")
+		}
+		inputRefs := make(map[string]bool, len(block.Identity.Integration.InputResults))
+		for _, input := range block.Identity.Integration.InputResults {
+			inputRefs[input.ResultRef] = true
+		}
+		for _, source := range block.Observation.Sources {
+			if err := verifyWorkerFailureIntegrationResultSourceTx(ctx, q, workID, source, inputRefs, beforeSeq); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if block.Observation.Phase != WorkerFailurePhaseResultReview {
+		return workerFailureBoundFailure("failure_attribution attempt identity rides the result_review phase; the integration phase names the combined run")
+	}
+	if workerAttemptID == "" || block.Identity.Attempt == nil || block.Identity.Attempt.AttemptID != workerAttemptID {
+		return workerFailureBoundFailure("failure_attribution result_review names the exact action attempt; " + block.Identity.Attempt.AttemptID + " is not the attempt this " + actionID + " completes")
+	}
+	if block.Identity.Attempt.Subject != nil && block.Identity.Attempt.Subject.Kind != WorkerFailureSubjectObservedDeliveryEvent {
+		return workerFailureBoundFailure("failure_attribution result_review subject reference names a completed observed_delivery event")
+	}
+	if err := verifyWorkerFailureReviewResultSources(ctx, q, workID, workerAttemptID, block.Observation, beforeSeq); err != nil {
+		return err
+	}
+	window, err := findAuthorizedDispatchWindowCore(ctx, q, workID, workerAttemptID)
+	if err != nil {
+		var failure *Failure
+		if failureAs(err, &failure) && failure.Kind == KindUnauthorizedDispatch {
+			return workerFailureBoundFailure("failure_attribution result_review names no authorized dispatch window for attempt " + workerAttemptID + "; the recorded identity cannot verify")
+		}
+		return err
+	}
+	attempt, err := workerAttemptByIDCore(ctx, q, workerAttemptID)
+	if err != nil {
+		return err
+	}
+	job, err := workflowDispatchedJobForAttempt(ctx, q, workID, workerAttemptID)
+	if err != nil {
+		return err
+	}
+	expected := workerFailureAttemptIdentity(workerAttemptID, attempt.LaneID, window, job)
+	if mismatch := workerFailureAttemptIdentityMismatch(block.Identity.Attempt, expected.Attempt); mismatch != "" {
+		return workerFailureBoundFailure("failure_attribution result_review identity " + mismatch + " does not equal the exact action attempt's authorized dispatch window")
+	}
+	// The subject is availability-gated, not optional prose: when the
+	// attempt owns a completed observed-delivery event, a result_review
+	// identity cannot silently omit it.
+	available, err := workerFailureObservedDeliverySubject(ctx, q, workID, workerAttemptID)
+	if err != nil {
+		return err
+	}
+	if available != nil && block.Identity.Attempt.Subject == nil {
+		return workerFailureBoundFailure("result_review omits the observed delivery subject " + available.Locator + " the attempt's completed event records; name the subject the review resolved")
+	}
+	return verifyWorkerFailureObservedDeliverySubject(ctx, q, workID, workerAttemptID, block.Identity.Attempt.Subject)
+}
+
+// deriveCoordinatorCorrectionAttributionTx derives one coordinator
+// correction completion's recorded attribution block inside the
+// authenticated action transaction. The request carries the direct producer
+// observation alone — decoded strictly, so an origin or identity member
+// refuses at the boundary — and the store derives the core identity: the
+// integration phase through the bounded integration reader over the cited
+// combined run, and the result_review phase through the exact action
+// attempt's authorized window, lane, dispatched job revision, and completed
+// observed-delivery subject. A nil return means the request carried no
+// attribution and the completion records none.
+func deriveCoordinatorCorrectionAttributionTx(ctx context.Context, q queryer, workID, actionID string, fields map[string]json.RawMessage) (*WorkerFailureAttribution, error) {
+	raw, present := fields["failure_attribution"]
+	if !present || len(bytes.TrimSpace(raw)) == 0 {
+		return nil, nil
+	}
+	if !utf8.Valid(raw) {
+		return nil, workerFailureBoundFailure("failure_attribution is not valid UTF-8")
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	var observation WorkerFailureObservation
+	if err := decoder.Decode(&observation); err != nil {
+		return nil, workerFailureBoundFailure("failure_attribution is not the closed producer observation shape; the request carries the observation alone and never an origin or identity: " + err.Error())
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		return nil, workerFailureBoundFailure("failure_attribution carries trailing content after the producer observation")
+	}
+	if err := validateWorkerFailureObservation(&observation); err != nil {
+		return nil, err
+	}
+	if observation.Observer != WorkerFailureObserverCoordinator {
+		return nil, workerFailureBoundFailure("failure_attribution on " + actionID + " observes as the coordinator; the authenticated workflow boundary sets the observer and no other boundary records here")
+	}
+	if observation.Phase != WorkerFailurePhaseResultReview && observation.Phase != WorkerFailurePhaseIntegration {
+		return nil, workerFailureBoundFailure("failure_attribution on " + actionID + " observes the result_review or integration phase; " + observation.Phase + " belongs to another boundary")
+	}
+	var identity *WorkerFailureIdentity
+	switch observation.Phase {
+	case WorkerFailurePhaseIntegration:
+		derived, err := deriveWorkerFailureIntegration(ctx, q, workID, &observation)
+		if err != nil {
+			return nil, err
+		}
+		identity = derived
+	case WorkerFailurePhaseResultReview:
+		attemptID := workflowFieldStringDefault(fields, "attempt_id", "")
+		if attemptID == "" {
+			return nil, workerFailureBoundFailure("failure_attribution result_review names the exact action attempt; " + actionID + " carries no attempt to review")
+		}
+		window, err := findAuthorizedDispatchWindowCore(ctx, q, workID, attemptID)
+		if err != nil {
+			var failure *Failure
+			if failureAs(err, &failure) && failure.Kind == KindUnauthorizedDispatch {
+				return nil, workerFailureBoundFailure("failure_attribution result_review names no authorized dispatch window for attempt " + attemptID)
+			}
+			return nil, err
+		}
+		attempt, err := workerAttemptByIDCore(ctx, q, attemptID)
+		if err != nil {
+			return nil, err
+		}
+		if attempt.WorkID != workID {
+			return nil, workerFailureBoundFailure("failure_attribution result_review names an attempt of another work item")
+		}
+		job, err := workflowDispatchedJobForAttempt(ctx, q, workID, attemptID)
+		if err != nil {
+			return nil, err
+		}
+		identity = workerFailureAttemptIdentity(attemptID, attempt.LaneID, window, job)
+		subject, err := workerFailureObservedDeliverySubject(ctx, q, workID, attemptID)
+		if err != nil {
+			return nil, err
+		}
+		identity.Attempt.Subject = subject
+	}
+	block := &WorkerFailureAttribution{Origin: WorkerFailureAttributionRecorded, Observation: &observation, Identity: identity}
+	if err := ValidateWorkerFailureAttribution(block); err != nil {
+		return nil, err
+	}
+	// The derive runs before the correction exists in the log, so its
+	// citation bound is open; the fold re-verifies the same joins bounded at
+	// the correction's own sequence.
+	switch observation.Phase {
+	case WorkerFailurePhaseIntegration:
+		inputRefs := make(map[string]bool, len(identity.Integration.InputResults))
+		for _, input := range identity.Integration.InputResults {
+			inputRefs[input.ResultRef] = true
+		}
+		for _, source := range observation.Sources {
+			if err := verifyWorkerFailureIntegrationResultSourceTx(ctx, q, workID, source, inputRefs, 0); err != nil {
+				return nil, err
+			}
+		}
+	case WorkerFailurePhaseResultReview:
+		if err := verifyWorkerFailureReviewResultSources(ctx, q, workID, identity.Attempt.AttemptID, &observation, 0); err != nil {
+			return nil, err
+		}
+	}
+	return block, nil
+}
+
+// WorkerFailureAttributionRecord is one attempt's resolved terminal
+// attribution: the decoded block — nil when the terminal predates the
+// boundary and recorded none at a capable version — beside the source
+// payload version the log recorded and the terminal event identity that
+// owns it. A stored source version below the boundary resolves the explicit
+// legacy_unavailable marker, so a history that predates the block reads as
+// visibly legacy instead of as an empty claim.
+type WorkerFailureAttributionRecord struct {
+	EventID       string                    `json:"event_id"`
+	SourceVersion int                       `json:"source_version"`
+	Attribution   *WorkerFailureAttribution `json:"attribution"`
+}
+
+// workerFailureAttributionTerminalEventQuery reads one attempt's terminal
+// attribution member as raw bytes beside its recorded source payload
+// version. The terminal filter binds the dispatched arm to the born-failed
+// terminal alone; the failed arm matches every worker.failed event.
+const workerFailureAttributionTerminalEventQuery = `SELECT event_id, payload_version, json_extract(payload,'$.failure_attribution') FROM domain_events
+WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.attempt_id')=? %s ORDER BY seq DESC LIMIT 1`
+
+// workerFailureAttributionTerminalRecord resolves one terminal arm: the
+// event identity, the recorded source version, and the decoded attribution —
+// the explicit legacy marker when a below-boundary source recorded none.
+func workerFailureAttributionTerminalRecord(ctx context.Context, q queryer, workID, attemptID string, kind string, terminalFilter string, capableVersion int) (*WorkerFailureAttributionRecord, bool, error) {
+	terminalClause := ""
+	if terminalFilter != "" {
+		terminalClause = "AND json_extract(payload,'" + terminalFilter + "')='failed'"
+	}
+	var eventID string
+	var sourceVersion int
+	var raw sql.NullString
+	err := q.QueryRowContext(ctx, strings.Replace(workerFailureAttributionTerminalEventQuery, "%s", terminalClause, 1),
+		string(SubjectWorkItem), workID, kind, attemptID).Scan(&eventID, &sourceVersion, &raw)
+	if err == sql.ErrNoRows {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, wrapFailure(KindUnavailable, "worker_failure_attribution", "cannot read the attempt's terminal attribution", true, "retry once the event log is readable", err)
+	}
+	record := &WorkerFailureAttributionRecord{EventID: eventID, SourceVersion: sourceVersion}
+	if !raw.Valid || raw.String == "" || raw.String == "null" {
+		if sourceVersion < capableVersion {
+			record.Attribution = &WorkerFailureAttribution{Origin: WorkerFailureAttributionLegacyUnavailable}
+		}
+		return record, true, nil
+	}
+	block, err := DecodeWorkerFailureAttribution(json.RawMessage(raw.String))
+	if err != nil {
+		return nil, false, err
+	}
+	record.Attribution = block
+	return record, true, nil
+}
+
+// WorkerFailureAttributionForAttemptTx is the event-based attribution reader
+// over the existing attempt history: it resolves the attempt's terminal —
+// the worker.failed event, or the born-failed worker.dispatched evidence
+// that closed the attempt at dispatch — through the caller's queryer,
+// decodes the attribution member strictly, and resolves a below-boundary
+// source without raw bytes as the explicit legacy_unavailable marker. A
+// terminal born at or above the boundary without raw bytes returns a nil
+// block: whether that absence is legal is the fold's definition-gated
+// refusal, never the reader's guess.
+func WorkerFailureAttributionForAttemptTx(ctx context.Context, q queryer, workID, attemptID string) (*WorkerFailureAttributionRecord, error) {
+	if q == nil {
+		return nil, newFailure(KindInvalidInput, "worker_failure_attribution", "the attribution reader received no queryer", false, "read inside the transaction that owns the attempt")
+	}
+	record, found, err := workerFailureAttributionTerminalRecord(ctx, q, workID, attemptID, WorkerFailed, "", workerFailedAttributionVersion)
+	if err != nil || found {
+		return record, err
+	}
+	record, found, err = workerFailureAttributionTerminalRecord(ctx, q, workID, attemptID, WorkerDispatched, "$.terminal", workerDispatchedAttributionVersion)
+	if err != nil || found {
+		return record, err
+	}
+	return nil, newFailure(KindProjectionNotFound, "worker_failure_attribution", "attempt "+attemptID+" records no terminal worker.failed or born-failed dispatch evidence", false, "read the attribution of a failed attempt")
 }

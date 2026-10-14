@@ -77,7 +77,10 @@ func s2ActorRef(t *testing.T, actor WorkflowActor) string {
 func TestDerivedWorkerFailureRecordsOnceFromTheOriginalTerminalEvent(t *testing.T) {
 	t.Parallel()
 	const workID = "s2-derived-failure-once"
-	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
+	// The derived-failure head that predates the attribution requirement:
+	// this suite pins the released derivation semantics, and the terminal
+	// events it records carry no producer observation.
+	fixture := seedHistoricalWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", 27, "repair")
 	s := fixture.store
 	dispatcher := diagnosisS1Actor(workID, "dispatcher")
 	lane := reviewGateLane(t, "implementation")
@@ -149,17 +152,18 @@ func TestDerivedWorkerFailureRecordsOnceFromTheOriginalTerminalEvent(t *testing.
 
 func TestDerivedWorkerFailureMatchesManualCorrectionProjection(t *testing.T) {
 	for _, family := range []struct {
-		ref           string
-		manualVersion int64
-		step          string
+		ref            string
+		manualVersion  int64
+		derivedVersion int64
+		step           string
 	}{
-		{ref: "workflow.implementation", manualVersion: 28, step: "execution"},
-		{ref: "workflow.break_fix", manualVersion: 25, step: "repair"},
+		{ref: "workflow.implementation", manualVersion: 28, derivedVersion: 30, step: "execution"},
+		{ref: "workflow.break_fix", manualVersion: 25, derivedVersion: 27, step: "repair"},
 	} {
 		t.Run(family.ref, func(t *testing.T) {
 			workID := "failure-parity-" + strings.TrimPrefix(family.ref, "workflow.")
 			manual := seedHistoricalWorkflowReturnRouteFixture(t, workID, family.ref, family.manualVersion, family.step)
-			derived := seedWorkflowReturnRouteFixture(t, workID, family.ref, family.step)
+			derived := seedHistoricalWorkflowReturnRouteFixture(t, workID, family.ref, family.derivedVersion, family.step)
 			fixtures := []workflowReturnRouteFixture{manual, derived}
 			jobs := []*WorkerJobBinding{{JobID: "job:" + workID}, {JobID: "job:" + workID}}
 			corrections := make([]*WorkflowCorrectionContext, len(fixtures))

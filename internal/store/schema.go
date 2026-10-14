@@ -6277,6 +6277,25 @@ CREATE TRIGGER worker_attempts_guard_update BEFORE UPDATE ON worker_attempts FOR
 CREATE TRIGGER worker_attempts_guard_delete BEFORE DELETE ON worker_attempts FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'worker_attempts is fold-only') WHERE NOT EXISTS (SELECT 1 FROM fold_guard WHERE active=1); END;
 `,
 	},
+	{
+		Version:  127,
+		Name:     "verify_lease_event_watermark",
+		Breaking: false,
+		// The acquire INSERT, not the fold, writes this column, once per
+		// lease, and first write wins: a rebuild's operational snapshot and
+		// the writer agree, the origin class migration 125 declared for its
+		// acquire- and release-written columns.
+		FoldMaintained: "origin",
+		SQL: `
+-- The verify lease records the event-order position at which its run starts:
+-- this work item's highest committed event sequence, written by the acquire
+-- INSERT in its own transaction. NULL means the lease predates the column, so
+-- attribution reports that run's input population as unavailable; no backfill
+-- reconstructs the position from timestamps. The lease table is operational
+-- state: the acquire INSERT, not the fold, owns the value.
+ALTER TABLE worktree_verify_leases ADD COLUMN event_watermark INTEGER CHECK(event_watermark IS NULL OR (typeof(event_watermark)='integer' AND event_watermark>=0));
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

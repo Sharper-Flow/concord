@@ -155,7 +155,7 @@ func WorkflowActionDefinitionFor(ctx context.Context, s *Store, registry Definit
 			return RegisteredDefinition{}, WorkflowActionDefinition{}, correctionErr
 		}
 		if available {
-			return entry, workflowCorrectionActionDefinition(), nil
+			return entry, workflowCorrectionActionDefinitionFor(entry.Definition, "reject_worker_result"), nil
 		}
 		return RegisteredDefinition{}, WorkflowActionDefinition{}, newFailure(KindInvalidOperation, "workflow_action", "worker result rejection is unavailable without a completed result", false, "accept or reject the completed worker result")
 	}
@@ -169,7 +169,7 @@ func WorkflowActionDefinitionFor(ctx context.Context, s *Store, registry Definit
 			return RegisteredDefinition{}, WorkflowActionDefinition{}, correctionErr
 		}
 		if available {
-			return entry, workflowCorrectionRequestActionDefinition(), nil
+			return entry, workflowCorrectionActionDefinitionFor(entry.Definition, "request_correction"), nil
 		}
 		return RegisteredDefinition{}, WorkflowActionDefinition{}, workflowCorrectionRequestUnavailableFailure("workflow_action", missing)
 	}

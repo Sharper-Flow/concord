@@ -11,7 +11,7 @@
 // the tool output as a typed element the coordinator reads, and the hook never
 // throws: the worker's own result stays visible either way.
 import { createHash } from "node:crypto"
-import { boundedTextPrefix, completeWorkerAttempt, failWorkerAttempt, abandonWorkerAttempt, type AgentResultEnvelope, type DispatchRunner } from "./dispatch"
+import { boundedTextPrefix, completeWorkerAttempt, exactObservationMessage, failWorkerAttempt, abandonWorkerAttempt, TASK_CANCELLED_ERROR, type AgentResultEnvelope, type DispatchRunner, type WorkerFailureHostObservation, type WorkerFailureObservation, type WorkerFailureSource } from "./dispatch"
 import type { CredentialStore } from "./credentials"
 import { dispatchWindows, DispatchWindows, TASK_TOOL_ID, type DispatchRecord } from "./dispatch-window"
 import type { SessionReader } from "./move-session"
@@ -220,8 +220,113 @@ function observeHostFailure(observations: HostFailureObservations, event: Record
   }
 }
 
+// The bare host cancellation string. The host ends a Task with it when nothing
+// supplied a typed diagnostic, and it stays verbatim in every diagnostic it
+// rides: an interrupt is not a provider fault (owned by dispatch.ts, mirrored
+// here as a re-export for callers that read this module only).
+export { TASK_CANCELLED_ERROR } from "./dispatch"
+
+// ForeignFailureObservationSource is the typed refusal for a held source that
+// names a session other than the exact child the dispatch window bound: a
+// wrong-child observation cannot ride this attempt. The settle path surfaces
+// it as a typed refusal and keeps the retained attempt for reconciliation.
+export class ForeignFailureObservationSource extends Error {}
+
+// hostSourceDigest binds one typed host source to its content: the digest
+// covers exactly the fields the core host shape carries plus the FULL
+// observed message, so a changed diagnostic or a changed identity moves the
+// digest. The digest never hashes a truncated form.
+function hostSourceDigest(host: WorkerFailureHostObservation, message: string): string {
+  return `sha256:${createHash("sha256").update(JSON.stringify({ host, message }), "utf8").digest("hex")}`
+}
+
+// retainedHostSource projects one held host observation onto the core source
+// shape: the message id is the locator when the host supplied one, the
+// retained source digest rides unchanged, and the retry counters stay out of
+// the core host shape — they live in the retained digest only. Held messages
+// are exact: the hold refuses an over-bound observation whole.
+function retainedHostSource(entry: HostFailureObservation): WorkerFailureSource {
+  return {
+    kind: "host_event",
+    ...(entry.message_id !== undefined ? { locator: entry.message_id } : {}),
+    digest: entry.source_digest,
+    message: entry.message,
+    host: {
+      tag: entry.tag,
+      event_type: entry.event_type,
+      session_id: entry.session_id,
+      ...(entry.message_id !== undefined ? { message_id: entry.message_id } : {}),
+      ...(entry.error_name !== undefined ? { error_name: entry.error_name } : {}),
+      ...(entry.status_code !== undefined ? { status_code: entry.status_code } : {}),
+    },
+  }
+}
+
+// cancellationFailureObservation is the typed observation for the terminal
+// settle of one child Task. Every held source must name the bound child; a
+// foreign one refuses the attribution whole. The held sources ride first, in
+// the order the boundary observed them; the arm source records the tool-part
+// error itself, byte-exact within the bound and never truncated — an
+// over-bound diagnostic omits the copied message while the digest keeps
+// binding the full content.
+//
+// A bare cancellation is the explicit absence case: cancellation tag, unknown
+// cause, unknown basis. A held retry never becomes the cause, and message
+// text alone never upgrades it. A non-cancel terminal error beside a typed
+// host fault carries a host_provider cause at hypothesis only: the host
+// record never links the fault to the terminal error, and a locator alone
+// proves no causality, so the basis never becomes supported here.
+export function cancellationFailureObservation(stateError: string, childSessionID: string, held: HostFailureObservation[]): WorkerFailureObservation {
+  const foreign = held.find((entry) => entry.session_id !== childSessionID)
+  if (foreign !== undefined) {
+    throw new ForeignFailureObservationSource(`held host observation names child ${foreign.session_id}, not the bound child ${childSessionID}; a wrong-child observation cannot ride this attempt`)
+  }
+  const bareCancellation = stateError === TASK_CANCELLED_ERROR
+  const heldFault = held.find((entry) => entry.tag === "terminal" && (entry.error_name !== undefined || entry.status_code !== undefined))
+  let cause: WorkerFailureObservation["cause"] = "unknown"
+  let basis: WorkerFailureObservation["basis"] = "unknown"
+  if (!bareCancellation && heldFault !== undefined) {
+    cause = "host_provider"
+    basis = "hypothesis"
+  }
+  const message = exactObservationMessage(stateError)
+  const host: WorkerFailureHostObservation = { tag: bareCancellation ? "cancellation" : "terminal", event_type: "message.part.updated", session_id: childSessionID }
+  return {
+    observer: "host_adapter",
+    phase: "host_execution",
+    cause,
+    basis,
+    sources: [
+      ...held.map(retainedHostSource),
+      { kind: "host_event", digest: hostSourceDigest(host, stateError), ...(message !== undefined ? { message } : {}), host },
+    ],
+  }
+}
+
+// spawnFailureObservation records the session.error event that settled a
+// spawn which died before any part event. No child session existed, so the
+// session id is the parent session the host published the event on, and the
+// locator stays empty: the digest binds the observed fields, never an
+// invented event id. The diagnostic rides byte-exact within the bound and
+// never truncated — an over-bound diagnostic omits the copied message while
+// the digest keeps binding the full content.
+export function spawnFailureObservation(sessionID: string, error: unknown): WorkerFailureObservation {
+  const errorName = object(error) && typeof error.name === "string" && error.name !== "MessageAbortedError" && boundedObservationText(error.name, MAX_HOST_OBSERVATION_REF_BYTES, true)
+    ? error.name
+    : undefined
+  const host: WorkerFailureHostObservation = { tag: "terminal", event_type: "session.error", session_id: sessionID, ...(errorName !== undefined ? { error_name: errorName } : {}) }
+  const diagnostic = spawnFailureDiagnostic(error)
+  const message = exactObservationMessage(diagnostic)
+  return {
+    observer: "host_adapter",
+    phase: "host_execution",
+    cause: "unknown",
+    basis: "unknown",
+    sources: [{ kind: "host_event", digest: hostSourceDigest(host, diagnostic), ...(message !== undefined ? { message } : {}), host }],
+  }
+}
+
 // Preserve other host terminal diagnostics verbatim.
-const TASK_CANCELLED_ERROR = "Task cancelled"
 
 // Rendering observations does not assert that either source caused cancellation.
 function cancelledDetail(error: string, observations: HostFailureObservation[]): string {
@@ -275,8 +380,12 @@ export async function failDispatchedWorker(event: unknown, deps: LaneCompletionD
   const observed = observations.take(metadata.sessionId)
   const detail = cancelledDetail(state.error, observed)
   try {
+    // the retained sources ride the terminal write as typed
+    // attribution, not only the returned envelope. The arm observation binds
+    // the exact child this dispatch window authorized.
     const envelope = await failWorkerAttempt(lane, pending.packet, metadata.sessionId, detail, {
       credentials: deps.credentials, runner: deps.runner, evidenceRunner: deps.evidenceRunner, sessionReader: deps.sessionReader, concordBinary: deps.concordBinary, packetDigest: pending.packetDigest, workerDirectory: pending.workerDirectory, capturedProvenance: pending.provenance,
+      failureAttribution: cancellationFailureObservation(state.error, metadata.sessionId, observed),
     }, deps.signal ?? new AbortController().signal, () => windows.finishSettlement(sessionID, callID))
     if (envelope.error && observed.length > 0) {
       envelope.error.details = { ...envelope.error.details, host_observations: observed }
@@ -325,6 +434,7 @@ async function failSpawnWithoutPartEvent(properties: Record<string, unknown>, de
     const envelope = await abandonWorkerAttempt(lane, pending.packet, detail, {
       credentials: deps.credentials, runner: deps.runner, evidenceRunner: deps.evidenceRunner, concordBinary: deps.concordBinary,
       abandonEventID: `worker-abandon-${token}`, abandonNonce: token,
+      failureAttribution: spawnFailureObservation(sessionID, properties.error),
     }, deps.signal ?? new AbortController().signal, () => windows.finishSettlement(sessionID))
     // A recorded abandonment already dropped the record. A refused one left it
     // retained, so the claim releases and the coordinator's worker_abandon

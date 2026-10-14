@@ -148,6 +148,50 @@ func TestCanonicalWorkerEvidenceVectorV2(t *testing.T) {
 	}
 }
 
+// TestWorkerFailureObservationDigestMatchesTheSharedVector pins the
+// observation-digest half of the boundary through the production helper: every
+// observation_vectors sample in the shared vector — exact HTML-escaped,
+// U+2028/U+2029, and multibyte content, and samples whose optional members are
+// omitted — hashes under store.WorkerFailureObservationDigest to exactly the
+// digest the fixture records. The digests were computed by the Go production
+// helper when the fixture was written, so agreement here proves the decode
+// path, not a self-consistent synthetic value.
+func TestWorkerFailureObservationDigestMatchesTheSharedVector(t *testing.T) {
+	t.Parallel()
+	raw, err := os.ReadFile("../../adapter/opencode/worker-evidence-vector.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var vector struct {
+		ObservationVectors []struct {
+			Name              string                         `json:"name"`
+			Observation       store.WorkerFailureObservation `json:"observation"`
+			ObservationDigest string                         `json:"observation_digest"`
+		} `json:"observation_vectors"`
+	}
+	if err := json.Unmarshal(raw, &vector); err != nil {
+		t.Fatal(err)
+	}
+	if len(vector.ObservationVectors) == 0 {
+		t.Fatal("shared worker evidence vector declares no observation_vectors")
+	}
+	for _, vectorCase := range vector.ObservationVectors {
+		t.Run(vectorCase.Name, func(t *testing.T) {
+			observation := vectorCase.Observation
+			if observation.Observer == "" || observation.Phase == "" || len(observation.Sources) == 0 {
+				t.Fatalf("sample %q decoded no observation content: %+v", vectorCase.Name, observation)
+			}
+			digest, err := store.WorkerFailureObservationDigest(&observation)
+			if err != nil {
+				t.Fatalf("the production digest refused the vector observation %q: %v", vectorCase.Name, err)
+			}
+			if digest != vectorCase.ObservationDigest {
+				t.Fatalf("observation digest mismatch for %q:\n got %s\nwant %s", vectorCase.Name, digest, vectorCase.ObservationDigest)
+			}
+		})
+	}
+}
+
 // TestWorkerEvidenceVectorCoversEveryVerbAndBindingField keeps the shared
 // bound_fields declaration honest against this package. Every acceptable verb
 // needs a case, every declared field must exist on the binding, and every

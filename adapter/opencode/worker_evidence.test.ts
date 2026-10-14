@@ -1,6 +1,7 @@
 import { test, expect } from "bun:test"
+import { createHash } from "node:crypto"
 import { agentLanes } from "./generated-agent-lanes"
-import { abandonWorkerAttempt, canonicalWorkerEvidence, completeWorkerAttempt, type AgentLanePacket, type DispatchRunner } from "./dispatch"
+import { canonicalObservationJSON, canonicalWorkerEvidence, workerFailureObservationDigest, abandonWorkerAttempt, completeWorkerAttempt, type AgentLanePacket, type DispatchRunner, type WorkerFailureObservation } from "./dispatch"
 import type { CredentialStore } from "./credentials"
 import { hostControlPlane, type SessionReader } from "./move-session"
 import workerEvidenceVector from "./worker-evidence-vector.json"
@@ -268,19 +269,35 @@ const SIGNING_ENVELOPE_FIELDS = ["client_ref", "issued_at", "nonce", "signature"
 
 test("every verb signs exactly the field set its CLI binding populates", async () => {
   const signed = new Map<string, Record<string, unknown>>()
+  const requests = new Map<string, Record<string, unknown>>()
   for (const body of [completedBody(), failedBody()]) {
     const recorded: Record<string, unknown>[] = []
     await completeWorkerAttempt(lane, packet(), body, { credentials: testCredentials, sessionReader: laneSessionReader, evidenceRunner: evidenceCollector(recorded), concordBinary: "concord", packetDigest: PACKET_DIGEST, workerDirectory: WORKER_DIRECTORY }, SIGNAL)
-    for (const entry of recorded) signed.set(entry.command as string, (entry.request as any).assertion)
+    for (const entry of recorded) {
+      signed.set(entry.command as string, (entry.request as any).assertion)
+      requests.set(entry.command as string, entry.request as Record<string, unknown>)
+    }
   }
   expect([...signed.keys()].sort()).toEqual(workerEvidenceVector.cases.map((vectorCase) => vectorCase.verb).sort())
 
+  // a worker-fail assertion signs the canonical observation digest of
+  // the attribution its request carries, so the signed field set gains the v2
+  // members exactly on the failing verbs. Dispatch and completion stay v1.
+  const V2_ATTRIBUTION_FIELDS = ["version", "observation_digest"]
   for (const vectorCase of workerEvidenceVector.cases) {
     const assertion = signed.get(vectorCase.verb)
     expect(assertion).toBeDefined()
-    const want = [...vectorCase.bound_fields, ...SIGNING_ENVELOPE_FIELDS].sort()
+    const attributionFields = vectorCase.verb === "worker-fail" ? V2_ATTRIBUTION_FIELDS : []
+    const want = [...vectorCase.bound_fields, ...attributionFields, ...SIGNING_ENVELOPE_FIELDS].sort()
     expect(Object.keys(assertion as Record<string, unknown>).sort()).toEqual(want)
   }
+  const failAssertion = signed.get("worker-fail") as Record<string, unknown>
+  expect(failAssertion.version).toBe(2)
+  expect(failAssertion.observation_digest).toMatch(/^sha256:[0-9a-f]{64}$/)
+  expect(typeof (requests.get("worker-fail") as Record<string, unknown>).failure_attribution).toBe("object")
+  const completedAssertion = signed.get("worker-complete") as Record<string, unknown>
+  expect(completedAssertion.version).toBeUndefined()
+  expect(completedAssertion.observation_digest).toBeUndefined()
 })
 
 // Without a credential the adapter cannot authorize evidence. A run that cannot
@@ -335,6 +352,80 @@ type WorkerEvidenceVectorV2Case = {
 
 const v2VectorCases = (workerEvidenceVector as { v2_cases: WorkerEvidenceVectorV2Case[] }).v2_cases
 const V2_PREFIX = Buffer.from("worker-evidence-v2\0", "binary")
+
+// production signer parity. The same canonical encoder the
+// adapter signs with must reproduce every v2 vector byte for byte, exactly as
+// the v1 loop above pins the released format — a structure witness alone
+// cannot prove the production signer agrees with the Go encoder.
+for (const vectorCase of v2VectorCases) {
+  test(`the TypeScript canonical encoder matches the Go v2 vector byte for byte for ${vectorCase.verb}`, () => {
+    const encoded = canonicalWorkerEvidence(vectorCase.assertion as Record<string, unknown>)
+    expect(Buffer.from(encoded).toString("base64")).toBe(vectorCase.canonical_base64)
+  })
+}
+
+test("v2 canonical encoding is order-fixed, not object-key dependent", () => {
+  const vectorCase = v2VectorCases[0]
+  const reversed = Object.fromEntries(Object.entries(vectorCase.assertion).reverse())
+  expect(Buffer.from(canonicalWorkerEvidence(reversed)).toString("base64")).toBe(vectorCase.canonical_base64)
+})
+
+// The observation digest hashes exactly the bytes Go's json.Marshal produces
+// for the same observation: fixed member order, omitempty members that
+// vanish when empty, and Go's default HTML escaping. The canonical string is
+// pinned literally here, so an escaping drift fails this test before it can
+// forge a signature the core would refuse.
+test("the observation digest canonicalizes exactly the Go marshal form", () => {
+  const observation: WorkerFailureObservation = {
+    observer: "host_adapter",
+    phase: "host_execution",
+    cause: "host_provider",
+    basis: "supported",
+    sources: [
+      {
+        kind: "host_event",
+        locator: "msg-1",
+        digest: "sha256:" + "a".repeat(64),
+        message: 'fault <&> "quoted"\n\té🎉',
+        host: { tag: "terminal", event_type: "message.updated", session_id: "ses_1", message_id: "msg-1", error_name: "APIError", status_code: 429 },
+      },
+      { kind: "validator", message: "schema: <probe>" },
+    ],
+  }
+  expect(canonicalObservationJSON(observation)).toBe(
+    '{"observer":"host_adapter","phase":"host_execution","cause":"host_provider","basis":"supported","sources":[' +
+    '{"kind":"host_event","locator":"msg-1","digest":"sha256:' + "a".repeat(64) +
+    '","message":"fault \\u003c\\u0026\\u003e \\"quoted\\"\\n\\té🎉",' +
+    '"host":{"tag":"terminal","event_type":"message.updated","session_id":"ses_1","message_id":"msg-1","error_name":"APIError","status_code":429}},' +
+    '{"kind":"validator","message":"schema: \\u003cprobe\\u003e"}]}',
+  )
+  expect(workerFailureObservationDigest(observation)).toBe(
+    "sha256:" + createHash("sha256").update(canonicalObservationJSON(observation), "utf8").digest("hex"),
+  )
+})
+
+// Observation-digest parity. The observation_vectors samples carry exact
+// observations — Go's HTML escaping of < > &, raw U+2028/U+2029 line
+// separators, multibyte text, and observations whose optional members are
+// omitted — beside the digest the Go production helper
+// (store.WorkerFailureObservationDigest) computed when the fixture was
+// written. The TypeScript production digest helper must reproduce each one
+// exactly: a divergence here would sign an assertion the core refuses, or
+// worse, authenticate an observation the client never saw.
+type ObservationVectorCase = {
+  name: string
+  observation: WorkerFailureObservation
+  observation_digest: string
+}
+
+const observationVectors = (workerEvidenceVector as { observation_vectors?: ObservationVectorCase[] }).observation_vectors ?? []
+
+test("the TypeScript production observation digest matches every Go vector digest", () => {
+  expect(observationVectors.length).toBeGreaterThan(0)
+  for (const vectorCase of observationVectors) {
+    expect(workerFailureObservationDigest(vectorCase.observation), `observation digest mismatch for ${vectorCase.name}`).toBe(vectorCase.observation_digest)
+  }
+})
 
 test("v2 vector cases declare well-formed worker-evidence-v2 vector structure", () => {
   expect(Array.isArray(v2VectorCases)).toBe(true)

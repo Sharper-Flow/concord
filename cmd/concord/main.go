@@ -163,10 +163,10 @@ func invokeOperationEnums() string {
 // transport contracts.
 var commandSpecs = []commandSpec{
 	{Canonical: "invoke", RequiredFields: requiredFields(nestedField("call_envelope", "schema_version", "request_id", "client_ref", "principal_ref", "session_ref", "agent_ref", "directory", "worktree", "ambient_project_id", "scope_version", "manifest_digest"), field("tool"), field("operation"), field("input")), Optional: "call_envelope.selected_product_id, call_envelope.host_assertion_digest, call_envelope.host_approval_assertion; pre-dispatch decode refusals exit 64; worktree_verify input uses command OR oracle (phase prepare | execute), never both; worktree_inspect mode oracle_output uses run_ref, stream stdout | stderr, offset, length (1-16384 raw bytes), never path or idempotency_key; exact fields and exclusions follow the generated agent contracts", Enums: invokeOperationEnums()},
-	{Canonical: "worker-dispatch", RequiredFields: requiredFields(field("event_id"), field("work_id"), field("attempt_id"), field("lane_id"), field("lane_version"), field("lane_digest"), field("packet_schema_version"), field("report_schema_version"), field("packet_digest")), Optional: "readback_model (host-reported executing model); terminal ('failed') with terminal_failure_kind and terminal_detail for an attempt born failed, such as a lost or ambiguous readback; host_provenance.digest (sha256), host_provenance.sources[] (kind: agent_definition | agents_md | instruction_file | unenumerated; path; sha256) — required for v3 evidence (CD-0034); worker_job (job_id, revision, digest) — required on a job-bound attempt (CD-0205)", Enums: "none"},
+	{Canonical: "worker-dispatch", RequiredFields: requiredFields(field("event_id"), field("work_id"), field("attempt_id"), field("lane_id"), field("lane_version"), field("lane_digest"), field("packet_schema_version"), field("report_schema_version"), field("packet_digest")), Optional: "readback_model (host-reported executing model); terminal ('failed') with terminal_failure_kind and terminal_detail for an attempt born failed, such as a lost or ambiguous readback; host_provenance.digest (sha256), host_provenance.sources[] (kind: agent_definition | agents_md | instruction_file | unenumerated; path; sha256) — required for v3 evidence (CD-0034); worker_job (job_id, revision, digest) — required on a job-bound attempt (CD-0205); failure_attribution (typed producer observation: observer, phase, cause, basis, sources[], diagnosis) — born-failed terminal records only, and the assertion must be version 2 signing its canonical observation digest ", Enums: "none"},
 	{Canonical: "worker-complete", RequiredFields: requiredFields(field("event_id"), field("work_id"), field("attempt_id"), field("readback_model"), field("report_schema_version"), field("evidence_origin")), Optional: "worker_directory, base_comparison, review, worker_job — required on a job-bound attempt, evidence[] — required when evidence_origin is reported, context_findings[] (0-16 typed claims, 16 KiB)", Enums: "evidence_origin: reported | legacy_unavailable; evidence[].obligation: bounded_findings | commands | contract_findings | exit_codes | failure_classification | files_touched | severity | source_citations | uncertainties | unresolved_issues | verification_commands | visual_artifacts; reported evidence must discharge every declared obligation; base_comparison.checks[]: pass | fail | not_run; review: ship | no_ship, findings severity P0-P3, confidence low | medium | high; ship refuses P0, no_ship refuses zero findings; a lane requiring the typed review block refuses a completion without it and a free-text severity entry beside it; the block discharges severity; context_findings[].kind: observation | inference | hypothesis | rejected_approach | open_question | contradiction | direction"},
-	{Canonical: "worker-fail", RequiredFields: requiredFields(field("event_id"), field("work_id"), field("attempt_id"), field("readback_model"), field("failure_kind"), field("detail")), Optional: "context_findings[] (as worker-complete; worker_error only)", Enums: "failure_kind: fallback_blocked | worker_error | invalid_report | abandoned"},
-	{Canonical: "worker-abandon", RequiredFields: requiredFields(field("event_id"), field("work_id"), field("attempt_id"), field("detail")), Optional: "none", Enums: "the host signs a worker-fail assertion with failure_kind abandoned; readback_model is derived from the dispatched attempt"},
+	{Canonical: "worker-fail", RequiredFields: requiredFields(field("event_id"), field("work_id"), field("attempt_id"), field("readback_model"), field("failure_kind"), field("detail")), Optional: "context_findings[] (as worker-complete; worker_error only); failure_attribution (typed producer observation: observer, phase, cause, basis, sources[], diagnosis) whose canonical observation digest the assertion must sign at version 2 ", Enums: "failure_kind: fallback_blocked | worker_error | invalid_report | abandoned"},
+	{Canonical: "worker-abandon", RequiredFields: requiredFields(field("event_id"), field("work_id"), field("attempt_id"), field("detail")), Optional: "failure_attribution (typed producer observation: observer, phase, cause, basis, sources[], diagnosis) whose canonical observation digest the assertion must sign at version 2 ", Enums: "the host signs a worker-fail assertion with failure_kind abandoned; readback_model is derived from the dispatched attempt"},
 	{Canonical: "client-register", TwoWord: "client register", RequiredFields: requiredFields(field("client_ref"), field("key_id"), field("principal_ref"), field("public_key"), field("capabilities"), field("product_scope"), field("project_scope"), field("agent_scope")), Optional: "none", Enums: "capabilities: product_read | work_define | work_transition | work_relate | work_compact | cross_scope | research | worker_evidence | worker_dispatch; public_key: base64 Ed25519; agent_scope: the agent references this client may present"},
 	{Canonical: "client-policy-update", TwoWord: "client policy-update", RequiredFields: requiredFields(field("client_ref"), field("principal_ref"), field("capabilities"), field("product_scope"), field("project_scope"), field("agent_scope")), Optional: "none", Enums: "capabilities: product_read | work_define | work_transition | work_relate | work_compact | cross_scope | research | worker_evidence | worker_dispatch; agent_scope: the agent references this client may present"},
 	{Canonical: "client-policy-expand", TwoWord: "client policy-expand", RequiredFields: requiredFields(field("client_ref")), Optional: "capabilities, product_scope, project_scope, agent_scope — additive union; every existing grant and the stored principal are preserved (CD-0097 D6)", Enums: "capabilities: product_read | work_define | work_transition | work_relate | work_compact | cross_scope | research | worker_evidence | worker_dispatch"},
@@ -729,6 +729,13 @@ type workerDispatchRequest struct {
 	// content, and the fold refuses evidence whose binding differs from the
 	// one the dispatch_worker authorization recorded.
 	WorkerJob *store.WorkerJobBinding `json:"worker_job,omitempty"`
+	// FailureAttribution is the optional typed producer observation a
+	// born-failed terminal dispatch records . It carries the
+	// observation only, never an origin or identity: the CLI assembles the
+	// recorded block under the recorded origin and the store derives the
+	// core identity from the dispatch window at ingest. Its canonical digest
+	// is what the v2 assertion signs.
+	FailureAttribution *store.WorkerFailureObservation `json:"failure_attribution,omitempty"`
 	// Assertion authenticates the caller and binds this exact attempt
 	// identity (CD-0044 / issue #185).
 	Assertion agent.WorkerEvidenceAssertion `json:"assertion"`
@@ -777,8 +784,15 @@ type workerFailRequest struct {
 	// ContextFindings is the optional typed context content the report
 	// carried (CON-887). Only the worker-reported failure kind worker_error
 	// may retain findings; the store refuses them on every diagnostic kind.
-	ContextFindings []store.WorkerContextFinding  `json:"context_findings,omitempty"`
-	Assertion       agent.WorkerEvidenceAssertion `json:"assertion"`
+	ContextFindings []store.WorkerContextFinding `json:"context_findings,omitempty"`
+	// FailureAttribution is the optional typed producer observation this
+	// terminal failure records . It carries the observation only,
+	// never an origin or identity: the CLI assembles the recorded block under
+	// the recorded origin and the store derives the core identity from the
+	// dispatch window at ingest. Its canonical digest is what the v2
+	// assertion signs.
+	FailureAttribution *store.WorkerFailureObservation `json:"failure_attribution,omitempty"`
+	Assertion          agent.WorkerEvidenceAssertion   `json:"assertion"`
 }
 
 // workerAbandonRequest is the host-only close route for a dispatched attempt
@@ -786,11 +800,44 @@ type workerFailRequest struct {
 // attempt projection and reads liveness from the durable worktree_occupancy
 // projection, so the request carries no host session observation.
 type workerAbandonRequest struct {
-	EventID   string                        `json:"event_id"`
-	WorkID    string                        `json:"work_id"`
-	AttemptID string                        `json:"attempt_id"`
-	Detail    string                        `json:"detail"`
-	Assertion agent.WorkerEvidenceAssertion `json:"assertion"`
+	EventID   string `json:"event_id"`
+	WorkID    string `json:"work_id"`
+	AttemptID string `json:"attempt_id"`
+	Detail    string `json:"detail"`
+	// FailureAttribution is the optional typed producer observation the host
+	// records for the event that settled the attempt . It carries
+	// the observation only, never an origin or identity; its canonical digest
+	// is what the v2 assertion signs.
+	FailureAttribution *store.WorkerFailureObservation `json:"failure_attribution,omitempty"`
+	Assertion          agent.WorkerEvidenceAssertion   `json:"assertion"`
+}
+
+// workerFailureAttributionBinding computes the assertion-version binding
+// members a request's optional failure_attribution observation requires. A
+// present observation is structurally validated and digested here, so the
+// assertion must be v2 and authenticate exactly this digest; an absent
+// observation keeps the released v1 binding byte-exact.
+func workerFailureAttributionBinding(observation *store.WorkerFailureObservation) (int, string, error) {
+	if observation == nil {
+		return 0, "", nil
+	}
+	digest, err := store.WorkerFailureObservationDigest(observation)
+	if err != nil {
+		return 0, "", err
+	}
+	return agent.WorkerEvidenceAssertionVersion2, digest, nil
+}
+
+// workerFailureAttribution assembles the recorded block the payload carries:
+// the producer observation under the recorded origin. The core-derived
+// identity is never assembled here — the store derives it at ingest from the
+// dispatch window and the recorded revisions , so a caller echo can
+// neither supply nor select it.
+func workerFailureAttribution(observation *store.WorkerFailureObservation) *store.WorkerFailureAttribution {
+	if observation == nil {
+		return nil
+	}
+	return &store.WorkerFailureAttribution{Origin: store.WorkerFailureAttributionRecorded, Observation: observation}
 }
 
 // runWorkerCommand records worker attempt evidence. Every verb authenticates
@@ -855,7 +902,20 @@ func runWorkerCommand(command string, raw []byte, s *store.Store, service *agent
 			writeOperatorDiagnostic(errOut, command, "worker-dispatch terminal='failed' and terminal_failure_kind are declared together")
 			return 1
 		}
-		payload := store.WorkerDispatchedPayload{AttemptID: request.AttemptID, LaneID: request.LaneID, LaneVersion: request.LaneVersion, LaneDigest: request.LaneDigest, CapabilityClass: lane.CapabilityClass, PacketSchemaVersion: request.PacketSchemaVersion, ReportSchemaVersion: request.ReportSchemaVersion, HostProvenance: request.HostProvenance, ReadbackModel: request.ReadbackModel, PacketDigest: request.PacketDigest, Terminal: request.Terminal, TerminalFailureKind: request.TerminalFailureKind, TerminalDetail: request.TerminalDetail, WorkerJob: request.WorkerJob}
+		// only a born-failed terminal record carries attribution; an
+		// ordinary dispatch opens no terminal outcome to attribute.
+		if request.FailureAttribution != nil && request.Terminal != "failed" {
+			writeOperatorDiagnostic(errOut, command, "worker-dispatch carries failure_attribution only on a born-failed terminal record")
+			return 1
+		}
+		attributionVersion, attributionDigest, err := workerFailureAttributionBinding(request.FailureAttribution)
+		if err != nil {
+			writeOperatorDiagnostic(errOut, command, err.Error())
+			return 1
+		}
+		binding.Version = attributionVersion
+		binding.ObservationDigest = attributionDigest
+		payload := store.WorkerDispatchedPayload{AttemptID: request.AttemptID, LaneID: request.LaneID, LaneVersion: request.LaneVersion, LaneDigest: request.LaneDigest, CapabilityClass: lane.CapabilityClass, PacketSchemaVersion: request.PacketSchemaVersion, ReportSchemaVersion: request.ReportSchemaVersion, HostProvenance: request.HostProvenance, ReadbackModel: request.ReadbackModel, PacketDigest: request.PacketDigest, Terminal: request.Terminal, TerminalFailureKind: request.TerminalFailureKind, TerminalDetail: request.TerminalDetail, WorkerJob: request.WorkerJob, FailureAttribution: workerFailureAttribution(request.FailureAttribution)}
 		if len(request.AuthorizedPacket) != 0 {
 			if err := store.ValidateRecoveryPacket(request.AuthorizedPacket, request.PacketDigest, request.WorkID, request.AttemptID); err != nil {
 				writeOperatorDiagnostic(errOut, command, err.Error())
@@ -889,14 +949,21 @@ func runWorkerCommand(command string, raw []byte, s *store.Store, service *agent
 			writeOperatorDiagnostic(errOut, command, err.Error())
 			return 1
 		}
-		binding := agent.WorkerEvidenceBinding{
-			Verb:          agent.WorkerEvidenceVerbFail,
-			WorkID:        request.WorkID,
-			AttemptID:     request.AttemptID,
-			ReadbackModel: request.ReadbackModel,
-			FailureKind:   request.FailureKind,
+		attributionVersion, attributionDigest, err := workerFailureAttributionBinding(request.FailureAttribution)
+		if err != nil {
+			writeOperatorDiagnostic(errOut, command, err.Error())
+			return 1
 		}
-		payload := store.WorkerFailedPayload{AttemptID: request.AttemptID, ReadbackModel: request.ReadbackModel, FailureKind: request.FailureKind, Detail: request.Detail, ContextFindings: request.ContextFindings}
+		binding := agent.WorkerEvidenceBinding{
+			Verb:              agent.WorkerEvidenceVerbFail,
+			WorkID:            request.WorkID,
+			AttemptID:         request.AttemptID,
+			ReadbackModel:     request.ReadbackModel,
+			FailureKind:       request.FailureKind,
+			Version:           attributionVersion,
+			ObservationDigest: attributionDigest,
+		}
+		payload := store.WorkerFailedPayload{AttemptID: request.AttemptID, ReadbackModel: request.ReadbackModel, FailureKind: request.FailureKind, Detail: request.Detail, ContextFindings: request.ContextFindings, FailureAttribution: workerFailureAttribution(request.FailureAttribution)}
 		return applyWorkerEvidence(ctx, command, s, service, request.Assertion, binding, store.Event{EventID: request.EventID, Kind: store.WorkerFailed, SubjectType: store.SubjectWorkItem, SubjectID: request.WorkID, OccurredAt: clock().UTC(), PayloadVersion: store.WorkerEvidenceEventPayloadVersion(store.WorkerFailed), Payload: mustMarshalWorkerPayload(payload)}, out, errOut)
 	case "worker-abandon":
 		var request workerAbandonRequest
@@ -904,13 +971,20 @@ func runWorkerCommand(command string, raw []byte, s *store.Store, service *agent
 			writeOperatorDiagnostic(errOut, command, err.Error())
 			return 1
 		}
-		binding := agent.WorkerEvidenceBinding{
-			Verb:        agent.WorkerEvidenceVerbFail,
-			WorkID:      request.WorkID,
-			AttemptID:   request.AttemptID,
-			FailureKind: store.WorkerFailureAbandoned,
+		attributionVersion, attributionDigest, err := workerFailureAttributionBinding(request.FailureAttribution)
+		if err != nil {
+			writeOperatorDiagnostic(errOut, command, err.Error())
+			return 1
 		}
-		payload := store.WorkerFailedPayload{AttemptID: request.AttemptID, FailureKind: store.WorkerFailureAbandoned, Detail: request.Detail}
+		binding := agent.WorkerEvidenceBinding{
+			Verb:              agent.WorkerEvidenceVerbFail,
+			WorkID:            request.WorkID,
+			AttemptID:         request.AttemptID,
+			FailureKind:       store.WorkerFailureAbandoned,
+			Version:           attributionVersion,
+			ObservationDigest: attributionDigest,
+		}
+		payload := store.WorkerFailedPayload{AttemptID: request.AttemptID, FailureKind: store.WorkerFailureAbandoned, Detail: request.Detail, FailureAttribution: workerFailureAttribution(request.FailureAttribution)}
 		event := store.Event{EventID: request.EventID, Kind: store.WorkerFailed, SubjectType: store.SubjectWorkItem, SubjectID: request.WorkID, OccurredAt: clock().UTC(), PayloadVersion: store.WorkerEvidenceEventPayloadVersion(store.WorkerFailed), Payload: mustMarshalWorkerPayload(payload)}
 		return applyWorkerEvidence(ctx, command, s, service, request.Assertion, binding, event, out, errOut)
 	}

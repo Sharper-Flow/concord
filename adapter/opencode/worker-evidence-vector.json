@@ -1,4 +1,85 @@
 {
+  "observation_vectors": [
+    {
+      "name": "host-html-terminal",
+      "observation": {
+        "observer": "host_adapter",
+        "phase": "host_execution",
+        "cause": "host_provider",
+        "basis": "supported",
+        "sources": [
+          {
+            "kind": "host_event",
+            "locator": "evt:host-html-<msg>&1",
+            "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "message": "<b>upstream</b> 429: rate & limit exceeded — retry &gt; backoff",
+            "host": {
+              "tag": "terminal",
+              "event_type": "message.updated",
+              "session_id": "ses_html<&1>",
+              "message_id": "msg_html<&1",
+              "error_name": "RateLimitError<&>",
+              "error_code": "rate_limited&429",
+              "status_code": 429
+            }
+          }
+        ],
+        "diagnosis": "provider returned <rate-limit> & throttled the lane"
+      },
+      "observation_digest": "sha256:ec138409dd45b3323bd35e1065b182a3d3ad41fd499f7abd3e223b5a28d9de04"
+    },
+    {
+      "name": "worker-report-line-separators",
+      "observation": {
+        "observer": "worker_report",
+        "phase": "worker_execution",
+        "cause": "unknown",
+        "basis": "unknown",
+        "sources": [
+          {
+            "kind": "admitted_report",
+            "message": "worker reported the failed command probe: 障害発生 🎉 exit 1"
+          }
+        ]
+      },
+      "observation_digest": "sha256:2790f50d212a0b19b75b9ea5d7f4ba337ed401a05b0bc5bd87c470439f4bef11"
+    },
+    {
+      "name": "coordinator-integration-multibyte",
+      "observation": {
+        "observer": "coordinator",
+        "phase": "integration",
+        "cause": "implementation",
+        "basis": "hypothesis",
+        "sources": [
+          {
+            "kind": "native_run",
+            "locator": "worktree_verify:lease-obs-vector-1"
+          }
+        ],
+        "diagnosis": "统合検証が互換性チェックに失敗した 🧩 (run <failed>)"
+      },
+      "observation_digest": "sha256:78039a748d2b0d67e2e9fabeeda9487db80c89c2a61890e614ce5e24ecf1c2cc"
+    },
+    {
+      "name": "coordinator-review-omitted-diagnosis",
+      "observation": {
+        "observer": "coordinator",
+        "phase": "result_review",
+        "cause": "assignment_requirement",
+        "basis": "hypothesis",
+        "sources": [
+          {
+            "kind": "result",
+            "locator": "result:obs-vector-review",
+            "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "message": "review finding: stopping condition & coverage <gap>"
+          }
+        ]
+      },
+      "observation_digest": "sha256:c5f2f7a7b29f4b7e20842ac67649471c4ea0be718d4223ccd19fca5194b1e60a"
+    }
+  ],
   "cases": [
     {
       "assertion": {

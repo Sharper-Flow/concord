@@ -57,6 +57,17 @@ const (
 // (CD-0205). Stored completions below it never carried one.
 const workflowActionCompletedWorkerJobVersion = 4
 
+// workflowActionCompletedAttributionVersion is the payload version at which
+// a workflow.action_completed completion may carry the typed failure
+// attribution and the derived failure record's attribution reference
+// . A stored completion whose recorded source version sits below
+// the boundary cannot carry recorded attribution content: the store never
+// derived it when that version was released. The upcast's explicit
+// legacy_unavailable marker is the one legal shape below the boundary, and
+// the recorded source version distinguishes that upcast-generated absence
+// from a forged new-legacy claim.
+const workflowActionCompletedAttributionVersion = 5
+
 type WorkflowVersionFields struct {
 	WorkID           string `json:"work_id"`
 	ExpectedVersion  *int64 `json:"expected_version"`
@@ -273,6 +284,22 @@ type workflowActionCompletedPayload struct {
 	// field only and never re-derives the verdict, so an event without the
 	// field advances as recorded and recorded history replays unchanged.
 	ReviewAdvanceHeld bool `json:"review_advance_held,omitempty"`
+	// FailureAttribution is the coordinator's typed failure attribution on
+	// a rejected result or a correction request : the direct
+	// producer observation the request carried, beside the core-derived
+	// identity the store resolved from the cited run or the exact action
+	// attempt. The terminal worker.failed event owns an attempt's
+	// attribution; a derived failure record never duplicates the block and
+	// refers to it by event id instead. Absent on every completion that
+	// predates the attribution payload version.
+	FailureAttribution *WorkerFailureAttribution `json:"failure_attribution,omitempty"`
+	// FailureAttributionRef names the terminal worker.failed event whose
+	// attribution one derived failure record references (CD-0198 D5
+	// at the derived attribution fact): the terminal owns the observation and the
+	// derived record refers to it by event id, never a copied block. The
+	// fold verifies the reference against the same retained event and
+	// attempt the derivation pair admits.
+	FailureAttributionRef string `json:"failure_attribution_ref,omitempty"`
 	// WorkerJob carries the recorded worker-job disposition an acceptance
 	// satisfies (CD-0205). The accept guard derives it from the accepted
 	// attempt's worker.dispatched binding — the caller never asserts it —
@@ -2156,6 +2183,17 @@ func validateWorkflowActionCompletedShape(p workflowActionCompletedPayload) erro
 	if (p.ActionID == "reject_worker_result" || p.ActionID == "request_correction") && (!workflowString(p.CorrectionDiagnosis, 4096) || !workflowString(p.CorrectionStrategy, 4096) || !workflowList(p.CorrectionPredicateIDs, 8, 1) || !workflowList(p.CorrectionEvidenceRefs, 32, 1)) {
 		return newFailure(KindInvalidPayload, "fold_event", "rejected worker result has incomplete correction fields", false, "supply diagnosis, strategy, predicate IDs, and evidence references")
 	}
+	// the typed failure attribution is the coordinator correction
+	// completion's own observation surface, and the attribution reference is
+	// the derived failure record's alone: the terminal worker.failed event
+	// owns the observation and the derived record refers to it by event id,
+	// never a copied block.
+	if p.FailureAttribution != nil && !workflowFailureAttributionCorrectionActions[p.ActionID] {
+		return newFailure(KindInvalidPayload, "fold_event", "action_completed failure_attribution is reserved for reject_worker_result and request_correction; the derived failure record refers to the terminal attribution by event id", false, "record the coordinator attribution on the correction completion that observed it")
+	}
+	if p.FailureAttributionRef != "" && p.ActionID != "record_worker_failure" {
+		return newFailure(KindInvalidPayload, "fold_event", "action_completed failure_attribution_ref is reserved for the derived worker failure record", false, "record the terminal attribution reference on the record_worker_failure completion the derivation authored")
+	}
 	// The fold is the last line before a reject commits. The correction pin
 	// serializes predicate ids with the generated id rules and evidence refs
 	// with the generated reference rules, so a reject carrying a value
@@ -2321,6 +2359,14 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event) e
 	// fabricated disposition.
 	if p.WorkerJob != nil && event.replaySourcePayloadVersion != 0 && event.replaySourcePayloadVersion < workflowActionCompletedWorkerJobVersion {
 		return newFailure(KindInvalidPayload, "fold_event", "action_completed worker_job is reserved for payload version >= 4", false, "record the worker-job disposition on the current completion payload")
+	}
+	// the attribution reference is the derived record's alone, and
+	// the source-version marker rules apply to both attribution members.
+	// Below the attribution version the reference is smuggled bytes; the
+	// derived record's identity and step/epoch joins are verified beside
+	// the derivation pair below.
+	if err := verifyWorkflowActionCompletedAttributionMembersTx(ctx, tx, event, p); err != nil {
+		return err
 	}
 	// CD-0205: an accepted worker result records the worker-job disposition
 	// it satisfies, on the exact revision the accept guard derived from the
@@ -3724,6 +3770,49 @@ func upcastWorkflowActionCompletedV2(event Event) (Event, error) {
 // held local acceptance the job-capable definitions record lands only at v4.
 func upcastWorkflowActionCompletedV3(event Event) (Event, error) {
 	event.PayloadVersion = 4
+	return event, nil
+}
+
+// workflowFailureAttributionCorrectionActions names the coordinator
+// correction completions whose payload may carry the typed failure
+// attribution . The derived failure record is deliberately absent:
+// the terminal worker.failed event owns the observation and the derived
+// record refers to it by event id, never a copied block.
+var workflowFailureAttributionCorrectionActions = map[string]bool{
+	"reject_worker_result": true,
+	"request_correction":   true,
+}
+
+// upcastWorkflowActionCompletedV4 carries a v4 completion into the v5 payload
+// that may carry the typed failure attribution . Only the two
+// coordinator correction completions record one, so the upcast stamps the
+// explicit legacy_unavailable marker there alone: an ordinary action opens
+// no attribution surface and upcasts unchanged without a block, and a
+// derived failure record keeps its reference-only shape. The recorded source
+// version keeps the marker distinguishable from a forged new-legacy claim,
+// and bytes that already carry the member stay untouched for the fold's
+// source-version gate to refuse.
+func upcastWorkflowActionCompletedV4(event Event) (Event, error) {
+	var members map[string]json.RawMessage
+	if err := json.Unmarshal(event.Payload, &members); err != nil {
+		return Event{}, newFailure(KindInvalidPayload, "upcast_event", "workflow.action_completed payload is not a JSON object", false, "repair the stored workflow action completion")
+	}
+	if _, authored := members["failure_attribution"]; authored {
+		return Event{}, newFailure(KindInvalidPayload, "upcast_event", "workflow.action_completed failure_attribution on a stored payload version below the attribution boundary is authored bytes no store ever recorded; the upcaster stamps the explicit legacy marker alone", false, "record the coordinator attribution on the current correction completion")
+	}
+	var payload workflowActionCompletedPayload
+	if err := decodeWorkflowPayload(event, &payload); err != nil {
+		return Event{}, err
+	}
+	if workflowFailureAttributionCorrectionActions[payload.ActionID] && payload.FailureAttribution == nil {
+		payload.FailureAttribution = workerFailureLegacyAttribution()
+		raw, err := json.Marshal(payload)
+		if err != nil {
+			return Event{}, wrapFailure(KindInvalidPayload, "upcast_event", "cannot normalize workflow.action_completed payload", false, "repair the stored workflow action completion", err)
+		}
+		event.Payload = raw
+	}
+	event.PayloadVersion = 5
 	return event, nil
 }
 

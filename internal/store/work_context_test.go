@@ -2,6 +2,8 @@ package store
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -133,6 +135,248 @@ type workContextFixture struct {
 	workID   string
 	owner    WorkflowActor
 	operator WorkflowActor
+	sources  workContextReadingSources
+}
+
+// workContextReadingSources holds the real prerequisites the fixture's
+// declared readings resolve against at dispatch: two authorized Projects of
+// the work's Product, each with one canonical-path repository locator, and
+// the registered knowledge source's committed law record with its exact
+// canonical locator.
+type workContextReadingSources struct {
+	repoProject  string
+	repoPath     string
+	repoCommit   string
+	otherProject string
+	otherPath    string
+	otherCommit  string
+	// lawProject/lawLocator/lawRepo/lawCommit identify the registered
+	// knowledge source whose committed manifest and law blob the fixture's
+	// knowledge reading pins.
+	lawProject string
+	lawLocator string
+	lawID      string
+	lawHash    string
+	lawRepo    string
+	lawCommit  string
+}
+
+// seedWorkContextReadingSources gives the fixture's declared readings real
+// prerequisites: one synthetic Git repository per authorized Project, and
+// the knowledge home's committed manifest, law blob, projection locator, and
+// watermark for the exact record the fixture's knowledge reading pins.
+func seedWorkContextReadingSources(t *testing.T, s *Store, workID string) workContextReadingSources {
+	t.Helper()
+	ctx := context.Background()
+	out := workContextReadingSources{
+		repoProject: "project-repo", otherProject: "project-repo-2",
+		repoPath: "internal/store/work_context.go", otherPath: "pkg/other/source.go",
+		lawProject: "project-repo", lawID: "spec:one",
+	}
+	// The workflow law home keeps its own committed copy of the seeded law
+	// document, so the workflow law context opens a real file.
+	const homeProject, homeLocator = "project", "workflow-law-locator"
+	var lawRepo string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT locator_value FROM project_locators WHERE project_id=? AND locator_id=?`, homeProject, homeLocator).Scan(&lawRepo); err != nil {
+		t.Fatal(err)
+	}
+	runKnowledgeGit(t, lawRepo, "init", "--initial-branch=main")
+	runKnowledgeGit(t, lawRepo, "config", "user.email", "test@example.invalid")
+	runKnowledgeGit(t, lawRepo, "config", "user.name", "Concord Test")
+	manifestRoot := "product-root:product"
+	registry := KnowledgeDomainRegistry{
+		SchemaVersion: "1.0", ProductKey: "product", RootDomainID: manifestRoot,
+		Domains: []KnowledgeDomain{
+			{DomainID: manifestRoot, Name: "Root", Purpose: "Product law", Status: "current", ArchitectureRelations: []KnowledgeArchitectureRelation{}},
+			{DomainID: workContextTestChild, Name: "Child", Purpose: "Child law", ParentDomainID: manifestRoot, Status: "current", ArchitectureRelations: []KnowledgeArchitectureRelation{}},
+		},
+	}
+	registryJSON, err := json.Marshal(registry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := "# Synthetic dispatch law\n\nThe fixture's committed law record for declared reading resolution.\n"
+	sum := sha256.Sum256([]byte(body))
+	out.lawHash = "sha256:" + hex.EncodeToString(sum[:])
+	writeKnowledgeFile(t, lawRepo, ".concord/docs/spec.md", body)
+	head := map[string]any{
+		"schema_version":  "1.2",
+		"supported_kinds": []string{"decision", "spec"},
+		"indexed_kinds":   []string{"decision", "spec"},
+	}
+	headJSON, err := json.Marshal(head)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeKnowledgeFile(t, lawRepo, knowledgeHeadPath, string(headJSON)+"\n")
+	writeKnowledgeFile(t, lawRepo, knowledgeRegistryPath, string(registryJSON)+"\n")
+	record := KnowledgeRecord{
+		ID: out.lawID, Kind: "spec", Path: ".concord/docs/spec.md", Status: "accepted",
+		Date: "2026-10-01T00:00:00Z", Title: "Synthetic dispatch law",
+		Summary: "the fixture committed law record for declared reading resolution",
+		Tags:    []string{},
+		Scopes:  KnowledgeRecordScopes{Mode: "home", ProductIDs: []string{}, ProjectIDs: []string{}, DomainIDs: []string{}, TagIDs: []string{}},
+		SHA256:  out.lawHash, HomeDomainID: workContextTestChild,
+	}
+	recordJSON, err := json.Marshal(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeKnowledgeFile(t, lawRepo, knowledgeRecordTree+"/spec-one.json", string(recordJSON)+"\n")
+	out.lawCommit = commitKnowledgeRepo(t, lawRepo, "synthetic law home with manifest record")
+	// The git-derived projection rows pin the exact committed identity the
+	// reading resolution discovers in the snapshot. The knowledge tables are
+	// fold-only, so the writes run under the fold guard and release it.
+	stmts := []struct {
+		tag  string
+		sql  string
+		args []any
+	}{
+		{"guard", `INSERT INTO fold_guard(active) VALUES(1) ON CONFLICT(active) DO NOTHING`, nil},
+		{"law update", `UPDATE law_subjects SET content_hash=?, scanned_commit_oid=? WHERE home_project_id=? AND home_locator_id=? AND law_id=?`, []any{out.lawHash, out.lawCommit, homeProject, homeLocator, out.lawID}},
+		{"archived", `INSERT OR REPLACE INTO archived_work(id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,home_project_id,home_locator_id,note_path,commit_oid,content_hash,scope_mode,manifest_schema_version)
+			VALUES(?, 'spec', 'Synthetic dispatch law', '2026-10-01T00:00:00Z', 'accepted', '[]', 'completed', 2, 'the fixture committed law record for declared reading resolution', ?, ?, ?, ?, ?, 'home', '1.2')`, []any{out.lawID, homeProject, homeLocator, ".concord/docs/spec.md", out.lawCommit, out.lawHash}},
+		{"watermark", `INSERT OR REPLACE INTO knowledge_index_watermark(home_project_id,home_locator_id,head_ref,scanned_commit_oid,scanned_content_digest,scanned_at,complete,projection_version)
+			VALUES(?,?,'HEAD',?,'sha256:seed','test',1,?)`, []any{homeProject, homeLocator, out.lawCommit, knowledgeProjectionVersion}},
+		{"law domain home", `INSERT OR REPLACE INTO law_domain_homes(home_project_id,home_locator_id,law_id,product_id,domain_id,law_content_hash,scanned_commit_oid,product_wide_rationale) VALUES(?,?,?,?,?,?, 'test', '')`,
+			[]any{homeProject, homeLocator, out.lawID, "product", workContextTestChild, out.lawHash}},
+		{"guard release", `DELETE FROM fold_guard`, nil},
+	}
+	for _, stmt := range stmts {
+		if _, err := s.DatabaseForTesting().Exec(stmt.sql, stmt.args...); err != nil {
+			_, _ = s.DatabaseForTesting().Exec(`DELETE FROM fold_guard`)
+			t.Fatalf("law home projection statement %q failed: %v", stmt.tag, err)
+		}
+	}
+	var productVersion int64
+	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM products WHERE id='product'`).Scan(&productVersion); err != nil {
+		t.Fatal(err)
+	}
+	// Two member Projects of the work's Product, each with one canonical
+	// repository locator over a real synthetic repository.
+	for _, member := range []struct {
+		project, locator, path, file string
+		commit                       *string
+	}{
+		{out.repoProject, "repo-locator-" + workID, out.repoPath, "package synthetic\n\nconst declared = true\n", &out.repoCommit},
+		{out.otherProject, "other-locator-" + workID, out.otherPath, "package other\n\nconst other = true\n", &out.otherCommit},
+	} {
+		memberEvents := []Event{projectCreatedEvent(member.project, "create-"+member.project)}
+		expected := map[SubjectRef]int64{VersionRef(SubjectProject, member.project): 0}
+		var exists int
+		if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM projects WHERE id=?`, member.project).Scan(&exists); err != nil {
+			t.Fatal(err)
+		}
+		if exists == 0 {
+			memberEvents = append(memberEvents, operationEvent("add-"+member.project+"-to-product", "product_project.added", SubjectProduct, "product", map[string]any{
+				"product_id": "product", "project_id": member.project, "role": "secondary", "reason": "test",
+				"expected_version": productVersion, "resulting_version": productVersion + 1,
+			}))
+			expected[VersionRef(SubjectProduct, "product")] = productVersion
+			productVersion++
+		}
+		if err := ApplyOperation(ctx, s, Operation{Events: memberEvents, ExpectedVersions: expected}); err != nil {
+			t.Fatal(err)
+		}
+		repo := initKnowledgeRepo(t)
+		writeKnowledgeFile(t, repo, member.path, member.file)
+		if member.project == out.repoProject {
+			out.lawRepo, out.lawLocator = repo, member.locator
+			writeKnowledgeFile(t, repo, ".concord/docs/spec.md", body)
+			head := map[string]any{
+				"schema_version":  "1.2",
+				"supported_kinds": []string{"decision", "spec"},
+				"indexed_kinds":   []string{"decision", "spec"},
+			}
+			headJSON, err := json.Marshal(head)
+			if err != nil {
+				t.Fatal(err)
+			}
+			writeKnowledgeFile(t, repo, knowledgeHeadPath, string(headJSON)+"\n")
+			recordJSON, err := json.Marshal(KnowledgeRecord{
+				ID: out.lawID, Kind: "spec", Path: ".concord/docs/spec.md", Status: "accepted",
+				Date: "2026-10-01T00:00:00Z", Title: "Synthetic dispatch law",
+				Summary: "the fixture committed law record for declared reading resolution",
+				Tags:    []string{},
+				Scopes:  KnowledgeRecordScopes{Mode: "home", ProductIDs: []string{}, ProjectIDs: []string{}, DomainIDs: []string{}, TagIDs: []string{}},
+				SHA256:  out.lawHash, HomeDomainID: workContextTestChild,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			writeKnowledgeFile(t, repo, knowledgeRecordTree+"/spec-one.json", string(recordJSON)+"\n")
+		}
+		*member.commit = commitKnowledgeRepo(t, repo, "synthetic reading repository")
+		if member.project == out.repoProject {
+			out.lawCommit = *member.commit
+		}
+		var projectVersion int64
+		if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM projects WHERE id=?`, member.project).Scan(&projectVersion); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.AddProjectLocator(ctx, member.project, ProjectLocator{ID: member.locator, Kind: LocatorCanonicalPath, Value: repo}, projectVersion); err != nil {
+			t.Fatal(err)
+		}
+		if member.project == out.repoProject {
+			// The primary reading repository Project is also an explicitly
+			// registered Product knowledge source, and the fixture's law
+			// record lives in that registered source: the committed
+			// manifest, the law blob, and the git-derived projection rows
+			// under the registered source's own locator.
+			seedRegisteredSourceProjection(t, s, member.project, member.locator, out.lawID, out.lawHash, out.lawCommit)
+		}
+	}
+	return out
+}
+
+// seedRegisteredSourceProjection pins the registered knowledge source's
+// git-derived projection rows to the exact committed identity, one statement
+// per Exec: modernc binds ? parameters per statement, so a multi-statement
+// batch misbinds.
+func seedRegisteredSourceProjection(t *testing.T, s *Store, projectID, locatorID, lawID, lawHash, lawCommit string) {
+	t.Helper()
+	db := s.DatabaseForTesting()
+	exec := func(tag, query string, args ...any) {
+		t.Helper()
+		if _, err := db.Exec(query, args...); err != nil {
+			t.Fatalf("registered source projection statement %q failed: %v", tag, err)
+		}
+	}
+	if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1)`); err != nil {
+		t.Fatal(err)
+	}
+	exec("registration", `INSERT OR REPLACE INTO product_knowledge_sources(product_id,project_id,locator_id,registered_at) VALUES('product',?,?,'2026-10-01T00:00:00Z')`, projectID, locatorID)
+	exec("law subject", `INSERT OR REPLACE INTO law_subjects(home_project_id,home_locator_id,law_id,kind,status,path,title,content_hash,scanned_commit_oid) VALUES(?,?,?,?,?,?,?,?,?)`, projectID, locatorID, lawID, "spec", "accepted", ".concord/docs/spec.md", "Synthetic dispatch law", lawHash, lawCommit)
+	exec("archived record", `INSERT OR REPLACE INTO archived_work(id,type,title,completed_at,outcome_tag,lesson_tags,terminal_state,priority,summary,home_project_id,home_locator_id,note_path,commit_oid,content_hash,scope_mode,manifest_schema_version)
+		VALUES(?, 'spec', 'Synthetic dispatch law', '2026-10-01T00:00:00Z', 'accepted', '[]', 'completed', 2, 'the fixture committed law record for declared reading resolution', ?, ?, ?, ?, ?, 'home', '1.2')`, lawID, projectID, locatorID, ".concord/docs/spec.md", lawCommit, lawHash)
+	exec("watermark", `INSERT OR REPLACE INTO knowledge_index_watermark(home_project_id,home_locator_id,head_ref,scanned_commit_oid,scanned_content_digest,scanned_at,complete,projection_version)
+		VALUES(?,?,'HEAD',?,'sha256:seed','test',1,?)`, projectID, locatorID, lawCommit, knowledgeProjectionVersion)
+	exec("law domain home", `INSERT OR REPLACE INTO law_domain_homes(home_project_id,home_locator_id,law_id,product_id,domain_id,law_content_hash,scanned_commit_oid,product_wide_rationale) VALUES(?,?,?,?,?,?, 'test', '')`, projectID, locatorID, lawID, "product", workContextTestChild, lawHash)
+	if _, err := db.Exec(`DELETE FROM fold_guard`); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// repoReading builds one resolvable repository_file reading against the
+// fixture's synthetic repositories. which selects the primary or the second
+// authorized Project.
+func (f workContextFixture) repoReading(domain, rationale, which string) map[string]any {
+	project, path, commit := f.sources.repoProject, f.sources.repoPath, f.sources.repoCommit
+	if which == "other" {
+		project, path, commit = f.sources.otherProject, f.sources.otherPath, f.sources.otherCommit
+	}
+	reading := map[string]any{"domain_id": domain, "reason": "the reading carries the bounded reason", "source": map[string]any{"kind": "repository_file", "project_id": project, "path": path, "commit_oid": commit}}
+	if rationale != "" {
+		reading["product_wide_rationale"] = rationale
+	}
+	return reading
+}
+
+// knowledgeReading builds one resolvable knowledge reading pinned to the
+// fixture's committed law record: the registered source Project, the record
+// ID, and the exact committed content hash.
+func (f workContextFixture) knowledgeReading() map[string]any {
+	return map[string]any{"domain_id": workContextTestChild, "reason": "the law reading carries the bounded reason", "source": map[string]any{"kind": "knowledge", "source_id": f.sources.lawProject, "law_id": f.sources.lawID, "content_hash": f.sources.lawHash}}
 }
 
 // seedWorkContextFixture seeds one break-fix work item whose approved
@@ -192,7 +436,8 @@ func seedWorkContextFixture(t *testing.T, workID string) workContextFixture {
 	if err := advanceWorkflowTestInstanceToStep(ctx, s, workID, "repair", ownerRef); err != nil {
 		t.Fatal(err)
 	}
-	return workContextFixture{store: s, workID: workID, owner: owner, operator: operator}
+	sources := seedWorkContextReadingSources(t, s, workID)
+	return workContextFixture{store: s, workID: workID, owner: owner, operator: operator, sources: sources}
 }
 
 func (f workContextFixture) recordWorkContext(t *testing.T, payload any) error {
@@ -735,7 +980,9 @@ func TestWorkContextReplayNeedsNoRegistryAndFoldBoundsClosed(t *testing.T) {
 	}
 	// Remove every registry row inside one transaction under the fold
 	// guard, so the deferred registry/domain foreign keys resolve to a
-	// consistent empty state.
+	// consistent empty state. The fixture's registered knowledge source
+	// carries a law-domain home referencing the registry's Domain; the
+	// rebuild projection rows leave with the registry they projected from.
 	tx, err := fixture.store.DatabaseForTesting().BeginTx(context.Background(), nil)
 	if err != nil {
 		t.Fatal(err)
@@ -744,7 +991,7 @@ func TestWorkContextReplayNeedsNoRegistryAndFoldBoundsClosed(t *testing.T) {
 		tx.Rollback()
 		t.Fatal(err)
 	}
-	if _, err := tx.ExecContext(context.Background(), `DELETE FROM domain_registries; DELETE FROM domains;`); err != nil {
+	if _, err := tx.ExecContext(context.Background(), `DELETE FROM law_domain_homes; DELETE FROM domain_registries; DELETE FROM domains;`); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}
@@ -850,6 +1097,10 @@ func TestCompletionAndBoundaryWriteNoContextContent(t *testing.T) {
 	t.Parallel()
 	fixture := seedWorkContextFixture(t, "ctx-no-promotion")
 	defer fixture.store.Close()
+	var archivedBefore int
+	if err := fixture.store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM archived_work`).Scan(&archivedBefore); err != nil {
+		t.Fatal(err)
+	}
 	const readingMarker = "CON887-READING-MARKER"
 	const findingMarker = "CON887-FINDING-MARKER"
 	const workerMarker = "CON887-WORKER-MARKER"
@@ -977,7 +1228,6 @@ func TestCompletionAndBoundaryWriteNoContextContent(t *testing.T) {
 		`SELECT count(*) FROM workflow_context_boundaries WHERE work_id=? AND summary LIKE '%CON887-%'`,
 		`SELECT count(*) FROM workflow_contracts WHERE work_id=? AND premise LIKE '%CON887-%'`,
 		`SELECT count(*) FROM law_subjects WHERE title LIKE '%CON887-%' OR path LIKE '%CON887-%'`,
-		`SELECT count(*) FROM archived_work`,
 	} {
 		var count int
 		if err := fixture.store.DatabaseForTesting().QueryRow(probe, fixture.workID).Scan(&count); err != nil {
@@ -986,6 +1236,13 @@ func TestCompletionAndBoundaryWriteNoContextContent(t *testing.T) {
 		if count != 0 {
 			t.Fatalf("probe %q found %d rows; context content was promoted", probe, count)
 		}
+	}
+	var archivedAfter int
+	if err := fixture.store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM archived_work`).Scan(&archivedAfter); err != nil {
+		t.Fatal(err)
+	}
+	if archivedAfter != archivedBefore {
+		t.Fatalf("context completion changed archived-work rows from %d to %d", archivedBefore, archivedAfter)
 	}
 }
 
@@ -1045,7 +1302,7 @@ func TestTerminalReportFindingsBindRegistryDomainsLiveNotOnReplay(t *testing.T) 
 		tx.Rollback()
 		t.Fatal(err)
 	}
-	if _, err := tx.ExecContext(context.Background(), `DELETE FROM domain_registries; DELETE FROM domains;`); err != nil {
+	if _, err := tx.ExecContext(context.Background(), `DELETE FROM law_domain_homes; DELETE FROM domain_registries; DELETE FROM domains;`); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}

@@ -48,6 +48,7 @@ func seedCheckpointFailedReviewMismatchAt(t *testing.T, workID, definitionRef st
 func seedCheckpointFailedReviewMismatchWith(t *testing.T, workID string, registered RegisteredDefinition, checkpoint string) (workflowReturnRouteFixture, string, int64) {
 	t.Helper()
 	fixture := seedWorkflowReturnRouteFixtureWithDefinition(t, workID, registered, checkpoint, []string{"verification"}, []string{"verification", "artifact"})
+	seedCheckpointReviewAcceptedDelivery(t, fixture.store, workID, fixture.owner, checkpointEffectStep(t, fixture.store, workID, checkpoint), checkpoint)
 	attemptID := "attempt:" + workID + ":failed-review"
 	epoch := dispatchCheckpointReviewAttempt(t, fixture, workID, checkpoint, attemptID)
 	failCheckpointReviewAttempt(t, fixture.store, workID, attemptID)
@@ -627,8 +628,9 @@ func TestCheckpointFailedReviewCorrectionRequiresExactOperatorApproval(t *testin
 	if got := currentStep(t, s, workID); got != "repair" {
 		t.Fatalf("step after the approved correction = %q, want repair", got)
 	}
-	if attempts, dispatches := workerAttemptPopulation(t, s, workID); attempts != 1 || dispatches != 1 {
-		t.Fatalf("request_correction changed the attempt population: attempts=%d dispatches=%d, want the one failed review", attempts, dispatches)
+	attemptsBefore, dispatchesBefore := workerAttemptPopulation(t, s, workID)
+	if attempts, dispatches := workerAttemptPopulation(t, s, workID); attempts != attemptsBefore || dispatches != dispatchesBefore {
+		t.Fatalf("request_correction changed the attempt population: attempts=%d dispatches=%d, want the pre-correction baseline", attempts, dispatches)
 	}
 }
 

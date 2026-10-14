@@ -586,7 +586,7 @@ func runStoreFreeJSONCommand(name string, args []string, in io.Reader, out, errO
 		writeCommandUsageSection(errOut, name)
 		return 2
 	}
-	inputLimit := int64(agent.MaxEnvelopeBytes)
+	inputLimit := int64(agent.MaxRequestBytes)
 	raw, err := io.ReadAll(io.LimitReader(in, inputLimit+1))
 	if err != nil || int64(len(raw)) > inputLimit {
 		writeDiagnostic(errOut, fmt.Sprintf("input exceeds %d bytes", inputLimit))
@@ -605,7 +605,7 @@ func runJSONCommand(command string, args []string, in io.Reader, out, errOut io.
 		writeCommandUsageSection(errOut, command)
 		return 2
 	}
-	inputLimit := int64(agent.MaxEnvelopeBytes)
+	inputLimit := int64(agent.MaxRequestBytes)
 	raw, err := io.ReadAll(io.LimitReader(in, inputLimit+1))
 	if err != nil || int64(len(raw)) > inputLimit {
 		writeDiagnostic(errOut, fmt.Sprintf("input exceeds %d bytes", inputLimit))
@@ -933,6 +933,23 @@ func applyWorkerEvidence(ctx context.Context, command string, s *store.Store, se
 	// the context. A missing or unreadable set releases nothing.
 	if binding.Verb == agent.WorkerEvidenceVerbFail && binding.FailureKind == store.WorkerFailureAbandoned {
 		ctx = store.WithHostLeaseSet(ctx, s.ReadHostLeases())
+	}
+	// The terminal delivery observation is sampled before this
+	// transaction opens — no Git subprocess runs under a SQL transaction
+	// (CD-0195 D2). The preparation reads the window, attempt, and claim
+	// identities, closes them, probes Git under its fixed deadline only for
+	// a new completed implementation attempt, and refuses typed with zero
+	// effects on failure. The sealed proof rides the context into the
+	// signed ingest seam, which revalidates every sampled identity with SQL
+	// only.
+	if binding.Verb == agent.WorkerEvidenceVerbComplete {
+		preparation, preparationErr := store.PrepareWorkerTerminalDelivery(ctx, s, store.PrepareWorkerTerminalDeliveryRequest{WorkID: binding.WorkID, AttemptID: binding.AttemptID, EventID: event.EventID})
+		if preparationErr != nil {
+			writeOperatorDiagnostic(errOut, command, preparationErr.Error())
+			writeWorkerEvidenceFailure(out, errOut, preparationErr, nil)
+			return 1
+		}
+		ctx = store.WithWorkerTerminalPreparation(ctx, preparation)
 	}
 	var eventIDs []string
 	err := s.TransactDurable(ctx, func(tx *store.Transaction) error {

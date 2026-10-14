@@ -324,3 +324,42 @@ test("completion refuses to sign without packetDigest", async () => {
   expect(result.error?.message).toContain("packet digest")
   expect(recorded).toHaveLength(0)
 })
+
+// A typed Git observation refusal from the
+// core's terminal ingest reaches the coordinator as one typed, retry-safe,
+// zero-effect failure. The adapter surfaces it and stops: it never retries
+// the write in a loop and never takes the invalid_report close path, so the
+// attempt stays recoverable through the retained-report recovery route.
+test("a typed git observation refusal is surfaced once and never retried", async () => {
+  const calls: { command: string; request: Record<string, unknown> }[] = []
+  const refusingRunner: DispatchRunner = {
+    async run(argv, input) {
+      calls.push({ command: argv[1]!, request: JSON.parse(input) as Record<string, unknown> })
+      if (argv[1] === "worker-dispatch") return { exitCode: 0, stdout: "", stderr: "" }
+      return {
+        exitCode: 1,
+        stdout: JSON.stringify({
+          ok: false,
+          event_ids: [],
+          error: {
+            kind: "git_unreachable",
+            operation: "worker_terminal_observation",
+            retry_safe: true,
+            effect_state: "none",
+            message: "store: worker_terminal_observation: git_unreachable: cannot observe the attempt's clean status",
+          },
+        }),
+        stderr: "",
+      }
+    },
+  }
+  const result = await completeWorkerAttempt(lane, packet(), completedBody(), { credentials: testCredentials, sessionReader: laneSessionReader, evidenceRunner: refusingRunner, concordBinary: "concord", packetDigest: PACKET_DIGEST, workerDirectory: WORKER_DIRECTORY }, SIGNAL)
+  expect(result.outcome).toBe("error")
+  expect(result.error?.message).toContain("cannot observe the attempt's clean status")
+  expect(result.error?.retry_safe).toBe(true)
+  expect((result.error as any)?.details?.effect_state).toBe("none")
+  expect((result.error as any)?.details?.operation).toBe("worker_terminal_observation")
+  expect((result.error as any)?.details?.core_kind).toBe("git_unreachable")
+  expect(result.error?.recovery_action).toBe("reconcile_operation")
+  expect(calls.map((call) => call.command)).toEqual(["worker-dispatch", "worker-complete"])
+})

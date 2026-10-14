@@ -95,6 +95,19 @@ const (
 // so any bytes that name them are fabricated ties no store ever recorded.
 const workerCompletedOracleReportVersion = 6
 
+// workerCompletedTerminalDeliveryVersion and
+// workerFailedTerminalDeliveryVersion are the payload versions at which the
+// terminal events first carry the core-derived consumed_context_frontier
+// (both) and the core-observed observed_delivery (completed). A
+// stored event whose recorded source version sits below the boundary cannot
+// carry those members: the store never derived them when that version was
+// released, so any bytes that name them are fabricated identities no store
+// ever recorded.
+const (
+	workerCompletedTerminalDeliveryVersion = 7
+	workerFailedTerminalDeliveryVersion    = 3
+)
+
 // WorkerEvidenceEventPayloadVersion resolves the payload version the event
 // registry currently owns for the named worker evidence kind (CD-0205), so
 // callers at the emission boundary — the CLI command routes in
@@ -333,6 +346,45 @@ type WorkerCompletedPayload struct {
 	// Nil (absent) and empty are both legal; an over-bound array is refused
 	// whole, never truncated.
 	ContextFindings []WorkerContextFinding `json:"context_findings,omitempty"`
+	// ConsumedContextFrontier is the core-derived frontier attribution
+	// The field is the worker_context_frontier the attempt's own dispatch
+	// authorization recorded. The terminal ingest owner derives it from
+	// that authorization; a caller can never supply, change, or omit a
+	// value the authorization did not carry. Nil means the authorization
+	// predates the field and keeps explicit absence.
+	ConsumedContextFrontier *int64 `json:"consumed_context_frontier,omitempty"`
+	// ObservedDelivery is the closed delivery observation the core took
+	// itself: one raw commit OID plus the clean or dirty state of
+	// the attempt's authorized worktree at completion. Only a completed
+	// implementation-lane attempt carries one, and only the store's own
+	// read-only Git observation can produce it; a report, request, or
+	// adapter value can neither supply nor alter it.
+	ObservedDelivery *WorkerObservedDelivery `json:"observed_delivery,omitempty"`
+}
+
+// WorkerObservedDelivery is the closed core-owned delivery observation
+// State is clean or dirty only; dirty-but-reachable records
+// dirty and cannot qualify a review subject. There is no unavailable state:
+// a Git failure or deadline refuses the completion with zero effects
+// instead of recording an observation.
+type WorkerObservedDelivery struct {
+	Commit string `json:"commit"`
+	State  string `json:"state"`
+}
+
+var workerObservedDeliveryStates = map[string]bool{"clean": true, "dirty": true}
+
+func validateWorkerObservedDelivery(delivery *WorkerObservedDelivery) error {
+	if delivery == nil {
+		return nil
+	}
+	if !worktreeSHAPattern.MatchString(delivery.Commit) {
+		return invalidWorkerPayload("worker.completed observed_delivery.commit must be one raw commit OID")
+	}
+	if !workerObservedDeliveryStates[delivery.State] {
+		return invalidWorkerPayload("worker.completed observed_delivery.state must be clean or dirty")
+	}
+	return nil
 }
 
 type WorkerFailedPayload struct {
@@ -347,6 +399,13 @@ type WorkerFailedPayload struct {
 	// readback failures, and abandonment — carry no worker claims. Nil
 	// (absent) and empty are both legal on every kind.
 	ContextFindings []WorkerContextFinding `json:"context_findings,omitempty"`
+	// ConsumedContextFrontier is the core-derived frontier attribution
+	// The field is the frontier the attempt's own dispatch authorization
+	// recorded, derived by the terminal ingest owner even when the failure
+	// carries no report at all. A failed terminal records no delivery
+	// observation and never probes Git. Nil means the authorization
+	// predates the field and keeps explicit absence.
+	ConsumedContextFrontier *int64 `json:"consumed_context_frontier,omitempty"`
 }
 
 // WorkerHostProvenance is the typed record of host prompt-injection surfaces
@@ -417,6 +476,12 @@ func validateWorkerCompletedPayload(_ Event, payload WorkerCompletedPayload) err
 	}
 	if err := ValidateWorkerContextFindings(payload.ContextFindings); err != nil {
 		return err
+	}
+	if err := validateWorkerObservedDelivery(payload.ObservedDelivery); err != nil {
+		return err
+	}
+	if payload.ConsumedContextFrontier != nil && *payload.ConsumedContextFrontier < 0 {
+		return invalidWorkerPayload("worker.completed consumed_context_frontier must be a nonnegative frontier")
 	}
 	if err := ValidateWorkerOracleReportShape(payload); err != nil {
 		return err
@@ -750,14 +815,25 @@ func validateWorkerDispatched(event Event, payload WorkerDispatchedPayload) erro
 // whose recorded digest is empty predates the boundary and refuses with a typed
 // cutover failure so the operator opens a fresh authorization.
 type WorkerDispatchWindow struct {
-	WorkID           string
-	StepID           string
-	AttemptID        string
-	AttemptEpoch     int64
-	StartSeq         int64
-	PacketDigest     string
+	WorkID       string
+	StepID       string
+	AttemptID    string
+	AttemptEpoch int64
+	StartSeq     int64
+	PacketDigest string
+	// SubjectCommit is the admitted core subject the authorization
+	// recorded, empty when the authorization predates the field.
 	SubjectCommit    string
 	WorktreeIdentity string
+	// ContextFrontier is the recorded worker_context_frontier of the
+	// dispatch completion: the source-event frontier of the
+	// work-context view the authorization admitted. ContextFrontierPresent
+	// distinguishes a recorded zero (a new authorization over an absent
+	// view) from explicit absence (a historical authorization recorded
+	// before the field existed); the reader never substitutes one for the
+	// other.
+	ContextFrontier        int64
+	ContextFrontierPresent bool
 }
 
 // FindAuthorizedDispatchWindowTx reads the dispatch_worker authorization
@@ -773,18 +849,28 @@ type WorkerDispatchWindow struct {
 // completion that did not record worker_packet_digest; the gate owns the
 // empty-versus-non-empty refusal so this read does not double-classify.
 func FindAuthorizedDispatchWindowTx(ctx context.Context, tx *sql.Tx, workID, attemptID string) (WorkerDispatchWindow, error) {
+	return findAuthorizedDispatchWindowCore(ctx, tx, workID, attemptID)
+}
+
+// findAuthorizedDispatchWindowCore is the queryer-scoped window read. The
+// nullable frontier scan reads the recorded worker_context_frontier without
+// a COALESCE default, so a historical authorization without the field reads
+// as explicit absence, never as a recorded zero.
+func findAuthorizedDispatchWindowCore(ctx context.Context, q queryer, workID, attemptID string) (WorkerDispatchWindow, error) {
 	var window WorkerDispatchWindow
+	var frontier sql.NullInt64
 	window.WorkID = workID
 	window.AttemptID = attemptID
-	if err := tx.QueryRowContext(ctx, `SELECT seq,json_extract(payload,'$.step_id'),COALESCE(json_extract(payload,'$.attempt_epoch'),0),COALESCE(json_extract(payload,'$.worker_packet_digest'),''),COALESCE(json_extract(payload,'$.worker_worktree_identity'),''),COALESCE(json_extract(payload,'$.worker_subject_commit'),'') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')=? AND json_extract(payload,'$.worker_attempt_id')=? ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkflowActionCompleted, "dispatch_worker", attemptID).Scan(&window.StartSeq, &window.StepID, &window.AttemptEpoch, &window.PacketDigest, &window.WorktreeIdentity, &window.SubjectCommit); err != nil {
+	if err := q.QueryRowContext(ctx, `SELECT seq,json_extract(payload,'$.step_id'),COALESCE(json_extract(payload,'$.attempt_epoch'),0),COALESCE(json_extract(payload,'$.worker_packet_digest'),''),COALESCE(json_extract(payload,'$.worker_worktree_identity'),''),COALESCE(json_extract(payload,'$.worker_subject_commit'),''),json_extract(payload,'$.worker_context_frontier') FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')=? AND json_extract(payload,'$.worker_attempt_id')=? ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkflowActionCompleted, "dispatch_worker", attemptID).Scan(&window.StartSeq, &window.StepID, &window.AttemptEpoch, &window.PacketDigest, &window.WorktreeIdentity, &window.SubjectCommit, &frontier); err != nil {
 		if err == sql.ErrNoRows {
 			return window, newFailure(KindUnauthorizedDispatch, "worker_dispatch_window", "no authorized dispatch window exists for this work item bound to this attempt", false, "open a dispatch_worker authorization for this attempt before recording worker evidence")
 		}
 		return window, wrapFailure(KindUnavailable, "worker_dispatch_window", "cannot read the dispatch authorization window", true, "retry once the database is readable", err)
 	}
+	window.ContextFrontier, window.ContextFrontierPresent = frontier.Int64, frontier.Valid
 	// The start anchors the single-use consumption read and carries the step
 	// epoch the completion authorized against.
-	if err := tx.QueryRowContext(ctx, `SELECT seq,COALESCE(json_extract(payload,'$.attempt_epoch'),0) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')=? AND json_extract(payload,'$.step_id')=? AND seq<? ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkflowActionStarted, "dispatch_worker", window.StepID, window.StartSeq).Scan(&window.StartSeq, &window.AttemptEpoch); err != nil {
+	if err := q.QueryRowContext(ctx, `SELECT seq,COALESCE(json_extract(payload,'$.attempt_epoch'),0) FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.action_id')=? AND json_extract(payload,'$.step_id')=? AND seq<? ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkflowActionStarted, "dispatch_worker", window.StepID, window.StartSeq).Scan(&window.StartSeq, &window.AttemptEpoch); err != nil {
 		if err == sql.ErrNoRows {
 			return window, newFailure(KindInvariantViolation, "worker_dispatch_window", "dispatch_worker completed without a starting authorization event", false, "reopen the workflow action against a fresh step epoch")
 		}
@@ -1264,6 +1350,14 @@ func foldWorkerCompleted(ctx context.Context, tx *sql.Tx, event Event) error {
 			return newFailure(KindInvalidPayload, "fold_event", "worker.completed oracle report content requires the worker-job revision the attempt was dispatched under", false, "report oracle content only for a job-bound dispatch")
 		}
 	}
+	// The core-derived delivery identity is reserved for the terminal
+	// delivery payload version. A replayed event whose recorded
+	// source version sits below the boundary cannot carry a consumed
+	// frontier or an observed delivery: the store never derived either when
+	// that version was released, and recorded history is never re-observed.
+	if (payload.ConsumedContextFrontier != nil || payload.ObservedDelivery != nil) && event.replaySourcePayloadVersion != 0 && event.replaySourcePayloadVersion < workerCompletedTerminalDeliveryVersion {
+		return newFailure(KindInvalidPayload, "fold_event", "worker.completed consumed_context_frontier and observed_delivery are reserved for payload version >= 7", false, "record the terminal delivery identity on the current completion payload")
+	}
 	if err := validateWorkerContextFindingDomainsTx(ctx, tx, event.SubjectID, payload.ContextFindings); err != nil {
 		return err
 	}
@@ -1392,6 +1486,14 @@ func foldWorkerFailed(ctx context.Context, tx *sql.Tx, event Event) error {
 	// fabricated worker claims that no store ever recorded.
 	if payload.ContextFindings != nil && event.replaySourcePayloadVersion != 0 && event.replaySourcePayloadVersion < workerFailedContextFindingsVersion {
 		return newFailure(KindInvalidPayload, "fold_event", "worker.failed context_findings are reserved for payload version >= 2", false, "record the context_findings on the current failure payload")
+	}
+	// The core-derived frontier attribution is reserved for the failed
+	// terminal delivery payload version. A replayed event whose
+	// recorded source version sits below the boundary cannot carry a consumed
+	// frontier: the store never derived one when that version was released,
+	// and recorded history is never re-attributed.
+	if payload.ConsumedContextFrontier != nil && event.replaySourcePayloadVersion != 0 && event.replaySourcePayloadVersion < workerFailedTerminalDeliveryVersion {
+		return newFailure(KindInvalidPayload, "fold_event", "worker.failed consumed_context_frontier is reserved for payload version >= 3", false, "record the frontier attribution on the current failure payload")
 	}
 	if err := validateWorkerContextFindingDomainsTx(ctx, tx, event.SubjectID, payload.ContextFindings); err != nil {
 		return err
@@ -1833,11 +1935,32 @@ func upcastWorkerCompletedV5(event Event) (Event, error) {
 	return event, nil
 }
 
+// upcastWorkerCompletedV6 carries a v6 completion into the v7 payload that
+// may carry the core-derived consumed_context_frontier and observed_delivery
+// v6 payloads never carried either, so the upcast is the bytes
+// unchanged at the new version: a replayed completion stays the report the
+// worker returned, with no fabricated frontier and no fabricated delivery
+// observation. Recorded history is never re-observed.
+func upcastWorkerCompletedV6(event Event) (Event, error) {
+	event.PayloadVersion = 7
+	return event, nil
+}
+
 // upcastWorkerFailedV1 carries a v1 failure into the v2 payload that may
 // carry typed context findings (CON-887). v1 payloads never carried any, so
 // the upcast is the bytes unchanged at the new version: a replayed failure
 // stays the diagnostic the host recorded, with no fabricated worker claims.
 func upcastWorkerFailedV1(event Event) (Event, error) {
 	event.PayloadVersion = 2
+	return event, nil
+}
+
+// upcastWorkerFailedV2 carries a v2 failure into the v3 payload that may
+// carry the core-derived consumed_context_frontier. v2 payloads
+// never carried one, so the upcast is the bytes unchanged at the new
+// version: a replayed failure stays the diagnostic the host recorded, with
+// no fabricated frontier attribution.
+func upcastWorkerFailedV2(event Event) (Event, error) {
+	event.PayloadVersion = 3
 	return event, nil
 }

@@ -80,6 +80,36 @@ finding keeps its source event and ordinal and stays a reported claim.
 Completion, checkpoints, and context boundaries copy no work-context content
 into another record.
 
+Amended 2026-10-13 for pre-dispatch reading resolution and the dispatch
+context bound
+([Linear](https://linear.app/sharper-flow/issue/CON-887/one-shared-typed-work-context-packet-per-work-item-read-and-extended)):
+every declared reading resolves before a worker spawns. A repository-file
+reading resolves in the declared Project's own repository: the pinned commit
+must resolve as one commit object, and the pinned path must resolve as one
+ordinary blob at that commit. The dispatch checkout is never the proof, so a
+changed or deleted checkout file cannot invalidate a reachable pinned
+commit, and a missing object refuses. A law reading resolves through the
+registered knowledge source its `source_id` names. The law ID and content
+hash must join that source's exact projected law revision, and the
+revision's canonical locator must resolve in the git-derived projection. A
+moved law revision whose canonical locator no longer exists refuses as
+unavailable; an old recorded locator that still resolves stays valid. The
+store never rescans Git history to guess a home, never repins the declared
+hash, and keeps no replacement revision registry. Resolution never registers
+a source, fetches from the network, or mutates the declared readings. The
+resolution runs before the dispatch transaction opens, and the admission
+revalidates the sampled source identities inside it. A failure names the
+reading's ordinal and source identity and commits no dispatch effect.
+Replay and rebuild resolve nothing again.
+
+The view bounds above are retention and read bounds. The dispatch context is
+a separate capacity. The canonical JSON object formed from exactly the
+packet's present `inputs.work_context`, `inputs.checkpoint`, and
+`inputs.correction` members may not exceed 65,536 UTF-8 bytes, inclusive,
+with member names and delimiters counted. An over-bound dispatch refuses
+whole and never trims a finding, preparation, checkpoint, or correction to
+fit. The per-entry and retention bounds above stay unchanged.
+
 ## Consequences
 
 Context continuity is rebuildable from SQLite event authority and does not add a

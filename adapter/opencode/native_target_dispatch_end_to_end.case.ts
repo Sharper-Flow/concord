@@ -687,18 +687,42 @@ routeDeclaration("N01 drives one synthetic non-Go target check through native pr
     expect(preparation.logical_argv_digest).toBe(logicalArgvDigest(control.argv as string[]))
     expect((preparation.recipe_source as JSONRecord)).toEqual(control.recipe_source)
     expect((preparation.files as JSONRecord[]).map((file) => file.path)).toEqual([HARNESS_SCRIPT])
-    const packetDigest = task.windows.inFlightAttempt(SESSION_ID)!.packetDigest
+    const packetDigest = task.dispatchResult.result?.worker_packet_digest as string
     expect(packetDigest).toMatch(/^sha256:[0-9a-f]{64}$/)
 
-    // The authorized execute lease: the core re-derives the dispatch join
-    // (attempt, epoch, packet digest, job binding, control, preparation) and
-    // grades the host-observed check invocation against the selected witness.
-    const epoch = dbValue(dbPath, `SELECT json_extract(payload,'$.attempt_epoch') AS epoch FROM domain_events WHERE subject_id='${workID}' AND kind='workflow.action_started' AND json_extract(payload,'$.action_id')='dispatch_worker' ORDER BY seq DESC LIMIT 1`).epoch as number
+    // Every execute selector comes from coordinator-visible output, never the
+    // private dispatch window, Task prompt, or database.
+    const dispatchPin = (task.dispatchResult.work_pins as JSONRecord[]).find((pin) => pin.work_id === workID)!
+    expect(dispatchPin.attempt.id).toBe(packet.attempt_id)
+    const epoch = dispatchPin.attempt.epoch as number
+    expect(Number.isSafeInteger(epoch) && epoch > 0).toBe(true)
+    const visibleJob = ((preDispatch.pinned as JSONRecord).ready_worker_jobs as JSONRecord[])[0]
+    const visibleControl = visibleJob.acceptance_oracle.controls[0] as JSONRecord
+    expect(visibleControl.readiness_evidence_refs).toEqual([preparationRef])
+    const executeOracle = {
+      phase: "execute", attempt_id: dispatchPin.attempt.id, attempt_epoch: epoch,
+      worker_packet_digest: packetDigest,
+      worker_job_binding: { job_id: visibleJob.job_id, revision: visibleJob.revision, digest: visibleJob.digest },
+      control_id: visibleControl.control_id, preparation_run_ref: visibleControl.readiness_evidence_refs[0],
+    }
+    const forgedDigest = "sha256:" + "0".repeat(64)
+    expect(forgedDigest).not.toBe(packetDigest)
+    const leasesBeforeForgery = dbValue(dbPath, "SELECT count(*) AS count FROM worktree_verify_leases").count
+    const forged = await invoke("concord_work_transition", { operation: "worktree_verify", input: {
+      work_id: dispatchPin.work_id, idempotency_key: "native-e2e-oracle-forged-digest", requested_budget_seconds: 300,
+      oracle: { ...executeOracle, worker_packet_digest: forgedDigest },
+    } }, context)
+    expect(forged.outcome).toBe("error")
+    expect(forged.error.kind).toBe("unauthorized")
+    expect(forged.error.effect_state).toBe("none")
+    expect(forged.error.message).toContain("native oracle execution lacks the exact live dispatch and candidate binding")
+    expect(dbValue(dbPath, "SELECT count(*) AS count FROM worktree_verify_leases").count).toBe(leasesBeforeForgery)
+
+    // The same public selectors with the recorded digest admit the execute
+    // lease and grade the host-observed invocation against the selected witness.
     const execution = await invoke("concord_work_transition", { operation: "worktree_verify", input: {
-      work_id: workID, idempotency_key: "native-e2e-oracle-execute", requested_budget_seconds: 300,
-      oracle: { phase: "execute", attempt_id: packet.attempt_id, attempt_epoch: epoch,
-        worker_packet_digest: packetDigest, worker_job_binding: reportWorkerJob(packet),
-        control_id: CONTROL_ID, preparation_run_ref: preparationRef },
+      work_id: dispatchPin.work_id, idempotency_key: "native-e2e-oracle-execute", requested_budget_seconds: 300,
+      oracle: executeOracle,
     } }, context)
     expect(execution.outcome, JSON.stringify(execution.error ?? null)).toBe("ok")
     const executed = execution.result.oracle as JSONRecord

@@ -701,7 +701,7 @@ routeDeclaration("G01 composes concurrent coordinators with fresh production ind
         expect(evaluator.workerSessionID).not.toBe(producer.workerSessionID)
         expect(evaluator.packet.inputs.outcome_predicates).toEqual([predicate])
         const boundControl = evaluator.packet.inputs.worker_job.acceptance_oracle.controls[0]
-        const execution = await verify(b, `${evaluationKey}-execute`, { oracle: { phase: "execute", attempt_id: evaluator.packet.attempt_id, attempt_epoch: epoch(evaluator), worker_packet_digest: evaluator.windows.inFlightAttempt(b.sessionID)!.packetDigest, worker_job_binding: reportWorkerJob(evaluator.packet), control_id: boundControl.control_id, preparation_run_ref: boundControl.readiness_evidence_refs[0] } })
+        const execution = await verify(b, `${evaluationKey}-execute`, { oracle: { phase: "execute", attempt_id: evaluator.packet.attempt_id, attempt_epoch: epoch(evaluator), worker_packet_digest: evaluator.dispatchResult.result.worker_packet_digest, worker_job_binding: reportWorkerJob(evaluator.packet), control_id: boundControl.control_id, preparation_run_ref: boundControl.readiness_evidence_refs[0] } })
         expect(execution.oracle.subject_commit).toBe(subject)
         expect(execution.oracle.qualification).toBe("pass")
         const open = evaluator.packet.inputs.work_context?.findings.filter((finding: JSONRecord) => finding.status === "open") ?? []
@@ -1061,7 +1061,7 @@ routeDeclaration("composes implementation and independent review through one ord
     response = await invoke("concord_work_transition", { operation: "worktree_verify", input: {
       work_id: workID, idempotency_key: "e2e-settling-oracle-execute", requested_budget_seconds: 300,
       oracle: { phase: "execute", attempt_id: settlingReview.packet.attempt_id, attempt_epoch: settlingEpoch,
-        worker_packet_digest: settlingReview.windows.inFlightAttempt(SESSION_ID)?.packetDigest, worker_job_binding: reportWorkerJob(settlingReview.packet),
+        worker_packet_digest: settlingReview.dispatchResult.result.worker_packet_digest, worker_job_binding: reportWorkerJob(settlingReview.packet),
         control_id: settlingControl.control_id, preparation_run_ref: settlingControl.readiness_evidence_refs[0] },
     } }, context)
     expect(response.outcome, JSON.stringify(response)).toBe("ok")

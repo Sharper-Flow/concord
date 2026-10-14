@@ -1277,7 +1277,7 @@ func foldWorkflowContractSuperseded(ctx context.Context, tx *sql.Tx, event Event
 		return err
 	}
 	if p.SuccessorContract != nil {
-		if err := foldCompleteStepContractCorrectionTx(ctx, tx, event.SubjectID, p.SuccessorContract); err != nil {
+		if err := foldCompleteStepContractCorrectionTx(ctx, tx, event, p.SuccessorContract); err != nil {
 			return err
 		}
 	}
@@ -1303,7 +1303,8 @@ func foldWorkflowContractSuperseded(ctx context.Context, tx *sql.Tx, event Event
 // foldCompleteStepContractCorrectionTx keeps the route marker, historical
 // replay, and admission checks together before it returns the pinned instance
 // to its external-effect step. The caller holds the fold transaction.
-func foldCompleteStepContractCorrectionTx(ctx context.Context, tx *sql.Tx, workID string, successor *workflowContractApprovedPayload) error {
+func foldCompleteStepContractCorrectionTx(ctx context.Context, tx *sql.Tx, event Event, successor *workflowContractApprovedPayload) error {
+	workID := event.SubjectID
 	var foldStep, foldState string
 	if err := tx.QueryRowContext(ctx, `SELECT current_step,instance_state FROM workflow_instances WHERE work_id=?`, workID).Scan(&foldStep, &foldState); err != nil {
 		return workflowProjectionError(err, "cannot read the workflow step for the supersession route check")
@@ -1335,7 +1336,13 @@ func foldCompleteStepContractCorrectionTx(ctx context.Context, tx *sql.Tx, workI
 		}
 		return newFailure(KindInvariantViolation, "fold_event", "route convention complete_step_correction does not match the supersession step", false, "declare the reserved convention exactly on the complete-step correction route")
 	}
-	available, err := workflowCompleteStepCorrectionAvailable(ctx, tx, workID, entry.Definition, foldStep, "fold_event")
+	// Replay retains the whole log. Admission sees only the history that
+	// preceded this supersession, just as it did on the live path.
+	beforeSeq, err := eventSequenceTx(ctx, tx, event.EventID)
+	if err != nil {
+		return err
+	}
+	available, err := workflowCompleteStepCorrectionAvailable(ctx, tx, workID, entry.Definition, foldStep, "fold_event", beforeSeq)
 	if err != nil {
 		return err
 	}

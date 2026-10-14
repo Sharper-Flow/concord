@@ -251,18 +251,8 @@ func nativeGitFile(ctx context.Context, r GitRunner, repo, commit, name string) 
 	return f, b, nil
 }
 
-func normalizeNativeOraclePlan(ctx context.Context, r GitRunner, entry WorktreeEntry, req WorktreeVerifyRequest, b NativeOracleControlBundle, version int64, subject, identity string, auth nativeOracleAuthorization) (nativeOraclePlan, error) {
-	p := nativeOraclePlan{Request: *req.Oracle, RequestID: req.RequestID, WorkID: req.WorkID, ProjectID: req.ProjectID, ContractVersion: version, SubjectCommit: subject, WorktreeIdentity: identity, Bundle: b, BundleDigest: nativeBundleDigest(b), Authorization: auth, StreamLimit: nativeOracleStreamLimit, CachePolicy: "private-disposable-per-lease"}
-	if b.Control.RecipeSource.ProjectID != req.ProjectID || b.Owner.Mechanism.ProjectID != req.ProjectID {
-		return p, nativeUnavailable("this recipe requires the ambient Project's single module")
-	}
-	f, raw, err := nativeGitFile(ctx, r, entry.Path, b.Control.RecipeSource.CommitOID, b.Control.RecipeSource.Path)
-	if err != nil {
-		return p, err
-	}
-	if len(raw) > 16*1024 {
-		return p, oracleFailure(KindLimitExceeded, "recipe manifest exceeds 16384 bytes", "bound the pinned manifest")
-	}
+func normalizeNativeGoOraclePlan(ctx context.Context, r GitRunner, entry WorktreeEntry, p nativeOraclePlan, f NativeOracleFile, raw []byte, req WorktreeVerifyRequest) (nativeOraclePlan, error) {
+	b := p.Bundle
 	d := json.NewDecoder(bytes.NewReader(raw))
 	d.DisallowUnknownFields()
 	if err := d.Decode(&p.Manifest); err != nil {
@@ -312,7 +302,7 @@ func normalizeNativeOraclePlan(ctx context.Context, r GitRunner, entry WorktreeE
 	slices.SortFunc(p.Files, func(a, b NativeOracleFile) int { return strings.Compare(a.Path, b.Path) })
 	var moduleInputs [][]byte
 	var pinned string
-	for _, commit := range []string{subject, b.Control.RecipeSource.CommitOID} {
+	for _, commit := range []string{p.SubjectCommit, b.Control.RecipeSource.CommitOID} {
 		_, mod, err := nativeGitFile(ctx, r, entry.Path, commit, "go.mod")
 		if err != nil {
 			return p, nativeUnavailable("supported recipe requires a pinned root go.mod")
@@ -340,6 +330,7 @@ func normalizeNativeOraclePlan(ctx context.Context, r GitRunner, entry WorktreeE
 	if !bytes.Equal(moduleInputs[0], moduleInputs[1]) {
 		return p, nativeUnavailable("candidate module dependency inputs differ from pinned preparation")
 	}
+	var err error
 	p.Environment, err = resolveNativeGoEnvironment(ctx, pinned)
 	if err != nil {
 		return p, err

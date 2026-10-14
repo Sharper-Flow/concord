@@ -33,7 +33,8 @@ func validateNativeOracleProducerTx(ctx context.Context, q queryer, work string,
 	if json.Unmarshal([]byte(plan), &p) != nil || nativeDigest([]byte(plan)) != digest || digest != o.NativePlanSHA256 || !stdoutLength.Valid || !stderrLength.Valid || stdoutLength.Int64 != o.Stdout.Length || stderrLength.Int64 != o.Stderr.Length || o.Stdout.Length > nativeOracleStreamLimit || o.Stderr.Length > nativeOracleStreamLimit {
 		return refuse()
 	}
-	if p.Request.Phase != "execute" || p.WorkID != work || p.ProjectID != r.ProjectID || p.SubjectCommit != o.SubjectCommit || p.ContractVersion != o.ContractVersion || p.BundleDigest != o.BundleDigest || p.Environment.Digest != o.BuildEnvironmentDigest || p.Environment.ToolchainIdentity != o.ToolchainIdentity || p.Request.AttemptID != o.AttemptID || p.Request.AttemptEpoch != o.AttemptEpoch || p.Request.WorkerPacketDigest != o.WorkerPacketDigest || p.Request.ControlID != o.ControlID || p.Request.PreparationRunRef != o.PreparationRunRef || p.Request.WorkerJobBinding == nil || o.WorkerJobBinding == nil || *p.Request.WorkerJobBinding != *o.WorkerJobBinding || p.Authorization.EventID != o.AuthorizationEventID || p.Authorization.Seq != o.AuthorizationSeq || p.Authorization.StartSeq != o.StartSeq || p.Bundle.Control.Cwd != o.LogicalCwd || p.Bundle.Control.RecipeSource != o.RecipeSource || !oracleEntryIdentical(p.Files, o.Files) || o.InputManifestDigest == "" {
+	envDigest, envIdentity := nativePlanEnvironment(p)
+	if p.Request.Phase != "execute" || p.WorkID != work || p.ProjectID != r.ProjectID || p.SubjectCommit != o.SubjectCommit || p.ContractVersion != o.ContractVersion || p.BundleDigest != o.BundleDigest || o.BuildEnvironmentDigest != envDigest || o.ToolchainIdentity != envIdentity || p.Request.AttemptID != o.AttemptID || p.Request.AttemptEpoch != o.AttemptEpoch || p.Request.WorkerPacketDigest != o.WorkerPacketDigest || p.Request.ControlID != o.ControlID || p.Request.PreparationRunRef != o.PreparationRunRef || p.Request.WorkerJobBinding == nil || o.WorkerJobBinding == nil || *p.Request.WorkerJobBinding != *o.WorkerJobBinding || p.Authorization.EventID != o.AuthorizationEventID || p.Authorization.Seq != o.AuthorizationSeq || p.Authorization.StartSeq != o.StartSeq || p.Bundle.Control.Cwd != o.LogicalCwd || p.Bundle.Control.RecipeSource != o.RecipeSource || !oracleEntryIdentical(p.Files, o.Files) || o.InputManifestDigest == "" {
 		return refuse()
 	}
 	var dispatch []byte
@@ -53,7 +54,13 @@ func validateNativeOracleProducerTx(ctx context.Context, q queryer, work string,
 	if err != nil {
 		return err
 	}
-	if prep == nil || prep.SubjectCommit != o.SubjectCommit || prep.ContractVersion != p.ContractVersion || prep.BundleDigest != p.BundleDigest || prep.ManifestDigest != p.ManifestFile.SHA256 || prep.ManifestBlob != p.ManifestFile.BlobOID || !oracleEntryIdentical(prep.Files, p.Files) || prep.ToolchainIdentity != p.Environment.ToolchainIdentity || prep.BuildEnvironmentDigest != p.Environment.Digest || !oracleEntryIdentical(prep.CaseToTestMap, p.Manifest.Cases) {
+	prepJoins := prep != nil && prep.SubjectCommit == o.SubjectCommit && prep.ContractVersion == p.ContractVersion && prep.BundleDigest == p.BundleDigest && prep.ManifestDigest == p.ManifestFile.SHA256 && prep.ManifestBlob == p.ManifestFile.BlobOID && oracleEntryIdentical(prep.Files, p.Files) && prep.ToolchainIdentity == envIdentity && prep.BuildEnvironmentDigest == envDigest
+	if p.Target != nil {
+		prepJoins = prepJoins && oracleEntryIdentical(prep.CaseToWitnessMap, p.Target.Recipe.Cases) && len(prep.SelectedWitnessIDs) > 0 && len(prep.CaseToTestMap) == 0 && len(prep.SelectedTestNames) == 0
+	} else {
+		prepJoins = prepJoins && oracleEntryIdentical(prep.CaseToTestMap, p.Manifest.Cases)
+	}
+	if !prepJoins {
 		return refuse()
 	}
 	if err := validateNativeOracleHistoryTx(ctx, q, work, p, d, o); err != nil {
@@ -62,12 +69,29 @@ func validateNativeOracleProducerTx(ctx context.Context, q queryer, work string,
 		}
 		return err
 	}
-	names, err := nativeOracleCaseTests(p.Manifest, p.Bundle.Control)
-	if err != nil {
-		return refuse()
-	}
-	if !slices.Equal(r.Command, p.Bundle.Control.Argv) || o.ControlID != p.Bundle.Control.ControlID || o.ManifestDigest != p.ManifestFile.SHA256 || !slices.Equal(o.SelectedTestNames, names) || !oracleEntryIdentical(o.CaseToTestMap, p.Manifest.Cases) {
-		return refuse()
+	if p.Target != nil {
+		// The receipt joins the exact admitted materializer/runner pair the
+		// plan decided — a presence check on the axis names alone would let
+		// an unsupported pair grade a witness.
+		pair, pairErr := nativeTargetPairOf(p.Target.Recipe)
+		if pairErr != nil {
+			return refuse()
+		}
+		witnesses, err := nativeTargetCaseWitnesses(p.Target.Recipe, p.Bundle.Control)
+		if err != nil {
+			return refuse()
+		}
+		if !slices.Equal(r.Command, p.Bundle.Control.Argv) || o.ControlID != p.Bundle.Control.ControlID || o.ManifestDigest != p.ManifestFile.SHA256 || !slices.Equal(o.SelectedWitnessIDs, witnesses) || o.RecipeKind != nativeTargetKind || o.TargetMaterializer != pair.Materializer || o.TargetRunner != pair.Runner || o.TargetMaterializer != p.Target.Environment.Materializer || o.TargetRunner != p.Target.Environment.Runner || o.SelectedDistinctCount != len(witnesses) || len(o.SelectedTestNames) != 0 || len(o.CaseToTestMap) != 0 || !oracleEntryIdentical(o.CaseToWitnessMap, p.Target.Recipe.Cases) {
+			return refuse()
+		}
+	} else {
+		names, err := nativeOracleCaseTests(p.Manifest, p.Bundle.Control)
+		if err != nil {
+			return refuse()
+		}
+		if !slices.Equal(r.Command, p.Bundle.Control.Argv) || o.ControlID != p.Bundle.Control.ControlID || o.ManifestDigest != p.ManifestFile.SHA256 || !slices.Equal(o.SelectedTestNames, names) || !oracleEntryIdentical(o.CaseToTestMap, p.Manifest.Cases) || o.RecipeKind != "" || o.TargetMaterializer != "" || o.TargetRunner != "" || len(o.SelectedWitnessIDs) != 0 || len(o.CaseToWitnessMap) != 0 {
+			return refuse()
+		}
 	}
 	for i, stage := range o.Stages {
 		if i >= len(p.Stages) || stage.Name != p.Stages[i].Name || !slices.Equal(stage.Argv, p.Stages[i].Argv) || stage.StdoutOffset < 0 || stage.StderrOffset < 0 || stage.StdoutLength < 0 || stage.StderrLength < 0 || int64(stage.StdoutOffset+stage.StdoutLength) > o.Stdout.Length || int64(stage.StderrOffset+stage.StderrLength) > o.Stderr.Length {
@@ -75,15 +99,16 @@ func validateNativeOracleProducerTx(ctx context.Context, q queryer, work string,
 		}
 	}
 	if qualification == "fail" {
-		// A failure stands only on the stage that produced it: the compile
-		// that ended the run, or the executed test program. Every other
-		// recorded stage succeeded.
+		// A failure stands only on the stage that produced it: the executed
+		// test or check stage that ended the run — or, for Go, the compile
+		// that ended it. Every other recorded stage succeeded.
 		failed := 0
 		for i, stage := range o.Stages {
 			if stage.ExitCode == 0 {
 				continue
 			}
-			if !(stage.Name == "test" || (stage.Name == "compile" && i == len(o.Stages)-1)) {
+			failingStage := stage.Name == "test" || (p.Target == nil && stage.Name == "compile" && i == len(o.Stages)-1)
+			if !failingStage {
 				return refuse()
 			}
 			failed++
@@ -93,7 +118,13 @@ func validateNativeOracleProducerTx(ctx context.Context, q queryer, work string,
 		}
 	}
 	if qualification == "pass" {
-		if len(o.Stages) != len(p.Stages) || o.BinaryDigest == "" || !slices.Equal(o.SelectedTestNames, o.ObservedTestNames) || o.SelectedDistinctCount != len(o.SelectedTestNames) || len(o.SelectedTestNames) == 0 {
+		pass := len(o.Stages) == len(p.Stages) && o.BinaryDigest != "" && o.SelectedDistinctCount != 0
+		if p.Target != nil {
+			pass = pass && slices.Equal(o.SelectedWitnessIDs, o.ObservedWitnessIDs) && o.SelectedDistinctCount == len(o.SelectedWitnessIDs) && len(o.ObservedTestNames) == 0
+		} else {
+			pass = pass && slices.Equal(o.SelectedTestNames, o.ObservedTestNames) && o.SelectedDistinctCount == len(o.SelectedTestNames) && len(o.SelectedTestNames) != 0 && len(o.ObservedWitnessIDs) == 0
+		}
+		if !pass {
 			return refuse()
 		}
 		for _, stage := range o.Stages {

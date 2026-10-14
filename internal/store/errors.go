@@ -308,10 +308,15 @@ type ExternalRefConflict struct {
 }
 
 func (f *Failure) Error() string {
+	message := fmt.Sprintf("store: %s: %s: %s", f.Op, f.Kind, f.Detail)
 	if f.Err != nil {
-		return fmt.Sprintf("store: %s: %s: %s: %v", f.Op, f.Kind, f.Detail, f.Err)
+		message += fmt.Sprintf(": %v", f.Err)
 	}
-	return fmt.Sprintf("store: %s: %s: %s", f.Op, f.Kind, f.Detail)
+	if f.EventID != "" {
+		message += fmt.Sprintf(" [event_id=%q sequence=%d event_kind=%q payload_version=%d subject_type=%q subject_id=%q stage=%q]",
+			f.EventID, f.Sequence, f.EventKind, f.PayloadVersion, f.SubjectType, f.SubjectID, f.Stage)
+	}
+	return message
 }
 
 // Unwrap exposes the underlying cause to errors.Is and errors.As.

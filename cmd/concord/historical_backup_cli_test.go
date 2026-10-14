@@ -1,8 +1,12 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"database/sql"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -77,6 +81,29 @@ func assertNoHistoricalSnapshot(t *testing.T, root string) {
 	}
 }
 
+func historicalRefusalSequence(t *testing.T, path string) int64 {
+	t.Helper()
+	db, err := sql.Open("sqlite", "file:"+path+"?mode=ro")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var seq int64
+	if err := db.QueryRow(`SELECT seq FROM domain_events WHERE event_id='historical-backup-invalid'`).Scan(&seq); err != nil {
+		t.Fatal(err)
+	}
+	return seq
+}
+
+func assertHistoricalRefusalAttribution(t *testing.T, path, diagnostic string) {
+	t.Helper()
+	for _, field := range []string{`event_id="historical-backup-invalid"`, fmt.Sprintf("sequence=%d ", historicalRefusalSequence(t, path)), `event_kind="worker.failed"`, "payload_version=1", `subject_type="work_item"`, `subject_id="work-1"`, `stage="decode"`} {
+		if !strings.Contains(diagnostic, field) {
+			t.Errorf("refusal %q does not report %s", diagnostic, field)
+		}
+	}
+}
+
 func TestHistoricalPayloadBackupRestoreViaCLI(t *testing.T) {
 	path := freshMigratedCLIDatabase(t)
 	failed := seedHistoricalBackupCLI(t, path, false)
@@ -93,6 +120,55 @@ func TestHistoricalPayloadBackupRestoreViaCLI(t *testing.T) {
 	}
 	assertHistoricalBackupEvent(t, path, failed)
 	assertHistoricalBackupEvent(t, destination, failed)
+}
+
+func TestHistoricalPayloadRestoreRefusalAttribution(t *testing.T) {
+	path := freshMigratedCLIDatabase(t)
+	failed := seedHistoricalBackupCLI(t, path, false)
+	snapshot := filepath.Join(t.TempDir(), "snapshot.db")
+	runCLIJSON(t, []string{"backup"}, map[string]any{"destination": snapshot})
+	manifest, err := store.VerifyBackup(context.Background(), snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Model a structurally verified snapshot whose writer accepted a payload
+	// this binary cannot replay. The manifest inventories the fixture bytes.
+	failed.EventID = "historical-backup-invalid"
+	failed.Payload = []byte(strings.Replace(string(failed.Payload), `"observed_session_directories":[]`, `"observed_session_directories":null`, 1))
+	seedLegacyWorkerEventRows(t, snapshot, failed)
+	raw, err := os.ReadFile(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest.DBChecksum = fmt.Sprintf("%x", sha256.Sum256(raw))
+	manifest.EventWatermark = historicalRefusalSequence(t, snapshot)
+	manifestRaw, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(snapshot+".manifest.json", manifestRaw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.VerifyBackup(context.Background(), snapshot); err != nil {
+		t.Fatalf("fixture must pass snapshot inventory verification: %v", err)
+	}
+	destination := filepath.Join(t.TempDir(), "restored.db")
+	input, err := json.Marshal(map[string]string{"source": snapshot, "destination": destination})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out, errOut bytes.Buffer
+	if code := runWithInput([]string{"restore"}, bytes.NewReader(input), &out, &errOut); code != 1 {
+		t.Fatalf("restore exit=%d, want 1; stderr=%s", code, errOut.String())
+	}
+	assertHistoricalRefusalAttribution(t, snapshot, errOut.String())
+	if _, err := os.Stat(destination); !os.IsNotExist(err) {
+		t.Fatalf("refused restore left a destination: %v", err)
+	}
+	after, err := os.ReadFile(snapshot)
+	if err != nil || !bytes.Equal(raw, after) {
+		t.Fatalf("refused restore changed source snapshot: %v", err)
+	}
 }
 
 func TestHistoricalPayloadUpgradeSnapshotQualification(t *testing.T) {
@@ -122,6 +198,7 @@ func TestHistoricalPayloadUpgradeSnapshotQualification(t *testing.T) {
 					t.Fatalf("unreplayable rollback must prevent migration: code=%d error=%s before=%+v after=%+v", code, errOut, before, after)
 				}
 				assertNoHistoricalSnapshot(t, root)
+				assertHistoricalRefusalAttribution(t, path, errOut)
 			} else {
 				if code != 0 || len(after.PendingBreaking) != 0 {
 					t.Fatalf("replayable historical rollback must permit upgrade: code=%d error=%s after=%+v", code, errOut, after)
@@ -162,6 +239,7 @@ func TestHistoricalPayloadRepairSnapshotQualification(t *testing.T) {
 					t.Fatalf("unreplayable rollback must prevent installer execution: code=%d error=%s marker=%v", code, errOut, markerErr)
 				}
 				assertNoHistoricalSnapshot(t, fixture.dataRoot)
+				assertHistoricalRefusalAttribution(t, path, errOut.String())
 			} else if code != 0 || markerErr != nil || !strings.Contains(out.String(), "database backup at") {
 				t.Fatalf("replayable historical rollback must permit repair: code=%d error=%s marker=%v", code, errOut, markerErr)
 			}

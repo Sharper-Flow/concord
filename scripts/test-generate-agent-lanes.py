@@ -5,6 +5,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location("lane_generator", ROOT / "scripts/generate-agent-lanes.py")
@@ -19,6 +20,47 @@ PREMISE_MAX_BYTES = json.loads((ROOT / "contracts/agent-tool-surface-payloads.sc
 
 def lane_projection(lane, report=None):
     return generator.agent_projection(lane, report if report is not None else REPORT_SCHEMA, PACKET_SCHEMA, PREMISE_MAX_BYTES)
+
+
+class LaneDigestRetentionTests(unittest.TestCase):
+    def test_generation_refuses_a_replaced_digest_without_retention(self):
+        manifest = json.loads(generator.MANIFEST.read_text(encoding="utf-8"))
+        previous = generator.lane_digest(manifest["lanes"][0])
+        manifest["lanes"][0]["purpose"] += " Preserve future evidence."
+        self.assertNotEqual(previous, generator.lane_digest(manifest["lanes"][0]))
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "manifest.json"
+            path.write_text(json.dumps(manifest), encoding="utf-8")
+            with mock.patch.object(generator, "MANIFEST", path):
+                with self.assertRaisesRegex(ValueError, previous):
+                    generator.load_manifest()
+
+    def test_generation_accepts_a_retained_replaced_digest(self):
+        manifest = json.loads(generator.MANIFEST.read_text(encoding="utf-8"))
+        lane = manifest["lanes"][0]
+        previous = generator.lane_digest(lane)
+        lane["purpose"] += " Preserve future evidence."
+        manifest["legacy_lane_digests"][f"{lane['id']}:{lane['version']}"].append(previous)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "manifest.json"
+            path.write_text(json.dumps(manifest), encoding="utf-8")
+            with mock.patch.object(generator, "MANIFEST", path):
+                loaded, _ = generator.load_manifest()
+        self.assertIn(previous, loaded["legacy_lane_digests"]["research:1"])
+
+    def test_generation_refuses_a_removed_legacy_digest(self):
+        manifest = json.loads(generator.MANIFEST.read_text(encoding="utf-8"))
+        removed = manifest["legacy_lane_digests"]["research:1"].pop(0)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "manifest.json"
+            path.write_text(json.dumps(manifest), encoding="utf-8")
+            with mock.patch.object(generator, "MANIFEST", path):
+                with self.assertRaisesRegex(ValueError, removed):
+                    generator.load_manifest()
+
+    def test_history_reads_ignore_inherited_repository_redirection(self):
+        with mock.patch.dict("os.environ", {"GIT_DIR": "/fixtures/not-a-repository", "GIT_WORK_TREE": "/fixtures/not-a-worktree"}):
+            generator.load_manifest()
 
 
 class AgentProjectionTests(unittest.TestCase):

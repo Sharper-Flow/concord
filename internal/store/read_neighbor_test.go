@@ -134,6 +134,16 @@ func TestReadEntryPointsWithNeighbor(t *testing.T) {
 			}
 			return nil
 		}},
+		{name: "TrustedClient", run: func() error {
+			client, err := s.TrustedClient(ctx, "neighbor-client")
+			if err != nil {
+				return err
+			}
+			if client.ClientRef != "neighbor-client" || client.PolicyRevision != 1 {
+				return fmt.Errorf("client=%+v", client)
+			}
+			return nil
+		}},
 		{name: "AwaitHealthForWork", run: func() error {
 			awaits, err := s.AwaitHealthForWork(ctx, "neighbor-work", time.Now())
 			if err != nil {

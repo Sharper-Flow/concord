@@ -97,7 +97,12 @@ one immutable oracle copy for every admitted lane. The shared work-context
 reader projects canonical ranked findings and prior receipt references;
 current blockers cannot disappear through context selection. Lanes read the
 oracle and pinned sources, inspect its owners, and execute declared controls
-within their permissions. Independent review can report a legitimate omitted
+within their permissions. Native-oracle teaching must distinguish supported
+Go and target-repository drivers. The authenticated host owns qualified
+preparation and execution under CD-0205 D1-D2; a lane gains no Concord tool
+or native receipt authority from its language or ordinary command output.
+Missing native readiness never selects an inspection-only acceptance route.
+Independent review can report a legitimate omitted
 path as `uncovered_case`. Earlier receipts remain regression baselines, not
 current-subject acceptance. Missing context still uses the report boundary,
 never worker Concord access.

@@ -939,8 +939,12 @@ def project_native_oracle_requests(defs: dict) -> None:
     defs["native_oracle_request"] = closed_operation_variants([prepare, execute], ["phase"])
     defs["native_oracle_request"]["properties"]["phase"] = {"type": "string", "enum": ["prepare", "execute"]}
     defs["native_oracle_request"]["description"] = (
-        "native_oracle_v2: prepare compiles the pinned pure-Go harness without test execution; execute requires the exact persisted dispatch, job, epoch, packet digest, and clean subject. "
-        "The producer owns recipe bytes, cwd, environment, candidate, stages, and streams. Unsupported recipes are unavailable. No install, automatic preparation, or new worker authority."
+        "native_oracle_v2: prepare qualifies one closed recipe family without running its workload and grants readiness only. "
+        "The pinned pure-Go harness compiles without test execution; a target_runner_v1 recipe materializes its pinned "
+        "dependencies offline and runs only its collection or check-input stage. Execute requires the exact persisted dispatch, "
+        "job, epoch, packet digest, and clean subject. The producer owns recipe bytes, cwd, environment, candidate, stages, and "
+        "streams. Unsupported recipes, families, and materializer/runner pairs are unavailable. Both phases are explicit "
+        "preparation and readiness only: no acceptance body, no install, no automatic preparation, no new worker authority."
     )
     verify = defs["work_transition_worktree_verify_input"]
     verify = verify.get("oneOf", [verify])[0]
@@ -1094,15 +1098,27 @@ def project_native_oracle_metadata(defs: dict, packet_defs: dict) -> None:
     stage.update({field: {"type": "integer", "minimum": 0, "maximum": 2097152} for field in
                   ("stdout_offset", "stdout_length", "stderr_offset", "stderr_length")})
     defs["native_oracle_stage"] = {"type": "object", "additionalProperties": False, "required": list(stage), "properties": stage}
+
+    def project_phase_into_branches(node: dict, properties: dict, required: list[str]) -> None:
+        """Each closed family branch carries the phase's own fields: a
+        result fixture synthesizes from one branch alone, so a branch that
+        omits a phase-required field would build an invalid result."""
+        for branch in node.get("oneOf", []):
+            branch["properties"] = {**branch.get("properties", {}), **copy.deepcopy(properties)}
+            known = list(branch.get("required", []))
+            branch["required"] = known + [name for name in required if name not in known]
+
     prepare = copy.deepcopy(defs["native_oracle_preparation"])
-    prepare["properties"].update({
+    prepare_fields = {
         "control_id": copy.deepcopy(defs["worker_oracle_control"]["properties"]["control_id"]),
         "input_manifest_digest": {"$ref": "#/$defs/native_oracle_digest"},
         "binary_digest": {"$ref": "#/$defs/native_oracle_digest"},
         "stages": {"type": "array", "minItems": 0, "maxItems": 16, "items": {"$ref": "#/$defs/native_oracle_stage"}},
         "detail": {"type": "string", "maxLength": 4096},
-    })
+    }
+    prepare["properties"].update(copy.deepcopy(prepare_fields))
     prepare["required"].extend(["control_id", "stages"])
+    project_phase_into_branches(prepare, prepare_fields, ["control_id", "stages"])
     execute = copy.deepcopy(prepare)
     execute["properties"]["phase"] = {"type": "string", "const": "execute"}
     execute["properties"]["qualification"] = {"type": "string", "enum": ["pass", "fail", "unavailable"]}
@@ -1116,16 +1132,42 @@ def project_native_oracle_metadata(defs: dict, packet_defs: dict) -> None:
         "start_seq": {"type": "integer", "minimum": 1, "maximum": 9223372036854775807},
         "observed_test_names": {"type": "array", "minItems": 0, "maxItems": 40, "uniqueItems": True,
                                 "items": {"$ref": "#/$defs/native_oracle_test_name"}},
+        "observed_witness_ids": {"type": "array", "minItems": 0, "maxItems": 40, "uniqueItems": True,
+                                 "items": {"type": "string", "minLength": 1, "maxLength": 256,
+                                           "pattern": "^[^\\x00-\\x1f\\x7f]*$"}},
     })
     execute["required"].extend(["authorization_event_id", "authorization_seq", "start_seq"])
+    project_phase_into_branches(execute, {name: copy.deepcopy(execute["properties"][name]) for name in
+                                          ("attempt_id", "attempt_epoch", "worker_packet_digest", "worker_job_binding",
+                                           "preparation_run_ref", "authorization_event_id", "authorization_seq", "start_seq",
+                                           "input_manifest_digest", "binary_digest", "observed_test_names", "observed_witness_ids")},
+                                ["attempt_id", "attempt_epoch", "worker_packet_digest", "worker_job_binding",
+                                 "preparation_run_ref", "authorization_event_id", "authorization_seq", "start_seq"])
+    # The family branches restate the phase fields they inherited from the
+    # preparation union; an execute branch speaks the execute phase grammar.
+    for branch in execute.get("oneOf", []):
+        branch["properties"]["phase"] = {"type": "string", "const": "execute"}
+        branch["properties"]["qualification"] = {"type": "string", "enum": ["pass", "fail", "unavailable"]}
     execute["if"] = {"properties": {"qualification": {"const": "pass"}}, "required": ["qualification"]}
-    execute["then"] = copy.deepcopy(prepare["then"])
-    execute["then"]["required"] = ["input_manifest_digest", "binary_digest", "observed_test_names"]
-    execute["then"]["properties"]["observed_test_names"] = {"minItems": 1}
+    # A pass names the witnesses the run actually observed, in the record's
+    # own family grammar: observed_test_names for a Go preparation and
+    # observed_witness_ids for a target_runner_v1 preparation, never both.
+    # The ready-then streams block lives in each family branch of the
+    # authored preparation union.
+    streams_then = copy.deepcopy(defs["native_oracle_preparation"].get("oneOf", [{}])[0].get("then", {}))
+    def pass_branch(observed: str) -> dict:
+        branch = copy.deepcopy(streams_then)
+        branch["required"] = ["input_manifest_digest", "binary_digest", observed]
+        branch["not"] = {"required": ["observed_witness_ids" if observed == "observed_test_names" else "observed_test_names"]}
+        branch["properties"] = {**branch.get("properties", {}), observed: {"minItems": 1}}
+        return branch
+    execute["then"] = {"oneOf": [pass_branch("observed_test_names"), pass_branch("observed_witness_ids")]}
     defs["native_oracle_result"] = {"oneOf": [prepare, execute], "description": (
         "Native producer observations only. The canonical plan/digest are immutable in the existing lease; command remains bare argv. "
-        "Prepare grants readiness only. Execute pass requires actual run/pass witnesses, complete streams, pinned inputs/cwd/environment, "
-        "and the persisted live dispatch's three-way clean subject equality. Qualified green result metadata is byte-identical to lease result_json. "
+        "Prepare grants readiness only. Execute pass requires actual run/pass witnesses in the record's own family grammar "
+        "(observed test names for Go, observed witness IDs for target_runner_v1), complete streams, pinned inputs/cwd/environment, "
+        "and the persisted live dispatch's three-way clean subject equality. "
+        "Qualified green result metadata is byte-identical to lease result_json. "
         "Raw BLOBs never enter result metadata or idempotency records. Replay starts no process. No semantic acceptance or independent evidence role is implied."
     )}
     defs["worktree_verify_result"]["properties"]["oracle"] = {"$ref": "#/$defs/native_oracle_result"}

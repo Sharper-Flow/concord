@@ -6296,6 +6296,25 @@ CREATE TRIGGER worker_attempts_guard_delete BEFORE DELETE ON worker_attempts FOR
 ALTER TABLE worktree_verify_leases ADD COLUMN event_watermark INTEGER CHECK(event_watermark IS NULL OR (typeof(event_watermark)='integer' AND event_watermark>=0));
 `,
 	},
+	{
+		Version:  128,
+		Name:     "workflow_contract_decision_domains",
+		Breaking: false,
+		// The contract fold writes this column once per contract INSERT and
+		// never updates it: first derivation wins, so a rebuild from the event
+		// log and the live writer agree, the origin class migration 127
+		// declared for its lease column. Older rows read NULL.
+		FoldMaintained: "origin",
+		SQL: `
+-- The workflow contract records its declared decision fact: a canonical
+-- sorted unique array over preference, product, ui_ux, where [] records
+-- engineering. NULL means the contract predates the fact — historical
+-- absence, never engineering — so no backfill upcasts old contracts into [].
+-- The CHECK holds stored text to the closed canonical enumeration; the fold
+-- refuses non-canonical sets with a typed failure before this constraint can.
+ALTER TABLE workflow_contracts ADD COLUMN decision_domains TEXT CHECK(decision_domains IS NULL OR decision_domains IN ('[]','["preference"]','["product"]','["ui_ux"]','["preference","product"]','["preference","ui_ux"]','["product","ui_ux"]','["preference","product","ui_ux"]'));
+`,
+	},
 }
 
 // schemaManifestDDL creates the manifest itself. It is applied before any

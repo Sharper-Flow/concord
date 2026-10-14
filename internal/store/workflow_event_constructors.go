@@ -211,7 +211,7 @@ func workflowApproveContractEvents(ctx context.Context, tx *sql.Tx, definition W
 	contract["law_revisions"] = revisions
 	contract["law_boundary_version"] = 1
 	approvalEvent := workflowTypedEvent(eventID, WorkflowContractApproved, request.WorkID, actor, request.Now, expected, contract)
-	approvalEvent.PayloadVersion = 4
+	approvalEvent.PayloadVersion = 5
 	return []Event{approvalEvent}, nil
 }
 

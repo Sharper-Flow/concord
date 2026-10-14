@@ -109,37 +109,32 @@ func validateWorkflowAcceptanceFreshness(ctx context.Context, tx *sql.Tx, workID
 	return workflowAcceptanceSubjectCurrent(ctx, tx, workID, nil, nil)
 }
 
-// workflowAcceptedSubjectCurrent reads the evidence that terminal acceptance
-// consumes: current per-predicate verdicts and the latest accepted review for
-// each step, lane, and job. A fresh review replaces that scope's old proof; it
-// neither rewrites old records nor replaces another scope's proof.
+// workflowAcceptedSubjectCurrent reads current per-predicate verdicts and
+// accepted reviews that CD-0206 D3 has not retired. Review staleness uses the
+// same owner as review acceptance, without rewriting historical evidence.
 func workflowAcceptedSubjectCurrent(ctx context.Context, q queryer, workID string) error {
 	if isWorkflowReplay(ctx) {
 		return nil
 	}
-	rows, err := q.QueryContext(ctx, `SELECT attempt_id FROM (
- SELECT json_extract(acc.payload,'$.worker_attempt_id') AS attempt_id,
- ROW_NUMBER() OVER (PARTITION BY json_extract(acc.payload,'$.step_id'),a.lane_id,
- COALESCE(json_extract(auth.payload,'$.worker_job.job_id'),'') ORDER BY acc.seq DESC) AS position
+	rows, err := q.QueryContext(ctx, `SELECT DISTINCT a.attempt_id
  FROM domain_events acc JOIN worker_attempts a ON a.work_id=acc.subject_id
  AND a.attempt_id=json_extract(acc.payload,'$.worker_attempt_id') AND a.capability_class='review'
  JOIN domain_events auth ON auth.subject_type=acc.subject_type AND auth.subject_id=acc.subject_id
  AND auth.kind=? AND json_extract(auth.payload,'$.action_id')='dispatch_worker'
  AND json_extract(auth.payload,'$.worker_attempt_id')=a.attempt_id AND auth.seq<acc.seq
  WHERE acc.subject_type='work_item' AND acc.subject_id=? AND acc.kind=?
- AND json_extract(acc.payload,'$.action_id') IN ('accept_worker_result','accept_worker_evidence')
- ) WHERE position=1`, WorkflowActionCompleted, workID, WorkflowActionCompleted)
+ AND json_extract(acc.payload,'$.action_id') IN ('accept_worker_result','accept_worker_evidence')`, WorkflowActionCompleted, workID, WorkflowActionCompleted)
 	if err != nil {
 		return wrapFailure(KindUnavailable, "workflow_action", "cannot read accepted review subjects", true, "retry once the database is readable", err)
 	}
-	var attempts []string
+	var candidates []string
 	for rows.Next() {
 		var attempt string
 		if err := rows.Scan(&attempt); err != nil {
 			rows.Close()
 			return wrapFailure(KindUnavailable, "workflow_action", "cannot scan accepted reviews", true, "retry once the database is readable", err)
 		}
-		attempts = append(attempts, attempt)
+		candidates = append(candidates, attempt)
 	}
 	if err := rows.Err(); err != nil {
 		rows.Close()
@@ -147,6 +142,16 @@ func workflowAcceptedSubjectCurrent(ctx context.Context, q queryer, workID strin
 	}
 	if err := rows.Close(); err != nil {
 		return wrapFailure(KindUnavailable, "workflow_action", "cannot close accepted reviews", true, "retry once the database is readable", err)
+	}
+	var attempts []string
+	for _, attempt := range candidates {
+		stale, err := workflowStaleReviewAcceptBeforeTx(ctx, q, workID, attempt, "workflow_action", 0)
+		if err != nil {
+			return err
+		}
+		if !stale {
+			attempts = append(attempts, attempt)
+		}
 	}
 	version, err := activeWorkflowContractVersion(ctx, q, workID, "workflow_action")
 	if err != nil {

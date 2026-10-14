@@ -221,7 +221,7 @@ func journeyToVerify(t *testing.T, workID string, reviewAccepted bool) *candidat
 	return j
 }
 
-func journeyThroughA(t *testing.T, workID string, reviewAccepted bool) *candidateAtVerify {
+func journeyToRefineA(t *testing.T, workID string) *candidateAtVerify {
 	t.Helper()
 	j := &candidateAtVerify{candidateJourney: newCandidateJourney(t, workID)}
 	base := j.head(t)
@@ -252,6 +252,13 @@ func journeyThroughA(t *testing.T, workID string, reviewAccepted bool) *candidat
 	if err := j.action(t, "checkpoint_refine", map[string]any{}, j.acceptor); err != nil {
 		t.Fatalf("checkpoint_refine: %v", err)
 	}
+	return j
+}
+
+func journeyThroughA(t *testing.T, workID string, reviewAccepted bool) *candidateAtVerify {
+	t.Helper()
+	j := journeyToRefineA(t, workID)
+	delivery := map[string]any{"delivery_artifact": "artifact:candidate-a", "delivery_state": "asserted"}
 	j.runA = j.observeRun(t, "refine-a")
 	if j.runA.SubjectRef != "commit:"+j.a {
 		t.Fatalf("refine run subject = %q, want A %q", j.runA.SubjectRef, j.a)

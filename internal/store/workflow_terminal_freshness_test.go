@@ -10,11 +10,15 @@ import (
 	"time"
 )
 
-func prepareTerminalTestContext(ctx context.Context, s *Store, workID, action string) (context.Context, error) {
+func prepareTerminalTestContext(ctx context.Context, s *Store, workID, action string, runners ...GitRunner) (context.Context, error) {
 	if !WorkflowActionRequiresSubjectFreshness(action) {
 		return ctx, nil
 	}
-	prepared, err := PrepareWorkflowAcceptanceFreshness(ctx, s, PrepareWorkerDispatchRequest{WorkID: workID})
+	var runner GitRunner
+	if len(runners) > 0 {
+		runner = runners[0]
+	}
+	prepared, err := PrepareWorkflowAcceptanceFreshness(ctx, s, PrepareWorkerDispatchRequest{WorkID: workID, Runner: runner})
 	if err != nil {
 		return ctx, err
 	}

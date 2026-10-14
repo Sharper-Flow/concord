@@ -2,11 +2,13 @@ import { expect, test } from "bun:test"
 import { createHash } from "node:crypto"
 import { agentLanes } from "./generated-agent-lanes"
 import { configureCoreBinary, dispatchWorker, type AgentLanePacket, type DispatchRunner } from "./dispatch"
+import type { CredentialStore } from "./credentials"
 import { verifyPacketOracleReadiness } from "./oracle-readiness"
 
 const oid = "a".repeat(40)
 const lane = agentLanes.find((entry) => entry.id === "implement")!
 const signal = new AbortController().signal
+const testCredentials: CredentialStore = { async getPrivateKey() { return new Uint8Array(32).fill(7) } }
 const controlArgv = ["go", "test", "-count=1", "-run", "^(TestSubject)$", "."]
 
 function packet(subject: string | undefined = oid): AgentLanePacket {
@@ -85,7 +87,7 @@ test("subject drift and dirty tree authorize; the core owns their refusal", asyn
   configureCoreBinary("concord-test")
   for (const probes of [runner("c".repeat(40)), runner(oid, "?? file\0"), runner(oid, " M tracked\0")]) {
     let authorizations = 0
-    const result = await dispatchWorker(packet(), { runner: probes, workerDirectory: process.cwd(), sessionID: "session-subject", authorize: async () => { authorizations++; return { outcome: "ok" } } })
+    const result = await dispatchWorker(packet(), { credentials: testCredentials, runner: probes, workerDirectory: process.cwd(), sessionID: "session-subject", authorize: async () => { authorizations++; return { outcome: "ok" } } })
     // Readiness no longer refuses drift: authorization is reached, and the
     // stubbed dispatch may stop later for reasons this check does not own.
     expect(authorizations).toBe(1)

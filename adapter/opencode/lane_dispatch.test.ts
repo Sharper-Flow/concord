@@ -1232,7 +1232,7 @@ test("TestDispatchRequiredReadingResolutionBeforeTask: a core-admitted dispatch 
   }
   const runner: DispatchRunner = { async run() { spawned++; return { exitCode: 0, stdout: runOutput(), stderr: "" } } }
   const windows = new DispatchWindows()
-  const result = await dispatchLaneWorker({ work_id: WORK_ID, expected_version: 3, idempotency_key: "idemp-reading-admit", lane_id: lane.id }, { context: contextFor(), invoke: invoke as any, runner, windows })
+  const result = await dispatchLaneWorker({ work_id: WORK_ID, expected_version: 3, idempotency_key: "idemp-reading-admit", lane_id: lane.id }, { context: contextFor(), invoke: invoke as any, credentials: testCredentials, runner, windows })
   // The core resolved the declared readings and authorized the dispatch: the
   // host runs exactly one native Task from the one armed window. The adapter
   // itself spawns nothing (CD-0102 D5) and adds no second source resolution.

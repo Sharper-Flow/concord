@@ -313,7 +313,10 @@ export async function dispatchLaneWorker(input: LaneDispatchInput, deps: LaneDis
   // gate; dispatchWorker compares it with the armed claim, with the record a
   // metadata-only work_start refusal left behind, and with the durable
   // claimed worktree the core names.
-  return dispatchWorker(packet, { authorize: async () => coreResponse, credentials: deps.credentials, runner: deps.runner, evidenceRunner: deps.evidenceRunner, concordBinary: deps.concordBinary, packetDigest, sessionID: deps.context.sessionID, windows: deps.windows, workPins, workerDirectory, pinnedWorkerDirectory, authorizedWorktree, resolveWorkerDirectory: () => hostControlPlane().sessionDirectory(deps.context.sessionID, deps.context.abort), contextDirectory, provenance })
+  const directive = await dispatchWorker(packet, { authorize: async () => coreResponse, credentials: deps.credentials, runner: deps.runner, evidenceRunner: deps.evidenceRunner, concordBinary: deps.concordBinary, packetDigest, sessionID: deps.context.sessionID, windows: deps.windows, workPins, workerDirectory, pinnedWorkerDirectory, authorizedWorktree, resolveWorkerDirectory: () => hostControlPlane().sessionDirectory(deps.context.sessionID, deps.context.abort), contextDirectory, provenance })
+  // Native execution selects the persisted dispatch through the core's receipt,
+  // which stays beside the launch directive just as on the combined retry route.
+  return { ...directive, result: resultRecord ?? undefined }
 }
 
 // RetriedDispatchRecord is what a combined rejection's core response

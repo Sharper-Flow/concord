@@ -32,3 +32,36 @@ the one who arrives after the conversation is gone.
 Leave quoted material exactly as it came: errors, log lines, commands, paths,
 identifiers, and code. A paraphrased error string is no longer searchable, and
 the reader cannot match it against what they see.
+
+## Encountered inefficiencies
+
+Record each distinct inefficiency you encounter, even when a workaround lets
+the task continue. Examples include repeated discovery, unnecessary tool calls,
+slow or unavailable tools, unclear instructions, and avoidable handoffs.
+
+Name the affected tool, command, file, or step. State what happened, cite the
+evidence, and describe the observed cost or risk. Include any workaround and
+what remains unresolved. Separate observations from suspected causes. Do not
+invent timings, counts, or savings.
+
+Use the existing work record or assigned report, not a private scratch note or
+a repository backlog. Workers and utilities use their permitted return format;
+do not add unsupported report fields. The coordinator preserves their findings
+in the work record. Reuse an existing finding for the same inefficiency and add
+new evidence instead of creating duplicates. If no permitted durable record
+exists, report that gap rather than claiming the finding is saved.
+
+Raise every finding to the coordinator, or directly to the user when no
+coordinator exists. Report blockers and safety risks at the next permitted
+reporting point. Include other findings in the next handoff or final response.
+Give the record reference when one exists.
+
+The coordinator turns each unresolved finding into a ticket in the planning
+system, so that an optimized solution can be built. Reuse an existing ticket for
+the same inefficiency and add the new evidence. Put the evidence, observed cost,
+workaround, and open questions in the ticket, and report the ticket reference to
+the user. An agent without a coordinator gives the user the ticket text instead.
+
+Keep safe work moving within the current role and approved scope. Recording an
+inefficiency or filing a ticket does not authorize a repair, a bypass of a
+refusal, or a new task.

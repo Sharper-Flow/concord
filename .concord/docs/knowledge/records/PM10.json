@@ -17,10 +17,14 @@
     },
     {
       "criterion": 4,
-      "exemption": "Restore staging and promotion is an operation property. The guarantee is proved by TestRestoreBackupUsesCleanOnlineRestoreAndPromotesVerifiedDatabase, TestRestoreBackupRefusesExistingDestinationUntouched, and TestInterruptedRestoreRemovesStagingAndLeavesDestinationAbsent (internal/store/backup_test.go)."
+      "exemption": "Replay qualification and rollback ordering are operation properties. TestBackupRefusesUnreplayableLogAndDiscardsSnapshot (internal/store/backup_test.go), TestHistoricalPayloadUpgradeSnapshotQualification and TestHistoricalPayloadRepairSnapshotQualification (cmd/concord/historical_backup_cli_test.go) prove refusal before manifest promotion or guarded mutation."
     },
     {
       "criterion": 5,
+      "exemption": "Restore staging and promotion is an operation property. The guarantee is proved by TestRestoreBackupUsesCleanOnlineRestoreAndPromotesVerifiedDatabase, TestRestoreBackupRefusesExistingDestinationUntouched, and TestInterruptedRestoreRemovesStagingAndLeavesDestinationAbsent (internal/store/backup_test.go)."
+    },
+    {
+      "criterion": 6,
       "exemption": "Tamper and schema-direction rejection is a verification property. The guarantee is proved by TestBackupVerifyTamperAndOlderSchemaRejection (internal/store/fence_test.go)."
     }
   ],
@@ -41,7 +45,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:808448b05fca8cb6cbae0fef072d6268e72ddbd8653ace5823a60e9f26f941a3",
+  "sha256": "sha256:56bed84b6ac3bb5392fc042c0ab0317ffd493bb61b7a33c524697ded1783cf2d",
   "status": "accepted",
   "summary": "Defines backup and restore through the SQLite online backup interface with integrity, foreign-key, and quick verification.",
   "tags": [

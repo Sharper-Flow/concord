@@ -17633,7 +17633,7 @@
           }
         }
       ],
-      "description": "native_oracle_v2: prepare compiles the pinned pure-Go harness without test execution; execute requires the exact persisted dispatch, job, epoch, packet digest, and clean subject. The producer owns recipe bytes, cwd, environment, candidate, stages, and streams. Unsupported recipes are unavailable. No install, automatic preparation, or new worker authority."
+      "description": "native_oracle_v2: prepare qualifies one closed recipe family without running its workload and grants readiness only. The pinned pure-Go harness compiles without test execution; a target_runner_v1 recipe materializes its pinned dependencies offline and runs only its collection or check-input stage. Execute requires the exact persisted dispatch, job, epoch, packet digest, and clean subject. The producer owns recipe bytes, cwd, environment, candidate, stages, and streams. Unsupported recipes, families, and materializer/runner pairs are unavailable. Both phases are explicit preparation and readiness only: no acceptance body, no install, no automatic preparation, no new worker authority."
     },
     "native_oracle_stream": {
       "type": "object",
@@ -17754,8 +17754,6 @@
         "files",
         "toolchain_identity",
         "build_environment_digest",
-        "selected_test_names",
-        "case_to_test_map",
         "selected_distinct_count",
         "native_plan_sha256",
         "stdout",
@@ -17855,6 +17853,61 @@
           "minLength": 71,
           "maxLength": 71
         },
+        "recipe_kind": {
+          "type": "string",
+          "const": "target_runner_v1",
+          "description": "The closed discriminator of the target-runner family. Its presence marks a target preparation; a Go preparation never carries it."
+        },
+        "target_materializer": {
+          "type": "string",
+          "enum": [
+            "none",
+            "uv"
+          ],
+          "description": "The closed materializer axis. It owns dependency manifest and lockfile equality with the pinned recipe, offline lock-verified materialization into per-run scratch, cached-byte integrity, disabled scripts, and the runtime fingerprints. none declares a dependency-free recipe."
+        },
+        "target_runner": {
+          "type": "string",
+          "enum": [
+            "pytest",
+            "check"
+          ],
+          "description": "The closed runner axis. It owns collection, the exact witness population, and the result grammar; check pins each declared check's full bounded argv and grades the host-observed exit status."
+        },
+        "selected_witness_ids": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 40,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "pattern": "^[^\\x00-\\x1f\\x7f]*$"
+          },
+          "description": "The runner-defined exact witness identities the qualified preparation selected: unique bounded visible strings of at most 256 bytes. The rendered selector still obeys the bounded verify command shape, so the nominal maximum derives from the shared witness allowance, not an independent one. No truncation or omitted witness."
+        },
+        "case_to_witness_map": {
+          "type": "object",
+          "additionalProperties": false,
+          "minProperties": 1,
+          "maxProperties": 64,
+          "patternProperties": {
+            "^case:[A-Za-z0-9][A-Za-z0-9._:-]{0,122}$": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 8,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256,
+                "pattern": "^[^\\x00-\\x1f\\x7f]*$"
+              }
+            }
+          },
+          "description": "Each control case maps to 1 to 8 selected witness IDs; the map covers exactly the control's cases, and the union of its values is exactly selected_witness_ids."
+        },
         "selected_test_names": {
           "type": "array",
           "minItems": 1,
@@ -17903,112 +17956,11 @@
           "type": "boolean"
         }
       },
-      "description": "The store-selected qualified preparation for an immutable job's exact readiness reference, never a latest-run guess or worker assertion. Pure-Go top-level tests only. The native owner proves exact pinned file bytes, cwd, build-selected nonempty witnesses, and compile-only readiness. Non-Go and resolved embed inputs must be declared pinned fixtures or explicit compiler inputs; no production Go/module replacement. Every stage pins the installed toolchain and native target with GOTOOLCHAIN=local, GOPROXY=off, GOFLAGS=-mod=readonly, CGO_ENABLED=0, GOWORK=off, and a private disposable GOCACHE. No aggregate scratch quota or uncommitted-diagnostics promise. Preparation grants no worker attempt, verification authority, or semantic acceptance.",
-      "if": {
-        "properties": {
-          "qualification": {
-            "const": "ready"
-          }
-        },
-        "required": [
-          "qualification"
-        ]
-      },
-      "then": {
-        "properties": {
-          "streams_complete": {
-            "const": true
-          },
-          "stdout": {
-            "properties": {
-              "stream": {
-                "const": "stdout"
-              },
-              "complete": {
-                "const": true
-              },
-              "ref": {
-                "minLength": 1
-              }
-            }
-          },
-          "stderr": {
-            "properties": {
-              "stream": {
-                "const": "stderr"
-              },
-              "complete": {
-                "const": true
-              },
-              "ref": {
-                "minLength": 1
-              }
-            }
-          }
-        }
-      }
-    },
-    "native_oracle_stage": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "name",
-        "argv",
-        "exit_code",
-        "stdout_offset",
-        "stdout_length",
-        "stderr_offset",
-        "stderr_length"
-      ],
-      "properties": {
-        "name": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 128
-        },
-        "argv": {
-          "description": "The argv that runs inside the derived worktree under the exclusive verify lease. Values run as separate arguments; a shell command string is never accepted.",
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 16,
-          "items": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 256
-          }
-        },
-        "exit_code": {
-          "type": "integer",
-          "minimum": -1,
-          "maximum": 255
-        },
-        "stdout_offset": {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 2097152
-        },
-        "stdout_length": {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 2097152
-        },
-        "stderr_offset": {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 2097152
-        },
-        "stderr_length": {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 2097152
-        }
-      }
-    },
-    "native_oracle_result": {
       "oneOf": [
         {
           "type": "object",
           "additionalProperties": false,
+          "description": "The pure-Go family: the legacy selected test names and case map, with no target-runner host property.",
           "required": [
             "protocol",
             "phase",
@@ -18033,9 +17985,7 @@
             "native_plan_sha256",
             "stdout",
             "stderr",
-            "streams_complete",
-            "control_id",
-            "stages"
+            "streams_complete"
           ],
           "properties": {
             "protocol": {
@@ -18137,6 +18087,654 @@
               "uniqueItems": true,
               "items": {
                 "$ref": "#/$defs/native_oracle_test_name"
+              }
+            },
+            "case_to_test_map": {
+              "type": "object",
+              "additionalProperties": false,
+              "minProperties": 1,
+              "maxProperties": 64,
+              "patternProperties": {
+                "^case:[A-Za-z0-9][A-Za-z0-9._:-]{0,122}$": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 8,
+                  "uniqueItems": true,
+                  "items": {
+                    "$ref": "#/$defs/native_oracle_test_name"
+                  }
+                }
+              }
+            },
+            "selected_distinct_count": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 40
+            },
+            "native_plan_sha256": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "minLength": 71,
+              "maxLength": 71
+            },
+            "stdout": {
+              "$ref": "#/$defs/native_oracle_stream"
+            },
+            "stderr": {
+              "$ref": "#/$defs/native_oracle_stream"
+            },
+            "streams_complete": {
+              "type": "boolean"
+            }
+          },
+          "if": {
+            "properties": {
+              "qualification": {
+                "const": "ready"
+              }
+            },
+            "required": [
+              "qualification"
+            ]
+          },
+          "then": {
+            "properties": {
+              "streams_complete": {
+                "const": true
+              },
+              "stdout": {
+                "properties": {
+                  "stream": {
+                    "const": "stdout"
+                  },
+                  "complete": {
+                    "const": true
+                  },
+                  "ref": {
+                    "minLength": 1
+                  }
+                }
+              },
+              "stderr": {
+                "properties": {
+                  "stream": {
+                    "const": "stderr"
+                  },
+                  "complete": {
+                    "const": true
+                  },
+                  "ref": {
+                    "minLength": 1
+                  }
+                }
+              }
+            }
+          },
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "recipe_kind"
+                ]
+              },
+              {
+                "required": [
+                  "target_materializer"
+                ]
+              },
+              {
+                "required": [
+                  "target_runner"
+                ]
+              },
+              {
+                "required": [
+                  "selected_witness_ids"
+                ]
+              },
+              {
+                "required": [
+                  "case_to_witness_map"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "The target_runner_v1 family: the closed materializer/runner pair and the real selected witness population, never fabricated Go test names. Exactly three pairs are admitted; every other combination refuses as unsupported.",
+          "required": [
+            "protocol",
+            "phase",
+            "qualification",
+            "run_ref",
+            "work_id",
+            "project_id",
+            "contract_version",
+            "subject_commit",
+            "bundle_digest",
+            "logical_argv_digest",
+            "logical_cwd",
+            "recipe_source",
+            "manifest_blob",
+            "manifest_digest",
+            "files",
+            "toolchain_identity",
+            "build_environment_digest",
+            "recipe_kind",
+            "target_materializer",
+            "target_runner",
+            "selected_witness_ids",
+            "case_to_witness_map",
+            "selected_distinct_count",
+            "native_plan_sha256",
+            "stdout",
+            "stderr",
+            "streams_complete"
+          ],
+          "properties": {
+            "protocol": {
+              "type": "string",
+              "const": "native_oracle_v2"
+            },
+            "phase": {
+              "type": "string",
+              "const": "prepare"
+            },
+            "qualification": {
+              "type": "string",
+              "enum": [
+                "ready",
+                "unavailable"
+              ]
+            },
+            "run_ref": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            },
+            "work_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "project_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "contract_version": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9223372036854775807
+            },
+            "subject_commit": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
+              "minLength": 40,
+              "maxLength": 64
+            },
+            "bundle_digest": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "minLength": 71,
+              "maxLength": 71
+            },
+            "logical_argv_digest": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "minLength": 71,
+              "maxLength": 71
+            },
+            "logical_cwd": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            },
+            "recipe_source": {
+              "$ref": "#/$defs/work_context_reading_source_repository_file"
+            },
+            "manifest_blob": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
+              "minLength": 40,
+              "maxLength": 64
+            },
+            "manifest_digest": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "minLength": 71,
+              "maxLength": 71
+            },
+            "files": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 32,
+              "items": {
+                "$ref": "#/$defs/native_oracle_file"
+              }
+            },
+            "toolchain_identity": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            },
+            "build_environment_digest": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "minLength": 71,
+              "maxLength": 71
+            },
+            "recipe_kind": {
+              "type": "string",
+              "const": "target_runner_v1"
+            },
+            "target_materializer": {
+              "type": "string",
+              "enum": [
+                "none",
+                "uv"
+              ]
+            },
+            "target_runner": {
+              "type": "string",
+              "enum": [
+                "pytest",
+                "check"
+              ]
+            },
+            "selected_witness_ids": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 40,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256,
+                "pattern": "^[^\\x00-\\x1f\\x7f]*$"
+              }
+            },
+            "case_to_witness_map": {
+              "type": "object",
+              "additionalProperties": false,
+              "minProperties": 1,
+              "maxProperties": 64,
+              "patternProperties": {
+                "^case:[A-Za-z0-9][A-Za-z0-9._:-]{0,122}$": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 8,
+                  "uniqueItems": true,
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256,
+                    "pattern": "^[^\\x00-\\x1f\\x7f]*$"
+                  }
+                }
+              }
+            },
+            "selected_distinct_count": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 40
+            },
+            "native_plan_sha256": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "minLength": 71,
+              "maxLength": 71
+            },
+            "stdout": {
+              "$ref": "#/$defs/native_oracle_stream"
+            },
+            "stderr": {
+              "$ref": "#/$defs/native_oracle_stream"
+            },
+            "streams_complete": {
+              "type": "boolean"
+            }
+          },
+          "if": {
+            "properties": {
+              "qualification": {
+                "const": "ready"
+              }
+            },
+            "required": [
+              "qualification"
+            ]
+          },
+          "then": {
+            "properties": {
+              "streams_complete": {
+                "const": true
+              },
+              "stdout": {
+                "properties": {
+                  "stream": {
+                    "const": "stdout"
+                  },
+                  "complete": {
+                    "const": true
+                  },
+                  "ref": {
+                    "minLength": 1
+                  }
+                }
+              },
+              "stderr": {
+                "properties": {
+                  "stream": {
+                    "const": "stderr"
+                  },
+                  "complete": {
+                    "const": true
+                  },
+                  "ref": {
+                    "minLength": 1
+                  }
+                }
+              }
+            }
+          },
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "selected_test_names"
+                ]
+              },
+              {
+                "required": [
+                  "case_to_test_map"
+                ]
+              }
+            ]
+          },
+          "oneOf": [
+            {
+              "description": "uv materializes the pinned dependencies offline; pytest collects the pinned node IDs.",
+              "properties": {
+                "target_materializer": {
+                  "const": "uv"
+                },
+                "target_runner": {
+                  "const": "pytest"
+                }
+              }
+            },
+            {
+              "description": "none declares a dependency-free recipe; check grades each declared check's host-observed exit status.",
+              "properties": {
+                "target_materializer": {
+                  "const": "none"
+                },
+                "target_runner": {
+                  "const": "check"
+                }
+              }
+            },
+            {
+              "description": "uv materializes the pinned dependencies offline; check grades each declared check's host-observed exit status.",
+              "properties": {
+                "target_materializer": {
+                  "const": "uv"
+                },
+                "target_runner": {
+                  "const": "check"
+                }
+              }
+            }
+          ]
+        }
+      ],
+      "description": "The store-selected qualified preparation for an immutable job's exact readiness reference, never a latest-run guess or worker assertion. Two closed recipe families share the record and one branch must match exactly: a mixed family shape, an unknown recipe kind, or an unsupported materializer/runner pair refuses. The pure-Go family proves exact pinned file bytes, cwd, build-selected nonempty witnesses, and compile-only readiness; non-Go and resolved embed inputs must be declared pinned fixtures or explicit compiler inputs, with no production Go/module replacement. The target_runner_v1 family admits exactly the pairs uv+pytest, none+check, and uv+check: the materializer owns dependency manifest and lockfile equality with the pinned recipe, offline lock-verified materialization into per-run scratch, cached-byte integrity, disabled lifecycle and build scripts, and runtime fingerprints (none declares a dependency-free recipe); the runner owns collection, the exact witness population, and the result grammar, and preparation runs only its collection or check-input stage, never the graded workload. No Vitest or pnpm surface exists. Every stage pins its installed toolchain; the Go stages set GOTOOLCHAIN=local, GOPROXY=off, GOFLAGS=-mod=readonly, CGO_ENABLED=0, GOWORK=off, and a private disposable GOCACHE. No aggregate scratch quota or uncommitted-diagnostics promise. Preparation grants no worker attempt, verification authority, or semantic acceptance."
+    },
+    "native_oracle_stage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "argv",
+        "exit_code",
+        "stdout_offset",
+        "stdout_length",
+        "stderr_offset",
+        "stderr_length"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "argv": {
+          "description": "The argv that runs inside the derived worktree under the exclusive verify lease. Values run as separate arguments; a shell command string is never accepted.",
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 16,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          }
+        },
+        "exit_code": {
+          "type": "integer",
+          "minimum": -1,
+          "maximum": 255
+        },
+        "stdout_offset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2097152
+        },
+        "stdout_length": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2097152
+        },
+        "stderr_offset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2097152
+        },
+        "stderr_length": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2097152
+        }
+      }
+    },
+    "native_oracle_result": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "protocol",
+            "phase",
+            "qualification",
+            "run_ref",
+            "work_id",
+            "project_id",
+            "contract_version",
+            "subject_commit",
+            "bundle_digest",
+            "logical_argv_digest",
+            "logical_cwd",
+            "recipe_source",
+            "manifest_blob",
+            "manifest_digest",
+            "files",
+            "toolchain_identity",
+            "build_environment_digest",
+            "selected_distinct_count",
+            "native_plan_sha256",
+            "stdout",
+            "stderr",
+            "streams_complete",
+            "control_id",
+            "stages"
+          ],
+          "properties": {
+            "protocol": {
+              "type": "string",
+              "const": "native_oracle_v2"
+            },
+            "phase": {
+              "type": "string",
+              "const": "prepare"
+            },
+            "qualification": {
+              "type": "string",
+              "enum": [
+                "ready",
+                "unavailable"
+              ]
+            },
+            "run_ref": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            },
+            "work_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "project_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "contract_version": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9223372036854775807
+            },
+            "subject_commit": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
+              "minLength": 40,
+              "maxLength": 64
+            },
+            "bundle_digest": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "minLength": 71,
+              "maxLength": 71
+            },
+            "logical_argv_digest": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "minLength": 71,
+              "maxLength": 71
+            },
+            "logical_cwd": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            },
+            "recipe_source": {
+              "$ref": "#/$defs/work_context_reading_source_repository_file"
+            },
+            "manifest_blob": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
+              "minLength": 40,
+              "maxLength": 64
+            },
+            "manifest_digest": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "minLength": 71,
+              "maxLength": 71
+            },
+            "files": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 32,
+              "items": {
+                "$ref": "#/$defs/native_oracle_file"
+              }
+            },
+            "toolchain_identity": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            },
+            "build_environment_digest": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "minLength": 71,
+              "maxLength": 71
+            },
+            "recipe_kind": {
+              "type": "string",
+              "const": "target_runner_v1",
+              "description": "The closed discriminator of the target-runner family. Its presence marks a target preparation; a Go preparation never carries it."
+            },
+            "target_materializer": {
+              "type": "string",
+              "enum": [
+                "none",
+                "uv"
+              ],
+              "description": "The closed materializer axis. It owns dependency manifest and lockfile equality with the pinned recipe, offline lock-verified materialization into per-run scratch, cached-byte integrity, disabled scripts, and the runtime fingerprints. none declares a dependency-free recipe."
+            },
+            "target_runner": {
+              "type": "string",
+              "enum": [
+                "pytest",
+                "check"
+              ],
+              "description": "The closed runner axis. It owns collection, the exact witness population, and the result grammar; check pins each declared check's full bounded argv and grades the host-observed exit status."
+            },
+            "selected_witness_ids": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 40,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256,
+                "pattern": "^[^\\x00-\\x1f\\x7f]*$"
+              },
+              "description": "The runner-defined exact witness identities the qualified preparation selected: unique bounded visible strings of at most 256 bytes. The rendered selector still obeys the bounded verify command shape, so the nominal maximum derives from the shared witness allowance, not an independent one. No truncation or omitted witness."
+            },
+            "case_to_witness_map": {
+              "type": "object",
+              "additionalProperties": false,
+              "minProperties": 1,
+              "maxProperties": 64,
+              "patternProperties": {
+                "^case:[A-Za-z0-9][A-Za-z0-9._:-]{0,122}$": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 8,
+                  "uniqueItems": true,
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256,
+                    "pattern": "^[^\\x00-\\x1f\\x7f]*$"
+                  }
+                }
+              },
+              "description": "Each control case maps to 1 to 8 selected witness IDs; the map covers exactly the control's cases, and the union of its values is exactly selected_witness_ids."
+            },
+            "selected_test_names": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 40,
+              "uniqueItems": true,
+              "items": {
+                "$ref": "#/$defs/native_oracle_test_name"
               },
               "description": "The nominal maximum derives from floor((256-13)/6), not an independent test allowance. Every rendered selector still obeys sum(name bytes)+N+13 <= 256. No truncation or omitted witness."
             },
@@ -18203,50 +18801,596 @@
               "maxLength": 4096
             }
           },
-          "description": "The store-selected qualified preparation for an immutable job's exact readiness reference, never a latest-run guess or worker assertion. Pure-Go top-level tests only. The native owner proves exact pinned file bytes, cwd, build-selected nonempty witnesses, and compile-only readiness. Non-Go and resolved embed inputs must be declared pinned fixtures or explicit compiler inputs; no production Go/module replacement. Every stage pins the installed toolchain and native target with GOTOOLCHAIN=local, GOPROXY=off, GOFLAGS=-mod=readonly, CGO_ENABLED=0, GOWORK=off, and a private disposable GOCACHE. No aggregate scratch quota or uncommitted-diagnostics promise. Preparation grants no worker attempt, verification authority, or semantic acceptance.",
-          "if": {
-            "properties": {
-              "qualification": {
-                "const": "ready"
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "description": "The pure-Go family: the legacy selected test names and case map, with no target-runner host property.",
+              "required": [
+                "protocol",
+                "phase",
+                "qualification",
+                "run_ref",
+                "work_id",
+                "project_id",
+                "contract_version",
+                "subject_commit",
+                "bundle_digest",
+                "logical_argv_digest",
+                "logical_cwd",
+                "recipe_source",
+                "manifest_blob",
+                "manifest_digest",
+                "files",
+                "toolchain_identity",
+                "build_environment_digest",
+                "selected_test_names",
+                "case_to_test_map",
+                "selected_distinct_count",
+                "native_plan_sha256",
+                "stdout",
+                "stderr",
+                "streams_complete",
+                "control_id",
+                "stages"
+              ],
+              "properties": {
+                "protocol": {
+                  "type": "string",
+                  "const": "native_oracle_v2"
+                },
+                "phase": {
+                  "type": "string",
+                  "const": "prepare"
+                },
+                "qualification": {
+                  "type": "string",
+                  "enum": [
+                    "ready",
+                    "unavailable"
+                  ]
+                },
+                "run_ref": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 512
+                },
+                "work_id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "project_id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "contract_version": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9223372036854775807
+                },
+                "subject_commit": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
+                  "minLength": 40,
+                  "maxLength": 64
+                },
+                "bundle_digest": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$",
+                  "minLength": 71,
+                  "maxLength": 71
+                },
+                "logical_argv_digest": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$",
+                  "minLength": 71,
+                  "maxLength": 71
+                },
+                "logical_cwd": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 512
+                },
+                "recipe_source": {
+                  "$ref": "#/$defs/work_context_reading_source_repository_file"
+                },
+                "manifest_blob": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
+                  "minLength": 40,
+                  "maxLength": 64
+                },
+                "manifest_digest": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$",
+                  "minLength": 71,
+                  "maxLength": 71
+                },
+                "files": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 32,
+                  "items": {
+                    "$ref": "#/$defs/native_oracle_file"
+                  }
+                },
+                "toolchain_identity": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 512
+                },
+                "build_environment_digest": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$",
+                  "minLength": 71,
+                  "maxLength": 71
+                },
+                "selected_test_names": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 40,
+                  "uniqueItems": true,
+                  "items": {
+                    "$ref": "#/$defs/native_oracle_test_name"
+                  }
+                },
+                "case_to_test_map": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "minProperties": 1,
+                  "maxProperties": 64,
+                  "patternProperties": {
+                    "^case:[A-Za-z0-9][A-Za-z0-9._:-]{0,122}$": {
+                      "type": "array",
+                      "minItems": 1,
+                      "maxItems": 8,
+                      "uniqueItems": true,
+                      "items": {
+                        "$ref": "#/$defs/native_oracle_test_name"
+                      }
+                    }
+                  }
+                },
+                "selected_distinct_count": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 40
+                },
+                "native_plan_sha256": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$",
+                  "minLength": 71,
+                  "maxLength": 71
+                },
+                "stdout": {
+                  "$ref": "#/$defs/native_oracle_stream"
+                },
+                "stderr": {
+                  "$ref": "#/$defs/native_oracle_stream"
+                },
+                "streams_complete": {
+                  "type": "boolean"
+                },
+                "control_id": {
+                  "type": "string",
+                  "pattern": "^control:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
+                  "minLength": 9,
+                  "maxLength": 128,
+                  "description": "A stable control: identity, unique within this work item."
+                },
+                "input_manifest_digest": {
+                  "$ref": "#/$defs/native_oracle_digest"
+                },
+                "binary_digest": {
+                  "$ref": "#/$defs/native_oracle_digest"
+                },
+                "stages": {
+                  "type": "array",
+                  "minItems": 0,
+                  "maxItems": 16,
+                  "items": {
+                    "$ref": "#/$defs/native_oracle_stage"
+                  }
+                },
+                "detail": {
+                  "type": "string",
+                  "maxLength": 4096
+                }
+              },
+              "if": {
+                "properties": {
+                  "qualification": {
+                    "const": "ready"
+                  }
+                },
+                "required": [
+                  "qualification"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "streams_complete": {
+                    "const": true
+                  },
+                  "stdout": {
+                    "properties": {
+                      "stream": {
+                        "const": "stdout"
+                      },
+                      "complete": {
+                        "const": true
+                      },
+                      "ref": {
+                        "minLength": 1
+                      }
+                    }
+                  },
+                  "stderr": {
+                    "properties": {
+                      "stream": {
+                        "const": "stderr"
+                      },
+                      "complete": {
+                        "const": true
+                      },
+                      "ref": {
+                        "minLength": 1
+                      }
+                    }
+                  }
+                }
+              },
+              "not": {
+                "anyOf": [
+                  {
+                    "required": [
+                      "recipe_kind"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "target_materializer"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "target_runner"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "selected_witness_ids"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "case_to_witness_map"
+                    ]
+                  }
+                ]
               }
             },
-            "required": [
-              "qualification"
-            ]
-          },
-          "then": {
-            "properties": {
-              "streams_complete": {
-                "const": true
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "description": "The target_runner_v1 family: the closed materializer/runner pair and the real selected witness population, never fabricated Go test names. Exactly three pairs are admitted; every other combination refuses as unsupported.",
+              "required": [
+                "protocol",
+                "phase",
+                "qualification",
+                "run_ref",
+                "work_id",
+                "project_id",
+                "contract_version",
+                "subject_commit",
+                "bundle_digest",
+                "logical_argv_digest",
+                "logical_cwd",
+                "recipe_source",
+                "manifest_blob",
+                "manifest_digest",
+                "files",
+                "toolchain_identity",
+                "build_environment_digest",
+                "recipe_kind",
+                "target_materializer",
+                "target_runner",
+                "selected_witness_ids",
+                "case_to_witness_map",
+                "selected_distinct_count",
+                "native_plan_sha256",
+                "stdout",
+                "stderr",
+                "streams_complete",
+                "control_id",
+                "stages"
+              ],
+              "properties": {
+                "protocol": {
+                  "type": "string",
+                  "const": "native_oracle_v2"
+                },
+                "phase": {
+                  "type": "string",
+                  "const": "prepare"
+                },
+                "qualification": {
+                  "type": "string",
+                  "enum": [
+                    "ready",
+                    "unavailable"
+                  ]
+                },
+                "run_ref": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 512
+                },
+                "work_id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "project_id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "contract_version": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9223372036854775807
+                },
+                "subject_commit": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
+                  "minLength": 40,
+                  "maxLength": 64
+                },
+                "bundle_digest": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$",
+                  "minLength": 71,
+                  "maxLength": 71
+                },
+                "logical_argv_digest": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$",
+                  "minLength": 71,
+                  "maxLength": 71
+                },
+                "logical_cwd": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 512
+                },
+                "recipe_source": {
+                  "$ref": "#/$defs/work_context_reading_source_repository_file"
+                },
+                "manifest_blob": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
+                  "minLength": 40,
+                  "maxLength": 64
+                },
+                "manifest_digest": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$",
+                  "minLength": 71,
+                  "maxLength": 71
+                },
+                "files": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 32,
+                  "items": {
+                    "$ref": "#/$defs/native_oracle_file"
+                  }
+                },
+                "toolchain_identity": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 512
+                },
+                "build_environment_digest": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$",
+                  "minLength": 71,
+                  "maxLength": 71
+                },
+                "recipe_kind": {
+                  "type": "string",
+                  "const": "target_runner_v1"
+                },
+                "target_materializer": {
+                  "type": "string",
+                  "enum": [
+                    "none",
+                    "uv"
+                  ]
+                },
+                "target_runner": {
+                  "type": "string",
+                  "enum": [
+                    "pytest",
+                    "check"
+                  ]
+                },
+                "selected_witness_ids": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 40,
+                  "uniqueItems": true,
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256,
+                    "pattern": "^[^\\x00-\\x1f\\x7f]*$"
+                  }
+                },
+                "case_to_witness_map": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "minProperties": 1,
+                  "maxProperties": 64,
+                  "patternProperties": {
+                    "^case:[A-Za-z0-9][A-Za-z0-9._:-]{0,122}$": {
+                      "type": "array",
+                      "minItems": 1,
+                      "maxItems": 8,
+                      "uniqueItems": true,
+                      "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 256,
+                        "pattern": "^[^\\x00-\\x1f\\x7f]*$"
+                      }
+                    }
+                  }
+                },
+                "selected_distinct_count": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 40
+                },
+                "native_plan_sha256": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$",
+                  "minLength": 71,
+                  "maxLength": 71
+                },
+                "stdout": {
+                  "$ref": "#/$defs/native_oracle_stream"
+                },
+                "stderr": {
+                  "$ref": "#/$defs/native_oracle_stream"
+                },
+                "streams_complete": {
+                  "type": "boolean"
+                },
+                "control_id": {
+                  "type": "string",
+                  "pattern": "^control:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
+                  "minLength": 9,
+                  "maxLength": 128,
+                  "description": "A stable control: identity, unique within this work item."
+                },
+                "input_manifest_digest": {
+                  "$ref": "#/$defs/native_oracle_digest"
+                },
+                "binary_digest": {
+                  "$ref": "#/$defs/native_oracle_digest"
+                },
+                "stages": {
+                  "type": "array",
+                  "minItems": 0,
+                  "maxItems": 16,
+                  "items": {
+                    "$ref": "#/$defs/native_oracle_stage"
+                  }
+                },
+                "detail": {
+                  "type": "string",
+                  "maxLength": 4096
+                }
               },
-              "stdout": {
+              "if": {
                 "properties": {
-                  "stream": {
-                    "const": "stdout"
-                  },
-                  "complete": {
+                  "qualification": {
+                    "const": "ready"
+                  }
+                },
+                "required": [
+                  "qualification"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "streams_complete": {
                     "const": true
                   },
-                  "ref": {
-                    "minLength": 1
+                  "stdout": {
+                    "properties": {
+                      "stream": {
+                        "const": "stdout"
+                      },
+                      "complete": {
+                        "const": true
+                      },
+                      "ref": {
+                        "minLength": 1
+                      }
+                    }
+                  },
+                  "stderr": {
+                    "properties": {
+                      "stream": {
+                        "const": "stderr"
+                      },
+                      "complete": {
+                        "const": true
+                      },
+                      "ref": {
+                        "minLength": 1
+                      }
+                    }
                   }
                 }
               },
-              "stderr": {
-                "properties": {
-                  "stream": {
-                    "const": "stderr"
+              "not": {
+                "anyOf": [
+                  {
+                    "required": [
+                      "selected_test_names"
+                    ]
                   },
-                  "complete": {
-                    "const": true
-                  },
-                  "ref": {
-                    "minLength": 1
+                  {
+                    "required": [
+                      "case_to_test_map"
+                    ]
+                  }
+                ]
+              },
+              "oneOf": [
+                {
+                  "description": "uv materializes the pinned dependencies offline; pytest collects the pinned node IDs.",
+                  "properties": {
+                    "target_materializer": {
+                      "const": "uv"
+                    },
+                    "target_runner": {
+                      "const": "pytest"
+                    }
+                  }
+                },
+                {
+                  "description": "none declares a dependency-free recipe; check grades each declared check's host-observed exit status.",
+                  "properties": {
+                    "target_materializer": {
+                      "const": "none"
+                    },
+                    "target_runner": {
+                      "const": "check"
+                    }
+                  }
+                },
+                {
+                  "description": "uv materializes the pinned dependencies offline; check grades each declared check's host-observed exit status.",
+                  "properties": {
+                    "target_materializer": {
+                      "const": "uv"
+                    },
+                    "target_runner": {
+                      "const": "check"
+                    }
                   }
                 }
-              }
+              ]
             }
-          }
+          ],
+          "description": "The store-selected qualified preparation for an immutable job's exact readiness reference, never a latest-run guess or worker assertion. Two closed recipe families share the record and one branch must match exactly: a mixed family shape, an unknown recipe kind, or an unsupported materializer/runner pair refuses. The pure-Go family proves exact pinned file bytes, cwd, build-selected nonempty witnesses, and compile-only readiness; non-Go and resolved embed inputs must be declared pinned fixtures or explicit compiler inputs, with no production Go/module replacement. The target_runner_v1 family admits exactly the pairs uv+pytest, none+check, and uv+check: the materializer owns dependency manifest and lockfile equality with the pinned recipe, offline lock-verified materialization into per-run scratch, cached-byte integrity, disabled lifecycle and build scripts, and runtime fingerprints (none declares a dependency-free recipe); the runner owns collection, the exact witness population, and the result grammar, and preparation runs only its collection or check-input stage, never the graded workload. No Vitest or pnpm surface exists. Every stage pins its installed toolchain; the Go stages set GOTOOLCHAIN=local, GOPROXY=off, GOFLAGS=-mod=readonly, CGO_ENABLED=0, GOWORK=off, and a private disposable GOCACHE. No aggregate scratch quota or uncommitted-diagnostics promise. Preparation grants no worker attempt, verification authority, or semantic acceptance."
         },
         {
           "type": "object",
@@ -18269,8 +19413,6 @@
             "files",
             "toolchain_identity",
             "build_environment_digest",
-            "selected_test_names",
-            "case_to_test_map",
             "selected_distinct_count",
             "native_plan_sha256",
             "stdout",
@@ -18380,6 +19522,61 @@
               "pattern": "^sha256:[0-9a-f]{64}$",
               "minLength": 71,
               "maxLength": 71
+            },
+            "recipe_kind": {
+              "type": "string",
+              "const": "target_runner_v1",
+              "description": "The closed discriminator of the target-runner family. Its presence marks a target preparation; a Go preparation never carries it."
+            },
+            "target_materializer": {
+              "type": "string",
+              "enum": [
+                "none",
+                "uv"
+              ],
+              "description": "The closed materializer axis. It owns dependency manifest and lockfile equality with the pinned recipe, offline lock-verified materialization into per-run scratch, cached-byte integrity, disabled scripts, and the runtime fingerprints. none declares a dependency-free recipe."
+            },
+            "target_runner": {
+              "type": "string",
+              "enum": [
+                "pytest",
+                "check"
+              ],
+              "description": "The closed runner axis. It owns collection, the exact witness population, and the result grammar; check pins each declared check's full bounded argv and grades the host-observed exit status."
+            },
+            "selected_witness_ids": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 40,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256,
+                "pattern": "^[^\\x00-\\x1f\\x7f]*$"
+              },
+              "description": "The runner-defined exact witness identities the qualified preparation selected: unique bounded visible strings of at most 256 bytes. The rendered selector still obeys the bounded verify command shape, so the nominal maximum derives from the shared witness allowance, not an independent one. No truncation or omitted witness."
+            },
+            "case_to_witness_map": {
+              "type": "object",
+              "additionalProperties": false,
+              "minProperties": 1,
+              "maxProperties": 64,
+              "patternProperties": {
+                "^case:[A-Za-z0-9][A-Za-z0-9._:-]{0,122}$": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 8,
+                  "uniqueItems": true,
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256,
+                    "pattern": "^[^\\x00-\\x1f\\x7f]*$"
+                  }
+                }
+              },
+              "description": "Each control case maps to 1 to 8 selected witness IDs; the map covers exactly the control's cases, and the union of its values is exactly selected_witness_ids."
             },
             "selected_test_names": {
               "type": "array",
@@ -18493,9 +19690,734 @@
               "items": {
                 "$ref": "#/$defs/native_oracle_test_name"
               }
+            },
+            "observed_witness_ids": {
+              "type": "array",
+              "minItems": 0,
+              "maxItems": 40,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256,
+                "pattern": "^[^\\x00-\\x1f\\x7f]*$"
+              }
             }
           },
-          "description": "The store-selected qualified preparation for an immutable job's exact readiness reference, never a latest-run guess or worker assertion. Pure-Go top-level tests only. The native owner proves exact pinned file bytes, cwd, build-selected nonempty witnesses, and compile-only readiness. Non-Go and resolved embed inputs must be declared pinned fixtures or explicit compiler inputs; no production Go/module replacement. Every stage pins the installed toolchain and native target with GOTOOLCHAIN=local, GOPROXY=off, GOFLAGS=-mod=readonly, CGO_ENABLED=0, GOWORK=off, and a private disposable GOCACHE. No aggregate scratch quota or uncommitted-diagnostics promise. Preparation grants no worker attempt, verification authority, or semantic acceptance.",
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "description": "The pure-Go family: the legacy selected test names and case map, with no target-runner host property.",
+              "required": [
+                "protocol",
+                "phase",
+                "qualification",
+                "run_ref",
+                "work_id",
+                "project_id",
+                "contract_version",
+                "subject_commit",
+                "bundle_digest",
+                "logical_argv_digest",
+                "logical_cwd",
+                "recipe_source",
+                "manifest_blob",
+                "manifest_digest",
+                "files",
+                "toolchain_identity",
+                "build_environment_digest",
+                "selected_test_names",
+                "case_to_test_map",
+                "selected_distinct_count",
+                "native_plan_sha256",
+                "stdout",
+                "stderr",
+                "streams_complete",
+                "control_id",
+                "stages",
+                "attempt_id",
+                "attempt_epoch",
+                "worker_packet_digest",
+                "worker_job_binding",
+                "preparation_run_ref",
+                "authorization_event_id",
+                "authorization_seq",
+                "start_seq"
+              ],
+              "properties": {
+                "protocol": {
+                  "type": "string",
+                  "const": "native_oracle_v2"
+                },
+                "phase": {
+                  "type": "string",
+                  "const": "execute"
+                },
+                "qualification": {
+                  "type": "string",
+                  "enum": [
+                    "pass",
+                    "fail",
+                    "unavailable"
+                  ]
+                },
+                "run_ref": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 512
+                },
+                "work_id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "project_id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "contract_version": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9223372036854775807
+                },
+                "subject_commit": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
+                  "minLength": 40,
+                  "maxLength": 64
+                },
+                "bundle_digest": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$",
+                  "minLength": 71,
+                  "maxLength": 71
+                },
+                "logical_argv_digest": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$",
+                  "minLength": 71,
+                  "maxLength": 71
+                },
+                "logical_cwd": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 512
+                },
+                "recipe_source": {
+                  "$ref": "#/$defs/work_context_reading_source_repository_file"
+                },
+                "manifest_blob": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
+                  "minLength": 40,
+                  "maxLength": 64
+                },
+                "manifest_digest": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$",
+                  "minLength": 71,
+                  "maxLength": 71
+                },
+                "files": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 32,
+                  "items": {
+                    "$ref": "#/$defs/native_oracle_file"
+                  }
+                },
+                "toolchain_identity": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 512
+                },
+                "build_environment_digest": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$",
+                  "minLength": 71,
+                  "maxLength": 71
+                },
+                "selected_test_names": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 40,
+                  "uniqueItems": true,
+                  "items": {
+                    "$ref": "#/$defs/native_oracle_test_name"
+                  }
+                },
+                "case_to_test_map": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "minProperties": 1,
+                  "maxProperties": 64,
+                  "patternProperties": {
+                    "^case:[A-Za-z0-9][A-Za-z0-9._:-]{0,122}$": {
+                      "type": "array",
+                      "minItems": 1,
+                      "maxItems": 8,
+                      "uniqueItems": true,
+                      "items": {
+                        "$ref": "#/$defs/native_oracle_test_name"
+                      }
+                    }
+                  }
+                },
+                "selected_distinct_count": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 40
+                },
+                "native_plan_sha256": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$",
+                  "minLength": 71,
+                  "maxLength": 71
+                },
+                "stdout": {
+                  "$ref": "#/$defs/native_oracle_stream"
+                },
+                "stderr": {
+                  "$ref": "#/$defs/native_oracle_stream"
+                },
+                "streams_complete": {
+                  "type": "boolean"
+                },
+                "control_id": {
+                  "type": "string",
+                  "pattern": "^control:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
+                  "minLength": 9,
+                  "maxLength": 128,
+                  "description": "A stable control: identity, unique within this work item."
+                },
+                "input_manifest_digest": {
+                  "$ref": "#/$defs/native_oracle_digest"
+                },
+                "binary_digest": {
+                  "$ref": "#/$defs/native_oracle_digest"
+                },
+                "stages": {
+                  "type": "array",
+                  "minItems": 0,
+                  "maxItems": 16,
+                  "items": {
+                    "$ref": "#/$defs/native_oracle_stage"
+                  }
+                },
+                "detail": {
+                  "type": "string",
+                  "maxLength": 4096
+                },
+                "attempt_id": {
+                  "$ref": "#/$defs/id"
+                },
+                "attempt_epoch": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 2147483647
+                },
+                "worker_packet_digest": {
+                  "$ref": "#/$defs/native_oracle_digest"
+                },
+                "worker_job_binding": {
+                  "$ref": "#/$defs/native_oracle_job_binding"
+                },
+                "preparation_run_ref": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 512
+                },
+                "authorization_event_id": {
+                  "$ref": "#/$defs/id"
+                },
+                "authorization_seq": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9223372036854775807
+                },
+                "start_seq": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9223372036854775807
+                },
+                "observed_test_names": {
+                  "type": "array",
+                  "minItems": 0,
+                  "maxItems": 40,
+                  "uniqueItems": true,
+                  "items": {
+                    "$ref": "#/$defs/native_oracle_test_name"
+                  }
+                },
+                "observed_witness_ids": {
+                  "type": "array",
+                  "minItems": 0,
+                  "maxItems": 40,
+                  "uniqueItems": true,
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256,
+                    "pattern": "^[^\\x00-\\x1f\\x7f]*$"
+                  }
+                }
+              },
+              "if": {
+                "properties": {
+                  "qualification": {
+                    "const": "ready"
+                  }
+                },
+                "required": [
+                  "qualification"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "streams_complete": {
+                    "const": true
+                  },
+                  "stdout": {
+                    "properties": {
+                      "stream": {
+                        "const": "stdout"
+                      },
+                      "complete": {
+                        "const": true
+                      },
+                      "ref": {
+                        "minLength": 1
+                      }
+                    }
+                  },
+                  "stderr": {
+                    "properties": {
+                      "stream": {
+                        "const": "stderr"
+                      },
+                      "complete": {
+                        "const": true
+                      },
+                      "ref": {
+                        "minLength": 1
+                      }
+                    }
+                  }
+                }
+              },
+              "not": {
+                "anyOf": [
+                  {
+                    "required": [
+                      "recipe_kind"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "target_materializer"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "target_runner"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "selected_witness_ids"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "case_to_witness_map"
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "description": "The target_runner_v1 family: the closed materializer/runner pair and the real selected witness population, never fabricated Go test names. Exactly three pairs are admitted; every other combination refuses as unsupported.",
+              "required": [
+                "protocol",
+                "phase",
+                "qualification",
+                "run_ref",
+                "work_id",
+                "project_id",
+                "contract_version",
+                "subject_commit",
+                "bundle_digest",
+                "logical_argv_digest",
+                "logical_cwd",
+                "recipe_source",
+                "manifest_blob",
+                "manifest_digest",
+                "files",
+                "toolchain_identity",
+                "build_environment_digest",
+                "recipe_kind",
+                "target_materializer",
+                "target_runner",
+                "selected_witness_ids",
+                "case_to_witness_map",
+                "selected_distinct_count",
+                "native_plan_sha256",
+                "stdout",
+                "stderr",
+                "streams_complete",
+                "control_id",
+                "stages",
+                "attempt_id",
+                "attempt_epoch",
+                "worker_packet_digest",
+                "worker_job_binding",
+                "preparation_run_ref",
+                "authorization_event_id",
+                "authorization_seq",
+                "start_seq"
+              ],
+              "properties": {
+                "protocol": {
+                  "type": "string",
+                  "const": "native_oracle_v2"
+                },
+                "phase": {
+                  "type": "string",
+                  "const": "execute"
+                },
+                "qualification": {
+                  "type": "string",
+                  "enum": [
+                    "pass",
+                    "fail",
+                    "unavailable"
+                  ]
+                },
+                "run_ref": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 512
+                },
+                "work_id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "project_id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "contract_version": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9223372036854775807
+                },
+                "subject_commit": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
+                  "minLength": 40,
+                  "maxLength": 64
+                },
+                "bundle_digest": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$",
+                  "minLength": 71,
+                  "maxLength": 71
+                },
+                "logical_argv_digest": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$",
+                  "minLength": 71,
+                  "maxLength": 71
+                },
+                "logical_cwd": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 512
+                },
+                "recipe_source": {
+                  "$ref": "#/$defs/work_context_reading_source_repository_file"
+                },
+                "manifest_blob": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$",
+                  "minLength": 40,
+                  "maxLength": 64
+                },
+                "manifest_digest": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$",
+                  "minLength": 71,
+                  "maxLength": 71
+                },
+                "files": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 32,
+                  "items": {
+                    "$ref": "#/$defs/native_oracle_file"
+                  }
+                },
+                "toolchain_identity": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 512
+                },
+                "build_environment_digest": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$",
+                  "minLength": 71,
+                  "maxLength": 71
+                },
+                "recipe_kind": {
+                  "type": "string",
+                  "const": "target_runner_v1"
+                },
+                "target_materializer": {
+                  "type": "string",
+                  "enum": [
+                    "none",
+                    "uv"
+                  ]
+                },
+                "target_runner": {
+                  "type": "string",
+                  "enum": [
+                    "pytest",
+                    "check"
+                  ]
+                },
+                "selected_witness_ids": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 40,
+                  "uniqueItems": true,
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256,
+                    "pattern": "^[^\\x00-\\x1f\\x7f]*$"
+                  }
+                },
+                "case_to_witness_map": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "minProperties": 1,
+                  "maxProperties": 64,
+                  "patternProperties": {
+                    "^case:[A-Za-z0-9][A-Za-z0-9._:-]{0,122}$": {
+                      "type": "array",
+                      "minItems": 1,
+                      "maxItems": 8,
+                      "uniqueItems": true,
+                      "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 256,
+                        "pattern": "^[^\\x00-\\x1f\\x7f]*$"
+                      }
+                    }
+                  }
+                },
+                "selected_distinct_count": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 40
+                },
+                "native_plan_sha256": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$",
+                  "minLength": 71,
+                  "maxLength": 71
+                },
+                "stdout": {
+                  "$ref": "#/$defs/native_oracle_stream"
+                },
+                "stderr": {
+                  "$ref": "#/$defs/native_oracle_stream"
+                },
+                "streams_complete": {
+                  "type": "boolean"
+                },
+                "control_id": {
+                  "type": "string",
+                  "pattern": "^control:[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
+                  "minLength": 9,
+                  "maxLength": 128,
+                  "description": "A stable control: identity, unique within this work item."
+                },
+                "input_manifest_digest": {
+                  "$ref": "#/$defs/native_oracle_digest"
+                },
+                "binary_digest": {
+                  "$ref": "#/$defs/native_oracle_digest"
+                },
+                "stages": {
+                  "type": "array",
+                  "minItems": 0,
+                  "maxItems": 16,
+                  "items": {
+                    "$ref": "#/$defs/native_oracle_stage"
+                  }
+                },
+                "detail": {
+                  "type": "string",
+                  "maxLength": 4096
+                },
+                "attempt_id": {
+                  "$ref": "#/$defs/id"
+                },
+                "attempt_epoch": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 2147483647
+                },
+                "worker_packet_digest": {
+                  "$ref": "#/$defs/native_oracle_digest"
+                },
+                "worker_job_binding": {
+                  "$ref": "#/$defs/native_oracle_job_binding"
+                },
+                "preparation_run_ref": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 512
+                },
+                "authorization_event_id": {
+                  "$ref": "#/$defs/id"
+                },
+                "authorization_seq": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9223372036854775807
+                },
+                "start_seq": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9223372036854775807
+                },
+                "observed_test_names": {
+                  "type": "array",
+                  "minItems": 0,
+                  "maxItems": 40,
+                  "uniqueItems": true,
+                  "items": {
+                    "$ref": "#/$defs/native_oracle_test_name"
+                  }
+                },
+                "observed_witness_ids": {
+                  "type": "array",
+                  "minItems": 0,
+                  "maxItems": 40,
+                  "uniqueItems": true,
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256,
+                    "pattern": "^[^\\x00-\\x1f\\x7f]*$"
+                  }
+                }
+              },
+              "if": {
+                "properties": {
+                  "qualification": {
+                    "const": "ready"
+                  }
+                },
+                "required": [
+                  "qualification"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "streams_complete": {
+                    "const": true
+                  },
+                  "stdout": {
+                    "properties": {
+                      "stream": {
+                        "const": "stdout"
+                      },
+                      "complete": {
+                        "const": true
+                      },
+                      "ref": {
+                        "minLength": 1
+                      }
+                    }
+                  },
+                  "stderr": {
+                    "properties": {
+                      "stream": {
+                        "const": "stderr"
+                      },
+                      "complete": {
+                        "const": true
+                      },
+                      "ref": {
+                        "minLength": 1
+                      }
+                    }
+                  }
+                }
+              },
+              "not": {
+                "anyOf": [
+                  {
+                    "required": [
+                      "selected_test_names"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "case_to_test_map"
+                    ]
+                  }
+                ]
+              },
+              "oneOf": [
+                {
+                  "description": "uv materializes the pinned dependencies offline; pytest collects the pinned node IDs.",
+                  "properties": {
+                    "target_materializer": {
+                      "const": "uv"
+                    },
+                    "target_runner": {
+                      "const": "pytest"
+                    }
+                  }
+                },
+                {
+                  "description": "none declares a dependency-free recipe; check grades each declared check's host-observed exit status.",
+                  "properties": {
+                    "target_materializer": {
+                      "const": "none"
+                    },
+                    "target_runner": {
+                      "const": "check"
+                    }
+                  }
+                },
+                {
+                  "description": "uv materializes the pinned dependencies offline; check grades each declared check's host-observed exit status.",
+                  "properties": {
+                    "target_materializer": {
+                      "const": "uv"
+                    },
+                    "target_runner": {
+                      "const": "check"
+                    }
+                  }
+                }
+              ]
+            }
+          ],
+          "description": "The store-selected qualified preparation for an immutable job's exact readiness reference, never a latest-run guess or worker assertion. Two closed recipe families share the record and one branch must match exactly: a mixed family shape, an unknown recipe kind, or an unsupported materializer/runner pair refuses. The pure-Go family proves exact pinned file bytes, cwd, build-selected nonempty witnesses, and compile-only readiness; non-Go and resolved embed inputs must be declared pinned fixtures or explicit compiler inputs, with no production Go/module replacement. The target_runner_v1 family admits exactly the pairs uv+pytest, none+check, and uv+check: the materializer owns dependency manifest and lockfile equality with the pinned recipe, offline lock-verified materialization into per-run scratch, cached-byte integrity, disabled lifecycle and build scripts, and runtime fingerprints (none declares a dependency-free recipe); the runner owns collection, the exact witness population, and the result grammar, and preparation runs only its collection or check-input stage, never the graded workload. No Vitest or pnpm surface exists. Every stage pins its installed toolchain; the Go stages set GOTOOLCHAIN=local, GOPROXY=off, GOFLAGS=-mod=readonly, CGO_ENABLED=0, GOWORK=off, and a private disposable GOCACHE. No aggregate scratch quota or uncommitted-diagnostics promise. Preparation grants no worker attempt, verification authority, or semantic acceptance.",
           "if": {
             "properties": {
               "qualification": {
@@ -18507,49 +20429,104 @@
             ]
           },
           "then": {
-            "properties": {
-              "streams_complete": {
-                "const": true
-              },
-              "stdout": {
+            "oneOf": [
+              {
                 "properties": {
-                  "stream": {
-                    "const": "stdout"
-                  },
-                  "complete": {
+                  "streams_complete": {
                     "const": true
                   },
-                  "ref": {
-                    "minLength": 1
+                  "stdout": {
+                    "properties": {
+                      "stream": {
+                        "const": "stdout"
+                      },
+                      "complete": {
+                        "const": true
+                      },
+                      "ref": {
+                        "minLength": 1
+                      }
+                    }
+                  },
+                  "stderr": {
+                    "properties": {
+                      "stream": {
+                        "const": "stderr"
+                      },
+                      "complete": {
+                        "const": true
+                      },
+                      "ref": {
+                        "minLength": 1
+                      }
+                    }
+                  },
+                  "observed_test_names": {
+                    "minItems": 1
                   }
+                },
+                "required": [
+                  "input_manifest_digest",
+                  "binary_digest",
+                  "observed_test_names"
+                ],
+                "not": {
+                  "required": [
+                    "observed_witness_ids"
+                  ]
                 }
               },
-              "stderr": {
+              {
                 "properties": {
-                  "stream": {
-                    "const": "stderr"
-                  },
-                  "complete": {
+                  "streams_complete": {
                     "const": true
                   },
-                  "ref": {
-                    "minLength": 1
+                  "stdout": {
+                    "properties": {
+                      "stream": {
+                        "const": "stdout"
+                      },
+                      "complete": {
+                        "const": true
+                      },
+                      "ref": {
+                        "minLength": 1
+                      }
+                    }
+                  },
+                  "stderr": {
+                    "properties": {
+                      "stream": {
+                        "const": "stderr"
+                      },
+                      "complete": {
+                        "const": true
+                      },
+                      "ref": {
+                        "minLength": 1
+                      }
+                    }
+                  },
+                  "observed_witness_ids": {
+                    "minItems": 1
                   }
+                },
+                "required": [
+                  "input_manifest_digest",
+                  "binary_digest",
+                  "observed_witness_ids"
+                ],
+                "not": {
+                  "required": [
+                    "observed_test_names"
+                  ]
                 }
-              },
-              "observed_test_names": {
-                "minItems": 1
               }
-            },
-            "required": [
-              "input_manifest_digest",
-              "binary_digest",
-              "observed_test_names"
             ]
           }
         }
       ],
-      "description": "Native producer observations only. The canonical plan/digest are immutable in the existing lease; command remains bare argv. Prepare grants readiness only. Execute pass requires actual run/pass witnesses, complete streams, pinned inputs/cwd/environment, and the persisted live dispatch's three-way clean subject equality. Qualified green result metadata is byte-identical to lease result_json. Raw BLOBs never enter result metadata or idempotency records. Replay starts no process. No semantic acceptance or independent evidence role is implied."
+      "description": "Native producer observations only. The canonical plan/digest are immutable in the existing lease; command remains bare argv. Prepare grants readiness only. Execute pass requires actual run/pass witnesses in the record's own family grammar (observed test names for Go, observed witness IDs for target_runner_v1), complete streams, pinned inputs/cwd/environment, and the persisted live dispatch's three-way clean subject equality. Qualified green result metadata is byte-identical to lease result_json. Raw BLOBs never enter result metadata or idempotency records. Replay starts no process. No semantic acceptance or independent evidence role is implied."
     },
     "native_oracle_output_page": {
       "type": "object",

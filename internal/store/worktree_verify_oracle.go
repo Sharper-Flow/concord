@@ -52,13 +52,23 @@ type NativeOraclePreparation struct {
 	Files                  []NativeOracleFile       `json:"files"`
 	ToolchainIdentity      string                   `json:"toolchain_identity"`
 	BuildEnvironmentDigest string                   `json:"build_environment_digest"`
-	SelectedTestNames      []string                 `json:"selected_test_names"`
-	CaseToTestMap          map[string][]string      `json:"case_to_test_map"`
+	SelectedTestNames      []string                 `json:"selected_test_names,omitempty"`
+	CaseToTestMap          map[string][]string      `json:"case_to_test_map,omitempty"`
 	SelectedDistinctCount  int                      `json:"selected_distinct_count"`
 	NativePlanSHA256       string                   `json:"native_plan_sha256"`
 	Stdout                 NativeOracleStream       `json:"stdout"`
 	Stderr                 NativeOracleStream       `json:"stderr"`
 	StreamsComplete        bool                     `json:"streams_complete"`
+	// Target-runner wire properties. Go preparations leave every field
+	// empty; a target preparation leaves SelectedTestNames and
+	// CaseToTestMap empty and never fabricates Go test names. The axes are
+	// the closed materializer (none|uv) and runner (pytest|check) pair the
+	// plan decided.
+	RecipeKind         string              `json:"recipe_kind,omitempty"`
+	TargetMaterializer string              `json:"target_materializer,omitempty"`
+	TargetRunner       string              `json:"target_runner,omitempty"`
+	SelectedWitnessIDs []string            `json:"selected_witness_ids,omitempty"`
+	CaseToWitnessMap   map[string][]string `json:"case_to_witness_map,omitempty"`
 }
 
 type NativeOracleStage struct {
@@ -86,7 +96,10 @@ type NativeOracleResult struct {
 	BinaryDigest         string              `json:"binary_digest,omitempty"`
 	Stages               []NativeOracleStage `json:"stages"`
 	ObservedTestNames    []string            `json:"observed_test_names,omitempty"`
-	Detail               string              `json:"detail,omitempty"`
+	// ObservedWitnessIDs is the target-runner analog of
+	// ObservedTestNames: the witnesses the host actually observed passing.
+	ObservedWitnessIDs []string `json:"observed_witness_ids,omitempty"`
+	Detail             string   `json:"detail,omitempty"`
 }
 
 type nativeOracleAuthorization struct {
@@ -95,7 +108,11 @@ type nativeOracleAuthorization struct {
 	StartSeq int64  `json:"start_seq"`
 }
 
-// The plan holds logical slots, never an ephemeral host pathname.
+// The plan holds logical slots, never an ephemeral host pathname. The Go
+// family fills Manifest and Environment and leaves Target nil; a
+// target_runner_v1 plan fills Target and leaves the Go fields zero. Stored
+// historical plans are read strictly by family: a target plan never falls
+// back to the Go reader, and an old Go plan never gains host fields.
 type nativeOraclePlan struct {
 	RequestID        string                    `json:"request_id"`
 	Request          NativeOracleRequest       `json:"request"`
@@ -110,10 +127,66 @@ type nativeOraclePlan struct {
 	ManifestFile     NativeOracleFile          `json:"manifest_file"`
 	Files            []NativeOracleFile        `json:"files"`
 	Environment      nativeGoEnvironment       `json:"environment"`
+	Target           *nativeTargetOraclePlan   `json:"target,omitempty"`
 	Authorization    nativeOracleAuthorization `json:"authorization"`
 	Stages           []NativeOracleStage       `json:"stages"`
 	StreamLimit      int                       `json:"stream_limit"`
 	CachePolicy      string                    `json:"cache_policy"`
+}
+
+// nativePlanEnvironment returns the family-owned environment identity the
+// preparation/execution join compares.
+func nativePlanEnvironment(p nativeOraclePlan) (digest, identity string) {
+	if p.Target != nil {
+		return p.Target.Environment.Digest, p.Target.Environment.RuntimeIdentity
+	}
+	return p.Environment.Digest, p.Environment.ToolchainIdentity
+}
+
+// nativePlanPrepareCommand selects the canonical prepare lease command for
+// the plan's family. Go preparations pin the compile stage argv; target
+// preparations pin their canonical collection or check-input stage.
+func nativePlanPrepareCommand(p nativeOraclePlan) ([]string, error) {
+	if p.Target != nil {
+		return p.Target.prepareCommand(p.Bundle.Control)
+	}
+	for _, stage := range p.Stages {
+		if stage.Name == "compile" {
+			return stage.Argv, nil
+		}
+	}
+	return nil, oracleFailure(KindInvariantViolation, "native plan has no canonical prepare stage", "reconcile the retained native run")
+}
+
+// normalizeNativeOraclePlan resolves one native request into the immutable
+// producer plan for its recipe family. The recipe bytes decide the family:
+// the closed envelope peek selects exactly one strict reader, and an
+// unknown, malformed, or unsupported family refuses as unavailable — it
+// never falls back to Go.
+func normalizeNativeOraclePlan(ctx context.Context, r GitRunner, entry WorktreeEntry, req WorktreeVerifyRequest, b NativeOracleControlBundle, version int64, subject, identity string, auth nativeOracleAuthorization) (nativeOraclePlan, error) {
+	p := nativeOraclePlan{Request: *req.Oracle, RequestID: req.RequestID, WorkID: req.WorkID, ProjectID: req.ProjectID, ContractVersion: version, SubjectCommit: subject, WorktreeIdentity: identity, Bundle: b, BundleDigest: nativeBundleDigest(b), Authorization: auth, StreamLimit: nativeOracleStreamLimit, CachePolicy: "private-disposable-per-lease"}
+	if b.Control.RecipeSource.ProjectID != req.ProjectID || b.Owner.Mechanism.ProjectID != req.ProjectID {
+		return p, nativeUnavailable("this recipe requires the ambient Project's own repository")
+	}
+	f, raw, err := nativeGitFile(ctx, r, entry.Path, b.Control.RecipeSource.CommitOID, b.Control.RecipeSource.Path)
+	if err != nil {
+		return p, err
+	}
+	if len(raw) > 16*1024 {
+		return p, oracleFailure(KindLimitExceeded, "recipe manifest exceeds 16384 bytes", "bound the pinned manifest")
+	}
+	kind, err := nativeOracleRecipeKind(raw)
+	if err != nil {
+		return p, err
+	}
+	switch kind {
+	case "go_top_level_v1":
+		return normalizeNativeGoOraclePlan(ctx, r, entry, p, f, raw, req)
+	case nativeTargetKind:
+		return normalizeNativeTargetOraclePlan(ctx, r, entry, p, f, raw, req)
+	default:
+		return p, nativeUnavailable("unsupported recipe family")
+	}
 }
 
 func validateNativeOracleRequest(req WorktreeVerifyRequest) error {
@@ -301,10 +374,34 @@ func readOraclePreparationReceiptTx(ctx context.Context, q queryer, workID, proj
 // nativePreparationComplete admits a ready preparation only when every
 // recorded field is present and equals the immutable plan that produced it:
 // a qualified subject, the pinned manifest, files, environment, selected
-// tests, case map, and every planned stage with a zero exit.
+// witnesses, case map, and every planned stage with a zero exit. The family
+// readers are strict: a target preparation never satisfies the Go reader
+// and an old Go preparation never satisfies the target reader.
 func nativePreparationComplete(o *NativeOracleResult, p nativeOraclePlan) bool {
+	if !nativePreparationJoinsValid(o, p) {
+		return false
+	}
+	if p.Target != nil {
+		return nativeTargetPreparationWitnessesComplete(o, p)
+	}
 	names, err := nativeOracleSelector(p.Manifest, p.Bundle.Control)
-	if err != nil || p.Request.Phase != "prepare" || o.Phase != "prepare" || o.Qualification != "ready" {
+	if err != nil {
+		return false
+	}
+	if len(names) == 0 || !slices.Equal(o.SelectedTestNames, names) || o.SelectedDistinctCount != len(names) || len(o.CaseToTestMap) == 0 || !oracleEntryIdentical(o.CaseToTestMap, p.Manifest.Cases) {
+		return false
+	}
+	if o.RecipeKind != "" || o.TargetMaterializer != "" || o.TargetRunner != "" || len(o.SelectedWitnessIDs) != 0 || len(o.CaseToWitnessMap) != 0 {
+		return false
+	}
+	return true
+}
+
+// nativePreparationJoinsValid checks the shared family-independent joins of
+// a retained preparation: phases, subject, contract, bundle, pinned files,
+// and environment identity.
+func nativePreparationJoinsValid(o *NativeOracleResult, p nativeOraclePlan) bool {
+	if p.Request.Phase != "prepare" || o.Phase != "prepare" || o.Qualification != "ready" {
 		return false
 	}
 	if !worktreeSHAPattern.MatchString(o.SubjectCommit) || o.SubjectCommit != p.SubjectCommit || o.ContractVersion < 1 || o.ContractVersion != p.ContractVersion || o.WorkID != p.WorkID || o.ProjectID != p.ProjectID {
@@ -316,10 +413,8 @@ func nativePreparationComplete(o *NativeOracleResult, p nativeOraclePlan) bool {
 	if !worktreeSHAPattern.MatchString(o.ManifestBlob) || o.ManifestBlob != p.ManifestFile.BlobOID || !workflowDigest(o.ManifestDigest) || o.ManifestDigest != p.ManifestFile.SHA256 || len(o.Files) < 1 || len(o.Files) > 32 || !oracleEntryIdentical(o.Files, p.Files) {
 		return false
 	}
-	if o.ToolchainIdentity == "" || o.ToolchainIdentity != p.Environment.ToolchainIdentity || !workflowDigest(o.BuildEnvironmentDigest) || o.BuildEnvironmentDigest != p.Environment.Digest {
-		return false
-	}
-	if len(names) == 0 || !slices.Equal(o.SelectedTestNames, names) || o.SelectedDistinctCount != len(names) || len(o.CaseToTestMap) == 0 || !oracleEntryIdentical(o.CaseToTestMap, p.Manifest.Cases) {
+	digest, identity := nativePlanEnvironment(p)
+	if o.ToolchainIdentity == "" || o.ToolchainIdentity != identity || !workflowDigest(o.BuildEnvironmentDigest) || o.BuildEnvironmentDigest != digest {
 		return false
 	}
 	if len(p.Stages) == 0 || len(o.Stages) != len(p.Stages) {
@@ -543,10 +638,9 @@ func (s *Store) nativeOracleReplay(ctx context.Context, req WorktreeVerifyReques
 	if pinned.Request.Phase == "execute" {
 		expectedCommand = pinned.Bundle.Control.Argv
 	} else {
-		for _, stage := range pinned.Stages {
-			if stage.Name == "compile" {
-				expectedCommand = stage.Argv
-			}
+		expectedCommand, err = nativePlanPrepareCommand(pinned)
+		if err != nil {
+			return WorktreeVerifyResult{}, true, err
 		}
 	}
 	if len(expectedCommand) == 0 || command != workflowJSON(expectedCommand) {
@@ -613,7 +707,8 @@ func (s *Store) verifyNativeOracle(ctx context.Context, req WorktreeVerifyReques
 		if err != nil {
 			return WorktreeVerifyResult{}, err
 		}
-		if prep == nil || prep.BuildEnvironmentDigest != plan.Environment.Digest || prep.ToolchainIdentity != plan.Environment.ToolchainIdentity || prep.ManifestDigest != plan.ManifestFile.SHA256 || !oracleEntryIdentical(prep.Files, plan.Files) {
+		digest, identity := nativePlanEnvironment(plan)
+		if prep == nil || prep.BuildEnvironmentDigest != digest || prep.ToolchainIdentity != identity || prep.ManifestDigest != plan.ManifestFile.SHA256 || !oracleEntryIdentical(prep.Files, plan.Files) {
 			return WorktreeVerifyResult{}, oracleFailure(KindUnauthorizedDispatch, "preparation environment or pinned inputs differ from execution", "request explicit preparation for this environment and bundle")
 		}
 	}
@@ -627,10 +722,9 @@ func (s *Store) verifyNativeOracle(ctx context.Context, req WorktreeVerifyReques
 	req.nativePlanJSON = string(planRaw)
 	req.nativePlanSHA256 = nativeDigest(planRaw)
 	if req.Oracle.Phase == "prepare" {
-		for _, stage := range plan.Stages {
-			if stage.Name == "compile" {
-				req.Command = stage.Argv
-			}
+		req.Command, err = nativePlanPrepareCommand(plan)
+		if err != nil {
+			return WorktreeVerifyResult{}, err
 		}
 	} else {
 		req.Command = bundle.Control.Argv
@@ -665,7 +759,11 @@ func (s *Store) verifyNativeOracle(ctx context.Context, req WorktreeVerifyReques
 	defer releaseAbandonedVerifyLease(s, ctx, req.LeaseID, &released)
 	capture := &nativeStreamCapture{stdout: []byte{}, stderr: []byte{}, complete: true}
 	result := nativeOracleInitialResult(req, entry, plan)
-	err = s.runNativeGoOracle(ctx, runner, entry, req, plan, capture, result.Oracle)
+	if plan.Target != nil {
+		err = s.runNativeTargetOracle(ctx, runner, entry, req, plan, capture, result.Oracle)
+	} else {
+		err = s.runNativeGoOracle(ctx, runner, entry, req, plan, capture, result.Oracle)
+	}
 	effectErr := err
 	if err != nil {
 		result.Oracle.Qualification = "unavailable"
@@ -723,9 +821,26 @@ func nativeLeaseRef(leaseID string) SubjectCurrentVersion {
 }
 
 func nativeOracleInitialResult(req WorktreeVerifyRequest, entry WorktreeEntry, p nativeOraclePlan) WorktreeVerifyResult {
-	names, _ := nativeOracleSelector(p.Manifest, p.Bundle.Control)
 	r := WorktreeVerifyResult{WorkID: req.WorkID, ProjectID: req.ProjectID, Path: entry.Path, Branch: entry.Branch, LeaseID: req.LeaseID, OperationRef: worktreeVerifyOperationRef(req.LeaseID), Command: req.Command}
-	r.Oracle = &NativeOracleResult{NativeOraclePreparation: NativeOraclePreparation{Protocol: "native_oracle_v2", Phase: req.Oracle.Phase, Qualification: "unavailable", RunRef: r.OperationRef, WorkID: req.WorkID, ProjectID: req.ProjectID, ContractVersion: p.ContractVersion, SubjectCommit: p.SubjectCommit, BundleDigest: p.BundleDigest, LogicalArgvDigest: nativeDigest([]byte(workflowJSON(p.Bundle.Control.Argv))), LogicalCwd: p.Bundle.Control.Cwd, RecipeSource: p.Bundle.Control.RecipeSource, ManifestBlob: p.ManifestFile.BlobOID, ManifestDigest: p.ManifestFile.SHA256, Files: p.Files, ToolchainIdentity: p.Environment.ToolchainIdentity, BuildEnvironmentDigest: p.Environment.Digest, SelectedTestNames: names, CaseToTestMap: p.Manifest.Cases, SelectedDistinctCount: len(names), NativePlanSHA256: req.nativePlanSHA256}, ControlID: p.Bundle.Control.ControlID, AttemptID: req.Oracle.AttemptID, AttemptEpoch: req.Oracle.AttemptEpoch, WorkerPacketDigest: req.Oracle.WorkerPacketDigest, WorkerJobBinding: req.Oracle.WorkerJobBinding, PreparationRunRef: req.Oracle.PreparationRunRef, AuthorizationEventID: p.Authorization.EventID, AuthorizationSeq: p.Authorization.Seq, StartSeq: p.Authorization.StartSeq, Stages: []NativeOracleStage{}}
+	base := NativeOraclePreparation{Protocol: "native_oracle_v2", Phase: req.Oracle.Phase, Qualification: "unavailable", RunRef: r.OperationRef, WorkID: req.WorkID, ProjectID: req.ProjectID, ContractVersion: p.ContractVersion, SubjectCommit: p.SubjectCommit, BundleDigest: p.BundleDigest, LogicalArgvDigest: nativeDigest([]byte(workflowJSON(p.Bundle.Control.Argv))), LogicalCwd: p.Bundle.Control.Cwd, RecipeSource: p.Bundle.Control.RecipeSource, ManifestBlob: p.ManifestFile.BlobOID, ManifestDigest: p.ManifestFile.SHA256, Files: p.Files, NativePlanSHA256: req.nativePlanSHA256}
+	digest, identity := nativePlanEnvironment(p)
+	base.ToolchainIdentity = identity
+	base.BuildEnvironmentDigest = digest
+	if p.Target != nil {
+		names, _ := nativeTargetCaseWitnesses(p.Target.Recipe, p.Bundle.Control)
+		base.RecipeKind = nativeTargetKind
+		base.TargetMaterializer = p.Target.Environment.Materializer
+		base.TargetRunner = p.Target.Environment.Runner
+		base.SelectedWitnessIDs = names
+		base.CaseToWitnessMap = p.Target.Recipe.Cases
+		base.SelectedDistinctCount = len(names)
+	} else {
+		names, _ := nativeOracleSelector(p.Manifest, p.Bundle.Control)
+		base.SelectedTestNames = names
+		base.CaseToTestMap = p.Manifest.Cases
+		base.SelectedDistinctCount = len(names)
+	}
+	r.Oracle = &NativeOracleResult{NativeOraclePreparation: base, ControlID: p.Bundle.Control.ControlID, AttemptID: req.Oracle.AttemptID, AttemptEpoch: req.Oracle.AttemptEpoch, WorkerPacketDigest: req.Oracle.WorkerPacketDigest, WorkerJobBinding: req.Oracle.WorkerJobBinding, PreparationRunRef: req.Oracle.PreparationRunRef, AuthorizationEventID: p.Authorization.EventID, AuthorizationSeq: p.Authorization.Seq, StartSeq: p.Authorization.StartSeq, Stages: []NativeOracleStage{}}
 	return r
 }
 

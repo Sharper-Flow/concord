@@ -771,13 +771,17 @@ an exact commit and the exact argument vector to run it from its contained
 working directory.
 
 The authenticated host owns `native_oracle_v2` preparation and execution
-through the existing `worktree_verify` operation. Preparation compiles the
-pinned pure-Go harness without test execution and grants readiness only.
-Execution requires the exact persisted job, attempt, epoch, packet digest,
-control, preparation reference, and recorded raw subject. Managed workers
-gain no Concord tools. Do not replace this producer with your own argument
-vector, automatic preparation, or a model assertion. Ordinary test output
-does not acquire a qualified oracle receipt.
+through the existing `worktree_verify` operation. Preparation qualifies one
+closed recipe family without test execution and grants readiness only: the
+pinned pure-Go harness compiles, and a `target_runner_v1` recipe (closed
+materializer and runner axes) materializes its pinned dependencies offline
+and runs only its collection or check-input stage. Unsupported families and
+materializer/runner pairs are unavailable. Execution requires the exact
+persisted job, attempt, epoch, packet digest, control, preparation
+reference, and recorded raw subject. Managed workers gain no Concord tools.
+Do not replace this producer with your own argument vector, automatic
+preparation, or a model assertion. Ordinary test output does not acquire a
+qualified oracle receipt.
 
 Report the host-produced execution as a typed `oracle_receipt` on an evidence
 entry: the control ids,

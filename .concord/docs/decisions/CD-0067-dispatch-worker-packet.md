@@ -164,6 +164,27 @@ authorization. The canonical assertion format gains packet_digest (signed
 empty for complete and fail); the shared worker-evidence vector repins both
 encoders.
 
+### D7. Architecture-capable packet identity
+
+Architecture-capable pins use a new closed packet identity, not a mutation
+of a released packet format. The typed design record carries one complete
+architecture copy. The immutable worker job binds its design revision,
+digest, and selected slice. Core admission checks those exact recorded
+values before any dispatch effect. The selected section supplies the owner,
+invariants, allowlist, line limit, and pinned reference-code ranges.
+
+Required reference blobs and line ranges resolve before dispatch without
+changed-checkout fallback. Existing context bounds remain in force; excess
+content refuses whole. Generated lane instructions require editing lanes to
+stop and report missing context, a design conflict, an extra file, or a
+budget overrun. Review receives the same design and slice. The adapter
+transports typed content without creating architecture or diff authority.
+Historical packet decoders and definition digests remain unchanged.
+Packet and report identities remain a matched pair. New architecture-capable
+pins select 3.0/3.0; other live pins retain 2.0/2.0. The pinned capability
+selects the producer, not an enum's last entry. Released 1.0/1.1 identities
+remain history only. A 3.0/2.0 pair refuses.
+
 ## Consequences
 
 - Existing dispatch_worker callers must supply the packet; in-repo tests are

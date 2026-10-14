@@ -207,6 +207,9 @@ grants no semantic acceptance, no integration proof, no delivery assertion,
 and no review qualification by itself. A failed attempt records no delivery
 observation, probes no Git, and retains its consumed frontier.
 
+Architecture-capable definitions use the accepted conformance anchor of D8.
+The following worker-observation anchor applies to earlier definitions.
+
 A review dispatch retains the newest accepted implementation delivery on its
 claimed worktree as the delivery anchor. The join runs through acceptance,
 the exact completed attempt, and the dispatch identity. The anchor must carry
@@ -387,6 +390,92 @@ attribution absence upcasts to an explicit unavailable origin. That origin is
 separate from completion evidence origin. Upcasts invent no job, subject,
 source, or cause. Live and rebuild folds validate the same retained structural
 joins without current-host reads.
+
+### D8. Architecture-bound slices and native delivered-diff conformance
+
+New architecture-capable implementation and break-fix pins require each job
+to bind one recorded design revision, digest, and slice. The slice has one
+owner and one Project. Its exact files equal the job scope. All declared
+test controls remain required by the existing acceptance oracle. Architecture
+bindings neither replace that oracle nor grant new lane authority.
+
+Editing slices execute in recorded order, with at most one editing attempt
+in flight per work. Read-only jobs also bind a slice but close no editing
+obligation. One accepted editing slice is one non-merge commit. Before local
+or combined acceptance, the core measures the complete delivered delta from
+the dispatch authorization's subject commit to the current clean result.
+The result's sole parent must be that subject commit. The coordinator reads
+the whole diff, runs the narrow checks, and commits before acceptance.
+
+Every changed path, including tests and generated outputs, must belong to
+the slice's exact allowlist and must not name an unchanged file. The size
+measure is additions plus deletions, not a net count. It excludes only test
+and wholly generated files identified in the immutable approved file map.
+Mixed files count as source. The recorded slice limit is at most 500.
+Classification cannot change during an execution-time design revision.
+The immutable file map remains the authority for integration resolutions;
+automatic upstream changes are distinguished by the native merge measurement.
+
+Native Git measurement uses NUL-delimited records, disabled renames, pinned
+diff behavior, and no external diff or text conversion. A rename counts as
+deletion and addition, and both endpoints require authority. Malformed or
+unsupported paths, modes, source blobs, counts, or over-bound output refuse;
+none count as zero. Worker reports and caller-supplied pass flags are not
+conformance evidence. The native observer runs before the SQL transaction;
+the transaction revalidates the sampled identities without subprocesses.
+
+The core records the exact architecture, job, attempt, claim generation,
+base, end, path set, and counts with the matching acceptance atomically.
+Replay folds this immutable record without Git. Idempotent replay repeats
+no measurement. Refusal records no acceptance or job satisfaction. It neither
+refunds the dispatched attempt nor resets correction or approval debt.
+
+Later editing dispatch requires the matching accepted conformance and live
+clean subject at the latest recorded chain anchor in its Project. That
+anchor is an accepted edit end or the native integration point below.
+The first editing
+authorization establishes the Project's chain root. An unresolved attempt's
+commit cannot become a fresh baseline by renaming its job or taking a new
+revision. Whole-work delivery requires all editing slices and the existing
+integration, verdict, independent evidence, review, and approval gates.
+
+On these new pins, review anchors to the latest recorded edit or integration
+point. Whole-work delivery refuses an unrecorded later merge or edit. A new
+integration invalidates earlier subject-bound review and integration evidence.
+The worker's terminal observation remains unchanged, including a
+dirty observation before coordinator integration. Existing live-clean,
+descendant, current-contract, same-work, same-Project, same-claim, and
+no-newer-editing-dispatch requirements still apply. Earlier pins retain their
+worker-observation anchor and recorded job and packet formats.
+
+An explicit coordinator-owned integration slice has one owner, an exact
+resolution allowlist within the approved map and outside unchanged files,
+and its own source-line budget no greater than 500. Automatic upstream
+changes are not worker-authored edits. Resolution changes are never free,
+including extra edits after an otherwise clean automatic merge.
+
+The coordinator performs a merge, never a rebase or history rewrite. The
+clean merge commit has exactly two ordered parents: first, the recorded
+anchor; second, a commit reachable from the registered default ref observed
+natively at measurement. An unaccepted first parent refuses. The core
+reconstructs the automatic merge tree, including conflicts, through bounded
+`merge-tree --write-tree` and measures its delta to the actual merge tree.
+Every resolution path and counted line answers to the integration slice.
+Unsupported native behavior refuses rather than becoming a free delta.
+
+`record_integration` is a coordinator-only routine hold action with no
+operator consent requirement. It records a native observation, not permission
+or a command to merge. Preparation closes SQL before Git; the transaction
+revalidates sampled identities. Observation and completion commit atomically.
+The replayable record binds parents, observed default ref, automatic tree,
+merge result, resolution paths and counts, tool identity, design, slice,
+Project and claim. It advances only that integration point and slice, not
+a worker job or independent-evidence obligation. Later edits start at it.
+No core merge, rebase, reset, commit, or writer-attribution claim is added.
+
+These checks measure the complete Git delta, not writer identity or semantic
+adequacy. They add no filesystem sandbox or editor interception. Independent
+review still checks architecture conformance and the existing evidence.
 
 ## Alternatives considered
 

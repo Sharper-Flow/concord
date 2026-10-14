@@ -107,6 +107,15 @@ path as `uncovered_case`. Earlier receipts remain regression baselines, not
 current-subject acceptance. Missing context still uses the report boundary,
 never worker Concord access.
 
+Architecture-capable pins carry the coordinator-authored architecture once
+in the typed design record. The job selects one exact design revision and
+slice. Editing lanes follow that section, its file allowlist, invariants,
+line limit, and pinned references. A missing input or needed scope change
+returns through the report boundary before further affected editing.
+Review receives the architecture and selected slice and reports departures.
+Neither architecture nor a conformance check grants worker Concord access.
+Generated instructions retain their existing manifest and generator owners.
+
 ## Alternatives considered
 
 - Frontmatter denial alone. A denied utility lane still made Concord calls

@@ -43,9 +43,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:e64dfe5fec3674f8f9a726c79e3023115766b1998265727759807665b2800cc7",
+  "sha256": "sha256:f976d20f7b59ee46204f98651685ede62d5efa6c6385825dfbdd06ffcf8f648c",
   "status": "accepted",
-  "summary": "Immutable worker-job revisions bind every admitted lane end to end. Implementation v27 and break-fix v24 require one typed owner/case/control acceptance oracle in the job digest, with closed source and authority joins and retained readiness evidence. Earlier pins remain oracle-free. Local acceptance holds the step without delivery; whole-work delivery keeps complete parent admission and integration evidence. Earlier unresolved obligations require unchanged base content and byte-identical old controls; added coverage can strengthen them, but control deletion or recipe re-pinning cannot discharge debt or reset retries.",
+  "summary": "Immutable worker jobs retain existing oracle, attribution, acceptance, delivery and retry authority. Architecture-capable pins bind one exact slice and require native delivered-diff conformance. Coordinator integration slices separately charge resolution deltas from the automatic merge tree, record ordered parents/default ancestry and advance the chain anchor without laundering unaccepted commits. Review and delivery use the latest recorded anchor. Each authored or resolution slice has an exact allowlist and at most 500 source-line changes. Historical pins retain their meaning.",
   "tags": [
     "workflow",
     "workflow-engine",

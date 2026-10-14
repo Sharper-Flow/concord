@@ -35,9 +35,34 @@ jobs:
           git fetch --no-tags --depth=1 origin +refs/tags/v11.61.0:refs/tags/v11.61.0
           git fetch --no-tags --depth=1 origin +refs/tags/v11.63.30:refs/tags/v11.63.30
           git fetch --no-tags --depth=1 origin +refs/tags/v13.4.0:refs/tags/v13.4.0
+      - name: Set up uv
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884
+        with:
+          version: 0.11.26
+          enable-cache: "false"
+      - name: Warm the uv fixture cache from the committed lock
+        # The only networked uv step. Both commands refuse a lock that no
+        # longer matches its project, and the sync checks every wheel
+        # against the lock's hashes. The store tests copy this cache into
+        # private scratch and run uv offline, so the cache is made read-only.
+        env:
+          UV_CACHE_DIR: ${{ runner.temp }}/native-target-uv-cache
+          UV_PROJECT_ENVIRONMENT: ${{ runner.temp }}/native-target-uv-venv
+          UV_PYTHON_DOWNLOADS: never
+        run: |
+          uv lock --no-config --locked --refresh --python python3 --project internal/store/testdata/native-target-uv
+          uv sync --no-config --locked --no-build --python python3 --project internal/store/testdata/native-target-uv
+          chmod -R a-w "$UV_CACHE_DIR"
       - name: Test every package under the race detector
         # internal/agent under -race runs at ~575-595s on 2-core runners.
         # The 30m timeout leaves headroom for routine growth.
+        env:
+          OC_NATIVE_UV_CACHE: ${{ runner.temp }}/native-target-uv-cache
+          UV_OFFLINE: "1"
+          UV_PYTHON_DOWNLOADS: never
         run: go test -race -timeout=30m ./...
+      - name: Restore write access to the uv fixture cache
+        if: always()
+        run: if [ -d "$RUNNER_TEMP/native-target-uv-cache" ]; then chmod -R u+w "$RUNNER_TEMP/native-target-uv-cache"; fi
       - name: Run govulncheck
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...

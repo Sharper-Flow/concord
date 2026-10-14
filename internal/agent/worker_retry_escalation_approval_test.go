@@ -472,7 +472,7 @@ func applyEscalatedWorkerDispatchAndFailure(t *testing.T, s *store.Store, grant 
 	// The failed terminal carries the recorded host observation the promoted
 	// definition requires; on a released pin the block lands unchanged beside
 	// the store-level record disposition.
-	failure := agentWorkerFailedAttributedEvent("work-1", suffix+"-failed-"+attemptID, attemptID, "openai/gpt-5.6-luna", store.WorkerFailedPayload{AttemptID: attemptID, ReadbackModel: "openai/gpt-5.6-luna", FailureKind: store.WorkerFailureWorkerError, Detail: "synthetic escalated failure"})
+	failure := agentWorkerFailedAttributedEvent(suffix+"-failed-"+attemptID, store.WorkerFailedPayload{AttemptID: attemptID, ReadbackModel: "openai/gpt-5.6-luna", FailureKind: store.WorkerFailureWorkerError, Detail: "synthetic escalated failure"})
 	if err := s.Transact(context.Background(), func(tx *store.Transaction) error {
 		enriched, err := store.PrepareLaneActorDispatch(context.Background(), tx, dispatch, grant.PrincipalRef, grant.ClientRef)
 		if err != nil {

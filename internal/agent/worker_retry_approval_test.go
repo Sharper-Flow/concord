@@ -132,7 +132,7 @@ func TestAuthorizedWorkerRetryChallengesBeforeFailureDisposition(t *testing.T) {
 	// definition derives the failure record from this original terminal in
 	// the same commit; the record keeps the dispatch completion's actor rather
 	// than the terminal producer's actor.
-	failure := agentWorkerFailedAttributedEvent("work-1", "abandon-unstarted-worker", failedID, "", store.WorkerFailedPayload{AttemptID: failedID, FailureKind: store.WorkerFailureAbandoned, Detail: "no admissible dispatch evidence"})
+	failure := agentWorkerFailedAttributedEvent("abandon-unstarted-worker", store.WorkerFailedPayload{AttemptID: failedID, FailureKind: store.WorkerFailureAbandoned, Detail: "no admissible dispatch evidence"})
 	if err := s.Transact(context.Background(), func(tx *store.Transaction) error {
 		_, err := store.ApplyWorkerEvidenceOperationTx(context.Background(), tx, failure)
 		return err
@@ -280,7 +280,7 @@ func TestWorkerRetryApprovalFencesConcurrentAbandonment(t *testing.T) {
 			// and lands through the live worker-evidence seam; the derived
 			// record opens the correction context mid-flight and bumps the
 			// work version under the in-flight retry.
-			failure := agentWorkerFailedAttributedEvent("work-1", "concurrent-abandonment", failedID, "", store.WorkerFailedPayload{AttemptID: failedID, FailureKind: store.WorkerFailureAbandoned, Detail: "synthetic concurrent abandonment"})
+			failure := agentWorkerFailedAttributedEvent("concurrent-abandonment", store.WorkerFailedPayload{AttemptID: failedID, FailureKind: store.WorkerFailureAbandoned, Detail: "synthetic concurrent abandonment"})
 			if err := s.Transact(ctx, func(tx *store.Transaction) error {
 				_, err := store.ApplyWorkerEvidenceOperationTx(ctx, tx, failure)
 				return err
@@ -451,9 +451,9 @@ func agentWorkerFailureAttribution() *store.WorkerFailureAttribution {
 // agentWorkerFailedAttributedEvent builds one current-version worker.failed
 // event carrying the recorded observation, for the fixtures whose terminal
 // fact lands through the live worker-evidence seam on a promoted pin.
-func agentWorkerFailedAttributedEvent(workID, eventID, attemptID, model string, payload store.WorkerFailedPayload) store.Event {
+func agentWorkerFailedAttributedEvent(eventID string, payload store.WorkerFailedPayload) store.Event {
 	payload.FailureAttribution = agentWorkerFailureAttribution()
-	return store.Event{EventID: eventID, Kind: store.WorkerFailed, SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: store.WorkerEvidenceEventPayloadVersion(store.WorkerFailed), Payload: retryJSON(payload)}
+	return store.Event{EventID: eventID, Kind: store.WorkerFailed, SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: store.WorkerEvidenceEventPayloadVersion(store.WorkerFailed), Payload: retryJSON(payload)}
 }
 
 func seedFailedWorkerRetryMutation(t *testing.T, s *store.Store, service *Service, grant Authority) (int64, string, string) {
@@ -487,7 +487,7 @@ func seedFailedWorkerRetryMutation(t *testing.T, s *store.Store, service *Servic
 	lane := retryLane(t)
 	job := authorizedWorkerJob(t, s, attemptID)
 	laneDispatch := store.Event{EventID: "retry-dispatch", Kind: store.WorkerDispatched, SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: 2, Payload: retryJSON(store.WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, PacketDigest: "sha256:" + strings.Repeat("b", 64), ReadbackModel: "openai/gpt-5.6-luna", PacketSchemaVersion: store.WorkerPacketSchemaVersion, ReportSchemaVersion: store.WorkerReportSchemaVersion, WorkerJob: job})}
-	failure := agentWorkerFailedAttributedEvent("work-1", "retry-failed", attemptID, "openai/gpt-5.6-luna", store.WorkerFailedPayload{AttemptID: attemptID, ReadbackModel: "openai/gpt-5.6-luna", FailureKind: store.WorkerFailureWorkerError, Detail: "synthetic failure"})
+	failure := agentWorkerFailedAttributedEvent("retry-failed", store.WorkerFailedPayload{AttemptID: attemptID, ReadbackModel: "openai/gpt-5.6-luna", FailureKind: store.WorkerFailureWorkerError, Detail: "synthetic failure"})
 	if err := s.Transact(context.Background(), func(tx *store.Transaction) error {
 		enriched, err := store.PrepareLaneActorDispatch(context.Background(), tx, laneDispatch, grant.PrincipalRef, grant.ClientRef)
 		if err != nil {

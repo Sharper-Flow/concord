@@ -1346,8 +1346,6 @@ func TestTerminalReportFindingsBindRegistryDomainsOnCurrentHead(t *testing.T) {
 	t.Parallel()
 	fixture := seedWorkContextFixture(t, "ctx-terminal-domain-current")
 	defer fixture.store.Close()
-	lane := BuiltinLaneDefinitions()[0]
-	model := preferredModelForLane(lane)
 	finding := func(domain, rationale string) []WorkerContextFinding {
 		return []WorkerContextFinding{{Kind: "observation", Statement: "a reported claim", SubjectRef: "internal/store/fold.go", EvidenceRefs: []string{}, DomainID: domain, ProductWideRationale: rationale}}
 	}
@@ -1383,7 +1381,7 @@ func TestTerminalReportFindingsBindRegistryDomainsOnCurrentHead(t *testing.T) {
 	if dispatchLane.ID == "" {
 		t.Fatal("lane implement is not registered")
 	}
-	model = preferredModelForLane(dispatchLane)
+	model := preferredModelForLane(dispatchLane)
 	dispatchEvidence := Event{EventID: "dispatched-" + attempt, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: fixture.workID, Actor: "worker:test", OccurredAt: time.Unix(20, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: attempt, LaneID: dispatchLane.ID, LaneVersion: dispatchLane.Version, LaneDigest: dispatchLane.Digest, CapabilityClass: dispatchLane.CapabilityClass, PacketDigest: packetDigest, ReadbackModel: model, PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, WorkerJob: &job})}
 	if err := fixture.store.Transact(context.Background(), func(transaction *Transaction) error {
 		prepared, prepErr := PrepareLaneActorDispatch(context.Background(), transaction, dispatchEvidence, "principal/operator", "client/concord-1")

@@ -148,7 +148,7 @@ func seedFailedPreContractResearchRetry(t *testing.T, s *store.Store, service *S
 	// The failed terminal carries the recorded host observation the promoted
 	// definition requires; the store derives the identity from the attempt's
 	// own dispatch authorization.
-	failure := agentWorkerFailedAttributedEvent("work-1", "precontract-failed", attemptID, "openai/gpt-5.6-luna", store.WorkerFailedPayload{AttemptID: attemptID, ReadbackModel: "openai/gpt-5.6-luna", FailureKind: store.WorkerFailureWorkerError, Detail: "usage limit reached"})
+	failure := agentWorkerFailedAttributedEvent("precontract-failed", store.WorkerFailedPayload{AttemptID: attemptID, ReadbackModel: "openai/gpt-5.6-luna", FailureKind: store.WorkerFailureWorkerError, Detail: "usage limit reached"})
 	if err := s.Transact(context.Background(), func(tx *store.Transaction) error {
 		enriched, err := store.PrepareLaneActorDispatch(context.Background(), tx, laneDispatch, grant.PrincipalRef, grant.ClientRef)
 		if err != nil {

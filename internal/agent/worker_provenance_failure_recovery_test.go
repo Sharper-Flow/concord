@@ -91,7 +91,7 @@ func TestRefusedWorkerProvenanceRecoversWithoutAcceptedEvidence(t *testing.T) {
 			// record_worker_failure authoring shape (CD-0218 D2). The abandonment
 			// carries the recorded host observation the promoted definition
 			// requires: the host observed the closure it performed.
-			failure := agentWorkerFailedAttributedEvent("work-1", "abandon-refused-provenance", failedID, "", store.WorkerFailedPayload{AttemptID: failedID, FailureKind: store.WorkerFailureAbandoned, Detail: "host provenance refused; worker report remains unaccepted"})
+			failure := agentWorkerFailedAttributedEvent("abandon-refused-provenance", store.WorkerFailedPayload{AttemptID: failedID, FailureKind: store.WorkerFailureAbandoned, Detail: "host provenance refused; worker report remains unaccepted"})
 			if err := s.Transact(ctx, func(tx *store.Transaction) error {
 				_, err := store.ApplyWorkerEvidenceOperationTx(ctx, tx, failure)
 				return err

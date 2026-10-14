@@ -48,7 +48,7 @@ func TestDerivedWorkerFailureCorrectionKeepsStorableEvidenceRefs(t *testing.T) {
 	// The invalid-report terminal carries the recorded host observation the
 	// promoted definition requires; the host boundary observed the rejected
 	// report with an unknown cause, and the store derives the identity.
-	failure := agentWorkerFailedAttributedEvent("work-1", "prose-failed", attemptID, "commandcode/z-ai/glm-5.3-flash", store.WorkerFailedPayload{AttemptID: attemptID, ReadbackModel: "commandcode/z-ai/glm-5.3-flash", FailureKind: store.WorkerFailureInvalidReport, Detail: detail})
+	failure := agentWorkerFailedAttributedEvent("prose-failed", store.WorkerFailedPayload{AttemptID: attemptID, ReadbackModel: "commandcode/z-ai/glm-5.3-flash", FailureKind: store.WorkerFailureInvalidReport, Detail: detail})
 	if err := s.Transact(context.Background(), func(tx *store.Transaction) error {
 		enriched, err := store.PrepareLaneActorDispatch(context.Background(), tx, laneDispatch, grant.PrincipalRef, grant.ClientRef)
 		if err != nil {

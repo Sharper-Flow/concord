@@ -229,7 +229,7 @@ func TestFailedReviewCheckpointCorrectionBoundaryApprovesExactOperatorOnly(t *te
 	// definition requires; the host boundary observed the review lane's
 	// failure with an unknown cause, and the store derives the identity from
 	// the attempt's own dispatch authorization.
-	laneFailure := agentWorkerFailedAttributedEvent("work-1", "checkpoint-review-failed-"+attemptID, attemptID, "openai/gpt-5.6-luna", store.WorkerFailedPayload{AttemptID: attemptID, ReadbackModel: "openai/gpt-5.6-luna", FailureKind: store.WorkerFailureWorkerError, Detail: "review lane failed"})
+	laneFailure := agentWorkerFailedAttributedEvent("checkpoint-review-failed-"+attemptID, store.WorkerFailedPayload{AttemptID: attemptID, ReadbackModel: "openai/gpt-5.6-luna", FailureKind: store.WorkerFailureWorkerError, Detail: "review lane failed"})
 	if err := s.Transact(ctx, func(tx *store.Transaction) error {
 		enriched, err := store.PrepareLaneActorDispatch(ctx, tx, laneDispatch, grant.PrincipalRef, grant.ClientRef)
 		if err != nil {

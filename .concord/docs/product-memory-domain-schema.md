@@ -86,6 +86,11 @@ design.
 - Event payloads carry `payload_version`; rebuild must handle every accepted event
   version through explicit upcasters when shapes evolve. This concretizes—without
   fully resolving—CD-0002's migration question.
+- When released shapes share a payload version, replay strictly recognizes the
+  recorded schema before upcasting. Historical recognition does not admit new writes
+  under an obsolete schema and never changes retained event bytes.
+  A released shape that no supported migration carried forward is not replayable;
+  replay refuses it as unrecognized.
 
 The generic event header is not a domain-relation table. PM3 therefore requires
 referential integrity for typed domain edges, but does not choose a universal

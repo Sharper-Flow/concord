@@ -91,6 +91,19 @@ design.
   under an obsolete schema and never changes retained event bytes.
   A released shape that no supported migration carried forward is not replayable;
   replay refuses it as unrecognized.
+- Replay preserves the effects of supported released writers, including when
+  their payload schemas are identical. Different effects require an authoritative
+  discriminator retained with the event or its preceding authority.
+  A definition pin identifies immutable content, not a writer era.
+- Without such a discriminator, correction replay may use a finite compatibility
+  table keyed by the verified definition pin and recorded source step.
+  A writer rule applies to a key only where that writer's admission accepted
+  a correction at that key.
+  Every supported writer rule applicable to a shared key must yield the same
+  target. An unrecognized or conflicting key refuses replay.
+  The historical graph walk may prove table entries but must not run during replay.
+  Historical interpretation never admits obsolete live operations or changes
+  retained event bytes.
 
 The generic event header is not a domain-relation table. PM3 therefore requires
 referential integrity for typed domain edges, but does not choose a universal

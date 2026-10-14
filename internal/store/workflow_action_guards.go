@@ -394,9 +394,65 @@ func workflowStepFollows(definition WorkflowDefinition, earlierStep, currentStep
 	return false
 }
 
-// guardRecoveryEvidenceBind admits one outstanding evidence requirement after
-// the definition's evidence-binding step. It also guards the typed recovery
-// action declared by definition version 6.
+type workflowEvidenceBindingRecoveryState struct {
+	Requirements []workflowEvidenceRequirement
+	// Refusal belongs to bind_evidence, not to another action whose admission
+	// happens to probe binding availability in the same snapshot.
+	Refusal *Failure
+}
+
+// workflowEvidenceBindingRecoveryEligibility is the tx-scoped owner for
+// recovery calls, discovery, and completed-action validation. Read failures
+// remain errors; a predicate refusal is a fact about this action's eligibility.
+func workflowEvidenceBindingRecoveryEligibility(ctx context.Context, q queryer, definition WorkflowDefinition, workID, currentStep string, beforeSeq int64) (workflowEvidenceBindingRecoveryState, error) {
+	var state workflowEvidenceBindingRecoveryState
+	bindingStep := workflowEvidenceRecoveryBindingStep(definition, currentStep)
+	if bindingStep == "" || !workflowStepFollows(definition, bindingStep, currentStep) {
+		return state, nil
+	}
+	required, mandates, obligations, cutoff, err := workflowEvidenceRequirementInputs(ctx, q, workID)
+	if err != nil {
+		if workflowMissingContractProjection(err) {
+			return state, nil
+		}
+		return state, err
+	}
+	requirements := workflowEvidenceRequirementDefinitions(required, mandates, definition, obligations)
+	contractVersion, err := activeWorkflowContractVersion(ctx, q, workID, "workflow_action")
+	if err != nil {
+		return state, err
+	}
+	predicates, err := readWorkflowContractPredicates(ctx, q, workID, contractVersion)
+	if err != nil {
+		return state, err
+	}
+	verdicts, err := latestWorkflowVerdictsBefore(ctx, q, workID, contractVersion, beforeSeq)
+	if err != nil {
+		return state, err
+	}
+	verdicted := make(map[string]bool, len(verdicts))
+	for _, verdict := range verdicts {
+		verdicted[verdict.PredicateID] = true
+	}
+	for _, predicate := range predicates {
+		if verdicted[predicate.PredicateID] {
+			continue
+		}
+		approved, decodeErr := DecodeWorkflowPredicate([]byte(predicate.OutcomePayload))
+		if decodeErr != nil || string(approved.Kind) != predicate.OutcomeKind {
+			state.Refusal = newFailure(KindInvariantViolation, "workflow_action", "approved outcome predicate is malformed or mismatched", false, "reread_entities")
+			return state, nil
+		}
+		if approved.Kind == PredicateCheck {
+			requirements = append(requirements, workflowEvidenceRequirement{Kind: string(EvidenceVerification), Reference: approved.ImmutableSubjectRef})
+		}
+	}
+	state.Requirements, err = unboundWorkflowEvidenceRequirements(ctx, q, workID, requirements, cutoff, beforeSeq)
+	return state, err
+}
+
+// guardRecoveryEvidenceBind admits an outstanding requirement or verification
+// of an unverdicted active check, without reopening an already bound tuple.
 func guardRecoveryEvidenceBind(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep string, payload json.RawMessage, subject string) (bool, error) {
 	bindingStep := workflowEvidenceRecoveryBindingStep(definition, currentStep)
 	if bindingStep == "" || !workflowStepFollows(definition, bindingStep, currentStep) {
@@ -409,7 +465,7 @@ func guardRecoveryEvidenceBind(ctx context.Context, q queryer, workID string, de
 	reference := workflowFieldStringDefault(fields, "evidence_ref", "")
 	reference = workflowFieldStringDefault(fields, "immutable_subject_ref", reference)
 	kind := workflowFieldStringDefault(fields, "evidence_kind", "verification")
-	required, mandates, obligations, cutoff, inputsErr := workflowEvidenceRequirementInputs(ctx, q, workID)
+	_, _, _, cutoff, inputsErr := workflowEvidenceRequirementInputs(ctx, q, workID)
 	if inputsErr != nil {
 		return false, inputsErr
 	}
@@ -422,11 +478,14 @@ func guardRecoveryEvidenceBind(ctx context.Context, q queryer, workID string, de
 			return false, newFailure(KindIllegalLifecycleTransition, subject, "recovery bind_evidence cannot reopen an already bound evidence tuple", false, fmt.Sprintf("use bind_evidence on step %q before advancing", bindingStep))
 		}
 	}
-	requirements, requirementsErr := outstandingWorkflowEvidenceRequirements(ctx, q, workID, required, mandates, definition, obligations, cutoff)
+	recovery, requirementsErr := workflowEvidenceBindingRecoveryEligibility(ctx, q, definition, workID, currentStep, 0)
 	if requirementsErr != nil {
 		return false, requirementsErr
 	}
-	for _, requirement := range requirements {
+	if recovery.Refusal != nil {
+		return false, recovery.Refusal
+	}
+	for _, requirement := range recovery.Requirements {
 		if requirement.Kind != "" && requirement.Kind != kind {
 			continue
 		}
@@ -435,7 +494,7 @@ func guardRecoveryEvidenceBind(ctx context.Context, q queryer, workID string, de
 		}
 		return true, nil
 	}
-	return false, newFailure(KindIllegalLifecycleTransition, subject, "recovery bind_evidence is only available for an outstanding contract evidence requirement", false, fmt.Sprintf("use bind_evidence on step %q before advancing", bindingStep))
+	return false, newFailure(KindIllegalLifecycleTransition, subject, "recovery bind_evidence requires an outstanding contract evidence requirement or an unbound verification subject for an unverdicted active check", false, fmt.Sprintf("use bind_evidence on step %q before advancing", bindingStep))
 }
 
 // guardSupersedeContractRecovery keeps the supersede payload checks the

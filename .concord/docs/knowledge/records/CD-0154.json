@@ -40,7 +40,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:11c4cac318368ea7a1b7a0aa4c372ddb505d02cbe21e93ae8deb6d965d7b68ec",
+  "sha256": "sha256:1ea2f7d3db00a0dbff61047aea42b60b7b2e3ed2c2595ee86ff8116d4f8696c9",
   "status": "accepted",
   "summary": "Concord keeps concord-0, concord-1, and concord-2 host-owned, supplies inert portable examples, and leaves live numbered definitions unchanged through every installer operation.",
   "tags": [

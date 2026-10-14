@@ -1142,7 +1142,8 @@ class NativeOracleLaneInstructionTests(unittest.TestCase):
         text = lanes.acceptance_oracle_instructions(packet_schema)
         for claim in ("authenticated host", "native_oracle_v2", "without test execution", "readiness only",
                       "Managed workers", "gain no Concord tools", "Ordinary test output",
-                      "Never author `subject_commit`", "never", "invent a locator"):
+                      "Never author `subject_commit`", "never", "invent a locator",
+                      "target_runner_v1", "materializer", "runner", "collection"):
             self.assertIn(claim, text)
         self.assertNotIn("candidate_subject", text)
         self.assertNotIn("Run the declared controls within your lane permissions", text)
@@ -1365,6 +1366,13 @@ class NativeOracleRequestProjectionTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.validate(invalid, name)
         self.assertIn("readiness_evidence_refs", defs["worker_oracle_control"]["required"])
+        # The prepare teaching names both recipe families explicitly: the
+        # pure-Go harness compiles, a target_runner_v1 recipe runs only its
+        # collection or check-input stage, and both grant readiness only.
+        description = defs["native_oracle_request"]["description"]
+        for claim in ("target_runner_v1", "compiles", "collection", "check-input", "readiness only"):
+            self.assertIn(claim, description)
+        self.assertNotIn("prepare compiles", description)
 
     def test_output_read_has_bounded_bytes_and_no_mutation_or_path_selector(self):
         name = "work_browse_worktree_inspect_input"
@@ -1436,6 +1444,70 @@ class NativeOracleRequestProjectionTests(unittest.TestCase):
         incomplete["streams_complete"] = False
         with self.assertRaises(ValueError):
             self.validate(incomplete, "native_oracle_result")
+        go_pass_without_witnesses = {key: value for key, value in execute.items() if key != "observed_test_names"}
+        with self.assertRaises(ValueError):
+            self.validate(go_pass_without_witnesses, "native_oracle_result")
+        # The target_runner_v1 family is the second closed branch of the same
+        # record: the discriminator and both axes are required, real witness
+        # IDs replace the Go test-name grammar, and the legacy Go fields are
+        # forbidden. Only the three admitted pairs validate.
+        target = {key: value for key, value in preparation.items()
+                  if key not in ("selected_test_names", "case_to_test_map")}
+        witness = "tests/test_billing.py::test_invoice_total"
+        target.update({
+            "recipe_kind": "target_runner_v1", "target_materializer": "uv", "target_runner": "pytest",
+            "selected_witness_ids": [witness], "case_to_witness_map": {"case:one": [witness]},
+        })
+        self.validate(target, "native_oracle_preparation")
+        for pair in ({"target_materializer": "none", "target_runner": "check"},
+                     {"target_materializer": "uv", "target_runner": "check"}):
+            self.validate(target | pair, "native_oracle_preparation")
+        partial_target = {key: value for key, value in preparation.items() if key != "selected_test_names"}
+        partial_target.update({"recipe_kind": "target_runner_v1", "target_materializer": "uv",
+                               "target_runner": "pytest", "selected_witness_ids": [witness],
+                               "case_to_witness_map": {"case:one": [witness]}})
+        for invalid in (
+            target | {"target_materializer": "none", "target_runner": "pytest"},
+            target | {"target_materializer": "future", "target_runner": "pytest"},
+            target | {"target_runner": "future"},
+            target | {"recipe_kind": "target_runner_v2"},
+            target | {"selected_test_names": ["TestOne"]},
+            target | {"case_to_test_map": {"case:one": ["TestOne"]}},
+            partial_target,
+            target | {"selected_witness_ids": []},
+            target | {"selected_witness_ids": [witness, witness]},
+            target | {"selected_witness_ids": ["x" * 257]},
+            target | {"selected_witness_ids": ["na\x00l"]},
+            target | {"case_to_witness_map": {}},
+            target | {"case_to_witness_map": {"not-a-case": [witness]}},
+            target | {"case_to_witness_map": {"case:one": [f"w{index}" for index in range(9)]}},
+            target | {"selected_witness_ids": [f"w{index}" for index in range(41)],
+                      "selected_distinct_count": 41,
+                      "case_to_witness_map": {f"case:c{index}": [f"w{index}"] for index in range(41)}},
+            # Cross-field joins the schema cannot express — count equality
+            # and map-witness membership — are the readiness and core
+            # consumer obligation, proven in the adapter's readiness tests.
+        ):
+            with self.assertRaises(ValueError):
+                self.validate(invalid, "native_oracle_preparation")
+        target_prepare_result = target | {"control_id": "control:one", "stages": []}
+        self.validate(target_prepare_result, "native_oracle_result")
+        target_execute = target_prepare_result | {"phase": "execute", "qualification": "pass", "attempt_id": "attempt-1",
+            "attempt_epoch": 1, "worker_packet_digest": "sha256:" + "a" * 64,
+            "worker_job_binding": {"job_id": "job:one", "revision": 1, "digest": "sha256:" + "b" * 64},
+            "preparation_run_ref": "run:prepare", "authorization_event_id": "event:dispatch", "authorization_seq": 9, "start_seq": 8,
+            "input_manifest_digest": "sha256:" + "c" * 64, "binary_digest": "sha256:" + "d" * 64,
+            "observed_witness_ids": [witness]}
+        self.validate(target_execute, "native_oracle_result")
+        for invalid in (
+            target_execute | {"observed_test_names": ["TestOne"]},
+            {key: value for key, value in target_execute.items() if key != "observed_witness_ids"},
+        ):
+            with self.assertRaises(ValueError):
+                self.validate(invalid, "native_oracle_result")
+        for invalid in (execute | {"observed_witness_ids": ["w"]},):
+            with self.assertRaises(ValueError):
+                self.validate(invalid, "native_oracle_result")
 
     def test_projection_is_idempotent_and_keeps_navigation_and_report_pins(self):
         actions, workflows, teaching, _ = generator.load_workflow_action_contracts()

@@ -24,6 +24,94 @@ func TestTrustedClientWithKeyRoundTrip(t *testing.T) {
 	}
 }
 
+func TestTrustedClientInspectionAndStrictReaders(t *testing.T) {
+	for _, state := range []string{"active", "keyless", "revoked", "revoked-active-key", "unknown"} {
+		t.Run(state, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			s, err := Open(ctx, filepath.Join(t.TempDir(), "concord.db"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer s.Close()
+			client := TrustedClientRecord{ClientRef: "client-1", Status: "active", PrincipalRef: "principal-1", CapabilitiesJSON: `["product_read"]`, ProductScopeJSON: `[]`, ProjectScopeJSON: `[]`, AgentScopeJSON: `[]`, PolicyRevision: 1}
+			key := TrustedClientKeyRecord{ClientRef: client.ClientRef, KeyID: "key-1", PublicKey: make([]byte, 32), Status: "active"}
+			if err := s.RegisterTrustedClient(ctx, client, key, "2026-01-01T00:00:00Z"); err != nil {
+				t.Fatal(err)
+			}
+			ref := client.ClientRef
+			switch state {
+			case "keyless":
+				if _, err := s.db.Exec(`UPDATE agent_client_keys SET status='revoked', revoked_at='now' WHERE client_ref=?`, ref); err != nil {
+					t.Fatal(err)
+				}
+			case "revoked", "revoked-active-key":
+				if err := s.RevokeTrustedClient(ctx, ref, "2026-01-02T00:00:00Z"); err != nil {
+					t.Fatal(err)
+				}
+				client.Status = "revoked"
+				if state == "revoked-active-key" {
+					if _, err := s.db.Exec(`UPDATE agent_client_keys SET status='active', revoked_at=NULL WHERE client_ref=?`, ref); err != nil {
+						t.Fatal(err)
+					}
+				}
+			case "unknown":
+				ref = "missing"
+			}
+			checkFailure := func(err error) {
+				t.Helper()
+				var failure *Failure
+				if !errors.As(err, &failure) || failure.Kind != KindProjectionNotFound || failure.Op != "agent_client_read" || failure.Detail != "unknown or keyless client" {
+					t.Fatalf("failure=%v, want unchanged typed keyed refusal", err)
+				}
+			}
+			got, err := s.TrustedClient(ctx, ref)
+			if state == "unknown" {
+				checkFailure(err)
+			} else if err != nil || got != client {
+				t.Fatalf("inspection=%+v err=%v want=%+v", got, err, client)
+			}
+			checkKeyed := func(got TrustedClientRecord, gotKey TrustedClientKeyRecord, err error) {
+				t.Helper()
+				if state != "active" {
+					checkFailure(err)
+					return
+				}
+				if err != nil || got != client || gotKey.KeyID != key.KeyID || gotKey.Status != "active" {
+					t.Fatalf("strict=%+v key=%+v err=%v", got, gotKey, err)
+				}
+			}
+			checkKeyed(s.TrustedClientWithKey(ctx, ref))
+			if err := s.Transact(ctx, func(tx *Transaction) error {
+				checkKeyed(TrustedClientWithKeyTx(ctx, tx, ref))
+				return nil
+			}); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestTrustedClientQueryFailuresAreUnavailable(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(ctx, filepath.Join(t.TempDir(), "concord.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	for _, read := range []func() error{
+		func() error { _, err := s.TrustedClient(ctx, "client-1"); return err },
+		func() error { _, _, err := s.TrustedClientWithKey(ctx, "client-1"); return err },
+	} {
+		var failure *Failure
+		if err := read(); !errors.As(err, &failure) || failure.Kind != KindUnavailable {
+			t.Fatalf("query error=%v, want unavailable", err)
+		}
+	}
+}
+
 func TestRevokeTrustedClientRequiresExactlyOneActiveRow(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

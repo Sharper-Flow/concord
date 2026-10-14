@@ -177,16 +177,9 @@ func VerifyCommittedNote(ctx context.Context, repo, commitOID, notePath, expecte
 	if err := validateNotePath(notePath); err != nil {
 		return VerifiedNote{}, err
 	}
-	entry, err := gitTreeEntry(ctx, repo, commitOID, notePath)
+	_, content, err := committedRegularBlobBytes(ctx, runGitRunner{}, repo, commitOID, notePath)
 	if err != nil {
 		return VerifiedNote{}, err
-	}
-	if entry.mode != "100644" && entry.mode != "100755" || entry.kind != "blob" {
-		return VerifiedNote{}, newFailure(KindInvalidNoteProof, "verify_note", "canonical note is not an ordinary blob", false, "commit a regular markdown file under an eligible note directory")
-	}
-	content, err := runGit(ctx, repo, "cat-file", "blob", commitOID+":"+notePath)
-	if err != nil {
-		return VerifiedNote{}, wrapFailure(KindInvalidNoteProof, "verify_note", "cannot read the committed note blob", true, "confirm the commit and path are available", err)
 	}
 	if len(content) > maxKnowledgeNote {
 		return VerifiedNote{}, newFailure(KindInvalidNoteProof, "verify_note", "note exceeds the bounded size", false, "split the note into bounded durable records")
@@ -256,7 +249,14 @@ type treeEntry struct {
 }
 
 func gitTreeEntry(ctx context.Context, repo, commitOID, notePath string) (treeEntry, error) {
-	out, err := runGit(ctx, repo, "ls-tree", "-z", commitOID, "--", notePath)
+	return gitTreeEntryRunner(ctx, runGitRunner{}, repo, commitOID, notePath)
+}
+
+// gitTreeEntryRunner resolves exactly one tree entry at the declared path
+// through the caller's runner, so the dispatch preparation can inject a test
+// runner and keep one shared deadline. A missing or ambiguous path refuses.
+func gitTreeEntryRunner(ctx context.Context, runner GitRunner, repo, commitOID, notePath string) (treeEntry, error) {
+	out, err := runner.Run(ctx, repo, "ls-tree", "-z", commitOID, "--", notePath)
 	if err != nil {
 		return treeEntry{}, wrapFailure(KindInvalidNoteProof, "verify_note", "cannot inspect the committed tree", true, "confirm the git home and commit are reachable", err)
 	}
@@ -265,6 +265,26 @@ func gitTreeEntry(ctx context.Context, repo, commitOID, notePath string) (treeEn
 		return treeEntry{}, newFailure(KindInvalidNoteProof, "verify_note", "note path is missing or ambiguous in the committed tree", false, "use exactly one ordinary blob at the canonical path")
 	}
 	return entries[0], nil
+}
+
+// committedRegularBlobBytes is the shared committed-blob proof primitive: it
+// resolves exactly one ordinary blob (100644/100755) at the declared path and
+// commit through the caller's runner and returns its bytes. VerifyCommittedNote
+// and the dispatch reading resolution both prove committed content through
+// this one owner.
+func committedRegularBlobBytes(ctx context.Context, runner GitRunner, repo, commitOID, path string) (treeEntry, []byte, error) {
+	entry, err := gitTreeEntryRunner(ctx, runner, repo, commitOID, path)
+	if err != nil {
+		return treeEntry{}, nil, err
+	}
+	if entry.mode != "100644" && entry.mode != "100755" || entry.kind != "blob" {
+		return treeEntry{}, nil, newFailure(KindInvalidNoteProof, "verify_note", "committed blob is not an ordinary blob", false, "commit a regular blob at the declared path")
+	}
+	content, err := runner.Run(ctx, repo, "cat-file", "blob", commitOID+":"+path)
+	if err != nil {
+		return treeEntry{}, nil, wrapFailure(KindInvalidNoteProof, "verify_note", "cannot read the committed blob", true, "confirm the commit and path are available", err)
+	}
+	return entry, content, nil
 }
 
 func scanKnowledgeTree(ctx context.Context, home KnowledgeHome, commitOID string) ([]string, error) {
@@ -537,6 +557,10 @@ func knowledgeContentDigest(ctx context.Context, home KnowledgeHome, commitOID s
 }
 
 func runGit(ctx context.Context, repo string, args ...string) ([]byte, error) {
+	return runGitEnv(ctx, repo, nil, args...)
+}
+
+func runGitEnv(ctx context.Context, repo string, env []string, args ...string) ([]byte, error) {
 	if repo == "" {
 		return nil, fmt.Errorf("empty git repository path")
 	}
@@ -544,6 +568,9 @@ func runGit(ctx context.Context, repo string, args ...string) ([]byte, error) {
 	defer cancel()
 	cmdArgs := append([]string{"-C", repo}, args...)
 	cmd := exec.CommandContext(gitCtx, "git", cmdArgs...) //nolint:gosec // git is fixed, callers pass separate guarded argv values, and no shell is invoked.
+	if len(env) > 0 {
+		cmd.Env = append(os.Environ(), env...)
+	}
 	output := boundedGitOutput{limit: maxGitOutput}
 	cmd.Stdout = &output
 	if err := cmd.Run(); err != nil {
@@ -553,6 +580,45 @@ func runGit(ctx context.Context, repo string, args ...string) ([]byte, error) {
 		return nil, fmt.Errorf("git command output exceeds %d-byte limit", maxGitOutput)
 	}
 	return output.Bytes(), nil
+}
+
+// The committed-read policy of the pinned-source proofs. A reading proof
+// must decide from locally committed content only: a lazy fetch would turn a
+// missing pinned object into a network fetch, and a replacement ref would
+// substitute different content under the exact pinned identity. The two
+// environment variables are Git's documented per-command equivalents of
+// --no-lazy-fetch (git(1): "Setting this Boolean environment variable to
+// true tells Git not to lazily fetch missing objects from the promisor
+// remote on demand") and --no-replace-objects (git(1): "ignore replacement
+// refs and do not replace Git objects"). The policy rides only these
+// read-only committed-object commands; explicit fetch routes elsewhere are
+// unaffected.
+const (
+	gitNoLazyFetchEnv      = "GIT_NO_LAZY_FETCH"
+	gitNoReplaceObjectsEnv = "GIT_NO_REPLACE_OBJECTS"
+)
+
+func committedReadGitEnv() []string {
+	return []string{gitNoLazyFetchEnv + "=1", gitNoReplaceObjectsEnv + "=1"}
+}
+
+// CommittedReadGitRunner executes read-only committed-object Git commands
+// under the committed-read policy, with bounded output and the caller's
+// deadline. It is the default runner of the dispatch reading resolution; an
+// injected test runner replaces it whole.
+type CommittedReadGitRunner struct{}
+
+func (CommittedReadGitRunner) Run(ctx context.Context, dir string, args ...string) ([]byte, error) {
+	return runGitEnv(ctx, dir, committedReadGitEnv(), args...)
+}
+
+// runGitRunner adapts the bounded package Git execution to the GitRunner
+// seam, so runner-threaded proofs keep runGit's exact behavior when no
+// caller passes a runner.
+type runGitRunner struct{}
+
+func (runGitRunner) Run(ctx context.Context, dir string, args ...string) ([]byte, error) {
+	return runGit(ctx, dir, args...)
 }
 
 // boundedGitOutput prevents a hostile or malformed git object/tree from

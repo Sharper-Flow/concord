@@ -173,11 +173,11 @@ func workerFailedContextFindingsEvent(workID, eventID, attemptID, model, failure
 // stored event payload retains the findings bytes verbatim.
 func TestWorkerTerminalEventsAdmitTypedContextFindings(t *testing.T) {
 	t.Parallel()
-	if got := WorkerEvidenceEventPayloadVersion(WorkerCompleted); got != 6 {
-		t.Fatalf("worker.completed current payload version = %d, want 6", got)
+	if got := WorkerEvidenceEventPayloadVersion(WorkerCompleted); got != 7 {
+		t.Fatalf("worker.completed current payload version = %d, want 7", got)
 	}
-	if got := WorkerEvidenceEventPayloadVersion(WorkerFailed); got != 2 {
-		t.Fatalf("worker.failed current payload version = %d, want 2", got)
+	if got := WorkerEvidenceEventPayloadVersion(WorkerFailed); got != 3 {
+		t.Fatalf("worker.failed current payload version = %d, want 3", got)
 	}
 	fixture := seedWorkContextFixture(t, "work-findings-admit")
 	defer fixture.store.Close()
@@ -305,8 +305,8 @@ func TestWorkerTerminalContextFindingsUpcastAndRebuildDeterministic(t *testing.T
 		if err != nil {
 			t.Fatal(err)
 		}
-		if upcast.PayloadVersion != 6 {
-			t.Fatalf("upcast completion version = %d, want 6", upcast.PayloadVersion)
+		if upcast.PayloadVersion != 7 {
+			t.Fatalf("upcast completion version = %d, want 7", upcast.PayloadVersion)
 		}
 		if string(upcast.Payload) != string(legacyCompletion.Payload) {
 			t.Fatalf("v4 completion upcast rewrote bytes:\n%s\nwant\n%s", upcast.Payload, legacyCompletion.Payload)
@@ -316,8 +316,8 @@ func TestWorkerTerminalContextFindingsUpcastAndRebuildDeterministic(t *testing.T
 		if err != nil {
 			t.Fatal(err)
 		}
-		if upcast.PayloadVersion != 2 {
-			t.Fatalf("upcast failure version = %d, want 2", upcast.PayloadVersion)
+		if upcast.PayloadVersion != 3 {
+			t.Fatalf("upcast failure version = %d, want 3", upcast.PayloadVersion)
 		}
 		if string(upcast.Payload) != string(legacyFailure.Payload) {
 			t.Fatalf("v1 failure upcast rewrote bytes:\n%s\nwant\n%s", upcast.Payload, legacyFailure.Payload)

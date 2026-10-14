@@ -287,6 +287,10 @@ func TestAuthorizedCheckpointFailureRecoveryNeedsNoDispatchEvidence(t *testing.T
 	const attemptID = "attempt:authorized-checkpoint-failure"
 	fixture := seedWorkflowReturnRouteFixtureRequiring(t, workID, "workflow.break_fix", "verify", []string{"verification"}, []string{"verification", "artifact"})
 	s := fixture.store
+	// The review gate joins the accepted implementation delivery before the
+	// checkpoint review authorizes; the disposition assertion below stays
+	// scoped to this attempt's own dispatch population.
+	seedCheckpointReviewAcceptedDelivery(t, s, workID, fixture.owner, "repair", "verify")
 	laneVersion, laneDigest := registeredLaneIdentity(t, "review")
 	packet := joinPacketFor(t, s, workID, "verify", attemptID, "review", laneVersion, laneDigest)
 	if _, err := dispatchJoinAttempt(context.Background(), t, s, workID, verdictItemVersion(t, s, workID), fixture.owner, packet); err != nil {

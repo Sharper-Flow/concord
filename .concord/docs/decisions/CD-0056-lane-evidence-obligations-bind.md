@@ -200,6 +200,18 @@ candidate selects, an announced malformed final candidate refuses, and two
 candidates refuse as ambiguous. No admission path selects a report by taking
 the last parseable JSON object.
 
+Amended 2026-10-13 for the core-derived terminal identity
+([Linear](https://linear.app/sharper-flow/issue/CON-887/one-shared-typed-work-context-packet-per-work-item-read-and-extended)):
+the terminal boundary also carries producer-owned identity the core derives,
+not reported evidence. A completed implementation report's
+`observed_delivery` and every terminal event's `consumed_context_frontier`
+come from the store's own observation and the attempt's dispatch
+authorization (CD-0067 D2). A worker echo of either field refuses the report
+closed, the adapter supplies neither field, and the closed schema carries no
+worker-authored member for them. Reported findings and evidence keep their
+reported-claim standing. Neither the observation nor the frontier turns a
+finding into a verdict or an obligation into a discharge.
+
 ### D8. What this decision does not do
 
 It does not connect lane evidence to the workflow `EvidenceKind` enum. Those

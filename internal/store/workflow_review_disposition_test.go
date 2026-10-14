@@ -297,6 +297,7 @@ func TestRefineReviewEvidenceCorrectionHoldsUndispositionedAuthorization(t *test
 			}
 			fixture := seedWorkflowReturnRouteFixtureWithDefinition(t, workID, definition, "refine", []string{"review"}, []string{"review"})
 			s := fixture.store
+			seedCheckpointReviewAcceptedDelivery(t, s, workID, fixture.owner, checkpointEffectStep(t, s, workID, "refine"), "refine")
 			ownerRef, err := WorkflowActorRef(fixture.owner)
 			if err != nil {
 				t.Fatal(err)
@@ -354,6 +355,7 @@ func TestRefineReviewEvidenceCorrectionClosesOnFencedDispatch(t *testing.T) {
 			}
 			fixture := seedWorkflowReturnRouteFixtureWithDefinition(t, workID, definition, "refine", []string{"review"}, []string{"review"})
 			s := fixture.store
+			seedCheckpointReviewAcceptedDelivery(t, s, workID, fixture.owner, checkpointEffectStep(t, s, workID, "refine"), "refine")
 			reviewGateStartStep(t, s, workID, "refine", "start_refine", fixture.owner)
 			reviewID := "attempt:" + workID + ":review"
 			epoch := dispatchCheckpointReviewAttempt(t, fixture, workID, "refine", reviewID)

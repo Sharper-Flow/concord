@@ -490,7 +490,7 @@ func validateWorkflowActionPayloadInDocument(document map[string]any, definition
 		payload = json.RawMessage(`{}`)
 	}
 	var fields map[string]json.RawMessage
-	if err := decodePredicateStrict(payload, &fields); err != nil {
+	if err := decodeWorkflowActionPayloadStrict(payload, &fields); err != nil {
 		return newFailure(KindInvalidPayload, "workflow_action_preflight", "workflow action payload is not one strict JSON object", false, "supply the registered action payload")
 	}
 	if err := validateEvidenceBindingReferencesWithReference(actionID, fields, validReference); err != nil {

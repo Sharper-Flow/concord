@@ -192,8 +192,8 @@ func validateUnevaluatedProperties(value any, schema map[string]any, root map[st
 			remaining = append(remaining, key)
 		}
 	}
+	sort.Strings(remaining)
 	if additionalPropertiesFalse, ok := unevaluated.(bool); ok && !additionalPropertiesFalse && len(remaining) > 0 {
-		sort.Strings(remaining)
 		segments := make([]string, 0, len(remaining))
 		for _, key := range remaining {
 			segments = append(segments, fmt.Sprintf("unevaluated property %s.%s", path, key))
@@ -362,8 +362,8 @@ func validateValueKeywords(value any, schema map[string]any, path string) error 
 // additionalProperties is false, every undeclared key, and returns one
 // refusal that names them all: missing fields in declared order, then
 // undeclared keys sorted by name. Each segment keeps the per-field message
-// callers match today. Value keywords keep stop-at-first behavior and run
-// only after the structure is complete.
+// callers match today. Value keywords keep stop-at-first behavior, visit map
+// keys in lexical order, and run only after the structure is complete.
 func validateObjectKeywords(object map[string]any, schema map[string]any, root map[string]any, path string) (map[string]bool, error) {
 	evaluated := map[string]bool{}
 	properties, _ := schema["properties"].(map[string]any)
@@ -399,9 +399,9 @@ func validateObjectKeywords(object map[string]any, schema map[string]any, root m
 	if err := validateAdditionalProperties(object, schema, properties, patterns, root, path, evaluated); err != nil {
 		return nil, err
 	}
-	for key, raw := range properties {
+	for _, key := range sortedKeys(properties) {
 		if entry, exists := object[key]; exists {
-			child, ok := raw.(map[string]any)
+			child, ok := properties[key].(map[string]any)
 			if !ok {
 				return nil, fmt.Errorf("invalid schema property %s", key)
 			}
@@ -436,9 +436,9 @@ func validateAdditionalProperties(object, schema, properties, patterns map[strin
 	if !ok {
 		return nil
 	}
-	for key, entry := range object {
+	for _, key := range sortedKeys(object) {
 		if _, exists := properties[key]; !exists && !matchesPattern(patterns, key) {
-			if err := validateSchemaValue(entry, child, root, path+"."+key); err != nil {
+			if err := validateSchemaValue(object[key], child, root, path+"."+key); err != nil {
 				return err
 			}
 			evaluated[key] = true
@@ -450,14 +450,15 @@ func validateAdditionalProperties(object, schema, properties, patterns map[strin
 // validatePatternProperties validates each object key its declared pattern
 // matches and folds it into the evaluated set.
 func validatePatternProperties(patterns map[string]any, object map[string]any, root map[string]any, path string, evaluated map[string]bool) error {
-	for pattern, raw := range patterns {
-		child, ok := raw.(map[string]any)
+	keys := sortedKeys(object)
+	for _, pattern := range sortedKeys(patterns) {
+		child, ok := patterns[pattern].(map[string]any)
 		if !ok {
 			return fmt.Errorf("invalid schema pattern property %s", pattern)
 		}
-		for key, entry := range object {
+		for _, key := range keys {
 			if regexp.MustCompile(pattern).MatchString(key) {
-				if err := validateSchemaValue(entry, child, root, path+"."+key); err != nil {
+				if err := validateSchemaValue(object[key], child, root, path+"."+key); err != nil {
 					return err
 				}
 				evaluated[key] = true
@@ -468,12 +469,21 @@ func validatePatternProperties(patterns map[string]any, object map[string]any, r
 }
 
 func matchesPattern(patterns map[string]any, key string) bool {
-	for pattern := range patterns {
+	for _, pattern := range sortedKeys(patterns) {
 		if regexp.MustCompile(pattern).MatchString(key) {
 			return true
 		}
 	}
 	return false
+}
+
+func sortedKeys(object map[string]any) []string {
+	keys := make([]string, 0, len(object))
+	for key := range object {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 func validateArrayKeywords(array []any, schema map[string]any, root map[string]any, path string) error {
@@ -676,12 +686,7 @@ func schemaDiscriminator(branch map[string]any) string {
 	if !ok {
 		return ""
 	}
-	names := make([]string, 0, len(properties))
-	for name := range properties {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	for _, name := range names {
+	for _, name := range sortedKeys(properties) {
 		property, ok := properties[name].(map[string]any)
 		if !ok {
 			continue

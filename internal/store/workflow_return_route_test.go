@@ -851,6 +851,7 @@ func countWorkflowCompletionEvents(t *testing.T, s *Store, workID string) int {
 // the report unbound until an accept action settles it.
 func dispatchVerifyReviewAttempt(t *testing.T, fixture workflowReturnRouteFixture, workID string) {
 	t.Helper()
+	seedCheckpointReviewAcceptedDelivery(t, fixture.store, workID, fixture.owner, checkpointEffectStep(t, fixture.store, workID, "verify"), "verify")
 	lane := reviewGateLane(t, "review")
 	laneVersion, laneDigest := registeredLaneIdentity(t, "review")
 	attemptID := "attempt:" + workID + ":verify-review"

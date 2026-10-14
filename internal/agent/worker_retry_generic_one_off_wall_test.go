@@ -64,6 +64,11 @@ func seedGenericOneOffWorkflowAtStep(t *testing.T, s *store.Store, grant Authori
 	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worktree_entries WHERE set_id=? AND state='active'`, store.WorktreeSetID("work-1")).Scan(&claimed); err != nil || claimed != 1 {
 		t.Fatalf("verify-wall worktree claim count=%d err=%v", claimed, err)
 	}
+	// The review gate joins the accepted implementation delivery on this
+	// claim, so the claim carries its real candidate, the qualified verify
+	// subject, and the accepted prerequisite before any journey dispatch.
+	seedOracleVerifySubjectForWork(t, s, "work-1")
+	seedGenericOneOffAcceptedImplementation(t, s, grant, path, step)
 	return path
 }
 
@@ -78,8 +83,16 @@ func runGenericOneOffStoreAction(t *testing.T, s *store.Store, action string, fi
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Transact(context.Background(), func(tx *store.Transaction) error {
-		_, err := store.ApplyWorkflowActionTx(context.Background(), tx, store.BuiltinWorkflowRegistry(), store.WorkflowActionExecutionRequest{
+	// Live dispatch assembly requires the sealed preparation the
+	// authenticated boundary prepares, so this raw route prepares one the
+	// same way before the transaction opens.
+	preparation, preparationErr := store.PrepareWorkerDispatchFreshness(context.Background(), s, store.PrepareWorkerDispatchRequest{WorkID: "work-1", SessionWorktree: sessionWorktree})
+	if preparationErr != nil {
+		t.Fatalf("prepare dispatch freshness for %s (%s): %v", action, suffix, preparationErr)
+	}
+	ctx := store.WithWorkerDispatchPreparation(context.Background(), preparation)
+	if err := s.Transact(ctx, func(tx *store.Transaction) error {
+		_, err := store.ApplyWorkflowActionTx(ctx, tx, store.BuiltinWorkflowRegistry(), store.WorkflowActionExecutionRequest{
 			WorkID: "work-1", ExpectedVersion: version, ActionID: action, Payload: raw, Actor: actor, SessionWorktree: sessionWorktree,
 			AcceptedInputsDigest: "sha256:" + strings.Repeat("f", 64) + operationID, IdempotencyIdentity: operationID, OperationID: operationID,
 			PrincipalRef: actor.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: operationID, RequestID: "request:" + operationID,
@@ -89,6 +102,58 @@ func runGenericOneOffStoreAction(t *testing.T, s *store.Store, action string, fi
 	}); err != nil {
 		t.Fatalf("store action %s (%s): %v", action, suffix, err)
 	}
+}
+
+// seedGenericOneOffAcceptedImplementation produces and accepts one
+// implementation delivery at the refinement gate through the released pin's
+// own shapes: no worker-job binding, the completed report through the live
+// terminal seam with the core delivery observation, and the gate acceptance.
+// The acceptance lands before the failure window under test, and the
+// instance parks back at the step the journey runs on.
+func seedGenericOneOffAcceptedImplementation(t *testing.T, s *store.Store, grant Authority, worktree, journeyStep string) {
+	t.Helper()
+	owner := store.WorkflowActor{PrincipalRef: grant.PrincipalRef, ClientRef: grant.ClientRef, AgentRef: grant.AgentRef, SessionRef: grant.SessionRef, ActorClass: store.ActorAgent}
+	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
+		UPDATE workflow_instances SET current_step='refine' WHERE work_id='work-1';
+		DELETE FROM fold_guard`); err != nil {
+		t.Fatalf("park at the refinement gate for the accepted prerequisite: %v", err)
+	}
+	defer func() {
+		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
+			UPDATE workflow_instances SET current_step='` + journeyStep + `' WHERE work_id='work-1';
+			DELETE FROM fold_guard`); err != nil {
+			t.Fatalf("park back at the journey step: %v", err)
+		}
+	}()
+	attemptID := "attempt:work-1:accepted-impl"
+	lane := deliveryRecoveryLane(t, "implementation")
+	packet := bindPacketToRecordedState(t, s, map[string]any{"schema_version": store.WorkerPacketSchemaVersion, "attempt_id": attemptID, "lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest, "work_id": "work-1", "step_id": "refine", "inputs": map[string]any{"task": "deliver the accepted implementation prerequisite", "constraints": []string{"preserve the approved contract"}}})
+	runGenericOneOffStoreAction(t, s, "dispatch_worker", map[string]any{"attempt_id": attemptID, "worker_packet": packet}, owner, worktree, "accepted-impl")
+	var packetDigest string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.worker_packet_digest') FROM domain_events WHERE subject_id='work-1' AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=? ORDER BY seq DESC LIMIT 1`, store.WorkflowActionCompleted, attemptID).Scan(&packetDigest); err != nil {
+		t.Fatal(err)
+	}
+	laneDispatch := store.Event{EventID: "accepted-impl-dispatch-" + attemptID, Kind: store.WorkerDispatched, SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: 2, Payload: retryJSON(store.WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, PacketDigest: packetDigest, ReadbackModel: "openai/gpt-5.6-luna", PacketSchemaVersion: store.WorkerPacketSchemaVersion, ReportSchemaVersion: store.WorkerReportSchemaVersion})}
+	if err := s.Transact(context.Background(), func(tx *store.Transaction) error {
+		enriched, err := store.PrepareLaneActorDispatch(context.Background(), tx, laneDispatch, grant.PrincipalRef, grant.ClientRef)
+		if err != nil {
+			return err
+		}
+		_, err = store.AppendLaneActorDispatchTx(context.Background(), tx, enriched)
+		return err
+	}); err != nil {
+		t.Fatalf("seed the accepted prerequisite lane dispatch: %v", err)
+	}
+	agentWorkerCompletedThroughSeam(t, s, attemptID, "accepted-impl-completed-"+attemptID, store.WorkerCompletedPayload{AttemptID: attemptID, ReadbackModel: "openai/gpt-5.6-luna", ReportSchemaVersion: store.WorkerReportSchemaVersion})
+	var epoch int64
+	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.attempt_epoch') FROM domain_events WHERE subject_id='work-1' AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.step_id')='refine' ORDER BY seq DESC LIMIT 1`, store.WorkflowActionStarted).Scan(&epoch); err != nil {
+		t.Fatal(err)
+	}
+	// The refinement gate's exit proof: a green worktree_verify run bound as
+	// verification evidence in the current refine epoch.
+	verifyRef := agentSeedIntegrationVerifyRun(t, s, "work-1", "accepted-impl-verify")
+	runGenericOneOffStoreAction(t, s, "bind_evidence", map[string]any{"evidence_kind": "verification", "evidence_ref": verifyRef}, owner, worktree, "accepted-impl")
+	runGenericOneOffStoreAction(t, s, "accept_worker_result", map[string]any{"attempt_id": attemptID, "attempt_epoch": epoch, "delivery_artifact": "artifact:accepted-impl", "delivery_state": "asserted"}, owner, worktree, "accepted-impl")
 }
 
 // seedGenericOneOffVerifyWall drives three failed review-lane attempts

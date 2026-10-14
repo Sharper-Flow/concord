@@ -25,7 +25,7 @@ func runRecoverFoldGuardCommand(args []string, in io.Reader, out, errOut io.Writ
 		writeUsage(errOut)
 		return 2
 	}
-	inputLimit := int64(agent.MaxEnvelopeBytes)
+	inputLimit := int64(agent.MaxRequestBytes)
 	raw, err := io.ReadAll(io.LimitReader(in, inputLimit+1))
 	if err != nil || int64(len(raw)) > inputLimit {
 		writeDiagnostic(errOut, fmt.Sprintf("input exceeds %d bytes", inputLimit))

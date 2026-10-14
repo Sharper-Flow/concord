@@ -394,10 +394,17 @@ func validateArchitectureBindingTx(ctx context.Context, tx *sql.Tx, workID strin
 // architectureBindingProductIDTx resolves the one Product whose primary
 // Project owns the work's contract.
 func architectureBindingProductIDTx(ctx context.Context, tx *sql.Tx, workID string) (string, error) {
+	return architectureBindingProductID(ctx, tx, workID)
+}
+
+// architectureBindingProductID resolves the same Product over whichever
+// queryer the caller already holds, so the dispatch preparation can sample
+// the Product scope inside its read snapshot.
+func architectureBindingProductID(ctx context.Context, q queryer, workID string) (string, error) {
 	var productIDs []string
 	// The primary Project's Product owns the contract; a secondary membership
 	// in another Product widens visibility only and must not widen this scope.
-	rows, err := tx.QueryContext(ctx, `SELECT DISTINCT pp.product_id FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=? AND wp.role='primary' ORDER BY pp.product_id LIMIT 2`, workID)
+	rows, err := q.QueryContext(ctx, `SELECT DISTINCT pp.product_id FROM work_projects wp JOIN product_projects pp ON pp.project_id=wp.project_id WHERE wp.work_id=? AND wp.role='primary' ORDER BY pp.product_id LIMIT 2`, workID)
 	if err != nil {
 		return "", wrapFailure(KindUnavailable, "workflow_architecture_binding", "cannot resolve workflow Product scope", true, "retry once the workflow scope is readable", err)
 	}

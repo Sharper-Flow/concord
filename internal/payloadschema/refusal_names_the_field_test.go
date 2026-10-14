@@ -135,6 +135,88 @@ func TestAnyOfRefusalKeepsItsCauses(t *testing.T) {
 	}
 }
 
+func TestRefusalOrderIsDeterministic(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		schema string
+		value  string
+		want   string
+	}{
+		{
+			name: "anyOf multiple failing properties per branch",
+			schema: `{"anyOf": [
+				{"properties": {"fields": {"type": "string"}, "action_id": {"const": "start"}}},
+				{"properties": {"fields": {"const": "empty"}, "action_id": {"type": "boolean"}}}
+			]}`,
+			value: `{"action_id": "replay", "fields": {}}`,
+			want:  "anyOf mismatch at $: const mismatch at $.action_id; type mismatch at $.action_id",
+		},
+		{
+			name:   "declared properties",
+			schema: `{"properties": {"zeta": {"type": "string"}, "alpha": {"type": "string"}}}`,
+			value:  `{"zeta": false, "alpha": false}`,
+			want:   "type mismatch at $.alpha",
+		},
+		{
+			name:   "invalid property schemas",
+			schema: `{"properties": {"zeta": false, "alpha": false}}`,
+			value:  `{"zeta": false, "alpha": false}`,
+			want:   "invalid schema property alpha",
+		},
+		{
+			name: "additional properties skip owned keys",
+			schema: `{
+				"properties": {"aardvark": {"type": "boolean"}},
+				"patternProperties": {"^a-pattern$": {"type": "boolean"}},
+				"additionalProperties": {"type": "string"}
+			}`,
+			value: `{"zeta": false, "alpha": false, "aardvark": false, "a-pattern": false}`,
+			want:  "type mismatch at $.alpha",
+		},
+		{
+			name: "unevaluated properties skip evaluated keys",
+			schema: `{
+				"allOf": [{"properties": {"aardvark": {"type": "boolean"}}}],
+				"unevaluatedProperties": {"type": "string"}
+			}`,
+			value: `{"zeta": false, "alpha": false, "aardvark": false}`,
+			want:  "type mismatch at $.alpha",
+		},
+		{
+			name:   "invalid pattern schemas",
+			schema: `{"patternProperties": {"^z": false, "^a": false}}`,
+			value:  `{}`,
+			want:   "invalid schema pattern property ^a",
+		},
+		{
+			name:   "overlapping patterns",
+			schema: `{"patternProperties": {"^a": {"const": "yes"}, "a$": {"type": "boolean"}}}`,
+			value:  `{"alpha": "no"}`,
+			want:   "const mismatch at $.alpha",
+		},
+		{
+			name:   "keys matched by a pattern",
+			schema: `{"patternProperties": {"^[az]": {"type": "string"}}}`,
+			value:  `{"zeta": false, "alpha": false}`,
+			want:   "type mismatch at $.alpha",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := decodeSchema(t, tc.schema)
+			value := decodeValue(t, tc.value)
+			for iteration := range 200 {
+				err := ValidateValue(value, root, root, "$")
+				if err == nil {
+					t.Fatal("a rejected payload was accepted")
+				}
+				if got := err.Error(); got != tc.want {
+					t.Fatalf("iteration %d: refusal = %q, want %q", iteration, got, tc.want)
+				}
+			}
+		})
+	}
+}
+
 // Every oneOf variant in the agent payload contract is a bare $ref into
 // $defs. The variant describer read "required" and "not" straight off the
 // branch object, so each variant collapsed to "requires no fields" and the

@@ -202,15 +202,12 @@ func validateOneOverrideAnchor(override KnowledgeOperatorOverride, byID map[stri
 	return nil
 }
 
-// committedOverrideAnchorReader reads one record document's bytes from the
-// blob a commit carries, so the anchor gate proves the committed instruction,
-// never a working-tree copy.
-func committedOverrideAnchorReader(ctx context.Context, repo, commit string) func(string) ([]byte, error) {
+// committedOverrideAnchorReaderRunner reads one record document's bytes from
+// the blob a commit carries on the caller's runner, so the anchor gate proves
+// the committed instruction under the caller's Git policy, never a
+// working-tree copy.
+func committedOverrideAnchorReaderRunner(ctx context.Context, runner GitRunner, repo, commit string) func(string) ([]byte, error) {
 	return func(relPath string) ([]byte, error) {
-		out, err := runGit(ctx, repo, "cat-file", "blob", commit+":"+relPath)
-		if err != nil {
-			return nil, err
-		}
-		return out, nil
+		return runner.Run(ctx, repo, "cat-file", "blob", commit+":"+relPath)
 	}
 }

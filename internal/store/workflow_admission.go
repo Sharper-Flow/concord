@@ -447,7 +447,7 @@ func loadWorkflowAdmissionStateTx(ctx context.Context, q queryer, workID string,
 		}
 	}
 	if atComplete := workflowCompleteStepCorrectionStep(definition, currentStep); atComplete {
-		completeCorrection, completeErr := workflowCompleteStepCorrectionAvailable(ctx, q, workID, definition, currentStep, subject)
+		completeCorrection, completeErr := workflowCompleteStepCorrectionAvailable(ctx, q, workID, definition, currentStep, subject, 0)
 		if completeErr != nil {
 			return WorkflowAdmissionState{}, nil, nil, completeErr
 		}

@@ -4980,69 +4980,93 @@
       }
     },
     "worker_failure_attempt_identity": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "attempt_id",
-        "lane_id",
-        "epoch",
-        "packet_digest"
-      ],
-      "properties": {
-        "attempt_id": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 256,
-          "x-maxBytes": 256
-        },
-        "lane_id": {
-          "type": "string",
-          "enum": [
-            "research",
-            "implement",
-            "design",
-            "review",
-            "verify"
-          ]
-        },
-        "epoch": {
-          "$ref": "#/$defs/version"
-        },
-        "packet_digest": {
-          "type": "string",
-          "minLength": 71,
-          "maxLength": 71,
-          "pattern": "^sha256:[0-9a-f]{64}$"
-        },
-        "job": {
-          "$ref": "#/$defs/worker_failure_job_binding"
-        },
-        "no_job": {
-          "const": true
-        },
-        "subject": {
-          "$ref": "#/$defs/worker_failure_subject"
-        }
-      },
       "oneOf": [
         {
+          "type": "object",
+          "additionalProperties": false,
           "required": [
+            "attempt_id",
+            "lane_id",
+            "epoch",
+            "packet_digest",
             "job"
           ],
-          "not": {
-            "required": [
-              "no_job"
-            ]
+          "properties": {
+            "attempt_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "x-maxBytes": 256
+            },
+            "lane_id": {
+              "type": "string",
+              "enum": [
+                "research",
+                "implement",
+                "design",
+                "review",
+                "verify"
+              ]
+            },
+            "epoch": {
+              "$ref": "#/$defs/version"
+            },
+            "packet_digest": {
+              "type": "string",
+              "minLength": 71,
+              "maxLength": 71,
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            "job": {
+              "$ref": "#/$defs/worker_failure_job_binding"
+            },
+            "subject": {
+              "$ref": "#/$defs/worker_failure_subject"
+            }
           }
         },
         {
+          "type": "object",
+          "additionalProperties": false,
           "required": [
+            "attempt_id",
+            "lane_id",
+            "epoch",
+            "packet_digest",
             "no_job"
           ],
-          "not": {
-            "required": [
-              "job"
-            ]
+          "properties": {
+            "attempt_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "x-maxBytes": 256
+            },
+            "lane_id": {
+              "type": "string",
+              "enum": [
+                "research",
+                "implement",
+                "design",
+                "review",
+                "verify"
+              ]
+            },
+            "epoch": {
+              "$ref": "#/$defs/version"
+            },
+            "packet_digest": {
+              "type": "string",
+              "minLength": 71,
+              "maxLength": 71,
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            "no_job": {
+              "const": true
+            },
+            "subject": {
+              "$ref": "#/$defs/worker_failure_subject"
+            }
           }
         }
       ],
@@ -5051,6 +5075,7 @@
     "worker_failure_attribution": {
       "oneOf": [
         {
+          "type": "object",
           "additionalProperties": false,
           "required": [
             "origin",
@@ -5070,6 +5095,7 @@
           }
         },
         {
+          "type": "object",
           "additionalProperties": false,
           "required": [
             "origin"
@@ -5167,6 +5193,7 @@
     "worker_failure_identity": {
       "oneOf": [
         {
+          "type": "object",
           "additionalProperties": false,
           "required": [
             "kind",
@@ -5182,6 +5209,7 @@
           }
         },
         {
+          "type": "object",
           "additionalProperties": false,
           "required": [
             "kind",
@@ -5200,72 +5228,101 @@
       "description": "The closed attempt/integration union of core-derived identity. Exactly one variant is present and it matches kind; the producer never authors it."
     },
     "worker_failure_integration_identity": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "native_run"
-      ],
-      "properties": {
-        "native_run": {
-          "allOf": [
-            {
-              "$ref": "#/$defs/worker_failure_subject"
-            },
-            {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "native_run",
+            "input_results"
+          ],
+          "properties": {
+            "native_run": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "kind",
+                "locator"
+              ],
               "properties": {
                 "kind": {
                   "const": "native_run"
+                },
+                "locator": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 512,
+                  "x-maxBytes": 512
+                },
+                "digest": {
+                  "type": "string",
+                  "minLength": 71,
+                  "maxLength": 71,
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                }
+              }
+            },
+            "input_results": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "job",
+                  "result_ref"
+                ],
+                "properties": {
+                  "job": {
+                    "$ref": "#/$defs/worker_failure_job_binding"
+                  },
+                  "result_ref": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 512,
+                    "x-maxBytes": 512
+                  }
                 }
               }
             }
-          ]
-        },
-        "input_results": {
-          "type": "array",
-          "minItems": 1,
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "job",
-              "result_ref"
-            ],
-            "properties": {
-              "job": {
-                "$ref": "#/$defs/worker_failure_job_binding"
-              },
-              "result_ref": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 512,
-                "x-maxBytes": 512
-              }
-            }
-          }
-        },
-        "inputs_unavailable": {
-          "const": true
-        }
-      },
-      "oneOf": [
-        {
-          "required": [
-            "input_results"
-          ],
-          "not": {
-            "required": [
-              "inputs_unavailable"
-            ]
           }
         },
         {
+          "type": "object",
+          "additionalProperties": false,
           "required": [
+            "native_run",
             "inputs_unavailable"
           ],
-          "not": {
-            "required": [
-              "input_results"
-            ]
+          "properties": {
+            "native_run": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "kind",
+                "locator"
+              ],
+              "properties": {
+                "kind": {
+                  "const": "native_run"
+                },
+                "locator": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 512,
+                  "x-maxBytes": 512
+                },
+                "digest": {
+                  "type": "string",
+                  "minLength": 71,
+                  "maxLength": 71,
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                }
+              }
+            },
+            "inputs_unavailable": {
+              "const": true
+            }
           }
         }
       ],

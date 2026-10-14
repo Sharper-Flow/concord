@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-const ManifestDigest = "sha256:c23cf1926f9fc0f9bd4abbb30030329967b5872e76e19fea0888fad73d63f028"
+const ManifestDigest = "sha256:bfb11056782324a584e37ec20d651a6e4c16e996d0deebb1a65d239a394aac57"
 
 type OperationKind string
 
@@ -319,10 +319,8 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"work_transition_worktree_verify_input":                 {Required: []string{"work_id", "idempotency_key"}, Properties: []string{"work_id", "command", "idempotency_key", "approval", "requested_budget_seconds", "oracle"}},
 	"worker_acceptance_oracle":                              {Required: []string{"owners", "cases", "controls"}, Properties: []string{"owners", "cases", "controls"}},
 	"worker_evidence_failure_result":                        {Required: []string{"ok", "event_ids", "error"}, Properties: []string{"ok", "event_ids", "error"}},
-	"worker_failure_attempt_identity":                       {Required: []string{"attempt_id", "lane_id", "epoch", "packet_digest"}, Properties: []string{"attempt_id", "lane_id", "epoch", "packet_digest", "job", "no_job", "subject"}},
 	"worker_failure_attribution_read":                       {Required: []string{"event_id", "source_version", "attribution"}, Properties: []string{"event_id", "source_version", "attribution"}},
 	"worker_failure_host_observation":                       {Required: []string{"tag", "event_type"}, Properties: []string{"tag", "event_type", "session_id", "message_id", "error_name", "error_code", "status_code"}},
-	"worker_failure_integration_identity":                   {Required: []string{"native_run"}, Properties: []string{"native_run", "input_results", "inputs_unavailable"}},
 	"worker_failure_job_binding":                            {Required: []string{"job_id", "revision", "digest"}, Properties: []string{"job_id", "revision", "digest"}},
 	"worker_failure_observation":                            {Required: []string{"observer", "phase", "cause", "basis", "sources"}, Properties: []string{"observer", "phase", "cause", "basis", "sources", "diagnosis"}},
 	"worker_failure_source":                                 {Required: []string{"kind"}, Properties: []string{"kind", "locator", "digest", "message", "host"}},

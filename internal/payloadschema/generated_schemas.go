@@ -17597,73 +17597,97 @@ const GeneratedPayloadSchemaDocument = `{
       "type": "object"
     },
     "worker_failure_attempt_identity": {
-      "additionalProperties": false,
       "description": "The core-derived identity of one authorized worker attempt: the registered lane, the positive attempt epoch, and the packet digest the dispatch authorization recorded, plus exactly one of the explicit no_job marker or the recorded job revision. A missing subject is legal: a pre-launch attempt has no child session or subject.",
       "oneOf": [
         {
-          "not": {
-            "required": [
-              "no_job"
-            ]
+          "additionalProperties": false,
+          "properties": {
+            "attempt_id": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string",
+              "x-maxBytes": 256
+            },
+            "epoch": {
+              "$ref": "#/$defs/version"
+            },
+            "job": {
+              "$ref": "#/$defs/worker_failure_job_binding"
+            },
+            "lane_id": {
+              "enum": [
+                "research",
+                "implement",
+                "design",
+                "review",
+                "verify"
+              ],
+              "type": "string"
+            },
+            "packet_digest": {
+              "maxLength": 71,
+              "minLength": 71,
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            "subject": {
+              "$ref": "#/$defs/worker_failure_subject"
+            }
           },
           "required": [
+            "attempt_id",
+            "lane_id",
+            "epoch",
+            "packet_digest",
             "job"
-          ]
+          ],
+          "type": "object"
         },
         {
-          "not": {
-            "required": [
-              "job"
-            ]
+          "additionalProperties": false,
+          "properties": {
+            "attempt_id": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string",
+              "x-maxBytes": 256
+            },
+            "epoch": {
+              "$ref": "#/$defs/version"
+            },
+            "lane_id": {
+              "enum": [
+                "research",
+                "implement",
+                "design",
+                "review",
+                "verify"
+              ],
+              "type": "string"
+            },
+            "no_job": {
+              "const": true
+            },
+            "packet_digest": {
+              "maxLength": 71,
+              "minLength": 71,
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            "subject": {
+              "$ref": "#/$defs/worker_failure_subject"
+            }
           },
           "required": [
+            "attempt_id",
+            "lane_id",
+            "epoch",
+            "packet_digest",
             "no_job"
-          ]
-        }
-      ],
-      "properties": {
-        "attempt_id": {
-          "maxLength": 256,
-          "minLength": 1,
-          "type": "string",
-          "x-maxBytes": 256
-        },
-        "epoch": {
-          "$ref": "#/$defs/version"
-        },
-        "job": {
-          "$ref": "#/$defs/worker_failure_job_binding"
-        },
-        "lane_id": {
-          "enum": [
-            "research",
-            "implement",
-            "design",
-            "review",
-            "verify"
           ],
-          "type": "string"
-        },
-        "no_job": {
-          "const": true
-        },
-        "packet_digest": {
-          "maxLength": 71,
-          "minLength": 71,
-          "pattern": "^sha256:[0-9a-f]{64}$",
-          "type": "string"
-        },
-        "subject": {
-          "$ref": "#/$defs/worker_failure_subject"
+          "type": "object"
         }
-      },
-      "required": [
-        "attempt_id",
-        "lane_id",
-        "epoch",
-        "packet_digest"
-      ],
-      "type": "object"
+      ]
     },
     "worker_failure_attribution": {
       "description": "The typed failure_attribution block. The recorded origin carries the producer observation and the core-derived identity; the explicit legacy_unavailable marker marks explicit historical absence and carries neither.",
@@ -17685,7 +17709,8 @@ const GeneratedPayloadSchemaDocument = `{
             "origin",
             "observation",
             "identity"
-          ]
+          ],
+          "type": "object"
         },
         {
           "additionalProperties": false,
@@ -17696,7 +17721,8 @@ const GeneratedPayloadSchemaDocument = `{
           },
           "required": [
             "origin"
-          ]
+          ],
+          "type": "object"
         }
       ]
     },
@@ -17797,7 +17823,8 @@ const GeneratedPayloadSchemaDocument = `{
           "required": [
             "kind",
             "attempt"
-          ]
+          ],
+          "type": "object"
         },
         {
           "additionalProperties": false,
@@ -17812,81 +17839,111 @@ const GeneratedPayloadSchemaDocument = `{
           "required": [
             "kind",
             "integration"
-          ]
+          ],
+          "type": "object"
         }
       ]
     },
     "worker_failure_integration_identity": {
-      "additionalProperties": false,
       "description": "The core-derived identity of a combined integration run: the native run that failed, and either the exact accepted input population in event order or the explicit inputs_unavailable marker for a lease recorded before its event watermark — never both, and the marker never stands for an empty accepted population.",
       "oneOf": [
         {
-          "not": {
-            "required": [
-              "inputs_unavailable"
-            ]
-          },
-          "required": [
-            "input_results"
-          ]
-        },
-        {
-          "not": {
-            "required": [
-              "input_results"
-            ]
-          },
-          "required": [
-            "inputs_unavailable"
-          ]
-        }
-      ],
-      "properties": {
-        "input_results": {
-          "items": {
-            "additionalProperties": false,
-            "properties": {
-              "job": {
-                "$ref": "#/$defs/worker_failure_job_binding"
+          "additionalProperties": false,
+          "properties": {
+            "input_results": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "job": {
+                    "$ref": "#/$defs/worker_failure_job_binding"
+                  },
+                  "result_ref": {
+                    "maxLength": 512,
+                    "minLength": 1,
+                    "type": "string",
+                    "x-maxBytes": 512
+                  }
+                },
+                "required": [
+                  "job",
+                  "result_ref"
+                ],
+                "type": "object"
               },
-              "result_ref": {
-                "maxLength": 512,
-                "minLength": 1,
-                "type": "string",
-                "x-maxBytes": 512
-              }
+              "minItems": 1,
+              "type": "array"
             },
-            "required": [
-              "job",
-              "result_ref"
-            ],
-            "type": "object"
-          },
-          "minItems": 1,
-          "type": "array"
-        },
-        "inputs_unavailable": {
-          "const": true
-        },
-        "native_run": {
-          "allOf": [
-            {
-              "$ref": "#/$defs/worker_failure_subject"
-            },
-            {
+            "native_run": {
+              "additionalProperties": false,
               "properties": {
+                "digest": {
+                  "maxLength": 71,
+                  "minLength": 71,
+                  "pattern": "^sha256:[0-9a-f]{64}$",
+                  "type": "string"
+                },
                 "kind": {
                   "const": "native_run"
+                },
+                "locator": {
+                  "maxLength": 512,
+                  "minLength": 1,
+                  "type": "string",
+                  "x-maxBytes": 512
                 }
-              }
+              },
+              "required": [
+                "kind",
+                "locator"
+              ],
+              "type": "object"
             }
-          ]
+          },
+          "required": [
+            "native_run",
+            "input_results"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "inputs_unavailable": {
+              "const": true
+            },
+            "native_run": {
+              "additionalProperties": false,
+              "properties": {
+                "digest": {
+                  "maxLength": 71,
+                  "minLength": 71,
+                  "pattern": "^sha256:[0-9a-f]{64}$",
+                  "type": "string"
+                },
+                "kind": {
+                  "const": "native_run"
+                },
+                "locator": {
+                  "maxLength": 512,
+                  "minLength": 1,
+                  "type": "string",
+                  "x-maxBytes": 512
+                }
+              },
+              "required": [
+                "kind",
+                "locator"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "native_run",
+            "inputs_unavailable"
+          ],
+          "type": "object"
         }
-      },
-      "required": [
-        "native_run"
-      ],
-      "type": "object"
+      ]
     },
     "worker_failure_job_binding": {
       "additionalProperties": false,

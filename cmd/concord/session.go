@@ -71,7 +71,7 @@ func recordOrchestratorIdentity(ctx context.Context, home string, host hostComma
 	// A resolvable definition is not proof the host will start it under the
 	// derived handle. Establish that before the store is touched, so a
 	// session that cannot run as the agent it asserts records nothing and
-	// refuses (issue #430). The registry probed is the one the calling host
+	// refuses. The registry probed is the one the calling host
 	// resolves in dir, the directory the session itself runs in.
 	if err := verifyHostRegistersHandle(host, handle); err != nil {
 		return "", err

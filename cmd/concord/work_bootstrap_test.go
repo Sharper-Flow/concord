@@ -669,7 +669,7 @@ func TestSessionPrepareReportsAKilledRegistryProbeAsRetryable(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv(dbOverrideEnv, dbPath)
-	installFakeCommand(t, t.TempDir(), "opencode", "#!/bin/sh\nkill -9 $$\n")
+	installFakeCommand(t, t.TempDir(), "#!/bin/sh\nkill -9 $$\n")
 	t.Chdir(result.Entry.Path)
 	identityCalls := 0
 	var out, errOut bytes.Buffer
@@ -705,7 +705,7 @@ func TestTimedOutRegistryProbeTypedAndExit1(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv(dbOverrideEnv, dbPath)
-	installFakeCommand(t, t.TempDir(), "opencode", "#!/bin/sh\nwhile true; do :; done\n")
+	installFakeCommand(t, t.TempDir(), "#!/bin/sh\nwhile true; do :; done\n")
 	t.Chdir(result.Entry.Path)
 	probeCtx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
@@ -768,7 +768,7 @@ func TestDeterministicHostRegistryRefusalsExit2(t *testing.T) {
 	}
 	t.Run("a host that exits nonzero on its own refuses", func(t *testing.T) {
 		workID, worktree, dbPath := newFixture(t)
-		installFakeCommand(t, t.TempDir(), "opencode", "#!/bin/sh\nexit 3\n")
+		installFakeCommand(t, t.TempDir(), "#!/bin/sh\nexit 3\n")
 		t.Chdir(worktree)
 		code, diagnostic := run(t, dbPath, workID)
 		if code != sessionPrepareRefusalExit {

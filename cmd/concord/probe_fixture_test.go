@@ -35,13 +35,13 @@ exit 0
 // record directory at recordDir.
 func installFakeHost(t *testing.T, recordDir string) {
 	t.Helper()
-	installFakeCommand(t, recordDir, "opencode", fakeHostScript)
+	installFakeCommand(t, recordDir, fakeHostScript)
 }
 
-func installFakeCommand(t *testing.T, recordDir, name, script string) {
+func installFakeCommand(t *testing.T, recordDir, script string) {
 	t.Helper()
 	binDir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(binDir, name), []byte(script), 0o755); err != nil {
+	if err := os.WriteFile(filepath.Join(binDir, "opencode"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("CONCORD_FAKE_HOST_RECORD", recordDir)

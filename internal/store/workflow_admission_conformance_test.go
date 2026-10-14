@@ -220,6 +220,8 @@ func TestAdmissionConformanceReplayRejectionReviewAndSettlingAccept(t *testing.T
 	// local acceptance (CD-0205 D3): the step holds at repair, the
 	// recorded revision is satisfied, and the model lifts the held state.
 	job := &WorkerJobBinding{JobID: "job:conformance-initial-repair", Revision: 1}
+	git, entry := oracleFixtureClaimedWorktree(t, s, workID)
+	oracleVerifyControl(t, oracleRepairFixture{store: s, git: git, entry: entry}, workID, "candidate", "1", []string{"true"}, 0)
 	recordWorkerJobRevisionForTest(t, s, workID, fixture.owner, job)
 	model = admissionSuccessor(def, model, "record_worker_job")
 	views, err := s.WorkerJobRevisions(context.Background(), workID)
@@ -334,7 +336,7 @@ func TestAdmissionConformanceReplayRejectionReviewAndSettlingAccept(t *testing.T
 
 	reviewer := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/conformance-reviewer", SessionRef: "session/" + workID + "-reviewer", ActorClass: ActorAgent}
 	badVerdict := json.RawMessage(`{"contract_version":1,"verdicts":[{"predicate_id":"predicate:return-route","verdict_kind":"outcome_mismatch","evaluation_evidence":["evidence:return-route-verification"],"incomparable_with_approved":true}]}`)
-	if err := runVerdictActionAs(t, s, workID, "record_verdict", badVerdict, 0, reviewer); err != nil {
+	if err := runVerdictActionAs(t, s, workID, "record_verdict", badVerdict, 0, reviewer, git); err != nil {
 		t.Fatalf("record the unhealthy verdict: %v", err)
 	}
 	for _, successor := range admissionSuccessors(def, model, "record_verdict") {

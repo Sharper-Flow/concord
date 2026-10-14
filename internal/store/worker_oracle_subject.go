@@ -99,17 +99,21 @@ const oracleCurrentVerifyReceiptSQL = oracleVerifyReceiptSQL + `
 		ORDER BY d.rowid DESC LIMIT 1`
 
 func readCurrentOracleSubject(ctx context.Context, q queryer, workID string) (string, error) {
-	var raw string
-	err := q.QueryRowContext(ctx, oracleCurrentVerifyReceiptSQL, workID, WorktreeSetID(workID)).Scan(&raw)
-	if err == sql.ErrNoRows {
-		return "", nil
-	}
-	if err != nil {
-		return "", wrapFailure(KindUnavailable, "oracle_subject_read", "cannot read the current verify subject", true, "retry once the database is readable", err)
-	}
-	result, err := decodeOracleVerifyReceipt(raw, workID)
-	if err != nil {
+	result, err := readCurrentOracleSubjectReceipt(ctx, q, workID)
+	if err != nil || result == nil {
 		return "", err
 	}
 	return strings.TrimPrefix(result.SubjectRef, "commit:"), nil
+}
+
+func readCurrentOracleSubjectReceipt(ctx context.Context, q queryer, workID string) (*WorktreeVerifyResult, error) {
+	var raw string
+	err := q.QueryRowContext(ctx, oracleCurrentVerifyReceiptSQL, workID, WorktreeSetID(workID)).Scan(&raw)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, wrapFailure(KindUnavailable, "oracle_subject_read", "cannot read the current verify subject", true, "retry once the database is readable", err)
+	}
+	return decodeOracleVerifyReceipt(raw, workID)
 }

@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
+	"os/exec"
 	"strings"
 	"time"
 )
@@ -45,7 +47,7 @@ const workerDispatchFreshnessOp = "worker_dispatch_freshness"
 // workerDispatchProof is the sealed store-derived preparation: every field
 // is either a SQL-sampled identity or the store's own Git observation. No
 // caller JSON, packet body, or adapter value can produce one; the only
-// constructor is PrepareWorkerDispatchFreshness.
+// constructors delegate to the native preparation owner below.
 type workerDispatchProof struct {
 	workID string
 
@@ -67,11 +69,20 @@ type workerDispatchProof struct {
 	probePath   string
 
 	observation *WorkerObservedDelivery
+	anchor      *reviewDeliveryAnchor
+	ancestry    reviewSubjectAncestry
+	acceptance  bool
+	pinReceipt  *WorktreeVerifyResult
 
 	// readings carries one sealed witness per declared required reading:
 	// the SQL-sampled source identities sampled in the same read snapshot,
 	// plus the Git resolution resolved after that snapshot closed.
 	readings []dispatchReadingWitness
+}
+
+type reviewSubjectAncestry struct {
+	strictDescendant bool
+	failure          error
 }
 
 // WorkerDispatchPreparation is the opaque prepared proof the authenticated
@@ -133,7 +144,9 @@ type workerDispatchSample struct {
 
 	// readings holds the SQL-sampled source identities of the view's
 	// declared required readings, from the same snapshot.
-	readings []dispatchReadingWitness
+	readings   []dispatchReadingWitness
+	anchors    []reviewDeliveryAnchor
+	pinReceipt *WorktreeVerifyResult
 }
 
 // sampleWorkerDispatchStateInto samples the dispatch state into the
@@ -203,6 +216,14 @@ func sampleWorkerDispatchState(ctx context.Context, q queryer, workID string) (w
 		}
 		sample.readings = witnesses
 	}
+	sample.pinReceipt, err = readCurrentOracleSubjectReceipt(ctx, q, workID)
+	if err != nil {
+		return sample, err
+	}
+	sample.anchors, err = readReviewDeliveryAnchors(ctx, q, workID)
+	if err != nil {
+		return sample, err
+	}
 	return sample, nil
 }
 
@@ -214,6 +235,16 @@ func sampleWorkerDispatchState(ctx context.Context, q queryer, workID string) (w
 // transaction opens, so zero dispatch effects exist by construction. A
 // subject-less view performs no probe.
 func PrepareWorkerDispatchFreshness(ctx context.Context, s *Store, request PrepareWorkerDispatchRequest) (*WorkerDispatchPreparation, error) {
+	return prepareWorkerSubjectFreshness(ctx, s, request, false)
+}
+
+// PrepareWorkflowAcceptanceFreshness uses the same sealed native owner as
+// dispatch. It probes the active worktree that owns the current subject pin.
+func PrepareWorkflowAcceptanceFreshness(ctx context.Context, s *Store, request PrepareWorkerDispatchRequest) (*WorkerDispatchPreparation, error) {
+	return prepareWorkerSubjectFreshness(ctx, s, request, true)
+}
+
+func prepareWorkerSubjectFreshness(ctx context.Context, s *Store, request PrepareWorkerDispatchRequest, acceptance bool) (*WorkerDispatchPreparation, error) {
 	if s == nil || s.db == nil {
 		return nil, newFailure(KindUnavailable, workerDispatchFreshnessOp, "store is not open", false, "open the authority database")
 	}
@@ -235,18 +266,34 @@ func PrepareWorkerDispatchFreshness(ctx context.Context, s *Store, request Prepa
 	proof.instanceFound = sample.instanceFound
 	proof.currentStep = sample.currentStep
 	proof.contractVersion = sample.contractVersion
+	proof.acceptance = acceptance
+	proof.pinReceipt = sample.pinReceipt
 	proof.viewPresent = sample.view != nil
 	if sample.view != nil {
 		proof.viewDigest = nativeDigest(sample.viewRaw)
+	}
+	entries := sample.entries
+	if acceptance && sample.pinReceipt != nil {
+		request.SessionWorktree = sample.pinReceipt.Path
+		entries = nil
+		for _, candidate := range sample.entries {
+			if candidate.ProjectID == sample.pinReceipt.ProjectID {
+				entries = append(entries, candidate)
+			}
+		}
 	}
 	canonicalSession, canonicalErr := canonicalWorkerWorktreePath(request.SessionWorktree)
 	if canonicalErr == nil {
 		proof.sessionIdentity = workerWorktreeIdentity(canonicalSession)
 	}
-	entry, probePath, claimFound := selectDispatchClaimEntry(sample.entries, request.SessionWorktree)
+	entry, probePath, claimFound := selectDispatchClaimEntry(entries, request.SessionWorktree)
 	if claimFound {
 		proof.claimPath, proof.claimBranch, proof.claimOpID, proof.projectID, proof.claimState = entry.Path, entry.Branch, entry.ClaimOpID, entry.ProjectID, entry.State
 		proof.probePath = probePath
+	}
+	proof.anchor = selectReviewDeliveryAnchor(sample.anchors, proof.sessionIdentity)
+	if acceptance && sample.pinReceipt != nil && (!claimFound || entry.Path != sample.pinReceipt.Path || entry.ProjectID != sample.pinReceipt.ProjectID) {
+		return nil, newFailure(KindStaleRequiresReview, workerDispatchFreshnessOp, "terminal acceptance cannot establish the current subject's claimed worktree", false, "claim and verify the subject's worktree")
 	}
 	runner := request.Runner
 	if runner == nil {
@@ -257,7 +304,7 @@ func PrepareWorkerDispatchFreshness(ctx context.Context, s *Store, request Prepa
 	// committed-read policy runner: no lazy fetch, no replacement refs. The
 	// subject probe below keeps its own deadline; neither phase holds any
 	// SQL.
-	if len(sample.readings) > 0 {
+	if len(sample.readings) > 0 && !acceptance {
 		proof.readings = sample.readings
 		resolutionRunner := request.Runner
 		if resolutionRunner == nil {
@@ -267,18 +314,29 @@ func PrepareWorkerDispatchFreshness(ctx context.Context, s *Store, request Prepa
 			return nil, err
 		}
 	}
-	if sample.view == nil || sample.view.SubjectCommit == "" || probePath == "" {
+	hasSubject := sample.view != nil && sample.view.SubjectCommit != ""
+	if acceptance {
+		hasSubject = sample.pinReceipt != nil
+	}
+	if !hasSubject || probePath == "" {
 		// A subject-less non-oracle dispatch, or a dispatch whose session
 		// worktree matches no active claim, probes nothing: the admission's
 		// own claim check refuses the latter, and absence of a subject
 		// grants no freshness comparison.
 		return &WorkerDispatchPreparation{proof: proof}, nil
 	}
-	observation, err := observeDispatchSubject(ctx, runner, probePath)
+	anchorCommit := ""
+	if !acceptance && proof.anchor != nil {
+		// A missing historical delivery observation refuses review, not
+		// preparation for an editing/recovery lane.
+		anchorCommit, _ = proof.anchor.cleanCommit()
+	}
+	observation, ancestry, err := observeDispatchSubject(ctx, runner, probePath, anchorCommit)
 	if err != nil {
 		return nil, err
 	}
 	proof.observation = observation
+	proof.ancestry = ancestry
 	return &WorkerDispatchPreparation{proof: proof}, nil
 }
 
@@ -312,22 +370,36 @@ func selectDispatchClaimEntry(entries []WorktreeEntry, sessionWorktree string) (
 // observeDispatchSubject runs the read-only Git observation of one claimed
 // worktree under the single fixed probe deadline. A failed command or the
 // deadline produces a typed refusal before any effect.
-func observeDispatchSubject(ctx context.Context, runner GitRunner, path string) (*WorkerObservedDelivery, error) {
+func observeDispatchSubject(ctx context.Context, runner GitRunner, path, anchorCommit string) (*WorkerObservedDelivery, reviewSubjectAncestry, error) {
 	probeCtx, cancel := context.WithTimeout(ctx, workerDispatchObservationDeadline)
 	defer cancel()
 	status, err := runner.Run(probeCtx, path, "status", "--porcelain=v1", "-z", "--untracked-files=all")
 	if err != nil {
-		return nil, dispatchSubjectProbeFailure("clean status", probeCtx, err)
+		return nil, reviewSubjectAncestry{}, dispatchSubjectProbeFailure("clean status", probeCtx, err)
 	}
 	head, err := runner.Run(probeCtx, path, "rev-parse", "--verify", "HEAD^{commit}")
 	if err != nil {
-		return nil, dispatchSubjectProbeFailure("HEAD commit", probeCtx, err)
+		return nil, reviewSubjectAncestry{}, dispatchSubjectProbeFailure("HEAD commit", probeCtx, err)
 	}
 	commit := strings.TrimSpace(string(head))
 	if !worktreeSHAPattern.MatchString(commit) {
-		return nil, newFailure(KindGitUnreachable, workerDispatchFreshnessOp, "the claimed worktree's HEAD is not one raw commit OID", true, "retry once the worktree resolves a commit")
+		return nil, reviewSubjectAncestry{}, newFailure(KindGitUnreachable, workerDispatchFreshnessOp, "the claimed worktree's HEAD is not one raw commit OID", true, "retry once the worktree resolves a commit")
 	}
-	return &WorkerObservedDelivery{Commit: commit, State: observedDeliveryState(status)}, nil
+	var ancestry reviewSubjectAncestry
+	if anchorCommit != "" && anchorCommit != commit && len(status) == 0 {
+		_, ancestorErr := runner.Run(probeCtx, path, "--no-replace-objects", "merge-base", "--is-ancestor", anchorCommit, commit)
+		if ancestorErr == nil {
+			ancestry.strictDescendant = true
+		} else {
+			var exit *exec.ExitError
+			if !errors.As(ancestorErr, &exit) || exit.ExitCode() != 1 || probeCtx.Err() != nil {
+				// An ancestry outage refuses review, but cannot prevent an
+				// editing lane from producing a fresh accepted delivery.
+				ancestry.failure = dispatchSubjectProbeFailure("review subject ancestry", probeCtx, ancestorErr)
+			}
+		}
+	}
+	return &WorkerObservedDelivery{Commit: commit, State: observedDeliveryState(status)}, ancestry, nil
 }
 
 // dispatchSubjectProbeFailure classifies one probe failure: the fixed
@@ -349,6 +421,9 @@ func admitWorkerDispatchSubjectFreshness(ctx context.Context, tx *sql.Tx, reques
 	proof := workerDispatchPreparationFrom(ctx)
 	if proof == nil {
 		return newFailure(KindInvalidOperation, workerDispatchFreshnessOp, "the dispatch reached live action assembly without its sealed preparation", false, "run the dispatch through the authenticated mutation boundary, which prepares one proof per dispatch before the transaction opens")
+	}
+	if proof.proof.acceptance {
+		return newFailure(KindInvalidOperation, workerDispatchFreshnessOp, "dispatch requires its own sealed preparation, not a terminal acceptance preparation", false, "prepare the dispatch through its native mutation boundary")
 	}
 	if proof.proof.workID != request.WorkID {
 		return newFailure(KindInvalidPayload, workerDispatchFreshnessOp, "the sealed preparation names work "+proof.proof.workID+", not this dispatch's work", false, "prepare the dispatch this mutation authorizes")
@@ -508,82 +583,37 @@ func validateReviewAcceptedDeliveryTx(ctx context.Context, tx *sql.Tx, workID, s
 	if subject == "" {
 		return newFailure(KindUnauthorizedDispatch, workerDispatchFreshnessOp, "review of implementation work requires a nonempty qualified subject; qualify the accepted candidate through worktree-verify before review", false, "run worktree-verify on the clean accepted candidate, then rebuild the packet")
 	}
-	// The accepted source is the newest acceptance whose dispatch window
-	// names THIS worktree claim, derived in the scan itself: an accepted
-	// delivery from another worktree or Project never enters the selection,
-	// so it cannot displace the delivery this claim produced.
-	attemptRows, err := tx.QueryContext(ctx, `SELECT a.attempt_id,
-			(SELECT json_extract(dc.payload,'$.worker_worktree_identity') FROM domain_events dc
-				WHERE dc.subject_type=? AND dc.subject_id=a.work_id AND dc.kind=?
-				AND json_extract(dc.payload,'$.action_id')='dispatch_worker'
-				AND json_extract(dc.payload,'$.worker_attempt_id')=a.attempt_id
-				ORDER BY dc.seq DESC LIMIT 1) AS identity
-		FROM worker_attempts a
-		JOIN domain_events acc ON acc.subject_type=? AND acc.subject_id=a.work_id AND acc.kind=?
-			AND json_extract(acc.payload,'$.action_id') IN ('accept_worker_result','accept_worker_evidence')
-			AND json_extract(acc.payload,'$.worker_attempt_id')=a.attempt_id
-		WHERE a.work_id=? AND a.capability_class='implementation' AND a.lifecycle_state='completed'
-		ORDER BY acc.seq DESC`, string(SubjectWorkItem), WorkflowActionCompleted, string(SubjectWorkItem), WorkflowActionCompleted, workID)
+	anchors, err := readReviewDeliveryAnchors(ctx, tx, workID)
 	if err != nil {
-		return wrapFailure(KindUnavailable, workerDispatchFreshnessOp, "cannot read the accepted implementation delivery", true, "retry once the worker delivery projection is readable", err)
+		return err
 	}
-	defer attemptRows.Close()
-	// The judging contract is the packet's own binding: the dispatch packet
-	// admission already refuses a binding whose contract_version is not the
-	// active one, so an accepted delivery recorded under an earlier contract
-	// version of the same work item may host the review under the active
-	// contract. The accepted source is the newest acceptance on this
-	// worktree claim; a contract supersession neither displaces it nor
-	// resets the correction budget the escalation journeys spend.
-	var (
-		attemptID      string
-		sawAcceptedAny bool
-	)
-	for attemptRows.Next() {
-		var rowID string
-		var identity sql.NullString
-		if err := attemptRows.Scan(&rowID, &identity); err != nil {
-			return wrapFailure(KindUnavailable, workerDispatchFreshnessOp, "cannot scan the accepted implementation delivery", true, "retry once the worker delivery projection is readable", err)
-		}
-		sawAcceptedAny = true
-		if !identity.Valid || identity.String == "" || identity.String != worktreeIdentity {
-			continue
-		}
-		attemptID = rowID
-		break
-	}
-	if err := attemptRows.Err(); err != nil {
-		return wrapFailure(KindUnavailable, workerDispatchFreshnessOp, "cannot read the accepted implementation delivery", true, "retry once the worker delivery projection is readable", err)
-	}
-	if attemptID == "" {
-		if sawAcceptedAny {
-			return newFailure(KindUnauthorizedDispatch, workerDispatchFreshnessOp, "no accepted implementation delivery on this worktree claim can host this review", false, "review from the worktree claim the accepted delivery was produced on")
-		}
-		return newFailure(KindUnauthorizedDispatch, workerDispatchFreshnessOp, "the review has no accepted implementation delivery: record a fresh implementation attempt, observe its delivery, and accept it before review", false, "dispatch the implementation lane, accept its clean delivery, then dispatch the review")
-	}
-	var payloadVersion int
-	var raw []byte
-	if err := tx.QueryRowContext(ctx, `SELECT payload_version, payload FROM domain_events WHERE subject_type=? AND subject_id=? AND kind=? AND json_extract(payload,'$.attempt_id')=? ORDER BY seq DESC LIMIT 1`, string(SubjectWorkItem), workID, WorkerCompleted, attemptID).Scan(&payloadVersion, &raw); err != nil {
-		if err == sql.ErrNoRows {
-			return newFailure(KindUnauthorizedDispatch, workerDispatchFreshnessOp, "the accepted implementation attempt carries no completed delivery; record a fresh implementation attempt and accept it before review", false, "dispatch the implementation lane, accept its clean delivery, then dispatch the review")
-		}
-		return wrapFailure(KindUnavailable, workerDispatchFreshnessOp, "cannot read the accepted implementation completion", true, "retry once the worker event log is readable", err)
-	}
-	if payloadVersion < workerCompletedTerminalDeliveryVersion {
-		return newFailure(KindUnauthorizedDispatch, workerDispatchFreshnessOp, "the latest accepted implementation delivery predates the core delivery observation; record a fresh implementation attempt and accept it before review", false, "dispatch a fresh implementation attempt so the core observes its delivery, then dispatch the review")
-	}
-	var payload WorkerCompletedPayload
-	if err := json.Unmarshal(raw, &payload); err != nil {
-		return newFailure(KindInvariantViolation, workerDispatchFreshnessOp, "the accepted implementation completion is malformed", false, "rebuild projections from the event log")
-	}
-	if payload.ObservedDelivery == nil || payload.ObservedDelivery.State != "clean" {
-		return newFailure(KindUnauthorizedDispatch, workerDispatchFreshnessOp, "the latest accepted implementation delivery carries no clean core delivery observation; record a fresh implementation attempt and accept it before review", false, "dispatch a fresh implementation attempt so the core observes its clean delivery, then dispatch the review")
-	}
-	if payload.ObservedDelivery.Commit != subject {
-		return newFailure(KindUnauthorizedDispatch, workerDispatchFreshnessOp, "the latest accepted implementation delivery does not match the qualified review subject; record a fresh implementation attempt and accept it before review", false, "re-qualify the accepted candidate through worktree-verify, then rebuild the packet")
+	anchor := selectReviewDeliveryAnchor(anchors, worktreeIdentity)
+	commit, err := anchor.cleanCommit()
+	if err != nil {
+		return err
 	}
 	if observation == nil || observation.State != "clean" || observation.Commit != subject {
-		return newFailure(KindProjectionConflict, workerDispatchFreshnessOp, "the claimed worktree's live clean HEAD does not match the accepted implementation delivery", true, "re-qualify the candidate at the claimed worktree, then rebuild the packet and dispatch again")
+		return newFailure(KindProjectionConflict, workerDispatchFreshnessOp, "the claimed worktree's live clean HEAD does not match the qualified review subject", true, "re-qualify the candidate at the claimed worktree, then rebuild the packet and dispatch again")
+	}
+	if commit == subject {
+		return nil
+	}
+	prepared := workerDispatchPreparationFrom(ctx)
+	if prepared == nil || prepared.proof.anchor == nil || *prepared.proof.anchor != *anchor {
+		return newFailure(KindProjectionConflict, workerDispatchFreshnessOp, "the accepted delivery anchor changed under the prepared review", true, "prepare the review against the current accepted delivery")
+	}
+	if prepared.proof.ancestry.failure != nil {
+		return prepared.proof.ancestry.failure
+	}
+	if !prepared.proof.ancestry.strictDescendant {
+		return newFailure(KindUnauthorizedDispatch, workerDispatchFreshnessOp, "the qualified review subject is not a strict descendant of the accepted delivery", false, "review the accepted delivery or a proved descendant")
+	}
+	newer, err := newerEditingDispatch(ctx, tx, workID, anchor.dispatchSeq)
+	if err != nil {
+		return err
+	}
+	if newer {
+		return newFailure(KindUnauthorizedDispatch, workerDispatchFreshnessOp, "a newer editing dispatch prevents review beyond the accepted delivery anchor", false, "settle the newer editing attempt before review")
 	}
 	return nil
 }

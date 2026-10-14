@@ -164,19 +164,23 @@ func runVerdictAction(t *testing.T, s *Store, workID, action string, payload jso
 }
 
 // runVerdictActionAs runs one action as a chosen actor. Verdict actions pass
-// the reviewer: the owner executed the delivery step and the corrected
-// independence law refuses a self-evaluation (#801).
-func runVerdictActionAs(t *testing.T, s *Store, workID, action string, payload json.RawMessage, version int64, owner WorkflowActor) error {
+// the reviewer: the owner executed the delivery step, and independence
+// requires another actor for its evaluation.
+func runVerdictActionAs(t *testing.T, s *Store, workID, action string, payload json.RawMessage, version int64, owner WorkflowActor, runners ...GitRunner) error {
 	t.Helper()
+	ctx, err := prepareTerminalTestContext(context.Background(), s, workID, action, runners...)
+	if err != nil {
+		return err
+	}
 	if version == 0 {
 		version = verdictItemVersion(t, s, workID)
 	}
-	tx, err := s.DatabaseForTesting().BeginTx(context.Background(), nil)
+	tx, err := s.DatabaseForTesting().BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	if _, err := applyWorkflowActionRawTx(context.Background(), tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
+	if _, err := applyWorkflowActionRawTx(ctx, tx, newFoldScope(tx), BuiltinWorkflowRegistry(), WorkflowActionExecutionRequest{
 		EvidenceRefs: actionEvidenceRefs(action, payload), WorkID: workID, ExpectedVersion: version, ActionID: action, Payload: payload, Actor: owner,
 		AcceptedInputsDigest: "sha256:" + strings.Repeat("b", 64) + fmt.Sprint(version), IdempotencyIdentity: action + "-" + workID + "-" + fmt.Sprint(version), OperationID: action + "-" + workID + "-" + fmt.Sprint(version),
 		PrincipalRef: owner.PrincipalRef, Tool: "concord_work_transition", IdempotencyKey: action + "-" + workID + "-" + fmt.Sprint(version), RequestID: "request:" + action + "-" + workID + "-" + fmt.Sprint(version), ContractDigest: testManifestDigest, Now: time.Unix(9, 0).UTC(),

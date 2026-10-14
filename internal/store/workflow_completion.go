@@ -820,7 +820,7 @@ func verifyVerdictEvidence(ctx context.Context, tx *sql.Tx, workID string, refs 
 		// qualifies (#974).
 		return newFailure(KindMissingEvidence, "complete_workflow", "verdict evidence is not durably bound: "+strings.Join(unbound, ", ")+"; verdict refs must equal a bound immutable_subject_ref", false, "provide_evidence")
 	}
-	return nil
+	return workflowAcceptanceSubjectCurrent(ctx, tx, workID, nil, refs)
 }
 
 func verifyBlockingStaleness(ctx context.Context, tx *sql.Tx, workID string, definition WorkflowDefinition, required []string) error {

@@ -366,13 +366,28 @@ func workflowActionPreflightTx(ctx context.Context, tx *sql.Tx, registry Definit
 			return RegisteredDefinition{}, err
 		}
 	}
-	if request.ActionID == "accept_worker_evidence" && !definitionStepAllows(entry.Definition, currentStep, request.ActionID) {
+	if request.ActionID == "accept_worker_evidence" || request.ActionID == "accept_worker_result" {
 		fields, fieldsErr := workflowActionObject(request.Payload)
 		if fieldsErr != nil {
 			return RegisteredDefinition{}, fieldsErr
 		}
-		if err := validateRefineReviewEvidenceDisposition(ctx, tx, request.WorkID, entry.Definition, currentStep, fields, "workflow_action_preflight", 0); err != nil {
-			return RegisteredDefinition{}, err
+		if request.ActionID == "accept_worker_evidence" && !definitionStepAllows(entry.Definition, currentStep, request.ActionID) {
+			if err := validateRefineReviewEvidenceDisposition(ctx, tx, request.WorkID, entry.Definition, currentStep, fields, "workflow_action_preflight", 0); err != nil {
+				return RegisteredDefinition{}, err
+			}
+		}
+		attempt := workflowFieldStringDefault(fields, "attempt_id", "")
+		var capability string
+		if err := tx.QueryRowContext(ctx, `SELECT capability_class FROM worker_attempts WHERE work_id=? AND attempt_id=?`, request.WorkID, attempt).Scan(&capability); err != nil {
+			if err == sql.ErrNoRows {
+				return RegisteredDefinition{}, newFailure(KindProjectionNotFound, "workflow_action_preflight", "worker attempt does not exist for this work item", false, "dispatch the worker attempt before recording its result")
+			}
+			return RegisteredDefinition{}, wrapFailure(KindUnavailable, "workflow_action_preflight", "cannot read the requested worker capability", true, "retry once the database is readable", err)
+		}
+		if capability == "review" {
+			if err := workflowAcceptanceSubjectCurrent(ctx, tx, request.WorkID, []string{attempt}, nil); err != nil {
+				return RegisteredDefinition{}, err
+			}
 		}
 	}
 	if err := validateWorkflowOperatorSelectionTx(ctx, tx, registry, request); err != nil {

@@ -81,7 +81,7 @@ func validateRefineReviewEvidenceAttempt(ctx context.Context, q queryer, workID 
 	if !started || requestedEpoch != epoch {
 		return newFailure(KindIllegalLifecycleTransition, subject, "review evidence attempt epoch does not match the current refinement pass", false, "use the epoch that dispatched the current review")
 	}
-	return nil
+	return workflowAcceptanceSubjectCurrent(ctx, q, workID, []string{attemptID}, nil)
 }
 
 // An accepted refinement review reopens operator correction only when every

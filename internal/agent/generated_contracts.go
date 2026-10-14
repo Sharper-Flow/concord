@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-const ManifestDigest = "sha256:c0ef20caa35c9d6c7a3e96aa8df8173ad49ad4fe8308e31529c1fa2d35b5194c"
+const ManifestDigest = "sha256:a49e6e626f59850ec5e4449a45d1e6e30ba98c680f63a978736566b3654d3799"
 
 type OperationKind string
 
@@ -244,7 +244,7 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"work_observation_page":                                 {Required: []string{"observations", "total"}, Properties: []string{"total", "observations"}},
 	"work_page":                                             {Required: []string{"items"}, Properties: []string{"items", "next_cursor", "readiness_evidence"}},
 	"work_pin":                                              {Required: []string{"work_id", "title", "linear_issue_key", "project_id", "project_display_name", "version", "lifecycle", "cancelled_instance_closes", "workflow_type", "step", "attempt", "pending_operator_decision", "driving_sessions", "watermark", "next_valid_intents"}, Properties: []string{"work_id", "title", "linear_issue_key", "project_id", "project_display_name", "version", "lifecycle", "cancelled_instance_closes", "workflow_type", "workflow_definition_version", "workflow_definition_digest", "obligations", "outside_repair_disposition", "outside_repair_route", "self_repair", "step", "attempt", "pending_operator_decision", "driving_sessions", "withheld_operator_decision", "watermark", "next_valid_intents", "correction", "work_context", "verdict_evidence", "verified_criteria"}},
-	"work_pin_attempt":                                      {Required: []string{"id", "epoch", "lane", "state"}, Properties: []string{"id", "epoch", "lane", "state"}},
+	"work_pin_attempt":                                      {Required: []string{"id", "epoch", "lane", "state"}, Properties: []string{"id", "epoch", "lane", "state", "failure_attribution"}},
 	"work_pin_driving_session":                              {Required: []string{"session_ref", "last_action_id", "last_acted_at"}, Properties: []string{"session_ref", "last_action_id", "last_acted_at"}},
 	"work_pin_evidence":                                     {Required: []string{"evidence_kind", "immutable_subject_ref"}, Properties: []string{"evidence_kind", "immutable_subject_ref"}},
 	"work_pin_intent":                                       {Required: []string{"tool", "operation", "reason_code", "action_id", "required_fields", "expected_version"}, Properties: []string{"tool", "operation", "reason_code", "action_id", "required_fields", "expected_version"}},
@@ -319,6 +319,12 @@ var GeneratedPayloadRules = map[string]GeneratedPayloadRule{
 	"work_transition_worktree_verify_input":                 {Required: []string{"work_id", "idempotency_key"}, Properties: []string{"work_id", "command", "idempotency_key", "approval", "requested_budget_seconds", "oracle"}},
 	"worker_acceptance_oracle":                              {Required: []string{"owners", "cases", "controls"}, Properties: []string{"owners", "cases", "controls"}},
 	"worker_evidence_failure_result":                        {Required: []string{"ok", "event_ids", "error"}, Properties: []string{"ok", "event_ids", "error"}},
+	"worker_failure_attribution_read":                       {Required: []string{"event_id", "source_version", "attribution"}, Properties: []string{"event_id", "source_version", "attribution"}},
+	"worker_failure_host_observation":                       {Required: []string{"tag", "event_type"}, Properties: []string{"tag", "event_type", "session_id", "message_id", "error_name", "error_code", "status_code"}},
+	"worker_failure_job_binding":                            {Required: []string{"job_id", "revision", "digest"}, Properties: []string{"job_id", "revision", "digest"}},
+	"worker_failure_observation":                            {Required: []string{"observer", "phase", "cause", "basis", "sources"}, Properties: []string{"observer", "phase", "cause", "basis", "sources", "diagnosis"}},
+	"worker_failure_source":                                 {Required: []string{"kind"}, Properties: []string{"kind", "locator", "digest", "message", "host"}},
+	"worker_failure_subject":                                {Required: []string{"kind", "locator"}, Properties: []string{"kind", "locator", "digest"}},
 	"worker_job_prerequisite":                               {Required: []string{"job_id", "revision"}, Properties: []string{"job_id", "revision", "result_ref"}},
 	"worker_oracle_case":                                    {Required: []string{"case_id", "owner_id", "entry_point", "input_class", "expected_state", "control_ids"}, Properties: []string{"case_id", "owner_id", "entry_point", "input_class", "expected_state", "control_ids"}},
 	"worker_oracle_control":                                 {Required: []string{"control_id", "owner_id", "predicate_ids", "case_ids", "recipe_source", "argv", "cwd", "expected_result", "required_evidence_role", "readiness_evidence_refs"}, Properties: []string{"control_id", "owner_id", "predicate_ids", "case_ids", "recipe_source", "argv", "cwd", "expected_result", "required_evidence_role", "readiness_evidence_refs"}},

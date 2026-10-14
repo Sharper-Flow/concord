@@ -224,7 +224,7 @@ test("a failed launch keeps the committed attempt truthful for one abandonment",
       return { exitCode: 0, stdout: "", stderr: "" }
     } }
     const abandonment = await abandonWorkerAttempt(lane, { work_id: "work-retry", attempt_id: RETRY_ATTEMPT }, "the launch window never opened; the committed retry attempt closes with no report", { credentials: testCredentials, evidenceRunner }, new AbortController().signal)
-    expect(abandonment.outcome).toBe("error")
+    expect(abandonment.envelope.outcome).toBe("error")
     expect(abandonments).toHaveLength(1)
     expect(abandonments[0].attempt_id).toBe(RETRY_ATTEMPT)
   } finally {

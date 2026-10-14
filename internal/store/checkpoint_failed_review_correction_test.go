@@ -24,11 +24,7 @@ func seedCheckpointFailedReviewMismatch(t *testing.T, workID string) (workflowRe
 // named workflow kind, parked at that kind's verification checkpoint.
 func seedCheckpointFailedReviewMismatchOn(t *testing.T, workID, definitionRef, checkpoint string) (workflowReturnRouteFixture, string, int64) {
 	t.Helper()
-	registered, err := BuiltinWorkflowDefinitionForRef(definitionRef)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return seedCheckpointFailedReviewMismatchWith(t, workID, registered, checkpoint)
+	return seedCheckpointFailedReviewMismatchWith(t, workID, attributionInactiveWorkflowHeadForTest(t, definitionRef), checkpoint)
 }
 
 // seedCheckpointFailedReviewMismatchAt seeds the issue 1062 shape on one
@@ -274,7 +270,7 @@ func TestCheckpointFailedReviewCorrectionPreflightMatchesTheResolver(t *testing.
 	})
 	t.Run("missing accepted delivery", func(t *testing.T) {
 		const workID = "checkpoint-preflight-class-delivery"
-		fixture := seedWorkflowReturnRouteFixtureRequiring(t, workID, "workflow.break_fix", "verify", []string{"verification", "review"}, []string{"verification", "artifact"})
+		fixture := seedWorkflowReturnRouteFixtureWithDefinition(t, workID, attributionInactiveWorkflowHeadForTest(t, "workflow.break_fix"), "verify", []string{"verification", "review"}, []string{"verification", "artifact"})
 		reviewer := checkpointReviewReviewer(t, fixture.store, workID)
 		dispatchVerifyReviewAttempt(t, fixture, workID)
 		if err := runVerdictActionAs(t, fixture.store, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"verdicts":[{"predicate_id":"predicate:return-route","verdict_kind":"outcome_mismatch","evaluation_evidence":["evidence:return-route-verification"],"incomparable_with_approved":true}]}`), 0, reviewer); err != nil {
@@ -316,7 +312,7 @@ func TestCheckpointFailedReviewCorrectionNamesEachMissingPrerequisite(t *testing
 	})
 	t.Run("missing accepted delivery", func(t *testing.T) {
 		const workID = "checkpoint-correction-class-delivery"
-		fixture := seedWorkflowReturnRouteFixtureRequiring(t, workID, "workflow.break_fix", "verify", []string{"verification", "review"}, []string{"verification", "artifact"})
+		fixture := seedWorkflowReturnRouteFixtureWithDefinition(t, workID, attributionInactiveWorkflowHeadForTest(t, "workflow.break_fix"), "verify", []string{"verification", "review"}, []string{"verification", "artifact"})
 		reviewer := checkpointReviewReviewer(t, fixture.store, workID)
 		dispatchVerifyReviewAttempt(t, fixture, workID)
 		if err := runVerdictActionAs(t, fixture.store, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"verdicts":[{"predicate_id":"predicate:return-route","verdict_kind":"outcome_mismatch","evaluation_evidence":["evidence:return-route-verification"],"incomparable_with_approved":true}]}`), 0, reviewer); err != nil {
@@ -509,10 +505,7 @@ func TestCheckpointFailedReviewCorrectionSecondCycleCountsPriorRequests(t *testi
 	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"predicate_id":"predicate:return-route","verdict_kind":"outcome_mismatch","evaluation_evidence":["evidence:return-route-verification"],"incomparable_with_approved":true}`), 0, reviewer); err != nil {
 		t.Fatalf("fresh mismatch verdict refused: %v", err)
 	}
-	entry, err := BuiltinWorkflowDefinitionForRef("workflow.break_fix")
-	if err != nil {
-		t.Fatal(err)
-	}
+	entry := attributionInactiveWorkflowHeadForTest(t, "workflow.break_fix")
 	admission, missing, err := workflowCorrectionRequestAdmission(ctx, s.db, workID, entry.Definition, "verify", "correction_parity_test", 0)
 	if err != nil {
 		t.Fatal(err)
@@ -714,10 +707,7 @@ func TestCheckpointCorrectionDispatchCountsIncomparableOKVerdicts(t *testing.T) 
 	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"verdicts":[{"predicate_id":"predicate:return-route","verdict_kind":"ok","evaluation_evidence":["evidence:return-route-verification"],"incomparable_with_approved":true}]}`), 0, reviewer); err != nil {
 		t.Fatalf("incomparable ok verdict refused: %v", err)
 	}
-	entry, err := BuiltinWorkflowDefinitionForRef("workflow.break_fix")
-	if err != nil {
-		t.Fatal(err)
-	}
+	entry := attributionInactiveWorkflowHeadForTest(t, "workflow.break_fix")
 	admission, missing, err := workflowCorrectionRequestAdmission(ctx, s.db, workID, entry.Definition, "verify", "incomparable_ok_test", 0)
 	if err != nil {
 		t.Fatal(err)
@@ -767,10 +757,7 @@ func TestCheckpointCorrectionDispatchCountsMixedPredicateWindows(t *testing.T) {
 	if err := runVerdictActionAs(t, s, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"verdicts":[{"predicate_id":"predicate:second","verdict_kind":"outcome_mismatch","evaluation_evidence":["evidence:return-route-verification"],"incomparable_with_approved":true}]}`), 0, reviewer); err != nil {
 		t.Fatalf("stale second-predicate verdict refused: %v", err)
 	}
-	entry, err := BuiltinWorkflowDefinitionForRef("workflow.break_fix")
-	if err != nil {
-		t.Fatal(err)
-	}
+	entry := attributionInactiveWorkflowHeadForTest(t, "workflow.break_fix")
 	admission, missing, err := workflowCorrectionRequestAdmission(ctx, s.db, workID, entry.Definition, "verify", "mixed_predicates_test", 0)
 	if err != nil {
 		t.Fatal(err)

@@ -145,7 +145,10 @@ func seedFailedPreContractResearchRetry(t *testing.T, s *store.Store, service *S
 	// the terminal fact and the derived workflow record commit together.
 	lane := preContractResearchLane(t)
 	laneDispatch := store.Event{EventID: "precontract-dispatch", Kind: store.WorkerDispatched, SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: 2, Payload: retryJSON(store.WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, PacketDigest: "sha256:" + strings.Repeat("b", 64), ReadbackModel: "openai/gpt-5.6-luna", PacketSchemaVersion: store.WorkerPacketSchemaVersion, ReportSchemaVersion: store.WorkerReportSchemaVersion})}
-	failure := store.Event{EventID: "precontract-failed", Kind: store.WorkerFailed, SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: retryJSON(store.WorkerFailedPayload{AttemptID: attemptID, ReadbackModel: "openai/gpt-5.6-luna", FailureKind: store.WorkerFailureWorkerError, Detail: "usage limit reached"})}
+	// The failed terminal carries the recorded host observation the promoted
+	// definition requires; the store derives the identity from the attempt's
+	// own dispatch authorization.
+	failure := agentWorkerFailedAttributedEvent("precontract-failed", store.WorkerFailedPayload{AttemptID: attemptID, ReadbackModel: "openai/gpt-5.6-luna", FailureKind: store.WorkerFailureWorkerError, Detail: "usage limit reached"})
 	if err := s.Transact(context.Background(), func(tx *store.Transaction) error {
 		enriched, err := store.PrepareLaneActorDispatch(context.Background(), tx, laneDispatch, grant.PrincipalRef, grant.ClientRef)
 		if err != nil {

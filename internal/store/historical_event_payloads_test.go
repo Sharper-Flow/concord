@@ -689,7 +689,7 @@ func TestRecordedPreparationRefusesUnreleasedOldPayloadVariants(t *testing.T) {
 		"failure observation null":            {histWorkerFailedEvent(t, "bad-failure-null", "attempt-x", time.Unix(40, 0).UTC(), nil), KindInvalidPayload, "requires the recorded host session observation"},
 		"failure fabricated context findings": {withPayloadMember(t, histWorkerFailedEvent(t, "bad-failure-findings", "attempt-x", time.Unix(40, 0).UTC(), []any{}), `"context_findings":[]`), KindInvalidPayload, histDecodeRefusal},
 		"failure trailing data":               {withTrailingBytes(t, histWorkerFailedEvent(t, "bad-failure-trailing", "attempt-x", time.Unix(40, 0).UTC(), []any{})), KindInvalidPayload, "payload is not a JSON object"},
-		"failure future version":              {withEventVersion(histWorkerFailedEvent(t, "bad-failure-future", "attempt-x", time.Unix(40, 0).UTC(), []any{}), 4), KindUnsupportedPayloadVersion, "supported range is"},
+		"failure future version":              {withEventVersion(histWorkerFailedEvent(t, "bad-failure-future", "attempt-x", time.Unix(40, 0).UTC(), []any{}), eventKindRegistry[WorkerFailed].CurrentVersion+1), KindUnsupportedPayloadVersion, "supported range is"},
 
 		// worker.dispatched: fabricated later members, resolution identity,
 		// and version coupling.
@@ -740,7 +740,7 @@ func TestRecordedPreparationRefusesUnreleasedOldPayloadVariants(t *testing.T) {
 			"routing_policy_version": historicalRoutingPolicyToken, "routing_policy_digest": historicalRoutingPolicyDigest,
 			"resolved_model": "openai/gpt-5.6-luna", "resolution_role": "preferred", "fallback_reason": "",
 		})), KindInvalidPayload, "payload is not a JSON object"},
-		"dispatch future version": {histDispatchEvent(t, "bad-dispatch-future", "attempt-x", 6, time.Unix(30, 0).UTC(), nil), KindUnsupportedPayloadVersion, "supported range is"},
+		"dispatch future version": {histDispatchEvent(t, "bad-dispatch-future", "attempt-x", eventKindRegistry[WorkerDispatched].CurrentVersion+1, time.Unix(30, 0).UTC(), nil), KindUnsupportedPayloadVersion, "supported range is"},
 
 		// Claim landing: mixed old and new members and wrong types.
 		"landing fabricated host identity":    {withPayloadMember(t, landing, `"host_pid":7`), KindInvalidPayload, "matches no released schema"},
@@ -753,7 +753,7 @@ func TestRecordedPreparationRefusesUnreleasedOldPayloadVariants(t *testing.T) {
 		"release null occupant":            {withReplacedPayloadText(t, release, `"occupant_session_ref":"ses-legacy"`, `"occupant_session_ref":null`), KindInvalidPayload, "missing required identity"},
 		"release occupant wrong type":      {withReplacedPayloadText(t, release, `"occupant_session_ref":"ses-legacy"`, `"occupant_session_ref":7`), KindInvalidPayload, histDecodeRefusal},
 		"release missing set identity":     {withReplacedPayloadText(t, release, `"set_id":"wts:work-w"`, `"set_id":""`), KindInvalidPayload, "missing required identity"},
-		"release future version":           {withEventVersion(release, 3), KindUnsupportedPayloadVersion, "supported range is"},
+		"release future version":           {withEventVersion(release, eventKindRegistry["work.worktree_occupancy_released"].CurrentVersion+1), KindUnsupportedPayloadVersion, "supported range is"},
 
 		// Native run: mixed universes, nested members, and trailing data.
 		"native fabricated observation identity": {withPayloadMember(t, legacyNativeRunEvent("bad-native-obs", nativePayload), `"observation_id":"xobs:0123456789abcdef"`), KindInvalidPayload, "matches no released schema"},
@@ -761,7 +761,7 @@ func TestRecordedPreparationRefusesUnreleasedOldPayloadVariants(t *testing.T) {
 		"native total wrong type":                {withReplacedPayloadText(t, legacyNativeRunEvent("bad-native-total", nativePayload), `"total":"eq(1)"`, `"total":1`), KindInvalidPayload, histDecodeRefusal},
 		"native nested unknown member":           {withReplacedPayloadText(t, legacyNativeRunEvent("bad-native-nested", nativePayload), `"total":"eq(1)"`, `"total":"eq(1)","structure_digest":"sha256:`+strings.Repeat("0", 64)+`"`), KindInvalidPayload, histDecodeRefusal},
 		"native trailing data":                   {withTrailingBytes(t, legacyNativeRunEvent("bad-native-trailing", nativePayload)), KindInvalidPayload, "payload is not a JSON object"},
-		"native future version":                  {withEventVersion(legacyNativeRunEvent("bad-native-future", nativePayload), 3), KindUnsupportedPayloadVersion, "supported range is"},
+		"native future version":                  {withEventVersion(legacyNativeRunEvent("bad-native-future", nativePayload), eventKindRegistry[WorkflowNativeRunRecorded].CurrentVersion+1), KindUnsupportedPayloadVersion, "supported range is"},
 	} {
 		_, err := prepareRecordedEvent(testCase.event)
 		var failure *Failure

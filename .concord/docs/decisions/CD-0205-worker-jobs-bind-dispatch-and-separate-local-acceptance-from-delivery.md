@@ -142,6 +142,21 @@ The `dispatch_worker` completion records the binding. The dispatch evidence
 must carry exactly that binding. The report must claim exactly that revision.
 A satisfied revision refuses a new dispatch, on resume and on the first ask.
 
+The host derives canonical report identity from the authorized packet. Worker
+echoes cannot select another job, revision, attempt, or subject. The store
+refuses a canonical report whose binding differs from its dispatch.
+
+On attribution-capable definition versions, reported predicate ties are
+subsets of the exact dispatched job's predicates. The complete parent
+predicates remain context and whole-work obligations. A report cannot use
+parent context to claim another job's predicate. Dispatches without a job
+keep their declared predicate vocabulary.
+
+Attribution records reference the existing core-observed delivery or native
+run. They neither copy a subject commit into another owner nor infer a final
+subject from a dispatch commit. A missing historical observation stays
+missing.
+
 Native oracle execution joins that completion to its exact `worker_attempts`
 row, preceding action start and epoch, canonical packet digest, and recorded
 job revision under its digest. The selected control must belong to that job.
@@ -317,6 +332,62 @@ require the oracle through the declared `record_worker_job` payload.
 Released pins retain their oracle-free shape and behavior. Replay never
 invents an oracle or uses today's registry to reinterpret historical content.
 
+### D7. Failure attribution preserves source and authority
+
+One typed attribution block extends existing terminal and coordinator
+correction records. It separates the producer observation from core-derived
+identity. The producer names its observed phase, source, error or check,
+diagnosis, and causal basis. The core derives identity from the existing
+dispatch, job, result, and native-run records.
+
+Cause is unknown, a hypothesis, or a source-backed assertion. A citation alone
+proves no cause. Bare cancellation proves the terminal message, not a provider
+fault. A prior retry observation does not establish terminal causality. A
+typed provider error records the observed fault and retains its actual source
+identity and code where available.
+
+Worker observations remain worker claims. A schema failure cannot invent an
+implementation cause. Native evidence retains its native authority. A
+coordinator diagnosis creates neither native evidence nor independent
+verification.
+
+Coordinator integration attribution names the failed standalone verification
+run by its verify-lease or operation reference. The core resolves the run's
+observed subject from the lease result, and clean unchanged runs only. The
+lease records, at acquire time and in its own insert transaction, the highest
+committed event sequence then visible. No Git read and no second read path
+supplies it. The input population is exactly the accepted job revisions of
+this work item whose acceptance event sequence is at or below that watermark,
+with their digests and result references. The coordinator supplies only the
+run reference, never a population, a commit, or a sequence. A mutated or
+aborted run, or a run without a clean subject, cannot anchor integration
+attribution and refuses with a typed cause. A lease row without the watermark
+reports the population as unavailable, and no timestamp backfill ever supplies
+it. A worker count, predicate union, mutable latest-job read, or timestamps
+alone cannot replace that population.
+
+The authenticated worker-evidence route binds the canonical producer-
+observation digest with a versioned assertion. The core derives identity
+separately. Changed content or mismatched source joins refuse before the
+terminal write commits. Historical signature bytes remain exact.
+
+An attribution block is at most 8192 UTF-8 bytes in canonical JSON. It carries
+at most eight sources. Each locator is at most 512 bytes, each observed
+message 2048 bytes, and diagnosis 1024 bytes. Overflow refuses whole.
+Attribution cannot truncate a source into a different claim.
+
+Attribution supplies no verification evidence, effect, retry, delivery, or
+acceptance authority. Every dispatched attempt still counts. Exact retry
+approval, the convergence wall, independent verdicts, and the sole delivery
+admission keep their owners.
+
+Existing event, attempt, and history reads expose attribution with its source
+version. Released definitions keep their original behavior. Historical
+attribution absence upcasts to an explicit unavailable origin. That origin is
+separate from completion evidence origin. Upcasts invent no job, subject,
+source, or cause. Live and rebuild folds validate the same retained structural
+joins without current-host reads.
+
 ## Alternatives considered
 
 - Infer the job from checkpoint prose. Rejected: no check can read prose as
@@ -432,6 +503,48 @@ Scenario: Every reachable state stays live on the new versions
   When the admission model explores local acceptance as a held successor
   Then each reachable state reaches the terminal state
   And the real fold equals the model after a local acceptance
+
+Scenario: A report cannot tie evidence outside its dispatched job
+  Given a job-bound dispatch whose parent declares a predicate outside the job
+  When its canonical report ties evidence to that predicate on an
+  attribution-capable pin
+  Then completion refuses with no result credit
+
+Scenario: Bare cancellation proves no provider fault
+  Given a terminal host observation that contains only Task cancelled
+  When the terminal record carries attribution
+  Then its causal basis remains unknown
+
+Scenario: A prior retry is not a terminal cause
+  Given a prior retry observation and a later cancelled Task
+  When the terminal record carries both observations
+  Then neither source becomes a proven terminal cause
+
+Scenario: Integration correction cites the run and its watermark population
+  Given a standalone verification run of the integrated work that failed on a
+  clean subject
+  When the coordinator records integration correction
+  Then attribution references that run and exactly the accepted input
+  revisions at or below its lease watermark
+  And a job accepted after the run started stays outside the population
+
+Scenario: Unfit runs cannot anchor integration attribution
+  Given a mutated or aborted verification run, or a run without a clean
+  subject
+  When a correction names that run as the integration anchor
+  Then the anchor refuses with a typed cause and records no attribution
+
+Scenario: A lease without a watermark reports the population unavailable
+  Given a historical lease row without the acquire-time watermark
+  When the coordinator attributes integration through that run
+  Then the input population reports unavailable
+  And no timestamp backfill supplies it
+
+Scenario: Rebuild equals live for attribution joins
+  Given an attribution-bearing event log
+  When the store rebuilds its projections
+  Then recorded source joins and historical unavailable origins equal the
+  live read
 ```
 
 - `go test ./internal/store/ -run 'TestWorkerJobDispatchRequiresRecordedRevision|TestWorkerJobRecordingBindsApprovedContractPredicates|TestWorkerJobRecordingAuthorityAndReadinessGates'` proves the first scenario.

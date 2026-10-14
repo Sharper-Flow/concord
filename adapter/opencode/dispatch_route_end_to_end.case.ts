@@ -416,6 +416,7 @@ async function driveWorkflowToContract(
   // under a recorded ready worker-job revision (CD-0205).
   response = await transition(10, "record_worker_job", "e2e-worker-job", {
     job_id: ROUTE_WORKER_JOB_ID,
+    predicate_ids: owner.predicate_ids,
     objective: "Apply the bounded route repair.",
     stopping_condition: "The route repair is applied and its checks pass.",
     path_scope: jobPathScope,
@@ -630,7 +631,7 @@ routeDeclaration("G01 composes concurrent coordinators with fresh production ind
         const { readiness_evidence_refs: _, ...control } = oracle!.controls[0]
         const prepared = await verify(a, `${key}-producer-prepare`, { oracle: { phase: "prepare", expected_contract_version: 1, control_bundle: { owner: oracle!.owners[0], cases: oracle!.cases, control } } })
         oracle = { ...oracle!, controls: [{ ...control, readiness_evidence_refs: [prepared.oracle.run_ref] }] }
-        await action(a, "record_worker_job", `${key}-job`, { job_id: `${key}-producer`, objective: "Apply the corrected marker.", stopping_condition: "The corrected marker is committed.", path_scope: [".concord/docs/dispatch-marker.txt"], checks: ["git status --short"], ready: true, readiness_evidence: ["evidence:corrected-marker-ready"], acceptance_oracle: oracle! })
+        await action(a, "record_worker_job", `${key}-job`, { job_id: `${key}-producer`, predicate_ids: oracle!.owners[0].predicate_ids, objective: "Apply the corrected marker.", stopping_condition: "The corrected marker is committed.", path_scope: [".concord/docs/dispatch-marker.txt"], checks: ["git status --short"], ready: true, readiness_evidence: ["evidence:corrected-marker-ready"], acceptance_oracle: oracle! })
       }
       const producer = await dispatch(a, "implement", `${key}-implement`)
       oracle = producer.packet.inputs.worker_job.acceptance_oracle
@@ -696,7 +697,7 @@ routeDeclaration("G01 composes concurrent coordinators with fresh production ind
         const { readiness_evidence_refs: _, ...preparationControl } = control
         const prepared = await verify(b, `${evaluationKey}-prepare`, { oracle: { phase: "prepare", expected_contract_version: 1, control_bundle: { owner: oracle.owners[0], cases: oracle.cases, control: preparationControl } } })
         const freshOracle = { ...oracle, controls: [{ ...control, readiness_evidence_refs: [prepared.oracle.run_ref] }] }
-        await action(b, "record_worker_job", `${evaluationKey}-job`, { job_id: evaluationKey, objective: `Independently ${laneID} the corrected commit.`, stopping_condition: "The pinned subject has an independent report.", path_scope: [".concord/docs/dispatch-marker.txt"], checks: ["go test ./oraclekit"], ready: true, readiness_evidence: [prepared.oracle.run_ref], acceptance_oracle: freshOracle })
+        await action(b, "record_worker_job", `${evaluationKey}-job`, { job_id: evaluationKey, predicate_ids: oracle.owners[0].predicate_ids, objective: `Independently ${laneID} the corrected commit.`, stopping_condition: "The pinned subject has an independent report.", path_scope: [".concord/docs/dispatch-marker.txt"], checks: ["go test ./oraclekit"], ready: true, readiness_evidence: [prepared.oracle.run_ref], acceptance_oracle: freshOracle })
         const evaluator = await dispatch(b, laneID, evaluationKey)
         expect(evaluator.workerSessionID).not.toBe(producer.workerSessionID)
         expect(evaluator.packet.inputs.outcome_predicates).toEqual([predicate])
@@ -982,6 +983,7 @@ routeDeclaration("composes implementation and independent review through one ord
     const refineDeliveryVersion = dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number
     response = await transition(refineDeliveryVersion, "record_worker_job", "e2e-no-ship-worker-job", {
       job_id: "job:route-e2e-no-ship-review",
+      predicate_ids: packet.inputs.worker_job.predicate_ids,
       objective: "Independently evaluate the pinned synthetic commit.",
       stopping_condition: "The report states whether the subject is safe to ship.",
       path_scope: ["internal/store"],
@@ -1041,6 +1043,7 @@ routeDeclaration("composes implementation and independent review through one ord
     expect(dbValue(dbPath, `SELECT count(*) AS n FROM domain_events WHERE subject_id='${workID}'`).n).toBe(eventsAfterNoShipAccept)
     response = await transition(dbValue(dbPath, `SELECT version FROM work_items WHERE id='${workID}'`).version as number, "record_worker_job", "e2e-settling-worker-job", {
       job_id: "job:route-e2e-settling-review",
+      predicate_ids: packet.inputs.worker_job.predicate_ids,
       objective: "Independently re-review the pinned synthetic commit.",
       stopping_condition: "A fresh ship report settles review evidence for the subject.",
       path_scope: ["internal/store"],

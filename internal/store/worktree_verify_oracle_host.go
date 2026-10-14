@@ -264,9 +264,6 @@ func validateNativeTargetCheckArgv(argv []string) error {
 		return nativeUnavailable("check argv script slot must be a literal file operand, not an interpreter option")
 	}
 	for _, part := range argv[1:] {
-		if strings.Contains(part, "::") {
-			return nativeUnavailable("check argv values must not carry witness separators")
-		}
 		if part == "$scratch" || strings.Contains(part, "$scratch/") || strings.ContainsAny(part, "\x00") {
 			return nativeUnavailable("check argv values must be bounded literal arguments")
 		}

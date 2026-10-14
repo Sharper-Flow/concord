@@ -78,6 +78,10 @@ func (s *Store) runNativeTargetOracle(ctx context.Context, r GitRunner, entry Wo
 		}
 		result.BinaryDigest = binaryDigest
 	}
+	// The run loop owns the stage ordinal: each executed test stage's
+	// position among the producer-generated test stages joins it to its
+	// selected witness, so no caller-supplied index can enter the join.
+	testOrdinal := 0
 	for _, stage := range p.Stages {
 		home, err := os.Lstat(filepath.Join(root, "home"))
 		if err != nil || !home.IsDir() || home.Mode()&os.ModeSymlink != 0 {
@@ -170,10 +174,11 @@ func (s *Store) runNativeTargetOracle(ctx context.Context, r GitRunner, entry Wo
 				return err
 			}
 		case "test":
-			witnesses, err := nativeTargetStageWitnesses(t, p.Bundle.Control, stage.Argv)
+			witnesses, err := nativeTargetStageWitnesses(t, p.Bundle.Control, stage.Argv, testOrdinal)
 			if err != nil {
 				return err
 			}
+			testOrdinal++
 			if err := nativeTargetVerifyTestStage(t, root, stage.Argv, stageCapture.stdout); err != nil {
 				return err
 			}
@@ -697,28 +702,36 @@ func nativeTargetPytestCollectOutput(stdout []byte) ([]string, error) {
 	return collected, nil
 }
 
-// nativeTargetStageWitnesses names the witnesses one recorded test stage
-// covers, derived from the stage's own logical argv and the control's
-// selected population.
-func nativeTargetStageWitnesses(t *nativeTargetOraclePlan, control OracleControl, argv []string) ([]string, error) {
+// nativeTargetStageWitnesses names the witness one recorded test stage
+// covers: the stage's trusted ordinal among the producer-generated test
+// stages — the producer renders exactly one test stage per selected
+// witness, in the sorted selected order — selects that witness from the
+// exact selected population, and the stage's own logical argv must equal
+// that witness's declared invocation. The check family's identity is each
+// declared invocation, not a unique argv, so two witnesses may share one
+// argv and each physical check is its own witness; a first-match lookup
+// would fold them into one observed identity.
+func nativeTargetStageWitnesses(t *nativeTargetOraclePlan, control OracleControl, argv []string, ordinal int) ([]string, error) {
 	selected, err := nativeTargetCaseWitnesses(t.Recipe, control)
 	if err != nil {
 		return nil, err
 	}
+	if ordinal < 0 || ordinal >= len(selected) {
+		return nil, nativeUnavailable("recorded test stage has no selected witness at its ordinal")
+	}
+	witness := selected[ordinal]
 	switch t.Recipe.Runner {
 	case nativeTargetRunnerPytest:
-		if len(argv) > 1 && slices.Contains(selected, argv[1]) {
-			return []string{argv[1]}, nil
+		if len(argv) > 1 && argv[1] == witness {
+			return []string{witness}, nil
 		}
 	case nativeTargetRunnerCheck:
-		for _, witness := range selected {
-			check, err := nativeTargetCheckFor(t.Recipe, witness)
-			if err != nil {
-				return nil, err
-			}
-			if len(argv) == len(check.Argv) && slices.Equal(argv, check.Argv) {
-				return []string{witness}, nil
-			}
+		check, err := nativeTargetCheckFor(t.Recipe, witness)
+		if err != nil {
+			return nil, err
+		}
+		if len(argv) == len(check.Argv) && slices.Equal(argv, check.Argv) {
+			return []string{witness}, nil
 		}
 	}
 	return nil, nativeUnavailable("recorded test stage does not name its selected witnesses")

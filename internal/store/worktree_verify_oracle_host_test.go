@@ -426,6 +426,78 @@ func TestNativeTargetAxisCheckArgvOptionSlots(t *testing.T) {
 	}
 }
 
+// A check's bounded literal data carries no `::` semantics: the separator
+// belongs to pytest node IDs alone, and the closed pair decision already
+// separates the runners, so no check decoder consumes it. Literal data
+// values and a pinned script path may therefore carry `::` as ordinary
+// bytes; the witness, pinned-harness, and visible-byte validations are
+// untouched.
+func TestNativeTargetAxisCheckArgvSeparatorData(t *testing.T) {
+	for name, argv := range map[string][]string{
+		"literal_data":       {"bash", "scripts/check.sh", "--label", "label::value"},
+		"pinned_dashed_path": {"bash", "scripts/check::one.sh"},
+	} {
+		if err := validateNativeTargetCheckArgv(argv); err != nil {
+			t.Fatalf("check argv %s refused for ordinary separator bytes: %v: %v", name, argv, err)
+		}
+	}
+}
+
+// A recorded test stage joins its selected witness through its trusted
+// ordinal among the producer-generated test stages: two declared checks
+// sharing one argv are two witnesses at their own ordinals, an argv that
+// names another ordinal's declared invocation refuses, and an ordinal
+// outside the exact selected population refuses — the index join is a
+// typed bounded position, never a first-match string lookup.
+func TestNativeTargetAxisStageWitnessOrdinal(t *testing.T) {
+	shared := nativeTargetOracleManifest{
+		Kind: nativeTargetKind, Materializer: nativeTargetMaterializerNone, Runner: nativeTargetRunnerCheck,
+		Root:         "chkfix",
+		HarnessFiles: []string{"chkfix/scripts/check.sh"},
+		SupportFiles: []string{},
+		Cases:        map[string][]string{"case:fixture": {"shell-first", "shell-second"}},
+		Checks: []nativeTargetCheck{
+			{Witness: "shell-first", Argv: []string{"bash", "scripts/check.sh", "--expected", "7"}},
+			{Witness: "shell-second", Argv: []string{"bash", "scripts/check.sh", "--expected", "7"}},
+		},
+		Pin: nativeTargetPin{Shell: "5.3.9"},
+	}
+	control := OracleControl{CaseIDs: []string{"case:fixture"}, Argv: []string{"check", "shell-first", "shell-second"}, Cwd: "chkfix"}
+	plan := &nativeTargetOraclePlan{Recipe: shared}
+	sharedArgv := []string{"bash", "scripts/check.sh", "--expected", "7"}
+	first, err := nativeTargetStageWitnesses(plan, control, sharedArgv, 0)
+	if err != nil || !slicesEqualStrings(first, []string{"shell-first"}) {
+		t.Fatalf("ordinal 0 named %v err=%v", first, err)
+	}
+	second, err := nativeTargetStageWitnesses(plan, control, sharedArgv, 1)
+	if err != nil || !slicesEqualStrings(second, []string{"shell-second"}) {
+		t.Fatalf("ordinal 1 folded the second shared invocation into %v err=%v", second, err)
+	}
+	for _, ordinal := range []int{-1, 2} {
+		if _, err := nativeTargetStageWitnesses(plan, control, sharedArgv, ordinal); err == nil {
+			t.Fatalf("ordinal %d outside the selected population was admitted", ordinal)
+		}
+	}
+	distinct := deepCopyNativeTargetManifest(t, shared)
+	distinct.Checks[1].Argv = []string{"python3", "scripts/check.py", "--expected", "7"}
+	distinct.HarnessFiles = append(distinct.HarnessFiles, "chkfix/scripts/check.py")
+	distinct.Pin = nativeTargetPin{Shell: "5.3.9", Python: "3.13.7"}
+	distinctPlan := &nativeTargetOraclePlan{Recipe: distinct}
+	if _, err := nativeTargetStageWitnesses(distinctPlan, control, sharedArgv, 1); err == nil {
+		t.Fatal("a stage carrying another ordinal's declared invocation was admitted")
+	}
+	pytest, controlPytest := nativeTargetTestManifest()
+	pytestPlan := &nativeTargetOraclePlan{Recipe: pytest}
+	pytestArgv := []string{"pytest", "tests/test_value.py::test_value", "-ra"}
+	witnesses, err := nativeTargetStageWitnesses(pytestPlan, controlPytest, pytestArgv, 0)
+	if err != nil || !slicesEqualStrings(witnesses, []string{"tests/test_value.py::test_value"}) {
+		t.Fatalf("pytest ordinal 0 named %v err=%v", witnesses, err)
+	}
+	if _, err := nativeTargetStageWitnesses(pytestPlan, controlPytest, []string{"pytest", "tests/other.py::test_value", "-ra"}, 0); err == nil {
+		t.Fatal("a pytest stage naming a foreign witness at its ordinal was admitted")
+	}
+}
+
 // Stage resolution owns only the executable position: literal data
 // arguments keep their exact bytes, and producer-owned scratch
 // substitution still applies to its own closed stage arguments.

@@ -1239,10 +1239,10 @@ func newNativeTargetScratchRedirectFixture(t *testing.T) *nativeTargetFixture {
 	// candidate owns. Both honestly expect 7 at the recipe commit.
 	honest := "#!/usr/bin/env bash\nset -euo pipefail\ntest \"$(cat value.txt)\" = \"7\"\n"
 	writeRepoFilesForTest(t, f.repo, map[string]string{
-		nativeTargetFixtureName(f.root, "value.txt"):         "7\n",
-		pinnedA:                                              honest,
+		nativeTargetFixtureName(f.root, "value.txt"): "7\n",
+		pinnedA: honest,
 		nativeTargetFixtureName(f.root, "scripts/check.sh"): honest,
-		f.recipePath:                                         f.manifestJSON,
+		f.recipePath: f.manifestJSON,
 	})
 	f.commitAll(t, "pinned redirect harness")
 	f.seedTargetAuthority(t)
@@ -1342,7 +1342,7 @@ func newNativeTargetOptionScriptFixture(t *testing.T, interpreter string) *nativ
 	writeRepoFilesForTest(t, f.repo, map[string]string{
 		nativeTargetFixtureName(f.root, "value.txt"): "8\n",
 		nativeTargetFixtureName(f.root, "--version"): body,
-		f.recipePath:                                 f.manifestJSON,
+		f.recipePath: f.manifestJSON,
 	})
 	f.commitAll(t, "pinned option script")
 	f.seedTargetAuthority(t)
@@ -1412,5 +1412,75 @@ func TestNativeTargetAxisOptionScriptSlotBash(t *testing.T) {
 	}
 	if f.launches != 0 {
 		t.Fatalf("bash option script slot refusal launched the acceptance body: %d", f.launches)
+	}
+}
+
+// newNativeTargetSharedArgvFixture builds the none+check fixture whose two
+// distinct declared witnesses legitimately invoke one identical argv: the
+// check family's identity is each declared invocation, not a unique argv.
+// The manifest selects the shell check only and pins only the shell
+// runtime.
+func newNativeTargetSharedArgvFixture(t *testing.T) *nativeTargetFixture {
+	t.Helper()
+	const work = "native-target-shared-argv-work"
+	seed := seedWorkflowReturnRouteFixture(t, work, "workflow.break_fix", "repair")
+	f := &nativeTargetFixture{s: seed.store, work: work, repo: t.TempDir(), actor: seed.owner, root: "chkfix", recipePath: nativeTargetFixtureName("chkfix", "recipe.json"), materializer: "none", runner: "check"}
+	f.controlArgv = []string{"check", "shell-first", "shell-second"}
+	shellVersion := liveVersionForTest(t, "bash", `version ([0-9][0-9.]*)`)
+	raw, err := json.Marshal(map[string]any{
+		"kind":          "target_runner_v1",
+		"materializer":  "none",
+		"runner":        "check",
+		"root":          f.root,
+		"harness_files": []string{nativeTargetFixtureName(f.root, "scripts/check.sh")},
+		"support_files": []string{},
+		"cases":         map[string][]string{"case:fixture": {"shell-first", "shell-second"}},
+		"checks": []map[string]any{
+			{"witness": "shell-first", "argv": []string{"bash", "scripts/check.sh", "--expected", "7"}},
+			{"witness": "shell-second", "argv": []string{"bash", "scripts/check.sh", "--expected", "7"}},
+		},
+		"pin": map[string]string{"shell": shellVersion},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.manifestJSON = string(raw)
+	writeRepoFilesForTest(t, f.repo, map[string]string{
+		nativeTargetFixtureName(f.root, "value.txt"):        "7\n",
+		nativeTargetFixtureName(f.root, "scripts/check.sh"): "#!/usr/bin/env bash\nset -euo pipefail\nexpected=\"\"\nwhile [[ $# -gt 0 ]]; do\n  case \"$1\" in\n    --expected) expected=\"$2\"; shift 2;;\n    *) shift;;\n  esac\ndone\ntest \"$(cat value.txt)\" = \"$expected\"\n",
+		f.recipePath: f.manifestJSON,
+	})
+	f.commitAll(t, "pinned shared argv harness")
+	f.seedAuthority(t, seed)
+	return f
+}
+
+// Two distinct declared checks may legitimately invoke one identical argv:
+// the check family grades each declared invocation, so both physical
+// checks are separate witnesses. A first-match argv lookup folds both
+// observed stages into the first witness and refuses the truthful pass as
+// a duplicated population; each executed stage's trusted ordinal joins it
+// to the sorted selected witness set instead. A genuine production break
+// still fails truthfully.
+func TestNativeTargetAxisSharedArgvWitnesses(t *testing.T) {
+	f := newNativeTargetSharedArgvFixture(t)
+	r, err := f.s.VerifyWorktree(context.Background(), f.request("shared-execute", &f.a))
+	if err != nil || r.Oracle == nil || r.Oracle.Qualification != "pass" || f.launches != 2 {
+		t.Fatalf("shared-argv dual invocation did not pass on its own ordinals: %+v %v launches=%d", r, err, f.launches)
+	}
+	if !slices.Equal(r.Oracle.ObservedWitnessIDs, []string{"shell-first", "shell-second"}) {
+		t.Fatalf("observed witnesses %v lose either declared invocation", r.Oracle.ObservedWitnessIDs)
+	}
+	if len(r.Oracle.Stages) != 2 || r.Oracle.Stages[0].Name != "test" || r.Oracle.Stages[1].Name != "test" || r.Oracle.Stages[0].ExitCode != 0 || r.Oracle.Stages[1].ExitCode != 0 {
+		t.Fatalf("shared-argv receipt did not record both ordered passing stages: %+v", r.Oracle.Stages)
+	}
+	if err := os.WriteFile(filepath.Join(f.repo, f.root, "value.txt"), []byte("8\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	f.commitAndPrepare(t, "shared-broken")
+	o := f.authorize(t, "shared-broken", f.actor)
+	r, err = f.s.VerifyWorktree(context.Background(), f.request("shared-broken-execute", &o))
+	if err != nil || r.Oracle == nil || r.Oracle.Qualification != "fail" || r.ExitCode == 0 || f.launches != 3 {
+		t.Fatalf("shared-argv broken candidate %+v %v launches=%d", r, err, f.launches)
 	}
 }

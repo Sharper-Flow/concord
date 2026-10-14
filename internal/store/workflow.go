@@ -2454,12 +2454,18 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event) e
 			}
 		}
 	} else if p.ActionID == "request_correction" {
-		// The declared unhealthy_verdict route owns the return: the fold
-		// moves the instance to the route's producer step (or, at a
-		// delivery gate, the route of the verdict step it serves), the
-		// same target the admission fold, the work pin, and the dispatched
-		// packet read from the one table.
+		// Live effects use the same declared producer as admission and dispatch.
+		// Recorded effects preserve the verified pin's historical interpretation.
 		nextStep = workflowCorrectionReturnTarget(entry.Definition, currentStep)
+		if isWorkflowReplay(ctx) {
+			if p.StepID != currentStep {
+				return newFailure(KindIllegalLifecycleTransition, "fold_event", "recorded correction source step differs from the pinned current step", false, "restore a consistent recorded workflow history")
+			}
+			nextStep, err = workflowRecordedCorrectionReturnTarget(entry, currentStep)
+			if err != nil {
+				return err
+			}
+		}
 		if nextStep == "" {
 			return newFailure(KindIllegalLifecycleTransition, "fold_event", "correction has no declared recovery route to a producer step", false, "repair the pinned workflow definition")
 		}

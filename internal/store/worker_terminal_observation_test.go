@@ -243,7 +243,14 @@ func TestWorkerTerminalConsumedFrontier(t *testing.T) {
 	})
 
 	t.Run("a failed terminal without findings carries the same frontier", func(t *testing.T) {
-		fixture := seedWorkContextFixture(t, "ctx-frontier-fail")
+		// The frontier joins the dispatch authorization alone, so this
+		// subtest pins the latest head that predates the attribution
+		// requirement and records the failed terminal without an observation.
+		breakFix, ok := BuiltinWorkflowRegistry().Lookup("workflow.break_fix", 27)
+		if !ok {
+			t.Fatal("workflow.break_fix v27 is not registered")
+		}
+		fixture := seedWorkContextFixtureWithDefinition(t, "ctx-frontier-fail", breakFix)
 		defer fixture.store.Close()
 		s := fixture.store
 		declareSampleWorkContext(t, fixture, "the declaration anchors the failed frontier F")

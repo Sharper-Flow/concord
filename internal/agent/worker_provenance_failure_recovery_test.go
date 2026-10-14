@@ -88,8 +88,10 @@ func TestRefusedWorkerProvenanceRecoversWithoutAcceptedEvidence(t *testing.T) {
 			// The canonical head derives the workflow failure record from the
 			// attempt's own terminal event through the live worker-evidence seam
 			// (CD-0198 D5); the closed live union publishes no
-			// record_worker_failure authoring shape (CD-0218 D2).
-			failure := store.Event{EventID: "abandon-refused-provenance", Kind: store.WorkerFailed, SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: retryJSON(store.WorkerFailedPayload{AttemptID: failedID, FailureKind: store.WorkerFailureAbandoned, Detail: "host provenance refused; worker report remains unaccepted"})}
+			// record_worker_failure authoring shape (CD-0218 D2). The abandonment
+			// carries the recorded host observation the promoted definition
+			// requires: the host observed the closure it performed.
+			failure := agentWorkerFailedAttributedEvent("work-1", "abandon-refused-provenance", failedID, "", store.WorkerFailedPayload{AttemptID: failedID, FailureKind: store.WorkerFailureAbandoned, Detail: "host provenance refused; worker report remains unaccepted"})
 			if err := s.Transact(ctx, func(tx *store.Transaction) error {
 				_, err := store.ApplyWorkerEvidenceOperationTx(ctx, tx, failure)
 				return err

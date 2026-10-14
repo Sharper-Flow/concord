@@ -45,7 +45,10 @@ func TestDerivedWorkerFailureCorrectionKeepsStorableEvidenceRefs(t *testing.T) {
 	lane := retryLane(t)
 	job := authorizedWorkerJob(t, s, attemptID)
 	laneDispatch := store.Event{EventID: "prose-dispatch", Kind: store.WorkerDispatched, SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: 2, Payload: retryJSON(store.WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, PacketDigest: "sha256:" + strings.Repeat("b", 64), ReadbackModel: "commandcode/z-ai/glm-5.3-flash", PacketSchemaVersion: store.WorkerPacketSchemaVersion, ReportSchemaVersion: store.WorkerReportSchemaVersion, WorkerJob: job})}
-	failure := store.Event{EventID: "prose-failed", Kind: store.WorkerFailed, SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: retryJSON(store.WorkerFailedPayload{AttemptID: attemptID, ReadbackModel: "commandcode/z-ai/glm-5.3-flash", FailureKind: store.WorkerFailureInvalidReport, Detail: detail})}
+	// The invalid-report terminal carries the recorded host observation the
+	// promoted definition requires; the host boundary observed the rejected
+	// report with an unknown cause, and the store derives the identity.
+	failure := agentWorkerFailedAttributedEvent("work-1", "prose-failed", attemptID, "commandcode/z-ai/glm-5.3-flash", store.WorkerFailedPayload{AttemptID: attemptID, ReadbackModel: "commandcode/z-ai/glm-5.3-flash", FailureKind: store.WorkerFailureInvalidReport, Detail: detail})
 	if err := s.Transact(context.Background(), func(tx *store.Transaction) error {
 		enriched, err := store.PrepareLaneActorDispatch(context.Background(), tx, laneDispatch, grant.PrincipalRef, grant.ClientRef)
 		if err != nil {

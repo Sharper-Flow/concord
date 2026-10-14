@@ -894,7 +894,12 @@ func TestReleasedPinsAnswerToTheCheckpointWriterRule(t *testing.T) {
 func TestDisposedWriterKeepsTheLaterCheckpointUnderTheWriterRule(t *testing.T) {
 	t.Parallel()
 	const workID = "derived-pair-disposed-writer"
-	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
+	// The writer-rule fixture predates the failure-attribution requirement:
+	// the disposal record's writer identity is the rule's own subject, and
+	// the seam-attributed terminal would derive that record under the
+	// dispatch actor instead of the disposing owner. Pin the latest
+	// pre-attribution head so the disposal keeps the writer the rule pins.
+	fixture := seedWorkflowReturnRouteFixtureWithDefinition(t, workID, attributionInactiveWorkflowHeadForTest(t, "workflow.break_fix"), "repair", []string{"verification"}, []string{"verification", "review", "artifact"})
 	s := fixture.store
 	coordinator := diagnosisS1Actor(workID, "coordinator")
 	if err := runVerdictActionAs(t, s, workID, "checkpoint_repair", json.RawMessage(`{}`), 0, coordinator); err != nil {

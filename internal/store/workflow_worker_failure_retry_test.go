@@ -34,6 +34,33 @@ func s2WorkerFailedEvent(workID, attemptID, eventID, detail, model string) Event
 	return Event{EventID: eventID, Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(30, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerFailedPayload{AttemptID: attemptID, ReadbackModel: model, FailureKind: WorkerFailureWorkerError, Detail: detail})}
 }
 
+// s2WorkerFailedAttributedEvent builds one current-version worker.failed
+// event carrying the recorded producer observation exactly as the
+// authenticated CLI assembles it: origin and observation only, never an
+// identity — the live ingest derives the attribution identity from the
+// attempt's own authorized dispatch window. The observation is the suite's
+// truthful unknown synthetic: the host boundary observed the failure, cause
+// and basis unknown, citing the one host event it saw.
+func s2WorkerFailedAttributedEvent(workID, attemptID, eventID, model string, failureKind, detail string, occurredAt time.Time) Event {
+	payload := WorkerFailedPayload{AttemptID: attemptID, ReadbackModel: model, FailureKind: failureKind, Detail: detail}
+	payload.FailureAttribution = &WorkerFailureAttribution{Origin: WorkerFailureAttributionRecorded, Observation: workerFailureObservationFixture()}
+	return Event{EventID: eventID, Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: occurredAt, PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerFailed), Payload: mustJSONValue(payload)}
+}
+
+// s2WorkerFailedAttributedLive records the counting journeys' terminal fact
+// through the live worker-evidence seam with the recorded observation the
+// promoted pin requires. The pinned definition derives the workflow failure
+// record from this terminal event in the same commit, exactly once, so the
+// explicit record disposition the counting helpers used to apply beside it
+// is replaced, never duplicated.
+func s2WorkerFailedAttributedLive(t *testing.T, s *Store, workID, attemptID, detail string) {
+	t.Helper()
+	event := s2WorkerFailedAttributedEvent(workID, attemptID, "failed-"+workID+"-"+attemptID, preferredModelForLane(BuiltinLaneDefinitions()[0]), WorkerFailureFallbackBlocked, detail, time.Unix(3, 0).UTC())
+	if err := s2WorkerFailedLive(t, s, event); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // s2DerivedFailureRecords counts the recorded workflow failure records for
 // one attempt and returns their step, epoch, actor, and event id.
 func s2DerivedFailureRecords(t *testing.T, s *Store, workID, attemptID string) []map[string]any {
@@ -265,15 +292,18 @@ func TestTerminalFailureWithoutADerivedRecordSkipsStructurally(t *testing.T) {
 	if len(starts) != 2 || starts[1].Epoch != 2 {
 		t.Fatalf("repair starts = %+v, want two dispatch starts with the second at epoch 2", starts)
 	}
-	// Attempt 1 fails after attempt 2's window superseded its epoch.
-	if err := s2WorkerFailedLive(t, s, s2WorkerFailedEvent(workID, first, "failed-"+workID+"-1", "the superseded attempt failed", preferredModelForLane(lane))); err != nil {
+	// Attempt 1 fails after attempt 2's window superseded its epoch. The
+	// terminal carries the recorded observation the promoted pin requires;
+	// the structural skip it proves is the derivation's, not the
+	// attribution's.
+	if err := s2WorkerFailedLive(t, s, s2WorkerFailedAttributedEvent(workID, first, "failed-"+workID+"-1", preferredModelForLane(lane), WorkerFailureWorkerError, "the superseded attempt failed", time.Unix(30, 0).UTC())); err != nil {
 		t.Fatalf("the superseded attempt's terminal ingest: %v", err)
 	}
 	if got := s2DerivedFailureRecords(t, s, workID, first); len(got) != 0 {
 		t.Fatalf("the superseded attempt derived %d records, want none outside its epoch", len(got))
 	}
 	// Attempt 2's own terminal event derives exactly its own record.
-	if err := s2WorkerFailedLive(t, s, s2WorkerFailedEvent(workID, second, "failed-"+workID+"-2", "the live attempt failed", preferredModelForLane(lane))); err != nil {
+	if err := s2WorkerFailedLive(t, s, s2WorkerFailedAttributedEvent(workID, second, "failed-"+workID+"-2", preferredModelForLane(lane), WorkerFailureWorkerError, "the live attempt failed", time.Unix(30, 0).UTC())); err != nil {
 		t.Fatalf("the live attempt's terminal ingest: %v", err)
 	}
 	records := s2DerivedFailureRecords(t, s, workID, second)
@@ -633,8 +663,11 @@ func TestRetryLaunchFailureAfterCommittedIntentStaysTruthful(t *testing.T) {
 	}
 	retryAttempt := "s2-combined-launch-" + workID + ":retry"
 	// The launch fails: the host abandons the never-started attempt through
-	// the worker-abandon verb's terminal seam.
-	abandon := Event{EventID: "abandoned-" + retryAttempt, Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(50, 0).UTC(), PayloadVersion: 1, Payload: mustJSONValue(WorkerFailedPayload{AttemptID: retryAttempt, FailureKind: WorkerFailureAbandoned, Detail: "the host launch failed after the committed intent"})}
+	// the worker-abandon verb's terminal seam. The host observed the
+	// abandonment it performed; the observation states that fact with an
+	// unknown cause, and the store derives the identity from the retry's own
+	// dispatch authorization.
+	abandon := s2WorkerFailedAttributedEvent(workID, retryAttempt, "abandoned-"+retryAttempt, "", WorkerFailureAbandoned, "the host launch failed after the committed intent", time.Unix(50, 0).UTC())
 	if err := s2WorkerFailedLive(t, s, abandon); err != nil {
 		t.Fatalf("the abandonment of the retry attempt: %v", err)
 	}

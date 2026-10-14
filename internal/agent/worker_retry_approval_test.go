@@ -306,6 +306,42 @@ func seedWorkerRetryMutationFixture(t *testing.T, s *store.Store, grant Authorit
 	return path
 }
 
+// agentWorkerFailureAttribution is the recorded producer observation the
+// promoted definition requires on a failed terminal: the host boundary
+// observed the failure with an unknown cause and basis, citing the one host
+// event it saw. The block carries origin and observation alone — the store
+// derives the attribution identity from the attempt's own authorized
+// dispatch window, and no fixture ever authors one.
+func agentWorkerFailureAttribution() *store.WorkerFailureAttribution {
+	return &store.WorkerFailureAttribution{
+		Origin: store.WorkerFailureAttributionRecorded,
+		Observation: &store.WorkerFailureObservation{
+			Observer: store.WorkerFailureObserverHostAdapter,
+			Phase:    store.WorkerFailurePhaseHostExecution,
+			Cause:    store.WorkerFailureCauseUnknown,
+			Basis:    store.WorkerFailureBasisUnknown,
+			Sources: []store.WorkerFailureSource{{
+				Kind:    store.WorkerFailureSourceHostEvent,
+				Locator: "evt-agent-host-0001",
+				Digest:  "sha256:" + strings.Repeat("a", 64),
+				Host: &store.WorkerFailureHostObservation{
+					Tag:       store.WorkerFailureHostTagCancellation,
+					EventType: "session.status",
+					SessionID: "ses-agent-fixture",
+				},
+			}},
+		},
+	}
+}
+
+// agentWorkerFailedAttributedEvent builds one current-version worker.failed
+// event carrying the recorded observation, for the fixtures whose terminal
+// fact lands through the live worker-evidence seam on a promoted pin.
+func agentWorkerFailedAttributedEvent(workID, eventID, attemptID, model string, payload store.WorkerFailedPayload) store.Event {
+	payload.FailureAttribution = agentWorkerFailureAttribution()
+	return store.Event{EventID: eventID, Kind: store.WorkerFailed, SubjectType: store.SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: store.WorkerEvidenceEventPayloadVersion(store.WorkerFailed), Payload: retryJSON(payload)}
+}
+
 func seedFailedWorkerRetryMutation(t *testing.T, s *store.Store, service *Service, grant Authority) (int64, string, string) {
 	t.Helper()
 	path := seedWorkerRetryMutationFixture(t, s, grant)
@@ -337,7 +373,7 @@ func seedFailedWorkerRetryMutation(t *testing.T, s *store.Store, service *Servic
 	lane := retryLane(t)
 	job := authorizedWorkerJob(t, s, attemptID)
 	laneDispatch := store.Event{EventID: "retry-dispatch", Kind: store.WorkerDispatched, SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: 2, Payload: retryJSON(store.WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, PacketDigest: "sha256:" + strings.Repeat("b", 64), ReadbackModel: "openai/gpt-5.6-luna", PacketSchemaVersion: store.WorkerPacketSchemaVersion, ReportSchemaVersion: store.WorkerReportSchemaVersion, WorkerJob: job})}
-	failure := store.Event{EventID: "retry-failed", Kind: store.WorkerFailed, SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: retryJSON(store.WorkerFailedPayload{AttemptID: attemptID, ReadbackModel: "openai/gpt-5.6-luna", FailureKind: store.WorkerFailureWorkerError, Detail: "synthetic failure"})}
+	failure := agentWorkerFailedAttributedEvent("work-1", "retry-failed", attemptID, "openai/gpt-5.6-luna", store.WorkerFailedPayload{AttemptID: attemptID, ReadbackModel: "openai/gpt-5.6-luna", FailureKind: store.WorkerFailureWorkerError, Detail: "synthetic failure"})
 	if err := s.Transact(context.Background(), func(tx *store.Transaction) error {
 		enriched, err := store.PrepareLaneActorDispatch(context.Background(), tx, laneDispatch, grant.PrincipalRef, grant.ClientRef)
 		if err != nil {

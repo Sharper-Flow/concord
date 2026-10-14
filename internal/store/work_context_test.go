@@ -1262,7 +1262,13 @@ func TestCompletionAndBoundaryWriteNoContextContent(t *testing.T) {
 // retained report without today's registry.
 func TestTerminalReportFindingsBindRegistryDomainsLiveNotOnReplay(t *testing.T) {
 	t.Parallel()
-	fixture := seedWorkContextFixture(t, "ctx-terminal-domain")
+	// The terminal-report binding fixture predates the failure-attribution
+	// requirement: its refusal subtests want the finding-domain
+	// validation kinds, and its admitted failure lands as the plain
+	// released terminal the rule was authored against. Pin the latest
+	// pre-attribution head so the attribution gate never shadows the
+	// domain refusals this test proves.
+	fixture := seedWorkContextFixtureWithDefinition(t, "ctx-terminal-domain", attributionInactiveWorkflowHeadForTest(t, "workflow.break_fix"))
 	defer fixture.store.Close()
 	lane := BuiltinLaneDefinitions()[0]
 	model := preferredModelForLane(lane)

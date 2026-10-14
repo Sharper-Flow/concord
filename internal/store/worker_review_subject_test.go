@@ -296,7 +296,14 @@ func reviewSubjectImplementComplete(t *testing.T, f workContextFixture, attemptI
 }
 
 func TestReviewDispatchAcceptedDeliverySubject(t *testing.T) {
-	fixture := seedWorkContextFixture(t, "review-subject-accepted")
+	// The review-subject fixture predates the failure-attribution
+	// requirement: its failed-completion scenery was authored as a plain
+	// released terminal on a worktree claim with no dispatch_worker
+	// authorization, and the rule it pins — which accepted delivery hosts
+	// the review — is attribution-independent. Pin the latest
+	// pre-attribution head so the scenery keeps the optional absence it
+	// shipped with.
+	fixture := seedWorkContextFixtureWithDefinition(t, "review-subject-accepted", attributionInactiveWorkflowHeadForTest(t, "workflow.break_fix"))
 	defer fixture.store.Close()
 	s := fixture.store
 	claimDir, head := reviewSubjectClaim(t, s, fixture.workID)
@@ -689,7 +696,11 @@ func seedAcceptedImplementationDelivery(t *testing.T, s *Store, workID string, o
 // implementation result does not replace it. A cancelled or superseded work
 // item cannot review at all through the instance lifecycle gate.
 func TestReviewDispatchSupersededContractStillPinsAcceptedSubject(t *testing.T) {
-	fixture := seedWorkContextFixture(t, "review-subject-supersede-pins")
+	// Same pre-attribution fixture as the accepted-subject suite above: the
+	// rejected-implementation scenery must not open a correction record the
+	// later review dispatch would have to consume, so the fixture keeps the
+	// pre-attribution head its review rule was authored against.
+	fixture := seedWorkContextFixtureWithDefinition(t, "review-subject-supersede-pins", attributionInactiveWorkflowHeadForTest(t, "workflow.break_fix"))
 	defer fixture.store.Close()
 	s := fixture.store
 	claimDir, head := reviewSubjectClaim(t, s, fixture.workID)

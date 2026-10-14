@@ -110,9 +110,9 @@ const (
 // live journeys run on; the store's live-authoring owner pins the same
 // versions.
 var workflowRecoveryCanonicalHeads = map[string]int64{
-	"workflow.implementation": 30,
-	"workflow.break_fix":      27,
-	"workflow.research":       17,
+	"workflow.implementation": 31,
+	"workflow.break_fix":      28,
+	"workflow.research":       18,
 }
 
 // workflowRecoveryArchivedFamilies names the families whose live authoring
@@ -713,56 +713,56 @@ func workflowRecoveryRouteTuples() []workflowRecoveryRouteTuple {
 		// the typed diagnosis, and no discovery marker. Their entries ride the
 		// qualifying checkpoints the derived-start pins admit.
 		{
-			Ref: "workflow.implementation", Version: 30,
+			Ref: "workflow.implementation", Version: 31,
 			Step: "acceptance", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execution",
 			ProducerStep: "execution", DeliveryStep: "execution", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "start_execution",
 			VerdictStep: "acceptance", BindStep: "execution", BindKind: store.EvidenceArtifact,
 			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
 			RecordWorkerJob:  true,
-			WorkflowID:       "implementation-v30-acceptance",
+			WorkflowID:       "implementation-v31-acceptance",
 		},
 		{
-			Ref: "workflow.implementation", Version: 30,
+			Ref: "workflow.implementation", Version: 31,
 			Step: "release", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execution",
 			ProducerStep: "execution", DeliveryStep: "execution", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "start_execution",
 			VerdictStep: "release", BindStep: "execution", BindKind: store.EvidenceArtifact,
 			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
 			RecordWorkerJob:  true,
-			WorkflowID:       "implementation-v30-release",
+			WorkflowID:       "implementation-v31-release",
 		},
 		{
-			Ref: "workflow.break_fix", Version: 27,
+			Ref: "workflow.break_fix", Version: 28,
 			Step: "verify", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "repair",
 			ProducerStep: "repair", DeliveryStep: "repair", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "checkpoint_repair",
 			VerdictStep: "verify", BindStep: "repair", BindKind: store.EvidenceVerification,
 			RequiredEvidence: []store.EvidenceKind{store.EvidenceVerification},
 			RecordWorkerJob:  true,
-			WorkflowID:       "break_fix-v27-verify",
+			WorkflowID:       "break_fix-v28-verify",
 		},
 		{
-			Ref: "workflow.break_fix", Version: 27,
+			Ref: "workflow.break_fix", Version: 28,
 			Step: "complete", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "repair",
 			ProducerStep: "repair", DeliveryStep: "repair", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "checkpoint_repair",
 			VerdictStep: "complete", BindStep: "repair", BindKind: store.EvidenceVerification,
 			RequiredEvidence: []store.EvidenceKind{store.EvidenceVerification},
 			RecordWorkerJob:  true,
-			WorkflowID:       "break_fix-v27-complete",
+			WorkflowID:       "break_fix-v28-complete",
 		},
 		{
-			Ref: "workflow.research", Version: 17,
+			Ref: "workflow.research", Version: 18,
 			Step: "conclude", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "investigate",
 			ProducerStep: "investigate", DeliveryStep: "investigate", ProducerAction: "dispatch_worker", DeliveryLane: "research", DeliveryAction: "",
 			VerdictStep: "conclude", BindStep: "investigate", BindKind: store.EvidenceArtifact,
 			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
-			WorkflowID:       "research-v17-conclude",
+			WorkflowID:       "research-v18-conclude",
 		},
 		{
-			Ref: "workflow.research", Version: 17,
+			Ref: "workflow.research", Version: 18,
 			Step: "complete", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "investigate",
 			ProducerStep: "investigate", DeliveryStep: "investigate", ProducerAction: "dispatch_worker", DeliveryLane: "research", DeliveryAction: "",
 			VerdictStep: "complete", BindStep: "investigate", BindKind: store.EvidenceArtifact,
 			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
-			WorkflowID:       "research-v17-complete",
+			WorkflowID:       "research-v18-complete",
 		},
 	}
 	return tuples
@@ -1835,16 +1835,16 @@ func workflowRecoveryRouteSupersedeTuples() []workflowRecoveryRouteSupersedeTupl
 		// predicates alone and the post-supersede verdicts ride the
 		// batched form.
 		{
-			Ref: "workflow.implementation", Version: 30,
+			Ref: "workflow.implementation", Version: 31,
 			Step: "release", Target: "execution",
 			RecordWorkerJob: true,
-			WorkflowID:      "implementation-v30-release-supersede",
+			WorkflowID:      "implementation-v31-release-supersede",
 		},
 		{
-			Ref: "workflow.break_fix", Version: 27,
+			Ref: "workflow.break_fix", Version: 28,
 			Step: "complete", Target: "repair",
 			RecordWorkerJob: true,
-			WorkflowID:      "break_fix-v27-complete-supersede",
+			WorkflowID:      "break_fix-v28-complete-supersede",
 		},
 	}
 }

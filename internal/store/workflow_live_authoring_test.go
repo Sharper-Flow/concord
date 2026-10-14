@@ -230,8 +230,8 @@ func TestCanonicalImplementationV30RemovesDiscoveryKeepsAlignmentBeforeDesign(t 
 		t.Fatal(err)
 	}
 	definition := registered.Definition
-	if definition.Version != 30 {
-		t.Fatalf("canonical implementation head = v%d, want v30", definition.Version)
+	if definition.Version != 31 {
+		t.Fatalf("canonical implementation head = v%d, want v31", definition.Version)
 	}
 	for _, candidate := range definition.StepGraph.Steps {
 		if candidate.ID == "discovery" {
@@ -849,7 +849,9 @@ func TestResearchDerivedFailureRetriesAndRebuilds(t *testing.T) {
 		t.Fatalf("investigate starts after the dispatch = %+v, want one dispatch start at epoch 1", starts)
 	}
 	detail := "the research lane failed before a judgeable report existed"
-	if err := s2WorkerFailedLive(t, s, s2WorkerFailedEvent(workID, attempt, "failed-"+workID+"-1", detail, preferredModelForLane(lane))); err != nil {
+	// The research failure ingest carries the recorded observation the
+	// promoted pin requires; the derivation it proves is unchanged.
+	if err := s2WorkerFailedLive(t, s, s2WorkerFailedAttributedEvent(workID, attempt, "failed-"+workID+"-1", preferredModelForLane(lane), WorkerFailureWorkerError, detail, time.Unix(30, 0).UTC())); err != nil {
 		t.Fatalf("the live terminal worker.failed ingest: %v", err)
 	}
 	records := s2DerivedFailureRecords(t, s, workID, attempt)

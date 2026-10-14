@@ -123,6 +123,9 @@ func TestUpgradeResumesAfterTheCollisionIsRepaired(t *testing.T) {
 	if err := dropMigration125Objects(context.Background(), db); err != nil {
 		t.Fatalf("cannot restore the pre-125 verify lease: %v", err)
 	}
+	if _, err := db.ExecContext(context.Background(), `ALTER TABLE worktree_verify_leases DROP COLUMN event_watermark`); err != nil {
+		t.Fatalf("cannot restore the pre-127 verify lease: %v", err)
+	}
 	if err := undoMigration124(t, context.Background(), db); err != nil {
 		t.Fatalf("cannot restore the pre-124 schema: %v", err)
 	}

@@ -36,6 +36,16 @@ func ApplyWorkerEvidenceOperationTx(ctx context.Context, transaction *Transactio
 			return ApplyOperationResult{}, err
 		}
 	}
+	if event.Kind == WorkerFailed {
+		// the terminal failure's attribution observation derives
+		// its core identity here, inside the same authenticated transaction
+		// that consumes the signed assertion. A caller-authored origin or
+		// identity refuses with zero effects.
+		enriched, err = enrichWorkerFailedAttributionTx(ctx, tx, enriched)
+		if err != nil {
+			return ApplyOperationResult{}, err
+		}
+	}
 	events := []Event{enriched}
 	derived, err := deriveWorkflowWorkerFailureEventsTx(ctx, tx, enriched)
 	if err != nil {
@@ -134,6 +144,9 @@ func deriveWorkflowWorkerFailureEventsTx(ctx context.Context, tx *sql.Tx, failed
 		"step_id": window.StepID, "action_id": "record_worker_failure", "attempt_epoch": window.AttemptEpoch,
 		"worker_attempt_id": payload.AttemptID, "result_evidence_refs": []string{"evidence:" + eventID},
 		"changed_refs": []string{failed.SubjectID}, "actor_ref": dispatchActor,
+		// the terminal owns the observation; the derived record
+		// refers to the terminal attribution by the failed event's id.
+		"failure_attribution_ref": failed.EventID,
 	}
 	raw, err := json.Marshal(values)
 	if err != nil {

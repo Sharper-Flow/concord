@@ -16,6 +16,28 @@ type workflowReturnRouteFixture struct {
 	operator WorkflowActor
 }
 
+// attributionInactiveWorkflowHeadForTest resolves the latest registered head
+// of a family that predates the failure-attribution requirement, so a suite
+// pinning released failure, rejection, or correction behavior keeps the
+// optional attribution absence its fixtures were authored against.
+func attributionInactiveWorkflowHeadForTest(t *testing.T, ref string) RegisteredDefinition {
+	t.Helper()
+	versions := map[string]int64{
+		"workflow.implementation": 30,
+		"workflow.break_fix":      27,
+		"workflow.research":       17,
+	}
+	version, ok := versions[ref]
+	if !ok {
+		t.Fatalf("no pre-attribution head is pinned for %s", ref)
+	}
+	registered, registeredOK := BuiltinWorkflowRegistry().Lookup(ref, version)
+	if !registeredOK {
+		t.Fatalf("workflow definition %s@%d is not registered", ref, version)
+	}
+	return registered
+}
+
 func seedWorkflowReturnRouteFixture(t *testing.T, workID, definitionRef, verdictStep string) workflowReturnRouteFixture {
 	t.Helper()
 	return seedWorkflowReturnRouteFixtureRequiring(t, workID, definitionRef, verdictStep, []string{"verification"}, []string{"verification", "review", "artifact"})

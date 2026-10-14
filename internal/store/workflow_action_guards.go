@@ -1675,6 +1675,17 @@ func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoc
 		completionValues["correction_strategy"] = workflowFieldStringDefault(fields, "strategy", "")
 		completionValues["correction_predicate_ids"] = workflowFieldStrings(fields, "predicate_ids")
 		completionValues["correction_evidence_refs"] = workflowFieldStrings(fields, "evidence_refs")
+		// the optional coordinator attribution derives here, inside
+		// the authenticated action transaction: the request carries the
+		// direct producer observation alone and the store derives the core
+		// identity from the cited combined run or the exact action attempt.
+		block, blockErr := deriveCoordinatorCorrectionAttributionTx(in.ctx, in.tx, in.request.WorkID, in.request.ActionID, fields)
+		if blockErr != nil {
+			return events, "", blockErr
+		}
+		if block != nil {
+			completionValues["failure_attribution"] = block
+		}
 	}
 	// The derived open finding set serializes onto the correction
 	// record of both surfaces. A rejection carries it directly; a

@@ -1430,8 +1430,10 @@ func TestOwnerOracleJobDebt(t *testing.T) {
 	issue1013StartRepair(t, s, workID, f.owner, readWorkVersion(t, s, workID), latestStepStartEpoch(t, s, workID, "repair")+1)
 	attempt1 := "attempt:" + workID + ":1"
 	oracleDispatchAttempt(t, f, workID, attempt1, nil, &rev1)
-	failWorkerAttemptWithKind(t, s, workID, attempt1, "lane fallback blocked before the model ran")
-	applyRecordWorkerFailureForTest(t, s, workID, f.owner, attempt1, latestStepStartEpoch(t, s, workID, "repair"), readWorkVersion(t, s, workID), "oracle-debt-f1")
+	// The live ingest carries the recorded observation the promoted pin
+	// requires and derives the failure record in the same commit, replacing
+	// the explicit record disposition.
+	s2WorkerFailedAttributedLive(t, s, workID, attempt1, "lane fallback blocked before the model ran")
 	if pin := issue1013Pin(t, s, workID); pin.Correction == nil || pin.Correction.AttemptCount != 1 {
 		t.Fatalf("correction after the first failure = %#v, want one counted attempt", pin.Correction)
 	}
@@ -1492,8 +1494,7 @@ func TestOwnerOracleJobDebt(t *testing.T) {
 	attempt4 := "attempt:" + workID + ":4"
 	issue1013StartRepair(t, s, workID, f.owner, readWorkVersion(t, s, workID), latestStepStartEpoch(t, s, workID, "repair")+1)
 	oracleDispatchAttempt(t, f, workID, attempt4, nil, &rev4)
-	failWorkerAttemptWithKind(t, s, workID, attempt4, "lane fallback blocked before the model ran")
-	applyRecordWorkerFailureForTest(t, s, workID, f.owner, attempt4, latestStepStartEpoch(t, s, workID, "repair"), readWorkVersion(t, s, workID), "oracle-debt-f4")
+	s2WorkerFailedAttributedLive(t, s, workID, attempt4, "lane fallback blocked before the model ran")
 	attempt5 := "attempt:" + workID + ":5"
 	issue1013StartRepair(t, s, workID, f.owner, readWorkVersion(t, s, workID), latestStepStartEpoch(t, s, workID, "repair")+1)
 	oracleDispatchAttempt(t, f, workID, attempt5, nil, &renamedBinding)

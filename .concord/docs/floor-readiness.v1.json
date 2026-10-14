@@ -52,7 +52,7 @@
    "title": "Launcher renders portfolio, Product, and Work views",
    "requirement": "The operator can reach portfolio rows, a Product drill-down, and a single Work item from the terminal launcher without leaving it.",
    "state": "out_of_scope",
-   "reason": "The launcher-rendered portfolio, Product, and Work views retired with the launcher TUI under CD-0219. The operator entry is the concord zl route and the session command it starts; no browse surface renders these views."
+   "reason": "The launcher-rendered portfolio, Product, and Work views retired with the launcher TUI under CD-0219. The operator entry is a host-started session entering managed work through `concord_work_start`; no browse surface renders these views."
   },
   {
    "id": "fc1-session-handoff",

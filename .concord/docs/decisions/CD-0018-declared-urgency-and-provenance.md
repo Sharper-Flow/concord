@@ -121,13 +121,15 @@ requires an operator-approved resolution pinned to both contract versions.
 
 ### D5. The entry route does not dispatch
 
-The entry route performs no dispatch action. The operator names work to
-`concord zl`, which starts a session through Concord's session bootstrap.
-CD-0108 D4 keeps that entry route store-write-free.
+Starting an operator session performs no Concord dispatch. The host owns
+session start. CD-0108 D4 keeps work capture inside the session through
+the typed mutation surface.
 
 ## Operational usage note
 
-> **Resolved by CD-0031:** launcher-started operator sessions receive core-derived continuity before OpenCode starts. Host skills may still govern method, but durable work intent no longer depends on prose injection.
+Core-derived continuity reaches managed sessions through work-start
+preparation and continuity hooks. Durable work intent uses the typed
+mutation surface.
 
 > The mechanism for delivering operational guidance to Concord agents — skills,
 > prompt injection, documentation, or another shape — is not yet decided. The

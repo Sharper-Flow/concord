@@ -499,9 +499,16 @@ func foldWorktreeOccupancyReleased(ctx context.Context, tx *sql.Tx, event Event)
 		return err
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
+		admitted, err := admitUnrecordedOccupancyReleaseTx(ctx, tx, event, p.SetID, p.ProjectID, p.ClaimOpID, p.SessionRef, event.recordedPayloadShape == recordedShapeScalarOccupancyRelease)
+		if err != nil {
+			return err
+		}
+		if admitted {
+			return nil
+		}
 		return newFailure(KindProjectionConflict, "fold_event", "occupancy release targets a session not recorded for this worktree", false, "release a session the worktree currently records")
 	}
-	return nil
+	return noteRecordedOccupancyReleaseTx(ctx, tx, event, p.SetID, p.ProjectID, p.ClaimOpID, p.SessionRef)
 }
 
 // WorktreeSetID derives the one optional worktree set id for a work item.
@@ -3149,18 +3156,12 @@ func validateWorktreeProjectMembershipTx(ctx context.Context, tx *sql.Tx, workID
 }
 
 // releaseSessionWorktreeOccupancyTx releases a session's recorded occupancy
-// on the named worktree (CD-0178 D3). The vacate fold appends an
-// occupancy_released event whose payload names the same identity, and this
-// helper confirms the row exists before the event lands. The worktree's
-// claim_op_id resolves the worktree_occupancy row's composite key, since
-// path and project alone name no row.
-// releaseSessionWorktreeOccupancyTx releases a session's recorded occupancy
 // when it vacates a worktree (CD-0178 D3, amended by CD-0179). The host runs
 // a session in one directory at a time, so the release is not scoped to the
 // vacated worktree: every occupancy row the session holds, in any work item,
 // releases with the vacate. Rows another session holds stay: releasing
 // someone else's occupancy is not this call's effect.
-func releaseSessionWorktreeOccupancyTx(ctx context.Context, tx *sql.Tx, operation, workID, projectID, sourceDirectory, sessionRef string) error {
+func releaseSessionWorktreeOccupancyTx(ctx context.Context, tx *sql.Tx, event Event, operation, workID, projectID, sourceDirectory, sessionRef string) error {
 	var claimOpID string
 	err := tx.QueryRowContext(ctx, `SELECT claim_op_id FROM worktree_entries WHERE set_id=? AND project_id=? AND path=? AND state='active'`, WorktreeSetID(workID), projectID, filepath.Clean(sourceDirectory)).Scan(&claimOpID)
 	if err == sql.ErrNoRows {
@@ -3174,7 +3175,15 @@ func releaseSessionWorktreeOccupancyTx(ctx context.Context, tx *sql.Tx, operatio
 	if err != nil {
 		return err
 	}
-	if !held {
+	if !held && isWorkflowReplay(ctx) && event.replaySourcePayloadVersion == 1 {
+		admitted, err := admitUnrecordedOccupancyReleaseTx(ctx, tx, event, WorktreeSetID(workID), projectID, claimOpID, sessionRef, true)
+		if err != nil {
+			return err
+		}
+		if !admitted {
+			return newFailure(KindWorktreeOwnershipConflict, operation, "recorded session vacate targets an unrecorded occupant outside the historical replay bounds", false, "restore a consistent recorded occupancy history")
+		}
+	} else if !held {
 		// The calling session holds no row here. It may still hold stale rows
 		// elsewhere, and the vacate releases those; but a session with no row
 		// anywhere refuses while other sessions hold rows on this worktree:
@@ -3197,7 +3206,10 @@ func releaseSessionWorktreeOccupancyTx(ctx context.Context, tx *sql.Tx, operatio
 	// One delete clears the vacated worktree's row and every other stale row
 	// of this session, in this or any other work item.
 	_, err = tx.ExecContext(ctx, `DELETE FROM worktree_occupancy WHERE session_ref=?`, sessionRef)
-	return err
+	if err != nil {
+		return err
+	}
+	return noteRecordedOccupancyReleaseTx(ctx, tx, event, WorktreeSetID(workID), projectID, claimOpID, sessionRef)
 }
 
 // refuseWhenSessionOccupiesAnotherWorktreeTx keeps the occupancy projection
@@ -3960,7 +3972,7 @@ func convergeRecordedReclaimTx(ctx context.Context, tx *sql.Tx, req WorktreeRecl
 	return leaveErr
 }
 
-// releaseWorktreeOccupancyTx is the single-row release the reclaim path
+// releaseWorktreeOccupancyRowTx is the single-row release the reclaim path
 // runs when process liveness proves the row's host process has ended, or
 // when an operator-approved removal consumes the row. The release gate reads
 // process liveness only (CD-0178 D3): the kernel is the authority, and the

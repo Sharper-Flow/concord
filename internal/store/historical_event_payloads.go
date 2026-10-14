@@ -10,6 +10,7 @@ const (
 	recordedShapeCurrent recordedPayloadShape = iota
 	recordedShapeLegacyClaimLanding
 	recordedShapeLegacyNativeRun
+	recordedShapeScalarOccupancyRelease
 )
 
 type recordedPayloadSchema struct {
@@ -302,5 +303,6 @@ func adaptRecordedOccupancyRelease(event Event) (Event, error) {
 		return Event{}, err
 	}
 	event.Payload = raw
+	event.recordedPayloadShape = recordedShapeScalarOccupancyRelease
 	return event, nil
 }

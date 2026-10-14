@@ -806,7 +806,7 @@ var replayProjectionClearTables = []string{
 	// Worktree entries fold purely from the worktree events; clearing them
 	// lets the replay rebuild every claim generation instead of upserting
 	// onto the live row of the newest claim.
-	"worktree_entries",
+	"worktree_occupancy", "worktree_entries",
 	// Per-ref outcome rows (CD-0212 D4) fold purely from the reclamation
 	// plan and the chronological settlement events; clearing them lets the
 	// replay rebuild each generation's trajectory in log order instead of
@@ -861,6 +861,10 @@ func rebuildFromLogTx(ctx context.Context, tx *sql.Tx) error {
 	// projection DELETE. Fold/decode failures remain transactionally atomic, and
 	// are attributed by the shared fold path below.
 	replayCtx := workflowReplayContext(ctx)
+	occupancyBefore, err := readOccupancyRebuildEvidence(ctx, tx)
+	if err != nil {
+		return wrapFailure(KindUnavailable, "rebuild_from_log", "cannot read occupancy comparison evidence", true, "retry once occupancy is readable", err)
+	}
 	for _, event := range events {
 		prepared, err := prepareRecordedEvent(event)
 		if err != nil {
@@ -891,6 +895,9 @@ func rebuildFromLogTx(ctx context.Context, tx *sql.Tx) error {
 		if err := foldRecordedEvent(replayCtx, tx, event, scope); err != nil {
 			return err
 		}
+	}
+	if err := verifyOccupancyRebuildEvidence(ctx, tx, occupancyBefore); err != nil {
+		return err
 	}
 	if err := restoreActiveResearchAfterRebuild(ctx, tx); err != nil {
 		return err

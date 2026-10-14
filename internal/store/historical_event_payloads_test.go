@@ -263,6 +263,7 @@ func TestRecordedHistoricalPayloadHistoryRebuildsRestoresAndReconstructs(t *test
 	insertHistoricalEvent(t, s, histOccupancyReleasedEvent("hist-release-1", claimedA.Entry.ClaimOpID, "ses-legacy", time.Unix(20, 0).UTC()))
 	landing, landingPayload := legacyLandingEvent("hist-landing-1", "project-b", "ses-legacy", claimedB.Entry.Path, nil, time.Unix(21, 0).UTC())
 	insertHistoricalEvent(t, s, landing)
+	seedRecordedLandingOccupancy(t, s, landing)
 
 	insertHistoricalEvent(t, s, histDispatchEvent(t, "hist-dispatch-v1", "attempt-hist-v1", 1, time.Unix(30, 0).UTC(), map[string]any{
 		"routing_policy_version": historicalRoutingPolicyToken,
@@ -531,6 +532,7 @@ func TestRecoverFoldGuardReplaysRecordedOccupancyHistory(t *testing.T) {
 	insertHistoricalEvent(t, s, histOccupancyReleasedEvent("hist-recovery-release", claimedA.Entry.ClaimOpID, "ses-legacy", time.Unix(20, 0).UTC()))
 	recoveryLanding, _ := legacyLandingEvent("hist-recovery-landing", "project-b", "ses-legacy", claimedB.Entry.Path, nil, time.Unix(21, 0).UTC())
 	insertHistoricalEvent(t, s, recoveryLanding)
+	seedRecordedLandingOccupancy(t, s, recoveryLanding)
 	if err := RebuildFromLog(ctx, s); err != nil {
 		t.Fatalf("the recorded occupancy history must fold before the guard strands: %v", err)
 	}

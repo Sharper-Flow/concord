@@ -99,6 +99,7 @@ func TestLegacySessionClaimLandingReplaysAsProcessIdentityFreeRow(t *testing.T) 
 
 	landing, payload := legacyLandingEvent("legacy-landing-1", "project-b", "ses-legacy", claimedB.Entry.Path, []string{claimedA.Entry.Path}, time.Unix(40, 0).UTC())
 	insertHistoricalEvent(t, s, landing)
+	seedRecordedLandingOccupancy(t, s, landing)
 	if err := RebuildFromLog(ctx, s); err != nil {
 		t.Fatalf("rebuild must fold the released five-field landing: %v", err)
 	}

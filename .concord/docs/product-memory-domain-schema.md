@@ -126,6 +126,44 @@ reconstructable typed ticket projections. Bugzilla's mutable `bugs` + activity-l
 shape is useful audit evidence but does not satisfy Concord's stronger I3/I5
 rebuild requirement.
 
+### 3.1b Historical worktree occupancy replay
+
+Worktree occupancy is a projection. Rebuild clears occupancy with worktree
+entries and derives it only from retained events. Existing occupancy rows are
+comparison evidence, not an independent recovery authority.
+
+Migrations 89 and 104 carried occupancy that no retained occupancy-producing
+payload recorded. For a historical release, the governing creation is the latest
+preceding `work.worktree_created` with the same `claim_op_id`.
+Only the presence of its `occupant_session_ref` member distinguishes recorded
+occupancy from a claim whose creation did not record occupancy.
+An empty member is present. A missing creation grants no exception.
+The marker comes only from retained creation bytes, never from a caller field.
+Live creation payloads always emit this member, including an empty value.
+
+During replay of supported v1 occupancy releases, an absent target is a no-op
+only when the governing creation lacks that member and the following bounds hold:
+
+- The claim has at most one distinct unrecorded released session, as determined
+  from retained events. A second different unrecorded session refuses replay.
+- A scalar release refuses when rebuilt occupancy records a different session
+  for that worktree. Repeating the same absent scalar release remains a no-op.
+- A row-set release refuses a repeated release of the same absent session.
+
+Strict recognition covers scalar and row-set schemas, each with and without
+`claim_incarnation`. The same creation marker and bounds govern a recorded v1
+session vacate when its release path encounters an unrecorded session.
+All other release refusals remain in force. Live admission and live writes do
+not use this exception.
+
+Replay never invents an occupancy row, session identity, process identity, or
+liveness observation to satisfy a release. Activity, dates, sequence thresholds,
+identifier formats, and prose do not identify a historical occupancy era.
+For a claim whose log never recorded an occupant, this bounded exception cannot
+detect corruption of the unrecorded occupant identity.
+An existing occupancy row that replay cannot reproduce causes a typed refusal
+naming its worktree and session. The rebuild rolls back without changing the store.
+
 ### 3.2 No typed-log explosion
 
 There is **one generic event table**, not one event table per Product/work kind.

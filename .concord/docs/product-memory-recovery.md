@@ -46,6 +46,12 @@ an inventory, not a third authority.
 Restore results distinguish source-snapshot inventory from the verified restored database
 inventory after migration and replay. Neither inventory is authority.
 
+Recovery compares pre-rebuild worktree occupancy with the occupancy reproduced
+from retained events under PM3. A pre-rebuild row that replay cannot reproduce
+causes a typed refusal naming its worktree and session. Recovery promotion
+refuses, the rebuild rolls back, and the source database, retained snapshot, and
+prior live state remain unchanged. Existing occupancy is evidence, not authority.
+
 ## 2. Restore protocol
 
 1. create a clean recovery directory; never overwrite the live database in place;

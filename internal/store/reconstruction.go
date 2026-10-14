@@ -101,13 +101,13 @@ func ReconstructSubjectAt(ctx context.Context, s *Store, subject SubjectRef, asO
 	}
 	replayCtx := workflowReplayContext(ctx)
 	for _, event := range events {
-		if prepared, err := prepareRegisteredEvent(event); err != nil {
+		if prepared, err := prepareRecordedEvent(event); err != nil {
 			return rollback(attributeFailure(err, event, prepared.stage))
 		}
 		if excludedFromReconstructionSnapshot(event.Kind) {
 			continue
 		}
-		if err := foldRegisteredEvent(replayCtx, tx, event, scope); err != nil {
+		if err := foldRecordedEvent(replayCtx, tx, event, scope); err != nil {
 			return rollback(err)
 		}
 	}

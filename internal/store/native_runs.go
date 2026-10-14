@@ -99,6 +99,118 @@ func validateNativeRunShape(payload *nativeRunPayload) error {
 	return nil
 }
 
+// The released native-run payload shape the current capture component
+// replaced (df9f3226, #259): a free-form universe map, two static policy
+// references, and no shared observation identity. Reports recorded by that
+// writer are legitimate history. Replay validates exactly that released shape
+// and folds it without relabeling the old policy identities, inventing an
+// observation binding, or fabricating verification. The live write
+// validation above never reaches this shape.
+const (
+	legacyNativeRunFreshnessPolicyRef  = "policy/native-run-report/freshness@cd-0040"
+	legacyNativeRunDivergencePolicyRef = "policy/native-run-report/divergence@cd-0040"
+)
+
+// legacyNativeRunUniverse is the universe the released writer emitted for
+// every native-run report: one complete item exactly scoped to the reported
+// subject, one total, no omissions. A stored universe that disagrees with its
+// own report was written by no released writer.
+type legacyNativeRunUniverse struct {
+	Shape                string   `json:"shape"`
+	AppliedScope         string   `json:"applied_scope"`
+	Anchor               string   `json:"anchor"`
+	Coverage             string   `json:"coverage"`
+	ObservedCount        int      `json:"observed_count"`
+	ObservedRefs         []string `json:"observed_refs"`
+	Total                string   `json:"total"`
+	CompletionEvidence   string   `json:"completion_evidence"`
+	CanonicalIdentityKey string   `json:"canonical_identity_key"`
+	Omissions            []string `json:"omissions"`
+}
+
+// legacyNativeRunPayload reflects the released writer's payload. Strict
+// decoding refuses every member the current writer added, so a recorded
+// report cannot acquire a fabricated observation identity or a relabeled
+// policy reference by replaying.
+type legacyNativeRunPayload struct {
+	WorkID                string                  `json:"work_id"`
+	RunID                 string                  `json:"run_id"`
+	NativeSubjectRef      string                  `json:"native_subject_ref"`
+	SubjectDigest         string                  `json:"subject_digest"`
+	Phase                 string                  `json:"phase"`
+	Status                string                  `json:"status"`
+	EvidenceRef           string                  `json:"evidence_ref"`
+	EvidenceDigest        string                  `json:"evidence_digest"`
+	AssertedAt            string                  `json:"asserted_at"`
+	ReportingAuthorityRef string                  `json:"reporting_authority_ref"`
+	ActorRef              string                  `json:"actor_ref"`
+	CaptureMethod         string                  `json:"capture_method"`
+	ObservedUniverse      legacyNativeRunUniverse `json:"observed_universe"`
+	FreshnessPolicyRef    string                  `json:"freshness_policy_ref"`
+	DivergencePolicyRef   string                  `json:"divergence_policy_ref"`
+	ExpectedVersion       int64                   `json:"expected_version"`
+	ResultingVersion      int64                   `json:"resulting_version"`
+}
+
+// validateLegacyNativeRunPayload strictly decodes and validates one recorded
+// native-run report against the released shape: unknown members, wrong types,
+// and trailing data refuse. The recorded-event preparation route calls it for
+// events it recognized as this shape; validateNativeRunPayload above stays
+// the only validator a live write can reach.
+func validateLegacyNativeRunPayload(event Event) error {
+	var payload legacyNativeRunPayload
+	if err := decodeRegisteredPayload(event, &payload); err != nil {
+		return err
+	}
+	return validateLegacyNativeRunShape(&payload)
+}
+
+// validateLegacyNativeRunShape enforces the bounds the released writer
+// enforced plus its emitted form: the bounded identity, evidence, status, and
+// time fields, the static policy references it emitted, and a universe
+// derived from the report itself.
+func validateLegacyNativeRunShape(payload *legacyNativeRunPayload) error {
+	if len(payload.RunID) < 1 || len(payload.RunID) > 128 || len(payload.NativeSubjectRef) < 1 || len(payload.NativeSubjectRef) > 2048 {
+		return newFailure(KindInvalidPayload, "validate_event", "native run identity is not bounded", false, "supply a bounded run ID and native subject reference")
+	}
+	if len(payload.EvidenceRef) < 1 || len(payload.EvidenceRef) > 2048 || len(payload.EvidenceDigest) < 1 || len(payload.EvidenceDigest) > 256 {
+		return newFailure(KindInvalidPayload, "validate_event", "native run evidence is not bounded", false, "supply the native authority's evidence reference and digest")
+	}
+	if !NativeRunStatusAllowed(payload.Phase, payload.Status) {
+		return newFailure(KindInvalidPayload, "validate_event", "native run status is outside the phase vocabulary", false, "use the closed status vocabulary for the reported phase")
+	}
+	if payload.SubjectDigest == "" {
+		return newFailure(KindInvalidPayload, "validate_event", "native run subject digest is missing", false, "carry the subject digest derived from the native subject reference")
+	}
+	if _, err := time.Parse(time.RFC3339Nano, payload.AssertedAt); err != nil {
+		return newFailure(KindInvalidPayload, "validate_event", "native run asserted_at is not RFC3339", false, "supply the reporting authority's own observation time")
+	}
+	if payload.CaptureMethod != string(CaptureTrustedClientReport) {
+		return newFailure(KindInvalidPayload, "validate_event", "native run capture method is not the recorded trusted-client report", false, "a recorded report keeps the capture identity its writer emitted")
+	}
+	if payload.FreshnessPolicyRef != legacyNativeRunFreshnessPolicyRef || payload.DivergencePolicyRef != legacyNativeRunDivergencePolicyRef {
+		return newFailure(KindInvalidPayload, "validate_event", "native run policy references are not the recorded static references", false, "a recorded report keeps the policy identities its writer emitted")
+	}
+	return validateLegacyNativeRunUniverse(payload)
+}
+
+// validateLegacyNativeRunUniverse holds the recorded universe to the
+// released writer's emitted form. "eq(1)" is that writer's total token, not a
+// member of the current typed vocabulary.
+func validateLegacyNativeRunUniverse(payload *legacyNativeRunPayload) error {
+	u := payload.ObservedUniverse
+	if u.Shape != string(UniverseItem) || u.Coverage != string(CoverageComplete) || u.Total != "eq(1)" || u.CompletionEvidence != string(CompletionClosedStructureDigest) {
+		return newFailure(KindInvalidPayload, "validate_event", "native run observed universe does not match the recorded writer form", false, "a recorded report keeps the universe its writer emitted")
+	}
+	if u.ObservedCount != 1 || len(u.ObservedRefs) != 1 || u.ObservedRefs[0] != payload.RunID || u.Omissions == nil || len(u.Omissions) != 0 {
+		return newFailure(KindInvalidPayload, "validate_event", "native run observed universe does not match the recorded writer form", false, "a recorded report keeps the universe its writer emitted")
+	}
+	if u.Anchor != payload.SubjectDigest || u.AppliedScope != payload.NativeSubjectRef || u.CanonicalIdentityKey != payload.WorkID+"/"+payload.RunID {
+		return newFailure(KindInvalidPayload, "validate_event", "native run observed universe does not match its own report", false, "a recorded report keeps the universe its writer emitted")
+	}
+	return nil
+}
+
 // buildNativeRunEvent derives the attributed record from a workflow action's
 // typed fields. The capture component and policy references are core-derived;
 // the reporting authority is the authenticated actor's client, never a caller
@@ -146,12 +258,64 @@ func buildNativeRunEvent(eventID, workID string, actor WorkflowActor, now time.T
 	if err != nil {
 		return Event{}, wrapFailure(KindInvalidPayload, "workflow_action", "cannot encode native run report", false, "supply a JSON-safe report", err)
 	}
-	return Event{EventID: eventID, Kind: WorkflowNativeRunRecorded, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: DeriveWorkflowActorRef(actor.PrincipalRef, actor.ClientRef, actor.AgentRef, actor.SessionRef), OccurredAt: now, PayloadVersion: 1, Payload: encoded}, nil
+	// Payload version 2 starts the new-write epoch after the released v1
+	// shape. Stored v1 reports recorded by the current writer remain a
+	// recognized recorded variant; the released pre-CD-0040 shape joins them
+	// only through the recorded-event preparation route.
+	return Event{EventID: eventID, Kind: WorkflowNativeRunRecorded, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: DeriveWorkflowActorRef(actor.PrincipalRef, actor.ClientRef, actor.AgentRef, actor.SessionRef), OccurredAt: now, PayloadVersion: 2, Payload: encoded}, nil
+}
+
+// nativeRunProjectionRow is the workflow_native_runs projection one recorded
+// report folds into. The current fold and the released-schema fold share it,
+// so the projection INSERT has one owner and a legacy row can differ only in
+// its observation binding.
+type nativeRunProjectionRow struct {
+	workID                string
+	runID                 string
+	phase                 string
+	status                string
+	eventID               string
+	reportingAuthorityRef string
+	actorRef              string
+	nativeSubjectRef      string
+	subjectDigest         string
+	evidenceRef           string
+	evidenceDigest        string
+	assertedAt            string
+	recordedAt            string
+	captureMethod         string
+	observedUniverse      string
+	freshnessPolicyRef    string
+	divergencePolicyRef   string
+	// observationID binds the row to the shared external_observations
+	// component. A released-schema row records NULL: its writer predated the
+	// shared component, so no verification event can ever bind to it and the
+	// row reads unverified.
+	observationID sql.NullString
+}
+
+// upsertWorkflowNativeRunTx is the single workflow_native_runs projection SQL
+// owner for both folds.
+func upsertWorkflowNativeRunTx(ctx context.Context, tx *sql.Tx, row nativeRunProjectionRow) error {
+	_, err := tx.ExecContext(ctx, `INSERT INTO workflow_native_runs(work_id,run_id,phase,status,event_id,reporting_authority_ref,actor_ref,native_subject_ref,subject_digest,evidence_ref,evidence_digest,asserted_at,recorded_at,capture_method,observed_universe,freshness_policy_ref,divergence_policy_ref,observation_id)
+		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+		ON CONFLICT(work_id,run_id,phase) DO UPDATE SET status=excluded.status,event_id=excluded.event_id,reporting_authority_ref=excluded.reporting_authority_ref,actor_ref=excluded.actor_ref,native_subject_ref=excluded.native_subject_ref,subject_digest=excluded.subject_digest,evidence_ref=excluded.evidence_ref,evidence_digest=excluded.evidence_digest,asserted_at=excluded.asserted_at,recorded_at=excluded.recorded_at,capture_method=excluded.capture_method,observed_universe=excluded.observed_universe,freshness_policy_ref=excluded.freshness_policy_ref,divergence_policy_ref=excluded.divergence_policy_ref,observation_id=excluded.observation_id`,
+		row.workID, row.runID, row.phase, row.status, row.eventID, row.reportingAuthorityRef, row.actorRef, row.nativeSubjectRef, row.subjectDigest, row.evidenceRef, row.evidenceDigest, row.assertedAt, row.recordedAt, row.captureMethod, row.observedUniverse, row.freshnessPolicyRef, row.divergencePolicyRef, row.observationID)
+	if err != nil {
+		return wrapFailure(KindUnavailable, "fold_event", "cannot record native run report", true, "retry once the database is writable", err)
+	}
+	return nil
 }
 
 func foldNativeRunRecorded(ctx context.Context, tx *sql.Tx, event Event) error {
 	if err := checkSubject(event, SubjectWorkItem); err != nil {
 		return err
+	}
+	// A report the released writer recorded folds through its own shape. Only
+	// the recorded-event preparation route tags this shape, so every live
+	// write keeps the current fold below.
+	if event.recordedPayloadShape == recordedShapeLegacyNativeRun {
+		return foldLegacyNativeRunRecorded(ctx, tx, event)
 	}
 	var payload nativeRunPayload
 	if err := decodePayload(event, &payload); err != nil {
@@ -171,12 +335,49 @@ func foldNativeRunRecorded(ctx context.Context, tx *sql.Tx, event Event) error {
 		payload.ObservationID, event.SubjectID, "native_run", payload.NativeSubjectRef, string(payload.CaptureMethod), payload.AssertedAt, payload.ReportingAuthorityRef, payload.SubjectDigest, string(universe), payload.FreshnessPolicyRef, payload.DivergencePolicyRef, event.Seq); err != nil {
 		return wrapFailure(KindUnavailable, "fold_event", "cannot register the native run observation", true, "retry once the database is writable", err)
 	}
-	_, err = tx.ExecContext(ctx, `INSERT INTO workflow_native_runs(work_id,run_id,phase,status,event_id,reporting_authority_ref,actor_ref,native_subject_ref,subject_digest,evidence_ref,evidence_digest,asserted_at,recorded_at,capture_method,observed_universe,freshness_policy_ref,divergence_policy_ref,observation_id)
-		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-		ON CONFLICT(work_id,run_id,phase) DO UPDATE SET status=excluded.status,event_id=excluded.event_id,reporting_authority_ref=excluded.reporting_authority_ref,actor_ref=excluded.actor_ref,native_subject_ref=excluded.native_subject_ref,subject_digest=excluded.subject_digest,evidence_ref=excluded.evidence_ref,evidence_digest=excluded.evidence_digest,asserted_at=excluded.asserted_at,recorded_at=excluded.recorded_at,capture_method=excluded.capture_method,observed_universe=excluded.observed_universe,freshness_policy_ref=excluded.freshness_policy_ref,divergence_policy_ref=excluded.divergence_policy_ref,observation_id=excluded.observation_id`,
-		event.SubjectID, payload.RunID, payload.Phase, payload.Status, event.EventID, payload.ReportingAuthorityRef, payload.ActorRef, payload.NativeSubjectRef, payload.SubjectDigest, payload.EvidenceRef, payload.EvidenceDigest, payload.AssertedAt, event.OccurredAt.UTC().Format(time.RFC3339Nano), string(payload.CaptureMethod), string(universe), payload.FreshnessPolicyRef, payload.DivergencePolicyRef, payload.ObservationID)
+	if err := upsertWorkflowNativeRunTx(ctx, tx, nativeRunProjectionRow{
+		workID: event.SubjectID, runID: payload.RunID, phase: payload.Phase, status: payload.Status,
+		eventID: event.EventID, reportingAuthorityRef: payload.ReportingAuthorityRef, actorRef: payload.ActorRef,
+		nativeSubjectRef: payload.NativeSubjectRef, subjectDigest: payload.SubjectDigest,
+		evidenceRef: payload.EvidenceRef, evidenceDigest: payload.EvidenceDigest,
+		assertedAt: payload.AssertedAt, recordedAt: event.OccurredAt.UTC().Format(time.RFC3339Nano),
+		captureMethod: string(payload.CaptureMethod), observedUniverse: string(universe),
+		freshnessPolicyRef: payload.FreshnessPolicyRef, divergencePolicyRef: payload.DivergencePolicyRef,
+		observationID: sql.NullString{String: payload.ObservationID, Valid: true},
+	}); err != nil {
+		return err
+	}
+	return bumpVersion(ctx, tx, "work_items", event, payload.ExpectedVersion, payload.ResultingVersion, "work item")
+}
+
+// foldLegacyNativeRunRecorded folds one report recorded by the released
+// writer. The projection matches the schema-42 migration result for that
+// writer's rows: the old universe JSON and static policy references persist
+// unchanged, observation_id stays NULL so no verification event can bind, and
+// the row reads unverified. No external_observations row is created and no
+// policy identity is relabeled.
+func foldLegacyNativeRunRecorded(ctx context.Context, tx *sql.Tx, event Event) error {
+	var payload legacyNativeRunPayload
+	if err := decodePayload(event, &payload); err != nil {
+		return err
+	}
+	if err := validateLegacyNativeRunShape(&payload); err != nil {
+		return err
+	}
+	universe, err := json.Marshal(payload.ObservedUniverse)
 	if err != nil {
-		return wrapFailure(KindUnavailable, "fold_event", "cannot record native run report", true, "retry once the database is writable", err)
+		return wrapFailure(KindInvalidPayload, "fold_event", "cannot encode native run observed universe", false, "repair the stored native run report", err)
+	}
+	if err := upsertWorkflowNativeRunTx(ctx, tx, nativeRunProjectionRow{
+		workID: event.SubjectID, runID: payload.RunID, phase: payload.Phase, status: payload.Status,
+		eventID: event.EventID, reportingAuthorityRef: payload.ReportingAuthorityRef, actorRef: payload.ActorRef,
+		nativeSubjectRef: payload.NativeSubjectRef, subjectDigest: payload.SubjectDigest,
+		evidenceRef: payload.EvidenceRef, evidenceDigest: payload.EvidenceDigest,
+		assertedAt: payload.AssertedAt, recordedAt: event.OccurredAt.UTC().Format(time.RFC3339Nano),
+		captureMethod: payload.CaptureMethod, observedUniverse: string(universe),
+		freshnessPolicyRef: payload.FreshnessPolicyRef, divergencePolicyRef: payload.DivergencePolicyRef,
+	}); err != nil {
+		return err
 	}
 	return bumpVersion(ctx, tx, "work_items", event, payload.ExpectedVersion, payload.ResultingVersion, "work item")
 }

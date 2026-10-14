@@ -323,8 +323,12 @@ func TestReplayDeduplicationBackupRestoreRebuild(t *testing.T) {
 		t.Fatal(err)
 	}
 	restoredPath := filepath.Join(t.TempDir(), "restored.db")
-	if _, err := store.RestoreBackup(ctx, backup, restoredPath); err != nil {
+	restoreReport, err := store.RestoreBackup(ctx, backup, restoredPath)
+	if err != nil {
 		t.Fatal(err)
+	}
+	if restoreReport.SourceSnapshot.EventWatermark != watermark || restoreReport.RestoredDatabase.EventWatermark != watermark || restoreReport.RestoredDatabase.SchemaVersion != store.CurrentSchemaVersion() {
+		t.Fatalf("restore inventories do not preserve the replay watermark: %+v", restoreReport)
 	}
 	restored, err := store.Open(ctx, restoredPath)
 	if err != nil {

@@ -1565,12 +1565,12 @@ func runInternal(command string, raw []byte, service *agent.Service, s *store.St
 			writeOperatorDiagnostic(errOut, command, "restore destination equals the live database path; restore to a new path and swap")
 			return 1
 		}
-		manifest, err := store.RestoreBackup(ctx, request.Source, request.Destination)
+		report, err := store.RestoreBackup(ctx, request.Source, request.Destination)
 		if err != nil {
 			writeOperatorDiagnostic(errOut, command, err.Error())
 			return 1
 		}
-		return writeJSON(out, manifest, errOut)
+		return writeJSON(out, report, errOut)
 	case "predecessor-import":
 		return runPredecessorImport(raw, s, out, errOut)
 	default:

@@ -58,6 +58,15 @@ Document, knowledge, and generator checks validate artifacts; they do not prove 
 These controls do not prevent arbitrary shell writes or establish per-worker attribution in a shared worktree.
 No editor-host write-interception hook or filesystem sandbox is introduced; CD-0072 remains in force.
 
+On architecture-capable pins, native delivered-diff conformance additionally
+checks the exact slice allowlist and recorded source-line limit before
+editing-result acceptance and the next editing dispatch. Test and generated
+files remain inside the allowlist even when excluded from the line sum.
+This check measures the complete base-to-result delta, not per-worker
+authorship. Independent review still checks architectural and semantic
+adequacy, approved law scope, and the existing acceptance evidence.
+It does not add interception, a sandbox, or a new approval prompt.
+
 ### D6. Outside-workflow changes retain their existing authority boundary
 
 An authorized host actor may perform repository work outside Concord workflow under host permissions and repository rules.

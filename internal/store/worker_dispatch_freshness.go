@@ -67,6 +67,11 @@ type workerDispatchProof struct {
 	probePath   string
 
 	observation *WorkerObservedDelivery
+
+	// readings carries one sealed witness per declared required reading:
+	// the SQL-sampled source identities sampled in the same read snapshot,
+	// plus the Git resolution resolved after that snapshot closed.
+	readings []dispatchReadingWitness
 }
 
 // WorkerDispatchPreparation is the opaque prepared proof the authenticated
@@ -125,6 +130,22 @@ type workerDispatchSample struct {
 	viewRaw   []byte
 	entries   []WorktreeEntry
 	claimSeen bool
+
+	// readings holds the SQL-sampled source identities of the view's
+	// declared required readings, from the same snapshot.
+	readings []dispatchReadingWitness
+}
+
+// sampleWorkerDispatchStateInto samples the dispatch state into the
+// caller's sample so the preparation's read snapshot closure stays a single
+// call. It performs SQL only.
+func sampleWorkerDispatchStateInto(ctx context.Context, q queryer, workID string, sample *workerDispatchSample) error {
+	sampled, err := sampleWorkerDispatchState(ctx, q, workID)
+	if err != nil {
+		return err
+	}
+	*sample = sampled
+	return nil
 }
 
 // sampleWorkerDispatchState reads the work version, the workflow instance
@@ -175,6 +196,13 @@ func sampleWorkerDispatchState(ctx context.Context, q queryer, workID string) (w
 		return sample, entriesErr
 	}
 	sample.entries = entries
+	if view != nil && len(view.RequiredReading) > 0 {
+		witnesses, witnessErr := sampleDispatchReadingIdentities(ctx, q, workID, view.RequiredReading)
+		if witnessErr != nil {
+			return sample, witnessErr
+		}
+		sample.readings = witnesses
+	}
 	return sample, nil
 }
 
@@ -194,9 +222,7 @@ func PrepareWorkerDispatchFreshness(ctx context.Context, s *Store, request Prepa
 	}
 	var sample workerDispatchSample
 	if err := s.readSnapshot(ctx, func(q queryer) error {
-		var sampleErr error
-		sample, sampleErr = sampleWorkerDispatchState(ctx, q, request.WorkID)
-		return sampleErr
+		return sampleWorkerDispatchStateInto(ctx, q, request.WorkID, &sample)
 	}); err != nil {
 		return nil, err
 	}
@@ -222,16 +248,31 @@ func PrepareWorkerDispatchFreshness(ctx context.Context, s *Store, request Prepa
 		proof.claimPath, proof.claimBranch, proof.claimOpID, proof.projectID, proof.claimState = entry.Path, entry.Branch, entry.ClaimOpID, entry.ProjectID, entry.State
 		proof.probePath = probePath
 	}
+	runner := request.Runner
+	if runner == nil {
+		runner = ExecGitRunner{}
+	}
+	// The declared readings resolve after the snapshot closed, under one
+	// shared fixed deadline across every reading and both arms, on the
+	// committed-read policy runner: no lazy fetch, no replacement refs. The
+	// subject probe below keeps its own deadline; neither phase holds any
+	// SQL.
+	if len(sample.readings) > 0 {
+		proof.readings = sample.readings
+		resolutionRunner := request.Runner
+		if resolutionRunner == nil {
+			resolutionRunner = CommittedReadGitRunner{}
+		}
+		if err := resolveDispatchReadingWitnesses(ctx, resolutionRunner, proof.readings); err != nil {
+			return nil, err
+		}
+	}
 	if sample.view == nil || sample.view.SubjectCommit == "" || probePath == "" {
 		// A subject-less non-oracle dispatch, or a dispatch whose session
 		// worktree matches no active claim, probes nothing: the admission's
 		// own claim check refuses the latter, and absence of a subject
 		// grants no freshness comparison.
 		return &WorkerDispatchPreparation{proof: proof}, nil
-	}
-	runner := request.Runner
-	if runner == nil {
-		runner = ExecGitRunner{}
 	}
 	observation, err := observeDispatchSubject(ctx, runner, probePath)
 	if err != nil {

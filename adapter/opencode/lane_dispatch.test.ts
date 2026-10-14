@@ -1182,3 +1182,63 @@ test("a provenance manifest over the store bound authorizes nothing in the core 
     fs.rmSync(configDir, { recursive: true, force: true })
   }
 })
+
+// CON-887 item 3: every declared required reading resolves in the core before
+// a worker spawns. The core owns the entire resolution — the adapter adds no
+// second source resolver and no Git probe of its own. A typed core refusal
+// that names a declared reading reaches the coordinator with its cause and
+// recovery intact, spawns no native Task, and arms no window; a dispatch the
+// core admits over its resolved declared readings spawns exactly one native
+// Task.
+test("TestDispatchRequiredReadingResolutionBeforeTask: a core declared-reading refusal spawns no native Task", async () => {
+  let spawned = 0
+  let workflowCalls = 0
+  const invoke = async (toolName: string, args: { operation: string }): Promise<unknown> => {
+    if (toolName === "concord_work_trace") return continuityEnvelope()
+    if (toolName === "concord_work_browse") return scopeEnvelope()
+    if (toolName === "concord_work_transition") {
+      workflowCalls++
+      return coreErrorEnvelope(
+        "projection_not_found",
+        'required reading 0 (project-repo/internal/store/work_context.go@' + "a".repeat(40) + "): the declared commit does not resolve in the declared Project's repository",
+      )
+    }
+    throw new Error(`unscripted ${toolName}.${args.operation}`)
+  }
+  const runner: DispatchRunner = { async run() { spawned++; return { exitCode: 0, stdout: "", stderr: "" } } }
+  const windows = new DispatchWindows()
+  const result = await dispatchLaneWorker({ work_id: WORK_ID, expected_version: 1, idempotency_key: "idemp-reading-refusal", lane_id: lane.id }, { context: contextFor(), invoke: invoke as any, runner, windows })
+  expect(result.outcome).toBe("error")
+  expect(result.error?.retry_safe).toBe(false)
+  expect(result.error?.message).toContain("required reading 0")
+  const core = (result.error?.details ?? {}) as Record<string, unknown>
+  expect((core.core_error as Record<string, unknown>).kind).toBe("projection_not_found")
+  expect(workflowCalls).toBe(1)
+  expect(spawned).toBe(0)
+  expect(windows.has("session-1")).toBe(false)
+})
+
+test("TestDispatchRequiredReadingResolutionBeforeTask: a core-admitted dispatch over its resolved declared readings arms exactly one native Task window", async () => {
+  let spawned = 0
+  let workflowCalls = 0
+  const invoke = async (toolName: string, args: { operation: string }): Promise<unknown> => {
+    if (toolName === "concord_work_trace") return continuityEnvelope()
+    if (toolName === "concord_work_browse") return scopeEnvelope()
+    if (toolName === "concord_work_transition") {
+      workflowCalls++
+      return coreOkEnvelope()
+    }
+    throw new Error(`unscripted ${toolName}.${args.operation}`)
+  }
+  const runner: DispatchRunner = { async run() { spawned++; return { exitCode: 0, stdout: runOutput(), stderr: "" } } }
+  const windows = new DispatchWindows()
+  const result = await dispatchLaneWorker({ work_id: WORK_ID, expected_version: 3, idempotency_key: "idemp-reading-admit", lane_id: lane.id }, { context: contextFor(), invoke: invoke as any, runner, windows })
+  // The core resolved the declared readings and authorized the dispatch: the
+  // host runs exactly one native Task from the one armed window. The adapter
+  // itself spawns nothing (CD-0102 D5) and adds no second source resolution.
+  expect(result.outcome).toBe("ok")
+  expect(result.dispatch_state).toBe("awaiting_worker")
+  expect(workflowCalls).toBe(1)
+  expect(spawned).toBe(0)
+  expect(windows.has("session-1")).toBe(true)
+})

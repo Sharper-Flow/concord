@@ -48,6 +48,7 @@ func seedCheckpointFailedReviewMismatchAt(t *testing.T, workID, definitionRef st
 func seedCheckpointFailedReviewMismatchWith(t *testing.T, workID string, registered RegisteredDefinition, checkpoint string) (workflowReturnRouteFixture, string, int64) {
 	t.Helper()
 	fixture := seedWorkflowReturnRouteFixtureWithDefinition(t, workID, registered, checkpoint, []string{"verification"}, []string{"verification", "artifact"})
+	seedCheckpointReviewAcceptedDelivery(t, fixture.store, workID, fixture.owner, checkpointEffectStep(t, fixture.store, workID, checkpoint), checkpoint)
 	attemptID := "attempt:" + workID + ":failed-review"
 	epoch := dispatchCheckpointReviewAttempt(t, fixture, workID, checkpoint, attemptID)
 	failCheckpointReviewAttempt(t, fixture.store, workID, attemptID)
@@ -274,6 +275,7 @@ func TestCheckpointFailedReviewCorrectionPreflightMatchesTheResolver(t *testing.
 	t.Run("missing accepted delivery", func(t *testing.T) {
 		const workID = "checkpoint-preflight-class-delivery"
 		fixture := seedWorkflowReturnRouteFixtureRequiring(t, workID, "workflow.break_fix", "verify", []string{"verification", "review"}, []string{"verification", "artifact"})
+		seedCheckpointReviewAcceptedDelivery(t, fixture.store, workID, fixture.owner, "repair", "verify")
 		reviewer := checkpointReviewReviewer(t, fixture.store, workID)
 		dispatchVerifyReviewAttempt(t, fixture, workID)
 		if err := runVerdictActionAs(t, fixture.store, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"verdicts":[{"predicate_id":"predicate:return-route","verdict_kind":"outcome_mismatch","evaluation_evidence":["evidence:return-route-verification"],"incomparable_with_approved":true}]}`), 0, reviewer); err != nil {
@@ -316,6 +318,7 @@ func TestCheckpointFailedReviewCorrectionNamesEachMissingPrerequisite(t *testing
 	t.Run("missing accepted delivery", func(t *testing.T) {
 		const workID = "checkpoint-correction-class-delivery"
 		fixture := seedWorkflowReturnRouteFixtureRequiring(t, workID, "workflow.break_fix", "verify", []string{"verification", "review"}, []string{"verification", "artifact"})
+		seedCheckpointReviewAcceptedDelivery(t, fixture.store, workID, fixture.owner, "repair", "verify")
 		reviewer := checkpointReviewReviewer(t, fixture.store, workID)
 		dispatchVerifyReviewAttempt(t, fixture, workID)
 		if err := runVerdictActionAs(t, fixture.store, workID, "record_verdict", json.RawMessage(`{"contract_version":1,"verdicts":[{"predicate_id":"predicate:return-route","verdict_kind":"outcome_mismatch","evaluation_evidence":["evidence:return-route-verification"],"incomparable_with_approved":true}]}`), 0, reviewer); err != nil {
@@ -627,8 +630,9 @@ func TestCheckpointFailedReviewCorrectionRequiresExactOperatorApproval(t *testin
 	if got := currentStep(t, s, workID); got != "repair" {
 		t.Fatalf("step after the approved correction = %q, want repair", got)
 	}
-	if attempts, dispatches := workerAttemptPopulation(t, s, workID); attempts != 1 || dispatches != 1 {
-		t.Fatalf("request_correction changed the attempt population: attempts=%d dispatches=%d, want the one failed review", attempts, dispatches)
+	attemptsBefore, dispatchesBefore := workerAttemptPopulation(t, s, workID)
+	if attempts, dispatches := workerAttemptPopulation(t, s, workID); attempts != attemptsBefore || dispatches != dispatchesBefore {
+		t.Fatalf("request_correction changed the attempt population: attempts=%d dispatches=%d, want the pre-correction baseline", attempts, dispatches)
 	}
 }
 

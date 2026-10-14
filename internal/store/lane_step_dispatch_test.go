@@ -278,6 +278,7 @@ func TestJoinAdmitsReviewLaneAtEffectStep(t *testing.T) {
 	// external_effect step.
 	workID := "work-join-admit-review"
 	actor := seedJoinFixture(t, s, workID, "repair")
+	seedCheckpointReviewAcceptedDelivery(t, s, workID, actor, "repair", "repair")
 	version := readWorkVersion(t, s, workID)
 	laneVersion, laneDigest := registeredLaneIdentity(t, "review")
 	packet := joinPacketFor(t, s, workID, "repair", "attempt-join-admit-review", "review", laneVersion, laneDigest)
@@ -417,7 +418,9 @@ func TestAcceptanceReviewRoundTrip(t *testing.T) {
 		t.Fatalf("confirm_premise refusal = %v, want a missing-review refusal", err)
 	}
 
-	// The amended join admits the review lane at the confirmation step.
+	// The amended join admits the review lane at the confirmation step. The
+	// review gate joins the accepted implementation delivery first.
+	seedCheckpointReviewAcceptedDelivery(t, s, workID, fixture.owner, "repair", "verify")
 	lane := reviewGateLane(t, "review")
 	laneVersion, laneDigest := registeredLaneIdentity(t, "review")
 	attemptID := "attempt:" + workID + ":checkpoint-review"
@@ -506,6 +509,7 @@ func TestRepinReachesTheCheckpointReviewDefinition(t *testing.T) {
 	if step := currentStep(t, s, workID); step != "verify" {
 		t.Fatalf("step after repin = %q, want verify", step)
 	}
+	seedCheckpointReviewAcceptedDelivery(t, s, workID, fixture.owner, "repair", "verify")
 	laneVersion, laneDigest := registeredLaneIdentity(t, "review")
 	packet := joinPacketFor(t, s, workID, "verify", "attempt:"+workID+":repin-review", "review", laneVersion, laneDigest)
 	if _, err := dispatchJoinAttempt(context.Background(), t, s, workID, verdictItemVersion(t, s, workID), fixture.owner, packet); err != nil {

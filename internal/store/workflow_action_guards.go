@@ -1636,6 +1636,15 @@ func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoc
 			if err := refuseOverBoundDispatchContext(packetRaw); err != nil {
 				return events, "", err
 			}
+			// Every declared required reading resolved before the dispatch:
+			// the sealed preparation's witnesses revalidate against current
+			// source registrations with SQL only, so a changed source or a
+			// preparation that never resolved cannot dispatch. The derived
+			// retry a combined rejection carries answers to the same owner
+			// through this same guard.
+			if err := admitWorkerDispatchReadingResolutionTx(in.ctx, in.tx, in.request.WorkID, admittedContext); err != nil {
+				return events, "", err
+			}
 		}
 		// The registry lane identity rides the completion so the fold can
 		// bind the attempt durably in flight from the record alone, without

@@ -624,14 +624,19 @@ func TestLiveDispatchRequiresSealedPreparation(t *testing.T) {
 
 // qualifiedSubjectRunner answers the delivery probe without touching the
 // filesystem: HEAD is the work's qualified verify subject and the tree is
-// clean. A preparation over a subject-less view probes nothing.
+// clean. Every other git call — the declared-reading resolution's committed
+// proofs — runs against the real fixture repositories. A preparation over a
+// subject-less view probes nothing.
 type qualifiedSubjectRunner struct{ head string }
 
-func (r qualifiedSubjectRunner) Run(_ context.Context, _ string, args ...string) ([]byte, error) {
+func (r qualifiedSubjectRunner) Run(ctx context.Context, dir string, args ...string) ([]byte, error) {
 	if len(args) > 0 && args[0] == "status" {
 		return nil, nil
 	}
-	return []byte(r.head), nil
+	if len(args) > 0 && args[0] == "rev-parse" {
+		return []byte(r.head), nil
+	}
+	return ExecGitRunner{}.Run(ctx, dir, args...)
 }
 
 // seedAcceptedImplementationDelivery dispatches, completes, and accepts one

@@ -147,13 +147,14 @@ func dispatchWorkContextAttempt(t *testing.T, f workContextFixture, packet map[s
 }
 
 // declareSampleWorkContext records one declaration with readings and
-// findings the packet admission can consume.
+// findings the packet admission can consume. The readings resolve against
+// the fixture's real synthetic sources at dispatch.
 func declareSampleWorkContext(t *testing.T, f workContextFixture, statement string) {
 	t.Helper()
 	if err := f.recordWorkContext(t, map[string]any{
 		"required_reading": []map[string]any{
-			workContextRepoReading(workContextTestRoot, workContextRootRationale),
-			workContextKnowledgeReading(workContextTestChild),
+			f.repoReading(workContextTestRoot, workContextRootRationale, ""),
+			f.knowledgeReading(workContextTestChild),
 		},
 		"finding_refs": []string{},
 		"context_findings": []map[string]any{
@@ -976,8 +977,8 @@ func seedAggregateBoundDeclarations(t *testing.T, f workContextFixture, evidence
 	ref := strings.Repeat("e", evidenceRefBytes)
 	first := map[string]any{
 		"required_reading": []map[string]any{
-			workContextRepoReading(workContextTestRoot, workContextRootRationale),
-			workContextKnowledgeReading(workContextTestChild),
+			f.repoReading(workContextTestRoot, workContextRootRationale, ""),
+			f.knowledgeReading(workContextTestChild),
 		},
 		"finding_refs":     []string{},
 		"context_findings": aggregateBoundFindings("finding", ref),

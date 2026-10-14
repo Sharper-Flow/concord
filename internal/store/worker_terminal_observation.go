@@ -113,11 +113,24 @@ type workerTerminalSample struct {
 	entries []WorktreeEntry
 }
 
+// sampleWorkerTerminalDeliveryInto samples the terminal delivery state into
+// the caller's sample so the preparation's read snapshot closure stays a
+// single call. It performs SQL only.
+func sampleWorkerTerminalDeliveryInto(ctx context.Context, q queryer, workID, attemptID, eventID string, sample *workerTerminalSample) error {
+	sampled, err := sampleWorkerTerminalDelivery(ctx, q, workID, attemptID, eventID)
+	if err != nil {
+		return err
+	}
+	*sample = sampled
+	return nil
+}
+
 // sampleWorkerTerminalDelivery reads the existing event identity, the
 // attempt, the authorization window, and the raw worktree entry list through
 // one queryer so every sampled identity observes one snapshot. It performs
 // SQL only; the caller resolves canonical paths and probes Git only after
 // the snapshot closes.
+
 func sampleWorkerTerminalDelivery(ctx context.Context, q queryer, workID, attemptID, eventID string) (workerTerminalSample, error) {
 	var sample workerTerminalSample
 	var existingVersion int
@@ -160,9 +173,7 @@ func PrepareWorkerTerminalDelivery(ctx context.Context, s *Store, request Prepar
 	}
 	var sample workerTerminalSample
 	if err := s.readSnapshot(ctx, func(q queryer) error {
-		var sampleErr error
-		sample, sampleErr = sampleWorkerTerminalDelivery(ctx, q, request.WorkID, request.AttemptID, request.EventID)
-		return sampleErr
+		return sampleWorkerTerminalDeliveryInto(ctx, q, request.WorkID, request.AttemptID, request.EventID, &sample)
 	}); err != nil {
 		return nil, err
 	}

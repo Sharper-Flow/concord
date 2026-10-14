@@ -51,7 +51,7 @@ type OrchestratorIdentityAssertion struct {
 	RulesetDigest string
 	Sources       []OrchestratorArtifactSource
 	// ProductID and WorkID name the session the assertion is for. ProductID
-// is the caller's Product scope; WorkID is the optional work scope.
+	// is the caller's Product scope; WorkID is the optional work scope.
 	ProductID string
 	WorkID    string
 	// Actor identity fields, formatted the same way a worker attempt

@@ -199,6 +199,7 @@ test("happy path: continuity → packet → core ok → spawn with stubbed runne
   const result = await dispatchLaneWorker({ work_id: WORK_ID, expected_version: 3, idempotency_key: "idemp-1", lane_id: lane.id }, { context: contextFor(), invoke: invoke as any, credentials: testCredentials, runner, evidenceRunner, windows })
   expect(result.outcome).toBe("ok")
   expect(result.dispatch_state).toBe("awaiting_worker")
+  expect(result.result?.worker_packet_digest).toBe(CORE_PACKET_DIGEST)
   expect(seen).toContain("concord_work_trace.continuity")
   expect(seen).toContain("concord_work_browse.scope")
   expect(seen).toContain("concord_work_transition.workflow_action")

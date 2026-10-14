@@ -1234,6 +1234,12 @@ func TestCompleteStepContractCorrectionReturnsBreakFixToRepair(t *testing.T) {
 	if step, _, _, _, _ := completeStepInstancePin(t, s, workID); step != "complete" {
 		t.Fatalf("step after the successor premise = %q, want complete", step)
 	}
+	if err := RebuildFromLog(ctx, s); err != nil {
+		t.Fatalf("rebuild after the successor verdict: %v", err)
+	}
+	if step, state, ref, version, digest := completeStepInstancePin(t, s, workID); step != "complete" || state != "running" || ref != definitionRef || version != definitionVersion || digest != definitionDigest {
+		t.Fatalf("rebuilt instance = %s/%s %s@%d (%s), want the corrected completion step under its original pin", step, state, ref, version, digest)
+	}
 }
 
 // A workflow instance that already recorded completion while the work item
@@ -1350,7 +1356,7 @@ func TestCompleteStepContractCorrectionRefusals(t *testing.T) {
 		if _, err := db.Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?)`, "completed-report-disposition", WorkflowActionCompleted, SubjectWorkItem, workID, fixture.owner.PrincipalRef, "2026-09-23T00:00:00Z", 1, `{"action_id":"accept_worker_result","worker_attempt_id":"attempt:undisposed"}`); err != nil {
 			t.Fatal(err)
 		}
-		unsettled, err := workflowUnsettledWorkerAttempt(context.Background(), fixture.store.db, workID, "test")
+		unsettled, err := workflowUnsettledWorkerAttempt(context.Background(), fixture.store.db, workID, "test", 0)
 		if err != nil || unsettled {
 			t.Fatalf("accepted report remains unsettled: unsettled=%t err=%v", unsettled, err)
 		}
@@ -2076,6 +2082,74 @@ func runDuplicateRecoveryWithApproval(t *testing.T, s *Store, workID string, pay
 	return tx.Commit()
 }
 
+func TestCompleteStepCorrectionAdmissionUsesOnlyPriorHistory(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	for _, test := range []struct {
+		name              string
+		observationBefore bool
+		laterKind         string
+		state             string
+		action            string
+		wantBefore        bool
+		wantLive          bool
+	}{
+		{"later verdict", true, WorkflowVerdictRecorded, "", "", true, false},
+		{"later observation", false, WorkObservationRecorded, "", "", false, true},
+		{"accepted result", true, WorkflowActionCompleted, "completed", "accept_worker_result", false, true},
+		{"accepted evidence", true, WorkflowActionCompleted, "completed", "accept_worker_evidence", false, true},
+		{"rejected result", true, WorkflowActionCompleted, "completed", "reject_worker_result", false, true},
+		{"recorded failure", true, WorkflowActionCompleted, "failed", "record_worker_failure", false, true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			const workID = "correction-history-boundary"
+			fixture, _ := seedCompleteStep(t, workID, "workflow.break_fix", "verify", "complete")
+			s := fixture.store
+			db := s.DatabaseForTesting()
+			if test.observationBefore {
+				recordCompleteStepContradictionObservation(t, s, workID, fixture.owner)
+			}
+			if test.state != "" {
+				var completedAt, failedAt any
+				failureKind := ""
+				if test.state == "completed" {
+					completedAt = "2026-10-13T00:00:01Z"
+				} else {
+					failedAt = "2026-10-13T00:00:01Z"
+					failureKind = "abandoned"
+				}
+				if _, err := db.Exec(`INSERT INTO fold_guard(active) VALUES(1); INSERT INTO worker_attempts(work_id,attempt_id,lane_id,lane_version,lane_digest,capability_class,readback_model,packet_schema_version,report_schema_version,lifecycle_state,dispatched_at,completed_at,failed_at,failure_kind) VALUES(?, 'attempt:history', 'lane:implement', 1, ?, 'work_transition', 'model/test', '1.0', '1.0', ?, '2026-10-13T00:00:00Z',?,?,?); DELETE FROM fold_guard`, workID, "sha256:"+strings.Repeat("a", 64), test.state, completedAt, failedAt, failureKind); err != nil {
+					t.Fatal(err)
+				}
+			}
+			// Keep projections at the correction boundary while the intact log
+			// already contains the later record, as it does during replay.
+			payload := mustJSONValue(map[string]any{"action_id": test.action, "worker_attempt_id": "attempt:history"})
+			if _, err := db.Exec(`INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?,?,?,?,?,?,?,?)`, "later-history", test.laterKind, SubjectWorkItem, workID, fixture.owner.PrincipalRef, "2026-10-13T00:00:01Z", 1, payload); err != nil {
+				t.Fatal(err)
+			}
+			var beforeSeq int64
+			if err := db.QueryRow(`SELECT seq FROM domain_events WHERE event_id='later-history'`).Scan(&beforeSeq); err != nil {
+				t.Fatal(err)
+			}
+			definition, ok := completeStepPinnedDefinition(t, s, workID)
+			if !ok {
+				t.Fatal("missing pinned definition")
+			}
+			for _, boundary := range []struct {
+				seq  int64
+				want bool
+			}{{beforeSeq, test.wantBefore}, {beforeSeq + 1, test.wantLive}, {0, test.wantLive}} {
+				available, err := workflowCompleteStepCorrectionAvailable(ctx, db, workID, definition.Definition, "complete", "test", boundary.seq)
+				if err != nil || available != boundary.want {
+					t.Errorf("admission before sequence %d = %t, error = %v; want %t", boundary.seq, available, err, boundary.want)
+				}
+			}
+		})
+	}
+}
+
 // TestCompleteStepCorrectionSurvivesRebuildFromLog proves the fold's return
 // and its shared admission are replay-stable: rebuilding the log refolds the
 // route supersession to the same instance state, active contract, and verdict
@@ -2313,12 +2387,12 @@ func TestCompletedInstanceOffShapeSupersessionRefusesBeforeEffect(t *testing.T) 
 			t.Fatal(txErr)
 		}
 		defer tx.Rollback()
-		err := foldCompleteStepContractCorrectionTx(context.Background(), tx, workID, successor)
+		err := foldCompleteStepContractCorrectionTx(context.Background(), tx, Event{SubjectID: workID}, successor)
 		var failure *Failure
 		if !errors.As(err, &failure) || failure.Kind != KindInvariantViolation || failure.Detail != sharedDetail {
 			t.Fatalf("live fold of the off-shape completed supersession = %v, want the shape refusal", err)
 		}
-		if err := foldCompleteStepContractCorrectionTx(workflowReplayContext(context.Background()), tx, workID, successor); err != nil {
+		if err := foldCompleteStepContractCorrectionTx(workflowReplayContext(context.Background()), tx, Event{SubjectID: workID}, successor); err != nil {
 			t.Fatalf("replay of the historical off-shape supersession = %v, want replay preservation", err)
 		}
 	})

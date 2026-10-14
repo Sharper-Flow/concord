@@ -149,19 +149,13 @@ func seedAcceptedImplementationDeliveryAt(t *testing.T, s *Store, workID string,
 		t.Fatalf("accepted-delivery observation refused: %v", prepErr)
 	}
 	workerTerminalEventThroughSeamCtx(t, WithWorkerTerminalPreparation(ctx, prepared), s, completion)
-	reviewSubjectAccept(t, s, workID, attemptID)
-	if job != nil {
-		// The recorded-history acceptance carries no fold, so the accepted
-		// delivery's revision takes the disposition the real acceptance fold
-		// writes (markWorkerJobSatisfiedTx): satisfied at the acceptance
-		// event, whose identifier is the recorded result reference. A later
-		// record_delivery on this work would otherwise count the revision
-		// unsatisfied.
-		if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
-			UPDATE worker_job_revisions SET state='satisfied', satisfied_at='2026-10-02T00:00:00Z', satisfied_result_ref=? WHERE work_id=? AND job_id=? AND revision=?;
-			DELETE FROM fold_guard`, workID+":review-accept:"+attemptID, workID, job.JobID, job.Revision); err != nil {
-			t.Fatalf("satisfy the accepted delivery's job revision: %v", err)
-		}
+	var epoch int64
+	if err := s.DatabaseForTesting().QueryRowContext(ctx, `SELECT json_extract(payload,'$.attempt_epoch') FROM domain_events WHERE subject_id=? AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=? ORDER BY seq DESC LIMIT 1`, workID, WorkflowActionCompleted, attemptID).Scan(&epoch); err != nil {
+		t.Fatal(err)
+	}
+	acceptor := WorkflowActor{PrincipalRef: owner.PrincipalRef, ClientRef: owner.ClientRef, AgentRef: "agent/accepted-delivery-acceptor", SessionRef: "session/" + workID + "-delivery-acceptor", ActorClass: ActorAgent}
+	if err := runVerdictActionAs(t, s, workID, "accept_worker_result", mustJSONValue(map[string]any{"attempt_id": attemptID, "attempt_epoch": epoch}), 0, acceptor); err != nil {
+		t.Fatalf("accept implementation delivery: %v", err)
 	}
 }
 

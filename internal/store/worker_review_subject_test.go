@@ -142,7 +142,7 @@ func reviewSubjectAccept(t *testing.T, s *Store, workID, attemptID string) {
 		t.Fatal(err)
 	}
 	if _, err := tx.ExecContext(context.Background(), `INSERT INTO domain_events(event_id,kind,subject_type,subject_id,actor,occurred_at,payload_version,payload) VALUES(?, 'workflow.action_completed', 'work_item', ?, ?, ?, 2, ?)`,
-		workID+":review-accept:"+attemptID, workID, operatorRef, time.Date(2026, 10, 2, 0, 0, 0, 0, time.UTC), string(raw)); err != nil {
+		workID+":review-accept:"+attemptID, workID, operatorRef, time.Date(2026, 10, 2, 0, 0, 0, 0, time.UTC).Format(time.RFC3339Nano), string(raw)); err != nil {
 		t.Fatalf("record acceptance of %s: %v", attemptID, err)
 	}
 	if err := leaveFold(context.Background(), tx); err != nil {

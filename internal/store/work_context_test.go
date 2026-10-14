@@ -1097,6 +1097,10 @@ func TestCompletionAndBoundaryWriteNoContextContent(t *testing.T) {
 	t.Parallel()
 	fixture := seedWorkContextFixture(t, "ctx-no-promotion")
 	defer fixture.store.Close()
+	var archivedBefore int
+	if err := fixture.store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM archived_work`).Scan(&archivedBefore); err != nil {
+		t.Fatal(err)
+	}
 	const readingMarker = "CON887-READING-MARKER"
 	const findingMarker = "CON887-FINDING-MARKER"
 	const workerMarker = "CON887-WORKER-MARKER"
@@ -1224,7 +1228,6 @@ func TestCompletionAndBoundaryWriteNoContextContent(t *testing.T) {
 		`SELECT count(*) FROM workflow_context_boundaries WHERE work_id=? AND summary LIKE '%CON887-%'`,
 		`SELECT count(*) FROM workflow_contracts WHERE work_id=? AND premise LIKE '%CON887-%'`,
 		`SELECT count(*) FROM law_subjects WHERE title LIKE '%CON887-%' OR path LIKE '%CON887-%'`,
-		`SELECT count(*) FROM archived_work`,
 	} {
 		var count int
 		if err := fixture.store.DatabaseForTesting().QueryRow(probe, fixture.workID).Scan(&count); err != nil {
@@ -1233,6 +1236,13 @@ func TestCompletionAndBoundaryWriteNoContextContent(t *testing.T) {
 		if count != 0 {
 			t.Fatalf("probe %q found %d rows; context content was promoted", probe, count)
 		}
+	}
+	var archivedAfter int
+	if err := fixture.store.DatabaseForTesting().QueryRow(`SELECT count(*) FROM archived_work`).Scan(&archivedAfter); err != nil {
+		t.Fatal(err)
+	}
+	if archivedAfter != archivedBefore {
+		t.Fatalf("context completion changed archived-work rows from %d to %d", archivedBefore, archivedAfter)
 	}
 }
 
@@ -1292,7 +1302,7 @@ func TestTerminalReportFindingsBindRegistryDomainsLiveNotOnReplay(t *testing.T) 
 		tx.Rollback()
 		t.Fatal(err)
 	}
-	if _, err := tx.ExecContext(context.Background(), `DELETE FROM domain_registries; DELETE FROM domains;`); err != nil {
+	if _, err := tx.ExecContext(context.Background(), `DELETE FROM law_domain_homes; DELETE FROM domain_registries; DELETE FROM domains;`); err != nil {
 		tx.Rollback()
 		t.Fatal(err)
 	}

@@ -106,51 +106,11 @@ func reportedLaneEvidenceForTest(lane LaneDefinition, review *WorkerReviewBlock)
 func seedReturnedRefineCorrection(t *testing.T, workID string) workflowReturnRouteFixture {
 	t.Helper()
 	ctx := context.Background()
-	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.implementation", "execution")
+	fixture, acceptor := seedRefineFirstPass(t, workID)
 	s, owner, operator := fixture.store, fixture.owner, fixture.operator
 	ownerRef, err := WorkflowActorRef(owner)
 	if err != nil {
 		t.Fatal(err)
-	}
-	version := verdictItemVersion(t, s, workID)
-	var design map[string]any
-	if err := json.Unmarshal([]byte(refineRecoveryDesign), &design); err != nil {
-		t.Fatal(err)
-	}
-	design["work_id"], design["expected_version"], design["resulting_version"] = workID, version, version+1
-	if err := applyWorkflowTestOperation(ctx, s, Operation{
-		Events:           []Event{workflowEventWithActor("design-"+workID, WorkflowDesignRecorded, workID, ownerRef, design)},
-		ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version},
-	}); err != nil {
-		t.Fatalf("seed design: %v", err)
-	}
-
-	// First pass: execution worker accepted, refine starts, a review lane runs
-	// at refine and is accepted, and delivery reaches acceptance.
-	lane := BuiltinLaneDefinitions()[0]
-	executionAttempt := "attempt:" + workID
-	version = verdictItemVersion(t, s, workID)
-	start := workflowEventWithActor("start-"+workID, WorkflowActionStarted, workID, ownerRef, map[string]any{
-		"work_id": workID, "expected_version": version, "resulting_version": version + 1, "step_id": "execution", "action_id": "start_execution", "attempt_epoch": 1,
-		"accepted_inputs_digest": "sha256:" + strings.Repeat("a", 64), "idempotency_identity": "start:" + workID, "actor_ref": ownerRef,
-	})
-	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{start}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
-		t.Fatal(err)
-	}
-	for _, event := range []Event{
-		{EventID: "dispatch-" + workID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: ownerRef, OccurredAt: time.Unix(30, 0).UTC(), PayloadVersion: 2, Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: executionAttempt, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion})},
-		workerCompleteEventForLane(workID, "completed-"+workID, executionAttempt, lane, time.Unix(31, 0).UTC()),
-	} {
-		if err := ApplyOperation(ctx, s, Operation{Events: []Event{event}}); err != nil {
-			t.Fatal(err)
-		}
-	}
-	acceptor := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/refine-acceptor", SessionRef: "session/" + workID + "-acceptor", ActorClass: ActorAgent}
-	if err := runVerdictActionAs(t, s, workID, "accept_worker_result", json.RawMessage(`{"attempt_id":"`+executionAttempt+`","attempt_epoch":1}`), 0, acceptor); err != nil {
-		t.Fatalf("accept execution worker: %v", err)
-	}
-	if err := runVerdictActionAs(t, s, workID, refineRecoveryRefineEntry(t, s, workID), json.RawMessage(`{}`), 0, acceptor); err != nil {
-		t.Fatalf("start refine: %v", err)
 	}
 	reviewAttempt, reviewEpoch, err := dispatchRefineAttempt(t, fixture, workID, "refine-review-1")
 	if err != nil {
@@ -388,28 +348,10 @@ func seedRefineFirstPass(t *testing.T, workID string) (workflowReturnRouteFixtur
 		t.Fatalf("seed design: %v", err)
 	}
 
-	lane := BuiltinLaneDefinitions()[0]
-	executionAttempt := "attempt:" + workID
-	version = verdictItemVersion(t, s, workID)
-	start := workflowEventWithActor("start-"+workID, WorkflowActionStarted, workID, ownerRef, map[string]any{
-		"work_id": workID, "expected_version": version, "resulting_version": version + 1, "step_id": "execution", "action_id": "start_execution", "attempt_epoch": 1,
-		"accepted_inputs_digest": "sha256:" + strings.Repeat("a", 64), "idempotency_identity": "start:" + workID, "actor_ref": ownerRef,
-	})
-	if err := applyWorkflowTestOperation(ctx, s, Operation{Events: []Event{start}, ExpectedVersions: map[SubjectRef]int64{VersionRef(SubjectWorkItem, workID): version}}); err != nil {
-		t.Fatal(err)
-	}
-	for _, event := range []Event{
-		{EventID: "dispatch-" + workID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: ownerRef, OccurredAt: time.Unix(30, 0).UTC(), PayloadVersion: 2, Payload: mustJSONValue(WorkerDispatchedPayload{AttemptID: executionAttempt, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, ReadbackModel: preferredModelForLane(lane), PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion})},
-		workerCompleteEventForLane(workID, "completed-"+workID, executionAttempt, lane, time.Unix(31, 0).UTC()),
-	} {
-		if err := ApplyOperation(ctx, s, Operation{Events: []Event{event}}); err != nil {
-			t.Fatal(err)
-		}
-	}
+	reviewSubjectClaim(t, s, workID)
+	seedAcceptedImplementationDeliveryAt(t, s, workID, owner, "execution")
+	parkWorkflowInstanceAt(t, s, workID, "refine")
 	acceptor := WorkflowActor{PrincipalRef: "principal/operator", ClientRef: "client/concord-1", AgentRef: "agent/refine-acceptor", SessionRef: "session/" + workID + "-acceptor", ActorClass: ActorAgent}
-	if err := runVerdictActionAs(t, s, workID, "accept_worker_result", json.RawMessage(`{"attempt_id":"`+executionAttempt+`","attempt_epoch":1}`), 0, acceptor); err != nil {
-		t.Fatalf("accept execution worker: %v", err)
-	}
 	if err := runVerdictActionAs(t, s, workID, refineRecoveryRefineEntry(t, s, workID), json.RawMessage(`{}`), 0, acceptor); err != nil {
 		t.Fatalf("start refine: %v", err)
 	}

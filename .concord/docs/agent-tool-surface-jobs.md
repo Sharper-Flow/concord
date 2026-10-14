@@ -21,6 +21,9 @@ evidenced set of end-to-end agent jobs AJ1 through AJ9 and the tool-neutral
 scenario corpus that judges every later surface candidate.
 ## Contract
 
+AJ8 and Domain-overlap job scenarios use CD-0013 D11's consent classes. Routine compatibility, blocking, and dependency answers prove admission without approval consumption while retaining both work and judged contract pins. Destructive merger or supersession proves exact approval consumption. Workflow scenarios distinguish new engineering/decision policy from retained historical pins; a missing independent verdict is never a consent challenge.
+
+
 The binding contract is sections 1 through 4: the decision boundary, the
 canonical jobs with their successful outcomes, the shared success oracles
 every scenario applies, and the evaluation corpus contract with its passing

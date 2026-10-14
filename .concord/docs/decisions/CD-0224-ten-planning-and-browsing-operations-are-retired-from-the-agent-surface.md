@@ -45,6 +45,9 @@ history rather than amended law.
 
 ## Decision
 
+The retained `resolve_overlap` route uses CD-0013 D11's per-kind consent rule: exact operator approval for merger and supersession, none for dependency, blocking, or compatibility. Every kind still pins both work versions and judged contract content. The retired planning/browsing operations remain retired; changing consent creates no replacement tool or bypass writer.
+
+
 The agent surface retires ten operations: `concord_domain.active_work`,
 `concord_domain.observation_record`, `concord_domain.observation_dismiss`,
 `concord_work_relate.link`, `concord_work_relate.unlink`,

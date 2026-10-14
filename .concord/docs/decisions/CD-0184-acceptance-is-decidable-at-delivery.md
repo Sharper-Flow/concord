@@ -23,6 +23,9 @@ and the authoring schema did not teach the rule.
 
 ## Decision
 
+Delivery-decidable acceptance is required even when CD-0013 D11 permits engineering contract recording without operator consent. The contract author and independent evaluator must retain the same predicate and evidence obligations. Removing a human planning prompt does not permit observation-window acceptance, an unrun check, or unsupported passing verdicts.
+
+
 ### D1. A predicate names an end state verifiable at delivery
 
 An approved contract's outcome predicates name only end states that

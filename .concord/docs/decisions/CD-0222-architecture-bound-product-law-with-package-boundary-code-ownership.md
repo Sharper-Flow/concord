@@ -66,6 +66,9 @@ with package-boundary code ownership. D12 states the navigation retirement.
 
 ## Decision
 
+D6's approval rule follows CD-0013 D11: `depends_on`, `blocks`, and `compatible_with` are routine version-pinned coordination answers; `merged_into` and `supersedes` require exact operator approval because they abandon or replace work identity. Current Domain intersections, judged-content freshness, both endpoint versions, the dedicated atomic writer, cycle rules, and D7 consequential admission remain required. Routine supersession grants neither legislative authority nor a standing overlap exemption.
+
+
 ### D1. Product law and architectural concordance are Priority 1
 
 The six ranked priorities become:

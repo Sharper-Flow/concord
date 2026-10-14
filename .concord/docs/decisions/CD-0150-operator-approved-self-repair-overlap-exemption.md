@@ -20,6 +20,9 @@ leave the conflicting work visible.
 
 ## Decision
 
+This operator-derived exemption remains available only under its original signed authority. A routine supersession under `approval_policy=consequence_v1` grants no exemption, even when its descriptive `self_repair` fields are valid. New-policy work resolves its actual Domain intersection through the dedicated version-pinned overlap operation. Neither classification nor unsigned supersession acquires a standing compatibility waiver.
+
+
 ### D1. The active contract owns the classification
 
 A `self_repair` classification has these fields:

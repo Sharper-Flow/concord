@@ -31,7 +31,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:3174cbc69dba39766762a6c02839cdb6f2681ca2bccadb3344131b15aa19507d",
+  "sha256": "sha256:1e78afe978f3c211e678e91d06ad1c531076fe41c4c1796c911b23d9efc1ea5d",
   "status": "accepted",
   "summary": "A small item batch, merges, and derives routine coordinator records. One record_verdict call carries a verdict object per approved predicate, each with its own actor, evidence, and kind, so CD-0012 D7 evaluator distinctness holds per verdict. The three break_fix diagnosis records merge into one record_diagnosis action whose required sections carry the CD-0156 payload guards, and the alignment step narrows to workflow.implementation. The start of repair and refine derives from the first action at the step under the CD-0183 D2 derivation, keeping the epoch, the fence, and the CD-0192 refine bound. An accepted report that carries the delivery artifact folds the same typed delivery event CD-0166 D1 keeps coordinator-owned. The worker-failure record derives from the attempt terminal event, and reject_worker_result can carry the retry dispatch behind the CD-0173 escalation wall. Each decision names one implementation item; the record implements nothing.",
   "tags": [

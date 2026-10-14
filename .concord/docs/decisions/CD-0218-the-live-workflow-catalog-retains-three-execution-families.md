@@ -33,6 +33,9 @@ The accepted research-pack capability remains independent of workflow selection.
 
 ## Decision
 
+Only the three live execution families receive new `approval_policy=consequence_v1` versions under CD-0013 D11. Retired definitions remain byte-frozen and historical work keeps its pinned consent and attribution rules. New-policy verdicts require independent authenticated evaluators without operator substitution; completion and engineering confirmation use their real authorized coordinators. No old work migrates implicitly and no retired family gains a new authoring route.
+
+
 ### D1. Three families own new execution
 
 New execution selects `workflow.implementation`, `workflow.break_fix`, or

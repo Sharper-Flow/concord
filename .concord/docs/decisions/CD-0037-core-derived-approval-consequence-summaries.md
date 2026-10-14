@@ -41,6 +41,7 @@ operation_digest
 scope[]
 versions[]
 expires_at
+work_decision? { work_id, contract_version, decision_domains[] }
 ```
 
 The object is closed. Scope and version bindings use the existing canonical,
@@ -68,6 +69,8 @@ expiry bound to the challenge. Tool and operation come from the validated
 invocation. Caller-authored title, reason, value statement, tags, free-form
 fields, workflow premise text, and labels resolved from caller input are
 excluded. A workflow premise remains separate bounded context.
+
+The sole classification exception is `work_decision`: validated typed decision domains from the proposed contract or recorded active contract, with its work and contract version. It is required on CD-0013 D11 decision-bearing challenges. Its values bind to the canonical input, scope, and versions and are revalidated on consumption. Missing historical classification never means engineering. The host displays these fields unchanged. Routine publication and engineering confirmation mint no consent challenge under that policy; challenge-less refusals still carry no fabricated summary.
 
 ### D4. Summary drift is unrepresentable
 

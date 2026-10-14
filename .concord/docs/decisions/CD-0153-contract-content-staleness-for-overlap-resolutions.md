@@ -65,10 +65,11 @@ for staleness.
 
 ### D4. Existing authority and resolution classes remain unchanged
 
-The five resolution kinds remain. Operator approval remains required for
-compatibility, blocking another item, merger, supersession, and scope-changing
-decisions. Pure `depends_on` only yields the declarer's place and does not require
-an operator signature. It grants no standing Domain compatibility waiver.
+The five resolution kinds remain. Merger and supersession require operator
+approval because they abandon or replace a work identity. Compatibility,
+blocking, and pure dependency answers require no consent. All answers retain
+both work versions, contract pins, and judged-content freshness. A dependency
+answer grants no standing Domain compatibility waiver.
 D7's seven consequential action classes remain unchanged. CD-0036 remains the
 authority for breaking law cutovers and its strict quiescence rule.
 

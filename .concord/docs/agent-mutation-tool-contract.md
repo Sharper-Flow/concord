@@ -26,6 +26,9 @@ architecture binding for Product-changing work; CD-0213 removes planning writes;
 generated manifest the only pre-go-live surface identity.
 ## Contract
 
+Approval prerequisites in the operation tables follow CD-0013 D11. Routine overlap answers, delivery correction, same-authorized-Product memberships, ordinary completion, and local compaction publication/reconciliation require no consent; destructive identity replacement, cancellation, removal, authority expansion, cross-Product scope, outside repair, and physical research deletion retain it. A publication intent replaces approval as the exact content/home lock. Workflow action consent remains definition-pinned. All version, authorization, evidence, native proof, atomicity, and durable-operation checks remain required.
+
+
 The binding contract is sections 1 through 4: the four-tool decision with the
 native-authority rule, each tool's operation table with core effects, the
 batch boundary of one domain intent per call, and the inline-versus-durable

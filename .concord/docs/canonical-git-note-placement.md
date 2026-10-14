@@ -28,6 +28,9 @@ publish protocol with its recovery seam. CD-0222 replaces component with
 Domain identifiers in new note front matter.
 ## Contract
 
+Routine canonical-note publication and proof-backed reconciliation require no operator consent under CD-0013 D11. The accepted durable publication intent, rather than an approval reference, freezes exact content, digest, home, locator, and work version until SQLite linkage. Existing terminal eligibility, salvage, Git commit verification, deterministic home selection, no-second-effect replay, and reconciliation proof remain required. This route grants no remote push, release, deletion, or legislative authority.
+
+
 The binding contract is sections 1 through 8: the one-note decision, the
 eligible-home rule with Product-home designation, the deterministic selection
 rule, the canonical note shape and typed locator, the publish protocol and

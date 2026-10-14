@@ -40,7 +40,7 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:98a277896e0bcca7d1b6699f8561c8fb482fa89131483338e23b737d4d71bd1a",
+  "sha256": "sha256:5b84235a3832c6a5b67a92b43fe0cbcb7158635f50fdfabf978240bab65b3e5d",
   "status": "accepted",
   "summary": "Defines workflow authority, dispatch, evaluation, and atomic completion. Implementation v27 and break-fix v24 require the immutable job oracle and existing source/readiness joins; earlier pins remain oracle-free. Worker.completed v6 carries reported receipts and canonical ranked-finding resolution, while worker.failed remains v2. Oracle evidence does not supply predicate evaluation or new authority. Exact derived open sets, retained old controls, and supported closures bind findings convergence without changing the three-attempt wall, two basis families, single-use consumption, independent verdicts, or operator confirmation.",
   "tags": [

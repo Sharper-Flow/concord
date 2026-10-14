@@ -187,12 +187,15 @@ Approval is a durable core record, referenced by opaque `approval_ref`. It binds
 - issue time, expiry or explicit non-expiring policy, and allowed use count; and
 - revocation/consumption state.
 
-Consequential mutations default to single-use approval. Reuse requires an explicit
+Approval need follows CD-0013 D11's destructive, decision-bearing, and routine
+classes, not the presence of an external effect or durable acknowledgement.
+Required approvals default to single use. Reuse requires an explicit
 bounded approval policy naming the operation family, scope, expiry, and maximum
 uses. Changing any bound input, version, scope, content/home, or consequence makes
 the approval inapplicable. The core consumes a single-use approval in the same
 transaction that records the authorized domain intent; cross-authority execution
 then follows the durable operation's recovery contract.
+Typed decision domains and their contract version bind wherever they determine consent.
 
 Rejected approval forms:
 

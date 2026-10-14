@@ -19,6 +19,9 @@ link, the optional prune event — is the only receipt, and process exhaust
 stays producer-owned with salvage into bounded note fields before approval.
 ## Contract
 
+For routine publication under CD-0013 D11, salvage and evidence review precede the exact durable publication intent, not a human approval. The authenticated publisher records its own summary attestation; no operator attestation is invented. The original event history, loss-prevention obligations, content/home proof, and separate destructive-deletion approval remain required. Publication acceptance does not itself permit research retirement.
+
+
 The binding contract is sections 1 through 3: the no-receipt decision with
 its required synchronization, the salvage rule placing material findings in
 existing bounded note fields before approval, and the structural boundary

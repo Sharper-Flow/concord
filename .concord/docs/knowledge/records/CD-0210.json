@@ -21,8 +21,6 @@
     "internal/agent/envelope.go",
     "internal/agent/mutations.go",
     "internal/agent/recovery_coupling_test.go",
-    "cmd/concord/outside_repair_launch.go",
-    "cmd/concord/outside_repair_launch_test.go",
     "cmd/concord/release_pairs_cli_test.go",
     "adapter/opencode/continuity-hook.ts",
     "adapter/opencode/continuity_hook.test.ts"
@@ -48,9 +46,9 @@
     "project_ids": [],
     "tag_ids": []
   },
-  "sha256": "sha256:10e28d86aef06ea94555aa7a434933b43a7313509bd41f0657e4d38574b6d9e3",
+  "sha256": "sha256:65f66d4715a1e85fed5ad8b3c38b463a0b5eb073fadea1be993226e2fef465e8",
   "status": "accepted",
-  "summary": "An operator-approved typed disposition holds live work for outside defect repair and suppresses managed actions and prompts. One declared reconciliation either closes from independently fetched merged pull requests, the complete successful required-check set on immutable heads, and a published release containing every merge, or resumes the unchanged workflow. Closure records a distinct outside_repair terminal instance, not fabricated managed completion. Operator session entry creates a fresh ad-hoc branch and worktree without a managed pin. Host permissions and repair-agent configuration remain host-owned. Only this explicit reconciliation amends CD-0183 D4, building on CD-0122 D2.",
+  "summary": "An operator-approved typed disposition holds live work for outside defect repair and suppresses managed actions and prompts. One declared reconciliation either closes from independently fetched merged pull requests, the complete successful required-check set on immutable heads, and a published release containing every merge, or resumes the unchanged workflow. Closure records a distinct outside_repair terminal instance, not fabricated managed completion. The host creates the isolated ordinary repair worktree and starts the unmanaged repair session under the approved host operational procedure. Host permissions and repair-agent configuration remain host-owned. Only this explicit reconciliation amends CD-0183 D4, building on CD-0122 D2.",
   "tags": [
     "workflow",
     "repair",

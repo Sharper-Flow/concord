@@ -3,8 +3,11 @@
 **Status:** Accepted under operator approval.
 **Approval date:** 2026-08-11.
 **Approval:** Operator-approved GitHub issue #42.
+**Amended:** Concord (CON) issue CON-910 (2026-10-13) re-points the CD-0031
+continuity supply to work-start preparation under the Snowball coordinator's
+operator-delegated approval.
 
-> **Subsequent decision:** CD-0031 supplies automatic core-derived continuity to launcher-started operator sessions. The absence statement in §Consequences records the state when CD-0016 was accepted.
+> **Subsequent decision:** CD-0031 supplies core-derived continuity to operator sessions through work-start preparation. The absence statement in §Consequences records the state when CD-0016 was accepted.
 >
 > **Subsequent decision:** CD-0090 adds one bounded runtime re-pin surface — a per-turn host plugin hook that re-asserts the pinned projection after context boundaries. The "does not add a generic host hook" clause in §Consequences records the state when CD-0016 was accepted; no generic hook exists, and the added surface holds no authority.
 
@@ -59,7 +62,7 @@ The canonical read is `concord_work_trace.continuity`, added in surface 2.3.0
 while retaining 2.1/2.2 negotiation and replay. It returns a closed continuity
 snapshot with the derived pinned projection, latest checkpoint, authenticated
 cursor history, one source watermark, monotonic boundary count, and explicit
-typed restart availability. The launcher identity handoff remains unchanged.
+typed restart availability.
 
 ## Work context
 

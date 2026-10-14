@@ -26,7 +26,7 @@ Concord is permanently scoped to one operator per installation, while remaining 
 - **One operator per installation.** Another human may run an independent Concord installation against shared git knowledge, but live workflow memory is not shared.
 - **Many concurrent OpenCode TUIs.** Multiple agents run in parallel against the same local state.
 - **Agents are first-class machine participants.** Agents read, write, and execute alongside the operator; they are not second-class consumers of a human-oriented GUI.
-- **Primary operator surface is the `concord zl` launcher together with the agent sessions it opens until the Herdr cutover.** Herdr replaces this surface at cutover.
+- **Primary operator surface is host-started agent sessions.** The host owns operator session start and resume (CD-0078), and agents enter managed work through `concord_work_start`.
 - **Web UI is optional.** A browser-based view may appear later, but it is not the design center.
 - **No team-server ambition.** Shared assignments, boards, identity, permissions, and multi-human live workflow coordination are non-goals. Git shares durable Product knowledge between independent installations.
 
@@ -159,7 +159,7 @@ in one place.
 - Reads are bounded, fast, and scoped to a Product.
 - Staleness is reviewed before action, with execution blocked according to risk.
 - Continuity is preserved across agent sessions and worktree switches.
-- Until the Herdr cutover, the `concord zl` launcher and its agent sessions form the primary visibility surface. Herdr replaces this surface at cutover.
+- Host-started agent sessions form the primary visibility surface; the host owns session start and resume (CD-0078).
 - Specs, decisions, runbooks, and durable workflow documents remain browsable
   through their Domain home; knowledge does not live only in chat history or a
   flat workflow list.
@@ -212,7 +212,7 @@ See [`workflows.md`](./workflows.md).
 
 ## First-usable floor
 
-Concord's first usable form is a **complete, replacement-ready coordination surface** for one operator and many agents on one machine. Until the Herdr cutover, its primary operator surface is the `concord zl` launcher together with the agent sessions it opens. Herdr replaces this surface at cutover. It must cover the full operational scope that Advance currently provides for this operator (Product-scoped planning, visibility, implementation changes, research/investigation tracking, ops runbooks, and durable product knowledge) while materially improving every one of the six priorities.
+Concord's first usable form is a **complete, replacement-ready coordination surface** for one operator and many agents on one machine. Its primary operator surface is host-started agent sessions; the host owns operator session start and resume (CD-0078). It must cover the full operational scope that Advance currently provides for this operator (Product-scoped planning, visibility, implementation changes, research/investigation tracking, ops runbooks, and durable product knowledge) while materially improving every one of the six priorities.
 
 Incremental design, build, replay, and evaluation are allowed, but a partial slice cannot be called usable or replacement-ready. Replacement readiness is an evidence claim, not migration activity.
 
@@ -222,7 +222,7 @@ The six numbered conditions below define the **usability floor — the bar Conco
 
 It becomes usable when:
 
-1. The operator can see, plan, and act across the full Product scope from the launcher through Product → Domain context. Per CD-0021, "across the full Product scope" means every Product is reachable from the launcher, not that a result set spans Products. Per the same decision, "plan" is satisfied by reaching work and opening a session that authors it. The launcher is read-only by C18, so work creation keeps one write authority.
+1. The operator can see, plan, and act across the full Product scope from the operator's session through Product → Domain context. Per CD-0021, "across the full Product scope" means every Product is reachable from the operator's session and the agent read surface, not that a result set spans Products. Per the same decision, "plan" is satisfied by reaching work and a session that authors it. The operator surface is read-only, so work creation keeps one write authority.
 2. Agents can read, write, and execute within that Product and Domain context through tools.
 3. Every supported work kind (implementation, research, ops, etc.) has a defined workflow type and completion evidence.
 4. Required authority/freshness is explicit, CD-0006 R3's accepted cross-workflow impact policy is enforced, and CD-0222's architecture-overlap policy prevents unresolved concurrent Product-changing work from holding execution authority.
@@ -242,7 +242,7 @@ operations need their own demand, local scope, and evidence.
 | **Workflow evolution semantics** | Affects Priority 2, 3, and 6. | **Resolved by CD-0006:** Concord owns full coordination; purpose-built types are code-defined and versioned, with one generic one-off type. Work composes through forward-linked successors with independent authority/recovery. |
 | **Read-path implementation language** | Affects Priority 4. | **Go** — the Concord core is Go from day one. See [`core-architecture.md`](./core-architecture.md). Latency target (sub-100ms) remains; language is no longer conditional. |
 | **Where the Product entity lives** | Affects architecture and storage. | **Resolved by CD-0007:** standalone [`Sharper-Flow/concord`](https://github.com/Sharper-Flow/concord) Product/repository, Go module [`github.com/sharper-flow/concord`](https://github.com/Sharper-Flow/concord); implementation authority moves there after the audited public bootstrap. |
-| **Product row fields** | Affects what the operator sees in the launcher. | No Product glance surface exists: the row's render and read retired (CD-0219, CD-0224) and the contract is deleted with them. A future glance surface needs its own decision (CD-0224). |
+| **Product row fields** | Affects what a future Product glance surface shows. | No Product glance surface exists: the row's render and read retired (CD-0219, CD-0224) and the contract is deleted with them. A future glance surface needs its own decision (CD-0224). |
 | **External-system membership model** | Affects how azure jobs, crons, etc. attach to a Product. | Treat as opaque signals pulled into the dashboard, not as first-class Concord-owned state. See [`product-data-model.md`](./product-data-model.md). |
 | **Research trackable shape** | Affects Priority 6. | **Resolved by CD-0009:** independent research uses ordinary `kind=research` work; embedded research stays inside its owner; retention-bounded active packs are context/output, not another trackable. |
 | **Managed-resource inventory shape** | Affects the ownership model and storage. Sharing a resource across Products is a stated requirement; per-resource stage depends on the answer. | **Resolved by C15 (2026-08-06):** first-class resource registry, singular owner Product, consumer links, explicit stage, typed locators and work links. See [`managed-resource-inventory.md`](./managed-resource-inventory.md). |

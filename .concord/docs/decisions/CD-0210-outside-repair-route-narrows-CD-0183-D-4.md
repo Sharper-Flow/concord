@@ -2,7 +2,8 @@
 
 - **Status:** Accepted
 - **Date:** 2026-10-07
-- **Scope:** Outside-repair disposition, reconciliation, and session entry
+- **Scope:** Outside-repair disposition, reconciliation, and host-owned
+  repair session entry
 - **Related:** CD-0122, CD-0183, CD-0036, CD-0104, CD-0189,
   [Concord (CON) issue 869](https://linear.app/sharper-flow/issue/CON-869)
 - **Amends:** CD-0183 D4 only for the explicit outside-repair reconciliation
@@ -12,6 +13,10 @@
 - **Approval:** The operator approved this law change on 2026-10-07,
   relayed by the Snowball coordinator. The public pull request carries its
   delivery evidence. This repair creates no managed workflow approval record.
+- **Amended:** Concord (CON) issue CON-910 (2026-10-13) removes the operator repair command and
+  its launcher, states the repair setup as host obligations, and re-scopes
+  session entry as host-owned, under the Snowball coordinator's
+  operator-delegated approval. D1 and D2 are unchanged.
 
 ## Context
 
@@ -89,19 +94,29 @@ workflow step. The recorded reconciliation advances the work version and
 preserves its history. Managed admission and prompts then follow the unchanged
 workflow. An item without an active disposition cannot reconcile.
 
-### D3. The operator opens an unpinned repair session in an ad-hoc worktree
+### D3. The host opens an unpinned repair session in an isolated ordinary worktree
 
-`concord outside-repair` opens a repair session for an active disposition. The
-operator selects a host agent. The command creates a fresh branch and isolated
-ad-hoc worktree from the repository's refreshed default remote ref. It does
-not claim a Concord worktree or overwrite an existing path.
+Concord provides no repair command or launcher. The hold, the approvals,
+and the reconciliation of D1 and D2 are untouched. The host owns the repair
+setup and session start, under the approved host operational procedure:
 
-The session starts in the actual ad-hoc directory with bounded read-only work
-context. It receives no managed boot packet, workflow pin, or inherited managed
-selection. The host launch command remains operator-owned under CD-0189.
-The host owns the repair agent and denial of Concord workflow write tools.
-Concord ships no repair-agent profile and grants the repair session no workflow
-authority. An authorized coordinator reconciles later through D2.
+- The coordinator or operator creates the repair worktree outside the default
+  checkout and outside the Concord managed worktree root, on a new branch
+  from a freshly fetched default branch; it refuses an existing path or
+  branch and never overwrites or removes one; it checks the new tree is
+  clean and reports unexpected content.
+- It starts a new unmanaged agent session there (never a reused managed
+  worker session), with no inherited work selection, occupancy, or pin, and
+  gives it the bounded defect plus the hold/work reference.
+- The repair publishes through ordinary PR, checks, and release;
+  `outside_repair_reconcile` closes the hold.
+
+The session receives no managed boot packet, workflow pin, or inherited
+managed selection, and Concord grants the repair session no workflow
+authority. The host owns the repair agent and denies it Concord workflow
+write tools. Concord ships no repair-agent profile. No Concord mechanism
+enforces these setup guards; they rest on the host procedure. An authorized
+coordinator reconciles later through D2.
 
 ## Alternatives considered
 
@@ -146,9 +161,9 @@ Then managed admission resumes at the unchanged workflow step and lifecycle
 
 ```gherkin
 Given an active operator-approved disposition
-When concord outside-repair launches the selected host agent
-Then the session directory is a fresh ad-hoc worktree on its own branch
-And the session receives no managed selection or workflow pin
+When the host creates the isolated repair worktree and starts an unmanaged repair session there
+Then the session directory is outside the default checkout and the managed worktree root on a new branch
+And the session receives no managed selection, occupancy, or workflow pin
 ```
 
 ## Consequences
@@ -179,8 +194,9 @@ No release installation or session restart belongs to this decision's delivery.
   the ordinary completion gate.
 - `internal/agent.TestOutsideRepairReconcileCompletedClosesFromBoundaryEvidence`
   proves the declared boundary and recorded receipt.
-- `cmd/concord.TestOutsideRepairActualChildInFreshBranch` proves
-  the fresh branch and ad-hoc worktree.
+- The removed operator repair command is one of the refused entries in
+  `go test ./cmd/concord/ -run TestRemovedLaunchEntriesRefuseWithoutExecuting`,
+  which asserts exit 2, no stdin read, and no authority storage for it.
 - `cmd/concord.TestDistinctReleasedCoresCoexistOnOneStore` proves compatible
   release coexistence and the new incompatible-floor boundary.
 - `python3 scripts/check-doc-contract.py`,

@@ -15,12 +15,14 @@
 - **Related:** CD-0014, CD-0031, CD-0048, CD-0078, CD-0083, CD-0108, CD-0158,
   CD-0163, CD-0176, C14, C17
 - **Amends:** CD-0014 (the rendering stack retires with the TUI); CD-0108 D1
-  through D3 (the interactive remake clauses retire; D4 and the entry verbs
-  stand); CD-0163 (the placement boundary re-homes to the session entry route,
-  unchanged in substance)
-- **Preserves:** CD-0078 D1 through D3, CD-0093, CD-0031, CD-0163 D1 and D2,
-  CD-0176 D1 through D3, CD-0182, CD-0189, the store-write-free entry
-  boundary, and every kept launch, resume, and session clause
+  through D3 (the interactive remake clauses retire; D4 stands); CD-0163
+  (the placement boundary re-homes to the session entry route)
+- **Amended:** Concord (CON) issue CON-910 (2026-10-13) removes the session entry route this
+  record preserved, under the Snowball coordinator's operator-delegated
+  approval. D4's kept clauses bind the surviving managed surfaces.
+- **Preserves:** CD-0078 D1 through D3, CD-0093, CD-0031, CD-0090, CD-0163
+  D1, CD-0176 D3, CD-0098, the store-write-free managed-entry boundary, and
+  the verified worktree claim, occupancy, landing, and vacate rules
 
 ## Context
 
@@ -29,12 +31,12 @@ is deleted end to end: internal/launcher, the `concord launcher` verb, the
 bare-invocation TUI route, and the `charm.land` Bubble Tea, bubbles, and
 lipgloss modules. Bare `concord` prints usage.
 
-The launcher's kept duties do not retire with the TUI. The `concord zl <work>`
-route and the argv[0] `zl` forwarding start or resume a session for selected
-work through Concord's session bootstrap; `--resume-last` and `--project`
-select what to resume and where it lands; the `concord session` command owns
-the landing, the host command, and the continuity packet. CD-0108 as amended
-carries that entry route as the ZLauncher replacement.
+The entry-route duties this record preserved retired with the entry route.
+The launch-layer removal takes `concord zl`, the argv[0] forwarding,
+`--resume-last`, `--project`, the `concord session` boot command, the
+host-registered opener, and the operator repair launcher. The host starts
+and resumes operator sessions, and a host-started session enters managed
+work through `concord_work_start` (CD-0098).
 
 ## Decision
 
@@ -68,15 +70,19 @@ store reads (the store query contracts).
   authoring obligation and the adopted repository navigation stand.
 - The launcher-rendered floor items `fc1-portfolio-visibility`,
   `fc1-full-product-scope`, and `fc1-domain-navigation` are out of scope with
-  the surface; the `fc1-session-handoff` and `fc1-operator-work-capture`
-  items stand.
+  the surface; the `fc1-operator-work-capture` item stands, and
+  `fc1-session-handoff` is unmeasured pending the live host-started
+  managed-entry witness.
 
 ### D4. Kept clauses keep their surviving owners
 
-CD-0078 D1 through D3, CD-0163 D1 and D2, CD-0176 D1 through D3, CD-0093, and
-CD-0031 bind the session entry route exactly as they bound the launcher.
-The session-start, landing, identity-only, and terminal-placement proofs live
-with the command package and the store that own those behaviors.
+The session entry route is removed. CD-0078 D1 through D3,
+CD-0163 D1, CD-0176 D3, CD-0093, and CD-0031 bind host-started managed
+sessions through work start, session-prepare, and the per-turn hook. The
+context, identity, registry-probe, and terminal-placement proofs live with
+the surfaces that own those behaviors. The worktree claim, occupancy,
+landing, and vacate rules are untouched: verified placement, collision
+protection, and release-under-live-work refusals keep their owners.
 
 ## Alternatives considered
 
@@ -126,9 +132,8 @@ first-usable floor criterion.
 - `python3 scripts/check-doc-contract.py`,
   `python3 scripts/check-knowledge-closure.py`, and
   `python3 scripts/check-cd-allocation.py --no-fetch` pass.
-- `go test ./cmd/concord/ -run TestSession` proves the session entry and
-  landing behavior, `go test ./cmd/concord/ -run
-  TestProductOnlySessionRemainsIdentityOnly` proves the identity-only
-  handoff, and `go test ./internal/store/ -run
-  TestResolveSessionDirectory` proves the landing read that CD-0163,
-  CD-0176, and CD-0031 bind.
+- `go test ./internal/store/ -run
+  TestResolveContinuityWorkByDirectory` proves the directory binding that
+  CD-0093 and CD-0176 keep, and `go test ./cmd/concord/ -run
+  TestSessionPrepare` proves the context and probe obligations that CD-0031
+  and CD-0189 keep.

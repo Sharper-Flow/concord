@@ -1,10 +1,10 @@
-# CD-0182: The session opener is host placement
+# CD-0182: Cross-repository coordinator sessions are host-placed
 
 - **Status:** Accepted
 - **Date:** 2026-09-27
 - **Scope:** How a work item reaches a second repository's coordinator
-  session; the session opener, the explicit Project selector for the
-  launcher, the `cross_repository_claim` remedy, the installer's recognition
+  session; the retired session opener and the retired explicit Project
+  selector, the `cross_repository_claim` remedy, the installer's recognition
   of the plugin tuple entry, the coordinator instructions that name the
   route, and the bounded Project-session handoff its sessions record and
   consume
@@ -21,12 +21,16 @@
   Project can reuse the one current bind from every verified landed
   coordinator. CD-0178 D2's repository-local execution and its refusal
   of a move into another repository stay unchanged.
+  Concord (CON) issue CON-910 (2026-10-13) removes the session opener, the
+  explicit Project selector, and the registration-consent rule, and settles
+  D3's expired launch-surface paragraphs and D5's opener-named recovery
+  restriction under the Snowball coordinator's operator-delegated approval.
 - **Related:** CD-0178, CD-0093, CD-0098, CD-0176, CD-0163
 - **Preserves:** CD-0078 D1's boundary for every Concord binary, CD-0093 D2's
-  one-directory binding and D3's fail-closed canonical path, CD-0176 D1's
-  worktree landing, and CD-0178 D2's repository-local execution with its
-  refusal of a move into another repository; CD-0178 D2's exclusive session
-  count is touched by the accepted amendment above, not preserved
+  one-directory binding and D3's fail-closed resolution, CD-0176 D3's
+  claimed-directory rules, and CD-0178 D2's repository-local execution with
+  its refusal of a move into another repository; CD-0178 D2's exclusive
+  session count is touched by the accepted amendment above, not preserved
 - **Approval:** The operator approved the seven-outcome contract in session
   on 2026-09-27, and that approval covers the original record. For the D5
   amendment, the operator delegated the decision to the coordinator
@@ -50,8 +54,8 @@ move, which is the move the host refuses.
 Two accepted boundaries stood in the way of a product answer. CD-0078 D1
 forbids every Concord component from knowing a terminal multiplexer, and its
 record rejected a pluggable terminal-placement strategy as an abstraction
-with one real implementation on one machine. CD-0163 restates that boundary
-for the session entry route.
+with one real implementation on one machine. CD-0163 restates that
+boundary.
 
 CD-0176 D2 limited the worktree landing to the work's primary Project. A
 session could not start in a member Project that lives in another
@@ -61,69 +65,54 @@ session, and a refusal remedy that named nothing an agent could call.
 
 ## Decision
 
-### D1. The session opener is one host registration
+### D1. Retired: the session opener registration
 
-The operator may register one session-opener argv template in the options of
-the Concord plugin tuple entry in the OpenCode config. The host passes the
-tuple options to the plugin factory, and the adapter reads the template
-there. Concord stores nothing outside that entry and ships no opener.
+The session opener, its argv template, its `{directory}`, `{title}`, and
+`{command}` placeholders, and its registration-consent rule are removed. The
+adapter opens no session, runs no opener argv, and reports no opener exit
+status. Concord ships no opener, reads no opener registration from host
+configuration, and stores no opener data anywhere.
 
-The template is a JSON array of strings with the placeholders `{directory}`,
-`{title}`, and `{command}`. `{command}` must be one whole element and must
-appear once; the adapter splices the core launch argv into it as separate
-elements. Unknown placeholders refuse, and no shell runs at any point, so a
-title or a path cannot inject into the opener argv.
+The host starts the second coordinator session itself, over CON-771's typed
+`session_placement` detail and the Project's registered canonical checkout.
+A host-started session enters managed work through `concord_work_start`
+(CD-0098). CD-0078 D1 keeps binding every Concord binary and command.
 
-Registering the opener is the operator's standing consent for coordinators
-to open sessions and to spend model quota in the opened session. Concord's
-binaries and shipped coordinator instructions still name no terminal
-multiplexer: CD-0078 D1 keeps binding every Concord binary, and the opener
-stays data the operator chose.
+### D2. Retired: the explicit Project selector
 
-### D2. The explicit Project selector lands a session in a member Project
+The explicit member-Project landing selector retired with the session entry
+route. A different Project in the same repository is reached through an
+explicit `worktree_claim`; a different repository is reached through a
+host-started session there, placed through CON-771's typed
+`session_placement` detail. CD-0093 D3's fail-closed rule binds
+session-prepare in the claimed worktree.
 
-`concord zl` gains `--project <project_id>`. The named Project must be a
-member of the work; the store read refuses a non-member with the membership
-remedy. The session lands in that Project's active worktree when one is
-usable on this machine, else in that Project's canonical path. CD-0093 D3's
-fail-closed rule stands: a canonical path that does not resolve refuses the
-launch. Without the selector, the primary landing of CD-0093 and CD-0176 is
-unchanged.
-
-The fixed prompt of a Project-selected session tells the new coordinator to
-resume the work item there by calling `concord_work_start` with the
-`work_id` and the `project_id`. The prompt carries the session boot packet
-as any work-selected session does.
+The membership record still comes first: a placement in a non-member
+Project refuses at the store read, and the receiving session resumes the
+work item through `concord_work_start` with the `work_id`.
 
 ### D3. The refusal remedy names one route, and the adapter carries it
 
 The `cross_repository_claim` refusal names `concord_work_start` with the
-`work_id` and the `project_id` of the target Project. Its typed
-`session_placement` detail names the registered canonical checkout directory,
-not the Git common directory. The host coordinator uses that detail to
-reuse a receiving session or open one through its host session tools.
-The receiving session may resume with `work_id` alone: its calling directory
-resolves the member Project, and the resume verifies its worktree landing.
-Concord core neither chooses a terminal host nor opens a terminal session.
-
-Until the host launch layer is removed, the adapter's
-`concord_work_start` resume accepts the optional `project_id`.
-
-A selected Project whose canonical path is the calling Project's keeps the
-existing claim-and-move route. A selected Project whose canonical path
-differs never reaches the host move. With the opener registered, the adapter
-substitutes `{directory}`, `{title}`, and `{command}` and runs the opener
-without a shell, then reports the opener's exit status and argv and does not
-claim the new session is running. With no opener, it returns the exact
-launch command and directory for the operator. An invalid opener refuses
-with the invalid field named and still returns the command.
+`work_id` and the `project_id` of the target Project. The `project_id` is
+the refusal and placement identity for the target Project, not a resume
+input: the published resume is exactly the `work_id`. The refusal's typed
+`session_placement` detail names the registered canonical checkout
+directory, not the Git common directory. The host coordinator uses that
+detail to reuse a receiving session or open one through its host session
+tools. The receiving session resumes with the `work_id` alone: its calling
+directory resolves the member Project, and the resume verifies its worktree
+landing. Concord core neither chooses a terminal host nor opens a terminal
+session.
 
 ### D4. The installer keeps options, and the instructions name the route
 
 `plan_plugin_entry` and `remove_plugin_entry` recognize the tuple form of
 the Concord entry and keep its options, so an upgrade never adds a duplicate
 bare entry and an uninstall removes the tuple whole. The example coordinator
-definitions name the route of D3 and carry no claim-and-move text.
+definitions name host placement and then the `concord_work_start` resume
+with the `work_id`, and they carry no opener text and no claim-and-move
+text.
 
 ### D5. The Project-selected session carries a bounded addressed handoff
 
@@ -148,11 +137,11 @@ Managed-execution admission fails closed while an unconsumed or stale
 handoff stands, and a contract replacement refuses the stale bind equally
 for the consuming session and a later session of the Project.
 
-The session opener serves only an actual edit in the other repository,
-never a handoff-bind recovery. A placement or handoff-bind refusal in the
-receiving Project is not that evidence. While the current contract
-stands, a session records no fresh handoff and opens no new session to
-recover from such a refusal. The refusing session replays
+Opening a session in another Project serves only an actual edit in the
+other repository, never a handoff-bind recovery. A placement or
+handoff-bind refusal in the receiving Project is not that evidence. While
+the current contract stands, a session records no fresh handoff and opens
+no new session to recover from such a refusal. The refusing session replays
 `concord_work_start` in its own Project, and its verified landing records
 placement.
 
@@ -190,21 +179,18 @@ The receiving Project's resume names the bounded job without operator copying.
 
 ## Consequences
 
-Cross-repository work costs the operator one registration per host. Without
-it, a coordinator that reaches a second repository hands back one exact
-command, and the operator opens the session. With it, the opened session
-starts and resumes on its own, and the first session must stop driving the
-other repository.
+Cross-repository work needs no Concord registration: the host starts the
+receiving session, and CON-771's typed `session_placement` detail answers
+where it goes. Once the receiving session is placed, the first session must
+stop driving the other repository.
 
-The opener result is evidence of a run, not proof of a session: the answer
-reports an exit status and argv, and the opened session proves itself by
-resuming the work item. A non-member `project_id` wastes an opener run and
-fails at the landing read, so the membership record comes first.
+A placed receiving session proves itself by resuming the work item. A
+non-member Project wastes a host-started session and fails at the placement
+read, so the membership record comes first.
 
 Two Projects in one repository keep the within-repository move, and this
 record adds no second landing rule inside one repository. The adapter's
-built-in tab and pane renames stay as they are; moving them under a host
-registration is a named follow-up this record does not perform.
+terminal naming retired with the launch layer it served.
 
 Session-to-session messages stay in work-033a2fb710eef89eb4b94e69, and the
 tab-rename parse fault stays in work-ece2f503b41959e5a7bce78d. Neither moves
@@ -212,28 +198,25 @@ under this record.
 
 ## Verification
 
-- `go test ./internal/store/ -run
-  TestResolveSessionDirectoryForProjectSelectsAMemberProject` proves D2's
-  read: the member gate, the selected Project's candidates, and the
-  unchanged primary form.
-- `go test ./cmd/concord/ -run TestSessionProjectSelection` and
-  `go test ./cmd/concord/ -run TestZLProjectSelectorRefusals` prove D2's
-  command surface: the selector reaches the resolver, the fixed prompt names
-  the resume route, and the refusals are typed.
 - `go test ./internal/agent/ -run
   TestWorktreeClaimRefusesCrossRepositoryBeforeCreation` proves D3's remedy
-  text names `concord_work_start` with both identities.
-- `go test ./cmd/concord/ -run
-  TestSessionCommandPassesProjectSelectionThroughEnvironment` proves the
-  selector travels the session handoff.
-- `bun test adapter/opencode/` proves D3's adapter route: the opener
-  substitution, the exit-status report, the no-opener command, the invalid
-  opener refusal, and the same-repository route that keeps the move.
+  text names `concord_work_start` with both identities and carries the
+  typed placement answer.
+- `bun test adapter/opencode/concord.test.ts -t "a successful work start
+  forks no terminal command"` and `bun test
+  adapter/opencode/workflow-status.test.ts -t "the work state report forks
+  no terminal command"` prove no terminal fork along the work-start and
+  work-state report paths. `bun test adapter/opencode/concord.test.ts -t
+  "work start resume rejects a project_id selector before any effect"`
+  proves the closed resume refuses a `project_id` selector before any child
+  runs.
 - `python3 scripts/test-installer.py` proves D4: the tuple entry survives an
-  upgrade with its options and deregisters whole.
-- `python3 scripts/check-primary-prompts.py` and `go test ./cmd/concord/ -run
-  TestLauncherAndCommandCarryNoMultiplexerKnowledge` prove D1's boundary:
-  the instructions name the route, and the binaries stay multiplexer-free.
+  upgrade with its options and deregisters whole, with opener examples
+  replaced by a current neutral option.
+- `python3 scripts/check-primary-prompts.py` proves the instructions name
+  the route, and `go test ./cmd/concord/ -run
+  TestLauncherAndCommandCarryNoMultiplexerKnowledge` proves the binaries
+  stay multiplexer-free.
 - `go test ./internal/store/ -run
   TestManagedExecutionGateAdmitsEveryPlacedSessionOfTheReceivingProject`
   proves D5's widened bind: a second landed session of the receiving

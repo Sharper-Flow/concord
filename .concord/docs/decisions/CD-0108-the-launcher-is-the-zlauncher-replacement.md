@@ -1,89 +1,81 @@
-# CD-0108: the launcher is the ZLauncher replacement
+# CD-0108: The ZLauncher replacement retired with the session entry route
 
-- **Status:** Accepted (amended 2026-09-26, 2026-10-09)
+- **Status:** Accepted (amended 2026-09-26, 2026-10-09, 2026-10-13)
 - **Date:** 2026-09-03
-- **Scope:** the ZLauncher replacement, its session entry route, and the
-  store-write-free boundary
+- **Scope:** the retirement of the ZLauncher replacement, the session entry
+  route it named, and the boundaries that outlive both
 - **Approval:** The operator approved the remake scope on 2026-09-03 after
   shaping in Concord work-4e5261bca6acdd5298f5b4a3. The operator approved the
   single-surface amendment on 2026-09-26 and the retirement amendment on
-  2026-10-09 through the Snowball coordinator (operator-delegated).
-- **Related:** CD-0014, CD-0041, CD-0048, CD-0219, R1, C14, C17, and issue #803
-- **Amended by:** CD-0219 (2026-10-09) retires the interactive launcher TUI;
-  the replacement role continues through the non-interactive session entry
-  route and the store-write-free boundary of D4 stands
-- **Preserves:** the store-write-free launcher boundary, `zl` command
-  forwarding, `--resume-last`, prompt pass-through, and the session bootstrap
-  launch path
+  2026-10-09 through the Snowball coordinator (operator-delegated). The
+  coordinator approved the entry-route retirement on 2026-10-13 through the
+  Snowball coordinator (operator-delegated).
+- **Related:** CD-0014, CD-0041, CD-0048, CD-0078, CD-0219, R1, C14, C17, and issue #803
+- **Amended by:** CD-0219 (2026-10-09) retires the interactive launcher TUI.
+  Concord (CON) issue CON-910 (2026-10-13) removes the non-interactive session entry route this
+  record governed; the host owns operator session start and resume (CD-0078).
+- **Preserves:** the host's ownership of session start and resume, the typed
+  mutation surface as the only work write path, and the no-durable-write
+  boundary of managed entry
 
 ## Context
 
-The operator's daily entry tool was ZLauncher (`zellij-project-launcher`), a
-bash zellij tab picker whose loop scanned roots and pinned workspaces, picked a
-work, opened a tab, and started or resumed an OpenCode session with an optional
-prompt. R1 in [`clarifications.md`](../clarifications.md) originally kept
-ZLauncher as the session bootstrap layer; CD-0108 superseded that split by
-absorbing the bootstrap role into Concord.
+The operator's daily entry tool was ZLauncher, a bash multiplexer tab picker
+whose loop scanned roots and pinned workspaces, picked a work, opened a tab,
+and started or resumed an OpenCode session with an optional prompt. R1 in
+[`clarifications.md`](../clarifications.md) originally kept ZLauncher as the session
+bootstrap layer; CD-0108 superseded that split by absorbing the bootstrap
+role into Concord.
 
-The remake shipped as an interactive terminal launcher. The simplify lane
-(Concord (CON) issue 908) deletes that interactive surface end to end: the
-browse UI, the
-`concord launcher` verb, the bare-invocation TUI route, and the
-internal/launcher tree. CD-0219 records the retirement. What remains — and
-what this record now governs — is the non-interactive session entry route the
-remake already carried: the operator names the work, Concord starts or resumes
-the session through its session bootstrap.
+The remake shipped as an interactive terminal launcher, and CD-0219 deleted
+that surface end to end. What remained was the non-interactive session entry
+route: the operator named the work, and Concord started or resumed the
+session through its session bootstrap. That entry route is now removed as
+well. The host starts and resumes operator sessions, and a host-started
+session enters managed work through `concord_work_start`. What remains of
+this record is the retirement of the replacement role and the boundaries that
+outlive it.
 
 ## Decision
 
-### D1. The ZLauncher replacement is the session entry route
+### D1. Retired: the session entry route
 
-The replacement for ZLauncher's core loop is the non-interactive entry route:
-`concord zl <work>` — and the `zl` argv[0] forwarding — resolves the named
-work, starts the OpenCode session for it through Concord's session bootstrap,
-and passes any queued prompt as that work's directive. `--resume-last` resumes
-the most recently entered work. `--project` selects a member Project for the
-landing under CD-0182.
+The session entry route — `concord zl`, the argv[0] forwarding,
+`--resume-last`, and `--project` — is removed end to end, with no
+compatibility alias and no fallback. The host starts and resumes operator
+sessions (CD-0078). A host-started session enters managed work through
+`concord_work_start` (CD-0098).
 
-The entry verbs remain until the terminal-layer cutover. Removing the TUI
-does not establish acceptance of a replacement terminal layer.
+### D2. Concord places nothing and derives no workflow position at entry
 
-### D2. The entry route places nothing and derives nothing
+No Concord component creates, names, splits, focuses, or destroys a tab,
+pane, window, or session (CD-0078 D1, CD-0163). Entry into managed work
+derives workflow position from the store's canonical projection (CD-0016),
+never from a terminal surface or a terminal session identifier.
 
-The entry route hands session identity to the session bootstrap and derives no
-workflow position. The operator provides the terminal; the route creates no
-tab, pane, window, or surface, exactly as CD-0078 D1 and CD-0163 state. The
-interactive rendering clauses this record once carried — single-surface lists,
-pane layout, and the key-driven browse loop — retired with the TUI under
-CD-0219.
+### D3. Retired: the entry-verb feature set
 
-### D3. The feature set is the entry verbs
+The accepted feature set this record once fixed — `zl` forwarding with prompt
+pass-through, `--resume-last`, and `--project` — is removed. No replacement
+feature set exists. Removed verb names appear only in negative CLI
+assertions, never in published help or runtime dispatch.
 
-The accepted entry verbs are `zl <work>` forwarding with prompt
-pass-through, `--resume-last`, and `--project` (CD-0182). The interactive
-feature set this record once fixed for the TUI — scan roots, pins, fuzzy
-filter, two-stage pick, the browse feature list, and the `--list` JSON verb —
-retired with the TUI under CD-0219.
+### D4. Managed entry writes only through the typed mutation surface
 
-### D4. The entry route stays store-write-free
-
-The entry route reads the store and starts the session command. It performs no
-durable store write. Work capture reached through a passed prompt happens
-inside the session through the typed mutation surface.
-
-C18's read-only construction survives this record. Its status-only scope
-does not.
+No entry surface performs a durable store write. Work capture reached through
+a host-started session happens inside the session through the typed mutation
+surface. C18's read-only construction survives this record in that form; its
+entry-route scope does not.
 
 ## Consequences
 
-- `clarifications.md` R1 records the supersession: the Concord entry route
-  replaces ZLauncher and absorbs the bootstrap role.
+- `clarifications.md` R1 records the supersession and then the retirement:
+  the Concord entry route replaced ZLauncher and absorbed the bootstrap role,
+  and the entry route retired in favor of the host start.
 - `vertical-integration.md` cites this record for the interface direction.
-- The C18 contract and the successor launcher contract retired with the TUI
-  under CD-0219; this record and CD-0163 carry their surviving statements.
-- Operator acceptance of the deleted TUI has no subject. The surviving
-  entry-route tests prove forwarding and bootstrap behavior, not acceptance
-  of a replacement terminal layer.
+- Operator acceptance of the deleted TUI and the removed entry route has no
+  subject. No acceptance gate transfers to the host start or to managed
+  entry.
 - Documents that restate the R1 split (`design-constraints.md` §6,
   `workflows.md` §0, `feature-inventory.md` §3.10,
   `self-documentation.md` §1.1) align to this record during the build.
@@ -93,8 +85,13 @@ does not.
 **Iterate on the shipped interactive launcher.** Rejected: the operator judged
 the gap too wide, and issue 908 deleted the surface rather than iterating.
 
+**Keep a Concord entry route beside the host start.** Rejected: session start
+and resume belong to the host (CD-0078), and a second launch entry keeps that
+responsibility in two owners.
+
 **Port ZLauncher as it stands.** Rejected: predecessor law forbids routing
-Concord work through predecessor paths. The replacement maps features, not code.
+Concord work through predecessor paths. The replacement mapped features, not
+code.
 
 **A launch registry in the entry route.** Rejected: it duplicates store-owned
 state and would drift.
@@ -106,6 +103,7 @@ write authority beside the typed mutation surface.
 
 - The manifest registers this record as an accepted decision.
 - `clarifications.md` R1 and `vertical-integration.md` cite this record.
-- The entry verbs are proved by the `cmd/concord` zl and session tests that
-  CD-0163, CD-0176, and CD-0031 name.
+- `go test ./cmd/concord/ -run
+  'TestRemovedLaunchEntriesRefuseWithoutExecuting|TestRemovedLaunchArgvZeroDoesNotForward'`
+  proves the removed entry verbs reach no launch and start no process.
 - Repository document, knowledge-index, and link validators pass.

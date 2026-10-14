@@ -62,12 +62,12 @@ func attributionWorkerReportObservation() *store.WorkerFailureObservation {
 
 // attributionSignedV2Assertion returns the worker-fail request's assertion
 // signed over the v2 canonical bytes with the given observation digest.
-func attributionSignedV2Assertion(t *testing.T, key ed25519.PrivateKey, workID, attemptID string, lane store.LaneDefinition, readback, failureKind, nonce, observationDigest string, mutate func(*agent.WorkerEvidenceAssertion)) map[string]any {
+func attributionSignedV2Assertion(t *testing.T, key ed25519.PrivateKey, attemptID string, lane store.LaneDefinition, readback, nonce, observationDigest string, mutate func(*agent.WorkerEvidenceAssertion)) map[string]any {
 	t.Helper()
 	assertion := agent.WorkerEvidenceAssertion{
-		Verb: agent.WorkerEvidenceVerbFail, WorkID: workID, AttemptID: attemptID,
+		Verb: agent.WorkerEvidenceVerbFail, WorkID: "work-1", AttemptID: attemptID,
 		LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest,
-		ReadbackModel: readback, FailureKind: failureKind,
+		ReadbackModel: readback, FailureKind: store.WorkerFailureWorkerError,
 		Version:           agent.WorkerEvidenceAssertionVersion2,
 		ObservationDigest: observationDigest,
 		Nonce:             nonce,
@@ -173,7 +173,7 @@ func TestWorkerFailAttributionV2AuthenticatesTheProducerObservation(t *testing.T
 		"event_id": "failed-con787-cli-witness", "work_id": workID, "attempt_id": attemptID,
 		"readback_model": readback, "failure_kind": store.WorkerFailureWorkerError,
 		"detail":              "the attempt failed during host execution",
-		"assertion":           attributionSignedV2Assertion(t, key, workID, attemptID, lane, readback, store.WorkerFailureWorkerError, nonce, digest, nil),
+		"assertion":           attributionSignedV2Assertion(t, key, attemptID, lane, readback, nonce, digest, nil),
 		"failure_attribution": observation,
 	}
 
@@ -263,7 +263,7 @@ func TestWorkerFailAttributionV2AuthenticatesTheProducerObservation(t *testing.T
 					ReadbackModel: readback, FailureKind: store.WorkerFailureWorkerError, Nonce: testCase.nonce,
 				})
 			} else {
-				refused["assertion"] = attributionSignedV2Assertion(t, key, workID, attemptID, lane, readback, store.WorkerFailureWorkerError, testCase.nonce, caseDigest, testCase.mutate)
+				refused["assertion"] = attributionSignedV2Assertion(t, key, attemptID, lane, readback, testCase.nonce, caseDigest, testCase.mutate)
 			}
 			code, errOut := runAttributionCLI(t, "worker-fail", mustJSON(t, refused))
 			if code == 0 || !strings.Contains(errOut, testCase.wantSub) {
@@ -364,7 +364,7 @@ func TestWorkerFailAttributionHostAndWorkerReportKeepTypedBoundaries(t *testing.
 			"event_id": "failed-con787-typed-" + route.attemptID, "work_id": "work-1", "attempt_id": route.attemptID,
 			"readback_model": readback, "failure_kind": store.WorkerFailureWorkerError,
 			"detail":              "the same worker_error terminal on both routes",
-			"assertion":           attributionSignedV2Assertion(t, key, "work-1", route.attemptID, lane, readback, store.WorkerFailureWorkerError, "nonce-con787-typed-"+route.attemptID, digest, nil),
+			"assertion":           attributionSignedV2Assertion(t, key, route.attemptID, lane, readback, "nonce-con787-typed-"+route.attemptID, digest, nil),
 			"failure_attribution": route.observation,
 		}
 		if code, errOut := runAttributionCLI(t, "worker-fail", mustJSON(t, request)); code != 0 {
@@ -509,7 +509,7 @@ func TestWorkerDispatchBornFailedAttributionReadback(t *testing.T) {
 		"event_id": "failed-con787-after-born", "work_id": workID, "attempt_id": attemptID,
 		"readback_model": readback, "failure_kind": store.WorkerFailureWorkerError,
 		"detail":    "a late failure report for a born-failed attempt",
-		"assertion": attributionSignedV2Assertion(t, key, workID, attemptID, lane, readback, store.WorkerFailureWorkerError, "nonce-con787-after-born1", digest, nil),
+		"assertion": attributionSignedV2Assertion(t, key, attemptID, lane, readback, "nonce-con787-after-born1", digest, nil),
 	}
 	if code, errOut := runAttributionCLI(t, "worker-fail", mustJSON(t, followUp)); code == 0 || !strings.Contains(errOut, "terminal outcome") {
 		t.Fatalf("late worker-fail exit=%d stderr=%q, want the terminal-outcome refusal", code, errOut)

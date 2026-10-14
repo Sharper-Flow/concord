@@ -697,7 +697,7 @@ routeDeclaration("G01 composes concurrent coordinators with fresh production ind
         const { readiness_evidence_refs: _, ...preparationControl } = control
         const prepared = await verify(b, `${evaluationKey}-prepare`, { oracle: { phase: "prepare", expected_contract_version: 1, control_bundle: { owner: oracle.owners[0], cases: oracle.cases, control: preparationControl } } })
         const freshOracle = { ...oracle, controls: [{ ...control, readiness_evidence_refs: [prepared.oracle.run_ref] }] }
-        await action(b, "record_worker_job", `${evaluationKey}-job`, { job_id: evaluationKey, predicate_ids: freshOracle.owners[0].predicate_ids, objective: `Independently ${laneID} the corrected commit.`, stopping_condition: "The pinned subject has an independent report.", path_scope: [".concord/docs/dispatch-marker.txt"], checks: ["go test ./oraclekit"], ready: true, readiness_evidence: [prepared.oracle.run_ref], acceptance_oracle: freshOracle })
+        await action(b, "record_worker_job", `${evaluationKey}-job`, { job_id: evaluationKey, predicate_ids: oracle.owners[0].predicate_ids, objective: `Independently ${laneID} the corrected commit.`, stopping_condition: "The pinned subject has an independent report.", path_scope: [".concord/docs/dispatch-marker.txt"], checks: ["go test ./oraclekit"], ready: true, readiness_evidence: [prepared.oracle.run_ref], acceptance_oracle: freshOracle })
         const evaluator = await dispatch(b, laneID, evaluationKey)
         expect(evaluator.workerSessionID).not.toBe(producer.workerSessionID)
         expect(evaluator.packet.inputs.outcome_predicates).toEqual([predicate])

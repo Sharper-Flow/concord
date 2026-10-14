@@ -53,6 +53,10 @@ Commands read one strict JSON object from stdin:
   concord client-revoke < JSON stdin
   concord client revoke < JSON stdin
     required: client_ref
+  concord client-show < JSON stdin
+  concord client show < JSON stdin
+    required: client_ref
+    accepted values: read-only; returns registered policy, not session authorization; no key material
   concord product-create < JSON stdin
   concord product create < JSON stdin
     required: product_id, display_name, stage_maturity, stage_audience_commitment, project_id, project_display_name, role

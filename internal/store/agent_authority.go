@@ -2,6 +2,8 @@ package store
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 )
 
 // TrustedClientRecord is the durable trusted-client projection used by the
@@ -208,6 +210,15 @@ func revokeTrustedClientTx(ctx context.Context, transaction *Transaction, client
 	return nil
 }
 
+// TrustedClient returns registered policy independently of key availability.
+func (s *Store) TrustedClient(ctx context.Context, clientRef string) (TrustedClientRecord, error) {
+	if s == nil || s.db == nil {
+		return TrustedClientRecord{}, newFailure(KindUnavailable, "agent_client_read", "database is not open", true, "open the authority database")
+	}
+	client, _, err := readTrustedClient(ctx, s.db, clientRef)
+	return client, err
+}
+
 func (s *Store) TrustedClientWithKey(ctx context.Context, clientRef string) (TrustedClientRecord, TrustedClientKeyRecord, error) {
 	if s == nil || s.db == nil {
 		return TrustedClientRecord{}, TrustedClientKeyRecord{}, newFailure(KindUnavailable, "agent_client_read", "database is not open", true, "open the authority database")
@@ -224,13 +235,30 @@ func TrustedClientWithKeyTx(ctx context.Context, transaction *Transaction, clien
 }
 
 func trustedClientWithKey(ctx context.Context, q queryer, clientRef string) (TrustedClientRecord, TrustedClientKeyRecord, error) {
-	var client TrustedClientRecord
-	var key TrustedClientKeyRecord
-	if err := q.QueryRowContext(ctx, `SELECT c.client_ref,c.status,c.principal_ref,c.capabilities_json,c.product_scope_json,c.project_scope_json,c.agent_scope_json,c.policy_revision,k.key_id,k.public_key,k.status FROM agent_clients c JOIN agent_client_keys k ON k.client_ref=c.client_ref AND k.status='active' WHERE c.client_ref=?`, clientRef).Scan(&client.ClientRef, &client.Status, &client.PrincipalRef, &client.CapabilitiesJSON, &client.ProductScopeJSON, &client.ProjectScopeJSON, &client.AgentScopeJSON, &client.PolicyRevision, &key.KeyID, &key.PublicKey, &key.Status); err != nil {
-		return client, key, wrapFailure(KindProjectionNotFound, "agent_client_read", "unknown or keyless client", false, "register an active trusted client", err)
+	client, key, err := readTrustedClient(ctx, q, clientRef)
+	if err != nil {
+		return TrustedClientRecord{}, TrustedClientKeyRecord{}, err
 	}
-	key.ClientRef = clientRef
-	return client, key, nil
+	if client.Status != "active" || key == nil {
+		return TrustedClientRecord{}, TrustedClientKeyRecord{}, wrapFailure(KindProjectionNotFound, "agent_client_read", "unknown or keyless client", false, "register an active trusted client", sql.ErrNoRows)
+	}
+	return client, *key, nil
+}
+
+func readTrustedClient(ctx context.Context, q queryer, clientRef string) (TrustedClientRecord, *TrustedClientKeyRecord, error) {
+	var client TrustedClientRecord
+	var keyID, keyStatus sql.NullString
+	var publicKey []byte
+	if err := q.QueryRowContext(ctx, `SELECT c.client_ref,c.status,c.principal_ref,c.capabilities_json,c.product_scope_json,c.project_scope_json,c.agent_scope_json,c.policy_revision,k.key_id,k.public_key,k.status FROM agent_clients c LEFT JOIN agent_client_keys k ON k.client_ref=c.client_ref AND k.status='active' WHERE c.client_ref=?`, clientRef).Scan(&client.ClientRef, &client.Status, &client.PrincipalRef, &client.CapabilitiesJSON, &client.ProductScopeJSON, &client.ProjectScopeJSON, &client.AgentScopeJSON, &client.PolicyRevision, &keyID, &publicKey, &keyStatus); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return TrustedClientRecord{}, nil, wrapFailure(KindProjectionNotFound, "agent_client_read", "unknown or keyless client", false, "register an active trusted client", err)
+		}
+		return TrustedClientRecord{}, nil, wrapFailure(KindUnavailable, "agent_client_read", "cannot read trusted client", true, "retry the trusted client read", err)
+	}
+	if !keyID.Valid {
+		return client, nil, nil
+	}
+	return client, &TrustedClientKeyRecord{ClientRef: clientRef, KeyID: keyID.String, PublicKey: publicKey, Status: keyStatus.String}, nil
 }
 
 func ReadApprovalChallengeTx(ctx context.Context, transaction *Transaction, ref string, identity ChallengeIdentity) (ApprovalChallengeRecord, error) {

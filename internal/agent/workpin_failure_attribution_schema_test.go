@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/sharper-flow/concord/internal/payloadschema"
@@ -191,26 +192,26 @@ func TestWorkerFailureAttributionSchemaValidatesRecords(t *testing.T) {
 	read := failureAttributionDef(t, defs, "worker_failure_attribution_read")
 	valid := map[string]bool{
 		// A recorded attempt block with the job branch.
-		`{"origin":"recorded","observation":{"observer":"host_adapter","phase":"host_execution","cause":"unknown","basis":"unknown","sources":[{"kind":"host_event","locator":"evt-1","digest":"sha256:` + zeroes(64) + `"}]},"identity":{"kind":"attempt","attempt":{"attempt_id":"attempt:w1","lane_id":"implement","epoch":1,"packet_digest":"sha256:` + zeroes(64) + `","job":{"job_id":"job:w1","revision":1,"digest":"sha256:` + zeroes(64) + `"}}}}`: true,
+		`{"origin":"recorded","observation":{"observer":"host_adapter","phase":"host_execution","cause":"unknown","basis":"unknown","sources":[{"kind":"host_event","locator":"evt-1","digest":"sha256:` + zeroes + `"}]},"identity":{"kind":"attempt","attempt":{"attempt_id":"attempt:w1","lane_id":"implement","epoch":1,"packet_digest":"sha256:` + zeroes + `","job":{"job_id":"job:w1","revision":1,"digest":"sha256:` + zeroes + `"}}}}`: true,
 		// The explicit no_job branch.
-		`{"origin":"recorded","observation":{"observer":"worker_report","phase":"worker_execution","cause":"unknown","basis":"unknown","sources":[{"kind":"admitted_report","locator":"report-1"}]},"identity":{"kind":"attempt","attempt":{"attempt_id":"attempt:w2","lane_id":"research","epoch":2,"packet_digest":"sha256:` + zeroes(64) + `","no_job":true}}}`: true,
+		`{"origin":"recorded","observation":{"observer":"worker_report","phase":"worker_execution","cause":"unknown","basis":"unknown","sources":[{"kind":"admitted_report","locator":"report-1"}]},"identity":{"kind":"attempt","attempt":{"attempt_id":"attempt:w2","lane_id":"research","epoch":2,"packet_digest":"sha256:` + zeroes + `","no_job":true}}}`: true,
 		// A subject reference and an integration population.
-		`{"origin":"recorded","observation":{"observer":"coordinator","phase":"integration","cause":"implementation","basis":"supported","sources":[{"kind":"native_run","locator":"lease-1"}],"diagnosis":"d"},"identity":{"kind":"integration","integration":{"native_run":{"kind":"native_run","locator":"lease-1","digest":"sha256:` + zeroes(64) + `"},"input_results":[{"job":{"job_id":"job:w3","revision":1,"digest":"sha256:` + zeroes(64) + `"},"result_ref":"result:1"}]}}}`: true,
-		`{"origin":"recorded","observation":{"observer":"coordinator","phase":"integration","cause":"unknown","basis":"unknown","sources":[{"kind":"native_run","locator":"lease-2"}]},"identity":{"kind":"integration","integration":{"native_run":{"kind":"native_run","locator":"lease-2"},"inputs_unavailable":true}}}`:                                                                                                                                                             true,
+		`{"origin":"recorded","observation":{"observer":"coordinator","phase":"integration","cause":"implementation","basis":"supported","sources":[{"kind":"native_run","locator":"lease-1"}],"diagnosis":"d"},"identity":{"kind":"integration","integration":{"native_run":{"kind":"native_run","locator":"lease-1","digest":"sha256:` + zeroes + `"},"input_results":[{"job":{"job_id":"job:w3","revision":1,"digest":"sha256:` + zeroes + `"},"result_ref":"result:1"}]}}}`: true,
+		`{"origin":"recorded","observation":{"observer":"coordinator","phase":"integration","cause":"unknown","basis":"unknown","sources":[{"kind":"native_run","locator":"lease-2"}]},"identity":{"kind":"integration","integration":{"native_run":{"kind":"native_run","locator":"lease-2"},"inputs_unavailable":true}}}`:                                                                                                                                                     true,
 		// The bare legacy marker.
 		`{"origin":"legacy_unavailable"}`: true,
 	}
 	invalid := map[string]string{
 		// Job and no_job are mutually exclusive.
-		`{"origin":"recorded","observation":{"observer":"host_adapter","phase":"host_execution","cause":"unknown","basis":"unknown","sources":[{"kind":"host_event","locator":"e"}]},"identity":{"kind":"attempt","attempt":{"attempt_id":"a","lane_id":"implement","epoch":1,"packet_digest":"sha256:` + zeroes(64) + `","job":{"job_id":"job:x","revision":1,"digest":"sha256:` + zeroes(64) + `"},"no_job":true}}}`: "job and no_job together",
+		`{"origin":"recorded","observation":{"observer":"host_adapter","phase":"host_execution","cause":"unknown","basis":"unknown","sources":[{"kind":"host_event","locator":"e"}]},"identity":{"kind":"attempt","attempt":{"attempt_id":"a","lane_id":"implement","epoch":1,"packet_digest":"sha256:` + zeroes + `","job":{"job_id":"job:x","revision":1,"digest":"sha256:` + zeroes + `"},"no_job":true}}}`: "job and no_job together",
 		// Neither job nor no_job.
-		`{"origin":"recorded","observation":{"observer":"host_adapter","phase":"host_execution","cause":"unknown","basis":"unknown","sources":[{"kind":"host_event","locator":"e"}]},"identity":{"kind":"attempt","attempt":{"attempt_id":"a","lane_id":"implement","epoch":1,"packet_digest":"sha256:` + zeroes(64) + `"}}}`: "no job and no no_job",
+		`{"origin":"recorded","observation":{"observer":"host_adapter","phase":"host_execution","cause":"unknown","basis":"unknown","sources":[{"kind":"host_event","locator":"e"}]},"identity":{"kind":"attempt","attempt":{"attempt_id":"a","lane_id":"implement","epoch":1,"packet_digest":"sha256:` + zeroes + `"}}}`: "no job and no no_job",
 		// A recorded block without identity.
 		`{"origin":"recorded","observation":{"observer":"host_adapter","phase":"host_execution","cause":"unknown","basis":"unknown","sources":[{"kind":"host_event","locator":"e"}]}}`: "recorded without identity",
 		// The legacy marker with content.
 		`{"origin":"legacy_unavailable","observation":{"observer":"host_adapter","phase":"host_execution","cause":"unknown","basis":"unknown","sources":[{"kind":"host_event","locator":"e"}]}}`: "legacy with observation",
 		// Both input population members.
-		`{"origin":"recorded","observation":{"observer":"coordinator","phase":"integration","cause":"unknown","basis":"unknown","sources":[{"kind":"native_run","locator":"l"}]},"identity":{"kind":"integration","integration":{"native_run":{"kind":"native_run","locator":"l"},"input_results":[{"job":{"job_id":"job:y","revision":1,"digest":"sha256:` + zeroes(64) + `"},"result_ref":"r"}],"inputs_unavailable":true}}}`: "input_results and inputs_unavailable together",
+		`{"origin":"recorded","observation":{"observer":"coordinator","phase":"integration","cause":"unknown","basis":"unknown","sources":[{"kind":"native_run","locator":"l"}]},"identity":{"kind":"integration","integration":{"native_run":{"kind":"native_run","locator":"l"},"input_results":[{"job":{"job_id":"job:y","revision":1,"digest":"sha256:` + zeroes + `"},"result_ref":"r"}],"inputs_unavailable":true}}}`: "input_results and inputs_unavailable together",
 		// An integration native run of the wrong subject kind.
 		`{"origin":"recorded","observation":{"observer":"coordinator","phase":"integration","cause":"unknown","basis":"unknown","sources":[{"kind":"native_run","locator":"l"}]},"identity":{"kind":"integration","integration":{"native_run":{"kind":"observed_delivery_event","locator":"l"},"inputs_unavailable":true}}}`: "non-native integration subject",
 	}
@@ -219,7 +220,7 @@ func TestWorkerFailureAttributionSchemaValidatesRecords(t *testing.T) {
 	readValid := map[string]bool{
 		`{"event_id":"failed-1","source_version":4,"attribution":{"origin":"legacy_unavailable"}}`: true,
 		`{"event_id":"failed-2","source_version":1,"attribution":null}`:                            true,
-		`{"event_id":"born-1","source_version":6,"attribution":{"origin":"recorded","observation":{"observer":"host_adapter","phase":"dispatch","cause":"unknown","basis":"unknown","sources":[{"kind":"host_event","locator":"e"}]},"identity":{"kind":"attempt","attempt":{"attempt_id":"a","lane_id":"review","epoch":3,"packet_digest":"sha256:` + zeroes(64) + `","no_job":true}}}}`: true,
+		`{"event_id":"born-1","source_version":6,"attribution":{"origin":"recorded","observation":{"observer":"host_adapter","phase":"dispatch","cause":"unknown","basis":"unknown","sources":[{"kind":"host_event","locator":"e"}]},"identity":{"kind":"attempt","attempt":{"attempt_id":"a","lane_id":"review","epoch":3,"packet_digest":"sha256:` + zeroes + `","no_job":true}}}}`: true,
 	}
 	readInvalid := map[string]string{
 		`{"event_id":"failed-3","source_version":4}`:                                                            "attribution member absent",
@@ -254,10 +255,6 @@ func attributionDecode(t *testing.T, raw string) any {
 	return decoded
 }
 
-func zeroes(count int) string {
-	out := make([]byte, count)
-	for index := range out {
-		out[index] = '0'
-	}
-	return string(out)
-}
+// zeroes is the 64-zero hex body the schema fixtures concatenate after the
+// "sha256:" prefix for well-formed digests.
+var zeroes = strings.Repeat("0", 64)

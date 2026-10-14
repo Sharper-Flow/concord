@@ -4,7 +4,7 @@ import fs from "node:fs"
 import * as os from "node:os"
 import path from "node:path"
 import { agentLanes, workerScopeAssignedResult } from "./generated-agent-lanes"
-import { boundedTextPrefix, completeWorkerAttempt, computeHostPromptProvenance, concordBinaryPath, configureCoreBinary, defaultRunner, dispatchWorker, HostProvenanceError, MAX_HOST_PROVENANCE_SOURCES, MAX_READBACK_MESSAGE_PAGES, READBACK_MESSAGE_PAGE, readExportOpeningPacket, readExportSession, readExportSessionMetadata, readRunSessionMetadata, readWorkerSessionBody, resolveCoreBinary, validateAgentLanePacket, type AgentLanePacket, type CanonicalLaneReport, type DispatchAuthorizer, type DispatchRunner } from "./dispatch"
+import { boundedTextPrefix, completeWorkerAttempt, computeHostPromptProvenance, concordBinaryPath, configureCoreBinary, defaultRunner, dispatchWorker, HostProvenanceError, MAX_HOST_PROVENANCE_SOURCES, MAX_READBACK_MESSAGE_PAGES, READBACK_MESSAGE_PAGE, readExportOpeningPacket, readExportSession, readExportSessionMetadata, readRunSessionMetadata, readWorkerSessionBody, resolveCoreBinary, validateAgentLanePacket, type AgentLanePacket, type CanonicalLaneReport, type DispatchAuthorizer, type DispatchRunner, type WorkerFailureObservation } from "./dispatch"
 // The published scenario contract pins the provenance source bound the
 // adapter refuses past. The schema is read at runtime, so the staged host
 // typecheck needs no repository files beside the adapter sources.
@@ -1279,7 +1279,7 @@ test("attribution-born-failed-readback: the born-failed dispatch carries the rea
   })
   expect(result.outcome).toBe("error")
   const request = JSON.parse(calls[0].input)
-  const observed = request.failure_attribution as Record<string, any>
+  const observed = request.failure_attribution as WorkerFailureObservation
   expect(observed.observer).toBe("host_adapter")
   expect(observed.phase).toBe("readback")
   expect(observed.cause).toBe("report_contract")
@@ -2577,7 +2577,7 @@ test("attribution-report-validation: a schema-refused report records the validat
   const evidence = [...reportEvidence(), { obligation: "vibes", detail: "felt right" }]
   const carried = report({ evidence })
   const { payloads } = await terminalEvidence(carried)
-  const observed = payloads[1].failure_attribution as Record<string, any>
+  const observed = payloads[1].failure_attribution as WorkerFailureObservation
   expect(observed.phase).toBe("report_validation")
   expect(observed.cause).toBe("report_contract")
   expect(observed.basis).toBe("hypothesis")
@@ -2603,7 +2603,7 @@ test("attribution-worker-report: an admitted failed report rides as worker_repor
   const carried = report({ status: "failed" })
   const { payloads } = await terminalEvidence(carried)
   expect(payloads[1].failure_kind).toBe("worker_error")
-  const observed = payloads[1].failure_attribution as Record<string, any>
+  const observed = payloads[1].failure_attribution as WorkerFailureObservation
   expect(observed.observer).toBe("worker_report")
   expect(observed.phase).toBe("worker_execution")
   expect(observed.cause).toBe("unknown")

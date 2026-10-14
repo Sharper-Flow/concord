@@ -9,7 +9,7 @@ import (
 )
 
 // Full coordinator-boundary acceptance witnesses for the correction actions'
-// failure attribution (CON-787 A14). The wiring witnesses beside this file
+// failure attribution. The wiring witnesses beside this file
 // derive the block and append the completion raw; these witnesses drive the
 // actual admission route — WorkflowActionPreflight,
 // AuthorizeWorkflowActionAtBoundaryTx, and ApplyWorkflowActionTx — for

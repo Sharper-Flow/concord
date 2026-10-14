@@ -1804,7 +1804,7 @@ export function exactObservationMessage(value: string): string | undefined {
 // so only the digest is bound, never an echoed observation.
 async function signWorkerEvidence(credentials: CredentialStore, fields: Record<string, unknown>): Promise<Record<string, unknown>> {
   const privateKey = privateKeyObject(await credentials.getPrivateKey(clientRef()))
-  const { observation, ...identity } = fields as { observation?: WorkerFailureObservation }
+  const { observation, ...identity } = fields as { observation?: WorkerFailureObservation } & Record<string, unknown>
   const assertion: Record<string, unknown> = { ...identity, client_ref: clientRef(), issued_at: new Date().toISOString(), nonce: identity.nonce ?? randomNonce() }
   if (observation) {
     assertion.version = 2

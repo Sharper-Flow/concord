@@ -77,6 +77,21 @@ resolve against the Product registry and the approved contract's affected
 scope. Recorded packets and reading sets stay readable under their recorded
 formats as history. Worker tool access remains unchanged.
 
+Amended 2026-10-13 for core-owned declared-context checks
+([Linear](https://linear.app/sharper-flow/issue/CON-887/one-shared-typed-work-context-packet-per-work-item-read-and-extended)):
+the core admission checks the declared context before any dispatch effect.
+It observes the claimed worktree's clean `HEAD` against the admitted
+`subject_commit` before the action transaction opens. The review lane's
+`HEAD` and tree check against the packet subject stays the backstop for
+drift after authorization. Every declared required reading resolves before
+the lane spawns. Repository sources resolve at their pinned commits in their own
+Project repositories. Law readings resolve through their registered source's
+exact projected revision and canonical locator. No resolution falls back to
+changed checkout bytes, rescans Git history, or repins a moved revision. The
+packet's present `inputs.work_context`, `inputs.checkpoint`, and
+`inputs.correction` members answer to the shared dispatch context bound
+(CD-0016); an over-bound packet refuses whole and never truncates.
+
 On an oracle-bound dispatch, `inputs.worker_job.acceptance_oracle` is the
 one immutable oracle copy for every admitted lane. The shared work-context
 reader projects canonical ranked findings and prior receipt references;

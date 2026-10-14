@@ -142,18 +142,30 @@ grants no semantic acceptance, no integration proof, no delivery assertion,
 and no review qualification by itself. A failed attempt records no delivery
 observation, probes no Git, and retains its consumed frontier.
 
-A review dispatch joins the newest accepted implementation delivery on the
-review's own claimed worktree. The join runs through acceptance, the exact
-completed attempt, and the dispatch identity. The joined delivery's clean
-observation must equal the shared qualified subject the packet carries. An
-accepted delivery recorded under an earlier contract version of the same
+A review dispatch retains the newest accepted implementation delivery on its
+claimed worktree as the delivery anchor. The join runs through acceptance,
+the exact completed attempt, and the dispatch identity. The anchor must carry
+a clean core observation. The review subject is the shared qualified subject
+the packet carries, and it must equal the live clean `HEAD`.
+
+A review subject equal to the anchor's observed commit admits. Otherwise it
+admits only when the core observed strict descent from that commit and no
+editing dispatch on this work item is newer than the anchor's dispatch.
+An editing dispatch names any lane with `edit_scoped_files`, whatever the
+attempt's state: in flight, failed, rejected, completed but unaccepted, or
+abandoned. The core observes descent through the existing pre-transaction
+freshness preparation, outside any SQL transaction. The transaction
+revalidates the sealed result and claim identity through SQL only.
+The anchor never replaces the review subject. These controls do not establish
+per-worker attribution of the anchor-to-subject delta (CD-0220 D5).
+
+An accepted delivery recorded under an earlier contract version of the same
 work item may host the review under the active contract. The judging
 contract is the packet's own binding, which the admission admits only at the
 active contract; the accepted delivery's own contract version stays readable
-through the existing records. Newer rejected, failed, or unaccepted results
-cannot replace the accepted delivery, and they do not let an older one
-through. A delivery from another work item, Project, or worktree cannot host
-the review, and a cancelled or superseded work item cannot review.
+through the existing records. Rejected, failed, or unaccepted results cannot
+replace the anchor. A delivery from another work item, Project, or worktree
+cannot host the review, and a cancelled or superseded work item cannot review.
 Historical completions without the observation refuse the review. The
 approved remedy is a fresh implementation attempt, never a fabricated
 observation. This join resets no correction budget, refunds no attempt, and
@@ -319,6 +331,39 @@ Scenario: Current core candidate must agree with the dispatch and `HEAD`
   And the current core subject_commit names a different commit
   When the host requests native oracle execution
   Then execution refuses and the test-program launch count is zero
+
+Scenario: Review admits a descendant subject without a newer editing dispatch
+  Given accepted implementation delivery A has a clean core observation
+  And the qualified subject B equals the live clean HEAD
+  And the core observed B as a strict descendant of A
+  And no editing dispatch is newer than A's dispatch
+  When the coordinator dispatches independent review of B
+  Then review admits with subject B and delivery anchor A
+  And A's completion and acceptance records remain unchanged
+
+Scenario: A newer editing dispatch blocks review beyond the delivery anchor
+  Given accepted implementation delivery A has a clean core observation
+  And the qualified subject B equals the live clean HEAD
+  And the core observed B as a strict descendant of A
+  And an editing dispatch on this work item is newer than A's dispatch
+  When the coordinator dispatches independent review of B
+  Then the review dispatch refuses regardless of the editing attempt's state
+  And the action records no durable effect
+
+Scenario: Review refuses a subject outside the delivery anchor's descendants
+  Given accepted implementation delivery A has a clean core observation
+  And the qualified subject S equals the live clean HEAD
+  And S differs from A and is not a descendant of A
+  When the coordinator dispatches independent review of S
+  Then the review dispatch refuses
+  And the action records no durable effect
+
+Scenario: Terminal acceptance refuses an unobserved subject change
+  Given the current subject pin is A and the clean worktree HEAD is B
+  And A differs from B
+  When the operator confirms the premise or completes the work
+  Then the action refuses with stale_requires_review
+  And the action records no durable effect
 
 Scenario: An unrelated accepted job keeps the failed job's window
   Given a job-bound attempt that failed or whose result was rejected

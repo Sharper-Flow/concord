@@ -484,6 +484,7 @@ async function driveToReadyJob(
   // preparation reference.
   response = await transition(10, "record_worker_job", "native-e2e-worker-job", {
     job_id: JOB_ID,
+    predicate_ids: owner.predicate_ids,
     objective: "Check the synthetic non-Go production value with the pinned target check.",
     stopping_condition: "The pinned check exits zero on the current subject.",
     path_scope: [TARGET_ROOT],

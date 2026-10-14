@@ -3337,6 +3337,180 @@
           ]
         }
       }
+    },
+    "worker_failure_host_observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tag",
+        "event_type"
+      ],
+      "properties": {
+        "tag": {
+          "type": "string",
+          "enum": [
+            "terminal",
+            "retry",
+            "cancellation",
+            "abandonment"
+          ],
+          "description": "The typed host observation tag: a terminal error, a held retry, a bare cancellation, or the coordinator's abandonment request the host adapter observed. A cancellation and an abandonment carry no error identity; an abandonment is admitted only on the abandoned terminal and keeps cause and basis unknown."
+        },
+        "event_type": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "x-maxBytes": 256,
+          "description": "The host event type that carried the observation, at most 256 UTF-8 bytes."
+        },
+        "session_id": {
+          "type": "string",
+          "maxLength": 256,
+          "x-maxBytes": 256
+        },
+        "message_id": {
+          "type": "string",
+          "maxLength": 256,
+          "x-maxBytes": 256
+        },
+        "error_name": {
+          "type": "string",
+          "maxLength": 256,
+          "x-maxBytes": 256
+        },
+        "error_code": {
+          "type": "string",
+          "maxLength": 256,
+          "x-maxBytes": 256
+        },
+        "status_code": {
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 599,
+          "description": "The HTTP-shaped status the host supplied, absent when the host supplied none."
+        }
+      },
+      "description": "The typed host observation one host_event source carries: which host event was seen, for which session and message, and the typed terminal error fields when the host supplied them."
+    },
+    "worker_failure_observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "observer",
+        "phase",
+        "cause",
+        "basis",
+        "sources"
+      ],
+      "properties": {
+        "observer": {
+          "type": "string",
+          "enum": [
+            "host_adapter",
+            "worker_report",
+            "coordinator"
+          ],
+          "description": "The boundary that observed the failure. The authenticated route sets the observer tag; it is never an authority string a worker supplies."
+        },
+        "phase": {
+          "type": "string",
+          "enum": [
+            "dispatch",
+            "host_execution",
+            "worker_execution",
+            "readback",
+            "report_parse",
+            "report_validation",
+            "evidence_write",
+            "result_review",
+            "integration"
+          ],
+          "description": "The closed phase the failure was observed in. Only the boundary that observed a phase may emit it."
+        },
+        "cause": {
+          "type": "string",
+          "enum": [
+            "unknown",
+            "assignment_requirement",
+            "implementation",
+            "dependency",
+            "host_provider",
+            "report_contract",
+            "identity_provenance"
+          ],
+          "description": "The causal classification the observer claims. Typed observations classify only what their boundary owns; failed tests and missing reports never automatically mean an implementation defect."
+        },
+        "basis": {
+          "type": "string",
+          "enum": [
+            "unknown",
+            "hypothesis",
+            "supported"
+          ],
+          "description": "What the causal claim rests on. A hypothesis stays labeled even with citations; a supported claim names admissible immutable evidence."
+        },
+        "sources": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "items": {
+            "$ref": "#/$defs/worker_failure_source"
+          },
+          "description": "The observed structured diagnostic, in the order the boundary observed it. An absent or empty array is not the observation shape."
+        },
+        "diagnosis": {
+          "type": "string",
+          "maxLength": 1024,
+          "x-maxBytes": 1024,
+          "description": "The bounded causal diagnosis, distinct from the exact observation. At most 1024 UTF-8 bytes."
+        }
+      },
+      "description": "the direct producer observation a coordinator correction action may carry as its optional failure_attribution input. Closed over observer, phase, cause, basis, sources, and diagnosis exactly: the recorded block's origin, core-derived identity, input population, sequence, and commit members are core-derived and are never authorable here."
+    },
+    "worker_failure_source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "host_event",
+            "admitted_report",
+            "validator",
+            "result",
+            "native_run"
+          ],
+          "description": "The closed variant of the observed diagnostic: a host terminal/error observation, admitted failed-report evidence, a validator error with location, an existing result or review finding reference, or a native run."
+        },
+        "locator": {
+          "type": "string",
+          "maxLength": 512,
+          "x-maxBytes": 512,
+          "description": "The immutable locator of the observed record. Store the fields actually supplied; never an invented locator."
+        },
+        "digest": {
+          "type": "string",
+          "minLength": 71,
+          "maxLength": 71,
+          "x-minBytes": 71,
+          "x-maxBytes": 71,
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "description": "One sha256:<64 hex> content digest of the observed record, where one is available."
+        },
+        "message": {
+          "type": "string",
+          "maxLength": 2048,
+          "x-maxBytes": 2048,
+          "description": "The exact observed message the boundary supplied, at most 2048 UTF-8 bytes."
+        },
+        "host": {
+          "$ref": "#/$defs/worker_failure_host_observation"
+        }
+      },
+      "description": "One entry of the observed structured diagnostic: the closed variant tag, the immutable locator of the observed record, the content digest where one is available, and the exact observed message where the boundary supplied one. A host_event source carries the typed host observation and no other kind may."
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema"

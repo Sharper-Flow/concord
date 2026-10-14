@@ -406,6 +406,10 @@
         },
         "state": {
           "$ref": "#/$defs/short"
+        },
+        "failure_attribution": {
+          "$ref": "#/$defs/worker_failure_attribution_read",
+          "description": "The failed attempt's terminal failure attribution exactly as the event-based reader resolves it. Absent on every attempt whose state is not failed."
         }
       }
     },
@@ -4974,6 +4978,534 @@
           }
         }
       }
+    },
+    "worker_failure_attempt_identity": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "attempt_id",
+            "lane_id",
+            "epoch",
+            "packet_digest",
+            "job"
+          ],
+          "properties": {
+            "attempt_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "x-maxBytes": 256
+            },
+            "lane_id": {
+              "type": "string",
+              "enum": [
+                "research",
+                "implement",
+                "design",
+                "review",
+                "verify"
+              ]
+            },
+            "epoch": {
+              "$ref": "#/$defs/version"
+            },
+            "packet_digest": {
+              "type": "string",
+              "minLength": 71,
+              "maxLength": 71,
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            "job": {
+              "$ref": "#/$defs/worker_failure_job_binding"
+            },
+            "subject": {
+              "$ref": "#/$defs/worker_failure_subject"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "attempt_id",
+            "lane_id",
+            "epoch",
+            "packet_digest",
+            "no_job"
+          ],
+          "properties": {
+            "attempt_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "x-maxBytes": 256
+            },
+            "lane_id": {
+              "type": "string",
+              "enum": [
+                "research",
+                "implement",
+                "design",
+                "review",
+                "verify"
+              ]
+            },
+            "epoch": {
+              "$ref": "#/$defs/version"
+            },
+            "packet_digest": {
+              "type": "string",
+              "minLength": 71,
+              "maxLength": 71,
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            "no_job": {
+              "const": true
+            },
+            "subject": {
+              "$ref": "#/$defs/worker_failure_subject"
+            }
+          }
+        }
+      ],
+      "description": "The core-derived identity of one authorized worker attempt: the registered lane, the positive attempt epoch, and the packet digest the dispatch authorization recorded, plus exactly one of the explicit no_job marker or the recorded job revision. A missing subject is legal: a pre-launch attempt has no child session or subject."
+    },
+    "worker_failure_attribution": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "origin",
+            "observation",
+            "identity"
+          ],
+          "properties": {
+            "origin": {
+              "const": "recorded"
+            },
+            "observation": {
+              "$ref": "#/$defs/worker_failure_observation"
+            },
+            "identity": {
+              "$ref": "#/$defs/worker_failure_identity"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "origin"
+          ],
+          "properties": {
+            "origin": {
+              "const": "legacy_unavailable"
+            }
+          }
+        }
+      ],
+      "description": "The typed failure_attribution block. The recorded origin carries the producer observation and the core-derived identity; the explicit legacy_unavailable marker marks explicit historical absence and carries neither."
+    },
+    "worker_failure_attribution_read": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "event_id",
+        "source_version",
+        "attribution"
+      ],
+      "properties": {
+        "event_id": {
+          "$ref": "#/$defs/id"
+        },
+        "source_version": {
+          "$ref": "#/$defs/version"
+        },
+        "attribution": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/worker_failure_attribution"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "description": "One failed attempt's resolved terminal failure attribution: the terminal event identity, the source payload version the log recorded, and the decoded block. The attribution is null when a capable terminal recorded none; a source version below the boundary resolves the explicit legacy_unavailable marker. The 8192-byte whole-block bound is the store's own bound, never a schema keyword."
+    },
+    "worker_failure_host_observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tag",
+        "event_type"
+      ],
+      "properties": {
+        "tag": {
+          "type": "string",
+          "enum": [
+            "terminal",
+            "retry",
+            "cancellation",
+            "abandonment"
+          ],
+          "description": "The typed host observation tag: a terminal error, a held retry, a bare cancellation, or the coordinator's abandonment request the host adapter observed. A cancellation and an abandonment carry no error identity; an abandonment is admitted only on the abandoned terminal and keeps cause and basis unknown."
+        },
+        "event_type": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "x-maxBytes": 256,
+          "description": "The host event type that carried the observation, at most 256 UTF-8 bytes."
+        },
+        "session_id": {
+          "type": "string",
+          "maxLength": 256,
+          "x-maxBytes": 256
+        },
+        "message_id": {
+          "type": "string",
+          "maxLength": 256,
+          "x-maxBytes": 256
+        },
+        "error_name": {
+          "type": "string",
+          "maxLength": 256,
+          "x-maxBytes": 256
+        },
+        "error_code": {
+          "type": "string",
+          "maxLength": 256,
+          "x-maxBytes": 256
+        },
+        "status_code": {
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 599,
+          "description": "The HTTP-shaped status the host supplied, absent when the host supplied none."
+        }
+      },
+      "description": "The typed host observation one host_event source carries: which host event was seen, for which session and message, and the typed terminal error fields when the host supplied them."
+    },
+    "worker_failure_identity": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "attempt"
+          ],
+          "properties": {
+            "kind": {
+              "const": "attempt"
+            },
+            "attempt": {
+              "$ref": "#/$defs/worker_failure_attempt_identity"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "integration"
+          ],
+          "properties": {
+            "kind": {
+              "const": "integration"
+            },
+            "integration": {
+              "$ref": "#/$defs/worker_failure_integration_identity"
+            }
+          }
+        }
+      ],
+      "description": "The closed attempt/integration union of core-derived identity. Exactly one variant is present and it matches kind; the producer never authors it."
+    },
+    "worker_failure_integration_identity": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "native_run",
+            "input_results"
+          ],
+          "properties": {
+            "native_run": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "kind",
+                "locator"
+              ],
+              "properties": {
+                "kind": {
+                  "const": "native_run"
+                },
+                "locator": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 512,
+                  "x-maxBytes": 512
+                },
+                "digest": {
+                  "type": "string",
+                  "minLength": 71,
+                  "maxLength": 71,
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                }
+              }
+            },
+            "input_results": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "job",
+                  "result_ref"
+                ],
+                "properties": {
+                  "job": {
+                    "$ref": "#/$defs/worker_failure_job_binding"
+                  },
+                  "result_ref": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 512,
+                    "x-maxBytes": 512
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "native_run",
+            "inputs_unavailable"
+          ],
+          "properties": {
+            "native_run": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "kind",
+                "locator"
+              ],
+              "properties": {
+                "kind": {
+                  "const": "native_run"
+                },
+                "locator": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 512,
+                  "x-maxBytes": 512
+                },
+                "digest": {
+                  "type": "string",
+                  "minLength": 71,
+                  "maxLength": 71,
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                }
+              }
+            },
+            "inputs_unavailable": {
+              "const": true
+            }
+          }
+        }
+      ],
+      "description": "The core-derived identity of a combined integration run: the native run that failed, and either the exact accepted input population in event order or the explicit inputs_unavailable marker for a lease recorded before its event watermark — never both, and the marker never stands for an empty accepted population."
+    },
+    "worker_failure_job_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "job_id",
+        "revision",
+        "digest"
+      ],
+      "properties": {
+        "job_id": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{1,127}$"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "digest": {
+          "type": "string",
+          "minLength": 71,
+          "maxLength": 71,
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        }
+      },
+      "description": "One recorded worker-job revision reference: the job identity, the revision, and the content digest. That the revision is exactly the one the dispatch recorded is a store join, never a schema check."
+    },
+    "worker_failure_observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "observer",
+        "phase",
+        "cause",
+        "basis",
+        "sources"
+      ],
+      "properties": {
+        "observer": {
+          "type": "string",
+          "enum": [
+            "host_adapter",
+            "worker_report",
+            "coordinator"
+          ],
+          "description": "The boundary that observed the failure. The authenticated route sets the observer tag; it is never an authority string a worker supplies."
+        },
+        "phase": {
+          "type": "string",
+          "enum": [
+            "dispatch",
+            "host_execution",
+            "worker_execution",
+            "readback",
+            "report_parse",
+            "report_validation",
+            "evidence_write",
+            "result_review",
+            "integration"
+          ],
+          "description": "The closed phase the failure was observed in. Only the boundary that observed a phase may emit it."
+        },
+        "cause": {
+          "type": "string",
+          "enum": [
+            "unknown",
+            "assignment_requirement",
+            "implementation",
+            "dependency",
+            "host_provider",
+            "report_contract",
+            "identity_provenance"
+          ],
+          "description": "The causal classification the observer claims. Typed observations classify only what their boundary owns; failed tests and missing reports never automatically mean an implementation defect."
+        },
+        "basis": {
+          "type": "string",
+          "enum": [
+            "unknown",
+            "hypothesis",
+            "supported"
+          ],
+          "description": "What the causal claim rests on. A hypothesis stays labeled even with citations; a supported claim names admissible immutable evidence."
+        },
+        "sources": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "items": {
+            "$ref": "#/$defs/worker_failure_source"
+          },
+          "description": "The observed structured diagnostic, in the order the boundary observed it. An absent or empty array is not the observation shape."
+        },
+        "diagnosis": {
+          "type": "string",
+          "maxLength": 1024,
+          "x-maxBytes": 1024,
+          "description": "The bounded causal diagnosis, distinct from the exact observation. At most 1024 UTF-8 bytes."
+        }
+      },
+      "description": "the direct producer observation a coordinator correction action may carry as its optional failure_attribution input. Closed over observer, phase, cause, basis, sources, and diagnosis exactly: the recorded block's origin, core-derived identity, input population, sequence, and commit members are core-derived and are never authorable here."
+    },
+    "worker_failure_source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "host_event",
+            "admitted_report",
+            "validator",
+            "result",
+            "native_run"
+          ],
+          "description": "The closed variant of the observed diagnostic: a host terminal/error observation, admitted failed-report evidence, a validator error with location, an existing result or review finding reference, or a native run."
+        },
+        "locator": {
+          "type": "string",
+          "maxLength": 512,
+          "x-maxBytes": 512,
+          "description": "The immutable locator of the observed record. Store the fields actually supplied; never an invented locator."
+        },
+        "digest": {
+          "type": "string",
+          "minLength": 71,
+          "maxLength": 71,
+          "x-minBytes": 71,
+          "x-maxBytes": 71,
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "description": "One sha256:<64 hex> content digest of the observed record, where one is available."
+        },
+        "message": {
+          "type": "string",
+          "maxLength": 2048,
+          "x-maxBytes": 2048,
+          "description": "The exact observed message the boundary supplied, at most 2048 UTF-8 bytes."
+        },
+        "host": {
+          "$ref": "#/$defs/worker_failure_host_observation"
+        }
+      },
+      "description": "One entry of the observed structured diagnostic: the closed variant tag, the immutable locator of the observed record, the content digest where one is available, and the exact observed message where the boundary supplied one. A host_event source carries the typed host observation and no other kind may."
+    },
+    "worker_failure_subject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "locator"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "observed_delivery_event",
+            "native_run"
+          ]
+        },
+        "locator": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "x-maxBytes": 512
+        },
+        "digest": {
+          "type": "string",
+          "minLength": 71,
+          "maxLength": 71,
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        }
+      },
+      "description": "A typed immutable reference to an existing recorded subject: the terminal event that carries the core-observed delivery, or the retained native run. The store joins resolve the reference; nothing here copies a commit."
     },
     "work_transition_worker_reconcile_input": {
       "type": "object",
@@ -16323,6 +16855,9 @@
             },
             "retry": {
               "$ref": "#/$defs/reject_retry"
+            },
+            "failure_attribution": {
+              "$ref": "#/$defs/worker_failure_observation"
             }
           },
           "required": [
@@ -16481,6 +17016,9 @@
               },
               "minItems": 1,
               "maxItems": 32
+            },
+            "failure_attribution": {
+              "$ref": "#/$defs/worker_failure_observation"
             }
           },
           "required": [

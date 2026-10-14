@@ -4,12 +4,13 @@
 // that wire the window opens, the worker runs, and no attempt is recorded, so
 // accept_worker_result refuses with "worker attempt does not exist" (issue #781).
 import { afterAll, afterEach, describe, expect, test } from "bun:test"
+import { createHash } from "node:crypto"
 import { configureHostLease } from "./host-lease"
 import ConcordAdapterPlugin from "./concord-plugin"
 import { computeHostPromptProvenance, type AgentLanePacket, type DispatchRunner, type HostProvenance } from "./dispatch"
 import { DispatchWindows, TASK_TOOL_ID } from "./dispatch-window"
 import { agentLanes } from "./generated-agent-lanes"
-import { completeDispatchedWorker, failDispatchedWorker, ProviderCauses, type LaneCompletionDeps } from "./lane_completion"
+import { cancellationFailureObservation, completeDispatchedWorker, failDispatchedWorker, HostFailureObservations, spawnFailureObservation, type LaneCompletionDeps } from "./lane_completion"
 import { hostControlPlane, SESSION_LIST_ROUTE, type SessionReader } from "./move-session"
 import type { CredentialStore } from "./credentials"
 
@@ -622,18 +623,15 @@ describe("host task failure", () => {
     expect(windows.inFlight(SESSION, "call-cancel")).toBeNull()
   })
 
-  // The host ends a provider-broken worker with the bare tool string "Task
-  // cancelled", so the provider cause must ride the event stream: a
-  // session.status retry event carries the provider message, and the settle
-  // appends the cause held for the child session to the recorded detail. The
-  // coordinator can then tell a rate limit from an interrupt or a crash.
+  // Retry and terminal errors remain separate host observations; neither message
+  // alone establishes what caused the Task cancellation.
   const cancelledSettleDeps = (windows: DispatchWindows, runner: DispatchRunner): LaneCompletionDeps => ({
     windows,
     credentials: testCredentials,
     runner,
     sessionReader: readerFor(exportedSession()),
     concordBinary: "concord",
-    providerCauses: new ProviderCauses(),
+    hostObservations: new HostFailureObservations(),
   })
 
   const workerFailRunner = (failureInput: { value?: Record<string, unknown> }): DispatchRunner => ({
@@ -661,7 +659,7 @@ describe("host task failure", () => {
     const result = await failDispatchedWorker(failedEvent(), options)
     expect(result?.error?.kind).toBe("error")
     expect(failureInput.value?.failure_kind).toBe("worker_error")
-    expect(failureInput.value?.detail).toBe("Task cancelled; provider error during the worker session: AI_APICallError: Rate limit reached for requests")
+    expect(failureInput.value?.detail).toBe("Task cancelled; host retry observation: AI_APICallError: Rate limit reached for requests")
     expect(windows.inFlight(SESSION, "call-cancel")).toBeNull()
   })
 
@@ -680,7 +678,7 @@ describe("host task failure", () => {
     const result = await failDispatchedWorker(failedEvent(), options)
     expect(result?.error?.kind).toBe("error")
     expect(failureInput.value?.failure_kind).toBe("worker_error")
-    expect(failureInput.value?.detail).toBe("Task cancelled; provider error during the worker session: APIError: Rate limit reached for requests")
+    expect(failureInput.value?.detail).toBe("Task cancelled; host terminal observation: APIError: Rate limit reached for requests")
     expect(windows.inFlight(SESSION, "call-cancel")).toBeNull()
   })
 
@@ -702,6 +700,229 @@ describe("host task failure", () => {
     expect(failureInput.value?.failure_kind).toBe("worker_error")
     expect(failureInput.value?.detail).toBe("Task cancelled")
     expect(windows.inFlight(SESSION, "call-cancel")).toBeNull()
+  })
+
+  // the same settle route records a typed failure_attribution
+  // beside the legacy detail. The retained sources ride the observation with
+  // their host digest; a cancellation stays an unknown cause even when a
+  // provider fault was observed on the same child, and the fault's message
+  // text alone never upgrades the cause.
+  const attribution = (input?: Record<string, unknown>): Record<string, any> => (input?.failure_attribution ?? {}) as Record<string, any>
+
+  test("attribution-bare-cancel: a bare cancellation records the absence case as an explicit unknown", async () => {
+    const windows = new DispatchWindows()
+    windows.open(SESSION, packet(), PACKET_DIGEST, process.cwd())
+    await windows.bind(TASK_TOOL_ID, SESSION, {}, "call-cancel", async () => process.cwd(), process.cwd())
+    const failureInput: { value?: Record<string, unknown> } = {}
+    const options = cancelledSettleDeps(windows, workerFailRunner(failureInput))
+    await failDispatchedWorker(failedEvent(), options)
+    const observed = attribution(failureInput.value)
+    expect(observed.observer).toBe("host_adapter")
+    expect(observed.phase).toBe("host_execution")
+    expect(observed.cause).toBe("unknown")
+    expect(observed.basis).toBe("unknown")
+    expect(observed.sources).toHaveLength(1)
+    expect(observed.sources[0].kind).toBe("host_event")
+    expect(observed.sources[0].host).toEqual({ tag: "cancellation", event_type: "message.part.updated", session_id: WORKER_SESSION })
+    expect(observed.sources[0].message).toBe("Task cancelled")
+    expect(observed.sources[0].digest).toMatch(/^sha256:[0-9a-f]{64}$/)
+    const assertion = failureInput.value?.assertion as Record<string, unknown>
+    expect(assertion.version).toBe(2)
+    expect(assertion.observation_digest).toMatch(/^sha256:[0-9a-f]{64}$/)
+  })
+
+  test("attribution-retry-source: a held retry rides the sources and never becomes the cause", async () => {
+    const windows = new DispatchWindows()
+    windows.open(SESSION, packet(), PACKET_DIGEST, process.cwd())
+    await windows.bind(TASK_TOOL_ID, SESSION, {}, "call-cancel", async () => process.cwd(), process.cwd())
+    const failureInput: { value?: Record<string, unknown> } = {}
+    const options = cancelledSettleDeps(windows, workerFailRunner(failureInput))
+    await failDispatchedWorker({
+      type: "session.status",
+      properties: { sessionID: WORKER_SESSION, status: { type: "retry", attempt: 1, message: "AI_APICallError: Rate limit reached for requests", next: 1 } },
+    }, options)
+    await failDispatchedWorker(failedEvent(), options)
+    const observed = attribution(failureInput.value)
+    expect(observed.cause).toBe("unknown")
+    expect(observed.basis).toBe("unknown")
+    expect(observed.sources).toHaveLength(2)
+    const retrySource = observed.sources[0]
+    expect(retrySource.kind).toBe("host_event")
+    expect(retrySource.host.tag).toBe("retry")
+    expect(retrySource.host.event_type).toBe("session.status")
+    expect(retrySource.host.session_id).toBe(WORKER_SESSION)
+    // The core host shape carries no retry counters; the retained digest owns
+    // them. A "Rate limit" substring in the message text never upgrades the
+    // cause: only a typed host error identity could, and this source has none.
+    expect(retrySource.message).toContain("Rate limit reached")
+    expect(retrySource.host).not.toHaveProperty("retry_attempt")
+    expect(retrySource.host).not.toHaveProperty("next_retry")
+    expect(retrySource.host).not.toHaveProperty("error_name")
+    expect(retrySource.digest).toMatch(/^sha256:[0-9a-f]{64}$/)
+    expect(observed.sources[1].host.tag).toBe("cancellation")
+    const assertion = failureInput.value?.assertion as Record<string, unknown>
+    expect(assertion.version).toBe(2)
+  })
+
+  test("attribution-terminal-source: a held typed provider fault rides with its retained digest and fields", async () => {
+    const windows = new DispatchWindows()
+    windows.open(SESSION, packet(), PACKET_DIGEST, process.cwd())
+    await windows.bind(TASK_TOOL_ID, SESSION, {}, "call-cancel", async () => process.cwd(), process.cwd())
+    const failureInput: { value?: Record<string, unknown> } = {}
+    const options = cancelledSettleDeps(windows, workerFailRunner(failureInput))
+    // A probe instance learns the retained source digest the same record()
+      // call produces, so the assertion binds the exact digest byte for byte.
+    const probe = new HostFailureObservations()
+    probe.record({ tag: "terminal", event_type: "message.updated", session_id: WORKER_SESSION, message_id: "message-1", error_name: "APIError", status_code: 429, message: "Rate limit reached for requests" })
+    const retained = probe.take(WORKER_SESSION)[0]
+    await failDispatchedWorker({
+      type: "message.updated",
+      properties: { info: { id: "message-1", sessionID: WORKER_SESSION, role: "assistant", error: { name: "APIError", data: { message: "Rate limit reached for requests", statusCode: 429, isRetryable: false } } } },
+    }, options)
+    await failDispatchedWorker(failedEvent(), options)
+    const observed = attribution(failureInput.value)
+    // The cancellation cause stays unknown: the host record shows the fault
+    // but does not establish that it caused the cancellation.
+    expect(observed.cause).toBe("unknown")
+    expect(observed.basis).toBe("unknown")
+    expect(observed.sources).toHaveLength(2)
+    const fault = observed.sources[0]
+    expect(fault.kind).toBe("host_event")
+    expect(fault.locator).toBe("message-1")
+    expect(fault.digest).toBe(retained.source_digest)
+    expect(fault.message).toBe("Rate limit reached for requests")
+    expect(fault.host).toEqual({ tag: "terminal", event_type: "message.updated", session_id: WORKER_SESSION, message_id: "message-1", error_name: "APIError", status_code: 429 })
+    const assertion = failureInput.value?.assertion as Record<string, unknown>
+    expect(assertion.version).toBe(2)
+  })
+
+  test("attribution-typed-terminal-error: a non-cancel Task error with a typed fault stays a hypothesis", async () => {
+    const windows = new DispatchWindows()
+    windows.open(SESSION, packet(), PACKET_DIGEST, process.cwd())
+    await windows.bind(TASK_TOOL_ID, SESSION, {}, "call-cancel", async () => process.cwd(), process.cwd())
+    const failureInput: { value?: Record<string, unknown> } = {}
+    const options = cancelledSettleDeps(windows, workerFailRunner(failureInput))
+    await failDispatchedWorker({
+      type: "message.updated",
+      properties: { info: { id: "message-1", sessionID: WORKER_SESSION, role: "assistant", error: { name: "APIError", data: { message: "Rate limit reached for requests", statusCode: 429, isRetryable: false } } } },
+    }, options)
+    await failDispatchedWorker(failedEvent("call-cancel", SESSION, { sessionId: WORKER_SESSION }, "APIError: Rate limit reached for requests"), options)
+    const observed = attribution(failureInput.value)
+    // The host record carries the fault and the terminal error side by side,
+    // but nothing in it links the fault to the terminal: the locator alone
+    // proves no causality, so the cause stays a hypothesis.
+    expect(observed.cause).toBe("host_provider")
+    expect(observed.basis).toBe("hypothesis")
+    expect(observed.sources[0].locator).toBe("message-1")
+    expect(observed.sources[0].digest).toMatch(/^sha256:[0-9a-f]{64}$/)
+    expect(observed.sources[observed.sources.length - 1].host.tag).toBe("terminal")
+    const assertion = failureInput.value?.assertion as Record<string, unknown>
+    expect(assertion.version).toBe(2)
+  })
+
+  test("attribution-provider-hypothesis: a provider fault beside a different generic terminal never promotes to supported", async () => {
+    const windows = new DispatchWindows()
+    windows.open(SESSION, packet(), PACKET_DIGEST, process.cwd())
+    await windows.bind(TASK_TOOL_ID, SESSION, {}, "call-cancel", async () => process.cwd(), process.cwd())
+    const failureInput: { value?: Record<string, unknown> } = {}
+    const options = cancelledSettleDeps(windows, workerFailRunner(failureInput))
+    await failDispatchedWorker({
+      type: "message.updated",
+      properties: { info: { id: "message-1", sessionID: WORKER_SESSION, role: "assistant", error: { name: "APIError", data: { message: "Rate limit reached for requests", statusCode: 429, isRetryable: false } } } },
+    }, options)
+    // The terminal error is a different, generic diagnostic: the host record
+    // links it to the held fault no more than it links a bare cancellation.
+    await failDispatchedWorker(failedEvent("call-cancel", SESSION, { sessionId: WORKER_SESSION }, "provider request failed"), options)
+    const observed = attribution(failureInput.value)
+    expect(observed.cause).toBe("host_provider")
+    expect(observed.basis).toBe("hypothesis")
+    // The typed fault itself stays exact: its locator, digest, message, and
+    // host identity are unchanged by the refusal to promote the cause.
+    expect(observed.sources[0].locator).toBe("message-1")
+    expect(observed.sources[0].message).toBe("Rate limit reached for requests")
+    expect(observed.sources[0].host).toEqual({ tag: "terminal", event_type: "message.updated", session_id: WORKER_SESSION, message_id: "message-1", error_name: "APIError", status_code: 429 })
+  })
+
+  test("attribution-arm-overflow: an over-bound terminal diagnostic omits the copied message and binds the full content digest", async () => {
+    const windows = new DispatchWindows()
+    windows.open(SESSION, packet(), PACKET_DIGEST, process.cwd())
+    await windows.bind(TASK_TOOL_ID, SESSION, {}, "call-cancel", async () => process.cwd(), process.cwd())
+    const failureInput: { value?: Record<string, unknown> } = {}
+    const options = cancelledSettleDeps(windows, workerFailRunner(failureInput))
+    const fullError = "overflow-" + "x".repeat(2500)
+    await failDispatchedWorker(failedEvent("call-cancel", SESSION, { sessionId: WORKER_SESSION }, fullError), options)
+    const observed = attribution(failureInput.value)
+    const arm = observed.sources[observed.sources.length - 1]
+    // No copied message past the bound: a truncated diagnostic is a new
+    // claim, and the source carries the full-content digest instead.
+    expect(arm.message).toBeUndefined()
+    const expectedDigest = "sha256:" + createHash("sha256").update(JSON.stringify({ host: { tag: "terminal", event_type: "message.part.updated", session_id: WORKER_SESSION }, message: fullError }), "utf8").digest("hex")
+    expect(arm.digest).toBe(expectedDigest)
+    expect(arm.host).toEqual({ tag: "terminal", event_type: "message.part.updated", session_id: WORKER_SESSION })
+    const assertion = failureInput.value?.assertion as Record<string, unknown>
+    expect(assertion.version).toBe(2)
+  })
+
+  test("attribution-foreign-source-refused: the builder refuses a held source naming another child", () => {
+    const foreign = {
+      tag: "terminal" as const, event_type: "message.updated" as const, session_id: "ses_other_child",
+      message_id: "message-9", error_name: "APIError", message: "foreign fault", source_digest: "sha256:" + "0".repeat(64),
+    }
+    expect(() => cancellationFailureObservation("Task cancelled", WORKER_SESSION, [foreign])).toThrow(/cannot ride/)
+  })
+
+  test("attribution-spawn-overflow: an over-bound spawn diagnostic omits the copied message and binds the full content digest", () => {
+    const fullMessage = "y".repeat(3000)
+    const observed = spawnFailureObservation(SESSION, { name: "OverflowError", data: { message: fullMessage } })
+    expect(observed.sources[0].message).toBeUndefined()
+    const expectedDigest = "sha256:" + createHash("sha256").update(JSON.stringify({ host: { tag: "terminal", event_type: "session.error", session_id: SESSION, error_name: "OverflowError" }, message: fullMessage }), "utf8").digest("hex")
+    expect(observed.sources[0].digest).toBe(expectedDigest)
+    expect(observed.sources[0].host).toEqual({ tag: "terminal", event_type: "session.error", session_id: SESSION, error_name: "OverflowError" })
+  })
+
+  test("attribution-foreign-child: a held observation for another session never rides this attempt", async () => {
+    const windows = new DispatchWindows()
+    windows.open(SESSION, packet(), PACKET_DIGEST, process.cwd())
+    await windows.bind(TASK_TOOL_ID, SESSION, {}, "call-cancel", async () => process.cwd(), process.cwd())
+    const failureInput: { value?: Record<string, unknown> } = {}
+    const options = cancelledSettleDeps(windows, workerFailRunner(failureInput))
+    await failDispatchedWorker({
+      type: "message.updated",
+      properties: { info: { id: "message-9", sessionID: "ses_other_child", role: "assistant", error: { name: "APIError", data: { message: "foreign fault", statusCode: 500 } } } },
+    }, options)
+    await failDispatchedWorker(failedEvent(), options)
+    const observed = attribution(failureInput.value)
+    expect(observed.sources).toHaveLength(1)
+    expect(observed.sources[0].host.session_id).toBe(WORKER_SESSION)
+    expect(observed.cause).toBe("unknown")
+  })
+
+  test("two maximum host observations keep complete sources and balanced detail summaries", async () => {
+    const windows = new DispatchWindows()
+    windows.open(SESSION, packet(), PACKET_DIGEST, process.cwd())
+    await windows.bind(TASK_TOOL_ID, SESSION, {}, "call-cancel", async () => process.cwd(), process.cwd())
+    const failureInput: { value?: Record<string, unknown> } = {}
+    const options = cancelledSettleDeps(windows, workerFailRunner(failureInput))
+    const retry = "retry-start " + "🎉".repeat(509)
+    const terminal = "terminal-start " + "🎉".repeat(508)
+    await failDispatchedWorker({ type: "session.status", properties: {
+      sessionID: WORKER_SESSION, status: { type: "retry", message: retry },
+    } }, options)
+    await failDispatchedWorker({ type: "message.updated", properties: { info: {
+      id: "message-error", sessionID: WORKER_SESSION,
+      error: { name: "APIError", data: { message: terminal, statusCode: 429 } },
+    } } }, options)
+    const result = await failDispatchedWorker(failedEvent(), options)
+    const detail = failureInput.value?.detail as string
+    expect(Buffer.byteLength(detail, "utf8")).toBeLessThanOrEqual(4096)
+    expect(detail).toContain("host retry observation: retry-start")
+    expect(detail).toContain("host terminal observation: APIError: terminal-start")
+    expect(detail.split("[summary truncated]")).toHaveLength(3)
+    expect(Buffer.from(detail, "utf8").toString("utf8")).toBe(detail)
+    expect(result?.error?.details?.host_observations).toEqual([
+      expect.objectContaining({ tag: "retry", message: retry }),
+      expect.objectContaining({ tag: "terminal", message: terminal }),
+    ])
   })
 
   test("a refused born-failed write retains settlement without retry", async () => {
@@ -842,6 +1063,39 @@ describe("spawn failure without a part event", () => {
     windows.close(SESSION)
   })
 
+  // abandonment sends a host observation for the session.error
+  // event that settled the attempt. No child session existed, so the host
+  // session id is the parent's, and the cause stays unknown.
+  test("attribution-abandonment: the abandonment carries the host session.error observation", async () => {
+    bindSessionList()
+    const windows = new DispatchWindows()
+    await withInFlightAttempt(windows, "call-spawn")
+    const verbs: string[] = []
+    let abandonInput: Record<string, unknown> | undefined
+    const options = deps(verbs, windows)
+    options.evidenceRunner = { async run(argv, raw) {
+      verbs.push(argv[1])
+      if (argv[1] === "worker-abandon") abandonInput = JSON.parse(raw) as Record<string, unknown>
+      return { exitCode: 0, stdout: "", stderr: "" }
+    } }
+    await failDispatchedWorker(spawnFailureEvent(), options)
+    expect(verbs).toEqual(["worker-abandon"])
+    const observed = (abandonInput?.failure_attribution ?? {}) as Record<string, any>
+    expect(observed.observer).toBe("host_adapter")
+    expect(observed.phase).toBe("host_execution")
+    expect(observed.cause).toBe("unknown")
+    expect(observed.basis).toBe("unknown")
+    expect(observed.sources).toHaveLength(1)
+    expect(observed.sources[0].kind).toBe("host_event")
+    expect(observed.sources[0].locator).toBeUndefined()
+    expect(observed.sources[0].digest).toMatch(/^sha256:[0-9a-f]{64}$/)
+    expect(observed.sources[0].host).toEqual({ tag: "terminal", event_type: "session.error", session_id: SESSION, error_name: "UnknownAgentError" })
+    const assertion = abandonInput?.assertion as Record<string, unknown>
+    expect(assertion.version).toBe(2)
+    expect(assertion.observation_digest).toMatch(/^sha256:[0-9a-f]{64}$/)
+    windows.close(SESSION)
+  })
+
   test("a refused abandonment records why and keeps the release route live", async () => {
     bindSessionList()
     const windows = new DispatchWindows()
@@ -915,3 +1169,78 @@ describe("plugin entry registers the completion hook", () => {
 // placeholder; the suite's files share one process in an order no file
 // controls, so this file leaves the lease state clean.
 afterAll(() => configureHostLease({ reset: true }))
+
+describe("structured host failure observations", () => {
+  test("retry and terminal observations retain their distinct source fields", async () => {
+    const observations = new HostFailureObservations()
+    const options = { hostObservations: observations }
+    await failDispatchedWorker({ type: "session.status", properties: {
+      sessionID: WORKER_SESSION, status: { type: "retry", attempt: 1, message: "retry observed", next: 3 },
+    } }, options)
+    await failDispatchedWorker({ type: "message.updated", properties: { info: {
+      id: "message-error", sessionID: WORKER_SESSION, error: {
+        name: "APIError", data: { message: "terminal error observed", statusCode: 429, isRetryable: false, responseBody: "not retained" },
+      },
+    } } }, options)
+    expect(observations.take(WORKER_SESSION)).toEqual([
+      { tag: "retry", event_type: "session.status", session_id: WORKER_SESSION, message: "retry observed", retry_attempt: 1, next_retry: 3, source_digest: expect.stringMatching(/^sha256:[a-f0-9]{64}$/) },
+      { tag: "terminal", event_type: "message.updated", session_id: WORKER_SESSION, message_id: "message-error", error_name: "APIError", status_code: 429, message: "terminal error observed", source_digest: expect.stringMatching(/^sha256:[a-f0-9]{64}$/) },
+    ])
+    expect(observations.take(WORKER_SESSION)).toEqual([])
+  })
+
+  test("an oversized observation refuses whole without a truncated diagnostic", async () => {
+    const observations = new HostFailureObservations()
+    await failDispatchedWorker({ type: "session.status", properties: {
+      sessionID: WORKER_SESSION, status: { type: "retry", message: "🎉".repeat(513) },
+    } }, { hostObservations: observations })
+    expect(observations.take(WORKER_SESSION)).toEqual([])
+  })
+
+  test("busy and idle status do not erase a prior retry observation", async () => {
+    const observations = new HostFailureObservations()
+    const options = { hostObservations: observations }
+    await failDispatchedWorker({ type: "session.status", properties: {
+      sessionID: WORKER_SESSION, status: { type: "retry", message: "retry observed" },
+    } }, options)
+    await failDispatchedWorker({ type: "session.status", properties: {
+      sessionID: WORKER_SESSION, status: { type: "busy" },
+    } }, options)
+    await failDispatchedWorker({ type: "session.status", properties: {
+      sessionID: WORKER_SESSION, status: { type: "idle" },
+    } }, options)
+    expect(observations.take(WORKER_SESSION)).toEqual([
+      expect.objectContaining({ tag: "retry", message: "retry observed" }),
+    ])
+  })
+
+  test("a consumed observation cannot cross a child-session identity", async () => {
+    const observations = new HostFailureObservations()
+    await failDispatchedWorker({ type: "message.updated", properties: { info: {
+      id: "message-error", sessionID: "ses_otherchild", error: { name: "APIError", data: { message: "other child fault", statusCode: 503 } },
+    } } }, { hostObservations: observations })
+    expect(observations.take(WORKER_SESSION)).toEqual([])
+    expect(observations.take("ses_otherchild")).toEqual([expect.objectContaining({ tag: "terminal", session_id: "ses_otherchild", message_id: "message-error", status_code: 503 })])
+  })
+
+  test("an invalid typed error code does not manufacture valid provider evidence", async () => {
+    const observations = new HostFailureObservations()
+    await failDispatchedWorker({ type: "message.updated", properties: { info: {
+      id: "message-error", sessionID: WORKER_SESSION, error: { name: "APIError", data: { message: "invalid code", statusCode: 700 } },
+    } } }, { hostObservations: observations })
+    expect(observations.take(WORKER_SESSION)).toEqual([])
+  })
+
+  test("an invalid new observation preserves the earlier valid source", () => {
+    const observations = new HostFailureObservations()
+    const valid = { tag: "terminal" as const, event_type: "message.updated" as const,
+      session_id: WORKER_SESSION, message_id: "message-error", error_name: "APIError",
+      message: "exact earlier observation", status_code: 429 }
+    observations.record(valid)
+    observations.record({ ...valid, message: "x".repeat(2049) })
+    observations.record({ ...valid, status_code: 700 })
+    expect(observations.take(WORKER_SESSION)).toEqual([
+      expect.objectContaining(valid),
+    ])
+  })
+})

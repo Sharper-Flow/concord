@@ -176,10 +176,14 @@ func TestWorkerTerminalEventsAdmitTypedContextFindings(t *testing.T) {
 	if got := WorkerEvidenceEventPayloadVersion(WorkerCompleted); got != 7 {
 		t.Fatalf("worker.completed current payload version = %d, want 7", got)
 	}
-	if got := WorkerEvidenceEventPayloadVersion(WorkerFailed); got != 3 {
-		t.Fatalf("worker.failed current payload version = %d, want 3", got)
+	if got := WorkerEvidenceEventPayloadVersion(WorkerFailed); got != 4 {
+		t.Fatalf("worker.failed current payload version = %d, want 4", got)
 	}
-	fixture := seedWorkContextFixture(t, "work-findings-admit")
+	breakFix, ok := BuiltinWorkflowRegistry().Lookup("workflow.break_fix", 27)
+	if !ok {
+		t.Fatal("workflow.break_fix v27 is not registered")
+	}
+	fixture := seedWorkContextFixtureWithDefinition(t, "work-findings-admit", breakFix)
 	defer fixture.store.Close()
 	s := fixture.store
 	lane := BuiltinLaneDefinitions()[0]
@@ -231,7 +235,11 @@ func TestWorkerTerminalEventsAdmitTypedContextFindings(t *testing.T) {
 // discharge one.
 func TestWorkerCompletedFindingsAreClaimsNotObligationDischarge(t *testing.T) {
 	t.Parallel()
-	fixture := seedWorkContextFixture(t, "work-findings-claims")
+	breakFix, ok := BuiltinWorkflowRegistry().Lookup("workflow.break_fix", 27)
+	if !ok {
+		t.Fatal("workflow.break_fix v27 is not registered")
+	}
+	fixture := seedWorkContextFixtureWithDefinition(t, "work-findings-claims", breakFix)
 	defer fixture.store.Close()
 	s := fixture.store
 	lane := BuiltinLaneDefinitions()[0]
@@ -316,11 +324,31 @@ func TestWorkerTerminalContextFindingsUpcastAndRebuildDeterministic(t *testing.T
 		if err != nil {
 			t.Fatal(err)
 		}
-		if upcast.PayloadVersion != 3 {
-			t.Fatalf("upcast failure version = %d, want 3", upcast.PayloadVersion)
+		// the failure upcast lands at the attribution version with
+		// the explicit legacy marker stamped beside the unchanged legacy
+		// bytes, so a replayed failure stays visibly without attribution.
+		if upcast.PayloadVersion != 4 {
+			t.Fatalf("upcast failure version = %d, want 4", upcast.PayloadVersion)
 		}
-		if string(upcast.Payload) != string(legacyFailure.Payload) {
-			t.Fatalf("v1 failure upcast rewrote bytes:\n%s\nwant\n%s", upcast.Payload, legacyFailure.Payload)
+		var upcastMembers map[string]json.RawMessage
+		if err := json.Unmarshal(upcast.Payload, &upcastMembers); err != nil {
+			t.Fatal(err)
+		}
+		if string(upcastMembers["failure_attribution"]) != `{"origin":"legacy_unavailable"}` {
+			t.Fatalf("upcast failure attribution = %s, want the explicit legacy marker", upcastMembers["failure_attribution"])
+		}
+		delete(upcastMembers, "failure_attribution")
+		var legacyMembers map[string]json.RawMessage
+		if err := json.Unmarshal(legacyFailure.Payload, &legacyMembers); err != nil {
+			t.Fatal(err)
+		}
+		if len(upcastMembers) != len(legacyMembers) {
+			t.Fatalf("v1 failure upcast grew members: %d, want the legacy %d beside the marker", len(upcastMembers), len(legacyMembers))
+		}
+		for name, value := range legacyMembers {
+			if string(upcastMembers[name]) != string(value) {
+				t.Fatalf("v1 failure upcast rewrote %s:\n%s\nwant\n%s", name, upcastMembers[name], value)
+			}
 		}
 	})
 	t.Run("legacy events fold and rebuild to the same projection", func(t *testing.T) {
@@ -343,7 +371,11 @@ func TestWorkerTerminalContextFindingsUpcastAndRebuildDeterministic(t *testing.T
 		}
 	})
 	t.Run("current-version findings fold and rebuild identically", func(t *testing.T) {
-		fixture := seedWorkContextFixture(t, "work-rebuild-findings")
+		breakFix, ok := BuiltinWorkflowRegistry().Lookup("workflow.break_fix", 27)
+		if !ok {
+			t.Fatal("workflow.break_fix v27 is not registered")
+		}
+		fixture := seedWorkContextFixtureWithDefinition(t, "work-rebuild-findings", breakFix)
 		defer fixture.store.Close()
 		s := fixture.store
 		lane := BuiltinLaneDefinitions()[0]

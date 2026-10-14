@@ -1,5 +1,7 @@
 package store
 
+import "context"
+
 type recordedCorrectionPin struct {
 	ref     string
 	version int64
@@ -83,4 +85,28 @@ func workflowRecordedCorrectionReturnTarget(entry RegisteredDefinition, step str
 		return route.target, nil
 	}
 	return workflowCorrectionReturnTarget(definition, step), nil
+}
+
+// workflowFoldCorrectionReturnTarget owns the fold's whole correction-return
+// selection and its checks. Live effects read only the declared route reader;
+// replay reads the verified historical table, which may name a target the
+// current definition no longer declares.
+func workflowFoldCorrectionReturnTarget(ctx context.Context, entry RegisteredDefinition, recordedStep, currentStep string) (string, error) {
+	var target string
+	var err error
+	if isWorkflowReplay(ctx) {
+		if recordedStep != currentStep {
+			return "", newFailure(KindIllegalLifecycleTransition, "fold_event", "recorded correction source step differs from the pinned current step", false, "restore a consistent recorded workflow history")
+		}
+		target, err = workflowRecordedCorrectionReturnTarget(entry, currentStep)
+	} else {
+		target = workflowCorrectionReturnTarget(entry.Definition, currentStep)
+	}
+	if err != nil {
+		return "", err
+	}
+	if target == "" {
+		return "", newFailure(KindIllegalLifecycleTransition, "fold_event", "correction has no declared recovery route to a producer step", false, "repair the pinned workflow definition")
+	}
+	return target, nil
 }

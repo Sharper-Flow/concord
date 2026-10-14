@@ -2454,20 +2454,9 @@ func foldWorkflowActionCompleted(ctx context.Context, tx *sql.Tx, event Event) e
 			}
 		}
 	} else if p.ActionID == "request_correction" {
-		// Live effects use the same declared producer as admission and dispatch.
-		// Recorded effects preserve the verified pin's historical interpretation.
-		nextStep = workflowCorrectionReturnTarget(entry.Definition, currentStep)
-		if isWorkflowReplay(ctx) {
-			if p.StepID != currentStep {
-				return newFailure(KindIllegalLifecycleTransition, "fold_event", "recorded correction source step differs from the pinned current step", false, "restore a consistent recorded workflow history")
-			}
-			nextStep, err = workflowRecordedCorrectionReturnTarget(entry, currentStep)
-			if err != nil {
-				return err
-			}
-		}
-		if nextStep == "" {
-			return newFailure(KindIllegalLifecycleTransition, "fold_event", "correction has no declared recovery route to a producer step", false, "repair the pinned workflow definition")
+		nextStep, err = workflowFoldCorrectionReturnTarget(ctx, entry, p.StepID, currentStep)
+		if err != nil {
+			return err
 		}
 	}
 	if err := advanceWorkflowVersion(ctx, tx, event, p.WorkflowVersionFields); err != nil {

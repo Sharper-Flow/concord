@@ -256,3 +256,64 @@ func TestRecordedCorrectionRefusalsAreAttributedAndAtomic(t *testing.T) {
 		t.Fatal("unknown version borrowed a declared correction route")
 	}
 }
+
+func TestFoldCorrectionReturnTargetSelectsResolverAndRefusesEmptyRoute(t *testing.T) {
+	entry := mustRecordedCorrectionPin(t, "workflow.break_fix", 8)
+	replayCtx := workflowReplayContext(context.Background())
+
+	// Live effects resolve only through the declared route reader.
+	liveStep := ""
+	for _, step := range entry.Definition.StepGraph.Steps {
+		if workflowCorrectionReturnTarget(entry.Definition, step.ID) != "" {
+			liveStep = step.ID
+			break
+		}
+	}
+	if liveStep == "" {
+		t.Fatal("no step declares a live correction route; the live selection case is unreachable")
+	}
+	want := workflowCorrectionReturnTarget(entry.Definition, liveStep)
+	got, err := workflowFoldCorrectionReturnTarget(context.Background(), entry, liveStep, liveStep)
+	if err != nil || got != want {
+		t.Fatalf("live fold return at %s = (%q, %v), want (%q, nil)", liveStep, got, err, want)
+	}
+
+	// A step the live reader cannot resolve refuses even where the recorded
+	// table holds a route: live effects never consult the table.
+	if liveRefine := workflowCorrectionReturnTarget(entry.Definition, "refine"); liveRefine != "" {
+		t.Fatalf("refine unexpectedly declares a live route %q; the historical-only case is unreachable", liveRefine)
+	}
+	recorded, err := workflowRecordedCorrectionReturnTarget(entry, "refine")
+	if err != nil || recorded == "" {
+		t.Fatalf("recorded refine route = (%q, %v), want a recorded target", recorded, err)
+	}
+	_, err = workflowFoldCorrectionReturnTarget(context.Background(), entry, "refine", "refine")
+	wantFoldCorrectionFailure(t, err, "correction has no declared recovery route to a producer step", "repair the pinned workflow definition")
+
+	// Replay resolves the recorded target only after the source-step check.
+	if got, err := workflowFoldCorrectionReturnTarget(replayCtx, entry, "refine", "refine"); err != nil || got != recorded {
+		t.Fatalf("replay fold return at refine = (%q, %v), want (%q, nil)", got, err, recorded)
+	}
+	_, err = workflowFoldCorrectionReturnTarget(replayCtx, entry, "verify", "refine")
+	wantFoldCorrectionFailure(t, err, "recorded correction source step differs from the pinned current step", "restore a consistent recorded workflow history")
+
+	// A correction with no resolved recovery route refuses on both paths.
+	if empty := workflowCorrectionReturnTarget(entry.Definition, "repair"); empty != "" {
+		t.Fatalf("repair unexpectedly declares a live route %q; the empty-route case is unreachable", empty)
+	}
+	if unresolved, err := workflowRecordedCorrectionReturnTarget(entry, "repair"); err != nil || unresolved != "" {
+		t.Fatalf("recorded repair route = (%q, %v), want no route", unresolved, err)
+	}
+	_, err = workflowFoldCorrectionReturnTarget(context.Background(), entry, "repair", "repair")
+	wantFoldCorrectionFailure(t, err, "correction has no declared recovery route to a producer step", "repair the pinned workflow definition")
+	_, err = workflowFoldCorrectionReturnTarget(replayCtx, entry, "repair", "repair")
+	wantFoldCorrectionFailure(t, err, "correction has no declared recovery route to a producer step", "repair the pinned workflow definition")
+}
+
+func wantFoldCorrectionFailure(t *testing.T, err error, detail, recovery string) {
+	t.Helper()
+	var failure *Failure
+	if err == nil || !failureAs(err, &failure) || failure.Kind != KindIllegalLifecycleTransition || failure.Op != "fold_event" || failure.Detail != detail || failure.RetrySafe || failure.RecoveryAction != recovery {
+		t.Fatalf("fold correction refusal = %v, want %s %q with recovery %q", err, KindIllegalLifecycleTransition, detail, recovery)
+	}
+}

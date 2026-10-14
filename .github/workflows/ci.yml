@@ -379,6 +379,24 @@ jobs:
         # Release-pair tests build their baselines from these tags.
         # The default checkout is shallow and carries no tags.
         run: git fetch --no-tags --depth=1 origin +refs/tags/v11.61.0:refs/tags/v11.61.0 +refs/tags/v11.63.30:refs/tags/v11.63.30 +refs/tags/v13.4.0:refs/tags/v13.4.0
+      - name: Set up uv
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884
+        with:
+          version: 0.11.26
+          enable-cache: "false"
+      - name: Warm the uv fixture cache from the committed lock
+        # The only networked uv step. Both commands refuse a lock that no
+        # longer matches its project, and the sync checks every wheel
+        # against the lock's hashes. The store tests copy this cache into
+        # private scratch and run uv offline, so the cache is made read-only.
+        env:
+          UV_CACHE_DIR: ${{ runner.temp }}/native-target-uv-cache
+          UV_PROJECT_ENVIRONMENT: ${{ runner.temp }}/native-target-uv-venv
+          UV_PYTHON_DOWNLOADS: never
+        run: |
+          uv lock --no-config --locked --refresh --python python3 --project internal/store/testdata/native-target-uv
+          uv sync --no-config --locked --no-build --python python3 --project internal/store/testdata/native-target-uv
+          chmod -R a-w "$UV_CACHE_DIR"
       - name: Test shard 1 of 3 of ./internal/store
         env:
           CONCORD_SELECTED_PRODUCT_ID: poison-product
@@ -398,7 +416,13 @@ jobs:
           CONCORD_BIN: /nonexistent/poison-concord
           CONCORD_FUTURE_INPUT: poison-future
           CONCORD_TEST_SUBPROCESS: poison-no-bypass
+          OC_NATIVE_UV_CACHE: ${{ runner.temp }}/native-target-uv-cache
+          UV_OFFLINE: "1"
+          UV_PYTHON_DOWNLOADS: never
         run: go test -timeout=15m -run "$(python3 scripts/go-test-shard.py ./internal/store 1 3)" ./internal/store
+      - name: Restore write access to the uv fixture cache
+        if: always()
+        run: if [ -d "$RUNNER_TEMP/native-target-uv-cache" ]; then chmod -R u+w "$RUNNER_TEMP/native-target-uv-cache"; fi
 
   verify-tests-store-2:
     name: verify-tests-store-2
@@ -427,6 +451,24 @@ jobs:
         # Release-pair tests build their baselines from these tags.
         # The default checkout is shallow and carries no tags.
         run: git fetch --no-tags --depth=1 origin +refs/tags/v11.61.0:refs/tags/v11.61.0 +refs/tags/v11.63.30:refs/tags/v11.63.30 +refs/tags/v13.4.0:refs/tags/v13.4.0
+      - name: Set up uv
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884
+        with:
+          version: 0.11.26
+          enable-cache: "false"
+      - name: Warm the uv fixture cache from the committed lock
+        # The only networked uv step. Both commands refuse a lock that no
+        # longer matches its project, and the sync checks every wheel
+        # against the lock's hashes. The store tests copy this cache into
+        # private scratch and run uv offline, so the cache is made read-only.
+        env:
+          UV_CACHE_DIR: ${{ runner.temp }}/native-target-uv-cache
+          UV_PROJECT_ENVIRONMENT: ${{ runner.temp }}/native-target-uv-venv
+          UV_PYTHON_DOWNLOADS: never
+        run: |
+          uv lock --no-config --locked --refresh --python python3 --project internal/store/testdata/native-target-uv
+          uv sync --no-config --locked --no-build --python python3 --project internal/store/testdata/native-target-uv
+          chmod -R a-w "$UV_CACHE_DIR"
       - name: Test shard 2 of 3 of ./internal/store
         env:
           CONCORD_SELECTED_PRODUCT_ID: poison-product
@@ -446,7 +488,13 @@ jobs:
           CONCORD_BIN: /nonexistent/poison-concord
           CONCORD_FUTURE_INPUT: poison-future
           CONCORD_TEST_SUBPROCESS: poison-no-bypass
+          OC_NATIVE_UV_CACHE: ${{ runner.temp }}/native-target-uv-cache
+          UV_OFFLINE: "1"
+          UV_PYTHON_DOWNLOADS: never
         run: go test -timeout=15m -run "$(python3 scripts/go-test-shard.py ./internal/store 2 3)" ./internal/store
+      - name: Restore write access to the uv fixture cache
+        if: always()
+        run: if [ -d "$RUNNER_TEMP/native-target-uv-cache" ]; then chmod -R u+w "$RUNNER_TEMP/native-target-uv-cache"; fi
 
   verify-tests-store-3:
     name: verify-tests-store-3
@@ -475,6 +523,24 @@ jobs:
         # Release-pair tests build their baselines from these tags.
         # The default checkout is shallow and carries no tags.
         run: git fetch --no-tags --depth=1 origin +refs/tags/v11.61.0:refs/tags/v11.61.0 +refs/tags/v11.63.30:refs/tags/v11.63.30 +refs/tags/v13.4.0:refs/tags/v13.4.0
+      - name: Set up uv
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884
+        with:
+          version: 0.11.26
+          enable-cache: "false"
+      - name: Warm the uv fixture cache from the committed lock
+        # The only networked uv step. Both commands refuse a lock that no
+        # longer matches its project, and the sync checks every wheel
+        # against the lock's hashes. The store tests copy this cache into
+        # private scratch and run uv offline, so the cache is made read-only.
+        env:
+          UV_CACHE_DIR: ${{ runner.temp }}/native-target-uv-cache
+          UV_PROJECT_ENVIRONMENT: ${{ runner.temp }}/native-target-uv-venv
+          UV_PYTHON_DOWNLOADS: never
+        run: |
+          uv lock --no-config --locked --refresh --python python3 --project internal/store/testdata/native-target-uv
+          uv sync --no-config --locked --no-build --python python3 --project internal/store/testdata/native-target-uv
+          chmod -R a-w "$UV_CACHE_DIR"
       - name: Test shard 3 of 3 of ./internal/store
         env:
           CONCORD_SELECTED_PRODUCT_ID: poison-product
@@ -494,7 +560,13 @@ jobs:
           CONCORD_BIN: /nonexistent/poison-concord
           CONCORD_FUTURE_INPUT: poison-future
           CONCORD_TEST_SUBPROCESS: poison-no-bypass
+          OC_NATIVE_UV_CACHE: ${{ runner.temp }}/native-target-uv-cache
+          UV_OFFLINE: "1"
+          UV_PYTHON_DOWNLOADS: never
         run: go test -timeout=15m -run "$(python3 scripts/go-test-shard.py ./internal/store 3 3)" ./internal/store
+      - name: Restore write access to the uv fixture cache
+        if: always()
+        run: if [ -d "$RUNNER_TEMP/native-target-uv-cache" ]; then chmod -R u+w "$RUNNER_TEMP/native-target-uv-cache"; fi
 
   verify-tests-cli-1:
     name: verify-tests-cli-1

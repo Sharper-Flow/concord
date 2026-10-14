@@ -1,7 +1,6 @@
 package store
 
 import (
-	"archive/zip"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -60,7 +59,7 @@ type nativeTargetFixture struct {
 	materializer     string
 	runner           string
 	uvCache          string
-	links            string
+	lockVersions     map[string]string
 	recipePath       string
 	manifestJSON     string
 	controlArgv      []string
@@ -263,7 +262,7 @@ func TestNativeTargetAxisEnvironmentClosure(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			changed := strings.Replace(string(data), "]\n\n[tool.uv]", ", \"iniconfig==2.3.0\"]\n\n[tool.uv]", 1)
+			changed := strings.Replace(string(data), "]\n\n[tool.uv]", ", \"iniconfig=="+f.lockVersions["iniconfig"]+"\"]\n\n[tool.uv]", 1)
 			if changed == string(data) {
 				t.Fatal("fixture could not add a lock-absent dependency")
 			}
@@ -330,7 +329,7 @@ func TestNativeTargetAxisDependencyDigestRetained(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	changed := strings.Replace(string(data), "]\n\n[tool.uv]", ", \"iniconfig==2.3.0\"]\n\n[tool.uv]", 1)
+	changed := strings.Replace(string(data), "]\n\n[tool.uv]", ", \"iniconfig=="+f.lockVersions["iniconfig"]+"\"]\n\n[tool.uv]", 1)
 	if changed == string(data) {
 		t.Fatal("fixture could not change the dependency set")
 	}
@@ -660,19 +659,10 @@ func newNativeTargetFixtureAtRoot(t *testing.T, root string) *nativeTargetFixtur
 	f := &nativeTargetFixture{s: seed.store, work: work, repo: t.TempDir(), actor: seed.owner, root: root, recipePath: nativeTargetFixtureName(root, "recipe.json"), materializer: "uv", runner: "pytest"}
 	f.controlArgv = []string{"pytest", "tests/test_value.py::test_value"}
 
-	// The host uv cache is the read-only wheel source. The test redirects
-	// UV_CACHE_DIR to private scratch before any driver run, so no run can
-	// alter the shared cache (CD-0205 D1).
-	hostCache := hostUVCacheForTest(t)
-	f.uvCache = filepath.Join(t.TempDir(), "uv-cache")
-	f.links = filepath.Join(t.TempDir(), "links")
-	versions := repackHostWheelsForTest(t, hostCache, f.links, []string{"pytest", "iniconfig", "pluggy", "packaging", "pygments", "colorama"})
+	f.installCommittedUVProject(t)
 	pyVersion := liveVersionForTest(t, "python3", `Python ([0-9][0-9.]*)`)
 	uvVersion := liveVersionForTest(t, "uv", `uv ([0-9][0-9.]*)`)
-	t.Setenv("UV_CACHE_DIR", f.uvCache)
-
 	files := map[string]string{
-		nativeTargetFixtureName(f.root, "pyproject.toml"):      "[project]\nname = \"pyfix\"\nversion = \"0.1.0\"\nrequires-python = \">=" + minorVersion(pyVersion) + "\"\ndependencies = [\"pytest==" + versions["pytest"] + "\"]\n\n[tool.uv]\npackage = false\n",
 		nativeTargetFixtureName(f.root, "app/__init__.py"):     "",
 		nativeTargetFixtureName(f.root, "app/value.py"):        "VALUE = 7\n",
 		nativeTargetFixtureName(f.root, "tests/__init__.py"):   "",
@@ -680,11 +670,19 @@ func newNativeTargetFixtureAtRoot(t *testing.T, root string) *nativeTargetFixtur
 		nativeTargetFixtureName(f.root, "tests/test_value.py"): "from app.value import VALUE\n\n\ndef test_value():\n    assert VALUE == 7\n",
 	}
 	writeRepoFilesForTest(t, f.repo, files)
-	// The lockfile is generated once from the local wheel fixtures with
-	// downloads disabled; the producer only ever syncs it locked and
-	// offline afterwards.
-	generateUVLockForTest(t, f, versions, pyVersion, uvVersion, nil)
-	writeRepoFilesForTest(t, f.repo, map[string]string{f.recipePath: f.manifestJSON})
+	f.setManifestForTest(t, map[string]any{
+		"kind":          "target_runner_v1",
+		"materializer":  "uv",
+		"runner":        "pytest",
+		"root":          f.root,
+		"harness_files": []string{nativeTargetFixtureName(f.root, "tests/test_value.py"), nativeTargetFixtureName(f.root, "pytest.ini")},
+		"support_files": []string{},
+		"cases":         map[string][]string{"case:fixture": {"tests/test_value.py::test_value"}},
+		"pin": map[string]string{
+			"python": pyVersion, "uv": uvVersion, "pytest": f.lockVersions["pytest"],
+			"dep_manifest": "pyproject.toml", "dep_lock": "uv.lock",
+		},
+	})
 	f.commitAll(t, "pinned harness")
 	f.seedAuthority(t, seed)
 	return f
@@ -751,23 +749,17 @@ func newNativeTargetUVCheckFixture(t *testing.T) *nativeTargetFixture {
 	f := &nativeTargetFixture{s: seed.store, work: work, repo: t.TempDir(), actor: seed.owner, root: "uvchk", recipePath: "uvchk/recipe.json", materializer: "uv", runner: "check"}
 	f.controlArgv = []string{"check", "deps", "shell-args"}
 
-	hostCache := hostUVCacheForTest(t)
-	f.uvCache = filepath.Join(t.TempDir(), "uv-cache")
-	f.links = filepath.Join(t.TempDir(), "links")
-	versions := repackHostWheelsForTest(t, hostCache, f.links, []string{"iniconfig", "pluggy", "packaging", "pygments", "colorama"})
+	f.installCommittedUVProject(t)
 	pyVersion := liveVersionForTest(t, "python3", `Python ([0-9][0-9.]*)`)
 	uvVersion := liveVersionForTest(t, "uv", `uv ([0-9][0-9.]*)`)
 	shellVersion := liveVersionForTest(t, "bash", `version ([0-9][0-9.]*)`)
-	t.Setenv("UV_CACHE_DIR", f.uvCache)
-
 	files := map[string]string{
-		nativeTargetFixtureName(f.root, "pyproject.toml"):        "[project]\nname = \"uvchk\"\nversion = \"0.1.0\"\nrequires-python = \">=" + minorVersion(pyVersion) + "\"\ndependencies = [\"iniconfig==" + versions["iniconfig"] + "\"]\n\n[tool.uv]\npackage = false\n",
 		nativeTargetFixtureName(f.root, "value.txt"):             "7\n",
 		nativeTargetFixtureName(f.root, "scripts/check_deps.py"): "import pathlib\nimport sys\n\nimport iniconfig\n\nassert sys.prefix != sys.base_prefix, \"python3 checks must run in the materialized environment\"\nsys.exit(0 if int(pathlib.Path(\"value.txt\").read_text().strip()) == 7 else 1)\n",
 		nativeTargetFixtureName(f.root, "scripts/args.sh"):       "#!/usr/bin/env bash\nset -euo pipefail\ntest \"$1\" = \"--flag\"\ntest -n \"${UV_PROJECT_ENVIRONMENT:-}\"\n",
 	}
 	writeRepoFilesForTest(t, f.repo, files)
-	generateUVLockForTest(t, f, versions, pyVersion, uvVersion, map[string]any{
+	f.setManifestForTest(t, map[string]any{
 		"kind":          "target_runner_v1",
 		"materializer":  "uv",
 		"runner":        "check",
@@ -781,53 +773,100 @@ func newNativeTargetUVCheckFixture(t *testing.T) *nativeTargetFixture {
 		},
 		"pin": map[string]string{"python": pyVersion, "uv": uvVersion, "shell": shellVersion, "dep_manifest": "pyproject.toml", "dep_lock": "uv.lock"},
 	})
-	writeRepoFilesForTest(t, f.repo, map[string]string{f.recipePath: f.manifestJSON})
 	f.commitAll(t, "pinned uv check harness")
 	f.seedAuthority(t, seed)
 	return f
 }
 
-// generateUVLockForTest renders the strict closed manifest and generates the
-// uv.lock for the synthetic project from the local wheel fixtures.
-func generateUVLockForTest(t *testing.T, f *nativeTargetFixture, versions map[string]string, pyVersion, uvVersion string, manifest map[string]any) {
+// nativeTargetUVProjectDir holds the committed uv fixture project. Its
+// uv.lock is the single source of the uv fixtures' dependency set: the CI
+// warm step fills the source cache from the same lock, and every fixture
+// copies these bytes instead of resolving a set of its own.
+const nativeTargetUVProjectDir = "testdata/native-target-uv"
+
+// nativeTargetUVLock is the committed fixture project as the fixtures read
+// it: the manifest and lock bytes, each registry package's locked version,
+// and the registry packages the lock installs only behind an environment
+// marker.
+type nativeTargetUVLock struct {
+	pyproject, lock string
+	versions        map[string]string
+	markerOnly      map[string]bool
+}
+
+var (
+	nativeTargetUVLockPackagePattern    = regexp.MustCompile(`(?m)^name = "([^"]+)"\nversion = "([^"]+)"\nsource = \{ registry = "https://pypi\.org/simple" \}$`)
+	nativeTargetUVLockDependencyPattern = regexp.MustCompile(`\{ name = "([^"]+)"(, marker = "[^"]*")? \}`)
+)
+
+func readNativeTargetUVLockForTest(t *testing.T) nativeTargetUVLock {
 	t.Helper()
-	if manifest == nil {
-		manifest = map[string]any{
-			"kind":          "target_runner_v1",
-			"materializer":  "uv",
-			"runner":        "pytest",
-			"root":          f.root,
-			"harness_files": []string{nativeTargetFixtureName(f.root, "tests/test_value.py"), nativeTargetFixtureName(f.root, "pytest.ini")},
-			"support_files": []string{},
-			"cases":         map[string][]string{"case:fixture": {"tests/test_value.py::test_value"}},
-			"pin": map[string]string{
-				"python": pyVersion, "uv": uvVersion, "pytest": versions["pytest"],
-				"dep_manifest": "pyproject.toml", "dep_lock": "uv.lock",
-			},
+	pyproject, err := os.ReadFile(filepath.Join(nativeTargetUVProjectDir, "pyproject.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lock, err := os.ReadFile(filepath.Join(nativeTargetUVProjectDir, "uv.lock"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	l := nativeTargetUVLock{pyproject: string(pyproject), lock: string(lock), versions: map[string]string{}, markerOnly: map[string]bool{}}
+	for _, match := range nativeTargetUVLockPackagePattern.FindAllStringSubmatch(l.lock, -1) {
+		l.versions[match[1]] = match[2]
+	}
+	if l.versions["pytest"] == "" || l.versions["iniconfig"] == "" {
+		t.Fatalf("committed fixture lock %s pins no registry pytest and iniconfig", nativeTargetUVProjectDir)
+	}
+	unmarked := map[string]bool{}
+	for _, match := range nativeTargetUVLockDependencyPattern.FindAllStringSubmatch(l.lock, -1) {
+		if match[2] == "" {
+			unmarked[match[1]] = true
+		} else {
+			l.markerOnly[match[1]] = true
 		}
 	}
+	for name := range unmarked {
+		delete(l.markerOnly, name)
+	}
+	return l
+}
+
+// installCommittedUVProject copies the committed project and lock into the
+// fixture root and seeds the run's private uv cache from the read-only
+// source cache. UV_CACHE_DIR names the private cache before any driver run,
+// so no run can alter the source cache (CD-0205 D1).
+func (f *nativeTargetFixture) installCommittedUVProject(t *testing.T) {
+	t.Helper()
+	lock := readNativeTargetUVLockForTest(t)
+	f.lockVersions = lock.versions
+	f.uvCache = filepath.Join(t.TempDir(), "uv-cache")
+	seedNativeTargetUVCacheForTest(t, hostUVCacheForTest(t), f.uvCache, lock)
+	t.Setenv("UV_CACHE_DIR", f.uvCache)
+	writeRepoFilesForTest(t, f.repo, map[string]string{
+		nativeTargetFixtureName(f.root, "pyproject.toml"): lock.pyproject,
+		nativeTargetFixtureName(f.root, "uv.lock"):        lock.lock,
+	})
+}
+
+// setManifestForTest renders the strict closed manifest and writes it as
+// the fixture's pinned recipe.
+func (f *nativeTargetFixture) setManifestForTest(t *testing.T, manifest map[string]any) {
+	t.Helper()
 	raw, err := json.Marshal(manifest)
 	if err != nil {
 		t.Fatal(err)
 	}
 	f.manifestJSON = string(raw)
-	lockEnv := append(os.Environ(), "UV_CACHE_DIR="+f.uvCache)
-	cmd := exec.Command("uv", "lock", "--offline", "--no-index", "--find-links", f.links, "--no-python-downloads") //nolint:gosec // test fixture, fixed argv.
-	cmd.Dir = filepath.Join(f.repo, f.root)
-	cmd.Env = lockEnv
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("offline uv lock failed: %v: %s", err, out)
-	}
+	writeRepoFilesForTest(t, f.repo, map[string]string{f.recipePath: f.manifestJSON})
 }
 
 // regenerateLock regenerates the fixture's uv.lock after a declared
-// dependency change, entirely offline from the local wheel fixtures.
+// dependency change, offline against the private cache. The declared
+// change names only versions the committed lock already pins.
 func (f *nativeTargetFixture) regenerateLock(t *testing.T) {
 	t.Helper()
-	lockEnv := append(os.Environ(), "UV_CACHE_DIR="+f.uvCache)
-	cmd := exec.Command("uv", "lock", "--offline", "--no-index", "--find-links", f.links, "--no-python-downloads") //nolint:gosec // test fixture, fixed argv.
+	cmd := exec.Command("uv", "lock", "--no-config", "--offline", "--no-python-downloads") //nolint:gosec // test fixture, fixed argv.
 	cmd.Dir = filepath.Join(f.repo, f.root)
-	cmd.Env = lockEnv
+	cmd.Env = append(os.Environ(), "UV_CACHE_DIR="+f.uvCache)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("offline uv relock failed: %v: %s", err, out)
 	}
@@ -846,15 +885,11 @@ func liveVersionForTest(t *testing.T, name, pattern string) string {
 	return match[1]
 }
 
-func minorVersion(version string) string {
-	parts := strings.Split(version, ".")
-	if len(parts) < 2 {
-		return version
-	}
-	return parts[0] + "." + parts[1]
-}
+// nativeTargetUVWarmHint names the commands that warm a source cache from
+// the committed lock; CI runs the same commands before the store tests.
+const nativeTargetUVWarmHint = "warm it from internal/store/" + nativeTargetUVProjectDir + " with `uv lock --locked --refresh` and `uv sync --locked --no-build`"
 
-// hostUVCacheForTest resolves the read-only host uv cache. The test
+// hostUVCacheForTest resolves the read-only source uv cache. The test
 // workloads sandbox HOME and scrub CONCORD_* variables, so an explicit
 // source may be supplied through OC_NATIVE_UV_CACHE; otherwise the standard
 // cache locations apply. A missing cache fails the test loudly: it is never
@@ -876,87 +911,100 @@ func hostUVCacheForTest(t *testing.T) string {
 			return candidate
 		}
 	}
-	t.Fatalf("no read-only host uv cache found (tried %v); set OC_NATIVE_UV_CACHE to the uv cache root", candidates)
+	t.Fatalf("no source uv cache found (tried %v); set OC_NATIVE_UV_CACHE to a uv cache root and %s", candidates, nativeTargetUVWarmHint)
 	return ""
 }
 
-// repackHostWheelsForTest repacks the host uv cache's unpacked wheel entries
-// for the named distributions into a local find-links directory. The source
-// cache is read-only; nothing writes to it.
-func repackHostWheelsForTest(t *testing.T, hostCache, links string, dists []string) map[string]string {
+// seedNativeTargetUVCacheForTest copies, for each locked registry package,
+// the source cache's index page, its locked-version wheel entries, and the
+// unpacked archives those entries link to into a private writable cache.
+// The source cache is only read. A source cache the committed lock did not
+// warm fails the test loudly.
+func seedNativeTargetUVCacheForTest(t *testing.T, source, private string, lock nativeTargetUVLock) {
 	t.Helper()
-	if err := os.MkdirAll(links, 0700); err != nil {
-		t.Fatal(err)
-	}
-	versions := map[string]string{}
-	entryPattern := regexp.MustCompile(`^([0-9][^-]*)-(py\d.*)$`)
-	for _, dist := range dists {
-		base := filepath.Join(hostCache, "wheels-v6", "pypi", dist)
-		entries, err := os.ReadDir(base)
-		if err != nil {
-			t.Fatalf("host uv cache has no %s wheel entries; this test needs a warm read-only cache: %v", dist, err)
+	for name, version := range lock.versions {
+		page := filepath.Join("simple-v21", "pypi", name+".rkyv")
+		if err := copyUVCacheFileForTest(filepath.Join(source, page), filepath.Join(private, page)); err != nil {
+			t.Fatalf("source uv cache %s has no index page for %s; %s: %v", source, name, nativeTargetUVWarmHint, err)
 		}
-		var chosen string
+		wheels := filepath.Join("wheels-v6", "pypi", name)
+		entries, err := os.ReadDir(filepath.Join(source, wheels))
+		if err != nil && !os.IsNotExist(err) {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(filepath.Join(private, wheels), 0700); err != nil {
+			t.Fatal(err)
+		}
+		unpacked := false
 		for _, entry := range entries {
-			if entryPattern.MatchString(entry.Name()) && (entry.Type()&os.ModeSymlink != 0 || entry.IsDir()) {
-				chosen = entry.Name()
+			if !strings.HasPrefix(entry.Name(), version+"-") {
+				continue
 			}
-		}
-		if chosen == "" {
-			t.Fatalf("host uv cache has no unpacked wheel directory for %s", dist)
-		}
-		match := entryPattern.FindStringSubmatch(chosen)
-		versions[dist] = match[1]
-		out, err := os.Create(filepath.Join(links, dist+"-"+chosen+".whl"))
-		if err != nil {
-			t.Fatal(err)
-		}
-		writer := zip.NewWriter(out)
-		root, err := filepath.EvalSymlinks(filepath.Join(base, chosen))
-		if err != nil {
-			t.Fatal(err)
-		}
-		err = filepath.Walk(root, func(path string, info os.FileInfo, walkErr error) error {
-			if walkErr != nil {
-				return walkErr
+			rel := filepath.Join(wheels, entry.Name())
+			if entry.Type()&os.ModeSymlink == 0 {
+				if err := copyUVCacheFileForTest(filepath.Join(source, rel), filepath.Join(private, rel)); err != nil {
+					t.Fatal(err)
+				}
+				continue
 			}
-			if info.IsDir() {
-				return nil
-			}
-			rel, err := filepath.Rel(root, path)
+			target, err := os.Readlink(filepath.Join(source, rel))
 			if err != nil {
-				return err
+				t.Fatal(err)
 			}
-			data, err := os.ReadFile(path)
-			if err != nil {
-				return err
+			archive := filepath.Join(wheels, target)
+			if !filepath.IsLocal(archive) {
+				t.Fatalf("source uv cache wheel entry %s links outside the cache: %s", rel, target)
 			}
-			header, err := zip.FileInfoHeader(info)
-			if err != nil {
-				return err
+			if err := copyUVCacheTreeForTest(filepath.Join(source, archive), filepath.Join(private, archive)); err != nil {
+				t.Fatal(err)
 			}
-			header.Name = filepath.ToSlash(rel)
-			header.SetMode(0600)
-			entry, err := writer.CreateHeader(header)
-			if err != nil {
-				return err
+			if err := os.Symlink(target, filepath.Join(private, rel)); err != nil {
+				t.Fatal(err)
 			}
-			if _, err := entry.Write(data); err != nil {
-				return err
-			}
-			return nil
-		})
-		if err != nil {
-			t.Fatal(err)
+			unpacked = true
 		}
-		if err := writer.Close(); err != nil {
-			t.Fatal(err)
-		}
-		if err := out.Close(); err != nil {
-			t.Fatal(err)
+		if !unpacked && !lock.markerOnly[name] {
+			t.Fatalf("source uv cache %s has no unpacked %s %s wheel; %s", source, name, version, nativeTargetUVWarmHint)
 		}
 	}
-	return versions
+}
+
+func copyUVCacheFileForTest(src, dst string) error {
+	data, err := os.ReadFile(src) //nolint:gosec // test fixture reads its own source cache.
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(dst), 0700); err != nil {
+		return err
+	}
+	return os.WriteFile(dst, data, 0600)
+}
+
+// copyUVCacheTreeForTest copies one unpacked archive into the private cache
+// as writable files, so a test may alter its private copy.
+func copyUVCacheTreeForTest(src, dst string) error {
+	return filepath.WalkDir(src, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		out := filepath.Join(dst, rel)
+		switch {
+		case entry.IsDir():
+			return os.MkdirAll(out, 0700)
+		case entry.Type()&os.ModeSymlink != 0:
+			target, err := os.Readlink(path)
+			if err != nil {
+				return err
+			}
+			return os.Symlink(target, out)
+		default:
+			return copyUVCacheFileForTest(path, out)
+		}
+	})
 }
 
 func writeRepoFilesForTest(t *testing.T, repo string, files map[string]string) {

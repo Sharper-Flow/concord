@@ -5023,19 +5023,8 @@ func (r runtime) consumeApprovalTx(ctx context.Context, tx *store.Transaction, h
 	if r.Envelope.HostApproval == nil {
 		return operator, "", fmt.Errorf("signed host approval assertion is required")
 	}
-	var err error
-	challenge, err := r.Authority.ValidateHostApprovalAssertionTx(ctx, tx, inv, *r.Envelope.HostApproval, check)
+	approvalRef, err := r.Authority.AcceptHostApprovalTx(ctx, tx, host, inv, *r.Envelope.HostApproval, check)
 	if err != nil {
-		return operator, "", err
-	}
-	approvalRef := check.ApprovalRef
-	if challenge {
-		approvalRef, err = r.Authority.CreateApprovalFromChallengeTx(ctx, tx, host, inv, check.ApprovalRef)
-		if err != nil {
-			return operator, "", err
-		}
-	}
-	if err := r.Authority.ValidateAndConsumeApprovalTx(ctx, tx, approvalRef, check); err != nil {
 		return operator, "", err
 	}
 	if check.RequireOperatorIdentity {

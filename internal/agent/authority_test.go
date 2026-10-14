@@ -192,14 +192,10 @@ func TestDirectApprovalAssertionConsumesExistingApprovalWithoutChallenge(t *test
 	}
 	assertion := HostApprovalAssertion{ChallengeRef: approvalRef, RequestDigest: operationDigest, Scope: approvalScopeBindings(scope), Versions: approvalVersionBindings(versions), SessionRef: invocation.SessionRef, AgentRef: invocation.AgentRef, Worktree: invocation.Worktree, IssuedAt: fixedTime().Format(time.RFC3339Nano)}
 	if err := db.Transact(ctx, func(tx *store.Transaction) error {
-		isChallenge, err := service.ValidateHostApprovalAssertionTx(ctx, tx, invocation, assertion, check)
-		if err != nil {
-			return err
-		}
-		if isChallenge {
-			return errors.New("existing approval was treated as a challenge")
-		}
-		return service.ValidateAndConsumeApprovalTx(ctx, tx, approvalRef, check)
+		// An issued approval reference follows the exchange owner's existing
+		// validation and consumption path; it is never re-armed.
+		_, err := service.AcceptHostApprovalTx(ctx, tx, probedHost(), invocation, assertion, check)
+		return err
 	}); err != nil {
 		t.Fatal(err)
 	}

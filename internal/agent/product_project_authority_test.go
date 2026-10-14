@@ -76,7 +76,11 @@ func TestSameProductSiblingMembershipMutationPassesApprovalChallenge(t *testing.
 }
 
 func TestSameProductMembershipApprovalWireRoundTrip(t *testing.T) {
-	for _, elapsed := range []time.Duration{0, 14 * time.Minute, 27 * time.Minute} {
+	// The elapsed set walks the pending-challenge boundary: an answer before
+	// the ten-minute mint deadline exchanges the live invitation, an answer
+	// at or after it re-arms the expired unused invitation for its original
+	// interval, and an answer far beyond 24 hours still needs no second ask.
+	for _, elapsed := range []time.Duration{0, 10*time.Minute - time.Second, 10 * time.Minute, 10*time.Minute + time.Second, 14 * time.Minute, 27 * time.Minute, 25 * time.Hour} {
 		t.Run(elapsed.String(), func(t *testing.T) {
 			testMembershipApprovalWireRoundTrip(t, elapsed, false)
 		})
@@ -165,17 +169,20 @@ func testMembershipApprovalWireRoundTrip(t *testing.T, elapsed time.Duration, ma
 		env.HostApproval.IssuedAt = now.Format(time.RFC3339Nano)
 		approved = dispatchWire(request, env)
 	}
-	if elapsed > 0 {
-		if approved.Error == nil || approved.Error.Kind != "approval_invalid" || approved.Error.EffectState != EffectNone || approved.Error.RetrySafe || approved.Error.RecoveryAction.Kind != "request_approval" {
-			t.Fatalf("expired challenge refusal = %+v", approved.Error)
+	if elapsed >= 10*time.Minute {
+		// The pending-challenge policy re-armed the expired invitation: the
+		// deadline moved by the original interval from the fresh answer and
+		// the issue time stayed at the mint instant.
+		var expiresAt, issuedAt string
+		if err := s.DatabaseForTesting().QueryRow(`SELECT expires_at, issued_at FROM agent_approval_challenges WHERE challenge_ref=?`, ref).Scan(&expiresAt, &issuedAt); err != nil {
+			t.Fatal(err)
 		}
-		if approved.Error.Details["boundary"] != "approval_challenge_binding" || approved.Error.Details["reason"] != "expired" || approved.Error.Details["validated_at"] != now.Format(time.RFC3339Nano) || approved.Error.Details["expires_at"] != summary.ExpiresAt {
-			t.Fatalf("expired challenge lost its exact cause: %+v", approved.Error)
+		if expiresAt != now.Add(10*time.Minute).Format(time.RFC3339Nano) {
+			t.Fatalf("re-armed deadline = %s, want the original interval from the fresh answer", expiresAt)
 		}
-		if workVersion(t, s, "work-1") != 2 || usedCount(t, s.DatabaseForTesting(), `SELECT used_count FROM agent_approval_challenges WHERE challenge_ref=?`, ref) != 0 || countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approvals`) != 0 {
-			t.Fatal("expired challenge changed work or consumed approval authority")
+		if issuedAt != fixedTime().Format(time.RFC3339Nano) {
+			t.Fatalf("re-arm moved the challenge issue time to %s", issuedAt)
 		}
-		return
 	}
 	if approved.Outcome != OutcomeOK {
 		t.Fatalf("approved membership = %+v, error = %+v", approved, approved.Error)
@@ -189,8 +196,8 @@ func testMembershipApprovalWireRoundTrip(t *testing.T, elapsed time.Duration, ma
 			t.Fatalf("unexpected membership = %+v", membership)
 		}
 	}
-	if workVersion(t, s, "work-1") != 3 || usedCount(t, s.DatabaseForTesting(), `SELECT used_count FROM agent_approval_challenges WHERE challenge_ref=?`, ref) != 1 {
-		t.Fatal("membership approval did not produce exactly one version increment and challenge consumption")
+	if workVersion(t, s, "work-1") != 3 || usedCount(t, s.DatabaseForTesting(), `SELECT used_count FROM agent_approval_challenges WHERE challenge_ref=?`, ref) != 1 || countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approvals WHERE used_count=1`) != 1 {
+		t.Fatal("membership approval did not produce exactly one mutation, one consumed challenge, and one consumed approval")
 	}
 	replayed := dispatchWire(request, env)
 	if replayed.Outcome != OutcomeOK || !replayed.Replayed || workVersion(t, s, "work-1") != 3 {

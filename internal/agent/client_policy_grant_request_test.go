@@ -16,11 +16,13 @@ import (
 )
 
 // The grant-request route is the one place tool arguments may ask for added
-// capabilities, so every refusal the mandate names — denial, expiry, altered
-// arguments, stale policy, replay — must leave the stored policy byte for
-// byte unchanged, and the one approved path must apply the exact derived
-// additions and nothing else. These tests dispatch through the runtime the
-// adapter uses, so no shell or MCP side door is exercised.
+// capabilities, so denial, altered arguments, a stale policy version, and
+// replay must leave the stored policy byte for byte unchanged, and the one
+// approved path must apply the exact derived additions and nothing else. A
+// fresh affirmative answer after the invitation's deadline re-arms the
+// expired unused challenge once and applies those same additions exactly
+// once. These tests dispatch through the runtime the adapter uses, so no
+// shell or MCP side door is exercised.
 
 type storedClientPolicy struct {
 	PrincipalRef string
@@ -262,27 +264,73 @@ func TestStalePolicyRefusesApproval(t *testing.T) {
 	}
 }
 
-func TestExpiredChallengeRefusesAndLeavesAuthorityUnchanged(t *testing.T) {
+// TestLateGrantRequestApprovalWidensPolicyOnce is the pending-challenge
+// policy on the grant-request route: the operator's affirmative answer
+// arrives after the ten-minute mint deadline, the core re-arms the expired
+// unused invitation for its original interval, and the one approved exchange
+// applies the exact requested additions exactly once.
+func TestLateGrantRequestApprovalWidensPolicyOnce(t *testing.T) {
 	t.Parallel()
 	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_relate"})
 	env := grantRequestEnvelope(t, s, grant)
+	before := readStoredPolicy(t, s, "client-1")
 	challenge := dispatchGrantRequest(t, s, service, env, grantRequestInput(""))
 	details := challenge.Error.Details
 	ref := details["approval_ref"].(string)
 	digest := details["operation_digest"].(string)
-	// Advance the clock past the challenge expiry, then assert the approval
-	// against the timestamp the expired challenge cannot satisfy.
+	// The prompt stays open past the ten-minute mint deadline while the
+	// answer is pending; the operator's answer is fresh.
 	later := fixedTime().Add(11 * time.Minute)
 	service.Now = func() time.Time { return later }
 	scope := map[string]any{"client_ref": "client-1", "policy_version": details["policy_version"], "capabilities": []string{"cross_scope"}, "product_scope": []string{"product-2"}}
-	env.HostApproval = signedHostApproval(mustKey(t), ref, digest, scope, map[string]any{}, env.SessionRef, env.AgentRef, env.Worktree, later, "expired-approval")
-	response := dispatchGrantRequest(t, s, service, env, grantRequestInput(ref))
-	if response.Error == nil || response.Error.Kind != "approval_invalid" {
-		t.Fatalf("expired response = %+v", response)
+	env.HostApproval = signedHostApproval(mustKey(t), ref, digest, scope, map[string]any{}, env.SessionRef, env.AgentRef, env.Worktree, later, "late-approval")
+	approved := dispatchGrantRequest(t, s, service, env, grantRequestInput(ref))
+	if approved.Outcome != OutcomeOK {
+		t.Fatalf("late-approved grant request = %+v, error = %+v", approved, approved.Error)
 	}
 	stored := readStoredPolicy(t, s, "client-1")
-	if contains(stored.Capabilities, "cross_scope") || contains(stored.Products, "product-2") {
-		t.Fatalf("expired approval widened the stored policy: %+v", stored)
+	// The exact additions: the stored arrays hold every prior grant, the one
+	// requested addition, and nothing else.
+	for _, capability := range before.Capabilities {
+		if !contains(stored.Capabilities, capability) {
+			t.Fatalf("late approval dropped prior capability %q: %v", capability, stored.Capabilities)
+		}
+	}
+	for _, product := range before.Products {
+		if !contains(stored.Products, product) {
+			t.Fatalf("late approval dropped prior Product %q: %v", product, stored.Products)
+		}
+	}
+	if len(stored.Capabilities) != len(before.Capabilities)+1 || !contains(stored.Capabilities, "cross_scope") || len(stored.Products) != len(before.Products)+1 || !contains(stored.Products, "product-2") {
+		t.Fatalf("late approval stored capabilities=%v products=%v, want exactly the requested additions over %v/%v", stored.Capabilities, stored.Products, before.Capabilities, before.Products)
+	}
+	if stored.PrincipalRef != before.PrincipalRef || !reflect.DeepEqual(stored.Projects, before.Projects) || !reflect.DeepEqual(stored.Agents, before.Agents) {
+		t.Fatalf("late approval moved an unrequested policy field: %+v", stored)
+	}
+	var status string
+	var used int
+	var issuedAt, expiresAt string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT status, used_count, issued_at, expires_at FROM agent_approval_challenges WHERE challenge_ref=?`, ref).Scan(&status, &used, &issuedAt, &expiresAt); err != nil {
+		t.Fatal(err)
+	}
+	if status != "consumed" || used != 1 || issuedAt != fixedTime().Format(time.RFC3339Nano) || expiresAt != later.Add(10*time.Minute).Format(time.RFC3339Nano) {
+		t.Fatalf("late grant exchange challenge state status=%s used=%d issued=%s expires=%s", status, used, issuedAt, expiresAt)
+	}
+	if countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approval_challenges`) != 1 {
+		t.Fatal("late grant answer minted a second challenge")
+	}
+	if countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approvals WHERE used_count=1`) != 1 {
+		t.Fatal("late grant exchange did not consume exactly one derived approval")
+	}
+	replayed := dispatchGrantRequest(t, s, service, env, grantRequestInput(ref))
+	if replayed.Outcome != OutcomeOK || !replayed.Replayed {
+		t.Fatalf("late grant replay response = %+v", replayed)
+	}
+	if !reflect.DeepEqual(stored, readStoredPolicy(t, s, "client-1")) {
+		t.Fatal("late grant replay changed the stored policy")
+	}
+	if countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approval_challenges`) != 1 {
+		t.Fatal("late grant replay minted a challenge")
 	}
 }
 

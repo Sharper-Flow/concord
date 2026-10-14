@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-// CON-953 durable acceptance tests for the recorded historical payload
+// Durable acceptance tests for the recorded historical payload
 // schemas. Every recorded event here is inserted as a raw log row the live
 // write route can no longer produce, and every acceptance route runs through
 // the recorded-event preparation the rebuild, restore, reconstruction, and
@@ -88,8 +88,8 @@ func histWorkerFailedEvent(t *testing.T, eventID, attemptID string, occurredAt t
 
 // histOccupancyReleasedEvent builds one released occupancy release payload:
 // the recorded row identity names its session through occupant_session_ref.
-func histOccupancyReleasedEvent(eventID, projectID, claimOpID, sessionRef string, occurredAt time.Time) Event {
-	payload := jsonRaw(`{"set_id":"` + WorktreeSetID("work-w") + `","project_id":"` + projectID + `","claim_op_id":"` + claimOpID + `","occupant_session_ref":"` + sessionRef + `"}`)
+func histOccupancyReleasedEvent(eventID, claimOpID, sessionRef string, occurredAt time.Time) Event {
+	payload := jsonRaw(`{"set_id":"` + WorktreeSetID("work-w") + `","project_id":"project-w","claim_op_id":"` + claimOpID + `","occupant_session_ref":"` + sessionRef + `"}`)
 	return Event{
 		EventID: eventID, Kind: "work.worktree_occupancy_released", SubjectType: SubjectWorkItem,
 		SubjectID: "work-w", Actor: sessionRef, OccurredAt: occurredAt, PayloadVersion: 1, Payload: payload,
@@ -260,8 +260,8 @@ func TestRecordedHistoricalPayloadHistoryRebuildsRestoresAndReconstructs(t *test
 		t.Fatal(err)
 	}
 
-	insertHistoricalEvent(t, s, histOccupancyReleasedEvent("hist-release-1", "project-w", claimedA.Entry.ClaimOpID, "ses-legacy", time.Unix(20, 0).UTC()))
-	landing, landingPayload := legacyLandingEvent("hist-landing-1", "work-w", "project-b", "ses-legacy", claimedB.Entry.Path, nil, time.Unix(21, 0).UTC())
+	insertHistoricalEvent(t, s, histOccupancyReleasedEvent("hist-release-1", claimedA.Entry.ClaimOpID, "ses-legacy", time.Unix(20, 0).UTC()))
+	landing, landingPayload := legacyLandingEvent("hist-landing-1", "project-b", "ses-legacy", claimedB.Entry.Path, nil, time.Unix(21, 0).UTC())
 	insertHistoricalEvent(t, s, landing)
 
 	insertHistoricalEvent(t, s, histDispatchEvent(t, "hist-dispatch-v1", "attempt-hist-v1", 1, time.Unix(30, 0).UTC(), map[string]any{
@@ -298,7 +298,7 @@ func TestRecordedHistoricalPayloadHistoryRebuildsRestoresAndReconstructs(t *test
 	if err := s.DatabaseForTesting().QueryRow(`SELECT version FROM work_items WHERE id='work-w'`).Scan(&workVersion); err != nil {
 		t.Fatal(err)
 	}
-	nativePayload, nativeDigest := legacyNativeRunWriterPayload(t, "work-w", "run-hist", "/service/checkout", func(payload map[string]any) {
+	nativePayload, nativeDigest := legacyNativeRunWriterPayload(t, "run-hist", func(payload map[string]any) {
 		payload["expected_version"] = workVersion
 		payload["resulting_version"] = workVersion + 1
 	})
@@ -339,7 +339,7 @@ func TestRecordedHistoricalPayloadHistoryRebuildsRestoresAndReconstructs(t *test
 		t.Fatalf("released occupancy row still records %q", got)
 	}
 	destinationID := worktreeOccupancyID(WorktreeSetID("work-w"), "project-b", claimedB.Entry.ClaimOpID)
-	pid, pidStart, hasIdentity, found := legacyOccupancyIdentity(t, s, destinationID, "ses-legacy")
+	pid, pidStart, hasIdentity, found := legacyOccupancyIdentity(t, s, destinationID)
 	if !found {
 		t.Fatal("the legacy landing destination row is missing")
 	}
@@ -524,8 +524,8 @@ func TestRecoverFoldGuardReplaysRecordedOccupancyHistory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	insertHistoricalEvent(t, s, histOccupancyReleasedEvent("hist-recovery-release", "project-w", claimedA.Entry.ClaimOpID, "ses-legacy", time.Unix(20, 0).UTC()))
-	recoveryLanding, _ := legacyLandingEvent("hist-recovery-landing", "work-w", "project-b", "ses-legacy", claimedB.Entry.Path, nil, time.Unix(21, 0).UTC())
+	insertHistoricalEvent(t, s, histOccupancyReleasedEvent("hist-recovery-release", claimedA.Entry.ClaimOpID, "ses-legacy", time.Unix(20, 0).UTC()))
+	recoveryLanding, _ := legacyLandingEvent("hist-recovery-landing", "project-b", "ses-legacy", claimedB.Entry.Path, nil, time.Unix(21, 0).UTC())
 	insertHistoricalEvent(t, s, recoveryLanding)
 	if err := RebuildFromLog(ctx, s); err != nil {
 		t.Fatalf("the recorded occupancy history must fold before the guard strands: %v", err)
@@ -584,7 +584,7 @@ func TestRecoverFoldGuardReplaysRecordedOccupancyHistory(t *testing.T) {
 	if got := worktreeOccupancyByEntry(t, reopened, WorktreeSetID("work-w"), "project-w", claimedA.Entry.ClaimOpID); got != "" {
 		t.Fatalf("recorded release did not survive recovery: occupancy records %q", got)
 	}
-	pid, pidStart, hasIdentity, found := legacyOccupancyIdentity(t, reopened, worktreeOccupancyID(WorktreeSetID("work-w"), "project-b", claimedB.Entry.ClaimOpID), "ses-legacy")
+	pid, pidStart, hasIdentity, found := legacyOccupancyIdentity(t, reopened, worktreeOccupancyID(WorktreeSetID("work-w"), "project-b", claimedB.Entry.ClaimOpID))
 	if !found {
 		t.Fatal("the recorded legacy landing row did not survive recovery")
 	}
@@ -605,7 +605,7 @@ func TestRecordedPreparationRefusesUnreleasedOldPayloadVariants(t *testing.T) {
 
 	// Positive controls: each released shape is recognized, adapts in
 	// memory, and keeps its semantics.
-	landing, _ := legacyLandingEvent("ok-landing", "work-w", "project-w", "ses-legacy", "/fixtures/landed", nil, time.Unix(40, 0).UTC())
+	landing, _ := legacyLandingEvent("ok-landing", "project-w", "ses-legacy", "/fixtures/landed", nil, time.Unix(40, 0).UTC())
 	landingPrepared, err := prepareRecordedEvent(landing)
 	if err != nil {
 		t.Fatalf("released five-field landing refused: %v", err)
@@ -617,7 +617,7 @@ func TestRecordedPreparationRefusesUnreleasedOldPayloadVariants(t *testing.T) {
 		t.Fatalf("recognized landing version=%d, want the current 2", landingPrepared.current.PayloadVersion)
 	}
 
-	nativePayload, _ := legacyNativeRunWriterPayload(t, "work-w", "run-ok", "/service/checkout", nil)
+	nativePayload, _ := legacyNativeRunWriterPayload(t, "run-ok", nil)
 	nativePrepared, err := prepareRecordedEvent(legacyNativeRunEvent("ok-native", nativePayload))
 	if err != nil {
 		t.Fatalf("released native-run report refused: %v", err)
@@ -626,7 +626,7 @@ func TestRecordedPreparationRefusesUnreleasedOldPayloadVariants(t *testing.T) {
 		t.Fatal("the released native-run report was not recognized as the legacy recorded shape")
 	}
 
-	release := histOccupancyReleasedEvent("ok-release", "project-w", "wt-op-1", "ses-legacy", time.Unix(20, 0).UTC())
+	release := histOccupancyReleasedEvent("ok-release", "wt-op-1", "ses-legacy", time.Unix(20, 0).UTC())
 	releasePrepared, err := prepareRecordedEvent(release)
 	if err != nil {
 		t.Fatalf("released occupancy release refused: %v", err)
@@ -833,7 +833,7 @@ func TestLiveWriteRoutesRefuseRecordedOldShapesAndCommitNothing(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	nativePayload, _ := legacyNativeRunWriterPayload(t, "work-w", "run-live", "/service/checkout", func(payload map[string]any) {
+	nativePayload, _ := legacyNativeRunWriterPayload(t, "run-live", func(payload map[string]any) {
 		payload["expected_version"] = versionBefore
 		payload["resulting_version"] = versionBefore + 1
 	})
@@ -841,7 +841,7 @@ func TestLiveWriteRoutesRefuseRecordedOldShapesAndCommitNothing(t *testing.T) {
 		event Event
 		text  string
 	}{
-		"occupancy release occupant_session_ref":     {histOccupancyReleasedEvent("live-old-release", "project-w", claimed.Entry.ClaimOpID, "ses-held", time.Unix(20, 0).UTC()), histDecodeRefusal},
+		"occupancy release occupant_session_ref":     {histOccupancyReleasedEvent("live-old-release", claimed.Entry.ClaimOpID, "ses-held", time.Unix(20, 0).UTC()), histDecodeRefusal},
 		"worker failed observed_session_directories": {histWorkerFailedEvent(t, "live-old-failure", "attempt-live", time.Unix(40, 0).UTC(), []any{}), histDecodeRefusal},
 		"worker dispatched routing members": {histDispatchEvent(t, "live-old-dispatch", "attempt-live", 1, time.Unix(30, 0).UTC(), map[string]any{
 			"routing_policy_version": historicalRoutingPolicyToken, "resolved_model": "openai/gpt-5.6-luna",
@@ -869,7 +869,7 @@ func TestLiveWriteRoutesRefuseRecordedOldShapesAndCommitNothing(t *testing.T) {
 	// recorded legacy identity is unreachable from any write route, so the
 	// refusal is the current missing-host-pid rule and the append commits
 	// nothing.
-	landing, _ := legacyLandingEvent("live-old-landing", "work-w", "project-w", "ses-held", claimed.Entry.Path, nil, time.Unix(22, 0).UTC())
+	landing, _ := legacyLandingEvent("live-old-landing", "project-w", "ses-held", claimed.Entry.Path, nil, time.Unix(22, 0).UTC())
 	before := countEvents(t)
 	landingErr := ApplyOperation(ctx, s, Operation{Events: []Event{landing}})
 	var failure *Failure

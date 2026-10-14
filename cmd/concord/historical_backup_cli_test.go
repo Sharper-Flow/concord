@@ -162,10 +162,8 @@ func TestHistoricalPayloadRepairSnapshotQualification(t *testing.T) {
 					t.Fatalf("unreplayable rollback must prevent installer execution: code=%d error=%s marker=%v", code, errOut, markerErr)
 				}
 				assertNoHistoricalSnapshot(t, fixture.dataRoot)
-			} else {
-				if code != 0 || markerErr != nil || !strings.Contains(out.String(), "database backup at") {
-					t.Fatalf("replayable historical rollback must permit repair: code=%d error=%s marker=%v", code, errOut, markerErr)
-				}
+			} else if code != 0 || markerErr != nil || !strings.Contains(out.String(), "database backup at") {
+				t.Fatalf("replayable historical rollback must permit repair: code=%d error=%s marker=%v", code, errOut, markerErr)
 			}
 			assertHistoricalBackupEvent(t, path, failed)
 		})

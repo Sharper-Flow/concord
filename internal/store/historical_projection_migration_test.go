@@ -2,13 +2,14 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"path/filepath"
 	"reflect"
 	"testing"
 	"time"
 )
 
-func TestRecordedRoutingDispatchMigrationAndReplayAgree(t *testing.T) {
+func TestRecordedHistoricalProjectionMigrationAndReplayAgree(t *testing.T) {
 	useStampedBuild(t)
 	requireHistoricalResearchLane(t)
 	ctx := context.Background()
@@ -67,6 +68,30 @@ func TestRecordedRoutingDispatchMigrationAndReplayAgree(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	nativePayload, _ := legacyNativeRunWriterPayload(t, "run-migrated", nil)
+	native := legacyNativeRunEvent("native-migrated", nativePayload)
+	appendEvent(native)
+	var report legacyNativeRunPayload
+	if err := json.Unmarshal(nativePayload, &report); err != nil {
+		t.Fatal(err)
+	}
+	var envelope map[string]any
+	if err := json.Unmarshal(nativePayload, &envelope); err != nil {
+		t.Fatal(err)
+	}
+	universe := jsonMember(envelope["observed_universe"])
+	if _, err := tx.ExecContext(ctx, `INSERT INTO workflow_native_runs
+		(work_id,run_id,phase,status,event_id,reporting_authority_ref,actor_ref,native_subject_ref,subject_digest,evidence_ref,evidence_digest,asserted_at,recorded_at,capture_method,observed_universe,freshness_policy_ref,divergence_policy_ref)
+		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		native.SubjectID, report.RunID, report.Phase, report.Status, native.EventID,
+		report.ReportingAuthorityRef, report.ActorRef, report.NativeSubjectRef, report.SubjectDigest,
+		report.EvidenceRef, report.EvidenceDigest, report.AssertedAt, native.OccurredAt.Format(time.RFC3339Nano),
+		report.CaptureMethod, universe, report.FreshnessPolicyRef, report.DivergencePolicyRef); err != nil {
+		t.Fatal(err)
+	}
+	if err := bumpVersion(ctx, tx, "work_items", native, report.ExpectedVersion, report.ResultingVersion, "work item"); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM fold_guard`); err != nil {
 		t.Fatal(err)
 	}
@@ -82,6 +107,17 @@ func TestRecordedRoutingDispatchMigrationAndReplayAgree(t *testing.T) {
 	if err := migrateRestoredStage(ctx, db); err != nil {
 		t.Fatal(err)
 	}
+	assertUniverse := func(stage string) {
+		t.Helper()
+		var got string
+		if err := db.QueryRowContext(ctx, `SELECT observed_universe FROM workflow_native_runs WHERE work_id='work-w' AND run_id='run-migrated' AND phase='start'`).Scan(&got); err != nil {
+			t.Fatal(err)
+		}
+		if got != universe {
+			t.Fatalf("%s changed native universe bytes: %q, want %q", stage, got, universe)
+		}
+	}
+	assertUniverse("migration")
 	for attempt, row := range want {
 		if got := histAttemptRow(t, db, attempt); got != row {
 			t.Fatalf("migration changed %s: %+v, want %+v", attempt, got, row)
@@ -90,6 +126,7 @@ func TestRecordedRoutingDispatchMigrationAndReplayAgree(t *testing.T) {
 	if err := RebuildFromLog(ctx, s); err != nil {
 		t.Fatal(err)
 	}
+	assertUniverse("replay")
 	for attempt, row := range want {
 		if got := histAttemptRow(t, db, attempt); got != row {
 			t.Fatalf("replay disagrees with migration for %s: %+v, want %+v", attempt, got, row)

@@ -24,9 +24,9 @@ import (
 // row is ever rewritten.
 
 // legacyLandingEvent builds one released five-field landing event.
-func legacyLandingEvent(eventID, workID, projectID, sessionRef, landedDirectory string, sources []string, at time.Time) (Event, []byte) {
+func legacyLandingEvent(eventID, projectID, sessionRef, landedDirectory string, sources []string, at time.Time) (Event, []byte) {
 	payload, err := json.Marshal(legacySessionClaimLandedPayload{
-		WorkID: workID, ProjectID: projectID, SessionRef: sessionRef,
+		WorkID: "work-w", ProjectID: projectID, SessionRef: sessionRef,
 		SourceDirectories: sources, LandedDirectory: landedDirectory,
 	})
 	if err != nil {
@@ -34,7 +34,7 @@ func legacyLandingEvent(eventID, workID, projectID, sessionRef, landedDirectory 
 	}
 	return Event{
 		EventID: eventID, Kind: "work.session_claim_landed",
-		SubjectType: SubjectWorkItem, SubjectID: workID,
+		SubjectType: SubjectWorkItem, SubjectID: "work-w",
 		Actor: sessionRef, OccurredAt: at, PayloadVersion: 1, Payload: payload,
 	}, payload
 }
@@ -61,9 +61,9 @@ func storedEventPayload(t *testing.T, s *Store, eventID string) []byte {
 
 // legacyOccupancyIdentity reads one occupancy row's process identity. found
 // is false when the row does not exist.
-func legacyOccupancyIdentity(t *testing.T, s *Store, worktreeID, sessionRef string) (pid sql.NullInt64, pidStart sql.NullInt64, hasIdentity int, found bool) {
+func legacyOccupancyIdentity(t *testing.T, s *Store, worktreeID string) (pid sql.NullInt64, pidStart sql.NullInt64, hasIdentity int, found bool) {
 	t.Helper()
-	err := s.DatabaseForTesting().QueryRow(`SELECT host_pid, host_pid_start, has_process_identity FROM worktree_occupancy WHERE worktree_id=? AND session_ref=?`, worktreeID, sessionRef).Scan(&pid, &pidStart, &hasIdentity)
+	err := s.DatabaseForTesting().QueryRow(`SELECT host_pid, host_pid_start, has_process_identity FROM worktree_occupancy WHERE worktree_id=? AND session_ref=?`, worktreeID, "ses-legacy").Scan(&pid, &pidStart, &hasIdentity)
 	if err == sql.ErrNoRows {
 		return sql.NullInt64{}, sql.NullInt64{}, 0, false
 	}
@@ -97,14 +97,14 @@ func TestLegacySessionClaimLandingReplaysAsProcessIdentityFreeRow(t *testing.T) 
 		t.Fatal(err)
 	}
 
-	landing, payload := legacyLandingEvent("legacy-landing-1", "work-w", "project-b", "ses-legacy", claimedB.Entry.Path, []string{claimedA.Entry.Path}, time.Unix(40, 0).UTC())
+	landing, payload := legacyLandingEvent("legacy-landing-1", "project-b", "ses-legacy", claimedB.Entry.Path, []string{claimedA.Entry.Path}, time.Unix(40, 0).UTC())
 	insertHistoricalEvent(t, s, landing)
 	if err := RebuildFromLog(ctx, s); err != nil {
 		t.Fatalf("rebuild must fold the released five-field landing: %v", err)
 	}
 
 	destinationID := worktreeOccupancyID(WorktreeSetID("work-w"), "project-b", claimedB.Entry.ClaimOpID)
-	pid, pidStart, hasIdentity, found := legacyOccupancyIdentity(t, s, destinationID, "ses-legacy")
+	pid, pidStart, hasIdentity, found := legacyOccupancyIdentity(t, s, destinationID)
 	if !found {
 		t.Fatal("the legacy landing must record the destination occupancy row")
 	}
@@ -122,7 +122,7 @@ func TestLegacySessionClaimLandingReplaysAsProcessIdentityFreeRow(t *testing.T) 
 	if err := RebuildFromLog(ctx, s); err != nil {
 		t.Fatalf("repeated rebuild must agree: %v", err)
 	}
-	if _, _, _, found := legacyOccupancyIdentity(t, s, destinationID, "ses-legacy"); !found {
+	if _, _, _, found := legacyOccupancyIdentity(t, s, destinationID); !found {
 		t.Fatal("the repeated rebuild must hold the same legacy row")
 	}
 }
@@ -140,7 +140,7 @@ func TestLegacySessionClaimLandingAbsentPathStillRefuses(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	absent, payload := legacyLandingEvent("legacy-landing-absent", "work-w", "project-w", "ses-legacy", t.TempDir()+"/nowhere", nil, time.Unix(40, 0).UTC())
+	absent, payload := legacyLandingEvent("legacy-landing-absent", "project-w", "ses-legacy", t.TempDir()+"/nowhere", nil, time.Unix(40, 0).UTC())
 	insertHistoricalEvent(t, s, absent)
 	err := RebuildFromLog(ctx, s)
 	var failure *Failure
@@ -199,7 +199,7 @@ func TestLiveClaimLandingMissingHostPIDStillRefused(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	untaggedLegacy, _ := legacyLandingEvent("untagged-landing", "work-w", "project-w", "ses-legacy", claimed.Entry.Path, nil, time.Unix(40, 0).UTC())
+	untaggedLegacy, _ := legacyLandingEvent("untagged-landing", "project-w", "ses-legacy", claimed.Entry.Path, nil, time.Unix(40, 0).UTC())
 	err = foldSessionClaimLanded(ctx, nil, untaggedLegacy)
 	var failure *Failure
 	if !failureAs(err, &failure) || failure.Kind != KindInvalidPayload || !strings.Contains(failure.Detail, "missing host_pid") {
@@ -226,7 +226,7 @@ func TestLiveClaimLandingMissingHostPIDStillRefused(t *testing.T) {
 // a required member or a well-formed type cannot be dropped.
 func TestLegacySessionClaimLandingValidatorRejectsLaterMembers(t *testing.T) {
 	t.Parallel()
-	valid, _ := legacyLandingEvent("v", "work-w", "project-w", "ses-legacy", "/fixtures/landed", nil, time.Unix(40, 0).UTC())
+	valid, _ := legacyLandingEvent("v", "project-w", "ses-legacy", "/fixtures/landed", nil, time.Unix(40, 0).UTC())
 	if err := validateLegacySessionClaimLandedPayload(valid); err != nil {
 		t.Fatalf("released five-field landing err=%v, want acceptance", err)
 	}
@@ -250,12 +250,13 @@ func TestLegacySessionClaimLandingValidatorRejectsLaterMembers(t *testing.T) {
 // way its writer emitted it, including the map-form universe, and returns the
 // subject digest that writer derived. The mutation hook derives every
 // negative case from the same emitted form.
-func legacyNativeRunWriterPayload(t *testing.T, workID, runID, subjectRef string, mutate func(map[string]any)) ([]byte, string) {
+func legacyNativeRunWriterPayload(t *testing.T, runID string, mutate func(map[string]any)) ([]byte, string) {
 	t.Helper()
+	const subjectRef = "/service/checkout"
 	sum := sha256.Sum256([]byte(subjectRef))
 	digest := "sha256:" + hex.EncodeToString(sum[:])
 	payload := map[string]any{
-		"work_id": workID, "run_id": runID, "native_subject_ref": subjectRef,
+		"work_id": "work-w", "run_id": runID, "native_subject_ref": subjectRef,
 		"subject_digest": digest, "phase": "start", "status": "started",
 		"evidence_ref": "run-legacy-evidence", "evidence_digest": "legacy-evidence-digest",
 		"asserted_at":             time.Unix(50, 0).UTC().Format(time.RFC3339Nano),
@@ -265,7 +266,7 @@ func legacyNativeRunWriterPayload(t *testing.T, workID, runID, subjectRef string
 			"shape": "item", "applied_scope": subjectRef, "anchor": digest,
 			"coverage": "complete", "observed_count": 1, "observed_refs": []string{runID},
 			"total": "eq(1)", "completion_evidence": "closed_structure_digest",
-			"canonical_identity_key": workID + "/" + runID, "omissions": []string{},
+			"canonical_identity_key": "work-w/" + runID, "omissions": []string{},
 		},
 		"freshness_policy_ref":  legacyNativeRunFreshnessPolicyRef,
 		"divergence_policy_ref": legacyNativeRunDivergencePolicyRef,
@@ -304,7 +305,7 @@ func jsonMember(value any) string {
 // universe members, and the original bounds and vocabulary.
 func TestLegacyNativeRunValidatorAcceptsOnlyRecordedWriterForm(t *testing.T) {
 	t.Parallel()
-	validPayload, _ := legacyNativeRunWriterPayload(t, "work-w", "run-legacy", "/service/checkout", nil)
+	validPayload, _ := legacyNativeRunWriterPayload(t, "run-legacy", nil)
 	valid := legacyNativeRunEvent("legacy-native-valid", validPayload)
 	if err := validateLegacyNativeRunPayload(valid); err != nil {
 		t.Fatalf("released native-run report err=%v, want acceptance", err)
@@ -343,7 +344,7 @@ func TestLegacyNativeRunValidatorAcceptsOnlyRecordedWriterForm(t *testing.T) {
 		"unparsable asserted time":  {func(payload map[string]any) { payload["asserted_at"] = "not-a-time" }, "RFC3339"},
 	}
 	for name, testCase := range cases {
-		payload, _ := legacyNativeRunWriterPayload(t, "work-w", "run-legacy", "/service/checkout", testCase.mutate)
+		payload, _ := legacyNativeRunWriterPayload(t, "run-legacy", testCase.mutate)
 		err := validateLegacyNativeRunPayload(legacyNativeRunEvent("legacy-native-"+strings.ReplaceAll(name, " ", "-"), payload))
 		if err == nil {
 			t.Fatalf("%s must refuse, want a typed refusal", name)
@@ -353,9 +354,9 @@ func TestLegacyNativeRunValidatorAcceptsOnlyRecordedWriterForm(t *testing.T) {
 		}
 	}
 
-	trailingPayload, _ := legacyNativeRunWriterPayload(t, "work-w", "run-legacy", "/service/checkout", nil)
-	trailing := append(trailingPayload, []byte(` {"x":1}`)...)
-	if err := validateLegacyNativeRunPayload(legacyNativeRunEvent("legacy-native-trailing", trailing)); err == nil {
+	trailingPayload, _ := legacyNativeRunWriterPayload(t, "run-legacy", nil)
+	trailingPayload = append(trailingPayload, []byte(` {"x":1}`)...)
+	if err := validateLegacyNativeRunPayload(legacyNativeRunEvent("legacy-native-trailing", trailingPayload)); err == nil {
 		t.Fatal("trailing data must refuse")
 	}
 }
@@ -370,7 +371,7 @@ func TestLegacyNativeRunFoldPersistsRecordedRowWithoutObservation(t *testing.T) 
 	ctx := context.Background()
 
 	const runID = "run-legacy"
-	payload, subjectDigest := legacyNativeRunWriterPayload(t, "work-w", runID, "/service/checkout", nil)
+	payload, subjectDigest := legacyNativeRunWriterPayload(t, runID, nil)
 	insertHistoricalEvent(t, s, legacyNativeRunEvent("legacy-native-run-1", payload))
 	if err := RebuildFromLog(ctx, s); err != nil {
 		t.Fatalf("rebuild must fold the released native-run report: %v", err)
@@ -414,6 +415,9 @@ func TestLegacyNativeRunFoldPersistsRecordedRowWithoutObservation(t *testing.T) 
 		"completion_evidence":    "closed_structure_digest",
 		"canonical_identity_key": "work-w/" + runID,
 		"omissions":              []any{},
+	}
+	if universeText != jsonMember(expectedUniverse) {
+		t.Fatalf("stored universe bytes=%q, want the released map encoding %q", universeText, jsonMember(expectedUniverse))
 	}
 	if len(storedUniverse) != len(expectedUniverse) {
 		t.Fatalf("stored universe members=%d, want %d: %v", len(storedUniverse), len(expectedUniverse), storedUniverse)

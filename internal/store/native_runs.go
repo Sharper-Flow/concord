@@ -99,13 +99,10 @@ func validateNativeRunShape(payload *nativeRunPayload) error {
 	return nil
 }
 
-// The released native-run payload shape the current capture component
-// replaced (df9f3226, #259): a free-form universe map, two static policy
-// references, and no shared observation identity. Reports recorded by that
-// writer are legitimate history. Replay validates exactly that released shape
-// and folds it without relabeling the old policy identities, inventing an
-// observation binding, or fabricating verification. The live write
-// validation above never reaches this shape.
+// Recorded native-run reports carry a universe map, two static policy
+// references, and no shared observation identity. Replay preserves these
+// identities without fabricating verification. Live validation cannot admit
+// this shape.
 const (
 	legacyNativeRunFreshnessPolicyRef  = "policy/native-run-report/freshness@cd-0040"
 	legacyNativeRunDivergencePolicyRef = "policy/native-run-report/divergence@cd-0040"
@@ -114,18 +111,19 @@ const (
 // legacyNativeRunUniverse is the universe the released writer emitted for
 // every native-run report: one complete item exactly scoped to the reported
 // subject, one total, no omissions. A stored universe that disagrees with its
-// own report was written by no released writer.
+// own report was written by no released writer. Field order preserves the
+// canonical map encoding stored in the projection.
 type legacyNativeRunUniverse struct {
-	Shape                string   `json:"shape"`
-	AppliedScope         string   `json:"applied_scope"`
 	Anchor               string   `json:"anchor"`
+	AppliedScope         string   `json:"applied_scope"`
+	CanonicalIdentityKey string   `json:"canonical_identity_key"`
+	CompletionEvidence   string   `json:"completion_evidence"`
 	Coverage             string   `json:"coverage"`
 	ObservedCount        int      `json:"observed_count"`
 	ObservedRefs         []string `json:"observed_refs"`
-	Total                string   `json:"total"`
-	CompletionEvidence   string   `json:"completion_evidence"`
-	CanonicalIdentityKey string   `json:"canonical_identity_key"`
 	Omissions            []string `json:"omissions"`
+	Shape                string   `json:"shape"`
+	Total                string   `json:"total"`
 }
 
 // legacyNativeRunPayload reflects the released writer's payload. Strict

@@ -305,6 +305,112 @@ const GeneratedPayloadSchemaDocument = `{
       ],
       "type": "object"
     },
+    "continuity_boot_projection_reference": {
+      "additionalProperties": false,
+      "description": "CD-0090 D6: the deterministic boot projection reference for an oversized continuity projection. It carries the exact small identity header, the complete captured boot projection's digest and byte length, and the canonical initial continuity read pointer. It is not the projection and cannot carry complete authority: reconstruction through the referenced authenticated pages precedes use, and a later read may describe newer state or a different session's held leases than this captured snapshot.",
+      "properties": {
+        "digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "projection_omitted": {
+          "const": true,
+          "description": "Exact omitted-projection status: the boot packet carries no projection body and no fragment, and claims no complete contract, question, intent set, or evidence."
+        },
+        "read_pointer": {
+          "additionalProperties": false,
+          "description": "The canonical initial concord_work_trace.continuity read that starts the authenticated page stream for this projection.",
+          "properties": {
+            "input": {
+              "additionalProperties": false,
+              "properties": {
+                "page": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "cursor": {
+                      "const": null,
+                      "description": "The initial null cursor."
+                    },
+                    "limit": {
+                      "const": 20,
+                      "description": "The boot snapshot's initial boundary window."
+                    }
+                  },
+                  "required": [
+                    "cursor",
+                    "limit"
+                  ],
+                  "type": "object"
+                },
+                "work_id": {
+                  "$ref": "#/$defs/id"
+                }
+              },
+              "required": [
+                "work_id",
+                "page"
+              ],
+              "type": "object"
+            },
+            "operation": {
+              "const": "continuity"
+            },
+            "tool": {
+              "const": "concord_work_trace"
+            }
+          },
+          "required": [
+            "tool",
+            "operation",
+            "input"
+          ],
+          "type": "object"
+        },
+        "total_bytes": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "watermark": {
+          "$ref": "#/$defs/id",
+          "description": "The exact source watermark of the captured projection."
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        },
+        "work_version": {
+          "description": "The exact work-item version the captured projection was derived from, when the capture exposes it; absent otherwise.",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "workflow_instance": {
+          "description": "Typed workflow-instance presence, exactly the store's captured marker: \"present\" when the work item holds a workflow instance, \"absent\" when it holds none (imported work).",
+          "enum": [
+            "present",
+            "absent"
+          ],
+          "type": "string"
+        },
+        "workflow_step": {
+          "description": "The instance's current step; null when the work item holds no workflow instance (imported work).",
+          "maxLength": 256,
+          "minLength": 1,
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "work_id",
+        "workflow_instance",
+        "workflow_step",
+        "watermark",
+        "digest",
+        "total_bytes",
+        "projection_omitted",
+        "read_pointer"
+      ],
+      "type": "object"
+    },
     "continuity_boundary": {
       "additionalProperties": false,
       "properties": {
@@ -804,6 +910,128 @@ const GeneratedPayloadSchemaDocument = `{
         "state",
         "recorded_at"
       ],
+      "type": "object"
+    },
+    "continuity_projection_page": {
+      "additionalProperties": false,
+      "description": "CD-0016 as amended: the closed lossless transport for one oversized continuity projection. The identity header repeats exact scalar work, step, instance, and watermark identities only. One page never carries complete authority: a consumer joins every page of one projection digest before it uses the projection, and reconstruction precedes use.",
+      "properties": {
+        "next_kind": {
+          "description": "The continuation the authenticated envelope next_cursor resumes: \"projection\" continues this document's next page, \"boundaries\" resumes the original boundary-page continuation, null ends the read.",
+          "enum": [
+            "projection",
+            "boundaries",
+            null
+          ],
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "projection_page": {
+          "additionalProperties": false,
+          "description": "The exact byte page of one canonical continuity JSON document. encoding is fixed; digest is the SHA-256 of the complete canonical document; total_bytes is the document's exact UTF-8 byte length; offset is this fragment's starting byte; data carries the exact UTF-8 fragment text. data is not independently parseable JSON and is not a summary: a fragment cannot carry complete authority. Concatenate the decoded fragment strings by byte offset, check total length and digest, then parse the reconstructed document exactly once; reconstruction precedes use, and no consumer inspects partial contract, question, intent, or context data.",
+          "properties": {
+            "data": {
+              "description": "The exact UTF-8 fragment text of the canonical document at offset. Each page carries at least one whole code point and fills the real remaining envelope capacity; no fixed fragment cap bounds it.",
+              "minLength": 1,
+              "type": "string"
+            },
+            "digest": {
+              "$ref": "#/$defs/digest"
+            },
+            "document_complete": {
+              "type": "boolean"
+            },
+            "encoding": {
+              "const": "json-utf8"
+            },
+            "offset": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "total_bytes": {
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "encoding",
+            "digest",
+            "total_bytes",
+            "offset",
+            "data",
+            "document_complete"
+          ],
+          "type": "object"
+        },
+        "watermark": {
+          "$ref": "#/$defs/id",
+          "description": "The exact source watermark of the captured projection."
+        },
+        "work_id": {
+          "$ref": "#/$defs/id"
+        },
+        "work_version": {
+          "description": "The exact work-item version the captured projection was derived from, when the capture exposes it; absent otherwise.",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "workflow_instance": {
+          "description": "Typed workflow-instance presence, exactly the store's captured marker: \"present\" when the work item holds a workflow instance, \"absent\" when it holds none (imported work).",
+          "enum": [
+            "present",
+            "absent"
+          ],
+          "type": "string"
+        },
+        "workflow_step": {
+          "description": "The instance's current step; null when the work item holds no workflow instance (imported work).",
+          "maxLength": 256,
+          "minLength": 1,
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "work_id",
+        "workflow_instance",
+        "workflow_step",
+        "watermark",
+        "projection_page",
+        "next_kind"
+      ],
+      "type": "object"
+    },
+    "continuity_read_result": {
+      "additionalProperties": false,
+      "description": "The concord_work_trace.continuity result: the complete typed inline snapshot when the measured final envelope fits the unchanged 51,200-byte limit, or the closed lossless projection-page transport when the fixed projection does not fit. The root property list only names the keys the two closed branches own; each branch carries the full constraints and exactly one branch must match. A page cannot carry complete authority; a consumer joins the page sequence and reconstructs the document before use.",
+      "oneOf": [
+        {
+          "$ref": "#/$defs/continuity_snapshot"
+        },
+        {
+          "$ref": "#/$defs/continuity_projection_page"
+        }
+      ],
+      "properties": {
+        "boundaries": {},
+        "next_kind": {},
+        "observations": {},
+        "observations_read": {},
+        "observations_total": {},
+        "pending_messages": {},
+        "pinned": {},
+        "projection_page": {},
+        "typed_availability": {},
+        "watermark": {},
+        "work_id": {},
+        "work_version": {},
+        "workflow_instance": {},
+        "workflow_step": {}
+      },
       "type": "object"
     },
     "continuity_snapshot": {
@@ -7733,7 +7961,15 @@ const GeneratedPayloadSchemaDocument = `{
       "additionalProperties": false,
       "properties": {
         "continuity": {
-          "$ref": "#/$defs/continuity_snapshot"
+          "description": "The boot continuity: the complete typed inline snapshot when the measured boot packet fits its unchanged 65,536-byte cap, or the closed projection reference when the projection is oversized. The reference omits the projection body and names the canonical read that reconstructs it; reconstruction precedes use.",
+          "oneOf": [
+            {
+              "$ref": "#/$defs/continuity_snapshot"
+            },
+            {
+              "$ref": "#/$defs/continuity_boot_projection_reference"
+            }
+          ]
         },
         "manifest_digest": {
           "$ref": "#/$defs/digest"

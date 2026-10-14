@@ -55,10 +55,14 @@ class AgentProjectionTests(unittest.TestCase):
             self.assertIn(f"\n  {tool_id}: false\n", projection)
         self.assertIn("## Concord context boundary", projection)
 
-    def test_every_installed_agent_definition_denies_every_concord_tool(self):
+    def test_every_lane_and_utility_definition_denies_every_concord_tool(self):
         # generate-agent-lanes.py --check keeps these files equal to the
-        # projections, so this covers every lane and utility the manifest declares.
-        definitions = sorted((ROOT / ".opencode/agents").glob("concord-*.md"))
+        # projections, so this covers every lane and utility the manifest
+        # declares. Named primary profiles hold Concord authority by role and
+        # are covered by PrimaryProfileProjectionTests.
+        manifest, _ = generator.load_manifest()
+        ids = [entry["id"] for entry in manifest["lanes"] + manifest["utilities"]]
+        definitions = [ROOT / ".opencode/agents" / f"concord-{agent_id}.md" for agent_id in ids]
         self.assertTrue(definitions)
         for path in definitions:
             text = path.read_text(encoding="utf-8")
@@ -899,6 +903,115 @@ class WorkerScopeProjectionTests(unittest.TestCase):
             self.assertIn('"sha256:' + "b" * 64 + '"', projection)
             self.assertIn('"implement:1"', projection)
             self.assertIn('"sha256:' + "c" * 64 + '"', projection)
+
+
+class PrimaryProfileProjectionTests(unittest.TestCase):
+    def setUp(self):
+        self.manifest, _ = generator.load_manifest()
+        self.profiles = generator.load_primary_profiles(self.manifest)
+
+    def profile(self, agent_id):
+        return next(profile for profile in self.profiles["profiles"] if profile["id"] == agent_id)
+
+    def projection(self, agent_id):
+        profile = self.profile(agent_id)
+        return generator.primary_projection(profile, (ROOT / profile["role_source"]).read_text(encoding="utf-8"))
+
+    def frontmatter(self, text):
+        self.assertTrue(text.startswith("---\n"))
+        return text[4:text.index("\n---\n", 4)]
+
+    def broken(self, mutate):
+        profiles = copy.deepcopy(self.profiles)
+        mutate(profiles)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "profiles.json"
+            path.write_text(json.dumps(profiles), encoding="utf-8")
+            with self.assertRaises(ValueError) as caught:
+                generator.load_primary_profiles(self.manifest, path)
+        return str(caught.exception)
+
+    def test_registry_holds_exactly_the_coordinator_and_operator(self):
+        self.assertEqual([profile["id"] for profile in self.profiles["profiles"]], ["concord-coordinator", "concord-operator"])
+
+    def test_projection_is_a_selectable_primary_agent(self):
+        for agent_id in ("concord-coordinator", "concord-operator"):
+            frontmatter = self.frontmatter(self.projection(agent_id))
+            self.assertIn("\nmode: primary\n", "\n" + frontmatter + "\n")
+            self.assertNotIn("hidden:", frontmatter)
+
+    def test_projection_body_is_the_role_source_verbatim(self):
+        for agent_id in ("concord-coordinator", "concord-operator"):
+            profile = self.profile(agent_id)
+            source = (ROOT / profile["role_source"]).read_text(encoding="utf-8")
+            self.assertTrue(self.projection(agent_id).endswith("\n---\n\n" + source))
+
+    def test_coordinator_denies_every_mutating_concord_tool_and_candidate_edits(self):
+        frontmatter = self.frontmatter(self.projection("concord-coordinator"))
+        for tool_id in ("concord_work_start", "concord_work_transition", "concord_work_define", "concord_work_relate", "concord_work_compact"):
+            self.assertIn(f"\n  {tool_id}: deny", frontmatter)
+        for tool in ("edit", "write", "patch"):
+            self.assertIn(f"\n  {tool}: deny", frontmatter)
+        for tool_id in ("concord_product_view", "concord_work_browse", "concord_work_trace", "concord_knowledge", "concord_domain"):
+            self.assertNotIn(tool_id, frontmatter)
+
+    def test_coordinator_shell_denies_by_default_and_tasks_reach_utilities_only(self):
+        frontmatter = self.frontmatter(self.projection("concord-coordinator"))
+        bash = frontmatter.split("\n  bash:\n", 1)[1].split("\n  task:\n", 1)[0]
+        self.assertTrue(bash.startswith('    "*": deny\n'))
+        task = frontmatter.split("\n  task:\n", 1)[1]
+        self.assertTrue(task.startswith('    "*": deny\n'))
+        allowed = [line.split('"')[1] for line in task.splitlines() if line.endswith(": allow")]
+        self.assertEqual(sorted(allowed), sorted(f"concord-{utility['id']}" for utility in self.manifest["utilities"]))
+
+    def test_operator_keeps_lane_dispatch_and_every_concord_tool(self):
+        frontmatter = self.frontmatter(self.projection("concord-operator"))
+        self.assertIn('\n  task:\n    "*": deny\n    "concord-*": allow', frontmatter)
+        self.assertNotIn("concord_work_", frontmatter)
+        self.assertIn("\n  edit: allow", frontmatter)
+
+    def test_installed_definitions_equal_the_projections(self):
+        for agent_id in ("concord-coordinator", "concord-operator"):
+            path = ROOT / ".opencode/agents" / f"{agent_id}.md"
+            self.assertEqual(path.read_text(encoding="utf-8"), self.projection(agent_id))
+
+    def test_ts_projection_carries_the_denied_concord_tools(self):
+        projection = generator.primary_ts_projection(self.profiles)
+        self.assertIn("DO NOT EDIT", projection)
+        self.assertIn('"concord-coordinator"', projection)
+        self.assertIn('"concord_work_transition"', projection)
+        self.assertIn('"concord-operator": []', projection)
+
+    def test_unknown_denied_concord_tool_refuses(self):
+        message = self.broken(lambda p: p["profiles"][0]["denied_concord_tools"].append("concord_work_launch"))
+        self.assertIn("concord_work_launch", message)
+
+    def test_concord_tool_in_the_general_tool_map_refuses(self):
+        message = self.broken(lambda p: p["profiles"][1]["tools"].update({"concord_work_start": "deny"}))
+        self.assertIn("denied_concord_tools", message)
+
+    def test_non_dispatching_profile_cannot_reach_a_lane(self):
+        message = self.broken(lambda p: p["profiles"][0]["task"].append({"pattern": "concord-implement", "action": "allow"}))
+        self.assertIn("concord-implement", message)
+        message = self.broken(lambda p: p["profiles"][0]["task"].append({"pattern": "concord-*", "action": "allow"}))
+        self.assertIn("concord-*", message)
+
+    def test_missing_role_source_refuses(self):
+        message = self.broken(lambda p: p["profiles"][0].update({"role_source": ".concord/roles/absent.md"}))
+        self.assertIn(".concord/roles/absent.md", message)
+
+    def test_profile_id_outside_the_closed_set_refuses(self):
+        message = self.broken(lambda p: p["profiles"][1].update({"id": "concord-implement"}))
+        self.assertIn("closed", message)
+
+    def test_role_source_never_names_a_generated_agent(self):
+        # The registry descriptions own lane and utility routing; a role body
+        # that names one forks that routing into prose.
+        names = [f"concord-{entry['id']}" for entry in self.manifest["lanes"] + self.manifest["utilities"]]
+        for profile in self.profiles["profiles"]:
+            source = (ROOT / profile["role_source"]).read_text(encoding="utf-8")
+            for name in names:
+                self.assertNotIn(name, source, f"{profile['role_source']} names {name}")
 
 
 if __name__ == "__main__":

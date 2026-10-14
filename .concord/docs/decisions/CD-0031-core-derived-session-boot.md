@@ -32,8 +32,12 @@ stops before OpenCode starts.
   complete `spec_mandate`, pending operator decision, latest checkpoint,
   unresolved failure, boundary watermark, pending-message count, un-promoted observations, and typed restart availability.
 
-The packet is capped by the existing 65,536-byte agent-envelope bound. Session
-boot reads one boundary record, not the full history. The packet is authoritative
+Amended 2026-10-13 for the separate boot-packet bound
+([Linear](https://linear.app/sharper-flow/issue/CON-887/one-shared-typed-work-context-packet-per-work-item-read-and-extended)):
+the packet is capped by its own 65,536-byte boot-packet bound, no longer by
+reference to the agent-envelope bound. The envelope's request and response
+budgets are different populations and move independently. Session boot reads
+one boundary record, not the full history. The packet is authoritative
 at its watermark; consequential work still rereads continuity because CD-0016
 requires current state on every call.
 

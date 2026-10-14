@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"database/sql"
@@ -9,6 +10,9 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -205,10 +209,6 @@ const (
 	oracleFixtureOwnerID   = "owner:agent-fixture"
 	oracleFixtureCaseID    = "case:agent-fixture"
 	oracleFixtureControlID = "control:agent-fixture"
-	// oracleFixtureSubject is the commit the fixture's verify receipt
-	// qualifies. Every preparation receipt binds it, so the work's current
-	// verify subject stays stable across the recordings one test makes.
-	oracleFixtureSubject = "cccccccccccccccccccccccccccccccccccccccc"
 )
 
 // oracleFixtureDigest is the native digest shape the prepare producer writes:
@@ -296,6 +296,49 @@ func oracleFixtureActiveClaimFor(t *testing.T, s *store.Store, workID string) (s
 	return path, branch
 }
 
+// fixtureClaimSubject turns the claimed worktree into a real git repository
+// and returns its HEAD, so the fixture's qualified receipt names a commit the
+// claimed worktree actually holds and the dispatch freshness probe observes
+// the same commit clean.
+func fixtureClaimSubject(t *testing.T, path string) string {
+	t.Helper()
+	run := func(args ...string) string {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-C", path}, args...)...) //nolint:gosec // test-only git argv, fixed binary
+		var stderr bytes.Buffer
+		cmd.Stderr = &stderr
+		out, err := cmd.Output()
+		if err != nil {
+			t.Fatalf("seed oracle fixture claim repo %v: %v: %s", args, err, stderr.String())
+		}
+		return strings.TrimSpace(string(out))
+	}
+	if _, err := os.Stat(filepath.Join(path, ".git")); err == nil {
+		return run("rev-parse", "--verify", "HEAD^{commit}")
+	}
+	run("init", "-b", "main")
+	run("config", "user.email", "concord@example.invalid")
+	run("config", "user.name", "Concord Oracle Fixture")
+	if err := os.WriteFile(filepath.Join(path, "seed.txt"), []byte("oracle fixture seed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run("add", "-A")
+	run("commit", "--allow-empty", "-m", "oracle fixture seed")
+	return run("rev-parse", "--verify", "HEAD^{commit}")
+}
+
+// fixtureOracleSubjectFor resolves one work item's qualified current subject
+// from its work pin, so preparation receipts and assertions bind the same
+// commit the claimed worktree holds.
+func fixtureOracleSubjectFor(t *testing.T, s *store.Store, workID string) string {
+	t.Helper()
+	pin, err := store.ReadWorkPin(context.Background(), s, workID)
+	if err != nil || pin.WorkContext == nil || pin.WorkContext.SubjectCommit == "" {
+		t.Fatalf("fixture oracle subject for %s: pin=%#v err=%v, want a qualified subject", workID, pin.WorkContext, err)
+	}
+	return pin.WorkContext.SubjectCommit
+}
+
 // seedOracleVerifySubjectFixture qualifies the fixture subject once: a green
 // worktree-verify receipt and its completed producer operation, joined the
 // way the store's current-subject read joins them. Later calls reuse it.
@@ -319,13 +362,14 @@ func seedOracleVerifySubjectForWork(t *testing.T, s *store.Store, workID string)
 		return
 	}
 	path, branch := oracleFixtureActiveClaimFor(t, s, workID)
+	subject := fixtureClaimSubject(t, path)
 	command := []string{"git", "rev-parse", "--verify", "HEAD^{commit}"}
 	commandJSON, err := json.Marshal(command)
 	if err != nil {
 		t.Fatal(err)
 	}
 	result := store.WorktreeVerifyResult{WorkID: workID, ProjectID: oracleFixtureProject, Branch: branch, Path: path,
-		LeaseID: leaseID, OperationRef: "worktree_verify:" + leaseID, SubjectRef: "commit:" + oracleFixtureSubject, Command: command}
+		LeaseID: leaseID, OperationRef: "worktree_verify:" + leaseID, SubjectRef: "commit:" + subject, Command: command}
 	raw, err := json.Marshal(result)
 	if err != nil {
 		t.Fatal(err)
@@ -532,7 +576,7 @@ func agentOracleFieldsForWork(t *testing.T, s *store.Store, workID string) map[s
 	if err != nil {
 		t.Fatal(err)
 	}
-	ref := seedOraclePreparationReceiptForWork(t, s, workID, contractVersion, oracleFixtureSubject, graph.Controls[0], bundle, oracleFixtureDigest(bundleJSON))
+	ref := seedOraclePreparationReceiptForWork(t, s, workID, contractVersion, fixtureOracleSubjectFor(t, s, workID), graph.Controls[0], bundle, oracleFixtureDigest(bundleJSON))
 	graph.Controls[0].ReadinessEvidenceRefs = []string{ref}
 	raw, err := json.Marshal(graph)
 	if err != nil {
@@ -629,11 +673,11 @@ func TestOwnerOracleAgentFixtureTracksApprovedPredicatesAndRetainedReadiness(t *
 		t.Fatalf("preparation receipt phase=%s qualification=%s, want a ready prepare", phase, qualification)
 	}
 	pin, err := store.ReadWorkPin(context.Background(), s, oracleFixtureWork)
-	if err != nil || pin.WorkContext == nil || pin.WorkContext.SubjectCommit != oracleFixtureSubject {
+	if err != nil || pin.WorkContext == nil || pin.WorkContext.SubjectCommit != fixtureOracleSubjectFor(t, s, oracleFixtureWork) {
 		t.Fatalf("work pin work context = %+v err=%v, want the fixture's qualified subject", pin.WorkContext, err)
 	}
 	preparations := pin.WorkContext.OraclePreparations
-	if len(preparations) != 1 || preparations[0].BundleDigest != oracleFixtureBundleDigest(t, oracle, oracleFixtureControlID) || preparations[0].ContractVersion != 1 || preparations[0].SubjectCommit != oracleFixtureSubject {
+	if len(preparations) != 1 || preparations[0].BundleDigest != oracleFixtureBundleDigest(t, oracle, oracleFixtureControlID) || preparations[0].ContractVersion != 1 || preparations[0].SubjectCommit != fixtureOracleSubjectFor(t, s, oracleFixtureWork) {
 		t.Fatalf("retained preparations = %+v, want the exact control bundle at contract 1 on the fixture subject", preparations)
 	}
 }

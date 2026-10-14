@@ -43,8 +43,8 @@ type InvokeRequest struct {
 }
 
 func DecodeInvokeRequest(data []byte) (InvokeRequest, CallEnvelope, error) {
-	if len(data) == 0 || len(data) > MaxEnvelopeBytes {
-		return InvokeRequest{}, CallEnvelope{}, errors.New("invoke input exceeds 65536 bytes")
+	if len(data) == 0 || len(data) > MaxRequestBytes {
+		return InvokeRequest{}, CallEnvelope{}, fmt.Errorf("invoke input exceeds %d bytes", MaxRequestBytes)
 	}
 	if err := validateUniqueJSON(data); err != nil {
 		return InvokeRequest{}, CallEnvelope{}, err

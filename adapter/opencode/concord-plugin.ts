@@ -39,6 +39,7 @@ import { bindCiWatchClient, ciWatchTool, drainQueuedCiReportsForMessage, isCiWat
 import { completeDispatchedWorker, failDispatchedWorker } from "./lane_completion"
 import { hostControlPlane, SessionScopeUnavailable } from "./move-session"
 import { claimHostLease } from "./host-lease"
+import { guardPrimaryRoles } from "./primary-role"
 import { clearTurnMoveBoundary, questionRequiresNormalChat, TURN_MOVE_QUESTION_REFUSAL } from "./turn-move-boundary"
 
 // The plugin factory is the only place the host hands over its own client, and
@@ -94,7 +95,9 @@ export default async function ConcordAdapterPlugin(input?: Partial<PluginInput>,
   const continuityTransform = createContinuityTransform()
   const agentSwitch = createAgentSwitchNotice()
   return {
-    tool: {
+    // Every registration passes the primary role guard, which refuses a tool
+    // the step agent's named profile denies before any transport runs.
+    tool: guardPrimaryRoles({
       concord_product_view: product_view,
       concord_work_browse: work_browse,
       concord_work_trace: work_trace,
@@ -109,7 +112,7 @@ export default async function ConcordAdapterPlugin(input?: Partial<PluginInput>,
       // in the custom tools directory, where nothing but the plugin may name
       // a tool.
       concord_ci_watch: ciWatchTool(),
-    },
+    }),
     "chat.message": async (
       input: { sessionID: string; messageID?: string },
       output?: { message?: { id?: unknown }; parts?: unknown[] },

@@ -18,6 +18,11 @@ PACKET_SCHEMA = ROOT / "contracts/agent-lane-packet.schema.json"
 REPORT_SCHEMA = ROOT / "contracts/agent-lane-report.schema.json"
 PAYLOAD_SCHEMA = ROOT / "contracts/agent-tool-surface-payloads.schema.json"
 WORKER_SCOPE = ROOT / "contracts/worker-scope.v1.json"
+PRIMARY_PROFILES = ROOT / "contracts/agent-primary-profiles.v1.json"
+PRIMARY_PROFILES_SCHEMA = ROOT / "contracts/agent-primary-profiles.schema.json"
+# The closed named primary set (CD-0154): one central supervisor and one
+# repository-local operator. Primaries are never lanes or utilities.
+PRIMARY_PROFILE_IDS = ("concord-coordinator", "concord-operator")
 EVAL_PACKETS = ROOT / "adapter/opencode/evals/packets"
 # The shipped conduct corpus owns the committed-content rule; lane bodies
 # quote its paragraph, so the rule has one statement.
@@ -726,6 +731,27 @@ with a `domain_id` from the packet's Domains. The view carries at most
 """
 
 
+def review_subject_instructions(lane: dict) -> str:
+    # The core dispatch admission owns subject freshness; this worker read
+    # check is the approved backstop for drift after authorization. The
+    # review compares the dispatched worktree's HEAD and tree against the
+    # packet's typed subject and returns a failed report on mismatch.
+    if lane.get("capability_class") != "review":
+        return ""
+    return """
+## Dispatch subject
+
+`inputs.work_context.subject_commit`, when present, is the dispatch-owned raw
+OID identity this attempt reviews; never author or replace it. Before
+reviewing, run `git rev-parse --verify HEAD^{commit}` and
+`git status --porcelain=v1 -z --untracked-files=all` in the dispatched
+worktree. If HEAD is not exactly that `subject_commit`, or the tree is not
+clean, the checked-out change is not the subject the packet pins: return one
+report with `status` `failed` that names the observed HEAD and the mismatch.
+Never review a different commit, and never author `subject_commit`.
+"""
+
+
 def checkpoint_instructions() -> str:
     # CON-883: when the packet carries the latest context checkpoint, its
     # strategy and diagnosis are coordinator directions the worker follows
@@ -931,7 +957,7 @@ record workflow transitions, verdicts, completion, or spawn nested workers.
 {committed_content_instructions(lane)}{packet_refusal_instructions()}
 {law_conformance_instructions(lane)}
 {recorded_work_instructions()}
-{work_context_instructions(packet_schema)}
+{work_context_instructions(packet_schema)}{review_subject_instructions(lane)}
 {checkpoint_instructions()}
 {acceptance_oracle_instructions(packet_schema)}
 {objective_binding_instructions(packet_schema, premise_max_bytes)}
@@ -1133,6 +1159,62 @@ permission:
 """
 
 
+def load_primary_profiles(manifest: dict, path: Path = PRIMARY_PROFILES) -> dict:
+    """Validate the named primary profiles against the lane registry.
+
+    A primary is an operator entry point, not a dispatch target, so its id may
+    not collide with a lane or utility. Concord tools appear only in the denied
+    list, which the adapter role guard also reads, so the frontmatter and the
+    guard cannot disagree. A profile that cannot transition work cannot open a
+    dispatch window, so its Task rules may admit generated utilities only.
+    """
+    profiles = json.loads(path.read_text(encoding="utf-8"))
+    schema = json.loads(PRIMARY_PROFILES_SCHEMA.read_text(encoding="utf-8"))
+    schema_validate(profiles, schema, schema, "primary_profiles")
+    ids = tuple(profile["id"] for profile in profiles["profiles"])
+    if ids != PRIMARY_PROFILE_IDS:
+        raise ValueError(f"primary profile registry must contain the closed ordered set {list(PRIMARY_PROFILE_IDS)}, found {list(ids)}")
+    utilities = {f"concord-{utility['id']}" for utility in manifest["utilities"]}
+    known_tools = set(concord_tool_ids())
+    for profile in profiles["profiles"]:
+        name = profile["id"]
+        unknown = sorted(set(profile["denied_concord_tools"]) - known_tools)
+        if unknown:
+            raise ValueError(f"primary profile {name} denies unknown Concord tool(s): {unknown}")
+        misplaced = sorted(set(profile["tools"]) & known_tools)
+        if misplaced:
+            raise ValueError(f"primary profile {name} names Concord tool(s) {misplaced} outside denied_concord_tools")
+        if "concord_work_transition" in profile["denied_concord_tools"]:
+            for rule in profile["task"]:
+                if rule["action"] == "allow" and rule["pattern"] not in utilities:
+                    raise ValueError(f"primary profile {name} cannot dispatch lanes, so its Task rule may not allow {rule['pattern']!r}")
+        if not (ROOT / profile["role_source"]).is_file():
+            raise ValueError(f"primary profile {name} role source {profile['role_source']} does not exist")
+    return profiles
+
+
+def primary_projection(profile: dict, role_source: str) -> str:
+    lines = ["---", f"description: {json.dumps(profile['description'], ensure_ascii=False)}", "mode: primary", "permission:"]
+    lines.extend(f"  {tool}: {action}" for tool, action in profile["tools"].items())
+    for key in ("bash", "task"):
+        lines.append(f"  {key}:")
+        lines.extend(f"    {json.dumps(rule['pattern'])}: {rule['action']}" for rule in profile[key])
+    lines.extend(f"  {tool}: deny" for tool in profile["denied_concord_tools"])
+    lines.extend(["---", "", role_source.rstrip("\n")])
+    return "\n".join(lines) + "\n"
+
+
+def primary_ts_projection(profiles: dict) -> str:
+    denied = {profile["id"]: profile["denied_concord_tools"] for profile in profiles["profiles"]}
+    entries = ",\n".join(f"  {json.dumps(agent)}: {json.dumps(tools)}" for agent, tools in denied.items())
+    return (
+        "// Code generated by scripts/generate-agent-lanes.py; DO NOT EDIT.\n"
+        "// The Concord tools each named primary profile may not call. The adapter\n"
+        "// role guard refuses them by the host-supplied step agent.\n"
+        f"export const primaryProfileDeniedConcordTools: Readonly<Record<string, readonly string[]>> = {{\n{entries},\n}}\n"
+    )
+
+
 def docs_projection(manifest: dict, manifest_digest: str) -> str:
     lines = ["# Concord agent lane registry", "", "<!-- Code generated by scripts/generate-agent-lanes.py; DO NOT EDIT. -->", "", f"Registry digest: `{manifest_digest}`", "", "| Lane | Capability class | Packet | Report |", "|---|---|---|---|"]
     lines.extend(
@@ -1204,6 +1286,12 @@ def main() -> int:
         }
         expected.update({ROOT / ".opencode/agents" / f"concord-{lane['id']}.md": agent_projection(lane, report_schema, packet_schema, premise_max_bytes) for lane in manifest["lanes"]})
         expected.update({ROOT / ".opencode/agents" / f"concord-{utility['id']}.md": utility_projection(utility) for utility in manifest["utilities"]})
+        primary_profiles = load_primary_profiles(manifest)
+        expected.update({
+            ROOT / ".opencode/agents" / f"{profile['id']}.md": primary_projection(profile, (ROOT / profile["role_source"]).read_text(encoding="utf-8"))
+            for profile in primary_profiles["profiles"]
+        })
+        expected[ROOT / "adapter/opencode/generated-primary-profiles.ts"] = primary_ts_projection(primary_profiles)
         lane_digests = {lane["id"]: lane["digest"] for lane in manifest["lanes"]}
         if EVAL_PACKETS.is_dir():
             expected.update({path: eval_packet_projection(path, lane_digests) for path in sorted(EVAL_PACKETS.glob("*.json"))})

@@ -441,8 +441,15 @@ func queryQ10(ctx context.Context, db *sql.DB, req Q10Request) (Q10Result, error
 			out.Status, out.Result = "ambiguous", &Q10Payload{Status: "ambiguous"}
 			return out, nil
 		}
-	} else if stop, err := verifyQ10ManifestRecord(ctx, db, req, lookupID, kind, status, date, title, summary, successor, hash, scopeMode, lessonTagsJSON, manifestSchemaVersion, homeProject, homeLocator, path, commit, storedHome.RepoPath, &out); stop || err != nil {
-		return out, err
+	} else {
+		record, manifestRole, recordErr := knowledgeProjectedRecordTx(ctx, db, lookupID, kind, status, date, title, summary, successor, hash, scopeMode, lessonTagsJSON, homeProject, homeLocator, path)
+		if recordErr != nil {
+			return out, recordErr
+		}
+		stop, err := verifyQ10ManifestRecord(ctx, req, record, manifestRole, manifestSchemaVersion, storedHome.RepoPath, commit, &out)
+		if stop || err != nil {
+			return out, err
+		}
 	}
 	payload := &Q10Payload{Status: "canonical", Note: &note, SuccessorID: successor}
 	if law := KnowledgeLawStatus(kind, status); law != "" {
@@ -452,20 +459,14 @@ func queryQ10(ctx context.Context, db *sql.DB, req Q10Request) (Q10Result, error
 	return out, nil
 }
 
-// verifyQ10ManifestRecord rebuilds one manifest-indexed record from its
-// archived projection rows, checks it against the historical manifest, and
-// verifies the committed declaration. A historical failure reports through
-// the out parameter's degraded allowance; stop says the caller must return
-// the out as it now stands instead of continuing to the canonical result.
-func verifyQ10ManifestRecord(ctx context.Context, db *sql.DB, req Q10Request, lookupID, kind, status, date, title, summary, successor, hash, scopeMode, lessonTagsJSON, manifestSchemaVersion, homeProject, homeLocator, path, commit, repoPath string, out *Q10Result) (bool, error) {
-	var tags []string
-	if err := json.Unmarshal([]byte(lessonTagsJSON), &tags); err != nil {
-		return true, newFailure(KindInvariantViolation, "PM1.Q10", "indexed manifest tags are malformed", false, "rebuild the git-derived knowledge index")
-	}
-	manifestRole, roleErr := resolveKnowledgeManifestRole(ctx, db, KnowledgeHome{HomeProjectID: homeProject, HomeLocatorID: homeLocator})
-	if roleErr != nil {
-		return true, roleErr
-	}
+// verifyQ10ManifestRecord checks one assembled manifest-indexed record
+// against the historical manifest and verifies the committed declaration.
+// The SQL discovery already ran through knowledgeProjectedRecordTx and this
+// function holds no queryer: the Git proof runs after the database reads
+// closed (CD-0195 D2). A historical failure reports through the out
+// parameter's degraded allowance; stop says the caller must return the out
+// as it now stands instead of continuing to the canonical result.
+func verifyQ10ManifestRecord(ctx context.Context, req Q10Request, record KnowledgeRecord, manifestRole knowledgeManifestRole, manifestSchemaVersion, repoPath, commit string, out *Q10Result) (bool, error) {
 	manifest, missing, manifestErr := readKnowledgeManifest(ctx, repoPath, commit, manifestRole)
 	if manifestErr != nil || missing {
 		if manifestErr == nil {
@@ -477,39 +478,56 @@ func verifyQ10ManifestRecord(ctx context.Context, db *sql.DB, req Q10Request, lo
 	if manifestSchemaVersion != "" && manifestSchemaVersion != manifest.SchemaVersion {
 		return true, newFailure(KindInvariantViolation, "PM1.Q10", "indexed manifest schema version disagrees with the historical manifest", false, "rebuild the git-derived knowledge index")
 	}
-	record := KnowledgeRecord{ID: lookupID, Kind: kind, Path: path, Status: status, Date: date, Title: title, Summary: summary, Tags: tags, Scopes: KnowledgeRecordScopes{Mode: scopeMode}, Successor: successor, SHA256: hash}
-	for _, scope := range []struct {
-		table, column string
-		target        *[]string
-	}{{"archived_work_products", "product_id", &record.Scopes.ProductIDs}, {"archived_work_projects", "project_id", &record.Scopes.ProjectIDs}, {"archived_work_tags", "tag_id", &record.Scopes.TagIDs}} {
-		values, queryErr := archivedScopeIDs(ctx, db, scope.table, scope.column, lookupID, homeProject, homeLocator)
-		if queryErr != nil {
-			return true, queryErr
-		}
-		*scope.target = values
-	}
-	values, queryErr := archivedScopeIDs(ctx, db, "archived_work_domains", "domain_id", lookupID, homeProject, homeLocator)
-	if queryErr != nil {
-		return true, queryErr
-	}
-	record.Scopes.DomainIDs = values
-	if manifestLawBearingKinds[kind] {
-		if err := db.QueryRowContext(ctx, `SELECT domain_id,product_wide_rationale FROM law_domain_homes WHERE home_project_id=? AND home_locator_id=? AND law_id=? AND law_content_hash=?`, homeProject, homeLocator, lookupID, hash).Scan(&record.HomeDomainID, &record.ProductWideRationale); err != nil {
-			return true, q10LawDomainProjectionFailure(err)
-		}
-		record.homeDomainPresent = true
-		record.productWideRationalePresent = record.ProductWideRationale != ""
-		applicability, applicabilityErr := archivedLawApplicability(ctx, db, homeProject, homeLocator, lookupID)
-		if applicabilityErr != nil {
-			return true, applicabilityErr
-		}
-		record.AppliesToDomainIDs, record.appliesToDomainsPresent = applicability, true
-	}
 	if err := verifyManifestRecord(ctx, repoPath, commit, record, manifestRole); err != nil {
 		_, verifyErr := q10HistoricalFailure(out, req.AllowDegraded, "recorded manifest declaration or blob could not be verified", err)
 		return true, verifyErr
 	}
 	return false, nil
+}
+
+// knowledgeProjectedRecordTx assembles the projected manifest record and the
+// manifest role for one archived knowledge record over whichever queryer the
+// caller already holds — the SQL discovery half of the committed-record
+// proof, so the Git verification runs with no database access. A law-bearing
+// record requires its projected law-domain home at the exact hash.
+func knowledgeProjectedRecordTx(ctx context.Context, q queryer, lookupID, kind, status, date, title, summary, successor, hash, scopeMode, lessonTagsJSON, homeProject, homeLocator, path string) (KnowledgeRecord, knowledgeManifestRole, error) {
+	var tags []string
+	if err := json.Unmarshal([]byte(lessonTagsJSON), &tags); err != nil {
+		return KnowledgeRecord{}, manifestSharedHomeRole, newFailure(KindInvariantViolation, "PM1.Q10", "indexed manifest tags are malformed", false, "rebuild the git-derived knowledge index")
+	}
+	manifestRole, roleErr := resolveKnowledgeManifestRole(ctx, q, KnowledgeHome{HomeProjectID: homeProject, HomeLocatorID: homeLocator})
+	if roleErr != nil {
+		return KnowledgeRecord{}, manifestSharedHomeRole, roleErr
+	}
+	record := KnowledgeRecord{ID: lookupID, Kind: kind, Path: path, Status: status, Date: date, Title: title, Summary: summary, Tags: tags, Scopes: KnowledgeRecordScopes{Mode: scopeMode}, Successor: successor, SHA256: hash}
+	for _, scope := range []struct {
+		table, column string
+		target        *[]string
+	}{{"archived_work_products", "product_id", &record.Scopes.ProductIDs}, {"archived_work_projects", "project_id", &record.Scopes.ProjectIDs}, {"archived_work_tags", "tag_id", &record.Scopes.TagIDs}} {
+		values, queryErr := archivedScopeIDs(ctx, q, scope.table, scope.column, lookupID, homeProject, homeLocator)
+		if queryErr != nil {
+			return KnowledgeRecord{}, manifestSharedHomeRole, queryErr
+		}
+		*scope.target = values
+	}
+	values, queryErr := archivedScopeIDs(ctx, q, "archived_work_domains", "domain_id", lookupID, homeProject, homeLocator)
+	if queryErr != nil {
+		return KnowledgeRecord{}, manifestSharedHomeRole, queryErr
+	}
+	record.Scopes.DomainIDs = values
+	if manifestLawBearingKinds[kind] {
+		if err := q.QueryRowContext(ctx, `SELECT domain_id,product_wide_rationale FROM law_domain_homes WHERE home_project_id=? AND home_locator_id=? AND law_id=? AND law_content_hash=?`, homeProject, homeLocator, lookupID, hash).Scan(&record.HomeDomainID, &record.ProductWideRationale); err != nil {
+			return KnowledgeRecord{}, manifestSharedHomeRole, q10LawDomainProjectionFailure(err)
+		}
+		record.homeDomainPresent = true
+		record.productWideRationalePresent = record.ProductWideRationale != ""
+		applicability, applicabilityErr := archivedLawApplicability(ctx, q, homeProject, homeLocator, lookupID)
+		if applicabilityErr != nil {
+			return KnowledgeRecord{}, manifestSharedHomeRole, applicabilityErr
+		}
+		record.AppliesToDomainIDs, record.appliesToDomainsPresent = applicability, true
+	}
+	return record, manifestRole, nil
 }
 
 // classifyQ10MissingNote classifies an absent archived note: a live work

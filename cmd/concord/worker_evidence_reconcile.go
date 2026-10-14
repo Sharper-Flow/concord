@@ -38,7 +38,61 @@ func reconstructWorkerEvidenceAck(ctx context.Context, tx *store.Transaction, ex
 			requested = prepared[len(prepared)-1]
 		}
 	}
+	// The core-derived terminal members are producer-owned. The comparison
+	// carries the stored event's own consumed_context_frontier and
+	// observed_delivery beside the caller's content, so a replay never
+	// re-derives — and never re-observes — the identity the store recorded,
+	// while every caller-owned byte still compares. A stored event recorded
+	// before the members existed carries none, and the comparison expects
+	// none.
+	if existing.Kind == store.WorkerCompleted || existing.Kind == store.WorkerFailed {
+		merged, err := mergeWorkerTerminalProducerFields(existing, requested)
+		if err != nil {
+			return store.Event{}, err
+		}
+		requested = merged
+	}
 	requested.PayloadVersion = existing.PayloadVersion
+	return requested, nil
+}
+
+// mergeWorkerTerminalProducerFields copies the stored event's core-derived
+// members onto the comparison payload as raw JSON. The stored payload is the
+// authority for what the store derived; a member it does not carry stays
+// absent, and a caller-supplied member can never stand in for one.
+func mergeWorkerTerminalProducerFields(existing, requested store.Event) (store.Event, error) {
+	var storedMembers struct {
+		ConsumedContextFrontier *int64                        `json:"consumed_context_frontier"`
+		ObservedDelivery        *store.WorkerObservedDelivery `json:"observed_delivery"`
+	}
+	if err := json.Unmarshal(existing.Payload, &storedMembers); err != nil {
+		return store.Event{}, err
+	}
+	var members map[string]json.RawMessage
+	if err := json.Unmarshal(requested.Payload, &members); err != nil {
+		return store.Event{}, err
+	}
+	delete(members, "consumed_context_frontier")
+	delete(members, "observed_delivery")
+	if storedMembers.ConsumedContextFrontier != nil {
+		raw, err := json.Marshal(storedMembers.ConsumedContextFrontier)
+		if err != nil {
+			return store.Event{}, err
+		}
+		members["consumed_context_frontier"] = raw
+	}
+	if storedMembers.ObservedDelivery != nil {
+		raw, err := json.Marshal(storedMembers.ObservedDelivery)
+		if err != nil {
+			return store.Event{}, err
+		}
+		members["observed_delivery"] = raw
+	}
+	raw, err := json.Marshal(members)
+	if err != nil {
+		return store.Event{}, err
+	}
+	requested.Payload = raw
 	return requested, nil
 }
 

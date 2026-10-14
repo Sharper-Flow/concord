@@ -147,6 +147,59 @@ func TestFailedReviewCheckpointCorrectionBoundaryApprovesExactOperatorOnly(t *te
 	if bound := invoke(map[string]any{"work_id": "work-1", "expected_version": workVersion(t, s, "work-1"), "action_id": "bind_evidence", "fields": map[string]any{"evidence_kind": "verification", "immutable_subject_ref": "evidence:checkpoint-review"}, "idempotency_key": "checkpoint-evidence-bind"}); bound.Outcome != OutcomeOK {
 		t.Fatalf("checkpoint fixture bind_evidence: %+v", bound.Error)
 	}
+
+	// The review gate joins the accepted implementation delivery produced on
+	// this worktree claim, so the accepted prerequisite stands before the
+	// review window under test: one ready job, one implementation dispatch,
+	// its core-observed completed report, and the gate acceptance, all
+	// through the authenticated boundary and the live terminal seam.
+	seedOracleVerifySubjectForWork(t, s, "work-1")
+	recordReadyRetryJob(t, s, service, env, "job:checkpoint-accepted-prereq")
+	acceptedAttempt := "attempt:work-1:accepted-prereq"
+	acceptedPacket := bindPacketToRecordedState(t, s, func() map[string]any {
+		lane := deliveryRecoveryLane(t, "implementation")
+		inputs := map[string]any{"task": "deliver the accepted implementation prerequisite", "constraints": []string{"preserve the approved contract"}}
+		snapshot, snapshotErr := store.ReadWorkflowContinuity(context.Background(), s, store.ContinuityRequest{Work: "work-1"})
+		if snapshotErr != nil {
+			t.Fatal(snapshotErr)
+		}
+		if len(snapshot.ReadyWorkerJobs) > 0 {
+			selected, selectErr := json.Marshal(snapshot.ReadyWorkerJobs[len(snapshot.ReadyWorkerJobs)-1])
+			if selectErr != nil {
+				t.Fatal(selectErr)
+			}
+			inputs["worker_job"] = json.RawMessage(selected)
+		}
+		return map[string]any{"schema_version": store.WorkerPacketSchemaVersion, "attempt_id": acceptedAttempt, "lane_id": lane.ID, "lane_version": lane.Version, "lane_digest": lane.Digest, "work_id": "work-1", "step_id": "execution", "inputs": inputs}
+	}())
+	if dispatched := invoke(map[string]any{"work_id": "work-1", "expected_version": workVersion(t, s, "work-1"), "action_id": "dispatch_worker", "fields": map[string]any{"attempt_id": acceptedAttempt, "worker_packet": acceptedPacket}, "idempotency_key": "checkpoint-accepted-dispatch"}); dispatched.Outcome != OutcomeOK {
+		t.Fatalf("checkpoint accepted-prereq dispatch: %+v", dispatched.Error)
+	}
+	var acceptedDigest string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.worker_packet_digest') FROM domain_events WHERE subject_id='work-1' AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=? ORDER BY seq DESC LIMIT 1`, store.WorkflowActionCompleted, acceptedAttempt).Scan(&acceptedDigest); err != nil {
+		t.Fatal(err)
+	}
+	acceptedLane := deliveryRecoveryLane(t, "implementation")
+	acceptedJob := authorizedWorkerJob(t, s, acceptedAttempt)
+	acceptedDispatch := store.Event{EventID: "checkpoint-accepted-dispatch-" + acceptedAttempt, Kind: store.WorkerDispatched, SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: 2, Payload: retryJSON(store.WorkerDispatchedPayload{AttemptID: acceptedAttempt, LaneID: acceptedLane.ID, LaneVersion: acceptedLane.Version, LaneDigest: acceptedLane.Digest, CapabilityClass: acceptedLane.CapabilityClass, PacketDigest: acceptedDigest, ReadbackModel: "openai/gpt-5.6-luna", PacketSchemaVersion: store.WorkerPacketSchemaVersion, ReportSchemaVersion: store.WorkerReportSchemaVersion, WorkerJob: acceptedJob})}
+	if dispatchErr := s.Transact(context.Background(), func(tx *store.Transaction) error {
+		enriched, enrichErr := store.PrepareLaneActorDispatch(context.Background(), tx, acceptedDispatch, grant.PrincipalRef, grant.ClientRef)
+		if enrichErr != nil {
+			return enrichErr
+		}
+		_, appendErr := store.AppendLaneActorDispatchTx(context.Background(), tx, enriched)
+		return appendErr
+	}); dispatchErr != nil {
+		t.Fatalf("seed the accepted-prereq lane dispatch: %v", dispatchErr)
+	}
+	agentWorkerCompletedThroughSeam(t, s, acceptedAttempt, "checkpoint-accepted-prereq-completed", store.WorkerCompletedPayload{AttemptID: acceptedAttempt, ReadbackModel: "openai/gpt-5.6-luna", ReportSchemaVersion: store.WorkerReportSchemaVersion, WorkerJob: acceptedJob})
+	var acceptedEpoch int64
+	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.attempt_epoch') FROM domain_events WHERE subject_id='work-1' AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.step_id')='execution' ORDER BY seq DESC LIMIT 1`, store.WorkflowActionStarted).Scan(&acceptedEpoch); err != nil {
+		t.Fatalf("read the accepted-prereq dispatch epoch: %v", err)
+	}
+	if accepted := invoke(map[string]any{"work_id": "work-1", "expected_version": workVersion(t, s, "work-1"), "action_id": "accept_worker_result", "fields": map[string]any{"attempt_id": acceptedAttempt, "attempt_epoch": acceptedEpoch}, "idempotency_key": "checkpoint-accepted-accept"}); accepted.Outcome != OutcomeOK {
+		t.Fatalf("checkpoint accepted-prereq accept: %+v", accepted.Error)
+	}
 	if _, err := s.DatabaseForTesting().Exec(`INSERT INTO fold_guard(active) VALUES(1);
 		UPDATE workflow_instances SET current_step='acceptance' WHERE work_id='work-1';
 		DELETE FROM fold_guard`); err != nil {
@@ -168,7 +221,7 @@ func TestFailedReviewCheckpointCorrectionBoundaryApprovesExactOperatorOnly(t *te
 	// (CD-0198 D5). The closed live union publishes no record_worker_failure
 	// authoring shape (CD-0218 D2).
 	var packetDigest string
-	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.worker_packet_digest') FROM domain_events WHERE subject_id='work-1' AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' ORDER BY seq DESC LIMIT 1`, store.WorkflowActionCompleted).Scan(&packetDigest); err != nil {
+	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.worker_packet_digest') FROM domain_events WHERE subject_id='work-1' AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=? ORDER BY seq DESC LIMIT 1`, store.WorkflowActionCompleted, attemptID).Scan(&packetDigest); err != nil {
 		t.Fatal(err)
 	}
 	laneDispatch := store.Event{EventID: "checkpoint-review-dispatch-" + attemptID, Kind: store.WorkerDispatched, SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: 2, Payload: retryJSON(store.WorkerDispatchedPayload{AttemptID: attemptID, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass, PacketDigest: packetDigest, ReadbackModel: "openai/gpt-5.6-luna", PacketSchemaVersion: store.WorkerPacketSchemaVersion, ReportSchemaVersion: store.WorkerReportSchemaVersion})}
@@ -237,8 +290,19 @@ func TestFailedReviewCheckpointCorrectionBoundaryApprovesExactOperatorOnly(t *te
 	if got := stepOf(); got != "execution" {
 		t.Fatalf("step after the approved checkpoint return = %q, want execution", got)
 	}
-	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts WHERE work_id='work-1'`); got != 1 {
-		t.Fatalf("request_correction minted %d worker attempts, want only the failed review", got)
+	// The correction route itself mints no worker attempt: the work holds
+	// the accepted implementation prerequisite beside the failed review, and
+	// nothing else.
+	var attempts int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_attempts WHERE work_id='work-1'`).Scan(&attempts); err != nil {
+		t.Fatal(err)
+	}
+	var correctionMinted int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT count(*) FROM worker_attempts WHERE work_id='work-1' AND attempt_id NOT IN ('attempt:work-1:accepted-prereq','attempt:work-1:failed-review')`).Scan(&correctionMinted); err != nil {
+		t.Fatal(err)
+	}
+	if attempts != 2 || correctionMinted != 0 {
+		t.Fatalf("worker attempts = %d with %d outside the seeded prerequisite and failed review, want the correction to mint none", attempts, correctionMinted)
 	}
 
 	// The consumed stale verdict cannot reopen the return: the second request

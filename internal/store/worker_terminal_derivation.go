@@ -14,6 +14,12 @@ import (
 // commit in one transaction, so a caller cannot land the terminal fact and
 // lose the workflow record it owes. Replay never reaches this seam: rebuilt
 // journals fold their stored events unchanged.
+//
+// The seam is also the one frontier-attribution and delivery-
+// observation owner. It derives consumed_context_frontier from the attempt's
+// own dispatch authorization, attaches the sealed preparation's delivery
+// observation after revalidating every sampled identity with SQL only, and
+// refuses a completed implementation attempt that arrived without one.
 func ApplyWorkerEvidenceOperationTx(ctx context.Context, transaction *Transaction, event Event) (ApplyOperationResult, error) {
 	tx, err := transactionSQL(transaction, "worker_evidence")
 	if err != nil {
@@ -23,8 +29,15 @@ func ApplyWorkerEvidenceOperationTx(ctx context.Context, transaction *Transactio
 	if scope == nil {
 		scope = newFoldScope(tx)
 	}
-	events := []Event{event}
-	derived, err := deriveWorkflowWorkerFailureEventsTx(ctx, tx, event)
+	enriched := event
+	if event.Kind == WorkerCompleted || event.Kind == WorkerFailed {
+		enriched, err = enrichWorkerTerminalEventTx(ctx, tx, event)
+		if err != nil {
+			return ApplyOperationResult{}, err
+		}
+	}
+	events := []Event{enriched}
+	derived, err := deriveWorkflowWorkerFailureEventsTx(ctx, tx, enriched)
 	if err != nil {
 		return ApplyOperationResult{}, err
 	}

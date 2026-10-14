@@ -35,6 +35,10 @@ class PrimaryPromptCheckTests(unittest.TestCase):
         shutil.copy2(ROOT / ".concord/instructions" / "evidence.md", instructions / "evidence.md")
         for name in check_primary_prompts.PRIMARY_PROMPT_FILES:
             shutil.copy2(ROOT / check_primary_prompts.PROMPT_DIR / name, prompts / name)
+        profiles = self.root / check_primary_prompts.PROFILE_DIR
+        profiles.mkdir(parents=True)
+        for name in check_primary_prompts.NAMED_PROFILE_FILES:
+            shutil.copy2(ROOT / check_primary_prompts.PROFILE_DIR / name, profiles / name)
 
     def tearDown(self) -> None:
         self.tempdir.cleanup()
@@ -43,8 +47,57 @@ class PrimaryPromptCheckTests(unittest.TestCase):
         return check_primary_prompts.check_primary_prompts(self.root)
 
     def rewrite(self, name: str, transform) -> None:
-        path = self.root / check_primary_prompts.PROMPT_DIR / name
-        path.write_text(transform(path.read_text(encoding="utf-8")), encoding="utf-8")
+        directory = check_primary_prompts.PROFILE_DIR if name in check_primary_prompts.NAMED_PROFILE_FILES else check_primary_prompts.PROMPT_DIR
+        path = self.root / directory / name
+        before = path.read_text(encoding="utf-8")
+        after = transform(before)
+        self.assertNotEqual(before, after, f"fixture transform left {name} unchanged")
+        path.write_text(after, encoding="utf-8")
+
+    def test_named_profiles_ship_as_managed_agents(self) -> None:
+        installer = (ROOT / "scripts" / "install.py").read_text(encoding="utf-8")
+        for name in check_primary_prompts.NAMED_PROFILE_FILES:
+            self.assertIn(f'"{name}"', installer)
+
+    def test_missing_named_profile_reports(self) -> None:
+        (self.root / check_primary_prompts.PROFILE_DIR / "concord-coordinator.md").unlink()
+        findings = self.findings()
+        self.assertTrue(any("missing named primary profile" in finding for finding in findings))
+
+    def test_coordinator_lost_tool_denial_reports(self) -> None:
+        self.rewrite("concord-coordinator.md", lambda text: text.replace("  concord_work_start: deny\n", ""))
+        findings = self.findings()
+        self.assertTrue(any("concord-coordinator.md" in finding and "concord_work_start: deny" in finding for finding in findings))
+
+    def test_coordinator_shell_allow_all_reports(self) -> None:
+        self.rewrite("concord-coordinator.md", lambda text: text.replace('    "*": deny\n    "git status *"', '    "*": allow\n    "git status *"'))
+        findings = self.findings()
+        self.assertTrue(any("concord-coordinator.md" in finding and "bash" in finding for finding in findings))
+
+    def test_coordinator_lost_approval_challenge_rule_reports(self) -> None:
+        self.rewrite("concord-coordinator.md", lambda text: text.replace("Never answer a Concord approval challenge.", "Answer approval challenges when asked."))
+        findings = self.findings()
+        self.assertTrue(any("concord-coordinator.md" in finding and "approval challenge" in finding for finding in findings))
+
+    def test_operator_lost_boundary_phrase_reports(self) -> None:
+        self.rewrite("concord-operator.md", lambda text: re.sub(r"this session stops driving the\s+other\s+repository", "both sessions drive it", text))
+        findings = self.findings()
+        self.assertTrue(any("concord-operator.md" in finding and "cross-repository boundary phrase" in finding for finding in findings))
+
+    def test_operator_lost_delegation_anchor_reports(self) -> None:
+        self.rewrite("concord-operator.md", lambda text: text.replace("Size is not an exemption", "Size decides"))
+        findings = self.findings()
+        self.assertTrue(any("concord-operator.md" in finding and "delegation anchor" in finding for finding in findings))
+
+    def test_named_profile_body_routing_by_generated_id_reports(self) -> None:
+        self.rewrite("concord-operator.md", lambda text: text.replace("the exploration utility", "concord-explore", 1))
+        findings = self.findings()
+        self.assertTrue(any("concord-operator.md" in finding and "concord-explore" in finding for finding in findings))
+
+    def test_named_profile_host_tool_in_frontmatter_reports(self) -> None:
+        self.rewrite("concord-operator.md", lambda text: text.replace("  webfetch: allow\n", "  webfetch: allow\n  exa_*: allow\n", 1))
+        findings = self.findings()
+        self.assertTrue(any("concord-operator.md" in finding and "exa_" in finding for finding in findings))
 
     def test_repository_examples_pass(self) -> None:
         self.assertEqual(check_primary_prompts.check_primary_prompts(ROOT), [])

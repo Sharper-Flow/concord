@@ -10,7 +10,20 @@ import (
 	"strings"
 )
 
+// maxWorkflowPredicateBytes bounds one serialized outcome predicate. It is
+// the predicate population's own limit and never measures a whole action
+// payload; the whole-action decode budget is maxWorkflowActionPayloadBytes.
 const maxWorkflowPredicateBytes = 64 * 1024
+
+// maxWorkflowActionPayloadBytes is the whole-action payload decode budget:
+// the next power of two above the composed declared maxima of every part a
+// worker packet can carry — the 64 KiB dispatch context aggregate plus the
+// generated packet schema's declared maxima with the store-owned bounds the
+// schema leaves to the writers (the 32 KiB serialized acceptance oracle) and
+// the action envelope's own field names. The composition test pins the
+// constant to that derivation, so a later part increase fails the test
+// instead of the transport.
+const maxWorkflowActionPayloadBytes = 32 * 1024 * 1024
 
 const maxWorkflowJSONDepth = 64
 const maxWorkflowJSONContainerEntries = 128
@@ -219,8 +232,12 @@ func decodeObjectFields(data []byte) (map[string]json.RawMessage, error) {
 	return fields, nil
 }
 
-func decodePredicateStrict(data []byte, target any) error {
-	if len(data) == 0 || len(data) > maxWorkflowPredicateBytes {
+// decodeWorkflowJSONStrict is the shared strict JSON decode: one value, no
+// duplicate keys, bounded nesting, no unknown fields, no trailing content,
+// and a whole-payload size bound that refuses without truncating. The named
+// wrappers carry each object's own limit; callers never pass a raw budget.
+func decodeWorkflowJSONStrict(data []byte, maxBytes int, target any) error {
+	if len(data) == 0 || len(data) > maxBytes {
 		return workflowOutcomeFailure("JSON payload exceeds the bounded input size")
 	}
 	if err := validateWorkflowJSONStructure(data); err != nil {
@@ -232,6 +249,20 @@ func decodePredicateStrict(data []byte, target any) error {
 		return err
 	}
 	return ensureEOF(decoder)
+}
+
+// decodePredicateStrict decodes one serialized outcome predicate under the
+// predicate population's own limit.
+func decodePredicateStrict(data []byte, target any) error {
+	return decodeWorkflowJSONStrict(data, maxWorkflowPredicateBytes, target)
+}
+
+// decodeWorkflowActionPayloadStrict decodes one whole workflow action payload
+// — or one typed action document a payload field carries — under the
+// whole-action limit, with the strictness the frozen decode and replay
+// corpus replay through unchanged.
+func decodeWorkflowActionPayloadStrict(data []byte, target any) error {
+	return decodeWorkflowJSONStrict(data, maxWorkflowActionPayloadBytes, target)
 }
 
 func validateWorkflowJSONStructure(data []byte) error {

@@ -292,7 +292,7 @@ func workflowContractCorrectionAvailable(ctx context.Context, q queryer, workID 
 		return false, nil
 	}
 	if stepDeclaresAction(definition, currentStep, "complete") {
-		return workflowCompleteStepCorrectionAvailable(ctx, q, workID, definition, currentStep, subject)
+		return workflowCompleteStepCorrectionAvailable(ctx, q, workID, definition, currentStep, subject, 0)
 	}
 	step := workflowStep(definition, currentStep)
 	if step.Kind == WorkflowStepHumanCheckpoint {
@@ -394,9 +394,65 @@ func workflowStepFollows(definition WorkflowDefinition, earlierStep, currentStep
 	return false
 }
 
-// guardRecoveryEvidenceBind admits one outstanding evidence requirement after
-// the definition's evidence-binding step. It also guards the typed recovery
-// action declared by definition version 6.
+type workflowEvidenceBindingRecoveryState struct {
+	Requirements []workflowEvidenceRequirement
+	// Refusal belongs to bind_evidence, not to another action whose admission
+	// happens to probe binding availability in the same snapshot.
+	Refusal *Failure
+}
+
+// workflowEvidenceBindingRecoveryEligibility is the tx-scoped owner for
+// recovery calls, discovery, and completed-action validation. Read failures
+// remain errors; a predicate refusal is a fact about this action's eligibility.
+func workflowEvidenceBindingRecoveryEligibility(ctx context.Context, q queryer, definition WorkflowDefinition, workID, currentStep string, beforeSeq int64) (workflowEvidenceBindingRecoveryState, error) {
+	var state workflowEvidenceBindingRecoveryState
+	bindingStep := workflowEvidenceRecoveryBindingStep(definition, currentStep)
+	if bindingStep == "" || !workflowStepFollows(definition, bindingStep, currentStep) {
+		return state, nil
+	}
+	required, mandates, obligations, cutoff, err := workflowEvidenceRequirementInputs(ctx, q, workID)
+	if err != nil {
+		if workflowMissingContractProjection(err) {
+			return state, nil
+		}
+		return state, err
+	}
+	requirements := workflowEvidenceRequirementDefinitions(required, mandates, definition, obligations)
+	contractVersion, err := activeWorkflowContractVersion(ctx, q, workID, "workflow_action")
+	if err != nil {
+		return state, err
+	}
+	predicates, err := readWorkflowContractPredicates(ctx, q, workID, contractVersion)
+	if err != nil {
+		return state, err
+	}
+	verdicts, err := latestWorkflowVerdictsBefore(ctx, q, workID, contractVersion, beforeSeq)
+	if err != nil {
+		return state, err
+	}
+	verdicted := make(map[string]bool, len(verdicts))
+	for _, verdict := range verdicts {
+		verdicted[verdict.PredicateID] = true
+	}
+	for _, predicate := range predicates {
+		if verdicted[predicate.PredicateID] {
+			continue
+		}
+		approved, decodeErr := DecodeWorkflowPredicate([]byte(predicate.OutcomePayload))
+		if decodeErr != nil || string(approved.Kind) != predicate.OutcomeKind {
+			state.Refusal = newFailure(KindInvariantViolation, "workflow_action", "approved outcome predicate is malformed or mismatched", false, "reread_entities")
+			return state, nil
+		}
+		if approved.Kind == PredicateCheck {
+			requirements = append(requirements, workflowEvidenceRequirement{Kind: string(EvidenceVerification), Reference: approved.ImmutableSubjectRef})
+		}
+	}
+	state.Requirements, err = unboundWorkflowEvidenceRequirements(ctx, q, workID, requirements, cutoff, beforeSeq)
+	return state, err
+}
+
+// guardRecoveryEvidenceBind admits an outstanding requirement or verification
+// of an unverdicted active check, without reopening an already bound tuple.
 func guardRecoveryEvidenceBind(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep string, payload json.RawMessage, subject string) (bool, error) {
 	bindingStep := workflowEvidenceRecoveryBindingStep(definition, currentStep)
 	if bindingStep == "" || !workflowStepFollows(definition, bindingStep, currentStep) {
@@ -409,7 +465,7 @@ func guardRecoveryEvidenceBind(ctx context.Context, q queryer, workID string, de
 	reference := workflowFieldStringDefault(fields, "evidence_ref", "")
 	reference = workflowFieldStringDefault(fields, "immutable_subject_ref", reference)
 	kind := workflowFieldStringDefault(fields, "evidence_kind", "verification")
-	required, mandates, obligations, cutoff, inputsErr := workflowEvidenceRequirementInputs(ctx, q, workID)
+	_, _, _, cutoff, inputsErr := workflowEvidenceRequirementInputs(ctx, q, workID)
 	if inputsErr != nil {
 		return false, inputsErr
 	}
@@ -422,11 +478,14 @@ func guardRecoveryEvidenceBind(ctx context.Context, q queryer, workID string, de
 			return false, newFailure(KindIllegalLifecycleTransition, subject, "recovery bind_evidence cannot reopen an already bound evidence tuple", false, fmt.Sprintf("use bind_evidence on step %q before advancing", bindingStep))
 		}
 	}
-	requirements, requirementsErr := outstandingWorkflowEvidenceRequirements(ctx, q, workID, required, mandates, definition, obligations, cutoff)
+	recovery, requirementsErr := workflowEvidenceBindingRecoveryEligibility(ctx, q, definition, workID, currentStep, 0)
 	if requirementsErr != nil {
 		return false, requirementsErr
 	}
-	for _, requirement := range requirements {
+	if recovery.Refusal != nil {
+		return false, recovery.Refusal
+	}
+	for _, requirement := range recovery.Requirements {
 		if requirement.Kind != "" && requirement.Kind != kind {
 			continue
 		}
@@ -435,7 +494,7 @@ func guardRecoveryEvidenceBind(ctx context.Context, q queryer, workID string, de
 		}
 		return true, nil
 	}
-	return false, newFailure(KindIllegalLifecycleTransition, subject, "recovery bind_evidence is only available for an outstanding contract evidence requirement", false, fmt.Sprintf("use bind_evidence on step %q before advancing", bindingStep))
+	return false, newFailure(KindIllegalLifecycleTransition, subject, "recovery bind_evidence requires an outstanding contract evidence requirement or an unbound verification subject for an unverdicted active check", false, fmt.Sprintf("use bind_evidence on step %q before advancing", bindingStep))
 }
 
 // guardSupersedeContractRecovery keeps the supersede payload checks the
@@ -493,7 +552,9 @@ func workflowContractCorrectionCheckpoint(definition WorkflowDefinition, current
 // nonterminal, at least one approved contract is active, no worker attempt is
 // unsettled, and a same-work observation was recorded after the latest
 // recorded verdict. Any other work kind or pinned shape refuses.
-func workflowCompleteStepCorrectionAvailable(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, subject string) (bool, error) {
+// A zero beforeSeq reads the current log; a fold bounds history before its
+// supersession so later events cannot change that event's admission.
+func workflowCompleteStepCorrectionAvailable(ctx context.Context, q queryer, workID string, definition WorkflowDefinition, currentStep, subject string, beforeSeq int64) (bool, error) {
 	if workflowDisprovedPremiseAtCompleteRouteTarget(definition, currentStep) == "" {
 		// The declared complete-step correction route is the shape: only a
 		// disproved_premise_at_complete route seats the CD-0172 return, and
@@ -517,29 +578,29 @@ func workflowCompleteStepCorrectionAvailable(ctx context.Context, q queryer, wor
 	if contracts == 0 {
 		return false, nil
 	}
-	unsettled, err := workflowUnsettledWorkerAttempt(ctx, q, workID, subject)
+	unsettled, err := workflowUnsettledWorkerAttempt(ctx, q, workID, subject, beforeSeq)
 	if err != nil || unsettled {
 		return false, err
 	}
-	return workflowContradictionObservationRecorded(ctx, q, workID, subject)
+	return workflowContradictionObservationRecorded(ctx, q, workID, subject, beforeSeq)
 }
 
 // workflowUnsettledWorkerAttempt reports a worker attempt that still holds
 // the work: a dispatched attempt, a completed report without an accepted or
 // rejected disposition, or a failed attempt without a recorded failure.
 // Correction at the complete step never strands one.
-func workflowUnsettledWorkerAttempt(ctx context.Context, q queryer, workID, subject string) (bool, error) {
+func workflowUnsettledWorkerAttempt(ctx context.Context, q queryer, workID, subject string, beforeSeq int64) (bool, error) {
 	var unsettled int
 	if err := q.QueryRowContext(ctx, `SELECT
  (SELECT count(*) FROM worker_attempts a WHERE a.work_id=? AND a.lifecycle_state='dispatched') +
  (SELECT count(*) FROM worker_attempts a WHERE a.work_id=? AND a.lifecycle_state='completed' AND NOT EXISTS (
     SELECT 1 FROM domain_events f WHERE f.subject_type='work_item' AND f.subject_id=a.work_id
       AND f.kind=? AND json_extract(f.payload,'$.action_id') IN ('accept_worker_result','accept_worker_evidence','reject_worker_result')
-      AND json_extract(f.payload,'$.worker_attempt_id')=a.attempt_id)) +
+      AND json_extract(f.payload,'$.worker_attempt_id')=a.attempt_id AND (?=0 OR f.seq<?))) +
  (SELECT count(*) FROM worker_attempts a WHERE a.work_id=? AND a.lifecycle_state='failed' AND NOT EXISTS (
     SELECT 1 FROM domain_events f WHERE f.subject_type='work_item' AND f.subject_id=a.work_id
       AND f.kind=? AND json_extract(f.payload,'$.action_id')='record_worker_failure'
-      AND json_extract(f.payload,'$.worker_attempt_id')=a.attempt_id))`, workID, workID, WorkflowActionCompleted, workID, WorkflowActionCompleted).Scan(&unsettled); err != nil {
+      AND json_extract(f.payload,'$.worker_attempt_id')=a.attempt_id AND (?=0 OR f.seq<?)))`, workID, workID, WorkflowActionCompleted, beforeSeq, beforeSeq, workID, WorkflowActionCompleted, beforeSeq, beforeSeq).Scan(&unsettled); err != nil {
 		return false, wrapFailure(KindUnavailable, subject, "cannot inspect unsettled worker attempts", true, "retry once the worker attempt projection is readable", err)
 	}
 	return unsettled != 0, nil
@@ -555,12 +616,12 @@ func workflowUnsettledWorkerAttempt(ctx context.Context, q queryer, workID, subj
 // predicate reads the record's existence and ordering, never its content:
 // the contradiction claim itself rides the successor's audit evidence and
 // the verified operator approval (CD-0172).
-func workflowContradictionObservationRecorded(ctx context.Context, q queryer, workID, subject string) (bool, error) {
+func workflowContradictionObservationRecorded(ctx context.Context, q queryer, workID, subject string, beforeSeq int64) (bool, error) {
 	var recorded int
 	if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM domain_events e
-		WHERE e.subject_type='work_item' AND e.subject_id=? AND e.kind=?
+		WHERE e.subject_type='work_item' AND e.subject_id=? AND e.kind=? AND (?=0 OR e.seq<?)
 		AND e.seq > COALESCE((SELECT MAX(v.seq) FROM domain_events v
-			WHERE v.subject_type='work_item' AND v.subject_id=? AND v.kind=?), 0))`, workID, WorkObservationRecorded, workID, WorkflowVerdictRecorded).Scan(&recorded); err != nil {
+			WHERE v.subject_type='work_item' AND v.subject_id=? AND v.kind=? AND (?=0 OR v.seq<?)), 0))`, workID, WorkObservationRecorded, beforeSeq, beforeSeq, workID, WorkflowVerdictRecorded, beforeSeq, beforeSeq).Scan(&recorded); err != nil {
 		return false, wrapFailure(KindUnavailable, subject, "cannot inspect work observations", true, "retry once the work observation projection is readable", err)
 	}
 	return recorded != 0, nil
@@ -1568,44 +1629,8 @@ func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoc
 			return events, "", newFailure(KindUnauthorizedDispatch, "workflow_action", "lane capability class "+lane.CapabilityClass+" is not dispatchable at a "+string(in.step.Kind)+" step; the step admits capability classes "+admitted, false, "dispatch the lane at a step kind the lane-step dispatch join admits")
 		}
 		if in.tx != nil {
-			if err := validateWorkerPacketBinding(in.ctx, in.tx, in.request.WorkID, in.request.ExpectedVersion, lane, packetRaw); err != nil {
+			if err := bindWorkerDispatchCompletionTx(in, lane, packetRaw, completionValues); err != nil {
 				return events, "", err
-			}
-			if err := validateWorkerPacketCorrection(in.ctx, in.tx, in.request.WorkID, in.currentStep, packetRaw); err != nil {
-				return events, "", err
-			}
-			// CON-887: the packet must consume the current work-context
-			// view the same way it consumes the current correction — the
-			// spawn compares the pinned bytes against current state.
-			admittedContext, contextErr := admittedWorkerPacketWorkContext(in.ctx, in.tx, in.request.WorkID, packetRaw)
-			if contextErr != nil {
-				return events, "", contextErr
-			}
-			if admittedContext != nil && admittedContext.SubjectCommit != "" {
-				completionValues["worker_subject_commit"] = admittedContext.SubjectCommit
-			}
-			// CON-883: the packet must carry the latest context
-			// checkpoint the same way it consumes the current correction,
-			// so coordinator directions recorded before the spawn reach
-			// the worker the core dispatched.
-			if err := validateWorkerPacketCheckpoint(in.ctx, in.tx, in.request.WorkID, packetRaw); err != nil {
-				return events, "", err
-			}
-			// The recorded law context, design record, proposal, and work
-			// text ride the packet as typed members the core holds to the
-			// current records, never as adapter-authored prose.
-			if err := validateWorkerPacketRecords(in.ctx, in.tx, in.request.WorkID, packetRaw); err != nil {
-				return events, "", err
-			}
-			// CD-0205: the completion records the selected worker-job
-			// revision the packet binds, so worker.dispatched, the report,
-			// and the acceptance can each be held to that exact revision.
-			job, jobErr := validateWorkerPacketJob(in.ctx, in.tx, in.entry.Definition, in.request.WorkID, lane, packetRaw)
-			if jobErr != nil {
-				return events, "", jobErr
-			}
-			if job != nil {
-				completionValues["worker_job"] = map[string]any{"job_id": job.JobID, "revision": job.Revision, "digest": job.Digest}
 			}
 		}
 		// The registry lane identity rides the completion so the fold can
@@ -1663,6 +1688,65 @@ func appendGenericWorkflowCompletion(in workflowActionAssemblyInput, attemptEpoc
 	}
 	events = append(events, workflowTypedEvent(in.request.OperationID+":completed", WorkflowActionCompleted, in.request.WorkID, in.eventActor, in.request.Now, resultVersion-1, completionValues))
 	return events, workerPacketDigest, nil
+}
+
+func bindWorkerDispatchCompletionTx(in workflowActionAssemblyInput, lane LaneDefinition, packetRaw json.RawMessage, completionValues map[string]any) error {
+	if err := validateWorkerPacketBinding(in.ctx, in.tx, in.request.WorkID, in.request.ExpectedVersion, lane, packetRaw); err != nil {
+		return err
+	}
+	if err := validateWorkerPacketCorrection(in.ctx, in.tx, in.request.WorkID, in.currentStep, packetRaw); err != nil {
+		return err
+	}
+	// The packet consumes the current work-context view and correction;
+	// admission compares the pinned bytes against current state.
+	admittedContext, contextErr := admittedWorkerPacketWorkContext(in.ctx, in.tx, in.request.WorkID, packetRaw)
+	if contextErr != nil {
+		return contextErr
+	}
+	if admittedContext != nil && admittedContext.SubjectCommit != "" {
+		completionValues["worker_subject_commit"] = admittedContext.SubjectCommit
+	}
+	// Every authorization records the admitted view's source-event frontier,
+	// or explicit zero when no view is present. Terminal reports bind to it.
+	dispatchFrontier := int64(0)
+	if admittedContext != nil {
+		dispatchFrontier = admittedContext.SourceEventFrontier
+	}
+	completionValues["worker_context_frontier"] = dispatchFrontier
+	// The packet carries the latest context checkpoint, so directions
+	// recorded before the spawn reach the dispatched worker.
+	if err := validateWorkerPacketCheckpoint(in.ctx, in.tx, in.request.WorkID, packetRaw); err != nil {
+		return err
+	}
+	// The law context, design, proposal, and work text are typed members
+	// held to current records, never adapter-authored prose.
+	if err := validateWorkerPacketRecords(in.ctx, in.tx, in.request.WorkID, packetRaw); err != nil {
+		return err
+	}
+	// CD-0205: dispatch, report, and acceptance bind the selected job revision.
+	job, jobErr := validateWorkerPacketJob(in.ctx, in.tx, in.entry.Definition, in.request.WorkID, lane, packetRaw)
+	if jobErr != nil {
+		return jobErr
+	}
+	if job != nil {
+		completionValues["worker_job"] = map[string]any{"job_id": job.JobID, "revision": job.Revision, "digest": job.Digest}
+	}
+	// Revalidate the sealed pre-transaction preparation with SQL only,
+	// including the accepted implementation subject for a review dispatch.
+	if err := admitWorkerDispatchSubjectFreshness(in.ctx, in.tx, in.request, in.entry.Definition, lane, admittedContext); err != nil {
+		return err
+	}
+	// The whole context answers to one aggregate bound before dispatch
+	// effects, including a retry derived from a combined rejection.
+	if err := refuseOverBoundDispatchContext(packetRaw); err != nil {
+		return err
+	}
+	// Every required reading resolved before dispatch. Revalidate sealed
+	// witnesses against source registrations with SQL only.
+	if err := admitWorkerDispatchReadingResolutionTx(in.ctx, in.tx, in.request.WorkID, admittedContext); err != nil {
+		return err
+	}
+	return nil
 }
 
 func workflowDefinitionRequiresDeliveryPayload(definition WorkflowDefinition) bool {

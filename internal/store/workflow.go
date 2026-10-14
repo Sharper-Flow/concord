@@ -248,8 +248,15 @@ type workflowActionCompletedPayload struct {
 	// obligations. The list marshals unconditionally, empty when the packet
 	// declared no typed predicates, so the fold can refuse a dispatch record
 	// that carries no list instead of reading its absence as none.
-	WorkerPacketPredicateIDs []string                  `json:"worker_packet_predicate_ids"`
-	WorkerWorktreeIdentity   string                    `json:"worker_worktree_identity,omitempty"`
+	WorkerPacketPredicateIDs []string `json:"worker_packet_predicate_ids"`
+	WorkerWorktreeIdentity   string   `json:"worker_worktree_identity,omitempty"`
+	// WorkerContextFrontier is the source-event frontier of the admitted
+	// work-context view the dispatch_worker authorization recorded
+	// New authorizations always record it — explicit zero when
+	// the view was absent — and the terminal ingest reads it as the frontier
+	// the terminal report consumed. Nil on authorizations recorded before
+	// the field existed: their absence is history, never a zero.
+	WorkerContextFrontier    *int64                    `json:"worker_context_frontier,omitempty"`
 	CorrectionDiagnosis      string                    `json:"correction_diagnosis,omitempty"`
 	CorrectionStrategy       string                    `json:"correction_strategy,omitempty"`
 	CorrectionEvidenceRefs   []string                  `json:"correction_evidence_refs,omitempty"`
@@ -397,7 +404,7 @@ func decodeWorkflowProposalContent(raw json.RawMessage) (workflowProposalContent
 		raw = json.RawMessage(`{}`)
 	}
 	var content workflowProposalContent
-	if err := decodePredicateStrict(raw, &content); err != nil {
+	if err := decodeWorkflowActionPayloadStrict(raw, &content); err != nil {
 		return content, newFailure(KindInvalidPayload, "workflow_proposal", "proposal payload is not one strict JSON object", false, "supply the closed proposal document")
 	}
 	if err := validateWorkflowProposalContent(content); err != nil {
@@ -1270,7 +1277,7 @@ func foldWorkflowContractSuperseded(ctx context.Context, tx *sql.Tx, event Event
 		return err
 	}
 	if p.SuccessorContract != nil {
-		if err := foldCompleteStepContractCorrectionTx(ctx, tx, event.SubjectID, p.SuccessorContract); err != nil {
+		if err := foldCompleteStepContractCorrectionTx(ctx, tx, event, p.SuccessorContract); err != nil {
 			return err
 		}
 	}
@@ -1296,7 +1303,8 @@ func foldWorkflowContractSuperseded(ctx context.Context, tx *sql.Tx, event Event
 // foldCompleteStepContractCorrectionTx keeps the route marker, historical
 // replay, and admission checks together before it returns the pinned instance
 // to its external-effect step. The caller holds the fold transaction.
-func foldCompleteStepContractCorrectionTx(ctx context.Context, tx *sql.Tx, workID string, successor *workflowContractApprovedPayload) error {
+func foldCompleteStepContractCorrectionTx(ctx context.Context, tx *sql.Tx, event Event, successor *workflowContractApprovedPayload) error {
+	workID := event.SubjectID
 	var foldStep, foldState string
 	if err := tx.QueryRowContext(ctx, `SELECT current_step,instance_state FROM workflow_instances WHERE work_id=?`, workID).Scan(&foldStep, &foldState); err != nil {
 		return workflowProjectionError(err, "cannot read the workflow step for the supersession route check")
@@ -1328,7 +1336,13 @@ func foldCompleteStepContractCorrectionTx(ctx context.Context, tx *sql.Tx, workI
 		}
 		return newFailure(KindInvariantViolation, "fold_event", "route convention complete_step_correction does not match the supersession step", false, "declare the reserved convention exactly on the complete-step correction route")
 	}
-	available, err := workflowCompleteStepCorrectionAvailable(ctx, tx, workID, entry.Definition, foldStep, "fold_event")
+	// Replay retains the whole log. Admission sees only the history that
+	// preceded this supersession, just as it did on the live path.
+	beforeSeq, err := eventSequenceTx(ctx, tx, event.EventID)
+	if err != nil {
+		return err
+	}
+	available, err := workflowCompleteStepCorrectionAvailable(ctx, tx, workID, entry.Definition, foldStep, "fold_event", beforeSeq)
 	if err != nil {
 		return err
 	}
@@ -2076,6 +2090,12 @@ func validateWorkflowActionCompletedShape(p workflowActionCompletedPayload) erro
 	if p.WorkerSubjectCommit != "" && (p.ActionID != "dispatch_worker" || !worktreeSHAPattern.MatchString(p.WorkerSubjectCommit)) {
 		return newFailure(KindInvalidPayload, "fold_event", "worker_subject_commit is reserved for dispatch_worker and must be one raw commit OID", false, "record the admitted dispatch subject only")
 	}
+	// The frontier attribution is dispatch authority: only a
+	// dispatch_worker completion records it, and a frontier is never
+	// negative.
+	if p.WorkerContextFrontier != nil && (p.ActionID != "dispatch_worker" || *p.WorkerContextFrontier < 0) {
+		return newFailure(KindInvalidPayload, "fold_event", "worker_context_frontier is reserved for dispatch_worker and must be a nonnegative source-event frontier", false, "record the admitted view frontier only")
+	}
 	if p.CorrectionOpenFindingIDs != nil && ((p.ActionID != "reject_worker_result" && p.ActionID != "request_correction") || !validWorkflowOpenFindings(p.CorrectionOpenFindingIDs)) {
 		return newFailure(KindInvalidPayload, "fold_event", "correction_open_finding_ids requires a rejected result or a correction request with 1 to 32 unique finding IDs", false, "record the complete open finding set on reject_worker_result or request_correction")
 	}
@@ -2244,45 +2264,38 @@ func admitWorkflowActionOffStep(ctx context.Context, tx *sql.Tx, event Event, p 
 		return nil
 	}
 	if !workerFailureRecovery && !correctionRecovery {
-		bindingStep := workflowEvidenceBindingStep(entry.Definition, currentStep)
-		if bindingStep == "" || !workflowStepFollows(entry.Definition, bindingStep, currentStep) {
-			return newFailure(KindIllegalLifecycleTransition, "fold_event", "recovery evidence binding is not past its declared binding step", false, "reread_entities")
+		var raw []byte
+		var bindingSeq int64
+		// The evidence constructor emits its binding immediately before the
+		// completion. Join that effect, not a tuple from an earlier action.
+		err := tx.QueryRowContext(ctx, `SELECT seq,payload FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? AND seq<? AND actor=? AND json_extract(payload,'$.resulting_version')=? ORDER BY seq DESC LIMIT 1`, event.SubjectID, WorkflowEvidenceBound, event.Seq, p.ActorRef, p.ExpectedVersion).Scan(&bindingSeq, &raw)
+		if err != nil && err != sql.ErrNoRows {
+			return wrapFailure(KindUnavailable, "fold_event", "cannot inspect recovery evidence binding", true, "retry once the workflow evidence projection is readable", err)
 		}
-		required, mandates, obligations, _, inputsErr := workflowEvidenceRequirementInputs(ctx, tx, event.SubjectID)
-		if inputsErr != nil {
-			return inputsErr
+		if err == sql.ErrNoRows {
+			return newFailure(KindMissingEvidence, "fold_event", "recovery evidence binding requires its own bound subject", false, "bind eligible recovery evidence before recording the action completion")
 		}
-		requirementBound := false
-		rows, rowsErr := tx.QueryContext(ctx, `SELECT payload FROM domain_events WHERE subject_type='work_item' AND subject_id=? AND kind=? ORDER BY seq DESC`, event.SubjectID, WorkflowEvidenceBound)
-		if rowsErr != nil {
-			return wrapFailure(KindUnavailable, "fold_event", "cannot inspect recovery evidence requirements", true, "retry once the workflow evidence projection is readable", rowsErr)
+		var binding workflowEvidenceBoundPayload
+		if err := json.Unmarshal(raw, &binding); err != nil {
+			return newFailure(KindInvariantViolation, "fold_event", "recovery evidence binding payload is malformed", false, "reread_entities")
 		}
-		for rows.Next() {
-			var raw []byte
-			if scanErr := rows.Scan(&raw); scanErr != nil {
-				_ = rows.Close()
-				return wrapFailure(KindUnavailable, "fold_event", "cannot read recovery evidence binding", true, "retry once the workflow evidence projection is readable", scanErr)
+		// The binding has already folded. Evaluate the shared eligibility at
+		// its input boundary, not against the requirement it just satisfied.
+		recovery, err := workflowEvidenceBindingRecoveryEligibility(ctx, tx, entry.Definition, event.SubjectID, currentStep, bindingSeq)
+		if err != nil {
+			return err
+		}
+		if recovery.Refusal != nil {
+			return recovery.Refusal
+		}
+		if contains(p.ResultEvidenceRefs, binding.ImmutableSubjectRef) {
+			for _, requirement := range recovery.Requirements {
+				if (requirement.Kind == "" || requirement.Kind == binding.EvidenceKind) && (requirement.Reference == "" || requirement.Reference == binding.ImmutableSubjectRef) {
+					return nil
+				}
 			}
-			var binding workflowEvidenceBoundPayload
-			if decodeErr := json.Unmarshal(raw, &binding); decodeErr != nil {
-				_ = rows.Close()
-				return newFailure(KindInvariantViolation, "fold_event", "recovery evidence binding payload is malformed", false, "reread_entities")
-			}
-			if contains(p.ResultEvidenceRefs, binding.ImmutableSubjectRef) && workflowEvidenceRequirementDeclared(binding.EvidenceKind, binding.ImmutableSubjectRef, required, mandates, entry.Definition, obligations) {
-				requirementBound = true
-				break
-			}
 		}
-		if rowsErr := rows.Err(); rowsErr != nil {
-			_ = rows.Close()
-			return wrapFailure(KindUnavailable, "fold_event", "cannot scan recovery evidence bindings", true, "retry once the workflow evidence projection is readable", rowsErr)
-		}
-		if closeErr := rows.Close(); closeErr != nil {
-			return wrapFailure(KindUnavailable, "fold_event", "cannot close recovery evidence bindings", true, "retry once the workflow evidence projection is readable", closeErr)
-		}
-		if !requirementBound {
-			return newFailure(KindMissingEvidence, "fold_event", "recovery evidence binding does not bind an outstanding contract evidence requirement", false, "bind an outstanding contract evidence requirement")
-		}
+		return newFailure(KindMissingEvidence, "fold_event", "recovery evidence binding does not bind eligible recovery evidence", false, "bind an outstanding requirement or verification of an unverdicted active check")
 	}
 	return nil
 }

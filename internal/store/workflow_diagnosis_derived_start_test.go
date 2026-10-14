@@ -991,17 +991,29 @@ func TestDispatchStillOpensTheFirstEpoch(t *testing.T) {
 		fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", route.step)
 		s := fixture.store
 		dispatcher := fixture.owner
+		// A review dispatch on break_fix work owes the accepted
+		// implementation delivery the review gate joins, so the review
+		// route seeds one first and its start is the step's second.
+		seeded := 0
+		if route.lane == "review" {
+			seedAcceptedImplementationDelivery(t, s, workID, dispatcher)
+			seeded = 1
+		}
 		diagnosisS1DispatchAttempt(t, s, workID, route.step, "attempt:"+workID+":1", dispatcher, route.lane)
 		starts := workflowStartedEventsAtStep(t, s, workID, route.step)
-		if len(starts) != 1 || starts[0].ActionID != "dispatch_worker" || starts[0].Epoch != 1 {
-			t.Fatalf("%s starts after the dispatch = %+v, want one dispatch_worker start at epoch 1", route.step, starts)
+		if len(starts) != 1+seeded {
+			t.Fatalf("%s starts after the dispatch = %+v, want the dispatch_worker start(s) only", route.step, starts)
+		}
+		last := starts[len(starts)-1]
+		if last.ActionID != "dispatch_worker" || last.Epoch != int64(1+seeded) {
+			t.Fatalf("%s final start = %+v, want the route's dispatch_worker start at the epoch past the seeded attempt(s)", route.step, last)
 		}
 		dispatcherRef, err := WorkflowActorRef(dispatcher)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if starts[0].ActorRef != dispatcherRef {
-			t.Fatalf("the dispatch start names %q, want the dispatcher %q", starts[0].ActorRef, dispatcherRef)
+		if last.ActorRef != dispatcherRef {
+			t.Fatalf("the dispatch start names %q, want the dispatcher %q", last.ActorRef, dispatcherRef)
 		}
 		if step := currentStep(t, s, workID); step != route.step {
 			t.Fatalf("step after the dispatch = %q, want %s; a dispatch never crosses the forward edge", step, route.step)

@@ -1048,10 +1048,15 @@ func seedAuthorizedDispatchWindow(t *testing.T, dbPath, workID, attemptID string
 	resulting := expected + 1
 	// The dispatch window binds the worktree identity the core admitted:
 	// the sha256 of the canonical path of the work item's active claim.
+	// A claimed worktree is a git repository in production, so the fixture
+	// materializes one: the terminal delivery observation probes
+	// this directory with read-only git, and the seeded HEAD anchors the
+	// observation assertions.
 	worktreeDir := filepath.Join(filepath.Dir(dbPath), "worktree-"+workID)
 	if err := os.MkdirAll(worktreeDir, 0o755); err != nil {
 		t.Fatalf("create worktree: %v", err)
 	}
+	seedGitFixtureWorktree(t, worktreeDir)
 	worktreePath, err := filepath.EvalSymlinks(worktreeDir)
 	if err != nil {
 		t.Fatalf("resolve worktree: %v", err)
@@ -1091,6 +1096,11 @@ func seedAuthorizedDispatchWindow(t *testing.T, dbPath, workID, attemptID string
 		// well-formed record.
 		"worker_packet_predicate_ids": []string{},
 		"worker_worktree_identity":    worktreeIdentity,
+		// A dispatch this fixture emulates is a new-binary
+		// authorization, so it records the admitted view's frontier
+		// explicitly. The fixture work carries no context declarations,
+		// which is the recorded-zero case.
+		"worker_context_frontier": 0,
 	})
 	// work_items, workflow_actors, workflow_instances, products, projects,
 	// product_projects, work_projects, and the workflow event families are

@@ -127,9 +127,29 @@ func TestAuthorizedWorkerRetryChallengesBeforeFailureDisposition(t *testing.T) {
 	if first.Outcome != OutcomeOK {
 		t.Fatalf("first authorization: %+v", first.Error)
 	}
-	failure := store.Event{EventID: "abandon-unstarted-worker", Kind: store.WorkerFailed, SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: retryJSON(store.WorkerFailedPayload{AttemptID: failedID, FailureKind: store.WorkerFailureAbandoned, Detail: "no admissible dispatch evidence"})}
-	if err := store.ApplyOperation(context.Background(), s, store.Operation{Events: []store.Event{failure}}); err != nil {
+	// The abandoned terminal carries the recorded host observation and lands
+	// through the live worker-evidence seam. On the current head the pinned
+	// definition derives the failure record from this original terminal in
+	// the same commit; the record keeps the dispatch completion's actor rather
+	// than the terminal producer's actor.
+	failure := agentWorkerFailedAttributedEvent("work-1", "abandon-unstarted-worker", failedID, "", store.WorkerFailedPayload{AttemptID: failedID, FailureKind: store.WorkerFailureAbandoned, Detail: "no admissible dispatch evidence"})
+	if err := s.Transact(context.Background(), func(tx *store.Transaction) error {
+		_, err := store.ApplyWorkerEvidenceOperationTx(context.Background(), tx, failure)
+		return err
+	}); err != nil {
 		t.Fatalf("abandon authorization: %v", err)
+	}
+	// Exactly one failure record stands, and it is the original terminal's
+	// own derived record.
+	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM domain_events WHERE subject_id='work-1' AND kind='workflow.action_completed' AND json_extract(payload,'$.action_id')='record_worker_failure'`); got != 1 {
+		t.Fatalf("failure records after the original terminal = %d, want exactly the one derived record", got)
+	}
+	var recordAttempt, recordEvent string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.worker_attempt_id'), event_id FROM domain_events WHERE subject_id='work-1' AND kind=? AND json_extract(payload,'$.action_id')='record_worker_failure'`, store.WorkflowActionCompleted).Scan(&recordAttempt, &recordEvent); err != nil {
+		t.Fatal(err)
+	}
+	if recordAttempt != failedID || recordEvent != "abandon-unstarted-worker:workflow-failure" {
+		t.Fatalf("derived record = (%s, %s), want the original terminal's own record for %s", recordAttempt, recordEvent, failedID)
 	}
 	pin, err := store.ReadWorkPin(context.Background(), s, "work-1")
 	if err != nil {
@@ -140,9 +160,11 @@ func TestAuthorizedWorkerRetryChallengesBeforeFailureDisposition(t *testing.T) {
 		t.Fatal(err)
 	}
 	const freshID = "attempt:work-1:authorized-retry"
+	// The derived record stands open as the correction context, so the retry
+	// packet consumes it.
 	retryInput := map[string]any{
 		"work_id": "work-1", "expected_version": pin.Version, "action_id": "dispatch_worker", "idempotency_key": "retry-unstarted-worker",
-		"fields": map[string]any{"attempt_id": freshID, "worker_packet": retryMutationPacket(t, s, freshID, nil)},
+		"fields": map[string]any{"attempt_id": freshID, "worker_packet": retryMutationPacket(t, s, freshID, pin.Correction)},
 	}
 	env = mutationEnvelope(grant, scopeVersion)
 	challenge := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: retryJSON(retryInput)}, env)
@@ -156,8 +178,11 @@ func TestAuthorizedWorkerRetryChallengesBeforeFailureDisposition(t *testing.T) {
 	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM worker_attempts WHERE work_id='work-1'`); got != 1 {
 		t.Fatalf("approval challenge created %d attempts, want only the failed attempt", got)
 	}
-	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM domain_events WHERE subject_id='work-1' AND (kind='worker.dispatched' OR (kind='workflow.action_completed' AND json_extract(payload,'$.action_id')='record_worker_failure'))`); got != 0 {
-		t.Fatalf("approval challenge fabricated %d dispatches or dispositions", got)
+	// The retry route fabricates no failure record: exactly the one record
+	// derived from the original terminal stands, and the challenge added
+	// neither a dispatch nor a disposition.
+	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM domain_events WHERE subject_id='work-1' AND (kind='worker.dispatched' OR (kind='workflow.action_completed' AND json_extract(payload,'$.action_id')='record_worker_failure'))`); got != 1 {
+		t.Fatalf("records and dispatches after the challenge = %d, want only the one derived record and no fabricated dispatch", got)
 	}
 	ref, ok := challenge.Error.Details["approval_ref"].(string)
 	if !ok || ref == "" {
@@ -178,8 +203,40 @@ func TestAuthorizedWorkerRetryChallengesBeforeFailureDisposition(t *testing.T) {
 	if epoch != 2 {
 		t.Fatalf("fresh authorization epoch=%d, want 2", epoch)
 	}
-	if binding, err := store.WorkflowFailedWorkerRetryBinding(context.Background(), s, nil, "work-1"); err != nil || binding != nil {
-		t.Fatalf("older failed authorization replaced the fresh live attempt: binding=%#v error=%v", binding, err)
+	// The fresh authorization becomes a genuinely live attempt: its lane
+	// dispatch evidence lands through the lane-actor seam, so the older
+	// failed authorization cannot stand in for it and the no-stale-binding
+	// property below reads the live attempt, not an authorized-but-unstarted
+	// one.
+	var freshDigest string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT json_extract(payload,'$.worker_packet_digest') FROM domain_events WHERE subject_id='work-1' AND kind=? AND json_extract(payload,'$.action_id')='dispatch_worker' AND json_extract(payload,'$.worker_attempt_id')=? ORDER BY seq DESC LIMIT 1`, store.WorkflowActionCompleted, freshID).Scan(&freshDigest); err != nil {
+		t.Fatal(err)
+	}
+	retryLaneDef := retryLane(t)
+	freshDispatch := store.Event{EventID: "authorized-retry-dispatch", Kind: store.WorkerDispatched, SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: store.WorkerEvidenceEventPayloadVersion(store.WorkerDispatched), Payload: retryJSON(store.WorkerDispatchedPayload{AttemptID: freshID, LaneID: retryLaneDef.ID, LaneVersion: retryLaneDef.Version, LaneDigest: retryLaneDef.Digest, CapabilityClass: retryLaneDef.CapabilityClass, PacketDigest: freshDigest, ReadbackModel: "openai/gpt-5.6-luna", PacketSchemaVersion: store.WorkerPacketSchemaVersion, ReportSchemaVersion: store.WorkerReportSchemaVersion, WorkerJob: authorizedWorkerJob(t, s, freshID)})}
+	if err := s.Transact(context.Background(), func(tx *store.Transaction) error {
+		enriched, err := store.PrepareLaneActorDispatch(context.Background(), tx, freshDispatch, grant.PrincipalRef, grant.ClientRef)
+		if err != nil {
+			return err
+		}
+		_, err = store.AppendLaneActorDispatchTx(context.Background(), tx, enriched)
+		return err
+	}); err != nil {
+		t.Fatalf("the fresh attempt's lane dispatch evidence: %v", err)
+	}
+	// The fresh authorization is the work's live attempt: the pin's attempt
+	// projection names it at epoch 2, and the older failed authorization
+	// cannot replace it. On the current head the derived record keeps the
+	// correction window open until a satisfying acceptance, so the retry
+	// binding still names the original failed attempt — the fresh attempt
+	// itself is live and is never re-bound as failed.
+	livePin, pinErr := store.ReadWorkPin(context.Background(), s, "work-1")
+	if pinErr != nil || livePin.Attempt == nil || livePin.Attempt.ID != freshID || livePin.Attempt.Epoch != 2 {
+		t.Fatalf("fresh live attempt pin=%+v err=%v, want %s at epoch 2", livePin.Attempt, pinErr, freshID)
+	}
+	binding, bindingErr := store.WorkflowFailedWorkerRetryBinding(context.Background(), s, nil, "work-1")
+	if bindingErr != nil || binding == nil || binding.FailedAttemptID != failedID || binding.FailedAttemptEpoch != 1 {
+		t.Fatalf("retry binding after the fresh live attempt = %+v err=%v, want the original failed attempt's open window, never the fresh attempt", binding, bindingErr)
 	}
 }
 
@@ -219,8 +276,15 @@ func TestWorkerRetryApprovalFencesConcurrentAbandonment(t *testing.T) {
 		// The mutation's host probe follows the initial retry-binding read;
 		// the two dispatch identity probes precede it.
 		if probes == 3 {
-			failure := store.Event{EventID: "concurrent-abandonment", Kind: store.WorkerFailed, SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "worker:test", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: retryJSON(store.WorkerFailedPayload{AttemptID: failedID, FailureKind: store.WorkerFailureAbandoned, Detail: "synthetic concurrent abandonment"})}
-			if err := store.ApplyOperation(ctx, s, store.Operation{Events: []store.Event{failure}}); err != nil {
+			// The concurrent abandonment carries the recorded host observation
+			// and lands through the live worker-evidence seam; the derived
+			// record opens the correction context mid-flight and bumps the
+			// work version under the in-flight retry.
+			failure := agentWorkerFailedAttributedEvent("work-1", "concurrent-abandonment", failedID, "", store.WorkerFailedPayload{AttemptID: failedID, FailureKind: store.WorkerFailureAbandoned, Detail: "synthetic concurrent abandonment"})
+			if err := s.Transact(ctx, func(tx *store.Transaction) error {
+				_, err := store.ApplyWorkerEvidenceOperationTx(ctx, tx, failure)
+				return err
+			}); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -244,12 +308,62 @@ func TestWorkerRetryApprovalFencesConcurrentAbandonment(t *testing.T) {
 	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM domain_events WHERE subject_id='work-1' AND kind='worker.dispatched'`); got != 0 {
 		t.Fatalf("refused retry fabricated %d dispatch events", got)
 	}
+	// The concurrent terminal derived exactly its own failure record.
+	if got := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM domain_events WHERE subject_id='work-1' AND kind='workflow.action_completed' AND json_extract(payload,'$.action_id')='record_worker_failure'`); got != 1 {
+		t.Fatalf("failure records after the concurrent terminal = %d, want exactly the one derived record", got)
+	}
 	pin, err = store.ReadWorkPin(context.Background(), s, "work-1")
 	if err != nil {
 		t.Fatal(err)
 	}
+	if pin.Correction == nil || pin.Correction.FailedAttemptID != failedID {
+		t.Fatalf("correction after the concurrent terminal = %#v, want the derived record's open window on %s", pin.Correction, failedID)
+	}
+	// The packet built before the concurrent terminal stands stale beside the
+	// derived record's open correction. The real admission order puts the
+	// approval wall in front of the packet admission, so the stale retry
+	// challenges first — and then refuses with the exact approval signed:
+	// correction consumption is enforced behind approval, never asserted by
+	// an invented ordering.
 	input["expected_version"] = pin.Version
+	staleChallenge := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: retryJSON(input)}, env)
+	if staleChallenge.Error == nil || staleChallenge.Error.Kind != "approval_required" {
+		t.Fatalf("stale pre-terminal packet challenge = %+v, want approval_required before the packet admission", staleChallenge.Error)
+	}
+	staleRef, staleRefOK := staleChallenge.Error.Details["approval_ref"].(string)
+	if !staleRefOK || staleRef == "" {
+		t.Fatal("stale packet challenge has no approval reference")
+	}
+	staleApprovedRaw := retryJSON(cloneWithApproval(t, input, staleRef))
+	staleScope := map[string]any{"product_id": "product-1", "project_ids": []string{"project-1"}, "work_ids": []string{"work-1"}, "failed_attempt_id": failedID, "scope_version": scopeVersion}
+	staleVersions := map[string]any{"work": pin.Version, "contract": 1, "failed_attempt_epoch": 1}
+	env.HostApproval = signedHostApproval(privateKey, staleRef, mutationDigest("concord_work_transition", "workflow_action", env, staleApprovedRaw), staleScope, staleVersions, grant.SessionRef, grant.AgentRef, grant.Worktree, fixedTime(), nonceForChallenge(staleRef))
+	staleApproved := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: staleApprovedRaw}, env)
+	if staleApproved.Error == nil || !strings.Contains(staleApproved.Error.Message, "worker_packet binding records work_version") {
+		t.Fatalf("stale pre-terminal packet with exact approval = %+v, want the stale work-version binding refusal", staleApproved.Error)
+	}
+	// A version-current packet without the correction consumes nothing, and
+	// the consumption gate refuses it with the exact approval signed —
+	// correction consumption is enforced behind approval, never by an
+	// invented ordering.
 	input["fields"] = map[string]any{"attempt_id": freshID, "worker_packet": retryMutationPacket(t, s, freshID, nil)}
+	unconsumingChallenge := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: retryJSON(input)}, env)
+	if unconsumingChallenge.Error == nil || unconsumingChallenge.Error.Kind != "approval_required" {
+		t.Fatalf("unconsuming packet challenge = %+v, want approval_required", unconsumingChallenge.Error)
+	}
+	unconsumingRef, unconsumingRefOK := unconsumingChallenge.Error.Details["approval_ref"].(string)
+	if !unconsumingRefOK || unconsumingRef == "" {
+		t.Fatal("unconsuming packet challenge has no approval reference")
+	}
+	unconsumingApprovedRaw := retryJSON(cloneWithApproval(t, input, unconsumingRef))
+	env.HostApproval = signedHostApproval(privateKey, unconsumingRef, mutationDigest("concord_work_transition", "workflow_action", env, unconsumingApprovedRaw), staleScope, staleVersions, grant.SessionRef, grant.AgentRef, grant.Worktree, fixedTime(), nonceForChallenge(unconsumingRef))
+	unconsumingApproved := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: unconsumingApprovedRaw}, env)
+	if unconsumingApproved.Error == nil || !strings.Contains(unconsumingApproved.Error.Message, "does not consume the current correction context") {
+		t.Fatalf("unconsuming packet with exact approval = %+v, want the correction-consumption refusal", unconsumingApproved.Error)
+	}
+	// The approved retry succeeds only through a re-read packet that consumes
+	// the correction.
+	input["fields"] = map[string]any{"attempt_id": freshID, "worker_packet": retryMutationPacket(t, s, freshID, pin.Correction)}
 	challenge := dispatchMutation(t, s, service, InvokeRequest{Tool: "concord_work_transition", Operation: "workflow_action", Input: retryJSON(input)}, env)
 	if challenge.Error == nil || challenge.Error.Kind != "approval_required" {
 		t.Fatalf("reread retry: %+v, want approval_required", challenge.Error)

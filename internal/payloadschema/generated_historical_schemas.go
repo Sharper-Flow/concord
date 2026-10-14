@@ -1152,11 +1152,12 @@ const GeneratedHistoricalSchemaDocument = `{
           "type": "integer"
         },
         "tag": {
-          "description": "The typed host observation tag: a terminal error, a held retry, or a bare cancellation. A cancellation carries no error identity.",
+          "description": "The typed host observation tag: a terminal error, a held retry, a bare cancellation, or the coordinator's abandonment request the host adapter observed. A cancellation and an abandonment carry no error identity; an abandonment is admitted only on the abandoned terminal and keeps cause and basis unknown.",
           "enum": [
             "terminal",
             "retry",
-            "cancellation"
+            "cancellation",
+            "abandonment"
           ],
           "type": "string"
         }

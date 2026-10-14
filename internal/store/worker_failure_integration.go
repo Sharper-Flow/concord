@@ -92,9 +92,6 @@ type workerFailureIntegrationLease struct {
 // inputs_unavailable marker for a lease recorded before the watermark
 // column existed.
 func deriveWorkerFailureIntegration(ctx context.Context, q queryer, workID string, observation *WorkerFailureObservation) (*WorkerFailureIdentity, error) {
-	if q == nil {
-		return nil, newFailure(KindInvalidInput, "worker_failure_integration", "the integration reader received no queryer", false, "derive inside the transaction that owns the citation")
-	}
 	if workID == "" {
 		return nil, newFailure(KindInvalidInput, "worker_failure_integration", "the integration reader received no work identity", false, "derive for the work the correction names")
 	}
@@ -181,7 +178,11 @@ func resolveWorkerFailureIntegrationLease(ctx context.Context, q queryer, workID
 		_ = rows.Close()
 		switch {
 		case len(found) > 1:
-			return nil, newFailure(KindAmbiguousScope, "worker_failure_integration", "the native run locator "+source.Locator+" names "+strconv.Itoa(len(found))+" released leases of "+workID+"; one locator resolves one lease", false, "cite the run's lease id or its unambiguous worktree_verify operation reference")
+			candidates := make([]string, len(found))
+			for index, lease := range found {
+				candidates[index] = lease.leaseID
+			}
+			return nil, newAmbiguousScopeFailure("worker_failure_integration", "the native run locator "+source.Locator+" names "+strconv.Itoa(len(found))+" released leases of "+workID+"; one locator resolves one lease", "cite the run's lease id or its unambiguous worktree_verify operation reference", candidates)
 		case len(found) == 1 && resolved == nil:
 			resolved = found[0]
 		case len(found) == 1 && resolved.leaseID != found[0].leaseID:

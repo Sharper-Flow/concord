@@ -1505,19 +1505,38 @@ export const TASK_CANCELLED_ERROR = "Task cancelled"
 // hostFailureFallbackObservation covers a direct failWorkerAttempt caller that
 // retained no typed host sources: the terminal host arm is still recorded from
 // the detail the host supplied, with the cause the host record supports —
-// none. The child session identifier is the only host identity this boundary
-// holds, a bare cancellation keeps the absence-case tag, and the digest binds
-// the full detail even when the copied message is omitted past the bound.
-function hostFailureFallbackObservation(detail: string, workerSessionID: string): WorkerFailureObservation {
-  const host = { tag: detail === TASK_CANCELLED_ERROR ? "cancellation" as const : "terminal" as const, event_type: "message.part.updated", session_id: workerSessionID }
+// none. The same producer records the coordinator abandonment request the
+// host adapter observed: where the terminal arm binds the child session, the
+// abandonment arm binds the authenticated call identity (work, attempt, lane,
+// derived abandon event identity), and the digest binds the full detail in
+// both arms even when the copied message is omitted past the bound.
+function hostFailureFallbackObservation(
+  detail: string,
+  host: WorkerFailureHostObservation,
+  abandonIdentity?: { work_id: string; attempt_id: string; lane_id: string; event_id: string },
+): WorkerFailureObservation {
   const message = exactObservationMessage(detail)
+  const digestSource = abandonIdentity === undefined ? { host, message: detail } : { host, message: detail, identity: abandonIdentity }
   return {
     observer: "host_adapter",
     phase: "host_execution",
     cause: "unknown",
     basis: "unknown",
-    sources: [{ kind: "host_event", digest: sha256Digest(JSON.stringify({ host, message: detail })), ...(message !== undefined ? { message } : {}), host }],
+    sources: [{ kind: "host_event", digest: sha256Digest(JSON.stringify(digestSource)), ...(message !== undefined ? { message } : {}), host }],
   }
+}
+
+// hostAbandonmentObservation records the coordinator abandonment request the
+// host observed: the tag names the request itself, the event type is the
+// declared operation, and the worker child session id rides only when the
+// host's retained dispatch record holds one — never the coordinator session.
+// The detail is what the host observed, never a host diagnosis.
+export function hostAbandonmentObservation(
+  detail: string,
+  identity: { work_id: string; attempt_id: string; lane_id: string; event_id: string },
+  workerSessionID?: string,
+): WorkerFailureObservation {
+  return hostFailureFallbackObservation(detail, { tag: "abandonment", event_type: "worker_abandon", ...(workerSessionID !== undefined ? { session_id: workerSessionID } : {}) }, identity)
 }
 
 function laneForPacket(packet: AgentLanePacket): AgentLane | null {
@@ -1694,7 +1713,7 @@ export function canonicalWorkerEvidence(assertion: Record<string, unknown>): Uin
 // vanish when empty. The adapter only ever produces the host_adapter and
 // worker_report observations its boundary owns.
 export interface WorkerFailureHostObservation {
-  tag: "terminal" | "retry" | "cancellation"
+  tag: "terminal" | "retry" | "cancellation" | "abandonment"
   event_type: string
   session_id?: string
   message_id?: string
@@ -2660,6 +2679,15 @@ export async function failWorkerAttempt(
   return completeWorkerSession(lane, packet, workerSessionID, "", options, signal, detail, onRecorded)
 }
 
+// WorkerAbandonOutcome is the abandon route's answer: the terminal envelope
+// plus the explicit committed fact taken from the core/CLI success result —
+// the store recorded the closure. Consumers read the fact; nothing infers
+// commitment from retry flags or a missing effect state.
+export interface WorkerAbandonOutcome {
+  envelope: AgentResultEnvelope
+  committed: boolean
+}
+
 // abandonWorkerAttempt closes a dispatched attempt when no worker report exists.
 // The core derives the attempt's readback model from its dispatch record,
 // reads process liveness from worktree_occupancy, and refuses abandonment
@@ -2671,13 +2699,13 @@ export async function abandonWorkerAttempt(
   options: Omit<WorkerCompletionOptions, "workerDirectory"> & { abandonEventID?: string; abandonNonce?: string },
   signal: AbortSignal,
   onRecorded?: () => void,
-): Promise<AgentResultEnvelope> {
+): Promise<WorkerAbandonOutcome> {
   const cliRunner = options.evidenceRunner ?? options.runner ?? defaultRunner
   let binary: string
   try {
     binary = concordBinaryPath(options.concordBinary)
   } catch (error) {
-    return errorEnvelope(lane, packet, "error", "error", `worker attempt remains open because the Concord core binary is unavailable: ${String(error)}`.slice(0, MAX_ERROR_BYTES), "contact_operator")
+    return { envelope: errorEnvelope(lane, packet, "error", "error", `worker attempt remains open because the Concord core binary is unavailable: ${String(error)}`.slice(0, MAX_ERROR_BYTES), "contact_operator"), committed: false }
   }
   const credentials = options.credentials ?? defaultCredentials
   let assertion: Record<string, unknown>
@@ -2695,7 +2723,7 @@ export async function abandonWorkerAttempt(
       ...(options.abandonNonce ? { nonce: options.abandonNonce } : {}),
     })
   } catch (error) {
-    return errorEnvelope(lane, packet, "error", "error", `worker attempt remains open because its abandonment assertion could not be signed: ${String(error)}`.slice(0, MAX_ERROR_BYTES), "contact_operator")
+    return { envelope: errorEnvelope(lane, packet, "error", "error", `worker attempt remains open because its abandonment assertion could not be signed: ${String(error)}`.slice(0, MAX_ERROR_BYTES), "contact_operator"), committed: false }
   }
   const failure = await recordWorkerEvent(cliRunner, binary, "worker-abandon", {
     event_id: options.abandonEventID ?? crypto.randomUUID(),
@@ -2705,11 +2733,11 @@ export async function abandonWorkerAttempt(
     ...(options.failureAttribution ? { failure_attribution: options.failureAttribution } : {}),
     assertion,
   }, signal)
-  if (failure) return workerEvidenceEnvelope(lane, packet, failure)
+  if (failure) return { envelope: workerEvidenceEnvelope(lane, packet, failure), committed: false }
   onRecorded?.()
   const envelope = errorEnvelope(lane, packet, "error", "error", detail.slice(0, MAX_ERROR_BYTES), "reconcile_operation")
   envelope.error!.retry_safe = false
-  return envelope
+  return { envelope, committed: true }
 }
 
 async function completeWorkerSession(
@@ -2870,7 +2898,7 @@ async function completeWorkerSession(
   // the report arms build theirs from what this boundary observed.
   const terminal: { verb: "worker-complete"; report: CanonicalLaneReport } | { verb: "worker-fail"; failure_kind: string; detail: string; context_findings?: AgentLaneReportContextFinding[]; failureAttribution: WorkerFailureObservation } =
     hostFailure !== undefined
-      ? { verb: "worker-fail", failure_kind: "worker_error", detail: boundedTextPrefix(hostFailure, MAX_FAILURE_DETAIL_BYTES), failureAttribution: options.failureAttribution ?? hostFailureFallbackObservation(hostFailure, workerSessionID) }
+      ? { verb: "worker-fail", failure_kind: "worker_error", detail: boundedTextPrefix(hostFailure, MAX_FAILURE_DETAIL_BYTES), failureAttribution: options.failureAttribution ?? hostFailureFallbackObservation(hostFailure, { tag: hostFailure === TASK_CANCELLED_ERROR ? "cancellation" as const : "terminal" as const, event_type: "message.part.updated", session_id: workerSessionID }) }
       : "detail" in resolution
       ? { verb: "worker-fail", failure_kind: "invalid_report", detail: boundedTextPrefix(resolution.detail, MAX_FAILURE_DETAIL_BYTES), failureAttribution: reportRefusalFailureObservation(resolution.detail, resultBody) }
       : resolution.report.status === "failed"

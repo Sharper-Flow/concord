@@ -891,6 +891,14 @@ func TestReleasedPinsAnswerToTheCheckpointWriterRule(t *testing.T) {
 // self-pair opened epoch 1, the dispatch that follows opens epoch 2, and the
 // attempt's disposal moves the pen — the pair's own actor cannot checkpoint
 // that later operation.
+//
+// This is the manual-disposal witness, pinned to the latest pre-attribution
+// head: the disposal record's writer identity is the rule's own subject, and
+// the attributed seam route would derive that record under the dispatch
+// actor instead of the disposing owner. The manual path it witnesses still
+// exists on current heads wherever the derivation is structurally skipped —
+// a superseded epoch at the step, or a dispatch completion with no actor.
+// The current-head counterpart below covers the derived-disposal writer.
 func TestDisposedWriterKeepsTheLaterCheckpointUnderTheWriterRule(t *testing.T) {
 	t.Parallel()
 	const workID = "derived-pair-disposed-writer"
@@ -922,6 +930,52 @@ func TestDisposedWriterKeepsTheLaterCheckpointUnderTheWriterRule(t *testing.T) {
 	}
 	if got := verdictItemVersion(t, s, workID); got != version {
 		t.Fatalf("the bypassed checkpoint moved the work version %d -> %d", version, got)
+	}
+}
+
+// Derived failure records preserve the dispatch completion's actor rather
+// than the terminal producer's actor. The writer fence follows that disposer
+// on current pins; the manual-disposal witness covers a different actor.
+func TestDerivedDispositionWriterAdmitsItsOwnFencedCheckpoint(t *testing.T) {
+	t.Parallel()
+	const workID = "derived-pair-disposed-writer-current"
+	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
+	s := fixture.store
+	coordinator := diagnosisS1Actor(workID, "coordinator")
+	if err := runVerdictActionAs(t, s, workID, "checkpoint_repair", json.RawMessage(`{}`), 0, coordinator); err != nil {
+		t.Fatalf("the derived self-pair: %v", err)
+	}
+	starts := workflowStartedEventsAtStep(t, s, workID, "repair")
+	if len(starts) != 1 || starts[0].Epoch != 1 {
+		t.Fatalf("repair starts after the self-pair = %+v, want one derived start at epoch 1", starts)
+	}
+	diagnosisS1DispatchAttempt(t, s, workID, "repair", "attempt:"+workID+":2", coordinator, "implement")
+	// The disposal goes through the attributed live ingest; the derived
+	// record's actor is the dispatch completion's actor.
+	if err := s2WorkerFailedLive(t, s, s2WorkerFailedAttributedEvent(workID, "attempt:"+workID+":2", "failed-"+workID+"-2", preferredModelForLane(reviewGateLane(t, "implementation")), WorkerFailureWorkerError, "the lane failed before a judgeable result existed", time.Unix(30, 0).UTC())); err != nil {
+		t.Fatalf("the attributed terminal ingest: %v", err)
+	}
+	records := s2DerivedFailureRecords(t, s, workID, "attempt:"+workID+":2")
+	if len(records) != 1 || records[0]["actor"] != s2ActorRef(t, coordinator) {
+		t.Fatalf("derived records = %+v, want one record whose actor is the dispatch coordinator", records)
+	}
+	// The disposer holds the fenced pen: the coordinator's own checkpoint is
+	// admitted.
+	beforeCheckpoint := verdictItemVersion(t, s, workID)
+	if err := runVerdictActionAs(t, s, workID, "checkpoint_repair", json.RawMessage(`{}`), 0, coordinator); err != nil {
+		t.Fatalf("the disposer's fenced checkpoint after its own derived disposal: %v", err)
+	}
+	if got := verdictItemVersion(t, s, workID); got != beforeCheckpoint+2 {
+		t.Fatalf("the admitted checkpoint moved the work version %d -> %d", beforeCheckpoint, got)
+	}
+	// A different recorded actor's fenced checkpoint refuses, and the work
+	// version does not change.
+	version := verdictItemVersion(t, s, workID)
+	if err := runVerdictActionAs(t, s, workID, "checkpoint_repair", json.RawMessage(`{}`), 0, fixture.owner); err == nil {
+		t.Fatal("a fenced checkpoint by an actor other than the disposer was admitted after the disposal")
+	}
+	if got := verdictItemVersion(t, s, workID); got != version {
+		t.Fatalf("the refused checkpoint moved the work version %d -> %d", version, got)
 	}
 }
 

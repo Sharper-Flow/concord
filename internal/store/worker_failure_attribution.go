@@ -112,11 +112,13 @@ const (
 )
 
 // Host observation tags distinguish a typed terminal error from a held
-// retry and from a bare cancellation.
+// retry, from a bare cancellation, and from the coordinator's abandonment
+// request the host adapter observed.
 const (
 	WorkerFailureHostTagTerminal     = "terminal"
 	WorkerFailureHostTagRetry        = "retry"
 	WorkerFailureHostTagCancellation = "cancellation"
+	WorkerFailureHostTagAbandonment  = "abandonment"
 )
 
 // Subject reference kinds name an existing recorded subject: the terminal
@@ -204,6 +206,7 @@ var workerFailureHostTagVocabulary = map[string]bool{
 	WorkerFailureHostTagTerminal:     true,
 	WorkerFailureHostTagRetry:        true,
 	WorkerFailureHostTagCancellation: true,
+	WorkerFailureHostTagAbandonment:  true,
 }
 
 var workerFailureSubjectKindVocabulary = map[string]bool{
@@ -403,6 +406,9 @@ func validateWorkerFailureHostObservation(host *WorkerFailureHostObservation) er
 	if host.Tag == WorkerFailureHostTagCancellation && (host.ErrorName != "" || host.ErrorCode != "" || host.StatusCode != 0) {
 		return workerFailureBoundFailure("a cancellation observation records the absence case and carries no error identity; record the fault as a terminal observation instead")
 	}
+	if host.Tag == WorkerFailureHostTagAbandonment && (host.ErrorName != "" || host.ErrorCode != "" || host.StatusCode != 0) {
+		return workerFailureBoundFailure("an abandonment observation records the coordinator's request and carries no error identity; record the fault as a terminal observation instead")
+	}
 	return nil
 }
 
@@ -495,6 +501,11 @@ func validateWorkerFailureObservation(observation *WorkerFailureObservation) err
 		}
 		if !workerFailureObserverSourceKinds[observation.Observer][source.Kind] {
 			return workerFailureBoundFailure("failure_attribution observer " + observation.Observer + " may cite only the source kinds it owns; source kind " + source.Kind + " belongs to another boundary")
+		}
+		if source.Host != nil && source.Host.Tag == WorkerFailureHostTagAbandonment {
+			if observation.Cause != WorkerFailureCauseUnknown || observation.Basis != WorkerFailureBasisUnknown {
+				return workerFailureBoundFailure("an abandonment observation records a request that proves no cause; keep cause unknown and basis unknown")
+			}
 		}
 	}
 	return validateWorkerFailureBasis(observation)
@@ -1069,6 +1080,21 @@ func workerFailureAttemptIdentityMismatch(recorded, expected *WorkerFailureAttem
 	return ""
 }
 
+// workerFailureAbandonmentTagCoupling enforces the abandoned-terminal
+// coupling: an abandonment observation records the coordinator's request,
+// and only the abandoned terminal variant observed one.
+func workerFailureAbandonmentTagCoupling(failureKind string, observation *WorkerFailureObservation) error {
+	if observation == nil {
+		return nil
+	}
+	for _, source := range observation.Sources {
+		if source.Host != nil && source.Host.Tag == WorkerFailureHostTagAbandonment && failureKind != WorkerFailureAbandoned {
+			return workerFailureBoundFailure("an abandonment observation belongs to the abandoned terminal; a " + failureKind + " terminal observed no abandonment request")
+		}
+	}
+	return nil
+}
+
 // verifyWorkerFailureAttemptAttributionTx verifies one terminal's recorded
 // attribution against its authorization owners, with the same SQL reads the
 // live ingest used — identical live and on rebuild. The identity must equal
@@ -1106,7 +1132,7 @@ func verifyWorkerFailureAttemptAttributionTx(ctx context.Context, q queryer, wor
 	if block.Identity.Attempt.Subject != nil {
 		return workerFailureBoundFailure("worker terminal failure_attribution names an observed subject; a failed attempt records no delivery and only a coordinator result_review resolves one")
 	}
-	return nil
+	return workerFailureAbandonmentTagCoupling(failureKind, block.Observation)
 }
 
 // verifyWorkflowActionCompletedAttributionMembersTx carries the fold's two
@@ -1563,9 +1589,6 @@ func workerFailureAttributionTerminalRecord(ctx context.Context, q queryer, work
 // block: whether that absence is legal is the fold's definition-gated
 // refusal, never the reader's guess.
 func WorkerFailureAttributionForAttemptTx(ctx context.Context, q queryer, workID, attemptID string) (*WorkerFailureAttributionRecord, error) {
-	if q == nil {
-		return nil, newFailure(KindInvalidInput, "worker_failure_attribution", "the attribution reader received no queryer", false, "read inside the transaction that owns the attempt")
-	}
 	record, found, err := workerFailureAttributionTerminalRecord(ctx, q, workID, attemptID, WorkerFailed, "", workerFailedAttributionVersion)
 	if err != nil || found {
 		return record, err

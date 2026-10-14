@@ -50,7 +50,7 @@ test("worker-abandon observes no sessions and sends a signed typed close request
     const result = await abandonWorkerAttempt(lane, packet(), "the host observed that the lane never reported", {
       runner, concordBinary: "concord", credentials: testCredentials,
     }, new AbortController().signal)
-    expect(result.error?.message).toContain("the host observed that the lane never reported")
+    expect(result.envelope.error?.message).toContain("the host observed that the lane never reported")
     expect(calls).toHaveLength(1)
     expect(calls[0].argv).toEqual(["concord", "worker-abandon"])
     // worker-fail carries no host session observation; the core reads process
@@ -58,6 +58,28 @@ test("worker-abandon observes no sessions and sends a signed typed close request
     expect(calls[0].input.observed_session_directories).toBeUndefined()
     expect(calls[0].input.assertion).toMatchObject({ verb: "worker-fail", failure_kind: "abandoned", readback_model: "" })
     expect(typeof (calls[0].input.assertion as Record<string, unknown>).signature).toBe("string")
+  } finally {
+    hostControlPlane().bind(undefined)
+  }
+})
+
+// The committed fact is the CLI success result itself: the store recorded the
+// closure. Nothing infers commitment from retry flags or a missing effect
+// state, so the fact is explicit on both arms.
+test("abandonWorkerAttempt returns the explicit committed fact from the CLI result", async () => {
+  hostControlPlane().bind({
+    get: async () => ({ response: new Response("", { status: 200 }), data: [{ id: "ses_other", directory: "/other/worktree" }] }),
+    post: async () => ({ response: new Response("", { status: 204 }) }),
+  })
+  try {
+    const recorded: DispatchRunner = { async run() { return { exitCode: 0, stdout: "", stderr: "" } } }
+    const closed = await abandonWorkerAttempt(lane, packet(), "the host observed that the lane never reported", { runner: recorded, concordBinary: "concord", credentials: testCredentials }, new AbortController().signal)
+    expect(closed.committed).toBe(true)
+    const refusing: DispatchRunner = { async run() {
+      return { exitCode: 1, stdout: JSON.stringify({ ok: false, event_ids: [], error: { kind: "operation_conflict", operation: "worker_evidence", retry_safe: false, effect_state: "none", message: "store: worker_fail: the attempt cannot close" } }), stderr: "" }
+    } }
+    const refused = await abandonWorkerAttempt(lane, packet(), "the host observed that the lane never reported", { runner: refusing, concordBinary: "concord", credentials: testCredentials }, new AbortController().signal)
+    expect(refused.committed).toBe(false)
   } finally {
     hostControlPlane().bind(undefined)
   }

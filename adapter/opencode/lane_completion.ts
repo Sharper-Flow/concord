@@ -431,7 +431,7 @@ async function failSpawnWithoutPartEvent(properties: Record<string, unknown>, de
   // repeated event replays the same abandonment instead of recording a new one.
   const token = createHash("sha256").update(`spawn-failure-without-part-event\0${pending.packet.work_id}\0${pending.packet.attempt_id}\0${detail}`).digest("hex")
   try {
-    const envelope = await abandonWorkerAttempt(lane, pending.packet, detail, {
+    const { envelope } = await abandonWorkerAttempt(lane, pending.packet, detail, {
       credentials: deps.credentials, runner: deps.runner, evidenceRunner: deps.evidenceRunner, concordBinary: deps.concordBinary,
       abandonEventID: `worker-abandon-${token}`, abandonNonce: token,
       failureAttribution: spawnFailureObservation(sessionID, properties.error),

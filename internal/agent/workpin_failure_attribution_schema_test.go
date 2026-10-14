@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"os"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -112,13 +113,26 @@ func TestWorkerFailureAttributionSchemaMirrorsStoreBounds(t *testing.T) {
 	// workerFailureIdentityRefMaxBytes guard (internal/store/
 	// worker_failure_attribution.go).
 	attemptIdentity := failureAttributionDef(t, defs, "worker_failure_attempt_identity")
-	attemptID := failureAttributionProperty(t, attemptIdentity, "attempt_id")
+	attemptBranches, ok := attemptIdentity["oneOf"].([]any)
+	if !ok || len(attemptBranches) != 2 {
+		t.Fatal("attempt identity does not declare its job/no_job variants")
+	}
+	attemptVariant := attemptBranches[0].(map[string]any)
+	attemptID := failureAttributionProperty(t, attemptVariant, "attempt_id")
+	for _, branch := range attemptBranches[1:] {
+		variant := branch.(map[string]any)
+		for _, name := range []string{"attempt_id", "lane_id", "epoch", "packet_digest", "subject"} {
+			if !reflect.DeepEqual(failureAttributionProperty(t, variant, name), failureAttributionProperty(t, attemptVariant, name)) {
+				t.Fatalf("attempt identity %s differs between job/no_job variants", name)
+			}
+		}
+	}
 	for keyword, want := range map[string]float64{"minLength": 1, "maxLength": 256, "x-maxBytes": 256} {
 		if got, ok := attemptID[keyword].(float64); !ok || got != want {
 			t.Fatalf("attempt_id %s=%v, want %v", keyword, attemptID[keyword], want)
 		}
 	}
-	lanes, _ := attemptIdentity["properties"].(map[string]any)["lane_id"].(map[string]any)["enum"].([]any)
+	lanes, _ := failureAttributionProperty(t, attemptVariant, "lane_id")["enum"].([]any)
 	wantLanes := []string{"research", "implement", "design", "review", "verify"}
 	if len(lanes) != len(wantLanes) {
 		t.Fatalf("lane_id enum=%v, want the registered lane ids %v", lanes, wantLanes)
@@ -141,7 +155,11 @@ func TestWorkerFailureAttributionSchemaMirrorsStoreBounds(t *testing.T) {
 		t.Fatalf("subject locator=%v, want the observed source locator bound %v", subjectLocator, sourceLocator)
 	}
 	integration := failureAttributionDef(t, defs, "worker_failure_integration_identity")
-	integrationProperties, _ := integration["properties"].(map[string]any)
+	integrationBranches, ok := integration["oneOf"].([]any)
+	if !ok || len(integrationBranches) != 2 {
+		t.Fatal("integration identity does not declare its population/unavailable variants")
+	}
+	integrationProperties, _ := integrationBranches[0].(map[string]any)["properties"].(map[string]any)
 	inputItems, _ := integrationProperties["input_results"].(map[string]any)["items"].(map[string]any)
 	resultRef := failureAttributionProperty(t, inputItems, "result_ref")
 	if resultRef["maxLength"] != sourceLocator["maxLength"] || resultRef["x-maxBytes"] != sourceLocator["x-maxBytes"] {
@@ -176,12 +194,16 @@ func TestWorkerFailureAttributionSchemaMirrorsStoreBounds(t *testing.T) {
 	if len(subjectKinds) != 2 || subjectKinds[0] != "observed_delivery_event" || subjectKinds[1] != "native_run" {
 		t.Fatalf("subject kinds=%v, want observed_delivery_event and native_run", subjectKinds)
 	}
-	// The integration's native run pins the native_run kind.
-	nativeRun, _ := integration["properties"].(map[string]any)["native_run"].(map[string]any)
-	nativeRunAllOf, _ := nativeRun["allOf"].([]any)
-	kindPin, _ := nativeRunAllOf[1].(map[string]any)["properties"].(map[string]any)["kind"].(map[string]any)
-	if kindPin["const"] != "native_run" {
-		t.Fatalf("integration native_run kind pin=%v, want native_run", kindPin)
+	// Both integration variants pin the native_run kind and source bounds.
+	for _, branch := range integrationBranches {
+		nativeRun := failureAttributionProperty(t, branch.(map[string]any), "native_run")
+		kindPin := failureAttributionProperty(t, nativeRun, "kind")
+		if kindPin["const"] != "native_run" {
+			t.Fatalf("integration native_run kind pin=%v, want native_run", kindPin)
+		}
+		if locator := failureAttributionProperty(t, nativeRun, "locator"); !reflect.DeepEqual(locator, subjectLocator) {
+			t.Fatalf("integration native_run locator=%v, want subject locator bounds %v", locator, subjectLocator)
+		}
 	}
 }
 

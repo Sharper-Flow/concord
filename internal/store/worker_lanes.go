@@ -1259,6 +1259,9 @@ func foldWorkerDispatched(ctx context.Context, tx *sql.Tx, event Event) error {
 		if payload.FailureAttribution.Observation == nil || payload.FailureAttribution.Observation.Observer != WorkerFailureObserverHostAdapter {
 			return newFailure(KindInvalidPayload, "fold_event", "a born-failed terminal records the host adapter's observation; the worker cannot describe the readback terminal it never reported", false, "record the attribution through the authenticated dispatch evidence route")
 		}
+		if err := workerFailureAbandonmentTagCoupling(payload.TerminalFailureKind, payload.FailureAttribution.Observation); err != nil {
+			return newFailure(KindInvalidPayload, "fold_event", "worker.dispatched failure_attribution: "+err.Error(), false, "record the attribution through the authenticated dispatch evidence route")
+		}
 		if payload.FailureAttribution.Identity.Attempt.Subject != nil {
 			return newFailure(KindInvalidPayload, "fold_event", "worker.dispatched failure_attribution names an observed subject; a born-failed attempt records no delivery", false, "record the attribution through the authenticated dispatch evidence route")
 		}

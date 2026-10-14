@@ -764,6 +764,62 @@ func workflowRecoveryRouteTuples() []workflowRecoveryRouteTuple {
 			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
 			WorkflowID:       "research-v18-complete",
 		},
+		// The CD-0218 predecessor heads keep their released route tables
+		// covered after the canonical heads advanced: the registry retains
+		// every released pin, so the v30/v27/v17 rows stay in the table as
+		// recorded history next to the v31/v28/v18 heads.
+		{
+			Ref: "workflow.implementation", Version: 30,
+			Step: "acceptance", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execution",
+			ProducerStep: "execution", DeliveryStep: "execution", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "start_execution",
+			VerdictStep: "acceptance", BindStep: "execution", BindKind: store.EvidenceArtifact,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
+			RecordWorkerJob:  true,
+			WorkflowID:       "implementation-v30-acceptance",
+		},
+		{
+			Ref: "workflow.implementation", Version: 30,
+			Step: "release", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "execution",
+			ProducerStep: "execution", DeliveryStep: "execution", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "start_execution",
+			VerdictStep: "release", BindStep: "execution", BindKind: store.EvidenceArtifact,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
+			RecordWorkerJob:  true,
+			WorkflowID:       "implementation-v30-release",
+		},
+		{
+			Ref: "workflow.break_fix", Version: 27,
+			Step: "verify", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "repair",
+			ProducerStep: "repair", DeliveryStep: "repair", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "checkpoint_repair",
+			VerdictStep: "verify", BindStep: "repair", BindKind: store.EvidenceVerification,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceVerification},
+			RecordWorkerJob:  true,
+			WorkflowID:       "break_fix-v27-verify",
+		},
+		{
+			Ref: "workflow.break_fix", Version: 27,
+			Step: "complete", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "repair",
+			ProducerStep: "repair", DeliveryStep: "repair", ProducerAction: "dispatch_worker", DeliveryLane: "implement", DeliveryAction: "checkpoint_repair",
+			VerdictStep: "complete", BindStep: "repair", BindKind: store.EvidenceVerification,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceVerification},
+			RecordWorkerJob:  true,
+			WorkflowID:       "break_fix-v27-complete",
+		},
+		{
+			Ref: "workflow.research", Version: 17,
+			Step: "conclude", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "investigate",
+			ProducerStep: "investigate", DeliveryStep: "investigate", ProducerAction: "dispatch_worker", DeliveryLane: "research", DeliveryAction: "",
+			VerdictStep: "conclude", BindStep: "investigate", BindKind: store.EvidenceArtifact,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
+			WorkflowID:       "research-v17-conclude",
+		},
+		{
+			Ref: "workflow.research", Version: 17,
+			Step: "complete", Trigger: store.WorkflowRecoveryTriggerUnhealthyVerdict, Action: "request_correction", Target: "investigate",
+			ProducerStep: "investigate", DeliveryStep: "investigate", ProducerAction: "dispatch_worker", DeliveryLane: "research", DeliveryAction: "",
+			VerdictStep: "complete", BindStep: "investigate", BindKind: store.EvidenceArtifact,
+			RequiredEvidence: []store.EvidenceKind{store.EvidenceArtifact},
+			WorkflowID:       "research-v17-complete",
+		},
 	}
 	return tuples
 }
@@ -776,8 +832,8 @@ func workflowRecoveryRouteTuples() []workflowRecoveryRouteTuple {
 // (ref, version) fails the test before the journey runs.
 func TestWorkflowRecoveryRoutesDeclareEveryEvaluatorStep(t *testing.T) {
 	tuples := workflowRecoveryRouteTuples()
-	if len(tuples) != 72 {
-		t.Fatalf("recovery-route journey table carries %d tuples, want 72 (66 baseline rows + the six CD-0218 canonical-head rows)", len(tuples))
+	if len(tuples) != 78 {
+		t.Fatalf("recovery-route journey table carries %d tuples, want 78 (72 prior rows + the six retained predecessor-head rows)", len(tuples))
 	}
 	seen := map[string]bool{}
 	live, history, refusals := 0, 0, 0
@@ -865,10 +921,11 @@ func TestWorkflowRecoveryRoutesDeclareEveryEvaluatorStep(t *testing.T) {
 		}
 	}
 	// The disposition split is the CD-0218 battery shape: six live canonical
-	// journeys, the retained-family released pins as recorded history, and
-	// the 32 retired-family rows as archived-refusal coverage.
-	if live != 6 || history != 34 || refusals != 32 {
-		t.Fatalf("journey table dispositions: live=%d history=%d refusals=%d, want 6/34/32", live, history, refusals)
+	// journeys, the retained-family released pins plus the six retained
+	// predecessor-head rows as recorded history, and the 32 retired-family
+	// rows as archived-refusal coverage.
+	if live != 6 || history != 40 || refusals != 32 {
+		t.Fatalf("journey table dispositions: live=%d history=%d refusals=%d, want 6/40/32", live, history, refusals)
 	}
 	for _, tuple := range workflowRecoveryRouteSupersedeTuples() {
 		key := tuple.Ref + "|v" + strconv.FormatInt(tuple.Version, 10) + "|" + tuple.Step + "|" + string(store.WorkflowRecoveryTriggerDisprovedPremiseAtComplete)
@@ -1845,6 +1902,22 @@ func workflowRecoveryRouteSupersedeTuples() []workflowRecoveryRouteSupersedeTupl
 			Step: "complete", Target: "repair",
 			RecordWorkerJob: true,
 			WorkflowID:      "break_fix-v28-complete-supersede",
+		},
+		// The CD-0218 predecessor heads keep their released complete-step
+		// supersede routes covered after the canonical heads advanced; the
+		// registry retains every released pin, so the v30/v27 rows stay in
+		// the table as recorded history.
+		{
+			Ref: "workflow.implementation", Version: 30,
+			Step: "release", Target: "execution",
+			RecordWorkerJob: true,
+			WorkflowID:      "implementation-v30-release-supersede",
+		},
+		{
+			Ref: "workflow.break_fix", Version: 27,
+			Step: "complete", Target: "repair",
+			RecordWorkerJob: true,
+			WorkflowID:      "break_fix-v27-complete-supersede",
 		},
 	}
 }

@@ -1449,6 +1449,79 @@ func TestWorkerFailureAttributionObserverFailureKindCoupling(t *testing.T) {
 	_ = window
 }
 
+// TestWorkerFailureAttributionAbandonmentTagCoupling pins the abandoned-
+// terminal coupling of the abandonment tag on both terminal folds: the
+// request the host observed belongs to the abandoned variant alone, and the
+// abandoned terminal admits it live and on rebuild.
+func TestWorkerFailureAttributionAbandonmentTagCoupling(t *testing.T) {
+	t.Parallel()
+	const workID = "attribution-abandonment-coupling"
+	fixture := seedWorkflowReturnRouteFixture(t, workID, "workflow.break_fix", "repair")
+	s := fixture.store
+	defer s.Close()
+	lane := reviewGateLane(t, "implementation")
+	abandonmentObservation := func() *WorkerFailureObservation {
+		return &WorkerFailureObservation{
+			Observer: WorkerFailureObserverHostAdapter,
+			Phase:    WorkerFailurePhaseHostExecution,
+			Cause:    WorkerFailureCauseUnknown,
+			Basis:    WorkerFailureBasisUnknown,
+			Sources:  []WorkerFailureSource{workerFailureAbandonmentSourceFixture()},
+		}
+	}
+	// A worker_error terminal observed no abandonment request: the worker
+	// reported a failure, the coordinator did not close the attempt.
+	attempt := "attempt:" + workID + ":worker-error"
+	dispatchJobBoundAttempt(t, s, workID, "repair", attempt, nil, fixture.owner, 0, "attribution-abandonment-dispatch", &WorkerJobBinding{JobID: "job:" + workID})
+	workerError := Event{EventID: "failed-abandonment-worker-error", Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(30, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerFailed), Payload: mustJSONValue(WorkerFailedPayload{AttemptID: attempt, ReadbackModel: preferredModelForLane(lane), FailureKind: WorkerFailureWorkerError, Detail: "the report failed validation", FailureAttribution: &WorkerFailureAttribution{Origin: WorkerFailureAttributionRecorded, Observation: abandonmentObservation()}})}
+	if err := s2WorkerFailedLive(t, s, workerError); err == nil || !strings.Contains(err.Error(), "abandonment observation belongs to the abandoned terminal") {
+		t.Fatalf("abandonment observation on a worker_error terminal err=%v, want the abandoned-terminal coupling refusal", err)
+	}
+	// A born-failed dispatch terminal names its own observed fault; the
+	// abandonment tag is not it.
+	bornAttempt := "attempt:" + workID + ":born"
+	job := &WorkerJobBinding{JobID: "job:" + workID}
+	recordWorkerJobRevisionForTest(t, s, workID, fixture.owner, job)
+	packet := dispatchWorkerPacket(t, s, workID, "repair", bornAttempt)
+	packet["schema_version"] = WorkerPacketSchemaVersion
+	packet["inputs"].(map[string]any)["worker_job"] = recordedPacketJobForTest(t, s, workID, *job)
+	if err := dispatchJobPacketForTest(t, s, workID, bornAttempt, fixture.owner, "attribution-abandonment-born-authorization", packet); err != nil {
+		t.Fatalf("the born authorization refused: %v", err)
+	}
+	bornWindow := attributionDispatchWindow(t, s, workID, bornAttempt)
+	bornDispatch := Event{EventID: "born-abandonment-" + workID, Kind: WorkerDispatched, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(31, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerDispatched), Payload: mustJSONValue(WorkerDispatchedPayload{
+		AttemptID: bornAttempt, LaneID: lane.ID, LaneVersion: lane.Version, LaneDigest: lane.Digest, CapabilityClass: lane.CapabilityClass,
+		PacketSchemaVersion: WorkerPacketSchemaVersion, ReportSchemaVersion: WorkerReportSchemaVersion, PacketDigest: bornWindow.PacketDigest,
+		ReadbackModel: preferredModelForLane(lane), Terminal: "failed", TerminalFailureKind: WorkerFailureModelIdentity, TerminalDetail: "undeclared executing model",
+		WorkerJob: job, FailureAttribution: &WorkerFailureAttribution{Origin: WorkerFailureAttributionRecorded, Observation: abandonmentObservation()},
+	})}
+	bornErr := s.Transact(context.Background(), func(transaction *Transaction) error {
+		prepared, prepErr := PrepareLaneActorDispatch(context.Background(), transaction, bornDispatch, "principal/operator", "client/concord-1")
+		if prepErr != nil {
+			return prepErr
+		}
+		_, appendErr := AppendLaneActorDispatchTx(context.Background(), transaction, prepared)
+		return appendErr
+	})
+	if bornErr == nil || !strings.Contains(bornErr.Error(), "abandonment observation belongs to the abandoned terminal") {
+		t.Fatalf("abandonment observation on a born-failed terminal err=%v, want the abandoned-terminal coupling refusal", bornErr)
+	}
+	// The abandoned terminal admits its abandonment observation live, and the
+	// rebuild folds the same bytes to the same admission.
+	abandonedAttempt := "attempt:" + workID + ":abandoned"
+	dispatchJobBoundAttempt(t, s, workID, "repair", abandonedAttempt, nil, fixture.owner, 0, "attribution-abandonment-admit-dispatch", &WorkerJobBinding{JobID: "job:" + workID})
+	abandoned := Event{EventID: "failed-abandonment-admitted", Kind: WorkerFailed, SubjectType: SubjectWorkItem, SubjectID: workID, Actor: "worker:test", OccurredAt: time.Unix(32, 0).UTC(), PayloadVersion: WorkerEvidenceEventPayloadVersion(WorkerFailed), Payload: mustJSONValue(WorkerFailedPayload{AttemptID: abandonedAttempt, FailureKind: WorkerFailureAbandoned, Detail: "the host closed the attempt", FailureAttribution: &WorkerFailureAttribution{Origin: WorkerFailureAttributionRecorded, Observation: abandonmentObservation()}})}
+	if err := s2WorkerFailedLive(t, s, abandoned); err != nil {
+		t.Fatalf("the abandoned terminal refused its abandonment observation: %v", err)
+	}
+	if attemptFailureKind(t, s, workID, abandonedAttempt) != WorkerFailureAbandoned {
+		t.Fatal("the abandoned terminal did not record the abandoned kind")
+	}
+	if err := RebuildFromLog(context.Background(), s); err != nil {
+		t.Fatalf("rebuild with the admitted abandonment observation: %v", err)
+	}
+}
+
 // TestWorkerFailureAttributionAuthoredMarkerSmuggles pins the upcaster's
 // authored-member gate under a released pin, where no required-block refusal
 // could stand in for it: a stored source version below the boundary that

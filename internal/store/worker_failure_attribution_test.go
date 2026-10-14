@@ -156,6 +156,74 @@ func TestWorkerFailureAttributionClosedCouplingAdmits(t *testing.T) {
 	}
 }
 
+// workerFailureAbandonmentSourceFixture is one typed abandonment host_event
+// source: the coordinator's request the host adapter observed, no error
+// identity, the declared operation as the event type.
+func workerFailureAbandonmentSourceFixture() WorkerFailureSource {
+	return WorkerFailureSource{
+		Kind:    WorkerFailureSourceHostEvent,
+		Locator: "evt-abandon-0001",
+		Digest:  testDigestA,
+		Message: "the coordinator asked to abandon this attempt",
+		Host: &WorkerFailureHostObservation{
+			Tag:       WorkerFailureHostTagAbandonment,
+			EventType: "worker_abandon",
+			SessionID: "ses-child-1",
+		},
+	}
+}
+
+// An abandonment observation is the typed coordinator-request record: it
+// rides host_event sources, keeps cause and basis unknown, carries no error
+// identity, and admits with or without the child session id.
+func TestWorkerFailureAttributionAbandonmentObservationAdmits(t *testing.T) {
+	t.Parallel()
+	withSession := workerFailureAttributionFixture()
+	withSession.Observation.Sources = []WorkerFailureSource{workerFailureAbandonmentSourceFixture()}
+	if err := ValidateWorkerFailureAttribution(withSession); err != nil {
+		t.Fatalf("abandonment observation with a child session refused: %v", err)
+	}
+	withoutSession := workerFailureAttributionFixture()
+	source := workerFailureAbandonmentSourceFixture()
+	source.Host.SessionID = ""
+	withoutSession.Observation.Sources = []WorkerFailureSource{source}
+	if err := ValidateWorkerFailureAttribution(withoutSession); err != nil {
+		t.Fatalf("abandonment observation without a child session refused: %v", err)
+	}
+}
+
+// The abandonment tag carries the coordinator's request alone: an error
+// identity would claim a fault nobody observed, and a named cause would
+// claim a request proves something it does not.
+func TestWorkerFailureAttributionAbandonmentRefusals(t *testing.T) {
+	t.Parallel()
+	refuse := func(name string, mutate func(b *WorkerFailureAttribution), want string) {
+		t.Helper()
+		block := workerFailureAttributionFixture()
+		mutate(block)
+		err := ValidateWorkerFailureAttribution(block)
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Fatalf("%s: err=%v, want refusal naming %q", name, err, want)
+		}
+	}
+	base := func(b *WorkerFailureAttribution) {
+		b.Observation.Sources = []WorkerFailureSource{workerFailureAbandonmentSourceFixture()}
+	}
+	refuse("error name on the abandonment tag", func(b *WorkerFailureAttribution) {
+		base(b)
+		b.Observation.Sources[0].Host.ErrorName = "connection_reset"
+	}, "no error identity")
+	refuse("status code on the abandonment tag", func(b *WorkerFailureAttribution) {
+		base(b)
+		b.Observation.Sources[0].Host.StatusCode = 503
+	}, "no error identity")
+	refuse("named cause on the abandonment tag", func(b *WorkerFailureAttribution) {
+		base(b)
+		b.Observation.Cause = WorkerFailureCauseHostProvider
+		b.Observation.Basis = WorkerFailureBasisHypothesis
+	}, "cause unknown and basis unknown")
+}
+
 func TestWorkerFailureAttributionRefusals(t *testing.T) {
 	t.Parallel()
 	refusals := []struct {

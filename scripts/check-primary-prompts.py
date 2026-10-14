@@ -1,8 +1,22 @@
 #!/usr/bin/env python3
-"""Validate the inert numbered primary-agent examples.
+"""Validate the named primary profiles and the inert numbered examples.
 
-The three primary coordinator definitions are portable examples. Concord does
-not package or install them. This check proves the example contract in CD-0154:
+The generated named profiles `concord-coordinator` and `concord-operator` ship
+as managed agents. scripts/generate-agent-lanes.py --check owns their byte
+equality with the profile contract; this check proves their portable role
+boundaries:
+
+  coordinator        denies every mutating Concord tool, denies the shell by
+                     default, and routes every Concord approval challenge to
+                     the operator
+  operator           keeps the delegation anchor and the cross-repository
+                     boundary (CD-0178 D2)
+  both               no host-specific research tool names in frontmatter, no
+                     duplicated conduct obligation, and no routing by
+                     generated agent id in the body
+
+The numbered definitions are portable examples. Concord does not package or
+install them. This check proves the example contract in CD-0154:
 
   portable surface   no host-specific research tool names appear in any
                      frontmatter; host tool configuration stays outside the
@@ -26,6 +40,22 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+PROFILE_DIR = Path(".opencode/agents")
+NAMED_PROFILE_FILES = (
+    "concord-coordinator.md",
+    "concord-operator.md",
+)
+COORDINATOR_DENIED_TOOLS = (
+    "concord_work_compact",
+    "concord_work_define",
+    "concord_work_relate",
+    "concord_work_start",
+    "concord_work_transition",
+)
+COORDINATOR_REQUIRED_PHRASES = (
+    "Never answer a Concord approval challenge",
+    "goes to the operator unchanged",
+)
 PROMPT_DIR = Path("examples/opencode/agents")
 PRIMARY_PROMPT_FILES = (
     "concord-0.md",
@@ -154,8 +184,63 @@ def flatten(text: str) -> str:
     return " ".join(text.split())
 
 
-def check_primary_prompts(root: Path) -> list[str]:
+def check_named_profiles(root: Path) -> list[str]:
     findings: list[str] = []
+    for name in NAMED_PROFILE_FILES:
+        path = root / PROFILE_DIR / name
+        if not path.is_file():
+            findings.append(f"missing named primary profile {PROFILE_DIR / name}")
+            continue
+        text = path.read_text(encoding="utf-8")
+        try:
+            frontmatter = split_frontmatter(text)
+            flat_body = flatten(body(text))
+        except ValueError as error:
+            findings.append(f"{name} is malformed: {error}")
+            continue
+        findings.extend(
+            f"{name} frontmatter names host tool fragment {fragment!r}"
+            for fragment in (*HOST_TOOL_FRAGMENTS, "morph_edit")
+            if fragment in frontmatter
+        )
+        if "mode: primary" not in frontmatter:
+            findings.append(f"{name} frontmatter does not declare mode: primary")
+        if any(marker in flat_body for marker in LOOKUP_OBLIGATION_MARKERS):
+            findings.append(f"{name} duplicates the technical-unknown conduct obligation")
+        findings.extend(
+            f"{name} routes by generated agent id {match.group(0)!r}; route by need and let the registry descriptions name the agent"
+            for match in [GENERATED_AGENT_ID.search(flat_body)]
+            if match is not None
+        )
+        if name == "concord-coordinator.md":
+            findings.extend(
+                f"{name} frontmatter lost the coordinator boundary '{tool}: deny'"
+                for tool in COORDINATOR_DENIED_TOOLS
+                if f"\n  {tool}: deny" not in "\n" + frontmatter
+            )
+            if '\n  bash:\n    "*": deny\n' not in "\n" + frontmatter:
+                findings.append(f"{name} frontmatter does not deny bash by default")
+            findings.extend(
+                f"{name} lost the approval challenge rule {phrase!r}"
+                for phrase in COORDINATOR_REQUIRED_PHRASES
+                if phrase not in flat_body
+            )
+        else:
+            findings.extend(
+                f"{name} lost the delegation anchor marker {marker!r}"
+                for marker in DELEGATION_ANCHOR_MARKERS
+                if marker not in flat_body
+            )
+            findings.extend(
+                f"{name} lost the cross-repository boundary phrase {phrase!r}"
+                for phrase in REQUIRED_BOUNDARY_PHRASES
+                if phrase not in flat_body
+            )
+    return findings
+
+
+def check_primary_prompts(root: Path) -> list[str]:
+    findings: list[str] = check_named_profiles(root)
     texts: dict[str, str] = {}
     for name in PRIMARY_PROMPT_FILES:
         try:
@@ -252,10 +337,10 @@ def check_primary_prompts(root: Path) -> list[str]:
 def main() -> int:
     findings = check_primary_prompts(ROOT)
     for finding in findings:
-        print(f"primary example finding: {finding}")
+        print(f"primary agent finding: {finding}")
     if findings:
         return 1
-    print(f"primary example check passed: {', '.join(PRIMARY_PROMPT_FILES)}")
+    print(f"primary agent check passed: {', '.join(NAMED_PROFILE_FILES + PRIMARY_PROMPT_FILES)}")
     return 0
 
 

@@ -134,6 +134,7 @@ ADAPTER_FILES = (
     "generated-contract-tests.ts",
     "generated-contracts.ts",
     "generated-lane-step-dispatch.ts",
+    "generated-primary-profiles.ts",
     "generated-release.ts",
     "host-lease.ts",
     "lane_completion.ts",
@@ -143,6 +144,7 @@ ADAPTER_FILES = (
     "move-session.ts",
     "oracle-readiness.ts",
     "packet.ts",
+    "primary-role.ts",
     "project-link.ts",
     "task-result.ts",
     "turn-move-boundary.ts",
@@ -168,6 +170,9 @@ AGENT_FILES = (
     "concord-review.md",
     "concord-verify.md",
     "concord-advisor.md",
+    # Named primary profiles (CD-0154). Numbered host files stay unmanaged.
+    "concord-coordinator.md",
+    "concord-operator.md",
 )
 STABLE_ROOT_NAME = "current"
 AGENT_GLOB = "concord-*.md"

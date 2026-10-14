@@ -2633,6 +2633,32 @@ esac''',
         for name in installer.AGENT_FILES:
             self.assertFalse((agents_dir / name).exists())
 
+    def test_agent_files_equal_every_generated_definition(self) -> None:
+        # release.yml packs every generated concord-*.md and then requires
+        # AGENT_FILES in the archive, so the two sets must agree exactly.
+        generated = {path.name for path in (SCRIPT.parents[1] / ".opencode" / "agents").glob(installer.AGENT_GLOB)}
+        self.assertEqual(set(installer.AGENT_FILES), generated)
+        self.assertIn("concord-coordinator.md", installer.AGENT_FILES)
+        self.assertIn("concord-operator.md", installer.AGENT_FILES)
+
+    def test_upgrade_refuses_named_primary_profile_over_unmanaged_host_file(self) -> None:
+        # A host that already defined its own concord-coordinator keeps it:
+        # the upgrade that introduces the managed profile refuses whole.
+        introduced = "concord-coordinator.md"
+        earlier = tuple(name for name in installer.AGENT_FILES if name != introduced)
+        self.make_release("v1.0.0", agent_names=earlier)
+        installed = self.run_installer("install", "--version", "v1.0.0", "--artifact-dir", str(self.artifacts))
+        self.assertEqual(installed.returncode, 0, installed.stderr)
+
+        target = self.root / "config" / "opencode" / "agents" / introduced
+        target.write_bytes(b"host coordinator\n")
+        self.make_release("v2.0.0")
+        upgraded = self.run_installer("install", "--version", "v2.0.0", "--artifact-dir", str(self.artifacts))
+
+        self.assertNotEqual(upgraded.returncode, 0)
+        self.assertIn("user-authored agent file", upgraded.stderr)
+        self.assertEqual(target.read_bytes(), b"host coordinator\n")
+
     def test_upgrade_refuses_new_managed_name_over_user_agent(self) -> None:
         introduced = installer.AGENT_FILES[-1]
         self.make_release("v1.0.0", agent_names=installer.AGENT_FILES[:-1])

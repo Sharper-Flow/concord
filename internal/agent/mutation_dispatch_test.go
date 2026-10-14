@@ -101,6 +101,143 @@ func TestDispatchApprovalChallengeRoundTripIsDurableAndSingleUse(t *testing.T) {
 	if version := workVersion(t, s, "work-1"); version != 3 {
 		t.Fatalf("reused challenge changed work version=%d", version)
 	}
+	// A late retry of the spent challenge refuses closed too: the consumed
+	// state, not elapsed time, is what blocks it.
+	service.Now = func() time.Time { return fixedTime().Add(11 * time.Minute) }
+	secondEnv.RequestID = "approval-second-late"
+	secondEnv.HostApproval = signedHostApproval(privateKey, challengeRef, digest, scope, versions, "session-1", "agent-1", "/repo-wt", fixedTime().Add(11*time.Minute), "approval-nonce-0003")
+	lateReused, err := Dispatch(ctx, s, service, second, secondEnv)
+	if err != nil || lateReused.Outcome != OutcomeError || lateReused.Error == nil || lateReused.Error.Kind != "approval_invalid" {
+		t.Fatalf("late reused challenge response=%+v err=%v", lateReused, err)
+	}
+	if version := workVersion(t, s, "work-1"); version != 3 {
+		t.Fatalf("late reused challenge changed work version=%d", version)
+	}
+}
+
+// TestLateHostApprovalNeedsOneChallenge reproduces the late-answer exchange: the
+// bounded host driver is the adapter bridge, so each approval_required
+// challenge asks the operator once and resubmits the identical marshaled
+// request, and an approval_invalid refusal sends the agent back to dispatch
+// the same intent without the stale approval. The clock advances while the
+// first answer is pending, so the operator answers a challenge that has
+// already expired. One affirmative host answer must complete the intent by
+// minting exactly one challenge and asking exactly once.
+func TestLateHostApprovalNeedsOneChallenge(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_relate"})
+	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := InvokeRequest{Tool: "concord_work_relate", Operation: "set_memberships", Input: json.RawMessage(`{"work_id":"work-1","expected_version":2,"memberships":[{"project_id":"project-1","role":"primary"}],"idempotency_key":"late-answer-1"}`)}
+	env := mutationEnvelope(grant, scopeVersion)
+	dispatchWire := func(request InvokeRequest, env CallEnvelope) Envelope {
+		t.Helper()
+		request.CallEnvelope, err = json.Marshal(env)
+		if err != nil {
+			t.Fatal(err)
+		}
+		wire, err := json.Marshal(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		decoded, decodedEnv, err := DecodeInvokeRequest(wire)
+		if err != nil {
+			t.Fatal(err)
+		}
+		response, err := Dispatch(ctx, s, service, decoded, decodedEnv)
+		if err != nil {
+			t.Fatal(err)
+		}
+		wire, err = json.Marshal(response)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(wire, &response); err != nil {
+			t.Fatal(err)
+		}
+		return response
+	}
+	answerAt := fixedTime().Add(11 * time.Minute)
+	asks := 0
+	var summary *ConsequenceSummary
+	var approvalRef string
+	var expiredRefusal *TypedError
+	var approved Envelope
+	for round := 0; round < 4; round++ {
+		response := dispatchWire(request, env)
+		switch {
+		case response.Error != nil && response.Error.Kind == "approval_required":
+			summary = response.Error.ConsequenceSummary
+			approvalRef, _ = response.Error.Details["approval_ref"].(string)
+			if summary == nil || len(approvalRef) != 64 {
+				t.Fatalf("challenge lost its exact bindings: %+v", response.Error)
+			}
+			asks++
+			// The prompt stays open past the ten-minute mint deadline while
+			// the answer is pending; the operator's answer is fresh.
+			service.Now = func() time.Time { return answerAt }
+			var input map[string]any
+			if err := json.Unmarshal(request.Input, &input); err != nil {
+				t.Fatal(err)
+			}
+			input["approval"] = map[string]string{"approval_ref": approvalRef}
+			request.Input, err = json.Marshal(input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			env.HostApproval = &HostApprovalAssertion{ChallengeRef: approvalRef, RequestDigest: summary.OperationDigest, Scope: summary.Scope, Versions: summary.Versions, SessionRef: env.SessionRef, AgentRef: env.AgentRef, Worktree: env.Worktree, IssuedAt: answerAt.Format(time.RFC3339Nano)}
+		case response.Error != nil && response.Error.Kind == "approval_invalid":
+			expiredRefusal = response.Error
+			// The agent retries the same intent and drops the stale approval
+			// and its host assertion.
+			env.HostApproval = nil
+			var input map[string]any
+			if err := json.Unmarshal(request.Input, &input); err != nil {
+				t.Fatal(err)
+			}
+			delete(input, "approval")
+			request.Input, err = json.Marshal(input)
+			if err != nil {
+				t.Fatal(err)
+			}
+		default:
+			approved = response
+			round = 4
+		}
+	}
+	challenges := countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approval_challenges`)
+	if challenges != 1 || asks != 1 {
+		t.Fatalf("one affirmative host answer must suffice: approval_required challenges=%d host asks=%d expired_refusal=%+v", challenges, asks, expiredRefusal)
+	}
+	if expiredRefusal != nil {
+		t.Fatalf("the late affirmative answer was refused and demanded a second answer: %+v", expiredRefusal)
+	}
+	if approved.Outcome != OutcomeOK || approved.Error != nil {
+		t.Fatalf("late answer did not complete the intent: %+v, error=%+v", approved, approved.Error)
+	}
+	if workVersion(t, s, "work-1") != 3 {
+		t.Fatalf("late answer work version=%d, want exactly one mutation", workVersion(t, s, "work-1"))
+	}
+	if usedCount(t, s.DatabaseForTesting(), `SELECT used_count FROM agent_approval_challenges WHERE challenge_ref=?`, approvalRef) != 1 {
+		t.Fatal("the late exchange did not consume the challenge exactly once")
+	}
+	if usedCount(t, s.DatabaseForTesting(), `SELECT used_count FROM agent_approvals WHERE approval_ref=(SELECT approval_ref FROM agent_approvals WHERE protected_evidence_ref=?)`, "approval-challenge:"+approvalRef) != 1 {
+		t.Fatal("the late exchange did not consume the derived approval exactly once")
+	}
+	var issuedAt string
+	if err := s.DatabaseForTesting().QueryRow(`SELECT issued_at FROM agent_approval_challenges WHERE challenge_ref=?`, approvalRef).Scan(&issuedAt); err != nil {
+		t.Fatal(err)
+	}
+	if issuedAt != fixedTime().Format(time.RFC3339Nano) {
+		t.Fatalf("re-arm moved the challenge issue time to %s", issuedAt)
+	}
+	replayed := dispatchWire(request, env)
+	if replayed.Outcome != OutcomeOK || !replayed.Replayed || workVersion(t, s, "work-1") != 3 {
+		t.Fatalf("late-answer replay = %+v", replayed)
+	}
 }
 
 func TestDispatchRejectsInvalidHostApprovalAssertions(t *testing.T) {
@@ -179,6 +316,56 @@ func TestDispatchFailedDomainEffectRollsBackGrantAndApproval(t *testing.T) {
 	}
 	if challengeStatus != "active" || challengeUsed != 0 {
 		t.Fatalf("approval challenge consumed on failed effect: status=%s used=%d", challengeStatus, challengeUsed)
+	}
+}
+
+// TestDispatchFailedDomainEffectRollsBackRearmedDeadline pins the atomicity of
+// the pending-challenge exchange: when the domain effect fails after a late
+// answer re-armed an expired invitation, the re-armed deadline, the derived
+// approval, and the challenge's single-use state roll back together with the
+// refused intent.
+func TestDispatchFailedDomainEffectRollsBackRearmedDeadline(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s, service, grant, _ := mutationDispatchFixture(t, []Capability{"work_relate"})
+	scopeVersion, _, err := s.ScopeVersion(ctx, "project-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := InvokeRequest{Tool: "concord_work_relate", Operation: "set_memberships", Input: json.RawMessage(`{"work_id":"work-1","expected_version":2,"memberships":[{"project_id":"project-1","role":"primary"}],"idempotency_key":"rollback-rearm"}`)}
+	env := mutationEnvelope(grant, scopeVersion)
+	missing, err := Dispatch(ctx, s, service, request, env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	challengeRef := missing.Error.Details["approval_ref"].(string)
+	summary := missing.Error.ConsequenceSummary
+	// A concurrent mutation moves the expected version while the prompt is
+	// open, so the late exchange re-arms and then fails at the domain effect.
+	if err := store.ApplyOperation(ctx, s, store.Operation{Events: []store.Event{{EventID: "rollback-rearm-version", Kind: "work.intent_revised", SubjectType: store.SubjectWorkItem, SubjectID: "work-1", Actor: "operator", OccurredAt: fixedTime(), PayloadVersion: 1, Payload: json.RawMessage(`{"title":"Changed","value_statement":"Changed","kind":"task","priority":1,"tags":[],"reason":"race","expected_version":2,"resulting_version":3}`)}}, ExpectedVersions: map[store.SubjectRef]int64{store.VersionRef(store.SubjectWorkItem, "work-1"): 2}}); err != nil {
+		t.Fatal(err)
+	}
+	answerAt := fixedTime().Add(11 * time.Minute)
+	service.Now = func() time.Time { return answerAt }
+	env.HostApproval = &HostApprovalAssertion{ChallengeRef: challengeRef, RequestDigest: summary.OperationDigest, Scope: summary.Scope, Versions: summary.Versions, SessionRef: env.SessionRef, AgentRef: env.AgentRef, Worktree: env.Worktree, IssuedAt: answerAt.Format(time.RFC3339Nano)}
+	request.Input = json.RawMessage(`{"work_id":"work-1","expected_version":2,"memberships":[{"project_id":"project-1","role":"primary"}],"idempotency_key":"rollback-rearm","approval":{"approval_ref":"` + challengeRef + `"}}`)
+	failed, err := Dispatch(ctx, s, service, request, env)
+	if err != nil || failed.Outcome != OutcomeError || failed.Error == nil || failed.Error.Kind != "version_conflict" {
+		t.Fatalf("failed late mutation=%+v err=%v", failed, err)
+	}
+	var challengeStatus, issuedAt, expiresAt string
+	var challengeUsed int
+	if err := s.DatabaseForTesting().QueryRow(`SELECT status, used_count, issued_at, expires_at FROM agent_approval_challenges WHERE challenge_ref=?`, challengeRef).Scan(&challengeStatus, &challengeUsed, &issuedAt, &expiresAt); err != nil {
+		t.Fatal(err)
+	}
+	if challengeStatus != "active" || challengeUsed != 0 || issuedAt != fixedTime().Format(time.RFC3339Nano) || expiresAt != fixedTime().Add(10*time.Minute).Format(time.RFC3339Nano) {
+		t.Fatalf("failed late effect kept the re-armed deadline: status=%s used=%d issued=%s expires=%s", challengeStatus, challengeUsed, issuedAt, expiresAt)
+	}
+	if countRows(t, s.DatabaseForTesting(), `SELECT count(*) FROM agent_approvals`) != 0 {
+		t.Fatal("failed late effect kept a derived approval row")
+	}
+	if version := workVersion(t, s, "work-1"); version != 3 {
+		t.Fatalf("failed late effect changed work version=%d", version)
 	}
 }
 
